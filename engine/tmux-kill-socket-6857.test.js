@@ -17,9 +17,14 @@
      3. inside a string only as one whole command: "[tmux] -S|-L <name> kill-server", nothing else in it and no
         backslash (an escape could hide a second command)
    Anything else fails, including tmux's shortened spellings (kill-ser, kill-serv): write it in one of the shapes.
-   Files are read as tokens, so comments and regex literals are not code. Not seen, by construction: a name built at
-   run time ('kill-ser' + 'ver'), a listed wrapper that builds its -S/-L array and then drops it, and a -L whose
-   name is a variable that holds "default". */
+   Files are read as tokens, so comments and regex literals are not code.
+
+   SCOPE (decided after review 7): this is a tripwire for the shapes an author writes by mistake, not a defence
+   against code written to get past it; nothing that reads source can be that. Not seen, by construction: a name built
+   at run time ('kill-ser' + 'ver') or spelled with escapes beyond \x and \u ('kil\l-server', octal, a line
+   continuation); code inside a template's ${} ; a socket name that only resolves to the default one ('./default');
+   a wrapper shadowed by a parameter or a destructure; a named array sliced by the call it is handed to; a listed
+   wrapper that builds its -S/-L array and then drops it; and a -L whose name is a variable holding "default". */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
@@ -115,7 +120,7 @@ const WRAPPERS = {
 const KILL = /kill-ser/;   // tmux takes any unique prefix, and kill-ser is the shortest that is not kill-session
 /* Shape 3, the one form the repo uses: an optional tmux (or a template's ${}), -S or -L, a plain name, kill-server.
    Review 6: a name of \S+ also took shell operators (`tmux -L a;tmux kill-server`) and quotes (`-L "default"`). */
-const ONE_COMMAND = /^(?:tmux\s+|\$\{\}\s+)?-[SL]\s+([\w./-]+|\$\{\})\s+kill-server$/;
+const ONE_COMMAND = /^(?:tmux\s+|\$\{\}\s+)?(-[SL])\s+([\w./-]+|\$\{\})\s+kill-server$/;
 /* A string with its \x, \u and \u{} escapes read, so an escaped name is still seen (review 6: kill\x2dserver). */
 const decode = (v) => v.replace(/\\x([0-9a-fA-F]{2})|\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})/g, (m, x, u1, u2) => String.fromCodePoint(parseInt(x || u1 || u2, 16)));
 const named = (tok) => tok && tok.t === 'str' && (tok.v === '-S' || tok.v === '-L');
@@ -131,16 +136,28 @@ function closeOf(toks, h) {
   return -1;
 }
 
-/* The array at `h` starts with the literal '-S' or '-L' as a whole first element, and no '-L' anywhere in it names
-   default, in any case (review 6: tmux takes the last -L, and the volume may not tell DEFAULT from default). */
-function startsNamed(toks, h) {
-  if (!named(toks[h + 1]) || !toks[h + 2] || toks[h + 2].v !== ',') return false;
+/* Whether a socket value names the machine's own server: -L default (any case; tmux takes the last -L, and the volume
+   may not tell DEFAULT from default), or -S written as the machine's own path /tmp/tmux-<uid>/default (review 7). */
+function defaultSocket(value, flagName) {
+  if (flagName === '-L') return value.toLowerCase() === 'default';
+  return /^\/(private\/)?tmp\/tmux-[^/]+\/default$/i.test(value);
+}
+
+/* Whether any '-S'/'-L' in the array at `h` is followed by a value naming the machine's server (review 7: an array
+   handed to a listed wrapper was never read, so tm(['-L', 'default', 'kill-server']) passed). */
+function arrayNamesDefault(toks, h) {
   const c = closeOf(toks, h);
   for (let k = h + 1; k < (c < 0 ? toks.length : c) - 1; k += 1) {
     const next = toks[k + 1] && toks[k + 1].v === ',' ? toks[k + 2] : null;
-    if (toks[k].t === 'str' && toks[k].v === '-L' && next && next.t === 'str' && next.v.toLowerCase() === 'default') return false;
+    if (named(toks[k]) && next && next.t === 'str' && defaultSocket(next.v, toks[k].v)) return true;
   }
-  return true;
+  return false;
+}
+
+/* The array at `h` starts with the literal '-S' or '-L' as a whole first element, and names no default socket. */
+function startsNamed(toks, h) {
+  if (!named(toks[h + 1]) || !toks[h + 2] || toks[h + 2].v !== ',') return false;
+  return !arrayNamesDefault(toks, h);
 }
 
 /* The index of the bracket that directly holds token `i`, or -1. */
@@ -215,7 +232,7 @@ function bareKills(src, rel, read) {
     const flag = (why) => found.push({ line: tok.line, text: why });
     if (tok.v !== 'kill-server') {
       const one = ONE_COMMAND.exec(tok.v.trim());
-      if (!one || tok.v.includes('\\') || one[1].toLowerCase() === 'default') flag(JSON.stringify(tok.v.slice(0, 60)) + ': write it as arguments, or as one command that names its socket');
+      if (!one || defaultSocket(one[2], one[1])) flag(JSON.stringify(tok.v.slice(0, 60)) + ': write it as arguments, or as one command that names its socket');
       return;
     }
     const h = holder(toks, i);
@@ -236,6 +253,7 @@ function bareKills(src, rel, read) {
         const member = toks[call - 2] && toks[call - 2].v === '.';
         if (member ? !(toks[call - 3] && toks[call - 3].t === 'id' && requiredFrom(toks, toks[call - 3].v, rel, home)) : home !== rel) home = null;
       }
+      if (home && arrayNamesDefault(toks, h)) return flag("'kill-server' handed to " + callee.v + '() with the default socket');
       if (home) {
         const text = home === rel ? src : read(home);
         if (text != null && wrapperNamesSocket(lex(text), callee.v)) return;   // shape 2
@@ -305,6 +323,19 @@ test('#6857: the checker passes the three shapes and flags everything else (cont
   assert.equal(flags("execFileSync(T, ['-L', 'a', '-L', 'default', 'kill-server'])"), 1, 'a later -L default');
   assert.equal(flags("execFileSync(T, ['-L', 'DEFAULT', 'kill-server'])"), 1, '-L DEFAULT');
   assert.equal(flags("execFileSync(T, ['kill\\x2dserver'])"), 1, 'an escaped name');
+  // Review 7.
+  assert.equal(flags("tm(['-L', 'default', 'kill-server'])", sess, null), 1, 'a listed wrapper handed -L default');
+  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', sock, ...a]);\ntm(['-L', 'default', 'kill-server']);", sess), 1, 'the same, with the wrapper defined');
+  assert.equal(flags("execFileSync(T, ['-S', '/tmp/tmux-501/default', 'kill-server'])"), 1, "-S the machine's own socket path");
+  assert.equal(flags("execFileSync(T, ['-S', '/private/tmp/tmux-501/default', 'kill-server'])"), 1, 'the same under /private');
+  assert.equal(flags("execFileSync(T, ['-S', '/tmp/k5112f-x/tmux-501/default', 'kill-server'])"), 0, 'a private folder of its own is fine');
+  assert.equal(flags("execSync('tmux -S /tmp/tmux-501/default kill-server')"), 1, "the machine's socket path in a command string");
+  assert.equal(flags("function tm(a) { return execFileSync(T, a); }\nconst o = ['-L', s];\ntm(['kill-server']);", sess), 1, "a function wrapper ends at its body's '}'");
+  assert.equal(flags("const sig = require('./tmuxsignin');\nsig = makeFake();\nsig.runTmux('o', 's', ['kill-server'])", sig, fromFile(good)), 1, 'the object reassigned to something that is not a require');
+  assert.equal(flags("tm(['kill-server']);", sess), 1, 'a listed wrapper defined nowhere in its file');
+  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', sock, ...a]);\ntm(x || ['kill-server']);", sess), 1, 'an array that is not a direct argument');
+  assert.equal(flags("execFileSync(T, ['kill\\u002dserver'])"), 1, 'a \\u escape');
+  assert.equal(flags("execFileSync(T, ['kill\\u{2d}server'])"), 1, 'a \\u{} escape');
   // Shape 3: one whole command in a string.
   assert.equal(flags("execSync('tmux -L k1 kill-server')"), 0);
   assert.equal(flags('execSync(`${T} -S ${sock} kill-server`)'), 0);

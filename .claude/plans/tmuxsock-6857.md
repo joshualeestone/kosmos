@@ -103,3 +103,20 @@ files: red on all four.
 - Escapes are read before matching (kill\x2dserver), and the per-file prefilter is /kill/i.
 - Found while fixing: a function wrapper's walk started past its '(' again (same slip as round 2), and the -L default
   scan compared against the comma. Both fixed and covered by controls.
+
+## Review 7 (Opus): 6 fail-open, 2 fail-safe. Decided the guard's SCOPE, then fixed what is in it (76 controls)
+Call: the guard is a tripwire for what an author writes BY MISTAKE, not a defence against code written to get past
+it. Most of round 7 was deliberate obfuscation (identity/octal escapes, a line continuation, code inside ${}, -L
+./default, a shadowing parameter, a slice inside a helper). No source reader can close that set, and chasing it is why
+seven rounds have not converged. Those are now listed as limits in the header.
+Rejected: closing each obfuscation (an eighth round finds an eighth); replacing the guard with a runtime check
+(tmux's own fallback is the bug, and the three fixed sites are the runtime fix).
+Weakest premise: that authors here make mistakes rather than write evasions. They are agents writing tests; an
+agent copying an old bare `['kill-server']` is the realistic case, and that is caught.
+Fixed (in scope):
+- An array handed to a listed wrapper is read too: -L default (or -S the machine path) there is flagged.
+- -S written as the machine's own path, /tmp/tmux-<uid>/default (or under /private), is refused in shapes 1 and 3.
+- Shape 3 captures its flag, so the default check knows -S from -L; the unreachable backslash clause is gone.
+- Controls for the five arms round 7 showed untested: a function wrapper's end, a non-require reassignment, a
+  wrapper defined nowhere, an array that is not a direct argument, \u and \u{} escapes.
+Fail-safe, left: a destructured require of a listed wrapper is refused (none in the repo).
