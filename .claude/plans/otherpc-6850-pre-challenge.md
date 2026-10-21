@@ -24,5 +24,5 @@ Two blind iterations; each iteration's fixes are in its commit message.
 - contentShape moved onto the button's label, where hit-testing reads it (one modifier moved, not re-reviewed).
 
 #### Validation
-- LogicTests 247/247 at 668a195 (481c6f9 touches only ContentView, which they do not compile).
+- LogicTests 247/247, run on 935b11a (the reviewed code plus this proof).
 - iOS simulator build of 481c6f9: BUILD SUCCEEDED (queued-heavy, 14:33 CDT), Kosmos.app binary produced.
