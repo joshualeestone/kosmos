@@ -24,10 +24,12 @@ function el(extra) {
     getClientRects() { return this.laidOut ? [{}] : []; }, focus() { this.focused += 1; } }, extra || {});
 }
 
-function paint({ name, openable, you, face = '<span class="youtint">J</span>', bar = true, before }) {
+function paint({ name, openable, you, face = '<span class="youtint">J</span>', bar = true, before, app = true }) {
   const els = { 'kapp-comp': el(), 'kapp-comp-name': el(), 'kapp-me': el() };
   if (before) before(els);
-  const doc = { getElementById: (id) => (bar ? els[id] || null : null), get activeElement() { return els.active || null; } };
+  els['kplus-bar'] = el();
+  const doc = { getElementById: (id) => (bar ? els[id] || null : null), get activeElement() { return els.active || null; },
+    documentElement: { classList: { contains: (c) => c === 'kapptabs' && app } } };
   new Function('document', 'THIS_COMPUTER_NAME', 'COMPUTERS_OPENABLE', 'YOU_NAME', 'youFaceHtml',
     page.liftAll(SCRIPT, ['kappHeadPaint']) + '\nkappHeadPaint();')(doc, name, openable, you, () => face);
   return els;
@@ -55,6 +57,12 @@ test('#6846: the person\'s menu shows their face and is named for what it opens 
   assert.doesNotThrow(() => paint({ name: 'x', openable: true, you: 'y', bar: false }));
 });
 
+test('#6846: in the app the bar is named Kosmos, not a remote session; off the app it keeps its name', () => {
+  assert.equal(paint({ name: 'x', openable: true, you: 'J' })['kplus-bar'].getAttribute('aria-label'), 'Kosmos');
+  assert.equal(paint({ name: 'x', openable: true, you: 'J', app: false })['kplus-bar'].getAttribute('aria-label'), 'Kosmos+ remote session');
+  assert.ok(SCRIPT.includes("bar.setAttribute('role', 'region'); bar.setAttribute('aria-label', 'Kosmos+ remote session');"), 'kplusBar no longer names the bar as kappHeadPaint assumes off the app');
+});
+
 test('#6846: back to one computer while the switcher has focus, focus moves to the face; the face is not rewritten unchanged', () => {
   const p = paint({ name: 'Studio Mac', openable: false, you: 'Josh', before: (els) => { els.active = els['kapp-comp']; } });
   assert.equal(p['kapp-comp'].hidden, true);
@@ -73,8 +81,8 @@ test('#6846: back to one computer while the switcher has focus, focus moves to t
 });
 
 test('#6846: the painter runs whenever its facts change: after each computers answer, and with the user menu\'s face', () => {
-  assert.match(SCRIPT, /function worldswOneKosmos\(\) \{\n\s*kappHeadPaint\(\);/, 'a computers answer no longer repaints the app header');
-  assert.match(SCRIPT, /if \(upName\) upName\.textContent = who;\n\s*kappHeadPaint\(\);/, 'the face no longer repaints the app header');
+  assert.match(SCRIPT, /function worldswOneKosmos\(\) \{\n\s*if \(typeof kappHeadPaint === 'function'\) kappHeadPaint\(\);/, 'a computers answer no longer repaints the app header');
+  assert.match(SCRIPT, /if \(upName\) upName\.textContent = who;\n\s*if \(typeof kappHeadPaint === 'function'\) kappHeadPaint\(\);/, 'the face no longer repaints the app header');
   assert.match(SCRIPT, /document\.documentElement\.classList\.add\('kremote'\);[^\n]*\n\s*kappHeadPaint\(\);/, 'the bar is drawn without painting its app controls');
 });
 

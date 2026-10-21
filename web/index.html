@@ -1600,7 +1600,7 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote.kapptabs .kplus-bar { height: 44px; min-height: 44px; }
   html.kremote.kapptabs .kplus-bar-mark, html.kremote.kapptabs .kplus-bar-menu { display: none; }
   html.kremote.kapptabs .kplus-bar-end { margin-left: auto; }
-  html.kremote.kapptabs .kapp-comp:not([hidden]) { display: inline-flex; align-items: center; gap: 6px; min-width: 0; height: 44px;
+  html.kremote.kapptabs .kapp-comp:not([hidden]) { display: inline-flex; align-items: center; gap: 6px; min-width: 44px; height: 44px;
     padding: 0; border: 0; background: none; color: #fff; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
     -webkit-tap-highlight-color: transparent; }
   html.kremote.kapptabs .kapp-comp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -20705,6 +20705,9 @@ function kappHeadPaint() {
     comp.hidden = hide;
     if (hadFocus && me) me.focus({ preventScroll: true });
   }
+  /* In the app the bar is the app's own header, not a "remote session" banner (it is Kosmos, signed in). */
+  const bar = document.getElementById('kplus-bar');
+  if (bar) bar.setAttribute('aria-label', document.documentElement.classList.contains('kapptabs') ? 'Kosmos' : 'Kosmos+ remote session');
   if (me) {
     // Only when it changed: rewriting the picture on every computers answer would reload and re-announce it.
     const face = typeof youFaceHtml === 'function' ? youFaceHtml() : '';
@@ -30698,7 +30701,7 @@ function worldswComputersSeen(rows, good, signedOut) {
   }
 }
 function worldswOneKosmos() {
-  kappHeadPaint();   // #6846: the app header names the same computer, offered under the same rule
+  if (typeof kappHeadPaint === 'function') kappHeadPaint();   // #6846: the app header names the same computer, offered under the same rule (typeof: tests lift this alone)
   if (MULTI_KOSMOS) return;
   const sw = document.getElementById('worldsw');
   const btn = document.getElementById('worldsw-btn');
@@ -47705,7 +47708,7 @@ function paintRailMe() {
   const upName = document.getElementById('userpop-name');
   if (upFace) upFace.innerHTML = faceHtml;
   if (upName) upName.textContent = who;
-  kappHeadPaint();   // #6846: and the app header's face
+  if (typeof kappHeadPaint === 'function') kappHeadPaint();   // #6846: and the app header's face (typeof: tests lift this alone)
   const face = document.getElementById('rail-me-face');
   const name = document.getElementById('rail-me-name');
   if (!face || !name) return;

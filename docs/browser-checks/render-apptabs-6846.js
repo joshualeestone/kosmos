@@ -236,7 +236,9 @@ const teardownFails = [];
           const { ctx, page } = await open('remote.test', theme, { computers: TWO });
           await page.waitForFunction(() => { const c = document.getElementById('kapp-comp'); return c && !c.hidden; }, null, { timeout: 10000 }).catch(() => {});
           const l = await look(page);
-          chk(l.comp && l.comp.l === 16 && l.comp.h === 44 && l.compName === 'studio-laptop' && l.compColor === WHITE && l.compFont === '15px 600'
+          const barLabel = await page.evaluate(() => document.getElementById('kplus-bar').getAttribute('aria-label'));
+          chk(barLabel === 'Kosmos', T + 'S0 in the app the bar is named Kosmos, not a remote session', String(barLabel));
+          chk(l.comp && l.comp.l === 16 && l.comp.h === 44 && l.comp.w >= 44 && l.compName === 'studio-laptop' && l.compColor === WHITE && l.compFont === '15px 600'
             && l.compLabel === 'Your computers. This computer: studio-laptop' && l.me,
             T + 'S1 two computers: this computer\'s name left (16px in, 15px semibold, white), the face right', JSON.stringify({ comp: l.comp, name: l.compName, color: l.compColor, font: l.compFont, label: l.compLabel }));
           await page.click('#kapp-comp');
@@ -254,6 +256,8 @@ const teardownFails = [];
           m = await look(page);
           const onSettings = await page.evaluate(() => document.activeElement && document.activeElement.dataset && document.activeElement.dataset.pnavGo === 'settings');
           chk(m.nav && JSON.stringify(m.nav.level) === '["main"]' && onSettings, T + 'S3b Back again is the first level, focus on Settings', JSON.stringify({ nav: m.nav, focus: m.focus, onSettings }));
+          // M4's CONTROL: the watcher that M4 reads does see the first level when it is shown (here, by Back).
+          chk(await page.evaluate(() => window.__mainSeen === true), T + 'M4 CONTROL: the first-level watcher sees the first level when it is on screen');
           await page.click('#pnav-x');
           await settled(page);
           m = await look(page);
