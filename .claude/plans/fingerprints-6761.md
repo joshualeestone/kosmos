@@ -92,3 +92,9 @@ Card: kosmos#6761, from a user feedback report (a project-manager agent, 2026-10
   project folders live in OneDrive on Windows today. NITs, fixed: the compact rows keep the long list's `[added by X]`
   mark (#4887) and say an owner through its tree as `name (through #N)` (#5678), both tested (mutant red); the stamp's
   fingerprint part is JSON records, as the rest of the stamp, so a newline in a name cannot merge two.
+- Iteration 4 (sonnet): NITs only. Fixed: the placeholder rule now starts at 1 MiB, so a small file with no blocks of its
+  own (APFS compressed into an xattr, ext4 inline data) is fingerprinted (tested). ACCEPTED, recorded: a large SPARSE or
+  compressed local file reports no blocks too and is not fingerprinted (Node's stat cannot read the dataless flag that
+  would tell it from a placeholder); its row simply shows none. The Documents fill gives up after 15 reads (30 s): a
+  folder of several large settled files may finish hashing after that, and its rows fill in on the next open. A browsed
+  folder queues each of its up to 1000 files once (deduplicated), which iteration 1's declined byte budget would bound.
