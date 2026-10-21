@@ -119,3 +119,7 @@ Card: kosmos#6761, from a user feedback report (a project-manager agent, 2026-10
     and description), accepted as far milder than the 64.
   - Also found by running every web.* file (3123 tests): web.project-page lifted pjLoadDocs without the iteration-5
     focus helper, so 2 of its tests had been red since iteration 5. It now lifts the helpers pjLoadDocs calls.
+- Iteration 8 (sonnet): one WARNING, fixed. The spoken short form was set through the `ariaDescription` reflection
+  property, which an engine without ARIA reflection keeps as an expando nothing reads (back to 64 hex spoken). All
+  three rows now use setAttribute('aria-description', ...); the test asserts the attribute and that no reflection
+  property is used (mutant red). web.* 3123/3123.
