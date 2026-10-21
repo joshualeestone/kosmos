@@ -142,3 +142,9 @@ Card step 2. On a board running this build, signed in to Kosmos+ on an iPhone:
 
 Record the times, sizes and network on the card. Pass: both downloads finish with exact sizes, the cancelled one
 leaves no descriptor, the phone upload arrives whole.
+
+## Regression sweep result (2026-10-21 01:30 to 01:34 CDT, at 24ee64b031, main 0 commits ahead)
+
+278 test files, built at run time from the name list, the repo-scanning tests and the fixed-window pins, with the
+branch's four touched test files asserted present. Run through queued-heavy. `tests 5390, pass 5374, fail 0,
+cancelled 0, skipped 16`, node exit 0. The branch's own tests appear in the output by name.
