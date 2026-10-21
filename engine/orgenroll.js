@@ -366,7 +366,7 @@ function cleanReviewerGrants(list) {
   for (const g of list.slice(-200)) {
     if (!g || typeof g !== 'object') continue;
     // Control and direction-changing characters out: the name is shown as text, and must read as what it is.
-    const who = typeof g.who === 'string' ? g.who.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029\u061c\ufeff\u2060-\u2064\u180e]/g, '').trim().slice(0, 64) : '';
+    const who = typeof g.who === 'string' ? g.who.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029\u061c\ufeff\u2060-\u2064\u180e\u00ad\u034f\ufff9-\ufffb\u{e0000}-\u{e007f}]/gu, '').trim().slice(0, 64) : '';
     const grantedAt = secs(g.grantedAt);
     if (!who || !grantedAt) continue;
     const effectiveAt = g.effectiveAt == null ? grantedAt : secs(g.effectiveAt);

@@ -53,6 +53,9 @@ there are none.
    locale. Not changed: the route test checks, from the source, that the grants come after the not-the-screen early
    return. That catches the likely regression (the line moved above it); it does not drive the handler, and the
    engine test does not either, so a non-screen branch sending grants under another key would not be seen.
+7. **Review 3: NITs only (converged).** Folded in: U+00AD, U+034F, U+FFF9-FFFB and the tag characters (U+E0000-E007F,
+   with the regex's u flag) are stripped too. Not changed: a Settings pane left open across a grant's effective moment
+   keeps its wording until the next repaint (reopening Settings repaints).
 
 ## Tests
 `engine/reviewernotice-6752.test.js` (refresh keeps and drops the list; the cleaner), `web.reviewernotice-6752.test.js`
