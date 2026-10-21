@@ -180,3 +180,24 @@ test('#6849: the instruction gives the Windows command that prints the whole has
   assert.match(said, /`\(Get-FileHash <file>\)\.Hash`/);
   assert.doesNotMatch(said, /`Get-FileHash <file>`/, 'the bare Get-FileHash prints a cut-off table');
 });
+
+/* Review 9: outside streams the date and /ID shapes were matched as text, so a form value, an annotation or a Title
+   holding one was emptied and two documents differing only there matched. */
+test('#6849: a string outside streams shaped like a date or /ID still changes the fingerprint; the real keys are still emptied', () => {
+  const doc = (text, when, id) => Buffer.from('%PDF-1.7\n'
+    + '1 0 obj\n<< /Type /Annot /Subtype /Text /Contents (Approved: ' + text + ') /T (' + text + ') /V (' + text + ') >>\nendobj\n'
+    + '2 0 obj\n<< /Title (xmp:CreateDate="' + text + '") /CreationDate (' + when + ') /ModDate <' + Buffer.from(when).toString('hex') + '> >>\nendobj\n'
+    + 'trailer\n<< /Info 2 0 R /ID [ <' + id + '> <' + id + '> ] >>\n%%EOF\n', 'latin1');
+  const p = (b) => fp.stablePdf(b).toString('latin1');
+  for (const [x, y] of [['/ModDate(Pay Alice 100)', '/ModDate(Pay Mal 9999)'], ['/ID[(1)(2)]', '/ID[(9)(9)]'], ['Alice', 'Mallory']]) {
+    assert.notEqual(p(doc(x, 'D:1', 'aa')), p(doc(y, 'D:1', 'aa')), 'two texts gave one fingerprint: ' + x + ' / ' + y);
+  }
+  // CONTROL: the same text with only the real date and /ID changed still matches.
+  assert.equal(p(doc('/ModDate(Pay Alice 100)', 'D:1', 'aa')), p(doc('/ModDate(Pay Alice 100)', 'D:2', 'bb')), 'the real date or /ID was kept');
+});
+
+test('#6849: a date too long to be one is kept, so what it would swallow still counts', () => {
+  // Closes only after 300 bytes and the Title: emptied whole, the Title would be taken out with it.
+  const doc = (tail) => Buffer.from('%PDF-1.7\n1 0 obj\n<< /ModDate (D:1' + 'x'.repeat(300) + '\n' + tail + ' ) >>\nendobj\n', 'latin1');
+  assert.ok(!fp.stablePdf(doc('/Title (A)')).equals(fp.stablePdf(doc('/Title (B)'))));
+});
