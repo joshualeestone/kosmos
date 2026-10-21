@@ -75058,7 +75058,10 @@ function dmHeldWords(name, d) {
   // Kosmos tried to send it and could not (the sweep recorded why): said after the reason it is held.
   const stuck = d && d.stuck && typeof d.stuck.because === 'string' && d.stuck.because
     ? ' Kosmos tried to send it and could not: ' + d.stuck.because.replace(/[.\s]+$/, '') + '.' : '';
+  if (d && d.behind === true && d.behindFor === 'input') return 'Held: Kosmos sends this after the messages kept for ' + name + ' while its input box held text not yet sent.' + stuck;   // #6774
   if (d && d.behind === true) return 'Held: Kosmos sends this after the messages kept for ' + name + ' while it was out of usage.' + stuck;
+  // #6774: held because its input box holds text not yet sent; sent by the minute sweep once the box reads empty.
+  if (d && d.heldFor === 'input') return 'Held: ' + name + "'s input box holds text not yet sent. Kosmos sends it once the box is clear." + stuck;
   // #5948: held because its sign-in stopped working; there is no reset to name, only signing in again.
   if (d && d.heldFor === 'signin') return 'Held: ' + name + ' is signed out. Kosmos sends it once it is signed in again.' + stuck;
   const at = d && typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;

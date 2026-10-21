@@ -4305,6 +4305,9 @@ function appendLocked(projectId, agent, entry, bornAt) {
         ...(entry && entry.delivery && entry.delivery.state === 'held' ? {
           heldUntil: typeof entry.delivery.heldUntil === 'string' ? entry.delivery.heldUntil : null,
           ...(entry.delivery.behind === true ? { behind: true } : {}),   // held behind kept messages, not on the limit
+          // #6774: why it is held (#5948 signed out, #6774 a stuck input box), so a reloaded page says the same words.
+          ...(entry.delivery.heldFor === 'signin' || entry.delivery.heldFor === 'input' ? { heldFor: entry.delivery.heldFor } : {}),
+          ...(entry.delivery.behindFor === 'input' ? { behindFor: 'input' } : {}),
         } : {}),
       },
     }],

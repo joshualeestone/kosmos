@@ -18453,6 +18453,15 @@ const server = http.createServer(async (req, res) => {
            typed as before (a person's message is never refused for this). */
         if (!automatic && !qmenuAnswer && !qmenuClosed && body.anyway !== true) {
           const limitqueue = require('./engine/limitqueue');
+          /* #6774: the same words sent again by hand while a copy is kept for a stuck input box: that copy is taken out
+             (its row says why) before anything else, so the words go once, as this new message. */
+          for (const e of limitqueue.list(name)) {
+            if (e.kind !== 'dm' || e.input !== true || e.text !== body.text || !limitqueue.claim(e.id)) continue;
+            try {
+              limitqueue.settle(name, e.id);
+              limitqueue.setRow(name, e.at, { state: chat.DELIVERY.COULD_NOT, because: 'you sent it again, so Kosmos sends the newer copy instead of this one' }, chat);
+            } finally { limitqueue.release(e.id); }
+          }
           let hold = null;
           try { hold = chat.accountHeldVerdict(name, roster); } catch { hold = null; }   // #5948: or signed out
           let behind = !hold && chat.addressable(name, roster).ok === true && limitqueue.list(name).length > 0;
@@ -18476,10 +18485,14 @@ const server = http.createServer(async (req, res) => {
             const until = hold && !signin && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
             const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // #5943 review 1: no question note in a held message: by the reset it may be untrue
             const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');   // two sends in one millisecond stay two
+            const behindInput = behind && limitqueue.list(name).every((e) => e.input === true);   // #6774
             if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at, signin: signin && !behind })) {
               const heldDelivery = {
                 state: 'held', held: true, heldBy: 'limit', heldUntil: until, at, ...(behind ? { behind: true } : {}), ...(signin ? { heldFor: 'signin' } : {}),
-                because: behind ? 'held: it still has messages kept from while it was out of usage; Kosmos sends this one after them'
+                ...(behindInput ? { behindFor: 'input' } : {}),
+                because: behind ? (behindInput   // #6774: name the real reason
+                  ? 'held: it still has messages kept while its input box held text not yet sent; Kosmos sends this one after them'
+                  : 'held: it still has messages kept from while it was out of usage; Kosmos sends this one after them')
                   : signin ? hold.because
                   : 'held: it is out of usage' + (until ? ' until ' + until : '') + '; Kosmos sends it after the reset',
               };
@@ -18503,6 +18516,20 @@ const server = http.createServer(async (req, res) => {
             at: new Date().toISOString() }
           : await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
             envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
+        /* #6774: a person's own message refused because the agent's input box holds text not yet sent (#6249, nothing
+           was typed) is kept, like a held message, and typed by the minute sweep once the box reads empty (a copy of the
+           same words kept earlier was taken out above). Could not keep it: the refusal stands, as before. */
+        if (!automatic && !qmenuAnswer && !qmenuClosed && body.anyway !== true && delivery
+            && delivery.state === chat.DELIVERY.COULD_NOT && delivery.inputHeld === true) {
+          const limitqueue = require('./engine/limitqueue');
+          const at = delivery.at || new Date().toISOString();
+          const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // as the held path above: no question note
+          const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');
+          if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: at, input: true })) {
+            delivery = { state: 'held', held: true, heldBy: 'limit', heldFor: 'input', heldUntil: null, at,
+              because: 'held: its input box holds text not yet sent; Kosmos sends it once the box is clear' };
+          }
+        }
         /* kosmos#6239: a person's message refused in the policy's quiet hours is reported to whoever set the policy. */
         if (!automatic && delivery && delivery.quiet === true) {
           try { require('./engine/agentevents').recordRefusal({ agent: name, rule: 'quiet-hours' }); } catch { /* not reported */ }
