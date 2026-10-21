@@ -38,7 +38,7 @@ at 21:18 against 9 self-hosted). Can the part of test:shell that does not need m
 - Pins updated: tools.shell-shard-4317.test.js (the matrix shape; new arms for the split, a stale line, a bad
   platform), tools/test-ci-runner-route-5488.sh (runs-on text and its evaluation, every routing arm's default).
 
-## Effect
+## Effect (numbers updated by iteration 1: 230 on Linux, 34 on macOS)
 Each run held three hosted macOS runners (node unless self-hosted, and both shell shards). It now holds at most two
 (node unless self-hosted, and the one macOS shell job with 26 commands), and the two shell shards go to the Linux pool.
 
@@ -54,3 +54,24 @@ A command that passes on Linux by taking a degraded fallback (two were noted in 
 and time-scale-5727) now runs only on Linux, so it no longer exercises its macOS path in CI. Accepted: the macOS path
 of both is a single stat or sysctl read that the 26 cover elsewhere. What would change my mind: a red on a developer
 Mac in either that CI did not catch.
+
+## Review iteration 1 (opus): 3 WARNINGs, 2 NITs, all addressed
+- WARNING, a PASS that only skipped is not coverage: commands that skip their macOS work off macOS would have moved
+  to Linux and tested nothing there. MEASURED rather than read: a second probe (run 39538876370) kept each passing
+  command's skip lines. Of 30 PASS lines that mention a skip, 8 are real platform skips (5 whole files; 3 skip the
+  arms that need macOS: test-leak-guard-4273's launchctl arm, board-foreground-2956's lsof holder cases,
+  update-locked-app-4455's locked-file arms); the other 22 only name a skip in a test title or test a skip path.
+  The 8 are listed too, so the list is 34 and Linux runs 230. Weakest premise: board-foreground-2956 and
+  update-locked-app-4455 also run on Linux in test-linux-setup-4920.yml, so listing them keeps their Linux arms
+  covered there rather than here.
+- WARNING, tools/release.sh's #5934 preflight did not refuse a leftover KOSMOS_SHELL_PLATFORM, which would stop a cut at
+  step 3 after the bump. Now refused, with arms in tools/test-cut-testpart-guard-5934.sh, and unset in
+  tools.release-gate.test.js.
+- Found while fixing that, not by the reviewer: tests that nest run-tests.sh reset KOSMOS_SHELL_SHARD= but would
+  inherit KOSMOS_SHELL_PLATFORM=linux from a Linux shard job, and run-tests.sh refuses a platform without a shard.
+  Measured: test-runner-scale-export-5727 failed 6 arms under a simulated Linux shard environment without the fix,
+  0 with it. Reset now beside every KOSMOS_SHELL_SHARD= (test-runner-scale-export-5727, test-cut-guard) and in the env
+  lists of tools.run-tests-only-4929 and tools.run-tests-file-timeout-6668.
+- NIT, the real Linux job has not run: the PR's own CI is that run; read both Linux shards' logs end to end.
+- NITs fixed: the limit step's label says "shell macOS" and gives a fitting hint; stale wording in test.yml,
+  shell-shard.js and test-ci-created-url-6742.sh.

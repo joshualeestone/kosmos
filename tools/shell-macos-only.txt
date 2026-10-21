@@ -1,7 +1,10 @@
 # #6791: the test:shell commands that need macOS. Every other test:shell command runs on Linux.
 #
 # Measured on ubuntu-latest (probe run 39535595626, main dc583148): each of the 264 commands run ALONE, 238 passed and
-# these 26 failed on a macOS dependency (the probe's 27th red was its own workflow's missing env, not a Linux failure).
+# 26 failed on a macOS dependency (the probe's 27th red was its own workflow's missing env, not a Linux failure).
+# A second probe (run 39538876370) kept each passing command's skip lines: 8 of the 238 passed on Linux only by
+# skipping their macOS work (a whole file, or the arms that need macOS), so on Linux they would test nothing they test
+# on macOS. They are listed too, at the end. That is 34 here, and 230 commands on Linux.
 # tools/shell-shard.js reads this file: `linux` shards run everything NOT listed here, the `mac` shard runs only these.
 # Each line is a test:shell command exactly as package.json writes it; a line naming no such command fails every shard,
 # so this list cannot go stale silently. A new macOS-only test is NOT listed by default, so it goes red on the Linux
@@ -60,3 +63,21 @@ bash tools/test-supervisor-codex-isolation-4592.sh
 bash tools/test-tar-owner-gate-6562.sh
 # Apple's nc -G (tools/tunnel-handshake-gate.sh).
 bash tools/test-tunnel-handshake-gate.sh
+
+# --- Passed on Linux only by SKIPPING their macOS work (probe run 39538876370). On Linux they would cover nothing. ---
+# Skips the whole file off Darwin (the CI mini's hook).
+bash tools/test-ci-cleanup-relay-6245.sh
+# Skips the whole file without sandbox-exec.
+bash tools/test-setup-pause-sandbox-4651.sh
+# Skips the whole file without swiftc or off arm64.
+bash tools/test-floor-gate-tree.sh
+# Skips the whole file off a Mac with a pinned browser build.
+bash tools/test-supervisor-agentbrowser-3633.sh
+# Skips the whole file without /usr/bin/plutil (the guard runs only on the Mac).
+bash tools/test-ci-runner-job-guard-5488.sh
+# Skips its real-launchctl arm without launchctl.
+bash tools/test-test-leak-guard-4273.sh
+# Skips its two lsof holder cases without system node and /usr/sbin/lsof (its Linux arms run in test-linux-setup-4920.yml).
+bash tools/test-board-foreground-2956.sh
+# Skips its locked-file arms (macOS's flag); its Linux arms run in test-linux-setup-4920.yml.
+sh tools/test-update-locked-app-4455.sh

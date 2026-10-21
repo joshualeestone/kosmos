@@ -16,8 +16,9 @@
  * writes nothing into the checkout (a test here scans the repository, and a stray output file in
  * it was once read as a leaked signing id).
  *
- *   node tools/shell-shard.js list <i> <n>     print shard i of n (1-based), one command per line
- *   node tools/shell-shard.js run <i> <n>      run it
+ *   node tools/shell-shard.js list <i> <n> [linux|mac]   print shard i of n (1-based), one command per line
+ *   node tools/shell-shard.js run <i> <n> [linux|mac]    run it
+ * #6791: with a platform, only that platform's share of test:shell (tools/shell-macos-only.txt) is sharded.
  *
  * #5907: a local full run (tools/run-tests.sh, part all or shell with no shard) runs test:shell here
  * as shard 1 of 1, the whole list in order, so every log, local or CI, names each command's time and
@@ -111,7 +112,8 @@ function writeAll(fd, s, writeSync = fs.writeSync, tries = 2000) {
 }
 
 // Run a shard's commands in order, stopping at the first that fails, and return its exit status
-// (a signal is 1). `list` is the whole test:shell list, so the count in the first line is honest.
+// (a signal is 1). `list` is the whole test:shell list, or (#6791) a platform's whole share of it, so the count in the
+// first line is honest about what this job's list was.
 // #5907: each command's place is printed before it starts and its time after it ends, and the shard
 // ends on a summary of its slowest commands. `write(s, fd)` and `clock` (seconds) are seams for the test.
 function runShard(list, ii, nn, stdio = 'inherit', write = (s, fd = 1) => writeAll(fd, s), clock = () => performance.now() / 1000) {

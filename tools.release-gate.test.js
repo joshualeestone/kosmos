@@ -126,6 +126,7 @@ function sandboxEnv(dir, extra) {
   delete env.KOSMOS_TEST_PART;
   delete env.KOSMOS_TEST_PART_LOCAL;
   delete env.KOSMOS_SHELL_SHARD;
+  delete env.KOSMOS_SHELL_PLATFORM;   // #6791
   /* #6149: release.sh refuses the setup floor's test knob outright; these sandbox arms stop before step 1a-floor, so this
      is hygiene here (run_git, whose arms do reach it, strips it too). */
   delete env.KOSMOS_SETUP_FLOOR_TEST;
@@ -696,6 +697,7 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_TEST_PART: undefined,
       KOSMOS_TEST_PART_LOCAL: undefined,
       KOSMOS_SHELL_SHARD: undefined,
+      KOSMOS_SHELL_PLATFORM: undefined,   // #6791
       KOSMOS_FUTURE_BOUND: undefined,
       HOME: home,
       KOSMOS_SITE: site,
