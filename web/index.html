@@ -36724,14 +36724,24 @@ function burgerClose() {
 
 /* #6846: the iPhone app's native tab bar opens a board section through here, the way the phone menu does: the same
    press on the real tab (which resets to the top of the section, as a person's press does; showTab alone would
-   restore the last open project), or for Settings, which has no tab, showTab and its first section. Answers false
-   for a name the board has no such section for, so the app can tell instead of showing the wrong page. */
+   restore the last open project), or for Settings, which has no tab, showTab and its first section. Answers false,
+   changing nothing, for a name the board has no such section for, and while a full-screen step (first run, an update,
+   a restart) has made the board inert, as a person's press cannot reach it then either; the app can tell instead of
+   showing the wrong page. */
 if (typeof window !== 'undefined') window.kosmosAppTab = (name) => {
-  if (typeof pnavClose === 'function') pnavClose(false);
-  if (name === 'settings') { showTab('settings'); settingsOpen('you'); return true; }
-  const real = ['agents', 'projects', 'tasks'].includes(name) && document.querySelector('#tabs .tab[data-tab="' + name + '"]');
-  if (!real) return false;
-  real.click();
+  const tabs = document.getElementById('tabs');
+  if (!tabs || tabs.closest('[inert]')) return false;
+  const real = ['agents', 'projects', 'tasks'].includes(name) && tabs.querySelector('.tab[data-tab="' + name + '"]');
+  if (!real && name !== 'settings') return false;
+  /* The phone menu closes first, and focus goes back to its button, as the menu's own choices do. */
+  const menu = document.getElementById('pnav');
+  if (menu && !menu.hidden) {
+    pnavClose(false);
+    const btn = document.getElementById('kplus-menu');
+    if (btn) btn.focus({ preventScroll: true });
+  }
+  if (real) real.click();
+  else { showTab('settings'); settingsOpen('you'); }
   return true;
 };
 

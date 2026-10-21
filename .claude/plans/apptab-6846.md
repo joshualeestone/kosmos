@@ -13,14 +13,20 @@ alone restores the last open project, which is right for its programmatic caller
 menu (#pnav) already opens tabs by clicking the real tab and Settings by showTab + settingsOpen; this door does the same.
 
 ## Steps
-1. web/index.html: `window.kosmosAppTab` beside burgerClose; closes the phone menu first; agents/projects/tasks press
-   the real tab; settings opens showTab('settings') + settingsOpen('you'); anything else answers false.
+1. web/index.html: `window.kosmosAppTab` beside burgerClose. Refuses (false, nothing changed) a name it has no section
+   for, a page without #tabs, and a board made inert by a full-screen step (first run, an update, a restart), the same
+   `closest('[inert]')` test the phone menu uses. Otherwise closes an open phone menu (focus back to its button, as the
+   menu's own choices do); agents/projects/tasks press the real tab; settings opens showTab('settings') +
+   settingsOpen('you').
 2. web.app-tab-6846.test.js: the press path per tab (mutant: showTab instead of the press goes red), Settings, refusals
    (including a missing button), and pins on what it relies on (the click handler resets before showTab; the three tab
    buttons exist; Settings is buttonless).
 
 ## Not in this part
-- (b) the iOS five tabs, after #6845 merges (it adds the TabView this extends).
+- (b) the iOS five tabs, after #6845 merges (it adds the TabView this extends). The app's contract with this door:
+  call `typeof window.kosmosAppTab === 'function' && window.kosmosAppTab('<name>')` after the page has loaded, and treat
+  false, undefined or an evaluation error as "not opened" (the door is absent on a sign-in page, an error page, or an
+  older board), never as opened.
 - (c) hiding the board's own navigation inside the app, ruled by Mona Lisa on #6846 (comment 6321645120, frames in
   ~/work/workers/monalisa/ios-design-2026-10-19/tabbar-6846/png/): hide the tab strip, the burger and the KOSMOS+
   wordmark; keep a 44pt navy header with the computer switcher left and the user menu right. Only when the app says it
