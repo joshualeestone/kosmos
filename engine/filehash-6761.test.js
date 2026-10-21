@@ -145,3 +145,17 @@ test('iteration 2: a file whose modification time is in the future is still fing
   try { filehash.want(p, old); await settle(); } finally { fs.promises.open = real; }
   assert.equal(filehash.known(p, old), sha('from a fast clock'), 'a future modification time kept the file unhashed');
 });
+
+test('iteration 3: a cloud-only placeholder (full size, no blocks here) is never read, so showing a list downloads nothing', async () => {
+  const p = write('cloud.txt', 'x');
+  const st = fs.statSync(p);
+  const placeholder = Object.assign(Object.create(Object.getPrototypeOf(st)), st, { size: 4096, blocks: 0 });
+  let opens = 0;
+  const real = fs.promises.open;
+  fs.promises.open = (...x) => { opens += 1; return real(...x); };
+  try { filehash.forRow(p, placeholder); await settle(); } finally { fs.promises.open = real; }
+  assert.equal(opens, 0, 'a placeholder was read, which would make the system download it');
+  filehash.forRow(p, fs.statSync(p));   // CONTROL: the same file, really here, is hashed
+  await settle();
+  assert.equal(filehash.known(p, fs.statSync(p)), sha('x'));
+});

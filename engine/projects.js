@@ -1786,7 +1786,7 @@ function rowOf(f, fingerprint) {
   return row;
 }
 function fingerprintStampPart(rows) {
-  const known = rows.filter((r) => r.sha256).map((r) => r.name + '=' + r.sha256);
+  const known = rows.filter((r) => r.sha256).map((r) => JSON.stringify([r.name, r.sha256]));   // JSON, as the records above: a newline in a name cannot merge two
   return known.length ? '\nsha:' + known.join('\n') : '';
 }
 
