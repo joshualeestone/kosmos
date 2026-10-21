@@ -210,7 +210,7 @@ rm -f "$HOSTDIR/dist/latest.json"
 # ---- every pointer writer refuses while frozen; CONTROL: without the marker it does not say FROZEN ---------------
 S="$(make_site)"
 pf "$S" on --mac $GOOD --because "writer arms" >/dev/null
-SB="$T/home"; mkdir -p "$SB"
+SB="$T/home"; mkdir -p "$SB" "$T/tmp"
 # release.sh runs from a copy in a folder that is NOT a git repo, with only its libs and package.json: if the freeze
 # check ever stopped refusing (or for the no-marker control), the cut dies at step 1 there and can never start for
 # real, whichever checkout this test runs from.
@@ -223,7 +223,9 @@ printf 'zip' > "$T/kosmos-9.9.9-win-x64.zip"
 run_writer() {  # <site> <name> : sets WRC and out (not in a subshell, so both reach the caller)
   local site="$1" w="$2"
   case "$w" in
-    release) HOME="$SB" KOSMOS_SITE="$site" bash "$RSANDBOX/tools/release.sh" "$NEXTV" > "$T/w.out" 2>&1; WRC=$? ;;   # the next patch: past the version-jump guard
+    # TMPDIR too, not only HOME: release.sh does `rm -rf "$TMPDIR/kosmos-cut-home"` before step 1, so the
+    # caller's TMPDIR would lose a real cut's home and CI's #4273 leak check reds on what is left behind.
+    release) HOME="$SB" TMPDIR="$T/tmp" KOSMOS_SITE="$site" bash "$RSANDBOX/tools/release.sh" "$NEXTV" > "$T/w.out" 2>&1; WRC=$? ;;   # the next patch: past the version-jump guard
     promote-channel) HOME="$SB" KOSMOS_SITE="$site" bash "$HERE/promote-channel.sh" > "$T/w.out" 2>&1; WRC=$? ;;
     publish-staging-pointer) HOME="$SB" bash "$HERE/publish-staging-pointer.sh" "$site" 9.9.9 > "$T/w.out" 2>&1; WRC=$? ;;
     publish-kosmos-windows) HOME="$SB" KOSMOS_SITE="$site" bash "$HERE/publish-kosmos-windows.sh" "$T/kosmos-9.9.9-win-x64.zip" > "$T/w.out" 2>&1; WRC=$? ;;
@@ -240,6 +242,9 @@ for w in release promote-channel publish-staging-pointer publish-kosmos-windows;
   run_writer "$C" "$w"
   has "$out" "FROZEN" && bad "CONTROL: $w.sh says FROZEN with no marker: $(printf '%s' "$out" | tail -2)" || pass "CONTROL: $w.sh with no marker does not refuse for a freeze"
 done
+# the release arm made its cut-only home: it must be the sandbox's, or the TMPDIR above stopped reaching release.sh
+[ -d "$T/tmp/kosmos-cut-home" ] && pass "release.sh made its cut-only home inside the test's TMPDIR, not the caller's" \
+  || bad "release.sh made no cut-only home under $T/tmp (TMPDIR not passed, or the arm now stops before it)"
 
 # ---- on again at the frozen version after a release file moved on top: not "nothing changed" --------------------
 SM="$(make_site)"; out="$(pf "$SM" on --mac $GOOD --because "moved arm")"; rc=$?
