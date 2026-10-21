@@ -36726,8 +36726,10 @@ function burgerClose() {
    press on the real tab (which resets to the top of the section, as a person's press does; showTab alone would
    restore the last open project), or for Settings, which has no tab, showTab and its first section. Answers false,
    changing nothing, for a name the board has no such section for, and while a full-screen step (first run, an update,
-   a restart) has made the board inert, as a person's press cannot reach it then either; the app can tell instead of
-   showing the wrong page. */
+   a restart) has made #tabs or anything around it inert, as a person's press cannot reach it then either; the app can
+   tell instead of showing the wrong page. A hidden Tasks tab is still opened: it is hidden on a fresh page until the
+   first status poll, and the app offers Tasks only from that same poll's tasksTab (#3559), so refusing would turn an
+   earned tab into a silent no-op. */
 if (typeof window !== 'undefined') window.kosmosAppTab = (name) => {
   const tabs = document.getElementById('tabs');
   if (!tabs || tabs.closest('[inert]')) return false;

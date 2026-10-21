@@ -36,8 +36,13 @@ menu (#pnav) already opens tabs by clicking the real tab and Settings by showTab
   return to the front, never while on screen; that is the iOS side (b).
 
 ## Weakest premise
-That a synthetic click on a hidden Tasks button behaves like a press. It does in the browser (click() dispatches
-regardless of visibility), and the app only offers Tasks when tasksTab is true, at which point the button is shown.
+That opening a hidden Tasks button is right. Decided, not missed (review 2 raised it): the board hides Tasks until a
+status poll says tasksTab (localStorage restores it at boot when it can), so on a fresh page the button can be hidden
+for an earned tab. The app offers Tasks only from the same engine flag, read by its own poll, so it is not staler than
+the page's. Refusing would make an earned Tasks tab a silent no-op on every fresh page; accepting is wrong only if
+the app shows Tasks from a stale flag, which the app side (b) must not do (it reads tasksTab only from a fresh poll,
+and per Mona Lisa changes the bar only at launch or return to the front). What would change this: the engine ever
+turning tasksTab back off (#3559 says once shown it stays).
 
 ## Validation
 No visual change, so no browser check. Focused run: every web.*.test.js plus fixture-discipline, no-brand-refs and
