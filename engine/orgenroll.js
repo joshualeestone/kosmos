@@ -101,11 +101,14 @@ function holdsEnrollment(opts) {
 
 /* The company this world is enrolled to, as last confirmed by the coordinator, or null. */
 function readEnrollment(opts) {
-  try {
-    const rec = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), ENROLLMENT_FILE), 'utf8'));
-    if (!rec || typeof rec !== 'object' || !rec.org || typeof rec.org.id !== 'string' || !WORLD_ID.test(rec.world || '')) return null;
-    return rec;
-  } catch { return null; }
+  try { return enrollmentFrom(fs.readFileSync(path.join(storeRoot(opts), ENROLLMENT_FILE), 'utf8')); } catch { return null; }
+}
+/* The record in `text`, or null when it is not one (kosmos#6859: shared with kindStrict, which reads the file once). */
+function enrollmentFrom(text) {
+  let rec;
+  try { rec = JSON.parse(text); } catch { return null; }
+  if (!rec || typeof rec !== 'object' || !rec.org || typeof rec.org.id !== 'string' || !WORLD_ID.test(rec.world || '')) return null;
+  return rec;
 }
 /* #5683 review 38: the agent-events state is marked withdrawn WHERE reporting stops, not only when the board's
    timer next notices (a Leave started and refused inside one timer interval wrote the SAME record back, and the
@@ -539,11 +542,15 @@ function kindHere(opts) { return recKind(opts) || null; }
    be read throws, whatever else is beside it. With no record, a pending join's or leave's kind ('company' when the
    marker names none, as markers from before kinds do); null only when this Kosmos holds no enrollment at all. */
 function kindStrict(opts) {
-  const r = readEnrollment(opts);
-  if (r) return kindOf(r.org.kind);
-  let recordThere = true;
-  try { fs.statSync(path.join(storeRoot(opts), ENROLLMENT_FILE)); } catch (e) { recordThere = !e || e.code !== 'ENOENT'; }
-  if (recordThere) throw new Error('this Kosmos holds an enrollment record that cannot be read');
+  let text = null;
+  try { text = fs.readFileSync(path.join(storeRoot(opts), ENROLLMENT_FILE), 'utf8'); } catch (e) {
+    if (!e || e.code !== 'ENOENT') throw new Error('this Kosmos holds an enrollment record that cannot be read');
+  }
+  if (text !== null) {   // one read, so a join that lands between two reads is never taken for a damaged record
+    const r = enrollmentFrom(text);
+    if (r) return kindOf(r.org.kind);
+    throw new Error('this Kosmos holds an enrollment record that cannot be read');
+  }
   if (!holdsEnrollment(opts)) return null;
   const j = joinUnknown(opts);
   return kindOf(pendingKind(opts) || (j && j.orgKind));

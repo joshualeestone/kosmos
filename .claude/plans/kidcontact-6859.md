@@ -51,6 +51,14 @@ kinds do); null only with no enrollment at all.
 - Review 2, deferred: on a fault the agent's community block keeps the rules (communityblock.policyStopped reads a
   throw as not stopped, so a fault never rewrites every agent's instructions) while every send is refused. That is
   the existing posture for a damaged policy record; nothing leaks.
+- Review 3: kindStrict reads the record file once (readEnrollment and kindStrict share enrollmentFrom), so a join
+  that lands between a read and a stat is never taken for a damaged record.
+- Review 3, deferred: the moments with no record and no marker, which read as joined to nobody: a join before its
+  marker exists, and a leave after its record is cleared and before its marker is written. In both the computer is
+  between memberships (before the join is confirmed it is not yet the family's); reordering the leave's writes is a
+  change to the leave flow, outside this card.
+- Review 3, checked: the console's Family preset sets Outside contact off, so `{ enabled: true }` comes only from a
+  parent choosing it.
 - Review 1, deferred: one more small file read per contactAllows call (currentStrict already reads one per call);
   the require is lazy, so there is no load-order cycle.
 
