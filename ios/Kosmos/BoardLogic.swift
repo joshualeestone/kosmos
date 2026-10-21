@@ -270,7 +270,8 @@ enum Board {
 
     // The board's own "needs the person" (engine/status.js needsPerson, which web/index.html agentNeedsAttention
     // matches): needs_you, needs_trust, a connection Kosmos gave up reconnecting, a crash loop, an error it is stuck
-    // on, and a helper that gave up. Marked in amber and listed first, as the board lists them as an Issue.
+    // on, and a helper that gave up. Listed first, in the needs-you tone (see tone below), as the board lists them as
+    // an Issue.
     static func needsPerson(_ row: [String: Any]) -> Bool {
         let state = row["state"] as? String
         func flag(_ key: String, _ field: String) -> Bool { ((row[key] as? [String: Any])?[field] as? Bool) == true }

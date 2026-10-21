@@ -44,6 +44,8 @@ final class BoardClient: ObservableObject {
     private var pictureVersions: [String: String] = [:]
     // The list is re-sorted when it appears and on pull to refresh; live updates keep the order (Mona's spec).
     private var resortNext = true
+    // The Mac the shown list came from.
+    private var shownMac: Board.Mac?
 
     private let coordinator: URL
     private let sessionStore: SessionStore
@@ -161,14 +163,16 @@ final class BoardClient: ObservableObject {
         generation += 1
     }
 
-    // The tapped agent's chat on the Board tab (the same link a notification tap opens).
+    // The tapped agent's chat on the Board tab (the same link a notification tap opens); also from a list shown as not
+    // updating, which still names the Mac it came from.
     func chatURL(for agent: Board.Agent) -> URL? {
-        guard case .live(let mac) = phase else { return nil }
+        guard let mac = shownMac else { return nil }
         return PushBridge.boardURL(fromNotification: ["address": mac.address, "session": agent.session], coordinator: coordinator)
     }
 
-    // Pictures for agents that have one and whose version changed, one at a time; a failed fetch is tried again on
-    // the next refresh, and an agent without a picture shows its letter.
+    // Pictures for agents that have one and whose version changed, one at a time. A fetch that fails is not asked for
+    // again until the picture's version changes (the letter shows meanwhile).
+    private var pictureTask: Task<Void, Never>?
     private func fetchPictures(url: URL, _ gen: Int) async {
         for agent in agents where agent.hasAvatar && pictureVersions[agent.session] != agent.avatarVer {
             guard let request = Board.avatarRequest(mac: url, session: agent.session) else { continue }
@@ -176,14 +180,16 @@ final class BoardClient: ObservableObject {
             guard gen == generation else { return }
             if let (data, answer) = result, (200...299).contains(answer.statusCode), !data.isEmpty {
                 pictures[agent.session] = data
-                pictureVersions[agent.session] = agent.avatarVer
             }
+            pictureVersions[agent.session] = agent.avatarVer
         }
     }
 
     // Everything learned under the previous Kosmos+ session goes, cookies and the kept Mac session included.
     private func forget() {
         admitted = nil
+        shownMac = nil
+        pictureTask?.cancel()
         pictures = [:]
         pictureVersions = [:]
         agents = []
@@ -346,9 +352,12 @@ final class BoardClient: ObservableObject {
             // restored once it answers again.
             if !listedThisRun, let held = admitted { keepMacSession(mac, url: url, session: held.session) }
             listedThisRun = true
+            shownMac = mac
             retriedUnreachable = false
             set(.live(mac: mac), gen)
-            await fetchPictures(url: url, gen)
+            // Pictures load on their own, never holding up the next status read.
+            pictureTask?.cancel()
+            pictureTask = Task { await self.fetchPictures(url: url, gen) }
             return true
         }
         if Board.sessionEnded(status: status, contentType: answer?.value(forHTTPHeaderField: "Content-Type")) {

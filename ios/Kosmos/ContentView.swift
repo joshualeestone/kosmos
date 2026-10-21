@@ -20,13 +20,12 @@ struct ContentView: View {
     @StateObject private var shell = ShellState()
     // kosmos#6838: the native Agents tab beside the web board, until every screen is native.
     @StateObject private var board = BoardClient()
-    @State private var tab = Tab.agents   // Mona Lisa's slice 1 spec: open on Agents until Today exists
-    #if DEBUG
-    // Screenshots only (a Debug build; Release has no such switch): KOSMOS_START_TAB=agents opens on Agents.
-    init(pushManager: PushNotificationManager) {
-        self.pushManager = pushManager
-        if ProcessInfo.processInfo.environment["KOSMOS_START_TAB"] == "agents" { _tab = State(initialValue: .agents) }
-    }
+    // Mona Lisa's slice 1 spec: open on Agents until Today exists. The App Store screenshot build
+    // (ios/store/shoot-app.sh) photographs board screens in the web view, so it opens on Board.
+    #if KOSMOS_STORE_SHOTS
+    @State private var tab = Tab.board
+    #else
+    @State private var tab = Tab.agents
     #endif
     enum Tab { case agents, board }
 
@@ -34,9 +33,9 @@ struct ContentView: View {
         Group {
             if isUnlocked {
                 TabView(selection: $tab) {
-                    AgentsView(client: board) { url in
+                    AgentsView(client: board, openChat: { url in
                         pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-                    }
+                    }, openBoard: { tab = .board })
                     .tabItem { Label("Agents", systemImage: "person.2") }
                     .tag(Tab.agents)
                     webBoard
@@ -54,6 +53,8 @@ struct ContentView: View {
             if request != nil { tab = .board }
         }
         .onAppear {
+            // A notification tapped on a cold launch can set boardToOpen before the first draw, which onChange misses.
+            if pushManager.boardToOpen != nil { tab = .board }
             // Cold launch: onChange does not fire for scenePhase's initial value,
             // so prompt here when we start locked.
             if !isUnlocked { unlock() }

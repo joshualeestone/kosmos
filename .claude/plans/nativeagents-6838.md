@@ -51,7 +51,8 @@ If it is refused, Kosmos+ needs a small route (2 to 3 days, the plan's risk line
   device and drops the least recently used, and this app shares its device with the Board tab, so a new session every launch would
   in time sign the Board tab out.
 - Status words follow engine/cardlabel.js labelOf (the computer's words), not Mona's "Asked you": the card's done
-  line is "the status the computer shows". Anything that needs you is marked in amber.
+  line is "the status the computer shows". Built to Mona Lisa's slice 1 spec (#6838): Question in gold, needs you in red,
+  Working green, the rest quiet; the app opens on Agents.
 - The connect, poll and reconnect loop is tested: BoardClient takes its network, clock, waits and defaults as an
   Environment (the app's real one is in BoardClient+App.swift), and ios/LogicTests drives it against a fake Kosmos+
   and Mac with a clock that advances on every wait. Covered: a fresh connect, a kept session reused, a kept session
@@ -76,5 +77,5 @@ If it is refused, Kosmos+ needs a small route (2 to 3 days, the plan's risk line
 - Not covered by the loop tests: how Foundation keys a cookie from the gate's real Set-Cookie (host-only __Host-)
   against one the app restored. keepMacSession keeps one, the value that is not the restored one, and removes any
   other of that name, so a mismatch cannot leave the ended cookie in use.
-- "Needs you" (amber, listed first) mirrors the board's engine/status.js needsPerson exactly, case by case in the
+- "Needs you" (red, listed first) mirrors the board's engine/status.js needsPerson exactly, case by case in the
   tests; a plain sign-in failure is not one, as on the board.

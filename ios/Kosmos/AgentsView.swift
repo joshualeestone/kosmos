@@ -8,6 +8,8 @@ import UIKit
 struct AgentsView: View {
     @ObservedObject var client: BoardClient
     let openChat: (URL) -> Void
+    let openBoard: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
     @State private var wasBackground = false
@@ -32,22 +34,29 @@ struct AgentsView: View {
 
     @ViewBuilder private var content: some View {
         switch client.phase {
+        // A list already on screen stays while the app reconnects or the Mac does not answer, marked not updating; the
+        // reaching spinner is only for a first connect with nothing to show yet (spec frame 3).
+        case .starting where !client.agents.isEmpty, .connecting where !client.agents.isEmpty:
+            list(stale: true)
         case .starting:
             reaching
-        case .live(let mac):
+        case .live:
             if client.agents.isEmpty {
                 // The list arrives with the first read; until then this is still reaching.
                 if client.updatedAt == nil { reaching } else { noAgents }
             } else {
-                list(mac, stale: false)
+                list(stale: false)
             }
-        case .unreachable(let mac) where !client.agents.isEmpty:
+        case .unreachable where !client.agents.isEmpty:
             // Lost while open: the last list stays, marked as not updating.
-            list(Board.Mac(name: mac, address: "", usable: true), stale: true)
+            list(stale: true)
         case .unreachable:
-            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: client.retry)
+            // Today's navy page, as it is: no title over it, and Back opens the Board tab.
+            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)
+                .navigationBarHidden(true)
         case .kosmosPlusDown:
-            LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: client.retry)
+            LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)
+                .navigationBarHidden(true)
         case .signedOut:
             message("Sign in to Kosmos+ on the Board tab.", detail: "Your agents show here once you are signed in. If you already are, sign out there and in again.", retry: true)
         case .noMac:
@@ -97,7 +106,7 @@ struct AgentsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func list(_ mac: Board.Mac, stale: Bool) -> some View {
+    private func list(stale: Bool) -> some View {
         List {
             if stale {
                 Section {
@@ -111,14 +120,15 @@ struct AgentsView: View {
                     Button {
                         if let url = client.chatURL(for: agent) { openChat(url) }
                     } label: {
-                        AgentRow(agent: agent, picture: client.pictures[agent.session].flatMap(UIImage.init(data:)), stale: stale)
+                        // A picture the agent no longer has is not shown, whatever was fetched before.
+                        AgentRow(agent: agent, picture: agent.hasAvatar ? client.pictures[agent.session].flatMap(UIImage.init(data:)) : nil, stale: stale)
                     }
                     .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
                     .listRowBackground(Palette.card)
                     .listRowSeparatorTint(Palette.separator)
-                    // The separator starts at the text: 16 + 40 + 12 = 68pt from the card edge (52 from the inset).
-                    .alignmentGuide(.listRowSeparatorLeading) { _ in 52 }
+                    // The separator starts at the text: 16 + picture + 12 from the card edge (52 or 60 from the inset).
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in typeSize.isAccessibilitySize ? 60 : 52 }
                 }
             }
         }
@@ -132,9 +142,10 @@ struct AgentsView: View {
     private var notUpdating: some View {
         Text("Not updating. Your Mac isn't answering." + (client.updatedAt.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""))
             .font(.footnote)
-            .foregroundColor(Palette.primary)
+            .foregroundColor(Palette.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
             .background(RoundedRectangle(cornerRadius: 10).fill(Palette.banner))
     }
 
@@ -142,7 +153,6 @@ struct AgentsView: View {
         Text("New agents, models and connections are set up on your computer.")
             .font(.footnote)
             .foregroundColor(Palette.tertiary)
-            .padding(.top, 8)
     }
 
     private func message(_ title: String, detail: String, retry: Bool = false) -> some View {
@@ -152,7 +162,8 @@ struct AgentsView: View {
                 Text(detail).font(.subheadline).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
             }
             if retry {
-                Button("Try again") { client.retry() }
+                // The app's tint is ink (near-white in dark), so the label takes the card colour to stay readable.
+                Button { client.retry() } label: { Text("Try again").foregroundColor(Palette.card) }
                     .buttonStyle(.borderedProminent)
             }
         }
@@ -173,7 +184,7 @@ struct AgentRow: View {
     private var large: Bool { typeSize.isAccessibilitySize }
 
     var body: some View {
-        HStack(alignment: large ? .top : .center, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             avatar
             if large {
                 // The largest text sizes: the status goes under the role, and nothing truncates it.
@@ -231,15 +242,19 @@ struct AgentRow: View {
         }
     }
 
-    // The board's own word, never truncated; a live change crossfades in 0.2s.
+    // The board's own word, never truncated (it wraps at the largest sizes rather than run off the row); a live
+    // change crossfades in 0.2s, the animation on the container so the outgoing word fades as the new one comes in.
     private var status: some View {
-        Text(word)
-            .font(.footnote.weight(tone == .asked || tone == .needsYou ? .semibold : .regular))
-            .foregroundColor(Palette.word(tone))
-            .fixedSize()
-            .id(word)
-            .transition(.opacity)
-            .animation(.easeInOut(duration: 0.2), value: word)
+        ZStack(alignment: large ? .leading : .trailing) {
+            Text(word)
+                .font(.footnote.weight(tone == .asked || tone == .needsYou ? .semibold : .regular))
+                .foregroundColor(Palette.word(tone))
+                .fixedSize(horizontal: !large, vertical: true)
+                .id(word)
+                .transition(.opacity)
+        }
+        .animation(.easeInOut(duration: 0.2), value: word)
+        .animation(.easeInOut(duration: 0.2), value: tone)
     }
 }
 

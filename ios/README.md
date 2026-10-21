@@ -21,10 +21,10 @@ are in `Kosmos/BoardLogic.swift`; `BoardClient.swift` moves the bytes;
 The Mac's session cookie (with the Mac's name and address and a fingerprint of the Kosmos+ session, never the session) is kept
 in the Keychain item `mac-session` (`SessionKeychain.macSession`) and reused across
 launches; a sign-out, or Kosmos+ answering that the sign-in has ended, makes this
-iPhone forget it (the Mac keeps its side until it expires, as for the web view). Two Debug-only launch switches exist for screenshots
-and never reach Release: `KOSMOS_START_TAB=agents` opens on Agents, and
-`KOSMOS_SAMPLE_AGENTS=1` shows invented agents without connecting (and skips the
-notification prompt). The App Store screenshots now include the tab bar.
+iPhone forget it (the Mac keeps its side until it expires, as for the web view).
+The app opens on Agents (the store-screenshot build opens on Board). One Debug-only
+launch switch exists for screenshots and never reaches Release: `KOSMOS_SAMPLE_AGENTS=1`
+shows invented agents without connecting (and skips the notification prompt). The App Store screenshots now include the tab bar.
 
 ## What this is
 
