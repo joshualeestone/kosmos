@@ -4988,7 +4988,7 @@ if [ "$_kosmos_help" = 1 ]; then
       printf 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)\n'
       exit 0 ;;
     fingerprint)
-      printf 'Usage: kosmos fingerprint <file>   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: the sha256 of the file, with the creation and change dates and document ID inside a PDF left out, so the same source rendered twice matches)\n'
+      printf 'Usage: kosmos fingerprint <file>   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: the sha256 of the file, with the creation and change dates and document ID inside a PDF left out, so the same source rendered twice matches; a PDF over 64 MB is hashed as plain bytes)\n'
       exit 0 ;;
     handoff)
       # #6506: run bare it prints your handoff facts (a local read); --help must only say what it does, not gather them.

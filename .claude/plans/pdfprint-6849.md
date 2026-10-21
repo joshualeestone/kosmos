@@ -29,12 +29,13 @@ plain sha256s differ (the control); a render with one word changed gives another
 
 **Weakest premise.** That the volatile fields sit in uncompressed objects. A PDF that keeps its document info in a
 compressed object stream is hashed as it is (its dates are not read without inflating every stream). Also a PDF over
-64 MiB is hashed as plain bytes rather than held in memory. The fields are matched over the raw bytes, so page text in an
-uncompressed content stream shaped exactly like `/ModDate (...)` would be emptied too (far-fetched; noted, not handled).
+64 MiB is hashed as plain bytes rather than held in memory. Stream bodies are skipped (review 4), except the XMP fields of the
+metadata stream, so page text shaped like `/ModDate (...)` changes the print. Left: a stream with an indirect /Length whose
+bytes hold the word endstream is ended there, so a file built to do it could match another; a check, not a tamper proof.
 `task built --file` on a Mac now needs the bundled runtime and engine, as `kosmos handoff` and the Windows CLI already do.
 
 ## Tests run
-- engine/fileprint-6849.test.js 8/8 (real fixtures in test-support/fileprint-6849/); server.builtsha-6330.test.js
+- engine/fileprint-6849.test.js 12/12 (real fixtures in test-support/fileprint-6849/); server.builtsha-6330.test.js
   8/8 (Mac CLI); tools.windows-kosmos-cli-570.test.js 51/51 (Windows CLI); each PDF test red when PDF detection is
-  broken on purpose.
+  broken on purpose; review 4's stream and whitespace tests red against the round-3 module.
 - engine/handoff.test.js 23/23 after the move.

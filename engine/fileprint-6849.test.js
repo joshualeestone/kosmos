@@ -107,3 +107,41 @@ test('#6849: a long unclosed value neither overflows nor stalls (each value is b
     assert.ok(Date.now() - t0 < 10000, 'took ' + (Date.now() - t0) + ' ms');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+/* Review 4: page text shaped like a date was emptied too, so changing what a page said kept the fingerprint. */
+test('#6849: page text shaped like a date or /ID inside a stream still changes the fingerprint', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fileprint-'));
+  const page = (words) => '%PDF-1.7\n1 0 obj\n<< /Length ' + words.length + ' >>\nstream\n' + words + '\nendstream\nendobj\n'
+    + '2 0 obj\n<< /Length 9 0 R >>\nstream\n' + words + '\nendstream\nendobj\ntrailer\n<< /ID [<aa><bb>] >>\n%%EOF\n';
+  const put = (name, s) => { const p = path.join(dir, name); fs.writeFileSync(p, s, 'latin1'); return p; };
+  try {
+    const a = put('a.pdf', page('BT /ModDate (Pay Alice $100) Tj /ID [(x)(y)] Tj ET'));
+    const b = put('b.pdf', page('BT /ModDate (Pay Mal $9999) Tj /ID [(x)(y)] Tj ET'));
+    const c = put('c.pdf', page('BT /ModDate (Pay Alice $100) Tj /ID [(p)(q)] Tj ET'));
+    assert.notEqual(fp.fingerprint(a), fp.fingerprint(b), 'changed page text kept the fingerprint');
+    assert.notEqual(fp.fingerprint(a), fp.fingerprint(c), 'changed page text shaped like an /ID kept the fingerprint');
+    // CONTROL: the same page with only its trailer /ID changed still matches.
+    const d = put('d.pdf', page('BT /ModDate (Pay Alice $100) Tj /ID [(x)(y)] Tj ET').replace('<aa><bb>', '<cc><dd>'));
+    assert.notEqual(raw(a), raw(d));
+    assert.equal(fp.fingerprint(a), fp.fingerprint(d), 'the trailer /ID is no longer left out');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#6849: PDF whitespace is the PDF set: NUL separates, 0xA0 does not', () => {
+  const s = (sep, when) => Buffer.from('%PDF-1.7\n<< /ModDate' + sep + '(' + when + ') >>\n', 'latin1');
+  assert.ok(fp.stablePdf(s('\x00', 'D:1')).equals(fp.stablePdf(s('\x00', 'D:2'))), 'a NUL before the date stopped the match');
+  assert.ok(!fp.stablePdf(s('\xa0', 'D:1')).equals(fp.stablePdf(s('\xa0', 'D:2'))), '0xA0 was read as PDF whitespace');
+});
+
+test('#6849: a PDF over 64 MiB is its plain sha256', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fileprint-'));
+  try {
+    const p = path.join(dir, 'big.pdf');
+    fs.writeFileSync(p, '%PDF-1.7\n<< /ModDate (D:20261021) >>\n', 'latin1');
+    fs.truncateSync(p, fp.PDF_MAX + 1);
+    assert.equal(fp.fingerprint(p), raw(p));
+    // CONTROL: the same file at the cap has its date left out, so it is not the plain sha256.
+    fs.truncateSync(p, fp.PDF_MAX);
+    assert.notEqual(fp.fingerprint(p), raw(p));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
