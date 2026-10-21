@@ -101,6 +101,8 @@ test('run-setup tells the installer it has already asked', () => {
 });
 
 test('manifest-verify.js paused: exit 0 while paused, 1 when not, on no answer, or when told to ignore', () => {
+  // The form is listed where the installer looks for what an installed copy understands.
+  assert.match(fs.readFileSync(MV, 'utf8'), /manifest-verify capabilities:( [a-z0-9-]+)* paused( |\s*\*\/)/);
   const env = { ...process.env };
   const run = (extra) => spawnSync(process.execPath, [MV, 'paused'], { encoding: 'utf8', env: { ...env, ...extra } }).status;
   assert.equal(run({ KOSMOS_UPDATE_PAUSE_URL: meta('{"updates_paused": true}') }), 0);

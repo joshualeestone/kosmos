@@ -68,3 +68,9 @@ fail open, nothing newer); native-app.update-ifnewer-4382.test.js (the paused ar
   Left: a connect computer that is not paused asks twice (the CLI, then run-setup), up to 10 s against a coordinator
   that does not answer; making run-setup trust the CLI's ask would add a second way past it. An app older than this
   shows "could not reach its update server" when the person pressed Update during a pause; unchanged for them.
+- Review 2 (sonnet): `paused` is added to manifest-verify's capabilities line (the installer reads it to learn what
+  an installed copy understands); install.recoverykey-setup-6609.test.js's pin of that line now allows forms after
+  keylist. The app's retry comment says what it does: one look within the hour, then the usual looks.
+  Left, stated: on Linux the installer's ask fails open if /usr/bin/curl, tr or grep is missing (this card is the Mac
+  paths). An older signed installer run by a new run-setup does not unset KOSMOS_UPDATE_PAUSE_ASKED, so its board
+  inherits it until the fleet carries this installer. Each held look adds one line to install.log.

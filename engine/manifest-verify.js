@@ -504,7 +504,7 @@ module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCH
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before
  * using a call form: it greps the next line, which lists every form this copy understands beyond the original
  * <manifest> <sig> <tarball> <stage> <version> <home>. Keep it one line, and add to it when adding a form.
- * manifest-verify capabilities: run-setup early tmux keylist */
+ * manifest-verify capabilities: run-setup early tmux keylist paused */
 /* #6609 phase 2b: the keys the plain and tmux forms check with. Off: the built-in KEYS. On: the release key list setup.sh
    fetched beside the manifest, named by KOSMOS_KEY_LIST and KOSMOS_KEY_LIST_SIG, taken through trustedKeys (this copy's
    record, so an older list cannot come back). On with no list given is a refusal: an installer that does not fetch it

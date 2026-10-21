@@ -3429,7 +3429,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard computerMode == .connect else { showUpdateOffer(nil); return }
         if !updateLookIsRetry {
             if case .unknown = answer { retryUpdateLookSoon() }
-            // #6781: a pause is lifted by the people running the fleet, not by this computer: look again later.
+            // #6781: a pause is lifted by the people running the fleet, not by this computer: look once more within the
+            // hour; after that, a pause still on is looked at again at the app's usual look.
             if case .paused = answer { retryUpdateLookSoon() }
             // An install another run of this app started may still be going: look again within the hour.
             if case .refused = answer, !asked { retryUpdateLookSoon() }
