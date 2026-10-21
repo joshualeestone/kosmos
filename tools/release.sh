@@ -1776,7 +1776,7 @@ echo "   (#5471 record) THIS cut's build is sha256 ${_my_sha:-<unreadable>}; onc
 # from any machine since the site push stops the deploy. It narrows the window to the deploy itself and does not close
 # it: a freeze (and its pin deploy) landing while vercel uploads is not seen here. A fetch that fails here is said and
 # the cut goes on: the push-time check ran on a tip fetched moments ago.
-if git -C "$SITE" fetch -q origin main 2>/dev/null; then
+if pointer_freeze_fetch "$SITE"; then
   if git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then
     echo "the site's origin/main is FROZEN now (dist/POINTER_FROZEN, kosmos#6620), so this cut does not deploy; nothing was deployed. Its site commit is on origin/main: tools/pointer-freeze.sh status says what is frozen."
     exit 1

@@ -16,7 +16,8 @@
 #      (tools/lib/pointer-freeze.sh): release.sh, promote-channel.sh, publish-staging-pointer.sh,
 #      publish-kosmos-windows.sh refuse, and deploy-site.sh publishes only the frozen version;
 #   5. builds that change in a TEMPORARY index on the freshly fetched origin/main and pushes it (this checkout's own
-#      index and working tree are never written; it fast-forwards afterwards). IT DOES NOT DEPLOY: it prints the
+#      index and working tree are never written until it fast-forwards afterwards, which a dirty tree refuses; a cut
+#      already running on this box is refused at its own site push either way). IT DOES NOT DEPLOY: it prints the
 #      command that does (deploy-site.sh --promote, or --publish when prod already serves the pinned version).
 #
 # WHAT A PIN DOES TO BOARDS (engine/update.js available(), engine/manifest-verify.js): a board BELOW the pinned
@@ -76,7 +77,7 @@ publish_on_origin() {  # <msg> <on|off> <mode,blob,path ...>
     tree="$(GIT_INDEX_FILE="$d/index" git -C "$SITE" write-tree)"; rm -rf "$d"
     [ -n "$tree" ] && sha="$(git -C "$SITE" commit-tree "$tree" -p "$base" -m "$msg")" && [ -n "$sha" ] \
       || { echo "pointer-freeze: could not write the commit; nothing was pushed" >&2; return 1; }
-    err="$(LC_ALL=C git -C "$SITE" push -q origin "$sha:refs/heads/main" 2>&1)" && { printf '%s\n' "$sha"; return 0; }
+    err="$(LC_ALL=C pointer_freeze_git 120 "$SITE" push -q origin "$sha:refs/heads/main" 2>&1)" && { printf '%s\n' "$sha"; return 0; }
     if ! printf '%s' "$err" | grep -qiE 'fetch first|non-fast-forward|\[rejected\]|cannot lock ref'; then
       echo "pointer-freeze: the push failed and was not retried; nothing was pushed. git said: $err" >&2; return 1
     fi
@@ -132,7 +133,17 @@ cmd_on() {
   pointer_freeze_fetch "$SITE" || die "could not fetch origin/main (the freeze must reach every machine through it); nothing was changed"
   if git -C "$SITE" cat-file -e "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null; then
     local at; at="$(git -C "$SITE" show "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null | sed -n 's/^mac=//p' | head -1)"
-    [ "$at" = "$v" ] && { say "already frozen at $v on origin/main; nothing changed"; return 0; }
+    if [ "$at" = "$v" ]; then
+      # Frozen at this version already: say so only if origin/main still holds the pin (a pointer pushed on top of a
+      # freeze by hand is caught here, not reported as fine).
+      local fz_sha p; fz_sha="$(git -C "$SITE" show "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null | sed -n 's/^sha256=//p' | head -1)"
+      for p in $PTRS; do
+        [ "$(field "$(git -C "$SITE" show "origin/main:$p" 2>/dev/null)" version)" = "$v" ] \
+          && { [ -z "$fz_sha" ] || [ "$(field "$(git -C "$SITE" show "origin/main:$p" 2>/dev/null)" sha256)" = "$fz_sha" ]; } \
+          || die "origin/main is frozen at $v but its $p no longer names that build: run off, then on again"
+      done
+      say "already frozen at $v on origin/main, and its Mac pointers still name that build; nothing changed"; return 0
+    fi
     die "origin/main is already frozen at ${at:-an unreadable marker}; run off first to move the freeze"
   fi
   # No refusal for uncommitted pointer files in this checkout: the pin is built in a temporary index and never touches
@@ -162,11 +173,15 @@ cmd_on() {
     if ! "$CURL_CMD" -fsSL -o "$tmp" "$HOST/dist/$mf" || [ ! -s "$tmp" ]; then rm -f "$tmp"; die "$HOST does not serve $mf (or serves it empty), so boards could not verify a pin to $v; nothing was changed"; fi
     rm -f "$tmp"
   done
-  local want_setup; want_setup="$(field "$json" setup_sha256)"
-  if [ -n "$want_setup" ]; then
-    [ "$(git -C "$SITE" show "${found}:setup" | shasum -a 256 | awk '{print $1}')" = "$want_setup" ] \
-      || die "the setup committed with $v (commit ${found:0:12}) is not the installer its pointer names (setup_sha256); nothing was changed"
-  fi
+  # The installer's bytes must be what something names: the pointer's setup_sha256 (#5032) when it has one, and always
+  # the pair's own setup.sha256, so a setup from another release cannot ride along unchecked.
+  local want_setup got_setup pair_sha; want_setup="$(field "$json" setup_sha256)"
+  got_setup="$(git -C "$SITE" show "${found}:setup" | shasum -a 256 | awk '{print $1}')"
+  pair_sha="$(git -C "$SITE" show "${found}:setup.sha256" | awk '{print $1; exit}')"
+  [ -z "$want_setup" ] || [ "$got_setup" = "$want_setup" ] \
+    || die "the setup committed with $v (commit ${found:0:12}) is not the installer its pointer names (setup_sha256); nothing was changed"
+  [ "$got_setup" = "$pair_sha" ] \
+    || die "the setup committed with $v (commit ${found:0:12}) does not match its own setup.sha256; nothing was changed"
 
   # The pin, as blob entries from the found commit itself (the pointer to prod and staging; the installer pair to both
   # names), and the marker: built in the temporary index, so nothing in this checkout changes until the fast-forward.
@@ -205,6 +220,7 @@ cmd_off() {
   sha="$(publish_on_origin "pointer-freeze: freeze at ${was:-?} lifted (kosmos#6620)" off)" || die "the freeze was NOT lifted (see above)"
   follow_local "$sha"
   say "freeze at ${was:-?} lifted and pushed (${sha:0:12}); the pointers stay where they are until the next release moves them."
+  say "Another checkout that still has the marker at its HEAD keeps refusing until it pulls (git -C <site> pull --ff-only)."
 }
 
 case "${1:-}" in

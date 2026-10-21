@@ -130,6 +130,16 @@ out="$(pf "$S" on --mac $GOOD --because "not on main")"; rc=$?
 { [ $rc = 0 ] && on_origin "$S" && [ -z "$(git -C "$S" status --porcelain)" ] && [ ! -e "$S/dist/POINTER_FROZEN" ] && has "$out" "not on main"; } \
   && pass "on from a checkout not on main: pushed, and the checkout is untouched" || bad "not on main (rc=$rc) out=$out st=$(git -C "$S" status --porcelain)"
 
+# ---- on again at the same version verifies the pin still holds on origin/main ------------------------------------
+S="$(make_site)"; pf "$S" on --mac $GOOD --because "first" >/dev/null
+O3="$T/hand"; git clone -q "$S.origin.git" "$O3"; git -C "$O3" config user.email t@t; git -C "$O3" config user.name t
+ptr "$BAD" x > "$O3/dist/latest.json"; git -C "$O3" commit -q -am "a pointer pushed by hand on top of the freeze" && git -C "$O3" push -q origin main
+out="$(pf "$S" on --mac $GOOD --because "again")"; rc=$?
+{ [ $rc = 1 ] && has "$out" "no longer names that build"; } && pass "on again at the frozen version, with a pointer moved on top: refused, not reported fine" || bad "rerun verify (rc=$rc) out=$out"
+S="$(make_site)"; pf "$S" on --mac $GOOD --because "first" >/dev/null
+out="$(pf "$S" on --mac $GOOD --because "again")"; rc=$?
+{ [ $rc = 0 ] && has "$out" "still name that build"; } && pass "CONTROL: on again with the pin intact: nothing to do, and says the pointers still hold" || bad "rerun intact (rc=$rc) out=$out"
+
 # ---- refusals before anything is written ------------------------------------------------------------------------
 S="$(make_site)"; H0="$(git -C "$S" rev-parse HEAD)"
 out="$(pf "$S" on --mac 0.7.99 --because x)"; rc=$?
@@ -146,6 +156,12 @@ printf 'TAMPERED\n' > "$T/good"; cp "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz" "$
 out="$(pf "$S" on --mac $GOOD --because x)"; rc=$?
 cp "$T/good.orig" "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz"
 { [ $rc = 1 ] && has "$out" "not the pointer's" && unchanged "$S" "$H0"; } && pass "refused: the served artifact's sha256 is not the pointer's" || bad "sha mismatch (rc=$rc) out=$out"
+# An installer that does not match its own setup.sha256 (a setup from another release committed with the pointer).
+S2="$(make_site)"; G2=$(git -C "$S2" log --format=%H -- dist/latest.json | sed -n 2p)
+git -C "$S2" checkout -q "$G2" -- setup && printf 'tampered installer\n' > "$S2/setup" && git -C "$S2" commit -q -m "x" -- setup
+ptr "$GOOD" "$(sha_of "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz")" > "$S2/dist/latest.json"; git -C "$S2" commit -q -m "re-point at good, setup mismatched" -- dist/latest.json; git -C "$S2" push -q origin main
+out="$(pf "$S2" on --mac $GOOD --because x)"; rc=$?
+{ [ $rc = 1 ] && has "$out" "does not match its own setup.sha256"; } && pass "refused: the installer does not match its own setup.sha256" || bad "setup pair mismatch (rc=$rc) out=$out"
 mv "$HOSTDIR/dist/kosmos-$GOOD-arm64.manifest.json.sig" "$T/sig-aside"
 out="$(pf "$S" on --mac $GOOD --because x)"; rc=$?
 mv "$T/sig-aside" "$HOSTDIR/dist/kosmos-$GOOD-arm64.manifest.json.sig"

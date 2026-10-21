@@ -104,3 +104,11 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
     the checkout). Every fetch has no credential prompt, a stall limit and one retry (ref-lock collisions).
   - A trailing --mac or --because with no value is refused (bash 3.2's shift 2 looped forever).
   - The docs and messages name the Windows site pointers as not pinned.
+- Review 4 (seven warnings; the root fix): every git network call the freeze makes (the writers' fetch, `on`/`off`'s
+  fetch and push, deploy-site's two fetches, release.sh's late fetch) goes through one helper, pointer_freeze_git:
+  no prompt, ssh in batch mode with a connect timeout, a stall limit, and a hard time limit (git has no https
+  connect timeout). deploy-site's early check fails closed like the writers (KOSMOS_POINTER_FREEZE_OFFLINE=1 decides
+  on $H), and its late re-check covers the staging pointer too. `on` checks the installer against its own
+  setup.sha256 even when the pointer names none; a same-version re-run verifies origin/main still holds the pin; `off`
+  says other checkouts keep refusing until they pull. Left as it is: the fast-forward after `on` can move a clean
+  checkout under a cut that has not written yet, which that cut's own site push then refuses (said in the header).

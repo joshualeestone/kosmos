@@ -415,12 +415,18 @@ fi
 # kosmos#6620: while the pointer freeze (tools/pointer-freeze.sh) is on, this deploy publishes only the frozen version:
 # both Mac pointers must name it. The freeze is the marker in $H (the tree that deploys) OR on origin/main, so a stale
 # checkout on another Mac cannot publish over a freeze it has not pulled. A fetch that fails is said, and $H decides.
+# As every writer (tools/lib/pointer-freeze.sh): a site origin that cannot be fetched refuses (nothing deployed), unless
+# KOSMOS_POINTER_FREEZE_OFFLINE=1 says to decide on $H.
+. "$REPO/tools/lib/pointer-freeze.sh"
 FROZEN_SRC=""
 if git -C "$SITE" cat-file -e "$H:dist/POINTER_FROZEN" 2>/dev/null; then FROZEN_SRC="$H"
-elif git -C "$SITE" fetch -q origin main 2>/dev/null; then
+elif ! git -C "$SITE" remote get-url origin >/dev/null 2>&1; then :   # no origin at all: $H decides
+elif pointer_freeze_fetch "$SITE"; then
   git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null && FROZEN_SRC="origin/main"
+elif [ "${KOSMOS_POINTER_FREEZE_OFFLINE:-}" = 1 ]; then
+  echo "deploy-site: could not fetch origin/main; KOSMOS_POINTER_FREEZE_OFFLINE=1, so deciding the pointer freeze on $H (kosmos#6620)"
 else
-  echo "deploy-site: could not fetch origin/main to check the pointer freeze (kosmos#6620); deciding on $H alone"
+  echo "deploy-site: could not fetch origin/main to check the pointer freeze (kosmos#6620) -- refusing; nothing was deployed. Try again, or set KOSMOS_POINTER_FREEZE_OFFLINE=1 to decide on $H."; exit 1
 fi
 if [ -n "$FROZEN_SRC" ]; then
   FROZEN_AT=$(git -C "$SITE" show "$FROZEN_SRC:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^mac=//p' | head -1)
@@ -866,10 +872,11 @@ case "$LIVE_PTRS_NOW" in *" 000 "*) echo "deploy-site: could not re-read the liv
 # kosmos#6620: asked again just before vercel (the fetches above take minutes): a freeze pushed meanwhile from another
 # machine, at a version or bytes other than what this deploy carries, stops it. This narrows the window to the deploy
 # itself; it does not close it (a freeze landing while vercel uploads is not seen here).
-if git -C "$SITE" fetch -q origin main 2>/dev/null && git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then
+if pointer_freeze_fetch "$SITE" && git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then
   _late_v=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^mac=//p' | head -1)
   _late_sha=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^sha256=//p' | head -1)
-  if [ "$(ptr_version "$CJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CJ")" != "$_late_sha" ]; }; then
+  if [ "$(ptr_version "$CJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CJ")" != "$_late_sha" ]; } \
+    || { [ -n "$CSJ" ] && { [ "$(ptr_version "$CSJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CSJ")" != "$_late_sha" ]; }; }; }; then
     echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy carries $(ptr_version "$CJ") -- refusing (kosmos#6620); nothing was deployed"
     rm -rf "$EXPORT"; exit 1
   fi
