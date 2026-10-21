@@ -131,7 +131,7 @@ Fail-safe, left: a destructured require of a listed wrapper is refused (none in 
   spaces around a one-command string.
 - Fail-safe, left: `|| true`, `2>/dev/null`, `-f /dev/null` before -L, and prose kill-server strings are flagged.
 
-## Review 9 (Opus, scoped): one realistic accident, three lower; fixed (102 controls)
+## Review 9 (Opus, scoped): one realistic accident, three lower; fixed (101 controls, counted)
 - In scope and real: sandbox.test.js builds its socket path into a const, then passes ['-S', sock, 'kill-server'].
   A copied status.js builder inside that const passed. The -S value is now traced through plain variables, three
   levels deep, and the same refusals apply to everything it is built from. os.tmpdir() joined with 'tmux-...' and no
@@ -142,3 +142,16 @@ Fail-safe, left: a destructured require of a listed wrapper is refused (none in 
 - Controls for the six arms with none (env, /private in shape 3, a call not an array, a non-require reassignment, an
   object never required, WRAPPERS keyed by file) and regexOk's name arm. Three new arms mutated: each control red.
 - Header: a path more than three variables away, or through a parameter, is a stated limit.
+
+## Review 10 (Sonnet, scoped): my round-9 trace overreached; replaced by one rule that GRANTS (111 controls, counted)
+- Round 9's trace read every same-named declaration in the file (one test's const condemned or vouched for another's),
+  and its five refusal rules missed $TMUX (inside an agent's pane that IS the machine's server) while refusing two
+  ordinary private sockets. Same lesson as round 4: each refusal rule opens a new edge.
+- Now -S is accepted only when its value is built from a folder made by mkdtemp, in the value or the NEAREST
+  declaration before it of each variable, three levels deep. All three fixed sites do exactly that. It closes
+  TMUX_TMPDIR, $TMUX, /tmp and os.tmpdir() without listing them. A fixed path is refused even when private
+  (fail-safe; make the folder with mkdtemp). -L: refused only for 'default', direct or as the nearest value.
+- Stated limits added: tracing is by position, not scope (a nearer declaration in a closed block is read; refuses,
+  never passes); a property named mkdtemp is read as the call.
+- Mutants: the rule off, depth 2, first-not-nearest declaration: each turns its controls red.
+- The plan's "101 controls" earlier was a miscount of a different grep; this count is the controls file's own.
