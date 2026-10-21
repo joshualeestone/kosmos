@@ -3766,28 +3766,73 @@ function sendJson(res, code, obj) {
    file that cannot be opened. */
 let DOWNLOAD_STALL_MS = 120 * 1000;
 function _setDownloadStallForTest(ms) { DOWNLOAD_STALL_MS = ms == null ? 120 * 1000 : ms; }
-function sendFileStream(req, res, file, unread, headers) {
+
+/* #6805: one `Range: bytes=...` against a file of `size` bytes (RFC 9110 14.1.2). Answers { start, end } (both
+   inclusive) for a range to send, 'unsatisfiable' for a 416, or null when the header is to be ignored and the whole
+   file sent: no header, another unit, a malformed spec, or more than one range (no multipart answers). */
+function parseByteRange(header, size) {
+  if (typeof header !== 'string') return null;
+  const m = /^\s*bytes\s*=\s*(\d*)\s*-\s*(\d*)\s*$/i.exec(header);
+  if (!m || (m[1] === '' && m[2] === '')) return null;
+  if (m[1] === '') {   // `-n`: the last n bytes
+    const n = Number(m[2]);
+    if (n === 0 || size === 0) return 'unsatisfiable';
+    return { start: Math.max(0, size - n), end: size - 1 };
+  }
+  const start = Number(m[1]);
+  // `b < a` is not a valid spec, so the header is ignored. Compared with the end as WRITTEN: `a-` past the file is a
+  // 416, not a spec whose filled-in end (size - 1) happens to fall before its start.
+  if (m[2] !== '' && Number(m[2]) < start) return null;
+  if (!Number.isSafeInteger(start) || start >= size) return 'unsatisfiable';
+  return { start, end: m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1) };
+}
+
+/* `opts.etag`, when given, lets a GET ask for one byte range (#6805), so a cut download resumes instead of starting
+   again. Only a caller whose file never changes under the same address may pass it: the ETag is what stops a resume
+   from joining the end of one file onto the start of another. */
+function sendFileStream(req, res, file, unread, headers, opts = {}) {
   let fd = null;
   let size = 0;
+  let start = 0;
+  let length = 0;
   try {
     // Review 3: without blocking, so a FIFO put in a file's place cannot stall the board; isFile() then refuses it.
     fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
     const st = fs.fstatSync(fd);
     if (!st.isFile()) throw new Error('not a file');
     size = st.size;
-    res.writeHead(200, { ...headers, 'content-length': size });   // review 4: inside the try, so a throw closes fd
+    length = size;
+    const ranged = opts.etag ? { ...headers, 'accept-ranges': 'bytes', etag: opts.etag } : headers;
+    /* #6805: an If-Range that is not exactly this file's ETag (another file's, or a date: no Last-Modified is sent)
+       means the client's first part may be of different bytes, so it gets the whole file. */
+    const range = opts.etag && req.method === 'GET' && (req.headers['if-range'] === undefined || req.headers['if-range'] === opts.etag)
+      ? parseByteRange(req.headers.range, size) : null;
+    if (range === 'unsatisfiable') {
+      fs.closeSync(fd);
+      fd = null;
+      res.writeHead(416, { ...ranged, 'content-range': `bytes */${size}`, 'content-length': 0 });
+      res.end();
+      return;
+    }
+    if (range) {
+      start = range.start;
+      length = range.end - range.start + 1;
+      res.writeHead(206, { ...ranged, 'content-range': `bytes ${range.start}-${range.end}/${size}`, 'content-length': length });
+    } else {
+      res.writeHead(200, { ...ranged, 'content-length': size });   // review 4: inside the try, so a throw closes fd
+    }
   } catch {
     if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ }
     if (!res.headersSent) sendJson(res, 404, { error: unread });
     else res.destroy();
     return;
   }
-  if (req.method === 'HEAD' || size === 0) { res.end(); try { fs.closeSync(fd); } catch { /* closed */ } return; }
+  if (req.method === 'HEAD' || length === 0) { res.end(); try { fs.closeSync(fd); } catch { /* closed */ } return; }
   /* Review 2: read no further than the size measured, so a file that grows meanwhile cannot overrun Content-Length.
      Review 4: and one that shrank cuts the response at its end instead of ending it short, so a keep-alive client is
-     not left waiting for bytes that will never come. */
-  const rs = fs.createReadStream(null, { fd, start: 0, end: size - 1, autoClose: true });
-  rs.once('end', () => { if (rs.bytesRead < size) res.destroy(); });
+     not left waiting for bytes that will never come. #6805: both measured against the range sent, not the file. */
+  const rs = fs.createReadStream(null, { fd, start, end: start + length - 1, autoClose: true });
+  rs.once('end', () => { if (rs.bytesRead < length) res.destroy(); });
   /* Review 26: a client that stays connected but stops reading would hold the descriptor for ever; as the folder zip
      does (ZIP_STALL_MS), a download that moves no bytes for DOWNLOAD_STALL_MS is ended, which closes it. */
   let stall = null;
@@ -19277,7 +19322,7 @@ const server = http.createServer(async (req, res) => {
       'content-type': rec.type, 'x-content-type-options': 'nosniff',
       'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(rec.name),
       'content-security-policy': "default-src 'none'; sandbox",
-    });
+    }, { etag: `"${rec.id}"` });   // #6805: a stored attachment never changes, so its id names its bytes
     return;
   }
   if (pathname === '/api/unfurl' && req.method === 'GET') {
@@ -26020,6 +26065,7 @@ module.exports = {
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
   _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
   _setDownloadStallForTest, // kosmos#6734: the download's stall timeout, for its test
+  parseByteRange, // kosmos#6805: the Range parser, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up
