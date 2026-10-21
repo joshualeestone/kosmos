@@ -1,0 +1,36 @@
+# pdfprint-6849: the same source rendered twice gives one fingerprint (kosmos#6849)
+
+**Card.** From a user's feedback (Splinter triage): re-rendering the same markdown gives PDFs with different hashes
+(embedded creation timestamps), so agents cross-checking a handed-off document cannot compare like with like.
+
+**Measured (2026-10-21, one markdown file rendered twice on this Mac, 1.2 s apart):**
+- pandoc + WeasyPrint: identical bytes (it writes no dates).
+- Chrome print to PDF (Playwright page.pdf): 2 bytes differ, inside /CreationDate and /ModDate.
+- macOS cupsfilter: 62 bytes differ, in /CreationDate, /ModDate and the trailer /ID pair.
+Nothing else differs.
+
+**Where Kosmos fingerprints files:** `kosmos task built --file` (install/kosmos: shasum; tools/windows/kosmos-cli.js: node
+crypto) and `kosmos handoff` (engine/handoff.js). All three were the plain sha256 of the bytes. Kosmos renders no PDFs.
+
+**The call: a fingerprint that leaves a PDF's own clock and identity out, not a deterministic render.** Kosmos does not
+render the PDFs, so it cannot fix their metadata at the source; agents use whatever tool they have.
+- One function, engine/fileprint.js, used by all three and by a new `kosmos fingerprint <file>` (Mac and Windows).
+- For any file but a PDF it is the plain sha256 (what `shasum -a 256` prints), so nothing changes for those.
+- For a PDF (header in the first 1024 bytes) it is the sha256 with /CreationDate, /ModDate (literal or hex strings),
+  the /ID pair, and the XMP CreateDate, ModifyDate, MetadataDate, DocumentID and InstanceID emptied.
+- Same `sha256:<hex>` shape, so the board, its check and its displays need no change.
+- The agent instruction (engine/defaults.js) says to check a copy with `kosmos fingerprint`.
+- Rejected: a second "content" fingerprint beside the raw one (the board, its regex and both displays would change for
+  the same benefit); a deterministic render (not Kosmos's to make).
+
+**Done when.** The two real Chrome renders, and the two real cupsfilter renders, each give one fingerprint while their
+plain sha256s differ (the control); a render with one word changed gives another; a non-PDF gives its plain sha256;
+`kosmos fingerprint` and `task built --file` give the same value on Mac and Windows.
+
+**Weakest premise.** That the volatile fields sit in uncompressed objects. A PDF that keeps its document info in a
+compressed object stream is hashed as it is (its dates are not read without inflating every stream). Also a PDF over
+512 MiB is hashed as plain bytes rather than held in memory.
+
+## Tests run
+- engine/fileprint-6849.test.js 7/7 (real fixtures in test-support/fileprint-6849/).
+- engine/handoff.test.js 23/23 after the move.
