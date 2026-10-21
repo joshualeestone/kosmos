@@ -27,11 +27,12 @@ and win32update.begin (Windows). Its plan named three installs the pause did not
   runs, so a board's update asks once, not twice.
 
 ## Decided
-- **The installer asks only for a release from the production site** (KOSMOS_RELEASE_BASE under
-  https://installkosmos.com/), unless a test names the address. Every test installs from a file:// or local release,
-  and 37 tools/ scripts run the installer, some inside `env -i` sandboxes that drop tools/run-tests.sh's dead-port
-  export. Gating on the release site means none of them can ever ask the production coordinator (and during an
-  incident pause, a cut's own install gate is not held). Rejected: exporting the dead port into every sandbox (37
+- **The installer asks only for bytes from the production site**: KOSMOS_RELEASE_BASE under
+  https://installkosmos.com/ and no local copy (KOSMOS_SRC), unless a test names the address. 37 tools/ scripts run
+  the installer, some inside `env -i` sandboxes that drop tools/run-tests.sh's dead-port export, and they install from
+  a file:// or local base; the Linux CI job (test-linux-setup-4920) and a thumb-drive install supply KOSMOS_SRC with
+  the default base. So none of those asks the production coordinator, and during an incident pause a cut's own
+  install gate is not held. (Review 3 found the first version gated on the base alone and missed KOSMOS_SRC.) Rejected: exporting the dead port into every sandbox (37
   places to forget one). Cost: an install from a mirror or a staging host is not held; the pause is containment for
   the production release, which is the one a fleet takes.
 - **The shell read is a pattern, not a JSON parse**: `"updates_paused"` then `:` then `true` then `,` or `}`, with any
@@ -74,3 +75,11 @@ fail open, nothing newer); native-app.update-ifnewer-4382.test.js (the paused ar
   Left, stated: on Linux the installer's ask fails open if /usr/bin/curl, tr or grep is missing (this card is the Mac
   paths). An older signed installer run by a new run-setup does not unset KOSMOS_UPDATE_PAUSE_ASKED, so its board
   inherits it until the fleet carries this installer. Each held look adds one line to install.log.
+- Review 3 (opus): BLOCKER, a local-copy install (KOSMOS_SRC, the Linux CI job, a thumb drive) kept the default
+  production base and so asked the production coordinator, and would be held during a real pause: the ask now skips
+  when KOSMOS_SRC supplies the bytes, with an arm. WARNING, a repair or reinstall of the SAME version was held, with a
+  sentence ("keeps working") false for a broken install: only a target NEWER than the installed version (compared by
+  number, with arms for 1.10.0 over 1.9.9, equal and older) or a version either side cannot read is held, and the
+  sentence now says nothing was installed and Kosmos stays as it is. The lifted function now runs under setup.sh's
+  `set -eu` and pipefail. A mutant comparing as text survives because it is equivalent (awk's split yields numeric
+  strings); the `+ 0` is belt and braces.

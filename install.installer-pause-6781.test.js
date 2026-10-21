@@ -42,7 +42,8 @@ function lifted() {
 /** Runs update_paused with setup.sh's variables; true when it says paused. */
 function asks(vars) {
   const env = { PATH: '/usr/bin:/bin', HOME: tmp, FRESH_INSTALL: 'no', KOSMOS_RELEASE_BASE: 'https://installkosmos.com/dist', ...vars };
-  const r = spawnSync('/bin/sh', ['-c', lifted() + '\nif update_paused; then echo PAUSED; else echo NOT; fi'], { encoding: 'utf8', env });
+  // Under setup.sh's own shell options, so a pipefail or unset-variable regression in the ask shows here.
+  const r = spawnSync('/bin/sh', ['-c', 'set -eu; set -o pipefail\n' + lifted() + '\nif update_paused; then echo PAUSED; else echo NOT; fi'], { encoding: 'utf8', env });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.trim() === 'PAUSED';
 }
@@ -54,6 +55,26 @@ test('installer: an update in place is held while paused; CONTROL: not paused, a
     assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: meta(body) }), false, body);
   }
   assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: 'file://' + path.join(tmp, 'no-such-meta.json') }), false, 'no answer is not paused');
+});
+
+/** An installed copy at version v, as KOSMOS_HOME. */
+function installedAt(v) {
+  const h = fs.mkdtempSync(path.join(tmp, 'home-'));
+  fs.mkdirSync(path.join(h, 'app'), { recursive: true });
+  fs.writeFileSync(path.join(h, 'app', 'package.json'), JSON.stringify({ name: 'kosmos', version: v }, null, 2) + '\n');
+  return h;
+}
+
+test('installer: only a NEWER version is held; a repair or reinstall of the same version, or an older one, is not', () => {
+  const paused = meta('{"updates_paused": true}');
+  const at = (have, target) => asks({ KOSMOS_UPDATE_PAUSE_URL: paused, KOSMOS_HOME: installedAt(have), TARGET_VERSION: target });
+  assert.equal(at('1.2.0', '1.2.3'), true, 'newer: held');
+  assert.equal(at('1.9.9', '1.10.0'), true, 'newer by number, not by text: held');
+  assert.equal(at('1.2.3', '1.2.3'), false, 'the same version (a repair): not held');
+  assert.equal(at('1.10.0', '1.9.9'), false, 'older: not held');
+  assert.equal(at('1.2.3', ''), true, 'a version this run could not read: held');
+  assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: paused, KOSMOS_HOME: path.join(tmp, 'no-such-home'), TARGET_VERSION: '1.2.3' }), true,
+    'an installed version that cannot be read (a broken install): held');
 });
 
 test('installer: a first install, run-setup\'s own run, and the operator override are never held', () => {
@@ -70,6 +91,8 @@ test('installer: with no address named, only a release from the production site 
   fs.mkdirSync(path.join(coord, 'v1'), { recursive: true });
   fs.writeFileSync(path.join(coord, 'v1', 'meta'), '{"updates_paused": true}');
   assert.equal(asks({ AGENT_WORKFORCE_TUNNEL_COORDINATOR: 'file://' + coord + '/' }), true, 'production release: asked');
+  // A local copy supplies the bytes (a thumb drive, a CI tree): nothing comes from the production site, so nothing is asked.
+  assert.equal(asks({ AGENT_WORKFORCE_TUNNEL_COORDINATOR: 'file://' + coord, KOSMOS_SRC: '/some/tree' }), false, 'KOSMOS_SRC asked');
   for (const base of ['file:///tmp/dist', 'http://127.0.0.1:8080/dist', 'https://installkosmos.com.evil.test/dist', 'https://staging.installkosmos.com/dist']) {
     assert.equal(asks({ AGENT_WORKFORCE_TUNNEL_COORDINATOR: 'file://' + coord, KOSMOS_RELEASE_BASE: base }), false, base + ' asked');
   }
@@ -89,7 +112,7 @@ test('installer: the ask runs before the update is downloaded or anything instal
   assert.match(block, /Updates are paused while Kosmos checks a problem with a release/);
   // run-setup's word that it asked is not passed on to the board or anything else the installer starts.
   const after = SETUP.slice(SETUP.indexOf('\nfi\n', call));
-  assert.ok(/^\nfi\n(#.*\n)*unset KOSMOS_UPDATE_PAUSE_ASKED\n/.test(after), 'KOSMOS_UPDATE_PAUSE_ASKED must be unset right after the ask');
+  assert.ok(/^\nfi\n(#.*\n)*unset KOSMOS_UPDATE_PAUSE_ASKED[ \n]/.test(after), 'KOSMOS_UPDATE_PAUSE_ASKED must be unset right after the ask');
 });
 
 test('run-setup tells the installer it has already asked', () => {
