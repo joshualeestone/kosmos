@@ -2689,6 +2689,18 @@ function communityValveRelease(agentId, at) {
 // cross-identity DoS) -- the Symbol removes the collision rather than asserting it away.
 const COMMUNITY_HUMAN_VALVE_KEY = Symbol('community-human-valve');
 
+/* #6949: the 🙋 claim on one room post as the room read shows it ({by, at} or null), for the person's react and
+   free-claim routes, so their one-row repaint labels the pill as the full room read does. Read only when a 🙋 is among
+   the post's reactions, filtered by the stored record's members as the room read is. Best-effort: null on any failure,
+   and the next room read draws it right. */
+function roomPostClaim(projectId, postId, reactions) {
+  try {
+    if (!Array.isArray(reactions) || !reactions.some((r) => r && messages.isClaimEmoji(r.emoji))) return null;
+    const stored = projects.readAll().find((p) => p && p.id === projectId) || null;
+    return messages.claimOf(postId, messages.record().rows, messages.claimMembers(stored && stored.agents));
+  } catch { return null; }
+}
+
 function safeRoster() {
   try {
     const board = snapshot();
@@ -21559,7 +21571,50 @@ const server = http.createServer(async (req, res) => {
         /* The fresh reactions for this post, from the operator's viewpoint. */
         let reactions = [];
         try { reactions = messages.reactionsFor(out.of, messages.record().rows, 'you'); } catch { reactions = []; }   // #4631: the canonical id (the route takes '530' too)
-        sendJson(res, 200, { ok: true, op: out.op, emoji: out.emoji, of: out.of, reactions });
+        // #6949: and the claim, so the one-row repaint keeps the 🙋 pill labelled as a claim.
+        const claim = roomPostClaim(found.id, out.of, reactions);
+        sendJson(res, 200, { ok: true, op: out.op, emoji: out.emoji, of: out.of, reactions, ...(claim ? { claim } : {}) });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
+  /* #6949: the person FREES the 🙋 claim on a room post, for an agent that went quiet holding it. Its own POST route,
+     the person's only (agents give a claim back with `kosmos claim --release`; this route is not in
+     AGENT_TOKEN_ROUTES), board-token gated like the react route above. The body names the holder the page showed
+     (`by`), so a claim that changed hands since is refused rather than freed. Answers with the post's fresh reactions
+     and claim, the react route's shape, so the page repaints the one row. */
+  const roomFree = pathname.match(/^\/api\/project\/([^/]+)\/room\/([^/]+)\/free-claim$/);
+  if (roomFree && req.method === 'POST') {
+    const id = decodeSegment(roomFree[1]);
+    const postId = decodeSegment(roomFree[2]);
+    if (id === null || postId === null) { sendJson(res, 400, { error: 'that is not something we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read'); bad.status = 400; throw bad;
+        }
+        if (!body || typeof body !== 'object') {
+          const bad = new Error('that request is not the shape we expect'); bad.status = 400; throw bad;
+        }
+        /* A caller that presents an agent token is an agent, whatever else it holds: freeing another agent's claim is
+           the person's alone. Advisory like the board's other person-only routes (#4491 is what closes the rest). */
+        if (presentedAgentToken(req, body)) { sendJson(res, 403, { ok: false, because: 'only the person can free a claim; give your own back with kosmos claim --release' }); return; }
+        let stored = null;
+        try { stored = projects.readAll().find((p) => p && p.id === id) || null; } catch {
+          sendJson(res, 503, { ok: false, because: 'we could not read your projects just now, so nothing was freed' });
+          return;
+        }
+        if (!stored) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
+        // The members the room read filters claims by (the stored record's names), so the holder freed is the one shown.
+        const out = messages.freeClaim({ project: stored.id, of: postId, by: body.by, members: stored.agents });
+        if (!out.ok) { sendJson(res, out.claimedBy ? 409 : 400, out); return; }   // 409: the claim changed hands since the page drew it
+        let reactions = [];
+        try { reactions = messages.reactionsFor(out.of, messages.record().rows, 'you'); } catch { reactions = []; }
+        const claim = roomPostClaim(stored.id, out.of, reactions);
+        sendJson(res, 200, { ...out, reactions, ...(claim ? { claim } : {}) });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));

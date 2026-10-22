@@ -3029,6 +3029,61 @@ test('#6946: kosmos claim through the real /api/react route, and `kosmos room` s
   });
 });
 
+test('#6949: the person frees a quiet agent\'s claim through the real route; the agents\' room read says so and the page\'s does not', async () => {
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    const posted = await post(`/api/project/${project.id}/room`, { text: 'can someone take the release notes' });
+    assert.equal(posted.status, 200, posted.body);
+    const id = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((r) => r.kind === 'post').slice(-1)[0].id;
+    const tok = require('./engine/sendertoken').mint('zeta').token;
+    const asZeta = (body) => fetch(base + '/api/react', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+      body: JSON.stringify({ project: project.id, of: id, from_pane: '', ...body }) }).then((r) => r.json());
+    assert.equal((await asZeta({ claim: 'claim' })).op, 'add');
+
+    // The person's 🙋 click answers with the claim too, so the page's one-row repaint keeps the pill labelled.
+    const agreed = json(await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' }));
+    assert.equal(agreed.claim && agreed.claim.by, 'zeta', 'the react route\'s answer has no claim: ' + JSON.stringify(agreed));
+    assert.equal(json(await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' })).op, 'remove');
+
+    // A page that drew someone else as the holder is refused (409, naming zeta), and nothing is freed.
+    const stale = await post(`/api/project/${project.id}/room/${id}/free-claim`, { by: 'ann' });
+    assert.equal(stale.status, 409, stale.body);
+    assert.equal(JSON.parse(stale.body).claimedBy, 'zeta');
+    let res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'a refused free still freed the post:\n' + res.body);
+    assert.doesNotMatch(res.body, /The person freed the claim/, 'a refused free wrote the note');
+
+    const freed = await post(`/api/project/${project.id}/room/${id}/free-claim`, { by: 'zeta' });
+    assert.equal(freed.status, 200, freed.body);
+    const out = JSON.parse(freed.body);
+    assert.equal(out.op, 'freed');
+    assert.equal(out.freed, 'zeta');
+    assert.deepEqual(out.reactions, [], 'the answer still lists zeta\'s 🙋');
+    assert.equal(out.claim, undefined, 'the answer still carries a claim');
+
+    // The agents' view: the claim line is gone and the note names the post and zeta. The page's view leaves the note out.
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.doesNotMatch(res.body, /is claimed by/, 'the freed claim still printed');
+    assert.ok(res.body.includes('The person freed the claim zeta held on [' + id + '], so another agent can claim it now.'),
+      'the agents\' room read does not say the claim was freed:\n' + res.body);
+    const page = JSON.parse((await req(`/api/project/${project.id}/room`)).body);
+    assert.equal(page.rows.find((r) => r.id === id).claim, undefined);
+    assert.ok(!page.rows.some((r) => r.kind === 'note' && /freed the claim/.test(String(r.text || ''))), 'the person\'s room shows the agents-only note');
+
+    // Freeing again is a no-op, and the post can be claimed again.
+    assert.equal(json(await post(`/api/project/${project.id}/room/${id}/free-claim`, { by: 'zeta' })).op, 'none');
+    assert.equal((await asZeta({ claim: 'claim' })).op, 'add', 'the freed post could not be claimed again');
+
+    // An agent token cannot use the person's route.
+    const asAgent = await fetch(base + `/api/project/${project.id}/room/${id}/free-claim`, { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok }, body: JSON.stringify({ by: 'zeta' }) });
+    assert.notEqual(asAgent.status, 200, 'an agent token freed a claim through the person\'s route');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'the agent-token call freed the claim:\n' + res.body);
+  });
+});
+
 test('#2702: the room rejects an UNKNOWN project id (404) but still serves a real empty project (200)', async () => {
   /* Before this, `room` rendered ANY id as an empty room, so a typo or a
      hyphenated-name guess was indistinguishable from silence -- while `post`

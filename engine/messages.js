@@ -3604,6 +3604,39 @@ function claimAge(at, now) {
   return d === 1 ? '1 day ago' : d + ' days ago';
 }
 
+/* #6949: the PERSON frees the claim on post `of`, for a holder that went quiet (stopped, stuck, or moved on without
+   giving it back). Only the person's route calls this; react() never lets the person's 🙋 take a claim over (#6946
+   round 3). `by` is the holder the page showed: if the claim has changed hands since (released, or someone else holds
+   it now) nothing is written and the answer says who holds it, so a stale page cannot free the wrong agent.
+   Every live 🙋 form of the holder is removed with `takenBy: 'you'`, as react()'s takeBack writes them, and an
+   agents-only room note names the post and the old holder, so the holder's next `kosmos room` read says it was freed.
+   `members` is the project's stored members (roomClaimOf's filter), so the holder freed is the one the room shows. */
+function freeClaim({ project, of, by, members }) {
+  const projectId = String(project == null ? '' : project).trim();
+  const postId = messageIdOf(of);
+  const shown = typeof by === 'string' ? by.trim() : '';
+  if (!projectId) return { ok: false, because: 'we could not tell which project this post is in' };
+  if (!postId) return { ok: false, because: 'we could not tell which post to free' };
+  if (!shown) return { ok: false, because: 'we could not tell whose claim to free' };
+  const rows = record().rows;
+  const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
+  if (!post) return { ok: false, because: 'there is no post by that id in this room' };
+  const room = claimMembers(members);
+  const holder = claimOf(postId, rows, room);
+  if (!holder) return { ok: true, op: 'none', of: postId };   // already free: what the person asked for is true
+  if (holder.by !== shown) return { ok: false, claimedBy: holder.by, claimedAt: holder.at, of: postId,
+    because: shown + ' no longer holds that post; ' + holder.by + ' claimed it ' + claimAge(holder.at) + ', so nothing was freed' };
+  const c = claimantsOf(postId, rows, room).get(holder.by);
+  const at = new Date().toISOString();
+  for (const em of c.emojis) {
+    appendLog({ kind: 'reaction', project: projectId, of: postId, at, emoji: em, op: 'remove', from: holder.by, takenBy: 'you' });
+  }
+  roomNote(projectId, 'The person freed the claim ' + holder.by + ' held on [' + postId + '], so another agent can claim it now.'
+    + ' ' + holder.by + ', if you are still working on it, say so in the room before you claim it again.',
+  { audience: NOTE_AUDIENCE_AGENTS });
+  return { ok: true, op: 'freed', of: postId, freed: holder.by };
+}
+
 /* #4631: a message id as a PERSON may write it. Ids are stored as 'm' + a number, one sequence for the whole
    Kosmos, so the number alone names the message. A person copies "message 530 in Kosmos Growth" (the page's
    Copy message reference, #5312: Copy message id) and pastes it to an agent, or types "530"; each input point runs its value
@@ -4137,7 +4170,7 @@ module.exports = {
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
-  react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji,
+  react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji, freeClaim,
   messageIdOf, // #4631
   operatorDirect, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,
