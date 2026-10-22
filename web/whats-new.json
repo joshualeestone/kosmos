@@ -19,7 +19,7 @@
     {
       "icon": "shield",
       "title": "Files show a fingerprint",
-      "line": "An agent's Files screen and a project's Documents screen (In the project folder) show a fingerprint beside files, to tell copies apart."
+      "line": "An agent's Files screen and a project's Documents screen show a fingerprint beside the files in their folders, to tell copies apart."
     },
     {
       "icon": "tasks",
