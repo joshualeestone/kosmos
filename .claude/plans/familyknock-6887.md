@@ -18,15 +18,23 @@ Two more gaps sat under that, both found by running with the knock in place:
    as "that sign-in is not valid any more".
 
 ## The change (tools/family-e2e-6239.js only)
-- `knockAt(b, token)`: TLS to the relay's public port with SNI = the board's registered `address`, trusting `ca.crt`
-  from its tunnel state, then `POST /_kosmos/session` with the session, as kosmos-relay crates/e2e/tests/door.rs does.
+- `knockAt(b, token)`: `https.request` to the relay's public port with SNI = the board's registered `address`,
+  trusting `ca.crt` from its tunnel state, `POST /_kosmos/session` with the session, as kosmos-relay
+  crates/e2e/tests/door.rs sends it. 4b asks again a second apart until the gate says wait (no new try after 30 s),
+  because two refusals are momentary: no answer while the tunnel attaches, and 403 "not valid any more" until the
+  tunnel's first poll names the account (gate.rs `ACCOUNT_NOT_KNOWN_YET`).
 - 4b gains one check: the gate answers 403 `{"pending":true,"code":...}` with the code the sign-up showed. STEP_CHECKS
-  4b goes 3 -> 4 (25 checks).
+  4b goes 3 -> 4, so 25 step checks, plus the closing "every check ran" check: 26 in the verdict.
 - The relay gets `--domain FEDPROOF_DOMAIN`; each board's env gets `KOSMOS_REQUIRE_SECOND: '0'` (the tunnel inherits
   the board's env, engine/remote.js).
 
 ## Measured (Agent1s, 2026-10-22; binaries built from kosmos-relay origin/main 3b3ad987d, debug, --locked)
-- With the change: VERDICT PASS 26/26, 62 s (log ~/.cache/claude-handoffs/baron-jobs/e2e-6887d.log).
+Logs in ~/.cache/claude-handoffs/baron-jobs/.
+- With the change, on this branch's final code: VERDICT PASS 26/26, 62 s; the knock is told to wait at 2 s
+  (e2e-6887g.log). Earlier forms of the knock passed the same way (e2e-6887d, e, f).
+- Control for the second-step fix, the final code with only `KOSMOS_REQUIRE_SECOND` removed: the gate still answers
+  403 "not valid any more" when the 30 s of retries run out (32 s), 4b red (e2e-6887-ctl2.log). So the refusal is the
+  second-step rule, not the momentary account-not-known one, which the retries outlast.
 - Control, the same file with only the knock call disabled: 4b red ("P lists the parent's browser" fails after 60 s),
   6 to 11 never run (e2e-6887-ctl.log). So the knock is what makes P list the browser.
 - Before the domain fix: the relay log shows the ticket refusal above (e2e-6887b.log run). Before the second-step fix:
@@ -38,9 +46,9 @@ coordinator replaces the id a browser offers, #5422, and the sign-up answer does
 gate a real browser goes through.
 
 ## Weakest premise
-That the second-step refusal was the reason for "not valid any more": the tunnel logs to stdout, which the board
-discards (engine/remote.js spawns it with stdout ignored), so its refusal line was not read. It is the only refusal in `admit` that fits the state on disk (own account matches, no cutoffs, not a
-computer id), and setting the variable alone turned it into 403 pending.
+The tunnel logs to stdout, which the board discards (engine/remote.js spawns it with stdout ignored), so its refusal
+line was never read. Which refusal it was is shown only by the control above: two refusals share the visitor's words,
+and only the second-step one outlasts 30 s of retries. A third refusal that also persisted would read the same.
 
 ## Not changed
 tools/fed-own-e2e.js starts its relay the same way (no `--domain`), but no step there needs a visitor to reach a board.
