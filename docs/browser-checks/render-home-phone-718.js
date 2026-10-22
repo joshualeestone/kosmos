@@ -211,8 +211,11 @@ function emptySpot(page, sel) {
             if (!ada) return { error: 'no ada card' };
             const r = (sel) => { const e = ada.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, r: b.right, t: b.top, b: b.bottom }; };
             // Every child of an ordinary card sits in a named grid area: a new line the areas do not name would fall
-            // into an implicit row under the model line.
-            const unplaced = cards.flatMap((c) => [...c.children].filter((k) => getComputedStyle(k).display !== 'none' && getComputedStyle(k).gridArea.split('/').every((p) => p.trim() === 'auto')).map((k) => k.className));
+            // into an implicit row under the model line. #6719: an out-of-flow child (the star, absolutely placed in the
+            // card's corner) is not a line and takes no row, so it is not counted.
+            const unplaced = cards.flatMap((c) => [...c.children].filter((k) => getComputedStyle(k).display !== 'none'
+              && !['absolute', 'fixed'].includes(getComputedStyle(k).position)
+              && getComputedStyle(k).gridArea.split('/').every((p) => p.trim() === 'auto')).map((k) => k.className));
             return { columns: lefts.size, cards: cards.length, g: r('.agauge'), n: r('.aname'), m: r('.ameta'), st: r('.astate'), task: r('.atask'), unplaced };
           });
           if (card.error || !card.g || !card.n || !card.m || !card.st || !card.task) { chk(false, `${tag} the ada card and its parts are drawn`, JSON.stringify(card)); await ctx.close(); continue; }
