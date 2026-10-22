@@ -9,6 +9,9 @@ trap 'rm -rf "$work"' EXIT
 
 # One fake ipa: $1 name, $2 aps-environment ("" = absent), $3 get-task-allow, $4 application-identifier,
 # $5 team-identifier ("" = absent), $6 "shots" to make the executable carry the screenshot switch (#6262).
+# kosmos#6487: every fixture carries the notification extension (PlugIns/KosmosNotice.appex, <appid>.notice) and the
+# keychain group the two share, as a store build does. EXT (unset = that) breaks one thing about it:
+# none (no extension), devsigned (get-task-allow true), otherid (another identifier), nogroup (no shared group).
 make_ipa() {
   local dir="$work/$1"
   mkdir -p "$dir/Payload/Kosmos.app"
@@ -24,6 +27,20 @@ make_ipa() {
   /usr/libexec/PlistBuddy -c "Add :get-task-allow bool $3" "$ents" >/dev/null
   /usr/libexec/PlistBuddy -c "Add :application-identifier string $4" "$ents" >/dev/null
   [ -n "${5:-}" ] && /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string $5" "$ents" >/dev/null
+  local group="$4.shared"
+  /usr/libexec/PlistBuddy -c 'Add :keychain-access-groups array' -c "Add :keychain-access-groups:0 string $group" "$ents" >/dev/null
+  if [ "${EXT:-}" != none ]; then
+    local appex="$dir/Payload/Kosmos.app/PlugIns/KosmosNotice.appex" xents="$dir/xents.plist" xid="$4.notice"
+    mkdir -p "$appex"
+    cp /usr/bin/true "$appex/KosmosNotice"
+    [ "${EXT:-}" = otherid ] && xid="$4.other"
+    /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string KosmosNotice' -c "Add :CFBundleIdentifier string ${xid#*.}" "$appex/Info.plist" >/dev/null
+    /usr/libexec/PlistBuddy -c 'Clear dict' "$xents" >/dev/null 2>&1 || true
+    /usr/libexec/PlistBuddy -c "Add :application-identifier string $xid" "$xents" >/dev/null
+    /usr/libexec/PlistBuddy -c "Add :get-task-allow bool $([ "${EXT:-}" = devsigned ] && echo true || echo false)" "$xents" >/dev/null
+    [ "${EXT:-}" = nogroup ] || /usr/libexec/PlistBuddy -c 'Add :keychain-access-groups array' -c "Add :keychain-access-groups:0 string $group" "$xents" >/dev/null
+    codesign -f -s - --entitlements "$xents" "$appex" 2>/dev/null || { echo "could not sign $1's extension"; return 1; }
+  fi
   codesign -f -s - --entitlements "$ents" "$dir/Payload/Kosmos.app" 2>/dev/null || { echo "could not sign $1"; return 1; }
   (cd "$dir" && zip -qr "$work/$1.ipa" Payload)
 }
@@ -61,6 +78,18 @@ expect preview-build        0 production  false $T.io.kosmos.app.preview $T     
 expect preview-as-default   1 production  false $T.io.kosmos.app.preview $T     $T
 expect real-as-preview      1 production  false $T.io.kosmos.app     $T         $T io.kosmos.app.preview
 expect preview-other-team   1 production  false ZZZZZ99999.io.kosmos.app.preview ZZZZZ99999 $T io.kosmos.app.preview
+
+# kosmos#6487: the notification extension inside the app, each refused for its own reason.
+for case in "none:no notification extension" "devsigned:extension get-task-allow: true" "otherid:extension application-identifier: $T.io.kosmos.app.other" "nogroup:do not both hold the keychain group"; do
+  mode=${case%%:*}; why=${case#*:}
+  EXT=$mode make_ipa "ext-$mode" production false $T.io.kosmos.app $T >/dev/null
+  out=$("$here/check-ipa-entitlements.sh" "$work/ext-$mode.ipa" "$T"); rc=$?
+  if [ "$rc" -ne 0 ] && [ "$(printf '%s\n' "$out" | tail -1)" = "VERDICT: FAIL" ] && printf '%s\n' "$out" | grep -qF "$why"; then
+    echo "PASS  ext-$mode (refused: $why)"
+  else
+    echo "FAIL  ext-$mode: wanted the refusal '$why', got rc=$rc"; printf '%s\n' "$out" | sed 's/^/      /'; fail=1
+  fi
+done
 
 # #6262: a store-signed app that carries the screenshot switch is refused, and for that reason.
 make_ipa shots-build production false $T.io.kosmos.app $T shots >/dev/null
