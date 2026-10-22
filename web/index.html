@@ -67911,9 +67911,16 @@ function paintTaskPage() {
   for (const hid of ['tk-hold-row', 'tk-hold-hint']) { const el = document.getElementById(hid); if (el) el.hidden = TK_ACT === 'reopen'; }
   tkPaintRepeat(p, t);
   const holdHint = document.getElementById('tk-hold-hint');
+  /* #6683 item 3: a held task says who takes it off. The engine keeps a hold made here for the person alone
+     (tasks.setOnHold refuses anyone else); a hold made elsewhere (an agent, or kosmos task hold from a terminal, which
+     the board cannot tell apart) can be lifted by an agent or here. */
   if (holdHint) holdHint.textContent = p.paused === true
     ? 'This project is paused, so Kosmos does not nudge anyone about its tasks or hand them out.'
-    : 'Kosmos does not nudge anyone about a task on hold, or hand it out.';
+    : t.onHold !== true
+      ? 'Kosmos does not nudge anyone about a task on hold, or hand it out.'
+      : t.onHoldByPerson === true
+        ? 'You put this on hold, so only you can take it off, here. Kosmos does not nudge anyone about it or hand it out.'
+        : 'This was put on hold outside this screen (by an agent, or with kosmos task hold), so an agent or you can take it off. Kosmos does not nudge anyone about it or hand it out.';
 
   /**
    * Who is on it: the task's PARTS, one row each (#206 step 2).

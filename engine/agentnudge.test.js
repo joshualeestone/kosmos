@@ -361,12 +361,14 @@ test('the words are one safe line: control characters and quotes out, cut on a c
 test('#4771 review 2: the nudge names the pause verb with the project id, so a running agent learns it when it matters', () => {
   const text = nudge.nudgeText({ n: 3, projectId: 'kosmosgrowth', project: 'Kosmos Growth', sentence: 'grow' });
   assert.match(text, /Only if your person asked \(in the room or to you\) to pause this project: kosmos project pause kosmosgrowth \(the room is told you paused it\)$/);
+  // #6683: the task's own hold verb, with this task's project id and number, before the project's.
+  assert.match(text, /\. Only if your person asked to hold this task: kosmos task hold kosmosgrowth 3 \(Kosmos then stops nudging you about it\)\. Only if your person asked \(in the room or to you\) to pause/);
   assert.equal((text.match(/"/g) || []).length, 2, 'the hint added a quote');
   // CONTROL: a part with no project id (an older caller) gets the old text, with no half-written hint.
-  assert.doesNotMatch(nudge.nudgeText({ n: 3, project: 'Kosmos Growth', sentence: 'grow' }), /project pause/);
+  assert.doesNotMatch(nudge.nudgeText({ n: 3, project: 'Kosmos Growth', sentence: 'grow' }), /project pause|task hold/);
   // Review 3: an id the CLIs would not take as it is gets no hint, never a rewritten one.
-  assert.doesNotMatch(nudge.nudgeText({ n: 3, projectId: 'bad id!', project: 'X', sentence: 'grow' }), /project pause/);
-  assert.doesNotMatch(nudge.nudgeText({ n: 3, projectId: '..', project: 'X', sentence: 'grow' }), /project pause/);
+  assert.doesNotMatch(nudge.nudgeText({ n: 3, projectId: 'bad id!', project: 'X', sentence: 'grow' }), /project pause|task hold/);
+  assert.doesNotMatch(nudge.nudgeText({ n: 3, projectId: '..', project: 'X', sentence: 'grow' }), /project pause|task hold/);
 });
 
 test('the Prompter must read the agent as idle too: a card that says idle but a low-confidence reading (toAsk to unknown) is not nudged', () => {
