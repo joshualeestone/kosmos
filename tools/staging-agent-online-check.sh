@@ -199,7 +199,15 @@ tidy_agent() {
       ""|000) [ "$tries" -ge 1 ] && break; tries=$((tries+1)); sleep 1 ;;
       400) [ -z "$waited" ] && [ -z "$(body_field steps)" ] || break
            case "$(body_field because)" in "nothing of "*) break ;; esac
-           waited=1; sleep 3 ;;
+           waited=1; sleep 3
+           # The plan again before the second DELETE: after a refusal the first GET had no label and no typed words,
+           # and a board that now cannot Trash the files asks for its shown name (review 6).
+           : > "$_BODYF"
+           gcode="$("$CURL" -sS --max-time 20 -H @"$HF" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
+           if [ "$gcode" = 200 ]; then
+             label="$(body_field label)"; typed="$(body_field typeToConfirm)"
+             body="$("$NODE" -e 'process.stdout.write(JSON.stringify({typed:process.argv[1]}))' "${typed:-$nm}")"
+           fi ;;
       *) break ;;
     esac
   done
@@ -212,13 +220,6 @@ tidy_agent() {
     if [ "$toTrash" = true ]; then say "cleared '$nm': its files are in the Trash, and the name is free."
     else say "cleared '$nm': its files are deleted (the Trash could not take them), and the name is free."; fi
     return
-  fi
-  # After a plan refusal and the wait, the plan is asked once more: the label is the board's, not one guessed here.
-  if [ -n "$waited" ] && [ "$gcode" != 200 -o -z "$label" ]; then
-    : > "$_BODYF"
-    gcode="$("$CURL" -sS --max-time 20 -H @"$HF" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
-    [ "$gcode" = 200 ] && label="$(body_field label)"
-    [ -z "$label" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] && pp="$(paths_of "$nm")" && label="$(basename "${pp%%$'\n'*}" .plist)"
   fi
   local here=""
   case "$because" in
