@@ -3763,6 +3763,40 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
+/* #6903: the Update and Roll back presses. Every refusal (a non-200 answer) is logged with its sentence, and every
+   throw with its cause, so a person who saw the dialog refuse never has to be asked what it said. */
+function updatePressAnswer(res, kind) {
+  return (code, obj) => {
+    if (code !== 200) {
+      const why = (obj && obj.error) || '(no reason given)';
+      console.log(kind + ' press answered ' + code + ': ' + why + (obj && obj.detail ? ' (' + obj.detail + ')' : ''));
+    }
+    sendJson(res, code, obj);
+  };
+}
+const UPDATE_PRESS_FAILED = {
+  update: 'Kosmos could not start the update just now. Try again in a minute.',
+  rollback: 'Kosmos could not start the roll back just now. Try again in a minute.',
+};
+function updatePressThrew(res, say, kind, err) {
+  if (isGateThrowInTest(err)) throw err;
+  const detail = String((err && err.message) || err);
+  if (res.headersSent) { console.error('FAIL ' + kind + ' press after answering: ' + detail); return; }
+  console.error('FAIL ' + kind + ' press: ' + detail);
+  say(500, { error: UPDATE_PRESS_FAILED[kind] });   // the cause is in the log line above, never in the answer
+}
+/* Once the installer has started, the press is answered 200 whatever follows: a throw reading the stamp is logged and
+   the answer goes without it, never as a refusal of an install that is already running. */
+function startedStamp(kind) {
+  try {
+    const att = updates.lastAttempt();
+    return att ? att.startedAt : null;
+  } catch (err) {
+    console.error('FAIL ' + kind + ' press: started, but its start stamp could not be read: ' + String((err && err.message) || err));
+    return null;
+  }
+}
+
 /* #6734: a stored file sent from disk as a stream, never read whole, so a 100 MB attachment costs the board a
    read buffer rather than 100 MB. The file is opened and measured once, so Content-Length is the size of the very
    file that is sent. A client that goes away mid-download, and a read that fails mid-file, both end in pipeline's
@@ -15935,66 +15969,73 @@ const server = http.createServer(async (req, res) => {
    * update never touches.
    */
   if (pathname === '/api/update' && req.method === 'POST') {
-    /* kosmos#6620: the fleet's update pause, asked live (review 4) and FIRST (review 5): the ask can take seconds, so
-       every check below reads the board as it is after it, not before (a move begun meanwhile still holds the board).
-       Its refusal is answered further down, after the platform and source refusals, whose sentences are truer. With
-       nothing on offer and nothing running (review 6), the answer below is "no update" whatever the pause says: no ask. */
-    const pauseRefusal = (updates.available() || updates.alreadyInstalling()) ? await updates.pauseRefusalNow() : null;
-    const avail = updates.available();
-    if (!avail) { sendJson(res, 409, { error: 'there is no update to install right now' }); return; }
-    /* 🛑 #570: THE PLATFORM ARM GOES FIRST, AND ITS ORDER IS THE WHOLE POINT.
-       The updater ends in `spawn('/bin/sh', ...)`, which cannot exist on Windows;
-       the engine refuses it (update.selfInstallRefusal) and this is where that
-       refusal becomes something a person READS -- the confirm dialog renders this
-       route's `error` verbatim (web/index.html, uc-go's handler).
-       ⚠️ BEFORE the installedRoot arm, because on Windows that arm answers FIRST
-       and answers WRONG: the shipped Windows bundle is `runtime/node.exe`, not
-       `runtime/bin/node`, so installedRoot() reads null and a portable-zip install
-       is told "this Kosmos runs from its source code" -- a sentence that is false
-       and points at git. Two true things beat one, and the truer one goes first. */
-    const platRefusal = updates.selfInstallRefusal();
-    if (platRefusal) { sendJson(res, 409, { error: platRefusal }); return; }
-    if (moveHoldsBoard()) { sendJson(res, 409, { error: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173: the install restarts the board
-    if (!updates.installedRoot()) {
-      sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
-      return;
-    }
-    /* 🪟 S4 decision 5: a win32 bundle under OneDrive or Program Files never attempts the in-app swap
-       -- the in-app updater refuses it through the one named location rule (windowsLocationRefusal),
-       and the status already shows the manual download instead of an [Update] button, so this is the
-       belt-and-braces refusal for a stray POST, rendered verbatim in the confirm dialog. Null (and so
-       skipped) on the Mac and for a normal win32 bundle. */
-    const locationRefusal = updates.windowsLocationRefusal();
-    if (locationRefusal) { sendJson(res, 409, { error: locationRefusal }); return; }
-    // kosmos#6620: the pause asked at the top; an install that started during that ask is joined below, not refused.
-    if (pauseRefusal && !updates.alreadyInstalling()) { sendJson(res, 409, { error: pauseRefusal }); return; }
-    if (updates.alreadyInstalling()) {
-      // Idempotent: the first POST started it; a retry, a double click, or a
-      // second tab gets the same true answer without a second installer
-      // racing the first through the stage-and-swap.
-      /* The in-flight attempt is the one this second press joins; its
-         stamp rides back so a reattached overlay can see its verdict.
-         🪟 S5 (#3017): tell the truth about WHAT is running. If a rollback holds the single-flight, an
-         Update press must not claim an update is under way -- report the actual operation instead. */
-      const inflight = updates.lastAttempt();
-      const startedAt = inflight ? inflight.startedAt : null;
-      if (updates.inFlightKind() === 'rollback') {
-        sendJson(res, 200, { ok: true, already: true, operation: 'rollback', startedAt });
+    const say = updatePressAnswer(res, 'update');   // #6903: every refusal is logged with its reason
+    try {
+      /* kosmos#6620: the fleet's update pause, asked live (review 4) and FIRST (review 5): the ask can take seconds, so
+         every check below reads the board as it is after it, not before (a move begun meanwhile still holds the board).
+         Its refusal is answered further down, after the platform and source refusals, whose sentences are truer. With
+         nothing on offer and nothing running (review 6), the answer below is "no update" whatever the pause says: no ask. */
+      const pauseRefusal = (updates.available() || updates.alreadyInstalling()) ? await updates.pauseRefusalNow() : null;
+      const avail = updates.available();
+      if (!avail) { say(409, { error: 'there is no update to install right now' }); return; }
+      /* 🛑 #570: THE PLATFORM ARM GOES FIRST, AND ITS ORDER IS THE WHOLE POINT.
+         The updater ends in `spawn('/bin/sh', ...)`, which cannot exist on Windows;
+         the engine refuses it (update.selfInstallRefusal) and this is where that
+         refusal becomes something a person READS -- the confirm dialog renders this
+         route's `error` verbatim (web/index.html, uc-go's handler).
+         ⚠️ BEFORE the installedRoot arm, because on Windows that arm answers FIRST
+         and answers WRONG: the shipped Windows bundle is `runtime/node.exe`, not
+         `runtime/bin/node`, so installedRoot() reads null and a portable-zip install
+         is told "this Kosmos runs from its source code" -- a sentence that is false
+         and points at git. Two true things beat one, and the truer one goes first. */
+      const platRefusal = updates.selfInstallRefusal();
+      if (platRefusal) { say(409, { error: platRefusal }); return; }
+      if (moveHoldsBoard()) { say(409, { error: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173: the install restarts the board
+      if (!updates.installedRoot()) {
+        say(409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
         return;
       }
-      sendJson(res, 200, { ok: true, updating: avail.version, already: true, operation: 'update', startedAt });
+      /* 🪟 S4 decision 5: a win32 bundle under OneDrive or Program Files never attempts the in-app swap
+         -- the in-app updater refuses it through the one named location rule (windowsLocationRefusal),
+         and the status already shows the manual download instead of an [Update] button, so this is the
+         belt-and-braces refusal for a stray POST, rendered verbatim in the confirm dialog. Null (and so
+         skipped) on the Mac and for a normal win32 bundle. */
+      const locationRefusal = updates.windowsLocationRefusal();
+      if (locationRefusal) { say(409, { error: locationRefusal }); return; }
+      // kosmos#6620: the pause asked at the top; an install that started during that ask is joined below, not refused.
+      if (pauseRefusal && !updates.alreadyInstalling()) { say(409, { error: pauseRefusal }); return; }
+      if (updates.alreadyInstalling()) {
+        // Idempotent: the first POST started it; a retry, a double click, or a
+        // second tab gets the same true answer without a second installer
+        // racing the first through the stage-and-swap.
+        /* The in-flight attempt is the one this second press joins; its
+           stamp rides back so a reattached overlay can see its verdict.
+           🪟 S5 (#3017): tell the truth about WHAT is running. If a rollback holds the single-flight, an
+           Update press must not claim an update is under way -- report the actual operation instead. */
+        const startedAt = startedStamp('update');
+        if (updates.inFlightKind() === 'rollback') {
+          say(200, { ok: true, already: true, operation: 'rollback', startedAt });
+          return;
+        }
+        say(200, { ok: true, updating: avail.version, already: true, operation: 'update', startedAt });
+        return;
+      }
+      try { updates.beginInstall(); }
+      catch (err) {
+        console.error('FAIL update press: ' + String((err && err.message) || err));
+        say(500, { error: UPDATE_PRESS_FAILED.update });
+        return;
+      }
+      /* #553: the attempt's own start stamp rides back so the page can tell
+         THIS attempt's verdict from any older one by exact equality, never
+         by comparing clocks. */
+      say(200, { ok: true, updating: avail.version, startedAt: startedStamp('update') });
       return;
+    } catch (err) {
+      /* #6903: a throw here used to reject the request handler, and with no process-level handler that ends the
+         board: the press got no answer at all and the dialog could only say it could not start. */
+      updatePressThrew(res, say, 'update', err);
     }
-    try { updates.beginInstall(); }
-    catch (err) {
-      sendJson(res, 500, { error: 'we could not start the update', detail: String((err && err.message) || err) });
-      return;
-    }
-    /* #553: the attempt's own start stamp rides back so the page can tell
-       THIS attempt's verdict from any older one by exact equality, never
-       by comparing clocks. */
-    const att = updates.lastAttempt();
-    sendJson(res, 200, { ok: true, updating: avail.version, startedAt: att ? att.startedAt : null });
     return;
   }
 
@@ -16008,36 +16049,43 @@ const server = http.createServer(async (req, res) => {
    * start a second helper.
    */
   if (pathname === '/api/update/rollback' && req.method === 'POST') {
-    const rollback = updates.rollbackOffer();
-    if (!rollback) { sendJson(res, 409, { error: 'there is no earlier Kosmos kept to roll back to right now' }); return; }
-    if (moveHoldsBoard()) { sendJson(res, 409, { error: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173 review 4: a rollback restarts the board too
-    if (!updates.installedRoot()) {
-      sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
-      return;
-    }
-    /* Belt-and-braces for a stray POST: a OneDrive/Program Files bundle never does the destructive swap
-       (the status already withholds the rollback offer there). Null and skipped on the Mac. */
-    const locationRefusal = updates.windowsLocationRefusal();
-    if (locationRefusal) { sendJson(res, 409, { error: locationRefusal }); return; }
-    if (updates.alreadyInstalling()) {
-      /* 🪟 S5 (#3017): honest `already` -- if a forward UPDATE holds the single-flight, do not claim a
-         rollback is under way (the board will come back on the newer build, not the previous one). */
-      const inflight = updates.lastAttempt();
-      const startedAt = inflight ? inflight.startedAt : null;
-      if (updates.inFlightKind() === 'update') {
-        sendJson(res, 200, { ok: true, already: true, operation: 'update', startedAt });
+    const say = updatePressAnswer(res, 'rollback');   // #6903: every refusal is logged with its reason
+    try {
+      const rollback = updates.rollbackOffer();
+      if (!rollback) { say(409, { error: 'there is no earlier Kosmos kept to roll back to right now' }); return; }
+      if (moveHoldsBoard()) { say(409, { error: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173 review 4: a rollback restarts the board too
+      if (!updates.installedRoot()) {
+        say(409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
         return;
       }
-      sendJson(res, 200, { ok: true, rollingBackTo: rollback.version, already: true, operation: 'rollback', startedAt });
+      /* Belt-and-braces for a stray POST: a OneDrive/Program Files bundle never does the destructive swap
+         (the status already withholds the rollback offer there). Null and skipped on the Mac. */
+      const locationRefusal = updates.windowsLocationRefusal();
+      if (locationRefusal) { say(409, { error: locationRefusal }); return; }
+      if (updates.alreadyInstalling()) {
+        /* 🪟 S5 (#3017): honest `already` -- if a forward UPDATE holds the single-flight, do not claim a
+           rollback is under way (the board will come back on the newer build, not the previous one). */
+        const startedAt = startedStamp('rollback');
+        if (updates.inFlightKind() === 'update') {
+          say(200, { ok: true, already: true, operation: 'update', startedAt });
+          return;
+        }
+        say(200, { ok: true, rollingBackTo: rollback.version, already: true, operation: 'rollback', startedAt });
+        return;
+      }
+      try { updates.beginRollback(); }
+      catch (err) {
+        console.error('FAIL rollback press: ' + String((err && err.message) || err));
+        say(500, { error: UPDATE_PRESS_FAILED.rollback });
+        return;
+      }
+      say(200, { ok: true, rollingBackTo: rollback.version, startedAt: startedStamp('rollback') });
       return;
+    } catch (err) {
+      /* #6903: a throw here used to reject the request handler, and with no process-level handler that ends the
+         board: the press got no answer at all and the dialog could only say it could not start. */
+      updatePressThrew(res, say, 'rollback', err);
     }
-    try { updates.beginRollback(); }
-    catch (err) {
-      sendJson(res, 500, { error: 'we could not start the roll back', detail: String((err && err.message) || err) });
-      return;
-    }
-    const att = updates.lastAttempt();
-    sendJson(res, 200, { ok: true, rollingBackTo: rollback.version, startedAt: att ? att.startedAt : null });
     return;
   }
 

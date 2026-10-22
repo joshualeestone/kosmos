@@ -24417,7 +24417,15 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   if (!res || !res.ok) {
     // The route's own sentence: a from-source run, nothing newer published,
     // or a spawn failure. All are states, not scoldings.
-    const said = (body && body.error) || (rollingBack ? 'we could not start the roll back' : 'we could not start the update');
+    /* #6903 (Josh, 2026-10-22 10:46): with no sentence from the route the dialog said only "we could not start the
+       update", which named neither what happened nor what to do. Two different things reach here: the board did not
+       answer at all (it was restarting, perhaps for an automatic update that began a moment earlier), or it answered
+       without a reason. Each says what happened and the one thing to do; the board logs its own refusals (#6903). */
+    const did = rollingBack ? 'roll back' : 'update';
+    const said = (body && body.error) || (!res
+      ? 'Kosmos did not answer, so this page cannot tell whether the ' + did + ' started. Kosmos may be restarting'
+        + (rollingBack ? '' : ', perhaps to install it') + '. Wait a minute, then reload this page.'
+      : 'Kosmos could not start the ' + did + ' (it answered ' + res.status + ' with no reason). Try again in a minute.');
     /* 🛑 "THERE IS NO UPDATE TO INSTALL RIGHT NOW" UNDER A BUTTON THAT SAYS
        UPDATE (Josh, 2026-08-23 13:03, screenshot). The offer came from a
        poll; by the press the board had already been restarted on the newer

@@ -182,9 +182,9 @@ test('#6173 review 2: the board wires the move to the engine\'s hold, and the cl
   };
   const busyRefusal = "if (moveHoldsBoard()) { sendJson(res, 409, { ";
   guardThenAct("pathname === '/api/engine/restart' && req.method === 'POST'", busyRefusal, "engineRestartAsked = true;", 'the restart button');
-  guardThenAct("pathname === '/api/update/rollback' && req.method === 'POST'", busyRefusal, 'updates.beginRollback(', 'the rollback');
+  guardThenAct("pathname === '/api/update/rollback' && req.method === 'POST'", "if (moveHoldsBoard()) { say(409, { ", 'updates.beginRollback(', 'the rollback');
   guardThenAct("pathname === '/api/worlds/active' && req.method === 'POST'", 'if (!isNoop && moveHoldsBoard())', 'worldstarts.pauseForSwitch(', 'a Kosmos switch');
-  guardThenAct('const platRefusal = updates.selfInstallRefusal();', busyRefusal, 'updates.beginInstall()', 'the Update button');
+  guardThenAct('const platRefusal = updates.selfInstallRefusal();', "if (moveHoldsBoard()) { say(409, { ", 'updates.beginInstall()', 'the Update button');
   assert.match(server, /updates\.setAutoDefer\(\(\) => moveHoldsBoard\(\)\)/, 'the automatic install does not wait for a move');
   assert.match(server, /setTimeout\(\(\) => \{ worldSwitchRestarting = false; \}, ENGINE_RESTART_CHECK_MS\)\.unref\(\);/,
     'a switch whose detached restart failed leaves moves refused for the life of the board (review 4)');

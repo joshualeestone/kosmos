@@ -4458,6 +4458,148 @@ test('update awareness: the status tick carries the verdict, and the install rou
   }
 });
 
+test('#6903: an Update or Roll back press that throws answers with a sentence, the board lives, and refusals are logged', async () => {
+  const updates = require('./engine/update');
+  const realLocation = updates.windowsLocationRefusal;
+  const realRollback = updates.rollbackOffer;
+  const realLastAttempt = updates.lastAttempt;
+  const realBeginInstall = updates.beginInstall;
+  const realLog = console.log;
+  const realError = console.error;
+  const lines = [];
+  console.log = (...a) => { lines.push(a.join(' ')); };
+  console.error = (...a) => { lines.push(a.join(' ')); };
+  const logged = (re) => lines.some((l) => re.test(l));
+  updates.setPlatform('darwin');
+  let ran = 0;
+  let wiredRoot = null;
+  try {
+    updates.resetCache();
+    updates.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+    await updates.refresh();
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
+    updates.setInstallRunner(() => { ran += 1; });
+
+    /* Before #6903 this throw rejected the request handler, and with no process-level handler that ended the board:
+       the press got no answer and the dialog said only that it could not start. */
+    updates.windowsLocationRefusal = () => { throw new Error('the engine exploded'); };
+    const boom = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(boom.status, 500, 'a throw in the Update route did not answer');
+    assert.match(JSON.parse(boom.body).error, /^Kosmos could not start the update just now\. Try again in a minute\.$/,
+      'the Update route answered a throw without a sentence the dialog can show');
+    assert.equal(ran, 0, 'the installer ran although the route threw before it');
+    assert.equal(JSON.parse(boom.body).detail, undefined, 'a throw\'s raw message went back in the answer');
+    assert.ok(logged(/FAIL update press: the engine exploded/), 'the cause of the throw was not logged:\n' + lines.join('\n'));
+    // CONTROL: the board is still up and serving.
+    assert.equal((await req('/api/status', {})).status, 200, 'the board stopped serving after the Update route threw');
+
+    updates.rollbackOffer = () => { throw new Error('the rollback engine exploded'); };
+    const rb = await req('/api/update/rollback', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(rb.status, 500, 'a throw in the Roll back route did not answer');
+    assert.match(JSON.parse(rb.body).error, /^Kosmos could not start the roll back just now\. Try again in a minute\.$/);
+    assert.ok(logged(/FAIL rollback press: the rollback engine exploded/), 'the roll back throw was not logged');
+    updates.windowsLocationRefusal = realLocation;
+    updates.rollbackOffer = realRollback;
+
+    // The installer itself failing to start: the route's own 500, now logged with its cause (it logged nothing before).
+    updates.beginInstall = () => { throw new Error('the spawn exploded'); };
+    const spawnFail = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(spawnFail.status, 500);
+    assert.equal(JSON.parse(spawnFail.body).error, 'Kosmos could not start the update just now. Try again in a minute.');
+    assert.equal(JSON.parse(spawnFail.body).detail, undefined, 'a failed start\'s raw message went back in the answer');
+    assert.ok(logged(/^FAIL update press: the spawn exploded$/), 'a failed start was not logged with its cause:\n' + lines.join('\n'));
+    assert.ok(logged(/^update press answered 500: Kosmos could not start the update just now\. Try again in a minute\.$/),
+      'a failed start was not logged as a refusal:\n' + lines.join('\n'));
+    updates.beginInstall = realBeginInstall;
+
+    // The real engine's start throwing (here its runner) releases the single-flight flag, so the retry the sentence
+    // asks for can start an install rather than be told one is already running.
+    updates.setInstallRunner(() => { throw new Error('the runner exploded'); });
+    const runnerFail = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(runnerFail.status, 500, runnerFail.body);
+    assert.equal(updates.alreadyInstalling(), false, 'a start that threw left the board thinking an install is running');
+    const ended = updates.lastAttempt();
+    assert.ok(ended && ended.endedAt && ended.because === 'Kosmos could not start the installer',
+      'a start that threw left its attempt open: ' + JSON.stringify(ended));
+
+    // An automatic start that throws backs off like any other automatic failure: the next look does not retry it.
+    let autoTries = 0;
+    updates.setInstallRunner(() => { autoTries += 1; throw new Error('the automatic runner exploded'); });
+    updates.setAutoPref(() => ({ on: true }));
+    assert.throws(() => updates.beginInstall({ auto: true }), /the automatic runner exploded/);
+    assert.equal(updates.alreadyInstalling(), false);
+    await updates.refresh();
+    assert.equal(autoTries, 1, 'an automatic start that threw was retried on the very next look');
+    updates.setAutoPref(null);
+
+    // But once something WAS launched, a later throw (here the wiring of the child) keeps the flag: a second press
+    // must not start a second installer racing the first. Its own root: the wiring writes an in-flight marker there.
+    wiredRoot = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-6903-wired-'));
+    updates.setInstalledRoot(() => wiredRoot);
+    updates.setInstallRunner(() => ({ on() { throw new Error('the wiring exploded'); } }));
+    const wired = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(wired.status, 500, wired.body);
+    assert.equal(updates.alreadyInstalling(), true, 'a throw after the installer launched released the single-flight flag');
+    updates.setInstalledRoot(null);   // before the look, or the automatic install starts first
+    updates.resetCache();
+    await updates.refresh();
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
+    updates.setInstallRunner(() => { ran += 1; });
+
+    // A refusal is logged with the sentence the person saw.
+    updates.setInstalledRoot(null);
+    const src = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(src.status, 409);
+    assert.ok(logged(/^update press answered 409: this Kosmos runs from its source code/), 'a refusal was not logged with its reason:\n' + lines.join('\n'));
+
+    // CONTROL: a press that starts the update logs no refusal.
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
+    lines.length = 0;
+    const go = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(go.status, 200, go.body);
+    assert.equal(ran, 1, 'the installer did not run on a good press');
+    assert.ok(!logged(/press answered/), 'a started update was logged as a refusal:\n' + lines.join('\n'));
+    assert.ok(JSON.parse(go.body).startedAt, 'CONTROL: a good press lost its start stamp');
+
+    // Once the installer has started, a throw reading its stamp is not a refusal: 200, no stamp, the cause logged.
+    updates.setInstalledRoot(null);   // before the look, or the automatic install starts first and the press joins it
+    updates.resetCache();
+    await updates.refresh();
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
+    updates.setInstallRunner(() => { ran += 1; });
+    updates.lastAttempt = () => { throw new Error('the stamp exploded'); };
+    lines.length = 0;
+    const late = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(late.status, 200, 'an install that started was answered as a refusal: ' + late.body);
+    assert.equal(ran, 2, 'the installer did not run on the second good press');
+    assert.equal(JSON.parse(late.body).startedAt, null);
+    assert.ok(logged(/FAIL update press: started, but its start stamp could not be read: the stamp exploded/), lines.join('\n'));
+    assert.ok(!logged(/press answered/), 'a started update was logged as a refusal:\n' + lines.join('\n'));
+
+    // A second press joins the running install; the same throw there is not a refusal either.
+    lines.length = 0;
+    const again = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(again.status, 200, 'a press joining a running install was answered as a refusal: ' + again.body);
+    assert.equal(JSON.parse(again.body).already, true, 'the second press did not join the running install');
+    assert.equal(ran, 2, 'a second installer ran');
+    assert.ok(logged(/FAIL update press: started, but its start stamp could not be read/), lines.join('\n'));
+  } finally {
+    console.log = realLog;
+    console.error = realError;
+    updates.windowsLocationRefusal = realLocation;
+    updates.rollbackOffer = realRollback;
+    updates.lastAttempt = realLastAttempt;
+    updates.beginInstall = realBeginInstall;
+    if (wiredRoot) fs.rmSync(wiredRoot, { recursive: true, force: true });
+    updates.setAutoPref(null);
+    updates.resetCache();
+    updates.setFetcher(null);
+    updates.setInstallRunner(null);
+    updates.setInstalledRoot(null);
+    updates.setPlatform(null);
+  }
+});
+
 test('the open-sleep-settings route: guard-inherited, honest 409, and the engine speaks', async () => {
   const machine = require('./engine/machine');
   const real = machine.openSleepSettings;
