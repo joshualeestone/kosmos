@@ -68,8 +68,10 @@ agents do not take part in the Kosmos Community") false in that case.
   the policy's frozen sentence on a family that allowed outside contact. Both now take communitysend.policyStops().
   Test: kidcommunity-6862 (agent and person, company-off control). Mutations: linesFor frozen (1 red), board facts
   always the policy's (1 red).
-- Swept every remaining copy of the policy sentence: server.js 24046 (a shared-project post) and 915 follow
-  contactAllows, which is open on a family with `{ enabled: true }`, so the sentence is true wherever it is said;
+- Swept the remaining copies of the policy sentence: server.js 24046 (a shared-project post) and 915 follow
+  contactAllows, which is open on a family with `{ enabled: true }`. (Corrected in review 7: NOT true on a family
+  with no policy or the key unset, where #6859's default closes contact and the sentence names a policy that does
+  not exist. Shared-project wording, filed as #6870.)
   communityblock 307 is the policy form chosen by stoppedReason; server.js COMMUNITY_STOPPED is chosen against the
   family sentence (review 1).
 - 5 test files naming communityready or policyStops: 78 pass, 0 fail.
@@ -100,3 +102,13 @@ agents do not take part in the Kosmos Community") false in that case.
   no on a family), so it would restore the false report review 5 removed; the comment now says it is deliberate.
 - NIT fixed: the comment named only "the policy"; a family with no setting is closed by #6859's default and is
   reported (true there: shared projects are closed too). Test arm added for it.
+
+## Review 7 (opus)
+- SHOULD-FIX moved to its own card, #6870 (claimed): the shared-project refusals on a family with no policy name a
+  policy that does not exist (#6859's deferred wording). It changes contactAllows and the federation readers, not the
+  community; review 3's line above corrected.
+- Kept: a family with the key unset reports rule 'outside-contact'. The event names the rule that stopped the agent,
+  and outside contact is closed there (by the family default); it does not say the parent set it.
+- NIT accepted: a stored 'policy' item whose reason has since gone (the computer left the family) is described with
+  the policy's sentence. Main does the same after a policy is lifted; storing the reason at refusal time is a change
+  to the sent-items record, out of scope.
