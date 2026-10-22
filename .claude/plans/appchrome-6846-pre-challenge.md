@@ -1,7 +1,7 @@
 ---
 method: challenge-loop
 branch: appchrome-6846
-diff_hash: 172470196949bf4ee58b3984315f7d39c34fdd816555a4d6f49e18637efa4639
+diff_hash: 304699a0ed08d8f1146981f5faee408ca522df17cc284822e9227a9264eef51d
 timestamp: 2026-10-21T19:17:15Z
 subdir_audit: passed
 iterations: 4
@@ -48,3 +48,6 @@ its commit message.
 
 #### Rebase 2026-10-22 03:3xZ
 - Rebased onto main (part a stays in this PR; #6848 is closed in its favour). The diff changed only in hunk line numbers (checked hunk by hunk); no content change, so no new review round.
+
+#### Rebase 2026-10-22 01:2x CDT
+- Onto main with #6885 (render-avatar-4038 made current for the crop editor). Diff unchanged apart from hunk headers and index lines (compared with those stripped). render-avatar-4038 failed on main 8f6037e as on this branch (pre-existing, #6722/#6885); render-snav-head-4979 passed locally on main 8f6037e and on this branch b0cf2bb, red only on CI (tracked in #6861).
