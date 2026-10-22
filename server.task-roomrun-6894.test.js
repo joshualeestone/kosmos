@@ -141,6 +141,11 @@ test('#6894: review 1: a task is said in the room at most once an hour, however 
   assert.equal((await post(`/api/project/${projectId}/task/${other}/repeat`, { every: 'hourly' }, mona)).status, 200);
   assert.equal((await post(`/api/project/${projectId}/task/${other}/ran`, { note: 'first look' }, mona)).status, 200);
   assert.equal(roomNotes().length - c0, 1);
+  // Review 2: a clock stepped back (the last line looks to be in the future) never mutes a task.
+  _ageRoomRunSaidForTest(-2 * 60 * 60 * 1000);
+  const c1 = roomNotes().length;
+  assert.equal((await post(`/api/project/${projectId}/task/${other}/ran`, { note: 'second look' }, zed)).status, 200);
+  assert.equal(roomNotes().length - c1, 1, 'a line stamped in the future does not hold the next one');
 });
 
 test('#6894: CONTROL: setting the rule or a one-off task says nothing in the room', async () => {
