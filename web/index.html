@@ -68413,7 +68413,8 @@ async function paintTaskActivity(n) {
   if (n !== TK_OPEN) return;
   if (!events.length) {
     holder.innerHTML = '<p class="dhint tkacts-empty">Nothing yet. As this task is worked on, what happens shows up here.</p>';
-    return true;
+    tkMarkSeen(n, p.id);   // #6947
+    return;
   }
   const now = Date.now();
   /* Review 1: a redraw (after a due date, a part, close or reopen) keeps open the rollups the person opened, keyed by
@@ -68422,7 +68423,7 @@ async function paintTaskActivity(n) {
   const wasOpen = new Set(canQuery ? [...holder.querySelectorAll('details.tkact-roll[open]')].map((d) => d.dataset.first) : []);
   holder.innerHTML = tkActRowsHtml(events, p, now);
   if (canQuery && wasOpen.size) for (const d of holder.querySelectorAll('details.tkact-roll')) if (wasOpen.has(d.dataset.first)) d.open = true;
-  return true;   // #6947: drawn, so tkMarkSeen may say the person has the conversation in front of them
+  tkMarkSeen(n, p.id);   // #6947: drawn, so the person may have the conversation in front of them
 }
 /* kosmos#5643: the history's rows. Two or more runs in a row that found nothing new (not late: lateness is news) are
    ONE row, "N runs found nothing new" (or "repeated the same note" for runs the board only inferred, or both), which
@@ -68496,33 +68497,29 @@ function openTaskPage(n) {
   if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
   const undoBox = document.getElementById('tk-undo');   // #5153 slice 4
   if (undoBox) { undoBox.hidden = true; undoBox.innerHTML = ''; }
-  const painted = paintTaskActivity(n);
+  paintTaskActivity(n);   // #6947: its draw lands after pjView below, and marks the task seen
   TKR_SHOWN = null;   // #5153: a task opened again is painted again
   tkReceiptSync();
   pjView('task');
-  // #6947: once the conversation is drawn and the page is on screen (after pjView), say the person has seen it.
-  Promise.resolve(painted).then((drawn) => { if (drawn === true) tkMarkSeen(n); });
   document.getElementById('tk-back').focus();   // the top of the new page
 }
 /* #6947: tell the board the person has this task's conversation in front of them, so an agent that left a nudge on it
-   can tell "not seen" from "seen, not acted on" (engine/taskseen.js). Called only after paintTaskActivity has drawn
-   the conversation, for the task it drew (n), and only while the tab is visible and the task's page is on screen (its
-   back button has a layout box): a task restored in a background tab, or left open behind another Kosmos tab, has not
-   been seen. Best effort; a failure changes nothing on the page. */
-function tkMarkSeen(n) {
-  const p = pjById(PJ_CURRENT);
+   can tell "not seen" from "seen, not acted on" (engine/taskseen.js). paintTaskActivity calls it after every draw that
+   succeeded (opening the task, a redraw after an action, coming back to the tab), with the project and task it drew;
+   it posts only if that is still the task open, and the tab is visible with the task's page on screen (its back button
+   has a layout box): a task restored in a background tab, or left open behind another Kosmos tab, has not been seen.
+   Best effort; a failure changes nothing on the page. */
+function tkMarkSeen(n, projectId) {
   const back = document.getElementById('tk-back');
-  if (!p || TK_OPEN === null || n !== TK_OPEN || document.visibilityState !== 'visible' || !back || back.offsetParent === null) return;
-  fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/seen', { method: 'POST' }).catch(() => {});
+  if (TK_OPEN === null || n !== TK_OPEN || projectId !== PJ_CURRENT || document.visibilityState !== 'visible' || !back || back.offsetParent === null) return;
+  fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' }).catch(() => {});
 }
-/* #6947: coming back to the tab while a task's page is showing: draw the conversation again first (it is not redrawn on
-   the poll, so a message that came while the tab was away is not on screen yet), then say it was seen. */
+/* #6947: coming back to the tab while a task's page is showing: draw the conversation again (it is not redrawn on the
+   poll, so a message that came while the tab was away is not on screen yet); the draw marks it seen. */
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible' || TK_OPEN === null) return;
   const back = document.getElementById('tk-back');
-  if (!back || back.offsetParent === null) return;
-  const n = TK_OPEN;
-  Promise.resolve(paintTaskActivity(n)).then((drawn) => { if (drawn === true) tkMarkSeen(n); });
+  if (back && back.offsetParent !== null) paintTaskActivity(TK_OPEN);
 });
 function leaveTaskPage() {
   const was = TK_OPEN;

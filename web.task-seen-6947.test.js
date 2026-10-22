@@ -1,9 +1,10 @@
 'use strict';
 /**
- * #6947: the task page tells the board the person has a task's conversation in front of them (POST .../task/<n>/seen):
- * only after the conversation is drawn, for the task drawn, and only when the page is on screen in a visible tab.
- * tkMarkSeen and the tab-return listener are taken out of web/index.html and run against stand-ins for the page, so the
- * rule is driven, not just read.
+ * #6947: the task page tells the board the person has a task's conversation in front of them (POST .../task/<n>/seen).
+ * paintTaskActivity marks it after every draw that succeeded (opening the task, a redraw after an action, coming back
+ * to the tab); tkMarkSeen posts only for the project and task still open, with the tab visible and the page on screen.
+ * The real paintTaskActivity, tkMarkSeen and tab-return listener are taken out of web/index.html and run against
+ * stand-ins for the page, so the rule is driven, not just read.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -20,69 +21,85 @@ function balanced(from) {
   throw new Error('unbalanced at ' + from);
 }
 function fnSource(name) {
-  const at = HTML.indexOf('function ' + name + '(');
+  const at = HTML.indexOf(HTML.includes('async function ' + name + '(') ? 'async function ' + name + '(' : 'function ' + name + '(');
   assert.ok(at >= 0, name + ' not found in web/index.html');
   return balanced(at);
 }
 const LISTENER = "document.addEventListener('visibilitychange', () => {";
-
-function page({ visible = 'visible', onScreen = true, open = 3, project = { id: 'p one' }, drawn = true } = {}) {
-  const posts = []; const painted = [];
-  const document = {
-    visibilityState: visible,
-    getElementById: (id) => (id === 'tk-back' ? { offsetParent: onScreen ? {} : null } : null),
-  };
-  const fetch = (url, opts) => { posts.push([url, opts && opts.method]); return Promise.resolve({}); };
-  const paintTaskActivity = (n) => { painted.push(n); return Promise.resolve(drawn); };
+function listenerSource() {
   // The #6947 listener, not the page's other visibilitychange listeners: the first one after its own comment.
   const at = HTML.indexOf(LISTENER, HTML.indexOf('/* #6947: coming back to the tab while a task'));
   assert.ok(at > 0, 'the tab-return listener is missing');
-  const listenerSrc = HTML.slice(at, at + balanced(at).length) + ');';
-  // eslint-disable-next-line no-new-func
-  const make = new Function('document', 'fetch', 'pjById', 'PJ_CURRENT', 'TK_OPEN', 'paintTaskActivity',
-    fnSource('tkMarkSeen') + '\n' + listenerSrc + '\nreturn tkMarkSeen;');
-  let listener = null;
-  document.addEventListener = (type, fn) => { if (type === 'visibilitychange') listener = fn; };
-  const tkMarkSeen = make(document, fetch, () => project, 'p one', open, paintTaskActivity);
-  return { posts, painted, tkMarkSeen, tabBack: async () => { listener(); await new Promise((r) => setImmediate(r)); } };
+  return balanced(at) + ');';
 }
 
-test('#6947: the open task, on screen in a visible tab, posts seen for that task', () => {
-  const p = page();
-  p.tkMarkSeen(3);
-  assert.deepEqual(p.posts, [['/api/project/p%20one/task/3/seen', 'POST']]);
-});
+/* A page with projects 'p one' and 'p two'; task `open` of project `pj` is showing. `read` is what the activity fetch
+   does ('ok', 'empty' or 'fail'); `hold` delays it until release() so a test can change the page meanwhile. */
+function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', read = 'ok', hold = false } = {}) {
+  const posts = [];
+  const acts = { innerHTML: '' };
+  const doc = {
+    visibilityState: visible,
+    getElementById: (id) => (id === 'tk-back' ? { offsetParent: onScreen ? {} : null } : id === 'tk-activity' ? acts : null),
+    addEventListener: (type, fn) => { if (type === 'visibilitychange') doc.listener = fn; },
+  };
+  let release = () => {};
+  const gate = hold ? new Promise((r) => { release = r; }) : Promise.resolve();
+  const fetch = async (url, opts) => {
+    if (opts && opts.method === 'POST') { posts.push(url); return {}; }
+    await gate;
+    if (read === 'fail') return { ok: false, json: async () => ({}) };
+    return { ok: true, json: async () => ({ events: read === 'empty' ? [] : [{ at: new Date().toISOString(), kind: 'said', text: 'hi' }] }) };
+  };
+  // eslint-disable-next-line no-new-func
+  const make = new Function('document', 'fetch', 'pjById', 'tkActRowsHtml', 'init',
+    'let PJ_CURRENT = init.pj; let TK_OPEN = init.open;\n' + fnSource('paintTaskActivity') + '\n' + fnSource('tkMarkSeen')
+    + '\n' + listenerSource() + '\nreturn { paintTaskActivity, set(pjId, n) { PJ_CURRENT = pjId; TK_OPEN = n; } };');
+  const api = make(doc, fetch, (id) => (id ? { id } : null), () => '<rows>', { pj, open });
+  const settle = () => new Promise((r) => setImmediate(r));
+  return { posts, acts, doc, ...api, release: () => release(), settle, tabBack: async () => { doc.listener(); await settle(); await settle(); } };
+}
+const seenUrl = (pj, n) => '/api/project/' + encodeURIComponent(pj) + '/task/' + n + '/seen';
 
-test('#6947: a hidden tab, a page not on screen, another task, no open task or no project posts nothing', () => {
-  for (const [opts, n] of [[{ visible: 'hidden' }, 3], [{ onScreen: false }, 3], [{}, 4], [{ open: null }, 3], [{ project: null }, 3]]) {
-    const p = page(opts);
-    p.tkMarkSeen(n);
-    assert.deepEqual(p.posts, [], JSON.stringify(opts) + ' n=' + n);
+test('#6947: a draw that succeeded, on screen in a visible tab, marks that task of that project seen', async () => {
+  for (const read of ['ok', 'empty']) {
+    const p = page({ read });
+    await p.paintTaskActivity(3);
+    assert.deepEqual(p.posts, [seenUrl('p one', 3)], read);
   }
 });
 
-test('#6947: coming back to the tab draws the conversation again before saying seen, and says nothing if that draw failed', async () => {
-  const ok = page();
-  await ok.tabBack();
-  assert.deepEqual(ok.painted, [3], 'the conversation was not drawn again');
-  assert.deepEqual(ok.posts, [['/api/project/p%20one/task/3/seen', 'POST']]);
-  const failed = page({ drawn: false });
-  await failed.tabBack();
-  assert.deepEqual(failed.painted, [3]);
-  assert.deepEqual(failed.posts, [], 'a failed draw must not read as seen');
-  const away = page({ onScreen: false });
-  await away.tabBack();
-  assert.deepEqual(away.painted, [], 'a task page not on screen is not redrawn');
-  assert.deepEqual(away.posts, []);
+test('#6947: a failed read, a hidden tab or a page not on screen marks nothing', async () => {
+  for (const opts of [{ read: 'fail' }, { visible: 'hidden' }, { onScreen: false }]) {
+    const p = page(opts);
+    await p.paintTaskActivity(3);
+    assert.deepEqual(p.posts, [], JSON.stringify(opts));
+  }
 });
 
-test('#6947: opening a task says seen only after the page is shown and the conversation was drawn', () => {
-  const open = fnSource('openTaskPage');
-  const drawnFirst = open.indexOf('const painted = paintTaskActivity(n);');
-  const shown = open.indexOf("pjView('task');");
-  const sent = open.indexOf('Promise.resolve(painted).then((drawn) => { if (drawn === true) tkMarkSeen(n); });');
-  assert.ok(drawnFirst > 0 && shown > drawnFirst && sent > shown, 'openTaskPage: draw, show, then say seen once drawn');
-  // paintTaskActivity says when it drew: both of its drawing exits return true, so the callers above can tell.
-  const paint = fnSource('paintTaskActivity');
-  assert.equal((paint.match(/return true;/g) || []).length, 2, 'paintTaskActivity should return true exactly where it drew');
+test('#6947: a draw that lands after the person moved to another task, or to the same number in another project, marks nothing', async () => {
+  const task = page({ hold: true });
+  const a = task.paintTaskActivity(3);
+  task.set('p one', 4);
+  task.release(); await a;
+  assert.deepEqual(task.posts, [], 'another task');
+  const proj = page({ hold: true });
+  const b = proj.paintTaskActivity(3);
+  proj.set('p two', 3);
+  proj.release(); await b;
+  assert.deepEqual(proj.posts, [], 'task 3 of another project must not be marked by project one\'s draw');
+});
+
+test('#6947: coming back to the tab redraws the conversation, which marks it; off screen it does neither', async () => {
+  const ok = page();
+  await ok.tabBack();
+  assert.equal(ok.acts.innerHTML, '<rows>', 'the conversation was not drawn again');
+  assert.deepEqual(ok.posts, [seenUrl('p one', 3)]);
+  const failed = page({ read: 'fail' });
+  await failed.tabBack();
+  assert.deepEqual(failed.posts, [], 'a failed redraw must not read as seen');
+  const away = page({ onScreen: false });
+  await away.tabBack();
+  assert.equal(away.acts.innerHTML, '', 'a task page not on screen is not redrawn');
+  assert.deepEqual(away.posts, []);
 });

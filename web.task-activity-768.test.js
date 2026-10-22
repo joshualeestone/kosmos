@@ -87,9 +87,9 @@ async function render(events, { openNum, fetchOk = true } = {}) {
     json: async () => ({ events, count: events.length }),
   });
   const TK_OPEN = openNum === undefined ? 7 : openNum;
-  const paint = new Function('document', 'pjById', 'PJ_CURRENT', 'TK_OPEN', 'fetch', 'Date',
+  const paint = new Function('document', 'pjById', 'PJ_CURRENT', 'TK_OPEN', 'fetch', 'Date', 'tkMarkSeen',
     src + '\n; return paintTaskActivity;')(
-    doc, () => PROJECT, PROJECT.id, TK_OPEN, fetchStub, FixedDate);
+    doc, () => PROJECT, PROJECT.id, TK_OPEN, fetchStub, FixedDate, () => {});   // #6947: seen is tested in web.task-seen-6947
   await paint(7);   // the task being viewed is #7
   return acts;
 }
