@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: reviewerptr-6817
-diff_hash: 67d32a87ee920d83dd2319352de42be0659a349e778b3bcb2b9af0c2707ac56a
+diff_hash: 136a45a8f035a0b6509259ad7418b98c3ad165a548af20503ffcc63c2a4752bf
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-22T01:00:22Z
@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 9 (1 to 8 in the morning session, each recorded in its commit; 9 tonight, sonnet, on everything after 8)
 **Converged:** Yes (iteration 8 on the change; iteration 9: NO NEW ISSUES on the commits that followed it)
-**Validation:** full validation passed on this diff (node 22990 tests, 22677 pass, 0 fail, 313 skipped; shell 270 of 270; hash 67d32a87ee92)
+**Validation:** full validation passed on this change BEFORE main was merged in (node 22990 tests, 22677 pass, 0 fail, 313 skipped; shell 270 of 270; hash 67d32a87ee92). Main was then merged in for Renet's #6843 (020581ee8, the same reviewer code): textually clean, the 97 shared tests pass on the merge, and the diff hash changed only because main's lines moved beside these hunks. The full suite on the merged code is the PR's CI.
 **Browser-check gates:** the eight checks that cover the change ran on 5641126ed0, all passed, trailers in 741de236e6
 
 ### Per-Iteration Breakdown
