@@ -2720,6 +2720,9 @@ class KosmosLauncher
     // A board that busy for that long serves the page nothing either; a squatter that stalls only the check, to
     // look busy, is caught after it.
     internal const int WatchNoAnswersLimit = 3;
+    // How many times in a row the window signs itself back in after a check of its own failed (RecoverBoard), until a
+    // board read works (the page's badge post): a board that proves to the window but not to the opener never loops.
+    internal const int AutoRecoveriesLimit = 3;
 
     // A fresh read of board.token and a fresh proof, every time. Never throws.
     internal static ReuseCheck CheckBoardBeforeReuse(int port, int timeoutMs)
@@ -3502,6 +3505,12 @@ class BoardWindowForm : System.Windows.Forms.Form
     // #6882: Kosmos.exe was opened again while a sign-in was under way and the window was showing why it is not
     // showing the board: that sign-in, when it ends, starts over instead (SignInAgain).
     bool startOverWanted;
+    // #6882: the window is showing why because a check it made itself failed (ShowNotConfirmed), not because the
+    // opener refused: it looks again on the badge timer and signs itself in again once the board proves
+    // (RecoverBoard), at most AutoRecoveriesLimit times until a board read works.
+    bool recheckRefused;
+    bool recoveryInFlight;
+    int autoRecoveries;
 
     // Set when this PC could not host the window after all: RunBoardWindow then opens the browser.
     internal string RuntimeProblem;
@@ -3733,6 +3742,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         {
             boardNotConfirmed = false;
             startOverWanted = false;
+            recheckRefused = false;
             if (webView != null) webView.NavigateToString(KosmosLauncher.StartingPage);
             ResolveBoardAddressInBackground();
             return;
@@ -3758,17 +3768,19 @@ class BoardWindowForm : System.Windows.Forms.Form
                     signingInAgain = false;
                     if (mode == KosmosLauncher.ComputerMode.Connect) return;
                     // #6882: the window showed why it is not showing the board while this ran, or moved on to another
-                    // visit. A sign-in the person asked for (a double-click, no keepPage) that came back signed in is
-                    // still what they asked for: it is loaded as a fresh first load, whose navigation is checked again
-                    // (OnNavigationStarting). Otherwise a double-click that came meanwhile starts over now.
+                    // visit. A sign-in that came back signed in (the opener proved the board just now) is still wanted,
+                    // the person's or the page's: it is loaded as a fresh first load, on the page it keeps, and its
+                    // navigation is checked again (OnNavigationStarting). Otherwise a double-click that came meanwhile
+                    // starts over now.
                     if (boardNotConfirmed || visit != boardVisit)
                     {
-                        if (boardNotConfirmed && keepPage == null && fresh != null && fresh.Contains("?boot=") && webView != null)
+                        if (boardNotConfirmed && fresh != null && fresh.Contains("?boot=") && webView != null)
                         {
                             boardNotConfirmed = false;
                             startOverWanted = false;
+                            recheckRefused = false;
                             navigatedToBoard = false;
-                            boardAddress = KosmosLauncher.WithModeQuery(fresh, mode);
+                            boardAddress = KosmosLauncher.WithModeQuery(KosmosLauncher.SignInAgainAddress(fresh, keepPage, port), mode);
                             NavigateToBoard();
                         }
                         else if (startOverWanted && boardNotConfirmed) { startOverWanted = false; SignInAgain(); }
@@ -3835,8 +3847,37 @@ class BoardWindowForm : System.Windows.Forms.Form
         committedPage = null;
         navigationWaiting = null;
         navigationApproved = null;
+        recheckRefused = true;
         boardVisit++;
         webView.NavigateToString(KosmosLauncher.NotConfirmedPage);
+    }
+
+    // #6882: a window a check of its own took off its board (a board stalled past the watch's patience, or gone past
+    // the full check's wait, or a squatter that has since left) comes back by itself once the board proves again, as
+    // a double-click would bring it back: SignInAgain's start-over, where the opener proves the board before it signs
+    // in. On the badge timer; capped, so a board that proves here but not to the opener never loops.
+    void RecoverBoard()
+    {
+        if (mode == KosmosLauncher.ComputerMode.Connect || !boardNotConfirmed || !recheckRefused || recoveryInFlight || signingInAgain
+            || autoRecoveries >= KosmosLauncher.AutoRecoveriesLimit) return;
+        recoveryInFlight = true;
+        int boardPort = port;
+        int visit = boardVisit;
+        ThreadPool.QueueUserWorkItem(unused =>
+        {
+            KosmosLauncher.ReuseCheck check = KosmosLauncher.CheckBoardBeforeReuse(boardPort, KosmosLauncher.ReuseProofTimeoutMs);
+            try
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    recoveryInFlight = false;
+                    if (visit != boardVisit || !boardNotConfirmed || !recheckRefused || signingInAgain || !KosmosLauncher.MayNavigateSignedIn(check)) return;
+                    autoRecoveries++;
+                    SignInAgain();
+                }));
+            }
+            catch { /* the window closed meanwhile */ }
+        });
     }
 
     // #6882: the full check (CheckBoardPatiently: a board restarting is waited for), off this thread, then
@@ -3886,7 +3927,13 @@ class BoardWindowForm : System.Windows.Forms.Form
                     navigationWaiting = null;
                     if (!KosmosLauncher.MayNavigateSignedIn(check)) { ShowNotConfirmed(); return; }
                     navigationApproved = waiting;
-                    webView.Navigate(waiting);
+                    // The page's own address (a reload): Reload, since a Navigate to the very address on screen, fragment
+                    // and all, is taken as a move within the page and loads nothing (the page's sign-out sets
+                    // /#signed-out and reloads). Its NavigationStarting names the same address, so it is the approved one.
+                    string onScreen = null;
+                    try { webView.get_Source(out onScreen); } catch { /* not known: Navigate, below */ }
+                    if (onScreen == waiting) webView.Reload();
+                    else webView.Navigate(waiting);
                 }));
             }
             catch { /* the window closed meanwhile */ }
@@ -4171,7 +4218,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         if (badgeTimer != null) return;
         badgeTimer = new System.Windows.Forms.Timer();
         badgeTimer.Interval = TaskbarBadge.PollEveryMs;
-        badgeTimer.Tick += (sender, args) => { RefreshBadge(); WatchBoard(); };   // #6882: WatchBoard, the page's polling
+        badgeTimer.Tick += (sender, args) => { RefreshBadge(); WatchBoard(); RecoverBoard(); };   // #6882: the page's polling, and coming back
         badgeTimer.Start();
         RefreshBadge();
     }
@@ -4228,6 +4275,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         badgeMisses = 0;
         signInAgainGaveUp = false;
         signInsWithoutRead = 0;
+        autoRecoveries = 0;   // #6882: and so does the window's own coming back (RecoverBoard)
         ShowBadge(waiting, ++badgeAsked);
     }
 
@@ -4400,6 +4448,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         navigatedToBoard = false;
         boardAddress = null;
         boardNotConfirmed = false;
+        recheckRefused = false;
         boardVisit++;   // #6882: a check still out for the board before the switch changes nothing
         navigationWaiting = null;
         if (webView != null) webView.NavigateToString(KosmosLauncher.StartingPage);
@@ -5300,7 +5349,7 @@ public interface ICoreWebView2Controller
 public interface ICoreWebView2
 {
     void get_Settings(out ICoreWebView2Settings settings);
-    void _unused_get_Source();
+    void get_Source([MarshalAs(UnmanagedType.LPWStr)] out string uri);   // #6882: CheckNavigationAgain
     void Navigate([MarshalAs(UnmanagedType.LPWStr)] string uri);
     void NavigateToString([MarshalAs(UnmanagedType.LPWStr)] string htmlContent);
     void add_NavigationStarting(ICoreWebView2NavigationStartingEventHandler eventHandler, out long token);
