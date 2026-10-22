@@ -545,7 +545,7 @@ async function forAgent(who, { limit = 10, now = Date.now(), receiptOf = forTask
 /**
  * kosmos#6842 slice 2: what a project's closed tasks cost, as the sum of their receipts: tokens per model across every
  * agent that held a part, the tasks counted and the pull requests they worked on (each once, with the tasks that list
- * it). The newest `limit` closed tasks are counted (a receipt not yet kept reads transcripts); `notCounted` says how many
+ * it; `tasks` is for a later view, the page does not show it yet). The newest `limit` closed tasks are counted (a receipt not yet kept reads transcripts); `notCounted` says how many
  * older ones were left out. An agent whose work could not be read (no folder, a provider with no receipt) is counted in
  * `unread`, and a receipt read only in part in `partial`, so the total never reads as more complete than it is. An agent
  * whose receipt has no `prs` is counted in `prsUnknown`, so its pull requests read as unknown rather than none. Each
@@ -574,11 +574,11 @@ async function forProject(projectId, { limit = 50, now = Date.now(), receiptOf =
     }));
   }
   const models = {};
-  const prs = new Map();   // url (or repo#number) -> { repo, number, url, tasks }
+  const prs = new Map();   // repo#number -> { repo, number, url, tasks }: one PR whether or not a receipt kept its url
   let unread = 0;
   let partial = 0;
   let failed = 0;
-  let prsMore = 0;   // beyond an agent's own shown list: counted, not named
+  let prsMore = 0;   // beyond each agent's own shown list: counted, not named, so not de-duplicated (an upper bound)
   let prsUnknown = 0;   // agents whose receipt has no `prs` (kept before #6842, or not a Claude agent): unknown, not none
   receipts.forEach((r, i) => {
     const number = picked[i].task.number;
@@ -597,14 +597,16 @@ async function forProject(projectId, { limit = 50, now = Date.now(), receiptOf =
       prsMore += Number(a.prsMore) || 0;
       for (const p of Array.isArray(a.prs) ? a.prs : []) {
         if (!p || typeof p !== 'object' || !Number.isFinite(Number(p.number))) continue;
-        const key = typeof p.url === 'string' && p.url ? p.url : String(p.repo || '') + '#' + p.number;
-        const e = prs.get(key) || { repo: String(p.repo || ''), number: Number(p.number), url: typeof p.url === 'string' ? p.url : '', tasks: [] };
+        const key = String(p.repo || '') + '#' + Number(p.number);
+        const e = prs.get(key) || { repo: String(p.repo || ''), number: Number(p.number), url: '', tasks: [] };
+        if (!e.url && typeof p.url === 'string' && p.url) e.url = p.url;
         if (!e.tasks.includes(number)) e.tasks.push(number);
         prs.set(key, e);
       }
     }
   });
-  return { ok: true, tasks: picked.length - failed, notCounted: closed.length - picked.length, failed, unread, partial,
+  // picked: the newest tasks looked at (the "newest N" the page names); tasks: those whose receipt could be worked out.
+  return { ok: true, picked: picked.length, tasks: picked.length - failed, notCounted: closed.length - picked.length, failed, unread, partial,
     models, prs: [...prs.values()], prsMore, prsUnknown };
 }
 

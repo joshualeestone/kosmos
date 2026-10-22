@@ -20,8 +20,12 @@ Stacked on prreceipt-6842 (slice 1). Opens as a PR only after slice 1 merges (re
 - The newest 50, not all: an unkept receipt reads transcripts; older tasks are counted and said.
 - Rejected: a stored per-project total (would drift from the task receipts; this sums the kept receipts instead).
 - Residual, stated: an agent that holds parts of two tasks at the same time has those tokens on both receipts (each
-  counts its transcript inside that task's hold spans), so a project total can count them twice. Spend is labelled
-  estimated; de-duplicating spans per agent across tasks is a separate change (found in slice 3's review).
+  counts its transcript inside that task's hold spans), so a project total can count them twice. The page says so ("An
+  agent working on two tasks at once counts on both, so this can read high."); de-duplicating spans per agent across
+  tasks is a separate change (found in slice 3's review).
+- PRs merge on repo#number (a receipt may keep a PR's url or not); each agent's unnamed count cannot be matched across
+  tasks, so the page says "up to N more"; "the newest N" names the tasks looked at, even when some failed (review 1).
+- The cost words come from tkTokensAndCost, shared with the task receipt, so the two cannot drift (review 1).
 - Rebuilt on main after slice 1 (PR #6866) merged as a squash: only this slice's own four commits, cherry-picked.
 - Weakest premise: that 50 receipts (3 at a time) answer quickly enough on a busy project. Kept receipts are one file
   read each; only unkept ones read transcripts, once.

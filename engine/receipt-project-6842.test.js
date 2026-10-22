@@ -78,6 +78,18 @@ test('an agent whose receipt has no prs is counted as unknown, not as none', asy
   assert.deepEqual(r.prs, []);
 });
 
+test('one pull request kept with its url on one receipt and without it on another is listed once', async () => {
+  const id = project([closedTask(1, '11:00'), closedTask(2, '12:00')]);
+  const receiptOf = async (pid, task) => ({ agents: [
+    { who: 'a', available: true, models: {}, prs: [task.number === 1 ? pr(7) : { repo: pr(7).repo, number: 7 }], prsMore: 0 },
+  ] });
+  const r = await receipt.forProject(id, { now: ms('15:00'), receiptOf });
+  assert.equal(r.prs.length, 1, JSON.stringify(r.prs));
+  assert.equal(r.prs[0].url, pr(7).url, 'the url is kept from the receipt that had it');
+  assert.deepEqual(r.prs[0].tasks.sort(), [1, 2]);
+  assert.equal(r.picked, 2);
+});
+
 test('what could not be read is counted as such, never folded into the total', async (t) => {
   t.mock.method(console, 'error', () => {});
   const id = project([closedTask(1, '11:00'), closedTask(2, '12:00'), closedTask(3, '13:00')]);

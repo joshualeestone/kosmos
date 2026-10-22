@@ -25,6 +25,7 @@ function bundle() {
     + lift('usageModelPrice') + '\n'
     + lift('usageApiCost') + '\n'
     + lift('tkReceiptPrsHtml') + '\n'
+    + lift('tkTokensAndCost') + '\n'
     + lift('pjsCostParts') + '\n'
     + 'return { pjsCostParts, usageApiCost };',
   )();
@@ -36,7 +37,7 @@ const ok = (over) => ({ ok: true, tasks: 2, notCounted: 0, failed: 0, unread: 0,
 
 test('the finished tasks, their tokens and the cost at API prices, from the page\'s one price table', () => {
   assert.ok(B.usageApiCost({ receipt: { 'claude-fable-5': buckets(1e6) } }).cost > 0, 'control: the fixture model is priced');
-  assert.match(B.pjsCostParts(ok()).line, /^2 finished tasks: 1(\.0)?M tokens, \$10 at API prices\.$/);
+  assert.match(B.pjsCostParts(ok()).line, /^2 finished tasks: 1(\.0)?M tokens, \$10 at API prices\. An agent working on two tasks at once counts on both, so this can read high\.$/);
   assert.match(B.pjsCostParts(ok({ tasks: 1 })).line, /^1 finished task: /);
 });
 
@@ -61,7 +62,7 @@ test('the pull requests the tasks worked on, at most 20 named and the rest count
   const prs = Array.from({ length: 22 }, (_, i) => ({ repo: 'acme/app', number: i + 1, url: 'https://github.com/acme/app/pull/' + (i + 1), tasks: [1] }));
   const t = text(B.pjsCostParts(ok({ prs, prsMore: 1 })).prs);
   assert.match(t, /^Worked on pull requests app#1 /);
-  assert.match(t, /app#20 ?\(opens in your browser\) ?and 3 more\.$/, '2 beyond the shown 20, plus 1 an agent counted');
+  assert.match(t, /app#20 ?\(opens in your browser\) ?and up to 3 more\.$/, '2 beyond the shown 20, plus 1 an agent counted: an upper bound');
   assert.doesNotMatch(t, /app#21/);
   const bad = B.pjsCostParts(ok({ prs: [{ repo: 'acme/<b>x', number: 5, url: 'javascript:alert(1)' }] })).prs;
   assert.doesNotMatch(bad, /<a |<b>x/);
@@ -73,4 +74,22 @@ test('pull requests that were never recorded read as unknown, not none', () => {
   const both = text(B.pjsCostParts(ok({ prsUnknown: 3, prs: [{ repo: 'acme/app', number: 4, url: 'https://github.com/acme/app/pull/4' }] })).prs);
   assert.match(both, /^Worked on pull request app#4 .*\. 3 parts of the work do not record pull requests, so there may be more\.$/);
   assert.equal(B.pjsCostParts(ok({ prsUnknown: 0 })).prs, '', 'control: none unknown, no line');
+});
+
+test('the newest N names the tasks looked at, even when some failed; all failing says so, never 0 tokens', () => {
+  const some = B.pjsCostParts(ok({ picked: 50, tasks: 48, failed: 2, notCounted: 3 })).line;
+  assert.match(some, /Counting the newest 50; 3 older tasks are not counted\./);
+  assert.match(some, /could not be read/);
+  const none = B.pjsCostParts(ok({ picked: 50, tasks: 0, failed: 50, notCounted: 3, models: {} }));
+  assert.equal(none.line, 'Kosmos could not read the work on its newest finished tasks.');
+  assert.equal(none.prs, '');
+});
+
+test('the project total and the task receipt word their cost the same way (one helper)', () => {
+  assert.ok(SCRIPT.includes('function tkTokensAndCost('), 'the helper is on the page');
+  const body = (name) => SCRIPT.slice(SCRIPT.indexOf('function ' + name + '('), SCRIPT.indexOf('\nfunction ', SCRIPT.indexOf('function ' + name + '(') + 1));
+  for (const name of ['pjsCostParts', 'tkReceiptAgentHtml']) {
+    assert.match(body(name), /tkTokensAndCost\(/, name + ' does not use the shared helper');
+    assert.doesNotMatch(body(name), /at API prices/, name + ' words the cost itself again');
+  }
 });
