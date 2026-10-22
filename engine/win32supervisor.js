@@ -133,7 +133,7 @@ function ourLiveSession(name, live) {
    another runner's configDir is its own provider's home (a CODEX_HOME, a GROK_HOME), never a Claude account. */
 function usageDirFor(spec) {
   const s = spec || {};
-  return s.runner === 'claude' ? require('./win32streamstate').claudeAccountDirFor(s.configDir) : null;
+  return (s.runner || 'claude') === 'claude' ? require('./win32streamstate').claudeAccountDirFor(s.configDir) : null;   // an omitted runner means Claude (win32launch)
 }
 
 /**
