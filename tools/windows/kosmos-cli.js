@@ -1118,7 +1118,12 @@ async function taskClose(ctx, args) {
     ? await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close', { replacedBy: Number(by) })
     : await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close');   // #4491 slice 5: with the agent's own token
   if (!r.reached) return ctx.unreachable('close that task');
-  if (r.json && r.json.task) { ctx.out('Closed task ' + num + ' on ' + project + (by ? ' as replaced by task ' + (r.json.task.replacedBy || Number(by)) : '') + '.'); return 0; }
+  if (r.json && r.json.task && by && !Number.isInteger(r.json.task.replacedBy)) {
+    // An older board ignores replacedBy and closes it as done: say so, never claim a link it did not record.
+    ctx.err('Closed task ' + num + ' on ' + project + ', but this Kosmos did not record what replaced it (it is older than this command). It now reads as done.');
+    return 1;
+  }
+  if (r.json && r.json.task) { ctx.out('Closed task ' + num + ' on ' + project + (by ? ' as replaced by task ' + r.json.task.replacedBy : '') + '.'); return 0; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not close that task: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when closing that task.');
   return 1;

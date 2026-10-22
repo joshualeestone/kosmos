@@ -177,3 +177,26 @@ test('#6923: kosmos task list shows a replaced task as replaced, not done, from 
     assert.match(r.text, new RegExp('^\\[' + c + '\\] \\[done\\] ', 'm'), label + ': CONTROL, a plain close still reads done');
   }
 });
+
+test('#6923: against an older board that ignores replacedBy, the command says the link was not recorded (Windows)', async () => {
+  const http = require('node:http');
+  const old = http.createServer((req, res) => {   // an older board: closes as done, never mentions replacedBy
+    req.resume();
+    req.on('end', () => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ task: { number: 4, closedAt: new Date().toISOString() }, told: [] })); });
+  });
+  await new Promise((r) => old.listen(0, '127.0.0.1', r));
+  const oldBase = 'http://127.0.0.1:' + old.address().port;
+  try {
+    const out = []; const err = [];
+    const code = await cli.main(['task', 'close', projectId, '4', '--replaced-by', '5'], {
+      env: {}, url: oldBase,
+      hook: { resolveUrl: () => oldBase, readBoardToken: () => null, agentToken: () => null },
+      out: (s) => out.push(s), err: (s) => err.push(s),
+    });
+    assert.equal(code, 1, out.concat(err).join('\n'));
+    assert.match(err.join('\n'), /did not record what replaced it/);
+    assert.doesNotMatch(out.join('\n'), /as replaced by task/, 'never claims a link the board did not record');
+  } finally {
+    old.close();
+  }
+});
