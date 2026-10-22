@@ -9710,6 +9710,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    old margin:auto had the same clip risk and no fallback, so this is strictly safer. */
 .tkcards:has(> .tk-empty) { justify-content: safe center; }
 .tk-empty { margin: 0; padding: var(--space-7) var(--space-5); text-align: center; font: var(--text-callout) var(--font-ui); color: var(--label-3); line-height: 1.5; }
+/* #6895: the count of open tasks held by agents not on the project, a quiet line under the list. */
+.pj-offproject { margin: var(--space-4) 0 0; font: var(--text-callout) var(--font-ui); color: var(--label-3); line-height: 1.5; }
 #pj-newtask { margin-bottom: var(--space-5); }
 .tkcard { display: block; width: 100%; text-align: left; cursor: pointer;
         background: var(--bg-elevated); border: 1px solid var(--border-strong);
@@ -17430,7 +17432,7 @@ window.kosmosMeasureScrollbarWidth();
       <button class="btn" id="pj-newtask" type="button"><span aria-hidden="true">+</span> New task</button>
       <div class="tkcards" id="pj-tasklist"></div>
       <!-- #6895: how many of this project's open tasks an agent who is not on the project holds. -->
-      <p class="tk-empty" id="pj-offproject" hidden></p>
+      <p class="pj-offproject" id="pj-offproject" hidden></p>
     </div>
     </aside>
     </div>
@@ -67931,7 +67933,7 @@ function paintTaskPage() {
      the same value. */
   const sayPart = tkSayPart(parts, t.claim && t.claim.about);
   document.getElementById('tk-who').innerHTML = parts.map((part) => {
-    const shown = part.who ? tkMemberName(p, part.who, !part.closedAt) : null;   // #6895
+    const shown = part.who ? tkMemberName(p, part.who, TK_ACT !== 'reopen' && !part.closedAt) : null;   // #6895: open parts of an open task
     const line = part.sentence && part.sentence !== t.sentence ? part.sentence : '';
     return '<div class="tkpart' + (part.closedAt ? ' done' : '') + '" data-part="' + esc(String(part.id)) + '">'
       + faceFor(part.who)
