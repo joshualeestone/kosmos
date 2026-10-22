@@ -1919,6 +1919,11 @@ const SCREENS = [
       JSON.stringify({ kind: 'valve', from: data.chatAgent, to: data.projectId, project: data.projectId,
         because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.',
         stopped: true, at: ago(4) }),
+      /* #6925: one agent's summary that went through the hold (#6920 stores closing: true), so the shot shows its label. */
+      JSON.stringify({ kind: 'post', id: 'm5800002', from: data.chatAgent, project: data.projectId, to: ['member1'],
+        outcomes: { member1: 'placed' }, closing: true, at: ago(2),
+        text: 'Where we landed: the draft goes back for one more pass on the second section, the figures stay as they are, '
+          + 'and the summary at the top is rewritten in plain words. Nothing else is open here; I will wait for you before posting again.' }),
     ];
     fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), data.heldLines.join('\n') + '\n');
     // The premise, checked here rather than read off a later timeout: the room reads held at its own size.
@@ -1947,9 +1952,13 @@ const SCREENS = [
     const seen = await page.evaluate(heldReopenAt);
     if (seen) throw new Error('the Reopen button is not seen after the shot: ' + seen);
     const t = await page.evaluate(() => { const b = document.querySelector('#pj-held [data-reopen-room]'); return b ? b.closest('.msg-valve').innerText : ''; });
-    for (const want of ['Your agents\' posts will most likely not go through until you post something yourself or reopen the room.', 'Reopen the room']) {
+    for (const want of ['Your agents\' posts will most likely not go through until you post something yourself or reopen the room.', 'Reopen the room',
+      'Once an agent\'s post has been held, it can still post one longer summary that settles the thread.']) {   // #6925
       if (!t.includes(want)) throw new Error('the hold strip does not say "' + want + '": ' + JSON.stringify(t.slice(0, 300)));
     }
+    // #6925: the summary post carries its label.
+    const label = await page.evaluate(() => { const e = document.querySelector('#pj-room .msg-closing'); return e ? e.innerText : ''; });
+    if (!/one summary while the room was held/.test(label)) throw new Error('#6925: the summary post has no label: ' + JSON.stringify(label));
   }, after: async (page, data) => {
     if (!data.heldLines) return;
     const file = path.join(require(path.join(REPO, 'engine', 'store')).ROOT, 'messages.jsonl');
