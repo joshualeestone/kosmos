@@ -1227,37 +1227,29 @@ do {
     check(w.read(true, generation: page) == nil && !w.readThisLaunch, "nor does a late Tasks read from it count")
     w.drop(selected: .agents)
     check(w.pending == nil, "a lock on Agents leaves nothing to press")
-
-    var x = PressTracker()
-    let refused = x.press(.tasks, page: .ready)!
-    _ = x.answered(serial: refused.serial, .refused, pageURL: tasksURL)
-    x.waitToPress(.today)
-    check(x.pending == .today && x.serial == refused.serial + 1, "a refusal on a hidden Tasks section: Today waits for the next load")
-    check(x.answered(serial: refused.serial, .opened, pageURL: nil) == nil && x.pending == .today, "and a late answer to the earlier press neither ends nor moves it")
-    x.waitToPress(.agents)
-    check(x.pending == nil, "the native tab never waits")
 }
 
 section("app tabs: the bar follows the page")
 do {
     let home = URL(string: "https://studio.kosmosplus.com/")
     let signIn = URL(string: "https://\(AppTabs.signInHost)/")
-    func f(_ from: URL?, _ to: URL?, _ selected: AppTabs.Tab, running: Bool = false, tasks: Bool = false) -> AppTabs.Follow? {
-        AppTabs.follow(from: from, to: to, selected: selected, pressRunning: running, tasksTab: tasks)
+    func f(_ from: URL?, _ to: URL?, _ selected: AppTabs.Tab, held: Bool = false, tasks: Bool = false) -> AppTabs.Tab? {
+        AppTabs.follow(from: from, to: to, selected: selected, barHeld: held, tasksTab: tasks)
     }
-    check(f(home, roomURL, .today) == AppTabs.Follow(barTo: .projects, press: nil), "a link from Today into a project room lights Projects, pressing nothing")
-    check(f(roomURL, home, .projects) == AppTabs.Follow(barTo: .today, press: nil), "a swipe back to the board's home lights Today")
+    check(f(home, roomURL, .today) == .projects, "a link from Today into a project room lights Projects")
+    check(f(roomURL, home, .projects) == .today, "a swipe back to the board's home lights Today")
     check(f(home, roomURL, .projects) == nil, "already right: nothing moves")
-    check(f(home, settingsURL, .today, running: true) == nil, "a press running: its answer decides, not the address")
+    check(f(home, settingsURL, .today, held: true) == nil, "the bar held for a press: its answer decides, not the address")
     check(f(home, settingsURL, .agents) == nil, "never from Agents, which shows no page")
     check(f(home, nil, .settings) == nil, "no address: nothing moves")
-    check(f(home, signIn, .projects) == nil, "never on the sign-in page, which a waiting press waits through")
+    check(f(home, signIn, .projects) == nil, "never on the sign-in page")
     let roomTwo = URL(string: "https://studio.kosmosplus.com/?tab=projects&project=y")
     check(f(roomURL, roomTwo, .settings) == nil, "an address rewritten within one section (Settings opened over the consolidated layout keeps ?tab=projects) moves nothing")
-    check(f(home, tasksURL, .settings) == AppTabs.Follow(barTo: .today, press: .today), "a Tasks section the bar does not offer lights Today and brings the page there")
-    check(f(home, tasksURL, .today) == AppTabs.Follow(barTo: nil, press: .today), "with Today already lit, the page is still brought to Today")
-    check(f(home, tasksURL, .settings, tasks: true) == AppTabs.Follow(barTo: .tasks, press: nil), "and Tasks once the bar has it")
-    check(f(signIn, home, .today) == nil && f(signIn, roomURL, .today) == AppTabs.Follow(barTo: .projects, press: nil), "from the sign-in page to a Mac's page is a real move")
+    check(f(roomURL, tasksURL, .projects) == nil, "a project's View all onto a Tasks section the bar does not offer stays under Projects")
+    check(f(home, tasksURL, .today) == .projects, "and lights Projects from elsewhere")
+    check(f(roomURL, tasksURL, .projects, tasks: true) == .tasks, "Tasks once the bar has it")
+    check(f(signIn, home, .today) == nil && f(signIn, roomURL, .today) == .projects, "from the sign-in page to a Mac's page is a real move")
+    check(AppTabs.barTab(forPage: .tasks, tasksTab: false) == .projects && AppTabs.barTab(forPage: .settings, tasksTab: false) == .settings, "a hidden Tasks section belongs under Projects; any other section lights its own tab")
 }
 
 section("app tabs: Tasks read rounds")

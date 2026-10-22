@@ -244,6 +244,13 @@ enum AppTabs {
     }
 
     // What to show when the bar changes under a selection it no longer has (Tasks on a Mac that has not earned it).
+    // The tab that lights for a section the PAGE is on. A Tasks section the bar does not offer (a project's View all,
+    // which on a Mac below Tasks' threshold is that project's only full list) belongs under Projects, where it is
+    // reached from, and the page is left where it is: nothing presses it away.
+    static func barTab(forPage section: Tab, tasksTab: Bool) -> Tab {
+        visible(tasksTab: tasksTab).contains(section) ? section : .projects
+    }
+
     static func keep(_ selected: Tab, tasksTab: Bool) -> Tab {
         visible(tasksTab: tasksTab).contains(selected) ? selected : .today
     }
@@ -289,26 +296,18 @@ enum AppTabs {
         }
     }
 
-    // What following the page does: the tab the bar moves to (nil: it stays), and a tab to press so the page comes to
-    // the bar (nil: none).
-    struct Follow: Equatable {
-        let barTo: Tab?
-        let press: Tab?
-    }
-
-    // The page moved to another section by itself (a link in it, a swipe back): the bar follows, so it never lights a
-    // tab the page is not on. Only a real change of section counts: an address the board rewrites within a section
-    // (and a Settings opened over the consolidated layout, which keeps the previous ?tab=) moves nothing. Not while a
-    // press is running (its answer decides), never from Agents, the native tab, which shows no page, and never on the
-    // sign-in page, which a waiting press is waiting through. A section the bar does not offer (a Tasks section not
-    // earned) lights Today and is pressed there, now, since no box is up: the page moved by itself.
-    static func follow(from previous: URL?, to pageURL: URL?, selected: Tab, pressRunning: Bool, tasksTab: Bool) -> Follow? {
-        guard !pressRunning, selected != .agents, let pageURL = pageURL, pageURL.host != signInHost else { return nil }
+    // The page moved to another section by itself (a link in it, a swipe back): the tab the bar moves to, or nil to
+    // leave it, so the bar never lights a tab the page is not on. Only a real change of section counts: an address the
+    // board rewrites within a section (and a Settings opened over the consolidated layout, which keeps the previous
+    // ?tab=) moves nothing. Not while the bar is held (a press running, or waiting while a page loads: its answer
+    // decides), never from Agents, the native tab, which shows no page, and never on the sign-in page. It never
+    // presses: the page stays where the person took it.
+    static func follow(from previous: URL?, to pageURL: URL?, selected: Tab, barHeld: Bool, tasksTab: Bool) -> Tab? {
+        guard !barHeld, selected != .agents, let pageURL = pageURL, pageURL.host != signInHost else { return nil }
         let now = tab(forBoardURL: pageURL)
         if let previous = previous, previous.host == pageURL.host, tab(forBoardURL: previous) == now { return nil }
-        let next = keep(now, tasksTab: tasksTab)
-        let move = Follow(barTo: next == selected ? nil : next, press: next == now ? nil : next)
-        return move.barTo == nil && move.press == nil ? nil : move
+        let next = barTab(forPage: now, tasksTab: tasksTab)
+        return next == selected ? nil : next
     }
 
     static func answer(_ result: Any?, error: Error?) -> DoorAnswer {
@@ -403,7 +402,7 @@ struct PressTracker {
 
     // An answer to the press numbered `serial`: where the bar goes, or nil. An opened press puts the bar on the tab
     // pressed, since the bar may have moved meanwhile (following the page while the press waited for a load). The
-    // tab can be one the bar does not offer (a refusal on a hidden Tasks section): the caller clamps it (keep).
+    // tab can be one the bar does not offer (a refusal on a hidden Tasks section): the caller lights barTab for it.
     mutating func answered(serial: Int, _ answer: AppTabs.DoorAnswer, pageURL: URL?) -> AppTabs.Tab? {
         guard serial == self.serial else { return nil }
         running = false
@@ -411,15 +410,6 @@ struct PressTracker {
         let next = AppTabs.afterAnswer(answer, pageURL: pageURL)
         if next.over { pending = nil }
         return answer == .opened ? pressed : next.barTo
-    }
-
-    // A press the app makes for the person, to run at the next load rather than now: after a refusal on a Tasks section
-    // the bar does not offer, so Today, where the bar went, is what the page opens once the box that refused is gone.
-    // Not run now, since the box is still up and would refuse it again.
-    mutating func waitToPress(_ tab: AppTabs.Tab) {
-        serial += 1
-        running = false
-        pending = AppTabs.pressScript(tab) == nil ? nil : tab
     }
 
     // The app is loading a page of its own choosing (an agent tap, a notification): no earlier press may cover it,

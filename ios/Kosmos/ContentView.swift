@@ -83,21 +83,15 @@ struct ContentView: View {
         .onChange(of: web.answeredTab) { back in
             guard let back = back else { return }
             web.answeredTab = nil
-            let shown = AppTabs.keep(back, tasksTab: web.tasksTab)
-            // The board can be on a Tasks section the bar does not offer (its door presses a hidden Tasks tab).
-            // Then Today waits to be pressed at the next load, so the page comes to the tab the bar lights.
-            if shown != back {
-                NSLog("[Tabs] the page is on \(back), which the bar does not show")
-                web.waitToPress(shown)
-            }
-            tab = shown
+            // The board can be on a Tasks section the bar does not offer (a project's View all): it lights Projects,
+            // and the page stays.
+            tab = AppTabs.barTab(forPage: back, tasksTab: web.tasksTab)
         }
         // The page moved section by itself (a link in it, a swipe back): the bar follows, without pressing.
         .onChange(of: web.pageMove) { move in
             guard let move = move else { return }
-            if let follow = AppTabs.follow(from: move.from, to: move.to, selected: tab, pressRunning: web.pressRunning, tasksTab: web.tasksTab) {
-                if let next = follow.barTo { tab = next }
-                if let press = follow.press { web.press(press) }
+            if let next = AppTabs.follow(from: move.from, to: move.to, selected: tab, barHeld: web.barHeld, tasksTab: web.tasksTab) {
+                tab = next
             }
         }
         // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing.
@@ -296,8 +290,10 @@ final class BoardWeb: ObservableObject {
     }
     @Published private(set) var pageMove: PageMove?
     private var urlWatch: NSKeyValueObservation?
-    // Whether a press's script is running; the bar does not follow the page meanwhile.
-    var pressRunning: Bool { tracker.running }
+    // Whether the bar waits for a press rather than following the page: its script is running, or it waits while a
+    // page loads (the sign-in hand-off to the Mac), when the load's own press settles where the bar goes. A press
+    // waiting on a page that has loaded (an older board's absent door) does not hold it.
+    var barHeld: Bool { tracker.running || (tracker.pending != nil && (webView?.isLoading ?? true)) }
 
     func adopt(_ webView: WKWebView) {
         self.webView = webView
@@ -325,7 +321,6 @@ final class BoardWeb: ObservableObject {
 
     func loadingOwnPage() { tracker.loadingOwnPage() }
 
-    func waitToPress(_ tab: AppTabs.Tab) { tracker.waitToPress(tab) }
 
     // A page finished loading: run a press that waited for it, and start a launch round of Tasks reads if no read has
     // answered this launch (PressTracker.launchReads). A later load replaces the round.
