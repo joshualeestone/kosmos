@@ -264,14 +264,21 @@ function reportingRequired(policy) {
   return !!(p && typeof p === 'object' && p.telemetry && typeof p.telemetry === 'object' && p.telemetry.required === true);
 }
 
+const CONTACT_STOPS = `${POLICY_SETTER} keeps agents out of the Kosmos+ community and out of projects shared with other computers`;
 /** kosmos#6239: whether agents may reach anyone outside this computer (the Kosmos community, federation, rooms shared
- *  with another computer). Stopped only by `outside_contact: { enabled: false }`; no policy, or the key unset, allows. */
-function contactAllows(policy = currentStrict()) {
+ *  with another computer). Stopped by `outside_contact: { enabled: false }`. kosmos#6859: on a computer joined to a
+ *  family it is also stopped while the key is unset or there is no policy (a parent never saved one), and only
+ *  `{ enabled: true }` allows; for anyone else no policy, or the key unset, allows. The kind is read
+ *  (orgenroll.kindStrict) only when the policy does not settle it and the caller gave none (undefined; null means
+ *  joined to nobody); an enrollment file that is there but cannot be read then throws, as a damaged policy record
+ *  does. */
+function contactAllows(policy = currentStrict(), kind) {
   const oc = policy && policy.outside_contact;
-  if (oc && typeof oc === 'object' && oc.enabled === false) {
-    return { ok: false, because: `${POLICY_SETTER} keeps agents out of the Kosmos+ community and out of projects shared with other computers` };
-  }
-  return { ok: true };
+  const set = oc && typeof oc === 'object' ? oc.enabled : undefined;
+  if (set === false) return { ok: false, because: CONTACT_STOPS };
+  if (set === true) return { ok: true };
+  const k = kind === undefined ? require('./orgenroll').kindStrict() : kind;
+  return k === 'family' ? { ok: false, because: CONTACT_STOPS } : { ok: true };
 }
 
 /* The local weekday (0 Sunday) and minute of the day at `ms` in `tz`. */
