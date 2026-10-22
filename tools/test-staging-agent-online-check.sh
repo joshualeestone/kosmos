@@ -214,7 +214,8 @@ case "$route" in
     # job file and worker folder to the Trash (deleted here, in the case's sandbox) and answers deleted. A stand-in for
     # the real refusal set (a live session, tmux unreadable, a held move), not a model of it: it refuses while the name
     # is still listed. MOCK_LEFTOVER=refuse (files kept) / partial (files kept) / partial-tokens (files gone, tokens
-    # stuck) / nothing / notrash (deleted for good) / lost (the first DELETE gets no answer and does nothing);
+    # stuck) / nothing / notrash (deleted for good) / lost (the first DELETE gets no answer and does nothing) / landed (the
+# first DELETE acts, then its answer is lost) / running and nocheck (the real safety refusals) / noroute (an old board);
     # MOCK_LEFTOVER_TYPED=1 refuses unless the body types the name.
     nm="${route#/api/agent/}"; nm="${nm%/leftover}"
     if [ "$method" = GET ] || [ -z "$method" ]; then
@@ -222,13 +223,19 @@ case "$route" in
     elif [ "$method" = DELETE ]; then
       printf '%s\n' "$nm" >> "${STATE}.leftover"
       if [ "${MOCK_LEFTOVER:-ok}" = lost ] && [ "$(grep -cx "$nm" "${STATE}.leftover")" = 1 ]; then printf '000'; exit 0; fi
+      if [ "${MOCK_LEFTOVER:-ok}" = noroute ]; then emit '{}' 404; exit 0; fi
       if grep -qx "$nm" "$STATE" 2>/dev/null; then emit "{\"outcome\":\"refused\",\"because\":\"$nm is still on the board\"}" 400; exit 0; fi
       if [ "${MOCK_LEFTOVER_TYPED:-}" = 1 ]; then
         case "$data" in *"\"typed\":\"$nm\""*) ;; *) emit "{\"outcome\":\"refused\",\"because\":\"type $nm to confirm; nothing was deleted\"}" 400; exit 0;; esac
       fi
       gone() { rm -f "${AGENT_WORKFORCE_LAUNCH:-/nonexistent}/com.kosmos.agent.$nm.plist"; rm -rf "${AGENT_WORKFORCE_WORKERS:-/nonexistent}/$nm"; }
+      if [ "${MOCK_LEFTOVER:-ok}" = landed ]; then
+        if [ "$(grep -cx "$nm" "${STATE}.leftover")" = 1 ]; then gone; printf '000'; exit 0; fi
+        emit "{\"outcome\":\"refused\",\"because\":\"nothing of $nm is left on this computer, so there is nothing to delete.\"}" 400; exit 0
+      fi
       case "${MOCK_LEFTOVER:-ok}" in
-        refuse)  emit '{"outcome":"refused","because":"we could not check whether it is running"}' 400; exit 0;;
+        running) emit "{\"outcome\":\"refused\",\"because\":\"$nm is running, so there is nothing left over to delete\"}" 400; exit 0;;
+        nocheck) emit "{\"outcome\":\"refused\",\"because\":\"we could not check whether $nm is running, so nothing was deleted\"}" 400; exit 0;;
         partial) emit '{"outcome":"partial","because":"we could not move its folder. its auto-start file is gone."}' 200; exit 0;;
         partial-tokens) gone; emit '{"outcome":"partial","because":"we could not revoke its sender tokens. its folder and its auto-start file are gone."}' 200; exit 0;;
         # The real board says this only when it finds no files: as if create had written them where the board does not look.
@@ -271,7 +278,7 @@ run_case() {
   # exempts the case from this assertion).
   # ... and nothing of theirs on disk: no job file, no worker folder (kosmos#6906: they broke validations on Mortals).
   local files; files="$(ls "$root/LaunchAgents" "$root/workers" 2>/dev/null | grep verify2129 | tr '\n' ' ')"
-  if [ -n "$files" ] && ! has "$outp" "could not remove" && ! has "$outp" "so its files were left" && ! has "$outp" "could not clear"; then
+  if [ -n "$files" ] && ! has "$outp" "could not remove" && ! has "$outp" "so its files were left" && ! has "$outp" "could not delete its files here"; then
     rm -rf "$root" "$state"*; bad "$label: files left on disk after the check: $files"; return
   fi
   if [ -s "$state" ] && ! has "$outp" "could not remove"; then
@@ -318,7 +325,10 @@ run_case "a removal that fails is said, and the verdict stands (0)" 0 --expect "
 # kosmos#6922: what removal keeps is cleared by the board's own delete-leftover, not by the gate deleting files itself.
 run_case "a removed agent's leftover is cleared by the board (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle
 run_case "the clear types the agent's name when the board asks for it (0)" 0 --expect "cleared 'verify2129-openai-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER_TYPED=1
-run_case "a refused clear: the gate deletes the files itself and says so; the verdict stands (0)" 0 --expect "were deleted here instead" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=refuse
+run_case "a board saying the agent is RUNNING: its files are left alone and said (0)" 0 --expect "so its files were left" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=running
+run_case "a board that cannot check whether it runs: its files are left alone (0)" 0 --expect "so its files were left" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=nocheck
+run_case "a board with no leftover route (404): the gate deletes the files itself (0)" 0 --expect "were deleted here instead" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=noroute
+run_case "a clear that landed but whose answer was lost counts as cleared (0)" 0 --expect "the retry found nothing left" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=landed
 run_case "a PARTIAL clear (200) is not read as cleared: the files are deleted here (0)" 0 --expect "were deleted here instead" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=partial
 run_case "a PARTIAL clear with its files gone names what is left, not the files (0)" 0 --expect "Its files are gone" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=partial-tokens
 run_case "a clear whose first answer is lost is tried again (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=lost
@@ -327,7 +337,7 @@ run_case "a made agent with nothing left on disk is a warning (0)" 0 --expect "f
 # kosmos#5849 control: the CALLER exports every fixture variable and a broken home; a case that names no scenario
 # still gets the default one, both agents online and answering.
 mkdir -p "$FIXDIR/badhome/runtime/bin"; printf '#!/bin/sh\nexit 0\n' > "$FIXDIR/badhome/runtime/bin/node"; chmod +x "$FIXDIR/badhome/runtime/bin/node"
-KOSMOS_HOME="$FIXDIR/badhome" MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=auth MOCK_CREATE=refuse400 MOCK_PREEXISTING=5 MOCK_REPLY=none MOCK_SEND=refuse MOCK_REMOVE=fail MOCK_LEFTOVER=refuse MOCK_LEFTOVER_TYPED=1 MOCK_LABEL_SUFFIX=+x KOSMOS_AGENT_REPLY_TIMEOUT=0 \
+KOSMOS_HOME="$FIXDIR/badhome" MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=auth MOCK_CREATE=refuse400 MOCK_PREEXISTING=5 MOCK_REPLY=none MOCK_SEND=refuse MOCK_REMOVE=fail MOCK_LEFTOVER=running MOCK_LEFTOVER_TYPED=1 MOCK_LABEL_SUFFIX=+x KOSMOS_AGENT_REPLY_TIMEOUT=0 \
   run_case "default scenario, the CALLER exports a broken home and every fixture variable -> still both online" 0
 run_case "unreadable /api/status (200, no agent list) -> FAIL CLOSED" 2 --expect "cannot count the fleet" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=status-garbage
 run_case "Claude ONLINE, OpenAI WEDGED -> PARTIAL (3, surface not auto-hold)" 3 --expect "PARTIAL" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=claude-ok-openai-wedge

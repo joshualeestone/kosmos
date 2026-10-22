@@ -183,12 +183,13 @@ tidy_agent() {
   api_get "/api/agent/$nm/leftover"
   label=""; [ "$HTTP_CODE" = 200 ] && label="$(body_field label)"
   body="$("$NODE" -e 'process.stdout.write(JSON.stringify({typed:process.argv[1]}))' "$nm")"
-  # A transport blip (no code, or 000) is tried again: a second DELETE after one that did land finds "nothing of" it.
+  # A transport blip (no code, or 000) is tried once more. A second DELETE after one that DID land finds "nothing of" it,
+  # which below counts as cleared. Once only: this runs inside cleanup, where a second Ctrl-C is ignored (review 2).
   while :; do
     : > "$_BODYF"
     code="$("$CURL" -sS --max-time 60 -H @"$HF" -H 'Content-Type: application/json' -X DELETE --data "$body" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
     case "$code" in ""|000) ;; *) break ;; esac
-    tries=$((tries+1)); [ "$tries" -ge 3 ] && break; sleep 1
+    tries=$((tries+1)); [ "$tries" -ge 2 ] && break; sleep 1
   done
   outcome="$(body_field outcome)"; because="$(body_field because)"; toTrash="$(body_field toTrash)"
   if [ "$code" = 200 ] && [ "$outcome" = deleted ]; then
@@ -199,15 +200,27 @@ tidy_agent() {
   fi
   case "$because" in
     "nothing of "*)
-      if [ -n "$confirmed" ]; then
+      if [ "$tries" -gt 0 ]; then
+        # The first DELETE landed and its answer was lost: the retry finds it already cleared.
+        reenable_label "$label"
+        say "cleared '$nm' (the first answer was lost; the retry found nothing left), and the name is free."
+      elif [ -n "$confirmed" ]; then
         # The board answered 200 for this one, so it wrote files somewhere: none found means the board looks elsewhere.
         say "WARNING: the board made '$nm' but finds nothing of it left on disk: check ~/Library/LaunchAgents for com.kosmos.agent.$nm*"
       else say "found nothing of '$nm' left to clear."; fi
       return ;;
   esac
   local why="DELETE leftover -> HTTP ${code:-<none>}, ${outcome:-no outcome}${because:+: $because}"
-  # The board could not clear it. The job file must not stay in LaunchAgents (the #3011 guard), so the gate deletes
-  # what is still there itself, as before #6922: the paths from this machine's engine, each checked against the name.
+  # A REFUSAL (400) is the board's own judgement, and some are safety ones the gate cannot see (the agent's session is
+  # still running, tmux could not be asked, an account move holds it): its files are left alone (review 2).
+  if [ "$code" = 400 ]; then
+    pp="$(paths_of "$nm" | tr '\n' ' ')"
+    say "WARNING: could not clear '$nm' ($why), so its files were left: once it is not running, on its page, Delete what is left, or delete ${pp:-its com.kosmos.agent plist and worker folder} by hand."
+    return
+  fi
+  # No answer, a board without this route (404), an error part way (5xx), or a PARTIAL: the board did not judge the
+  # agent unsafe to clear, and the job file must not stay in LaunchAgents (the #3011 guard), so the gate deletes what is
+  # still there itself, as before #6922: the paths from this machine's engine, each checked against the name.
   pp="$(paths_of "$nm")" || pp=""
   plist="${pp%%$'\n'*}"; dir="${pp#*$'\n'}"
   local had=""
@@ -222,6 +235,7 @@ tidy_agent() {
     say "WARNING: could not clear '$nm' ($why), so its job file and worker folder were deleted here instead. Its row stays in the Removed list."
   else
     # Nothing on disk: the board got as far as the files and stopped after them (tokens, or the community account).
+    reenable_label "$label"
     say "WARNING: could not clear '$nm' fully ($why). Its files are gone; what is left is what that sentence names."
   fi
 }

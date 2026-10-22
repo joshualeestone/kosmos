@@ -24,6 +24,12 @@ standing in for: `DELETE /api/agent/<name>/leftover` (#514).
   old rm never could (tmux unreadable, a Trash move refused, a transport blip), and a job file left in LaunchAgents is
   the #3011 red #6906 fixed. A lost answer (no code, 000) is tried again first (a repeat finds "nothing of" it). A
   PARTIAL whose files are already gone (tokens or the community account stuck) names what is left, not the files.
+- **A board REFUSAL is never overridden** (review 2): a 400 can be a safety refusal the gate cannot see (the session is
+  still running, tmux unreadable, an account move holds it), so the files are left and said. The gate deletes files
+  itself only on no answer, a 404 (a board without the route), a 5xx, or a PARTIAL. Rejected: deleting on every
+  non-deleted answer, which the first version did and which could delete under a live session.
+- **A lost answer is tried once more**, and "nothing of" it on that retry counts as cleared (the first DELETE landed).
+  Once only: this runs in cleanup, where a second Ctrl-C is ignored.
 - **The label re-enabled is the board's** (`GET .../leftover` plan, `job.label`, launchd jobs only), not one derived in
   the gate's environment, so a board under another world cannot make it enable a stranger (review 1).
 - **Accepted cost:** each promote leaves 4 items (2 job files, 2 folders) in the board user's Trash, never emptied by
@@ -33,7 +39,7 @@ standing in for: `DELETE /api/agent/<name>/leftover` (#514).
 - **Queue log in the EXIT trap.** Measured first: bash 3.2 and 5 run the EXIT trap on TERM, INT and HUP.
 
 ## Measured
-- test-staging-agent-online-check.sh: 47 arms pass (35 before). test-staging-channel-2036.sh: ALL PASS (2 new).
+- test-staging-agent-online-check.sh: 50 arms pass (35 before). test-staging-channel-2036.sh: ALL PASS (2 new).
 - Mortals full suite at df19f29da: node 23328, 0 fail; the shell shard stopped at 10/284 on the #6710 sleep-control
   guard (the waiting stub queue's `exec sleep 30` had no opt-out marker). Fixed; the guard passes alone.
 - Mutants, each reverted after: no HUP/PIPE in the trap (2 red), no clear (30 red), no typed name (1), no launchctl
