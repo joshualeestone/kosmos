@@ -49,7 +49,7 @@ test('#6487 a report\'s reason (because) is found by its exact time; another tim
 test('#6487 a reply is the AGENT\'s own message at that time, never the person\'s', () => {
   const at = '2026-10-22T18:28:40.123Z';
   const chat = { DIRECT: '@you', readThread: () => ({ messages: [
-    { at, from: 'you', text: 'the person said this at the same moment' },
+    { at, text: 'the person said this at the same moment' },   // a real row of the person's carries no `from`
     { at, from: 'irma', text: 'Irma replied this' },
   ] }) };
   assert.equal(pn.replyText('irma', at, { chat }), 'Irma replied this');
@@ -57,6 +57,8 @@ test('#6487 a reply is the AGENT\'s own message at that time, never the person\'
   assert.equal(pn.replyText('irma', at, { chat: { DIRECT: '@you', readThread: () => { throw new Error('unreadable'); } } }), null);
   assert.deepEqual(pn.wordsFor('reply:' + at + ':irma', { chat }), { kind: 'reply', session: 'irma', text: 'Irma replied this' });
   assert.equal(pn.wordsFor('reply:' + at + ':nobody', { chat }), null);
+  const onlyPerson = { DIRECT: '@you', readThread: () => ({ messages: [{ at, text: 'only the person spoke' }] }) };
+  assert.equal(pn.replyText('irma', at, { chat: onlyPerson }), null, 'the person\'s own message is never served as the agent\'s');
 });
 
 test('#6487 only the END of a report file is read: a row before the window is nothing, and a cut first line is never parsed', () => {
@@ -86,8 +88,9 @@ test('#6487 a window that starts partway into a row drops that row, and one that
   const selfreport = { fileFor: () => file };
   const size = fs.statSync(file).size;
   try {
-    // Starts at the `{` of a line whose start (GARBAGE) is outside: that half row must not be read as a report.
-    assert.equal(pn.reportNote('irma', at, { selfreport, tailBytes: size - 'GARBAGE'.length }), null);
+    // The read (window plus the one byte before it) starts exactly at the `{` of a line whose start (GARBAGE) is
+    // outside: that half row parses on its own, and it must still not be read as a report.
+    assert.equal(pn.reportNote('irma', at, { selfreport, tailBytes: size - 'GARBAGE'.length - 1 }), null);
     // Starts exactly on the second line: that whole row is kept, not thrown away as if it were cut.
     const second = size - (whole.length + 1 + 'GARBAGE'.length);
     assert.equal(pn.reportNote('irma', '2026-10-22T18:01:00.000Z', { selfreport, tailBytes: second }), 'kept');

@@ -57,11 +57,18 @@ test('#6487 the words of a needs_you report and of a direct reply come back by t
   assert.equal(r.json.picture, null, 'no picture saved, so no address');
 
   const at = new Date().toISOString();
-  chat.appendMessage(chat.DIRECT, 'leo', { text: 'what about the lease?', at, from: 'you' });
+  chat.appendMessage(chat.DIRECT, 'leo', { text: 'what about the lease?', at });   // the person's row: no `from`, as the routes write it
   chat.appendMessage(chat.DIRECT, 'leo', { text: 'Sent it. Hana has it now.', at, from: 'leo' });
   const p = await ask('reply:' + at + ':leo');
   assert.equal(p.status, 200, JSON.stringify(p.json));
   assert.equal(p.json.text, 'Sent it. Hana has it now.', 'the agent\'s own message, not the person\'s at the same time');
+});
+
+test('#6487 a thread holding only the person\'s message at that time answers 404', async () => {
+  const at = new Date().toISOString();
+  chat.appendMessage(chat.DIRECT, 'raph', { text: 'are you there?', at });
+  const r = await ask('reply:' + at + ':raph');
+  assert.equal(r.status, 404, JSON.stringify(r.json));
 });
 
 test('#6487 CONTROL: nothing at that time, a malformed id, or another kind of event answers 404 (the plain notification)', async () => {
