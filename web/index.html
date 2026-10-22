@@ -73042,8 +73042,8 @@ function pjHeldNotice(held, project) {
     + '<span class="pj-refused-msg" role="status"></span></div></div>';
 }
 /* #6925: a post that went through a held room as its agent's one summary (#6920 stores it with closing: true) says so,
-   in the bubble above the time, so a person does not read it as the hold having failed. */
-/* It carries msg-t on purpose: the copy and quote paths strip .msg-t, so the label never lands in copied or quoted text. */
+   in the bubble above the time, so a person does not read it as the hold having failed. It carries msg-t on purpose:
+   the copy and quote paths strip .msg-t, so the label never lands in copied or quoted text. */
 function pjClosingTag(m) {
   return m && m.closing === true ? '<span class="msg-t msg-closing">Posted as this agent\'s one summary while the room was held</span>' : '';
 }

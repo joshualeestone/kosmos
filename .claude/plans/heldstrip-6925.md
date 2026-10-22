@@ -13,9 +13,10 @@ and nothing on the post marks it, so the person sees new posts in a held room wi
   its bubble, above the time: "Posted as this agent's one summary while the room was held". `pjRoomRow` draws it.
 - CSS: `.msg-bd .msg-closing` (left-aligned) on top of the existing `.msg-t` look.
 - The room route serves `closing: true` on such a post, and its text view (`kosmos room`, what agents read) says the same:
-  the held line ends "Each agent gets one summary through a hold: a post of 400 characters or more that settles the
-  thread." (a fact about the room: the view does not know which agent reads it or whether it used its summary; the
-  post refusal says that per agent), and the summary's line carries "(its one summary while the room was held)".
+  the held line ends "Once one of your posts has been held, one summary can still go through: a post of 400
+  characters or more that settles the thread." (as the engine allows it: only after a post was held; the number is
+  the engine's exported CLOSING_POST_MIN, and a test ties them; the view does not know which agent reads it or whether
+  it used its summary, which the post refusal says per agent), and the summary's line carries "(its one summary while the room was held)".
 
 Rejected: changing "most likely not go through" (still true for everything else; the added sentence names the one
 exception); a badge or colour (a person reads a sentence; nothing to learn).

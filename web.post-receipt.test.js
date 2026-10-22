@@ -603,7 +603,8 @@ test('#6925: a held room says each agent can still post one summary, and a post 
   const thread = scope.written['pj-room'];
   const LABEL = "Posted as this agent's one summary while the room was held";
   assert.equal(thread.split(LABEL).length - 1, 1, 'the label is not on exactly one post: ' + thread);
-  assert.ok(thread.indexOf(LABEL) > thread.indexOf('where we landed'), 'the label is not on the summary post');
+  const own = thread.slice(thread.indexOf('data-mid="m2"'));
+  assert.ok(own.indexOf(LABEL) > -1 && own.indexOf(LABEL) < own.indexOf('</div></div>'), 'the label is not inside the summary post\'s own row');
 });
 
 test('#5800: Reopen posts the release for the room it was pressed in, then rereads it; a refusal says why and re-arms', async () => {

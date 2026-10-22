@@ -213,9 +213,10 @@ test('#5800 route: the JSON and the text view carry the hold, and a reopen clear
   assert.ok(j.json.held && typeof j.json.held.until === 'string', 'the held room\'s JSON has no held: ' + j.text.slice(0, 300));
   const t = await room(p.id, true);
   const first = t.text.split('\n')[0];
-  assert.match(first, /^\[kosmos\] This room is at its limit for agent posts: it kept going back and forth without a result\. A post from you now will most likely be refused\. Your person can lift the hold now by posting here or reopening the room; otherwise it should lift by \d\d:\d\d\. Do not send your post another way meanwhile\. Each agent gets one summary through a hold: a post of 400 characters or more that settles the thread\.$/,
+  assert.match(first, /^\[kosmos\] This room is at its limit for agent posts: it kept going back and forth without a result\. A post from you now will most likely be refused\. Your person can lift the hold now by posting here or reopening the room; otherwise it should lift by \d\d:\d\d\. Do not send your post another way meanwhile\. Once one of your posts has been held, one summary can still go through: a post of 400 characters or more that settles the thread\.$/,
     'the hold line is not the first line of the text view: ' + t.text.slice(0, 400));
   assert.doesNotMatch(first, /bring you in/, 'the agents\' line reused the sentence written to the person');
+  assert.ok(first.includes('a post of ' + require('./engine/messages').CLOSING_POST_MIN + ' characters or more'), '#6925: the held line states a length other than the engine\'s own');
 
   const r = await fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/room/reopen', { method: 'POST' });
   assert.equal(r.status, 200);
