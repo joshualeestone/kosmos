@@ -136,6 +136,37 @@ test('#6882: a navigation the quick check could not settle waits for the full ch
   assert.match(method('internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)'), /args\.put_Cancel\(0\);\s*navigationWaiting = null;/);
 });
 
+test('#6882: the reloads the window starts itself (a crashed page, F5 and the other reload keys) wait for the board to prove BEFORE they start', () => {
+  // WebView2 has already sent a page's request when NavigationStarting is raised (measured), so these do not rely on it.
+  const failed = method('internal void OnProcessFailed(ICoreWebView2ProcessFailedEventArgs args)');
+  inOrder(failed, ['committedPage = null;', 'string onScreen = BoardPageOnScreen();',
+    'if (onScreen != null) { BeginInvoke(new Action(() => CheckNavigationAgain(onScreen))); return; }',
+    'webView.Reload();'], 'the crashed page\'s reload');
+  const onScreen = method('string BoardPageOnScreen()');
+  inOrder(onScreen, ['if (mode == KosmosLauncher.ComputerMode.Connect || !navigatedToBoard || boardNotConfirmed || webView == null) return null;',
+    'webView.get_Source(out onScreen);', 'return KosmosLauncher.IsBoardAddress(onScreen, port) ? onScreen : null;'], 'BoardPageOnScreen');
+  const keys = method('internal void OnAcceleratorKeyPressed(ICoreWebView2AcceleratorKeyPressedEventArgs args)');
+  inOrder(keys, ['args.get_KeyEventKind(out kind);',
+    'if (kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN && kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN) return;',
+    'args.get_VirtualKey(out key);', 'KosmosLauncher.GetKeyState(KosmosLauncher.VirtualKeyControl) & 0x8000',
+    'if (!KosmosLauncher.IsReloadKey(key, control)) return;', 'string onScreen = BoardPageOnScreen();', 'if (onScreen == null) return;',
+    'args.put_Handled(1);', 'CheckNavigationAgain(onScreen);'], 'the reload keys');
+  assert.match(SOURCE, /controller\.add_AcceleratorKeyPressed\(new AcceleratorKeyPressed\(this\), out token\);/, 'the window never hears a reload key');
+  assert.match(SOURCE, /public class AcceleratorKeyPressed : ICoreWebView2AcceleratorKeyPressedEventHandler\n\{[\s\S]*?try \{ form\.OnAcceleratorKeyPressed\(args\); \}/);
+  // WebView2.h 1.0.4191.47: the ids and the method order, as the header declares them (a declaration out of order
+  // calls the wrong method with no compile error).
+  assert.match(SOURCE, /\[ComImport, Guid\("b29c7e28-fa79-41a8-8e44-65811c76dcb2"\), InterfaceType\(ComInterfaceType\.InterfaceIsIUnknown\)\]\npublic interface ICoreWebView2AcceleratorKeyPressedEventHandler\n\{\n    \[PreserveSig\] int Invoke\(ICoreWebView2Controller sender, ICoreWebView2AcceleratorKeyPressedEventArgs args\);\n\}/);
+  const argsAt = SOURCE.indexOf('[ComImport, Guid("9f760f8a-fb79-42be-9990-7b56900fa9c7"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\npublic interface ICoreWebView2AcceleratorKeyPressedEventArgs\n{');
+  assert.notEqual(argsAt, -1, 'the key args interface id moved');
+  const argsBody = SOURCE.slice(argsAt, SOURCE.indexOf('\n}\n', argsAt));
+  assert.deepEqual(argsBody.split('\n').map((l) => l.match(/^\s+void (?:_unused_)?(\w+)\(/)).filter(Boolean).map((m) => m[1]),
+    ['get_KeyEventKind', 'get_VirtualKey', 'get_KeyEventLParam', 'get_PhysicalKeyStatus', 'get_Handled', 'put_Handled']);
+  const ctrlAt = SOURCE.indexOf('public interface ICoreWebView2Controller\n{');
+  const ctrl = SOURCE.slice(ctrlAt, SOURCE.indexOf('\n}\n', ctrlAt)).split('\n').map((l) => l.match(/^\s+void (?:_unused_)?(\w+)\(/)).filter(Boolean).map((m) => m[1]);
+  assert.equal(ctrl.indexOf('add_AcceleratorKeyPressed'), 16, 'add_AcceleratorKeyPressed is not ICoreWebView2Controller\'s 17th method');
+  assert.match(SOURCE, /    void add_AcceleratorKeyPressed\(ICoreWebView2AcceleratorKeyPressedEventHandler eventHandler, out long token\);/);
+});
+
 test('#6882: a board load that failed is checked, and a cancelled one is not taken for a failure', () => {
   const done = method('internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)');
   inOrder(done, ['bool boardNav = boardNavs.Remove(navId);', 'if (boardNav && success == 0)',
@@ -248,6 +279,10 @@ class ReproofProbe {
         Console.Write(KosmosLauncher.CheckBoardBeforeReuse(int.Parse(a[1]), timeout));
         break;
       }
+      case "keys": {
+        foreach (string k in a[1].Split(',')) { string[] p = k.Split(':'); Console.Write(KosmosLauncher.IsReloadKey(Convert.ToUInt32(p[0], 16), p[1] == "ctrl") ? "1" : "0"); }
+        break;
+      }
       case "patient": Console.Write(KosmosLauncher.CheckBoardPatiently(int.Parse(a[1]), KosmosLauncher.ReuseProofTimeoutMs, int.Parse(a[2]))); break;
       case "answer": {
         string token = new System.IO.StreamReader(Console.OpenStandardInput(), new System.Text.UTF8Encoding(false)).ReadToEnd();
@@ -354,6 +389,12 @@ test('#6882: the rules, over every way a check can come out', WINDOWS_ONLY, asyn
     'TokenUnreadable:CheckAgain:001000', // an enforcing board this process cannot prove now (#6464), or antivirus for a moment
     'limit:3',
   ].join('\n') + '\n');
+});
+
+test('#6882: the reload keys are F5, the Refresh key and Ctrl+R, and nothing else', WINDOWS_ONLY, async (t) => {
+  if (!needsProbe(t)) return;
+  // F5, Ctrl+F5, Refresh, Ctrl+R | R alone, F4, F6, Ctrl+T, Ctrl+Shift+... is Ctrl
+  assert.equal(await probeAsync(['keys', '74:no,74:ctrl,A8:no,52:ctrl,52:no,73:no,75:no,54:ctrl,0D:ctrl']), '111100000');
 });
 
 test('#6882: a board too busy for the quick check waits for the full one, which it passes, and is never refused for it', WINDOWS_ONLY, async (t) => {
