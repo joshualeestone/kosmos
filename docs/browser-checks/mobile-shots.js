@@ -1553,7 +1553,7 @@ const SCREENS = [
   } },
   /* #6923: a task closed as replaced by a later one, and the later one's page. Each screen adds its own pair of tasks,
      closes the first as replaced by the second, opens one of them, and closes both plainly after the shot. */
-  ...['replaced', 'replaces', 'card'].map((which) => ({ name: (which === 'card' ? 'tasks-replaced-card' : 'task-' + which) + '-6923', owner: 'Angel', go: async (page, data) => {
+  ...['replaced', 'replaces', 'card'].map((which) => ({ name: (which === 'card' ? 'tasks-replaced' : 'task-' + which) + '-6923', owner: 'Angel', go: async (page, data) => {
     const post = (path, body) => page.evaluate(([pth, b]) => fetch(pth, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })
       .then(async (r) => ({ status: r.status, json: await r.json().catch(() => ({})) })), [path, body]);
     const base = '/api/project/' + encodeURIComponent(data.projectId);
@@ -1572,9 +1572,12 @@ const SCREENS = [
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
     if (which === 'card') {
-      await page.evaluate(async () => { await pjReload(); });
-      await page.waitForSelector(`.tkcard[data-task="${first}"]`, { timeout: 8000 });
-      await page.evaluate((num) => document.querySelector(`.tkcard[data-task="${num}"]`).scrollIntoView({ block: 'center' }), first);
+      // Finished tasks live on the project's Tasks view (behind View All), where the row says what replaced it.
+      await at(page, '?tab=tasks');
+      await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+      await page.evaluate((id) => openProjectTasks(id), data.projectId);
+      await page.waitForSelector('.tsk-replaced', { timeout: 8000 });
+      await page.evaluate(() => document.querySelector('.tsk-replaced').scrollIntoView({ block: 'center' }));
       return;
     }
     await page.evaluate(async (num) => { await pjReload(); openTaskPage(num); }, which === 'replaced' ? first : second);
@@ -1582,14 +1585,8 @@ const SCREENS = [
   }, verify: async (page, data) => {
     const [first, second] = data.replacedPair || [];
     if (which === 'card') {
-      // What the person sees: the new look draws the label with ::before (the markup's text is clipped there).
-      const seen = await page.evaluate((num) => {
-        const el = document.querySelector(`.tkcard[data-task="${num}"]`);
-        if (!el) return '';
-        const drawn = getComputedStyle(el, '::before').content;
-        return drawn && drawn !== 'none' && drawn !== 'normal' ? drawn : ((el.querySelector('.tkcard-n') || {}).textContent || '');
-      }, first);
-      if (!seen.includes('replaced by ' + second)) throw new Error('the card for task ' + first + ' shows ' + JSON.stringify(seen));
+      const seen = await page.evaluate(() => Array.from(document.querySelectorAll('.tsk-replaced')).map((x) => x.textContent));
+      if (!seen.includes('Replaced by task ' + second)) throw new Error('the Tasks view shows ' + JSON.stringify(seen));
       return;
     }
     const t = await page.evaluate(() => (document.getElementById('tk-state') || {}).textContent || '');
