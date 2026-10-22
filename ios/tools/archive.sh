@@ -16,7 +16,8 @@
 # and certificate are named, so none is needed or expected to be made (the flag stays, as in the first upload).
 # --check-config never creates either.
 #
-# KOSMOS_IOS_PROFILE=<profile name> signs by hand instead (#6262): the archive and the export both use an
+# KOSMOS_IOS_PROFILE=<profile name> with KOSMOS_IOS_NOTICE_PROFILE=<profile name> (the notification extension's,
+# kosmos#6487, for <bundle id>.notice) signs by hand instead (#6262): the archive and the export both use an
 # Apple Distribution certificate and that App Store profile, made beforehand (by the API or in the portal). This Mac
 # then needs the certificate with its private key in the login keychain (usable by codesign), and the profile installed
 # where Xcode finds it. Automatic signing archives with a development profile first, which needs a registered device; a
@@ -49,6 +50,8 @@ check_only=0
 # checks at a scratch copy with KOSMOS_IOS_XCCONFIG, which is refused below unless --check-config is given.
 # The archive passes the checked team and bundle id to xcodebuild on its command line, which wins over a
 # team set in Xcode's Signing pane (project.pbxproj) or XCODE_XCCONFIG_FILE, so what is checked is what is signed.
+# The bundle id goes as KOSMOS_BUNDLE_ID, which each target builds its own from (kosmos#6487: the app is <id>, its
+# notification extension <id>.notice); PRODUCT_BUNDLE_IDENTIFIER would give the extension the app's id.
 xcconfig="${KOSMOS_IOS_XCCONFIG:-$ios/Signing.xcconfig}"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -104,14 +107,27 @@ fi
 # drops a name with an apostrophe and strips quotes and backslashes, so the export would name another profile.
 # A deny-list of what PlistBuddy mangles (plus control characters, to be safe), on the whole string: a grep is
 # per line, so a newline slipped by.
-if [ -n "${KOSMOS_IOS_PROFILE+x}" ]; then
-  bad=0
-  case "$KOSMOS_IOS_PROFILE" in ''|' '*|*\'*|*\"*|*\\*|*\$*) bad=1 ;; esac   # $: xcodebuild expands it, the export does not
-  [ "$(printf '%s' "$KOSMOS_IOS_PROFILE" | LC_ALL=C tr -d '[:cntrl:]')" = "$KOSMOS_IOS_PROFILE" ] || bad=1
+# kosmos#6487: the notification extension (KosmosNotice, <bundle id>.notice) is signed with its own profile, named in
+# KOSMOS_IOS_NOTICE_PROFILE, checked the same way; signing by hand needs both.
+profile_name_ok() {   # $1: the variable's name
+  local value="${!1}" bad=0
+  case "$value" in ''|' '*|*\'*|*\"*|*\\*|*\$*) bad=1 ;; esac   # $: xcodebuild expands it, the export does not
+  [ "$(printf '%s' "$value" | LC_ALL=C tr -d '[:cntrl:]')" = "$value" ] || bad=1
   if [ "$bad" -eq 1 ]; then
-    echo "archive.sh: KOSMOS_IOS_PROFILE is '${KOSMOS_IOS_PROFILE}': a profile name here has no apostrophe, double quote, backslash, dollar sign or control character, and does not start with a space. Rename the profile or unset it." >&2
+    echo "archive.sh: $1 is '${value}': a profile name here has no apostrophe, double quote, backslash, dollar sign or control character, and does not start with a space. Rename the profile or unset it." >&2
     exit 1
   fi
+}
+if [ -n "${KOSMOS_IOS_PROFILE+x}" ]; then
+  profile_name_ok KOSMOS_IOS_PROFILE
+  if [ -z "${KOSMOS_IOS_NOTICE_PROFILE+x}" ]; then
+    echo "archive.sh: KOSMOS_IOS_PROFILE signs the app by hand, so the notification extension ($bundle.notice) needs its own App Store profile too: set KOSMOS_IOS_NOTICE_PROFILE to its name." >&2
+    exit 1
+  fi
+  profile_name_ok KOSMOS_IOS_NOTICE_PROFILE
+elif [ -n "${KOSMOS_IOS_NOTICE_PROFILE+x}" ]; then
+  echo "archive.sh: KOSMOS_IOS_NOTICE_PROFILE is set without KOSMOS_IOS_PROFILE: set both to sign by hand, or neither to sign automatically." >&2
+  exit 1
 fi
 if [ "$check_only" -eq 1 ]; then
   echo "archive.sh: signing settings ok: $bundle under team $team"
@@ -143,15 +159,15 @@ archive="$out/Kosmos.xcarchive"
 # The export options are committed without a team; this copy gets the one from Signing.xcconfig. export-options.sh
 # also sets hand signing when KOSMOS_IOS_PROFILE is given, and prints the archive's matching build settings (#6262).
 options="$out/ExportOptions.plist"
-"$here/export-options.sh" "$team" "$bundle" "$options" "${KOSMOS_IOS_PROFILE:-}" > "$out/build-settings"
+"$here/export-options.sh" "$team" "$bundle" "$options" "${KOSMOS_IOS_PROFILE:-}" "${KOSMOS_IOS_NOTICE_PROFILE:-}" > "$out/build-settings"
 manual=()
 while IFS= read -r line; do manual+=("$line"); done < "$out/build-settings"
-[ -z "${KOSMOS_IOS_PROFILE:-}" ] || echo "== signing by hand: Apple Distribution, profile '$KOSMOS_IOS_PROFILE'"
+[ -z "${KOSMOS_IOS_PROFILE:-}" ] || echo "== signing by hand: Apple Distribution, profiles '$KOSMOS_IOS_PROFILE' and '$KOSMOS_IOS_NOTICE_PROFILE' (extension)"
 
 echo "== archive: team $team, build $build"
 xcodebuild -project "$ios/Kosmos.xcodeproj" -scheme Kosmos -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$archive" \
-  DEVELOPMENT_TEAM="$team" PRODUCT_BUNDLE_IDENTIFIER="$bundle" \
+  DEVELOPMENT_TEAM="$team" KOSMOS_BUNDLE_ID="$bundle" \
   CURRENT_PROJECT_VERSION="$build" ${manual[@]+"${manual[@]}"} "${auth[@]}" archive
 
 echo "== export"

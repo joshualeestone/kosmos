@@ -160,6 +160,24 @@ simulator running iOS 26.5 (the app targets iOS 16), loads the live Kosmos+ sign
   devices". The certificate and its private key must be in this Mac's login keychain, usable by `codesign`, and the
   profile installed. The name may not hold an apostrophe, a double quote, a backslash, a dollar sign or a control character, start
   with a space or be empty (`--check-config` refuses each; unset the variable to sign automatically). The first TestFlight build (#6262) was uploaded this way.
+- `KOSMOS_IOS_NOTICE_PROFILE=<profile name>` goes with it (kosmos#6487): the App Store profile for the notification
+  extension, `KosmosNotice` (`<team>.<KOSMOS_BUNDLE_ID>.notice`). Hand signing needs both, and each target takes its
+  own (`KOSMOS_APP_PROFILE`, `KOSMOS_NOTICE_PROFILE` in `project.pbxproj`), so one profile is never given to both.
+
+### The notification extension (kosmos#6487)
+
+`KosmosNotice` runs when a notification arrives and shows it as a message from the agent, with the agent's picture
+and what it actually said. It asks the person's own computer for them (`GET /api/phone/notice` on the board), at the
+address the push names, with the session the app keeps for that computer (`SessionKeychain.macSession`). The words
+never ride the push. When the computer does not answer in time, or the session is for another computer, the notice
+shows as it came.
+
+- The app and the extension share one keychain group, `<team>.<KOSMOS_BUNDLE_ID>.shared` (both entitlements files).
+  The app moves a session kept before this group existed into it the first time it reads it.
+- The app carries the Communication Notifications capability (`com.apple.developer.usernotifications.communication`)
+  and declares `INSendMessageIntent`; without them the words still show, without the picture.
+- The UIKit-free part (`KosmosNotice/NoticeLogic.swift`) runs in `LogicTests/run.sh`;
+  `tools/check-ipa-entitlements.sh` checks the extension in a store build.
 - `--build` is required: App Store Connect refuses a build number it has already seen.
 - `archive.sh` refuses a malformed bundle id, or an empty or malformed Team ID, before it archives anything,
   and refuses `io.kosmos.app` under any team but Kosmos Agent Manager, Inc.'s (the bundle id is

@@ -6,8 +6,37 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		K0000000000000000000022 /* KosmosNotice.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = K0000000000000000000020 /* KosmosNotice.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		K0000000000000000000025 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = K000000000000000000000A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = K0000000000000000000026;
+			remoteInfo = KosmosNotice;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		K0000000000000000000023 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				K0000000000000000000022 /* KosmosNotice.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		K0000000000000000000002 /* Kosmos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Kosmos.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		K0000000000000000000020 /* KosmosNotice.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = KosmosNotice.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		K0000000000000000000010 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -17,10 +46,22 @@
 			path = Kosmos;
 			sourceTree = "<group>";
 		};
+		K0000000000000000000021 /* KosmosNotice */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = KosmosNotice;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		K0000000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		K0000000000000000000029 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -34,6 +75,7 @@
 			isa = PBXGroup;
 			children = (
 				K0000000000000000000001 /* Kosmos */,
+				K0000000000000000000021 /* KosmosNotice */,
 				K0000000000000000000010 /* Signing.xcconfig */,
 				K0000000000000000000005 /* Products */,
 			);
@@ -43,6 +85,7 @@
 			isa = PBXGroup;
 			children = (
 				K0000000000000000000002 /* Kosmos.app */,
+				K0000000000000000000020 /* KosmosNotice.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -57,10 +100,12 @@
 				K0000000000000000000008 /* Sources */,
 				K0000000000000000000003 /* Frameworks */,
 				K0000000000000000000009 /* Resources */,
+				K0000000000000000000023 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				K0000000000000000000024 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				K0000000000000000000001 /* Kosmos */,
@@ -69,6 +114,26 @@
 			productName = Kosmos;
 			productReference = K0000000000000000000002 /* Kosmos.app */;
 			productType = "com.apple.product-type.application";
+		};
+		K0000000000000000000026 /* KosmosNotice */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = K0000000000000000000027 /* Build configuration list for PBXNativeTarget "KosmosNotice" */;
+			buildPhases = (
+				K0000000000000000000028 /* Sources */,
+				K0000000000000000000029 /* Frameworks */,
+				K000000000000000000002A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				K0000000000000000000021 /* KosmosNotice */,
+			);
+			name = KosmosNotice;
+			productName = KosmosNotice;
+			productReference = K0000000000000000000020 /* KosmosNotice.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -81,6 +146,9 @@
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					K0000000000000000000006 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					K0000000000000000000026 = {
 						CreatedOnToolsVersion = 26.6;
 					};
 				};
@@ -99,12 +167,20 @@
 			projectRoot = "";
 			targets = (
 				K0000000000000000000006 /* Kosmos */,
+				K0000000000000000000026 /* KosmosNotice */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		K0000000000000000000009 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		K000000000000000000002A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -121,7 +197,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		K0000000000000000000028 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		K0000000000000000000024 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = K0000000000000000000026 /* KosmosNotice */;
+			targetProxy = K0000000000000000000025 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		K000000000000000000000C /* Debug */ = {
@@ -201,6 +292,7 @@
 				MARKETING_VERSION = 0.1.0;
 				CODE_SIGN_ENTITLEMENTS = Kosmos.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(KOSMOS_APP_PROFILE)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -232,7 +324,62 @@
 				MARKETING_VERSION = 0.1.0;
 				CODE_SIGN_ENTITLEMENTS = Kosmos.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(KOSMOS_APP_PROFILE)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		K000000000000000000002B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = K0000000000000000000010 /* Signing.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = KosmosNotice.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "KosmosNotice-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Kosmos;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID).notice";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(KOSMOS_NOTICE_PROFILE)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		K000000000000000000002C /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = K0000000000000000000010 /* Signing.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = KosmosNotice.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "KosmosNotice-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Kosmos;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID).notice";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(KOSMOS_NOTICE_PROFILE)";
+				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -256,6 +403,15 @@
 			buildConfigurations = (
 				K000000000000000000000C /* Debug */,
 				K000000000000000000000D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		K0000000000000000000027 /* Build configuration list for PBXNativeTarget "KosmosNotice" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				K000000000000000000002B /* Debug */,
+				K000000000000000000002C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

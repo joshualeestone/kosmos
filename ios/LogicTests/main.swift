@@ -1339,6 +1339,59 @@ check(tabFor("http://10.0.0.2:8080/?tab=detail&agent=cleo") == .today, "an agent
 check(tabFor("http://10.0.0.2:8080/") == .today && tabFor("http://10.0.0.2:8080/?tab=agents") == .today, "the home lights Today")
 check(tabFor("http://10.0.0.2:8080/?tab=nonsense") == .today && AppTabs.tab(forBoardURL: nil) == .today, "anything else lights Today")
 
+// MARK: - kosmos#6487: a notification's words, asked of the person's own computer
+
+section("phone notice: the request for a notification's words")
+let savedMac = #"{"name":"Studio","address":"m-abc123.kosmosplus.com","cookie":"c00kie","owner":"x"}"#
+let pushed: [AnyHashable: Any] = ["id": "report:2026-10-22T18:28:40.123Z:irma", "address": "m-abc123.kosmosplus.com", "session": "irma", "kind": "needs_you"]
+if let r = PhoneNotice.wordsRequest(userInfo: pushed, stored: savedMac) {
+    check(r.url?.absoluteString == "https://m-abc123.kosmosplus.com/api/phone/notice?id=report:2026-10-22T18:28:40.123Z:irma", "asks the computer the push names, for that push's id: \(r.url?.absoluteString ?? "-")")
+    check(r.value(forHTTPHeaderField: "Cookie") == "__Host-kosmos_tunnel_session=c00kie" && !r.httpShouldHandleCookies, "with the kept session's cookie, by hand")
+} else { check(false, "a push with a kept session for its computer makes a request") }
+var otherMac = pushed; otherMac["address"] = "m-other.kosmosplus.com"
+check(PhoneNotice.wordsRequest(userInfo: otherMac, stored: savedMac) == nil, "a push from a computer the kept session is not for: no request (the notice shows as it came)")
+check(PhoneNotice.wordsRequest(userInfo: pushed, stored: nil) == nil, "no kept session: no request")
+check(PhoneNotice.wordsRequest(userInfo: pushed, stored: "not json") == nil, "an unreadable kept session: no request")
+check(PhoneNotice.wordsRequest(userInfo: pushed, stored: #"{"name":"S","address":"m-abc123.kosmosplus.com","cookie":"","owner":"x"}"#) == nil, "an empty cookie: no request")
+var crashloop = pushed; crashloop["id"] = "crashloop:2026-10-22T18:28:40.123Z:irma"
+check(PhoneNotice.wordsRequest(userInfo: crashloop, stored: savedMac) == nil, "a kind of push the computer has no words for: no request")
+for bad in ["m-abc123.kosmosplus.com/x", "m-abc123.kosmosplus.com:444", "user@m-abc123.kosmosplus.com", "", ".kosmosplus.com", "m..x.com"] {
+    var b = pushed; b["address"] = bad
+    let stored = #"{"name":"S","address":"\#(bad)","cookie":"c","owner":"x"}"#
+    check(PhoneNotice.wordsRequest(userInfo: b, stored: stored) == nil, "an address that is not a bare host name is refused: \(bad)")
+}
+var upper = pushed; upper["address"] = "M-ABC123.kosmosplus.com"
+check(PhoneNotice.wordsRequest(userInfo: upper, stored: savedMac)?.url?.host == "m-abc123.kosmosplus.com", "the address compared without case")
+
+section("phone notice: reading the answer")
+let json = "application/json; charset=utf-8"
+let answer = Data(#"{"kind":"report","session":"irma","agent":"Irma","text":"Can I send the lease?","picture":"/api/agent/irma/avatar"}"#.utf8)
+let w = PhoneNotice.words(status: 200, contentType: json, data: answer, userInfo: pushed)
+check(w?.agent == "Irma" && w?.text == "Can I send the lease?", "a 200 JSON answer gives the agent and the words")
+check(PhoneNotice.words(status: 404, contentType: json, data: answer, userInfo: pushed) == nil, "a 404 (no words for it): nothing")
+check(PhoneNotice.words(status: 200, contentType: "text/html", data: answer, userInfo: pushed) == nil, "a page that is not JSON (a sign-in page): nothing")
+var otherAgent = pushed; otherAgent["session"] = "leo"
+check(PhoneNotice.words(status: 200, contentType: json, data: answer, userInfo: otherAgent) == nil, "words for another agent than the push named: nothing")
+check(PhoneNotice.words(status: 200, contentType: json, data: Data(#"{"kind":"report","session":"irma","agent":"Irma","text":"  ","picture":null}"#.utf8), userInfo: pushed) == nil, "blank words: nothing")
+check(PhoneNotice.words(status: 200, contentType: json, data: Data(repeating: 0x20, count: PhoneNotice.maxAnswerBytes + 1), userInfo: pushed) == nil, "an oversized answer is not read")
+
+section("phone notice: the agent's picture")
+if let w {
+    check(PhoneNotice.pictureRequest(w, userInfo: pushed, stored: savedMac)?.url?.absoluteString == "https://m-abc123.kosmosplus.com/api/agent/irma/avatar", "the picture comes from the same computer's avatar route")
+    for bad in ["https://evil.example/api/agent/irma/avatar", "//evil.example/api/agent/irma/avatar", "/api/agent/../../etc/avatar", "/api/status", "/api/agent/irma/avatar?x=1"] {
+        let b = PhoneNotice.Words(kind: w.kind, session: w.session, agent: w.agent, text: w.text, picture: bad)
+        check(PhoneNotice.pictureRequest(b, userInfo: pushed, stored: savedMac) == nil, "a picture address off that route is refused: \(bad)")
+    }
+    check(PhoneNotice.pictureRequest(PhoneNotice.Words(kind: "report", session: "irma", agent: "Irma", text: "x", picture: nil), userInfo: pushed, stored: savedMac) == nil, "no picture: no request")
+}
+check(PhoneNotice.pictureData(status: 200, contentType: "image/png", data: Data([1, 2, 3])) != nil, "a 200 image is shown")
+check(PhoneNotice.pictureData(status: 200, contentType: "text/html", data: Data([1])) == nil && PhoneNotice.pictureData(status: 404, contentType: "image/png", data: Data([1])) == nil, "anything else is not")
+
+section("phone notice: the shared keychain group, checked the same in the app and the extension")
+for (group, ok) in [("6563JLN5HF.io.kosmos.app.shared", true), ("io.kosmos.app.shared", false), (".io.kosmos.app.shared", false), ("$(AppIdentifierPrefix)io.kosmos.app.shared", false), ("6563jln5hf.io.kosmos.app.shared", false), ("6563JLN5HF.", false), ("", false)] {
+    check(PhoneNotice.hasTeamPrefix(group) == ok && (SessionKeychain.usableGroup(group) != nil) == ok, "\(group.isEmpty ? "(empty)" : group): \(ok ? "held" : "not held")")
+}
+
 await boardLoopTests()
 
 print("")

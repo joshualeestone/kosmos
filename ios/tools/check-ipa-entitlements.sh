@@ -14,6 +14,9 @@
 # And it refuses an app built for the App Store screenshots (KOSMOS_STORE_SHOTS, #6262), which opens a
 # given address instead of Kosmos+ (check-no-shots-flag.sh).
 #
+# And (kosmos#6487) it checks the notification extension inside the app is signed as <bundle>.notice by the same team,
+# is not a development build, and shares the app's keychain group.
+#
 # Usage: ios/tools/check-ipa-entitlements.sh <Kosmos.ipa | Kosmos.app> [TEAM_ID] [BUNDLE_ID]
 # Ends with one VERDICT line; no verdict line means the check did not finish.
 set -u
@@ -74,6 +77,36 @@ if [ -n "$team" ]; then
     echo "ok       com.apple.developer.team-identifier: $signed_team"
   else
     echo "WRONG    com.apple.developer.team-identifier: ${signed_team:-<absent>} (must be $team, from ios/Signing.xcconfig)"; fail=1
+  fi
+fi
+
+# kosmos#6487: the notification extension (KosmosNotice) rides inside the app and is signed on its own: the same team,
+# its own identifier (<bundle>.notice), never a development signature, and the keychain group it shares with the app.
+# Without it the phone shows every notice plainly, so a store build missing it is refused too.
+appex="$app/PlugIns/KosmosNotice.appex"
+xents="$work/notice-entitlements.plist"
+if [ ! -d "$appex" ]; then
+  echo "WRONG    no notification extension (PlugIns/KosmosNotice.appex)"; fail=1
+elif ! codesign -d --entitlements - --xml "$appex" > "$xents" 2>/dev/null || [ ! -s "$xents" ]; then
+  echo "WRONG    the notification extension carries no readable entitlements"; fail=1
+else
+  xid=$(plutil -extract application-identifier raw -o - "$xents" 2>/dev/null)
+  case "$xid" in
+    *."$bundle.notice")
+      if [ -n "$team" ] && [ "$xid" != "$team.$bundle.notice" ]; then echo "WRONG    extension application-identifier: $xid (must be $team.$bundle.notice)"; fail=1
+      else echo "ok       extension application-identifier: $xid"; fi ;;
+    *) echo "WRONG    extension application-identifier: ${xid:-<absent>} (must end in .$bundle.notice)"; fail=1 ;;
+  esac
+  if [ "$(plutil -extract get-task-allow raw -o - "$xents" 2>/dev/null)" = "true" ]; then
+    echo "WRONG    extension get-task-allow: true (a development signature)"; fail=1
+  else echo "ok       extension get-task-allow: not true"; fi
+  # The group both must hold for the extension to read the app's kept session (SessionKeychain.macSession).
+  want_group="${appid%%.*}.$bundle.shared"
+  if /usr/libexec/PlistBuddy -c 'Print :keychain-access-groups' "$xents" 2>/dev/null | grep -qxF "    $want_group" \
+    && /usr/libexec/PlistBuddy -c 'Print :keychain-access-groups' "$ents" 2>/dev/null | grep -qxF "    $want_group"; then
+    echo "ok       keychain group shared by the app and the extension: $want_group"
+  else
+    echo "WRONG    the app and the extension do not both hold the keychain group $want_group"; fail=1
   fi
 fi
 
