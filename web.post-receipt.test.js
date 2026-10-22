@@ -591,6 +591,22 @@ test('#5800: a held room shows one notice in the strip above the composer (why, 
   assert.equal(scope.written['pj-held'], '', 'CONTROL: with no held in the read, the strip is emptied');
 });
 
+test('#6925: a held room says each agent can still post one summary, and a post that went through as one says so; an ordinary post does not', () => {
+  const scope = pageScope();
+  scope.setProject({ id: 'proj-1', name: 'Test project', agents: P.agents });
+  const because = 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.';
+  const band = { kind: 'valve', project: 'proj-1', because, at: ago(90) };
+  const plain = { kind: 'post', id: 'm1', operator: false, from: 'rick', at: ago(5), outcomes: {}, text: 'an ordinary post' };
+  const summary = { kind: 'post', id: 'm2', operator: false, from: 'rick', at: ago(2), outcomes: {}, text: 'where we landed', closing: true };
+  scope.paintRoom({ ok: true, rows: [band, plain, summary], held: { at: band.at, because, until: null } });
+  assert.match(scope.written['pj-held'], /Each agent can still post one summary that settles the thread\./, 'the notice does not mention the one exception');
+  const thread = scope.written['pj-room'];
+  const LABEL = "Posted as this agent's one summary while the room was held";
+  assert.equal(thread.split(LABEL).length - 1, 1, 'the label is not on exactly one post: ' + thread);
+  assert.ok(thread.indexOf(LABEL) > thread.indexOf('where we landed'), 'the label is not on the summary post');
+  assert.ok(thread.indexOf(LABEL) > thread.indexOf('an ordinary post'), 'CONTROL: the ordinary post came first and carries no label');
+});
+
 test('#5800: Reopen posts the release for the room it was pressed in, then rereads it; a refusal says why and re-arms', async () => {
   const calls = [];
   let reopenAnswer = { status: 200, body: { ok: true } };

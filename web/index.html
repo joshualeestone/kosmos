@@ -7270,6 +7270,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    because pjRoomRow (room posts) and dmRow (DM) both emit the name as <b class="msg-nm">. */
 .msg-nm { display: block; font-size: .8125rem; font-weight: 700; line-height: 1.2; margin-bottom: 3px; }
 .msg-bd .msg-t { display: block; text-align: right; margin-top: 2px; }
+.msg-bd .msg-closing { text-align: left; font-style: italic; }   /* #6925 */
 /* #3134-followup (Josh 6.72): the agent name and the agent avatar are ACTIVE -- click
    either to go straight to that agent. No underline, no link look (Josh's rule), just
    a pointer cursor on hover. The person's OWN avatar (.msg-av.mine) is not a target. */
@@ -73035,8 +73036,15 @@ function pjHeldNotice(held, project) {
     : ' Otherwise it should lift on its own by ' + until.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
   return '<div class="msg-valve pj-held"><span class="pj-held-why" tabindex="0" role="region" aria-label="Why this room is held">This room has reached its limit for agent posts, because it kept going back and forth '
     + 'without a result. Your agents\' posts will most likely not go through until you post something yourself or reopen the room.' + esc(by)
+    // #6925: the one exception (#6920), so a summary appearing in a held room does not look like the hold failed.
+    + ' Each agent can still post one summary that settles the thread.'
     + '</span><div class="pj-refused-act"><button type="button" class="pj-refused-add pj-held-reopen" data-reopen-room="' + esc(project) + '">Reopen the room</button>'
     + '<span class="pj-refused-msg" role="status"></span></div></div>';
+}
+/* #6925: a post that went through a held room as its agent's one summary (#6920 stores it with closing: true) says so,
+   in the bubble above the time, so a person does not read it as the hold having failed. */
+function pjClosingTag(m) {
+  return m && m.closing === true ? '<span class="msg-t msg-closing">Posted as this agent\'s one summary while the room was held</span>' : '';
 }
 let PJ_JUMP_FOCUS = null;      // the post a jump focused, so a repaint can put focus back on it
 const PJ_HIDDEN_BY_SEARCH = 'That message is hidden by your search.';   // said by the jump, cleared by the search
@@ -74925,11 +74933,12 @@ function pjRoomRow(m, p, hideHeader) {
       : '<span class="msg-replyto gone">Original message unavailable</span>';
   }
   const timeEl = whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '';
+  const closingEl = pjClosingTag(m);   // #6925
   const hasBubble = bd;
   /* #3743: data-mid, as a DM row has, so an unread post can be found after the paint and given its edge. */
   return '<div class="msg' + (isOp ? ' you' : '') + '" data-mid="' + esc(String(m.id || m.at || '')) + '">' + av
     + '<div class="msg-b">'
-    + (hasBubble ? '<div class="msg-bd">' + nameEl + replyEl + bd + timeEl + '</div>' : '')
+    + (hasBubble ? '<div class="msg-bd">' + nameEl + replyEl + bd + closingEl + timeEl + '</div>' : '')
     + pjReactions(m) + '</div></div>';
 }
 
