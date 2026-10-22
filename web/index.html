@@ -68654,8 +68654,12 @@ document.getElementById('tk-subs-closeall').addEventListener('click', async () =
   btn.disabled = true;
   /* Review 4: the person may open another task (or leave) while the closes run. What this press says, and where it
      puts focus, belongs to this task's page only; the reload still repaints whatever page is open. */
-  const here = () => PJ_CURRENT === p.id && TK_OPEN === t.number;
-  const say = (s) => { if (here()) msg.textContent = s; };
+  /* kosmos#6928 review 1: a tab switch keeps PJ_CURRENT and TK_OPEN, so "here" also needs the page itself showing. */
+  const here = () => PJ_CURRENT === p.id && TK_OPEN === t.number
+    && !document.getElementById('panel-projects').hidden && !document.getElementById('pj-task-view').hidden;
+  /* kosmos#6928: a refusal while the person is on another page is not dropped: it goes to the page-wide toast, worded
+     for someone who is not looking at this task. Success while away needs nothing said. */
+  const say = (s, away) => { if (here()) msg.textContent = s; else if (away) msgToast(away, 9000); };
   let closedKids = 0;
   let finished = false;
   try {
@@ -68666,9 +68670,13 @@ document.getElementById('tk-subs-closeall').addEventListener('click', async () =
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         const why = (body && body.error) || 'we could not close it';
-        say(n === Number(t.number)
+        const isParent = n === Number(t.number);
+        say(isParent
           ? why + '. Its built subtasks are closed.'   // the guard means at least one, all closed before the parent is asked
-          : 'Task #' + n + ': ' + why + '.' + (closedKids ? ' ' + closedKids + (closedKids === 1 ? ' subtask before it is' : ' subtasks before it are') + ' closed.' : '') + ' This task is still open.');
+          : 'Task #' + n + ': ' + why + '.' + (closedKids ? ' ' + closedKids + (closedKids === 1 ? ' subtask before it is' : ' subtasks before it are') + ' closed.' : '') + ' This task is still open.',
+        isParent
+          ? 'Task #' + t.number + ' was not closed: ' + why + '. Its built subtasks are closed.'
+          : 'Closing task #' + t.number + ' stopped at task #' + n + ': ' + why + '. Task #' + t.number + ' is still open.');
         return;
       }
       if (n !== Number(t.number)) closedKids += 1;
@@ -68676,7 +68684,8 @@ document.getElementById('tk-subs-closeall').addEventListener('click', async () =
     say('');
     finished = true;
   } catch {
-    say('We could not finish closing them. The list below shows where it stopped.');   // the reload repaints the truth
+    say('We could not finish closing them. The list below shows where it stopped.',   // the reload repaints the truth
+      'Closing task #' + t.number + ' and its subtasks did not finish. Open it to see where it stopped.');
   } finally {
     // Repainted before the press is live again, so a second press acts on the new state, not the old one (as Mark as done).
     let repainted = false;
