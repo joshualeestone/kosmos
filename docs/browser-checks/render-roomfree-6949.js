@@ -136,8 +136,8 @@ const check = (cond, n, why) => (cond ? ok(n) : bad(n, why));
       // A free that could not be sent: a toast says so, Free stays pressable, the claim still shown.
       await p.route('**/free-claim', (route) => route.abort());
       await box(claimed).locator('.rxn-free').click();
-      const t0 = await toastSays(/^We could not free that post\.$/);
-      check(t0 === 'We could not free that post.', t + ' a free that could not be sent says so in a toast', String(t0));
+      const t0 = await toastSays(/^We could not free that post\. Check that Kosmos is still running, then try again\.$/);
+      check(t0 === 'We could not free that post. Check that Kosmos is still running, then try again.', t + ' a free that could not be sent says so in a toast', String(t0));
       const c3 = await read(claimed);
       check(c3.free && c3.freeDisabled === false && c3.claimPill, t + ' and Free is pressable again, with the claim still shown', JSON.stringify(c3));
       await p.unroute('**/free-claim');

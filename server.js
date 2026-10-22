@@ -21599,8 +21599,8 @@ const server = http.createServer(async (req, res) => {
         if (!body || typeof body !== 'object') {
           const bad = new Error('that request is not the shape we expect'); bad.status = 400; throw bad;
         }
-        /* A caller that presents an agent token is an agent, whatever else it holds: freeing another agent's claim is
-           the person's alone. Advisory like the board's other person-only routes (#4491 is what closes the rest). */
+        /* A caller that presents an agent token is an agent, whatever else it holds, and is refused. Advisory like the
+           board's other person-only routes: a process holding only the board token is not told apart (#4491). */
         if (presentedAgentToken(req, body)) { sendJson(res, 403, { ok: false, because: 'only the person can free a claim; give your own back with kosmos claim --release' }); return; }
         let stored = null;
         try { stored = projects.readAll().find((p) => p && p.id === id) || null; } catch {

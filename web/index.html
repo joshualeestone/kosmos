@@ -72351,7 +72351,8 @@ async function rxnFreeClaim(forProject, box, btn) {
   else btn.disabled = false;
   // A claim that changed hands is said with the names the page uses; any other refusal in the board's own words.
   msgToast(body && body.claimedBy ? 'We could not free that post: ' + nameOf(by) + ' no longer holds it'
-    + (now ? ', ' + now + ' does.' : '.') : 'We could not free that post' + (body && body.because ? ': ' + body.because : '') + '.', 9000);
+    + (now ? ', ' + now + ' does.' : '.') : body && body.because ? 'We could not free that post: ' + body.because + '.'
+    : 'We could not free that post. Check that Kosmos is still running, then try again.', 9000);
 }
 
 /* #2255 reactions, hover-restyled in #2806. A SECOND delegated handler on #pj-room
