@@ -1,7 +1,7 @@
 ---
 method: challenge-loop
 branch: otherpc-6850
-diff_hash: 4ac5399e427f986f82664e662d11ae7264a1be7613e6acecf513714b0dce0e98
+diff_hash: 7864085262cfcf19d00aa6e397052d140a183bc863cbc0344554f6157ac2896c
 timestamp: 2026-10-21T19:34:28Z
 subdir_audit: passed
 iterations: 2
@@ -26,3 +26,7 @@ Two blind iterations; each iteration's fixes are in its commit message.
 #### Validation
 - LogicTests 247/247, run on 935b11a (the reviewed code plus this proof).
 - iOS simulator build of 481c6f9: BUILD SUCCEEDED (queued-heavy, 14:33 CDT), Kosmos.app binary produced.
+
+#### Rebase onto #6880 (part b, the five tabs), 2026-10-22 00:3x CDT
+- ContentView conflict: part b shares one coordinator (web.coordinator); the other-computer counter moved onto it, and its load now calls web.loadingOwnPage() so a waiting tab press cannot cover the page the app chose (as a tapped agent does). The tab bar does not follow it there: the page is the sign-in host, where following never acts.
+- LogicTests 470/470 (part b's 464 + this card's 6). Simulator build re-queued after the rebase.
