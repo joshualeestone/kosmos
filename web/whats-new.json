@@ -18,8 +18,8 @@
     },
     {
       "icon": "shield",
-      "title": "Each file shows a fingerprint",
-      "line": "Files and Documents show a short fingerprint for each file stored on this computer, so you can tell whether two copies are the same."
+      "title": "Files show a fingerprint",
+      "line": "The Files screen and a project's Documents folder list show a short fingerprint beside files, so you can tell two copies apart."
     },
     {
       "icon": "tasks",
