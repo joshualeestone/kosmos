@@ -303,6 +303,14 @@ function chk(ok, label, extra) {
              never showed. Wait for the same class the handler reads, so the click always means the consolidated one. */
           await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 20000 })
             .catch((e) => { throw new Error(`${tag}: the page never became consolidated: ${e.message}`); });
+          /* #6861: watch #panel-settings's hidden attribute from just before the click, so a red can say whether Settings never
+             opened or opened and was hidden again (both leave the same picture 20 s later). */
+          await page.evaluate(() => {
+            const p = document.getElementById('panel-settings'); const t0 = performance.now();
+            window.__settingsSeq = [p ? (p.hidden ? 'hidden@0' : 'shown@0') : 'absent@0'];
+            if (p) new MutationObserver(() => window.__settingsSeq.push((p.hidden ? 'hidden@' : 'shown@') + Math.round(performance.now() - t0)))
+              .observe(p, { attributes: true, attributeFilter: ['hidden'] });
+          });
           await page.evaluate(() => document.getElementById('userpop-settings').click());
           /* #6861: this wait times out on the CI runner in webkit only (the button stays hidden), never locally.
              On a timeout, say which ancestor hides the button and what the column holds, so the red names its cause. */
@@ -310,10 +318,10 @@ function chk(ok, label, extra) {
             if (!e || e.name !== 'TimeoutError') throw e;   // a closed page or a crash is its own error, not this one
             const probe = page.evaluate(() => {
               const btn = document.querySelector('#s-nav button[data-go="mac"]');
-              const out = { hiddenBy: [], exists: !!btn };
+              const out = { seq: (window.__settingsSeq || []).slice(0, 8), hiddenBy: [], exists: !!btn };
               for (let el = btn; el; el = el.parentElement) {
                 const cs = getComputedStyle(el);
-                if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') out.hiddenBy.push((el.id ? '#' + el.id : el.tagName) + (el.hidden ? '[hidden]' : '') + ' display=' + cs.display + ' visibility=' + cs.visibility);
+                if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') out.hiddenBy.push((el.id ? '#' + el.id : el.tagName + (el.classList[0] ? '.' + el.classList[0] : '')) + (el.hidden ? '[hidden]' : '') + ' display=' + cs.display + ' visibility=' + cs.visibility);
                 if (el.id === 'panel-projects') break;   // the column's own container: above it is the page frame
               }
               if (btn) { const r = btn.getBoundingClientRect(); out.rect = [Math.round(r.width), Math.round(r.height)]; }

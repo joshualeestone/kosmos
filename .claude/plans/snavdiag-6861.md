@@ -8,9 +8,16 @@ The consolidated-view arm of docs/browser-checks/render-snav-head-4979.js times 
 reds so far. The Playwright timeout says only "resolved to hidden", so no red has said WHICH ancestor hides it.
 
 ## Decision
-A diagnostic, not a fix: on that timeout the check reports every hiding ancestor (hidden attribute, display none,
-visibility hidden), the body classes, the query string, #panel-settings's parent and which consolidated overlay is
-showing, then fails with that in its message. The next nightly red then names its cause.
+A diagnostic, not a fix. Just before the Settings click the check starts recording #panel-settings's `hidden`
+attribute (a MutationObserver: `shown@ms` / `hidden@ms` from the click). On that wait's timeout ONLY (a TimeoutError;
+anything else is rethrown as itself), it reports, sequence first: `seq`, then every hiding ancestor up to
+#panel-projects, whether the button exists and its size, #panel-settings's parent, which overlay holds the column, the
+body classes and query string, the page errors this arm collected, and Playwright's own "resolved to" lines. The probe
+has its own 5 s cap.
+
+What it can tell apart: Settings never opened (`seq` never shows `shown`) from opened and hidden again (`shown@x`, then
+`hidden@y`), a throw in the handler (`pageErrors`), a missing or zero-size button (`exists`, `rect`). It names the
+mechanism, not necessarily the root cause behind it.
 
 Rejected: a retry of the Settings click (would hide a real product race where the link sometimes does not open
 Settings); a longer timeout (20 s is already long, and the button stays hidden, not slow).
@@ -22,4 +29,5 @@ that hides #panel-settings right after the click fails with
 committed tree, not the mutant: browser-checks.sh freezes a copy of the last commit (#758), and said so in its log.
 
 ## Weakest premise
-That the next red comes from the same wait. If the runner flake moves to another wait, this says nothing about it.
+That the next red comes from the same wait. If the runner flake moves to another wait, this says nothing about it. And
+the driver's summary cuts each reason at 200 characters, so the full line is in the job's streamed log, not the summary.
