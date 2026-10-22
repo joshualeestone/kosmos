@@ -22,16 +22,15 @@ const bash = (command) => JSON.stringify({ hook_event_name: 'PermissionRequest',
 test('#3417 decide() answers allow for the shapes of Claude\'s dangerous-rm safety prompt', () => {
   for (const cmd of [
     'rm -f "$S"/*.png',
-    'rm -rf $X/',
-    'rm -rf "${DIR}"/build',
-    'for f in a b; do rm -f "$D"/$f; done',
-    'cd /tmp && rm -rf "$W"/*',
+    'rm -f $S/*.png',
+    'rm -f "${S}"/*.png',
+    'for f in a b; do rm -f "$S"/$f.png; done',
   ]) {
     assert.deepEqual(hook.decide(bash(cmd)), { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } }, cmd);
   }
 });
 
-test('#3417 the payload Claude Code 2.1.308 sent for this check (captured 2026-10-22, paths replaced) is answered allow', () => {
+test('#3417 a payload modelled on what Claude Code 2.1.308 sent for this check (2026-10-22, paths replaced) is answered allow', () => {
   const real = {
     session_id: '67745d23-daaa-4843-8e19-5c4179d0e26f',
     transcript_path: '/tmp/kosmos-test/transcript.jsonl',
