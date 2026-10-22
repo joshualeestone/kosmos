@@ -73924,7 +73924,7 @@ function rxnClaimShown(claim) {
   return { by: claim.by, label: 'Claimed by ' + name + (ago ? ', ' + ago : '') };
 }
 function rxnsInner(list, withReply, withSpeak, mid, claim) {
-  const held = rxnClaimShown(claim);
+  const held = typeof rxnClaimShown === 'function' ? rxnClaimShown(claim) : null;   // guarded: tests lift rxnsInner alone
   const pills = (Array.isArray(list) ? list : []).map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
     if (!e) return '';
