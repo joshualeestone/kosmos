@@ -15,7 +15,7 @@
  * WHAT IT PROVES, each step a person's own action through the real routes:
  *   1-2  a local coordinator (dev codes, no second factor) and relay come up.
  *   3-4  the parent signs up on the web (a browser session) and on P; the parent makes the child's account at a
- *        plus-address of the parent's (kosmos#6379) and it signs in on K;
+ *        plus-address of the parent's (kosmos#6379), and that account signs in on K;
  *        P allows the parent's browser, as the console needs an allowed sign-in.
  *   5    the operator makes the family: org-create --kind family, the parent its admin.
  *   6    the parent makes a join code in the console (/v1/org/invites).
