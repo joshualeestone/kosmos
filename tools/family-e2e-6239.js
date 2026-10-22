@@ -463,14 +463,16 @@ async function main() {
   info('step 3: boards P (' + P.port + ') and K (' + K.port + ') answer');
 
   // 4. the parent signs up on the web (a browser session) and signs in on P; the child's account signs in on K.
+  // kosmos#6379: the child's account is one the parent makes, at an address the parent reads (a plus-address of the
+  // parent's), so the proof walks the path the console tells a parent to take. A child under 13 has no address of their own.
   const parent = 'parent-' + RUN + '@example.com';
-  const kid = 'kid-' + RUN + '@example.com';
+  const kid = 'parent-' + RUN + '+kid@example.com';
   const webDevice = 'family-web-' + RUN;
   const sess = await webSignupSession(parent, webDevice);
   // The session's match code is how P's row is found in 4b: it must be a real one (undefined would match a codeless row).
   chk(!!sess && typeof sess.match_code === 'string' && sess.match_code !== '', 'step 4: the parent\'s account is made through the web sign-up, with a browser session and its match code', sess ? 'device ' + sess.device_status + ', code ' + sess.match_code : '-');
   chk(await boardSignin(P, parent, 'famp-' + RUN), 'step 4: P signs in as the parent');
-  chk(await webSignupSession(kid, 'family-kidweb-' + RUN) !== null, 'step 4: the child\'s account is made through the web sign-up');
+  chk(await webSignupSession(kid, 'family-kidweb-' + RUN) !== null, 'step 4: the parent makes the child\'s account through the web sign-up, at a plus-address of their own');
   chk(await boardSignin(K, kid, 'famk-' + RUN), 'step 4: K signs in as the child');
 
   // 4b. the parent's browser is allowed from P, as a person allows a new browser (the console needs an allowed sign-in).
