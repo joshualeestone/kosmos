@@ -283,7 +283,7 @@ function contactAllows(policy = currentStrict(), kind) {
 /* kosmos#6870: the family default's own sentence. There is no policy saying off there (none was saved, or it does not
    set outside contact), so the policy's sentence would name a policy that does not exist. About shared projects only:
    the community has its own (FAMILY_COMMUNITY_STOPS). */
-const FAMILY_CONTACT_STOPS = "on a family's Kosmos, agents stay out of projects shared with other computers until the parent turns on outside contact";
+const FAMILY_CONTACT_STOPS = "on a family's Kosmos, agents stay out of projects shared with other computers until a parent allows outside contact in the family's policy";
 /* kosmos#6862: the same sentence's family form, for the community alone. */
 const FAMILY_COMMUNITY_STOPS = "on a family's Kosmos, agents do not take part in the Kosmos+ community";
 /** kosmos#6862 (Josh, 2026-10-15 10:45 #6239: an agent a kid uses "is not to participate in the community aspect"):

@@ -90,7 +90,7 @@ function joined(kind) {
   fs.writeFileSync(file, JSON.stringify({ org: { id: 'org-1', name: 'The Smiths', slug: 'smiths', kind }, world: 'a'.repeat(32) }) + '\n');
   assert.equal(orgenroll.kindHere(), kind, 'CONTROL: the board reads the kind this test wrote');
 }
-const FAMILY = /on a family's Kosmos, agents stay out of projects shared with other computers until the parent turns on outside contact/;
+const FAMILY = /on a family's Kosmos, agents stay out of projects shared with other computers until a parent allows outside contact in the family's policy/;
 const POLICY = /the policy set for this Kosmos/i;
 
 test('#6870: a family with no policy is refused a shared project in the family default\'s words', async () => {
@@ -100,10 +100,16 @@ test('#6870: a family with no policy is refused a shared project in the family d
       setup();
       const r = await call('POST', '/api/federation/verify', { code: 'X' }, SCREEN);
       assert.equal(r.status, 403, JSON.stringify(r.json));
-      assert.match(r.json.error, /^On a family's Kosmos, agents stay out of projects shared with other computers until the parent turns on outside contact, so a project cannot be shared or joined here\.$/);
+      assert.match(r.json.error, /^On a family's Kosmos, agents stay out of projects shared with other computers until a parent allows outside contact in the family's policy, so a project cannot be shared or joined here\.$/);
       assert.doesNotMatch(r.json.error, POLICY);
     }
     assert.equal(signed.length, before, 'nothing was signed');
+    // Review 2: on a family, a policy that says off keeps the policy's own words (it was saved; the default is not why).
+    joined('family');
+    apply({ outside_contact: { enabled: false } });
+    const famOff = await call('POST', '/api/federation/verify', { code: 'X' }, SCREEN);
+    assert.match(famOff.json.error, /^The policy set for this Kosmos keeps agents out of the Kosmos\+ community and out of projects shared with other computers, so a project cannot be shared or joined here\.$/);
+    assert.equal(orgpolicy.contactAllows().family, undefined, 'a policy saying off is not the family default');
     joined('company');
     apply({ outside_contact: { enabled: false } });
     const off = await call('POST', '/api/federation/verify', { code: 'X' }, SCREEN);
@@ -121,14 +127,17 @@ test('#6870: a family with no policy: the shared room and a post that stayed her
   try {
     joined('family');
     const closed = await roomText();
-    assert.match(closed, /This room is shared with another computer, but it is closed: on a family's Kosmos, agents stay out of projects shared with other computers until the parent turns on outside contact, so nothing posted here leaves this computer\./);
+    assert.match(closed, /This room is shared with another computer, but it is closed: nothing posted here leaves this computer\. On a family's Kosmos, agents stay out of projects shared with other computers until a parent allows outside contact in the family's policy\./);
     assert.doesNotMatch(closed, /every post here is sent to them/);
     assert.doesNotMatch(closed, /policy set for this Kosmos keeps it closed/);
     const r = await call('POST', '/api/project/' + encodeURIComponent(pid) + '/room', { text: 'Who has chapter three?' }, SCREEN);
     assert.ok(r.status < 300, JSON.stringify(r.json));
     const after = await roomText();
-    assert.match(after, /That post stayed on this computer: on a family's Kosmos, agents stay out of projects shared with other computers until the parent turns on outside contact\./);
+    assert.match(after, /That post stayed on this computer: on a family's Kosmos, agents stay out of projects shared with other computers until a parent allows outside contact in the family's policy\./);
     assert.doesNotMatch(after, /That post stayed on this computer: the policy/);
+    joined('family');
+    apply({ outside_contact: { enabled: false } });
+    assert.match(await roomText(), /but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer\./, 'a family whose policy says off keeps the policy\'s words');
     joined('company');
     apply({ outside_contact: { enabled: false } });
     assert.match(await roomText(), /but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer\./, 'CONTROL: a policy saying off keeps its words');

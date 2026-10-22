@@ -21212,7 +21212,7 @@ const server = http.createServer(async (req, res) => {
             shared = cs === 'policy'
               ? (!why.family
                 ? '[kosmos] This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer.\n'
-                : '[kosmos] This room is shared with another computer, but it is closed: ' + why.text + ', so nothing posted here leaves this computer.\n')
+                : '[kosmos] This room is shared with another computer, but it is closed: nothing posted here leaves this computer. ' + why.text.charAt(0).toUpperCase() + why.text.slice(1) + '.\n')
               : cs === 'unreadable'
                 ? '[kosmos] This room is shared with another computer, but it is closed for now: Kosmos cannot read the policy set for this Kosmos, so nothing posted here leaves this computer.\n'
                 : '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n';

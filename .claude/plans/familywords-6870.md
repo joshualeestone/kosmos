@@ -15,8 +15,9 @@ Stacked on kidcommunity-6862 (#6862); rebase onto main with --onto once it merge
   before (same text).
 
 ## Decided, not missed
-- The sentence names the parent and "outside contact", the policy key's own name; weakest premise: that a parent finds
-  the setting from those words (the family console label was not checked).
+- The sentence says "until a parent allows outside contact in the family's policy": the console's row is "Outside
+  contact" with the values "Allowed" and "Not set" (kosmos-relay coordinator/src/console.html, review 2). Weakest
+  premise: that a parent reading it on their own board knows the family's policy is in that console.
 - contactStops is a second read after contactState; a change between them gives the policy's sentence for that one
   message (as #6862's policyStops).
 
@@ -36,3 +37,10 @@ Stacked on kidcommunity-6862 (#6862); rebase onto main with --onto once it merge
 - Not added: a family arm with `outside_contact: {}`. The board refuses that bundle ("not one this Kosmos
   understands"), so the state cannot happen.
 - Accepted: contactReason's second read (documented). The throw / now-allows fallbacks are not exercised by a test.
+
+## Review 2 (opus)
+- SHOULD-FIX fixed: no test held a FAMILY whose policy says off to the policy's own words (both controls were a
+  company). Arms added on verify and the room line, and contactAllows' family flag absent there. Mutation: the family
+  branch checked before a policy saying off (2 red).
+- NIT fixed: wording "until a parent allows outside contact in the family's policy" (the console's label and value).
+- NIT fixed: the room line is two sentences, the closed fact first, as the policy form reads.
