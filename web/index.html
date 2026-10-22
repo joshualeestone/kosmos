@@ -19469,7 +19469,11 @@ window.kosmosMeasureScrollbarWidth();
         <div class="field">
           <label class="flabel" for="plus-signin-email">Enter your Kosmos+ account email address</label>
           <input type="email" id="plus-signin-email" class="tk-inp plus-si-wide" maxlength="120" autocomplete="email"
-            placeholder="you@example.com">
+            placeholder="you@example.com" aria-describedby="plus-si-child">
+          <!-- kosmos#6873 (#6379, PigeonPete's decision 10-21, in the words of the family console's Add a child steps): a
+               child's computer is signed in with the child's account, never the parent's own; under 13, one the parent
+               makes, at an address the parent reads. Says nothing about where the account is made (#6873 step 2). -->
+          <p class="fhint" id="plus-si-child">Setting up a child's computer? Sign in with your child's account, not with the address you sign in with yourself: this computer would then be signed in as you. For a child under 13, use an account you make for them, at an email address you read, so the sign-in emails come to you.</p>
         </div>
         <!-- kosmos#5995 item 4: the name this computer is sent under, shown BEFORE it is sent. Filled from the
              computer (plusSiComputerName); the person can keep it, change it or clear it. Hidden until the name
@@ -19830,6 +19834,8 @@ window.kosmosMeasureScrollbarWidth();
              none (#5791). Filled from the family's own words (the coordinator's). -->
         <div id="plus-org-family" role="group" aria-label="The family's words" hidden>
           <p class="fhint" id="plus-org-family-lead" tabindex="-1"></p>
+          <!-- kosmos#6873: which account this computer is signed in as, and whose it should be (#6379), before Accept. -->
+          <p class="fhint" id="plus-org-family-account"></p>
           <p class="fhint" id="plus-org-family-reports-head">What the family will see from this computer:</p>
           <ul class="fhint" id="plus-org-family-reports"></ul>
           <p class="fhint" id="plus-org-family-backsup-head">Backed up from this computer:</p>
@@ -52847,6 +52853,12 @@ function plusOrgFamilyShow(code, p) {
   document.getElementById('plus-org-family-lead').textContent = p.review === true
     ? lead + ' Its words are not accepted on this computer. As this child\u2019s parent or guardian, read them, then accept them on this computer.'
     : lead + ' As this child\u2019s parent or guardian, read what joining shares, then accept to connect this computer.';
+  /* kosmos#6873: the account this computer is signed in as (the engine's, from the Allow poll) and the rule for it, so a
+     parent can see before accepting that this is not their own sign-in. Nothing named when it is not known yet. */
+  const who = typeof ASK === 'object' && ASK && typeof ASK.email === 'string' && ASK.email.includes('@') ? ASK.email : '';
+  document.getElementById('plus-org-family-account').textContent = (who ? 'This computer is signed in to Kosmos+ as ' + who + '. ' : '')
+    + 'On a child\u2019s computer that must be the child\u2019s account, not the address you sign in with yourself; for a child under 13, '
+    + 'one you made for them, at an email address you read. If it is not, press Not now, then Remove this computer, and sign in again with the child\u2019s account.';
   const acceptBtn = document.getElementById('plus-org-family-accept');
   if (acceptBtn) acceptBtn.textContent = p.review === true ? 'Accept' : 'Accept and join';
   fill('plus-org-family-reports', c.reports);
