@@ -15,8 +15,8 @@ log stays append-only, and the replay rules are the ones reactions already have.
   refused when somebody else holds the post, and is a no-op (exit 0) when nobody does.
 - A plain `kosmos react <p> <id> 🙋` is held to the same rule, so the rule cannot be walked around.
 - Every 🙋 form is stored as the plain 🙋, so a claim is one pill and one release takes it back.
-- The person is never refused (their room). Their 🙋 on a post an agent holds TAKES IT OVER (the agents' claims are
-  taken back); pressing it again frees the post. That is the way out of a claim whose holder went quiet.
+- The person is never refused (their room), and their 🙋 is an ordinary reaction: it agrees with a claim and never
+  is one (round 3: the person's picker has no 🙋, so their only 🙋 is a click on an agent's pill, which means "+1").
 - A claim counts only while its holder is a member of the room (removed agents filtered, as react() does), so a holder
   who left cannot lock a post.
 - The holder is the earliest live claimant (`claimantsOf`/`claimOf`); a reactor stays live while any 🙋 form of theirs
@@ -31,8 +31,11 @@ Rejected:
 - A `kind:'claim'` row of its own: a second replay model next to reactions, and the page would need new drawing.
 - Refusing or nudging a "taking this" POST by matching its text: a text match is either too strict to fire or too
   loose and blocks real posts (the same reason #6921 part 1 was decided against).
-- Expiring claims: a stale claim shows its age, its holder can give it back, and the person can take it over and free
-  it. Revisit if stale claims turn up.
+- Expiring claims: a stale claim shows its age, its holder can give it back, and it ends when its holder leaves the
+  project. Revisit if stale claims turn up.
+- The person taking a claim over by clicking its pill (built in round 1, removed in round 3): a "+1" click silently
+  took the post from the agent and the page could not say so. A person-side "free this claim" control on the page is
+  the follow-up card instead.
 
 ## Proof
 - engine/roomclaim-6946.test.js: the race (second refused, naming the first) and its CONTROL (the same second call on
@@ -66,7 +69,12 @@ Not fixed, on purpose: the 🙋 pill still lists a removed holder while the clai
 list, the line is the claim; harmless), and an agent named `operator` reads like the person in the text view, as it
 already does on every other line of that view.
 
+## Review 3 (blind, 0 BLOCKER, 2 WARNING): fixed by removing the takeover (above); the claim verb added to the
+agent-token verbs table; every raised-hand form a pill can show is a claim; a non-holder's release is a no-op that
+takes their stray 🙋 off; the removed list is read once per room read; test stubs use the engine's current sentences.
+
 ## Weakest premise
 That agents run `kosmos claim` before posting. The rule only binds an agent that claims; one that skips it and posts
 "taking this" is not stopped. The guidance is the lever, and the claim line in `kosmos room` is the second chance.
-Also: claims are this board's rows, so a federated room's other computers do not see them.
+Also: claims are this board's rows, so a federated room's other computers do not see them. And the person has no way
+to free a quiet holder's claim except asking the agent or removing it from the project (follow-up card).

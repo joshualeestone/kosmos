@@ -137,34 +137,32 @@ test('review 1 #1: a claim whose holder left the room is not a claim', () => {
   assert.equal(claim('bob', 'm2', 'claim', ['ann', 'bob', 'cy']).ok, false);
 });
 
-test('review 1 #1: the person takes a claim over with their 🙋, and pressing it again frees the post', () => {
+test('round 3: the person\'s 🙋 agrees with a claim and never claims; control: an agent\'s 🙋 does', () => {
   seedPost('m1', 'p');
   assert.equal(claim('ann').ok, true);
-  const took = messages.react({ project: 'p', of: 'm1', emoji: HAND, operator: true });
-  assert.equal(took.ok, true, 'the person was refused a 🙋 in their own room');
-  assert.deepEqual(took.tookOver, ['ann']);
-  assert.equal(holder(), 'you', 'the person pressing 🙋 did not take the claim over');
-  // Round 2 C1: the log says the person took it, not that ann gave it up.
-  const taken = reactionRows().filter((m) => m.from === 'ann' && m.op === 'remove');
-  assert.equal(taken.length, 1);
-  assert.equal(taken[0].takenBy, 'you');
-  // Round 2 W1: ann is told in the room, in a note for the agents.
-  const note = messages.record().rows.filter((m) => m.kind === 'note' && m.project === 'p').pop();
-  assert.ok(note, 'no room note told ann the post was taken over');
-  assert.equal(note.audience, 'agents');
-  assert.match(note.text, /^The person took \[m1\] over from ann with their raised hand, so it is not ann's any more\./);
-  // Round 2 N3: ann's release after the takeover is not a failure.
-  const annBack = claim('ann', 'm1', 'release');
-  assert.equal(annBack.op, 'none');
-  assert.equal(annBack.claimedBy, 'you');
-  const over = claim('bob');
-  assert.equal(over.ok, false);
-  assert.equal(over.claimedBy, 'you');
-  assert.match(over.because, /^the person claimed that post just now, so do not post that you are taking it: read the room, and ask them/);
-  const freed = messages.react({ project: 'p', of: 'm1', emoji: HAND, operator: true });
-  assert.equal(freed.op, 'remove');
-  assert.equal(holder(), null, 'the person pressing 🙋 again did not free the post');
-  assert.equal(claim('bob').op, 'add');
+  const agree = messages.react({ project: 'p', of: 'm1', emoji: HAND, operator: true });
+  assert.equal(agree.ok, true, 'the person was refused a 🙋 in their own room');
+  assert.equal(agree.op, 'add');
+  assert.equal(holder(), 'ann', 'the person clicking ann\'s 🙋 pill took the post from ann');
+  assert.equal(claim('bob').claimedBy, 'ann');
+  assert.equal(reactionRows().filter((m) => m.from === 'ann' && m.op === 'remove').length, 0, 'the person\'s click took ann\'s claim back');
+  assert.equal(messages.react({ project: 'p', of: 'm1', emoji: HAND, operator: true }).op, 'remove', 'the person\'s second click did not take their own 🙋 back');
+  assert.equal(holder(), 'ann');
+  // On a post no agent holds, the person's 🙋 holds nothing either: an agent can still claim it.
+  seedPost('m2', 'p');
+  assert.equal(messages.react({ project: 'p', of: 'm2', emoji: HAND, operator: true }).op, 'add');
+  assert.equal(holder('m2'), null, 'the person\'s 🙋 became a claim');
+  assert.equal(claim('bob', 'm2').op, 'add');
+});
+
+test('round 3: a non-holder\'s release is a no-op that takes their stray 🙋 off and names the holder', () => {
+  seedPost('m1', 'p');
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'ann', op: 'add', at: new Date(Date.now() - 60000).toISOString() });
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'add', at: new Date().toISOString() });
+  const back = claim('bob', 'm1', 'release');
+  assert.equal(back.op, 'none', 'bob was told he gave back a post he never held');
+  assert.equal(back.claimedBy, 'ann');
+  assert.deepEqual(messages.reactionsFor('m1', messages.record().rows)[0].who, ['ann'], 'bob\'s stray 🙋 was left on the post');
 });
 
 test('the claim rules keep react\'s other refusals: a non-member, a missing post, a bad mode', () => {
@@ -238,8 +236,9 @@ test('round 2 W3: the room\'s view of a claim drops a holder who was removed; co
   }
 });
 
-test('round 2 N5: only real 🙋 forms are a claim; 🙋 followed by another emoji is an ordinary reaction', () => {
-  for (const form of [HAND, HAND_TONE, '\u{1F64B}\u200D\u2640\uFE0F', '\u{1F64B}\u{1F3FB}\u200D\u2642\uFE0F', '\u{1F64B}\uFE0F']) {
+test('only 🙋 forms are a claim (every raised hand a pill can show); 🙋 followed by another emoji is not', () => {
+  for (const form of [HAND, HAND_TONE, '\u{1F64B}\u200D\u2640\uFE0F', '\u{1F64B}\u{1F3FB}\u200D\u2642\uFE0F', '\u{1F64B}\uFE0F',
+    '\u{1F64B}\uFE0F\u200D\u2640\uFE0F', '\u{1F64B}\uFE0E']) {
     assert.equal(messages.isClaimEmoji(form), true, JSON.stringify(form));
   }
   for (const other of ['\u{1F64B}\u{1F525}', THUMB, '\u{1F64C}', '']) assert.equal(messages.isClaimEmoji(other), false, JSON.stringify(other));

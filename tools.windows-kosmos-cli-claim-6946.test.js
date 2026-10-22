@@ -71,9 +71,9 @@ test('claim: a post somebody else holds exits 1 naming them; a refused release s
   const no = await run(['claim', 'proj-1', 'm3'], () => ({ body: { ok: false, claimedBy: 'ann', because } }));
   assert.equal(no.code, 1);
   assert.equal(no.err, 'Not claimed: ' + because + '.');
-  const rel = await run(['claim', 'proj-1', 'm3', '--release'], () => ({ body: { ok: false, because: 'ann holds that post, not you, so there is nothing of yours to give back' } }));
+  const rel = await run(['claim', 'proj-1', 'm3', '--release'], () => ({ body: { ok: false, because: 'you are not on that project, so this room is not yours to react in' } }));
   assert.equal(rel.code, 1);
-  assert.equal(rel.err, 'Not given back: ann holds that post, not you, so there is nothing of yours to give back.');
+  assert.equal(rel.err, 'Not given back: you are not on that project, so this room is not yours to react in.');
 });
 
 test('claim: an answer with no ok field is not read as a refusal, and a missing post id is a usage error that sends nothing', async () => {

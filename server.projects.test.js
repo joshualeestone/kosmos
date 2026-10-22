@@ -3001,19 +3001,16 @@ test('#6946: kosmos claim through the real /api/react route, and `kosmos room` s
     const row = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.find((r) => r.id === id);
     assert.equal(row.claim && row.claim.by, 'zeta', 'the page row does not carry the claim');
 
-    // The person takes it over from the board: the line names the operator, as the rest of this view does.
-    const took = await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' });
-    assert.equal(took.status, 200, took.body);
-    assert.deepEqual(JSON.parse(took.body).tookOver, ['zeta'], 'the page is not told whose claim it took over');
+    // The person clicks zeta's 🙋 pill on the board: that agrees, it does not take the post from zeta.
+    const agreed = await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' });
+    assert.equal(agreed.status, 200, agreed.body);
     res = await req(`/api/project/${project.id}/room?as=text`);
-    assert.ok(res.body.includes('The person took [' + id + '] over from zeta with their raised hand'), 'zeta is not told in the room:\n' + res.body);
-    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by operator (just now); do not post that you are taking it.\n'), res.body);
-    assert.equal((await asZeta({ claim: 'claim' })).claimedBy, 'you', 'zeta claimed over the person');
+    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'the person\'s click changed who holds the post:\n' + res.body);
 
-    // The person presses it again: the post is free, and the line goes.
-    await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' });
+    // zeta gives it back: the line goes, and a second release is a no-op.
+    assert.equal((await asZeta({ claim: 'release' })).op, 'remove');
     res = await req(`/api/project/${project.id}/room?as=text`);
-    assert.doesNotMatch(res.body, /is claimed by/, 'a freed claim still printed');
+    assert.doesNotMatch(res.body, /is claimed by/, 'a given-back claim still printed');
     assert.equal((await asZeta({ claim: 'release' })).op, 'none');
   });
 });

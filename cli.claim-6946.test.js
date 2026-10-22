@@ -118,7 +118,7 @@ test('#6946: a claim already yours says so and exits 0', () =>
   }));
 
 test('#6946: a post somebody else holds is refused with their name and exit 1', async () => {
-  const because = 'ann already claimed that post at 2026-10-22T23:00:00.000Z, so do not post that you are taking it: read the room, and ask ann if you can help';
+  const because = 'ann claimed that post 3 minutes ago, so do not post that you are taking it: read the room, and ask ann if you can help';
   await withStub(() => ({ ok: false, claimedBy: 'ann', claimedAt: '2026-10-22T23:00:00.000Z', because }), async (port, seen) => {
     const out = await claim(port, seen, ['p', 'm3']);
     assert.equal(out.code, 1, 'a refused claim must not exit 0');
@@ -140,7 +140,7 @@ test('#6946: a release with nothing held exits 0, and a refused release says it 
     assert.equal(out.code, 0, 'a retried release that already landed must not read as a failure');
     assert.match(out.stdout, /That post is not claimed by you, so there was nothing to give back\./);
   });
-  const because = 'ann holds that post, not you, so there is nothing of yours to give back';
+  const because = 'you are not on that project, so this room is not yours to react in';
   await withStub(() => ({ ok: false, claimedBy: 'ann', because }), async (port, seen) => {
     const out = await claim(port, seen, ['p', 'm3', '--release']);
     assert.equal(out.code, 1);

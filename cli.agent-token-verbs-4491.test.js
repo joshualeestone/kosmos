@@ -102,6 +102,7 @@ const VERBS = [
   ['/api/msg', ['msg', 'mara', 'hello']],
   ['/api/post', ['post', 'p4491', 'hello']],
   ['/api/react', ['react', 'p4491', 'm1', 'thumbsup']],
+  ['/api/react', ['claim', 'p4491', 'm1']],   // #6946
   ['/api/project/p4491/task/1/message', ['task', 'message', 'p4491', '1', 'hello']],
   // Slice 4, the reads (two-word verbs are named by both words in the test titles below).
   ['/api/project/p4491/room', ['room', 'p4491']],

@@ -21193,6 +21193,7 @@ const server = http.createServer(async (req, res) => {
     }
     try {
       const rec = messages.record();
+      let claimMembers;   // #6946: the room's members for claims, read once per request and only if a post has a 🙋
       const noteNames = new Map();   // #4423: one read's names for recommender notes (noteTextNow)
       /* #4649 slice 3: the owner's labels by stamped account, read ONCE per request (review round 3: a read per row
          stalled a busy room). The text view never shows them, so it does not read them. */
@@ -21247,11 +21248,12 @@ const server = http.createServer(async (req, res) => {
                    the safe direction (measured: 0 such rows among 221 posts on a real board, 09-29). */
                 mentioned: Array.isArray(m.mentioned) ? m.mentioned : [],
                 ...(reactions.length ? { reactions } : {}),
-                // #6946: who holds the 🙋 claim on this post, {by, at}; `by` is 'you' for the person. Read only when a
+                // #6946: which agent holds the 🙋 claim on this post, {by, at}. Read only when a
                 // 🙋 is among the reactions, so a room with none pays no second pass over the log.
                 ...((() => {
                   if (!reactions.some((r) => messages.isClaimEmoji(r.emoji))) return {};
-                  const c = messages.roomClaimOf(m.id, rec.rows, roomRecord && roomRecord.agents);
+                  if (claimMembers === undefined) claimMembers = messages.claimMembers(roomRecord && roomRecord.agents);
+                  const c = messages.claimOf(m.id, rec.rows, claimMembers);
                   return c ? { claim: c } : {};
                 })()) };
             })()
@@ -21378,10 +21380,10 @@ const server = http.createServer(async (req, res) => {
           /* #6946: the claim on its own line, so an agent reading the room before it answers a request sees that
              someone already has it, and in words rather than as one pill among the reactions. */
           const c = m.claim && typeof m.claim.by === 'string' && m.claim.by ? m.claim : null;
-          const claimedBy = c ? (c.by === 'you' ? 'operator' : String(c.by).replace(/\s+/g, ' ')) : '';
+          const claimedBy = c ? String(c.by).replace(/\s+/g, ' ') : '';   // always an agent: the person's 🙋 is not a claim
           const claimed = c
-            ? [when + '  [kosmos] [' + m.id + '] is claimed by ' + claimedBy + ' (' + messages.claimAge(c.at) + ')'
-              + (c.by === 'you' ? '; do not post that you are taking it.' : '; unless you are ' + claimedBy + ', do not post that you are taking it.')]
+            ? [when + '  [kosmos] [' + m.id + '] is claimed by ' + claimedBy + ' (' + messages.claimAge(c.at) + '); unless you are '
+              + claimedBy + ', do not post that you are taking it.']
             : [];
           return [line, ...reacted, ...claimed, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
         });
@@ -21548,8 +21550,7 @@ const server = http.createServer(async (req, res) => {
         /* The fresh reactions for this post, from the operator's viewpoint. */
         let reactions = [];
         try { reactions = messages.reactionsFor(out.of, messages.record().rows, 'you'); } catch { reactions = []; }   // #4631: the canonical id (the route takes '530' too)
-        // #6946: the agents whose claim the person's 🙋 just took over, so the page can say so.
-        sendJson(res, 200, { ok: true, op: out.op, emoji: out.emoji, of: out.of, reactions, ...(Array.isArray(out.tookOver) ? { tookOver: out.tookOver } : {}) });
+        sendJson(res, 200, { ok: true, op: out.op, emoji: out.emoji, of: out.of, reactions });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));
