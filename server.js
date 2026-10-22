@@ -2689,15 +2689,15 @@ function communityValveRelease(agentId, at) {
 // cross-identity DoS) -- the Symbol removes the collision rather than asserting it away.
 const COMMUNITY_HUMAN_VALVE_KEY = Symbol('community-human-valve');
 
-/* #6949: the 🙋 claim on one room post as the room read shows it ({by, at} or null), for the person's react and
-   free-claim routes, so their one-row repaint labels the pill as the full room read does. Read only when a 🙋 is among
-   the post's reactions, filtered by the stored record's members as the room read is. Best-effort: null on any failure,
-   and the next room read draws it right. */
+/* #6949: the 🙋 claim on one room post ({by, at} or null) for the person's react and free-claim routes, so their
+   one-row repaint labels the pill as the full room read does. The engine's roomClaimOf, from the stored record's
+   members, as the room read uses (it caches claimMembers across a read's posts). Read only when a 🙋 is among the
+   post's reactions. Best-effort: null on any failure, and the next room read draws it right. */
 function roomPostClaim(projectId, postId, reactions) {
   try {
     if (!Array.isArray(reactions) || !reactions.some((r) => r && messages.isClaimEmoji(r.emoji))) return null;
     const stored = projects.readAll().find((p) => p && p.id === projectId) || null;
-    return messages.claimOf(postId, messages.record().rows, messages.claimMembers(stored && stored.agents));
+    return messages.roomClaimOf(postId, messages.record().rows, stored && stored.agents);
   } catch { return null; }
 }
 
