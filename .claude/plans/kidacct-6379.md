@@ -14,7 +14,7 @@ at an address the parent reads; a plus-address of the parent's is one way to do 
   reads codes with `\S+`, which includes `+`.
 - Run on Agent1s 2026-10-21 22:20 (log ~/.cache/claude-handoffs/baron-jobs/e2e-6379.log on Agent1s): debug binaries
   built from kosmos-relay 602609433 (the head later gated and squash-merged as #554, 6f642327), kosmos e7b7a6046d with
-  this harness edit. Steps 1 to 4 PASS, including the child's account at the plus-address and "K signs in as the child".
+  an earlier wording of this edit (the same address; only step 4's check label differed). Steps 1 to 4 PASS, including the child's account at the plus-address and "K signs in as the child".
 - That run is red at step 4b, and so is a control at 00:25 with main's own unedited harness on the same binaries (log
   e2e-6379-control.log, same folder). That red is already on main and is filed as kosmos#6887. Steps 7 to 11 (the child joining under the family's words) are
   therefore not proven by either run.
