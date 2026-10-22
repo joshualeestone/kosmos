@@ -66587,7 +66587,7 @@ async function pjReload() {
 
 /* #6895: `holds` is true when the name is shown as holding OPEN work on this task. Then a holder who is not one of the
    project's agents (removed after the task was given to them) is named with " (not on this project)", as the reviewer
-   choice names one with " (left the project)". Nothing is changed for them. */
+   choice names one with " (left the project)". No automatic fix: the screen only says so. */
 function tkMemberName(p, sessionName, holds) {
   const m = (p.agents || []).find((a) => a && a.sessionName === sessionName);
   const name = (m && m.name) || (typeof tskAgentName === 'function' ? tskAgentName(sessionName) : sessionName);   // #4421: a former member by its current card, as pjNameOf
@@ -67932,8 +67932,9 @@ function paintTaskPage() {
      the engine's claimWho; tkSayPart, the same rule as the project card). The why line below reads
      the same value. */
   const sayPart = tkSayPart(parts, t.claim && t.claim.about);
+  const taskClosed = t.progress ? t.progress.closed : Boolean(t.closedAt);   // #6895: a finished task's holders are history
   document.getElementById('tk-who').innerHTML = parts.map((part) => {
-    const shown = part.who ? tkMemberName(p, part.who, TK_ACT !== 'reopen' && !part.closedAt) : null;   // #6895: open parts of an open task
+    const shown = part.who ? tkMemberName(p, part.who, !taskClosed && !part.closedAt) : null;   // #6895: open parts of an open task
     const line = part.sentence && part.sentence !== t.sentence ? part.sentence : '';
     return '<div class="tkpart' + (part.closedAt ? ' done' : '') + '" data-part="' + esc(String(part.id)) + '">'
       + faceFor(part.who)
