@@ -27,8 +27,8 @@ option, a test-started publisher holds the deploy again unless its `node --test`
 safe direction).
 
 ## Residuals
-- `node --require ./x.test.js server.js` still matches (the value can be read as the test file). Contrived, and the
-  pre-#6912 pattern had it too.
+- `node --require ./x.test.js server.js`, and likewise `node -e x.test.js` / `node -p x.test.js`, still match (an
+  option's value can be read as the test file). Contrived, and the pre-#6912 pattern had them too.
 - pid reuse inside one ps snapshot (#6912 item 3): needs a reused pid within one snapshot; the 64-hop cap and the ppid-1
   rule bound the walk.
 
