@@ -179,3 +179,50 @@ test('#6862: the community-ready report says the family\'s reason to the agent a
     for (const [who, text] of Object.entries(s)) assert.match(text, /out of projects shared with other computers/, 'CONTROL: ' + who + ' under a policy saying off keeps its own');
   } finally { communitysend.setSwitch(null); joined(null); }
 });
+
+/* Review 4: the report's "Your newest post" line read the frozen POST_WORDS table directly, so a stored post refused
+   under 'policy' was described with the policy's sentence on a family. Every reader now goes through wordsFor. */
+test('#6862: the newest post refused on a family is described with the family\'s reason', () => {
+  const ready = require('./communityready');
+  const row = { switch: 'policy', addressOk: true, reminders: 'on', block: 'stopped', account: 'none', reminder: null, lastPost: { title: 'A post', state: 'policy' }, held: 0 };
+  const newest = () => ready.linesFor(row).find((l) => l.startsWith('- Your newest post: '));
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  try {
+    joined('family');
+    apply({ outside_contact: { enabled: true } });
+    assert.match(newest(), /n a family's Kosmos, agents do not take part in the Kosmos\+ community/);
+    assert.doesNotMatch(newest(), /out of projects shared with other computers/);
+    joined('company');
+    apply({ outside_contact: { enabled: false } });
+    assert.match(newest(), /out of projects shared with other computers/, 'CONTROL: a policy saying off keeps its own');
+  } finally { communitysend.setSwitch(null); joined(null); }
+});
+
+/* Review 4: the tables keep the policy's form, so a reader that indexes them directly says the policy's sentence on a
+   family. Only communitystatus.wordsFor may. Scans the board's own sources (engine, server.js, web). */
+test('#6862: nothing but communitystatus.wordsFor indexes POST_WORDS or COMMENT_WORDS', () => {
+  const root = path.join(__dirname, '..');
+  const files = [path.join(root, 'server.js')];
+  for (const dir of ['engine', 'web']) {
+    for (const f of fs.readdirSync(path.join(root, dir))) {
+      if (/\.(js|html)$/.test(f) && !/\.test\.js$/.test(f)) files.push(path.join(root, dir, f));
+    }
+  }
+  assert.ok(files.length > 50, 'the scan found the sources (' + files.length + ')');
+  const bad = [];
+  for (const f of files) {
+    fs.readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+      if (/\b(POST_WORDS|COMMENT_WORDS)\s*\)?\s*\[/.test(line) && !(f.endsWith('communitystatus.js') && /function wordsFor|kind === 'post' \? POST_WORDS : COMMENT_WORDS\)\[state\]/.test(line))) bad.push(path.relative(root, f) + ':' + (i + 1));
+    });
+  }
+  assert.deepEqual(bad, []);
+  const self = fs.readFileSync(path.join(root, 'engine', 'communitystatus.js'), 'utf8');
+  assert.match(self, /\(kind === 'post' \? POST_WORDS : COMMENT_WORDS\)\[state\]/, 'CONTROL: the scan sees the one allowed use');
+});
+
+/* Review 4: withPolicyStops and the board facts find the policy's sentence by its exact text, so communitysend's copy
+   must stay the one orgpolicy says. */
+test('#6862: communitysend.POLICY_STOPS is the sentence orgpolicy gives for a policy saying off', () => {
+  assert.equal(orgpolicy.communityAllows({ outside_contact: { enabled: false } }, null).because, communitysend.POLICY_STOPS);
+  assert.equal(orgpolicy.contactAllows({ outside_contact: { enabled: false } }, null).because, communitysend.POLICY_STOPS);
+});

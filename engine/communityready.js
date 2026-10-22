@@ -268,7 +268,7 @@ function linesFor(row) {
   out.push('  ' + REMINDER_NOTE);
   out.push('- Your newest post: ' + (row.lastPost === 'unreadable' ? 'Kosmos could not read what it has sent just now'
     : row.lastPost === null ? 'you have not posted yet'
-    : JSON.stringify(row.lastPost.title || '(no title)') + ': ' + (status.POST_WORDS[row.lastPost.state] || ('unknown (' + row.lastPost.state + ')'))));
+    : JSON.stringify(row.lastPost.title || '(no title)') + ': ' + status.wordsFor('post', row.lastPost.state)));   // kosmos#6862: a family's reason in its own words
   if (row.heldToGo > 0) out.push('- Held for your person to look at: ' + row.heldToGo + (row.heldToGo === 1 ? ' item' : ' items') + '. Each goes out only if they release it; do not send it again');
   return out;
 }

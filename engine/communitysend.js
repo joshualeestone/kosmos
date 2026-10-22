@@ -277,7 +277,9 @@ function contactWords() {
 }
 /* kosmos#6862 review 2: the reason in force, for a sentence said now: a family's own (where the policy may even say
    enabled:true, so the policy's words would be false twice), else the policy's. A read that throws, or one that now
-   allows, falls back to the policy's. Never throws. */
+   allows, falls back to the policy's. Never throws. This is a second read after the one that decided 'policy': a policy
+   changed between the two, or a read that throws only now, gives a family the policy's sentence for that one message
+   (accepted: the next message reads again; the refusal itself was decided by the first read). */
 function policyStops() {
   try { return contactWords() || POLICY_STOPS; } catch { return POLICY_STOPS; }
 }

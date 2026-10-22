@@ -73,3 +73,15 @@ agents do not take part in the Kosmos Community") false in that case.
   communityblock 307 is the policy form chosen by stoppedReason; server.js COMMUNITY_STOPPED is chosen against the
   family sentence (review 1).
 - 5 test files naming communityready or policyStops: 78 pass, 0 fail.
+
+## Review 4 (sonnet)
+- SHOULD-FIX fixed: the report's "Your newest post" line indexed POST_WORDS directly, so a post refused under 'policy'
+  on a family was described with the policy's sentence. My review-3 sweep searched for the sentence's text, not for
+  readers of the tables that hold it, so it missed this. Now every reader goes through communitystatus.wordsFor, and a
+  source scan (engine, server.js, web) holds that nothing else indexes the tables (with a control that the scan sees
+  the one allowed use). Mutations: the line back to POST_WORDS (2 red), wordsFor without the substitution (2 red).
+- NIT fixed: a pin that communitysend.POLICY_STOPS is exactly the sentence orgpolicy gives for a policy saying off
+  (withPolicyStops and the board facts find it by text). Mutation: one word changed (4 red).
+- NIT accepted and documented: policyStops is a second read after the one that decided 'policy'; a change or a throw
+  between them gives a family the policy's sentence for that one message. The comment now says so.
+- 50 test files naming the touched modules: 1089 pass, 0 fail, 2 skipped.
