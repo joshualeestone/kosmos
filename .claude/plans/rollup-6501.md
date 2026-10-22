@@ -30,6 +30,7 @@ Card: kosmos#6501 (agent feedback 10-18 and 10-22, two installs). Item 1 shipped
 
 ## Tests
 - web.subtasks-3861.test.js pins the line's new HTML.
+- docs/browser-checks/mobile-shots.js: a task-rollup-6501 screen (a throwaway project, deleted after) for the design shots.
 - docs/browser-checks/render-subtasks-3861.js, at 1400 and 390: the line offers the link; a refusal on subtask 3
   stops after closing 2, names #3 and leaves the parent open; a second press closes 3 and then the parent; the
   already-closed subtask stays closed; no message after success.
@@ -43,3 +44,10 @@ Card: kosmos#6501 (agent feedback 10-18 and 10-22, two installs). Item 1 shipped
 - Also: the subtasks are sorted by number (as the list), the stale-state guard also covers every subtask already
   closed and clears an old message, a refused parent says its built subtasks are closed, and focus moves to Mark as
   done once the line is gone.
+
+## Review round 2
+- The browser check now also drives a request with no answer (aborted on task 3: 2 closes, the parent stays open,
+  "We could not finish closing them") and a double press, counting the close requests (3, then the parent, once
+  each). The node order pin alone could not see a missing disabled flag.
+- Not changed (NITs): focus after a refusal (as Mark as done), a press that outlives leaving the page (the reload
+  repaints), and the subtask-refusal message not counting the subtasks it already closed (the list shows them).

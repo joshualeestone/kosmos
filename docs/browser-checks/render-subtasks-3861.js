@@ -243,7 +243,18 @@ function chk(ok, label, extra) {
         allDone: !document.getElementById('tk-subs-done').hidden }));
       chk(line.shown && !line.allDone && /Close them and this task$/.test(line.text), `${tag} every subtask built or closed: the line offers Close them and this task`, JSON.stringify(line));
 
-      // The refusal arm first: task 3's close is refused, so 2 closes, 3 and the parent stay open, and the line says which.
+      // Review 2: a request that never answers (aborted) on task 3: 2 closes, 3 and the parent stay open, and the line says it could not finish.
+      await page.route('**/task/3/close', (r) => r.abort('connectionreset'));
+      await page.click('#tk-subs-closeall');
+      await page.waitForFunction(() => /^We could not finish/.test(document.getElementById('tk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+      const threwMsg = await page.evaluate(() => document.getElementById('tk-msg').textContent);
+      chk(threwMsg === 'We could not finish closing them. The list below shows where it stopped.', `${tag} a request with no answer says it could not finish`, threwMsg);
+      chk(!!read(2).closedAt && !read(3).closedAt && !read(1).closedAt, `${tag} it stopped where the request failed: 2 closed, 3 and the parent open`,
+        JSON.stringify([read(1).closedAt, read(2).closedAt, read(3).closedAt]));
+      await page.unroute('**/task/3/close');
+
+      // The refusal arm: task 3's close is refused, so nothing more closes, the parent stays open, and the line says which.
+      await openParent();
       await page.route('**/task/3/close', (r) => r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'that task cannot be closed right now' }) }));
       await page.click('#tk-subs-closeall');
       await page.waitForFunction(() => /^Task #3: /.test(document.getElementById('tk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
@@ -253,10 +264,17 @@ function chk(ok, label, extra) {
         JSON.stringify([read(1).closedAt, read(2).closedAt, read(3).closedAt]));
       await page.unroute('**/task/3/close');
 
-      // The press: what is left (3) closes, then the parent; the closed subtask stays closed.
+      // The press, pressed twice in a row (review 2): what is left (3) closes, then the parent, each asked once; the closed
+      // subtask stays closed and is never asked again.
       await openParent();
-      await page.click('#tk-subs-closeall');
+      const asked = [];
+      const count = (req) => { const m = /\/task\/(\d+)\/close$/.exec(req.url()); if (m && req.method() === 'POST') asked.push(Number(m[1])); };
+      page.on('request', count);
+      await page.dblclick('#tk-subs-closeall');
       await page.waitForFunction(() => document.getElementById('tk-subs-built').hidden, null, { timeout: 8000 }).catch(() => {});
+      await page.waitForTimeout(500);
+      page.off('request', count);
+      chk(JSON.stringify(asked) === JSON.stringify([3, 1]), `${tag} a double press asks each close once: 3, then the parent`, JSON.stringify(asked));
       chk(!!read(3).closedAt && !!read(1).closedAt && !!read(2).closedAt && !!read(4).closedAt, `${tag} one press closed the built subtasks and then the parent`,
         JSON.stringify([1, 2, 3, 4].map((n) => !!read(n).closedAt)));
       chk(await page.evaluate(() => document.getElementById('tk-msg').textContent) === '', `${tag} no message after it succeeded`);
