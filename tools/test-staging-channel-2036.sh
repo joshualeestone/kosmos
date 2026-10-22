@@ -281,7 +281,7 @@ out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" Q
 # kosmos#6922: a promote stopped while the gate waits in the queue leaves no promote-agentgate.* log in TMPDIR.
 QWAIT="$T/stub-queue-wait.sh"; printf '#!/usr/bin/env bash
 echo $$ > "$QPID"
-exec sleep 30   # exec: killing this pid stops the wait itself, no orphan
+exec sleep 30   # sleep-control-ok: a stand-in queue that waits until the test kills it; exec, so the kill leaves no orphan
 ' > "$QWAIT"
 QT="$T/qtmp"; mkdir -p "$QT"; QPID="$T/qwait.pid"; rm -f "$QPID"
 env -u KOSMOS_PROMOTE_AGENT_GATE_CMD TMPDIR="$QT" QPID="$QPID" KOSMOS_PROMOTE_AGENT_QUEUE="$QWAIT" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 \

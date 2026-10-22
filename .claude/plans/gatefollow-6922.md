@@ -20,12 +20,22 @@ standing in for: `DELETE /api/agent/<name>/leftover` (#514).
 - **Keep the gate's `launchctl enable`.** Removal disables the label; the route boots it out but does not re-enable.
   create.js re-enables on create, so a reused name would be fine, but gate names are never reused, so the override
   would otherwise sit in launchd's database forever. Only outside a sandboxed run.
+- **If the board cannot clear an agent, the gate deletes its files itself** (review 1). The route can refuse where the
+  old rm never could (tmux unreadable, a Trash move refused, a transport blip), and a job file left in LaunchAgents is
+  the #3011 red #6906 fixed. A lost answer (no code, 000) is tried again first (a repeat finds "nothing of" it). A
+  PARTIAL whose files are already gone (tokens or the community account stuck) names what is left, not the files.
+- **The label re-enabled is the board's** (`GET .../leftover` plan, `job.label`, launchd jobs only), not one derived in
+  the gate's environment, so a board under another world cannot make it enable a stranger (review 1).
+- **Accepted cost:** each promote leaves 4 items (2 job files, 2 folders) in the board user's Trash, never emptied by
+  Kosmos. Harmless to #3011 (it reads LaunchAgents only); a person can empty it.
 - **HUP and PIPE exit 2.** They exited 129/141; through the queue that maps to cannot-tell, but an explicit
   KOSMOS_PROMOTE_AGENT_GATE_CMD read it as a refusal.
 - **Queue log in the EXIT trap.** Measured first: bash 3.2 and 5 run the EXIT trap on TERM, INT and HUP.
 
 ## Measured
-- test-staging-agent-online-check.sh: 44 arms pass (35 before, 9 new). test-staging-channel-2036.sh: ALL PASS (2 new).
+- test-staging-agent-online-check.sh: 47 arms pass (35 before). test-staging-channel-2036.sh: ALL PASS (2 new).
+- Mortals full suite at df19f29da: node 23328, 0 fail; the shell shard stopped at 10/284 on the #6710 sleep-control
+  guard (the waiting stub queue's `exec sleep 30` had no opt-out marker). Fixed; the guard passes alone.
 - Mutants, each reverted after: no HUP/PIPE in the trap (2 red), no clear (30 red), no typed name (1), no launchctl
   enable (1, the live launchctl arm), a PARTIAL clear read as cleared (1), no queue-log trap (1).
 - fixture-discipline.test.js 20/20.
