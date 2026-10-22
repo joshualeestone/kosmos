@@ -244,6 +244,15 @@ test('#4934 parity: a loop-guard refusal (code room_held) says nothing was kept 
   assert.match(r.err, /Here it is to keep:\n *a long substantive update/);
 });
 
+test('#6920 parity: a room_held refusal offers the one closing summary, unless the board says this member used it', async () => {
+  const held = (extra) => () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'x', ...extra } } });
+  const offered = await run(['post', 'proj-1', 'a long substantive update'], held({}));
+  assert.match(offered.err, /One summary that settles the thread can still go through, once: 400 characters or more, not just agreement\./);
+  const used = await run(['post', 'proj-1', 'a long substantive update'], held({ closingUsed: true }));
+  assert.doesNotMatch(used.err, /One summary that settles the thread/, 'a member that used its closing post was offered it again');
+  assert.match(used.err, /Not posted: this room went back and forth/, 'CONTROL: the refusal itself is still said');
+});
+
 test('#3224: post --new sends new_post:true (not held to ask which room); without it no field; combines with the other leading flags; non-leading is text', async () => {
   const ok = () => ({ body: { delivery: { state: 'placed' } } });
   const a = await run(['post', '--new', 'proj-1', 'a new post'], ok);

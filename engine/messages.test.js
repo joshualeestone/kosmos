@@ -1658,6 +1658,8 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     // A second long post from the SAME member is held: one per member per hold.
     const again = posted('leo-discord', summary + ' Adding one more detail.');
     assert.equal(again.code, 'room_held', 'a second long post from the same member got through');
+    assert.equal(again.closingUsed, true, 'the refusal does not tell the CLI this member has used its closing post');
+    assert.equal(ack.closingUsed, undefined, 'a member that has not used its closing post was told it had');
     // Another member still gets their own one.
     // The summary did not push the room's lift later: closing posts are not charged to the room.
     assert.equal(again.clearsAt, liftBefore, 'the closing post moved the room\'s lift time');

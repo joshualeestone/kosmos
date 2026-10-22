@@ -2631,22 +2631,23 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   }
 
   /* #6920 (agent feedback, 2026-10-22): a held room also held the coordinator's one summarizing post, the post a hold
-     exists to bring about. So while the volume valve holds the room, a member that this hold has already refused (its
-     ROOM_HELD_REFUSAL refused row since countFrom: the post that tips the room over is held as before, so a member learns
-     of the hold first, and the CLI's refusal then tells it a summary may go through), each member may land ONE post of
-     CLOSING_POST_MIN characters or more of its one-line form, not agreement-only, since countFrom: the rolling window,
-     reset by the person's post or a reopen, as the arrival budget is. A room that stays held past the window gives each
-     member one more. It is stored with `closing: true`, which is how a second one is found and held, and it is NOT
-     charged to the room (arrivals here and roomHeldRead's count skip it), so the summary does not push the lift later. Rejected: one
-     closing post per ROOM (another member's long post landing first would hold the coordinator's), and any long post
-     (a loop of long posts would never be stopped). */
+     exists to bring about. While the volume valve holds the room, a member this hold has already refused (its
+     ROOM_HELD_REFUSAL row since countFrom, so the post that tips the room over is held as before and the member learns of
+     the hold first) may land ONE post of CLOSING_POST_MIN characters or more of its one-line form, not agreement-only,
+     per window (countFrom: rolling, reset by the person's post or a reopen, as the arrival budget is).
+     It is stored with `closing: true`, which is how a second one is found and held (and `closingUsed` on the refusal
+     tells the CLI not to offer it again). It is NOT charged to the room: arrivals here and roomHeldRead's count skip it,
+     so a summary does not push the lift later.
+     Rejected: one closing post per ROOM (another member's long post landing first would hold the coordinator's), and
+     any long post (a loop of long posts would never be stopped). */
+  const closingUsed = typeof from === 'string' && from !== ''
+    && log.some((m) => m && m.kind === 'post' && m.closing === true && m.from === from
+      && m.project === projectId && Date.parse(m.at) >= countFrom);
   const closing = lim.on && operator !== true && arrivals + charged > allowed
-    && typeof from === 'string' && from !== ''
+    && typeof from === 'string' && from !== '' && !closingUsed
     && cleaned.length >= CLOSING_POST_MIN && !chat.acknowledgementOnly(stored)
     && log.some((m) => m && m.kind === 'refused' && m.from === from && m.project === projectId
-      && m.because === ROOM_HELD_REFUSAL && Date.parse(m.at) >= countFrom)
-    && !log.some((m) => m && m.kind === 'post' && m.closing === true && m.from === from
-      && m.project === projectId && Date.parse(m.at) >= countFrom);
+      && m.because === ROOM_HELD_REFUSAL && Date.parse(m.at) >= countFrom);
   if (!closing && operator !== true && arrivals + charged > allowed) {
     const because = lim.on
       ? 'This conversation went back and forth for a while without landing, '
@@ -2704,7 +2705,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       const heldNow = roomHeldRead(projectId, now, lim, log, charged, progressFrom, recipients.length);
       const clearsAt = heldNow && heldNow.until ? heldNow.until : null;
       const clears = clearsAt === null ? {} : { clearsAt, clearsInMinutes: Math.max(1, Math.ceil((Date.parse(clearsAt) - now) / 60000)) };
-      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, ...clears, id: null, at, outcomes: null };
+      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, ...clears, ...(closingUsed ? { closingUsed: true } : {}),
+        id: null, at, outcomes: null };
     }
   }
 
