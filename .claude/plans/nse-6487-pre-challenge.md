@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: nse-6487
-diff_hash: 0f2da4626484880e7ccb2b0f4eeb6d54a6a3e72fc2f07be60e2c47fc139d5e24
+diff_hash: 3e6aad26ddd82d77afcc9d7d807491e4fed66713b399d63b8b5fca3cc797a047
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-22T21:14:59Z
@@ -45,4 +45,9 @@ converged: true
 - Simulator builds (Debug and Release, unsigned): BUILD SUCCEEDED, extension embedded as io.kosmos.app.notice.
 - Hand-signed archive + export, KOSMOS_IOS_PROFILE='Kosmos App Store' KOSMOS_IOS_NOTICE_PROFILE='Kosmos Notice App Store', build 990002, NOT uploaded: ARCHIVE and EXPORT SUCCEEDED, check-ipa-entitlements.sh VERDICT PASS (app and extension).
 - check-ipa-entitlements.sh controls on an ad-hoc signed app: no shared group in the extension FAILS, no extension FAILS.
+- First CI run (PR #6942): red on ios/tools/test-check-ipa-entitlements.sh, whose passing fixtures had no extension, so
+  the new extension check refused them. Missed locally because I had not run that script. Fixed: the fixtures carry the
+  extension and shared group, plus four refusal cases; then EVERY script ios.yml runs was run locally and passed
+  (LogicTests 512/512, test-archive-config, test-check-ipa-entitlements 19/19, usage strings, app assets, no-shots
+  flag, the unsigned device archive with the extension's bundle id).
 - The node suite does not cover ios/ (this diff touches only ios/ and .github/workflows/ios.yml); the iOS CI workflow runs on the PR.
