@@ -3004,7 +3004,9 @@ test('#6946: kosmos claim through the real /api/react route, and `kosmos room` s
     // The person takes it over from the board: the line names the operator, as the rest of this view does.
     const took = await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' });
     assert.equal(took.status, 200, took.body);
+    assert.deepEqual(JSON.parse(took.body).tookOver, ['zeta'], 'the page is not told whose claim it took over');
     res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('The person took [' + id + '] over from zeta with their raised hand'), 'zeta is not told in the room:\n' + res.body);
     assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by operator (just now); do not post that you are taking it.\n'), res.body);
     assert.equal((await asZeta({ claim: 'claim' })).claimedBy, 'you', 'zeta claimed over the person');
 

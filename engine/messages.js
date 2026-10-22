@@ -3541,7 +3541,9 @@ function reactionsFor(of, rows, youReactor) {
    agent holds TAKES IT OVER (the agents' claims are taken back), and pressing it again frees the post. That is the
    way out of a claim whose holder went quiet; a holder removed from the project no longer holds anything. */
 const CLAIM_EMOJI = '\u{1F64B}';
-function isClaimEmoji(e) { return typeof e === 'string' && e.codePointAt(0) === 0x1F64B; }
+// 🙋, then optionally a skin tone, a gendered ZWJ sequence and a presentation selector; NOT 🙋 followed by another emoji.
+const CLAIM_FORM = /^\u{1F64B}[\u{1F3FB}-\u{1F3FF}]?(?:\u200D[\u2640\u2642]\uFE0F?)?\uFE0F?$/u;
+function isClaimEmoji(e) { return typeof e === 'string' && CLAIM_FORM.test(e); }
 
 /* Every reactor with a live 🙋 on post `of`: Map(reactor -> {at, emojis}) in the order each one's claim began. A
    reactor stays live while any 🙋 form of theirs is (rows from before react() stored them plain can hold several);
@@ -3574,9 +3576,11 @@ function claimOf(of, rows, members) {
 
 /* The claim on post `of` as a ROOM shows it: `names` is the project's stored members, less any removed agent (the
    same filter react() uses), so the room and the refusal agree on who holds it. If the removed list cannot be read the
-   stored members are used as they are. */
+   stored members are used as they are, and with no member list at all (the registry could not be read) nobody is
+   filtered, since showing a held post as free is the worse mistake. */
 function roomClaimOf(of, rows, names) {
-  const listed = Array.isArray(names) ? names.filter((n) => typeof n === 'string' && n) : [];
+  if (!Array.isArray(names)) return claimOf(of, rows);   // registry unreadable: never show a held post as free
+  const listed = names.filter((n) => typeof n === 'string' && n);
   const room = _roomMembers(listed);
   return claimOf(of, rows, room.ok ? room.members : listed);
 }
@@ -3728,7 +3732,9 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   const holder = claimOf(postId, rows, operator === true ? null : roomNow);
   const mine = claimants.get(reactor);
   // A release, or a toggle off: every 🙋 form this reactor has live goes, so nothing of theirs is left behind.
-  const takeBack = (who, c) => { for (const em of c.emojis) appendLog(stamp({ emoji: em, op: 'remove', ...as(who) })); };
+  // `takenBy` marks a remove the holder did not make itself (the person's takeover, or a holder who left the room), so
+  // the log says who acted; replay reads it as that holder's remove all the same.
+  const takeBack = (who, c, takenBy) => { for (const em of c.emojis) appendLog(stamp({ emoji: em, op: 'remove', ...as(who), ...(takenBy ? { takenBy } : {}) })); };
   const named = (by) => (by === 'you' ? 'the person' : by);
   const refuse = () => ({ ok: false, claimedBy: holder.by, claimedAt: holder.at,
     because: named(holder.by) + ' claimed that post ' + claimAge(holder.at)
@@ -3737,14 +3743,21 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     if (mine) { takeBack('you', mine); return { ok: true, op: 'remove', emoji: e, of: postId }; }
     // The person takes the post over: every agent's claim on it is taken back, so the person can then free it.
     const tookOver = [];
-    for (const [who, c] of claimants) { if (who !== 'you') { takeBack(who, c); tookOver.push(who); } }
+    for (const [who, c] of claimants) { if (who !== 'you') { takeBack(who, c, 'you'); tookOver.push(who); } }
     appendLog(stamp({ emoji: e, op: 'add', ...as('you') }));
+    /* Told in the room, so the agent who held it learns on its next read that it no longer does (round 2: a pill
+       click is easy to make without meaning to take the post). For the agents only; the person did it. */
+    if (tookOver.length) {
+      roomNote(projectId, 'The person took [' + postId + '] over from ' + tookOver.join(', ') + ' with their raised hand, so it is not '
+        + (tookOver.length === 1 ? tookOver[0] + "'s" : 'theirs') + ' any more. Ask the person before going on with it.', { audience: NOTE_AUDIENCE_AGENTS });
+    }
     return { ok: true, op: 'add', emoji: e, of: postId, ...(tookOver.length ? { tookOver } : {}) };
   }
   if (claim === 'release') {
     if (mine) { takeBack(reactor, mine); return { ok: true, op: 'remove', emoji: e, of: postId }; }
-    if (holder) return { ok: false, claimedBy: holder.by, claimedAt: holder.at, because: named(holder.by) + ' holds that post, not you, so there is nothing of yours to give back' };
-    return { ok: true, op: 'none', emoji: e, of: postId };   // nothing held: a retried release lands here, which is fine
+    // Nothing of yours is held: a retried release, or one after the person took the post over. What you asked for is
+    // already true, so it is not a failure; who holds it now, if anyone, is said with it.
+    return { ok: true, op: 'none', emoji: e, of: postId, ...(holder ? { claimedBy: holder.by } : {}) };
   }
   if (mine && holder && holder.by === reactor) {
     if (claim === 'claim') return { ok: true, op: 'already', emoji: e, of: postId };
@@ -3754,6 +3767,11 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   if (holder && holder.by !== reactor) {
     if (mine && claim !== 'claim') { takeBack(reactor, mine); return { ok: true, op: 'remove', emoji: e, of: postId }; }
     return refuse();   // includes a later 🙋 of yours from before this rule: it is not the claim
+  }
+  /* Round 2: a claimant who has left the room no longer holds anything, so a new claim ENDS theirs in the log too.
+     Otherwise re-adding them to the project would bring their old claim back above this one. */
+  if (Array.isArray(roomNow)) {
+    for (const [who, c] of claimantsOf(postId, rows, null)) { if (who !== 'you' && !roomNow.includes(who)) takeBack(who, c, 'left-the-room'); }
   }
   appendLog(stamp({ emoji: e, op: 'add', ...as(reactor) }));
   return { ok: true, op: 'add', emoji: e, of: postId };

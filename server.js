@@ -21548,7 +21548,8 @@ const server = http.createServer(async (req, res) => {
         /* The fresh reactions for this post, from the operator's viewpoint. */
         let reactions = [];
         try { reactions = messages.reactionsFor(out.of, messages.record().rows, 'you'); } catch { reactions = []; }   // #4631: the canonical id (the route takes '530' too)
-        sendJson(res, 200, { ok: true, op: out.op, emoji: out.emoji, of: out.of, reactions });
+        // #6946: the agents whose claim the person's 🙋 just took over, so the page can say so.
+        sendJson(res, 200, { ok: true, op: out.op, emoji: out.emoji, of: out.of, reactions, ...(Array.isArray(out.tookOver) ? { tookOver: out.tookOver } : {}) });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));

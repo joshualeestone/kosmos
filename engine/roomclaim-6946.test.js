@@ -91,16 +91,17 @@ test('review 1 #2: a holder with two 🙋 forms from before this rule stays the 
   assert.deepEqual(messages.reactionsFor('m1', messages.record().rows), [], 'the toned 🙋 pill survived the release');
 });
 
-test('claiming twice keeps the claim; release by a non-holder is refused; release with nothing held is a no-op that exits ok', () => {
+test('claiming twice keeps the claim; a release with nothing of yours held is a no-op that names the holder', () => {
   seedPost('m1', 'p');
   assert.equal(claim('ann').op, 'add');
   assert.equal(claim('ann').op, 'already', 'a second claim must not toggle the claim off');
   assert.equal(holder(), 'ann');
 
   const notMine = claim('bob', 'm1', 'release');
-  assert.equal(notMine.ok, false, 'bob gave back a claim that is not his');
-  assert.match(notMine.because, /^ann holds that post, not you/);
-  assert.equal(holder(), 'ann', 'a refused release changed the claim');
+  assert.equal(notMine.ok, true, 'round 2 N3: a release with nothing of yours held is not a failure');
+  assert.equal(notMine.op, 'none');
+  assert.equal(notMine.claimedBy, 'ann', 'the no-op release did not say who holds the post');
+  assert.equal(holder(), 'ann', 'bob\'s release changed ann\'s claim');
 
   assert.equal(claim('ann', 'm1', 'release').op, 'remove');
   assert.equal(holder(), null);
@@ -143,6 +144,19 @@ test('review 1 #1: the person takes a claim over with their 🙋, and pressing i
   assert.equal(took.ok, true, 'the person was refused a 🙋 in their own room');
   assert.deepEqual(took.tookOver, ['ann']);
   assert.equal(holder(), 'you', 'the person pressing 🙋 did not take the claim over');
+  // Round 2 C1: the log says the person took it, not that ann gave it up.
+  const taken = reactionRows().filter((m) => m.from === 'ann' && m.op === 'remove');
+  assert.equal(taken.length, 1);
+  assert.equal(taken[0].takenBy, 'you');
+  // Round 2 W1: ann is told in the room, in a note for the agents.
+  const note = messages.record().rows.filter((m) => m.kind === 'note' && m.project === 'p').pop();
+  assert.ok(note, 'no room note told ann the post was taken over');
+  assert.equal(note.audience, 'agents');
+  assert.match(note.text, /^The person took \[m1\] over from ann with their raised hand, so it is not ann's any more\./);
+  // Round 2 N3: ann's release after the takeover is not a failure.
+  const annBack = claim('ann', 'm1', 'release');
+  assert.equal(annBack.op, 'none');
+  assert.equal(annBack.claimedBy, 'you');
   const over = claim('bob');
   assert.equal(over.ok, false);
   assert.equal(over.claimedBy, 'you');
@@ -187,4 +201,51 @@ test('claimAge says how long ago, in words that still read right days later', ()
   assert.equal(messages.claimAge(at(3 * 3600 * 1000), now), '3 hours ago');
   assert.equal(messages.claimAge(at(3 * 86400 * 1000), now), '3 days ago');
   assert.equal(messages.claimAge('not a time', now), 'at a time we cannot read');
+});
+
+test('round 2 W2: a claim made while the earlier holder was out of the room survives their return', () => {
+  seedPost('m1', 'p');
+  assert.equal(claim('ann', 'm1', 'claim', ['ann', 'bob']).op, 'add');
+  assert.equal(claim('bob', 'm1', 'claim', ['bob']).op, 'add', 'bob could not claim after ann left');
+  const ended = reactionRows().filter((m) => m.from === 'ann' && m.op === 'remove');
+  assert.equal(ended.length, 1, 'bob\'s claim did not end the claim of a holder who had left');
+  assert.equal(ended[0].takenBy, 'left-the-room');
+  // ann is back on the project: bob still holds it.
+  assert.equal(holder('m1', ['ann', 'bob']), 'bob', 'ann\'s old claim came back above bob\'s when ann rejoined');
+  assert.equal(claim('bob', 'm1', 'claim', ['ann', 'bob']).op, 'already');
+  // CONTROL: with ann never gone, bob's claim is refused and ann's claim has no remove row.
+  seedPost('m2', 'p');
+  assert.equal(claim('ann', 'm2', 'claim', ['ann', 'bob']).op, 'add');
+  assert.equal(claim('bob', 'm2', 'claim', ['ann', 'bob']).ok, false);
+});
+
+test('round 2 W3: the room\'s view of a claim drops a holder who was removed; control: not removed, they hold it', () => {
+  seedPost('m1', 'p');
+  assert.equal(claim('ann').ok, true);
+  const remove = require('./remove');
+  const setRemoved = (names) => { fs.mkdirSync(path.dirname(remove.REMOVED_FILE), { recursive: true });
+    fs.writeFileSync(remove.REMOVED_FILE, JSON.stringify(names.map((n) => ({ name: n, stopped: true })))); };
+  try {
+    setRemoved([]);
+    assert.deepEqual(messages.roomClaimOf('m1', messages.record().rows, MEMBERS) && messages.roomClaimOf('m1', messages.record().rows, MEMBERS).by, 'ann',
+      'CONTROL: a holder who was not removed is not shown as holding the post');
+    setRemoved(['ann']);
+    assert.equal(messages.roomClaimOf('m1', messages.record().rows, MEMBERS), null, 'a removed holder still shows as holding the post');
+    // Round 2 N1: with no member list at all (the registry could not be read), the post is never shown as free.
+    assert.equal(messages.roomClaimOf('m1', messages.record().rows, null).by, 'ann');
+  } finally {
+    try { fs.rmSync(remove.REMOVED_FILE, { force: true }); } catch { /* best effort */ }
+  }
+});
+
+test('round 2 N5: only real 🙋 forms are a claim; 🙋 followed by another emoji is an ordinary reaction', () => {
+  for (const form of [HAND, HAND_TONE, '\u{1F64B}\u200D\u2640\uFE0F', '\u{1F64B}\u{1F3FB}\u200D\u2642\uFE0F', '\u{1F64B}\uFE0F']) {
+    assert.equal(messages.isClaimEmoji(form), true, JSON.stringify(form));
+  }
+  for (const other of ['\u{1F64B}\u{1F525}', THUMB, '\u{1F64C}', '']) assert.equal(messages.isClaimEmoji(other), false, JSON.stringify(other));
+  seedPost('m1', 'p');
+  assert.equal(claim('ann').ok, true);
+  const two = messages.react({ project: 'p', of: 'm1', emoji: '\u{1F64B}\u{1F525}', from: 'bob', members: MEMBERS });
+  assert.equal(two.ok, true, 'a two-emoji reaction starting with 🙋 was treated as a claim');
+  assert.equal(two.emoji, '\u{1F64B}\u{1F525}');
 });

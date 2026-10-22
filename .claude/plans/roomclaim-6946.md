@@ -50,6 +50,22 @@ a retried release reading as failure, untested route passthrough and Windows ver
 not to take its own post; plus refusal time as UTC, the guidance paragraph's position and its missing escape hatch.
 Each new rule has a mutant that a test catches (members, canonical form, takeover, already, route passthrough).
 
+## Review 2 (blind, 0 BLOCKER, 3 WARNING): fixed
+- The person's 🙋 still takes a claim over (it is their only way out of a quiet holder), but it is no longer silent:
+  an agents-only room note names who lost it, and the page route returns `tookOver`. The takeover's remove rows carry
+  `takenBy: 'you'`, so the log does not say the agent gave it up.
+- A new claim ENDS (in the log, `takenBy: 'left-the-room'`) the claim of anyone no longer in the room, so re-adding
+  them does not bring it back above the newer one.
+- roomClaimOf tested with a removed holder and a control; with no member list (registry unreadable) nobody is
+  filtered, so a held post is never shown as free.
+- A release with nothing of yours held is op none (with the holder named), never a failure, including after a takeover.
+- Only real 🙋 forms are a claim (skin tone, gendered ZWJ, VS16); 🙋 followed by another emoji is an ordinary reaction.
+- Guidance: a 🙋 is a claim, not a "free" signal; a claim ends when its holder leaves; other computers in a shared room
+  do not see claims, so say it in the room there.
+Not fixed, on purpose: the 🙋 pill still lists a removed holder while the claim line does not (the pill is a reaction
+list, the line is the claim; harmless), and an agent named `operator` reads like the person in the text view, as it
+already does on every other line of that view.
+
 ## Weakest premise
 That agents run `kosmos claim` before posting. The rule only binds an agent that claims; one that skips it and posts
 "taking this" is not stopped. The guidance is the lever, and the claim line in `kosmos room` is the second chance.
