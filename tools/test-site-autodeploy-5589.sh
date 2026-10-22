@@ -39,7 +39,12 @@ export VERCEL_TOKEN=test-token-6771
 mkdir -p "$T/vbin"
 printf '#!/bin/sh\necho "Error: No existing credentials found." >&2\nexit 1\n' > "$T/vbin/vercel-out"
 printf '#!/bin/sh\necho "$*" >> "%s"\necho "Vercel CLI 99.0.0" >&2\necho "someone-6084"\n' "$T/vercel.log" > "$T/vbin/vercel-in"
-chmod +x "$T/vbin/vercel-out" "$T/vbin/vercel-in"
+# Review 1: a failing whoami that prints its error on STDOUT; one that prints two lines; one that hangs, with a child
+# holding its stdout (the real CLI spawns an update worker that inherits it).
+printf '#!/bin/sh\necho "unauthorized"\nexit 1\n' > "$T/vbin/vercel-errout"   # name-shaped, so only the exit code tells
+printf '#!/bin/sh\necho someone-6084\necho "Update available 60.0.0"\n' > "$T/vbin/vercel-two"
+printf '#!/bin/sh\nperl -e "select(undef,undef,undef,6)" &\nexec perl -e "select(undef,undef,undef,6)"\n' > "$T/vbin/vercel-hang"
+chmod +x "$T/vbin/vercel-out" "$T/vbin/vercel-in" "$T/vbin/vercel-errout" "$T/vbin/vercel-two" "$T/vbin/vercel-hang"
 export KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-out"
 ST="$T/state"
 tick() { OUT=$(bash "$AD" 2>&1); RC=$?; }
@@ -612,8 +617,9 @@ H6771d=$(advance six-seven-seven-one-d)
 
 # kosmos#6771 (10-22): no token, but the CLI is signed in: it deploys on that sign-in, says so, and hands the deploy no
 # VERCEL_TOKEN (an empty one would be worse than none). Then with no secrets accessor at all, the same.
+# An EXPORTED EMPTY token (not unset) is how the job really meets "none filed": the deploy must still get none.
 H6771s=$(advance six-seven-seven-one-signin); rm -rf "$ST/reported.d"; : > "$T/vercel.log"
-( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-in" KOSMOS_AUTODEPLOY_SECRETS="$SEC" \
+( export VERCEL_TOKEN=; KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-in" KOSMOS_AUTODEPLOY_SECRETS="$SEC" \
     KOSMOS_AUTODEPLOY_DEPLOY='printf "[%s]" "${VERCEL_TOKEN-unset}" > '"$TOKSEEN"'; git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS" tick
   echo "$RC" > "$T/rcs"; printf '%s' "$OUT" > "$T/outs" )
 { [ "$(cat "$T/rcs")" = 0 ] && [ "$(cat "$ST/last-deployed")" = "$H6771s" ] && [ "$(cat "$TOKSEEN")" = "[unset]" ] \
@@ -623,6 +629,16 @@ H6771t=$(advance six-seven-seven-one-signin-nosec)
 ( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-in" KOSMOS_AUTODEPLOY_SECRETS="$T/no-such-secrets-map" tick; echo "$RC" > "$T/rct"; printf '%s' "$OUT" > "$T/outt" )
 { [ "$(cat "$T/rct")" = 0 ] && [ "$(cat "$ST/last-deployed")" = "$H6771t" ] && grep -q "secrets accessor $T/no-such-secrets-map is not there" "$T/outt"; } \
   && pass "6771: no secrets accessor, CLI signed in: deploys on the sign-in and says the accessor is missing" || bad "6771 sign-in no accessor (rc=$(cat "$T/rct")): $(cat "$T/outt")"
+# Not signed in, three ways that look like a name if read carelessly: red, nothing deployed, the sign-in named.
+for v in errout two hang; do
+  H=$(advance "six-seven-seven-one-$v"); rm -rf "$ST/reported.d"; n0=$(ndeploys); t0=$(date +%s)
+  ( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_WHOAMI_SECS=1 KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-$v" KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick
+    echo "$RC" > "$T/rcv"; printf '%s' "$OUT" > "$T/outv" )
+  el=$(( $(date +%s) - t0 ))
+  { [ "$(cat "$T/rcv")" = 1 ] && [ "$(ndeploys)" = "$n0" ] && grep -q "vercel CLI is not signed in" "$T/outv" && ! grep -q "deploying on this machine" "$T/outv" \
+      && { [ "$v" != hang ] || [ "$el" -lt 5 ]; }; } \
+    && pass "6771: whoami $v is not a sign-in: red, nothing deployed${v:+ ($el s)}" || bad "6771 whoami $v (rc=$(cat "$T/rcv"), $el s): $(cat "$T/outv")"
+done
 # A filed token still wins over the sign-in: the CLI is not even asked.
 H6771u=$(advance six-seven-seven-one-token-wins); : > "$T/vercel.log"
 ( unset VERCEL_TOKEN; SEC_TOKEN=filed KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-in" KOSMOS_AUTODEPLOY_SECRETS="$SEC" \
