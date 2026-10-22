@@ -22131,6 +22131,12 @@ const server = http.createServer(async (req, res) => {
                 + (note ? ' ' + note : '');
             }
           } catch { note = ''; }
+          /* #6921: a title over the cap was shortened by tasks.create rather than refused. First, so #5319's copyable
+             command stays the end of the line. */
+          if (made.titleMoved) {
+            note = 'Note: the title was over ' + tasks.SENTENCE_MAX + ' characters, so it was shortened and the whole title is at the start of the details.'
+              + (note ? ' ' + note : '');
+          }
           // The assignee's managed block now lists this task in the exact
           // spelling the join matches on, so the agent is TOLD, not merely
           // recorded. Non-gating, same as every tell: a task that could not
