@@ -4487,6 +4487,7 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
     assert.match(JSON.parse(boom.body).error, /^Kosmos could not start the update just now\. Try again in a minute\.$/,
       'the Update route answered a throw without a sentence the dialog can show');
     assert.equal(ran, 0, 'the installer ran although the route threw before it');
+    assert.equal(JSON.parse(boom.body).detail, undefined, 'a throw\'s raw message went back in the answer');
     assert.ok(logged(/FAIL update press: the engine exploded/), 'the cause of the throw was not logged:\n' + lines.join('\n'));
     // CONTROL: the board is still up and serving.
     assert.equal((await req('/api/status', {})).status, 200, 'the board stopped serving after the Update route threw');

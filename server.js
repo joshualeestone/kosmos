@@ -3782,7 +3782,7 @@ function updatePressThrew(res, say, kind, err) {
   const detail = String((err && err.message) || err);
   if (res.headersSent) { console.error('FAIL ' + kind + ' press after answering: ' + detail); return; }
   console.error('FAIL ' + kind + ' press: ' + detail);
-  say(500, { error: UPDATE_PRESS_FAILED[kind], detail });
+  say(500, { error: UPDATE_PRESS_FAILED[kind] });   // the cause is in the log line above, never in the answer
 }
 /* Once the installer has started, the press is answered 200 whatever follows: a throw reading the stamp is logged and
    the answer goes without it, never as a refusal of an install that is already running. */

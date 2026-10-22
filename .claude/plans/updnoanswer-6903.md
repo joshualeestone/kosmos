@@ -44,8 +44,15 @@ Card: kosmos#6903 (Josh, 2026-10-22 10:46 CDT: the dialog showed only "we could 
   this installed-layout board and start an install. The retired-leg comment no longer says Update is never pressed.
 - The page comment said "often" for a cause that was never measured; it says "perhaps".
 - The installer failing to start (cause 3, the 500 that logged nothing) now has a test arm pinning its log line.
-- Not changed: a generic throw's raw message goes back as `detail` in the 500 body, as the existing beginInstall arm
-  already did. Local board, same-account clients; the dialog never shows it.
+- Left as it was in round 3, reversed in round 4 (below): a generic throw's raw message went back as `detail`.
+
+## Review round 4
+- A generic throw's raw message (which can carry paths) no longer goes back in the 500 body; it is in the log line
+  only. Test asserts the answer carries no `detail`. The beginInstall 500 keeps its `detail`, as it had before this
+  change.
+- Not changed: every stale 409 ("no update to install") is now logged. That is the record the card asked for.
+- Not changed: the stub proof sends a POST that the stub aborts. The stubs are registered before it, and a GET would
+  not prove a POST is caught (the stub passes non-POSTs through).
 
 ## Rejected
 - A process-level unhandledRejection handler for the whole board: much wider than this card, and it would change how
