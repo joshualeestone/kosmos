@@ -1346,6 +1346,10 @@ const recordGuideOutcome = guidestate.makeRecorder({
 const heartbeat = require('./engine/heartbeat');
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
 const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
+/* kosmos#6894: when each task last put a run in its project room, so a task that changes every run says so at most hourly. */
+const ROOM_RUN_SAID = new Map();
+const ROOM_RUN_EVERY_MS = 60 * 60 * 1000;
+function _resetRoomRunSaidForTest() { ROOM_RUN_SAID.clear(); }
 const holdstale = require('./engine/holdstale'); // kosmos#6209 part 3: an owner still working a held task in its room is asked about the hold
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new comments, once per comment
@@ -22737,14 +22741,8 @@ const server = http.createServer(async (req, res) => {
       if (!viaScreen && !card) { sendJson(res, 403, { error: 'Kosmos could not tell which agent sent that, so the task was not changed' }); return; }
       const by = viaScreen ? 'operator' : card.sessionName;
       let task;
-      let runBefore = null;   // kosmos#6894
       try {
         if (taskRepeat[3] === 'ran') {
-          /* kosmos#6894: the task as it was, so a run that changed its reading can say what it was before. Best effort: an
-             unreadable registry here only costs the room its line, never the run. */
-          let before = null;
-          try { const pr = projects.readAll().find((x) => x && x.id === id); before = pr ? tasks.byNumber(pr, taskRepeat[2]) : null; } catch { before = null; }
-          runBefore = before;
           // kosmos#5643: `unchanged: true` records a run that found nothing new (it rolls up on the task's page).
           if (body.unchanged !== undefined && typeof body.unchanged !== 'boolean') throw new Error('unchanged is true or false');
           // kosmos#5643 retry review 1: run_id, one per command and sent on every attempt, so a retry is the same run.
@@ -22780,8 +22778,14 @@ const server = http.createServer(async (req, res) => {
       /* kosmos#6894: a run that changed something is said in the project room (taskrepeat.roomRunLine), so the room does not
          look idle while the job runs. Unchanged runs and duplicates say nothing there. Best effort, as every room note. */
       if (taskRepeat[3] === 'ran' && task) {
-        const line = taskrepeat.roomRunLine(runBefore, task);
-        if (line) messages.roomNote(id, line);
+        const line = taskrepeat.roomRunLine(tasks.runBefore(task), task);
+        const key = id + '#' + task.number;
+        const last = ROOM_RUN_SAID.get(key);
+        // Review 1: one line per task an hour (in memory: a restart can let one more through). The task page has every run.
+        if (line && !(Number.isFinite(last) && Date.now() - last < ROOM_RUN_EVERY_MS)) {
+          ROOM_RUN_SAID.set(key, Date.now());
+          messages.roomNote(id, line);
+        }
       }
       // kosmos#5836: a run that sent a reading hears how it compares with what the person was last told.
       // Review 1: the reading SENT (masked as stored), never only the stored one, so a run absorbed as a duplicate still
@@ -26104,7 +26108,7 @@ if (require.main === module) {
 // re-implementation of it. Testing the path helper in isolation would not have
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
-module.exports = {
+module.exports = { _resetRoomRunSaidForTest,
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
   _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test

@@ -21,7 +21,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server } = require('./server');
+const { start, server, _resetRoomRunSaidForTest } = require('./server');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const messages = require('./engine/messages');
@@ -61,6 +61,7 @@ test('#6894: a changed run is said in the room once; an unchanged or duplicate r
   assert.equal(r.status, 200, JSON.stringify(r.json));
   const start0 = roomNotes().length;
   const ran = async (body, who) => {
+    _resetRoomRunSaidForTest();   // this test is about WHICH runs are said; the hourly hold has its own test below
     const res = await post(`/api/project/${projectId}/task/${n}/ran`, body, who);
     assert.equal(res.status, 200, JSON.stringify(res.json));
     return roomNotes().slice(start0);
@@ -87,6 +88,40 @@ test('#6894: a changed run is said in the room once; an unchanged or duplicate r
   assert.equal(notes.length, 5);
   notes = await ran({ note: 'found 10 new orders' }, zed);
   assert.equal(notes.length, 5, 'a duplicate inside the minute is not relayed');
+  // Review 1: a note with a count in it is never "unchanged" to the board, but word for word the last change says nothing.
+  notes = await ran({ note: 'checked 14 pages, all fine' }, mona);
+  assert.equal(notes.length, 6);
+  notes = await ran({ note: 'checked 14 pages, all fine' }, zed);
+  assert.equal(notes.length, 6, 'the same counted note again says nothing');
+  // Review 1: a reading corrected inside the minute (a duplicate) is said, and the next "was" follows it.
+  notes = await ran({ value: '7 errors' }, mona);
+  assert.match(notes[6], /reading 7 errors \(was 5 errors\)$/);
+  notes = await ran({ value: '8 errors' }, mona);
+  assert.equal(notes.length, 8, 'the same runner inside the minute, with a new reading: said');
+  assert.match(notes[7], /reading 8 errors \(was 7 errors\)$/);
+  // A note and a reading changed together are one line.
+  notes = await ran({ note: 'found 2 new orders', value: '1 error' }, zed);
+  assert.match(notes[8], /: found 2 new orders; reading 1 error \(was 8 errors\)$/);
+  // The person recording a run from the screen is said the same way.
+  notes = await ran({ note: 'restarted it by hand' }, { 'sec-fetch-site': 'same-origin' });
+  assert.match(notes[9], /: restarted it by hand$/);
+});
+
+test('#6894: review 1: a task is said in the room at most once an hour, however often it changes', async () => {
+  _resetRoomRunSaidForTest();
+  const n = tasks.create(projectId, { sentence: 'Fast changer', who: 'mona' }).number;
+  const mona = { 'x-kosmos-agent-token': sendertoken.mint('mona').token };
+  const zed = { 'x-kosmos-agent-token': sendertoken.mint('zed').token };
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, mona)).status, 200);
+  const before = roomNotes().length;
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, { note: 'saw 1 thing' }, mona)).status, 200);
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, { note: 'saw 2 things' }, zed)).status, 200);
+  assert.equal(roomNotes().length - before, 1, 'the second change inside the hour is not said');
+  // CONTROL: another task is not held by this one's hour.
+  const other = tasks.create(projectId, { sentence: 'Other task', who: 'mona' }).number;
+  assert.equal((await post(`/api/project/${projectId}/task/${other}/repeat`, { every: 'hourly' }, mona)).status, 200);
+  assert.equal((await post(`/api/project/${projectId}/task/${other}/ran`, { note: 'first look' }, mona)).status, 200);
+  assert.equal(roomNotes().length - before, 2);
 });
 
 test('#6894: CONTROL: setting the rule or a one-off task says nothing in the room', async () => {

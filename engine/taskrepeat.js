@@ -352,18 +352,21 @@ function fieldsOf(t, now = Date.now()) {
 
 /* kosmos#6894: the line a recorded run puts in the project room, or null for none. Only a run that CHANGED something is
    relayed, so a task every 30 minutes does not fill the room: a run whose note is the new last change (not marked or
-   inferred unchanged), or whose reading differs from the reading before it. `before` and `after` are the task either
-   side of tasks.recordRun; a run absorbed as a duplicate (after.duplicate) is never relayed. Kosmos says it, in its own
-   voice (messages.roomNote), naming the task so the room can find it. */
+   inferred unchanged, and not word for word the last change's note), or whose reading differs from the one before
+   (also a reading corrected by a duplicate inside the minute, review 1). `prev` is tasks.runBefore(after): the reading
+   and the last change's note as the run's own write saw them. Kosmos says it, in its own voice (messages.roomNote). The
+   route also holds each task to one line an hour (review 1: a note with a count in it is never "unchanged"). */
 const ROOM_SENTENCE_MAX = 120;
-function roomRunLine(before, after) {
-  if (!after || after.duplicate || !after.repeat || !after.lastRunAt) return null;
-  const plain = (s, max) => require('./agentnudge').plainWords(s, max);
-  // recordRun moves lastChangeAt to this run only for a note that is not unchanged (marked or inferred), so this is it.
-  const noteChanged = after.lastChangeAt === after.lastRunAt && typeof after.lastChangeNote === 'string' && after.lastChangeNote !== '';
-  const was = before && before.verified && typeof before.verified.value === 'string' ? before.verified.value : '';
-  const now = after.verified && after.verified.at === after.lastRunAt && typeof after.verified.value === 'string' ? after.verified.value : '';
-  const readingChanged = now !== '' && now !== was;
+function roomRunLine(prev, after) {
+  if (!after || !after.repeat || !after.lastRunAt) return null;
+  const plain = (s, max) => require('./agentnudge').plainWords(String(s == null ? '' : s).replace(/\p{Cf}/gu, ''), max);
+  const same = (a, b) => String(a || '').replace(/\s+/g, ' ').trim() === String(b || '').replace(/\s+/g, ' ').trim();
+  const was = prev && typeof prev.verified === 'string' ? prev.verified : '';
+  const now = after.verified && typeof after.verified.value === 'string' ? after.verified.value : '';
+  // A duplicate changes nothing but, at most, the reading (recordRun keeps a corrected one); a run's own reading is the one stamped at it.
+  const readingChanged = now !== '' && now !== was && (after.duplicate || after.verified.at === after.lastRunAt);
+  const noteChanged = !after.duplicate && after.lastChangeAt === after.lastRunAt && typeof after.lastChangeNote === 'string'
+    && after.lastChangeNote !== '' && !same(after.lastChangeNote, prev && prev.changeNote);
   if (!noteChanged && !readingChanged) return null;
   const head = 'Task #' + after.number + ', "' + plain(after.sentence || '', ROOM_SENTENCE_MAX) + '" (' + describe(after.repeat) + ')';
   const parts = [];
