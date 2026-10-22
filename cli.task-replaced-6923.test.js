@@ -197,7 +197,7 @@ test('#6923: against an older board that ignores replacedBy, the command says th
     });
     assert.equal(code, 1, out.concat(err).join('\n'));
     assert.match(err.join('\n'), /did not record what replaced it/);
-    assert.match(err.join('\n'), new RegExp('To undo that: kosmos task reopen ' + projectId + ' 4'), 'says how to undo the plain close');
+    assert.match(err.join('\n'), new RegExp('To undo that: kosmos task reopen ' + projectId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' 4$', 'm'), 'says how to undo the plain close');
     assert.doesNotMatch(out.join('\n'), /as replaced by task/, 'never claims a link the board did not record');
   } finally {
     old.close();
@@ -223,7 +223,7 @@ test('#6923: against an older board that ignores replacedBy, the Mac command say
     const r = await mac(['task', 'close', projectId, String(a), '--replaced-by', String(b)], token('mara'), old.address().port);
     assert.equal(r.code, 1, r.text);
     assert.match(r.text, /did not record what replaced it/);
-    assert.match(r.text, new RegExp('To undo that: kosmos task reopen ' + projectId + ' ' + a), 'says how to undo the plain close');
+    assert.match(r.text, new RegExp('To undo that: kosmos task reopen ' + projectId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' ' + a + '$', 'm'), 'says how to undo the plain close');
     assert.doesNotMatch(r.text, /as replaced by task/, 'never claims a link the board did not record');
   } finally {
     old.close();

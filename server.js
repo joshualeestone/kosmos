@@ -22401,7 +22401,7 @@ const server = http.createServer(async (req, res) => {
         const text = String(raw == null ? '' : raw);   // readBody can hand back a Buffer
         if (text.trim()) {
           try { body = JSON.parse(text); } catch { body = undefined; }
-          // Anything but { replacedBy } (a misspelled key, a bare number, a list) is refused the same way, never taken as a plain close.
+          // Anything but { replacedBy } (a misspelled key, a bare number, a list) is refused, never taken as a plain close.
           if (!body || typeof body !== 'object' || Array.isArray(body)) {
             sendJson(res, 400, { error: 'we could not read that request, so the task was not closed' }); return;
           }
