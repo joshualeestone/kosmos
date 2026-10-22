@@ -13,13 +13,13 @@
 # passes. That is the honest fix-forward: staging did not catch #2129 as-built; this
 # EXTENDS it so it would.
 #
-# 🛑 THIS CREATES REAL AGENTS ON THE TARGET BOARD. That is safe on the INTENDED target -
-# a FRESH staging machine where no fleet exists - and dangerous on a populated fleet box
-# (it would spawn real sessions among live agents). So it REFUSES on a board that already
-# carries more than KOSMOS_AGENT_ONLINE_MAX_EXISTING agents unless
-# KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1 is set. There is no clean HTTP delete-agent route
-# (agents are launchd/tmux sessions), so cleanup is best-effort; on the throwaway fresh
-# machine that is fine.
+# kosmos#6906: THIS CREATES REAL AGENTS ON THE TARGET BOARD, one per provider, named
+# verify2129-<claude|openai>-<time> so they never collide with a person's agent, and REMOVES
+# them when it ends (DELETE /api/agent/<name>/removal, the board's own Remove agent; their
+# folders stay on disk, as that route leaves them), however it ends. So it runs on a populated
+# board too: the boards releases are promoted from are fleet boards, and the old refusal there
+# meant this gate never ran at a promote. Each arm must also ANSWER a first message in its own
+# thread (an entry `from` its session name): online alone does not show an agent can take a turn.
 #
 #   bash tools/staging-agent-online-check.sh [port]
 #
@@ -31,9 +31,10 @@
 #        prompt (#2129), appeared but never reached idle|working, hit auth_failed, or its create
 #        was refused with a real provider sign-in failure. The #2129 Claude fix is not working.
 #      2 cannot-tell (HOLD, forceable after a hand check): no enforcing board (no board.token),
-#        a provider not signed in, a populated/uncountable fleet board, a non-numeric port, an
+#        a provider not signed in, a board whose agents cannot be counted, a non-numeric port, an
 #        unexpected create-400, or an agent that NEVER appeared in /api/status (a shape mismatch
-#        / contract drift). Also: the Claude arm is online but the OpenAI arm could not be
+#        / contract drift), or an agent that came online but did not answer its first message in
+#        time (slow, rate-limited, or the thread unreadable). Also: the Claude arm is online but the OpenAI arm could not be
 #        determined. The invariant: cannot-tell never reads as a pass.
 #      3 PARTIAL - the CLAUDE arm is ONLINE but the OpenAI/Codex arm FAILED to come online. This
 #        may be a separate codex-spawn issue #2129 does not fix. The promoter SURFACES which arm
@@ -84,14 +85,16 @@ URL="http://127.0.0.1:${PORT}"
 # --- token OFF argv (a mode-600 header file); argv is world-readable via ps (#1970). ---
 HF=""; CREATED_NAMES=""
 cleanup() {
+  # kosmos#6906: remove every agent this check created, BEFORE the token file goes. A removal
+  # that fails is said loudly with the name to remove by hand; it does not change the verdict.
+  local nm todo="$CREATED_NAMES"
+  CREATED_NAMES=""   # once only: an INT/TERM runs this, then the EXIT trap runs it again
+  for nm in $todo; do remove_agent "$nm"; done
   [ -n "$HF" ] && rm -f "$HF" 2>/dev/null
   [ -n "${_BODYF:-}" ] && rm -f "$_BODYF" 2>/dev/null
-  # best-effort: leave a breadcrumb of what we created so a fresh machine can be tidied.
-  if [ -n "$CREATED_NAMES" ]; then
-    say "note: this check created agent(s):$CREATED_NAMES (no HTTP delete route; tidy on the throwaway staging machine if needed)"
-  fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'cleanup; exit 2' INT TERM   # stopped part way: its agents are still removed, and the answer is cannot-tell
 HF="$(mktemp 2>/dev/null || echo "/tmp/kaoc.$$.hdr")"
 : > "$HF"; chmod 600 "$HF" 2>/dev/null
 printf 'x-kosmos-board-token: %s\n' "$TOKEN" > "$HF"
@@ -129,6 +132,54 @@ api_post() {
   HTTP_CODE="$("$CURL" -sS --max-time 30 -H @"$HF" -H 'content-type: application/json' \
     -X POST --data "$json" -o "$_BODYF" -w '%{http_code}' "$URL$route" 2>/dev/null || true)"
   RESP_BODY="$(cat "$_BODYF" 2>/dev/null)"
+}
+
+# kosmos#6906: remove one agent this check created, and say whether it is gone from /api/status.
+remove_agent() {
+  local nm="$1" code still
+  : > "$_BODYF"
+  code="$("$CURL" -sS --max-time 60 -H @"$HF" -X DELETE -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/removal" 2>/dev/null || true)"
+  if [ "$code" != "200" ]; then
+    say "WARNING: could not remove '$nm' (DELETE removal -> HTTP ${code:-<none>}): remove it by hand, on its page under Remove."
+    return
+  fi
+  api_get /api/status
+  still="$(printf '%s' "$RESP_BODY" | "$NODE" -e '
+    let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.stdout.write("?");return}
+      const a=j.agents||j.cards||j.fleet||(Array.isArray(j)?j:null);if(!a){process.stdout.write("?");return}
+      process.stdout.write(a.some(c=>(c.sessionName||c.session||c.name||"")===process.argv[1])?"yes":"no")})' "$nm")"
+  case "$still" in
+    no)  say "removed '$nm' (gone from /api/status)." ;;
+    yes) say "WARNING: removed '$nm' (HTTP 200) but it is still listed in /api/status: check it on the board." ;;
+    *)   say "removed '$nm' (HTTP 200); /api/status could not be read to confirm it is gone." ;;
+  esac
+}
+
+# kosmos#6906: send the agent one message and wait for its answer in its own thread (an entry `from` its session
+# name; the person's own message has from null). 0 answered / 2 cannot tell (not sent, or no answer in time).
+REPLY_SECS="${KOSMOS_AGENT_REPLY_TIMEOUT:-180}"
+case "$REPLY_SECS" in ''|*[!0-9]*) REPLY_SECS=180 ;; esac
+first_reply() {
+  local prov="$1" sess="$2" body waited=0 got
+  body="$("$NODE" -e 'process.stdout.write(JSON.stringify({text:"A release check (kosmos#6906): please reply with the single word ready."}))')"
+  api_post "/api/agent/$sess/thread" "$body"
+  if [ "$HTTP_CODE" != "200" ]; then
+    say "  [$prov] could not send '$sess' its first message (HTTP ${HTTP_CODE:-<none>}) - cannot tell"; return 2
+  fi
+  say "  [$prov] sent '$sess' its first message - waiting for an answer (up to ${REPLY_SECS}s)..."
+  while [ "$waited" -lt "$REPLY_SECS" ]; do
+    api_get "/api/agent/$sess/thread"
+    if [ "$HTTP_CODE" = "200" ]; then
+      got="$(printf '%s' "$RESP_BODY" | "$NODE" -e '
+        let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{return}
+          const m=(Array.isArray(j.messages)?j.messages:[]).filter(x=>x&&x.from===process.argv[1]);
+          if(m.length)process.stdout.write(String(m[m.length-1].text||"").replace(/\s+/g," ").slice(0,80)||"(an empty answer)")})' "$sess")"
+      if [ -n "$got" ]; then say "  [$prov] '$sess' ANSWERED its first message: '$got'"; return 0; fi
+    fi
+    sleep "$POLL_INT"; waited=$((waited + POLL_INT))
+  done
+  say "  [$prov] '$sess' came online but did not answer its first message within ${REPLY_SECS}s (slow, rate-limited, or the thread unreadable) - cannot tell"
+  return 2
 }
 
 # --- confirm the board answers at all ---
@@ -179,7 +230,7 @@ if [ -n "$MISSING" ]; then
   exit 2
 fi
 
-# --- SAFETY: refuse on a populated fleet board unless explicitly allowed ---
+# --- count the board's agents (fail closed when they cannot be counted) ---
 api_get /api/status; STATUS0="$RESP_BODY"
 if [ "$HTTP_CODE" != "200" ]; then
   say "GET /api/status -> HTTP ${HTTP_CODE:-<none>} - cannot tell"; exit 2
@@ -206,17 +257,7 @@ case "$N_EXISTING" in
     say "GET /api/status returned 200 but no readable agent list (got '${N_EXISTING}') - cannot count the fleet."
     say "  refusing to create test agents on a board we cannot read (fail closed) - cannot tell"; exit 2 ;;
 esac
-MAX_EXISTING="${KOSMOS_AGENT_ONLINE_MAX_EXISTING:-2}"
-# 🛑 This guard is the ONE thing stopping test-agent spawn on a populated fleet, so its
-# threshold must never be garbage: a non-numeric MAX would make the `-gt` test below error,
-# the `&&` short-circuit, and the guard silently NOT fire - spawning agents among live
-# sessions. Fall back to the safe default on anything non-numeric rather than disabling.
-case "$MAX_EXISTING" in ''|*[!0-9]*) say "KOSMOS_AGENT_ONLINE_MAX_EXISTING='${MAX_EXISTING}' is not numeric - using the safe default 2"; MAX_EXISTING=2 ;; esac
-if [ "$N_EXISTING" -gt "$MAX_EXISTING" ] && [ "${KOSMOS_STAGING_VERIFY_ALLOW_LIVE:-}" != "1" ]; then
-  say "this board already carries ${N_EXISTING} agents (> ${MAX_EXISTING}) - looks like a populated FLEET, not a fresh staging machine."
-  say "  refusing to create test agents here. Set KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1 only if you are certain this is a throwaway board - cannot tell"
-  exit 2
-fi
+say "this board carries ${N_EXISTING} agent(s); the agents this check creates are removed when it ends."
 
 # --- create one agent per provider and confirm it comes ONLINE ---
 STAMP="$(date +%s)"
@@ -231,7 +272,10 @@ case "$POLL_INT"  in ''|0|*[!0-9]*) POLL_INT=5 ;; esac
 # create_and_wait <provider> <account-dir> -> echoes verdict, returns 0 online / 1 red / 2 cannot
 create_and_wait() {
   local prov="$1" dir="$2" nm body sess
-  nm="verify2129-${prov}-${STAMP}-$$"
+  # kosmos#6906: at most 28 characters. The board refuses a name over 32 ("keep it to 32 characters or fewer"), and the
+  # old verify2129-<provider>-<time>-<pid> was longer, so every create here was refused as a 400 and read cannot-tell.
+  local short; case "$prov" in anthropic) short=claude ;; *) short="$prov" ;; esac
+  nm="verify2129-${short}-${STAMP}"
   body="$("$NODE" -e 'process.stdout.write(JSON.stringify({name:process.argv[1],provider:process.argv[2],account:process.argv[3],role:"pm"}))' "$nm" "$prov" "$dir")"
   local resp; api_post /api/agents "$body"; resp="$RESP_BODY"
   if [ "$HTTP_CODE" = "400" ]; then
@@ -285,7 +329,8 @@ create_and_wait() {
       idle|working)
         online_streak=$((online_streak + 1)); ever_online=1
         if [ "$online_streak" -ge 2 ]; then
-          say "  [$prov] ONLINE (state=$st, confirmed on 2 consecutive polls) - the #2129 class is not present."; return 0
+          say "  [$prov] ONLINE (state=$st, confirmed on 2 consecutive polls) - the #2129 class is not present."
+          first_reply "$prov" "$sess"; return $?
         fi
         say "  [$prov] reads $st - confirming it stays online across a poll (guards a transient idle before a trust wedge)..." ;;
       needs_you)
@@ -337,7 +382,7 @@ create_and_wait() {
   say "  [$prov] did NOT come online within ${POLL_SECS}s (last state='${st:-<none>}')"; return 1
 }
 
-say "staging-agent-online-check: creating one Claude + one OpenAI agent on $URL and confirming each comes online."
+say "staging-agent-online-check: creating one Claude + one OpenAI agent on $URL, confirming each comes online and answers a first message, then removing them."
 create_and_wait anthropic "$ANTHROPIC_DIR"; CLAUDE_RC=$?
 create_and_wait openai "$OPENAI_DIR"; OPENAI_RC=$?
 
@@ -362,7 +407,7 @@ elif [ "$CLAUDE_RC" -eq 2 ]; then
   exit 2
 else
   case "$OPENAI_RC" in
-    0) say "PASS: both a Claude and an OpenAI agent came ONLINE. The #2129 agent-spawn class is not present in this build."; exit 0 ;;
+    0) say "PASS: both a Claude and an OpenAI agent came ONLINE and answered a first message. The #2129 agent-spawn class is not present in this build."; exit 0 ;;
     1) say "PARTIAL: the CLAUDE arm is ONLINE (the #2129 fix works), but the OpenAI/Codex arm FAILED to come online."
        say "  This may be a SEPARATE codex-spawn issue that #2129 does not fix - NOT a reason to auto-hold the whole promote."
        say "  Surface to the operator with WHICH arm failed; the Claude fix + OpenAI gating are shippable. Promote is a routed decision (--force after a ruling)."

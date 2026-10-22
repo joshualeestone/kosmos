@@ -46,9 +46,11 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      Code trust prompt while the board served fine, so the board gate alone would PASS a #2129
      build. This gate creates a Claude agent AND an OpenAI agent and confirms each comes ONLINE
      (state idle/working on **two consecutive polls** -- guarding a transient idle before a trust
-     prompt registers -- never a `needs_you` trust wedge). It **creates real agents**, so it
-     refuses on a populated (or uncountable) fleet board unless `KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1`;
-     run it on the fresh staging machine with both providers signed in.
+     prompt registers -- never a `needs_you` trust wedge), then that each **answers a first message**
+     in its own thread. It **creates real agents** and **removes them when it ends** (the board's
+     Remove agent, `DELETE /api/agent/<name>/removal`), so it runs on a populated board too, which is
+     what releases are promoted from (kosmos#6906). It still fails closed on a board whose agents it
+     cannot count, and needs both providers signed in.
      - **Exit codes are centered on the CLAUDE arm** (Splinter, 2026-09-04): #2129 fixes the
        Claude spawn wedge definitively, but a separate OpenAI/Codex spawn issue may remain and
        must not block shipping the Claude fix + the OpenAI-only gating. `0` both online; `1` the

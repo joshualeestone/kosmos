@@ -6,9 +6,10 @@
 #   - agents wedged at the trust prompt (#2129)    -> FAIL  (exit 1)   <- the red-capable arm
 #   - auth_failed / never-online-in-window         -> FAIL  (exit 1)
 #   - create refused (400)                          -> FAIL  (exit 1)
-#   - populated fleet, no override                  -> REFUSE(exit 2)   <- the safety guard
-#   - populated fleet WITH override + online        -> PASS  (exit 0)
-#   - the CALLER exports the override / the fixture -> same answers (#5849 controls)
+#   - a populated board                             -> PASS  (exit 0), its agents removed (kosmos#6906)
+#   - online but no answer to the first message     -> CANNOT-TELL (2) (kosmos#6906)
+#   - every created agent is removed, pass or fail; a failed removal is said (kosmos#6906)
+#   - the CALLER exports the fixture's variables    -> same answers (#5849 control)
 #   - a provider not signed in                      -> CANNOT-TELL (2)
 #   - no board.token                                -> CANNOT-TELL (2)
 #
@@ -31,7 +32,8 @@ cat > "$FIXDIR/fakeboard" <<'SH'
 #!/usr/bin/env bash
 # Fake transport for the agent-online gate. Parses curl's argv, writes the body to the
 # -o file and prints the HTTP code to stdout. Pure bash - no node. Scenario via env
-# (MOCK_ACCOUNTS/MOCK_AGENT_STATE/MOCK_CREATE/MOCK_PREEXISTING) + created-names in MOCK_STATE.
+# (MOCK_ACCOUNTS/MOCK_AGENT_STATE/MOCK_CREATE/MOCK_PREEXISTING/MOCK_REPLY/MOCK_SEND/MOCK_REMOVE) + created-names
+# in MOCK_STATE.
 out=""; method="GET"; data=""; url=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -141,6 +143,8 @@ case "$route" in
         emit '{"error":"that is not a name we can read"}' 400
       else
         nm="$(printf '%s' "$data" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')"
+        # The REAL board refuses a name over 32 characters (kosmos#6906: the gate's old names were longer).
+        if [ "${#nm}" -gt 32 ]; then emit '{"outcome":"refused","because":"keep it to 32 characters or fewer","field":"name"}' 400; exit 0; fi
         printf '%s\n' "$nm" >> "$STATE"
         # The REAL board returns the result object at TOP LEVEL (server.js sendJson(res,code,result)
         # -> {outcome, name, ...}), NOT nested under a `result` key. Emit that so the gate's
@@ -148,6 +152,37 @@ case "$route" in
         # non-vacuous), matching the /api/status and /api/accounts real-shape fixtures.
         emit "{\"outcome\":\"created\",\"name\":\"$nm\"}" 200
       fi
+    else emit '{}' 404; fi;;
+  /api/agent/*/thread)
+    # kosmos#6906: the first message and its answer. The REAL GET shape is {messages:[{at,text,from}]}: the person's own
+    # message has from null, the agent's answer has from = its session name. MOCK_REPLY=none (no answer) / other (an
+    # answer from a different name) must not count; MOCK_SEND=refuse refuses the message.
+    nm="${route#/api/agent/}"; nm="${nm%/thread}"
+    if [ "$method" = POST ]; then
+      if [ "${MOCK_SEND:-ok}" = refuse ]; then emit '{"error":"we could not send that"}' 500; exit 0; fi
+      printf '%s\n' "$nm" >> "${STATE}.sent"
+      emit '{"delivery":{"state":"placed"},"recorded":true}' 200
+    else
+      msgs=""
+      if grep -qx "$nm" "${STATE}.sent" 2>/dev/null; then
+        msgs='{"at":"2026-10-22T15:58:00Z","text":"A release check: please reply with the single word ready.","from":null}'
+        case "${MOCK_REPLY:-ready}" in
+          none) ;;
+          other) msgs="$msgs,{\"at\":\"2026-10-22T15:58:04Z\",\"text\":\"ready\",\"from\":\"someone-else\"}" ;;
+          *) msgs="$msgs,{\"at\":\"2026-10-22T15:58:04Z\",\"text\":\"ready\",\"from\":\"$nm\"}" ;;
+        esac
+      fi
+      emit "{\"messages\":[$msgs]}" 200
+    fi;;
+  /api/agent/*/removal)
+    # kosmos#6906: the board's own Remove agent. Takes the agent off the board (out of STATE, so /api/status stops
+    # listing it) and records it; MOCK_REMOVE=fail refuses.
+    nm="${route#/api/agent/}"; nm="${nm%/removal}"
+    if [ "$method" = DELETE ]; then
+      if [ "${MOCK_REMOVE:-ok}" = fail ]; then emit '{"error":"we could not remove that"}' 500; exit 0; fi
+      grep -vx "$nm" "$STATE" > "${STATE}.tmp" 2>/dev/null; mv "${STATE}.tmp" "$STATE"
+      printf '%s\n' "$nm" >> "${STATE}.removed"
+      emit '{"outcome":"removed"}' 200
     else emit '{}' 404; fi;;
   *) emit '{}' 404;;
 esac
@@ -168,21 +203,26 @@ run_case() {
   local root state outp rc
   root="$(mktemp -d "${TMPDIR:-/tmp}/aoc-root.XXXXXX")"; printf 'tok\n' > "$root/board.token"
   state="$(mktemp "${TMPDIR:-/tmp}/aoc-state.XXXXXX")"; : > "$state"
-  # kosmos#5849: the caller's own values for these are cleared before the case's are applied, or a "no override" case
-  # inherits an exported KOSMOS_STAGING_VERIFY_ALLOW_LIVE, the guard stands down, and the case goes red with nothing
-  # naming why. The two "CALLER exports" cases below are the controls for this list: between them the caller exports
-  # every name on it.
-  outp="$(env -u KOSMOS_STAGING_VERIFY_ALLOW_LIVE -u KOSMOS_AGENT_ONLINE_MAX_EXISTING -u KOSMOS_HOME \
-    -u MOCK_ACCOUNTS -u MOCK_AGENT_STATE -u MOCK_CREATE -u MOCK_PREEXISTING \
+  # kosmos#5849: the caller's own values for these are cleared before the case's are applied, or a case inherits an
+  # exported scenario and goes red with nothing naming why. The "CALLER exports" case below is the control for this
+  # list: the caller exports every name on it.
+  outp="$(env -u KOSMOS_HOME -u KOSMOS_AGENT_REPLY_TIMEOUT \
+    -u MOCK_ACCOUNTS -u MOCK_AGENT_STATE -u MOCK_CREATE -u MOCK_PREEXISTING -u MOCK_REPLY -u MOCK_SEND -u MOCK_REMOVE \
     "$@" MOCK_STATE="$state" KOSMOS_AOC_CURL="$FIXDIR/fakeboard" \
     KOSMOS_STORE_ROOT="$root" KOSMOS_PORT=19999 \
-    KOSMOS_AGENT_ONLINE_POLL_INT=1 KOSMOS_AGENT_ONLINE_TIMEOUT=4 \
+    KOSMOS_AGENT_ONLINE_POLL_INT=1 KOSMOS_AGENT_ONLINE_TIMEOUT=4 KOSMOS_AGENT_REPLY_TIMEOUT=3 \
     bash "$CHECK" 2>&1)"
   rc=$?
-  if [ -n "$want" ] && ! has "$outp" "$want"; then
-    rm -rf "$root" "$state"; bad "$label: expected output to contain '$want' | got: $(printf '%s' "$outp" | tr '\n' '~' | tail -c 300)"; return
+  # kosmos#6906: every agent the check created is removed, whatever the verdict (a failed removal is said, and
+  # exempts the case from this assertion).
+  if [ -s "$state" ] && ! has "$outp" "could not remove"; then
+    local left; left="$(tr '\n' ' ' < "$state" 2>/dev/null)"
+    rm -rf "$root" "$state"*; bad "$label: agents left on the board after the check: $left"; return
   fi
-  rm -rf "$root" "$state"
+  if [ -n "$want" ] && ! has "$outp" "$want"; then
+    rm -rf "$root" "$state"*; bad "$label: expected output to contain '$want' | got: $(printf '%s' "$outp" | tr '\n' '~' | tail -c 300)"; return
+  fi
+  rm -rf "$root" "$state"*
   if [ "$rc" = "$exp" ]; then pass "$label -> exit $rc"; else bad "$label: expected exit $exp, got $rc | out: $(printf '%s' "$outp" | head -3 | tr '\n' '~')"; fi
 }
 
@@ -201,20 +241,21 @@ run_case "slow/flapping online (idle once) -> cannot-tell (2)" 2  MOCK_ACCOUNTS=
 run_case "create refused (400, sign-in) -> do-not-promote" 1 MOCK_ACCOUNTS=both MOCK_CREATE=refuse400
 run_case "unexpected create-400 (not sign-in) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_CREATE=refuse400-other
 run_case "agent never appears (shape mismatch) -> cannot-tell" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=noshow
-run_case "populated fleet, no override -> REFUSE"       2 --expect "populated FLEET" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5
-run_case "garbage MAX_EXISTING still guards a populated fleet" 2 --expect "populated FLEET" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_AGENT_ONLINE_MAX_EXISTING=abc
-# kosmos#5849 controls: each of these is run with its CALLER exporting values that would change the answer, and names
-# none of them itself. First the guard: the override exported and the limit raised, and the fleet is still refused.
-KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1 KOSMOS_AGENT_ONLINE_MAX_EXISTING=99 \
-  run_case "populated fleet, the CALLER exports the override and a raised limit -> still REFUSE" 2 --expect "populated FLEET" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5
-# Then the fixture's own variables and KOSMOS_HOME (a home whose bundled node answers nothing): a case that names no
-# scenario still gets the default one, both agents online.
+# kosmos#6906: a populated board is checked, not refused: its agents are removed after (the assertion in run_case).
+run_case "populated board (5 agents) -> checked, PASS, removed (0)" 0 --expect "removed 'verify2129-openai-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5
+run_case "positive control removes the Claude agent too" 0 --expect "removed 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle
+run_case "online but NO answer to the first message -> cannot-tell (2)" 2 --expect "did not answer its first message" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_REPLY=none
+run_case "an answer from ANOTHER name does not count -> cannot-tell (2)" 2 --expect "did not answer its first message" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_REPLY=other
+run_case "first message refused -> cannot-tell (2)" 2 --expect "could not send" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_SEND=refuse
+run_case "a FAILED arm still removes its agent (trust wedge, 1)" 1 --expect "removed 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=trust-wedge
+run_case "a removal that fails is said, and the verdict stands (0)" 0 --expect "could not remove" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_REMOVE=fail
+# kosmos#5849 control: the CALLER exports every fixture variable and a broken home; a case that names no scenario
+# still gets the default one, both agents online and answering.
 mkdir -p "$FIXDIR/badhome/runtime/bin"; printf '#!/bin/sh\nexit 0\n' > "$FIXDIR/badhome/runtime/bin/node"; chmod +x "$FIXDIR/badhome/runtime/bin/node"
-KOSMOS_HOME="$FIXDIR/badhome" MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=auth MOCK_CREATE=refuse400 MOCK_PREEXISTING=5 \
+KOSMOS_HOME="$FIXDIR/badhome" MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=auth MOCK_CREATE=refuse400 MOCK_PREEXISTING=5 MOCK_REPLY=none MOCK_SEND=refuse MOCK_REMOVE=fail KOSMOS_AGENT_REPLY_TIMEOUT=0 \
   run_case "default scenario, the CALLER exports a broken home and every fixture variable -> still both online" 0
 run_case "unreadable /api/status (200, no agent list) -> FAIL CLOSED" 2 --expect "cannot count the fleet" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=status-garbage
 run_case "Claude ONLINE, OpenAI WEDGED -> PARTIAL (3, surface not auto-hold)" 3 --expect "PARTIAL" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=claude-ok-openai-wedge
-run_case "populated fleet WITH allow-live + online"     0  MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PREEXISTING=5 KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1
 run_case "no openai account -> cannot-tell"             2  MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=idle
 run_case "Claude present but signed OUT -> cannot-tell"  2  MOCK_ACCOUNTS=claude-signedout MOCK_AGENT_STATE=idle
 
