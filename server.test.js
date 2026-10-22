@@ -4515,6 +4515,20 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
     const runnerFail = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
     assert.equal(runnerFail.status, 500, runnerFail.body);
     assert.equal(updates.alreadyInstalling(), false, 'a start that threw left the board thinking an install is running');
+    const ended = updates.lastAttempt();
+    assert.ok(ended && ended.endedAt && ended.because === 'Kosmos could not start the installer',
+      'a start that threw left its attempt open: ' + JSON.stringify(ended));
+
+    // But once something WAS launched, a later throw (here the wiring of the child) keeps the flag: a second press
+    // must not start a second installer racing the first.
+    updates.setInstallRunner(() => ({ on() { throw new Error('the wiring exploded'); } }));
+    const wired = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(wired.status, 500, wired.body);
+    assert.equal(updates.alreadyInstalling(), true, 'a throw after the installer launched released the single-flight flag');
+    updates.setInstalledRoot(null);   // before the look, or the automatic install starts first
+    updates.resetCache();
+    await updates.refresh();
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
     updates.setInstallRunner(() => { ran += 1; });
 
     // A refusal is logged with the sentence the person saw.

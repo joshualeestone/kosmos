@@ -1169,15 +1169,19 @@ function armWindowsHelperWitness(owner, opts) {
   return t;
 }
 
-/* #6903: a start that throws releases the single-flight flag, whatever threw (a spawn that fails synchronously, the
-   wiring, an injected runner). Otherwise the next press, which the failure sentence asks for, is answered "already
-   updating" for an install that is not running, for the life of the board. */
+/* #6903: a start that throws BEFORE anything was launched releases the single-flight flag and ends its attempt, so
+   the next press, which the failure sentence asks for, can start one. Once an installer is launched (installLaunched)
+   a later throw keeps the flag: a second installer would race the first through the stage-and-swap. */
+let installLaunched = false;
 function beginInstall(opts) {
-  const wasStarted = installStarted;
   try {
     return beginInstallOnce(opts);
   } catch (err) {
-    if (!wasStarted) { installStarted = false; inFlightKindVar = null; }
+    if (installStarted && !installLaunched) {
+      installStarted = false;
+      inFlightKindVar = null;
+      noteAttemptEnd(lastAttempt, null, 'Kosmos could not start the installer');
+    }
     throw err;
   }
 }
@@ -1189,6 +1193,7 @@ function beginInstallOnce(opts) {
   // lifetime; the flag dies with the process the installer restarts.
   if (installStarted) return;
   installStarted = true;
+  installLaunched = false;
   inFlightKindVar = 'update';
   /* A fresh press starts a fresh record: the previous attempt's failure
      is history, not a verdict on this one. */
@@ -1205,6 +1210,7 @@ function beginInstallOnce(opts) {
      a child. */
   if (installRunner) {
     const fake = installRunner(setupUrl());
+    installLaunched = true;
     if (fake && typeof fake.on === 'function') { wireChild(fake, opts); return fake; }
     return fake;
   }
@@ -1213,7 +1219,10 @@ function beginInstallOnce(opts) {
      Mac-style test double still runs on either OS) and BEFORE the `/bin/sh` spawn wiring, none of
      which applies on Windows. In production installRunner is null, so a real win32 board reaches this
      and a real Mac board falls through to the spawn below. */
-  if (updatePlatform() === 'win32') return beginWindowsInstall(opts);
+  if (updatePlatform() === 'win32') {
+    installLaunched = true;   // #6903: whether its helper launched is not visible here, so a throw keeps the flag
+    return beginWindowsInstall(opts);
+  }
   // The URL travels as a positional parameter, never interpolated into the
   // command that runs the installer (run-setup, #6468; it used to end in `| sh`); and KOSMOS_RELEASE_BASE
   // rides along so the installer stages its tarballs from the SAME host the
@@ -1303,6 +1312,7 @@ function beginInstallOnce(opts) {
     // must be recorded where the board can show it. A pasted install line does not carry it.
     env: { ...process.env, KOSMOS_RELEASE_BASE: releaseBase(), KOSMOS_UPDATE_CHANNEL: installPointer(), KOSMOS_SOURCE_CHANNEL: updateChannel(), KOSMOS_UPDATE_BY_BOARD: '1' },
   });
+  installLaunched = true;
   wireChild(child, opts);
   child.unref();
 }

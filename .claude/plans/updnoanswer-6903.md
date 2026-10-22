@@ -88,3 +88,14 @@ Card: kosmos#6903 (Josh, 2026-10-22 10:46 CDT: the dialog showed only "we could 
 - Full node suite (tools/run-tests.sh) on b04fbad56e: 23284 tests, 1 fail, the third source pin on the same rename:
   accountmove-stop-6214.test.js counts the four move refusals by their `sendJson(res, 409` spelling. The regex now
   takes either spelling and still requires four; the file passes 20/20.
+
+## Review round 6
+- Round 5's release fired on ANY throw, including one after an installer had launched (the child's wiring), which
+  would let a second press start a second installer racing the first; and it left the attempt record open
+  (endedAt null), so the page could read an install as running. Now a module flag `installLaunched` is set the moment
+  something is launched (the injected runner returns, the /bin/sh spawn returns, or the win32 path is entered, where
+  launch is not visible here). The flag is released, and the attempt ended with "Kosmos could not start the
+  installer", only when nothing launched. Tests: a runner that throws ends the attempt; a runner whose wiring throws
+  keeps the flag. Mutant (the runner's launch mark removed): red.
+- Correction to round 5's note: the gate re-throw covers throws from the route's other statements. The inner
+  beginInstall catch still answers 500 for a gate throw from inside beginInstall, as it did before this branch.
