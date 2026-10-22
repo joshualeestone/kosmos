@@ -31,8 +31,8 @@
 # Skips, retried on the next tick: a release, deploy-site.sh or promote-channel.sh running on this
 # machine, unless a test started it (kosmos#6907); another tick still running; exit 75 from
 # deploy-site.sh (the live site moved or could not be read). A commit the live site already serves
-# (its .kosmos-release-export names it, as right after a cut's own step 8) is recorded as deployed without deploying it again. A deploy left running
-# by a tick killed outright: waited for while under 1200 s, then stopped; a failure either way.
+# (its .kosmos-release-export names it, as right after a cut's own step 8) is recorded as deployed
+# without deploying it again. A deploy left running by a tick killed outright: waited for while under 1200 s, then stopped; a failure either way.
 # A failed deploy is retried once on the next tick (one network blip should not park a website
 # change), then PARKED: a second failure on the same sha is a finding, not a blip, and a tick
 # re-running a refusing deploy every 15 minutes would bury it. The next merge, or deleting `parked`,
@@ -295,15 +295,17 @@ PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo pid=,ppid=,command=}"
 # (red_once psread) rather than skipping silently forever.
 # Sets PUBLISHER to what held the deploy, so a skip names it: "pid <n>: <command>" for the first match no test
 # started ("pid ?" on a line without a pid), or a sentence when the matcher itself failed. The command goes into
-# the log and the job's output.
+# the log and the job's output, so the publishers must keep taking only a version or flags as arguments.
+# A match passed over as test-started is logged too, naming the test above it, so a wrong exemption leaves
+# a record rather than a deploy beside a real publisher with nothing said.
 PUBLISHER=""
 publisher_running() {
-  local procs
+  local procs found line
   procs=$(sh -c "$PS_CMD" 2>/dev/null) || procs=""
   if [ -z "$procs" ]; then
     red_once psread "FAIL: could not read the process list ($PS_CMD), so a release cut cannot be ruled out; nothing deployed"
   fi
-  PUBLISHER=$(awk '
+  found=$(awk '
     BEGIN { pub = "^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\\.sh( |$)"
             tst = "^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/test-[^ /]*\\.sh( |$)"
             nod = "^([^ ]*/)?node( [^ ]+)* (--test(=[^ ]*)?|[^ ]*\\.test\\.[cm]?js)( |$)" }
@@ -316,9 +318,17 @@ publisher_running() {
         if (cmd[i] !~ pub) continue
         t = 0; p = par[i]
         for (h = 0; h < 64 && p != "" && p > 1 && (p in id); h++) { j = id[p]; if (cmd[j] ~ tst || cmd[j] ~ nod) { t = 1; break }; p = par[j] }
-        if (!t) { print "pid " pid[i] ": " substr(cmd[i], 1, 200); exit }
+        if (t) { print "T pid " pid[i] ": " substr(cmd[i], 1, 200) " (under pid " p ": " substr(cmd[j], 1, 120) ")"; continue }
+        print "H pid " pid[i] ": " substr(cmd[i], 1, 200); exit
       }
-    }' <<<"$procs") || PUBLISHER="the process list could not be matched, so a cut cannot be ruled out"   # closed, as above
+    }' <<<"$procs") || found="H the process list could not be matched, so a cut cannot be ruled out"   # closed, as above
+  PUBLISHER=""
+  while IFS= read -r line; do
+    case "$line" in
+      "T "*) say "not held by ${line#T } (a test started it)" ;;
+      "H "*) PUBLISHER="${line#H }" ;;
+    esac
+  done <<<"$found"
   [ -n "$PUBLISHER" ]
 }
 if publisher_running; then

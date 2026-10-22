@@ -146,7 +146,8 @@ arm6907() {  # <name> <ps lines...>: one tick on fresh state; leaves OUT, RC and
 arm6907 test '  100     1 /bin/bash /Users/x/work/val-pauseall-6781/tools/test-deploy-site-promote.sh' \
   '  150   100 sh -c bash "$REPO/tools/deploy-site.sh" --promote' \
   '  200   150 bash /Users/x/work/val-pauseall-6781/tools/deploy-site.sh --promote'
-{ [ "$RC" = 0 ] && [ "$N" = 1 ]; } && pass "a deploy-site.sh a test-*.sh started (two levels up) does not hold the deploy" || bad "a test's deploy-site.sh held the deploy (rc=$RC, deploys=$N): $OUT"
+{ [ "$RC" = 0 ] && [ "$N" = 1 ] && printf '%s' "$OUT" | grep -qF 'not held by pid 200: bash /Users/x/work/val-pauseall-6781/tools/deploy-site.sh --promote (under pid 100: /bin/bash /Users/x/work/val-pauseall-6781/tools/test-deploy-site-promote.sh) (a test started it)'; } \
+  && pass "a deploy-site.sh a test-*.sh started (two levels up) does not hold the deploy, and the tick says which test" || bad "a test's deploy-site.sh held the deploy, or was passed over silently (rc=$RC, deploys=$N): $OUT"
 arm6907 real '  100     1 -zsh' '  200   100 bash tools/deploy-site.sh --publish'
 { [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -qF '(pid 200: bash tools/deploy-site.sh --publish)'; } \
   && pass "control: a hand-run deploy-site.sh holds the deploy and the skip names its pid and command" || bad "a hand-run deploy-site.sh did not hold, or was not named (deploys=$N): $OUT"
@@ -160,6 +161,8 @@ arm6907 node '  100     1 node --test --test-concurrency=4 tools.release-gate.te
   '  150   100 /usr/local/bin/node --test-reporter=tap /Users/x/work/k/tools.release-gate.test.js' \
   '  200   150 bash /var/folders/x/T/rg-1/tools/release.sh 0.7.99'
 { [ "$RC" = 0 ] && [ "$N" = 1 ]; } && pass "a release.sh the node suite started does not hold the deploy" || bad "a node test's release.sh held the deploy (rc=$RC, deploys=$N): $OUT"
+arm6907 nodetest '  100     1 node --test' '  200   100 bash /var/folders/x/T/rg-2/tools/release.sh 0.7.99'
+{ [ "$RC" = 0 ] && [ "$N" = 1 ]; } && pass "a release.sh directly under a bare node --test does not hold the deploy" || bad "a release.sh under node --test held the deploy (rc=$RC, deploys=$N): $OUT"
 arm6907 nodeserver '  100     1 node server.js --port 16180' '  200   100 bash tools/release.sh 0.7.99'
 { [ "$RC" = 0 ] && [ "$N" = 0 ]; } && pass "control: a release.sh under a node process that is not a test still holds" || bad "a release.sh under a plain node process did not hold (deploys=$N)"
 arm6907 cycle '  200   300 bash tools/deploy-site.sh --publish' '  300   200 /bin/zsh -l'
