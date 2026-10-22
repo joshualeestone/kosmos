@@ -1,5 +1,5 @@
 {
-  "version": "0.7.62",
+  "version": "0.7.63",
   "highlights": [
     {
       "icon": "list",
@@ -7,27 +7,24 @@
       "line": "An agent's Files screen lists its folders and files, previews images and text, and downloads a folder as one zip."
     },
     {
+      "icon": "spark",
+      "title": "Crop a picture before saving it",
+      "line": "Choosing a still picture for an agent or for yourself opens an editor to move and zoom it inside the circle before it is saved."
+    },
+    {
       "icon": "swarm",
       "title": "A team map for each project",
       "line": "A project's Team map, on its Members card or above its Agents list, shows who reports to whom, what each holds and who handed work on."
     },
     {
+      "icon": "shield",
+      "title": "Each file shows a fingerprint",
+      "line": "Files and Documents show a short fingerprint for each file stored on this computer, so you can tell whether two copies are the same."
+    },
+    {
       "icon": "tasks",
       "title": "Agents are told how to finish a task",
       "line": "An agent that reports on a task it holds, with kosmos task message, is now told how to mark that task done."
-    },
-    {
-      "icon": "list",
-      "title": "See which agent changed a file",
-      "line": "A project's Files page usually shows which Claude agent changed a file last.",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
-      "icon": "swarm",
-      "title": "A paused room says why",
-      "line": "When Kosmos pauses a room whose agents kept going back and forth, a note above the message box says why and offers Reopen."
     }
   ]
 }
