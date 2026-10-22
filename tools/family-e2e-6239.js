@@ -410,7 +410,7 @@ function knockAt(b, token) {
       (r) => { let text = ''; r.setEncoding('utf8'); r.on('data', (d) => { text += d; }); r.on('end', () => end(r.statusCode || 0, text)); r.on('error', (e) => end(0, String(e.message || e))); });
     } catch (e) { end(0, String(e.message || e)); return; }
     req.on('error', (e) => end(0, String(e.message || e)));
-    req.setTimeout(15000, () => { end(0, 'no answer in 15 s'); req.destroy(); });
+    req.setTimeout(5000, () => { end(0, 'no answer in 5 s'); req.destroy(); });
     req.end(body);
   });
 }
@@ -524,11 +524,22 @@ async function main() {
   }
   /* kosmos#6887: the browser asks P by opening it (the knock; without it P lists nothing since kosmos#6407). The gate
      answers a valid session it has not allowed with 403 pending and the code the browser shows, which must be the code
-     the sign-up answered. Retried for 30 s only while no HTTP answer comes back (status 0, as while P's tunnel is still
-     attaching); the first answer with a status is the one checked. */
+     the sign-up answered. Asked again, a second apart, until the gate says wait, for at most about 35 s (no new try
+     starts after 30 s, and a try waits at most 5 s); the last answer is the one checked. A refusal can be momentary:
+     no answer while P's tunnel is still attaching, and 403 "not valid any more" until its first poll names P's account
+     (kosmos-relay gate.rs ACCOUNT_NOT_KNOWN_YET). */
+  const parseKnock = (k) => { try { return JSON.parse(k.text); } catch { return null; } };
   let knock = { status: 0, text: 'no session' };
-  if (sess) knock = (await waitFor(async () => { const k = await knockAt(P, sess.token); return k.status ? k : null; }, 30000, 1000)) || await knockAt(P, sess.token);
-  const kj = (() => { try { return JSON.parse(knock.text); } catch { return null; } })();
+  if (sess) {
+    const until = Date.now() + 30000;
+    for (;;) {
+      knock = await knockAt(P, sess.token);
+      const j = parseKnock(knock);
+      if ((knock.status === 403 && j && j.pending === true) || Date.now() >= until) break;
+      await sleep(1000);
+    }
+  }
+  const kj = parseKnock(knock);
   chk(knock.status === 403 && !!kj && kj.pending === true && !!sess && kj.code === sess.match_code,
     'step 4b: the parent\'s browser opens P through the relay and is told to wait, with the code its sign-up showed', knock.status + ' ' + String(knock.text).slice(0, 200));
   /* The coordinator names a session's device itself (kosmos#5422: an id the browser offers is replaced), so the row on
