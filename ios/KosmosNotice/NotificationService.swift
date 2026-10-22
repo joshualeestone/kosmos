@@ -76,14 +76,23 @@ final class NotificationService: UNNotificationServiceExtension {
     }
 
     // `within`: the whole fetch's limit in seconds (a request's own timeout restarts on every piece that arrives).
-    private static func fetch(_ r: URLRequest, within: TimeInterval) async -> (Data, HTTPURLResponse)? {
+    // `maxBytes`: an answer longer than this is dropped as it streams, never held whole (the extension's memory is small).
+    private static func fetch(_ r: URLRequest, within: TimeInterval, maxBytes: Int) async -> (Data, HTTPURLResponse)? {
         // No redirect is followed, as in the app (BoardClient+App.swift NoRedirects): the request carries the computer's
         // session cookie, which must never go to another host. A redirect is then a 3xx, and the notice shows as it came.
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForResource = within
         let session = URLSession(configuration: config, delegate: NoticeNoRedirects(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
-        guard let (data, response) = try? await session.data(for: r), let http = response as? HTTPURLResponse else { return nil }
+        guard let (bytes, response) = try? await session.bytes(for: r), let http = response as? HTTPURLResponse,
+              http.expectedContentLength <= Int64(maxBytes) else { return nil }
+        var data = Data()
+        do {
+            for try await byte in bytes {
+                data.append(byte)
+                if data.count > maxBytes { return nil }
+            }
+        } catch { return nil }
         return (data, http)
     }
 
@@ -91,7 +100,7 @@ final class NotificationService: UNNotificationServiceExtension {
     static func messageContent(original: UNNotificationContent, ask: URLRequest, info: [AnyHashable: Any], stored: String?,
                                wordsReady: (UNNotificationContent) -> Void) async -> UNNotificationContent? {
         // iOS gives the extension about 30 seconds: the words get most of it, the picture what is left after them.
-        guard let (data, http) = await fetch(ask, within: 15),
+        guard let (data, http) = await fetch(ask, within: 15, maxBytes: PhoneNotice.maxAnswerBytes),
               let words = PhoneNotice.words(status: http.statusCode, contentType: http.value(forHTTPHeaderField: "Content-Type"), data: data, userInfo: info),
               !Task.isCancelled,
               let content = original.mutableCopy() as? UNMutableNotificationContent
@@ -105,7 +114,7 @@ final class NotificationService: UNNotificationServiceExtension {
 
         // The picture, as a small PNG or JPEG iOS can show (never a full decode of a huge one: the extension's memory is small).
         var shown: (Data, String)?
-        if let r = PhoneNotice.pictureRequest(words, userInfo: info, stored: stored), let (pd, ph) = await fetch(r, within: 8),
+        if let r = PhoneNotice.pictureRequest(words, userInfo: info, stored: stored), let (pd, ph) = await fetch(r, within: 8, maxBytes: PhoneNotice.maxPictureBytes),
            let picture = PhoneNotice.pictureData(status: ph.statusCode, contentType: ph.value(forHTTPHeaderField: "Content-Type"), data: pd) {
             shown = PhoneNotice.attachable(picture, contentType: ph.value(forHTTPHeaderField: "Content-Type"))
         }
