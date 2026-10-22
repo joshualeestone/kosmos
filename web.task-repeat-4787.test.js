@@ -108,8 +108,7 @@ test('#4787 slice 3: the task page\'s reviewer choice: Nobody, Me and the projec
   const els = { 'tk-review-row': el('tk-review-row'), 'tk-review-who': el('tk-review-who'), 'tk-review-msg': el('tk-review-msg') };
   const doc = { activeElement: null, getElementById: (id) => els[id] || null, createElement: () => ({ value: '', textContent: '' }) };
   const paint = new Function('document', 'TK_ACT', 'tskAgentName', page.liftAll(SCRIPT, ['tkReviewerOf', 'tkPaintReviewer']) + '\nreturn tkPaintReviewer;')(doc, 'close', (s) => ({ ada: 'Ada', rex: 'Rex' }[s] || s));
-  // #6896: the shape the projects route sends (member objects); bare names here hid that the page listed [object Object].
-  const p = { id: 'p1', agents: [{ sessionName: 'ada' }, { sessionName: 'rex' }] };
+  const p = { id: 'p1', agents: ['ada', 'rex'] };
   paint(p, { number: 4 });
   assert.equal(els['tk-review-row'].hidden, true, 'a one-off task has no reviewer choice');
   const t = { number: 4, repeat: { every: 'day', at: '09:00' }, repeatReviewer: 'rex' };
@@ -121,7 +120,7 @@ test('#4787 slice 3: the task page\'s reviewer choice: Nobody, Me and the projec
   paint(p, { ...t, repeatReviewer: undefined, repeatReviewerPerson: true });
   assert.equal(sel.value, 'me');
   // A stored reviewer who left the project stays listed, so the select never shows a choice that is not stored.
-  paint({ id: 'p1', agents: [{ sessionName: 'ada' }] }, t);
+  paint({ id: 'p1', agents: ['ada'] }, t);
   assert.equal(sel.value, 'rex');
   assert.ok(sel.children.some((o) => o.value === 'rex' && o.textContent === 'Rex (left the project)'), 'review 12: it says so');
   assert.ok(!sel.children.some((o) => o.value === 'ada' && /left/.test(o.textContent)), 'CONTROL: a member is not marked');
@@ -152,7 +151,7 @@ test('#4787 slice 3 review 6: a capped miss reads "More than 99"; a finished tas
   const els = { 'tk-review-row': el('tk-review-row'), 'tk-review-who': el('tk-review-who'), 'tk-review-msg': el('tk-review-msg') };
   const doc = { activeElement: null, getElementById: (id) => els[id] || null, createElement: () => ({ value: '', textContent: '' }) };
   const paint = new Function('document', 'TK_ACT', 'tskAgentName', page.liftAll(SCRIPT, ['tkReviewerOf', 'tkPaintReviewer']) + '\nreturn tkPaintReviewer;')(doc, 'reopen', (s) => s);
-  paint({ id: 'p1', agents: [{ sessionName: 'ada' }] }, { number: 4, repeat: { every: 'day', at: '09:00' }, repeatReviewer: 'ada' });
+  paint({ id: 'p1', agents: ['ada'] }, { number: 4, repeat: { every: 'day', at: '09:00' }, repeatReviewer: 'ada' });
   assert.equal(els['tk-review-row'].hidden, true, 'a finished task (TK_ACT reopen) shows no reviewer row');
   // And tkPaintRepeat's early return for a finished task still reaches it.
   const src = page.liftAll(SCRIPT, ['tkPaintRepeat']);

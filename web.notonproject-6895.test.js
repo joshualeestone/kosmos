@@ -5,16 +5,40 @@
  *
  *   node --test web.notonproject-6895.test.js
  */
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits (#4273)
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const page = require('./test-support/page');
 
+process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-notonp-'));
+process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-notonp-data-'));
+process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-notonp-workers-'));
+process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-notonp-launch-'));
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+
 const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
 const NAMES = { ada: 'Ada', rex: 'Rex', bo: 'Bo' };
-// The shape the projects route sends (engine/projects.js `agents: members`), not bare names.
-const member = (sn) => ({ sessionName: sn, name: NAMES[sn] });
+
+/* Member rows from the REAL producer (projects.describe, the shape the projects route sends: objects keyed by session
+   name), never hand-built (fixture-discipline.test.js). */
+const fleet = require('./test-support/fleet');
+const projects = require('./engine/projects');
+const ROWS = new Map();
+test.before(() => {
+  const board = fleet.install(['ada', 'rex', 'bo'].map((sn) => fleet.agent(sn, { displayName: NAMES[sn] })));
+  try {
+    const made = projects.create({ name: 'Not On Project' });
+    for (const sn of ['ada', 'rex', 'bo']) projects.addAgent(made.id, sn);
+    const d = projects.describe(projects.readAll().find((x) => x.id === made.id), board.agents);
+    for (const row of d.agents) ROWS.set(row.sessionName, row);
+    assert.equal(ROWS.size, 3, 'PRE-CONTROL: the producer did not give a row for each member');
+    assert.equal(typeof ROWS.get('ada'), 'object', 'PRE-CONTROL: members are objects, the shape #6896 is about');
+  } finally { board.restore(); }
+});
+const member = (sn) => ROWS.get(sn);
 
 const memberName = new Function('tskAgentName', page.liftAll(SCRIPT, ['tkMemberName']) + '\nreturn tkMemberName;')((s) => NAMES[s] || s);
 
