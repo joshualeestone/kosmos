@@ -2629,7 +2629,7 @@ async function main(argv, io) {
       /* No "try again": this is also the timeout path of writes (a task, a project, a report), where the
          board may already have acted, so a retry could make a duplicate. */
       /* #1765: the check before the send did not pass, so nothing was sent. */
-      if (lastNotProven === REDIRECT_REFUSED) err('Whatever answered at ' + url + ' tried to send this request somewhere else, which Kosmos never does, so we did not follow it. We could not ' + what + '; check before doing it again.');
+      if (lastNotProven === REDIRECT_REFUSED) err('Whatever answered at ' + url + ' tried to send this request somewhere else, which Kosmos never does, so we did not follow it. We could not ' + what + (lastWasRead ? '.' : '; check before doing it again.'));
       else if (lastNotProven === NO_TOKEN_TO_PROVE) err('This computer could not read its Kosmos board token, so it cannot check that Kosmos is what answers, and we did not ' + what + ': nothing was sent. Restarting Kosmos usually fixes this; if it does not, reinstalling does.');
       else if (lastNotProven === 'out of time') err('Kosmos took the whole time we had to check it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
       else if (/^(the check (could not load|failed)|headers unreadable)/.test(lastNotProven)) err('This computer could not check it was reaching your Kosmos (' + lastNotProven + '), so we did not ' + what + ' and sent nothing.');
