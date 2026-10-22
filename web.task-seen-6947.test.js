@@ -40,7 +40,7 @@ function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', re
   const acts = { innerHTML: '' };
   const doc = {
     visibilityState: visible,
-    getElementById: (id) => (id === 'tk-back' ? { offsetParent: onScreen ? {} : null } : id === 'tk-activity' ? acts : null),
+    getElementById: (id) => (id === 'tk-back' ? { getClientRects: () => (onScreen ? [{}] : []) } : id === 'tk-activity' ? acts : null),
     addEventListener: (type, fn) => { if (type === 'visibilitychange') doc.listener = fn; },
   };
   let release = () => {};

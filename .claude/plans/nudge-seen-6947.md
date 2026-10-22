@@ -19,7 +19,11 @@ Rejected:
 - A message that arrives while the task's page is open and the person stays on it: the page draws the conversation when the task opens, after an action on the page, or when the tab comes back, not on its timer, so the new message is not on screen and reads as not seen until one of those happens. (Coming back to the tab draws it first, so a message that arrived while the tab was away is not counted as seen before it is drawn.)
 - The person answering from the task page's composer adds the latest message and redraws, so the line then reads "after the latest message", where the latest message is the person's own. The conversation above it shows that.
 - A message that lands in the milliseconds between the page reading the conversation and telling the board: counted as seen though not drawn.
-- Only the latest open is kept, not each one. Tasks opened before this version read as not opened.
+- Only the latest view is kept, not each one. Tasks viewed before this version read as not viewed.
+- Any draw on screen counts, including a redraw after an unrelated action on the task's page (a due date, a part): the conversation is on screen then, but the person may not have read a new message in it.
+- Any browser that shows the board's page counts as the person, the phone's included.
+- A task with no events at all prints "Nothing recorded" and no viewed line (every task records its creation, so this does not arise in practice).
+- Nothing removes a task's record when its project is deleted, so a project made again under the same id could inherit an old view time for a reused task number.
 - "The latest message" means the latest `said` event. Some messages carry no author (the composer's and `kosmos task message`'s), so it may be the person's own reply; the conversation above the line shows which. Other ways an agent reaches the person (a hold notice, a message kept while an agent was out of usage) are not compared.
 - Only the person's page can mark a task seen (server.js isViaScreen: no agent token, and the browser's own fetch headers or a local Origin). Those headers are advisory, so a local process that sends them deliberately can still forge it.
 
