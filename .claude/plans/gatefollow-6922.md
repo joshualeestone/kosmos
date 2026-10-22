@@ -45,8 +45,11 @@ standing in for: `DELETE /api/agent/<name>/leftover` (#514).
   ... right now", can pass in a moment, and leaving the job file on one tmux read would be the #3011 red again.
   The plan is read again before that second DELETE (review 6), for the board's label and typed words: after a refusal
   the first GET had neither.
-- **Accepted cost:** cleanup ignores signals and can take up to about 160 s per agent on a slow board (GET 20, DELETE 60,
-  wait, DELETE 60, GET 20). It runs only after the board answered the removal, so the board is alive.
+- **A plan refusal stays binding** (review 7): once the board has refused (400, no steps), a later lost answer, 404 or
+  5xx leaves the files too; deleting then would be overriding it under a live session. The reason names the refusal.
+- **At most two DELETEs in all** (review 7). Accepted cost: cleanup ignores signals and can take about 165 s per agent
+  on a slow board (GET 20, DELETE 60, wait 3, GET 20, DELETE 60). It runs only after the board answered the removal.
+  REASONED, NOT TESTED: the arms cannot see the DELETE count.
 - **Gate agents are created with `community:false`** (#6908, merged as #6939 while this was in review): no community
   account, so nothing for the clear to retire.
 - **HUP and PIPE exit 2.** They exited 129/141; through the queue that maps to cannot-tell, but an explicit
@@ -54,7 +57,8 @@ standing in for: `DELETE /api/agent/<name>/leftover` (#514).
 - **Queue log in the EXIT trap.** Measured first: bash 3.2 and 5 run the EXIT trap on TERM, INT and HUP.
 
 ## Measured
-- test-staging-agent-online-check.sh: 64 arms pass (35 before). test-staging-channel-2036.sh: ALL PASS (2 new).
+- test-staging-agent-online-check.sh: 68 arms pass (35 before). test-staging-channel-2036.sh: ALL PASS (2 new).
+- Mortals full suite at 3e721da8a (after review 6): clean, node 23348 0 fail, shell 284/284.
 - Mortals full suite at 915c8db69 (after review 4 and #6908): clean. At 0ca4a8d66: clean, node 23328 0 fail, shell 284/284.
 - Mortals full suite at df19f29da: node 23328, 0 fail; the shell shard stopped at 10/284 on the #6710 sleep-control
   guard (the waiting stub queue's `exec sleep 30` had no opt-out marker). Fixed; the guard passes alone.
@@ -63,3 +67,4 @@ standing in for: `DELETE /api/agent/<name>/leftover` (#514).
 - fixture-discipline.test.js 20/20.
 - NOT measured: a real board's leftover route answering the gate. The fake models engine/delete-leftover.js and
   server.js; the next promote's gate is the first live run (#6906 stays parked until then).
+NOT DONE (review 7): no arm sends HUP during cleanup itself, so HUP in cleanup's ignore list is reasoned, not tested.
