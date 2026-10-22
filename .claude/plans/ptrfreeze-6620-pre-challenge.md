@@ -2,9 +2,9 @@
 pre_challenge: true
 method: challenge-loop
 branch: ptrfreeze-6620
-diff_hash: d1d93e3c183a9635b38c07d899f14fe5ab1bc5bd8c87aa9b797c9d80946aa72f
-validation: passed (tools/test-pointer-freeze.sh, test-deploy-site-promote.sh, test-deploy-landed-5471.sh, test-site-push-race-2276.sh all green; 49 more tools/test-*.sh that use the changed scripts green; node --test tools.*.test.js 1220 pass 0 fail; dash -n on the lib and deploy-site.sh; every new refusal arm also run against the pre-fix code; em-dash sweeps by every reviewer with a control)
-timestamp: 2026-10-21T18:48:09Z
+diff_hash: d3e78ac258b65fe8c519522eb489d4c3b62469c2a8b18d1814c1504bc92b0647
+validation: passed (Mortals, full suite, on the tree merged with main at 3a5ed822d3, 2026-10-22T16:59:03Z)
+timestamp: 2026-10-22T16:59:56Z
 iterations: 19
 converged: true
 ---
