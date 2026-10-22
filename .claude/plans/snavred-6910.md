@@ -14,8 +14,8 @@ with no size.
 ## Change
 docs/browser-checks/render-snav-head-4979.js: when that wait times out, the error carries the page state, the
 deciding fields first (the gate quotes only 200 characters of a line): #panel-settings hidden and parent, the
-pill's own size and visibility (or that it is not in the page), every ancestor that is hidden, display:none or has
-no box, which children of #panel-projects are showing (the overlay that took the column, if one did), then
+pill's own size and visibility (or that it is not in the page), every ancestor that hides itself (hidden or
+display:none), the page errors caught so far, which children of #panel-projects are showing (the overlay that took the column, if one did), then
 data-layout, body classes and URL. The read has 5 s, so a wedged page cannot turn the timeout into a hang.
 Nothing else; the pass path is unchanged.
 

@@ -316,8 +316,8 @@ function chk(ok, label, extra) {
                 const chain = [];
                 for (let n = pill; n && n !== document.documentElement; n = n.parentElement) {
                   const cs = getComputedStyle(n);
-                  if (cs.display === 'contents') continue;   // no box of its own, by design
-                  if (n.hidden || cs.display === 'none' || !n.getClientRects().length || (cs.visibility !== 'visible' && n === pill)) {
+                  // only an element that hides itself, so the list names the culprit, not everything under it
+                  if (n.hidden || cs.display === 'none' || (n === pill && cs.visibility !== 'visible')) {
                     chain.push({ el: n.tagName.toLowerCase() + (n.id ? '#' + n.id : ''), hidden: n.hidden, display: cs.display, visibility: cs.visibility });
                   }
                 }
@@ -330,8 +330,11 @@ function chk(ok, label, extra) {
               });
               // a wedged page must not swap this error for a hang: give the read 5 s
               snap.catch(() => {});   // a read that fails after the 5 s is not a second, unhandled error
-              const st = await Promise.race([snap, new Promise((r) => setTimeout(() => r({ evalFailed: 'no answer in 5 s' }), 5000))])
-                .catch((x) => ({ evalFailed: x.message }));
+              let timer;
+              const st = await Promise.race([snap, new Promise((r) => { timer = setTimeout(() => r({ evalFailed: 'no answer in 5 s' }), 5000); })])
+                .catch((x) => ({ evalFailed: x.message }))
+                .finally(() => clearTimeout(timer));
+              st.pageErrors = errs;
               throw new Error(`${tag}: Settings > Computer never became visible: ${JSON.stringify(st)}: ${e.message}`);
             });
           await page.evaluate(() => document.querySelector('#s-nav button[data-go="mac"]').click());
