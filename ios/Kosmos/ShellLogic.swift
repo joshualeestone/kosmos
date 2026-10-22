@@ -279,6 +279,15 @@ enum AppTabs {
         }
     }
 
+    // The page moved to another section by itself (a link in it, a swipe back): where the bar goes, or nil to leave it,
+    // so the bar never lights a tab the page is not on. Not while a press waits (its answer decides), and never from
+    // Agents, the native tab, which shows no page.
+    static func follow(pageURL: URL?, selected: Tab, pressWaiting: Bool, tasksTab: Bool) -> Tab? {
+        guard !pressWaiting, selected != .agents, let pageURL = pageURL else { return nil }
+        let next = keep(tab(forBoardURL: pageURL), tasksTab: tasksTab)
+        return next == selected ? nil : next
+    }
+
     static func answer(_ result: Any?, error: Error?) -> DoorAnswer {
         guard error == nil else { return .absent }
         switch result as? String {
@@ -347,7 +356,7 @@ struct PressTracker {
 
     // What BoardWeb sees of its page when a press comes: no web view yet (a signed-in launch opens on Agents, and a
     // web tab's host is made only when first shown), one still loading, or one that can take the press.
-    enum Page { case none, loading, ready }
+    enum Page { case noView, loading, ready }
 
     // A press: the script to run now and the number its answer must carry, or nil when there is nothing to run now
     // (the native tab, which also ends a waiting press; or a page not ready, when the press waits for its load).
@@ -364,6 +373,14 @@ struct PressTracker {
         let next = AppTabs.afterAnswer(answer, pageURL: pageURL)
         if next.over { pending = nil }
         return next.barTo
+    }
+
+    // A press the app makes for the person, to run at the next load rather than now: after a refusal on a Tasks section
+    // the bar does not offer, so Today, where the bar went, is what the page opens once the box that refused is gone.
+    // Not run now, since the box is still up and would refuse it again.
+    mutating func waitToPress(_ tab: AppTabs.Tab) {
+        serial += 1
+        pending = AppTabs.pressScript(tab) == nil ? nil : tab
     }
 
     // The app is loading a page of its own choosing (an agent tap, a notification): no earlier press may cover it,
@@ -400,10 +417,12 @@ struct PressTracker {
         generation == self.generation && round == readRound && !(readRoundIsLaunch && readThisLaunch)
     }
 
-    // A read's answer: the value to put in the bar, or nil to leave it.
+    // A read's answer: the value to put in the bar, or nil to leave it. In a launch's round only a "1" ends the round:
+    // a "0" can be last session's flag, read before the board's first poll writes it again, so the round reads on to
+    // its end and the last answer stands. Once shown, Tasks stays (#3559), so a "1" is never stale in that direction.
     mutating func read(_ shown: Bool?, generation: Int) -> Bool? {
         guard generation == self.generation, let shown = shown else { return nil }
-        readThisLaunch = true
+        if shown || !readRoundIsLaunch { readThisLaunch = true }
         return shown
     }
 

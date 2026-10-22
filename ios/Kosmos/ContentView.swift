@@ -85,8 +85,18 @@ struct ContentView: View {
             web.refused = nil
             let shown = AppTabs.keep(back, tasksTab: web.tasksTab)
             // The board can be on a Tasks section the bar does not offer (its door presses a hidden Tasks tab).
-            if shown != back { NSLog("[Tabs] the page is on \(back), which the bar does not show") }
+            // Then Today waits to be pressed at the next load, so the page comes to the tab the bar lights.
+            if shown != back {
+                NSLog("[Tabs] the page is on \(back), which the bar does not show")
+                web.waitToPress(shown)
+            }
             tab = shown
+        }
+        // The page moved section by itself (a link in it, a swipe back): the bar follows, without pressing.
+        .onChange(of: web.pageURL) { url in
+            if let next = AppTabs.follow(pageURL: url, selected: tab, pressWaiting: web.pressWaiting, tasksTab: web.tasksTab) {
+                tab = next
+            }
         }
         // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing.
         .onChange(of: web.tasksTab) { shown in
@@ -276,11 +286,25 @@ final class BoardWeb: ObservableObject {
 
     init() { coordinator.web = self }
 
-    func adopt(_ webView: WKWebView) { self.webView = webView }
+    // The page's address as it changes, also by replaceState, so the bar can follow the page's own moves.
+    @Published private(set) var pageURL: URL?
+    private var urlWatch: NSKeyValueObservation?
+    // Whether a press is still waiting for its answer; the bar does not follow the page meanwhile.
+    var pressWaiting: Bool { tracker.pending != nil }
+
+    func adopt(_ webView: WKWebView) {
+        self.webView = webView
+        urlWatch = webView.observe(\.url, options: [.new]) { [weak self] seen, _ in
+            DispatchQueue.main.async {
+                guard let self = self, self.webView === seen else { return }
+                self.pageURL = seen.url
+            }
+        }
+    }
 
     func press(_ tab: AppTabs.Tab) {
         // The tracker decides from what the page is (PressTracker.Page); a press with no web view yet waits.
-        let page: PressTracker.Page = webView.map { $0.isLoading ? .loading : .ready } ?? .none
+        let page: PressTracker.Page = webView.map { $0.isLoading ? .loading : .ready } ?? .noView
         guard let run = tracker.press(tab, page: page), let webView = webView else { return }
         webView.evaluateJavaScript(run.script) { [weak self] result, error in
             guard let self = self else { return }
@@ -291,6 +315,8 @@ final class BoardWeb: ObservableObject {
     }
 
     func loadingOwnPage() { tracker.loadingOwnPage() }
+
+    func waitToPress(_ tab: AppTabs.Tab) { tracker.waitToPress(tab) }
 
     // A page finished loading: run a press that waited for it, and start a launch round of Tasks reads if no read has
     // answered this launch (PressTracker.launchReads). A later load replaces the round.
@@ -331,7 +357,9 @@ final class BoardWeb: ObservableObject {
         coordinator.web = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: PushNotificationManager.sessionHandlerName)
         webView?.removeFromSuperview()
+        urlWatch = nil
         webView = nil
+        pageURL = nil
         // The fresh page opens the selected tab's section and its first read may set the bar, as at launch: it
         // comes right after an unlock, a return.
         tracker.drop(selected: selected)

@@ -1172,6 +1172,7 @@ check(pressIn("(function () { throw new Error('broken'); })()", .projects) == (.
 section("app tabs: what an answer does")
 let roomURL = URL(string: "https://studio.kosmosplus.com/?tab=projects&project=x")
 let settingsURL = URL(string: "https://studio.kosmosplus.com/?tab=settings&sec=you")
+let tasksURL = URL(string: "https://studio.kosmosplus.com/?tab=tasks")
 check(AppTabs.afterAnswer(.opened, pageURL: roomURL) == (true, nil), "opened: the press is over, the bar stays")
 check(AppTabs.afterAnswer(.absent, pageURL: roomURL) == (false, nil), "absent: the press waits, the bar stays")
 check(AppTabs.afterAnswer(.refused, pageURL: roomURL) == (true, .projects), "refused: the bar goes to the section the page is on (a project room: Projects)")
@@ -1187,7 +1188,7 @@ check(AppTabs.visible(tasksTab: true).map(\.symbol) == ["sun.max", "person.2", "
 section("app tabs: press bookkeeping")
 do {
     var t = PressTracker()
-    check(t.press(.projects, page: .none) == nil && t.pending == .projects, "the tracker's rule: with no web view yet (a signed-in launch on Agents) a press waits, not lost")
+    check(t.press(.projects, page: .noView) == nil && t.pending == .projects, "with no web view yet (a signed-in launch on Agents) the tracker keeps the press (BoardWeb runs it at the load)")
     check(t.press(.settings, page: .loading) == nil && t.pending == .settings, "a page still loading: the press waits")
     let serialBefore = t.serial
     let run = t.press(.projects, page: .ready)
@@ -1218,6 +1219,27 @@ do {
     check(w.read(true, generation: page) == nil && !w.readThisLaunch, "nor does a late Tasks read from it count")
     w.drop(selected: .agents)
     check(w.pending == nil, "a lock on Agents leaves nothing to press")
+
+    var x = PressTracker()
+    let refused = x.press(.tasks, page: .ready)!
+    _ = x.answered(serial: refused.serial, .refused, pageURL: tasksURL)
+    x.waitToPress(.today)
+    check(x.pending == .today && x.serial == refused.serial + 1, "a refusal on a hidden Tasks section: Today waits for the next load, and nothing earlier counts")
+    x.waitToPress(.agents)
+    check(x.pending == nil, "the native tab never waits")
+}
+
+section("app tabs: the bar follows the page")
+do {
+    let home = URL(string: "https://studio.kosmosplus.com/")
+    check(AppTabs.follow(pageURL: roomURL, selected: .today, pressWaiting: false, tasksTab: false) == .projects, "a link from Today into a project room lights Projects")
+    check(AppTabs.follow(pageURL: home, selected: .projects, pressWaiting: false, tasksTab: false) == .today, "a swipe back to the board's home lights Today")
+    check(AppTabs.follow(pageURL: roomURL, selected: .projects, pressWaiting: false, tasksTab: false) == nil, "already right: nothing moves")
+    check(AppTabs.follow(pageURL: settingsURL, selected: .today, pressWaiting: true, tasksTab: false) == nil, "a press waiting: its answer decides, not the address")
+    check(AppTabs.follow(pageURL: settingsURL, selected: .agents, pressWaiting: false, tasksTab: false) == nil, "never from Agents, which shows no page")
+    check(AppTabs.follow(pageURL: nil, selected: .settings, pressWaiting: false, tasksTab: false) == nil, "no address: nothing moves")
+    check(AppTabs.follow(pageURL: tasksURL, selected: .settings, pressWaiting: false, tasksTab: false) == .today, "a Tasks section the bar does not offer lights Today")
+    check(AppTabs.follow(pageURL: tasksURL, selected: .settings, pressWaiting: false, tasksTab: true) == .tasks, "and Tasks once the bar has it")
 }
 
 section("app tabs: Tasks read rounds")
@@ -1229,7 +1251,8 @@ do {
     check(r1 > 0 && r2 > 0 && r1 != r2, "each load starts a round")
     check(!t.shouldRead(round: r1, generation: g) && t.shouldRead(round: r2, generation: g), "only the latest round reads, so they do not stack")
     check(t.read(nil, generation: g) == nil && !t.readThisLaunch, "the sign-in page's nothing does not end the launch's reads")
-    check(t.read(true, generation: g) == true && t.readThisLaunch, "the first answer sets the bar")
+    check(t.read(false, generation: g) == false && !t.readThisLaunch && t.shouldRead(round: r2, generation: g), "a launch's 0 is applied but the round reads on (it can be last session's flag)")
+    check(t.read(true, generation: g) == true && t.readThisLaunch, "a 1 sets the bar and ends the launch's reads")
     check(!t.shouldRead(round: r2, generation: g) && t.loaded() == nil, "and then the rounds stop, and loads start none")
     let back = t.returned()
     check(t.shouldRead(round: back, generation: g) && t.read(false, generation: g) == false, "a return to the front starts a round, and its answers count")
