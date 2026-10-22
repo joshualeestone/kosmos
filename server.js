@@ -22133,7 +22133,7 @@ const server = http.createServer(async (req, res) => {
           } catch { note = ''; }
           /* #6921: a title over the cap was shortened by tasks.create rather than refused. First, so #5319's copyable
              command stays the end of the line. */
-          if (tasks.fitTitle(body.sentence, body.detail).moved) {
+          if (made.titleMoved) {
             note = 'Note: the title was over ' + tasks.SENTENCE_MAX + ' characters, so it was shortened and the whole title is at the start of the details.'
               + (note ? ' ' + note : '');
           }

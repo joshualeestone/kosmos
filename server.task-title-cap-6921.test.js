@@ -96,11 +96,14 @@ test('#6921: create stores the shortened title, and refuses only when the move o
   const p = projects.create({ name: 'Titles' });
   const title = long(60);
   const made = tasks.create(p.id, { sentence: title, detail: 'more' });
+  assert.equal(made.titleMoved, true, 'create says it shortened the title');
+  assert.equal(tasks.create(p.id, { sentence: 'Short one' }).titleMoved, false, 'CONTROL: and says so only then');
+  assert.ok(!('titleMoved' in JSON.parse(JSON.stringify(made))), 'the flag is never stored or sent');
   assert.ok(made.sentence.length <= MAX);
   assert.equal(made.detail, title + '\n\nmore');
   assert.throws(() => tasks.create(p.id, { sentence: title, detail: 'z'.repeat(tasks.DETAIL_MAX - 10) }),
     new RegExp('over ' + MAX + ' characters, and with it moved into the detail'));
-  assert.equal(projects.readAll().find((x) => x.id === p.id).tasks.length, 1, 'the refusal wrote nothing');
+  assert.equal(projects.readAll().find((x) => x.id === p.id).tasks.length, 2, 'the refusal wrote nothing');
 });
 
 const PID = 'p6921';

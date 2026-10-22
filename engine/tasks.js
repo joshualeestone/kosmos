@@ -140,7 +140,7 @@ function taskProblem({ sentence, detail, who } = {}) {
   if (typeof sentence !== 'string' || !sentence.trim()) {
     return 'say what needs doing';
   }
-  // Still live after #6921: create() shortens an over-long title first, and other callers of taskProblem do not.
+  // Defensive since #6921: create() shortens an over-long title before calling this, so only a direct call reaches it.
   if (sentence.trim().length > SENTENCE_MAX) {
     return `say what needs doing in ${SENTENCE_MAX} characters or fewer; the detail box below has the room`;
   }
@@ -446,6 +446,8 @@ function create(projectId, { sentence: asked, detail: askedDetail, who, parent, 
     ...(made.parent ? { parent: made.parent } : {}),
     ...(made.doneWhen ? { doneWhen: doneWhenWords(made.doneWhen) } : {}),
   });
+  // #6921: whether the title was shortened, for the route's note. Not enumerable, so it is neither stored nor sent.
+  Object.defineProperty(made, 'titleMoved', { value: fit.moved, enumerable: false });
   return made;
 }
 
