@@ -22325,7 +22325,7 @@ const server = http.createServer(async (req, res) => {
   if (taskAct && req.method === 'POST') {
     const id = decodeSegment(taskAct[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    /* #4491 slice 5: `kosmos task close` presents the agent's own token (the header: this route reads no body). A
+    /* #4491 slice 5: `kosmos task close` presents the agent's own token (the header; the body, when there is one, carries only a reopen's reason or a close's replacedBy). A
        caller that presents one is named by it, and closes or reopens tasks only in a project it is on. A caller
        with none (the page, the person's terminal, an older CLI) is as before: this route has never read a pane,
        so an agent that sends no token is not named here, unlike on task add. The roster is read only for a token.
@@ -22371,11 +22371,16 @@ const server = http.createServer(async (req, res) => {
       }
     };
     if (taskAct[3] === 'close') {
-      /* #6923: a close may carry { replacedBy: <task number> }. No body, or one that is not JSON, is a plain close, as every
-         older caller sends; tasks.close refuses a replacedBy that is not a task number. */
+      /* #6923: a close may carry { replacedBy: <task number> }. No body is a plain close, as every older caller sends. A
+         body that cannot be read is refused rather than taken as a plain close: closing drops the built mark, hold and
+         repeat, so a garbled replace must not close the task as done. tasks.close refuses a replacedBy that is not a
+         task number. */
       readBody(req, 8 * 1024).then((raw) => {
         let body = null;
-        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const text = String(raw == null ? '' : raw);   // readBody can hand back a Buffer
+        if (text.trim()) {
+          try { body = JSON.parse(text); } catch { sendJson(res, 400, { error: 'we could not read that request, so the task was not closed' }); return; }
+        }
         act('', body && typeof body === 'object' ? body.replacedBy : undefined);
       }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
       return;

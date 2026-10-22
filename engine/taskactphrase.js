@@ -83,7 +83,7 @@ function phrase(ev, nameOfMember, opts) {
         ? 'Kosmos tried to send ' + subject + ' to ' + to + ' ' + when + ', but could not confirm ' + to + ' got it'
         : Subject + ' to ' + to + kept + 'was sent ' + when; }
     case 'closed': return Number.isInteger(ev.replacedBy) ? 'Closed as replaced by task ' + ev.replacedBy : 'Marked done';   // #6923
-    case 'replaced': return 'Marked as replaced by task ' + ev.replacedBy;   // #6923: closed earlier, replaced later
+    case 'replaced': return Number.isInteger(ev.replacedBy) ? 'Marked as replaced by task ' + ev.replacedBy : 'Marked as replaced';   // #6923: closed earlier, replaced later
     case 'undone': return ev.files === 1 ? 'One file’s changes undone' : 'File changes undone (' + (Number(ev.files) || 0) + ' files)';   // #5153 slice 4
     case 'reopened': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' put it back' : 'Put back') + (ev.why ? ': ' + own(ev.why) : ''); }   // #6157
     /* #3951: who marked it built and what was left; and why the mark went. */

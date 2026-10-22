@@ -56,15 +56,25 @@ test('#6923: a task number from text is accepted; anything else is refused and w
   }
 });
 
-test('#6923: reopening clears the link, and so does a later plain close', () => {
+test('#6923: reopening clears the link; a later plain close of a replaced task leaves it (so history and state agree)', () => {
   const pid = two('Reopen');
   tasks.close(pid, 1, { replacedBy: 2 });
   const back = tasks.reopen(pid, 1);
   assert.equal(back.closedAt, null);
   assert.equal('replacedBy' in stored(pid, 1), false, 'reopen clears it');
+  tasks.close(pid, 1);
+  assert.equal('replacedBy' in stored(pid, 1), false, 'CONTROL: closed plainly after the reopen, it is done');
+  tasks.reopen(pid, 1);
   tasks.close(pid, 1, { replacedBy: 2 });
   tasks.close(pid, 1);
-  assert.equal('replacedBy' in stored(pid, 1), false, 'a plain re-close clears it: it is done now');
+  assert.equal(stored(pid, 1).replacedBy, 2, 'a plain re-close does not quietly turn replaced into done');
+});
+
+test('#6923: two tasks cannot each be marked as replaced by the other', () => {
+  const pid = two('Cycle');
+  tasks.close(pid, 1, { replacedBy: 2 });
+  assert.throws(() => tasks.close(pid, 2, { replacedBy: 1 }), /already marked as replaced by this one/);
+  assert.equal(stored(pid, 2).closedAt, null, 'nothing was closed');
 });
 
 test('#6923: a task already closed can be marked replaced afterwards, and the history says so once', () => {

@@ -980,7 +980,7 @@ async function taskList(ctx, args) {
     /* Review 5: on its OWN indented line under the task, never on the task's line: a task's sentence is folded onto
        one line, so it can never print this line, and so cannot forge a set-by mark (a check's brackets are folded too). */
     const dw = Array.isArray(x.doneWhen) && x.doneWhen.length ? '    done when' + setBy + ': ' + x.doneWhen.map((c, i) => (i + 1) + ') ' + fold(c)).join(' ') : '';
-    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : (x.onHold === true ? '[on hold] ' + (x.builtAt ? '[built] ' : '')   // #5864: the marks name the group first
+    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? (Number.isInteger(x.replacedBy) ? '[replaced by ' + x.replacedBy + '] ' : '[done] ') :   /* #6923 */ (x.onHold === true ? '[on hold] ' + (x.builtAt ? '[built] ' : '')   // #5864: the marks name the group first
       : x.builtAt ? '[built] ' + (x.projectPaused === true ? '[project paused] ' : '')
         : x.projectPaused === true ? '[on hold] ' : '')) + words + who + by + up + kids + rep);
     if (dw) ctx.out(dw);
@@ -1118,7 +1118,7 @@ async function taskClose(ctx, args) {
     ? await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close', { replacedBy: Number(by) })
     : await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close');   // #4491 slice 5: with the agent's own token
   if (!r.reached) return ctx.unreachable('close that task');
-  if (r.json && r.json.task) { ctx.out('Closed task ' + num + ' on ' + project + (by ? ' as replaced by task ' + by : '') + '.'); return 0; }
+  if (r.json && r.json.task) { ctx.out('Closed task ' + num + ' on ' + project + (by ? ' as replaced by task ' + (r.json.task.replacedBy || Number(by)) : '') + '.'); return 0; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not close that task: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when closing that task.');
   return 1;

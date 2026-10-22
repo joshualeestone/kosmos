@@ -86,7 +86,7 @@ test('the whole receipt: names escaped, the basis stated, put-backs and hand-off
   assert.match(text(html), /This task was put back 1 time and handed on 2 times\./);
   assert.match(text(B.tkReceiptHtml({ retries: {}, agents: [] }, {})), /^Done without being put back or handed on\. Receipt .*Nobody held this task/);
   // #6923: a task closed as replaced says so, not done.
-  assert.match(text(B.tkReceiptHtml({ retries: {}, agents: [] }, {}, 5)), /^Replaced by task 5 without being put back or handed on\. Receipt /);
+  assert.match(text(B.tkReceiptHtml({ retries: {}, agents: [] }, {}, 5)), /^Receipt /, 'no summary line: the history already says it was replaced (Mona Lisa)');
 });
 
 test('two unpriced models read "which have"', () => {

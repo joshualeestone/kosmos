@@ -120,6 +120,15 @@ test('#6923: both commands refuse a missing or non-number --replaced-by, and ext
   }
 });
 
+test('#6923: a replacing task number with a leading zero is the same task, from either command', async () => {
+  for (const [label, run] of BOTH) {
+    const [a, b] = openTwo('zero ' + label);
+    const r = await run(['task', 'close', projectId, String(a), '--replaced-by', '0' + b], token('mara'));
+    assert.equal(r.code, 0, label + ': ' + r.text);
+    assert.equal(taskOf(a).replacedBy, b, label + ': the link is the task, not a plain close');
+  }
+});
+
 test('#6923: the board refuses a replacing task that does not exist, or the task itself, and says why', async () => {
   for (const [label, run] of BOTH) {
     const [a] = openTwo('missing ' + label);
@@ -132,16 +141,34 @@ test('#6923: the board refuses a replacing task that does not exist, or the task
   }
 });
 
-test('#6923: the route, with no body or a body that is not JSON, is a plain close (older callers)', async () => {
+test('#6923: the route: no body is a plain close (older callers); a body it cannot read is refused and closes nothing', async () => {
   const [a] = openTwo('route');
-  const res = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${a}/close`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: 'not json' });
+  const res = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${a}/close`, { method: 'POST' });
   assert.equal(res.status, 200, await res.text());
   assert.equal(isDone(a), true);
   assert.equal('replacedBy' in taskOf(a), false);
+  const [g] = openTwo('route-garbled');
+  const garbled = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${g}/close`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"replacedBy":02}' });
+  assert.equal(garbled.status, 400);
+  assert.match(await garbled.text(), /could not read that request, so the task was not closed/);
+  assert.equal(isDone(g), false, 'a garbled replace must not close the task as done');
   const [b, c] = openTwo('route-bad');
   const bad = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${b}/close`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ replacedBy: true }) });
   assert.equal(bad.status, 400);
   assert.match(await bad.text(), /has to be a task number/);
   assert.equal(isDone(b), false);
   void c;
+});
+
+test('#6923: kosmos task list shows a replaced task as replaced, not done, from either command', async () => {
+  const [a, b] = openTwo('list');
+  tasks.close(projectId, a, { replacedBy: b });
+  const [c] = openTwo('list-control');
+  tasks.close(projectId, c);
+  for (const [label, run] of BOTH) {
+    const r = await run(['task', 'list', projectId, '--state', 'done'], token('mara'));
+    assert.equal(r.code, 0, label + ': ' + r.text);
+    assert.match(r.text, new RegExp('^\\[' + a + '\\] \\[replaced by ' + b + '\\] ', 'm'), label + ': ' + r.text);
+    assert.match(r.text, new RegExp('^\\[' + c + '\\] \\[done\\] ', 'm'), label + ': CONTROL, a plain close still reads done');
+  }
 });

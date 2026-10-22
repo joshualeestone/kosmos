@@ -1578,9 +1578,14 @@ const SCREENS = [
     const t = await page.evaluate(() => (document.getElementById('tk-state') || {}).textContent || '');
     const want = which === 'replaced' ? 'Replaced by task ' + second : 'Replaces task ' + first;
     if (!t.includes(want)) throw new Error('the state line says: ' + JSON.stringify(t) + ', not ' + JSON.stringify(want));
+    // Mona Lisa: the task number is a link to that task's page.
+    const other = which === 'replaced' ? second : first;
+    const linked = await page.evaluate((num) => !!document.querySelector('#tk-state button[data-sub="' + num + '"]'), other);
+    if (!linked) throw new Error('task ' + other + ' is not a link in the state line');
   }, after: async (page, data) => {
     for (const num of data.replacedPair || []) {
-      await page.evaluate(([id, n]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + n + '/close', { method: 'POST' }), [data.projectId, num]);
+      const st = await page.evaluate(([id, n]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + n + '/close', { method: 'POST' }).then((r) => r.status), [data.projectId, num]);
+      if (st !== 200) throw new Error('could not close task ' + num + ' after the shot (' + st + ')');
     }
     data.replacedPair = null;
   } })),
