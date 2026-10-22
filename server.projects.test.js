@@ -3857,6 +3857,21 @@ test('#4642: a room post row carries its recorded `mentioned`, [] when it addres
   } finally { try { projectsEngine.remove(p.id); } catch { /* cleanup */ } }
 });
 
+/* #6925: a post that went through a held room as its agent's one summary (#6920 stores closing: true) is served with
+   closing: true, so the page can label it; an ordinary post carries no such field. */
+test('#6925: a room post row carries closing: true when it was the one summary, and no closing field otherwise', async () => {
+  const projectsEngine = require('./engine/projects');
+  const fsx = require('node:fs');
+  const p = projectsEngine.create({ name: 'Closing Record 6925', agents: [], roster: [], description: 'x', made: { via: 'test' } });
+  try {
+    const at = new Date().toISOString();
+    const row = (id, extra) => JSON.stringify({ kind: 'post', id, project: p.id, from: 'kano', to: ['you'], text: 'where we landed', at, outcomes: {}, ...extra }) + '\n';
+    fsx.appendFileSync(require('./engine/messages').LOG, row('m-6925-a', { closing: true }) + row('m-6925-b', {}));
+    const posts = json(await req('/api/project/' + p.id + '/room')).rows.filter((m) => m.kind === 'post');
+    assert.deepEqual(posts.map((m) => [m.id, m.closing]), [['m-6925-a', true], ['m-6925-b', undefined]]);
+  } finally { try { projectsEngine.remove(p.id); } catch { /* cleanup */ } }
+});
+
 // ---------------------------------------------------------------------------
 // #4583: what done looks like, asked at creation
 // ---------------------------------------------------------------------------

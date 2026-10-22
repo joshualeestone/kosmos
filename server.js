@@ -21221,6 +21221,8 @@ const server = http.createServer(async (req, res) => {
                 ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}),
                 // #3745: the post this one answers (the page finds it in these rows, or says it is gone).
                 ...(typeof m.replyTo === 'string' ? { replyTo: m.replyTo } : {}),
+                // #6925: this post went through a held room as its agent's one summary (#6920); the page labels it.
+                ...(m.closing === true ? { closing: true } : {}),
                 /* #4642: who this post really addressed, as recorded when it was sent (#185), so the page
                    paints blue from what happened and not from today's rule and roster. Always an array on
                    a post row, [] for none: the engine leaves the field off when nobody was addressed. A
