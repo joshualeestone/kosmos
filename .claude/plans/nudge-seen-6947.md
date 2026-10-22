@@ -6,7 +6,7 @@ Card: kosmos#6947 (agent feedback, 2026-10-22). Routed to Angel by Splinter 18:2
 An agent that left a message on a task runs `kosmos task activity <project> <n>` (Mac or Windows) and its last line says either that the person has not opened the task's page yet, or when they last opened it and whether that was after or before the latest message. Tested on both CLIs, the board route and the page.
 
 ## What "seen" means (the card asked the builder to decide)
-**The task's conversation was drawn on the person's screen: they opened the task's page in Kosmos with the tab visible and the page on screen, or came back to the tab while it was showing, which draws the conversation again first.** The page says so only after a draw that succeeded, for the task it drew. The page posts `POST /api/project/<id>/task/<n>/seen`; the board keeps the latest time per task in `<data>/task-seen/` (engine/taskseen.js); `GET .../activity?words=1` (what both CLIs read) answers `seenByPerson`.
+**The task's conversation was drawn on the person's screen**: any draw of it that succeeded while the tab was visible and the task's page on screen. That is opening the task, a redraw after an action on its page (a reply from its composer, a close, a due date), or coming back to the tab while it was showing, which draws it again first. paintTaskActivity marks it after each such draw, for the project and task it drew. The page posts `POST /api/project/<id>/task/<n>/seen`; the board keeps the latest time per task in `<data>/task-seen/` (engine/taskseen.js); `GET .../activity?words=1` (what both CLIs read) answers `seenByPerson`.
 
 Rejected:
 - The page's own activity read as the signal: it runs on a timer while a task stays open, whether or not anyone is looking.
@@ -16,7 +16,8 @@ Rejected:
 ## What it misses (said plainly, as the card asked)
 - A nudge read somewhere else: the project room, a phone or desktop notification, the task's card in a column, the Needs your decision list. Those count as not seen.
 - A page opened but not read: opening is not reading; the person may glance and leave. A tab can also report visible while another app's window covers it.
-- A message that arrives while the task's page is open and the person stays on it: the page draws the conversation when the task opens, after an action, or when the tab comes back, not on its timer, so the new message is not on screen and reads as not seen until one of those happens. (Coming back to the tab draws it first, so a message that arrived while the tab was away is not counted as seen before it is drawn.)
+- A message that arrives while the task's page is open and the person stays on it: the page draws the conversation when the task opens, after an action on the page, or when the tab comes back, not on its timer, so the new message is not on screen and reads as not seen until one of those happens. (Coming back to the tab draws it first, so a message that arrived while the tab was away is not counted as seen before it is drawn.)
+- The person answering from the task page's composer adds the latest message and redraws, so the line then reads "after the latest message", where the latest message is the person's own. The conversation above it shows that.
 - A message that lands in the milliseconds between the page reading the conversation and telling the board: counted as seen though not drawn.
 - Only the latest open is kept, not each one. Tasks opened before this version read as not opened.
 - "The latest message" means the latest `said` event. Some messages carry no author (the composer's and `kosmos task message`'s), so it may be the person's own reply; the conversation above the line shows which. Other ways an agent reaches the person (a hold notice, a message kept while an agent was out of usage) are not compared.
@@ -25,7 +26,7 @@ Rejected:
 ## Built
 - engine/taskseen.js (markSeen, seenAt), own folder so the room's progress allowance (which counts recently written task-chats files) does not count an open as progress.
 - server.js: the seen route (page only via isViaScreen, unknown task 404); activity?words=1 adds seenByPerson.
-- web/index.html: tkMarkSeen after pjView('task') in openTaskPage, and on visibilitychange.
+- web/index.html: paintTaskActivity calls tkMarkSeen(n, project) after each successful draw; tkMarkSeen checks the task and project are still open and the page is on screen; a visibilitychange listener redraws on tab return.
 - install/kosmos and tools/windows/kosmos-cli.js: the last line of task activity.
 - Tests: server.task-seen-6947, web.task-seen-6947, cli.task-activity-5874 (both CLIs, after and before).
 
