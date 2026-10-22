@@ -1,0 +1,28 @@
+# snavred-6910: render-snav-head-4979 says WHY Settings > Computer never showed
+
+## Why
+kosmos#6910: the nightly full browser-check run has been red on main for two nights (10-21, 10-22) in
+render-snav-head-4979, every time in the webkit "consolidated view 1280px" arm (4 of 4 attempts; chromium and
+webkit 1000px pass on the same night). After `#userpop-settings` is clicked, `#s-nav button[data-go="mac"]`
+"resolved to hidden" for 20 s. This is the same symptom as #5018, whose plan said that if CI still went red
+with its wait in place, the cause was something else. It is still red with the wait in place.
+
+The timeout says only "hidden". That does not tell apart a Settings panel that never opened, one that opened and
+was hidden again (takeOverDisplayColumn hides #panel-settings for any later overlay), and a nav that is laid out
+with no size.
+
+## Change
+docs/browser-checks/render-snav-head-4979.js: when that wait times out, the error carries the page state
+(body classes, data-layout, #panel-settings parent and hidden, URL, and every ancestor of the pill that is hidden,
+display:none, not visible or has no box). Nothing else; the pass path is unchanged.
+
+## Decisions
+- A diagnostic first, not a guessed fix. #5018 shipped a guessed cause and the red came back.
+  Rejected: a retry of the click (it could hide a click that really does nothing), and recording the arm as
+  runner noise (it was green in CI through 10-20, so something changed).
+- Weakest premise: that the next red reproduces with the same shape, so the diagnostic catches it.
+- Would change my mind: a local reproduction, which would let the fix land directly.
+
+## Validation
+- node --check passes.
+- Local headless runs: see the card.

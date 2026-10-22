@@ -304,7 +304,26 @@ function chk(ok, label, extra) {
           await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 20000 })
             .catch((e) => { throw new Error(`${tag}: the page never became consolidated: ${e.message}`); });
           await page.evaluate(() => document.getElementById('userpop-settings').click());
-          await page.waitForSelector('#s-nav button[data-go="mac"]', { state: 'visible', timeout: 20000 });
+          /* #6910: a timeout here said only "hidden", which cannot tell a Settings that never opened from one that opened
+             and was hidden again, or from a nav that is there but has no size. Say which, with the state that decides it. */
+          await page.waitForSelector('#s-nav button[data-go="mac"]', { state: 'visible', timeout: 20000 })
+            .catch(async (e) => {
+              const st = await page.evaluate(() => {
+                const pill = document.querySelector('#s-nav button[data-go="mac"]');
+                const chain = [];
+                for (let n = pill; n && n !== document.documentElement; n = n.parentElement) {
+                  const cs = getComputedStyle(n);
+                  if (n.hidden || cs.display === 'none' || cs.visibility !== 'visible' || !n.getClientRects().length) {
+                    chain.push({ el: n.tagName.toLowerCase() + (n.id ? '#' + n.id : ''), hidden: n.hidden, display: cs.display, visibility: cs.visibility, rects: n.getClientRects().length });
+                  }
+                }
+                const ps = document.getElementById('panel-settings');
+                return { body: document.body.className, layout: document.documentElement.getAttribute('data-layout'),
+                  settingsParent: ps && ps.parentElement && ps.parentElement.id, settingsHidden: ps && ps.hidden,
+                  url: location.href, chain };
+              }).catch((x) => ({ evalFailed: x.message }));
+              throw new Error(`${tag}: Settings > Computer never became visible: ${JSON.stringify(st)}: ${e.message}`);
+            });
           await page.evaluate(() => document.querySelector('#s-nav button[data-go="mac"]').click());
           await page.waitForTimeout(300);
           const read = () => page.evaluate(() => {
