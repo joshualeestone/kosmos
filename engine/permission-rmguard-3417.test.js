@@ -6,7 +6,8 @@
  * PermissionRequest hook, and Kosmos's allow hook answers it, so the person sees no prompt and the command runs. These
  * tests pin that the hook answers allow for those shapes, so a later narrowing of decide() cannot bring the prompt back.
  * decide() has no rm-specific path: these pass through its general Bash allow. The payload Claude sent carried no field
- * naming the check (permission_suggestions was empty), so decide() cannot tell a safety check from an ask rule.
+ * naming the check (permission_suggestions was empty), so decide() cannot tell a safety check from an ask rule. That was
+ * measured on Claude Code 2.1.308 only (kosmos#6913): a later version may name the check, and this file would not know.
  *
  * DELIBERATE, NOT AN OVERSIGHT: with the variable empty, rm -f "$S"/*.png deletes /*.png. Josh chose auto-approve
  * anyway. A change that turns the allow tests red is a change to his ruling, so take it back to him.
@@ -49,9 +50,22 @@ test('#3417 a payload modelled on what Claude Code 2.1.308 sent for this check (
   assert.equal(hook.decide(JSON.stringify(real)).hookSpecificOutput.decision.behavior, 'allow');
 });
 
-test('#3417 CONTROL: the protected-place rule still stays silent for the same shape (.git, not .github)', () => {
+/* kosmos#6913: not a control for the allow tests above. It pins the boundary beside them: #5406's protected-place rule
+   still holds for this same shape, so the allow is not a blanket one. agentpermission-5406.test.js covers the rule in
+   general; this keeps the boundary in the file a reader of #3417 opens. */
+test('#3417 the protected-place rule still holds for the same shape: .git stays silent, .github is allowed', () => {
   assert.equal(hook.decide(bash('rm -rf "$S"/.git')), null);
   assert.equal(hook.decide(bash('rm -rf "$S"/.github')).hookSpecificOutput.decision.behavior, 'allow', '.github is not .git');
+});
+
+test('#3417 a .claude working folder does not change the answer: only tool_input is read (kosmos#6913)', () => {
+  /* Agents run inside folders that hold .claude. A later change that scans the whole request (cwd, transcript_path)
+     for protected places, not just tool_input, would make every rm in such a folder prompt again: this goes red then.
+     CONTROL: .git in the command (inside tool_input) is still silent: the rule reads tool_input, every field of it. */
+  const inClaude = { hook_event_name: 'PermissionRequest', tool_name: 'Bash', cwd: '/tmp/kosmos-test/.claude/proj',
+    transcript_path: '/tmp/kosmos-test/.claude/projects/x/transcript.jsonl', tool_input: { command: 'rm -f "$S"/*.png' } };
+  assert.equal(hook.decide(JSON.stringify(inClaude)).hookSpecificOutput.decision.behavior, 'allow');
+  assert.equal(hook.decide(JSON.stringify({ ...inClaude, tool_input: { command: 'rm -rf "$S"/.git' } })), null, 'CONTROL: .git in the command');
 });
 
 test('#3417 the shipped hook script prints the allow for it', () => {
