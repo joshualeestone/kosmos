@@ -5,8 +5,8 @@ Card: kosmos#6501 (agent feedback 10-18 and 10-22, two installs). Item 1 shipped
 
 ## Decided
 - The parent's task page already says, when every subtask is closed or built, "All subtasks are built. Check each one
-  and close it, then close this task." with nothing to press. It now reads "All subtasks are built. Check each one,
-  then close them and this task." with a link, "Close them and this task", in the style of the all-done line's
+  and close it, then close this task." with nothing to press. It now reads "All subtasks are built. Check each one first."
+  (Mona Lisa's design review: the old words repeated the link's) with a link, "Close them and this task", in the style of the all-done line's
   "Close this task".
 - One press closes each built subtask (ascending), then the parent, one POST each to the same close route Mark as done
   uses. No engine change, no new state, no new tile. Closing stays the person's act (#3951).
