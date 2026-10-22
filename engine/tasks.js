@@ -1254,11 +1254,11 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
   let duplicate = false;
   let inferred = false;   // kosmos#5643 review 2: set in the write, read by the transcript row after it
   let skipped = null;   // kosmos#5920: the runs this one comes after with none of them run, set in the write
-  let before = null;   // kosmos#6894
+  let prior = null;   // kosmos#6894 (review 2: not `before`, which a block below also names)
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
-    before = { verified: t.verified && typeof t.verified.value === 'string' ? t.verified.value : '',
+    prior = { verified: t.verified && typeof t.verified.value === 'string' ? t.verified.value : '',
       changeNote: typeof t.lastChangeNote === 'string' ? t.lastChangeNote : '' };
     if (!t.repeat) throw new Error('that task does not repeat; set how often with kosmos task repeat, or close it when it is done');
     if (progressOf(t).closed) throw new Error('that task is closed, so it no longer repeats');
@@ -1335,8 +1335,8 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     } else delete changed.lastRunRecovered;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
-  if (duplicate) { const out = Object.assign({}, changed, { duplicate: true }); if (before) RUN_BEFORE.set(out, before); return out; }
-  if (before) RUN_BEFORE.set(changed, before);
+  if (duplicate) { const out = Object.assign({}, changed, { duplicate: true }); if (prior) RUN_BEFORE.set(out, prior); return out; }
+  if (prior) RUN_BEFORE.set(changed, prior);
   taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}), ...(changed.lastRunLate ? { late: true } : {}), ...(skipped ? { missedBefore: skipped.count, ...(skipped.more ? { missedMore: true } : {}) } : {}), ...(changed.lastRunUnchanged ? { unchanged: true, ...(inferred ? { inferred: true } : {}) } : {}) });
   return changed;
 }

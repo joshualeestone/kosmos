@@ -1350,6 +1350,7 @@ const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a rep
 const ROOM_RUN_SAID = new Map();
 const ROOM_RUN_EVERY_MS = 60 * 60 * 1000;
 function _resetRoomRunSaidForTest() { ROOM_RUN_SAID.clear(); }
+function _ageRoomRunSaidForTest(ms) { for (const v of ROOM_RUN_SAID.values()) v.at -= ms; }   // review 2: the hour, passed
 const holdstale = require('./engine/holdstale'); // kosmos#6209 part 3: an owner still working a held task in its room is asked about the hold
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new comments, once per comment
@@ -22778,13 +22779,23 @@ const server = http.createServer(async (req, res) => {
       /* kosmos#6894: a run that changed something is said in the project room (taskrepeat.roomRunLine), so the room does not
          look idle while the job runs. Unchanged runs and duplicates say nothing there. Best effort, as every room note. */
       if (taskRepeat[3] === 'ran' && task) {
-        const line = taskrepeat.roomRunLine(tasks.runBefore(task), task);
         const key = id + '#' + task.number;
-        const last = ROOM_RUN_SAID.get(key);
-        // Review 1: one line per task an hour (in memory: a restart can let one more through). The task page has every run.
-        if (line && !(Number.isFinite(last) && Date.now() - last < ROOM_RUN_EVERY_MS)) {
-          ROOM_RUN_SAID.set(key, Date.now());
-          messages.roomNote(id, line);
+        const said = ROOM_RUN_SAID.get(key) || null;
+        /* Review 1: one line per task an hour (in memory: a restart can let one more through). The task page has every run.
+           Review 2: a clock stepped back counts as the hour passed, so it never mutes a task. */
+        const age = said ? Date.now() - said.at : Infinity;
+        if (age >= 0 && age < ROOM_RUN_EVERY_MS) {
+          // Held: a changed note is kept, so the first line after the hour says it even if a later run has no note.
+          const note = typeof task.lastChangeNote === 'string' ? task.lastChangeNote : '';
+          if (note && taskrepeat.roomRunLine(tasks.runBefore(task), task, said)) said.pending = note;
+        } else {
+          // Review 2: measured against what the room was last told, so a change held back by the hour is said now.
+          const line = taskrepeat.roomRunLine(tasks.runBefore(task), task, said);
+          if (line) {
+            ROOM_RUN_SAID.set(key, { at: Date.now(), reading: task.verified && typeof task.verified.value === 'string' ? task.verified.value : '',
+              note: typeof task.lastChangeNote === 'string' ? task.lastChangeNote : '' });
+            messages.roomNote(id, line);
+          }
         }
       }
       // kosmos#5836: a run that sent a reading hears how it compares with what the person was last told.
@@ -26108,7 +26119,7 @@ if (require.main === module) {
 // re-implementation of it. Testing the path helper in isolation would not have
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
-module.exports = { _resetRoomRunSaidForTest,
+module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
   _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test

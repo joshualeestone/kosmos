@@ -21,7 +21,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, _resetRoomRunSaidForTest } = require('./server');
+const { start, server, _resetRoomRunSaidForTest, _ageRoomRunSaidForTest } = require('./server');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const messages = require('./engine/messages');
@@ -117,11 +117,30 @@ test('#6894: review 1: a task is said in the room at most once an hour, however 
   assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, { note: 'saw 1 thing' }, mona)).status, 200);
   assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, { note: 'saw 2 things' }, zed)).status, 200);
   assert.equal(roomNotes().length - before, 1, 'the second change inside the hour is not said');
-  // CONTROL: another task is not held by this one's hour.
+  // Review 2: once the hour has passed, the next run says what the room has not heard, even a run that changed nothing.
+  _ageRoomRunSaidForTest(61 * 60 * 1000);
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, {}, mona)).status, 200);
+  const flushed = roomNotes().slice(before);
+  assert.equal(flushed.length, 2, 'the held change is said on the first run after the hour');
+  assert.match(flushed[1], /: saw 2 things$/);
+  // And a reading held back is said against the last reading the ROOM saw, never one it did not.
+  _resetRoomRunSaidForTest();
+  const r = tasks.create(projectId, { sentence: 'Error count', who: 'mona' }).number;
+  assert.equal((await post(`/api/project/${projectId}/task/${r}/repeat`, { every: 'hourly' }, mona)).status, 200);
+  const at0 = roomNotes().length;
+  assert.equal((await post(`/api/project/${projectId}/task/${r}/ran`, { value: '5 errors' }, mona)).status, 200);
+  assert.equal((await post(`/api/project/${projectId}/task/${r}/ran`, { value: '9 errors' }, zed)).status, 200);   // held
+  _ageRoomRunSaidForTest(61 * 60 * 1000);
+  assert.equal((await post(`/api/project/${projectId}/task/${r}/ran`, { value: '12 errors' }, mona)).status, 200);
+  const errs = roomNotes().slice(at0);
+  assert.equal(errs.length, 2);
+  assert.match(errs[1], /reading 12 errors \(was 5 errors\)$/, 'was names 5, which the room saw, not the held 9');
+  // CONTROL: another task is not held by this one's hour (r was said moments ago).
+  const c0 = roomNotes().length;
   const other = tasks.create(projectId, { sentence: 'Other task', who: 'mona' }).number;
   assert.equal((await post(`/api/project/${projectId}/task/${other}/repeat`, { every: 'hourly' }, mona)).status, 200);
   assert.equal((await post(`/api/project/${projectId}/task/${other}/ran`, { note: 'first look' }, mona)).status, 200);
-  assert.equal(roomNotes().length - before, 2);
+  assert.equal(roomNotes().length - c0, 1);
 });
 
 test('#6894: CONTROL: setting the rule or a one-off task says nothing in the room', async () => {

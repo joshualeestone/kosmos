@@ -357,8 +357,26 @@ function fieldsOf(t, now = Date.now()) {
    and the last change's note as the run's own write saw them. Kosmos says it, in its own voice (messages.roomNote). The
    route also holds each task to one line an hour (review 1: a note with a count in it is never "unchanged"). */
 const ROOM_SENTENCE_MAX = 120;
-function roomRunLine(prev, after) {
+/* Review 2: `said` (when given) is what the room was last told about this task, { reading, note }. The line is then
+   measured against THAT, not the run before: a change held back by the route's hour is said on the next run after it,
+   and "was" is always a reading the room saw. Without it (the first line, or after a restart), the run before. */
+function roomRunLine(prev, after, said) {
   if (!after || !after.repeat || !after.lastRunAt) return null;
+  if (said) {
+    const plainS = (s, max) => require('./agentnudge').plainWords(String(s == null ? '' : s).replace(/\p{Cf}/gu, ''), max);
+    const sameS = (a, b) => String(a || '').replace(/\s+/g, ' ').trim() === String(b || '').replace(/\s+/g, ' ').trim();
+    const nowR = after.verified && typeof after.verified.value === 'string' ? after.verified.value : '';
+    // A note held back by the hour is kept by the route (said.pending): a run with no note since then clears the task's.
+    const noteNow = (typeof after.lastChangeNote === 'string' && after.lastChangeNote) || (typeof said.pending === 'string' ? said.pending : '');
+    const rChanged = nowR !== '' && nowR !== (said.reading || '');
+    const nChanged = noteNow !== '' && !sameS(noteNow, said.note);
+    if (!rChanged && !nChanged) return null;
+    const headS = 'Task #' + after.number + ', "' + plainS(after.sentence || '', ROOM_SENTENCE_MAX) + '" (' + describe(after.repeat) + ')';
+    const partsS = [];
+    if (nChanged) partsS.push(plainS(noteNow, NOTE_MAX));
+    if (rChanged) partsS.push('reading ' + plainS(nowR, VALUE_MAX) + (said.reading ? ' (was ' + plainS(said.reading, VALUE_MAX) + ')' : ''));
+    return headS + ': ' + partsS.join('; ');
+  }
   const plain = (s, max) => require('./agentnudge').plainWords(String(s == null ? '' : s).replace(/\p{Cf}/gu, ''), max);
   const same = (a, b) => String(a || '').replace(/\s+/g, ' ').trim() === String(b || '').replace(/\s+/g, ' ').trim();
   const was = prev && typeof prev.verified === 'string' ? prev.verified : '';
