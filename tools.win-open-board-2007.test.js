@@ -243,7 +243,7 @@ test('an UNREADABLE token warns (not a silent 403), but a MISSING one is silent'
       const isUnreadable = (() => { try { fs.readFileSync(tokFile); return false; } catch { return true; } })();
       if (isUnreadable) {
         assert.match(err, /board\.token exists but could not be read/, 'no warning on an unreadable token');
-        assert.equal(url, `http://127.0.0.1:${port}`, 'an unreadable token should fall back to the plain url');
+        assert.equal(url, null, 'kosmos#6464: an unreadable token opens nothing, never the plain url');
       }
     } finally { fs.chmodSync(tokFile, 0o600); server.close(); }
   }
@@ -555,4 +555,31 @@ test('kosmos#6464: a proven board that redirects the mint elsewhere: the token n
     assert.deepEqual(elsewhere.seen.map((r) => r.method + ' ' + r.url), [], 'the mint followed the redirect');
     assert.equal(url, null, 'a failed mint after a passing proof opened something');
   } finally { server.close(); await elsewhere.close(); }
+});
+
+/* kosmos#6464: a board.token that is there but cannot be read (here a folder in its place: EISDIR on every platform,
+   where a 000 file is still readable to root and on Windows) means an enforcing board this helper cannot check, so
+   nothing is opened, not the plain address. */
+function makeUnreadableTokenAppDir() {
+  const { appDir, dataRoot } = makeAppDir({ withToken: false });
+  fs.mkdirSync(path.join(dataRoot, 'board.token'));
+  return appDir;
+}
+
+test('kosmos#6464: an unreadable board.token opens nothing at a listener that answers, and sends it nothing', async () => {
+  const sq = await startListener({ mode: 'squatter' });
+  const appDir = makeUnreadableTokenAppDir();
+  try {
+    assert.equal(helper.readBoardToken(appDir), null, 'the token reads as absent, so this arm measures the old path');
+    assert.equal(await helper.resolveOpenUrl({ appDir, port: sq.port, timeoutMs: BOARD_WAIT_MS }), null, 'the plain url was opened');
+    assert.deepEqual(sq.seen.filter((r) => r.method === 'POST'), []);
+  } finally { await sq.close(); }
+});
+
+test('kosmos#6464: an unreadable board.token opens nothing when nothing answers in time either', async () => {
+  const s = http.createServer();
+  await new Promise((r) => s.listen(0, '127.0.0.1', r));
+  const port = s.address().port;
+  await new Promise((r) => s.close(r));
+  assert.equal(await helper.resolveOpenUrl({ appDir: makeUnreadableTokenAppDir(), port, timeoutMs: 1200 }), null);
 });

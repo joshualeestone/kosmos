@@ -48,7 +48,11 @@ function withoutComments(text) {
 function fetchCalls(source) {
   const text = withoutComments(source);
   const calls = [];
-  const re = /(^|[^\w$.])(fetch|doFetch)\s*\(/g;
+  // fetch itself, and every name the file binds to something that mentions fetch (const doFetch = o.fetchImpl ||
+  // fetch, and any other alias a later sender picks), so a call through an alias is held to the rule too.
+  const names = new Set(['fetch', 'doFetch']);   // doFetch: also a parameter name (boardproof.js holdsViaFetch)
+  for (const b of text.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*\bfetch(?:Impl)?\b/g)) names.add(b[1]);
+  const re = new RegExp('(^|[^\\w$.])(' + [...names].map((n) => n.replace(/\$/g, '\\$')).join('|') + ')\\s*\\(', 'g');
   let m;
   while ((m = re.exec(text))) {
     const open = m.index + m[0].length - 1;
@@ -73,6 +77,8 @@ test('kosmos#6464: the guard reads what it claims to (every bridge, and the fetc
   // The matcher itself: a call over several lines, a paren inside a string, a property call and a definition.
   assert.deepEqual(fetchCalls("await fetch(`http://x${p}/api/report`, {\n  method: 'POST', body: '(', redirect: 'error',\n});").map((c) => /redirect: 'error'/.test(c.args)), [true]);
   assert.equal(fetchCalls('o.fetch(u); function fetch(u) {}').length, 0);
+  // A call through an alias bound to fetch is a call too.
+  assert.deepEqual(fetchCalls("const send = o.fetchImpl || fetch;\nawait send(u, { method: 'POST' });").map((c) => c.args), ["(u, { method: 'POST' })"]);
 });
 
 test('kosmos#6464: every token-bearing fetch in a Windows sender refuses redirects', () => {
