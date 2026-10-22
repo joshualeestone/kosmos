@@ -142,5 +142,5 @@ test('off (as shipped): needs-key-list says no, the installer fetches no list, a
     assert.equal(out.code, 0, out.out);
     assert.deepEqual(recorded(h), [], 'off writes no record');
   }
-  assert.match(VERIFIER, /capabilities: run-setup early tmux keylist \*\//, 'the installer finds the capability');
+  assert.match(VERIFIER, /capabilities: run-setup early tmux keylist( [a-z0-9-]+)* \*\//, 'the installer finds the capability');
 });

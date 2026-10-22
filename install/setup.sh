@@ -3716,6 +3716,64 @@ if [ "$FRESH_INSTALL" = "no" ]; then
   info "Kosmos is already installed here. Updating it in place."
 fi
 
+# kosmos#6781 (O04-5c): the fleet's update pause holds THIS installer too. run-setup asks before it runs the installer
+# (engine/manifest-verify.js pausedSync, kosmos#6620), but a pasted install line over an existing install, and a .pkg
+# on its pinned path, run the installer directly. So an update in place asks here, the same way: the coordinator's
+# /v1/meta, `"updates_paused": true` exactly (a lookalike such as "true" in quotes is not paused), 5 s, no redirect,
+# and no answer of any kind is "not paused" (a fleet that holds every update whenever the coordinator blinks cannot
+# take a security fix). A first install is never held: there is no running copy to protect, and it installs no update.
+# Asked only for bytes from the production site: the release base is under https://installkosmos.com/ AND no local
+# copy (KOSMOS_SRC, a thumb drive or a CI tree) supplies Kosmos; or when KOSMOS_UPDATE_PAUSE_URL names the address (a
+# test does). Held only when the version this run installs is NEWER than the installed one, or either cannot be read:
+# a repair or reinstall of the same version installs no new code, which is all the pause exists to stop.
+# KOSMOS_UPDATE_PAUSE_ASKED=1 is set by run-setup, which has already asked; KOSMOS_UPDATE_IGNORE_PAUSE=1 is the
+# operator's override, as in run-setup. A hold exits 96, run-setup's own code for "not fetched, a retry can succeed"
+# (a .pkg on its pinned path reports it as the install not completing). The ask runs once the installer knows it is
+# updating in place: after its log is opened and the release pointer is read, before the update is downloaded or
+# anything installed is changed.
+update_paused() {
+  # An existing install is a launcher OR an installed app: a copy whose bin/kosmos was deleted is still being updated.
+  [ "$FRESH_INSTALL" = "no" ] || [ -f "$KOSMOS_HOME/app/package.json" ] || return 1
+  [ "${KOSMOS_UPDATE_IGNORE_PAUSE:-}" = 1 ] && return 1
+  [ "${KOSMOS_UPDATE_PAUSE_ASKED:-}" = 1 ] && return 1
+  _pause_have="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' "$KOSMOS_HOME/app/package.json" 2>/dev/null | head -1)" || _pause_have=""
+  # Only an a.b.c on both sides is compared; anything else ("latest", "v1.2.3", "1.2") counts as unreadable, so held.
+  _pause_target="${TARGET_VERSION:-}"
+  for _pause_v in "$_pause_target" "$_pause_have"; do
+    case "$_pause_v" in *[!0-9.]*|.*|*.|*..*|*.*.*.*) _pause_target="" ;; *.*.*) ;; *) _pause_target="" ;; esac
+  done
+  if [ -n "$_pause_target" ] \
+     && ! printf '%s %s\n' "$_pause_target" "$_pause_have" | awk '{ split($1, t, "."); split($2, h, ".");
+          for (i = 1; i <= 3; i++) { if (t[i] + 0 > h[i] + 0) exit 0; if (t[i] + 0 < h[i] + 0) exit 1 } exit 1 }'; then
+    return 1
+  fi
+  _pause_url="${KOSMOS_UPDATE_PAUSE_URL:-}"
+  if [ -z "$_pause_url" ]; then
+    [ -n "${KOSMOS_SRC:-}" ] && return 1
+    case "$KOSMOS_RELEASE_BASE" in https://installkosmos.com/*) ;; *) return 1 ;; esac
+    _pause_url="${AGENT_WORKFORCE_TUNNEL_COORDINATOR:-https://login.kosmosplus.com}"
+    while [ "${_pause_url%/}" != "$_pause_url" ]; do _pause_url="${_pause_url%/}"; done
+    _pause_url="$_pause_url/v1/meta"
+  fi
+  # The body is read whole first (as run-setup reads it), and grep reads to the end rather than -q: under setup.sh's
+  # pipefail, a reader that stops at the first match makes its writer die of SIGPIPE, and the pipeline would then fail
+  # and read as "not paused" for a real pause. A pattern, not a JSON parse: a nested or repeated "updates_paused" can
+  # read as paused here where run-setup's JSON read says not; only the coordinator writes this answer.
+  _pause_body="$(curl -q -fsS --max-time 5 "$_pause_url" 2>/dev/null)" || _pause_body=""
+  printf '%s' "$_pause_body" | tr -d '\n\r' \
+    | grep -E '"updates_paused"[[:space:]]*:[[:space:]]*true[[:space:]]*[,}]' >/dev/null
+}
+if update_paused; then
+  printf '\n  Kosmos was not updated.\n     Updates are paused while Kosmos checks a problem with a release, so this update waits until the pause is lifted. Nothing was installed and your Kosmos stays as it is. Try again later.\n\n' >&2
+  exit 96
+fi
+# run-setup's word that it asked is for this run only: the board and anything else this installer starts must not
+# inherit it, or a later pasted install line in their environment would skip the pause.
+# The operator's override is for this one install too: a board this installer starts must keep asking.
+# (KOSMOS_UPDATE_PAUSE_URL is kept: the test harnesses rely on it reaching the boards they start, so those never ask
+# the production coordinator.)
+unset KOSMOS_UPDATE_PAUSE_ASKED KOSMOS_UPDATE_IGNORE_PAUSE _pause_url _pause_have _pause_body _pause_target _pause_v
+
 
 # 🔑 A BUSY PORT IS SAID EARLY, AND THE INSTALL STILL FINISHES.
 #

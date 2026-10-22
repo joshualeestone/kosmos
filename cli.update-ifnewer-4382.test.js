@@ -313,3 +313,37 @@ test('#6468: a signed manifest that records no installer runs NOTHING (a cut gon
   assert.equal(ran(), '');
   assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.log'), 'utf8'), /records no installer, so the installer was not run/);
 });
+
+/* #6781: while the fleet's updates are paused, a connect computer's look answers `paused <version>`, a word the app
+   reads (native-app/main.swift UpdateAnswer.paused), and runs nothing. The address is named per test: under the test
+   runner the ask is otherwise skipped (engine/manifest-verify.js pauseUrl). */
+function pauseAnswer(body) {
+  const f = path.join(T, 'meta-' + crypto.randomBytes(4).toString('hex') + '.json');
+  fs.writeFileSync(f, body);
+  return 'file://' + f;
+}
+test('#6781: paused, a newer version answers paused and runs nothing; CONTROL: not paused, it installs', async () => {
+  reset({ prod: '1.2.0' });
+  const held = await run(['--if-newer'], { KOSMOS_UPDATE_PAUSE_URL: pauseAnswer('{"updates_paused": true}') });
+  assert.equal(held.code, 0, held.stdout + held.stderr);
+  assert.equal(held.last, 'paused 1.2.0');
+  assert.equal(ran(), '', 'the installer ran during a pause');
+  assert.equal(fs.existsSync(path.join(HOME, 'logs', 'install.status')), false, 'a held look records no install');
+  assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.log'), 'utf8'), /1\.2\.0 is newer, and updates are paused, so nothing was installed\n$/,
+    'install.log says why this computer did not update');
+  reset({ prod: '1.2.0' });
+  const control = await run(['--if-newer'], { KOSMOS_UPDATE_PAUSE_URL: pauseAnswer('{"updates_paused": false}') });
+  assert.equal(control.last, 'updated 1.2.0', control.stdout + control.stderr);
+});
+test('#6781: --install does not pass a pause, an unreachable coordinator does not hold, and a pause does not hide that nothing is newer', async () => {
+  reset({ prod: '1.2.0', consent: '{"on":false}' });
+  const forced = await run(['--if-newer', '--install'], { KOSMOS_UPDATE_PAUSE_URL: pauseAnswer('{"updates_paused": true}') });
+  assert.equal(forced.last, 'paused 1.2.0', forced.stdout + forced.stderr);
+  assert.equal(ran(), '');
+  reset({ prod: '1.2.0' });
+  const open = await run(['--if-newer'], { KOSMOS_UPDATE_PAUSE_URL: 'file://' + path.join(T, 'no-such-meta.json') });
+  assert.equal(open.last, 'updated 1.2.0', 'no answer is not paused: ' + open.stdout + open.stderr);
+  reset({ prod: RUNNING });
+  const current = await run(['--if-newer'], { KOSMOS_UPDATE_PAUSE_URL: pauseAnswer('{"updates_paused": true}') });
+  assert.equal(current.last, 'current ' + RUNNING, 'a pause does not hide that nothing is newer');
+});

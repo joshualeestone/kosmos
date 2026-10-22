@@ -2474,8 +2474,10 @@ cmd_version() {
 #   consent off, or a file that cannot be read:       says it is there and installs nothing,
 #                                                     unless --install (the person chose it).
 # The last line on stdout is the answer, for the app:
-#   current <v> | newer <v> | updated <v> | failed <v> | board | unknown <why> | refused <why>
-# Exit 0 for current, newer, updated and board; 1 for failed and unknown; 2 for a wrong call; 3 for refused.
+#   current <v> | newer <v> | updated <v> | failed <v> | paused <v> | board | unknown <why> | refused <why>
+# Exit 0 for current, newer, updated, paused and board; 1 for failed and unknown; 2 for a wrong call; 3 for refused.
+# paused (#6781): newer, and the fleet's updates are paused, so nothing was run. It is asked again by run-setup when
+# not paused, so a coordinator that does not answer can add up to twice its 5 s limit to a look.
 # Refused: an agent asked, or this computer is not set to connect elsewhere (the mode file does not
 # read exactly "connect"). Such a computer runs its own board, which looks for itself; an install from
 # here would restart a board its person may have stopped, and an agent must not replace the Kosmos it
@@ -2526,6 +2528,17 @@ EOF
   esac
   if [ "$consent" != on ] && [ "$_install" != 1 ]; then
     printf 'newer %s\n' "$v"
+    exit 0
+  fi
+  # #6781: while the fleet's updates are paused, say so in a word the app reads (`paused <version>`), rather than run
+  # run-setup, which would hold the install too but answer only `failed`, with the reason in install.log. An app that
+  # predates the word reads it as unknown, which retries later, as a pause wants. --install does not pass a pause:
+  # it overrides "updates are off here", not the fleet's hold. No answer from the coordinator is "not paused".
+  if "$_node" "$KOSMOS_HOME/app/engine/manifest-verify.js" paused >/dev/null 2>&1; then
+    # The app's log is not the only record: install.log says why this computer did not update.
+    mkdir -p "$LOG_DIR" && printf '%s kosmos update: %s is newer, and updates are paused, so nothing was installed\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$v" >> "$LOG_DIR/install.log" 2>/dev/null || true
+    printf 'paused %s\n' "$v"
     exit 0
   fi
   mkdir -p "$LOG_DIR"
