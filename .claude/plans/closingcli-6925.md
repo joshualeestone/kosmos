@@ -32,6 +32,9 @@ That `closingEligible` matches what the board then does. Both read the same refu
 eligibility is computed at refusal time and the next post can land in a new window (countFrom moved), where the
 refused row no longer counts: the summary is then held again and refused with an eligible offer for the new window.
 
+A second, narrower gap: `refusalRecorded` trusts the log snapshot this post read when the row was already there; a row
+removed from disk in between (rotation) would make the offer wrong once, followed by a plain refusal.
+
 ## Tests
 - engine/messages.test.js "#6920": a refused member's refusal carries closingEligible; one that used its summary does not.
 - cli.room-reopen-2710.test.js and tools.windows-kosmos-cli-570.test.js: offered with closingEligible; not with

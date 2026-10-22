@@ -2695,7 +2695,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         if (!already) {
           appendLog({ kind: 'refused', from, to: projectId, project: projectId, because: ROOM_HELD_REFUSAL, at });
         }
-        refusalRecorded = true;   // #6925: the closing post keys on this row, so the CLI may offer it only when it exists
+        refusalRecorded = true;   // #6925: the closing post keys on this row; true when it was in this snapshot or written now
       } catch { /* the record is best-effort; the verdict is not */ }
       // #4934: a code, so the CLI can tell the agent what this refusal means for its text (nothing was kept; do not send
       // it another way) without reading the person-facing sentence above.
