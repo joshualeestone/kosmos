@@ -5212,6 +5212,7 @@ cmd_task() {
       say "  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody"
       say "      --part <part-number>                                     which part, when the task has several"
       say "  kosmos task close <project-id> <task-number>                  close one (number is from list)"
+      say "      --replaced-by <task-number>                              a later task replaced it: closed, but not done"
       say "  kosmos task reopen <project-id> <task-number> [\"why\"]        put a done one back; it keeps its number and history"
       say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
       say "  kosmos task activity <project-id> <task-number>              read a task's conversation, oldest first, in this computer's local time"
@@ -5312,9 +5313,16 @@ cmd_task() {
         [ "$_dn" -le 3 ] || { say "A task holds up to 3 done-when checks. Quote each check, so its words stay together."; exit 2; }
       fi ;;
     close)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)"; exit 2; }
+      local _cusage="Usage: kosmos task close <project-id> <task-number> [--replaced-by <task-number>]   (the number is shown by kosmos task list)"
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_cusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
-      _no_more_words "task close" 2 "Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)" "$@" ;;   # kosmos#4889 review 6
+      # #6923: --replaced-by <n> closes it as replaced by task n, rather than done. Nothing else may follow the number.
+      if [ "${3:-}" = "--replaced-by" ]; then
+        case "${4:-}" in ''|*[!0-9]*) say "--replaced-by needs the number of the task that replaced it, from: kosmos task list <project-id>."; exit 2 ;; esac
+        _no_more_words "task close" 4 "$_cusage" "$@"
+      else
+        _no_more_words "task close" 2 "$_cusage" "$@"   # kosmos#4889 review 6
+      fi ;;
     reopen)
       # #6157: put a done task back, keeping its number and history; the words after the number are why.
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task reopen <project-id> <task-number> [\"why\"]   (the number is shown by kosmos task list --state done)"; exit 2; }
@@ -5646,11 +5654,17 @@ cmd_task() {
       local rc=0 body
       local _ctok=""   # #4491 slice 5: the agent's own token too (plain hex only); the board closes only for an agent on the project
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _ctok="$KOSMOS_AGENT_TOKEN" ;; esac
-      body=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/close" 2>/dev/null) || rc=$?
+      local _by=""; [ "${3:-}" = "--replaced-by" ] && _by="${4:-}"   # #6923: digits only, checked before the health check
+      if [ -n "$_by" ]; then
+        body=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/close" \
+          -H 'content-type: application/json' --data "{\"replacedBy\":$_by}" 2>/dev/null) || rc=$?
+      else
+        body=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/close" 2>/dev/null) || rc=$?
+      fi
       [ "$rc" -eq 0 ] || { say_unreached "close that task" "$rc" write; exit 1; }
       # Success is the board's own {"task":...} shape (server.js), not merely the absence of an error.
       case "$body" in
-        '{"task":'*) say "Closed task $num on ${project:-the project}." ;;
+        '{"task":'*) if [ -n "$_by" ]; then say "Closed task $num on ${project:-the project} as replaced by task $_by."; else say "Closed task $num on ${project:-the project}."; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not close that task: ${because:-it did not say why}."; exit 1 ;;

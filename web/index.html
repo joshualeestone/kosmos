@@ -66798,7 +66798,7 @@ function paintProjectTasks(p) {
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
       + partOf
-      + '<span class="tkcard-n">Task ' + n + (t.closedAt ? ' (done)' : builtOpen ? ' (built)' : '') + '</span>'
+      + '<span class="tkcard-n">Task ' + n + (t.closedAt ? (Number.isInteger(t.replacedBy) ? ' (replaced by ' + t.replacedBy + ')' : ' (done)') : builtOpen ? ' (built)' : '') + '</span>'
       + '<div class="tkcard-t">' + esc(t.sentence) + '</div>'
       /* #1307: a webhook task says so wherever it can be given out, so the person who gives it
          knows its words came from outside. Inline, not a shared helper: the tests lift this
@@ -67838,8 +67838,10 @@ function tkStateWord(t) {
      counting its own parts is a second implementation of the rule that decides
      what stored data means. */
   const g = t.progress;
+  const closed = g ? g.closed : t.closedAt;
+  if (closed && Number.isInteger(t.replacedBy)) return 'Replaced by task ' + t.replacedBy;   // #6923: before the parts count
   if (g && g.total > 1) return g.done + ' of ' + g.total + ' parts done';
-  return (g ? g.closed : t.closedAt) ? 'Done' : 'Open';
+  return closed ? 'Done' : 'Open';
 }
 /**
  * "Added" as a person would say it. Whole days apart, in the machine's own
@@ -67896,8 +67898,11 @@ function paintTaskPage() {
   /* #3951 (review round 4): the task page says the mark too, not only the Tasks tab: who marked it built and what
      is left. Closing clears it, so a closed task never says it. */
   const builtWho = t.builtByPerson ? 'you' : (t.builtBy ? tkMemberName(p, t.builtBy) : '');
+  /* #6923: the tasks this one replaced, worked out from theirs (the link is stored once, on the replaced task). */
+  const replaces = (p.tasks || []).filter((x) => x && x.replacedBy === t.number).map((x) => x.number).sort((a, b) => a - b);
   document.getElementById('tk-state').textContent = tkStateWord(t)
-    + (t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '');
+    + (t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '')
+    + (replaces.length ? '. Replaces task' + (replaces.length > 1 ? 's ' : ' ') + replaces.join(', ') : '');
   /* #768: the due date. `document.activeElement` guard so the five-second poll
      does not yank the value out from under someone mid-edit (the same reason the
      Prompter interval paint checks it). Empty input means no due date. */
@@ -68125,7 +68130,8 @@ function tkActPhrase(ev, p) {
       return ev.state === 'unconfirmed'
         ? 'Kosmos tried to send ' + subject + ' to ' + to + ' ' + when + ', but could not confirm ' + to + ' got it'
         : Subject + ' to ' + to + kept + 'was sent ' + when; }
-    case 'closed': return 'Marked done';
+    case 'closed': return Number.isInteger(ev.replacedBy) ? 'Closed as replaced by task ' + ev.replacedBy : 'Marked done';   // #6923
+    case 'replaced': return 'Marked as replaced by task ' + ev.replacedBy;   // #6923: closed earlier, replaced later
     case 'undone': return ev.files === 1 ? 'One file’s changes undone' : 'File changes undone (' + (Number(ev.files) || 0) + ' files)';   // #5153 slice 4
     case 'reopened': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' put it back' : 'Put back') + (ev.why ? ': ' + ev.why : ''); }   // #6157
     /* #3951: who marked it built and what was left; and why the mark went. */
