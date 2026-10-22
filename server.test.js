@@ -4458,6 +4458,71 @@ test('update awareness: the status tick carries the verdict, and the install rou
   }
 });
 
+test('#6903: an Update or Roll back press that throws answers with a sentence, the board lives, and refusals are logged', async () => {
+  const updates = require('./engine/update');
+  const realLocation = updates.windowsLocationRefusal;
+  const realRollback = updates.rollbackOffer;
+  const realLog = console.log;
+  const realError = console.error;
+  const lines = [];
+  console.log = (...a) => { lines.push(a.join(' ')); };
+  console.error = (...a) => { lines.push(a.join(' ')); };
+  const logged = (re) => lines.some((l) => re.test(l));
+  updates.setPlatform('darwin');
+  let ran = 0;
+  try {
+    updates.resetCache();
+    updates.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+    await updates.refresh();
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
+    updates.setInstallRunner(() => { ran += 1; });
+
+    /* Before #6903 this throw rejected the request handler, and with no process-level handler that ended the board:
+       the press got no answer and the dialog said only that it could not start. */
+    updates.windowsLocationRefusal = () => { throw new Error('the engine exploded'); };
+    const boom = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(boom.status, 500, 'a throw in the Update route did not answer');
+    assert.match(JSON.parse(boom.body).error, /^Kosmos could not start the update just now\. Try again in a minute\.$/,
+      'the Update route answered a throw without a sentence the dialog can show');
+    assert.equal(ran, 0, 'the installer ran although the route threw before it');
+    assert.ok(logged(/FAIL update press: the engine exploded/), 'the cause of the throw was not logged:\n' + lines.join('\n'));
+    // CONTROL: the board is still up and serving.
+    assert.equal((await req('/api/status', {})).status, 200, 'the board stopped serving after the Update route threw');
+
+    updates.rollbackOffer = () => { throw new Error('the rollback engine exploded'); };
+    const rb = await req('/api/update/rollback', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(rb.status, 500, 'a throw in the Roll back route did not answer');
+    assert.match(JSON.parse(rb.body).error, /^Kosmos could not start the roll back just now\. Try again in a minute\.$/);
+    assert.ok(logged(/FAIL update press: the rollback engine exploded/), 'the roll back throw was not logged');
+    updates.windowsLocationRefusal = realLocation;
+    updates.rollbackOffer = realRollback;
+
+    // A refusal is logged with the sentence the person saw.
+    updates.setInstalledRoot(null);
+    const src = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(src.status, 409);
+    assert.ok(logged(/^update press answered 409: this Kosmos runs from its source code/), 'a refusal was not logged with its reason:\n' + lines.join('\n'));
+
+    // CONTROL: a press that starts the update logs no refusal.
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
+    lines.length = 0;
+    const go = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(go.status, 200, go.body);
+    assert.equal(ran, 1, 'the installer did not run on a good press');
+    assert.ok(!logged(/press answered/), 'a started update was logged as a refusal:\n' + lines.join('\n'));
+  } finally {
+    console.log = realLog;
+    console.error = realError;
+    updates.windowsLocationRefusal = realLocation;
+    updates.rollbackOffer = realRollback;
+    updates.resetCache();
+    updates.setFetcher(null);
+    updates.setInstallRunner(null);
+    updates.setInstalledRoot(null);
+    updates.setPlatform(null);
+  }
+});
+
 test('the open-sleep-settings route: guard-inherited, honest 409, and the engine speaks', async () => {
   const machine = require('./engine/machine');
   const real = machine.openSleepSettings;

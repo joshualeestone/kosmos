@@ -216,6 +216,47 @@ const RELPORT = freePort();
        board is an installed layout on purpose, where Update would start a
        real install. Update is not pressed here. */
 
+    /* #6903 (Josh, 2026-10-22 10:46): a press the board did not answer, or answered with no reason, showed only "we
+       could not start the update". Update IS pressed here, but every press is answered by the page's own route
+       below, never by the board, so no install starts. Each arm says what happened and what to do, and leaves
+       Update pressable (the 08-23 stranding). */
+    let pressed = 0;
+    let answer = null;
+    await p.route('**/api/update', (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      pressed += 1;
+      return answer(route);
+    });
+    const press = async () => {
+      const before = pressed;
+      await p.click('#uc-go');
+      await p.waitForFunction(() => { const e = document.getElementById('uc-err'); return e && !e.hidden; }, null, { timeout: 10000 });
+      if (pressed !== before + 1) die('#6903: the Update press did not reach the stubbed route (' + pressed + ')');
+      const out = await p.evaluate(() => ({
+        err: document.getElementById('uc-err').textContent.trim(),
+        go: document.getElementById('uc-go').textContent.trim(),
+        enabled: !document.getElementById('uc-go').disabled,
+        open: !document.getElementById('updconfirm').hidden,
+      }));
+      if (!out.open || !out.enabled || out.go !== 'Update') die('#6903: the dialog was left stranded: ' + JSON.stringify(out));
+      return out.err;
+    };
+    answer = (route) => route.abort('connectionreset');
+    const none = await press();
+    if (none !== 'Kosmos did not answer, so the update did not start. It may be restarting, perhaps to install this update already. Wait a minute, then reload this page.')
+      die('#6903: no answer said: ' + none);
+    await p.screenshot({ path: path.join(OUT, 'update-confirm-no-answer.png') });
+    answer = (route) => route.fulfill({ status: 502, body: '' });
+    const bare = await press();
+    if (bare !== 'Kosmos could not start the update (it answered 502 with no reason). Try again in a minute.')
+      die('#6903: an answer with no reason said: ' + bare);
+    // CONTROL: the route's own sentence still wins over both, word for word.
+    answer = (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Kosmos could not start the update just now. Try again in a minute.' }) });
+    const own = await press();
+    if (own !== 'Kosmos could not start the update just now. Try again in a minute.') die('#6903: the route\'s own sentence was replaced: ' + own);
+    await p.screenshot({ path: path.join(OUT, 'update-confirm-route-sentence.png') });
+    await p.unroute('**/api/update');
+
     // Not now closes. #3955: the chip has no Later; a Later pressed on an older page (a note in this
     // browser) still quiets its version for its window, which is the reading kept below.
     await p.click('#uc-no');
@@ -315,7 +356,7 @@ const RELPORT = freePort();
     }
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('TOAST DRIVE OK: the one-line chip (#3955), geometry clear of header controls, frozen copy verbatim, opens on Not now, Update never pressed, a stored Later per version and back for a newer one and cleared by Check for Update, 0 page errors; shots in ' + OUT);
+    console.log('TOAST DRIVE OK: the one-line chip (#3955), geometry clear of header controls, frozen copy verbatim, opens on Not now, Update pressed only against a stubbed route (#6903: no answer, no reason, the route\'s own sentence), a stored Later per version and back for a newer one and cleared by Check for Update, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     // Review 1: wait (up to 5 s) for the board to stop before its data root is removed on exit.
