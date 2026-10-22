@@ -872,6 +872,22 @@ const SCREENS = [
     await page.waitForSelector('#plus-org-reviewers', { state: 'visible', timeout: 10000 });
     await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));
   } },
+  /* kosmos#6817 (Mona Lisa): the board's notice that someone in the company was made a reviewer, in the floating stack
+     on the agents tab, with See who and its x. Two unseen grants (one notice); the name is a sample. The page reads the
+     grants once a minute, so the shot asks for that read itself rather than wait for it. */
+  { name: 'reviewer-notice', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    const now = Math.floor(Date.now() / 1000), day = 86400;
+    const reviewerGrants = [
+      { who: 'jordan', grantedAt: now - 3 * day, effectiveAt: now - 2 * day },
+      { who: 'sam.ortiz', grantedAt: now - 3600, effectiveAt: now - 3600 + day },
+    ];
+    await orgConnected(page, true, { reviewerGrants });
+    await page.route('**/api/org/grants', (r) => r.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ enrolled: true, kind: 'company', reviewerGrants }) }));
+    await at(page, '?tab=agents');
+    await page.evaluate(() => { REVIEWER_NOTE.at = 0; reviewerNoteMaybe(); });
+    await page.waitForSelector('#reviewer-slot .utoast.reviewer-note', { state: 'visible', timeout: 10000 });
+  } },
   /* #5787 (Mona Lisa): the connected Kosmos+ pane, where every sign-in now lands: the connect block (line art, the
      address with Copy, the Scan to connect code, the store buttons greyed with Coming soon) at the top. */
   { name: 'plus-connected', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await orgConnected(page, false); await at(page, '?tab=settings&sec=plus');
