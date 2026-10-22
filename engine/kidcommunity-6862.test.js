@@ -242,5 +242,8 @@ test('#6862: a family refusal is reported as outside-contact only when the polic
     apply({ outside_contact: { enabled: false } });
     communitysend.reportPolicyRefusal('Scout');
     assert.deepEqual(sent, ['outside-contact'], 'CONTROL: the policy saying off is reported');
+    apply({});
+    communitysend.reportPolicyRefusal('Scout');
+    assert.deepEqual(sent, ['outside-contact', 'outside-contact'], 'a family with outside contact unset is closed by the #6859 default, so reported');
   } finally { agentevents.recordRefusal = real; joined(null); }
 });

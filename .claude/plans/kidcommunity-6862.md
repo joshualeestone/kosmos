@@ -94,3 +94,9 @@ agents do not take part in the Kosmos Community") false in that case.
   policy-off control; mutation (the check removed): 1 red.
 - NITs fixed: three comments that read 'policy' as the policy only now name the family case too.
 - 60 test files naming the touched modules: 1538 pass, 0 fail, 2 skipped.
+
+## Review 6 (sonnet)
+- NIT declined: routing reportPolicyRefusal through the contactRead seam. That seam stands for communityAllows (always
+  no on a family), so it would restore the false report review 5 removed; the comment now says it is deliberate.
+- NIT fixed: the comment named only "the policy"; a family with no setting is closed by #6859's default and is
+  reported (true there: shared projects are closed too). Test arm added for it.

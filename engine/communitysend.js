@@ -291,7 +291,9 @@ function withPolicyStops(sentence) {
 /* kosmos#6239: an agent's community act refused under the policy is reported to whoever set it, through the agent-events
    route (agentevents.recordRefusal: only on an enrolled board whose accepted words name these events, at most one per
    agent in ten minutes). Never throws. */
-/* kosmos#6862 review 5 (reversing review 2's call): recorded only when the policy itself stops outside contact. On a
+/* kosmos#6862 review 5 (reversing review 2's call): recorded only when outside contact is closed (orgpolicy.contactAllows:
+   by the policy, or by #6859's family default where no policy or no setting was saved). Deliberately not through the
+   contactRead seam, which stands for communityAllows and is always no on a family. On a
    family's Kosmos whose policy allows it, the refusal is the family's, and an 'outside-contact' event would tell the
    parent their own setting did not hold. The feed has no community-only rule, so that refusal is said on the board and
    not sent. A policy read that throws is not reported either (the cause is unknown). */
