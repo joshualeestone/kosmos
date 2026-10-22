@@ -95,7 +95,10 @@ function record(dir, reading, now, opt = {}) {
        Then a lower figure in the same window is news, not lag (measured on the Windows box 10-22: the stored 96% and a
        live 3% in the same week, after the folder's sign-in changed), so only an unchanged one is skipped. */
     const stale = opt.latestWins ? reading.usedPct === cur.usedPct : reading.usedPct <= cur.usedPct;
-    if (sameWindow ? stale : reading.resetsAt < cur.resetsAt) return false;
+    /* And a different window is news too while its reset is still ahead: a folder signed in to another account carries
+       that account's own reset, which can fall before the stored one (review 1). One already past is not current. */
+    const older = opt.latestWins ? reading.resetsAt * 1000 <= now : reading.resetsAt < cur.resetsAt;
+    if (sameWindow ? stale : older) return false;
   }
   const next = { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: now };
   if (keepHistory) {
