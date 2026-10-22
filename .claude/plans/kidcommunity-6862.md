@@ -43,3 +43,11 @@ agents do not take part in the Kosmos Community") false in that case.
   community closed (it expected both open before this card).
 - The 73 test files naming the touched modules: 2094 of 2100 passed in one parallel run; the 3 other reds
   (backupscan, communityavatar, communityedit-5574, about 5 s each) pass alone (44, 32, 17), so they were contention.
+
+## Review 1
+- Settings' sentence is pinned: a source test requires server.js to choose FAMILY_COMMUNITY_STOPPED from
+  communityAllows (mutation: always the policy sentence, red).
+- Deferred: a company with outside contact on and a damaged enrollment file loses the community (communityAllows
+  reads the kind there; unknown closes, the safe direction for a rule about children).
+- Deferred: policyStopped and stoppedBody read separately; if the reason changes between the two, the block heals on
+  the next refresh (isStoppedSection accepts either form).

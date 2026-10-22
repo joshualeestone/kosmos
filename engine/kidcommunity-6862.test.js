@@ -109,3 +109,12 @@ test('#6862: explicit arguments are read as given (orgpolicy.communityAllows)', 
     assert.equal(orgpolicy.communityAllows({ outside_contact: { enabled: false } }, kind).ok, false, String(kind));
   }
 });
+
+test("#6862: Settings' community switch says the family's sentence on a family's Kosmos (server.js communityStopped)", () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const m = src.match(/const FAMILY_COMMUNITY_STOPPED = "([^"]+)";/);
+  assert.ok(m, 'CONTROL: server.js defines the family sentence');
+  assert.match(m[1], /^On a family's Kosmos, agents do not take part in the Kosmos\+ community/);
+  assert.match(src, /const c = op\.communityAllows\(\); return c\.ok === true \? null : c\.family === true \? FAMILY_COMMUNITY_STOPPED : COMMUNITY_STOPPED;/,
+    "Settings' switch does not choose the family sentence from communityAllows");
+});
