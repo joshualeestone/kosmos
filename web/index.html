@@ -68499,8 +68499,21 @@ function openTaskPage(n) {
   TKR_SHOWN = null;   // #5153: a task opened again is painted again
   tkReceiptSync();
   pjView('task');
+  tkMarkSeen();   // #6947: after pjView, so the page is on screen
   document.getElementById('tk-back').focus();   // the top of the new page
 }
+/* #6947: tell the board the person opened this task's page, so an agent that left a nudge on it can tell "not seen" from
+   "seen, not acted on" (engine/taskseen.js). Only while the tab is visible and the task's page is on screen (its back
+   button has a layout box): a task restored in a background tab, or left open behind another Kosmos tab, has not been
+   seen. Best effort; a failure changes nothing on the page. */
+function tkMarkSeen() {
+  const p = pjById(PJ_CURRENT);
+  const back = document.getElementById('tk-back');
+  if (!p || TK_OPEN === null || document.visibilityState !== 'visible' || !back || back.offsetParent === null) return;
+  fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/seen', { method: 'POST' }).catch(() => {});
+}
+// #6947: coming back to the tab while a task's page is showing is seeing it too.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') tkMarkSeen(); });
 function leaveTaskPage() {
   const was = TK_OPEN;
   TK_OPEN = null;
