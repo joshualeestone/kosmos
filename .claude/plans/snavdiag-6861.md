@@ -12,13 +12,15 @@ A diagnostic, not a fix. In the same evaluate as the Settings click (no added ro
 recording #panel-settings's `hidden` attribute (a MutationObserver with old values, one entry per change of state, `shown@ms` / `hidden@ms` from the click, timed per callback,
 so a show and a re-hide in the same task are both kept). On that wait's timeout ONLY (a TimeoutError; anything else is
 rethrown as itself), it fails with a short `<tag>: Settings nav hidden: {...}` so the driver's 200-character summary
-keeps the first fields: `seq` (the first entry and the latest six when it runs long), then every hiding ancestor up to
+keeps the first fields: `seq`, then `atClick` (whether the click reached the link, and whether body was consolidated
+when it did: the handler branches on that), (the first entry and the latest six when it runs long), then every hiding ancestor up to
 #panel-projects, then
 #panel-projects, whether the button exists and its size, #panel-settings's parent, which overlay holds the column, the
 body classes and query string, the page errors this arm collected, and Playwright's own "resolved to" lines. The probe
 has its own 5 s cap.
 
-What it can tell apart: Settings never opened (`seq` never shows `shown`) from opened and hidden again (`shown@x`, then
+What it can tell apart: Settings never opened (`seq` never shows `shown`; `atClick` then says whether the click reached
+the link and which path the handler would take) from opened and hidden again (`shown@x`, then
 `hidden@y`), a throw in the handler (`pageErrors`), a missing or zero-size button (`exists`, `rect`). It names the
 mechanism, not necessarily the root cause behind it.
 

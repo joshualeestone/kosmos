@@ -306,19 +306,26 @@ function chk(ok, label, extra) {
           /* #6861: watch #panel-settings's hidden attribute from the click on (times are ms from it, per callback), so a red
              can say whether Settings never opened or opened and was hidden again (both leave the same picture 20 s later). */
           await page.evaluate(() => {
-            const p = document.getElementById('panel-settings'); const t0 = performance.now();
-            window.__settingsSeq = [p ? (p.hidden ? 'hidden@0' : 'shown@0') : 'absent@0'];
-            const note = (state) => {   // one entry per change of state, so redundant hidden = true writes do not fill it
-              const seq = window.__settingsSeq; const ms = Math.round(performance.now() - t0);
-              if (!seq[seq.length - 1].startsWith(state + '@')) seq.push(state + '@' + ms);
-            };
-            /* One callback batches every change made in one task (open and re-hide in the same handler arrive together),
-               so each record is a state of its own: the attribute was absent before the NEXT record exactly when this one
-               left it shown; the last record reads the attribute as it is now. */
-            if (p) new MutationObserver((recs) => recs.forEach((r, i) => {
-              if (r.oldValue === null) { note('hidden'); return; }   // the attribute was added
-              note(i + 1 < recs.length ? (recs[i + 1].oldValue === null ? 'shown' : 'hidden') : (p.hidden ? 'hidden' : 'shown'));
-            })).observe(p, { attributes: true, attributeFilter: ['hidden'], attributeOldValue: true });
+            try {   // the watch must never stop the click below
+              const link = document.getElementById('userpop-settings');
+              // Whether the click reached the link at all, and which layout the handler saw (it branches on body.consolidated).
+              window.__atClick = { consolidated: document.body.classList.contains('consolidated'), clickSeen: false };
+              if (link) link.addEventListener('click', () => { window.__atClick.clickSeen = true; }, { capture: true, once: true });
+              const p = document.getElementById('panel-settings'); const t0 = performance.now();
+              window.__settingsSeq = [p ? (p.hidden ? 'hidden@0' : 'shown@0') : 'absent@0'];
+              const note = (state) => {   // one entry per change of state, so redundant hidden = true writes do not fill it
+                const seq = window.__settingsSeq; const ms = Math.round(performance.now() - t0);
+                if (!seq[seq.length - 1].startsWith(state + '@')) seq.push(state + '@' + ms);
+              };
+              /* One callback batches every change made in one task (open and re-hide in the same handler arrive together),
+                 so each record is a state of its own. A record whose oldValue is null ADDED the attribute (now hidden); any
+                 other record either removed it or set it again, and it removed it exactly when the NEXT record's oldValue is
+                 null (the attribute was absent by then). The last record reads the attribute as it is now. */
+              if (p) new MutationObserver((recs) => recs.forEach((r, i) => {
+                if (r.oldValue === null) { note('hidden'); return; }   // the attribute was added
+                note(i + 1 < recs.length ? (recs[i + 1].oldValue === null ? 'shown' : 'hidden') : (p.hidden ? 'hidden' : 'shown'));
+              })).observe(p, { attributes: true, attributeFilter: ['hidden'], attributeOldValue: true });
+            } catch (x) { window.__settingsSeq = ['watch failed: ' + x.message]; }
             // Clicked in the same evaluate, so the watch adds no round-trip before the click (the race could need it).
             document.getElementById('userpop-settings').click();
           });
@@ -329,7 +336,8 @@ function chk(ok, label, extra) {
             const probe = page.evaluate(() => {
               const btn = document.querySelector('#s-nav button[data-go="mac"]');
               const all = window.__settingsSeq || ['lost: the page was replaced'];
-              const out = { seq: all.length > 8 ? [all[0], '...'].concat(all.slice(-6)) : all, hiddenBy: [], exists: !!btn };
+              const out = { seq: all.length > 8 ? [all[0], '...'].concat(all.slice(-6)) : all, atClick: window.__atClick || null,
+                hiddenBy: [], exists: !!btn };
               for (let el = btn; el; el = el.parentElement) {
                 const cs = getComputedStyle(el);
                 if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') out.hiddenBy.push((el.id ? '#' + el.id : el.tagName + (el.classList[0] ? '.' + el.classList[0] : '')) + (el.hidden ? '[hidden]' : '') + ' display=' + cs.display + ' visibility=' + cs.visibility);
