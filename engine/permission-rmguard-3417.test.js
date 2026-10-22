@@ -6,8 +6,8 @@
  * PermissionRequest hook, and Kosmos's allow hook answers it, so the person sees no prompt and the command runs. These
  * tests pin that the hook answers allow for those shapes, so a later narrowing of decide() cannot bring the prompt back.
  *
- * DELIBERATE, NOT AN OVERSIGHT: allowing rm -rf $X/ means an empty X runs rm -rf /. That cost was put to Josh on the
- * card and he chose auto-approve. A change that makes these red is a change to his ruling, so take it back to him.
+ * DELIBERATE, NOT AN OVERSIGHT: with the variable empty, rm -f "$S"/*.png deletes /*.png. Josh chose auto-approve
+ * anyway. A change that makes these red is a change to his ruling, so take it back to him.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -29,6 +29,23 @@ test('#3417 decide() answers allow for the shapes of Claude\'s dangerous-rm safe
   ]) {
     assert.deepEqual(hook.decide(bash(cmd)), { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } }, cmd);
   }
+});
+
+test('#3417 the payload Claude Code 2.1.308 sent for this check (captured 2026-10-22, paths replaced) is answered allow', () => {
+  const real = {
+    session_id: '67745d23-daaa-4843-8e19-5c4179d0e26f',
+    transcript_path: '/tmp/kosmos-test/transcript.jsonl',
+    cwd: '/tmp/kosmos-test/proj',
+    scratchpad_dir: '/tmp/kosmos-test/scratchpad',
+    prompt_id: '07831c28-9ed7-4bd4-93d7-dad790034353',
+    permission_mode: 'bypassPermissions',
+    effort: { level: 'medium' },
+    hook_event_name: 'PermissionRequest',
+    tool_name: 'Bash',
+    tool_input: { command: 'rm -f "$S"/*.png', description: 'Delete PNG files in the S directory' },
+    permission_suggestions: [],
+  };
+  assert.equal(hook.decide(JSON.stringify(real)).hookSpecificOutput.decision.behavior, 'allow');
 });
 
 test('#3417 CONTROL: the protected-place rule still stays silent for the same shape (.git, not .github)', () => {

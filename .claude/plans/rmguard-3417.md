@@ -28,8 +28,10 @@ shapes, so a future narrowing of decide() cannot bring the prompt back silently.
 Measured on one check (dangerous rm) on 2.1.308. Another Claude safety check that does NOT go through the
 PermissionRequest hook would still prompt; none is known today, and nothing in this repo runs Claude Code to catch it.
 
-The cost Josh accepted: with the variable empty, an approved `rm -rf "$X"/` runs as `rm -rf /`. The tests lock that
+The cost Josh accepted: with the variable empty, an approved `rm -f "$S"/*.png` deletes `/*.png`. The tests lock that
 in on purpose and say so, so a later tightening goes back to him rather than reading the red test as a requirement.
+
+Evidence for "Measured": https://github.com/joshualeestone/kosmos/issues/3417#issuecomment-6346077364
 
 The first test's shapes pass because decide() allows Bash generally, not through any rm-specific rule. It catches
 any narrowing that would refuse them, rm-specific or not.
