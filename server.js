@@ -22737,8 +22737,14 @@ const server = http.createServer(async (req, res) => {
       if (!viaScreen && !card) { sendJson(res, 403, { error: 'Kosmos could not tell which agent sent that, so the task was not changed' }); return; }
       const by = viaScreen ? 'operator' : card.sessionName;
       let task;
+      let runBefore = null;   // kosmos#6894
       try {
         if (taskRepeat[3] === 'ran') {
+          /* kosmos#6894: the task as it was, so a run that changed its reading can say what it was before. Best effort: an
+             unreadable registry here only costs the room its line, never the run. */
+          let before = null;
+          try { const pr = projects.readAll().find((x) => x && x.id === id); before = pr ? tasks.byNumber(pr, taskRepeat[2]) : null; } catch { before = null; }
+          runBefore = before;
           // kosmos#5643: `unchanged: true` records a run that found nothing new (it rolls up on the task's page).
           if (body.unchanged !== undefined && typeof body.unchanged !== 'boolean') throw new Error('unchanged is true or false');
           // kosmos#5643 retry review 1: run_id, one per command and sent on every attempt, so a retry is the same run.
@@ -22770,6 +22776,12 @@ const server = http.createServer(async (req, res) => {
         const msg = String((err && err.message) || 'we could not change that task');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat|stop it repeating)|only the person can name/.test(msg) ? 403 : 400, { error: msg });
         return;
+      }
+      /* kosmos#6894: a run that changed something is said in the project room (taskrepeat.roomRunLine), so the room does not
+         look idle while the job runs. Unchanged runs and duplicates say nothing there. Best effort, as every room note. */
+      if (taskRepeat[3] === 'ran' && task) {
+        const line = taskrepeat.roomRunLine(runBefore, task);
+        if (line) messages.roomNote(id, line);
       }
       // kosmos#5836: a run that sent a reading hears how it compares with what the person was last told.
       // Review 1: the reading SENT (masked as stored), never only the stored one, so a run absorbed as a duplicate still

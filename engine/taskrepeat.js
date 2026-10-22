@@ -350,4 +350,25 @@ function fieldsOf(t, now = Date.now()) {
   return out;
 }
 
-module.exports = { VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
+/* kosmos#6894: the line a recorded run puts in the project room, or null for none. Only a run that CHANGED something is
+   relayed, so a task every 30 minutes does not fill the room: a run whose note is the new last change (not marked or
+   inferred unchanged), or whose reading differs from the reading before it. `before` and `after` are the task either
+   side of tasks.recordRun; a run absorbed as a duplicate (after.duplicate) is never relayed. Kosmos says it, in its own
+   voice (messages.roomNote), naming the task so the room can find it. */
+const ROOM_SENTENCE_MAX = 120;
+function roomRunLine(before, after) {
+  if (!after || after.duplicate || !after.repeat || !after.lastRunAt) return null;
+  const plain = (s, max) => require('./agentnudge').plainWords(s, max);
+  const noteChanged = !after.lastRunUnchanged && after.lastChangeAt === after.lastRunAt && typeof after.lastChangeNote === 'string' && after.lastChangeNote !== '';
+  const was = before && before.verified && typeof before.verified.value === 'string' ? before.verified.value : '';
+  const now = after.verified && after.verified.at === after.lastRunAt && typeof after.verified.value === 'string' ? after.verified.value : '';
+  const readingChanged = now !== '' && now !== was;
+  if (!noteChanged && !readingChanged) return null;
+  const head = 'Task #' + after.number + ', "' + plain(after.sentence || '', ROOM_SENTENCE_MAX) + '" (' + describe(after.repeat) + ')';
+  const parts = [];
+  if (noteChanged) parts.push(plain(after.lastChangeNote, NOTE_MAX));
+  if (readingChanged) parts.push('reading ' + plain(now, VALUE_MAX) + (was ? ' (was ' + plain(was, VALUE_MAX) + ')' : ''));
+  return head + ': ' + parts.join('; ');
+}
+
+module.exports = { roomRunLine, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
