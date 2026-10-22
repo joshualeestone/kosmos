@@ -1,4 +1,5 @@
 import Foundation
+import JavaScriptCore
 import UserNotifications
 
 // Tests for the iOS app's UIKit-free logic (#718), compiled for macOS together
@@ -1129,6 +1130,208 @@ section("native board loop: connecting")
         c.stop()
     }
 }
+
+// MARK: - The app's tab bar (#6846 part b)
+
+section("app tabs: the bar")
+check(AppTabs.visible(tasksTab: true) == [.today, .agents, .projects, .tasks, .settings], "five tabs in Mona Lisa's order once Tasks is earned")
+check(AppTabs.visible(tasksTab: false) == [.today, .agents, .projects, .settings], "four before it, Tasks left out (#3559)")
+check(AppTabs.keep(.tasks, tasksTab: false) == .today, "Tasks leaving the bar while showing goes to Today")
+check(AppTabs.keep(.projects, tasksTab: false) == .projects, "any other tab stays where it is")
+check(AppTabs.keep(.tasks, tasksTab: true) == .tasks, "Tasks stays while it is in the bar")
+check(AppTabs.Tab.today.boardName == "agents", "Today opens the board's home, its agents tab")
+check(AppTabs.Tab.agents.boardName == nil && AppTabs.pressScript(.agents) == nil, "Agents is native: no press on the board")
+check(AppTabs.pressScript(.settings)?.contains("window.kosmosAppTab('settings')") == true, "a press asks the door for that tab's board name")
+
+section("app tabs: the door's answer")
+struct DoorError: Error {}
+check(AppTabs.answer("opened", error: nil) == .opened, "opened is opened")
+check(AppTabs.answer("refused", error: nil) == .refused, "refused is refused: the bar goes back")
+check(AppTabs.answer("absent", error: nil) == .noDoor, "the script's absent is a page without the door")
+check(AppTabs.answer(nil, error: nil) == .absent && AppTabs.answer(true, error: nil) == .absent, "anything else is no answer, never opened")
+check(AppTabs.answer("opened", error: DoorError()) == .absent, "an error (a page mid-navigation) is no answer, whatever came with it")
+
+section("app tabs: the press, run")
+func pressIn(_ door: String?, _ tab: AppTabs.Tab) -> (AppTabs.DoorAnswer, String?) {
+    let js = JSContext()!
+    js.evaluateScript("var window = {}; var pressed = null;")
+    if let door = door { js.evaluateScript("window.kosmosAppTab = function (n) { pressed = n; return \(door); };") }
+    let result = js.evaluateScript(AppTabs.pressScript(tab)!)?.toObject()
+    let threw = js.exception != nil
+    let pressed = js.evaluateScript("pressed")?.toString()
+    return (threw ? .absent : AppTabs.answer(result, error: nil), threw ? "threw" : pressed)
+}
+check(pressIn("true", .projects) == (.opened, "projects"), "a board that opens the section answers opened, for the name asked")
+check(pressIn("true", .today) == (.opened, "agents"), "Today asks for the board's home")
+check(pressIn("false", .projects) == (.refused, "projects"), "a board that says no answers refused")
+check(pressIn("1", .projects) == (.refused, "projects"), "only a real true is opened (a number 1 is refused)")
+check(pressIn("undefined", .settings) == (.refused, "settings"), "a door that answers nothing is refused, not opened")
+check(pressIn(nil, .today) == (.noDoor, "null"), "a page without the door answers absent, and asking does not throw")
+check(pressIn("(function () { throw new Error('broken'); })()", .projects) == (.refused, "projects"), "a door that throws is refused, so the press ends")
+
+section("app tabs: what an answer does")
+let roomURL = URL(string: "https://studio.kosmosplus.com/?tab=projects&project=x")
+let settingsURL = URL(string: "https://studio.kosmosplus.com/?tab=settings&sec=you")
+let tasksURL = URL(string: "https://studio.kosmosplus.com/?tab=tasks")
+check(AppTabs.afterAnswer(.opened, pageURL: roomURL) == (true, nil), "opened: the press is over, the bar stays")
+check(AppTabs.afterAnswer(.absent, pageURL: roomURL) == (false, nil), "absent: the press waits, the bar stays")
+check(AppTabs.afterAnswer(.refused, pageURL: roomURL) == (true, .projects), "refused: the bar goes to the section the page is on (a project room: Projects)")
+check(AppTabs.afterAnswer(.refused, pageURL: settingsURL) == (true, .settings), "on Settings: Settings")
+check(AppTabs.afterAnswer(.refused, pageURL: nil) == (true, .today), "no address: Today")
+check(AppTabs.afterAnswer(.noDoor, pageURL: URL(string: "https://\(AppTabs.signInHost)/")) == (false, nil), "no door on the sign-in page: the press waits for the Mac")
+check(AppTabs.afterAnswer(.noDoor, pageURL: nil) == (false, nil), "no door and no address: it waits")
+check(AppTabs.afterAnswer(.noDoor, pageURL: roomURL) == (true, .projects), "no door on a Mac's page (an older board): the press ends and the bar goes where the page is")
+check(AppTabs.signInHost == "login.kosmosplus.com", "the sign-in host is the coordinator's (KosmosConfig.coordinatorOrigin)")
+let anyURL = ["?tab=agents", "?tab=detail&agent=a", "?tab=projects", "?tab=tasks", "?tab=settings", "", "?tab=zzz"].map { URL(string: "https://m.kosmosplus.com/" + $0) }
+check(anyURL.allSatisfy { AppTabs.afterAnswer(.refused, pageURL: $0).barTo != .agents }, "no refusal ever puts the bar on Agents, where the box would be out of sight")
+
+section("app tabs: the bar's labels")
+check(AppTabs.visible(tasksTab: true).map(\.title) == ["Today", "Agents", "Projects", "Tasks", "Settings"], "the bar's words, in order")
+check(AppTabs.visible(tasksTab: true).map(\.symbol) == ["sun.max", "person.2", "folder", "checklist", "gearshape"], "the spec's symbols")
+
+section("app tabs: press bookkeeping")
+do {
+    var t = PressTracker()
+    check(t.press(.projects, page: .noView) == nil && t.pending == .projects, "with no web view yet (a signed-in launch on Agents) the tracker keeps the press (BoardWeb runs it at the load)")
+    check(t.press(.settings, page: .loading) == nil && t.pending == .settings, "a page still loading: the press waits")
+    let serialBefore = t.serial
+    let run = t.press(.projects, page: .ready)
+    check(run != nil && run?.script == AppTabs.pressScript(.projects) && run?.serial == serialBefore + 1, "a ready page: the press runs, with a new number")
+    check(t.answered(serial: run!.serial, .absent, pageURL: nil) == nil && t.pending == .projects, "no door: it still waits")
+    let waiting = t.press(.projects, page: .ready)!
+    check(t.running, "the press is running while it waits for its answer")
+    check(t.answered(serial: waiting.serial, .absent, pageURL: nil) == nil && !t.running && t.pending == .projects, "no answer: it waits for a load, but no longer holds the bar")
+    let again = t.press(.projects, page: .ready)!
+    check(t.answered(serial: again.serial, .opened, pageURL: nil) == .projects && t.pending == nil && !t.running, "opened: over, and the bar goes to the tab pressed")
+
+    var u = PressTracker()
+    let first = u.press(.projects, page: .ready)!
+    let second = u.press(.settings, page: .ready)!
+    check(u.answered(serial: first.serial, .refused, pageURL: roomURL) == nil && u.pending == .settings, "a late answer to an earlier press moves nothing and ends nothing")
+    check(u.answered(serial: second.serial, .refused, pageURL: roomURL) == .projects && u.pending == nil, "the latest press's refusal ends it and moves the bar to the page's tab")
+
+    var v = PressTracker()
+    let shown = v.press(.settings, page: .ready)!
+    v.loadingOwnPage()
+    check(v.pending == nil && v.answered(serial: shown.serial, .refused, pageURL: settingsURL) == nil, "an agent tap ends a press, and a late refusal of it cannot move the bar")
+    _ = v.press(.projects, page: .loading)
+    check(v.press(.agents, page: .ready) == nil && v.pending == nil, "the native tab ends a waiting press")
+
+    var w = PressTracker()
+    let before = w.press(.tasks, page: .ready)!
+    let page = w.generation
+    check(w.read(true, generation: page) == true && w.readThisLaunch, "a read before the lock counts")
+    w.drop(selected: .projects)
+    check(w.pending == .projects && !w.readThisLaunch, "after a lock, the fresh page opens the selected tab and reads again")
+    check(w.answered(serial: before.serial, .opened, pageURL: nil) == nil && w.pending == .projects, "a late answer from the dropped page does not end it")
+    check(w.read(true, generation: page) == nil && !w.readThisLaunch, "nor does a late Tasks read from it count")
+    w.drop(selected: .agents)
+    check(w.pending == nil, "a lock on Agents leaves nothing to press")
+}
+
+section("app tabs: the bar follows the page")
+do {
+    let home = URL(string: "https://studio.kosmosplus.com/")
+    let signIn = URL(string: "https://\(AppTabs.signInHost)/")
+    func f(_ from: URL?, _ to: URL?, _ selected: AppTabs.Tab, held: Bool = false, tasks: Bool = false) -> AppTabs.Tab? {
+        AppTabs.follow(from: from, to: to, selected: selected, barHeld: held, tasksTab: tasks)
+    }
+    check(f(home, roomURL, .today) == .projects, "a link from Today into a project room lights Projects")
+    check(f(roomURL, home, .projects) == .today, "a swipe back to the board's home lights Today")
+    check(f(home, roomURL, .projects) == nil, "already right: nothing moves")
+    check(f(home, settingsURL, .today, held: true) == nil, "the bar held for a press: its answer decides, not the address")
+    check(f(home, settingsURL, .agents) == nil, "never from Agents, which shows no page")
+    check(f(home, nil, .settings) == nil, "no address: nothing moves")
+    check(f(home, signIn, .projects) == nil, "never on the sign-in page")
+    let roomTwo = URL(string: "https://studio.kosmosplus.com/?tab=projects&project=y")
+    check(f(roomURL, roomTwo, .settings) == nil, "an address rewritten within one section (Settings opened over the consolidated layout keeps ?tab=projects) moves nothing")
+    check(f(roomURL, tasksURL, .projects) == nil, "a project's View all onto a Tasks section the bar does not offer stays under Projects")
+    check(f(home, tasksURL, .today) == .projects, "and lights Projects from elsewhere")
+    check(f(roomURL, tasksURL, .projects, tasks: true) == .tasks, "Tasks once the bar has it")
+    check(f(signIn, home, .today) == nil && f(signIn, roomURL, .today) == .projects, "from the sign-in page to a Mac's page is a real move")
+    check(AppTabs.barTab(forPage: .tasks, tasksTab: false) == .projects && AppTabs.barTab(forPage: .settings, tasksTab: false) == .settings, "a hidden Tasks section belongs under Projects; any other section lights its own tab")
+}
+
+section("app tabs: Tasks read rounds")
+do {
+    var t = PressTracker()
+    let g = t.generation
+    let r1 = t.loaded() ?? -1
+    let r2 = t.loaded() ?? -2
+    check(r1 > 0 && r2 > 0 && r1 != r2, "each load starts a round")
+    check(!t.shouldRead(round: r1, generation: g) && t.shouldRead(round: r2, generation: g), "only the latest round reads, so they do not stack")
+    check(t.read(nil, generation: g) == nil && !t.readThisLaunch, "the sign-in page's nothing does not end the launch's reads")
+    check(t.read(false, generation: g) == false && !t.readThisLaunch && t.shouldRead(round: r2, generation: g), "a launch's 0 is applied but the round reads on (it can be last session's flag)")
+    check(t.read(true, generation: g) == true && t.readThisLaunch, "a 1 sets the bar and ends the launch's reads")
+    do {
+        var z = PressTracker()
+        let zr = z.loaded()!
+        _ = z.read(false, generation: z.generation)
+        check(z.shouldRead(round: zr, generation: z.generation) && z.loaded() == nil, "after a launch's 0 its round reads on, but a later load (an agent tap) starts no new round")
+        z.drop(selected: .today)
+        check(z.loaded() != nil, "a lock's fresh page reads again, as at launch")
+        var y = PressTracker()
+        let yr = y.loaded(host: "mac-a.example")!
+        _ = y.read(true, generation: y.generation)
+        check(y.loaded(host: "mac-a.example") == nil, "the same Mac again: no new round")
+        let other = y.loaded(host: "mac-b.example")
+        check(other != nil && other != yr && !y.readThisLaunch, "another Mac (switched in the page): its flag is read again")
+    }
+    check(!t.shouldRead(round: r2, generation: g) && t.loaded() == nil, "and then the rounds stop, and loads start none")
+    let back = t.returned()
+    check(t.shouldRead(round: back, generation: g) && t.read(false, generation: g) == false, "a return to the front starts a round, and its answers count")
+    check(t.shouldRead(round: back, generation: g), "and it keeps reading after an answer (its first reads can predate the board's next poll)")
+    check(t.loaded() == nil && t.shouldRead(round: back, generation: g), "once the launch has an answer, a load during it starts no launch round and does not cut it")
+    check(PressTracker.returnReads.min()! > 5 && PressTracker.returnReads.count >= 2, "a return reads only after a board poll (every 5 s) could have written the flag, more than once")
+    check(PressTracker.launchReads.first == 0 && PressTracker.launchReads.last == 20, "a launch reads from the load for 20 s")
+    t.drop(selected: .today)
+    check(!t.readThisLaunch && !t.shouldRead(round: back, generation: g), "after a lock the dropped page's reads do not run")
+    let fresh = t.loaded()
+    check(fresh != nil && t.shouldRead(round: fresh!, generation: t.generation), "and the fresh page reads again, as at launch")
+}
+func marked(rootLater: Bool) -> Bool {
+    let js = JSContext()!
+    js.evaluateScript("""
+    var observers = [];
+    function MutationObserver(cb) { this.cb = cb; this.on = false; observers.push(this); }
+    MutationObserver.prototype.observe = function () { this.on = true; };
+    MutationObserver.prototype.disconnect = function () { this.on = false; };
+    var root = { classes: [], classList: { add: function (c) { root.classes.push(c); } } };
+    var document = { documentElement: \(rootLater ? "null" : "root") };
+    """)
+    js.evaluateScript(AppTabs.markScript)
+    if rootLater {
+        js.evaluateScript("observers.forEach(function (o) { if (o.on) o.cb([], o); }); document.documentElement = root; observers.forEach(function (o) { if (o.on) o.cb([], o); }); observers.forEach(function (o) { if (o.on) o.cb([], o); });")
+    }
+    return js.exception == nil && js.evaluateScript("root.classes.join(',')").toString() == "kapptabs"
+}
+check(marked(rootLater: false), "the page's root gets kapptabs at once when it exists")
+check(marked(rootLater: true), "and once, when it arrives, when the script runs before <html> exists")
+func pageFlag(_ stored: String?, storage: Bool = true) -> FlagRead {
+    let js = JSContext()!
+    if storage {
+        js.evaluateScript("var localStorage = { getItem: function (k) { return k === 'kosmos.tasksTab' ? \(stored.map { "'\($0)'" } ?? "null") : 'wrong key'; } };")
+    } else {
+        js.evaluateScript("var localStorage = { getItem: function () { throw new Error('blocked'); } };")
+    }
+    let answer = js.evaluateScript(AppTabs.tasksReadScript)?.toObject()
+    return js.exception == nil ? .read(AppTabs.tasksTab(fromPage: answer)) : .threw
+}
+enum FlagRead: Equatable { case read(Bool?), threw }
+check(pageFlag("1") == .read(true), "the board's flag 1 shows Tasks")
+check(pageFlag("0") == .read(false), "0 hides it")
+check(pageFlag(nil) == .read(nil), "no flag (the sign-in page, an older board) says nothing")
+check(pageFlag(nil, storage: false) == .read(nil), "blocked storage says nothing, and does not throw")
+check(AppTabs.tasksTab(fromPage: NSNull()) == nil && AppTabs.tasksTab(fromPage: 1) == nil, "only the strings 1 and 0 count")
+
+section("app tabs: the tab an address belongs to")
+func tabFor(_ s: String) -> AppTabs.Tab { AppTabs.tab(forBoardURL: URL(string: s)) }
+check(tabFor("http://10.0.0.2:8080/?tab=projects&project=launchthespringcatalogue") == .projects, "a project room lights Projects")
+check(tabFor("http://10.0.0.2:8080/?tab=tasks") == .tasks && tabFor("http://10.0.0.2:8080/?tab=settings&sec=you") == .settings, "tasks and settings light their own")
+check(tabFor("http://10.0.0.2:8080/?tab=detail&agent=cleo") == .today, "an agent's chat lights Today, where chats show")
+check(tabFor("http://10.0.0.2:8080/") == .today && tabFor("http://10.0.0.2:8080/?tab=agents") == .today, "the home lights Today")
+check(tabFor("http://10.0.0.2:8080/?tab=nonsense") == .today && AppTabs.tab(forBoardURL: nil) == .today, "anything else lights Today")
+
 await boardLoopTests()
 
 print("")

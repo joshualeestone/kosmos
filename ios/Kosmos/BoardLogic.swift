@@ -163,7 +163,7 @@ enum Board {
     static let macCookieName = "__Host-kosmos_tunnel_session"
 
     // Kept in the Keychain so a launch reuses the Mac's session instead of opening a new one each time (the gate keeps
-    // at most 16 per device, dropping the least recently used, and this app shares its device with the Board tab). `owner` is a
+    // at most 16 per device, dropping the least recently used, and this app shares its device with the board's web tabs). `owner` is a
     // fingerprint of the Kosmos+ session it was opened under, never the session itself.
     struct SavedMacSession: Codable, Equatable {
         let name: String

@@ -61,7 +61,7 @@ final class BoardClient: ObservableObject {
     // Bumped by every start and stop, so a run that was cancelled cannot write the screen afterwards.
     private var generation = 0
     // The Mac this client holds a session for and the Kosmos+ session it was opened under: a sign-out or another
-    // account on the Board tab drops it (start()).
+    // account in the board's web tabs drops it (start()).
     private var admitted: (mac: Board.Mac, url: URL, session: String)?
     private var failedRefreshes = 0
     private var skipSaved = false
@@ -187,7 +187,7 @@ final class BoardClient: ObservableObject {
         generation += 1
     }
 
-    // The tapped agent's chat on the Board tab (the same link a notification tap opens); also from a list shown as not
+    // The tapped agent's chat under Today (the same link a notification tap opens); also from a list shown as not
     // updating, which still names the Mac it came from.
     func chatURL(for agent: Board.Agent) -> URL? {
         guard let mac = shownMac else { return nil }
