@@ -83,7 +83,7 @@ if [ ! -e "$RUNTIME_HOME/plugins" ] \
 else
   bad "private home trust is absent or account config leaked"
 fi
-if [ "$(stat -f %Lp "$RUNTIME_HOME" 2>/dev/null || stat -c %a "$RUNTIME_HOME" 2>/dev/null)" = 700 ]; then
+if [ "$(stat -c %a "$RUNTIME_HOME" 2>/dev/null || stat -f %Lp "$RUNTIME_HOME" 2>/dev/null)" = 700 ]; then   # #6799: GNU first
   ok "the private home is owner-only"
 else
   bad "the private home is not mode 700"

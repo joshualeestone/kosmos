@@ -643,11 +643,16 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    stacks in the name column (#3385: .dnamerow is a flex column). */
 .dnamerow .detail-state { margin: 0; }
 /* The agent's own words, marked as a quotation rather than as our sentence: a
-   rule down the left, the terminal's own face, and no italics (this is copied
-   text, not emphasis). */
-.detail-saidlab { margin: 10px 0 0; font-size: .75rem; color: var(--k-ink-2); }
-.detail-said { margin: 2px 0 0; padding: 6px 0 6px 12px;
-               border-left: 2px solid var(--k-rule); color: var(--k-ink-2);
+   hairline box, the terminal's own face, and no italics (this is copied text,
+   not emphasis). #6716: folded under a summary, which is a full 44px tap. */
+.detail-saidbox { margin: 6px 0 0; }
+/* Height from padding, not flex: a flex summary loses its disclosure triangle. 12 + 20 + 12 = 44px. */
+.detail-saidlab { margin: 0; padding: 12px 0; line-height: 20px;
+                  font-size: .75rem; color: var(--k-ink-2); cursor: pointer; border-radius: 6px; }
+.detail-saidlab:focus-visible { outline: 2px solid var(--label); outline-offset: -2px; }   /* inset (#6716 review 8): .dleft and .dhead scroll and would clip an outset ring at the column's edges */
+/* #6716: a full hairline box, not a left bar (Josh: no solid left accent bars). */
+.detail-said { margin: 4px 0 0; padding: 6px 10px;
+               border: 1px solid var(--k-rule); border-radius: 8px; color: var(--k-ink-2);
                font: .8125rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
                white-space: pre-wrap; overflow-wrap: anywhere; }
 /* What the agent is doing, its own element rather than merged into the badge.
@@ -3149,8 +3154,6 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 /* `.acut` is retired: the pack dropped the rule AND the divs together, and a
    surviving rule would still draw a line under markup that no longer exists. */
 /* The role sits directly under the name as one unit (Josh's regroup). */
-/* #5957 slice 2: an offline card's far-behind note: small and muted, so the quieter offline card stays quiet. */
-.acard .arules { font-size: .75rem; color: var(--k-ink-2); line-height: 1.35; margin-top: 4px; }
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
 /* Josh, 2026-08-19: "a tiny bit more. Not crazy." One pixel is not a gap, it is
    the absence of one. Mona Lisa's spec (#184) is `--space-3`.
@@ -3162,7 +3165,6 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    heights still line their model up, and shrunk a long way — Josh: "very much
    smaller". This is the change that let the whole card get shorter. */
 .acard .amodel { font-size: .75rem; color: var(--k-ink-2); margin-top: auto; padding-top: 16px; }
-.acard .note { text-align: left; margin-top: 12px; }
 /* presence is NOT status: three states, and the third does not look like off */
 .pres { position: absolute; right: 6px; bottom: 6px; width: 14px; height: 14px;
         border-radius: 50%; border: 2.5px solid var(--k-surface); box-sizing: content-box; }
@@ -4094,7 +4096,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .ltask { font-size: .9375rem; color: var(--k-ink-2); overflow: hidden;
          text-overflow: ellipsis; white-space: nowrap; }
 /* #6045: a note in the task cell (rules behind, not run in N days) is the model column's size, not a task line's. */
-.ltask.lnote { font-size: .75rem; }
 .lmem { display: flex; align-items: center; gap: 10px; }
 .bar { flex: 1; height: 6px; border-radius: 100px; background: rgba(20,22,26,.10);
        overflow: hidden; display: block; }
@@ -4992,7 +4993,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
    a nothingness space" (the page-level body padding was most of it). The
    body becomes a viewport-height grid with explicit rows for the three
    that need one (the rail heads, the lists, the person -- the header is
-   auto-placed among the pre-rail tracks, which is what `repeat(40, auto)`
+   auto-placed among the pre-rail tracks, which is what `repeat(41, auto)`
    protects), the lists' row is the one that flexes, and every region
    scrolls inside itself.
    ⚠️ "EVER" IS THE GOAL, NOT THE MECHANISM, and the distinction is the
@@ -5047,7 +5048,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
        rail head plus about four rows: enough that the row is recognisably
        itself and can be scrolled inside, rather than a sliver. Below that the
        grid exceeds the viewport and the body scroll above carries it. */
-    grid-template-rows: repeat(40, auto) auto minmax(200px, 1fr) auto; }
+    grid-template-rows: repeat(41, auto) auto minmax(200px, 1fr) auto; }
   /* #4872 (Josh, 0.7.15): "the page lets me scroll down just ever so slightly ... Can we disable it". Nothing here
      overflows at normal window heights (render-shell-noscroll-4872 measures the root and body exactly the window tall,
      down to 1024x640); what moved was the Mac's elastic overscroll, which drags a page that cannot scroll and shows a
@@ -5064,7 +5065,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      from this rule and the two cards agree about where the edge is. */
   html[data-layout="consolidated"] body.consolidated > #conn,
   html[data-layout="consolidated"] body.consolidated > #askcard { margin-left: var(--space-8); margin-right: var(--space-8); }
-  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 41; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 42; }
   /* #867 (Josh, 2026-08-25 11:02): "hide that scrollbar inside of
      agents." Still scrolls -- scrollbar-width/-ms-overflow-style hide
      the track, not the ability to scroll it; content wheels and
@@ -5080,7 +5081,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      agents as well", and his own bound on it: "within reason... not crazy
      tight but a bit tighter". MEASURED at 6px between consecutive rows before
      this change, on a three-agent fixture. */
-  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 42; margin: 0; display: flex; flex-direction: column; gap: 4px;
+  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 43; margin: 0; display: flex; flex-direction: column; gap: 4px;
     min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated > #alist::-webkit-scrollbar { display: none; }
   /* The person, pinned under the list on a deeper ground so the row is not
@@ -5098,8 +5099,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      (--k-side-2, the .me treatment), full column width with no radius or
      float-gap, so the agents column reads as ONE column with the person
      pinned at its foot and the rule running unbroken down its edge. */
-  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 42
-     is the body grid's last track, sized by this element, so while the grid
+  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 44
+     (since #6722; 43 before) is the body grid's last track, sized by this element, so while the grid
      fits 100vh the strip sits at the viewport foot by construction.
      ⚠️ THAT IS NO LONGER "ALWAYS", and the qualifier is not decoration. The
      body is `overflow-y: auto` with a `minmax(200px, 1fr)` floor on the list
@@ -5111,7 +5112,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      passed over here, only a trade being stated: below the floor,
      reachability beats the visual pin, which is the same call the overflow
      change makes. In every window a person actually uses, it is pinned. */
-  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 43; display: flex; align-items: center; gap: 6px;
+  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 44; display: flex; align-items: center; gap: 6px;
     margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--k-side-2, #ebe8e2); }
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
@@ -5489,7 +5490,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      the discussion and the right column all run to the viewport's bottom
      edge (the person's strip lives only in column 1). min-height: 0 lets
      the panel shrink to its row instead of forcing the page taller. */
-  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 41 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 42 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
   /* #774: the empty-centre sentence sits where the open project would. */
   /* #3597 (Josh, 0.6.91 QA): centred in the empty display column, both ways, not pinned top-left. */
   html[data-layout="consolidated"] body.consolidated #pj-none { grid-column: 2; grid-row: 1; align-self: center; justify-self: center; text-align: center; margin: 0; max-width: 34rem; }
@@ -5829,7 +5830,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      against #rail-agents, traced to #pj-list-view's own top padding
      (shared with #alist at :1995, which needs it; the projects rail
      does not, since #panel-projects already zeroes its own top padding
-     to sit flush with row 40). */
+     to sit flush with row 42, the first rail row since #6722). */
   html[data-layout="consolidated"] body.consolidated #pj-list-view { grid-column: 1; padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > :not(#pj-list-view) { grid-column: 2; }
   /* #3126 (Josh, 6.68): tighter spacing between projects (was gap 8px). */
@@ -9741,6 +9742,18 @@ body.consolidated .tkcard:hover { border-color: transparent; }
 .rm-small { font: var(--text-callout) var(--font-ui); color: var(--label-2);
             line-height: 1.45; margin: 0 0 var(--space-8); }
 .rm-acts { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+/* #6722: the picture editor. The stage is square and shrinks with a phone; the circle drawn on it is what shows. */
+.crop-box { max-width: 24rem; max-height: calc(100vh - 2 * var(--space-5)); overflow-y: auto; }   /* a phone held sideways scrolls, never clips */
+.crop-stage { position: relative; width: min(100%, 18rem, 42vh); aspect-ratio: 1; margin: 0 auto var(--space-5);
+              border-radius: 12px; overflow: hidden; background: var(--bg); cursor: grab; touch-action: none; }
+.crop-stage:active { cursor: grabbing; }
+.crop-stage:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 3px; }
+.crop-stage canvas { display: block; width: 100%; height: 100%; }
+#cropmodal { z-index: 61; }   /* #6722: above the file preview (59) and first run (60), so a window that counts it as covering it really is under it */
+.crop-zoom { display: flex; align-items: center; gap: var(--space-4); margin: 0 0 var(--space-5);
+             font: var(--text-callout) var(--font-ui); color: var(--label-2); }
+.crop-zoom input[type="range"] { flex: 1; min-width: 0; min-height: 44px; accent-color: var(--gold-deep); }
+.crop-box .rm-acts .btn { min-height: 44px; }   /* a full tap on a phone, where this editor is used most */
 /* #766: a dialog that holds a form (New task) takes the create page's width
    and lets its fields fill it. */
 .rm-box.rm-box-form { max-width: 34rem; }
@@ -12927,7 +12940,8 @@ window.kosmosMeasureScrollbarWidth();
            2026-08-21: "is there any way we could show that her usage is full").
            Kosmos cannot know an account is spent; it saw a sentence. So the
            sentence is shown, which names the model and carries the vendor's own
-           remedies, and stays true if that wording changes under us. -->
+           remedies, and stays true if that wording changes under us. Since #6716
+           (Josh, 2026-10-20) it is folded: one tap opens it. Do not unfold it. -->
       <!-- Keeps `d-said`, and now it is the ONLY thing that answers to it. The
            span above shared the id and won every lookup, so this element was
            unreachable and the sentence it exists for was being painted into a
@@ -12949,9 +12963,14 @@ window.kosmosMeasureScrollbarWidth();
            their wording changes. What changes is that it is now ATTRIBUTED, so
            a slash command inside it reads as something its screen showed rather
            than something we are asking for. -->
-      <p class="detail-saidlab" id="d-said-lab" hidden></p>
-      <blockquote class="detail-said" id="d-said" hidden></blockquote>
-      <!-- kosmos#1918: the evidence quote above can relay the CLI's "Please run
+      <!-- #6716 (Josh, 2026-10-20): the quote is folded and shown only for a state that is waiting on something.
+           A working agent's line is Claude Code's raw spinner ("Fermenting... (10m 20s ...)"), which is not for a
+           person; the pill already says Working. -->
+      <details class="detail-saidbox" id="d-said-box" hidden>
+        <summary class="detail-saidlab" id="d-said-lab" hidden></summary>
+        <blockquote class="detail-said" id="d-said" hidden></blockquote>
+      </details>
+      <!-- kosmos#1918: the evidence quote above (folded since #6716) can relay the CLI's "Please run
            /login", which is correct in a terminal and FALSE here: the Terminal tab is
            read-only and the message box under it talks to the AGENT, not the shell, so
            there is nowhere in the product to run it. When sign-in is what is broken,
@@ -13977,6 +13996,22 @@ window.kosmosMeasureScrollbarWidth();
     <div class="rm-acts">
       <button class="btn" type="button" id="uc-no">Not now</button>
       <button class="btn uprime" type="button" id="uc-go">Update</button>
+    </div>
+  </div>
+</div>
+
+<!-- #6722 (Josh, 2026-10-20): "a little avatar editor so if I upload an image I get some basic cropping tools before
+     i save". Opened by cropPicture() for every picture chosen for an agent or for the person. -->
+<div class="rm-back" id="cropmodal" hidden>
+  <div class="rm-box crop-box" role="dialog" aria-modal="true" aria-labelledby="crop-t">
+    <h2 class="rm-title" id="crop-t">Fit the picture</h2>
+    <div class="crop-stage" id="crop-stage" tabindex="0" role="application" aria-roledescription="picture"
+         aria-label="The picture" aria-describedby="crop-help"><canvas id="crop-cv" width="576" height="576" aria-hidden="true"></canvas></div>
+    <label class="crop-zoom" for="crop-zoom">Zoom <input type="range" id="crop-zoom" min="1" max="4" step="0.1" value="1" aria-valuetext="100%"></label>
+    <p class="rm-small" id="crop-help">Drag to move it, and pinch or use the slider to zoom. On a keyboard, the arrow keys move it and plus and minus zoom. What is inside the circle is what shows.</p>
+    <div class="rm-acts">
+      <button class="btn" type="button" id="crop-no">Cancel</button>
+      <button class="btn uprime" type="button" id="crop-go">Save</button>
     </div>
   </div>
 </div>
@@ -19775,8 +19810,9 @@ window.kosmosMeasureScrollbarWidth();
           <!-- kosmos#6752: every member sees when someone is made a reviewer (kosmos#6594): the grants of the last 30 days,
                from the hourly status read. Shown only when there are some. -->
           <div id="plus-org-reviewers" hidden>
-            <p class="fhint" id="plus-org-reviewers-head"></p>
+            <!-- kosmos#6817 (Mona Lisa's design): what a reviewer is first, then the heading straight above its list. -->
             <p class="fhint" id="plus-org-reviewers-what"></p>
+            <p class="fhint" id="plus-org-reviewers-head"></p>
             <div id="plus-org-reviewers-list"></div>
           </div>
           <!-- kosmos#6239: a family's words not accepted on this computer wait for a parent; this opens them (plusOrgFamilyReview). -->
@@ -21255,7 +21291,9 @@ const STATE_COPY = {
      merely throttled it. "Working" forever was the bug; "Paused" would be
      the wrong reassurance (it implies "will resume on its own"), so this
      gets its own label. */
-  auth_failed:  { label: "Sign-in isn't working", attn: true  },
+  /* #6716 (Josh, 2026-10-20: "lets shorten it to \"Sign-in Issue\""): the pill is a word, like the others; the sentence
+     is its hover and its page's. */
+  auth_failed:  { label: 'Sign-in Issue', attn: true  },
   /* #3410: a TRANSIENT network error (DNS/network blip) took the agent's
      connection to the API, distinct from auth_failed (the account is fine).
      An attention state, but a RECOVERABLE one: it is the kind of thing a retry
@@ -21301,7 +21339,7 @@ function stateReadOf(a) {
   return Object.prototype.hasOwnProperty.call(STATE_READ_SAY, r) ? r : '';
 }
 /* The attributes for a state pill: a title to hover and the mark the CSS draws. Empty for a fresh look. */
-/* `also`: another hover sentence for the same element (a rate-limited pill's, #6398), so the two share one title
+/* `also`: another hover sentence for the same element (the pill's own sentence, pillSay: #6398, every state since #6716), so the two share one title
    attribute rather than writing it twice. */
 function stateReadAttrs(a, also) {
   const r = stateReadOf(a);
@@ -21556,7 +21594,8 @@ function taskLine(a, opts) {
  * status), so today only `rate_limited`, `auth_failed` (#874) and
  * `connection_lost` (#3410) speak and every other state shows nothing rather
  * than a stale summary. (Since then also: a crash loop, a waiting count, a stuck
- * error, and on a CARD in a calm state, rules far behind (#5957); see stateReason.)
+ * error. Since #6716 a CARD carries none of these: each is its pill's hover and hidden text, through pillSay, which
+ * also adds the rules-far-behind note (#5957) for a calm card.)
  *
  * 🛑 `taskWords` IS GONE. It stripped the "Claude Code" default out of the
  * frozen title (#222) so a brand-new agent did not read as "doing Claude Code".
@@ -21582,8 +21621,8 @@ function waitingLine(w) {
   return base + ', yours ' + (yours === 1 ? 'is' : 'are') + ' next';
 }
 /* #5957 slice 2: the one sentence for an agent whose working rules are far behind (a.rulesBehind, from
-   engine/doctrine.js: a whole number only when its own page offers the update), or ''. Said by stateReason on a
-   running card and by the offline card and list row, which draw no task line of their own. */
+   engine/doctrine.js: a whole number only when its own page offers the update), or ''. Said by pillSay (the pill's hover and hidden text) on a card or list row since #6716, and by the agent's own page.
+   */
 function rulesBehindLine(a, offline) {
   if (!(a && Number.isSafeInteger(a.rulesBehind) && a.rulesBehind > 0)) return '';
   /* `offline`: the not-running card and row (no session in the roster), where the page's update is refused (it needs
@@ -21598,18 +21637,21 @@ function idleLine(a) {
   if (!(a && Number.isSafeInteger(a.idleDays) && a.idleDays > 0)) return '';
   return 'Has not run in ' + a.idleDays + ' days. If it is no longer needed, remove it under AI Settings on its page.';
 }
-/* #6045 (Josh, 0.7.45 review): the list row's task cell. When what it holds is one of the notes above (rules behind,
-   not run in N days), it is drawn at the model column's size (.lnote), not as a task line, and carries the whole note
-   as its title since the cell ends in an ellipsis. Any other text (a task, a state sentence) is unchanged. */
-function lrowTask(text, note) {
-  const isNote = !!text && text === note;
-  return '<div class="ltask' + (isNote ? ' lnote' : '') + '"' + (isNote ? ' title="' + esc(text) + '"' : '') + '>' + esc(text || '') + '</div>';
+/* The list row's task cell. #6716: no sentence sits in it any more (each is its pill's hover), so it holds a task line or
+   nothing; #6045's note styling (.lnote) went with the notes. */
+function lrowTask(text) {
+  return '<div class="ltask">' + esc(text || '') + '</div>';
 }
 /* The offline card and list row's one note: rules behind, then not run in N days, whichever apply. */
 function offlineNote(a) {
   return [rulesBehindLine(a, true), idleLine(a)].filter(Boolean).join(' ');
 }
 function stateReason(a, opts) {
+  /* #6716 (Josh, 2026-10-20: "i dont want to show these messages on these agent tiles"): a tile and a list row carry
+     no sentence. What it would say is the pill's hover and screen-reader text (pillSay) and stays on the agent's own
+     page, which calls this without `card`. (#6398 did this for a rate limit alone.) The tile keeps its .atask slot,
+     empty, so every tile stays one height. */
+  if (opts && opts.card === true) return '';
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
   /* #5154 slice A: Kosmos keeps restarting this agent and it keeps stopping within minutes (engine/crashloop.js).
@@ -21620,16 +21662,12 @@ function stateReason(a, opts) {
     const n = Number(a.crashLoop.count) || 3;
     return 'Kosmos has restarted it ' + n + ' times in the last half hour, and each time it stopped within a couple of minutes. Kosmos will keep trying. Open it to see what it shows.';
   }
-  /* #6398: a rate-limited agent's card and list row say only the pill ("Rate Limit"); the sentence (how long, what
-     to do) is the pill's hover and screen-reader text and stays on the agent's own page, which calls this without card.
-     Below the crash-loop arm: a crash-looping agent's pill reads "Keeps stopping", so it keeps its own sentence. */
-  if (a && a.state === 'rate_limited' && opts && opts.card === true) return '';
   /* #5154 slice C: the same terminal error has stood past its threshold (engine/stuckterminal.js), so the card
      names what is wrong and what to do. Placed before the plain auth_failed / rate_limited rules below so a
      STUCK agent gets this sharper sentence; a brief one still falls through to the ordinary state sentence.
      Plain words, consistent with the "Keeps stopping" card; Mona can refine later. DELIBERATE: slice C escalates
      the SENTENCE, the Issue-filter membership (agentNeedsAttention / needsPerson) and one phone push -- not the
-     card's look or pill. auth_failed and rate_limited already render attn:true pills ("Sign-in isn't working" /
+     card's look or pill. auth_failed and rate_limited already render attn:true pills ("Sign-in Issue" /
      "Rate Limit"), so a stuck card already reads as an issue; restyling cardStOf/stateCopyOf would recolour those
      paused states wholesale, which is out of this slice's scope. */
   if (a && a.stuckError && a.stuckError.stuck === true && a.state === a.stuckError.state) {   // state-match: never a stale sentence on a mid-sweep switch
@@ -21718,15 +21756,7 @@ function stateReason(a, opts) {
     if (it.cls === 'nudge') return 'Kosmos nudged this idle agent to pick up its open task and gave up about ' + mins + ' minutes ago. Open it to see what it shows, or message it.';
     if (it.cls === 'firstreply') return 'Kosmos reminded this agent to answer its first message and gave up about ' + mins + ' minutes ago. Open it to see what it shows, or message it.';
   }
-  /* #5957 slice 2: its working rules are far behind, and its own page offers the update (a.rulesBehind, from
-     engine/doctrine.js rulesBehind: a number only then). Only on a CARD (opts.card: the agent's own page has the
-     update note itself, and "Open it" makes no sense there) and only when it is idle or stopped: the update restarts
-     it, so a working agent is not pointed at it mid-task, and it is never in the slot a person reads
-     as what a needs-you, question or blocked agent is stuck on (#986/#2833), and never over a sign-in, connection or
-     usage problem. Last of the general reasons; plain words; the card's look is unchanged. */
-  if (a && opts && opts.card === true && (a.state === 'idle' || a.state === 'stopped') && rulesBehindLine(a)) {
-    return rulesBehindLine(a);
-  }
+  /* #5957 slice 2's rules-far-behind note for a calm card lives in pillSay since #6716 (no sentence on a tile). */
   if (!a || a.state !== 'rate_limited') return '';
   /* #4588: an Antigravity agent paused on its account's shared Google quota carries the reset, so the card says
      when the quota comes back. The reset, not a promise: the resume (engine/agyquota.js) can be switched off and
@@ -21805,8 +21835,18 @@ function asSentence(s) {
    card and the agent page still show it, so #150's words are unchanged. Recognised by modelLine's own answer for a
    never-recorded agent, so the sentence is written once, in modelLine. */
 function lmodelCell(a) {
-  const line = modelLine(a);
+  const line = tileModelLine(a);
   return line === modelLine({ neverRecorded: true }) ? '<span class="vh">' + esc(line) + '</span>' : esc(line);
+}
+/* #6716 (Josh: "I am not sure why it doesnt recognize Renet's model"): the TILE's and the list row's model line. Where
+   modelLine has nothing to name (it would say "Made before Kosmos recorded this" or "Unknown Model"), the model the
+   agent's EARLIER session ran (a new one that has not replied yet) is named instead. Only here: the model picker, the
+   agent page's Runs on and every other modelLine reader keep saying what the agent runs or is set to run (review 5). */
+function tileModelLine(a) {
+  const line = modelLine(a);
+  if (!a || !a.earlierModelName || a.modelName || a.plannedModelName) return line;
+  if (line !== 'Made before Kosmos recorded this' && line !== 'Unknown Model') return line;
+  return /^claude/i.test(a.earlierModelName) ? a.earlierModelName : 'Claude ' + a.earlierModelName;
 }
 function modelLine(a) {
   /* Provider-first ("Claude Opus 5"), guarded so a modelName that already
@@ -22403,28 +22443,28 @@ function answerAttrs(a) {
 function isAnswerable(a) {
   return !!(a && a.state === 'needs_you' && a.isNamedOurs && !(a.disruption && a.disruption.failed === true));
 }
-/* #6398: the pill reads Rate Limit (not, say, a crash loop's Keeps stopping, which outranks it). */
-function pillIsRateLimit(a) {
-  return !!(a && a.state === 'rate_limited' && stateCopyOf(a) === STATE_COPY.rate_limited);
-}
 /* #6400: the name button's accessible name. On an answerable card or row a press runs the answer route (answerAttrs),
    so it says so; the visible name is in it (SC 2.5.3). */
 function nameGoLabel(a) {
   return isAnswerable(a) ? 'Answer ' + a.name + '\u2019s question' : 'Open ' + a.name;
 }
-/* #6398: the rate-limit sentence for a screen reader, inside the pill's visually hidden text (a title is not read
-   reliably, and the list pill is aria-hidden). Nothing is drawn. */
-function rateLimitVh(a) {
-  if (!pillIsRateLimit(a)) return '';
-  const why = stateReason(a);
+/* #6716 (Josh, 2026-10-20: "i dont want to show these messages on these agent tiles"): a tile and a list row say only
+   the pill. The sentence that explains it is the pill's hover (a title) and its screen-reader text (a visually hidden
+   span: a title is not read reliably, and the list pill is aria-hidden), and the agent's own page still shows it in
+   full. #6398 did this for a rate limit alone; this is every state, plus the rules-behind note an idle or stopped
+   card used to carry (#5957). */
+/* The needs-trust card's sentence when the engine sent none; on the pill's hover like every other (#6716). */
+function needsTrustSay(a) {
+  return (a && a.because) || 'It started but has not registered, most likely waiting at a workspace-trust prompt no one can see.';
+}
+function pillSay(a) {
+  if (!a) return '';
+  return stateReason(a) || ((a.state === 'idle' || a.state === 'stopped') ? rulesBehindLine(a) : '');
+}
+function pillVh(why) {
   return why ? `<span class="vh">. ${esc(why)}</span>` : '';
 }
-/* #6398: the hover text of a rate-limited pill: the sentence its page shows (how long, what to do). */
-function rateLimitSay(a) {
-  return pillIsRateLimit(a) ? (stateReason(a) || '') : '';
-}
-function rateLimitTitle(a) {
-  const why = rateLimitSay(a);
+function pillTitle(why) {
   return why ? ` title="${esc(why)}"` : '';
 }
 
@@ -22700,8 +22740,7 @@ function card(a) {
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-      <div class="astate st-attn"><span class="haz" aria-hidden="true">!</span><b>${esc(STATE_COPY.needs_trust.label)}</b></div>
-      <div class="note">${esc(a.because || 'It started but has not registered -- most likely waiting at a workspace-trust prompt no one can see.')}</div>
+      <div class="astate st-attn"${pillTitle(needsTrustSay(a))}><span class="haz" aria-hidden="true">!</span><b>${esc(STATE_COPY.needs_trust.label)}</b>${pillVh(needsTrustSay(a))}</div>
     </div>`;
     }
     /* #668: the one offline row whose "Not running" would be a lie. The board
@@ -22720,8 +22759,7 @@ function card(a) {
       <span class="pres off" aria-hidden="true"></span>${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-    <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
-    ${!split && offlineNote(a) ? `<div class="arules">${esc(offlineNote(a))}</div>` : ''}
+    <div class="astate ${split ? 'st-unknown' : 'st-stopped'}"${split ? '' : pillTitle(offlineNote(a))}>${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b>${split ? '' : pillVh(offlineNote(a))}</div>
   </div>`;
   }
   /* ⚠️ THE PACK'S CARD (stage 3). Column order: gauge -> name -> state pill
@@ -22755,15 +22793,16 @@ function card(a) {
      badge below stays: it is a measured reading, absolutely positioned (so it
      never pushes the name), and guarded by server.test.js. */
   const badge = (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
+  const say = pillSay(a);   // #6716: once, so the pill's hover and its hidden text can never disagree
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
   return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${answerAttrs(a)}${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="${esc(nameGoLabel(a))}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-    <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, rateLimitSay(a)) : rateLimitTitle(a)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${rateLimitVh(a)}</div>
+    <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, say) : pillTitle(say)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${pillVh(say)}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
-    <div class="amodel">${esc(modelLine(a))}</div>
+    <div class="amodel">${esc(tileModelLine(a))}</div>
     <div class="atask">${esc(taskLine(a, { card: true }))}</div>
   </div>`;
 }
@@ -22920,8 +22959,8 @@ function lrow(a) {
       <div class="lav">${off}<span class="pres lpres off" aria-hidden="true"></span></div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-      <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
-      ${a.jobRunningUnseen === true ? '<div class="ltask"></div>' : lrowTask(offlineNote(a), offlineNote(a))}
+      <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}"${a.jobRunningUnseen === true ? '' : pillTitle(offlineNote(a))}>${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}${a.jobRunningUnseen === true ? '' : pillVh(offlineNote(a))}</div>
+      <div class="ltask"></div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
@@ -22942,6 +22981,7 @@ function lrow(a) {
      memUnknown's SENTENCE (never the word with a noun stuck on, which announced "Not yet read memory"), and the
      dash is aria-hidden so it adds nothing to the accessible name. The agent page keeps the word. */
   const memu = memUnknown(a.context);
+  const lsay = pillSay(a);   // #6716: once, so the pill's hover and its hidden text can never disagree
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">–</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
@@ -22965,8 +23005,8 @@ function lrow(a) {
          .lav above) still marks needs-you visually, and alsowork stays because
          it is an action, not status text (#6400: the Answer link went; the row itself answers). This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
-    <div class="lstate"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a) : ''}><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${rateLimitVh(a)}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${rateLimitTitle(a)}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
-    ${lrowTask(taskLine(a, { card: true }), rulesBehindLine(a, false))}
+    <div class="lstate"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a) : ''}><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${pillVh(lsay)}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${pillTitle(lsay)}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
+    ${lrowTask(taskLine(a, { card: true }))}
     <div class="lmodel">${lmodelCell(a)}</div>
     <div class="lmem">${mem}</div>
   </div>`;
@@ -38513,12 +38553,11 @@ function sortAgents(list, mode, projects) {
   };
   const cmp = mode === 'name' ? byName
     : mode === 'model' ? (a, b) => {
-      const aa = a.agent || {}, bb = b.agent || {};
-      const ak = (aa.runner === 'codex' || aa.runner === 'gemini' || aa.runner === 'grok' || aa.runner === 'antigravity' || aa.runner === 'muse'
-        || aa.modelName || aa.plannedModelName) ? text(modelLine(aa)) : null;
-      const bk = (bb.runner === 'codex' || bb.runner === 'gemini' || bb.runner === 'grok' || bb.runner === 'antigravity' || bb.runner === 'muse'
-        || bb.modelName || bb.plannedModelName) ? text(modelLine(bb)) : null;
-      return cmpText(ak, bk) || byName(a, b);
+      // #6716 review 9: the key is the model the tile and the row SHOW (tileModelLine), so a borrowed earlier-session
+      // model sorts with that model, not with the unnamed.
+      const key = (x) => ((x.runner === 'codex' || x.runner === 'gemini' || x.runner === 'grok' || x.runner === 'antigravity' || x.runner === 'muse'
+        || x.modelName || x.plannedModelName || x.earlierModelName) ? text(tileModelLine(x)) : null);
+      return cmpText(key(a.agent || {}), key(b.agent || {})) || byName(a, b);
     }
     : mode === 'needs' ? (a, b) => needsRank(a.agent) - needsRank(b.agent) || byName(a, b)
     : mode === 'project' ? (a, b) => cmpText(agentFirstProject(a.agent, projects), agentFirstProject(b.agent, projects)) || byName(a, b)
@@ -39656,7 +39695,7 @@ function memoryBox(a) {
    cannot drift apart on it. */
 const WORKING_VERB = 'working';
 
-function busyRow(fresh, name) {
+function busyRow(fresh, name, opts) {
   const who = name || (fresh && fresh.name) || 'This agent';
   const face = (fresh && fresh.hasAvatar)
     ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/'
@@ -39692,7 +39731,10 @@ function busyRow(fresh, name) {
     return face
       + '<span class="haz" aria-hidden="true">!</span>'
       + '<span>' + esc(who) + '&rsquo;s Claude sign-in isn&rsquo;t working'
-      + (fresh.stateEvidence ? ', last seen: &ldquo;' + esc(fresh.stateEvidence) + '&rdquo;' : '')
+      /* #6716: on the agent page, no quote of its screen here: the page's folded "What <name>'s screen said" carries
+         it, and a quote in this line put the CLI's own words on the page unfolded. The guide's side chat has no fold,
+         so it asks for the quote (opts.quote, review 8): there it is the only place the vendor's own words show. */
+      + (opts && opts.quote && fresh.stateEvidence ? ', last seen: &ldquo;' + esc(fresh.stateEvidence) + '&rdquo;' : '')
       + '</span>';
   }
   return face
@@ -39841,12 +39883,9 @@ function paintBusy(fresh, name) {
      an unchanged working agent keeps ONE continuous animation. */
   const busyKey = [
     fresh.sessionName, fresh.state, (name || fresh.name || ''), fresh.hasAvatar ? '1' : '0',
-    /* auth_failed renders "last seen: <stateEvidence>" (busyRow); include it ONLY
-       there so that line refreshes as the evidence changes poll-to-poll. NOT for
-       working: a working agent's evidence also changes every poll, and keying on
-       it there would rebuild the .act dots each poll -- the exact reset this fix
-       removes. The auth_failed line has no dots, so rebuilding it is free. */
-    fresh.state === 'auth_failed' ? (fresh.stateEvidence || '') : '',
+    /* #6716: the line no longer quotes the screen, so nothing in it changes with the evidence and it is not keyed on.
+       (Never for working either: a working agent's evidence changes every poll, and keying on it would rebuild the
+       .act dots each poll, the exact reset this key exists to stop.) */
     /* \u0001 (SOH) as the join separator: a control character that cannot appear
        in a session name, agent name or screen evidence, so fields cannot collide
        across the boundary (e.g. "a\u0001b" vs "a" + "b"). */
@@ -42799,13 +42838,16 @@ const LINK_LOST_SEEN = new Map();   // #5333: per agent, { n, card, at }: polls 
 /* Six of the board's 5-second polls (setInterval(tick, 5000)): wide enough for a slow answer or a tab the browser
    throttled while hidden (it polls every 5 s again once looked at), narrow enough that a visit long ago never counts. */
 const LINK_LOST_WINDOW_MS = 6 * 5000;
+/* #6716: the states whose screen line the agent page shows, folded. Each is waiting on a person or on something outside
+   the agent; working, idle, stopped, restarting and unknown show none. needs_trust is the board's own state (#3013). */
+const SAID_STATES = new Set(['needs_you', 'needs_trust', 'blocked', 'auth_failed', 'rate_limited', 'connection_lost']);
 function paintDetailState(card) {
   /* The same stale-sample rule as the DM line (workingSampleIsStale), so the two never split.
      ⚠️ The grid card does NOT apply it: on the one poll where a reply has landed after the
      sample, this pill and the DM line say idle while the card still says working. Chosen: the
      split Josh reported was the pill against the DM line on this same page, and a card one
      poll behind resolves on the next sample. The stale sample is dropped whole: its evidence line
-     described the work, so an Idle pill beside "Its screen said: <that work>" would be the same
+     described the work, so an Idle pill beside the screen line about that work would be the same
      split one row lower. */
   /* #5949: and its remembered mark goes with it: that idle comes from a later reply, not from the remembered look. */
   const a = workingSampleIsStale(card) ? { ...card, state: 'idle', stateEvidence: '', stateRead: '' } : card;
@@ -42821,18 +42863,40 @@ function paintDetailState(card) {
      escape, and the engine has already trimmed and capped it. */
   const said = document.getElementById('d-said');
   const saidLab = document.getElementById('d-said-lab');
+  const saidBox = document.getElementById('d-said-box');
   if (said) {
-    const line = String(a.stateEvidence || '').trim();
+    /* #6716: only a state waiting on something shows what its screen said (a prompt, a limit, a failed sign-in). A
+       working or idle agent's line is the CLI's own chrome, never for a person. */
+    const line = SAID_STATES.has(a.state) ? String(a.stateEvidence || '').trim() : '';
+    if (saidBox) {
+      /* Starts folded each time it appears: for another agent, or for this one when it is waiting on something again
+         after it was not. The poll while it stays shown for the same agent leaves an opened fold as the person left it.
+         Review 11: "again" is a new WAIT, not the text coming back. A waiting agent whose screen text is empty for one
+         poll keeps the fold as the person left it (dataset.waiting remembers the last paint's waiting state). Review 12:
+         a move to a different waiting state (a limit, then a failed sign-in) is a new wait too, with new words. */
+      const forName = a.sessionName || '';
+      const waitState = SAID_STATES.has(a.state) ? a.state : '';
+      const appears = !!waitState && saidBox.dataset.waiting !== waitState;
+      if (appears || saidBox.dataset.for !== forName) { saidBox.open = false; saidBox.dataset.for = forName; }
+      saidBox.dataset.waiting = waitState;
+      /* Hiding the fold while its summary has the keyboard would drop focus to the top of the page: it moves to the
+         state line beside the heading instead, which is what changed (tabindex -1, so it adds no Tab stop). */
+      if (!line && !saidBox.hidden && document.activeElement && saidBox.contains(document.activeElement)) {
+        const st = document.getElementById('d-state');
+        if (st) { st.tabIndex = -1; st.focus({ preventScroll: true }); }
+      }
+      saidBox.hidden = !line;
+    }
     if (said.textContent !== line) said.textContent = line;
     said.hidden = !line;
     /* The label follows the quote exactly, or an empty agent page keeps a
-       stranded "Its screen said:" with nothing under it. */
+       stranded "What X's screen said" with nothing under it. */
     if (saidLab) {
       /* `a.name`, which is what the heading two lines up uses. My first version
          called a `dispName()` that DOES NOT EXIST -- it would have thrown the
          moment a rate-limited agent's page opened, and every text-matching test
          passed over it because a regex cannot call a function. */
-      const lab = line ? a.name + '\u2019s screen said:' : '';
+      const lab = line ? 'What ' + a.name + '\u2019s screen said' : '';
       /* Written only when it changes: this runs every poll, and reassigning identical text
          replaces the node, which drops a selection somebody is copying from. */
       if (saidLab.textContent !== lab) saidLab.textContent = lab;
@@ -42840,7 +42904,7 @@ function paintDetailState(card) {
     }
   }
   /* kosmos#1918: the reachable remedy for a broken sign-in. The evidence quote
-     above may name "/login", which has no surface in this product; this button is
+     above (in its fold since #6716) may name "/login", which has no surface in this product; this button is
      that surface. Shown ONLY when the state is auth_failed, so a healthy agent
      never sees a control it does not need, and hidden again the moment the state
      is anything else. The click (wired once below) opens Settings -> Accounts,
@@ -43023,6 +43087,9 @@ function openDetail(sessionName, section, fromProject) {
   // cannot hide the loader during the update's own reload.
   for (const id of ['d-instr-updating', 'd-instr-loading', 'd-instr-retry-row']) document.getElementById(id).hidden = true;   // #4406 too
   document.getElementById('d-instr').placeholder = '';
+  // #6716: opening a page is an appearance too, so the screen-line fold starts closed even for the agent seen last.
+  const saidFold = document.getElementById('d-said-box');
+  if (saidFold) { saidFold.open = false; delete saidFold.dataset.for; delete saidFold.dataset.waiting; }   // review 13: both keys, so an open does not lean on one
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
   /* #5624 review 6: opening an agent (again) is first sight for conversation mode: the thread's poll stopped while it
@@ -45112,7 +45179,7 @@ function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
   // #4930: and the full-page file preview.
   // #4343: and the restart screen. #4823: and the phone menu.
-  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, #pnav:not([hidden]), #pv-preview');
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, #pnav:not([hidden]), #pv-preview, #cropmodal:not([hidden])');
 }
 /* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
    document-level Escape and Tab handlers, and one Escape must not close both. */
@@ -46915,6 +46982,215 @@ async function fitPicture(blob) {
   }
 }
 
+/* #6722: the picture editor. cropPicture(file, verb) shows the chosen picture under a circle, lets the person move and
+   zoom it, and resolves to a square PNG File of the part inside the circle (CROP_OUT_PX a side, the chosen file's name), or null when
+   they cancel. A GIF is returned as chosen (cropping would stop an animated one moving), and so is a picture this
+   browser cannot open: the upload paths already cope with both. A phone photo comes in upright (its rotation tag is
+   applied when it is read), and a very large one is scaled down first so the editor stays quick. */
+const CROP_OUT_PX = 512;
+const CROP_READ_MAX = 2048;   // longest side kept while editing; more than the output ever needs
+const CROP_ZOOM_MAX = 4;
+let CROP = null;   // { bmp, iw, ih, cx, cy, zoom, done, opener, ptrs } while the editor is open
+let CROP_READING = false;   // set before the picture is read, so a second choice during a slow read is dropped too
+async function cropRead(file) {
+  let bmp;
+  try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { bmp = await createImageBitmap(file); }
+  const big = Math.max(bmp.width, bmp.height);
+  if (big <= CROP_READ_MAX) return bmp;
+  const k = CROP_READ_MAX / big;
+  // At least 1 px a side: a very long, thin picture would round its short side to 0, which the browser refuses.
+  const w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
+  try {
+    return await createImageBitmap(bmp, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
+  } catch {
+    // A browser that refuses the resize options (an older WebKit) shrinks it through a canvas instead, so a phone photo
+    // still opens the editor rather than skipping it.
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(bmp, 0, 0, w, h);
+    return await createImageBitmap(cv);
+  } finally { bmp.close(); }
+}
+/* The square the circle covers, in image pixels: its side at this zoom, centred on (cx, cy). */
+function cropSide(c) { return Math.min(c.iw, c.ih) / c.zoom; }
+function cropClamp(c) {
+  c.zoom = Math.min(CROP_ZOOM_MAX, Math.max(1, c.zoom));
+  const half = cropSide(c) / 2;
+  c.cx = Math.min(c.iw - half, Math.max(half, c.cx));
+  c.cy = Math.min(c.ih - half, Math.max(half, c.cy));
+}
+/* The circle's diameter on the stage canvas: most of it, so the picture around it still shows what is cut away. */
+function cropDiameter(cv) { return cv.width * 0.86; }
+function cropPaint() {
+  const c = CROP;
+  if (!c) return;
+  const cv = document.getElementById('crop-cv');
+  const g = cv.getContext('2d');
+  const S = cv.width;
+  const D = cropDiameter(cv);
+  const scale = D / cropSide(c);
+  g.clearRect(0, 0, S, S);
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(c.bmp, S / 2 - c.cx * scale, S / 2 - c.cy * scale, c.iw * scale, c.ih * scale);
+  // Outside the circle is dimmed, not hidden, so the person sees what they are cutting away.
+  g.save();
+  g.beginPath();
+  g.rect(0, 0, S, S);
+  g.arc(S / 2, S / 2, D / 2, 0, Math.PI * 2);
+  g.fillStyle = 'rgba(17, 20, 24, 0.55)';
+  g.fill('evenodd');
+  g.beginPath();
+  g.arc(S / 2, S / 2, D / 2, 0, Math.PI * 2);
+  g.lineWidth = Math.max(2, S / 288);
+  g.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+  g.stroke();
+  g.restore();
+  const z = document.getElementById('crop-zoom');
+  if (z && Number(z.value) !== c.zoom) z.value = String(c.zoom);
+  if (z) z.setAttribute('aria-valuetext', Math.round(c.zoom * 100) + '%');   // read as a size, not 1.37
+}
+/* Moves the picture by (dx, dy) STAGE pixels as shown on screen (a drag or a key), so it follows the finger. */
+function cropMove(dx, dy) {
+  const c = CROP;
+  if (!c) return;
+  const cv = document.getElementById('crop-cv');
+  const perCss = cv.width / (cv.getBoundingClientRect().width || cv.width);
+  const scale = cropDiameter(cv) / cropSide(c);
+  c.cx -= (dx * perCss) / scale;
+  c.cy -= (dy * perCss) / scale;
+  cropClamp(c);
+  cropPaint();
+}
+function cropZoomTo(z) {
+  const c = CROP;
+  if (!c) return;
+  c.zoom = z;
+  cropClamp(c);
+  cropPaint();
+}
+async function cropFinish(save) {
+  const c = CROP;
+  if (!c || c.closing) return;
+  c.closing = true;
+  let out = null;
+  if (save) {
+    try {
+      const cv = document.createElement('canvas');
+      const side = cropSide(c);
+      // Never larger than the part cut out: a small picture is not blown up (it would only be blurred).
+      const outPx = Math.max(1, Math.min(CROP_OUT_PX, Math.round(side)));
+      cv.width = outPx; cv.height = outPx;
+      const g = cv.getContext('2d');
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(c.bmp, c.cx - side / 2, c.cy - side / 2, side, side, 0, 0, outPx, outPx);
+      const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+      // The chosen file's own name, so "<name> will be its picture." names what they picked; the type says PNG.
+      if (blob) out = new File([blob], String(c.name || 'picture'), { type: 'image/png' });
+    } catch { out = null; }
+    // A picture that could not be cut is kept as chosen rather than lost: Save never throws the choice away.
+    if (!out) out = c.file;
+  }
+  document.getElementById('cropmodal').hidden = true;
+  try { c.bmp.close(); } catch { /* already released */ }
+  CROP = null;
+  if (c.opener && document.contains(c.opener)) c.opener.focus();
+  c.done(out);
+}
+function cropPicture(file, verb) {
+  if (!file) return Promise.resolve(null);
+  if (file.type === 'image/gif') return Promise.resolve(file);
+  if (CROP || CROP_READING) return Promise.resolve(null);   // one editor at a time; a second choice made under it, or during its read, is dropped
+  const opener = document.activeElement;
+  CROP_READING = true;
+  return cropRead(file).then((bmp) => new Promise((done) => {
+    CROP_READING = false;
+    CROP = { bmp, iw: bmp.width, ih: bmp.height, cx: bmp.width / 2, cy: bmp.height / 2, zoom: 1,
+      file, name: file.name, done, opener, ptrs: new Map(), closing: false };
+    document.getElementById('crop-go').textContent = verb || 'Save';
+    document.getElementById('cropmodal').hidden = false;
+    try { cropPaint(); }
+    catch { cropFinish(true); return; }   // a picture the editor cannot draw is saved as it opened, or kept as chosen if it cannot be cut
+    document.getElementById('crop-stage').focus();
+  }), () => { CROP_READING = false; return file; });
+}
+(function wireCrop() {
+  const stage = document.getElementById('crop-stage');
+  const zoom = document.getElementById('crop-zoom');
+  stage.addEventListener('pointerdown', (e) => {
+    if (!CROP) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;   // a right or middle press is not a drag
+    if (CROP.ptrs.size >= 2) return;                           // a third finger is ignored, not a jump
+    try { stage.setPointerCapture(e.pointerId); } catch { /* the pointer already went; nothing to follow */ }
+    CROP.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  });
+  stage.addEventListener('pointermove', (e) => {
+    const c = CROP;
+    if (!c || !c.ptrs.has(e.pointerId)) return;
+    const prev = c.ptrs.get(e.pointerId);
+    if (c.ptrs.size === 2) {
+      // Pinch: the zoom follows the change in distance between the two fingers.
+      const other = [...c.ptrs.entries()].find(([id]) => id !== e.pointerId)[1];
+      const before = Math.hypot(prev.x - other.x, prev.y - other.y);
+      const after = Math.hypot(e.clientX - other.x, e.clientY - other.y);
+      c.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (before > 0) cropZoomTo(c.zoom * (after / before));
+      return;
+    }
+    c.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    cropMove(e.clientX - prev.x, e.clientY - prev.y);
+  });
+  const lift = (e) => { if (CROP) CROP.ptrs.delete(e.pointerId); };
+  stage.addEventListener('pointerup', lift);
+  stage.addEventListener('pointercancel', lift);
+  stage.addEventListener('lostpointercapture', lift);   // a finger that vanished without an up never reads as half a pinch
+  stage.addEventListener('wheel', (e) => {
+    if (!CROP) return;
+    e.preventDefault();
+    const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);   // lines and pages, as pixels
+    cropZoomTo(CROP.zoom * Math.exp(-dy * 0.002));
+  }, { passive: false });
+  zoom.addEventListener('input', () => cropZoomTo(Number(zoom.value)));
+  document.getElementById('crop-no').addEventListener('click', () => cropFinish(false));
+  document.getElementById('crop-go').addEventListener('click', () => cropFinish(true));
+  /* The backdrop cancels only a press that began on it: a drag that starts on the picture and ends outside it is a
+     drag, not a dismissal. */
+  let downOnBack = false;
+  document.getElementById('cropmodal').addEventListener('pointerdown', (e) => { downOnBack = e.target.id === 'cropmodal'; });
+  document.getElementById('cropmodal').addEventListener('click', (e) => { if (e.target.id === 'cropmodal' && downOnBack) cropFinish(false); downOnBack = false; });
+  /* Review 4: in the capture phase, and no key goes past the editor while it is open. It opens over other windows
+     (an agent's settings), whose own document-level handlers would otherwise act on the same key: one Escape closed
+     both. Stopping the event leaves every default action alone: the slider's and the buttons' own keys, and the
+     browser's chords (Ctrl+= zoom, Ctrl+Tab), which the editor also never prevents (review 8: one rule for every key). */
+  document.addEventListener('keydown', (e) => {
+    if (!CROP || document.getElementById('cropmodal').hidden) return;
+    e.stopImmediatePropagation();
+    const onStage = e.target === stage;
+    const step = e.shiftKey ? 40 : 10;
+    if (e.key === 'Escape') { e.preventDefault(); cropFinish(false); return; }   // with any modifier held (review 7)
+    // Review 6: Ctrl+Tab and Cmd+Tab are the browser's and the system's (switching tabs and apps), never the editor's.
+    // Option+Tab stays: it is how Safari moves between buttons when Tab alone skips them.
+    if (e.key === 'Tab' && (e.ctrlKey || e.metaKey)) return;
+    if (e.key === 'Tab') {
+      // Kept inside the editor: the stage, the slider, Cancel, Save.
+      const ring = [stage, zoom, document.getElementById('crop-no'), document.getElementById('crop-go')];
+      const i = ring.indexOf(document.activeElement);
+      e.preventDefault();
+      // From outside the ring, Tab starts at the picture and Shift+Tab at Save.
+      if (i < 0) { (e.shiftKey ? ring[ring.length - 1] : ring[0]).focus(); return; }
+      ring[(i + (e.shiftKey ? ring.length - 1 : 1)) % ring.length].focus();
+      return;
+    }
+    // A key with a modifier is the browser's or the system's (page zoom, back, forward), never the editor's.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'Enter' && (onStage || e.target === zoom)) { e.preventDefault(); cropFinish(true); return; }
+    if (!onStage) return;
+    const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+    // An arrow moves the picture the way it points: the circle stays, the picture slides under it.
+    if (moves[e.key]) { e.preventDefault(); cropMove(moves[e.key][0], moves[e.key][1]); return; }
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); cropZoomTo(CROP.zoom * 1.1); return; }
+    if (e.key === '-' || e.key === '_') { e.preventDefault(); cropZoomTo(CROP.zoom / 1.1); }
+  }, true);
+})();
+
 document.getElementById('d-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
   /* #4038: cleared at once, so choosing the SAME file again (after a failure, or to redo it) fires change again; left
@@ -46926,11 +47202,15 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
   // picture for A and switching to B before it lands reports "Saved." on B's
   // panel, about a file B has nothing to do with.
   const forAgent = CURRENT.sessionName;
-  msg.textContent = 'Saving…';
+  const cut = await cropPicture(f);   // #6722: null means they cancelled; nothing changes
+  if (!cut) return;
+  // They pressed Save for forAgent, so it uploads to forAgent even if the panel moved on while the editor was open;
+  // only the messages below are kept to forAgent's own panel.
+  if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = 'Saving…';
   try {
-    const pic = await fitPicture(f);   // #4885
+    const pic = await fitPicture(cut);   // #4885
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/avatar',
-      { method: 'PUT', headers: { 'content-type': pic.type || f.type }, body: pic });
+      { method: 'PUT', headers: { 'content-type': pic.type || cut.type }, body: pic });
     const out = await res.json();
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     // Say what to do, never surface an exception name.
@@ -46944,7 +47224,7 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
     // Only the picture. openDetail would re-run the whole panel and throw away
     // anything typed into the instruction box but not yet saved.
     refreshAvatar();
-  } catch (err) { msg.textContent = err.message; }
+  } catch (err) { if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = err.message; }
 });
 
 document.getElementById('d-remove').addEventListener('click', async () => {
@@ -47301,8 +47581,11 @@ async function refreshYou() {
   paintYou();
 }
 document.getElementById('you-file').addEventListener('change', async (e) => {
-  const file = e.target.files && e.target.files[0];
+  const chosen = e.target.files && e.target.files[0];
   const msg = document.getElementById('you-msg');
+  e.target.value = '';   // cleared before the editor opens, so choosing the same file again after Cancel still fires
+  if (!chosen) return;
+  const file = await cropPicture(chosen);   // #6722: null means they cancelled; nothing changes
   if (!file) return;
   try {
     const res = await fetch('/api/you/avatar', {
@@ -52492,7 +52775,13 @@ function plusOrgReviewers(st) {
   list.textContent = '';
   box.hidden = grants.length === 0;
   if (!grants.length) return;
-  document.getElementById('plus-org-reviewers-head').textContent = plusOrgIn(st.org, 'Reviewers added to your company in the last 30 days:');
+  /* kosmos#6817: a list not confirmed for over a day (the company's grants could not be read, or this Kosmos did not
+     ask, asleep or with live execution off) says when it last was, in the heading (Mona Lisa's design). A clock that
+     ran ahead delays it. */
+  const at = Number(st.reviewerGrantsAt);
+  const stale = Number.isFinite(at) && at > 0 && Date.now() - at > 24 * 3600 * 1000;
+  document.getElementById('plus-org-reviewers-head').textContent = plusOrgIn(st.org, 'Reviewers added to your company in the last 30 days')
+    + (stale ? ' (last confirmed ' + new Date(at).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ')' : '') + ':';
   // What the role means for this member, in the coordinator's own consent words (relay #516; Mona Lisa's question 5).
   document.getElementById('plus-org-reviewers-what').textContent = st.org && st.org.kind === 'family'
     ? 'In a family, a reviewer opens nothing: there is no family backup.'
@@ -62705,11 +62994,21 @@ document.getElementById('d-file-btn').addEventListener('click', () => {
 document.getElementById('you-file-btn').addEventListener('click', () => {
   document.getElementById('you-file').click();
 });
-document.getElementById('create-avatar').addEventListener('change', (e) => {
+document.getElementById('create-avatar').addEventListener('change', async (e) => {
   // Held client-side: there is no agent yet to attach it to. Uploaded right
   // after CREATED, non-gating (an agent whose picture failed to land is a
   // working agent with a mark, not a failure).
-  AVATAR_FILE = (e.target.files && e.target.files[0]) || null;
+  const chosen = (e.target.files && e.target.files[0]) || null;
+  /* #6722: fitted first. Cancel keeps whatever was chosen before; the input is cleared so the same file can be chosen
+     again. Nothing is uploaded here, so the button says what it does. */
+  if (chosen) {
+    e.target.value = '';
+    const cut = await cropPicture(chosen, 'Use picture');
+    if (!cut) return;
+    AVATAR_FILE = cut;
+  } else {
+    AVATAR_FILE = null;
+  }
   document.getElementById('genav-hint').textContent = AVATAR_FILE
     ? AVATAR_FILE.name + ' will be its picture.'
     : '';
@@ -71004,7 +71303,7 @@ document.addEventListener('click', (e) => {
    page ever open one: none does today) owns the keys.
    The phone menu is not one: it sits under the preview. While the update overlay is up the preview and the update
    window both stand aside to it, the window on top. */
-function pvCovered() { return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open]'); }
+function pvCovered() { return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #cropmodal:not([hidden])'); }
 document.addEventListener('keydown', (e) => {
   const back = document.getElementById('pv-preview');
   if (!back || pvCovered()) return;
@@ -85493,7 +85792,7 @@ function asbPaint() {
       signIn ? (row.stateEvidence || '') : ''].join('\u0001');
     const rekeyed = busy.dataset.busyKey !== key;
     if (rekeyed) {
-      busy.innerHTML = !key ? '' : busyRowOf ? busyRow(busyRowOf, who)
+      busy.innerHTML = !key ? '' : busyRowOf ? busyRow(busyRowOf, who, { quote: true })   // #6716: the side chat has no fold, so it keeps the quote
         : '<div class="msg-av" aria-hidden="true"><img src="' + ASB_HOSTED_AVATAR + '" alt=""></div><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>' + esc(who) + ' is ' + WORKING_VERB + '&hellip;</span>';
       busy.dataset.busyKey = key;
     }

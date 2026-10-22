@@ -103,6 +103,7 @@ const CASES = [
             hasK: !!kimg,
             kSrc: kimg ? kimg.getAttribute('src') : null,
             task: taskEl ? taskEl.textContent.trim() : '',
+            pillTitle: pill ? (pill.getAttribute('title') || '') : '',
           };
         }, { disruption });
 
@@ -113,8 +114,10 @@ const CASES = [
           `${tag} card class is restarting, never off/unk`, res.cardClass);
         chk(/st-restarting/.test(res.pillClass || ''), `${tag} pill is st-restarting`, res.pillClass);
         chk(res.hasK, `${tag} the animated Kosmos K is present`, res.kSrc);
-        chk(res.task === 'This takes a few seconds. Nothing was lost.',
-          `${tag} the calm because-line is present`, JSON.stringify(res.task));
+        /* #6716 (Josh, 2026-10-20: no sentences on tiles): the calm line is the pill's hover, and the tile says nothing. */
+        chk(/This takes a few seconds\. Nothing was lost\./.test(res.pillTitle),
+          `${tag} the calm because-line is the pill's hover`, JSON.stringify(res.pillTitle));
+        chk(res.task === '', `${tag} the tile carries no sentence (#6716)`, JSON.stringify(res.task));
       }
 
       // ---- paneless: a restarting agent whose pane is GONE still reads restarting -

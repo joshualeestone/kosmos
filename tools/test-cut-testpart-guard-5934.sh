@@ -29,7 +29,7 @@ if [ -n "$g" ]; then
   # run <expected rc> <label> [VAR=value ...]: all three variables are unset first, then the arm's own are set.
   run() {
     want="$1"; label="$2"; shift 2
-    out="$(env -u KOSMOS_TEST_PART -u KOSMOS_TEST_PART_LOCAL -u KOSMOS_SHELL_SHARD "$@" bash -c "set -euo pipefail; $SRC" 2>&1)"; rc=$?
+    out="$(env -u KOSMOS_TEST_PART -u KOSMOS_TEST_PART_LOCAL -u KOSMOS_SHELL_SHARD -u KOSMOS_SHELL_PLATFORM "$@" bash -c "set -euo pipefail; $SRC" 2>&1)"; rc=$?
     if [ "$rc" = "$want" ]; then
       if [ "$want" = 1 ]; then
         case "$out" in *"A cut always tests the whole suite (#5934)"*) ok "$label" ;; *) bad "$label: refused without the #5934 message: $out" ;; esac
@@ -49,6 +49,8 @@ if [ -n "$g" ]; then
   run 1 "KOSMOS_TEST_PART=all with KOSMOS_TEST_PART_LOCAL=1 still refuses" KOSMOS_TEST_PART=all KOSMOS_TEST_PART_LOCAL=1
   run 1 "KOSMOS_SHELL_SHARD=1/2 alone refuses (run-tests.sh would stop the cut after the bump)" KOSMOS_SHELL_SHARD=1/2
   run 1 "an EMPTY KOSMOS_SHELL_SHARD refuses" KOSMOS_SHELL_SHARD=
+  run 1 "#6791: KOSMOS_SHELL_PLATFORM=linux alone refuses (run-tests.sh would stop the cut after the bump)" KOSMOS_SHELL_PLATFORM=linux
+  run 1 "#6791: an EMPTY KOSMOS_SHELL_PLATFORM refuses" KOSMOS_SHELL_PLATFORM=
   run 0 "KOSMOS_TEST_PART=all alone is allowed (the whole suite)" KOSMOS_TEST_PART=all
   run 0 "a clean environment passes (control)"
 else

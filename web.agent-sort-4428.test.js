@@ -43,7 +43,7 @@ function lift(names) {
 function api() {
   const constants = /const AGENT_SORTS = \[[^\]]*\];\s*const AGENT_SORT_DEFAULT = '[a-z-]+';/.exec(SCRIPT);
   assert.ok(constants, 'the agent sort vocabulary is missing');
-  const modelStart = SCRIPT.indexOf('function modelLine(');
+  const modelStart = SCRIPT.indexOf('function tileModelLine(');   // #6716: the sort reads what the tile shows
   const modelEnd = SCRIPT.indexOf('function acctParenthetical(', modelStart);
   const roleStart = SCRIPT.indexOf('function roleLine(');
   const roleEnd = SCRIPT.indexOf('const NEARLY_FULL =', roleStart);
@@ -52,7 +52,7 @@ function api() {
   const displayed = SCRIPT.slice(modelStart, modelEnd) + SCRIPT.slice(roleStart, roleEnd);
   const body = displayed + lift(['agentNeedsAttention', 'agentSortMode', 'agentFirstProject', 'sortAgents']);
   const seam = "const ROLE_TITLES = null; function cardStOf(a) { const attention = a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')); return { pres: a && a.state === 'stopped' ? 'off' : 'on', st: attention ? 'attn' : 'idle' }; }";
-  return new Function(`${constants[0]}\n${seam}\n${body}\nreturn { AGENT_SORTS, AGENT_SORT_DEFAULT, modelLine, roleLine, agentNeedsAttention, agentSortMode, agentFirstProject, sortAgents };`)();
+  return new Function(`${constants[0]}\n${seam}\n${body}\nreturn { AGENT_SORTS, AGENT_SORT_DEFAULT, modelLine, tileModelLine, roleLine, agentNeedsAttention, agentSortMode, agentFirstProject, sortAgents };`)();
 }
 
 const board = fleet.install(['a', 'ada', 'b', 'bea', 'cam', 'dee', 'missing', 'zed', 'zulu'].map((name) => (
@@ -149,11 +149,23 @@ test('#4428: the persisted control repaints both flat views and hides for the or
   assert.match(SCRIPT, /const shown = sortAgents\(lim \? src\.slice\(0, Number\(lim\)\) : src, AGENT_SORT, PROJECTS\);[\s\S]*shown\.map\(lrow\)/);
   assert.match(SCRIPT, /agentSortVisibility\(\)/);
   assert.match(SCRIPT, /BOARD_LAYOUT === 'org'/);
-  assert.match(SCRIPT, /mode === 'model'[\s\S]*modelLine\(aa\)/);
+  assert.match(SCRIPT, /mode === 'model'[\s\S]*text\(tileModelLine\(x\)\)/);   // #6716: what the tile shows
   assert.match(SCRIPT, /mode === 'role'[\s\S]*roleLine\(a\.agent \|\| \{\}, ROLE_TITLES\)/);
   assert.match(SCRIPT, /const needsRank = \(a\) => \{\s*if \(agentNeedsAttention\(a\)\) return 0;/);
   assert.ok((SCRIPT.match(/agentNeedsAttention\(a\) \? ' data-attn'/g) || []).length >= 6,
     'grid and list cards no longer share the Issue predicate used by the sort');
+});
+
+test('#6716: an agent showing its earlier session\'s model sorts with that model, not with the unnamed', () => {
+  const { sortAgents, tileModelLine } = api();
+  const rows = [
+    a('Missing', { runner: 'claude', modelName: null }),
+    a('Dee', { runner: 'claude', modelName: null, earlierModelName: 'Opus 5.5' }),
+    a('Bea', { runner: 'claude', modelName: 'Sonnet', state: 'idle' }),
+    a('Ada', { runner: 'claude', modelName: 'Opus 5.5', state: 'idle' }),
+  ];
+  assert.equal(tileModelLine(rows[1]), 'Claude Opus 5.5', 'control: Dee\'s tile shows the borrowed model');
+  assert.deepEqual(sortAgents(rows, 'model', projects).map((x) => x.name), ['Ada', 'Dee', 'Bea', 'Missing']);
 });
 
 test('#4569: an agent on Muse with no model yet sorts by the Meta Muse its card shows, not with the unnamed', () => {

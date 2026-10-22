@@ -73,7 +73,7 @@ if [ "$rc" -eq 0 ] && [ -z "$out" ]; then pass "quiet probe + isolated empty mar
 # without this the gate refuses EVERY page-layer run on a Mac with no other
 # run -- a total outage that reads exactly like the guard working.
 printf '#!/bin/sh\nprintf "%%s bash tools/browser-checks.sh\\n" "$$SELF"\n' > "$T/probe-self"
-sed -i '' "s/\$\$SELF/$$/" "$T/probe-self"; chmod +x "$T/probe-self"
+sed "s/\$\$SELF/$$/" "$T/probe-self" > "$T/probe-self.new" && mv "$T/probe-self.new" "$T/probe-self"; chmod +x "$T/probe-self"   # #6799: a portable rewrite, not BSD-only in-place sed
 out="$(KOSMOS_BC_PROBE="$T/probe-self" KOSMOS_BC_SELF_PID=$$ kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "does not refuse itself"; else fail "does not refuse itself (rc=$rc, out=$out)"; fi
 

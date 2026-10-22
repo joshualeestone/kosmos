@@ -91,7 +91,13 @@ else
 fi
 
 STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE"' EXIT
+# kosmos#6831: one EXIT guard for the whole build. It removes $STAGE, and $TMP only once this script has made it
+# (TMP is a common environment variable; an inherited one is never removed). It also turns a death after it (a
+# missing library, an unset variable) into a failure, which bash 3.2 would otherwise report as exit 0.
+. "$REPO/tools/lib/exit-guard.sh"
+_win_tmp_made=0
+_cleanup() { rm -rf "$STAGE"; [ "$_win_tmp_made" != 1 ] || rm -rf "$TMP"; }
+kosmos_exit_guard _cleanup build-kosmos-windows
 mkdir -p "$STAGE/app" "$STAGE/runtime"
 
 # ---- the app ---------------------------------------------------------------
@@ -262,7 +268,7 @@ BASE="https://nodejs.org/dist/v$NODE_VERSION"
 # platform, can put scratch into the artifact. A guard that depends on deletion
 # winning a race is weaker than not putting the file there.
 TMP="$(mktemp -d)"
-trap 'rm -rf "$STAGE" "$TMP"' EXIT
+_win_tmp_made=1   # the guard's cleanup now removes it too (kosmos#6831)
 curl -fsSL "$BASE/$ZIP" -o "$TMP/$ZIP"
 curl -fsSL "$BASE/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt"
 WANT="$(grep " $ZIP\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')"
@@ -674,3 +680,4 @@ else
   echo "      pwsh tools/windows/publish-r2.ps1 -Zip $ZIPOUT -ForSigning"
   echo "    then send the key holder the version and manifest sha256 it prints. publish-r2.ps1 refuses to stage this build without the .sig."
 fi
+kosmos_finished

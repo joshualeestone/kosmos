@@ -79,7 +79,7 @@ test('the card, list and detail header all share taskLine with no noQuote opt-ou
      NOT pass it (the option is gone) while still sharing the one taskLine derivation, so the quote
      cannot come back by a caller stopping to pass an option. */
   const grid = PAGE.match(/<div class="atask">\$\{esc\(taskLine\([^)]*\)\)\}<\/div>/);
-  const list = PAGE.match(/\$\{lrowTask\(taskLine\([^)]*\), [^)]*\)\)\}/);   // #6045: the list cell is drawn by lrowTask
+  const list = PAGE.match(/\$\{lrowTask\(taskLine\([^)]*\)\)\}/);   // #6045: the list cell is drawn by lrowTask (#6716: one argument)
   assert.ok(grid, 'the grid card no longer renders .atask this way; re-derive this test');
   assert.ok(list, 'the list row no longer renders .ltask this way; re-derive this test');
   assert.doesNotMatch(grid[0], /noQuote/, 'the GRID card must not pass the removed noQuote option');

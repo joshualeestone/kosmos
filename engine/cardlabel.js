@@ -16,7 +16,7 @@ const STATE_COPY = Object.freeze({
   question: 'Question',
   approval: 'Needs permission',   // #6091; #6727 (Josh, 10-20): says what it waits for
   rate_limited: 'Rate Limit',   // #6398 (Josh 2026-10-17), kept equal to the page by cardlabel-5959
-  auth_failed: "Sign-in isn't working",
+  auth_failed: 'Sign-in Issue',   // #6716 (Josh 2026-10-20), kept equal to the page by cardlabel-5959
   connection_lost: 'Connection lost',
   blocked: 'Waiting',
   idle: 'Idle',

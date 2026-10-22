@@ -23,7 +23,7 @@ start() { "$@" >/dev/null 2>&1 & PIDS="$PIDS $!"; disown "$!" 2>/dev/null || tru
 pids_of() { printf '%s\n' "$1" | awk 'NF {print $1}' | sort -n | tr '\n' ' '; }
 # Wait (up to ~5 s) until each pid shows its own command line to pgrep: a fresh fork can briefly show its
 # parent's, which would read as a missing run on a loaded Mac.
-settle() { local p i; for p in "$@"; do for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -fl "${NAME//./\\.}" | awk '{print $1}' | grep -qx "$p" && break; sleep 0.5; done; done; }
+settle() { local p i; for p in "$@"; do for i in 1 2 3 4 5 6 7 8 9 10; do _kosmos_pgrep_cmdlines "${NAME//./\\.}" 2>/dev/null | awk '{print $1}' | grep -qx "$p" && break; sleep 0.5; done; done; }
 
 # Nothing running yet.
 out="$(kosmos_running_lines "$SCRIPT")"; rc=$?
@@ -95,6 +95,48 @@ out="$(pgrep() { return 3; }; kosmos_running_lines "$SCRIPT")"; rc=$?
 [ "$rc" = 2 ] && ok "a failing pgrep returns 2 (could not tell), not 1" || bad "failing pgrep: rc=$rc"
 kosmos_running_lines "" >/dev/null; rc=$?
 [ "$rc" = 2 ] && ok "no script named: returns 2" || bad "empty script: rc=$rc"
+
+# #6799: _kosmos_pgrep_cmdlines does not list its own ancestors. macOS pgrep never does; procps pgrep does, and the
+# caller plus every `$( )` subshell around the call carry the caller's command line, so a run would read itself as a
+# second run. SELF calls it from nested subshells; SIB is a separate process matching the same pattern (the control:
+# it must be listed, so this arm can fail). Off macOS, SELF also counts what raw `pgrep -fa` lists of its own
+# lineage, which must be nonzero, or the filter was never exercised.
+ANC="fake-anc-6799-$$"
+printf '#!/bin/bash\nsleep 30\n' > "$T/tools/$ANC-sib.sh"
+{
+  printf '%s\n' '#!/bin/bash' '. "$1/tools/lib/cut-guard.sh"'
+  printf 'out="$( ( _kosmos_pgrep_cmdlines "%s" ) )"\n' "$ANC"
+  printf 'case "${OSTYPE:-}" in darwin*) raw=skip ;; *) raw="$( ( pgrep -fa "%s" | grep -c -- -self\\.sh ) )" ;; esac\n' "$ANC"
+  printf '%s\n' 'echo "raw $raw"' 'printf "%s\n" "$out"'
+} > "$T/tools/$ANC-self.sh"
+start bash "$T/tools/$ANC-sib.sh"; sib="${PIDS##* }"
+for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -f "$ANC-sib\.sh" | grep -qx "$sib" && break; sleep 0.5; done
+got="$(bash "$T/tools/$ANC-self.sh" "$PWD")"
+printf '%s\n' "$got" | grep -qE "^$sib " && ok "_kosmos_pgrep_cmdlines lists a separate matching process (control)" \
+  || bad "the separate matching process $sib was not listed: [$got]"
+printf '%s\n' "$got" | grep -q -- '-self\.sh' && bad "_kosmos_pgrep_cmdlines listed its own ancestors: [$got]" \
+  || ok "_kosmos_pgrep_cmdlines does not list its own ancestors"
+case "$(printf '%s\n' "$got" | sed -n 's/^raw //p')" in
+  skip) ok "macOS: pgrep excludes its own ancestors itself (no raw count to check)" ;;
+  ''|0) bad "raw pgrep -fa listed none of SELF's own lineage, so the ancestor filter was never exercised" ;;
+  *) ok "raw pgrep -fa lists SELF's own lineage here, and the filter removed it" ;;
+esac
+
+# #6799: the Linux branch on THIS host's bash (3.2 on macOS, where a bare case pattern `)` inside `$( )` fails to
+# parse at run time, which `bash -n` cannot see): OSTYPE forced to linux-gnu and pgrep stubbed to list the calling
+# subshell itself (not $$: a walk that started at $$ would keep it), the caller, its parent and a stranger. Only the
+# stranger may remain; with nothing matching, the answer is 1.
+got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; uname(){ echo Linux; }; ( me="$(exec sh -c '\''echo "$PPID"'\'')"; pgrep(){ printf "%s\n" "$me subshell" "$PPID parent" "$$ caller" "99999 stranger"; }; _kosmos_pgrep_cmdlines x ); echo "rc=$?"' 2>&1)"
+[ "$got" = "$(printf '%s\n' '99999 stranger' 'rc=0')" ] && ok "the Linux branch drops the caller's lineage and keeps a stranger, on this bash" \
+  || bad "the Linux branch on this bash: [$got]"
+got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; uname(){ echo Linux; }; pgrep(){ return 1; }; ( _kosmos_pgrep_cmdlines x ); echo "rc=$?"' 2>&1)"
+[ "$got" = "rc=1" ] && ok "the Linux branch passes pgrep's 1 (nothing) through" || bad "the Linux branch with no match: [$got]"
+
+# #6799: an inherited OSTYPE that is not darwin does not send a Mac to `pgrep -fa` (bash keeps an inherited OSTYPE;
+# on macOS -a means "include ancestors" and prints no command lines, so the guards would match nothing). uname is
+# stubbed to Darwin and pgrep to print the flags it was given.
+got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; uname(){ echo Darwin; }; pgrep(){ echo "flags $1"; }; _kosmos_pgrep_cmdlines x' 2>&1)"
+[ "$got" = "flags -fl" ] && ok "a Mac with a non-darwin OSTYPE still uses pgrep -fl" || bad "a Mac with OSTYPE=linux-gnu: [$got]"
 
 echo "test-running-anchor-5470: $FAILS failure(s)"
 [ "$FAILS" = 0 ]

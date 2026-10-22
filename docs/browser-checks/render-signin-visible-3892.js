@@ -1,4 +1,4 @@
-// Browser-check-surface: d-reauth d-start-wrap d-start-agent dhead d-said d-instr-stale d-sec-talk d-swarm-panel d-nav-swarm d-dmthread linkish d-name d-task d-meta detail-state dnamerow
+// Browser-check-surface: d-reauth d-start-wrap d-start-agent dhead d-said d-said-box d-said-lab d-instr-stale d-sec-talk d-swarm-panel d-nav-swarm d-dmthread linkish d-name d-task d-meta detail-state dnamerow
 'use strict';
 
 /**
@@ -81,7 +81,7 @@ async function open(browser, eng, w, h, theme, card, swarms) {
 /* Runs in the page: show the notes (all four, or without Start), then measure both actions in the header. */
 function notesAndMeasure(opts) {
   const show = (id, text) => { const e = document.getElementById(id); e.hidden = false; if (text) e.textContent = text; };
-  show('d-said-lab', 'Its last words');
+  { const sb = document.getElementById('d-said-box'); sb.hidden = false; sb.open = true; } show('d-said-lab', 'Its last words');
   show('d-said', 'You have hit your usage limit. It resets at 5pm. Upgrade your plan to keep going, or wait for the reset and try again then.');
   show('d-instr-stale', 'These instructions changed since the agent last started. Restart it to use them.');
   if (opts.start) show('d-start-wrap'); else document.getElementById('d-start-wrap').hidden = true;
@@ -128,9 +128,28 @@ function notesAndMeasure(opts) {
         }
         // A keyboard reaches Sign in again with its whole focus ring visible: Tab (Option-Tab in WebKit) from Start this agent (a
         // real key, so :focus-visible applies), then the ring (outline box) must lie inside the header.
+        /* #6716: the screen line's summary opens and closes from the keyboard; both engines reach it by Tab (below). */
+        const toggleSaid = async (how) => {
+          const before = await page.evaluate(() => document.getElementById('d-said-box').open);
+          await page.keyboard.press('Enter');
+          const toggled = await page.evaluate(() => document.getElementById('d-said-box').open);
+          await page.keyboard.press('Enter');
+          chk(toggled === !before, `${t} the screen line's summary ${how} and Enter opens or closes it`, JSON.stringify({ before, toggled }));
+        };
         await page.evaluate(() => { document.querySelector('.dhead').scrollTop = 0; document.getElementById('d-start-agent').focus(); });
         // WebKit, like Safari by default, moves Tab between text fields only; Option-Tab reaches buttons.
         await page.keyboard.press(eng === 'webkit' ? 'Alt+Tab' : 'Tab');
+        /* #6716: the screen line sits in a fold whose summary is a stop of its own (a keyboard must be able to open
+           it), between Start and Sign in again in page order, in both engines. If Tab ever stops landing there, the
+           per-engine count below reds. */
+        const tabAt = await page.evaluate(() => (document.activeElement || {}).id);
+        if (tabAt === 'd-said-lab') {
+          await toggleSaid('takes Tab');   // the reason it is a stop: a keyboard opens and closes it
+          await page.keyboard.press(eng === 'webkit' ? 'Alt+Tab' : 'Tab');
+        } else {
+          // Review 15: say why, rather than leaving only the count to go red. (A pass adds nothing, so the count holds.)
+          chk(false, `${t} Tab from Start lands on the screen line's summary`, `it landed on ${tabAt || 'nothing'}`);
+        }
         const ring = await page.evaluate(() => {
           const e = document.activeElement; const head = document.querySelector('.dhead').getBoundingClientRect();
           if (!e || e.id !== 'd-reauth') return { error: 'Tab did not reach Sign in again', at: e && e.id };
@@ -144,7 +163,7 @@ function notesAndMeasure(opts) {
         const s = m.top.start;
         chk(s.inHead && s.onTop, `${t} with every note, Start this agent is on screen in the header and not covered`, JSON.stringify(s));
         chk(w > 375 ? m.threadH >= m.baseThreadH : m.threadH >= m.baseThreadH - SE_BUDGET_PX, `${t} the conversation keeps its height without Sign in again (an SE gives up at most ${SE_BUDGET_PX}px)`, `threadH=${m.threadH} base=${m.baseThreadH}`);
-        await page.evaluate(() => { document.querySelectorAll('#d-said-lab, #d-said, #d-instr-stale, #d-reauth, #d-start-wrap').forEach((e) => { e.hidden = true; }); });
+        await page.evaluate(() => { document.querySelectorAll('#d-said-box, #d-said-lab, #d-said, #d-instr-stale, #d-reauth, #d-start-wrap').forEach((e) => { e.hidden = true; }); });
         const plainCap = await page.evaluate(() => Math.round(parseFloat(getComputedStyle(document.querySelector('.dhead')).maxHeight)));
         const alone = await page.evaluate(notesAndMeasure, { start: false });
         chk(alone.top.reauth.inHead && alone.top.reauth.onTop && alone.bottom.reauth.inHead && alone.bottom.reauth.onTop && alone.capPx === plainCap, `${t} Sign in again alone (no Start) is on screen at the block's top and bottom and the header cap is unchanged`, JSON.stringify({ top: alone.top.reauth, bottom: alone.bottom.reauth, cap: alone.capPx, plainCap }));
@@ -158,7 +177,7 @@ function notesAndMeasure(opts) {
           const painted = await p2.evaluate(() => {
             const show = (id, text) => { const e = document.getElementById(id); e.hidden = false; if (text) e.textContent = text; };
             const shownByPainter = !document.getElementById('d-reauth').hidden;
-            show('d-said-lab', 'Its last words');
+            { const sb = document.getElementById('d-said-box'); sb.hidden = false; sb.open = true; } show('d-said-lab', 'Its last words');
             show('d-said', 'Please run /login. Your sign-in has expired. Sign in again to keep working, then try the last message again.');
             show('d-instr-stale', 'These instructions changed since the agent last started. Restart it to use them.');
             const head = document.querySelector('.dhead'); head.scrollTop = 0; const H = head.getBoundingClientRect();
@@ -241,7 +260,7 @@ function notesAndMeasure(opts) {
   // A run cut short, or a loop that ran nothing, must not read as a pass: the count is part of the result.
   /* 8 phone and theme runs x 16 checks, 2 sideways, 4 on wide screens. 21 per run until #4433 moved the swarm's
      controls out of the header: its 11 Stop-now checks per run became 6 (two painted swarm agents x 3). */
-  const EXPECTED_PER_ENGINE = 134;
+  const EXPECTED_PER_ENGINE = 142;   // #6716: + the summary's keyboard toggle, once per phone and theme
   const want = EXPECTED_PER_ENGINE * (process.env.ENGINES || 'chromium').split(',').length;
   if (RAN !== want) { console.log(`FAIL  ran ${RAN} checks, expected ${want}`); fail.push('check count'); }
   console.log(fail.length ? `\n${fail.length} FAILED` : `\nALL PASS (${RAN} checks)`);

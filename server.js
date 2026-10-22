@@ -534,8 +534,9 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
     + (n ? ': "' + n + '"' : '')
     + (forParent.includes(m) ? ' (it is under your task ' + heldAt.number + ')' : '')
     /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
-       Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). */
-    + (/^sha256:[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint : '')
+       Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). kosmos#6849: it
+       names the command, since a PDF's fingerprint is not its shasum and an older instruction says shasum. */
+    + (/^sha256:[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file>)' : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
@@ -2231,7 +2232,9 @@ function whoamiFor(card, known, live) {
        📌 Keyed on a KNOWN non-claude runner, so an answer carrying no runner at
        all (every injected reader that predates this field) takes the old path. */
     const foreignRunner = !!(resolvedRunner && resolvedRunner !== 'claude');
-    if (!foreignRunner && rec && rec.model) {
+    /* #6716: a model borrowed from an EARLIER session is not what this one runs (a switch or relaunch that has not
+       replied yet): skip it, so the launch argument below answers, as it did before the borrowing existed. */
+    if (!foreignRunner && rec && rec.model && rec.earlierSession !== true) {
       /* `modelDisplayName`, NOT the raw id, and this is the branch that normally
          answers. The LIVE path's display name was pinned; this one - the
          PREFERRED source for the model - was asserted nowhere, so swapping it
@@ -11400,7 +11403,8 @@ const server = http.createServer(async (req, res) => {
       const reportingRequired = here ? require('./engine/orgpolicy').reportingRequired() : false;
       sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
        // kosmos#6752: recent reviewer grants, to the screen only and only when there are some (the not-joined shape is unchanged).
-       ...(here && rec && Array.isArray(rec.reviewerGrants) && rec.reviewerGrants.length ? { reviewerGrants: oe.cleanReviewerGrants(rec.reviewerGrants) } : {}),
+       ...(here && rec && Array.isArray(rec.reviewerGrants) && rec.reviewerGrants.length ? { reviewerGrants: oe.cleanReviewerGrants(rec.reviewerGrants),
+         ...(Number.isFinite(rec.reviewerGrantsAt) ? { reviewerGrantsAt: rec.reviewerGrantsAt } : {}) } : {}),   // kosmos#6817: when the list was last confirmed
        stoppedFor: stopped, ...(stopped ? { stoppedKind } : {}), leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
@@ -19034,6 +19038,8 @@ const server = http.createServer(async (req, res) => {
            comes back on Claude's own default rather than not coming back. */
         const out = register.repair({
           only,
+          /* #6716: a model from the agent's EARLIER session is accepted here on purpose. Repair restores what it LAST
+             RAN AS and acts only on agents with no login job, so no planned model competes; the borrowed one is that. */
           modelFor: (name) => {
             try { const m = status.readModel(name); return (m && m.model) || null; }
             catch { return null; }

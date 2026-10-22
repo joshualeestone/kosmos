@@ -51,8 +51,24 @@ kosmos_box_load_1min() {
     raw="$KOSMOS_LOADAVG_RAW"
   else
     raw="$(sysctl -n vm.loadavg 2>/dev/null || true)"
+    # #6799: Linux has no vm.loadavg. /proc/loadavg starts "1m 5m 15m", so wrap
+    # those three in macOS's "{ ... }" shape and the one shared awk below still
+    # reads field 2, as the seam path does.
+    if [ -z "$raw" ] && [ -r /proc/loadavg ]; then
+      raw="$(awk '{print "{ " $1 " " $2 " " $3 " }"}' /proc/loadavg 2>/dev/null || true)"
+    fi
   fi
   printf '%s\n' "$raw" | awk '{print $2}' || true
+}
+
+# #6799: the core count. macOS answers `sysctl -n hw.ncpu`; Linux has no hw.ncpu
+# and answers `getconf _NPROCESSORS_ONLN`. Prints nothing when neither does, so
+# each caller keeps its own fallback (4, or serial). Its twin for the light side is
+# _kosmos_load_and_cores in tools/lib/cut-guard.sh, which reads cores and load from
+# the same sources (it falls through on empty output, this on exit status); change
+# one, change both.
+kosmos_cpu_count() {
+  sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || true
 }
 
 # The load at or below which a gated step may run. Default: 1.5x the core count
@@ -64,7 +80,7 @@ kosmos_cut_load_threshold() {
     return 0
   fi
   local ncpu
-  ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+  ncpu="$(kosmos_cpu_count)"; [ -n "$ncpu" ] || ncpu=4
   # LC_ALL=C: sysctl always prints a `.`-decimal load, so the compare and format
   # must not follow a comma-decimal LC_NUMERIC.
   LC_ALL=C awk -v n="$ncpu" 'BEGIN { printf "%.1f", n * 1.5 }'
@@ -180,7 +196,7 @@ kosmos_cut_parallel_max_load() {
     return 0
   fi
   local ncpu
-  ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+  ncpu="$(kosmos_cpu_count)"; [ -n "$ncpu" ] || ncpu=4
   # LC_ALL=C: sysctl prints a `.`-decimal, so the format must not follow a
   # comma-decimal LC_NUMERIC (same reason as kosmos_cut_load_threshold).
   LC_ALL=C awk -v n="$ncpu" 'BEGIN { printf "%.1f", n * 0.5 }'
@@ -203,7 +219,7 @@ kosmos_cut_parallel_ok() {
   [ "${KOSMOS_CUT_PARALLEL:-}" = 1 ] || return 1
 
   local ncpu min_cores
-  ncpu="$(sysctl -n hw.ncpu 2>/dev/null || true)"
+  ncpu="$(kosmos_cpu_count)"
   case "$ncpu" in *[!0-9]*|'') return 1 ;; esac    # unreadable/garbage cores -> serial
   min_cores="$(kosmos_cut_parallel_min_cores)"
   # 10# forces base-10 so a (hypothetical) leading-zero core count cannot read as
