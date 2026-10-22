@@ -150,8 +150,14 @@ case "$route" in
         # The REAL board refuses a name over 32 characters (kosmos#6906: the gate's old names were longer).
         if [ "${#nm}" -gt 32 ]; then emit '{"outcome":"refused","because":"keep it to 32 characters or fewer","field":"name"}' 400; exit 0; fi
         printf '%s\n' "$nm" >> "$STATE"
+        # kosmos#6906: what the real create writes to disk (in the case's sandbox): a launchd job file and a worker folder.
+        if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -n "${AGENT_WORKFORCE_WORKERS:-}" ]; then
+          mkdir -p "$AGENT_WORKFORCE_LAUNCH" "$AGENT_WORKFORCE_WORKERS/$nm"; : > "$AGENT_WORKFORCE_LAUNCH/com.kosmos.agent.$nm.plist"
+        fi
         # kosmos#6906: lost = the board made the agent but the answer never arrived (a timeout): no body, code 000.
         if [ "${MOCK_CREATE:-ok}" = lost ]; then printf '000'; exit 0; fi
+        # kosmos#6906: othername = the board made the agent but answers with ANOTHER agent's name (one already on it).
+        if [ "${MOCK_CREATE:-ok}" = othername ]; then emit '{"outcome":"created","name":"someone-else"}' 200; exit 0; fi
         # The REAL board returns the result object at TOP LEVEL (server.js sendJson(res,code,result)
         # -> {outcome, name, ...}), NOT nested under a `result` key. Emit that so the gate's
         # top-level `j.name` read path is exercised (its `j.result.name||j.name` fallback stays
@@ -217,8 +223,9 @@ run_case() {
   # kosmos#5849: the caller's own values for these are cleared before the case's are applied, or a case inherits an
   # exported scenario and goes red with nothing naming why. The "CALLER exports" case below is the control for this
   # list: the caller exports every name on it.
-  outp="$(env -u KOSMOS_HOME -u KOSMOS_AGENT_REPLY_TIMEOUT \
+  outp="$(env -u KOSMOS_HOME -u KOSMOS_AGENT_REPLY_TIMEOUT -u KOSMOS_WORLD \
     -u MOCK_ACCOUNTS -u MOCK_AGENT_STATE -u MOCK_CREATE -u MOCK_PREEXISTING -u MOCK_REPLY -u MOCK_SEND -u MOCK_REMOVE \
+    AGENT_WORKFORCE_LAUNCH="$root/LaunchAgents" AGENT_WORKFORCE_WORKERS="$root/workers" AGENT_WORKFORCE_DATA="$root/data" \
     "$@" MOCK_STATE="$state" KOSMOS_AOC_CURL="$FIXDIR/fakeboard" \
     KOSMOS_STORE_ROOT="$root" KOSMOS_PORT=19999 \
     KOSMOS_AGENT_ONLINE_POLL_INT=1 KOSMOS_AGENT_ONLINE_TIMEOUT=4 KOSMOS_AGENT_REPLY_TIMEOUT=3 \
@@ -226,6 +233,11 @@ run_case() {
   rc=$?
   # kosmos#6906: every agent the check created is removed, whatever the verdict (a failed removal is said, and
   # exempts the case from this assertion).
+  # ... and nothing of theirs on disk: no job file, no worker folder (kosmos#6906: they broke validations on Mortals).
+  local files; files="$(ls "$root/LaunchAgents" "$root/workers" 2>/dev/null | grep verify2129 | tr '\n' ' ')"
+  if [ -n "$files" ] && ! has "$outp" "could not remove"; then
+    rm -rf "$root" "$state"*; bad "$label: files left on disk after the check: $files"; return
+  fi
   if [ -s "$state" ] && ! has "$outp" "could not remove"; then
     local left; left="$(tr '\n' ' ' < "$state" 2>/dev/null)"
     rm -rf "$root" "$state"*; bad "$label: agents left on the board after the check: $left"; return
@@ -273,6 +285,33 @@ run_case "unreadable /api/status (200, no agent list) -> FAIL CLOSED" 2 --expect
 run_case "Claude ONLINE, OpenAI WEDGED -> PARTIAL (3, surface not auto-hold)" 3 --expect "PARTIAL" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=claude-ok-openai-wedge
 run_case "no openai account -> cannot-tell"             2  MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=idle
 run_case "Claude present but signed OUT -> cannot-tell"  2  MOCK_ACCOUNTS=claude-signedout MOCK_AGENT_STATE=idle
+
+# kosmos#6906: a board answering a create with ANOTHER name: cannot-tell, its own agent removed, the other never touched.
+R="$(mktemp -d "${TMPDIR:-/tmp}/aoc-root.XXXXXX")"; printf 'tok\n' > "$R/board.token"; ST="$(mktemp "${TMPDIR:-/tmp}/aoc-state.XXXXXX")"
+printf 'someone-else\n' > "$ST"
+env -u KOSMOS_HOME -u KOSMOS_WORLD AGENT_WORKFORCE_LAUNCH="$R/LaunchAgents" AGENT_WORKFORCE_WORKERS="$R/workers" AGENT_WORKFORCE_DATA="$R/data" \
+  MOCK_STATE="$ST" KOSMOS_AOC_CURL="$FIXDIR/fakeboard" KOSMOS_STORE_ROOT="$R" KOSMOS_PORT=19999 \
+  KOSMOS_AGENT_ONLINE_POLL_INT=1 KOSMOS_AGENT_ONLINE_TIMEOUT=4 KOSMOS_AGENT_REPLY_TIMEOUT=3 MOCK_ACCOUNTS=both MOCK_CREATE=othername \
+  bash "$CHECK" >/dev/null 2>&1; rc=$?
+if [ "$rc" = 2 ] && ! grep -qx someone-else "${ST}.removed" 2>/dev/null && grep -qx someone-else "$ST" \
+   && grep -q '^verify2129-claude-' "${ST}.removed" 2>/dev/null && ! grep -q '^verify2129-' "$ST"; then
+  pass "a create answered with ANOTHER name -> cannot-tell (2), only its own agent removed"
+else bad "create answered with another name: rc=$rc removed=[$(tr '\n' ' ' < "${ST}.removed" 2>/dev/null)] left=[$(tr '\n' ' ' < "$ST")]"; fi
+rm -rf "$R" "$ST"*
+
+# kosmos#6906: TERM part way through (polling a created agent): exit 2 and nothing left on the board.
+R="$(mktemp -d "${TMPDIR:-/tmp}/aoc-root.XXXXXX")"; printf 'tok\n' > "$R/board.token"; ST="$(mktemp "${TMPDIR:-/tmp}/aoc-state.XXXXXX")"; : > "$ST"
+env -u KOSMOS_HOME -u KOSMOS_WORLD AGENT_WORKFORCE_LAUNCH="$R/LaunchAgents" AGENT_WORKFORCE_WORKERS="$R/workers" AGENT_WORKFORCE_DATA="$R/data" \
+  MOCK_STATE="$ST" KOSMOS_AOC_CURL="$FIXDIR/fakeboard" KOSMOS_STORE_ROOT="$R" KOSMOS_PORT=19999 \
+  KOSMOS_AGENT_ONLINE_POLL_INT=1 KOSMOS_AGENT_ONLINE_TIMEOUT=60 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=stopped-forever \
+  bash "$CHECK" >/dev/null 2>&1 &
+pid=$!; n=0
+while [ ! -s "$ST" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n+1)); done   # until its first agent exists
+sleep 1; kill -TERM "$pid" 2>/dev/null; wait "$pid"; rc=$?
+if [ "$rc" = 2 ] && [ -s "${ST}.removed" ] && ! grep -q '^verify2129-' "$ST"; then
+  pass "TERM part way through -> exit 2, its agent removed"
+else bad "TERM part way: rc=$rc removed=[$(tr '\n' ' ' < "${ST}.removed" 2>/dev/null)] left=[$(tr '\n' ' ' < "$ST")]"; fi
+rm -rf "$R" "$ST"*
 
 # no board.token -> cannot-tell (fails before any transport call)
 NOTOK="$(mktemp -d "${TMPDIR:-/tmp}/aoc-notok.XXXXXX")"

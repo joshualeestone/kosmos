@@ -143,6 +143,21 @@ listed() {
       const a=j.agents||j.cards||j.fleet||(Array.isArray(j)?j:null);if(!a){process.stdout.write("?");return}
       process.stdout.write(a.some(c=>(c.sessionName||c.session||c.name||"")===process.argv[1])?"yes":"no")})' "$1"
 }
+# kosmos#6906: after its removal, delete one of THIS gate's throwaway agents' launchd job file and worker folder. The
+# board's Remove agent deletes nothing on disk (engine/remove.js: removal is reversible), and a job file left in
+# ~/Library/LaunchAgents is what a full validation's #3011 guard reads. The paths come from the board's own engine
+# (plistPath, workerDir), never from a copy of its rules, and only a name this gate makes is ever touched.
+tidy_agent() {
+  local nm="$1" paths plist dir
+  case "$nm" in verify2129-claude-*|verify2129-openai-*) ;; *) return ;; esac
+  case "${nm#verify2129-*-}" in *[!0-9-]*|'') return ;; esac
+  paths="$("$NODE" -e 'const c=require(process.argv[1]+"/create");if(typeof c.plistPath!=="function")process.exit(3);process.stdout.write(c.plistPath(process.argv[2])+"\n"+c.workerDir(process.argv[2]))' "$(dirname "$STORE")" "$nm" 2>/dev/null)" \
+    || { say "WARNING: could not ask this board's engine where '$nm' keeps its files (an older board?): remove its com.kosmos.agent plist and worker folder by hand."; return; }
+  plist="${paths%%$'\n'*}"; dir="${paths#*$'\n'}"
+  case "${plist##*/}" in "com.kosmos.agent.$nm"*.plist) [ -f "$plist" ] && rm -f "$plist" ;; esac
+  [ "${dir##*/}" = "$nm" ] && [ -d "$dir" ] && rm -rf "$dir"
+  if [ -e "$plist" ] || [ -e "$dir" ]; then say "WARNING: '$nm' left files behind: $plist $dir"; else say "deleted '$nm''s job file and worker folder."; fi
+}
 # kosmos#6906: remove one agent this check created, and say whether it is gone from /api/status.
 remove_agent() {
   local nm="$1" code still
@@ -160,6 +175,7 @@ remove_agent() {
   fi
   api_get /api/status
   still="$(listed "$nm")"
+  tidy_agent "$nm"
   case "$still" in
     no)  say "removed '$nm' (gone from /api/status)." ;;
     yes) say "WARNING: removed '$nm' (HTTP 200) but it is still listed in /api/status: check it on the board." ;;
@@ -299,8 +315,12 @@ create_and_wait() {
   # a maybe only when the board lists it (only this run makes a name with this STAMP and pid).
   MAYBE_NAMES="$MAYBE_NAMES $nm"
   local resp; api_post /api/agents "$body"; resp="$RESP_BODY"
-  # A 400 is the board refusing: nothing was made. A 200 made it: removed whatever the list says (below).
-  case "$HTTP_CODE" in 400|200) MAYBE_NAMES="${MAYBE_NAMES% $nm}" ;; esac
+  # A 400 is the board refusing: nothing was made. A 200 made it: confirmed at once (before anything else can be
+  # interrupted), and removed whatever the list says.
+  case "$HTTP_CODE" in
+    200) CREATED_NAMES="$CREATED_NAMES $nm"; MAYBE_NAMES="${MAYBE_NAMES% $nm}" ;;
+    400) MAYBE_NAMES="${MAYBE_NAMES% $nm}" ;;
+  esac
   if [ "$HTTP_CODE" = "400" ]; then
     local err400; err400="$(printf '%s' "$resp" | "$NODE" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).error||s)}catch{process.stdout.write(s)}})')"
     # A 400 is only a DO-NOT-PROMOTE signal when it names a real provider sign-in failure
@@ -324,7 +344,11 @@ create_and_wait() {
   # session slug the board assigned (fall back to the name we asked for).
   sess="$(printf '%s' "$resp" | "$NODE" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{return};process.stdout.write((j.result&&j.result.name)||j.name||"")})')"
   [ -z "$sess" ] && sess="$nm"
-  CREATED_NAMES="$CREATED_NAMES $sess"
+  # The gate removes only the name it asked for. A board that answers with another name is not trusted with a removal,
+  # and what it made cannot be told apart from an agent somebody else has: cannot-tell.
+  if [ "$sess" != "$nm" ]; then
+    say "  [$prov] the board answered '$sess' for a create of '$nm' - cannot tell (only '$nm' is removed)"; return 2
+  fi
   say "  [$prov] created '$sess' - polling for online (up to ${POLL_SECS}s)..."
 
   # online_streak: require idle|working on TWO CONSECUTIVE polls before calling it online. This

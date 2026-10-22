@@ -293,7 +293,12 @@ if [ "$FAMILY" = mac ]; then
   # trust wedge / auth / never-online (#2129 class) -> refuse, never forceable; 2 cannot-tell
   # (no enforcing board, a provider not signed in, or no answer in time) -> HOLD, forceable
   # only after a HAND check. Override the command via KOSMOS_PROMOTE_AGENT_GATE_CMD.
-  AGENT_GATE_CMD="${KOSMOS_PROMOTE_AGENT_GATE_CMD:-bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-agent-online-check.sh}"
+  # kosmos#6906: the gate creates real agents, and a launchd job file made during someone's full validation reds that
+  # run's #3011 guard (it did, 2026-10-22, on Mortals). So by default it takes a real turn in the machine's suite queue
+  # (tools/queued-heavy.sh: waits for no suite to be running, holds the machine claim while it runs, passes the gate's
+  # exit code through). An explicit KOSMOS_PROMOTE_AGENT_GATE_CMD runs as given.
+  _pc_repo="$(cd "$(dirname "$0")/.." && pwd)"
+  AGENT_GATE_CMD="${KOSMOS_PROMOTE_AGENT_GATE_CMD:-bash $_pc_repo/tools/queued-heavy.sh agent-spawn-gate bash $_pc_repo/tools/staging-agent-online-check.sh}"
   echo "promote-channel: running the agent-spawn gate: $AGENT_GATE_CMD${PORT:+ (port $PORT)}"
   $AGENT_GATE_CMD ${PORT:+"$PORT"}; AGENT_RC=$?
   case "$AGENT_RC" in
