@@ -17,6 +17,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 const { execFileSync } = require('node:child_process');
+const { killServerAt } = require('../test-support/tmux-kill');
 
 const REPO = path.join(__dirname, '..');
 
@@ -91,7 +92,8 @@ test('a tmux that answers is not a problem, and clears an older one', () => {
     assert.equal(got.threw, null, 'reading our own server threw: ' + got.threw);
     assert.equal(got.problem, null, 'a healthy look left a problem standing: ' + got.problem);
   } finally {
-    try { execFileSync(TMUX_BIN, ['kill-server'], { env: tmuxEnv, stdio: 'ignore' }); } catch { /* already gone */ }
+    // kosmos#6857: by the socket's path, through the one helper, so a folder gone missing cannot reach the machine's server.
+    try { killServerAt(TMUX_BIN, path.join(sock, 'tmux-' + process.getuid(), 'default'), { env: tmuxEnv, stdio: 'ignore' }); } catch { /* already gone */ }
     fs.rmSync(sb, { recursive: true, force: true });
     fs.rmSync(sock, { recursive: true, force: true });
   }

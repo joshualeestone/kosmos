@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFile, execFileSync } = require('node:child_process');
+const { killServerAt } = require(path.join(__dirname, '..', '..', 'test-support', 'tmux-kill.js'));
 
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'connect-live-'));
 console.log('SANDBOX', SB);
@@ -26,7 +27,10 @@ process.on('exit', () => {
   // KOSMOS_KEEP_SANDBOX=1 keeps the session too, so a red run can still be looked at.
   if (KEEP) { console.log('tmux kept: attach with TMUX_TMPDIR=' + TMUX_DIR + ' tmux attach'); return; }
   try {
-    execFileSync(process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux', ['kill-server'], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 5000 });
+    /* kosmos#6857: by the socket's path, through the one helper. With TMUX_TMPDIR alone, a folder that is gone by now
+       (a /tmp sweep) makes tmux fall back to /tmp/tmux-<uid>/default, the machine's own server, and kill-server ends
+       every session on it. The helper never runs tmux for a socket that is not there, and refuses the machine's own. */
+    killServerAt(process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux', path.join(TMUX_DIR, 'tmux-' + process.getuid(), 'default'), { stdio: ['ignore', 'ignore', 'pipe'], timeout: 5000 });
   } catch (e) {
     const why = (String((e && e.stderr) || '').trim() || String((e && e.message) || '')).trim();
     if (e && e.code !== 'ENOENT' && !/no server running|error connecting to .*\(no such file or directory\)/i.test(why)) console.error('WARN could not stop the private tmux server in', TMUX_DIR, '-', why.slice(0, 200));
