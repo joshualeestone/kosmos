@@ -4462,6 +4462,7 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
   const updates = require('./engine/update');
   const realLocation = updates.windowsLocationRefusal;
   const realRollback = updates.rollbackOffer;
+  const realLastAttempt = updates.lastAttempt;
   const realLog = console.log;
   const realError = console.error;
   const lines = [];
@@ -4493,7 +4494,7 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
     const rb = await req('/api/update/rollback', { method: 'POST', headers: { 'content-type': 'application/json' } });
     assert.equal(rb.status, 500, 'a throw in the Roll back route did not answer');
     assert.match(JSON.parse(rb.body).error, /^Kosmos could not start the roll back just now\. Try again in a minute\.$/);
-    assert.ok(logged(/FAIL update press: the rollback engine exploded/), 'the roll back throw was not logged');
+    assert.ok(logged(/FAIL rollback press: the rollback engine exploded/), 'the roll back throw was not logged');
     updates.windowsLocationRefusal = realLocation;
     updates.rollbackOffer = realRollback;
 
@@ -4510,11 +4511,28 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
     assert.equal(go.status, 200, go.body);
     assert.equal(ran, 1, 'the installer did not run on a good press');
     assert.ok(!logged(/press answered/), 'a started update was logged as a refusal:\n' + lines.join('\n'));
+    assert.ok(JSON.parse(go.body).startedAt, 'CONTROL: a good press lost its start stamp');
+
+    // Once the installer has started, a throw reading its stamp is not a refusal: 200, no stamp, the cause logged.
+    updates.setInstalledRoot(null);   // before the look, or the automatic install starts first and the press joins it
+    updates.resetCache();
+    await updates.refresh();
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
+    updates.setInstallRunner(() => { ran += 1; });
+    updates.lastAttempt = () => { throw new Error('the stamp exploded'); };
+    lines.length = 0;
+    const late = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(late.status, 200, 'an install that started was answered as a refusal: ' + late.body);
+    assert.equal(ran, 2, 'the installer did not run on the second good press');
+    assert.equal(JSON.parse(late.body).startedAt, null);
+    assert.ok(logged(/FAIL update press: started, but its start stamp could not be read: the stamp exploded/), lines.join('\n'));
+    assert.ok(!logged(/press answered/), 'a started update was logged as a refusal:\n' + lines.join('\n'));
   } finally {
     console.log = realLog;
     console.error = realError;
     updates.windowsLocationRefusal = realLocation;
     updates.rollbackOffer = realRollback;
+    updates.lastAttempt = realLastAttempt;
     updates.resetCache();
     updates.setFetcher(null);
     updates.setInstallRunner(null);

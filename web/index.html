@@ -24420,7 +24420,8 @@ document.getElementById('uc-go').addEventListener('click', async () => {
        without a reason. Each says what happened and the one thing to do; the board logs its own refusals (#6903). */
     const did = rollingBack ? 'roll back' : 'update';
     const said = (body && body.error) || (!res
-      ? 'Kosmos did not answer, so the ' + did + ' did not start. It may be restarting, perhaps to install this update already. Wait a minute, then reload this page.'
+      ? 'Kosmos did not answer, so this page cannot tell whether the ' + did + ' started. Kosmos may be restarting'
+        + (rollingBack ? '' : ', perhaps to install it') + '. Wait a minute, then reload this page.'
       : 'Kosmos could not start the ' + did + ' (it answered ' + res.status + ' with no reason). Try again in a minute.');
     /* 🛑 "THERE IS NO UPDATE TO INSTALL RIGHT NOW" UNDER A BUTTON THAT SAYS
        UPDATE (Josh, 2026-08-23 13:03, screenshot). The offer came from a

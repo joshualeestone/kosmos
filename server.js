@@ -3774,11 +3774,26 @@ function updatePressAnswer(res, kind) {
     sendJson(res, code, obj);
   };
 }
-function updatePressThrew(res, say, sentence, err) {
+const UPDATE_PRESS_FAILED = {
+  update: 'Kosmos could not start the update just now. Try again in a minute.',
+  rollback: 'Kosmos could not start the roll back just now. Try again in a minute.',
+};
+function updatePressThrew(res, say, kind, err) {
   const detail = String((err && err.message) || err);
-  if (res.headersSent) { console.error('FAIL update press after answering: ' + detail); return; }
-  console.error('FAIL update press: ' + detail);
-  say(500, { error: sentence, detail });
+  if (res.headersSent) { console.error('FAIL ' + kind + ' press after answering: ' + detail); return; }
+  console.error('FAIL ' + kind + ' press: ' + detail);
+  say(500, { error: UPDATE_PRESS_FAILED[kind], detail });
+}
+/* Once the installer has started, the press is answered 200 whatever follows: a throw reading the stamp is logged and
+   the answer goes without it, never as a refusal of an install that is already running. */
+function startedStamp(kind) {
+  try {
+    const att = updates.lastAttempt();
+    return att ? att.startedAt : null;
+  } catch (err) {
+    console.error('FAIL ' + kind + ' press: started, but its start stamp could not be read: ' + String((err && err.message) || err));
+    return null;
+  }
 }
 
 /* #6734: a stored file sent from disk as a stream, never read whole, so a 100 MB attachment costs the board a
@@ -16007,19 +16022,18 @@ const server = http.createServer(async (req, res) => {
       }
       try { updates.beginInstall(); }
       catch (err) {
-        say(500, { error: 'Kosmos could not start the update just now. Try again in a minute.', detail: String((err && err.message) || err) });
+        say(500, { error: UPDATE_PRESS_FAILED.update, detail: String((err && err.message) || err) });
         return;
       }
       /* #553: the attempt's own start stamp rides back so the page can tell
          THIS attempt's verdict from any older one by exact equality, never
          by comparing clocks. */
-      const att = updates.lastAttempt();
-      say(200, { ok: true, updating: avail.version, startedAt: att ? att.startedAt : null });
+      say(200, { ok: true, updating: avail.version, startedAt: startedStamp('update') });
       return;
     } catch (err) {
       /* #6903: a throw here used to reject the request handler, and with no process-level handler that ends the
          board: the press got no answer at all and the dialog could only say it could not start. */
-      updatePressThrew(res, say, 'Kosmos could not start the update just now. Try again in a minute.', err);
+      updatePressThrew(res, say, 'update', err);
     }
     return;
   }
@@ -16061,16 +16075,15 @@ const server = http.createServer(async (req, res) => {
       }
       try { updates.beginRollback(); }
       catch (err) {
-        say(500, { error: 'Kosmos could not start the roll back just now. Try again in a minute.', detail: String((err && err.message) || err) });
+        say(500, { error: UPDATE_PRESS_FAILED.rollback, detail: String((err && err.message) || err) });
         return;
       }
-      const att = updates.lastAttempt();
-      say(200, { ok: true, rollingBackTo: rollback.version, startedAt: att ? att.startedAt : null });
+      say(200, { ok: true, rollingBackTo: rollback.version, startedAt: startedStamp('rollback') });
       return;
     } catch (err) {
       /* #6903: a throw here used to reject the request handler, and with no process-level handler that ends the
          board: the press got no answer at all and the dialog could only say it could not start. */
-      updatePressThrew(res, say, 'Kosmos could not start the roll back just now. Try again in a minute.', err);
+      updatePressThrew(res, say, 'rollback', err);
     }
     return;
   }

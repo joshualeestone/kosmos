@@ -15,9 +15,22 @@ Card: kosmos#6903 (Josh, 2026-10-22 10:46 CDT: the dialog showed only "we could 
 - Wrap both update routes in try/catch. A throw answers 500 with "Kosmos could not start the update just now. Try
   again in a minute." (roll back likewise), logs `FAIL update press: <cause>`, and the board keeps serving.
 - Log every non-200 answer to a press with the sentence the person saw, so the next report needs nobody asked.
-- The page names the two cases with no sentence from the route: no answer ("Kosmos did not answer ... Wait a minute,
-  then reload this page.") and an answer without a reason ("... it answered <status> with no reason. Try again in a
-  minute."). The route's own sentence still wins. The dialog is never stranded: Update stays pressable.
+- The page names the two cases with no sentence from the route: no answer ("Kosmos did not answer, so this page cannot
+  tell whether the update started ... Wait a minute, then reload this page.") and an answer without a reason ("... it
+  answered <status> with no reason. Try again in a minute."). The route's own sentence still wins. The dialog is never
+  stranded: Update stays pressable.
+
+## Review round 1
+- The no-answer sentence claimed the update "did not start", which the page cannot know (an install can start and
+  then stop the board before the answer leaves). It now says the page cannot tell.
+- In Roll back mode it said "install this update"; the Roll back sentence has no install clause, and the browser
+  check now drives Roll back too, through the page's own setUpdConfirmMode.
+- A throw AFTER the installer started (reading its start stamp) would have answered 500 "could not start" for an
+  install that was running. startedStamp() logs it and answers 200 without the stamp. Test arm plus mutant (an
+  unguarded read): red.
+- The throw log names the kind of press; the sentences are one constant per kind (UPDATE_PRESS_FAILED).
+- Not changed: the test cannot itself see the pre-fix failure (an unhandledRejection the runner turns red); the
+  mutant run recorded above is the evidence.
 
 ## Rejected
 - A process-level unhandledRejection handler for the whole board: much wider than this card, and it would change how

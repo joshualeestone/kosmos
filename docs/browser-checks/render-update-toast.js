@@ -222,28 +222,30 @@ const RELPORT = freePort();
        Update pressable (the 08-23 stranding). */
     let pressed = 0;
     let answer = null;
-    await p.route('**/api/update', (route) => {
+    const stub = (route) => {
       if (route.request().method() !== 'POST') return route.continue();
       pressed += 1;
       return answer(route);
-    });
-    const press = async () => {
+    };
+    await p.route('**/api/update', stub);
+    await p.route('**/api/update/rollback', stub);
+    const press = async (label = 'Update') => {
       const before = pressed;
       await p.click('#uc-go');
       await p.waitForFunction(() => { const e = document.getElementById('uc-err'); return e && !e.hidden; }, null, { timeout: 10000 });
-      if (pressed !== before + 1) die('#6903: the Update press did not reach the stubbed route (' + pressed + ')');
+      if (pressed !== before + 1) die('#6903: the ' + label + ' press did not reach the stubbed route (' + pressed + ')');
       const out = await p.evaluate(() => ({
         err: document.getElementById('uc-err').textContent.trim(),
         go: document.getElementById('uc-go').textContent.trim(),
         enabled: !document.getElementById('uc-go').disabled,
         open: !document.getElementById('updconfirm').hidden,
       }));
-      if (!out.open || !out.enabled || out.go !== 'Update') die('#6903: the dialog was left stranded: ' + JSON.stringify(out));
+      if (!out.open || !out.enabled || out.go !== label) die('#6903: the dialog was left stranded: ' + JSON.stringify(out));
       return out.err;
     };
     answer = (route) => route.abort('connectionreset');
     const none = await press();
-    if (none !== 'Kosmos did not answer, so the update did not start. It may be restarting, perhaps to install this update already. Wait a minute, then reload this page.')
+    if (none !== 'Kosmos did not answer, so this page cannot tell whether the update started. Kosmos may be restarting, perhaps to install it. Wait a minute, then reload this page.')
       die('#6903: no answer said: ' + none);
     await p.screenshot({ path: path.join(OUT, 'update-confirm-no-answer.png') });
     answer = (route) => route.fulfill({ status: 502, body: '' });
@@ -255,7 +257,15 @@ const RELPORT = freePort();
     const own = await press();
     if (own !== 'Kosmos could not start the update just now. Try again in a minute.') die('#6903: the route\'s own sentence was replaced: ' + own);
     await p.screenshot({ path: path.join(OUT, 'update-confirm-route-sentence.png') });
-    await p.unroute('**/api/update');
+    // The same dialog in Roll back mode, through the page's own mode switch: no "install it" in its sentence.
+    await p.evaluate(() => setUpdConfirmMode('rollback', '0.0.1'));
+    answer = (route) => route.abort('connectionreset');
+    const rbNone = await press('Roll back');
+    if (rbNone !== 'Kosmos did not answer, so this page cannot tell whether the roll back started. Kosmos may be restarting. Wait a minute, then reload this page.')
+      die('#6903: a Roll back with no answer said: ' + rbNone);
+    await p.evaluate(() => setUpdConfirmMode('update'));
+    await p.unroute('**/api/update', stub);
+    await p.unroute('**/api/update/rollback', stub);
 
     // Not now closes. #3955: the chip has no Later; a Later pressed on an older page (a note in this
     // browser) still quiets its version for its window, which is the reading kept below.
