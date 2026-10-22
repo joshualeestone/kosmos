@@ -35,7 +35,15 @@ test('#6895: only OPEN parts count; a finished part held by a former member is h
   ];
   const rows = tasks.allTasks([{ id: 'p', name: 'P', agents: ['ada'], tasks: [{ number: 3, sentence: 's', createdAt: '2026-10-01T00:00:00Z', closedAt: null, parts }] }]);
   assert.equal(row(rows, 3).offProject, undefined);
-  const openParts = parts.map((x) => ({ ...x, closedAt: null }));
+  const openParts = parts.map((x) => (x.who === 'rex' ? { ...x, closedAt: null } : x));
   const rows2 = tasks.allTasks([{ id: 'p', name: 'P', agents: ['ada'], tasks: [{ number: 3, sentence: 's', createdAt: '2026-10-01T00:00:00Z', closedAt: null, parts: openParts }] }]);
   assert.deepEqual(row(rows2, 3).offProject, ['rex'], 'CONTROL: the same part, open, is marked');
+});
+
+test('#6895: a FINISHED task is history: no offProject even when its part was left open (closing leaves parts open)', () => {
+  const closed = { number: 5, sentence: 's', createdAt: '2026-10-01T00:00:00Z', closedAt: '2026-10-21T00:00:00Z',
+    parts: [{ id: 1, who: 'rex', sentence: 's', closedAt: null }] };
+  const rows = tasks.allTasks([{ id: 'p', name: 'P', agents: ['ada'], tasks: [closed, open(6, 'rex')] }]);
+  assert.equal(row(rows, 5).offProject, undefined);
+  assert.deepEqual(row(rows, 6).offProject, ['rex'], 'CONTROL: the same holder on an open task is marked');
 });
