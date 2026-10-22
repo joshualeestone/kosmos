@@ -2,7 +2,7 @@
 /**
  * #6923 (agent feedback 10-22): review-and-correct cycles leave built tasks a later task replaced, and they read as
  * work waiting for review. A close can now say which task replaced it: the task is closed, carries replacedBy, and its
- * history says replaced. Reopening, or a plain close, clears the link.
+ * history says replaced. Reopening clears the link; a later plain close of a replaced task keeps it.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -80,9 +80,12 @@ test('#6923: two tasks cannot each be marked as replaced by the other', () => {
 test('#6923: a task already closed can be marked replaced afterwards, and the history says so once', () => {
   const pid = two('Later');
   tasks.close(pid, 1);
+  const finished = '2026-01-02T03:04:05.000Z';   // an older finish, so a reset to now would show
+  projects.mutate(pid, (p) => ({ ...p, tasks: p.tasks.map((t) => (t.number === 1 ? { ...t, closedAt: finished } : t)) }));
   tasks.close(pid, 1, { replacedBy: 2 });
   tasks.close(pid, 1, { replacedBy: 2 });   // the same again records nothing new
   assert.equal(stored(pid, 1).replacedBy, 2);
+  assert.equal(stored(pid, 1).closedAt, finished, 'when it finished does not move');
   assert.deepEqual(kinds(pid, 1).filter((k) => k.startsWith('closed') || k.startsWith('replaced')), ['closed', 'replaced:2']);
 });
 

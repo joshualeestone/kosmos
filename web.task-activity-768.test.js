@@ -267,3 +267,16 @@ test('#5842: an agent\'s unconfirmed message, and one kept behind earlier messag
   assert.doesNotMatch(behind, /out of usage|reset/, 'a message kept behind others spoke of a usage limit');
   assert.doesNotMatch(agent + behind, /kept-sent|kept-dropped/, 'a raw event kind reached the screen');
 });
+
+test('#6923: a close or a later mark as replaced reads as words, with the replacing task as a link', async () => {
+  const acts = await render([
+    { at: minsAgo(9), kind: 'closed', replacedBy: 12 },
+    { at: minsAgo(4), kind: 'replaced', replacedBy: 13 },
+    { at: minsAgo(2), kind: 'closed' },
+  ]);
+  const html = acts.innerHTML;
+  assert.match(html, /Closed as replaced by <button type="button" class="linkish" data-sub="12">task 12<\/button>/);
+  assert.match(html, /Marked as replaced by <button type="button" class="linkish" data-sub="13">task 13<\/button>/);
+  assert.match(html, /Marked done/, 'CONTROL: a plain close is still Marked done, with no link');
+  assert.equal((html.match(/data-sub=/g) || []).length, 2, 'only the two replaced rows carry a link');
+});

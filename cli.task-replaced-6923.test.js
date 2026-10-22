@@ -152,6 +152,11 @@ test('#6923: the route: no body is a plain close (older callers); a body it cann
   assert.equal(garbled.status, 400);
   assert.match(await garbled.text(), /could not read that request, so the task was not closed/);
   assert.equal(isDone(g), false, 'a garbled replace must not close the task as done');
+  for (const body of ['{"replacedby":2}', '{"replaced_by":2}', '[2]', '"2"', '2', '{"replacedBy":2,"x":1}']) {
+    const r = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${g}/close`, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+    assert.equal(r.status, 400, body);
+    assert.equal(isDone(g), false, body + ': closed it anyway');
+  }
   const [b, c] = openTwo('route-bad');
   const bad = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${b}/close`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ replacedBy: true }) });
   assert.equal(bad.status, 400);

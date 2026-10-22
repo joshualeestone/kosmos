@@ -999,6 +999,8 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null } = {}
       if (by.replacedBy === t.number) throw new Error('task ' + replacedBy + ' is already marked as replaced by this one');
       replacedNew = changed.replacedBy !== replacedBy;
       changed.replacedBy = replacedBy;
+      // Marking a task already closed keeps when it finished: only the link is new.
+      if (t.closedAt) changed.closedAt = t.closedAt;
     } else if (closedAt === null) {
       delete changed.replacedBy;   // a reopen clears the link; a plain close leaves one that is there
     }

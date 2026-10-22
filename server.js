@@ -22379,7 +22379,11 @@ const server = http.createServer(async (req, res) => {
         let body = null;
         const text = String(raw == null ? '' : raw);   // readBody can hand back a Buffer
         if (text.trim()) {
-          try { body = JSON.parse(text); } catch { sendJson(res, 400, { error: 'we could not read that request, so the task was not closed' }); return; }
+          try { body = JSON.parse(text); } catch { body = undefined; }
+          // Anything but { replacedBy } (a misspelled key, a bare number, a list) is refused the same way, never taken as a plain close.
+          if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => k !== 'replacedBy')) {
+            sendJson(res, 400, { error: 'we could not read that request, so the task was not closed' }); return;
+          }
         }
         act('', body && typeof body === 'object' ? body.replacedBy : undefined);
       }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
