@@ -96,6 +96,7 @@ struct ContentView: View {
         .onChange(of: web.pageURL) { url in
             if let next = AppTabs.follow(pageURL: url, selected: tab, pressWaiting: web.pressWaiting, tasksTab: web.tasksTab) {
                 tab = next
+                if AppTabs.followPresses(pageURL: url, to: next) { web.press(next) }
             }
         }
         // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing.
@@ -323,7 +324,7 @@ final class BoardWeb: ObservableObject {
     // answered this launch (PressTracker.launchReads). A later load replaces the round.
     func loaded() {
         if let tab = tracker.pending { press(tab, ready: true) }
-        if let round = tracker.loaded() { schedule(round, at: PressTracker.launchReads) }
+        if let round = tracker.loaded(host: webView?.url?.host) { schedule(round, at: PressTracker.launchReads) }
     }
 
     // The app came back to the front: a return round of reads (PressTracker.returnReads).

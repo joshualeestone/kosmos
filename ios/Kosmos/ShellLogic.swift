@@ -262,9 +262,15 @@ enum AppTabs {
         case opened
         // The board said no: the press is over, and the bar goes back to the tab the page still shows.
         case refused
-        // No door, or no answer (an error mid-navigation): the press waits for the next page to load.
+        // No answer (an error mid-navigation): the press waits for the next page to load.
         case absent
+        // A page without the door. On the sign-in page the press waits, since the hand-off to the Mac is still to
+        // come; on a Mac's page (an older board, which will never have it) the press ends where the page is.
+        case noDoor
     }
+
+    // The coordinator's sign-in host (KosmosConfig.coordinatorOrigin), where a press waits for the hand-off.
+    static let signInHost = "login.kosmosplus.com"
 
     // What a press's answer does: whether the press is over, and where the bar goes (nil: it stays). A refusal puts
     // the bar on the tab of the section the page is really on, read from its address (the board keeps ?tab= there
@@ -276,6 +282,9 @@ enum AppTabs {
         case .opened: return (true, nil)
         case .absent: return (false, nil)
         case .refused: return (true, tab(forBoardURL: pageURL))
+        case .noDoor:
+            guard let host = pageURL?.host, host != signInHost else { return (false, nil) }
+            return (true, tab(forBoardURL: pageURL))
         }
     }
 
@@ -288,11 +297,19 @@ enum AppTabs {
         return next == selected ? nil : next
     }
 
+    // Whether following needs a press too: the page is on a section the bar does not offer (a Tasks section the bar
+    // has not earned), so the bar lit Today and the page is brought there. Pressed now, since no box is up: the page
+    // moved by itself.
+    static func followPresses(pageURL: URL?, to tab: Tab) -> Bool {
+        pageURL != nil && self.tab(forBoardURL: pageURL) != tab
+    }
+
     static func answer(_ result: Any?, error: Error?) -> DoorAnswer {
         guard error == nil else { return .absent }
         switch result as? String {
         case "opened": return .opened
         case "refused": return .refused
+        case "absent": return .noDoor
         default: return .absent
         }
     }
@@ -356,6 +373,9 @@ struct PressTracker {
     // Whether a launch round has had an answer at all (a "0" too). Its round reads on to its end, but later loads
     // start no new launch round: the bar changes only at launch or on a return (Mona Lisa), not at every load.
     private(set) var launchAnswered = false
+    // The host the launch's reads are for. The flag is per Mac, so a load on another host (the person switched
+    // computers in the page) starts the launch's reads again.
+    private(set) var launchHost: String?
 
     // What BoardWeb sees of its page when a press comes: no web view yet (a signed-in launch opens on Agents, and a
     // web tab's host is made only when first shown), one still loading, or one that can take the press.
@@ -401,7 +421,11 @@ struct PressTracker {
 
     // A page finished loading: a launch round of Tasks reads starts if none has answered this launch (its number, or
     // nil).
-    mutating func loaded() -> Int? {
+    mutating func loaded(host: String? = nil) -> Int? {
+        if let host = host, host != launchHost {
+            if launchHost != nil { readThisLaunch = false; launchAnswered = false }
+            launchHost = host
+        }
         guard !readThisLaunch && !launchAnswered else { return nil }
         readRound += 1
         readRoundIsLaunch = true
@@ -437,5 +461,6 @@ struct PressTracker {
         pending = AppTabs.pressScript(selected) == nil ? nil : selected
         readThisLaunch = false
         launchAnswered = false
+        launchHost = nil
     }
 }
