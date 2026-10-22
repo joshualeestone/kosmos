@@ -314,7 +314,7 @@ if [ "$FAMILY" = mac ]; then
     bash "$_pc_queue" agent-spawn-gate $AGENT_GATE_CMD ${PORT:+"$PORT"} 2>&1 | tee "$_pc_qlog"; _pc_qrc=${PIPESTATUS[0]}
     AGENT_RC="$(sed -n 's/^QUEUED-HEAVY [0-9:]* END rc=\([0-9][0-9]*\):.*/\1/p' "$_pc_qlog" | tail -1)"
     _pc_inherited=""; grep -q "agent-spawn-gate runs now, inside the turn" "$_pc_qlog" 2>/dev/null && _pc_inherited=1
-    [ "$_pc_qlog" = /dev/null ] || rm -f "$_pc_qlog"
+    [ "$_pc_qlog" = /dev/null ] || rm -f "$_pc_qlog"; _pc_qlog=""   # #6922: the EXIT trap must not remove a reused name
     if [ -z "$AGENT_RC" ] && [ -n "$_pc_inherited" ]; then
       # Started inside a turn that already holds the machine (an inherited claim): the queue exec'd the gate itself and
       # prints no END line, so its exit code IS the gate's.

@@ -253,6 +253,13 @@ case "$route" in
         lostnothing) if [ "$(grep -cx "$nm" "${STATE}.leftover")" = 1 ]; then printf '000'; exit 0; fi
                      emit "{\"outcome\":\"refused\",\"because\":\"nothing of ${MOCK_SHOWN:-$nm} is left on this computer, so there is nothing to delete.\"}" 400; exit 0;;
         garbage200) emit '<html>proxy</html>' 200; exit 0;;
+        # runlost (review 7): the board refuses (the pane still running), then every later answer is lost.
+        runlost) if [ "$(grep -cx "$nm" "${STATE}.leftover")" = 1 ]; then
+                   emit "{\"outcome\":\"refused\",\"because\":\"$nm is running, so there is nothing left over to delete\"}" 400; exit 0
+                 fi; printf '000'; exit 0;;
+        # notrashfield: a deleted answer from a board that does not say where the files went.
+        notrashfield) rm -f "${AGENT_WORKFORCE_LAUNCH:-/nonexistent}/com.kosmos.agent.$nm.plist"; rm -rf "${AGENT_WORKFORCE_WORKERS:-/nonexistent}/$nm"
+                      emit "{\"outcome\":\"deleted\",\"shown\":\"$nm\"}" 200; exit 0;;
       esac
       # transient: the first DELETE meets a pane still closing (a plan refusal, no steps); the next one clears.
       if [ "${MOCK_LEFTOVER:-ok}" = transient ] && [ "$(grep -cx "$nm" "${STATE}.leftover")" = 1 ]; then
@@ -273,7 +280,9 @@ case "$route" in
         movefail) emit '{"outcome":"refused","because":"we could not move its folder or its auto-start file. None of its files were moved.","steps":[{"step":"its community standing","ok":true},{"step":"its folder","ok":false,"because":"EPERM"}]}' 400; exit 0;;
         held409) emit '{"outcome":"refused","because":"an account move is in progress"}' 409; exit 0;;
         nocheck) emit "{\"outcome\":\"refused\",\"because\":\"we could not check whether $nm is running, so nothing was deleted\"}" 400; exit 0;;
-        partial) emit '{"outcome":"partial","because":"we could not move its folder. its auto-start file is gone."}' 200; exit 0;;
+        # A real PARTIAL has moved something (gone.length > 0): here the job file went, the folder stayed (review 7).
+        partial) rm -f "${AGENT_WORKFORCE_LAUNCH:-/nonexistent}/com.kosmos.agent.$nm.plist"
+                 emit '{"outcome":"partial","because":"we could not move its folder. its auto-start file is gone."}' 200; exit 0;;
         partial-tokens) gone; emit '{"outcome":"partial","because":"we could not revoke its sender tokens. its folder and its auto-start file are gone."}' 200; exit 0;;
         # The real board says this only when it finds no files: as if create had written them where the board does not look.
         nothing) gone; emit "{\"outcome\":\"refused\",\"because\":\"nothing of ${MOCK_SHOWN:-$nm} is left on this computer, so there is nothing to delete.\"}" 400; exit 0;;
@@ -377,6 +386,8 @@ run_case "no answer, twice: the gate deletes the files itself (0)" 0 --expect "w
 run_case "a lost DELETE, then 'nothing of' it while the files are still here: deleted here, not called cleared (0)" 0 --expect "were deleted here instead" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=lostnothing
 run_case "a 200 the gate cannot read: its files are left and said (0)" 0 --kept --expect "could not read what it did" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=garbage200
 run_case "no route and nothing at this machine's paths: a warning to check LaunchAgents, not 'gone' (0)" 0 --expect "found no files at" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=noroute MOCK_NO_FILES=1
+run_case "a refusal, then lost answers: the refusal still holds, files left (0)" 0 --kept --expect "before that the board refused" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=runlost
+run_case "a deleted answer without toTrash claims neither Trash nor gone for good (0)" 0 --expect "cleared 'verify2129-claude-1" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=notrashfield
 run_case "a plan refusal that passes in a moment (a pane closing) is asked once more and clears (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=transient
 run_case "after a refusal, the board's typed words from the plan read again (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=transient MOCK_LEFTOVER_TYPED=1 MOCK_SHOWN=Gate-Display
 run_case "a plan that answers ok:false, then a DELETE that clears, is cleared (0)" 0 --expect "cleared 'verify2129-openai-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=refused
@@ -445,7 +456,7 @@ done
 # fake's carries a world suffix the gate could not derive), once per provider. Run
 # UNsandboxed (no AGENT_WORKFORCE_LAUNCH) under a throwaway HOME, with a stub launchctl first on PATH that only records.
 # The control is the same run sandboxed: no enable at all.
-for arm in live sandboxed noroute noplan transient; do
+for arm in live sandboxed noroute noplan transient landed partial-tokens; do
   R="$(mktemp -d "${TMPDIR:-/tmp}/aoc-root.XXXXXX")"; printf 'tok\n' > "$R/board.token"; ST="$(mktemp "${TMPDIR:-/tmp}/aoc-state.XXXXXX")"; : > "$ST"
   mkdir -p "$R/stub"; printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\n' "$R/launchctl.log" > "$R/stub/launchctl"; chmod +x "$R/stub/launchctl"
   if [ "$arm" = live ]; then sb=(-u AGENT_WORKFORCE_LAUNCH -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_DATA)
@@ -454,6 +465,8 @@ for arm in live sandboxed noroute noplan transient; do
   # noplan: the plan's GET fails, the DELETE clears: the label comes from this machine's engine for the name.
   # transient: the first plan refuses (no label) and the DELETE meets a closing pane; the label is the re-read plan's.
   elif [ "$arm" = transient ]; then sb=(-u AGENT_WORKFORCE_LAUNCH -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_DATA MOCK_LEFTOVER=transient)
+  # landed and partial-tokens: the two other branches that re-enable the label (review 7).
+  elif [ "$arm" = landed ] || [ "$arm" = partial-tokens ]; then sb=(-u AGENT_WORKFORCE_LAUNCH -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_DATA MOCK_LEFTOVER=$arm)
   elif [ "$arm" = noplan ]; then sb=(-u AGENT_WORKFORCE_LAUNCH -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_DATA MOCK_PLAN=fail)
   elif [ "$arm" = noroute ]; then sb=(-u AGENT_WORKFORCE_LAUNCH -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_DATA MOCK_LEFTOVER=noroute MOCK_WRITE_HOME=1)
   else sb=(AGENT_WORKFORCE_LAUNCH="$R/LaunchAgents" AGENT_WORKFORCE_WORKERS="$R/workers" AGENT_WORKFORCE_DATA="$R/data"); fi
@@ -463,7 +476,8 @@ for arm in live sandboxed noroute noplan transient; do
     bash "$CHECK" 2>&1)"; rc=$?
   en="$(grep -cE "^enable gui/$(id -u)/com\.kosmos\.agent\.verify2129-(claude|openai)-[0-9-]+\+w1$" "$R/launchctl.log" 2>/dev/null)"
   other="$(grep -vc '^enable gui/' "$R/launchctl.log" 2>/dev/null)"
-  if { [ "$arm" = live ] || [ "$arm" = transient ]; } && [ "$rc" = 0 ] && [ "${en:-0}" = 2 ] && [ "${other:-0}" = 0 ] && has "$out" "cleared 'verify2129-claude-"; then
+  if { [ "$arm" = live ] || [ "$arm" = transient ] || [ "$arm" = landed ] || [ "$arm" = partial-tokens ]; } && [ "$rc" = 0 ] && [ "${en:-0}" = 2 ] && [ "${other:-0}" = 0 ] \
+       && { if [ "$arm" = partial-tokens ]; then has "$out" "Its files are gone"; else has "$out" "cleared 'verify2129-claude-"; fi; }; then
     pass "$arm: both agents' launchd labels are re-enabled, by the board's exact label"
   elif [ "$arm" = sandboxed ] && [ "$rc" = 0 ] && [ ! -s "$R/launchctl.log" ] && has "$out" "cleared 'verify2129-claude-"; then
     pass "control: a sandboxed run clears too and never calls launchctl"

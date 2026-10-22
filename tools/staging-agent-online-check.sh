@@ -192,9 +192,15 @@ tidy_agent() {
   # which below counts as cleared. A plan refusal (400, no steps) is asked once more after 3 s: the two that can pass in
   # a moment are "is running" while its pane closes and "could not check ... right now" (review 4). Once each: this runs
   # inside cleanup, where a second Ctrl-C is ignored (review 2).
+  # At most two DELETEs in all (review 7): cleanup ignores signals, so the bound is part of the contract.
+  local sent=0 refusal=""
   while :; do
     : > "$_BODYF"
     code="$("$CURL" -sS --max-time 60 -H @"$HF" -H 'Content-Type: application/json' -X DELETE --data "$body" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
+    sent=$((sent+1))
+    # A plan refusal is remembered, so a later lost answer cannot turn it into a delete (review 7).
+    [ "$code" = 400 ] && [ -z "$(body_field steps)" ] && case "$(body_field because)" in "nothing of "*) ;; *) refusal="$(body_field because)" ;; esac
+    [ "$sent" -ge 2 ] && break
     case "$code" in
       ""|000) [ "$tries" -ge 1 ] && break; tries=$((tries+1)); sleep 1 ;;
       400) [ -z "$waited" ] && [ -z "$(body_field steps)" ] || break
@@ -217,8 +223,11 @@ tidy_agent() {
   if [ -z "$label" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ]; then pp="$(paths_of "$nm")" && label="$(basename "${pp%%$'\n'*}" .plist)"; fi
   if [ "$code" = 200 ] && [ "$outcome" = deleted ]; then
     reenable_label "$label"
-    if [ "$toTrash" = true ]; then say "cleared '$nm': its files are in the Trash, and the name is free."
-    else say "cleared '$nm': its files are deleted (the Trash could not take them), and the name is free."; fi
+    case "$toTrash" in
+      true)  say "cleared '$nm': its files are in the Trash, and the name is free." ;;
+      false) say "cleared '$nm': its files are deleted (the Trash could not take them), and the name is free." ;;
+      *)     say "cleared '$nm', and the name is free." ;;   # an answer without toTrash says neither (review 7)
+    esac
     return
   fi
   local here=""
@@ -239,7 +248,7 @@ tidy_agent() {
         return
       fi ;;
   esac
-  local why="DELETE leftover -> HTTP ${code:-<none>}, ${outcome:-no outcome}${because:+: $because}"
+  local why="DELETE leftover -> HTTP ${code:-<none>}, ${outcome:-no outcome}${because:+: $because}${refusal:+; before that the board refused: $refusal}"
   # Only these let the gate delete the files itself (below): no answer, a board without this route (404), an error part
   # way (5xx), a PARTIAL, or a refusal carrying `steps`, which del() gives only once its plan passed and an act failed
   # (every move, or the community standing). A refusal WITHOUT steps is the plan's own judgement, and some are safety
@@ -247,7 +256,7 @@ tidy_agent() {
   # are left alone (reviews 2 and 3); so is any other answer (401, 409, a 200 it cannot read).
   local act="$here"
   case "$code" in
-    ""|000|404|5[0-9][0-9]) act=1 ;;
+    ""|000|404|5[0-9][0-9]) [ -z "$refusal" ] && act=1 ;;   # never after the board refused (review 7)
     200) [ "$outcome" = partial ] && act=1 ;;
     400) [ -n "$steps" ] && act=1 ;;
   esac
