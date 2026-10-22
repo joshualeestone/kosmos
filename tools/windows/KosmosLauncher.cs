@@ -2694,9 +2694,12 @@ class KosmosLauncher
     // later request to the board's address carries it to whatever answers there then. The opener proves the board
     // once, when the window first resolves the address (#1765). These say whether the window may go on using that
     // sign-in at each later point, from a fresh check (CheckBoardBeforeReuse) made right before it:
-    //   - a navigation to the board (a crashed page's reload, F5, the page's own reload, a link, the retry of a
-    //     load that failed): NavigationDecision on a quick check in OnNavigationStarting, before the request leaves,
-    //     then MayNavigateSignedIn on a full check when the quick one could not tell;
+    //   - a reload the window starts itself (a crashed page's reload, F5 and the other reload keys): MayNavigateSignedIn
+    //     on a full check BEFORE the reload starts (BoardWindowForm.CheckNavigationAgain);
+    //   - any navigation to the board (those reloads, the page's own reload, a link, the retry of a load that
+    //     failed): NavigationDecision on a quick check in OnNavigationStarting, then MayNavigateSignedIn on a full
+    //     check when the quick one could not tell. For a navigation the page starts, WebView2 has already sent the
+    //     request by then (measured), so this decides what is SHOWN, not what is sent (see OnNavigationStarting);
     //   - "open Kosmos.exe again", or the page's own sign-in, when the opener names no signed-in address, which
     //     leaves the open page talking to whatever answers: MayKeepPageOpen;
     //   - the page's own polling, which the window cannot stop per request: WatchShowsNotConfirmed, on the badge's
@@ -2763,6 +2766,17 @@ class KosmosLauncher
             if (waited.ElapsedMilliseconds + ReuseLookAgainMs >= waitMs) return check;
             Thread.Sleep(ReuseLookAgainMs);
         }
+    }
+
+    // #6882: the keys that reload the page in WebView2: F5 and Ctrl+F5, Ctrl+R and Ctrl+Shift+R, and a keyboard's own
+    // Refresh key. The window takes these itself (OnAcceleratorKeyPressed) and reloads only after the board proves.
+    internal const uint VirtualKeyF5 = 0x74;
+    internal const uint VirtualKeyR = 0x52;
+    internal const uint VirtualKeyBrowserRefresh = 0xA8;
+
+    internal static bool IsReloadKey(uint virtualKey, bool control)
+    {
+        return virtualKey == VirtualKeyF5 || virtualKey == VirtualKeyBrowserRefresh || (control && virtualKey == VirtualKeyR);
     }
 
     // What a navigation to the board does after the quick check: go, be refused at once (a listener answered and
@@ -3363,6 +3377,11 @@ class KosmosLauncher
     [DllImport("user32.dll")]
     internal static extern bool SetForegroundWindow(IntPtr window);
 
+    // #6882: whether Ctrl is down with a key the window hears (OnAcceleratorKeyPressed).
+    [DllImport("user32.dll")]
+    internal static extern short GetKeyState(int virtualKey);
+    internal const int VirtualKeyControl = 0x11;
+
     [DllImport("user32.dll")]
     static extern bool SetProcessDpiAwarenessContext(IntPtr context);
 
@@ -3663,6 +3682,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         webView.add_WebMessageReceived(new WebMessageReceived(this), out token);
         webView.add_NavigationCompleted(new NavigationCompleted(this), out token);
         webView.add_ContentLoading(new ContentLoading(this), out token);
+        controller.add_AcceleratorKeyPressed(new AcceleratorKeyPressed(this), out token);   // #6882
         FitViewToWindow();
         controller.MoveFocus(0);
         if (mode == KosmosLauncher.ComputerMode.Connect) LoadConnect();
@@ -3895,7 +3915,8 @@ class BoardWindowForm : System.Windows.Forms.Form
         });
     }
 
-    // #6882: a board navigation the quick check could not settle (OnNavigationStarting cancelled it): the full check
+    // #6882: a board navigation the quick check could not settle (OnNavigationStarting cancelled it), or a reload the
+    // window is about to start (OnProcessFailed, OnAcceleratorKeyPressed): the full check
     // (CheckBoardPatiently: a board restarting is waited for), off this thread, then the navigation goes after all
     // (marked approved, so it is not held a second time) or the window shows why. One full check at a time; a later
     // navigation that has to wait replaces the one waiting, and one that came on a later visit than the check out
@@ -3990,9 +4011,17 @@ class BoardWindowForm : System.Windows.Forms.Form
         string uri;
         args.get_Uri(out uri);
         // #6882: a navigation to the board carries the window's sign-in cookie to whatever answers on the port, so the
-        // board proves itself first, here, before the request leaves. This is every reuse that is a navigation: a
-        // crashed page's Reload (OnProcessFailed), F5, the page's own reload, a link, a sign-in's ?boot= load and its
-        // redirect, and the retry of a load that failed. Cancelled first, so a fault in what follows cannot let it go.
+        // board proves itself here before the navigation may go on: every navigation to the board, a link, the page's
+        // own reload, a sign-in's ?boot= load and its redirect, the retry of a load that failed. Cancelled first, so a
+        // fault in what follows cannot let it go.
+        // ⚠️ MEASURED (#6882 live rig, WebView2 Runtime on this box): for a navigation the PAGE starts (its own reload, a
+        // link) and for a Reload of a crashed page, WebView2 has already sent the request when this event is raised
+        // (the squatter saw the request about 1 ms before this check reached it). Cancelling here then stops the
+        // answer from being SHOWN in the window, not the request from leaving. So the reloads the window starts itself
+        // are checked BEFORE they start (OnProcessFailed and the reload keys, OnAcceleratorKeyPressed, through
+        // CheckNavigationAgain), and the ones the page starts can only be held here. What such a request carries is a
+        // board session, and a squatter can only take the port once the board has stopped, which ends every session
+        // (#6449): the cookie it gets is already dead. The page shown under the Kosmos title is what this guards.
         if (mode != KosmosLauncher.ComputerMode.Connect && KosmosLauncher.IsBoardAddress(uri, port))
         {
             ulong boardNav;
@@ -4125,8 +4154,9 @@ class BoardWindowForm : System.Windows.Forms.Form
 
     // A page that crashed or hung is loaded again. A browser process that ended leaves nothing to
     // load it in, so the window closes and says so, rather than sitting blank.
-    // #6882: the Reload is a navigation (WebView2 raises NavigationStarting for it), so a board page's reload is
-    // checked there before it leaves, and shows NotConfirmedPage instead when the board does not prove.
+    // #6882: a board page's reload waits for the board to prove first (CheckNavigationAgain: the full check, then the
+    // Reload, or NotConfirmedPage). Its request carries the sign-in, and the window starts it, so the window can and
+    // does check before it, not only before it is shown (OnNavigationStarting). Any other page reloads as before.
     internal void OnProcessFailed(ICoreWebView2ProcessFailedEventArgs args)
     {
         int kind;
@@ -4140,8 +4170,41 @@ class BoardWindowForm : System.Windows.Forms.Form
         if (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE)
         {
             committedPage = null;   // #5483: no page is committed until the reload commits one (the Mac clears it on terminate)
+            string onScreen = BoardPageOnScreen();
+            if (onScreen != null) { BeginInvoke(new Action(() => CheckNavigationAgain(onScreen))); return; }
             BeginInvoke(new Action(() => { try { webView.Reload(); } catch { /* F5 is still there */ } }));
         }
+    }
+
+    // #6882: the address on screen when it is this window's board page (on a computer that runs its board), else null.
+    string BoardPageOnScreen()
+    {
+        if (mode == KosmosLauncher.ComputerMode.Connect || !navigatedToBoard || boardNotConfirmed || webView == null) return null;
+        string onScreen = null;
+        try { webView.get_Source(out onScreen); } catch { return null; }
+        return KosmosLauncher.IsBoardAddress(onScreen, port) ? onScreen : null;
+    }
+
+    const int COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN = 0;
+    const int COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN = 2;
+
+    // #6882: F5, Ctrl+R and the rest of KosmosLauncher.IsReloadKey, on a board page: the window takes the key from
+    // WebView2 and reloads only after the board proves (CheckNavigationAgain), as a crashed page's reload does. A
+    // held key's repeats are taken too, so they reload nothing, and start no second check (one runs at a time).
+    // Anywhere else (a Kosmos Plus page, the window's own pages) the key does what WebView2 does with it.
+    internal void OnAcceleratorKeyPressed(ICoreWebView2AcceleratorKeyPressedEventArgs args)
+    {
+        int kind;
+        args.get_KeyEventKind(out kind);
+        if (kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN && kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN) return;
+        uint key;
+        args.get_VirtualKey(out key);
+        bool control = (KosmosLauncher.GetKeyState(KosmosLauncher.VirtualKeyControl) & 0x8000) != 0;
+        if (!KosmosLauncher.IsReloadKey(key, control)) return;
+        string onScreen = BoardPageOnScreen();
+        if (onScreen == null) return;
+        args.put_Handled(1);
+        CheckNavigationAgain(onScreen);
     }
 
     void FitViewToWindow()
@@ -4780,6 +4843,18 @@ public class NewWindowRequested : ICoreWebView2NewWindowRequestedEventHandler
 }
 
 [ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public class AcceleratorKeyPressed : ICoreWebView2AcceleratorKeyPressedEventHandler
+{
+    readonly BoardWindowForm form;
+    internal AcceleratorKeyPressed(BoardWindowForm form) { this.form = form; }
+    public int Invoke(ICoreWebView2Controller sender, ICoreWebView2AcceleratorKeyPressedEventArgs args)
+    {
+        try { form.OnAcceleratorKeyPressed(args); } catch { /* see above */ }
+        return 0;
+    }
+}
+
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
 public class ProcessFailed : ICoreWebView2ProcessFailedEventHandler
 {
     readonly BoardWindowForm form;
@@ -5305,6 +5380,24 @@ public interface ICoreWebView2ProcessFailedEventHandler
     [PreserveSig] int Invoke(ICoreWebView2 sender, ICoreWebView2ProcessFailedEventArgs args);
 }
 
+// #6882: a reload key (BoardWindowForm.OnAcceleratorKeyPressed). WebView2.h 1.0.4191.47.
+[ComImport, Guid("b29c7e28-fa79-41a8-8e44-65811c76dcb2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2AcceleratorKeyPressedEventHandler
+{
+    [PreserveSig] int Invoke(ICoreWebView2Controller sender, ICoreWebView2AcceleratorKeyPressedEventArgs args);
+}
+
+[ComImport, Guid("9f760f8a-fb79-42be-9990-7b56900fa9c7"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2AcceleratorKeyPressedEventArgs
+{
+    void get_KeyEventKind(out int keyEventKind);
+    void get_VirtualKey(out uint virtualKey);
+    void get_KeyEventLParam(out int lParam);
+    void _unused_get_PhysicalKeyStatus();
+    void get_Handled(out int handled);
+    void put_Handled(int handled);
+}
+
 [ComImport, Guid("57213f19-00e6-49fa-8e07-898ea01ecbd2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 public interface ICoreWebView2WebMessageReceivedEventHandler
 {
@@ -5336,7 +5429,7 @@ public interface ICoreWebView2Controller
     void _unused_remove_GotFocus();
     void _unused_add_LostFocus();
     void _unused_remove_LostFocus();
-    void _unused_add_AcceleratorKeyPressed();
+    void add_AcceleratorKeyPressed(ICoreWebView2AcceleratorKeyPressedEventHandler eventHandler, out long token);   // #6882
     void _unused_remove_AcceleratorKeyPressed();
     void _unused_get_ParentWindow();
     void _unused_put_ParentWindow();

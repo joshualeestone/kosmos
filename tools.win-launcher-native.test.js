@@ -433,6 +433,10 @@ const WEBVIEW2_SLOTS = {
   ICoreWebView2NavigationStartingEventHandler: ['9adbe429-f36d-432b-9ddc-f8881fbd76e3', ['Invoke']],
   ICoreWebView2NewWindowRequestedEventHandler: ['d4c185fe-c81c-4989-97af-2d3fa7ab5651', ['Invoke']],
   ICoreWebView2ProcessFailedEventHandler: ['79e0aea4-990b-42d9-aa1d-0fcc2e5bc7f1', ['Invoke']],
+  // #6882: the reload keys (BoardWindowForm.OnAcceleratorKeyPressed).
+  ICoreWebView2AcceleratorKeyPressedEventHandler: ['b29c7e28-fa79-41a8-8e44-65811c76dcb2', ['Invoke']],
+  ICoreWebView2AcceleratorKeyPressedEventArgs: ['9f760f8a-fb79-42be-9990-7b56900fa9c7', ['get_KeyEventKind', 'get_VirtualKey', 'get_KeyEventLParam',
+    'get_PhysicalKeyStatus', 'get_Handled', 'put_Handled']],
   ICoreWebView2Environment: ['b96d755e-0319-4e92-a296-23436f46a1fc', ['CreateCoreWebView2Controller']],
   ICoreWebView2Controller: ['4d00c0d1-9434-4eb6-8078-8697a560334f', ['get_IsVisible', 'put_IsVisible', 'get_Bounds', 'put_Bounds',
     'get_ZoomFactor', 'put_ZoomFactor', 'add_ZoomFactorChanged', 'remove_ZoomFactorChanged', 'SetBoundsAndZoomFactor', 'MoveFocus',
