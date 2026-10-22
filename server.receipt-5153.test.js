@@ -98,7 +98,7 @@ test('a project\'s receipts route: the sum for the page, an agent\'s token refus
   const url = base + '/api/project/' + encodeURIComponent(id) + '/receipts';
   let res = await fetch(url);
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { ok: true, picked: 0, tasks: 0, notCounted: 0, failed: 0, unread: 0, partial: 0, models: {}, prs: [], prsMore: 0, prsUnknown: 0, overlapping: false });
+  assert.deepEqual(await res.json(), { ok: true, picked: 0, tasks: 0, notCounted: 0, failed: 0, unread: 0, partial: 0, models: {}, prs: [], prsMore: 0, prsUnknown: 0, readable: 0, overlapping: false });
   await post('/api/project/' + encodeURIComponent(id) + '/tasks', { sentence: 'Close me' });
   const closed = await post('/api/project/' + encodeURIComponent(id) + '/task/1/close');
   assert.ok(closed.status < 300, 'fixture: the task did not close ' + JSON.stringify(closed));

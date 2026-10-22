@@ -1,6 +1,6 @@
 # projcost-6842: kosmos#6842 slice 2, a project's cost
 
-Stacked on prreceipt-6842 (slice 1). Opens as a PR only after slice 1 merges (rebase onto main then).
+Built on slice 1 (prreceipt-6842, merged as #6866); rebuilt on main after that merge.
 
 ## What
 - engine/receipt.js `forProject(projectId, {limit=50, now, receiptOf})`: sums tokens per model over every agent on the

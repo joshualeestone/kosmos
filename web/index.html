@@ -68948,8 +68948,8 @@ function pjsCostParts(r) {
   // Every task looked at failed: no total to show, whatever is older.
   if (!n) return { line: 'Kosmos could not read the work on its newest finished tasks.', prs: '' };
   const { tokens, costBit } = tkTokensAndCost(r.models && typeof r.models === 'object' ? r.models : {});
-  // Nothing readable at all: no model counted anything and some work could not be read.
-  const unreadOnly = !tokens && unread && !Object.keys(r.models && typeof r.models === 'object' ? r.models : {}).length;
+  // Nothing readable at all: no agent's work was read (`readable`), and some could not be.
+  const unreadOnly = !tokens && unread && !(Number(r.readable) > 0);
   // With some tasks failed the counted ones are fewer than those looked at: name the tasks looked at.
   const shown = failed > 0 ? picked : n;
   const bits = [(shown === 1 ? '1 finished task' : usageNum(shown) + ' finished tasks') + ': ' + usageAbbr(tokens) + ' tokens'];
@@ -68967,7 +68967,7 @@ function pjsCostParts(r) {
   const unknown = Number(r.prsUnknown) || 0;
   const unknownLine = unknown
     // prsUnknown counts an agent once per task, so no number is given: it would read as a count of agents.
-    ? '<p class="tkr-line tkr-muted">Some of the work on these tasks does not record pull requests, so some may not be listed.</p>'
+    ? '<p class="tkr-line tkr-muted">Some of the work on these tasks may not record pull requests, so some may not be listed.</p>'
     : '';
   // Each agent's unnamed count cannot be matched across tasks, so "more" is an upper bound: "up to".
   return { line, prs: tkReceiptPrsHtml({ prs: prs.slice(0, PJS_COST_PRS_SHOWN), prsMore, upTo: Number(r.prsMore) > 0 }) + unknownLine };

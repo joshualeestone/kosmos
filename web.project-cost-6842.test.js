@@ -71,9 +71,9 @@ test('the pull requests the tasks worked on, at most 20 named and the rest count
 });
 
 test('pull requests that were never recorded read as unknown, not none', () => {
-  assert.match(text(B.pjsCostParts(ok({ prsUnknown: 1 })).prs), /^Some of the work on these tasks does not record pull requests, so some may not be listed\.$/);
+  assert.match(text(B.pjsCostParts(ok({ prsUnknown: 1 })).prs), /^Some of the work on these tasks may not record pull requests, so some may not be listed\.$/);
   const both = text(B.pjsCostParts(ok({ prsUnknown: 3, prs: [{ repo: 'acme/app', number: 4, url: 'https://github.com/acme/app/pull/4' }] })).prs);
-  assert.match(both, /^Worked on pull request app#4 .*\. Some of the work on these tasks does not record pull requests, so some may not be listed\.$/);
+  assert.match(both, /^Worked on pull request app#4 .*\. Some of the work on these tasks may not record pull requests, so some may not be listed\.$/);
   assert.equal(B.pjsCostParts(ok({ prsUnknown: 0 })).prs, '', 'control: none unknown, no line');
 });
 
@@ -96,12 +96,13 @@ test('the project total and the task receipt word their cost the same way (one h
 });
 
 test('a total with nothing readable says so, never "0 tokens"', () => {
-  assert.equal(B.pjsCostParts(ok({ tasks: 2, unread: 2, models: {} })).line, 'Kosmos could not read the work on its newest finished tasks.');
+  assert.equal(B.pjsCostParts(ok({ tasks: 2, unread: 2, readable: 0, models: {} })).line, 'Kosmos could not read the work on its newest finished tasks.');
+  assert.match(B.pjsCostParts(ok({ tasks: 2, failed: 1, readable: 3, models: {} })).line, /^2 finished tasks: 0 tokens/, 'readable agents with no activity: a measured none, not unreadable');
   assert.match(B.pjsCostParts(ok({ tasks: 2, models: {} })).line, /^2 finished tasks: 0 tokens/, 'the control: read, and none, is 0');
 });
 
 test('nothing readable: no "reads high" sentence, since there is no total', () => {
-  const line = B.pjsCostParts(ok({ tasks: 2, unread: 2, models: {}, overlapping: true })).line;
+  const line = B.pjsCostParts(ok({ tasks: 2, unread: 2, readable: 0, models: {}, overlapping: true })).line;
   assert.equal(line, 'Kosmos could not read the work on its newest finished tasks.');
 });
 

@@ -594,13 +594,16 @@ async function forProjectNow(projectId, { limit = 50, now = Date.now(), receiptO
   let failed = 0;
   let prsMore = 0;   // beyond each agent's own shown list: counted, not named, so not de-duplicated (an upper bound)
   let prsUnknown = 0;   // agents whose pull requests are not known (no `prs`, or not readable): unknown, not none
-  const spansOf = new Map();   // agent -> [{ task, from, to }] from each receipt's holds (ms)
+  const spansOf = new Map();   // agent -> [{ task, from, to }] from each receipt's holds (ms); every receipt this file
+                               // has written carries holds (an agent is on a receipt only because it held the task)
+  let readable = 0;   // agents whose work was read, activity or not
   receipts.forEach((r, i) => {
     const number = picked[i].task.number;
     if (!r || !Array.isArray(r.agents)) { failed += 1; return; }
     for (const a of r.agents) {
       if (!a || typeof a !== 'object') continue;
       if (!a.available) { unread += 1; prsUnknown += 1; continue; }
+      readable += 1;
       // Holds of counted agents only: an unreadable agent adds nothing to the total, so it cannot make it read high.
       if (typeof a.who === 'string' && a.who) {
         const list = spansOf.get(a.who) || [];
@@ -631,14 +634,15 @@ async function forProjectNow(projectId, { limit = 50, now = Date.now(), receiptO
   });
   // picked: the newest tasks looked at (the "newest N" the page names); tasks: those whose receipt could be worked out.
   return { ok: true, picked: picked.length, tasks: picked.length - failed, notCounted: closed.length - picked.length, failed, unread, partial,
-    models, prs: [...prs.values()], prsMore, prsUnknown, overlapping: [...spansOf.values()].some(overlapAcrossTasks) };
+    models, prs: [...prs.values()], prsMore, prsUnknown, readable, overlapping: [...spansOf.values()].some(overlapAcrossTasks) };
 }
 /* One agent's holds on two DIFFERENT tasks that share any moment: the work in that moment is on both receipts. */
 function overlapAcrossTasks(spans) {
   for (let i = 0; i < spans.length; i += 1) {
     for (let j = i + 1; j < spans.length; j += 1) {
       const a = spans[i]; const b = spans[j];
-      // Strict: one hold ending the moment another starts shares no time, so nothing is on both receipts.
+      // Strict: one hold ending the moment another starts shares only that instant (a row stamped exactly then could be
+      // on both, which is negligible), so it is not reported as overlap.
       if (a.task !== b.task && a.from < b.to && b.from < a.to) return true;
     }
   }
