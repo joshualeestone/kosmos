@@ -307,19 +307,27 @@ function chk(ok, label, extra) {
           /* #6861: this wait times out on the CI runner in webkit only (the button stays hidden), never locally.
              On a timeout, say which ancestor hides the button and what the column holds, so the red names its cause. */
           await page.waitForSelector('#s-nav button[data-go="mac"]', { state: 'visible', timeout: 20000 }).catch(async (e) => {
-            const why = await page.evaluate(() => {
-              const out = { body: document.body.className, url: location.search, hiddenBy: [] };
-              for (let el = document.querySelector('#s-nav button[data-go="mac"]'); el; el = el.parentElement) {
+            const probe = page.evaluate(() => {
+              const btn = document.querySelector('#s-nav button[data-go="mac"]');
+              const out = { hiddenBy: [], exists: !!btn };
+              for (let el = btn; el; el = el.parentElement) {
                 const cs = getComputedStyle(el);
                 if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') out.hiddenBy.push((el.id ? '#' + el.id : el.tagName) + (el.hidden ? '[hidden]' : '') + ' display=' + cs.display + ' visibility=' + cs.visibility);
+                if (el.id === 'panel-projects') break;   // the column's own container: above it is the page frame
               }
+              if (btn) { const r = btn.getBoundingClientRect(); out.rect = [Math.round(r.width), Math.round(r.height)]; }
               const ps = document.getElementById('panel-settings');
               out.settingsParent = ps && ps.parentElement ? ps.parentElement.id : null;
               out.column = ['panel-settings', 'panel-create', 'panel-tasks', 'panel-cons-agents', 'panel-cons-projects']
-                .filter((id) => { const el = document.getElementById(id); return el && !el.hidden; });
+                .filter((id) => { const el = document.getElementById(id); return el && !el.hidden && el.parentElement && el.parentElement.id === 'panel-projects'; });
+              out.body = document.body.className; out.url = location.search;
               return out;
             }).catch((x) => ({ evalFailed: x.message }));
-            throw new Error(`${tag}: the Settings nav never showed after the Settings link: ${JSON.stringify(why)} (${e.message.split('\n')[0]})`);
+            // A wedged page must not turn this red into a hang: the probe gets 5 s of its own.
+            const why = await Promise.race([probe, new Promise((r) => setTimeout(() => r({ evalFailed: 'diagnostic timed out' }), 5000))]);
+            why.pageErrors = errs.slice(0, 5);   // a throw inside the Settings handler would leave the panel hidden too
+            const calls = String(e.message).split('\n').filter((l) => /resolved to|locator|Timeout/.test(l)).slice(0, 3).map((l) => l.trim());
+            throw new Error(`${tag}: the Settings nav never showed after the Settings link: ${JSON.stringify(why)} (${calls.join(' | ')})`);
           });
           await page.evaluate(() => document.querySelector('#s-nav button[data-go="mac"]').click());
           await page.waitForTimeout(300);
