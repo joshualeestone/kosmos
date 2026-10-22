@@ -1,7 +1,7 @@
 ---
 method: challenge-loop
 branch: appchrome-6846
-diff_hash: 24c12f89d966abc0feeb2f1aa0a416bc9d9cf7bc29f491d20125fe2a2b54288b
+diff_hash: 172470196949bf4ee58b3984315f7d39c34fdd816555a4d6f49e18637efa4639
 timestamp: 2026-10-21T19:17:15Z
 subdir_audit: passed
 iterations: 4
@@ -45,3 +45,6 @@ its commit message.
 - Browser-check gates: coarse #1720 rc 0, surface #2518 rc 0 (per-check trailers on 0aeaacc).
 - Design shots: 6 taken, 0 errors, looked at (~/work/design-shots/kosmos-6846/), sent to Mona Lisa on #6846.
 - Focused node run 3332/3332 at 9f5ba94.
+
+#### Rebase 2026-10-22 03:3xZ
+- Rebased onto main (part a stays in this PR; #6848 is closed in its favour). The diff changed only in hunk line numbers (checked hunk by hunk); no content change, so no new review round.
