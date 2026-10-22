@@ -1346,6 +1346,11 @@ const recordGuideOutcome = guidestate.makeRecorder({
 const heartbeat = require('./engine/heartbeat');
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
 const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
+/* kosmos#6894: when each task last put a run in its project room, so a task that changes every run says so at most hourly. */
+const ROOM_RUN_SAID = new Map();
+const ROOM_RUN_EVERY_MS = 60 * 60 * 1000;
+function _resetRoomRunSaidForTest() { ROOM_RUN_SAID.clear(); }
+function _ageRoomRunSaidForTest(ms) { for (const v of ROOM_RUN_SAID.values()) v.at -= ms; }   // review 2: the hour, passed
 const holdstale = require('./engine/holdstale'); // kosmos#6209 part 3: an owner still working a held task in its room is asked about the hold
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new comments, once per comment
@@ -22797,6 +22802,39 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat|stop it repeating)|only the person can name/.test(msg) ? 403 : 400, { error: msg });
         return;
       }
+      /* kosmos#6894: a run that changed something is said in the project room (taskrepeat.roomRunLine), so the room does not
+         look idle while the job runs. Unchanged runs and duplicates say nothing there. Best effort, as every room note. */
+      if (taskRepeat[3] === 'ran' && task) {
+        const key = id + '#' + task.number;
+        let said = ROOM_RUN_SAID.get(key) || null;
+        /* Review 3: what the room heard belongs to one rule. A changed or cleared rule (closing a task clears it) starts
+           the room's record of this task again, so an old rule's notes are never said, or used to silence, under a new one. */
+        if (said && said.ruleAt !== (task.repeatSetAt || '')) { ROOM_RUN_SAID.delete(key); said = null; }
+        /* Review 1: one line per task an hour (in memory: a restart can let one more through). The task page has every run.
+           Review 2: a clock stepped back counts as the hour passed, so it never mutes a task. */
+        /* Review 5: a run that leaves the task with no change note (a run with no note clears it) ends what the room heard
+           as current, so the same words after it are news again (a problem that came back), never silenced by a note the
+           room heard, or was taken to know, before the clear. */
+        if (said && !(typeof task.lastChangeNote === 'string' && task.lastChangeNote)) said.note = '';
+        const age = said ? Date.now() - said.at : Infinity;
+        /* Inside the hour the run is held, and nothing is kept for it: the next line reads the task's own LATEST change
+           note (review 5: a held copy outlived the runs that replaced it and was said later as news). */
+        if (!(age >= 0 && age < ROOM_RUN_EVERY_MS)) {
+          // Review 2: measured against what the room was last told, so a change held back by the hour is said now.
+          const line = taskrepeat.roomRunLine(tasks.runBefore(task), task, said);
+          /* Review 4: remembered only when the room actually got the line, so a failed append does not mute the task. */
+          if (line && messages.roomNote(id, line.text)) {
+            /* Review 3: remember what the line SAID: its note (or the note the room already had), and the reading as it now
+               stands (the line says it when it changed; otherwise the room already had it).
+               Review 4: the FIRST line of a task that names no note records the task's standing change note as known, so
+               an older note (from before this run, or before the board started) is never said later as news. */
+            const standing = typeof task.lastChangeNote === 'string' ? task.lastChangeNote : '';
+            ROOM_RUN_SAID.set(key, { at: Date.now(), ruleAt: task.repeatSetAt || '',
+              reading: line.reading || (said ? said.reading : (task.verified && typeof task.verified.value === 'string' ? task.verified.value : '')),
+              note: line.note || (said ? said.note : standing) });
+          }
+        }
+      }
       // kosmos#5836: a run that sent a reading hears how it compares with what the person was last told.
       // Review 1: the reading SENT (masked as stored), never only the stored one, so a run absorbed as a duplicate still
       // answers for what it found.
@@ -26118,7 +26156,7 @@ if (require.main === module) {
 // re-implementation of it. Testing the path helper in isolation would not have
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
-module.exports = {
+module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
   _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test

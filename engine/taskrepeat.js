@@ -398,4 +398,40 @@ function fieldsOf(t, now = Date.now()) {
   return out;
 }
 
-module.exports = { VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
+/* kosmos#6894: what a recorded run puts in the project room, or null for nothing: { text, note, reading } (note and
+   reading are what the line says, '' for a part it does not), so the route can remember exactly what the room heard.
+   Only a run that CHANGED something is said, so a task every 30 minutes does not fill the room.
+   - Without `said` (the room has heard nothing of this task since the board started): the run's own change, as
+     recordRun saw it (`prev` is tasks.runBefore(after)): a note that is the new last change and not word for word the
+     last one, or a reading that differs from the one before (a duplicate's corrected reading too).
+   - With `said` ({ note, reading }: what the room was last told): measured against THAT, so a change held back by the
+     route's hour is said on the first run after it (the task's latest change note; review 5: never a copy held aside,
+     which outlived the runs that replaced it) and "was" is a reading the room saw. This side reads the task's state, not the single run, on purpose: it is catching the room up.
+   Kosmos says it, in its own voice (messages.roomNote). */
+const ROOM_SENTENCE_MAX = 120;
+function roomPlain(s, max) { return require('./agentnudge').plainWords(String(s == null ? '' : s).replace(/\p{Cf}/gu, ''), max); }
+function sameWords(a, b) { return String(a || '').replace(/\s+/g, ' ').trim() === String(b || '').replace(/\s+/g, ' ').trim(); }
+function roomRunLine(prev, after, said) {
+  if (!after || !after.repeat || !after.lastRunAt) return null;
+  const nowReading = after.verified && typeof after.verified.value === 'string' ? after.verified.value : '';
+  let note = '';
+  let reading = '';
+  let was = '';
+  if (said) {
+    const latest = typeof after.lastChangeNote === 'string' ? after.lastChangeNote : '';
+    if (latest && !sameWords(latest, said.note)) note = latest;
+    if (nowReading && nowReading !== (said.reading || '')) { reading = nowReading; was = said.reading || ''; }
+  } else {
+    const before = prev && typeof prev.verified === 'string' ? prev.verified : '';
+    if (nowReading && nowReading !== before && (after.duplicate || after.verified.at === after.lastRunAt)) { reading = nowReading; was = before; }
+    if (!after.duplicate && after.lastChangeAt === after.lastRunAt && typeof after.lastChangeNote === 'string' && after.lastChangeNote
+      && !sameWords(after.lastChangeNote, prev && prev.changeNote)) note = after.lastChangeNote;
+  }
+  if (!note && !reading) return null;
+  const parts = [];
+  if (note) parts.push(roomPlain(note, NOTE_MAX));
+  if (reading) parts.push('reading ' + roomPlain(reading, VALUE_MAX) + (was ? ' (was ' + roomPlain(was, VALUE_MAX) + ')' : ''));
+  return { text: 'Task #' + after.number + ', "' + roomPlain(after.sentence || '', ROOM_SENTENCE_MAX) + '" (' + describe(after.repeat) + '): ' + parts.join('; '), note, reading };
+}
+
+module.exports = { roomRunLine, sameWords, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
