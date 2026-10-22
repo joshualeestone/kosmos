@@ -7437,6 +7437,23 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#6487: the words behind a phone notification, asked by the phone itself (its Notification Service Extension,
+     through Kosmos+ remote and the phone's own sign-in) when the notification arrives, so the words never ride the push
+     through the coordinator and Apple (engine/phonenotice.js). GET /api/phone/notice?id=<the push's id>: the agent's
+     shown name, its picture's address when it has one, and the message's words, shortened. 404 when the id is not ours
+     or its words are not here; the phone then shows the plain notification. */
+  if (pathname === '/api/phone/notice' && req.method === 'GET') {
+    let asked = null;
+    try { asked = new URL(req.url, ROUTING_BASE).searchParams.get('id'); } catch { asked = null; }
+    const got = require('./engine/phonenotice').wordsFor(asked, { mask: guideMasked });   // #3769: rows kept before the write-side mask
+    if (!got || borrowedName(got.session)) { sendJson(res, 404, { error: 'we have no words for that notification' }); return; }
+    const card = ourCardByName(safeRoster(), got.session);   // as the thread readers find it: any spelling, tied only
+    let picture = null;
+    try { picture = store.avatarPath(got.session) ? '/api/agent/' + encodeURIComponent(got.session) + '/avatar' : null; } catch { picture = null; }
+    sendJson(res, 200, { kind: got.kind, session: got.session, agent: (card && card.name) || got.session, text: got.text, picture });
+    return;
+  }
+
   const avatarGet = pathname.match(/^\/api\/agent\/([^/]+)\/avatar$/);
   if (avatarGet && (req.method === 'GET' || req.method === 'HEAD')) {
     const name = decodeSegment(avatarGet[1]);
