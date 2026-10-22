@@ -2790,6 +2790,14 @@ class KosmosLauncher
         return webErrorStatus == 6 || webErrorStatus == 7 || webErrorStatus == 10 || webErrorStatus == 11 || webErrorStatus == 12;
     }
 
+    // #6882: two addresses of the same document: equal once their fragments are set aside.
+    internal static bool SameDocument(string a, string b)
+    {
+        if (a == null || b == null) return false;
+        int ha = a.IndexOf('#'), hb = b.IndexOf('#');
+        return string.Equals(ha < 0 ? a : a.Substring(0, ha), hb < 0 ? b : b.Substring(0, hb), StringComparison.Ordinal);
+    }
+
     // #6882: a sign-in load, carrying a single-use ?boot= code (only the window navigates to one; the page never does).
     internal static bool IsSignInLoad(string uri)
     {
@@ -3981,14 +3989,16 @@ class BoardWindowForm : System.Windows.Forms.Form
                     if (visit != boardVisit) { CheckNavigationAgain(waiting); return; }
                     navigationWaiting = null;
                     if (!KosmosLauncher.MayNavigateSignedIn(check)) { ShowNotConfirmed(); return; }
-                    navigationApproved = waiting;
-                    // The page's own address (a reload): Reload, since a Navigate to the very address on screen, fragment
-                    // and all, is taken as a move within the page and loads nothing (the page's sign-out sets
-                    // /#signed-out and reloads). Its NavigationStarting names the same address, so it is the approved one.
+                    // The page on screen (a reload, whatever its fragment says now): Reload, since a Navigate to the
+                    // document on screen is taken as a move within the page and loads nothing (the page's sign-out sets
+                    // /#signed-out and reloads). What loads is the address on screen, so that is the approved one: its
+                    // NavigationStarting names it, and nothing is left approved for a later navigation. A sign-in load
+                    // is approved as one too (signInLoadApproved), whatever form WebView2 gives its address.
                     string onScreen = null;
                     try { webView.get_Source(out onScreen); } catch { /* not known: Navigate, below */ }
-                    if (onScreen == waiting) webView.Reload();
-                    else webView.Navigate(waiting);
+                    signInLoadApproved = KosmosLauncher.IsSignInLoad(waiting);
+                    if (KosmosLauncher.SameDocument(onScreen, waiting)) { navigationApproved = onScreen; webView.Reload(); }
+                    else { navigationApproved = waiting; webView.Navigate(waiting); }
                 }));
             }
             catch { /* the window closed meanwhile */ }
