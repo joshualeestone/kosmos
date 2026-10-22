@@ -214,6 +214,8 @@ test('#6925: the one-summary line on a landed closing post (compact and spaced J
     ['{"delivery":{"state":"placed", "closing": true}}', true],
     ['{"delivery":{"state":"unconfirmed","because":"x","closing":true}}', true],
     ['{"delivery":{"state":"placed"}}', false],
+    // an agent named closing is an outcomes key with a delivery-state string value, never the flag
+    ['{"delivery":{"state":"placed","outcomes":{"closing":"placed","closingEligible":"placed"}}}', false],
   ];
   for (const [body, said] of cases) {
     const routes = { 'POST /api/post': { code: 200, body } };

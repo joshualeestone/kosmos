@@ -2712,8 +2712,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       const heldNow = roomHeldRead(projectId, now, lim, log, charged, progressFrom, recipients.length);
       const clearsAt = heldNow && heldNow.until ? heldNow.until : null;
       const clears = clearsAt === null ? {} : { clearsAt, clearsInMinutes: Math.max(1, Math.ceil((Date.parse(clearsAt) - now) / 60000)) };
-      /* #6925: closingEligible says the board WILL let this member's one summary through now (its refusal is recorded and
-         it has not used one), so the CLI offers the exception only then; an older board never sends it and is not offered. */
+      /* #6925: closingEligible says the board will let this member's one summary through (its refusal is recorded and it
+         has not used one), if the window has not moved on before the next post; the CLI offers the exception only then,
+         and an older board never sends it, so it is never offered there. */
       const eligible = refusalRecorded && !closingUsed && typeof from === 'string' && from !== '';
       return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, ...clears, ...(closingUsed ? { closingUsed: true } : {}),
         ...(eligible ? { closingEligible: true } : {}),
