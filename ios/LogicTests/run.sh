@@ -11,5 +11,6 @@ out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 xcrun swiftc -O -o "$out/push-logic-tests" \
   "$src/PushBridgeLogic.swift" "$src/PushRegistrar.swift" "$src/ShellLogic.swift" \
-  "$src/NotificationCategories.swift" "$src/BoardLogic.swift" "$src/BoardClient.swift" "$here/main.swift"
+  "$src/NotificationCategories.swift" "$src/BoardLogic.swift" "$src/BoardClient.swift" "$src/SessionKeychain.swift" \
+  "$src/../KosmosNotice/NoticeLogic.swift" "$here/main.swift"
 "$out/push-logic-tests"

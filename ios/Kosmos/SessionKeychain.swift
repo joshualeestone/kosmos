@@ -13,12 +13,44 @@ import Security
 struct SessionKeychain: SessionStore {
     static let live = SessionKeychain(account: "session")
     static let pendingUnregister = SessionKeychain(account: "pending-unregister")
-    // kosmos#6838: the Mac's session for the native Agents tab (Board.SavedMacSession, as JSON).
-    static let macSession = SessionKeychain(account: "mac-session")
+    // kosmos#6838: the Mac's session for the native Agents tab (Board.SavedMacSession, as JSON). kosmos#6487: kept in
+    // the keychain group the app shares with its Notification Service Extension (KosmosNotice), which uses it to ask
+    // that Mac for a notification's words.
+    static let macSession = SessionKeychain(account: "mac-session", shared: true)
 
     private let service = "io.kosmos.app.coordinator-session"
     let account: String
+    // kosmos#6487: the shared store's group (Info.plist KosmosSharedKeychainGroup, from the entitlements'
+    // keychain-access-groups). Nil in a build with no signing team, where the group has no team prefix.
+    private let group: String?
+    // kosmos#6487: the app's own group, "<team>.<bundle id>", where every item was kept before the shared group existed.
+    // An item added with no group would now land in the shared group (the first in keychain-access-groups), so the
+    // stores that are not shared name this one, and the extension never sees the Kosmos+ sign-in.
+    private let ownGroup: String?
 
+    init(account: String, shared: Bool = false) {
+        self.account = account
+        let sharedGroup = Self.usableGroup(Bundle.main.object(forInfoDictionaryKey: "KosmosSharedKeychainGroup") as? String)
+        let own = sharedGroup.flatMap { $0.hasSuffix(".shared") ? String($0.dropLast(".shared".count)) : nil }
+        ownGroup = own
+        group = shared ? sharedGroup : own
+    }
+
+    private var isShared: Bool { group != nil && group != ownGroup }
+
+    // A keychain group this build can hold: "<10-character team id>.<rest>". An unsigned build expands
+    // $(AppIdentifierPrefix) to nothing, so its group reads "io.kosmos.app.shared" and is not one. The extension makes
+    // the same check (KosmosNotice/NoticeLogic.swift hasTeamPrefix); ios/LogicTests runs both on the same cases.
+    static func usableGroup(_ named: String?) -> String? {
+        guard let named else { return nil }
+        let parts = named.split(separator: ".", maxSplits: 1)
+        guard parts.count == 2, parts[0].count == 10, !parts[1].isEmpty,
+              parts[0].unicodeScalars.allSatisfy({ ("A"..."Z").contains($0) || ("0"..."9").contains($0) })
+        else { return nil }
+        return named
+    }
+
+    // Without a group: matches the item in whichever group holds it (the app's own, before kosmos#6487, or the shared one).
     private var baseQuery: [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
@@ -27,8 +59,8 @@ struct SessionKeychain: SessionStore {
         ]
     }
 
-    func load() -> String? {
-        var query = baseQuery
+    private func read(_ query: [String: Any]) -> String? {
+        var query = query
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
@@ -38,19 +70,52 @@ struct SessionKeychain: SessionStore {
         return String(data: data, encoding: .utf8)
     }
 
-    @discardableResult
-    func save(_ session: String) -> Bool {
-        let data = Data(session.utf8)
+    private func query(group: String?) -> [String: Any] {
+        var q = baseQuery
+        if let group { q[kSecAttrAccessGroup as String] = group }
+        return q
+    }
+
+    func load() -> String? {
+        // A store that is not shared reads its item wherever it is, as before.
+        guard let group, isShared else { return read(baseQuery) }
+        if let kept = read(query(group: group)) { return kept }
+        // kosmos#6487: kept before the shared group existed. Moved there once, so the extension can read it: added to
+        // the shared group FIRST (a different group is a different item, so it cannot collide), and only then is the
+        // old one deleted, by its own group. A move that fails leaves the old item where it was, still read here.
+        if let ownGroup, let older = read(query(group: ownGroup)) {
+            if add(older, group: group) { SecItemDelete(query(group: ownGroup) as CFDictionary) }
+            return older
+        }
+        return read(baseQuery)
+    }
+
+    private func add(_ session: String, group: String?) -> Bool {
+        var add = baseQuery
+        if let group { add[kSecAttrAccessGroup as String] = group }
+        add[kSecValueData as String] = Data(session.utf8)
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+    }
+
+    // Updates the item in `group` (nil: wherever it is), or adds it there.
+    private func write(_ session: String, group: String?) -> Bool {
         let update: [String: Any] = [
-            kSecValueData as String: data,
+            kSecValueData as String: Data(session.utf8),
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
-        let status = SecItemUpdate(baseQuery as CFDictionary, update as CFDictionary)
+        let status = SecItemUpdate(query(group: group) as CFDictionary, update as CFDictionary)
         if status == errSecSuccess { return true }
         guard status == errSecItemNotFound else { return false }
-        var add = baseQuery
-        add.merge(update) { _, new in new }
-        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+        return add(session, group: group)
+    }
+
+    @discardableResult
+    func save(_ session: String) -> Bool {
+        if write(session, group: group) { return true }
+        // A shared group this build cannot write (its signature lacks the group: errSecMissingEntitlement, not "not
+        // found") still keeps the session, where the app kept it before kosmos#6487.
+        return group != nil && write(session, group: nil)
     }
 
     func delete() {

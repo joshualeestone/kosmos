@@ -2,7 +2,7 @@
 # Shows archive.sh's signing-settings checks can refuse as well as pass (kosmos #4089), on scratch copies of
 # ios/Signing.xcconfig: run with --check-config, so nothing is archived or uploaded.
 set -u
-unset KOSMOS_IOS_PROFILE   # #6262: an inherited value would run every default case in hand-signing mode
+unset KOSMOS_IOS_PROFILE KOSMOS_IOS_NOTICE_PROFILE   # #6262: an inherited value would run every default case in hand-signing mode
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work" "$here/../build/archive-999999"' EXIT   # the wiring cases below build into archive-999999
@@ -46,20 +46,34 @@ if KOSMOS_IOS_XCCONFIG="$work/cond.xcconfig" "$here/archive.sh" --check-config 2
 # The project file takes its bundle id from the xcconfig, in every configuration. An id typed into Xcode's
 # General pane is written there and would win over Signing.xcconfig, out of sight of every check above.
 pbx="$here/../Kosmos.xcodeproj/project.pbxproj"
-lit=$(grep -E 'PRODUCT_BUNDLE_IDENTIFIER = ' "$pbx" | grep -vcF 'PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID)";')
+# kosmos#6487: the notification extension's is the app's with .notice, in both of its configurations.
+lit=$(grep -E 'PRODUCT_BUNDLE_IDENTIFIER = ' "$pbx" | grep -vF 'PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID)";' | grep -vcF 'PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID).notice";')
 ref=$(grep -cF 'PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID)";' "$pbx")
-if [ "$lit" -eq 0 ] && [ "$ref" -ge 2 ]; then echo "PASS  project.pbxproj takes its bundle id from Signing.xcconfig ($ref configurations)"; else echo "FAIL  project.pbxproj sets a bundle id of its own ($lit literal, $ref from the xcconfig)"; fail=1; fi
+nref=$(grep -cF 'PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID).notice";' "$pbx")
+if [ "$lit" -eq 0 ] && [ "$ref" -ge 2 ] && [ "$nref" -eq 2 ]; then echo "PASS  project.pbxproj takes its bundle ids from Signing.xcconfig ($ref app, $nref extension configurations)"; else echo "FAIL  project.pbxproj sets a bundle id of its own ($lit literal, $ref app and $nref extension from the xcconfig)"; fail=1; fi
+# kosmos#6487: App Store validation flags an extension whose version differs from its app's.
+versions=$(grep -E '^[[:space:]]*MARKETING_VERSION = ' "$pbx" | sort -u | wc -l | tr -d ' ')
+if [ "$versions" -eq 1 ] && [ "$(grep -cE '^[[:space:]]*MARKETING_VERSION = ' "$pbx")" -eq 4 ]; then echo "PASS  the app and the extension carry one version"
+else echo "FAIL  the app and the extension carry different versions ($versions distinct)"; fail=1; fi
+# Each target signs by hand with its own profile setting, never one profile for both.
+if [ "$(grep -cF 'PROVISIONING_PROFILE_SPECIFIER = "$(KOSMOS_APP_PROFILE)";' "$pbx")" -eq 2 ] && [ "$(grep -cF 'PROVISIONING_PROFILE_SPECIFIER = "$(KOSMOS_NOTICE_PROFILE)";' "$pbx")" -eq 2 ] \
+  && [ "$(grep -c 'PROVISIONING_PROFILE_SPECIFIER = ' "$pbx")" -eq 4 ]; then echo "PASS  the app and the extension each take their own profile setting"
+else echo "FAIL  project.pbxproj's profile settings are not one per target"; fail=1; fi
 
 # The real file passes as it stands (an inherited override must not redirect it).
 unset KOSMOS_IOS_XCCONFIG
 # #6262: a hand-signing profile name PlistBuddy would mangle is refused by --check-config; a plain one with spaces passes.
 printf 'DEVELOPMENT_TEAM = %s\nKOSMOS_BUNDLE_ID = %s\n' "$kosmos" io.kosmos.app > "$work/prof.xcconfig"
 for name in "Josh's App Store" 'a "quoted" one' ' leading' 'back\slash' 'cost $5' 'Store $HOME' '' "$(printf 'Good\nbad')" "$(printf 'tab\there')"; do
-  if KOSMOS_IOS_PROFILE="$name" KOSMOS_IOS_XCCONFIG="$work/prof.xcconfig" "$here/archive.sh" --check-config 2>&1 | grep -q 'KOSMOS_IOS_PROFILE is'; then echo "PASS  the profile name '$name' is refused"; else echo "FAIL  the profile name '$name' was not refused"; fail=1; fi
+  if KOSMOS_IOS_PROFILE="$name" KOSMOS_IOS_NOTICE_PROFILE='Kosmos Notice App Store' KOSMOS_IOS_XCCONFIG="$work/prof.xcconfig" "$here/archive.sh" --check-config 2>&1 | grep -q 'KOSMOS_IOS_PROFILE is'; then echo "PASS  the profile name '$name' is refused"; else echo "FAIL  the profile name '$name' was not refused"; fail=1; fi
+  if KOSMOS_IOS_PROFILE='Kosmos App Store' KOSMOS_IOS_NOTICE_PROFILE="$name" KOSMOS_IOS_XCCONFIG="$work/prof.xcconfig" "$here/archive.sh" --check-config 2>&1 | grep -q 'KOSMOS_IOS_NOTICE_PROFILE is'; then echo "PASS  the extension's profile name '$name' is refused"; else echo "FAIL  the extension's profile name '$name' was not refused"; fail=1; fi
 done
 for name in 'Kosmos App Store' 'Kosmos, Inc. App Store + Push' 'Store/Dist & Co #2'; do
-  if KOSMOS_IOS_PROFILE="$name" KOSMOS_IOS_XCCONFIG="$work/prof.xcconfig" "$here/archive.sh" --check-config >/dev/null 2>&1; then echo "PASS  the profile name '$name' passes"; else echo "FAIL  the profile name '$name' was refused"; fail=1; fi
+  if KOSMOS_IOS_PROFILE="$name" KOSMOS_IOS_NOTICE_PROFILE="$name Notice" KOSMOS_IOS_XCCONFIG="$work/prof.xcconfig" "$here/archive.sh" --check-config >/dev/null 2>&1; then echo "PASS  the profile name '$name' passes"; else echo "FAIL  the profile name '$name' was refused"; fail=1; fi
 done
+# kosmos#6487: signing by hand names both profiles, or neither.
+if KOSMOS_IOS_PROFILE='Kosmos App Store' KOSMOS_IOS_XCCONFIG="$work/prof.xcconfig" "$here/archive.sh" --check-config 2>&1 | grep -q 'needs its own App Store profile too'; then echo "PASS  the app's profile without the extension's is refused"; else echo "FAIL  the app's profile without the extension's was not refused"; fail=1; fi
+if KOSMOS_IOS_NOTICE_PROFILE='Kosmos Notice App Store' KOSMOS_IOS_XCCONFIG="$work/prof.xcconfig" "$here/archive.sh" --check-config 2>&1 | grep -q 'without KOSMOS_IOS_PROFILE'; then echo "PASS  the extension's profile without the app's is refused"; else echo "FAIL  the extension's profile without the app's was not refused"; fail=1; fi
 # #6262: what hand signing does to the export options and the archive's settings, via export-options.sh (the
 # helper archive.sh runs), and that without a profile nothing changes.
 pb=/usr/libexec/PlistBuddy
@@ -68,14 +82,19 @@ if [ -z "$settings" ] && [ "$($pb -c 'Print :signingStyle' "$work/auto.plist")" 
   && [ "$($pb -c 'Print :teamID' "$work/auto.plist")" = "$kosmos" ]; then echo "PASS  without a profile: automatic signing, the team, no profiles, no build settings"
 else echo "FAIL  without a profile the export options or build settings changed: [$settings]"; fail=1; fi
 for name in 'Kosmos App Store' 'Kosmos App Store ' 'Kosmos, Inc. App Store + Push'; do
-  settings=$("$here/export-options.sh" "$kosmos" io.kosmos.app "$work/man.plist" "$name"); rc=$?
-  want=$(printf '%s\n' CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=Apple Distribution" "PROVISIONING_PROFILE_SPECIFIER=$name")
+  settings=$("$here/export-options.sh" "$kosmos" io.kosmos.app "$work/man.plist" "$name" "$name Notice"); rc=$?
+  want=$(printf '%s\n' CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=Apple Distribution" "KOSMOS_APP_PROFILE=$name" "KOSMOS_NOTICE_PROFILE=$name Notice")
   if [ "$rc" -eq 0 ] && [ "$settings" = "$want" ] && [ "$($pb -c 'Print :signingStyle' "$work/man.plist")" = manual ] \
     && [ "$($pb -c 'Print :signingCertificate' "$work/man.plist")" = 'Apple Distribution' ] \
-    && [ "$($pb -c 'Print :provisioningProfiles:io.kosmos.app' "$work/man.plist")" = "$name" ]; then echo "PASS  the profile '$name' signs the export and the archive by hand"
+    && [ "$($pb -c 'Print :provisioningProfiles:io.kosmos.app' "$work/man.plist")" = "$name" ] \
+    && [ "$($pb -c 'Print :provisioningProfiles:io.kosmos.app.notice' "$work/man.plist")" = "$name Notice" ]; then echo "PASS  the profiles '$name' and '$name Notice' sign the export and the archive by hand"
   else echo "FAIL  the profile '$name' did not set hand signing: rc=$rc [$settings]"; fail=1; fi
 done
-if "$here/export-options.sh" "$kosmos" io.kosmos.app "$work/bad.plist" "Josh's" >/dev/null 2>&1; then echo "FAIL  a name PlistBuddy drops was not refused by the read-back"; fail=1
+if "$here/export-options.sh" "$kosmos" io.kosmos.app "$work/half.plist" 'Kosmos App Store' >/dev/null 2>&1; then echo "FAIL  export-options.sh signed by hand with no extension profile"; fail=1
+else echo "PASS  export-options.sh refuses hand signing with no extension profile"; fi
+if "$here/export-options.sh" "$kosmos" io.kosmos.app "$work/badn.plist" 'Kosmos App Store' "Josh's" >/dev/null 2>&1; then echo "FAIL  an extension profile name PlistBuddy drops was not refused by the read-back"; fail=1
+else echo "PASS  an extension profile name PlistBuddy drops is refused by the read-back"; fi
+if "$here/export-options.sh" "$kosmos" io.kosmos.app "$work/bad.plist" "Josh's" 'Kosmos Notice' >/dev/null 2>&1; then echo "FAIL  a name PlistBuddy drops was not refused by the read-back"; fail=1
 else echo "PASS  a name PlistBuddy drops is refused by the read-back"; fi
 if "$here/archive.sh" --check-config >/dev/null 2>&1; then echo "PASS  the project's own Signing.xcconfig"; else echo "FAIL  the project's own Signing.xcconfig is refused"; fail=1; fi
 # The override is refused on a real (non --check-config) run, before anything is built.
@@ -87,19 +106,22 @@ mkdir -p "$work/bin"
 printf '#!/bin/bash\n{ printf "%%s\\n" "$@"; echo ---; } >> "%s/xcodebuild.args"\n' "$work" > "$work/bin/xcodebuild"; chmod +x "$work/bin/xcodebuild"
 wired() {   # $1: profile or empty; prints the recorded arguments
   rm -f "$work/xcodebuild.args"
-  ( unset ASC_KEY_PATH ASC_KEY_ID ASC_ISSUER_ID; PATH="$work/bin:$PATH" KOSMOS_IOS_PROFILE="$1" "$here/archive.sh" --build 999999 ) >/dev/null 2>&1
+  ( unset ASC_KEY_PATH ASC_KEY_ID ASC_ISSUER_ID; PATH="$work/bin:$PATH" KOSMOS_IOS_PROFILE="$1" KOSMOS_IOS_NOTICE_PROFILE="$2" "$here/archive.sh" --build 999999 ) >/dev/null 2>&1
   cat "$work/xcodebuild.args" 2>/dev/null
 }
-args=$(unset KOSMOS_IOS_PROFILE; rm -f "$work/xcodebuild.args"; ( unset ASC_KEY_PATH ASC_KEY_ID ASC_ISSUER_ID; PATH="$work/bin:$PATH" "$here/archive.sh" --build 999999 ) >/dev/null 2>&1; cat "$work/xcodebuild.args" 2>/dev/null)
+args=$(unset KOSMOS_IOS_PROFILE KOSMOS_IOS_NOTICE_PROFILE; rm -f "$work/xcodebuild.args"; ( unset ASC_KEY_PATH ASC_KEY_ID ASC_ISSUER_ID; PATH="$work/bin:$PATH" "$here/archive.sh" --build 999999 ) >/dev/null 2>&1; cat "$work/xcodebuild.args" 2>/dev/null)
 plist=$(printf '%s\n' "$args" | grep -A1 -x -- -exportOptionsPlist | tail -1)
-if printf '%s\n' "$args" | grep -qx archive && ! printf '%s\n' "$args" | grep -q '^CODE_SIGN_STYLE=\|^PROVISIONING_PROFILE_SPECIFIER=' \
+if printf '%s\n' "$args" | grep -qx archive && ! printf '%s\n' "$args" | grep -q '^CODE_SIGN_STYLE=\|^PROVISIONING_PROFILE_SPECIFIER=\|^KOSMOS_APP_PROFILE=\|^KOSMOS_NOTICE_PROFILE=\|^PRODUCT_BUNDLE_IDENTIFIER=' \
+  && printf '%s\n' "$args" | grep -qx 'KOSMOS_BUNDLE_ID=io.kosmos.app' \
   && [ "$(/usr/libexec/PlistBuddy -c 'Print :signingStyle' "$plist" 2>/dev/null)" = automatic ] && ! /usr/libexec/PlistBuddy -c 'Print :provisioningProfiles' "$plist" >/dev/null 2>&1; then echo "PASS  archive.sh without a profile archives and exports with no hand-signing settings"
 else echo "FAIL  archive.sh without a profile: $args"; fail=1; fi
-args=$(wired 'Kosmos App Store')
+args=$(wired 'Kosmos App Store' 'Kosmos Notice App Store')
 plist=$(printf '%s\n' "$args" | grep -A1 -x -- -exportOptionsPlist | tail -1)
 if printf '%s\n' "$args" | grep -qx 'CODE_SIGN_STYLE=Manual' && printf '%s\n' "$args" | grep -qx 'CODE_SIGN_IDENTITY=Apple Distribution' \
-  && printf '%s\n' "$args" | grep -qx 'PROVISIONING_PROFILE_SPECIFIER=Kosmos App Store' && printf '%s\n' "$args" | grep -qx "DEVELOPMENT_TEAM=$kosmos" \
-  && [ "$(/usr/libexec/PlistBuddy -c 'Print :provisioningProfiles:io.kosmos.app' "$plist" 2>/dev/null)" = 'Kosmos App Store' ]; then echo "PASS  archive.sh with a profile hands xcodebuild the hand-signing settings and the export options"
+  && printf '%s\n' "$args" | grep -qx 'KOSMOS_APP_PROFILE=Kosmos App Store' && printf '%s\n' "$args" | grep -qx 'KOSMOS_NOTICE_PROFILE=Kosmos Notice App Store' \
+  && ! printf '%s\n' "$args" | grep -q '^PROVISIONING_PROFILE_SPECIFIER=' && printf '%s\n' "$args" | grep -qx "DEVELOPMENT_TEAM=$kosmos" \
+  && [ "$(/usr/libexec/PlistBuddy -c 'Print :provisioningProfiles:io.kosmos.app' "$plist" 2>/dev/null)" = 'Kosmos App Store' ] \
+  && [ "$(/usr/libexec/PlistBuddy -c 'Print :provisioningProfiles:io.kosmos.app.notice' "$plist" 2>/dev/null)" = 'Kosmos Notice App Store' ]; then echo "PASS  archive.sh with a profile hands xcodebuild the hand-signing settings and the export options"
 else echo "FAIL  archive.sh with a profile: $args"; fail=1; fi
 [ "$fail" -eq 0 ] && echo "VERDICT: PASS" || echo "VERDICT: FAIL"
 exit "$fail"

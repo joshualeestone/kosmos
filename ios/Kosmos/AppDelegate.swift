@@ -32,6 +32,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // register with APNs. Registration is safe to request every
         // launch; iOS returns the current token quickly if already registered.
         pushManager.configure()
+        // kosmos#6487: a computer session kept before the shared keychain group existed moves there on its first
+        // read, so the notification extension can use it from the first launch after an update, not only once the
+        // Agents tab has opened.
+        _ = SessionKeychain.macSession.load()
         #if KOSMOS_STORE_SHOTS
         // App Store screenshots (ios/store/shoot-app.sh): no permission prompt over the picture, and a simulator
         // has no way to answer it from the command line.
