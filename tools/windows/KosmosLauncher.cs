@@ -2694,12 +2694,13 @@ class KosmosLauncher
     // later request to the board's address carries it to whatever answers there then. The opener proves the board
     // once, when the window first resolves the address (#1765). These say whether the window may go on using that
     // sign-in at each later point, from a fresh check (CheckBoardBeforeReuse) made right before it:
-    //   - a reload the window starts itself (a crashed page's reload, F5 and the other reload keys): MayNavigateSignedIn
-    //     on a full check BEFORE the reload starts (BoardWindowForm.CheckNavigationAgain);
-    //   - any navigation to the board (those reloads, the page's own reload, a link, the retry of a load that
-    //     failed): NavigationDecision on a quick check in OnNavigationStarting, then MayNavigateSignedIn on a full
-    //     check when the quick one could not tell. For a navigation the page starts, WebView2 has already sent the
-    //     request by then (measured), so this decides what is SHOWN, not what is sent (see OnNavigationStarting);
+    //   - a navigation the window starts itself (a crashed page's reload, F5 and the other reload keys, the retry of a
+    //     board load that failed): MayNavigateSignedIn on a full check BEFORE it starts (CheckNavigationAgain); a
+    //     sign-in load is proved by the opener just before it;
+    //   - any navigation to the board (those, the page's own reload, a link, Back and Forward): NavigationDecision on
+    //     a quick check in OnNavigationStarting, then MayNavigateSignedIn on a full check when the quick one could not
+    //     tell. WebView2 has already sent the request by then (measured), so this decides what is SHOWN, not what is
+    //     sent (see OnNavigationStarting);
     //   - "open Kosmos.exe again", or the page's own sign-in, when the opener names no signed-in address, which
     //     leaves the open page talking to whatever answers: MayKeepPageOpen;
     //   - the page's own polling, which the window cannot stop per request: WatchShowsNotConfirmed, on the badge's
@@ -2778,6 +2779,12 @@ class KosmosLauncher
     internal static bool IsReloadKey(uint virtualKey, bool control, bool alt)
     {
         return virtualKey == VirtualKeyF5 || virtualKey == VirtualKeyBrowserRefresh || (control && !alt && virtualKey == VirtualKeyR);
+    }
+
+    // #6882: a sign-in load, carrying a single-use ?boot= code (only the window navigates to one; the page never does).
+    internal static bool IsSignInLoad(string uri)
+    {
+        return uri != null && (uri.Contains("?boot=") || uri.Contains("&boot="));
     }
 
     // What a navigation to the board does after the quick check: go, be refused at once (a listener answered and
@@ -3523,6 +3530,13 @@ class BoardWindowForm : System.Windows.Forms.Form
     int navigationWaitingVisit;
     bool navigationCheckInFlight;
     string navigationApproved;
+    // #6882: the window is about to load a sign-in address the opener proved and minted a moment ago (NavigateToBoard,
+    // SignInAgain). WebView2 has already sent a navigation's request when NavigationStarting is raised (measured),
+    // and the board spends a ?boot= code on its first use, so a sign-in load held there for the full check and then
+    // replayed would arrive with a spent code and land signed out. It goes, once.
+    bool signInLoadApproved;
+    // #6882: the visit on which a failed board load was last retried, so a load that keeps failing is retried once.
+    int failedLoadRetriedVisit = -1;
     // #6882: Kosmos.exe was opened again while a sign-in was under way and the window was showing why it is not
     // showing the board: that sign-in, when it ends, starts over instead (SignInAgain).
     bool startOverWanted;
@@ -3808,6 +3822,8 @@ class BoardWindowForm : System.Windows.Forms.Form
                         else if (startOverWanted && boardNotConfirmed) { startOverWanted = false; SignInAgain(); }
                         return;
                     }
+                    // #6882: the opener proved the board for this sign-in a moment ago (SignInLoadGoes).
+                    if (fresh != null && fresh.Contains("?boot=")) signInLoadApproved = true;
                     if (fresh != null && fresh.Contains("?boot=") && webView != null) webView.Navigate(KosmosLauncher.WithModeQuery(KosmosLauncher.SignInAgainAddress(fresh, keepPage, port), mode));
                     else if (!KosmosLauncher.MayKeepPageOpen(check, keepPage != null)) ShowNotConfirmed();
                 }));
@@ -3854,6 +3870,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         navigatedToBoard = true;
         boardVisit++;   // #6882
         watchNoAnswers = 0;
+        signInLoadApproved = true;   // #6882: the opener proved the board for this address a moment ago (SignInLoadGoes)
         webView.Navigate(boardAddress);
     }
 
@@ -3869,6 +3886,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         committedPage = null;
         navigationWaiting = null;
         navigationApproved = null;
+        signInLoadApproved = false;
         recheckRefused = true;
         boardVisit++;
         webView.NavigateToString(KosmosLauncher.NotConfirmedPage);
@@ -4016,14 +4034,16 @@ class BoardWindowForm : System.Windows.Forms.Form
         // board proves itself here before the navigation may go on: every navigation to the board, a link, the page's
         // own reload, a sign-in's ?boot= load and its redirect, the retry of a load that failed. Cancelled first, so a
         // fault in what follows cannot let it go.
-        // ⚠️ MEASURED (#6882 live rig, WebView2 Runtime on this box): for a navigation the PAGE starts (its own reload, a
-        // link) and for a Reload of a crashed page, WebView2 has already sent the request when this event is raised
-        // (the squatter saw the request about 1 ms before this check reached it). Cancelling here then stops the
-        // answer from being SHOWN in the window, not the request from leaving. So the reloads the window starts itself
-        // are checked BEFORE they start (OnProcessFailed and the reload keys, OnAcceleratorKeyPressed, through
-        // CheckNavigationAgain), and the ones the page starts can only be held here. What such a request carries is a
-        // board session, and a squatter can only take the port once the board has stopped, which ends every session
-        // (#6449): the cookie it gets is already dead. The page shown under the Kosmos title is what this guards.
+        // ⚠️ MEASURED (#6882 live rig, WebView2 Runtime on this box): WebView2 has already sent a navigation's request
+        // when this event is raised: for a navigation the page starts (its own reload, a link), for a Reload, and for
+        // this window's own Navigate alike (a squatter saw the request before this check reached it, or before it was
+        // answered). Cancelling here stops the answer from being SHOWN in the window, never the request from leaving.
+        // So a navigation the window starts itself is proved BEFORE it starts: a crashed page's reload and the reload
+        // keys through CheckNavigationAgain, a sign-in load by the opener just before (signInLoadApproved). Those the
+        // page or WebView2 starts (a link, the page's own reload, the right-click menu's Reload, Back and Forward) can
+        // only be held here. What such a request carries is a board session, and a squatter can only take the port
+        // once the board has stopped, which ends every session (#6449): the cookie it gets is already dead. The page
+        // shown under the Kosmos title is what this guards.
         if (mode != KosmosLauncher.ComputerMode.Connect && KosmosLauncher.IsBoardAddress(uri, port))
         {
             ulong boardNav;
@@ -4037,8 +4057,10 @@ class BoardWindowForm : System.Windows.Forms.Form
             if (boardNotConfirmed || !navigatedToBoard) return;
             // Not checked again: a redirect within a board navigation this let through a moment ago (a sign-in's ?boot=
             // load, answered by the board), and the navigation a full check just proved (CheckNavigationAgain).
-            bool checkedAlready = (boardRedirect != 0 && boardNavs.ContainsKey(boardNav)) || (navigationApproved != null && navigationApproved == uri);
+            bool checkedAlready = (boardRedirect != 0 && boardNavs.ContainsKey(boardNav)) || (navigationApproved != null && navigationApproved == uri)
+                || (signInLoadApproved && KosmosLauncher.IsSignInLoad(uri));
             navigationApproved = null;
+            signInLoadApproved = false;
             KosmosLauncher.NavigationStep step = checkedAlready ? KosmosLauncher.NavigationStep.Go
                 : KosmosLauncher.NavigationDecision(KosmosLauncher.CheckBoardBeforeReuse(port, KosmosLauncher.ReuseQuickCheckMs));
             if (step == KosmosLauncher.NavigationStep.Refuse) { BeginInvoke(new Action(ShowNotConfirmed)); return; }
@@ -4131,12 +4153,26 @@ class BoardWindowForm : System.Windows.Forms.Form
         // error page, whose retry is a navigation and is checked (OnNavigationStarting). The window checks now too, off
         // this thread, and shows why instead of the error page when the board does not prove. A load that was cancelled
         // (by the check above, the link rules, or a newer navigation) did not fail.
-        bool boardNav = boardNavs.Remove(navId);
+        string failedLoad;
+        bool boardNav = boardNavs.TryGetValue(navId, out failedLoad);
+        boardNavs.Remove(navId);
         if (boardNav && success == 0)
         {
             int failure;
             args.get_WebErrorStatus(out failure);
-            if (failure != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) CheckThenShowNotConfirmed(KosmosLauncher.MayNavigateSignedIn);
+            if (failure != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED)
+            {
+                // Once per visit, the load is tried again after the board proves (CheckNavigationAgain: it waits out a
+                // board restarting, then loads, or shows why). A load that fails again is only checked: it shows why if
+                // the board does not prove, and otherwise stays on WebView2's error page, whose retry is checked too.
+                if (failedLoadRetriedVisit != boardVisit && navigatedToBoard && !boardNotConfirmed && !KosmosLauncher.IsSignInLoad(failedLoad))
+                {
+                    failedLoadRetriedVisit = boardVisit;
+                    string again = failedLoad;
+                    BeginInvoke(new Action(() => CheckNavigationAgain(again)));
+                }
+                else CheckThenShowNotConfirmed(KosmosLauncher.MayNavigateSignedIn);
+            }
         }
         // #5492: run and both record their in-window pages too (OnNavigationStarting), so they forget them here;
         // the first-load check below is connect's alone (connectLoadPending is never set on run or both).

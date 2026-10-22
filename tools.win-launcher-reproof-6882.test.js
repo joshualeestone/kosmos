@@ -90,8 +90,10 @@ test('#6882: every navigation to the board is checked before it leaves, and canc
   inOrder(block, ['args.put_Cancel(1);',
     // no board page loads while the window shows why or starts over (Back to one in the history)
     'if (boardNotConfirmed || !navigatedToBoard) return;',
-    'bool checkedAlready = (boardRedirect != 0 && boardNavs.ContainsKey(boardNav)) || (navigationApproved != null && navigationApproved == uri);',
-    'navigationApproved = null;',
+    'bool checkedAlready = (boardRedirect != 0 && boardNavs.ContainsKey(boardNav)) || (navigationApproved != null && navigationApproved == uri)',
+    // a sign-in load the opener proved a moment ago goes: held and replayed, its spent ?boot= code would sign nobody in
+    '|| (signInLoadApproved && KosmosLauncher.IsSignInLoad(uri));',
+    'navigationApproved = null;', 'signInLoadApproved = false;',
     'KosmosLauncher.NavigationDecision(KosmosLauncher.CheckBoardBeforeReuse(port, KosmosLauncher.ReuseQuickCheckMs))',
     'if (step == KosmosLauncher.NavigationStep.Refuse) { BeginInvoke(new Action(ShowNotConfirmed)); return; }',
     'if (step == KosmosLauncher.NavigationStep.CheckAgain) { string waiting = uri; BeginInvoke(new Action(() => CheckNavigationAgain(waiting))); return; }',
@@ -169,10 +171,22 @@ test('#6882: the reloads the window starts itself (a crashed page, F5 and the ot
   assert.match(SOURCE, /    void add_AcceleratorKeyPressed\(ICoreWebView2AcceleratorKeyPressedEventHandler eventHandler, out long token\);/);
 });
 
+test('#6882: the window\'s own sign-in loads are approved once, as the opener proved the board for them a moment ago', () => {
+  inOrder(method('void NavigateToBoard()'), ['navigatedToBoard = true;', 'signInLoadApproved = true;', 'webView.Navigate(boardAddress);'], 'the first load');
+  inOrder(method('internal void SignInAgain(string keepPage = null)'), ['if (fresh != null && fresh.Contains("?boot=")) signInLoadApproved = true;',
+    'if (fresh != null && fresh.Contains("?boot=") && webView != null) webView.Navigate('], 'a sign-in again');
+  assert.match(method('void ShowNotConfirmed()'), /signInLoadApproved = false;/);
+  assert.match(method('internal static bool IsSignInLoad(string uri)'), /return uri != null && \(uri\.Contains\("\?boot="\) \|\| uri\.Contains\("&boot="\)\);/);
+});
+
 test('#6882: a board load that failed is checked, and a cancelled one is not taken for a failure', () => {
   const done = method('internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)');
-  inOrder(done, ['bool boardNav = boardNavs.Remove(navId);', 'if (boardNav && success == 0)',
-    'if (failure != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) CheckThenShowNotConfirmed(KosmosLauncher.MayNavigateSignedIn);',
+  inOrder(done, ['bool boardNav = boardNavs.TryGetValue(navId, out failedLoad);', 'boardNavs.Remove(navId);', 'if (boardNav && success == 0)',
+    'if (failure != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED)',
+    // retried once per visit through the prove-first path (a quick restart recovers by itself), never a spent sign-in code
+    'if (failedLoadRetriedVisit != boardVisit && navigatedToBoard && !boardNotConfirmed && !KosmosLauncher.IsSignInLoad(failedLoad))',
+    'failedLoadRetriedVisit = boardVisit;', 'BeginInvoke(new Action(() => CheckNavigationAgain(again)));',
+    'else CheckThenShowNotConfirmed(KosmosLauncher.MayNavigateSignedIn);',
     // before the early return that skips a window whose mode is not chosen yet: those load the board too
     'if (mode != KosmosLauncher.ComputerMode.Connect && mode != KosmosLauncher.ComputerMode.Run && mode != KosmosLauncher.ComputerMode.Both) return;'],
   'the failed board load');
