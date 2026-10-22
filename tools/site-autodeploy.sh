@@ -29,10 +29,11 @@
 # build, the alias, tmux and the pkg are fetched from live and checked by deploy-site.sh as before.
 #
 # Skips, retried on the next tick: a release, deploy-site.sh or promote-channel.sh running on this
-# machine; another tick still running; exit 75 from deploy-site.sh (the live site moved or could not
-# be read). A commit the live site already serves (its .kosmos-release-export names it, as right
-# after a cut's own step 8) is recorded as deployed without deploying it again. A deploy left running
-# by a tick killed outright: waited for while under 1200 s, then stopped; a failure either way.
+# machine, unless a test started it (kosmos#6907); another tick still running; exit 75 from
+# deploy-site.sh (the live site moved or could not be read). A commit the live site already serves
+# (its .kosmos-release-export names it, as right after a cut's own step 8) is recorded as deployed
+# without deploying it again. A deploy left running by a tick killed outright: waited for while
+# under 1200 s, then stopped; a failure either way.
 # A failed deploy is retried once on the next tick (one network blip should not park a website
 # change), then PARKED: a second failure on the same sha is a finding, not a blip, and a tick
 # re-running a refusing deploy every 15 minutes would bury it. The next merge, or deleting `parked`,
@@ -81,7 +82,8 @@
 # on PATH or in ~/.claude/scripts).
 # Test seams, TEST ONLY (each is run with sh -c, so never set them in the job's environment):
 # KOSMOS_AUTODEPLOY_DEPLOY (the deploy command, default this repo's deploy-site.sh --publish),
-# KOSMOS_AUTODEPLOY_PS (the process list command, default `ps -axo command=`).
+# KOSMOS_AUTODEPLOY_PS (the process list command, default `ps -axo pid=,ppid=,command=`; a line without
+# the pid and ppid has no ancestry, so a publisher on it always holds the deploy).
 # macOS only (stat -f), like the box it runs on.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -281,22 +283,65 @@ fi
 # or a path with a space in it; cuts are launched as `bash tools/release.sh <version>`.
 # The list is captured first and matched without a pipeline: under pipefail, `ps | grep -q` reports
 # the SIGPIPE ps gets when grep stops at the first match (rc 141) on any list over a pipe buffer, so a
-# busy machine would read as "nothing running" exactly when a cut is. This also matches the shell
-# suite's own runs of tools/deploy-site.sh on this machine, which only delays a deploy a tick.
-PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo command=}"
+# busy machine would read as "nothing running" exactly when a cut is.
+# A publisher that a TEST started is not one (kosmos#6907): the shell suite runs the real deploy-site.sh and
+# release.sh as test subjects, and so does the node suite (tools.release-gate.test.js spawns release.sh), and a
+# validation can run for half an hour, so a match whose ancestry reaches a tools/test-*.sh, or a node process
+# running --test or a *.test.js file, is passed over, unless that ancestor's own command line also names a
+# publisher (bash -c 'tools/test-x.sh && tools/deploy-site.sh --publish' runs a real publish).
+# Ancestry needs pid and ppid, so the list is
+# "pid ppid command"; a line without them (a list that cannot say) has no ancestry, so a match there still holds
+# the deploy (fails closed, like a test harness that has died and left its subject to launchd: ppid 1, no test
+# above it, so it holds too).
+PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo pid=,ppid=,command=}"
 # Fails CLOSED: a process list that cannot be read (the command fails or prints nothing; a real one
 # always lists this tick) cannot rule out a cut, so nothing deploys, and it is reported red once a day
 # (red_once psread) rather than skipping silently forever.
+# Sets PUBLISHER to what held the deploy, so a skip names it: "pid <n>: <command>" for the first match no test
+# started ("pid ?" on a line without a pid), or a sentence when the matcher itself failed. The command goes into
+# the log and the job's output, so the publishers must keep taking only a version or flags as arguments.
+# A match passed over as test-started is logged too, naming the test above it, so a wrong exemption leaves
+# a record rather than a deploy beside a real publisher with nothing said.
+PUBLISHER=""
 publisher_running() {
-  local procs
+  local procs found line
   procs=$(sh -c "$PS_CMD" 2>/dev/null) || procs=""
   if [ -z "$procs" ]; then
     red_once psread "FAIL: could not read the process list ($PS_CMD), so a release cut cannot be ruled out; nothing deployed"
   fi
-  grep -Eq '^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\.sh( |$)' <<<"$procs"
+  found=$(awk '
+    BEGIN { pub = "^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\\.sh( |$)"
+            tst = "^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/test-[^ /]*\\.sh( |$)"
+            nod = "^([^ ]*/)?node( [^ ]+)* (--test(=[^ ]*)?|[^ ]*\\.test\\.[cm]?js)( |$)"
+            any = "tools/(release|deploy-site|promote-channel)\\.sh( |$)" }
+    { n++; c = $0
+      if (match(c, /^ *[0-9]+ +[0-9]+ /)) { pid[n] = $1; par[n] = $2; c = substr(c, RLENGTH + 1); id[$1] = n }
+      else { pid[n] = "?"; par[n] = "" }
+      cmd[n] = c }
+    END {
+      for (i = 1; i <= n; i++) {
+        if (cmd[i] !~ pub) continue
+        t = 0; p = par[i]
+        for (h = 0; h < 64 && p != "" && p > 1 && (p in id); h++) {
+          j = id[p]
+          if ((cmd[j] ~ tst || cmd[j] ~ nod) && cmd[j] !~ any) { t = 1; break }   # p and j stay on the test
+          p = par[j]
+        }
+        if (t) { print "T pid " pid[i] ": " substr(cmd[i], 1, 200) " (under pid " p ": " substr(cmd[j], 1, 120) ")"; continue }
+        print "H pid " pid[i] ": " substr(cmd[i], 1, 200); exit
+      }
+    }' <<<"$procs") || found="H the process list could not be matched, so a cut cannot be ruled out"   # closed, as above
+  PUBLISHER=""
+  while IFS= read -r line; do
+    case "$line" in
+      "T "*) say "not held by ${line#T } (a test started it)" ;;
+      "H "*) PUBLISHER="${line#H }" ;;
+    esac
+  done <<<"$found"
+  [ -n "$PUBLISHER" ]
 }
 if publisher_running; then
-  say "skip: a release cut, deploy or promote is running; main ${TARGET:0:9} waits for the next tick"
+  say "skip: a release cut, deploy or promote is running ($PUBLISHER); main ${TARGET:0:9} waits for the next tick"
   exit 0
 fi
 
@@ -424,7 +469,7 @@ fi
 # Asked again now that the mirror is done: a cut that started while it ran may have been mid-write or
 # mid-prune in the source, so the mirror may not be the set to ship. Next tick, then.
 if publisher_running; then
-  say "skip: a release cut, deploy or promote started during the mirror; main ${TARGET:0:9} waits for the next tick"
+  say "skip: a release cut, deploy or promote started during the mirror ($PUBLISHER); main ${TARGET:0:9} waits for the next tick"
   exit 0
 fi
 now > "$STATE/heartbeat"   # fresh before the long part, so a slow deploy never reads as a wedged lock
