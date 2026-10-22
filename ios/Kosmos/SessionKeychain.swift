@@ -20,15 +20,23 @@ struct SessionKeychain: SessionStore {
 
     private let service = "io.kosmos.app.coordinator-session"
     let account: String
-    // kosmos#6487: kept in the shared group (Info.plist KosmosSharedKeychainGroup, from the entitlements' first
-    // keychain-access-groups entry). Nil in a build with no signing team, where the group has no team prefix.
+    // kosmos#6487: the shared store's group (Info.plist KosmosSharedKeychainGroup, from the entitlements'
+    // keychain-access-groups). Nil in a build with no signing team, where the group has no team prefix.
     private let group: String?
+    // kosmos#6487: the app's own group, "<team>.<bundle id>", where every item was kept before the shared group existed.
+    // An item added with no group would now land in the shared group (the first in keychain-access-groups), so the
+    // stores that are not shared name this one, and the extension never sees the Kosmos+ sign-in.
+    private let ownGroup: String?
 
     init(account: String, shared: Bool = false) {
         self.account = account
-        let named = shared ? Bundle.main.object(forInfoDictionaryKey: "KosmosSharedKeychainGroup") as? String : nil
-        group = Self.usableGroup(named)
+        let sharedGroup = Self.usableGroup(Bundle.main.object(forInfoDictionaryKey: "KosmosSharedKeychainGroup") as? String)
+        let own = sharedGroup.flatMap { $0.hasSuffix(".shared") ? String($0.dropLast(".shared".count)) : nil }
+        ownGroup = own
+        group = shared ? sharedGroup : own
     }
+
+    private var isShared: Bool { group != nil && group != ownGroup }
 
     // A keychain group this build can hold: "<10-character team id>.<rest>". An unsigned build expands
     // $(AppIdentifierPrefix) to nothing, so its group reads "io.kosmos.app.shared" and is not one. The extension makes
@@ -68,14 +76,9 @@ struct SessionKeychain: SessionStore {
         return q
     }
 
-    // The app's own group, where items were kept before kosmos#6487: "<team>.<bundle id>", the shared group less ".shared".
-    private var ownGroup: String? {
-        guard let group, group.hasSuffix(".shared") else { return nil }
-        return String(group.dropLast(".shared".count))
-    }
-
     func load() -> String? {
-        guard let group else { return read(baseQuery) }
+        // A store that is not shared reads its item wherever it is, as before.
+        guard let group, isShared else { return read(baseQuery) }
         if let kept = read(query(group: group)) { return kept }
         // kosmos#6487: kept before the shared group existed. Moved there once, so the extension can read it: added to
         // the shared group FIRST (a different group is a different item, so it cannot collide), and only then is the

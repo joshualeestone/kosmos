@@ -130,12 +130,26 @@ enum PhoneNotice {
         }
     }
 
-    // A picture as an attachment iOS can show: as it came when its type is one iOS takes, otherwise (a WebP picture,
-    // which the board accepts) redrawn as a PNG. Nil when it is not a picture at all.
+    // The largest side a notice's picture is drawn at. A lock screen shows it small, and the extension's memory is
+    // small: a little file can still be a huge picture, which a full decode could not hold.
+    static let pictureMaxPixels = 300
+
+    // A picture iOS can show in a notice: as it came when it is a type iOS takes and no bigger than needed, otherwise
+    // (a WebP picture, which the board accepts, or a large one) redrawn as a small PNG. Nil when it is not a picture.
     static func attachable(_ data: Data, contentType: String?) -> (Data, String)? {
-        if let ext = attachmentExtension(contentType: contentType) { return (data, ext) }
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let w = props?[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let h = props?[kCGImagePropertyPixelHeight] as? Int ?? 0
+        if let ext = attachmentExtension(contentType: contentType), w > 0, h > 0, max(w, h) <= pictureMaxPixels {
+            return (data, ext)
+        }
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: pictureMaxPixels,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary) else { return nil }
         let out = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(out, UTType.png.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(dest, image, nil)

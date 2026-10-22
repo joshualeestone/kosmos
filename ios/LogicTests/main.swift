@@ -1396,7 +1396,23 @@ let onePixel = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ
 let redrawn = PhoneNotice.attachable(onePixel, contentType: "image/webp")
 check(redrawn?.1 == "png" && redrawn.map { CGImageSourceCreateWithData($0.0 as CFData, nil) != nil } == true, "a picture in a type iOS cannot attach is redrawn as a PNG")
 check(PhoneNotice.attachable(Data("not a picture".utf8), contentType: "image/webp") == nil, "bytes that are not a picture: no attachment")
-check(PhoneNotice.attachable(onePixel, contentType: "image/png")?.0 == onePixel, "a PNG goes as it came")
+check(PhoneNotice.attachable(onePixel, contentType: "image/png")?.0 == onePixel, "a small PNG goes as it came")
+// A large picture is drawn small, never decoded whole.
+func pngOf(_ w: Int, _ h: Int) -> Data {
+    let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    let out = NSMutableData()
+    let dest = CGImageDestinationCreateWithData(out, "public.png" as CFString, 1, nil)!
+    CGImageDestinationAddImage(dest, ctx.makeImage()!, nil)
+    _ = CGImageDestinationFinalize(dest)
+    return out as Data
+}
+if let (big, ext) = PhoneNotice.attachable(pngOf(3000, 1500), contentType: "image/png"),
+   let src = CGImageSourceCreateWithData(big as CFData, nil),
+   let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] {
+    check(ext == "png" && (p[kCGImagePropertyPixelWidth] as? Int) == PhoneNotice.pictureMaxPixels && (p[kCGImagePropertyPixelHeight] as? Int) == PhoneNotice.pictureMaxPixels / 2,
+          "a 3000x1500 picture is drawn at 300x150")
+} else { check(false, "a large picture gives a small one") }
 
 section("phone notice: the shared keychain group, checked the same in the app and the extension")
 for (group, ok) in [("6563JLN5HF.io.kosmos.app.shared", true), ("io.kosmos.app.shared", false), (".io.kosmos.app.shared", false), ("$(AppIdentifierPrefix)io.kosmos.app.shared", false), ("6563jln5hf.io.kosmos.app.shared", false), ("6563JLN5HF.", false), ("", false)] {

@@ -75,10 +75,13 @@ final class NotificationService: UNNotificationServiceExtension {
         return String(data: data, encoding: .utf8)
     }
 
-    private static func fetch(_ r: URLRequest) async -> (Data, HTTPURLResponse)? {
+    // `within`: the whole fetch's limit in seconds (a request's own timeout restarts on every piece that arrives).
+    private static func fetch(_ r: URLRequest, within: TimeInterval) async -> (Data, HTTPURLResponse)? {
         // No redirect is followed, as in the app (BoardClient+App.swift NoRedirects): the request carries the computer's
         // session cookie, which must never go to another host. A redirect is then a 3xx, and the notice shows as it came.
-        let session = URLSession(configuration: .ephemeral, delegate: NoticeNoRedirects(), delegateQueue: nil)
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForResource = within
+        let session = URLSession(configuration: config, delegate: NoticeNoRedirects(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         guard let (data, response) = try? await session.data(for: r), let http = response as? HTTPURLResponse else { return nil }
         return (data, http)
@@ -87,26 +90,29 @@ final class NotificationService: UNNotificationServiceExtension {
     // The notice as a message from the agent, or nil to show it as it came.
     static func messageContent(original: UNNotificationContent, ask: URLRequest, info: [AnyHashable: Any], stored: String?,
                                wordsReady: (UNNotificationContent) -> Void) async -> UNNotificationContent? {
-        guard let (data, http) = await fetch(ask),
+        // iOS gives the extension about 30 seconds: the words get most of it, the picture what is left after them.
+        guard let (data, http) = await fetch(ask, within: 15),
               let words = PhoneNotice.words(status: http.statusCode, contentType: http.value(forHTTPHeaderField: "Content-Type"), data: data, userInfo: info),
               !Task.isCancelled,
               let content = original.mutableCopy() as? UNMutableNotificationContent
         else { return nil }
-        var picture: Data?
-        var pictureType: String?
-        if let r = PhoneNotice.pictureRequest(words, userInfo: info, stored: stored), let (pd, ph) = await fetch(r) {
-            pictureType = ph.value(forHTTPHeaderField: "Content-Type")
-            picture = PhoneNotice.pictureData(status: ph.statusCode, contentType: pictureType, data: pd)
-        }
         // What the notice already said stays above the words: "Irma needs you" and, when it named one, "in Spring catalogue".
         content.subtitle = original.body.isEmpty ? original.title : "\(original.title), \(original.body)"
         content.title = words.agent
         content.body = words.text
+        // The words are in: from here the time limit shows them, however long the picture takes.
         if let ready = content.copy() as? UNNotificationContent { wordsReady(ready) }
+
+        // The picture, as a small PNG or JPEG iOS can show (never a full decode of a huge one: the extension's memory is small).
+        var shown: (Data, String)?
+        if let r = PhoneNotice.pictureRequest(words, userInfo: info, stored: stored), let (pd, ph) = await fetch(r, within: 8),
+           let picture = PhoneNotice.pictureData(status: ph.statusCode, contentType: ph.value(forHTTPHeaderField: "Content-Type"), data: pd) {
+            shown = PhoneNotice.attachable(picture, contentType: ph.value(forHTTPHeaderField: "Content-Type"))
+        }
 
         guard Bundle.main.object(forInfoDictionaryKey: PhoneNotice.messageStyleKey) as? Bool == true else {
             // No Communication Notifications capability yet: the picture rides as the notice's attachment.
-            if let picture, let (bytes, ext) = PhoneNotice.attachable(picture, contentType: pictureType) {
+            if let (bytes, ext) = shown {
                 let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + ext)
                 if (try? bytes.write(to: file)) != nil,
                    let attachment = try? UNNotificationAttachment(identifier: "agent", url: file, options: nil) {
@@ -117,7 +123,7 @@ final class NotificationService: UNNotificationServiceExtension {
         }
 
         // A message from a person: iOS then shows the agent's picture and name the way a chat app's notices look.
-        let image = picture.map { INImage(imageData: $0) }
+        let image = shown.map { INImage(imageData: $0.0) }
         let sender = INPerson(personHandle: INPersonHandle(value: words.session, type: .unknown), nameComponents: nil,
                               displayName: words.agent, image: image, contactIdentifier: nil, customIdentifier: words.session)
         let intent = INSendMessageIntent(recipients: nil, outgoingMessageType: .outgoingMessageText, content: words.text,
