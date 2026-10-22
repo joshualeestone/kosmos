@@ -3779,6 +3779,7 @@ const UPDATE_PRESS_FAILED = {
   rollback: 'Kosmos could not start the roll back just now. Try again in a minute.',
 };
 function updatePressThrew(res, say, kind, err) {
+  if (isGateThrowInTest(err)) throw err;
   const detail = String((err && err.message) || err);
   if (res.headersSent) { console.error('FAIL ' + kind + ' press after answering: ' + detail); return; }
   console.error('FAIL ' + kind + ' press: ' + detail);

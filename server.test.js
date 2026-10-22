@@ -4509,6 +4509,14 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
       'a failed start was not logged with its cause:\n' + lines.join('\n'));
     updates.beginInstall = realBeginInstall;
 
+    // The real engine's start throwing (here its runner) releases the single-flight flag, so the retry the sentence
+    // asks for can start an install rather than be told one is already running.
+    updates.setInstallRunner(() => { throw new Error('the runner exploded'); });
+    const runnerFail = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(runnerFail.status, 500, runnerFail.body);
+    assert.equal(updates.alreadyInstalling(), false, 'a start that threw left the board thinking an install is running');
+    updates.setInstallRunner(() => { ran += 1; });
+
     // A refusal is logged with the sentence the person saw.
     updates.setInstalledRoot(null);
     const src = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });

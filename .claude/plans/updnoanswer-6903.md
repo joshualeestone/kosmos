@@ -54,6 +54,20 @@ Card: kosmos#6903 (Josh, 2026-10-22 10:46 CDT: the dialog showed only "we could 
 - Not changed: the stub proof sends a POST that the stub aborts. The stubs are registered before it, and a GET would
   not prove a POST is caught (the stub passes non-POSTs through).
 
+## Review round 5
+- beginInstall set its single-flight flag before anything that can throw, and only the platform refusal released it.
+  A synchronous throw after it (a spawn, the wiring, an injected runner) left every later press answered "already
+  updating" for an install that was not running, and the new sentence invites exactly that retry. beginInstall now
+  wraps beginInstallOnce and releases the flag on any throw it caused. Test: the real engine with a throwing runner
+  answers 500 and alreadyInstalling() is false after it.
+- Two source pins read the old `sendJson(res, 409, ...)` spelling inside these routes: update-pause-6620.test.js
+  (the pause refusal) and accountmove-6173.test.js (the move refusal in both routes). Re-pinned to `say(409, ...)`.
+  My focused runs missed them; the full node suite runs before this branch is pushed.
+- The outer catch re-throws the live-execution gate's test-process throw (isGateThrowInTest), as the board's other
+  catches do, so a gate hit in these routes stays loud in a test.
+- Not changed (NITs): a Roll back stamp-throw arm (the Update arms pin the shared helper); a 401 or 403 answered with
+  no reason (the auth layer answers with an error sentence); the beginInstall 500 keeps its `detail`.
+
 ## Rejected
 - A process-level unhandledRejection handler for the whole board: much wider than this card, and it would change how
   every other route fails. Out of scope; the two routes that start installs are guarded where they are.

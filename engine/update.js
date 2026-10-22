@@ -1169,7 +1169,20 @@ function armWindowsHelperWitness(owner, opts) {
   return t;
 }
 
+/* #6903: a start that throws releases the single-flight flag, whatever threw (a spawn that fails synchronously, the
+   wiring, an injected runner). Otherwise the next press, which the failure sentence asks for, is answered "already
+   updating" for an install that is not running, for the life of the board. */
 function beginInstall(opts) {
+  const wasStarted = installStarted;
+  try {
+    return beginInstallOnce(opts);
+  } catch (err) {
+    if (!wasStarted) { installStarted = false; inFlightKindVar = null; }
+    throw err;
+  }
+}
+
+function beginInstallOnce(opts) {
   // ⚠️ Single-flight. available() stays truthy until the new server is up,
   // so a double click or a second tab would spawn a SECOND detached
   // installer racing the first through the stage-and-swap. One per server
