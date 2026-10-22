@@ -54,7 +54,7 @@ test('#1765: a squatter gets nothing but the proof request, on a read, a write a
   } finally { await sq.close(); }
 });
 
-test('#1765 CONTROL: a board that holds the token gets the request, with its tokens, and is proved once', async () => {
+test('#1765 CONTROL: a board that holds the token gets the request, with its tokens, proved before it (one request, one proof)', async () => {
   const board = await startListener({ mode: 'board', holds: BOARD, reply: { ok: true, recorded: true, posts: [], project: { id: 'proj' } } });
   try {
     await run(board.url, ['report', 'working', 'on it']);
@@ -250,8 +250,10 @@ test('kosmos#6464 CONTROL: with the board token, a board that proves itself rece
 
 test('kosmos#6464: a proven board that redirects a send elsewhere: the tokens and body never reach the other address', async () => {
   const elsewhere = await startListener({ mode: 'squatter' });
+  const redirected = [];
   const server = http.createServer((req, res) => {
     if (answerProof(req, res, [BOARD])) return;
+    redirected.push(req.method + ' ' + req.url);
     res.writeHead(307, { location: elsewhere.url + req.url });   // 307 keeps the method and body if followed
     res.end();
   });
@@ -259,6 +261,7 @@ test('kosmos#6464: a proven board that redirects a send elsewhere: the tokens an
   try {
     const r = await run('http://127.0.0.1:' + server.address().port, ['report', 'working', 'on it']);
     assert.notEqual(r.code, 0, r.err);
+    assert.ok(redirected.includes('POST /api/report'), 'the report never reached the board, so this arm measures nothing: ' + redirected.join(', '));
     assert.deepEqual(elsewhere.seen.map((x) => x.method + ' ' + x.url), [], 'the request followed the redirect');
   } finally { server.closeAllConnections(); server.close(); await elsewhere.close(); }
 });
