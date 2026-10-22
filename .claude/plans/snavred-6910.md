@@ -12,13 +12,13 @@ was hidden again (takeOverDisplayColumn hides #panel-settings for any later over
 with no size.
 
 ## Change
-docs/browser-checks/render-snav-head-4979.js: when that wait times out, the error carries the page state, the
-Settings fields first, so the gate's 200-character summary line carries at least those; the rest is in the job
-log: #panel-settings hidden and parent, the
-first three page errors caught so far (80 characters each), the pill's own size and visibility (or that it is not in the page), every ancestor that hides itself (hidden or
-display:none), which children of #panel-projects are showing (the overlay that took the column, if one did), then
-data-layout, body classes and URL. The read has 5 s, so a wedged page cannot turn the timeout into a hang.
-Nothing else; the pass path is unchanged.
+docs/browser-checks/render-snav-head-4979.js: when that wait times out, the error carries the page state as JSON,
+in this order: #panel-settings hidden and parent; the first three page errors (80 characters each); the pill's own
+size and visibility (or that it is not in the page); every ancestor that hides itself (hidden or display:none);
+which children of #panel-projects are showing (the overlay that took the column, if one did); then data-layout,
+body classes and URL. The gate's 200-character summary line carries the two Settings fields; the full line is in
+the job log. The read has 5 s, so a wedged page cannot turn the timeout into a hang. Nothing else changes; the
+pass path is unchanged.
 
 ## Decisions
 - A diagnostic first, not a guessed fix. #5018 shipped a guessed cause and the red came back.
