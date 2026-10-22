@@ -7270,7 +7270,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    because pjRoomRow (room posts) and dmRow (DM) both emit the name as <b class="msg-nm">. */
 .msg-nm { display: block; font-size: .8125rem; font-weight: 700; line-height: 1.2; margin-bottom: 3px; }
 .msg-bd .msg-t { display: block; text-align: right; margin-top: 2px; }
-.msg-bd .msg-closing { text-align: left; }   /* #6925: a sentence to read, so not italic (dark mode) */
+.msg-bd .msg-closing { text-align: left; }   /* #6925: a sentence, read left to right, unlike the time */
 /* #3134-followup (Josh 6.72): the agent name and the agent avatar are ACTIVE -- click
    either to go straight to that agent. No underline, no link look (Josh's rule), just
    a pointer cursor on hover. The person's OWN avatar (.msg-av.mine) is not a target. */
@@ -73043,6 +73043,7 @@ function pjHeldNotice(held, project) {
 }
 /* #6925: a post that went through a held room as its agent's one summary (#6920 stores it with closing: true) says so,
    in the bubble above the time, so a person does not read it as the hold having failed. */
+/* It carries msg-t on purpose: the copy and quote paths strip .msg-t, so the label never lands in copied or quoted text. */
 function pjClosingTag(m) {
   return m && m.closing === true ? '<span class="msg-t msg-closing">Posted as this agent\'s one summary while the room was held</span>' : '';
 }

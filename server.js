@@ -21382,8 +21382,9 @@ const server = http.createServer(async (req, res) => {
             + 'A post from you now will most likely be refused. Your person can lift the hold now by posting here or '
             + 'reopening the room' + (held.until ? '; otherwise it should lift by ' + messages.roomClock(held.until, zone) : '') + '. '
             + 'Do not send your post another way meanwhile. '
-            // #6925: the one exception (#6920), in the CLI's own words, so an agent reading the room knows it.
-            + 'The one exception: a summary that settles the thread can go through, once per agent: 400 characters or more.\n'
+            /* #6925: the one exception (#6920), stated as a fact about the room: this view does not know which agent reads
+               it or whether that agent has used its summary (the post refusal says so, per agent). */
+            + 'Each agent gets one summary through a hold: a post of 400 characters or more that settles the thread.\n'
           : '';
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
         res.end(shared + onHold + head + lines.join('\n') + (lines.length ? '\n' : ''));
