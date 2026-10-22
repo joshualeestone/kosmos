@@ -288,15 +288,16 @@ if [ "$FAMILY" = mac ]; then
   # reach the board (#2023); it does NOT exercise agent spawn. #2129 was exactly that gap -
   # spawned agents wedged at the Claude Code trust prompt while the board served fine, so the
   # experience gate alone would PASS a #2129 build. This second gate creates a Claude and an
-  # OpenAI agent and confirms each comes ONLINE. Same exit contract: 0 online -> promote; 1 a
+  # OpenAI agent, confirms each comes ONLINE and answers a first message, and removes them (kosmos#6906: so it runs on
+  # a populated board). Same exit contract: 0 online -> promote; 1 a
   # trust wedge / auth / never-online (#2129 class) -> refuse, never forceable; 2 cannot-tell
-  # (no enforcing board, a provider not signed in, or a populated fleet) -> HOLD, forceable
+  # (no enforcing board, a provider not signed in, or no answer in time) -> HOLD, forceable
   # only after a HAND check. Override the command via KOSMOS_PROMOTE_AGENT_GATE_CMD.
   AGENT_GATE_CMD="${KOSMOS_PROMOTE_AGENT_GATE_CMD:-bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-agent-online-check.sh}"
   echo "promote-channel: running the agent-spawn gate: $AGENT_GATE_CMD${PORT:+ (port $PORT)}"
   $AGENT_GATE_CMD ${PORT:+"$PORT"}; AGENT_RC=$?
   case "$AGENT_RC" in
-    0) echo "promote-channel: agent-spawn gate PASSED - a fresh Claude and OpenAI agent came online (the #2129 class is not present)."
+    0) echo "promote-channel: agent-spawn gate PASSED - a fresh Claude and OpenAI agent came online and answered a first message (the #2129 class is not present)."
        # #5084: it ran on the same board. When the experience gate could not tie that board to $V (cannot-tell,
        # then --force), this pass is not a check of $V either; say so beside it rather than let it read as one.
        [ "$GATE_RC" = 2 ] && echo "promote-channel: NOTE: that board was not shown to run $V (the experience gate above could not tell), so this agent-spawn pass is not a check of $V." >&2
@@ -306,7 +307,7 @@ if [ "$FAMILY" = mac ]; then
       if [ "$FORCE" = 1 ]; then
         echo "promote-channel: agent-spawn gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: agent spawn was NOT automatically verified." >&2
       else
-        echo "promote-channel: agent-spawn gate could not run here (exit 2, cannot-tell) - no fresh enforcing board, a provider not signed in, or a populated fleet board. HOLDING. Run on/against the fresh staging machine with both providers signed in, or pass --force after verifying by hand." >&2
+        echo "promote-channel: agent-spawn gate could not run here (exit 2, cannot-tell) - no enforcing board, a provider not signed in, or an agent that did not answer in time (the gate says which above). HOLDING. Fix what it names and run again, or pass --force after verifying by hand." >&2
         exit 2
       fi ;;
     3)
