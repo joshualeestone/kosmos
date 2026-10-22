@@ -40,6 +40,11 @@ The reverse risk: a REAL publisher started under a node test process would be pa
 that today, since a cut starts release.sh from a shell and release.sh's own gate runs the node suite
 beneath it, not above it.
 
+A second premise, the one the whole card rests on: a test that runs a publisher runs it against fakes,
+never the live site, so a tick may deploy beside it. Checked for the incident's test:
+tools/test-deploy-site-promote.sh stubs `vercel` and `curl` on PATH and publishes into a temp LIVE dir. A
+test that ran a publisher against the real site would be a defect in that test whatever this job did.
+
 ## Deferred
 
 - The skip line prints up to 200 characters of the matched command into the log and the job output. The
@@ -48,6 +53,10 @@ beneath it, not above it.
   The passed-over line carries the same text plus the test's command, on the same reasoning.
 - The passed-over line is written on both looks of a tick (before and after the mirror): two lines per
   tick while a test runs. Kept: a record per look is what shows the second look saw it too.
+
+- Iteration 6 NITs, kept as they are: a `node ... --test` anywhere in a node command exempts (the
+  missed-hold direction, named above); pid reuse inside one ps snapshot; the first 7b arm's middle hop is
+  not itself publisher-named (the shellc and mixed arms cover the neighbours).
 
 ## Tests
 
