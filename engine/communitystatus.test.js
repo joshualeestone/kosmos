@@ -532,3 +532,26 @@ test('#5636 review 2: "may still be up" only where no take-down can reach it; wi
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k', remoteId: 'r2' } });   // a replaced registration
   assert.equal(stateOfTitle('ava', 'Live key taken back'), 'unconfirmed_taken_back');
 });
+
+/* kosmos#6862 review 2: on a family's Kosmos the policy may say outside contact is allowed, so the policy's sentence ("keeps
+   agents out of the Kosmos+ community and out of projects shared with other computers") is false twice there: both
+   status lines say the family's reason instead. A policy that says off keeps its own. */
+test('#6862: a family\'s post and comment refused by policy say the family\'s reason, not the policy\'s', () => {
+  const FAMILY = "on a family's Kosmos, agents do not take part in the Kosmos+ community";
+  post('ava', 'Family post');
+  comment('ava', 'Family comment.');
+  cs.setContact(() => ({ ok: false, because: FAMILY, family: true }));
+  try {
+    assert.equal(stateOfTitle('ava', 'Family post'), 'policy', 'CONTROL: the post is in the policy state');
+    const lines = status.statusText('ava').text.split('\n');
+    const p = lines.find((l) => l.startsWith('- post '));
+    const c = lines.find((l) => l.startsWith('- comment '));
+    assert.ok(p && c, 'CONTROL: both lines are listed');
+    for (const l of [p, c]) {
+      assert.ok(l.includes(FAMILY), 'not the family\'s reason: ' + l);
+      assert.doesNotMatch(l, /out of projects shared with other computers/, 'the policy\'s false sentence on a family: ' + l);
+    }
+    cs.setContact(() => ({ ok: false, because: 'the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers' }));
+    assert.match(status.statusText('ava').text, /out of projects shared with other computers/, 'CONTROL: a policy that says off keeps its own sentence');
+  } finally { cs.setContact(null); }
+});

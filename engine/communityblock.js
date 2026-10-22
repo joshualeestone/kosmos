@@ -316,10 +316,7 @@ const FAMILY_STOPPED_LINES = Object.freeze([
   STOPPED_LINES[3],
 ]);
 /* The stopped lines for why this Kosmos keeps agents out (the family's form when it is a family's), as text. */
-function stoppedBody(family = stoppedForFamily()) { return (family ? FAMILY_STOPPED_LINES : STOPPED_LINES).join('\n'); }
-function stoppedForFamily() {
-  try { return require('./orgpolicy').communityAllows().family === true; } catch { return false; }
-}
+function stoppedBody(family = stoppedReason() === 'family') { return (family ? FAMILY_STOPPED_LINES : STOPPED_LINES).join('\n'); }
 /* Round 7: whether the community section found in `text` is the stopped lines, not the rules (a file with no section,
    or two, is not). Every "does it carry the rules" check asks this as well, so an agent told not to take part is never
    nudged to take part by a check that only saw the markers. */
@@ -332,7 +329,15 @@ function isStoppedSection(text) {
 /* Whether that policy is in force. A policy read that throws reads as not stopped, so a fault never rewrites every
    agent's instructions; the community itself stays refused on that fault (communitysend reads it as unreadable). */
 function policyStopped() {
-  try { return require('./orgpolicy').communityAllows().ok !== true; } catch { return false; }
+  return stoppedReason() !== null;
+}
+/* kosmos#6862 review 2: why it is stopped, from ONE read, so whether to write the stopped lines and which form they take
+   cannot disagree (two reads let a throw on the second give a family the policy's lines): null (not stopped, or the read
+   threw), 'family', or 'policy'. */
+function stoppedReason() {
+  let r;
+  try { r = require('./orgpolicy').communityAllows(); } catch { return null; }
+  return r && r.ok === true ? null : r && r.family === true ? 'family' : 'policy';
 }
 
 /**
@@ -358,7 +363,8 @@ function tellAgent(sessionName, participating, opts = {}) {
     if (opts.onlyIfPresent === true && !found) return { state: projects.TOLD.TOLD, because: null, changed: false };
     const introduce = typeof opts.introduce === 'boolean' ? opts.introduce : shouldIntroduce(sessionName);
     // kosmos#6239: not taking part because of the policy is said, not left out (stoppedBody).
-    let body = participating === true ? blockBody({ introduce }) : policyStopped() ? stoppedBody() : null;
+    const why = participating === true ? null : stoppedReason();   // kosmos#6862: one read decides both
+    let body = participating === true ? blockBody({ introduce }) : why !== null ? stoppedBody(why === 'family') : null;
     let next = body !== null
       ? projects.spliceBlock(current.text || '', body, START, END)
       : projects.removeBlock(current.text || '', START, END);
@@ -443,4 +449,4 @@ function refreshEveryone(roster, participating) {
   return told;
 }
 
-module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, STOPPED_LINES, FAMILY_STOPPED_LINES, countWord, blockBody, stoppedBody, isStoppedSection, policyStopped, shouldIntroduce, tellAgent, refreshEveryone, connected };
+module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, STOPPED_LINES, FAMILY_STOPPED_LINES, countWord, blockBody, stoppedBody, isStoppedSection, policyStopped, stoppedReason, shouldIntroduce, tellAgent, refreshEveryone, connected };

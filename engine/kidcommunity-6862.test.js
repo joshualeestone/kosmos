@@ -118,3 +118,42 @@ test("#6862: Settings' community switch says the family's sentence on a family's
   assert.match(src, /const c = op\.communityAllows\(\); return c\.ok === true \? null : c\.family === true \? FAMILY_COMMUNITY_STOPPED : COMMUNITY_STOPPED;/,
     "Settings' switch does not choose the family sentence from communityAllows");
 });
+
+/* Review 2: the refusal a post or comment gets on a family that allowed outside contact is said with the family's reason:
+   the policy's own sentence ("keeps agents out ... and out of projects shared with other computers") is false twice there. */
+test('#6862: a refused post and a refused comment on a family that allowed outside contact say the family\'s reason', () => {
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  try {
+    joined('family');
+    apply({ outside_contact: { enabled: true } });
+    assert.equal(communitysend.switchState(), 'policy', 'CONTROL');
+    for (const kind of ['post', 'comment']) {
+      const w = communitysend.notSendingWords(kind, 'policy');
+      assert.match(w, FAMILY_WORDS, kind + ': not the family\'s reason');
+      assert.doesNotMatch(w, /out of projects shared with other computers/, kind + ': the policy\'s false sentence on a family');
+    }
+    joined('company');
+    apply({ outside_contact: { enabled: false } });
+    for (const kind of ['post', 'comment']) {
+      assert.match(communitysend.notSendingWords(kind, 'policy'), /out of projects shared with other computers/, 'CONTROL: ' + kind + ' under a policy saying off keeps its own');
+    }
+  } finally { communitysend.setSwitch(null); joined(null); }
+});
+
+/* Review 2: whether to write the stopped lines and which form they take come from one read (stoppedReason), so a read
+   that fails between them cannot give a family the policy's lines. */
+test('#6862: stoppedReason says family, policy or null from one read', () => {
+  try {
+    joined('family');
+    assert.equal(cb.stoppedReason(), 'family');
+    apply({ outside_contact: { enabled: false } });
+    assert.equal(cb.stoppedReason(), 'policy');
+    joined('company');
+    assert.equal(cb.stoppedReason(), null, 'CONTROL: a company with no policy is not stopped');
+    const real = orgpolicy.communityAllows;
+    let calls = 0;
+    orgpolicy.communityAllows = (...a) => { calls += 1; return real(...a); };
+    try { joined('family'); calls = 0; cb.stoppedReason(); assert.equal(calls, 1, 'more than one read'); }
+    finally { orgpolicy.communityAllows = real; }
+  } finally { joined(null); }
+});

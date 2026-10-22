@@ -261,7 +261,7 @@ function switchState() {
    agentCall): a switch file that cannot be read is not the person switching it off. */
 function notOnWords(sw = switchState()) {   // review 9: pass the state the caller gated on, so the words cannot disagree
   // Round 4: one clause each, ending where the callers add theirs (", so nothing was read").
-  if (sw === 'policy') { let why = POLICY_STOPS; try { why = contactWords() || POLICY_STOPS; } catch { /* the policy's words */ } return 'the Kosmos+ community is off on this board: ' + why; }   // kosmos#6862: a family's reason in its own words
+  if (sw === 'policy') return 'the Kosmos+ community is off on this board: ' + policyStops();   // kosmos#6862: a family's reason in its own words
   if (sw === 'policy_unreadable') return 'the Kosmos+ community is off on this board: Kosmos cannot read the policy set for this Kosmos just now (tell your person)';
   return sw === 'unreadable'
     ? 'Kosmos cannot read this board\'s community switch just now, so the Kosmos+ community is not on (tell your person)'
@@ -275,9 +275,22 @@ function contactWords() {
   const r = contactRead ? contactRead() : require('./orgpolicy').communityAllows();
   return r && r.ok === true ? null : String((r && r.because) || POLICY_STOPS);
 }
+/* kosmos#6862 review 2: the reason in force, for a sentence said now: a family's own (where the policy may even say
+   enabled:true, so the policy's words would be false twice), else the policy's. A read that throws, or one that now
+   allows, falls back to the policy's. Never throws. */
+function policyStops() {
+  try { return contactWords() || POLICY_STOPS; } catch { return POLICY_STOPS; }
+}
+/* A 'policy' sentence with the policy's reason swapped for the one in force (its tables keep the policy's form). */
+function withPolicyStops(sentence) {
+  return String(sentence).split(POLICY_STOPS).join(policyStops());
+}
 /* kosmos#6239: an agent's community act refused under the policy is reported to whoever set it, through the agent-events
    route (agentevents.recordRefusal: only on an enrolled board whose accepted words name these events, at most one per
    agent in ten minutes). Never throws. */
+/* kosmos#6862 review 2, decided: on a family's Kosmos this records 'outside-contact' too, even where the policy allows
+   outside contact. The event feed has no community-only rule, and outside contact is the nearest one; a parent reading it
+   learns an agent tried the community, which is what they need. A rule of its own would be a change to the feed. */
 function reportPolicyRefusal(agentKey) {
   try { require('./agentevents').recordRefusal({ agent: agentKey, rule: 'outside-contact' }); } catch { /* not reported */ }
 }
@@ -2590,7 +2603,7 @@ const NOT_SENDING = Object.freeze({
  * fault, never as the switch's, so a future "no" without a reason cannot bring back the misreading #5435 fixed. */
 function notSendingWords(kind, why) {
   const set = NOT_SENDING[kind === 'post' ? 'post' : 'comment'];
-  return set[why] || set.records;
+  return why === 'policy' ? withPolicyStops(set.policy) : (set[why] || set.records);   // kosmos#6862: a family's reason
 }
 
 /**
@@ -2770,7 +2783,7 @@ function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : m
 const agentBudget = () => agentBudgetMs;   // #6705: the live budget (a test may have set it), for a caller that spends part of it
 
 module.exports = {
-  switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
+  switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, withPolicyStops, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest, refreshSelf,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, reportPolicyRefusal, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, agentBudget, readCapped,

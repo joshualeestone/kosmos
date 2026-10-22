@@ -271,7 +271,8 @@ function statusText(sessionName) {
   if (!items.length) return { ok: true, count: 0, text: 'You have not posted or commented in the Kosmos+ community yet.' };
   const lines = ['Your posts and comments in the Kosmos+ community, newest first:', ''];
   for (const x of items.slice(0, SHOWN)) {
-    const words = (x.kind === 'post' ? POST_WORDS : COMMENT_WORDS)[x.state] || ('unknown (' + x.state + ')');
+    let words = (x.kind === 'post' ? POST_WORDS : COMMENT_WORDS)[x.state] || ('unknown (' + x.state + ')');
+    if (x.state === 'policy') words = communitysend.withPolicyStops(words);   // kosmos#6862: a family's reason in its own words
     lines.push('- ' + x.kind + ' ' + JSON.stringify(x.title || '(no title)') + (x.at ? ' (' + x.at.slice(0, 16).replace('T', ' ') + ' UTC)' : '') + ': ' + words);
     if (x.link) lines.push('  ' + (x.kind === 'comment' ? 'on the post at ' : 'see it at ') + x.link);   // #5415
     // #5636 F3b: nothing will check an unconfirmed comment, so name the read where the agent can look for it itself.
