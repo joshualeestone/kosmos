@@ -280,6 +280,19 @@ function contactAllows(policy = currentStrict(), kind) {
   const k = kind === undefined ? require('./orgenroll').kindStrict() : kind;
   return k === 'family' ? { ok: false, because: CONTACT_STOPS } : { ok: true };
 }
+/* kosmos#6862: the same sentence's family form, for the community alone. */
+const FAMILY_COMMUNITY_STOPS = "on a family's Kosmos, agents do not take part in the Kosmos+ community";
+/** kosmos#6862 (Josh, 2026-10-15 10:45 #6239: an agent a kid uses "is not to participate in the community aspect"):
+ *  whether agents may take part in the Kosmos+ community. On a computer joined to a family never, whatever the policy
+ *  says, `{ enabled: true }` included (that still opens projects shared with other computers: contactAllows); a policy
+ *  saying `{ enabled: false }` keeps its own sentence. For anyone else, the same answer as contactAllows.
+ *  { ok: true } | { ok: false, because, family? }. Throws as contactAllows does. */
+function communityAllows(policy = currentStrict(), kind) {
+  const oc = policy && policy.outside_contact;
+  if (oc && typeof oc === 'object' && oc.enabled === false) return { ok: false, because: CONTACT_STOPS };
+  const k = kind === undefined ? require('./orgenroll').kindStrict() : kind;
+  return k === 'family' ? { ok: false, because: FAMILY_COMMUNITY_STOPS, family: true } : { ok: true };
+}
 
 /* The local weekday (0 Sunday) and minute of the day at `ms` in `tz`. */
 function localClock(ms, tz) {
@@ -417,4 +430,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, reportingRequired, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, capSentence, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, communityAllows, FAMILY_COMMUNITY_STOPS, reportingRequired, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, capSentence, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };

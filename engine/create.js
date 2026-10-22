@@ -6037,8 +6037,9 @@ function createAgentInner(opts) {
              part (Josh, 2026-10-15 10:45), rather than told nothing. */
           try {
             const cb = require('./communityblock');
-            if (cb.policyStopped()) {
-              const spliced = require('./projects').spliceBlock(text, cb.stoppedBody(), cb.START, cb.END);
+            const why = cb.stoppedReason();   // kosmos#6862: one read decides both
+            if (why !== null) {
+              const spliced = require('./projects').spliceBlock(text, cb.stoppedBody(why === 'family'), cb.START, cb.END);
               if (Buffer.byteLength(spliced, 'utf8') <= require('./instructions').MAX_BYTES) text = spliced;
               else steps.push({ label: 'could not add the line saying it does not take part in the Kosmos+ community; it will be tried again at its next restart', ok: false });
             }
