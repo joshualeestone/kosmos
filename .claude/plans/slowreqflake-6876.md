@@ -36,6 +36,12 @@ work `start(0)` began that resumes then. One reader on the request path is known
 before using the value for a loopback request). Timers do not read `Date.now`, so the wait is
 unaffected. A reader that misbehaved on a jumped clock would need a narrower stub.
 
+A value stored in that window (a cache time such as `TOKEN_GUARD_CACHE.at`) stays a few seconds in
+the future after the restore, so it reads as fresh a few seconds longer. Nothing after this test in
+the file uses the real board today. A board test added after it should move above it, or the stub
+should narrow. Rejected for now: stepping only the reads `watchSlowRequest` makes, which would
+depend on the order in which server code reads the clock.
+
 The test also depends on `watchSlowRequest` reading `Date.now` per request. That is guarded: the
 duration assertion requires at least 1.0 s, and a real request under a second reads 0.x s.
 
