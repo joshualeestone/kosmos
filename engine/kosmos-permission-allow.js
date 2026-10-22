@@ -3,14 +3,16 @@
 /*
  * #5406: the PermissionRequest hook Kosmos gives its own Claude agents (engine/agentpermission.js). Claude Code runs it
  * when a permission prompt would appear. Kosmos launches agents with --dangerously-skip-permissions, so what prompts is
- * an ask rule (the person's, or a managed one). It answers allow, so the agent goes ahead instead of stopping on a
- * question the person cannot answer from the board (Josh's ruling, 2026-10-07).
+ * an ask rule (the person's, or a managed one), or one of Claude Code's own safety checks, such as "Dangerous rm
+ * operation on possibly-empty variable path" (#3417). It answers allow, so the agent goes ahead instead of stopping on
+ * a question the person cannot answer from the board (Josh's rulings, 2026-10-07, and 2026-10-22 for the safety
+ * checks; engine/permission-rmguard-3417.test.js pins the allow for those).
  *
  * Silent (no answer, so the prompt shows as before) for:
  *   - AskUserQuestion: the agent asking the person something; "allow" would answer it with nothing;
  *   - anything naming a protected place (.claude, a Kosmos account folder .claude-<label>, .claude.json, .git). Not
  *     live today: measured, Claude Code 2.1.292 in bypass mode does not prompt there. It is future-proofing, so the hook
- *     never answers for that guard (the ruling is about the person's ask rules) if Claude adds it; judged by the file
+ *     never answers for that guard if Claude adds it (#5406's rule; #3417 left it as it was); judged by the file
  *     path or, for a shell command, its text;
  *   - input it cannot read: a hook that guesses is worse than one that steps aside.
  * ExitPlanMode is allowed: Kosmos runs agents unattended with no plan screen, so a plan waiting on approval only stalls.
