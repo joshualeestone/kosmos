@@ -67905,7 +67905,7 @@ function paintTaskPage() {
      is left. Closing clears it, so a closed task never says it. */
   const builtWho = t.builtByPerson ? 'you' : (t.builtBy ? tkMemberName(p, t.builtBy) : '');
   /* #6923: the tasks this one replaced, worked out from theirs (the link is stored once, on the replaced task). */
-  const replaces = (p.tasks || []).filter((x) => x && x.replacedBy === t.number).map((x) => x.number).sort((a, b) => a - b);
+  const replaces = (p.tasks || []).filter((x) => x && x.replacedBy === t.number && (x.progress ? x.progress.closed : x.closedAt)).map((x) => x.number).sort((a, b) => a - b);
   const tkTaskLink = (num) => '<button type="button" class="linkish" data-sub="' + Number(num) + '">task ' + Number(num) + '</button>';   // #6923
   const stateWord = tkStateWord(t);
   const replacedLink = Number.isInteger(t.replacedBy) && Boolean(t.progress ? t.progress.closed : t.closedAt);   // as tkStateWord decides it

@@ -27,8 +27,7 @@ a missed one would show it as open); letting it name a task on another project (
 
 1. engine/tasks.js: close(projectId, n, { replacedBy }) validates inside the same mutate, stores replacedBy, records
    it on the `closed` history row; a reopen clears it, a plain re-close keeps it. No loop is accepted, of any
-   length. The link is a point in time: it is not re-checked if the replacing task is later reopened or replaced,
-   and a part reopened under a replaced task leaves the link stored but unseen (every view reads the task as open).
+   length. The link is a point in time: it is not re-checked if the replacing task is later reopened or replaced.
 2. server.js: the close route reads an optional JSON body { replacedBy } (no body is a plain close, as every older
    caller sends); a body it cannot read, or a value that is not a whole number, is refused and closes nothing.
 3. install/kosmos and tools/windows/kosmos-cli.js: `--replaced-by <m>` on task close.

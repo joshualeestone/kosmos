@@ -109,7 +109,7 @@ test('#6923: CONTROL, a plain close from either command stores no link and says 
   }
 });
 
-test('#6923: both commands refuse a missing or non-number --replaced-by, and extra words, before reaching the board', async () => {
+test('#6923: both commands refuse a missing or non-number --replaced-by, and extra words, with a usage error', async () => {
   for (const [label, run] of BOTH) {
     const [a] = openTwo('bad ' + label);
     for (const argv of [['--replaced-by'], ['--replaced-by', 'two'], ['--replaced-by', '3', 'extra'], ['--replacedby', '3']]) {
