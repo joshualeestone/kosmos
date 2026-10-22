@@ -19,6 +19,10 @@ Stacked on prreceipt-6842 (slice 1). Opens as a PR only after slice 1 merges (re
 - Settings rather than the project head: the head is tight in all three looks; for Mona Lisa's design review.
 - The newest 50, not all: an unkept receipt reads transcripts; older tasks are counted and said.
 - Rejected: a stored per-project total (would drift from the task receipts; this sums the kept receipts instead).
+- Residual, stated: an agent that holds parts of two tasks at the same time has those tokens on both receipts (each
+  counts its transcript inside that task's hold spans), so a project total can count them twice. Spend is labelled
+  estimated; de-duplicating spans per agent across tasks is a separate change (found in slice 3's review).
+- Rebuilt on main after slice 1 (PR #6866) merged as a squash: only this slice's own four commits, cherry-picked.
 - Weakest premise: that 50 receipts (3 at a time) answer quickly enough on a busy project. Kept receipts are one file
   read each; only unkept ones read transcripts, once.
 
