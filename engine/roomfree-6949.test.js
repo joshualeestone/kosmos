@@ -52,7 +52,7 @@ test('the done-line: the person frees ann\'s claim, bob can claim, and the room 
   const removed = rows().filter((m) => m.kind === 'reaction' && m.op === 'remove');
   assert.equal(removed.length, 1);
   assert.equal(removed[0].from, 'ann', 'the remove row is not ann\'s, so replay would not take her 🙋 off');
-  assert.equal(removed[0].takenBy, 'you', 'the log says ann gave the claim up herself');
+  assert.equal(removed[0].takenBy, 'you', 'the log does not say the person took the claim');
   assert.equal(removed[0].operator, undefined, 'the remove was written as the person\'s own reaction');
   assert.deepEqual(messages.reactionsFor('m1', rows()), [], 'ann\'s 🙋 pill is still on the post');
 
@@ -115,4 +115,23 @@ test('the person\'s own 🙋 and other agents\' reactions are left alone', () =>
   assert.equal(free('ann').op, 'freed');
   const left = messages.reactionsFor('m1', rows(), 'you');
   assert.deepEqual(left.map((r) => [r.emoji, r.who]), [[HAND, ['you']], ['\u{1F44D}', ['bob']]]);
+});
+
+test('with a second live claimant, it holds the post next, and the note and the answer name it', () => {
+  seedPost('m1', 'p');
+  const at = new Date().toISOString();
+  // Two live 🙋 rows, as from before the claim rule: ann's is earlier, so ann holds it and bob is next.
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, op: 'add', from: 'ann', at });
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, op: 'add', from: 'bob', at });
+  assert.equal(holder(), 'ann');
+  const out = free('ann');
+  assert.equal(out.op, 'freed');
+  assert.equal(out.claimedBy, 'bob', 'the answer does not say bob holds it now');
+  assert.equal(holder(), 'bob');
+  assert.match(agentNotes()[0].text, /^The person freed the claim ann held on \[m1\], so bob holds it now\./,
+    'the note says another agent can claim a post bob holds');
+  // CONTROL: with no second claimant the answer names nobody (the done-line test checks its note).
+  seedPost('m2', 'p');
+  assert.equal(claim('cy', 'm2').ok, true);
+  assert.equal(free('cy', 'm2').claimedBy, undefined);
 });

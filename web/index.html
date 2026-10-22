@@ -72332,16 +72332,26 @@ async function rxnFreeClaim(forProject, box, btn) {
     body = await res.json().catch(() => null);
   } catch { res = null; }
   if (PJ_CURRENT !== forProject) return;   // the next read of that room draws what happened there
-  const name = typeof tskAgentName === 'function' ? tskAgentName(by) : by;
+  const nameOf = (s) => (typeof tskAgentName === 'function' ? tskAgentName(s) : s);
+  const now = body && body.claim && typeof body.claim.by === 'string' && body.claim.by ? nameOf(body.claim.by) : '';
+  /* The repaint replaces the focused button, so focus moves to what is left in the row (the claim's Free, a pill), or to
+     the room's composer when the row is empty. */
+  const refocus = () => {
+    const to = box.querySelector('.rxn-free') || box.querySelector('.rxn') || document.getElementById('pj-post');
+    if (to) to.focus();
+  };
   if (res && res.ok && body && body.ok) {
     repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : [], body.claim);
-    pjRoomAnnounce(body.op === 'freed' ? 'Freed. ' + name + ' no longer holds this post, and another agent can claim it.'
-      : 'Nobody holds this post now, so there was nothing to free.');
+    refocus();
+    pjRoomAnnounce(body.op !== 'freed' ? 'Nobody holds this post now, so there was nothing to free.'
+      : 'Freed. ' + nameOf(by) + ' no longer holds this post' + (now ? ', and ' + now + ' holds it now.' : ', and another agent can claim it.'));
     return;
   }
-  btn.disabled = false;
-  if (body && Array.isArray(body.reactions)) repaintReactions(box, body.reactions, body.claim);
-  msgToast('We could not free that post' + (body && body.because ? ': ' + body.because : '') + '.', 9000);
+  if (body && Array.isArray(body.reactions)) { repaintReactions(box, body.reactions, body.claim); refocus(); }
+  else btn.disabled = false;
+  // A claim that changed hands is said with the names the page uses; any other refusal in the board's own words.
+  msgToast(body && body.claimedBy ? 'We could not free that post: ' + nameOf(by) + ' no longer holds it'
+    + (now ? ', ' + now + ' does.' : '.') : 'We could not free that post' + (body && body.because ? ': ' + body.because : '') + '.', 9000);
 }
 
 /* #2255 reactions, hover-restyled in #2806. A SECOND delegated handler on #pj-room
@@ -73923,8 +73933,12 @@ function rxnClaimShown(claim) {
   const ago = Number.isFinite(t) && typeof askAgo === 'function' ? askAgo(Math.floor(t / 1000)) : '';
   return { by: claim.by, label: 'Claimed by ' + name + (ago ? ', ' + ago : '') };
 }
+/* Every raised hand a pill can show (a skin tone, the gendered forms), the engine's isClaimEmoji: a holder whose only
+   live 🙋 is a row from before the engine stored them plain still shows as the claim. */
+const RXN_CLAIM_FORM = /^\u{1F64B}[\u{1F3FB}-\u{1F3FF}\u200D\u2640\u2642\uFE0E\uFE0F]*$/u;
 function rxnsInner(list, withReply, withSpeak, mid, claim) {
   const held = typeof rxnClaimShown === 'function' ? rxnClaimShown(claim) : null;   // guarded: tests lift rxnsInner alone
+  let claimDrawn = false;   // one claim label and one Free per post, on the first raised-hand pill
   const pills = (Array.isArray(list) ? list : []).map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
     if (!e) return '';
@@ -73934,7 +73948,8 @@ function rxnsInner(list, withReply, withSpeak, mid, claim) {
       ? r.who.map((w) => (w === 'you' || typeof tskAgentName !== 'function') ? w : tskAgentName(w)).join(', ') : '';
     /* #6949: the 🙋 pill on a claimed post is a claim, not only a reaction: its name says who holds it and since when,
        and beside it the person can free the post for another agent. Pressing the pill itself still agrees (#6946). */
-    const isClaim = !!held && e === '\u{1F64B}';
+    const isClaim = !!held && !claimDrawn && RXN_CLAIM_FORM.test(e);
+    if (isClaim) claimDrawn = true;
     const title = isClaim ? held.label + (who ? ' (' + who + ')' : '') : who;
     return '<button class="rxn' + (r.mine ? ' mine' : '') + (isClaim ? ' rxn-claim' : '') + '" type="button" data-emoji="' + esc(e) + '"'
       + ' aria-pressed="' + (r.mine ? 'true' : 'false') + '" title="' + esc(title) + '"'

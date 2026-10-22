@@ -3050,6 +3050,8 @@ test('#6949: the person frees a quiet agent\'s claim through the real route; the
     const stale = await post(`/api/project/${project.id}/room/${id}/free-claim`, { by: 'ann' });
     assert.equal(stale.status, 409, stale.body);
     assert.equal(JSON.parse(stale.body).claimedBy, 'zeta');
+    assert.equal(JSON.parse(stale.body).claim && JSON.parse(stale.body).claim.by, 'zeta', 'the 409 does not carry the post as it is now');
+    assert.equal(JSON.parse(stale.body).reactions.length, 1);
     let res = await req(`/api/project/${project.id}/room?as=text`);
     assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'a refused free still freed the post:\n' + res.body);
     assert.doesNotMatch(res.body, /The person freed the claim/, 'a refused free wrote the note');
@@ -3078,7 +3080,7 @@ test('#6949: the person frees a quiet agent\'s claim through the real route; the
     // An agent token cannot use the person's route.
     const asAgent = await fetch(base + `/api/project/${project.id}/room/${id}/free-claim`, { method: 'POST',
       headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok }, body: JSON.stringify({ by: 'zeta' }) });
-    assert.notEqual(asAgent.status, 200, 'an agent token freed a claim through the person\'s route');
+    assert.equal(asAgent.status, 403, 'an agent token was not refused by the person\'s route');
     res = await req(`/api/project/${project.id}/room?as=text`);
     assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'the agent-token call freed the claim:\n' + res.body);
   });

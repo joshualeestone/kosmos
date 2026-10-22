@@ -3631,10 +3631,13 @@ function freeClaim({ project, of, by, members }) {
   for (const em of c.emojis) {
     appendLog({ kind: 'reaction', project: projectId, of: postId, at, emoji: em, op: 'remove', from: holder.by, takenBy: 'you' });
   }
-  roomNote(projectId, 'The person freed the claim ' + holder.by + ' held on [' + postId + '], so another agent can claim it now.'
+  // Another live 🙋 (a row from before the claim rule, or an agent re-added to the project) holds the post next.
+  const next = claimOf(postId, record().rows, room);
+  roomNote(projectId, 'The person freed the claim ' + holder.by + ' held on [' + postId + '], so '
+    + (next ? next.by + ' holds it now.' : 'another agent can claim it now.')
     + ' ' + holder.by + ', if you are still working on it, say so in the room before you claim it again.',
   { audience: NOTE_AUDIENCE_AGENTS });
-  return { ok: true, op: 'freed', of: postId, freed: holder.by };
+  return { ok: true, op: 'freed', of: postId, freed: holder.by, ...(next ? { claimedBy: next.by } : {}) };
 }
 
 /* #4631: a message id as a PERSON may write it. Ids are stored as 'm' + a number, one sequence for the whole

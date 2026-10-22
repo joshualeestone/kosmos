@@ -21610,11 +21610,15 @@ const server = http.createServer(async (req, res) => {
         if (!stored) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
         // The members the room read filters claims by (the stored record's names), so the holder freed is the one shown.
         const out = messages.freeClaim({ project: stored.id, of: postId, by: body.by, members: stored.agents });
-        if (!out.ok) { sendJson(res, out.claimedBy ? 409 : 400, out); return; }   // 409: the claim changed hands since the page drew it
-        let reactions = [];
-        try { reactions = messages.reactionsFor(out.of, messages.record().rows, 'you'); } catch { reactions = []; }
-        const claim = roomPostClaim(stored.id, out.of, reactions);
-        sendJson(res, 200, { ...out, reactions, ...(claim ? { claim } : {}) });
+        const fresh = () => {
+          let reactions = [];
+          try { reactions = messages.reactionsFor(out.of, messages.record().rows, 'you'); } catch { reactions = []; }
+          const claim = roomPostClaim(stored.id, out.of, reactions);
+          return { reactions, ...(claim ? { claim } : {}) };
+        };
+        // 409: the claim changed hands since the page drew it; the post as it is now goes with it, so the row redraws.
+        if (!out.ok) { sendJson(res, out.claimedBy ? 409 : 400, out.claimedBy ? { ...out, ...fresh() } : out); return; }
+        sendJson(res, 200, { ...out, ...fresh() });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));
