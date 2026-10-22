@@ -1180,7 +1180,9 @@ function beginInstall(opts) {
     if (installStarted && !installLaunched) {
       installStarted = false;
       inFlightKindVar = null;
-      noteAttemptEnd(lastAttempt, null, 'Kosmos could not start the installer');
+      if (opts && opts.auto) autoFailedAt = Date.now();   // the unattended path backs off, as every other failure does
+      try { noteAttemptEnd(lastAttempt, null, 'Kosmos could not start the installer'); }
+      catch { /* the flag is already released; the original throw is the one to report */ }
     }
     throw err;
   }
@@ -1220,8 +1222,11 @@ function beginInstallOnce(opts) {
      which applies on Windows. In production installRunner is null, so a real win32 board reaches this
      and a real Mac board falls through to the spawn below. */
   if (updatePlatform() === 'win32') {
-    installLaunched = true;   // #6903: whether its helper launched is not visible here, so a throw keeps the flag
-    return beginWindowsInstall(opts);
+    /* #6903: beginWindowsInstall launches its helper asynchronously, so a synchronous throw from it means nothing
+       launched and the flag is released; once it returns, the launch is under way. */
+    const begun = beginWindowsInstall(opts);
+    installLaunched = true;
+    return begun;
   }
   // The URL travels as a positional parameter, never interpolated into the
   // command that runs the installer (run-setup, #6468; it used to end in `| sh`); and KOSMOS_RELEASE_BASE

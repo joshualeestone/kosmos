@@ -99,3 +99,19 @@ Card: kosmos#6903 (Josh, 2026-10-22 10:46 CDT: the dialog showed only "we could 
   keeps the flag. Mutant (the runner's launch mark removed): red.
 - Correction to round 5's note: the gate re-throw covers throws from the route's other statements. The inner
   beginInstall catch still answers 500 for a gate throw from inside beginInstall, as it did before this branch.
+
+## Review round 7
+- The release path set no automatic-install backoff, so an automatic start that threw would be retried on every look
+  (the stranded flag used to block that). It now sets autoFailedAt for an automatic start, as every other failure
+  path does. Test: an automatic start that throws is not retried by the next look. Mutant (the backoff removed): red.
+- The launched-then-threw arm wrote an in-flight marker under the shared /tmp/fake-kosmos-home, which later readers
+  would seed as an interrupted install. It now uses its own temp root, removed in finally (and the marker it left
+  was removed).
+- win32: a synchronous throw from beginWindowsInstall happens before any launch (the helper starts inside its
+  promise chain, read in the source), so the flag is released then; installLaunched is set once it returns.
+- noteAttemptEnd inside the release is guarded, so a second throw cannot replace the first.
+- The beginInstall and beginRollback 500s no longer carry `detail` either: the cause is logged as `FAIL ... press:`.
+- Comments corrected: the logging helper logs refusals (non-200) and throws; the stub proof finds a miss on its one
+  probe rather than preventing it.
+- Known, not changed: a throw AFTER an installer launched answers 500 "could not start", while an install runs; a
+  retry then joins it (200, already). Rare (the wiring), and the honest outcome of keeping the flag.

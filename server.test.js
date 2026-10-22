@@ -4472,6 +4472,7 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
   const logged = (re) => lines.some((l) => re.test(l));
   updates.setPlatform('darwin');
   let ran = 0;
+  let wiredRoot = null;
   try {
     updates.resetCache();
     updates.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
@@ -4505,8 +4506,10 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
     const spawnFail = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
     assert.equal(spawnFail.status, 500);
     assert.equal(JSON.parse(spawnFail.body).error, 'Kosmos could not start the update just now. Try again in a minute.');
-    assert.ok(logged(/^update press answered 500: Kosmos could not start the update just now\. Try again in a minute\. \(the spawn exploded\)$/),
-      'a failed start was not logged with its cause:\n' + lines.join('\n'));
+    assert.equal(JSON.parse(spawnFail.body).detail, undefined, 'a failed start\'s raw message went back in the answer');
+    assert.ok(logged(/^FAIL update press: the spawn exploded$/), 'a failed start was not logged with its cause:\n' + lines.join('\n'));
+    assert.ok(logged(/^update press answered 500: Kosmos could not start the update just now\. Try again in a minute\.$/),
+      'a failed start was not logged as a refusal:\n' + lines.join('\n'));
     updates.beginInstall = realBeginInstall;
 
     // The real engine's start throwing (here its runner) releases the single-flight flag, so the retry the sentence
@@ -4519,8 +4522,20 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
     assert.ok(ended && ended.endedAt && ended.because === 'Kosmos could not start the installer',
       'a start that threw left its attempt open: ' + JSON.stringify(ended));
 
+    // An automatic start that throws backs off like any other automatic failure: the next look does not retry it.
+    let autoTries = 0;
+    updates.setInstallRunner(() => { autoTries += 1; throw new Error('the automatic runner exploded'); });
+    updates.setAutoPref(() => ({ on: true }));
+    assert.throws(() => updates.beginInstall({ auto: true }), /the automatic runner exploded/);
+    assert.equal(updates.alreadyInstalling(), false);
+    await updates.refresh();
+    assert.equal(autoTries, 1, 'an automatic start that threw was retried on the very next look');
+    updates.setAutoPref(null);
+
     // But once something WAS launched, a later throw (here the wiring of the child) keeps the flag: a second press
-    // must not start a second installer racing the first.
+    // must not start a second installer racing the first. Its own root: the wiring writes an in-flight marker there.
+    wiredRoot = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-6903-wired-'));
+    updates.setInstalledRoot(() => wiredRoot);
     updates.setInstallRunner(() => ({ on() { throw new Error('the wiring exploded'); } }));
     const wired = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
     assert.equal(wired.status, 500, wired.body);
@@ -4575,6 +4590,8 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
     updates.rollbackOffer = realRollback;
     updates.lastAttempt = realLastAttempt;
     updates.beginInstall = realBeginInstall;
+    if (wiredRoot) fs.rmSync(wiredRoot, { recursive: true, force: true });
+    updates.setAutoPref(null);
     updates.resetCache();
     updates.setFetcher(null);
     updates.setInstallRunner(null);

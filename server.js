@@ -3763,8 +3763,8 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
-/* #6903: the Update and Roll back presses. Every answer that does not start one is logged with its reason, so a person
-   who saw the dialog refuse never has to be asked what it said: the board log already has it. */
+/* #6903: the Update and Roll back presses. Every refusal (a non-200 answer) is logged with its sentence, and every
+   throw with its cause, so a person who saw the dialog refuse never has to be asked what it said. */
 function updatePressAnswer(res, kind) {
   return (code, obj) => {
     if (code !== 200) {
@@ -16022,7 +16022,8 @@ const server = http.createServer(async (req, res) => {
       }
       try { updates.beginInstall(); }
       catch (err) {
-        say(500, { error: UPDATE_PRESS_FAILED.update, detail: String((err && err.message) || err) });
+        console.error('FAIL update press: ' + String((err && err.message) || err));
+        say(500, { error: UPDATE_PRESS_FAILED.update });
         return;
       }
       /* #553: the attempt's own start stamp rides back so the page can tell
@@ -16074,7 +16075,8 @@ const server = http.createServer(async (req, res) => {
       }
       try { updates.beginRollback(); }
       catch (err) {
-        say(500, { error: UPDATE_PRESS_FAILED.rollback, detail: String((err && err.message) || err) });
+        console.error('FAIL rollback press: ' + String((err && err.message) || err));
+        say(500, { error: UPDATE_PRESS_FAILED.rollback });
         return;
       }
       say(200, { ok: true, rollingBackTo: rollback.version, startedAt: startedStamp('rollback') });

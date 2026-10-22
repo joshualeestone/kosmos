@@ -244,7 +244,7 @@ const RELPORT = freePort();
       if (!out.open || !out.enabled || out.go !== label) die('#6903: the dialog was left stranded: ' + JSON.stringify(out));
       return out.err;
     };
-    // Before any click: both stubs catch a POST, so a press can never reach the real route and start an install.
+    // Before any click: prove both stubs catch a POST. A miss is found on this one probe, before any press.
     answer = (route) => route.abort('connectionreset');
     for (const url of ['/api/update', '/api/update/rollback']) {
       const before = pressed;
