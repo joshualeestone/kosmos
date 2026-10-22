@@ -312,6 +312,20 @@ function chk(ok, label, extra) {
               window.__atClick = { consolidated: document.body.classList.contains('consolidated'), clickSeen: false };
               if (link) link.addEventListener('click', () => { window.__atClick.clickSeen = true; }, { capture: true, once: true });
               const p = document.getElementById('panel-settings'); const t0 = performance.now();
+              /* Who set it: an observer never sees the caller, so this one element's own hidden setter notes the first
+                 frame that is not this wrapper, then hands the value to the real setter. Lives until the page closes,
+                 on purpose: a late write is exactly what it is for. */
+              window.__hideBy = [];
+              const real = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'hidden');
+              if (p && real && real.set) Object.defineProperty(p, 'hidden', {
+                configurable: true,
+                get() { return real.get.call(this); },
+                set(v) {
+                  const frame = (new Error().stack || '').split('\n').map((l) => l.trim()).filter((l) => l && !/^Error\b|set \[as hidden\]|^set@/.test(l))[0] || '?';   // drop this setter's own frame (chromium, webkit)
+                  window.__hideBy.push((v ? 'hide@' : 'show@') + Math.round(performance.now() - t0) + ' ' + frame.replace(/https?:\/\/[^/ ]+/, '').slice(0, 60));
+                  real.set.call(this, v);
+                },
+              });
               window.__settingsSeq = [p ? (p.hidden ? 'hidden@0' : 'shown@0') : 'absent@0'];
               const note = (state) => {   // one entry per change of state, so redundant hidden = true writes do not fill it
                 const seq = window.__settingsSeq; const ms = Math.round(performance.now() - t0);
@@ -336,11 +350,18 @@ function chk(ok, label, extra) {
             const probe = page.evaluate(() => {
               const btn = document.querySelector('#s-nav button[data-go="mac"]');
               const all = window.__settingsSeq || ['lost: the page was replaced'];
+              const by = window.__hideBy || [];
               const out = { seq: all.length > 8 ? [all[0], '...'].concat(all.slice(-6)) : all, atClick: window.__atClick || null,
-                hiddenBy: [], exists: !!btn };
+                by: by.slice(-3), hiddenBy: [], exists: !!btn };
               for (let el = btn; el; el = el.parentElement) {
                 const cs = getComputedStyle(el);
-                if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') out.hiddenBy.push((el.id ? '#' + el.id : el.tagName + (el.classList[0] ? '.' + el.classList[0] : '')) + (el.hidden ? '[hidden]' : '') + ' display=' + cs.display + ' visibility=' + cs.visibility);
+                // visibility is inherited: report it only where it starts (the parent is visible), so one hidden ancestor
+                // does not fill the list with every wrapper below it.
+                const ownVis = cs.visibility === 'hidden' && !(el.parentElement && getComputedStyle(el.parentElement).visibility === 'hidden');
+                if (el.hidden || cs.display === 'none' || ownVis) {
+                  const name = el.id ? '#' + el.id : el.tagName + (el.classList[0] ? '.' + el.classList[0] : '');
+                  out.hiddenBy.push(name + (el.hidden ? '[hidden]' : '') + (cs.display === 'none' ? ' display:none' : '') + (ownVis ? ' visibility:hidden' : ''));
+                }
                 if (el.id === 'panel-projects') break;   // the column's own container: above it is the page frame
               }
               if (btn) { const r = btn.getBoundingClientRect(); out.rect = [Math.round(r.width), Math.round(r.height)]; }

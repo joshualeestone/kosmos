@@ -8,21 +8,25 @@ The consolidated-view arm of docs/browser-checks/render-snav-head-4979.js times 
 reds so far. The Playwright timeout says only "resolved to hidden", so no red has said WHICH ancestor hides it.
 
 ## Decision
-A diagnostic, not a fix. In the same evaluate as the Settings click (no added round-trip before it) the check starts
-recording #panel-settings's `hidden` attribute (a MutationObserver with old values, one entry per change of state, `shown@ms` / `hidden@ms` from the click, timed per callback,
-so a show and a re-hide in the same task are both kept). On that wait's timeout ONLY (a TimeoutError; anything else is
-rethrown as itself), it fails with a short `<tag>: Settings nav hidden: {...}` so the driver's 200-character summary
-keeps the first fields: `seq`, then `atClick` (whether the click reached the link, and whether body was consolidated
-when it did: the handler branches on that), (the first entry and the latest six when it runs long), then every hiding ancestor up to
-#panel-projects, then
-#panel-projects, whether the button exists and its size, #panel-settings's parent, which overlay holds the column, the
-body classes and query string, the page errors this arm collected, and Playwright's own "resolved to" lines. The probe
-has its own 5 s cap.
+A diagnostic, not a fix. In the same evaluate as the Settings click (so no round-trip is added before it, and wrapped
+so it can never stop the click), the check sets up three records on the page:
+- `seq`: #panel-settings's `hidden` attribute over time (a MutationObserver with old values, one entry per change of
+  state, ms from the click per callback; a show and a re-hide in one task are both kept; first entry plus the latest
+  six when long);
+- `by`: who set it (that one element's own `hidden` setter, delegating to the real one, notes the first stack frame
+  that is not itself; the last three entries);
+- `atClick`: whether body was consolidated at the click (the handler branches on it) and whether a capturing listener
+  on the link saw the click.
 
-What it can tell apart: Settings never opened (`seq` never shows `shown`; `atClick` then says whether the click reached
-the link and which path the handler would take) from opened and hidden again (`shown@x`, then
-`hidden@y`), a throw in the handler (`pageErrors`), a missing or zero-size button (`exists`, `rect`). It names the
-mechanism, not necessarily the root cause behind it.
+On that wait's timeout ONLY (a TimeoutError; anything else is rethrown as itself) it fails with one line,
+`<tag>: Settings nav hidden: {seq, atClick, by, hiddenBy, exists, rect, settingsParent, column, body, url, pageErrors}`
+plus Playwright's "resolved to" lines. `hiddenBy` lists the hiding ancestors up to #panel-projects, with visibility
+reported only where it starts. The probe has its own 5 s cap.
+
+What it can tell apart: the click never reached the link, or ran with the tab layout (`atClick`); Settings never
+opened (`seq` has no `shown`); opened and hidden again, and by which function (`seq`, `by`); a throw in the handler
+(`pageErrors`); a missing or zero-size button (`exists`, `rect`). The driver's summary cuts each reason at 200
+characters, so it shows only the first fields; the whole line is in the job's streamed log.
 
 Rejected: a retry of the Settings click (would hide a real product race where the link sometimes does not open
 Settings); a longer timeout (20 s is already long, and the button stays hidden, not slow).
