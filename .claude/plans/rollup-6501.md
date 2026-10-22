@@ -10,7 +10,8 @@ Card: kosmos#6501 (agent feedback 10-18 and 10-22, two installs). Item 1 shipped
   "Close this task".
 - One press closes each built subtask (ascending), then the parent, one POST each to the same close route Mark as done
   uses. No engine change, no new state, no new tile. Closing stays the person's act (#3951).
-- The first refusal stops it: "Task #N: <the route's sentence>. This task is still open." A thrown fetch says it could
+- The first refusal stops it: "Task #N: <the route's sentence>. <K subtask(s) before it is/are closed.> This task is
+  still open." (a refused parent: "<sentence>. Its built subtasks are closed.") A thrown fetch says it could
   not finish and that the list shows where it stopped (the page cannot know whether the last request landed); the
   reload repaints the truth either way.
 - If the poll moved the world since the paint (the parent closed, or a subtask no longer closed or built), the press
@@ -30,12 +31,14 @@ Card: kosmos#6501 (agent feedback 10-18 and 10-22, two installs). Item 1 shipped
 - That closing the built subtasks is what the person means by accepting them. A subtask never marked built keeps the
   line hidden, so this never closes unbuilt work.
 
-## Tests
-- web.subtasks-3861.test.js pins the line's new HTML.
+## Tests (as the branch stands)
+- web.subtasks-3861.test.js pins the line's HTML, and that the press is re-enabled only after the reload.
+- docs/browser-checks/render-subtasks-3861.js, at 1400 and 390, on a fresh project (1 the parent; 2, 3 and 5 built;
+  4 closed): the line offers the link; a refusal on 3 after 2 closed stops there (5 and the parent stay open) and
+  says "1 subtask before it is closed"; an aborted request on 5 (after 3 closes) says it could not finish; a refusal
+  that arrives after the person opened another task is not written there; a double press asks 5 and then the parent,
+  once each; everything ends closed, no message, focus on the page's top (tk-back).
 - docs/browser-checks/mobile-shots.js: a task-rollup-6501 screen (a throwaway project, deleted after) for the design shots.
-- docs/browser-checks/render-subtasks-3861.js, at 1400 and 390: the line offers the link; a refusal on subtask 3
-  stops after closing 2, names #3 and leaves the parent open; a second press closes 3 and then the parent; the
-  already-closed subtask stays closed; no message after success.
 
 ## Review round 1
 - The press was live again before the reload, so a quick second press re-posted every close (no wrong state, but
@@ -74,3 +77,12 @@ Card: kosmos#6501 (agent feedback 10-18 and 10-22, two installs). Item 1 shipped
   reload repaints; that covered the list, not the message or the focus.
 - The refused-parent message always ends in a full stop.
 - The node order pin's failure message now says what it checks.
+
+## Review round 5
+- Focus after success went to Mark as done, which on the now-closed parent reads Reopen: a repeated Enter would reopen
+  it. It now goes to the top of the page (tk-back), as openTaskPage does. (Rounds 1 and 3 said "Mark as done"; superseded.)
+- The leave-the-page arm read after a fixed wait, so on a slow machine it could read before the refusal arrived and pass
+  on broken code. It now waits for that response and for the press to finish; the double-press arm's wait no longer
+  swallows a timeout.
+- The Tests section above is rewritten for the arms as they stand (the round 2 note's "aborted on task 3" was moved to
+  task 5 in round 3).

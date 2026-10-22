@@ -266,9 +266,12 @@ function chk(ok, label, extra) {
       // Review 4: the person opens another task while the press runs; the refusal that arrives later is not written on that page.
       await openParent();
       await page.route('**/task/5/close', async (r) => { await new Promise((res) => setTimeout(res, 1500)); await r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'that task cannot be closed right now' }) }); });
+      // Review 5: wait for the refusal itself and for the press to finish, so the check reads after it, never before.
+      const refused = page.waitForResponse((resp) => /\/task\/5\/close$/.test(resp.url()), { timeout: 15000 });
       await page.click('#tk-subs-closeall');
       await page.evaluate(() => openTaskPage(2));
-      await page.waitForTimeout(2500);
+      await refused;
+      await page.waitForFunction(() => !document.getElementById('tk-subs-closeall').disabled, null, { timeout: 15000 });
       const away = await page.evaluate(() => ({ open: TK_OPEN, msg: document.getElementById('tk-msg').textContent }));
       chk(away.open === 2 && away.msg === '', `${tag} a refusal that arrives after the person opened another task is not written there`, JSON.stringify(away));
       chk(closed() === JSON.stringify([2, 3, 4]), `${tag} and nothing more closed`, closed());
@@ -281,13 +284,14 @@ function chk(ok, label, extra) {
       const count = (req) => { const m = /\/task\/(\d+)\/close$/.exec(req.url()); if (m && req.method() === 'POST') asked.push(Number(m[1])); };
       page.on('request', count);
       await page.dblclick('#tk-subs-closeall');
-      await page.waitForFunction(() => document.getElementById('tk-subs-built').hidden, null, { timeout: 8000 }).catch(() => {});
+      await page.waitForFunction(() => document.getElementById('tk-subs-built').hidden, null, { timeout: 8000 });   // a timeout here is the failure, not a later count
       await page.waitForTimeout(500);
       page.off('request', count);
       chk(JSON.stringify(asked) === JSON.stringify([5, 1]), `${tag} a double press asks each close once: 5, then the parent`, JSON.stringify(asked));
       chk(closed() === JSON.stringify([1, 2, 3, 4, 5]), `${tag} one press closed the built subtasks and then the parent`, closed());
+      await page.waitForFunction(() => !document.getElementById('tk-subs-closeall').disabled, null, { timeout: 8000 });
       const focused = await page.evaluate(() => document.activeElement && document.activeElement.id);
-      chk(focused === 'tk-done', `${tag} focus moves to Mark as done once the line is gone`, String(focused));
+      chk(focused === 'tk-back', `${tag} focus moves to the top of the page (not Reopen) once the line is gone`, String(focused));
       chk(await page.evaluate(() => document.getElementById('tk-msg').textContent) === '', `${tag} no message after it succeeded`);
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'subtasks-rollup-' + width + '.png'), fullPage: false });
       chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
