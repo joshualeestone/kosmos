@@ -44,8 +44,8 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
   STORED reply: an entry `from` its session name with no `kind`, dated at or after the send (5 s of slack). The thread
   (`GET /api/agent/<name>/thread`, `{messages:[{at,text,from}]}`) also carries a `kind:"question"` row from the agent
   while it waits on a prompt (engine/chat.js withQuestionRow), which must never read as an answer (review 1).
-- An agent still waiting on a usage or rate limit when the online window ends (its `because` names a limit, quota,
-  credit or rate) is cannot-tell (2): the account, not the build. Any other first-run question stays a refusal (1),
+- An agent still waiting on a usage or rate limit when the online window ends is cannot-tell (2): the account, not the
+  build (the wording matched is the board's own, below). Any other first-run question stays a refusal (1),
   since a build that brings in a new first-run prompt is the #2129 class (reviews 1 and 3). No answer within KOSMOS_AGENT_REPLY_TIMEOUT (180 s) is cannot-tell (2,
   forceable), never a refusal: a slow model or a spent quota must not block a good build unforceably.
 - Names are `verify2129-<claude|openai>-<epoch>-<pid mod 1000>`, at most 32 characters, unique per run. Found by running it for real: the board refuses
@@ -63,7 +63,7 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
   the queue (two suites ran in turn; a suite may start while it waits, since suites can run side by side), then PASS,
   both answered "ready", each one's job file and worker folder deleted and the agent removed; QUEUED-HEAVY END rc=0;
   afterwards 0 verify2129 plists in ~/Library/LaunchAgents and 0 worker folders (aoc-6906-queue.out).
-- tools/test-staging-agent-online-check.sh: 33 arms pass at a6ee41d777 (counted PASS lines); mutants dropping the kind filter, the date filter, or
+- tools/test-staging-agent-online-check.sh: 34 arms pass at cfc0686f02 (counted PASS lines; the count grows with each review round); mutants dropping the kind filter, the date filter, or
   notifyCreated each turn arms red. Earlier, at the first commit: 24 arms. Against main's gate: 18 fail (agents left on the board, no
   removal). With first_reply forced to succeed: the no-answer, other-sender and refused-message arms fail. With the old
   long names: 16 fail. tools/test-staging-channel-2036.sh passes.

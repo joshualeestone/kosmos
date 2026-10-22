@@ -336,6 +336,19 @@ if [ "$rc" = 0 ] && [ "$kept" -ge 2 ] && has "$out" "so its files were left"; th
 else bad "status unreadable after removal: rc=$rc kept=$kept out=$(printf '%s' "$out" | tail -3 | tr '\n' '~')"; fi
 rm -rf "$R" "$ST"*
 
+# kosmos#6906: a create whose answer is lost and which the board NEVER lists: its files may sit under a live agent, so
+# they are KEPT and the gate says where to check. Asserted on the files. (The fake makes the agent but hides its card.)
+R="$(mktemp -d "${TMPDIR:-/tmp}/aoc-root.XXXXXX")"; printf 'tok\n' > "$R/board.token"; ST="$(mktemp "${TMPDIR:-/tmp}/aoc-state.XXXXXX")"; : > "$ST"
+out="$(env -u KOSMOS_HOME -u KOSMOS_WORLD AGENT_WORKFORCE_LAUNCH="$R/LaunchAgents" AGENT_WORKFORCE_WORKERS="$R/workers" AGENT_WORKFORCE_DATA="$R/data" \
+  MOCK_STATE="$ST" KOSMOS_AOC_CURL="$FIXDIR/fakeboard" KOSMOS_STORE_ROOT="$R" KOSMOS_PORT=19999 KOSMOS_AOC_LOST_TRIES=2 KOSMOS_AOC_LOST_GAP=0 \
+  KOSMOS_AGENT_ONLINE_POLL_INT=1 KOSMOS_AGENT_ONLINE_TIMEOUT=4 KOSMOS_AGENT_REPLY_TIMEOUT=3 MOCK_ACCOUNTS=both MOCK_CREATE=lost MOCK_AGENT_STATE=noshow \
+  bash "$CHECK" 2>&1)"; rc=$?
+kept="$(ls "$R/LaunchAgents" "$R/workers" 2>/dev/null | grep -c verify2129)"
+if [ "$rc" = 2 ] && [ "$kept" -ge 2 ] && has "$out" "never listed it"; then
+  pass "a lost create the board never lists -> its files KEPT and said (2)"
+else bad "lost create never listed: rc=$rc kept=$kept out=$(printf '%s' "$out" | tail -3 | tr '\n' '~')"; fi
+rm -rf "$R" "$ST"*
+
 # no board.token -> cannot-tell (fails before any transport call)
 NOTOK="$(mktemp -d "${TMPDIR:-/tmp}/aoc-notok.XXXXXX")"
 KOSMOS_STORE_ROOT="$NOTOK" bash "$CHECK" 16180 >/dev/null 2>&1; rc=$?; rm -rf "$NOTOK"

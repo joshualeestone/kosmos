@@ -14,13 +14,12 @@
 # EXTENDS it so it would.
 #
 # kosmos#6906: THIS CREATES REAL AGENTS ON THE TARGET BOARD, one per provider, named
-# verify2129-<claude|openai>-<time> so they never collide with a person's agent, and REMOVES
-# them when it ends (DELETE /api/agent/<name>/removal, the board's own Remove agent), then
-# deletes their launchd job file and worker folder, which that route keeps (a removal that fails is said, with the
-# files to delete by hand). So it runs on a populated
-# board too: the boards releases are promoted from are fleet boards, and the old refusal there
-# meant this gate never ran at a promote. Each arm must also ANSWER a first message in its own
-# thread (an entry `from` its session name): online alone does not show an agent can take a turn.
+# verify2129-<claude|openai>-<time>-<pid> so they never collide with a person's agent, and REMOVES them when it ends
+# (DELETE /api/agent/<name>/removal, the board's own Remove agent), then deletes their launchd job file and worker
+# folder, which that route keeps (a removal that fails is said, with the files to delete by hand). So it runs on a
+# populated board too: the boards releases are promoted from are fleet boards, and the old refusal there meant this
+# gate never ran at a promote. Each arm must also ANSWER a first message in its own thread (a stored entry `from` its
+# session name, after the send): online alone does not show an agent can take a turn.
 #
 #   bash tools/staging-agent-online-check.sh [port]
 #
@@ -88,7 +87,7 @@ HF=""; CREATED_NAMES=""; MAYBE_NAMES=""
 cleanup() {
   # kosmos#6906: remove every agent this check created, BEFORE the token file goes. A removal
   # that fails is said loudly with the name to remove by hand; it does not change the verdict.
-  trap '' INT TERM   # a signal mid-removal must not abandon the rest
+  trap '' INT TERM PIPE   # a signal, or a reader that has gone (a promote's tee on Ctrl-C), must not abandon the rest
   local nm todo="$CREATED_NAMES" maybe="$MAYBE_NAMES"
   CREATED_NAMES=""; MAYBE_NAMES=""   # once only: an INT/TERM runs this, then the EXIT trap runs it again
   for nm in $todo; do remove_agent "$nm"; done
@@ -146,9 +145,10 @@ listed() {
 }
 # kosmos#6906: after its removal, delete one of THIS gate's throwaway agents' launchd job file and worker folder. The
 # board's Remove agent deletes nothing on disk (engine/remove.js: removal is reversible), and a job file left in
-# ~/Library/LaunchAgents is what a full validation's #3011 guard reads. The paths come from this machine's engine
-# rules (create.js plistPath and workerDir, in this process's environment, which a promote shares with the board),
-# never from a copy of them, and only a name this gate makes is ever touched.
+# ~/Library/LaunchAgents is what a full validation's #3011 guard reads. The paths come from create.js plistPath and
+# workerDir: the installed app's engine when KOSMOS_HOME names one, else this checkout's (a promote's case, the same
+# rules as the board it promoted), in this process's environment; never from a copy of them. Only a name this gate
+# makes is ever touched.
 # The two paths (job file, worker folder) this machine's engine gives a gate agent, one per line; empty if it cannot say.
 paths_of() {
   "$NODE" -e 'const c=require(process.argv[1]+"/create");if(typeof c.plistPath!=="function")process.exit(3);process.stdout.write(c.plistPath(process.argv[2])+"\n"+c.workerDir(process.argv[2]))' "$(dirname "$STORE")" "$1" 2>/dev/null
@@ -158,7 +158,7 @@ tidy_agent() {
   case "$nm" in verify2129-claude-*|verify2129-openai-*) ;; *) return ;; esac
   case "${nm#verify2129-*-}" in *[!0-9-]*|'') return ;; esac
   paths="$(paths_of "$nm")" \
-    || { say "WARNING: could not ask this board's engine where '$nm' keeps its files (an older board?): remove its com.kosmos.agent plist and worker folder by hand."; return; }
+    || { say "WARNING: could not ask the engine at $(dirname "$STORE") where '$nm' keeps its files: remove its com.kosmos.agent plist and worker folder by hand."; return; }
   plist="${paths%%$'\n'*}"; dir="${paths#*$'\n'}"
   local had=""
   case "${plist##*/}" in "com.kosmos.agent.$nm"*.plist) [ -f "$plist" ] && { had=1; rm -f "$plist"; } ;; esac
@@ -184,10 +184,13 @@ remove_agent() {
   # it is removed only when the board lists it. A create that answered 200 is removed whatever the list says.
   if [ "${2:-}" = if-listed ]; then
     local tries=0 seen=""
-    while [ "$tries" -lt 6 ]; do   # a create whose answer was lost may still be finishing: ask for a minute
+    # A create whose answer was lost may still be finishing: ask for a minute (KOSMOS_AOC_LOST_TRIES x _GAP, for tests).
+    local ltries="${KOSMOS_AOC_LOST_TRIES:-6}" lgap="${KOSMOS_AOC_LOST_GAP:-10}"
+    case "$ltries" in ''|*[!0-9]*) ltries=6 ;; esac; case "$lgap" in ''|*[!0-9]*) lgap=10 ;; esac
+    while [ "$tries" -lt "$ltries" ]; do
       api_get /api/status
       [ "$HTTP_CODE" = "200" ] && [ "$(listed "$nm")" = "yes" ] && { seen=1; break; }
-      tries=$((tries + 1)); [ "$tries" -lt 6 ] && sleep 10
+      tries=$((tries + 1)); [ "$tries" -lt "$ltries" ] && sleep "$lgap"
     done
     # Never seen: it may not exist, or the board may not have listed it yet. Its files are left alone (deleting them under
     # a live agent is worse than leaving them), and said.
@@ -219,7 +222,8 @@ remove_agent() {
   case "$still" in
     no)  say "removed '$nm' (gone from /api/status)." ;;
     yes) say "WARNING: removed '$nm' (HTTP 200) but it is still listed in /api/status: check it on the board." ;;
-    *)   say "WARNING: removed '$nm' (HTTP 200) but /api/status could not be read to confirm it is gone, so its files were left: delete $(paths_of "$nm" | tr '\n' ' ')once it is off the board." ;;
+    *)   local pp; pp="$(paths_of "$nm" | tr '\n' ' ')"
+         say "WARNING: removed '$nm' (HTTP 200) but /api/status could not be read to confirm it is gone, so its files were left: delete ${pp:-its com.kosmos.agent plist and worker folder} once it is off the board." ;;
   esac
 }
 
