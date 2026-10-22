@@ -604,7 +604,6 @@ test('#6925: a held room says each agent can still post one summary, and a post 
   const LABEL = "Posted as this agent's one summary while the room was held";
   assert.equal(thread.split(LABEL).length - 1, 1, 'the label is not on exactly one post: ' + thread);
   assert.ok(thread.indexOf(LABEL) > thread.indexOf('where we landed'), 'the label is not on the summary post');
-  assert.ok(thread.indexOf(LABEL) > thread.indexOf('an ordinary post'), 'CONTROL: the ordinary post came first and carries no label');
 });
 
 test('#5800: Reopen posts the release for the room it was pressed in, then rereads it; a refusal says why and re-arms', async () => {

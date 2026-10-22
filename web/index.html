@@ -7270,7 +7270,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    because pjRoomRow (room posts) and dmRow (DM) both emit the name as <b class="msg-nm">. */
 .msg-nm { display: block; font-size: .8125rem; font-weight: 700; line-height: 1.2; margin-bottom: 3px; }
 .msg-bd .msg-t { display: block; text-align: right; margin-top: 2px; }
-.msg-bd .msg-closing { text-align: left; font-style: italic; }   /* #6925 */
+.msg-bd .msg-closing { text-align: left; }   /* #6925: a sentence to read, so not italic (dark mode) */
 /* #3134-followup (Josh 6.72): the agent name and the agent avatar are ACTIVE -- click
    either to go straight to that agent. No underline, no link look (Josh's rule), just
    a pointer cursor on hover. The person's OWN avatar (.msg-av.mine) is not a target. */
@@ -74912,7 +74912,8 @@ function pjRoomRow(m, p, hideHeader) {
      ABOVE the bubble is gone. Both live inside `.msg-bd`. The bubble is gated on BODY
      content (`bd`), same as #2806's original guard: a bodyless row -- agent or operator --
      draws NO `.msg-bd` (no empty tinted box holding just a name/time). So name and
-     timestamp only ever appear alongside a real message. The name also carries
+     timestamp only ever appear alongside a real message. #6925: a post that was its agent's one summary through a held
+     room carries one more small line, between the body and the time (pjClosingTag). The name also carries
      data-open-agent (click-to-open, wired on the thread). */
   const nameEl = (!isOp && name) ? '<b class="msg-nm" data-open-agent="' + esc(m.from) + '">' + esc(name) + '</b>' : '';
   /* #3745: the post this one answers, as a compact header that jumps to it. */

@@ -3869,6 +3869,11 @@ test('#6925: a room post row carries closing: true when it was the one summary, 
     fsx.appendFileSync(require('./engine/messages').LOG, row('m-6925-a', { closing: true }) + row('m-6925-b', {}));
     const posts = json(await req('/api/project/' + p.id + '/room')).rows.filter((m) => m.kind === 'post');
     assert.deepEqual(posts.map((m) => [m.id, m.closing]), [['m-6925-a', true], ['m-6925-b', undefined]]);
+    // The text view agents read says the same, on the summary's line only.
+    const text = (await req('/api/project/' + p.id + '/room?as=text')).body;
+    const lineOf = (id) => text.split('\n').find((l) => l.includes('[' + id + ']')) || '';
+    assert.match(lineOf('m-6925-a'), /\(its one summary while the room was held\)/, 'the text view does not mark the summary: ' + text);
+    assert.doesNotMatch(lineOf('m-6925-b'), /one summary/, 'the text view marked an ordinary post');
   } finally { try { projectsEngine.remove(p.id); } catch { /* cleanup */ } }
 });
 

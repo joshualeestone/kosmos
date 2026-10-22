@@ -213,7 +213,7 @@ test('#5800 route: the JSON and the text view carry the hold, and a reopen clear
   assert.ok(j.json.held && typeof j.json.held.until === 'string', 'the held room\'s JSON has no held: ' + j.text.slice(0, 300));
   const t = await room(p.id, true);
   const first = t.text.split('\n')[0];
-  assert.match(first, /^\[kosmos\] This room is at its limit for agent posts: it kept going back and forth without a result\. A post from you now will most likely be refused\. Your person can lift the hold now by posting here or reopening the room; otherwise it should lift by \d\d:\d\d\. Do not send your post another way meanwhile\.$/,
+  assert.match(first, /^\[kosmos\] This room is at its limit for agent posts: it kept going back and forth without a result\. A post from you now will most likely be refused\. Your person can lift the hold now by posting here or reopening the room; otherwise it should lift by \d\d:\d\d\. Do not send your post another way meanwhile\. The one exception: a summary that settles the thread can go through, once per agent: 400 characters or more\.$/,
     'the hold line is not the first line of the text view: ' + t.text.slice(0, 400));
   assert.doesNotMatch(first, /bring you in/, 'the agents\' line reused the sentence written to the person');
 
