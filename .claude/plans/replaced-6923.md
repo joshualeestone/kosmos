@@ -31,8 +31,10 @@ a missed one would show it as open); letting it name a task on another project (
 2. server.js: the close route reads an optional JSON body { replacedBy } (no body is a plain close, as every older
    caller sends); a body it cannot read, or a value that is not a whole number, is refused and closes nothing.
 3. install/kosmos and tools/windows/kosmos-cli.js: `--replaced-by <m>` on task close.
-4. web/index.html: the card label (also the new look's drawn label), the task page's status, "Replaces task n", the
-   history line, a parent's subtask list ("Replaced"), and no summary line under the history (Mona Lisa).
+4. web/index.html: the task page's status, "Replaces task n", the
+   history line, a parent's subtask list ("Replaced"), the Tasks view row ("Replaced by task N"), and no summary
+   line under the history (Mona Lisa). The project column never shows a finished task, so its card is unchanged.
+   A body of {} or { replacedBy: null } is a plain close, as no body is.
 5. kosmos task list: `[replaced by N]` in both CLIs.
 
 ## Weakest premise
