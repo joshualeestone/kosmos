@@ -2370,12 +2370,14 @@ async function verbClaim(ctx, args) {
   const r = await ctx.call('POST', '/api/react', { project, of, claim: release ? 'release' : 'claim', from_pane: '' });
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe, and it says whether the claim is yours.') : ctx.unreachable('claim');
   if (ctx.wrongWorld(r)) { ctx.err(ctx.outbox().WRONG_WORLD_SENTENCES.notOpen); return 1; }
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not read that claim: ' + ctx.refusedBy(r) + '.'); return 1; }
   const op = r.json && r.json.ok ? r.json.op : null;
   if (op === 'add') { ctx.out('Claimed: that post is yours, and the room shows it. Say in the room what you are doing with it.'); return 0; }
   if (op === 'already') { ctx.out('That post is already yours.'); return 0; }
   if (op === 'remove') { ctx.out('Gave that post back: it is no longer claimed by you.'); return 0; }
-  ctx.err('Not claimed: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
+  if (op === 'none') { ctx.out('That post is not claimed by you, so there was nothing to give back.'); return 0; }
+  if (!(r.json && r.json.ok === false)) { ctx.err('Kosmos gave an answer we could not read, so we cannot tell whether the claim changed. Run kosmos room to see.'); return 1; }
+  ctx.err((release ? 'Not given back: ' : 'Not claimed: ') + (clause(r.json.because) || 'we could not tell why') + '.');
   return 1;
 }
 

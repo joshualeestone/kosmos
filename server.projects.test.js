@@ -2974,7 +2974,7 @@ test('#3570: `kosmos room` shows a post\'s reactions under it, and drops the lin
   });
 });
 
-test('#6946: `kosmos room` says a claimed post is claimed, by whom, and drops it when the claim is given back', async () => {
+test('#6946: kosmos claim through the real /api/react route, and `kosmos room` saying who holds it until it is given back', async () => {
   reset();
   await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
     const posted = await post(`/api/project/${project.id}/room`, { text: 'can someone take the release notes' });
@@ -2986,18 +2986,33 @@ test('#6946: `kosmos room` says a claimed post is claimed, by whom, and drops it
     assert.doesNotMatch(res.body, /is claimed by/, 'an unclaimed post printed a claim line');
     assert.equal(jrows.rows.find((r) => r.id === id).claim, undefined);
 
-    const messages = require('./engine/messages');
-    const c = messages.react({ project: project.id, of: id, from: 'zeta', members: ['zeta'], claim: 'claim' });
-    assert.equal(c.ok, true, JSON.stringify(c));
+    // The agent's own surface, as `kosmos claim` sends it: its token, no emoji, `claim`.
+    const tok = require('./engine/sendertoken').mint('zeta').token;
+    const asZeta = (body) => fetch(base + '/api/react', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+      body: JSON.stringify({ project: project.id, of: id, from_pane: '', ...body }) }).then((r) => r.json());
+    const c = await asZeta({ claim: 'claim' });
+    assert.equal(c.ok, true, 'the route did not pass `claim` through: ' + JSON.stringify(c));
+    assert.equal(c.op, 'add');
+    assert.equal(c.emoji, '\u{1F64B}');
     res = await req(`/api/project/${project.id}/room?as=text`);
-    assert.match(res.body, new RegExp('\\[kosmos\\] \\[' + id + '\\] is claimed by zeta \\(since \\d\\d:\\d\\d\\); do not post that you are taking it\\.\\n'),
+    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta (just now); unless you are zeta, do not post that you are taking it.\n'),
       'the claim line is missing or worded differently:\n' + res.body);
     const row = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.find((r) => r.id === id);
     assert.equal(row.claim && row.claim.by, 'zeta', 'the page row does not carry the claim');
 
-    assert.equal(messages.react({ project: project.id, of: id, from: 'zeta', members: ['zeta'], claim: 'release' }).op, 'remove');
+    // The person takes it over from the board: the line names the operator, as the rest of this view does.
+    const took = await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' });
+    assert.equal(took.status, 200, took.body);
     res = await req(`/api/project/${project.id}/room?as=text`);
-    assert.doesNotMatch(res.body, /is claimed by/, 'a given-back claim still printed');
+    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by operator (just now); do not post that you are taking it.\n'), res.body);
+    assert.equal((await asZeta({ claim: 'claim' })).claimedBy, 'you', 'zeta claimed over the person');
+
+    // The person presses it again: the post is free, and the line goes.
+    await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' });
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.doesNotMatch(res.body, /is claimed by/, 'a freed claim still printed');
+    assert.equal((await asZeta({ claim: 'release' })).op, 'none');
   });
 });
 

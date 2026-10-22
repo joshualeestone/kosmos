@@ -21247,8 +21247,13 @@ const server = http.createServer(async (req, res) => {
                    the safe direction (measured: 0 such rows among 221 posts on a real board, 09-29). */
                 mentioned: Array.isArray(m.mentioned) ? m.mentioned : [],
                 ...(reactions.length ? { reactions } : {}),
-                // #6946: who holds the 🙋 claim on this post, {by, at}; `by` is 'you' for the person.
-                ...((() => { const c = messages.claimOf(m.id, rec.rows); return c ? { claim: c } : {}; })()) };
+                // #6946: who holds the 🙋 claim on this post, {by, at}; `by` is 'you' for the person. Read only when a
+                // 🙋 is among the reactions, so a room with none pays no second pass over the log.
+                ...((() => {
+                  if (!reactions.some((r) => messages.isClaimEmoji(r.emoji))) return {};
+                  const c = messages.roomClaimOf(m.id, rec.rows, roomRecord && roomRecord.agents);
+                  return c ? { claim: c } : {};
+                })()) };
             })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
@@ -21373,10 +21378,10 @@ const server = http.createServer(async (req, res) => {
           /* #6946: the claim on its own line, so an agent reading the room before it answers a request sees that
              someone already has it, and in words rather than as one pill among the reactions. */
           const c = m.claim && typeof m.claim.by === 'string' && m.claim.by ? m.claim : null;
-          const claimedBy = c ? (c.by === 'you' ? 'the person' : String(c.by).replace(/\s+/g, ' ')) : '';
+          const claimedBy = c ? (c.by === 'you' ? 'operator' : String(c.by).replace(/\s+/g, ' ')) : '';
           const claimed = c
-            ? [when + '  [kosmos] [' + m.id + '] is claimed by ' + claimedBy
-              + (c.at ? ' (since ' + messages.roomClock(c.at, zone) + ')' : '') + '; do not post that you are taking it.']
+            ? [when + '  [kosmos] [' + m.id + '] is claimed by ' + claimedBy + ' (' + messages.claimAge(c.at) + ')'
+              + (c.by === 'you' ? '; do not post that you are taking it.' : '; unless you are ' + claimedBy + ', do not post that you are taking it.')]
             : [];
           return [line, ...reacted, ...claimed, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
         });

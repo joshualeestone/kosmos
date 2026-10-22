@@ -3535,27 +3535,64 @@ function reactionsFor(of, rows, youReactor) {
 }
 
 /* #6946: a room request is CLAIMED with the raised-hand reaction, so the second agent to answer it sees the first
-   before it posts "taking this". Any 🙋 counts (skin tones and the gendered sequences start with the same codepoint).
-   react() refuses an agent's 🙋 on a post someone else already holds, so a claim is one holder in practice; the
-   person's own 🙋 is never refused (it is their room). */
+   before it posts "taking this". Any 🙋 counts (skin tones and the gendered sequences start with the same codepoint),
+   and react() stores every one of them as the plain 🙋, so a claim is one pill and one release takes it back.
+   react() refuses an agent's 🙋 on a post someone else holds. The person is never refused: their 🙋 on a post an
+   agent holds TAKES IT OVER (the agents' claims are taken back), and pressing it again frees the post. That is the
+   way out of a claim whose holder went quiet; a holder removed from the project no longer holds anything. */
 const CLAIM_EMOJI = '\u{1F64B}';
 function isClaimEmoji(e) { return typeof e === 'string' && e.codePointAt(0) === 0x1F64B; }
 
-/* The holder of the claim on post `of`, replayed from the reaction rows: the reactor whose live 🙋 was added
-   EARLIEST (a remove clears that reactor; a later re-add counts from then). {by, at} or null; `by` is 'you' for the
-   person, as in reactionsFor. */
-function claimOf(of, rows) {
+/* Every reactor with a live 🙋 on post `of`: Map(reactor -> {at, emojis}) in the order each one's claim began. A
+   reactor stays live while any 🙋 form of theirs is (rows from before react() stored them plain can hold several);
+   `at` is when that run began. `members`, when given, is the room's current members: an agent not among them is not
+   a claimant. 'you' is the person, as in reactionsFor, and is always one. */
+function claimantsOf(of, rows, members) {
   const postId = String(of == null ? '' : of);
-  const live = new Map();   // reactor -> at of the add, in add order
+  const inRoom = Array.isArray(members) ? new Set(members) : null;
+  const live = new Map();
   for (const m of rows) {
     if (!m || m.kind !== 'reaction' || String(m.of) !== postId || !isClaimEmoji(m.emoji)) continue;
     const reactor = m.operator === true ? 'you' : (typeof m.from === 'string' && m.from ? m.from : null);
-    if (!reactor) continue;
-    if (m.op === 'remove') { live.delete(reactor); continue; }
-    if (!live.has(reactor)) live.set(reactor, typeof m.at === 'string' ? m.at : null);
+    if (!reactor || (inRoom && reactor !== 'you' && !inRoom.has(reactor))) continue;
+    const cur = live.get(reactor);
+    if (m.op === 'remove') {
+      if (cur) { cur.emojis.delete(m.emoji); if (!cur.emojis.size) live.delete(reactor); }
+      continue;
+    }
+    if (cur) cur.emojis.add(m.emoji);
+    else live.set(reactor, { at: typeof m.at === 'string' ? m.at : null, emojis: new Set([m.emoji]) });
   }
-  for (const [by, at] of live) return { by, at };
+  return live;
+}
+
+/* The holder of the claim on post `of`: the earliest live claimant (see claimantsOf). {by, at} or null. */
+function claimOf(of, rows, members) {
+  for (const [by, c] of claimantsOf(of, rows, members)) return { by, at: c.at };
   return null;
+}
+
+/* The claim on post `of` as a ROOM shows it: `names` is the project's stored members, less any removed agent (the
+   same filter react() uses), so the room and the refusal agree on who holds it. If the removed list cannot be read the
+   stored members are used as they are. */
+function roomClaimOf(of, rows, names) {
+  const listed = Array.isArray(names) ? names.filter((n) => typeof n === 'string' && n) : [];
+  const room = _roomMembers(listed);
+  return claimOf(of, rows, room.ok ? room.members : listed);
+}
+
+/* How long ago a claim began, in words: agents quote it back to the person, and a relative age needs no timezone
+   and still reads right three days later, which a bare clock time does not. */
+function claimAge(at, now) {
+  const t = Date.parse(at);
+  if (!Number.isFinite(t)) return 'at a time we cannot read';
+  const min = Math.floor(Math.max(0, (now == null ? Date.now() : now) - t) / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return min === 1 ? '1 minute ago' : min + ' minutes ago';
+  const h = Math.floor(min / 60);
+  if (h < 24) return h === 1 ? '1 hour ago' : h + ' hours ago';
+  const d = Math.floor(h / 24);
+  return d === 1 ? '1 day ago' : d + ' days ago';
 }
 
 /* #4631: a message id as a PERSON may write it. Ids are stored as 'm' + a number, one sequence for the whole
@@ -3630,7 +3667,8 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   const postId = messageIdOf(of);   // #4631: '530' and 'message 530' name m530 too
   // #6946: `claim` is 'claim' (never takes it back) or 'release' (only takes it back); either one means 🙋.
   if (claim !== undefined && claim !== 'claim' && claim !== 'release') return { ok: false, because: 'we could not tell whether to claim that post or give it back' };
-  const e = claim ? CLAIM_EMOJI : normalizeReactionEmoji(emoji);
+  const typed = claim ? CLAIM_EMOJI : normalizeReactionEmoji(emoji);
+  const e = isClaimEmoji(typed) ? CLAIM_EMOJI : typed;   // #6946: every 🙋 form is stored as the plain one
   if (!projectId) return { ok: false, because: 'we could not tell which project this post is in' };
   if (!postId) return { ok: false, because: 'we could not tell which post to react to' };
   if (!e) return { ok: false, because: 'that is not an emoji we can react with' };
@@ -3652,6 +3690,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
      lookup so a non-member's refusal is uniform whether or not the id they
      named happens to exist -- the post lookup below would otherwise leak
      "no such post" vs "not on that project" as a (minor) id-enumeration tell. */
+  let roomNow = null;
   if (operator !== true) {
     if (!Array.isArray(members) || !members.every((m) => typeof m === 'string' && m)) {
       return { ok: false, because: 'we could not read who is on that project, so nothing was reacted' };
@@ -3664,6 +3703,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     if (!room.ok) {
       return { ok: false, because: 'we could not check which agents have been removed, so nothing was reacted' };
     }
+    roomNow = room.members;   // #6946: a claim counts only while its holder is still in the room
     if (!room.members.includes(reactor)) {
       // kosmos#5752 round 2: a removed agent still on the record is not told to get added (it would not help).
       return { ok: false, because: 'you are not on that project, so this room is not yours to react in' + (members.includes(reactor) ? '' : NOT_ON_PROJECT_FIX) };
@@ -3675,22 +3715,48 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   if (!post) return { ok: false, because: 'there is no post by that id in this room' };
   const cur = reactionsFor(postId, rows).find((r) => r.emoji === e);
   const has = !!(cur && cur.who.includes(reactor));
+  const stamp = (extra) => ({ kind: 'reaction', project: projectId, of: postId, at: new Date().toISOString(), ...extra });
+  const as = (who) => (who === 'you' ? { operator: true } : { from: who });
+  if (!isClaimEmoji(e)) {
+    const op = has ? 'remove' : 'add';
+    appendLog(stamp({ emoji: e, op, ...as(reactor) }));
+    return { ok: true, op, emoji: e, of: postId };
+  }
   /* #6946: the claim rule. Checked and written in this one synchronous call, so of two agents racing on one request
      the second is refused here, with the first one's name, before it can post that it is taking it. */
-  const holder = isClaimEmoji(e) ? claimOf(postId, rows) : null;
-  if (claim === 'claim' && has) return { ok: true, op: 'already', emoji: e, of: postId };
-  if (claim === 'release' && !has) return { ok: false, because: 'you have not claimed that post, so there is nothing to give back' };
-  if (!has && holder && holder.by !== reactor && operator !== true) {
-    const who = holder.by === 'you' ? 'the person' : holder.by;
-    return { ok: false, claimedBy: holder.by, claimedAt: holder.at,
-      because: who + ' already claimed that post' + (holder.at ? ' at ' + holder.at : '')
-        + ', so do not post that you are taking it: read the room, and ask ' + (holder.by === 'you' ? 'them' : who) + ' if you can help' };
+  const claimants = claimantsOf(postId, rows, operator === true ? null : roomNow);
+  const holder = claimOf(postId, rows, operator === true ? null : roomNow);
+  const mine = claimants.get(reactor);
+  // A release, or a toggle off: every 🙋 form this reactor has live goes, so nothing of theirs is left behind.
+  const takeBack = (who, c) => { for (const em of c.emojis) appendLog(stamp({ emoji: em, op: 'remove', ...as(who) })); };
+  const named = (by) => (by === 'you' ? 'the person' : by);
+  const refuse = () => ({ ok: false, claimedBy: holder.by, claimedAt: holder.at,
+    because: named(holder.by) + ' claimed that post ' + claimAge(holder.at)
+      + ', so do not post that you are taking it: read the room, and ask ' + (holder.by === 'you' ? 'them' : holder.by) + ' if you can help' });
+  if (operator === true) {
+    if (mine) { takeBack('you', mine); return { ok: true, op: 'remove', emoji: e, of: postId }; }
+    // The person takes the post over: every agent's claim on it is taken back, so the person can then free it.
+    const tookOver = [];
+    for (const [who, c] of claimants) { if (who !== 'you') { takeBack(who, c); tookOver.push(who); } }
+    appendLog(stamp({ emoji: e, op: 'add', ...as('you') }));
+    return { ok: true, op: 'add', emoji: e, of: postId, ...(tookOver.length ? { tookOver } : {}) };
   }
-  const op = has ? 'remove' : 'add';
-  appendLog({ kind: 'reaction', project: projectId, of: postId, emoji: e, op,
-    at: new Date().toISOString(),
-    ...(operator === true ? { operator: true } : { from: reactor }) });
-  return { ok: true, op, emoji: e, of: postId };
+  if (claim === 'release') {
+    if (mine) { takeBack(reactor, mine); return { ok: true, op: 'remove', emoji: e, of: postId }; }
+    if (holder) return { ok: false, claimedBy: holder.by, claimedAt: holder.at, because: named(holder.by) + ' holds that post, not you, so there is nothing of yours to give back' };
+    return { ok: true, op: 'none', emoji: e, of: postId };   // nothing held: a retried release lands here, which is fine
+  }
+  if (mine && holder && holder.by === reactor) {
+    if (claim === 'claim') return { ok: true, op: 'already', emoji: e, of: postId };
+    takeBack(reactor, mine);   // the holder's own toggle off
+    return { ok: true, op: 'remove', emoji: e, of: postId };
+  }
+  if (holder && holder.by !== reactor) {
+    if (mine && claim !== 'claim') { takeBack(reactor, mine); return { ok: true, op: 'remove', emoji: e, of: postId }; }
+    return refuse();   // includes a later 🙋 of yours from before this rule: it is not the claim
+  }
+  appendLog(stamp({ emoji: e, op: 'add', ...as(reactor) }));
+  return { ok: true, op: 'add', emoji: e, of: postId };
 }
 
 /* #2710: reopen a held room. The valve stops a room going back and forth
@@ -4047,7 +4113,7 @@ module.exports = {
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
-  react, reactionsFor, normalizeReactionEmoji, claimOf,
+  react, reactionsFor, normalizeReactionEmoji, claimOf, roomClaimOf, claimAge, isClaimEmoji,
   messageIdOf, // #4631
   operatorDirect, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,

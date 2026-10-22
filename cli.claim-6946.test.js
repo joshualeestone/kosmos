@@ -117,7 +117,7 @@ test('#6946: a claim already yours says so and exits 0', () =>
     assert.equal(out.code, 0);
   }));
 
-test('#6946: a post somebody else holds is refused with their name and exit 1; control: an add exits 0', async () => {
+test('#6946: a post somebody else holds is refused with their name and exit 1', async () => {
   const because = 'ann already claimed that post at 2026-10-22T23:00:00.000Z, so do not post that you are taking it: read the room, and ask ann if you can help';
   await withStub(() => ({ ok: false, claimedBy: 'ann', claimedAt: '2026-10-22T23:00:00.000Z', because }), async (port, seen) => {
     const out = await claim(port, seen, ['p', 'm3']);
@@ -133,3 +133,17 @@ test('#6946: no post id prints the usage, exits 2, and sends nothing', () =>
     assert.match(out.stdout + out.stderr, /Usage: kosmos claim <project-id> <post-id> \[--release\]/);
     assert.equal(seen.length, 0);
   }));
+
+test('#6946: a release with nothing held exits 0, and a refused release says it was not given back', async () => {
+  await withStub(() => ({ ok: true, op: 'none', emoji: '\u{1F64B}', of: 'm3' }), async (port, seen) => {
+    const out = await claim(port, seen, ['p', 'm3', '--release']);
+    assert.equal(out.code, 0, 'a retried release that already landed must not read as a failure');
+    assert.match(out.stdout, /That post is not claimed by you, so there was nothing to give back\./);
+  });
+  const because = 'ann holds that post, not you, so there is nothing of yours to give back';
+  await withStub(() => ({ ok: false, claimedBy: 'ann', because }), async (port, seen) => {
+    const out = await claim(port, seen, ['p', 'm3', '--release']);
+    assert.equal(out.code, 1);
+    assert.ok((out.stdout + out.stderr).includes('Not given back: ' + because), out.stdout + out.stderr);
+  });
+});
