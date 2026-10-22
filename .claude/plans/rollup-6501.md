@@ -66,3 +66,11 @@ Card: kosmos#6501 (agent feedback 10-18 and 10-22, two installs). Item 1 shipped
 - Known, stated: a built subtask that has open subtasks of its own counts as built (as tkPaintSubtasks shows it), so
   this press closes it and leaves its own subtasks open. The line says to check each one first; the engine allows it
   (nothing cascades).
+
+## Review round 4
+- A press that outlives its page (the person opens another task while the closes run) no longer writes its message,
+  repaints that page's activity, or moves focus there: all three check that the same project and task are still open
+  (PJ_CURRENT and TK_OPEN; a number alone repeats across projects). Round 2 had left this, on the reasoning that the
+  reload repaints; that covered the list, not the message or the focus.
+- The refused-parent message always ends in a full stop.
+- The node order pin's failure message now says what it checks.

@@ -263,6 +263,17 @@ function chk(ok, label, extra) {
       chk(closed() === JSON.stringify([2, 3, 4]), `${tag} it stopped where the request failed: 3 closed, 5 and the parent open`, closed());
       await page.unroute('**/task/5/close');
 
+      // Review 4: the person opens another task while the press runs; the refusal that arrives later is not written on that page.
+      await openParent();
+      await page.route('**/task/5/close', async (r) => { await new Promise((res) => setTimeout(res, 1500)); await r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'that task cannot be closed right now' }) }); });
+      await page.click('#tk-subs-closeall');
+      await page.evaluate(() => openTaskPage(2));
+      await page.waitForTimeout(2500);
+      const away = await page.evaluate(() => ({ open: TK_OPEN, msg: document.getElementById('tk-msg').textContent }));
+      chk(away.open === 2 && away.msg === '', `${tag} a refusal that arrives after the person opened another task is not written there`, JSON.stringify(away));
+      chk(closed() === JSON.stringify([2, 3, 4]), `${tag} and nothing more closed`, closed());
+      await page.unroute('**/task/5/close');
+
       // The press, pressed twice in a row (review 2): what is left (5) closes, then the parent, each asked once; the closed
       // subtasks are never asked again. Focus then sits on the page's own Mark as done (review 3).
       await openParent();

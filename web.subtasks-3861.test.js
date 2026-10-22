@@ -152,7 +152,7 @@ test('kosmos#5956: the task page marks a built subtask Built and says when every
   const rollup = PAGE_HTML_5956.slice(PAGE_HTML_5956.indexOf("getElementById('tk-subs-closeall').addEventListener"));
   const handler = rollup.slice(0, rollup.indexOf('\n});\n'));
   assert.ok(handler.indexOf('await pjReload()') > 0 && handler.indexOf('btn.disabled = false') > handler.indexOf('await pjReload()'),
-    'the roll-up re-enables its press before the reload');
+    'the roll-up press must be re-enabled only after the reload');
   project.tasks[1].builtAt = undefined;
   new Function('document', 'esc', 'p', 't', page.liftAll(SCRIPT, ['tkPaintSubtasks']) + '\n; tkPaintSubtasks(p, t, false);')(
     { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
