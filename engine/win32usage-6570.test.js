@@ -193,6 +193,35 @@ test('#6570 a folder signed in to another account: its live reading with an EARL
   p.stopped();
 });
 
+test('#6570 review 3: a HIGHER figure under another reset time (another account) also starts the history again', () => {
+  const dir = accountDir();
+  const nowS = Math.floor(Date.now() / 1000);
+  const hist = () => JSON.parse(fs.readFileSync(path.join(dir, statusline.FILE), 'utf8')).history.map((r) => [r[1], r[2]]);
+  const ev = (u, reset) => ({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { seven_day: { utilization: u, resetsAt: reset } } } });
+  const p = streamstate.publisher('usage-higher', { usageDir: dir, write: () => ({ ok: true }), clear: () => true });
+  p.started(9005, 'sess-higher');
+  p.event(ev(0.4, nowS + 3 * 86400));
+  p.event(ev(0.45, nowS + 3 * 86400));
+  assert.deepEqual(hist(), [[40, nowS + 3 * 86400], [45, nowS + 3 * 86400]], 'one account moving up keeps its history');
+  p.event(ev(0.6, nowS + 3 * 86400 - 3600));   // another account, its reset an hour earlier: inside the status line's one-day tolerance
+  assert.deepEqual(hist(), [[60, nowS + 3 * 86400 - 3600]], 'the rows of the other account were kept as the baseline of this one');
+  assert.equal(accountsweekly.weeklyOf({ dir, apiKey: false }).usedPct, 60);
+  p.stopped();
+});
+
+test('#6570 review 3: the account folder may be named by a function, asked at each reading', () => {
+  const dir = path.join(SANDBOX, 'made-later');
+  const { line } = capturedShiftedToNow();
+  const p = streamstate.publisher('usage-later', { usageDir: () => streamstate.claudeAccountDirFor(dir, { env: {}, homedir: SANDBOX }), write: () => ({ ok: true }), clear: () => true });
+  p.started(9006, 'sess-later');
+  p.event(JSON.parse(line));
+  assert.equal(fs.existsSync(dir), false, 'a folder that is not there yet is not made');
+  fs.mkdirSync(dir);
+  p.event(JSON.parse(line));
+  assert.equal(accountsweekly.weeklyOf({ dir, apiKey: false }).usedPct, 96, 'a folder made after the start is found at the next reading');
+  p.stopped();
+});
+
 test('#6570 the status line itself keeps its forward-only rule (a session carries a lagging figure there)', () => {
   const dir = accountDir();
   const nowMs = Date.now();
