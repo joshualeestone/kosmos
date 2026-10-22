@@ -93,7 +93,7 @@ test('#4934: a loop-guard refusal (code room_held) says nothing was kept, not to
   });
 });
 
-test('#6920: a room_held refusal offers the one closing summary, unless the board says this member used it', async () => {
+test('#6920 / #6925: a room_held refusal offers the one closing summary only when the board says it will take it', async () => {
   for (const [extra, offered] of [[{ closingEligible: true }, true], [{ closingUsed: true }, false], [{}, false], ['spaced', true]]) {   // #6925: {} is an older board
     // 'spaced': the board's JSON with a space after the colon, which the CLI's match must still read
     const body = extra === 'spaced'
@@ -113,7 +113,7 @@ test('#6920: a room_held refusal offers the one closing summary, unless the boar
         assert.ok(out.stdout.indexOf('Do not send it another way') < out.stdout.indexOf('The one exception'),
           'the exception was said before the wait, so the two read as opposite instructions');
       }
-      else assert.doesNotMatch(out.stdout, hint, 'a member that used its closing post was offered it again');
+      else assert.doesNotMatch(out.stdout, hint, 'offered a summary the board did not say it would take');
     });
   }
 });

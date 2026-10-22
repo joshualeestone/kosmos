@@ -244,7 +244,7 @@ test('#4934 parity: a loop-guard refusal (code room_held) says nothing was kept 
   assert.match(r.err, /Here it is to keep:\n *a long substantive update/);
 });
 
-test('#6920 parity: a room_held refusal offers the one closing summary, unless the board says this member used it', async () => {
+test('#6920 / #6925 parity: a room_held refusal offers the one closing summary only when the board says it will take it', async () => {
   const held = (extra) => () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'x', ...extra } } });
   const offered = await run(['post', 'proj-1', 'a long substantive update'], held({ closingEligible: true }));
   assert.match(offered.err, /The one exception: a summary that settles the thread can go through now, once: 400 characters or more\./);
