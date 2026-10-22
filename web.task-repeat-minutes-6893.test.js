@@ -28,7 +28,7 @@ function lifted() {
 
 test('#6893: the select offers it and the number box is in the When row, sized and labelled', () => {
   assert.match(HTML, /<option value="minutes">Every so many minutes<\/option>/);
-  assert.match(HTML, /<input type="number" id="tk-repeat-mins"[^>]*min="5" max="720"[^>]*aria-label="When: every how many minutes"/);
+  assert.match(HTML, /<input type="number" id="tk-repeat-mins"[^>]*min="15" max="720"[^>]*aria-label="When: every how many minutes"/);
   assert.match(HTML, /<span id="tk-repeat-mins-wrap" hidden>/);
 });
 

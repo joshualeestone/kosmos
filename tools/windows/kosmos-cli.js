@@ -1319,7 +1319,11 @@ async function taskRepeat(ctx, args) {
     else if (a === '--on') want = 'on';
     else if (a === '--reviewer') want = 'reviewer';   // slice 3, as install/kosmos: who is told when a run is missed
     else if (a === '--clear') clear = true;
-    else if (/^(hour|hourly|day|daily|week|weekly)$/.test(a) || EVERY_MINUTES_RE.test(a)) every = a;
+    else if (/^(hour|hourly|day|daily|week|weekly)$/.test(a) || EVERY_MINUTES_RE.test(a)) {
+      // kosmos#6893 review 3, as install/kosmos: one frequency (a second would silently replace the first).
+      if (every) { ctx.err('Say how often once. ' + REPEAT_USAGE); return 2; }
+      every = a;
+    }
     else if (/^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task repeat', REPEAT_USAGE, a); return 2; }
     else { ctx.err('Say how often: hourly, daily, weekly, or every so many minutes (30m, 2h). ' + REPEAT_USAGE); return 2; }
   }

@@ -5354,21 +5354,24 @@ cmd_task() {
       local _rusage="Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m|2h> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "$_rusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
-      local _r _rwant="" _rmin="" _rtime=""
+      local _r _rwant="" _rmin="" _rtime="" _rfreq=0
       for _r in "${@:3}"; do
         if [ -n "$_rwant" ]; then _rwant=""; continue; fi
         # kosmos#6893: every so many minutes ("30m", "45min", "2h", any case). Matched as a whole word here, in the loop that
         # knows which words are values, so a reviewer's name or a time can never read as one (review 1).
-        if [[ "$(printf '%s' "$_r" | tr '[:upper:]' '[:lower:]')" =~ ^[0-9]+(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$ ]]; then _rmin=1; continue; fi
+        if [[ "$(printf '%s' "$_r" | tr '[:upper:]' '[:lower:]')" =~ ^[0-9]+(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$ ]]; then _rmin=1; _rfreq=$((_rfreq + 1)); continue; fi
         case "$_r" in
           --at|--on) _rwant=1; _rtime=1 ;;
           --reviewer) _rwant=1 ;;   # slice 3: --reviewer names who is told when a run is missed
-          --clear|hour|hourly|day|daily|week|weekly) ;;
+          --clear) ;;
+          hour|hourly|day|daily|week|weekly) _rfreq=$((_rfreq + 1)) ;;
           --*) _refuse_option "task repeat" "$_rusage" "$_r" ;;
           *) say "Say how often: hourly, daily, weekly, or every so many minutes (30m, 2h). $_rusage"; exit 2 ;;
         esac
       done
       [ -z "$_rwant" ] || { say "--at, --on and --reviewer each need a value. $_rusage"; exit 2; }
+      # kosmos#6893 review 3: one frequency (a second would silently replace the first).
+      [ "$_rfreq" -le 1 ] || { say "Say how often once. $_rusage"; exit 2; }
       # kosmos#6893: a task every so many minutes has no time or day to give.
       if [ -n "$_rmin" ] && [ -n "$_rtime" ]; then say "A task every so many minutes takes no --at or --on. $_rusage"; exit 2; fi
       # slice 3 review 2: --at and --on belong to a frequency; without one they would be dropped without a word.

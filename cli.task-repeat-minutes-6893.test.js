@@ -84,6 +84,12 @@ test('#6893 Mac CLI: a minutes rule refuses --at and --on before asking the boar
       assert.equal(r.code, 2, args.join(' '));
       assert.match(r.stdout + r.stderr, /A task every so many minutes takes no --at or --on/, args.join(' '));
     }
+    // Review 3: two frequencies are refused (the second would silently replace the first).
+    for (const two of [['30m', 'daily'], ['hourly', 'daily'], ['2h', '30m']]) {
+      const twice = await runCli(['task', 'repeat', 'p1', '3', ...two], env);
+      assert.equal(twice.code, 2, two.join(' '));
+      assert.match(twice.stdout + twice.stderr, /Say how often once/, two.join(' '));
+    }
     const r = await runCli(['task', 'repeat', 'p1', '3', 'fortnightly'], env);
     assert.equal(r.code, 2);
     assert.match(r.stdout + r.stderr, /every so many minutes \(30m, 2h\)/);
@@ -116,6 +122,9 @@ test('#6893 Windows CLI: the same words, the same body, the same refusals', asyn
   r = await runWin(['task', 'repeat', 'p1', '3', '30m', '--at', '09:00'], ok);
   assert.equal(r.code, 2);
   assert.match(r.err, /A task every so many minutes takes no --at or --on/);
+  r = await runWin(['task', 'repeat', 'p1', '3', '30m', 'daily'], ok);
+  assert.equal(r.code, 2);
+  assert.match(r.err, /Say how often once/);
   r = await runWin(['task', 'repeat', 'p1', '3', 'fortnightly'], ok);
   assert.equal(r.code, 2);
   assert.match(r.err, /every so many minutes \(30m, 2h\)/);

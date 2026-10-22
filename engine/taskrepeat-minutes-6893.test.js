@@ -27,8 +27,9 @@ const taskchat = require('./taskchat');
 const at = (h, m, day = 22) => new Date(2026, 9, day, h, m, 0, 0).getTime();   // Thursday 22 October 2026, local
 
 test('#6893: the rule is checked whole: n divides the day, from 5 to 720, and takes nothing else', () => {
-  for (const n of [5, 10, 15, 20, 30, 45, 60, 90, 120, 360, 720]) assert.equal(r.repeatProblem({ every: 'minutes', n }), null, String(n));
-  for (const n of [0, 4, 7, 25, 50, 721, 1440, 30.5, '30', undefined, NaN]) {
+  for (const n of [15, 16, 18, 20, 30, 45, 60, 90, 120, 360, 720]) assert.equal(r.repeatProblem({ every: 'minutes', n }), null, String(n));
+  // Review 3: 15 is the floor (every run is a history row), so 5 and 10 are refused too.
+  for (const n of [0, 4, 5, 7, 10, 12, 25, 50, 721, 1440, 30.5, '30', undefined, NaN]) {
     assert.match(String(r.repeatProblem({ every: 'minutes', n })), /divides the day evenly/, String(n));
   }
   assert.match(r.repeatProblem({ every: 'minutes', n: 30, at: '09:00' }), /takes only the number of minutes/);
@@ -110,17 +111,19 @@ test('#6893: in US Central time, the slots around both clock changes land where 
   const { spawnSync } = require('node:child_process');
   const script = `
     const r = require(${JSON.stringify(require.resolve('./taskrepeat'))});
-    const walk = (from, k) => { const out = []; let s = from; for (let i = 0; i < k; i += 1) { s = r.nextAfter({ every: 'minutes', n: 30 }, s); const d = new Date(s);
+    const walk = (from, k, n = 30) => { const out = []; let s = from; for (let i = 0; i < k; i += 1) { s = r.nextAfter({ every: 'minutes', n }, s); const d = new Date(s);
       out.push(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ' ' + d.getTimezoneOffset()); } return out; };
     process.stdout.write(JSON.stringify({ fall: walk(new Date(2026, 10, 1, 0, 50).getTime(), 4), spring: walk(new Date(2026, 2, 8, 1, 10).getTime(), 4),
-      at0310: walk(new Date(2026, 2, 8, 3, 10).getTime(), 1)[0] }));`;
+      at0310: walk(new Date(2026, 2, 8, 3, 10).getTime(), 1)[0], spring45: walk(new Date(2026, 2, 8, 1, 0).getTime(), 4, 45) }));`;
   const out = spawnSync(process.execPath, ['-e', script], { env: { ...process.env, TZ: 'America/Chicago' }, encoding: 'utf8' });
   assert.equal(out.status, 0, out.stderr);
   const got = JSON.parse(out.stdout);
   // Fall back (1 November): 01:00 and 01:30 daylight time, then the repeated hour takes no slots: 02:00 standard time.
   assert.deepEqual(got.fall, ['01:00 300', '01:30 300', '02:00 360', '02:30 360']);
-  // Spring forward (8 March): 01:30 standard, the skipped 02:00 lands at 03:00 daylight, then 03:30, 04:00.
+  // Spring forward (8 March): 01:30 standard, the skipped 02:00 and 02:30 are dropped, then 03:00, 03:30, 04:00 daylight.
   assert.deepEqual(got.spring, ['01:30 360', '03:00 300', '03:30 300', '04:00 300']);
+  // Review 3: every 45 minutes keeps its own grid through the skipped hour (02:15 is dropped, not moved to 03:15).
+  assert.deepEqual(got.spring45, ['01:30 360', '03:00 300', '03:45 300', '04:30 300']);
   // Review 2: asked at 03:10 that morning, the next is 03:30 (the walk's start lands among slots the clock moved).
   assert.equal(got.at0310, '03:30 300');
   // CONTROL: the child really is in Central time (an ordinary day reads its offset).
@@ -174,6 +177,9 @@ test('#6893: a minutes task re-tells its reviewer at most hourly; an hourly task
   const owedFor = (t) => mt.owed([{ id: 'p', name: 'P', agents: ['zed'], tasks: [t] }], now).length;
   assert.equal(owedFor(task({ every: 'minutes', n: 30 }, at(11, 0))), 0, 'told of 11:00; the 11:30 miss is newer but within the hour: not yet');
   assert.equal(owedFor(task({ every: 'minutes', n: 30 }, at(10, 30))), 1, 'told an hour and more ago: told again');
+  // Review 3: a run since the miss told ends that stall, so a new stall is told at its first miss, inside the hour.
+  const resumed = { ...task({ every: 'minutes', n: 30 }, at(11, 0)), lastRunAt: new Date(at(11, 10)).toISOString() };
+  assert.equal(owedFor(resumed), 1, 'ran at 11:10, then missed 11:30: told');
   // CONTROL: an hourly task told an hour ago is owed the newer miss, as before.
   assert.equal(owedFor(task({ every: 'hour', minute: 0 }, at(10, 0))), 1);
 });

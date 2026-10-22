@@ -10,7 +10,7 @@
  *   { every: 'day',  at: ['HH:MM', ...] }            kosmos#5752: every day at each time (2 to 24, sorted; one time is
  *                                                    stored as the string above, so older rules read as they always did)
  *   { every: 'week', day: 0-6 (Sunday 0), at: 'HH:MM' } every week on that day at HH:MM
- *   { every: 'minutes', n: 5-720 }                   kosmos#6893: every n minutes, on the multiples of n from local
+ *   { every: 'minutes', n: 15-720 }                  kosmos#6893: every n minutes, on the multiples of n from local
  *                                                    midnight (n divides the day: 15, 30, 45, 90, 120...), so the
  *                                                    slots are the same every day and a person can say when they fall
  * Kosmos does not START the job (the person's own scheduler or the agent's loop does); the agent reports each run
@@ -19,7 +19,9 @@
  */
 
 const EVERY = ['hour', 'day', 'week', 'minutes'];
-const N_MIN = 5;      // kosmos#6893: the shortest interval; a run every minute or two is a loop, not a task
+/* kosmos#6893: the shortest interval. Review 3: every run is a row in the task's history, which keeps them all, so a
+   5-minute task would write 288 a day; 15 is 96, four times the busiest rule before this (hourly). */
+const N_MIN = 15;
 const N_MAX = 720;    // the longest; past half a day, a daily task with times says it better
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -33,7 +35,7 @@ function repeatProblem(r) {
   if (!EVERY.includes(r.every)) return 'a task can repeat every so many minutes, every hour, every day or every week';
   if (r.every === 'minutes') {
     if (!(Number.isInteger(r.n) && r.n >= N_MIN && r.n <= N_MAX && 1440 % r.n === 0)) {
-      return 'say the minutes as a number from ' + N_MIN + ' to ' + N_MAX + ' that divides the day evenly, for example 15, 30, 45 or 90';
+      return 'say the minutes as a number from ' + N_MIN + ' to ' + N_MAX + ' that divides the day evenly, for example 15, 20, 30, 45 or 90';
     }
     if (r.at !== undefined || r.day !== undefined || r.minute !== undefined) return 'a task every so many minutes takes only the number of minutes';
     return null;
@@ -96,7 +98,11 @@ function nextAfter(rule, ms) {
     const k0 = Math.max(0, Math.floor((from.getHours() * 60 + from.getMinutes()) / r.n) - 1);
     for (let n = 0; n <= 1; n += 1) {
       for (let k = n === 0 ? k0 : 0; k * r.n < 1440; k += 1) {
-        const t = new Date(y, mo, d + n, 0, k * r.n, 0, 0).getTime();
+        const slot = new Date(y, mo, d + n, 0, k * r.n, 0, 0);
+        /* Review 3: a time the spring change skips is not moved onto the clock (02:15 would become 03:15, off the
+           grid, and crowd the real 03:00 slot): it is dropped, as a person's scheduler would skip it. */
+        if (slot.getHours() * 60 + slot.getMinutes() !== k * r.n) continue;
+        const t = slot.getTime();
         if (t > ms) return t;
       }
     }

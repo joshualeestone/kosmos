@@ -15,8 +15,13 @@ says "every 30 minutes" with the next run, and the run is due and missed on thos
 ## Decisions
 - Anchored at midnight, not at the last run: slots that drift make "missed" and "next" meaningless.
 - n must divide the day: otherwise each day starts at a different offset.
-- Floor 5 minutes, ceiling 720.
+- Floor 15 minutes (review 3: every run is a row in the task's history, which keeps them all; 5 minutes would be 288
+  a day), ceiling 720.
 - Agent instructions (engine/defaults.js) unchanged: changing them moves the instructions version for every agent.
 
+- Clock changes: a time the spring change skips is dropped, never moved (02:15 is not 03:15); on the autumn night the
+  repeated hour gets no slots of its own (a 30-minute task has a 90-minute gap there). Both deliberate (review 3).
+- A stalled task's reviewer is told again about hourly while the same stall lasts; a run ends the stall.
+
 ## Weakest premise
-That 5 minutes is a sensible floor (miss grace a quarter of the interval: 75 s at 5 minutes).
+That 15 minutes is a low enough floor. If people need every 5 or 10 minutes, the history needs a cap first.
