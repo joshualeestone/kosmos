@@ -188,7 +188,7 @@ function repoScripts() {
     all = [];
     const walk = (dir) => {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== '.git') walk(path.join(dir, e.name)); continue; }
+        if (e.isDirectory()) { if (!['node_modules', '.git', '.claude', 'dist'].includes(e.name)) walk(path.join(dir, e.name)); continue; }
         all.push(path.relative(REPO_ROOT, path.join(dir, e.name)).split(path.sep).join('/'));
       }
     };

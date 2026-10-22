@@ -219,7 +219,7 @@ async function resolveOpenUrl({ appDir, port, timeoutMs, proveBoard }) {
    * answers there the sign-in cookie, as a failed proof would. Opening Kosmos again proves afresh. */
   const nonce = await mintNonce(url, token);
   if (!nonce) {
-    process.stderr.write('kosmos-open-board: Kosmos showed it is your Kosmos but then did not sign this window in, so nothing was opened. Try again in a minute.\n');
+    process.stderr.write('kosmos-open-board: Kosmos showed it is your Kosmos but then did not sign you in, so nothing was opened. Try again in a minute.\n');
     return null;
   }
   return `${url}/?boot=${nonce}`;

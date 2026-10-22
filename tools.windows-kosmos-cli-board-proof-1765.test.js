@@ -263,7 +263,7 @@ test('kosmos#6464: a proven board that redirects a send elsewhere: the tokens an
     assert.notEqual(r.code, 0, r.err);
     assert.deepEqual(redirected, ['POST /api/report'], 'the report never reached the board (so this arm measures nothing), or was asked again');
     assert.equal(r.code, 1, r.err);
-    assert.match(r.err, /tried to send this request somewhere else, which Kosmos never does, so we did not follow it/);
+    assert.match(r.err, /tried to send this request somewhere else, which Kosmos never does, so we did not follow it. We could not record that; check before doing it again./);
     // msg asks once more after a cut answer; a refused redirect is not one, so it is sent once.
     const m = await run('http://127.0.0.1:' + server.address().port, ['msg', 'bart', 'hi']);
     assert.equal(m.code, 1, m.err);
