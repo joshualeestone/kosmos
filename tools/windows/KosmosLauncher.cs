@@ -2774,9 +2774,10 @@ class KosmosLauncher
     internal const uint VirtualKeyR = 0x52;
     internal const uint VirtualKeyBrowserRefresh = 0xA8;
 
-    internal static bool IsReloadKey(uint virtualKey, bool control)
+    // Ctrl+R only with Alt up: AltGr reaches Windows as Ctrl+Alt, and AltGr+R types a character on some layouts.
+    internal static bool IsReloadKey(uint virtualKey, bool control, bool alt)
     {
-        return virtualKey == VirtualKeyF5 || virtualKey == VirtualKeyBrowserRefresh || (control && virtualKey == VirtualKeyR);
+        return virtualKey == VirtualKeyF5 || virtualKey == VirtualKeyBrowserRefresh || (control && !alt && virtualKey == VirtualKeyR);
     }
 
     // What a navigation to the board does after the quick check: go, be refused at once (a listener answered and
@@ -3381,6 +3382,7 @@ class KosmosLauncher
     [DllImport("user32.dll")]
     internal static extern short GetKeyState(int virtualKey);
     internal const int VirtualKeyControl = 0x11;
+    internal const int VirtualKeyAlt = 0x12;
 
     [DllImport("user32.dll")]
     static extern bool SetProcessDpiAwarenessContext(IntPtr context);
@@ -4029,6 +4031,10 @@ class BoardWindowForm : System.Windows.Forms.Form
             int boardRedirect;
             args.get_IsRedirected(out boardRedirect);
             args.put_Cancel(1);
+            // Only while the window is on a visit to its board (NavigateToBoard sets that before it navigates). Showing
+            // why, or starting over, no board page loads by any other way: Back or Forward to one still in the history
+            // would show a board that nothing then watches, outside every check below.
+            if (boardNotConfirmed || !navigatedToBoard) return;
             // Not checked again: a redirect within a board navigation this let through a moment ago (a sign-in's ?boot=
             // load, answered by the board), and the navigation a full check just proved (CheckNavigationAgain).
             bool checkedAlready = (boardRedirect != 0 && boardNavs.ContainsKey(boardNav)) || (navigationApproved != null && navigationApproved == uri);
@@ -4200,7 +4206,8 @@ class BoardWindowForm : System.Windows.Forms.Form
         uint key;
         args.get_VirtualKey(out key);
         bool control = (KosmosLauncher.GetKeyState(KosmosLauncher.VirtualKeyControl) & 0x8000) != 0;
-        if (!KosmosLauncher.IsReloadKey(key, control)) return;
+        bool alt = (KosmosLauncher.GetKeyState(KosmosLauncher.VirtualKeyAlt) & 0x8000) != 0;
+        if (!KosmosLauncher.IsReloadKey(key, control, alt)) return;
         string onScreen = BoardPageOnScreen();
         if (onScreen == null) return;
         args.put_Handled(1);
