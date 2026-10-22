@@ -639,6 +639,11 @@ for v in errout two hang; do
       && { [ "$v" != hang ] || [ "$el" -lt 5 ]; }; } \
     && pass "6771: whoami $v is not a sign-in: red, nothing deployed${v:+ ($el s)}" || bad "6771 whoami $v (rc=$(cat "$T/rcv"), $el s): $(cat "$T/outv")"
 done
+# An unreadable filed token is said even when the sign-in deploys (it would otherwise be masked until the sign-in lapses).
+H=$(advance six-seven-seven-one-why); rm -rf "$ST/reported.d"
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-in" KOSMOS_AUTODEPLOY_SECRETS="$T/secrets-why" tick; printf '%s' "$OUT" > "$T/outw" )
+grep -q "the accessor said: secrets-map: no credential for target 'vercel-chaoskosmos-site'.*deploying on this machine's vercel sign-in" "$T/outw" \
+  && pass "6771: the accessor's reason is kept on a sign-in deploy" || bad "6771 why on sign-in: $(cat "$T/outw")"
 # A filed token still wins over the sign-in: the CLI is not even asked.
 H6771u=$(advance six-seven-seven-one-token-wins); : > "$T/vercel.log"
 ( unset VERCEL_TOKEN; SEC_TOKEN=filed KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-in" KOSMOS_AUTODEPLOY_SECRETS="$SEC" \
