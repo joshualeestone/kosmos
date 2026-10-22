@@ -21,6 +21,11 @@ so it is its own branch.
 
 Rejected: keeping the CLI's inference from a missing `closingUsed` (offered what the board could refuse).
 
+## Version skew
+The board and both CLIs ship together in the app, and #6920 (the board side of the exception) is not in a release yet,
+so no released board has the exception without `closingEligible`. A new CLI against an older board offers nothing,
+which is right: that board cannot take a summary.
+
 ## Weakest premise
 That `closingEligible` matches what the board then does. Both read the same refused row and closing rows, but the
 eligibility is computed at refusal time and the next post can land in a new window (countFrom moved), where the

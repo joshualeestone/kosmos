@@ -3292,6 +3292,8 @@ cmd_post() {
           else
             say "Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour."
           fi
+          # #6925: these flag matches read the whole body, unlike the anchored globs above, and that is safe: the post's own
+          # text and names arrive JSON-escaped (\"closing\"), and no other field carries a bare true under these keys.
           # #6920: the one exception the board makes while a room is held, said AFTER the wait so the two do not read as
           # opposite instructions; without it no agent would try a summary. #6925: offered only when the board says it will
           # honour it (closingEligible), so not after this member has used it, and never by an older board that cannot.

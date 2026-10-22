@@ -2636,8 +2636,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      the hold first) may land ONE post of CLOSING_POST_MIN characters or more of its one-line form (the length decides:
      chat.acknowledgementOnly is false above its own 200 characters, so that check is only a floor),
      per window (countFrom: rolling, reset by the person's post or a reopen, as the arrival budget is).
-     It is stored with `closing: true`, which is how a second one is found and held (and `closingUsed` on the refusal
-     tells the CLI not to offer it again). It is NOT charged to the room: arrivals here and roomHeldRead's count skip it,
+     It is stored with `closing: true`, which is how a second one is found and held (#6925: the refusal says
+     `closingEligible` when the board will take one, which is what the CLIs key on; `closingUsed` stays as a fact). It is NOT charged to the room: arrivals here and roomHeldRead's count skip it,
      so a summary does not push the lift later. It is otherwise an ordinary post: delivered to every member and stored.
      The refused row may be from an EARLIER hold in the same window (a room that lifted and was held again): the refused
      row is written once per member per window (#315), so keying it to the latest hold would leave that member never

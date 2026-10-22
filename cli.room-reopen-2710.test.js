@@ -94,8 +94,12 @@ test('#4934: a loop-guard refusal (code room_held) says nothing was kept, not to
 });
 
 test('#6920: a room_held refusal offers the one closing summary, unless the board says this member used it', async () => {
-  for (const [extra, offered] of [[{ closingEligible: true }, true], [{ closingUsed: true }, false], [{}, false]]) {   // #6925: {} is an older board
-    const routes = { 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', code: 'room_held', because: VALVE_BECAUSE, ...extra } } } };
+  for (const [extra, offered] of [[{ closingEligible: true }, true], [{ closingUsed: true }, false], [{}, false], ['spaced', true]]) {   // #6925: {} is an older board
+    // 'spaced': the board's JSON with a space after the colon, which the CLI's match must still read
+    const body = extra === 'spaced'
+      ? '{"delivery":{"state":"could_not","code":"room_held","because":' + JSON.stringify(VALVE_BECAUSE) + ', "closingEligible": true}}'
+      : { delivery: { state: 'could_not', code: 'room_held', because: VALVE_BECAUSE, ...extra } };
+    const routes = { 'POST /api/post': { code: 200, body } };
     await withBoard(routes, async (port) => {
       const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
       const out = await runCli(['post', 'henderson', 'the lease renews monthly'], env);

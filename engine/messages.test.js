@@ -1635,6 +1635,7 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     // and the member keeps its one for after it learns of the hold.
     const tip = posted('leo-discord', summary);
     assert.equal(tip.code, 'room_held', 'the post that tipped the room over landed as a closing post');
+    assert.equal(tip.closingEligible, true, '#6925: the first refusal (the one that records the row) does not offer the summary');
     const liftBefore = tip.clearsAt;
     assert.ok(typeof liftBefore === 'string' && liftBefore !== '', 'the hold gave no lift time, so the no-charge check below would prove nothing');
     assert.equal(closingRows().length, 0);
