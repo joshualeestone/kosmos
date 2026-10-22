@@ -27817,8 +27817,8 @@ let acctFiveTimer = null, acctFiveMisses = 0;
    panel has no boxes. Opening Settings paints the list again, and switching back to AI Models reads or re-arms it
    (acctFiveHourOnShow), so nothing is lost by stopping. */
 function acctListShown() { const box = document.getElementById('set-accounts'); return !!box && box.getClientRects().length > 0; }
-/* #6176: every meter that goes away at a reset carries data-resets: Claude's five-hour line and each Codex, Grok or Antigravity window. */
-const ACCT_RESET_SEL = '#set-accounts .acct-usage-five[data-resets], #set-accounts .acct-usage-codex[data-resets]';
+/* #6176: every meter that goes away at a reset carries data-resets: Claude's five-hour and (#6570) weekly lines and each Codex, Grok or Antigravity window. */
+const ACCT_RESET_SEL = '#set-accounts .acct-usage-five[data-resets], #set-accounts .acct-usage-codex[data-resets], #set-accounts .acct-usage-week[data-resets]';   // #6570: Claude's weekly line too
 /* The list has just come back on screen (a section switch, not a paint): read it again if a line it shows is past its
    reset, otherwise arm the timer for the soonest reset it shows. */
 let acctReadOpen = 0, acctReadOpenAt = 0;   // the epoch of the list read still out (0: none) and when it began, so the on-show look never doubles one
@@ -28089,7 +28089,7 @@ function acctUsageHtml(a, list) {
       const resets = new Date(w.resetsAt).toLocaleString([], w.resetsAt - Date.now() > 6 * 864e5
         ? { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
       const age = agoWords(Date.now() - w.at);
-      usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
+      usage = '<div class="acct-usage-meter acct-usage-week" data-resets="' + Math.round(w.resetsAt) + '"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
         + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · Kosmos last saw it change ' + esc(age) : '') + '</p></div>'   // what Kosmos saw: use elsewhere (claude.ai, another computer) is not seen
         + (frozenSay && !five ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' : '') + (five ? '' : usageSetup)
         + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.')

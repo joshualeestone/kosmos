@@ -144,7 +144,8 @@ test('#6570 end to end: a real stream line through the supervisor\'s reader and 
     assert.equal(f.usedPct, 25);
     assert.equal(f.resetsAt, five * 1000);
     assert.ok(Math.abs(Date.now() - w.at) < 60e3, 'at is when it was recorded, in ms');
-    assert.equal(accountsweekly.weeklyBlockedOf({ dir }), 'not-wired', 'the readings do not depend on the status line being wired');
+    assert.equal(accountsweekly.weeklyBlockedOf({ dir }, 'win32'), null, 'on Windows no status line setting stands between the row and its readings');
+    assert.equal(accountsweekly.weeklyBlockedOf({ dir }, 'darwin'), 'not-wired', 'CONTROL: the Mac still names the reason');
   } finally { a.h.stop(); }
 });
 
@@ -167,9 +168,26 @@ test('#6570 the stream latest figure wins in its window (it is the answer now, n
   assert.equal(again.at, at, 'an unchanged figure keeps the time it last changed');
   assert.equal(again.history.length, rows, 'and adds no history row');
   p.event(ev(0.5, nowS - 3 * 86400));
-  assert.equal(accountsweekly.weeklyOf(row).usedPct, 3, 'a reading for an earlier week is still refused');
+  assert.equal(accountsweekly.weeklyOf(row).usedPct, 3, 'a reading whose week has already reset is refused');
   p.event(ev(0.05, nowS + 8 * 86400));
   assert.equal(accountsweekly.weeklyOf(row).usedPct, 5, 'a new week replaces it');
+  p.stopped();
+});
+
+test('#6570 a folder signed in to another account: its live reading with an EARLIER reset still replaces the stored one', () => {
+  /* Review 1: two accounts rarely share a reset. The folder held account A's 96% resetting in five days; it is now
+     account B, whose week resets in two. B's live reading must show at once, not after A's reset. */
+  const dir = accountDir();
+  const row = { dir, apiKey: false };
+  const nowS = Math.floor(Date.now() / 1000);
+  const p = streamstate.publisher('usage-swap', { usageDir: dir, write: () => ({ ok: true }), clear: () => true });
+  p.started(9004, 'sess-swap');
+  p.event({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { seven_day: { utilization: 0.96, resetsAt: nowS + 5 * 86400 }, five_hour: { utilization: 0.6, resetsAt: nowS + 4 * 3600 } } } });
+  assert.equal(accountsweekly.weeklyOf(row).usedPct, 96);
+  p.event({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { seven_day: { utilization: 0.03, resetsAt: nowS + 2 * 86400 }, five_hour: { utilization: 0.1, resetsAt: nowS + 2 * 3600 } } } });
+  assert.equal(accountsweekly.weeklyOf(row).usedPct, 3);
+  assert.equal(accountsweekly.weeklyOf(row).resetsAt, (nowS + 2 * 86400) * 1000);
+  assert.equal(accountsweekly.fiveHourOf(row).usedPct, 10, 'the five-hour reading follows the same rule');
   p.stopped();
 });
 
@@ -217,4 +235,38 @@ test('#6570 the account folder: the agent\'s CLAUDE_CONFIG_DIR, or the default o
   assert.equal(streamstate.claudeAccountDirFor('relative\\dir', { env: {}, homedir: home }), null);
   const file = path.join(SANDBOX, 'a-file'); fs.writeFileSync(file, 'x');
   assert.equal(streamstate.claudeAccountDirFor(file, { env: {}, homedir: home }), null);
+});
+
+test('#6570 only a Claude agent records into a Claude account folder', () => {
+  const named = accountDir();
+  assert.equal(sup.usageDirFor({ runner: 'claude', configDir: named }), named);
+  for (const runner of ['codex', 'gemini', 'grok', 'antigravity', undefined]) {
+    assert.equal(sup.usageDirFor({ runner, configDir: named }), null, runner + ': its configDir is the home of its own provider');
+  }
+});
+
+test('#6570 main(), the one production wiring: a Claude agent stream records into its account folder', () => {
+  const launcher = require('./win32launch');
+  const named = accountDir();
+  const cwd = path.join(SANDBOX, 'cwd-main'); fs.mkdirSync(cwd, { recursive: true });
+  const spawned = [];
+  launcher.setSpawn((bin, argv) => { const c = streamingChild(4343); spawned.push(c); return c; });
+  sup.setLiveReader(() => []);
+  const { line, week } = capturedShiftedToNow();
+  const handle = sup.main(['usage-main', cwd, '-', named, 'claude'], {
+    watchHost: () => ({ stop() {} }), exitLater: () => {}, hostAlive: () => true,
+    agentBrowser: () => 'browser-config.json', agentPermission: () => 'perm.json',
+  });
+  try {
+    assert.equal(spawned.length, 1, 'main() started its agent');
+    spawned[0].stdout.emit('data', Buffer.from(line + '\n'));
+    const w = accountsweekly.weeklyOf({ dir: named, apiKey: false });
+    assert.ok(w, 'main() did not record the agent reading into its account folder');
+    assert.equal(w.usedPct, 96);
+    assert.equal(w.resetsAt, week * 1000);
+  } finally {
+    handle.stop();
+    launcher.setSpawn(null);
+    sup.setLiveReader(null);
+  }
 });
