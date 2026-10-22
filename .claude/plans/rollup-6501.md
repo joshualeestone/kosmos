@@ -97,3 +97,8 @@ Card: kosmos#6501 (agent feedback 10-18 and 10-22, two installs). Item 1 shipped
 - Not changed (NITs): the refused-parent message is the route's own sentence (as Mark as done shows it); a poll that
   repaints the line as "All subtasks done" mid-press would let a second parent close race (no duplicate event); the
   leave-the-page arm drives the refusal path only.
+
+## Review round 8 (the cap) and the stop
+- No BLOCKER. Two WARNINGs: a refusal while the person is on another task is not shown anywhere (by design here; the
+  list repaints), and the failed-reload branch has no arm. Under Splinter's 8-round rule (10-22 11:08: past 8, continue
+  only while a BLOCKER is open), the loop stops and these are filed as #6928 with the round's NITs.
