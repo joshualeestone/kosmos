@@ -1189,8 +1189,8 @@ async function taskActivity(ctx, args) {
     const s = r.json.seenByPerson;
     const said = r.json.events.filter((e) => e.kind === 'said').map((e) => Date.parse(e.at)).filter(Number.isFinite);
     const last = said.length ? said.reduce((a, b) => Math.max(a, b)) : null;
-    if (typeof s !== 'string' || !Number.isFinite(Date.parse(s))) ctx.out('The person has not opened this task\'s page in Kosmos yet.');
-    else ctx.out('The person last opened this task\'s page at ' + when(s) + (last === null ? '.' : Date.parse(s) >= last ? ', after the latest message.' : ', before the latest message.'));
+    if (typeof s !== 'string' || !Number.isFinite(Date.parse(s))) ctx.out('The person has not viewed this task in Kosmos yet.');
+    else ctx.out('The person last viewed this task at ' + when(s) + (last === null ? '.' : Date.parse(s) >= last ? ', after the latest message.' : ', before the latest message.'));
   }
   return 0;
 }

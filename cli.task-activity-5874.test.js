@@ -104,9 +104,9 @@ test('#5874 Windows: task activity prints the conversation oldest first, one lin
   const created = taskchat.read(projectId, num)[0];
   assert.equal(created.kind, 'created', 'CONTROL: tasks.create recorded the created event first');
   assert.deepEqual(WORDS(r.out), WANT, r.out);
-  // #6947: one line per event, then the line saying whether the person has opened the task.
+  // #6947: one line per event, then the line saying whether the person has viewed the task.
   assert.equal(r.out.split('\n').length, WANT.length + 1, 'an event printed on more than one line: ' + r.out);
-  assert.equal(r.out.split('\n').pop(), 'The person has not opened this task\'s page in Kosmos yet.');
+  assert.equal(r.out.split('\n').pop(), 'The person has not viewed this task in Kosmos yet.');
   const none = await win(['task', 'activity', quiet, String(quietNum)]);
   assert.equal(none.code, 0, none.err);
   assert.equal(none.out, 'Nothing recorded on task ' + quietNum + ' yet.');
@@ -162,15 +162,15 @@ test('#5874 Mac: task activity prints the same lines as Windows', async () => {
   assert.match(help.out, /kosmos task activity <project-id> <task-number>/, 'the help does not name the new command');
 });
 
-test('#6947: both commands say whether the person has opened the task, and whether that was after the latest message', async () => {
+test('#6947: both commands say whether the person has viewed the task, and whether that was after the latest message', async () => {
   const taskseen = require('./engine/taskseen');
   const t = tasks.create(projectId, { sentence: 'Needs an access grant', who: 'mara' });
   tasks.say(projectId, t.number, 'blocked on an access grant: can you add me?');
   const lastLine = async (run) => { const r = await run(['task', 'activity', projectId, String(t.number)]); return (r.out || '').trim().split('\n').pop(); };
-  assert.equal(await lastLine(win), 'The person has not opened this task\'s page in Kosmos yet.');
+  assert.equal(await lastLine(win), 'The person has not viewed this task in Kosmos yet.');
   const said = Date.parse(taskchat.read(projectId, t.number).filter((e) => e.kind === 'said').pop().at);
   taskseen.markSeen(projectId, t.number, new Date(said + 60000));
-  assert.match(await lastLine(win), /^The person last opened this task's page at \d{4}-\d{2}-\d{2} \d{2}:\d{2}, after the latest message\.$/);
+  assert.match(await lastLine(win), /^The person last viewed this task at \d{4}-\d{2}-\d{2} \d{2}:\d{2}, after the latest message\.$/);
   assert.equal(await lastLine(mac), await lastLine(win), 'the two commands said it differently');
   taskseen.markSeen(projectId, t.number, new Date(said - 60000));
   assert.match(await lastLine(win), /, before the latest message\.$/);
