@@ -78,6 +78,7 @@ card() {  # <name> -> a status card JSON for the scenario state
     trust-wedge-caps) state=needs_you;  because="It Is Asking Whether To TRUST Its FOLDER";;
     auth)            state=auth_failed; because="its Claude sign-in is not working";;
     stopped-forever) state=stopped;     because="Claude is not running for this one";;
+    needs-you-other) state=needs_you;   because="it has hit its usage limit";;
     *)               state=idle;        because="it is sitting at its prompt";;
   esac
   # The REAL /api/status card is TOP-LEVEL sessionName/state/because (server.js status route),
@@ -143,9 +144,14 @@ case "$route" in
         emit '{"error":"that is not a name we can read"}' 400
       else
         nm="$(printf '%s' "$data" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')"
+        # kosmos#6906: a gate agent must not raise the public agents-created count (the real board pings unless the
+        # body says notifyCreated:false). This fake refuses a create without it, so dropping it turns every arm red.
+        case "$data" in *'"notifyCreated":false'*) ;; *) emit '{"error":"the gate must send notifyCreated:false"}' 400; exit 0;; esac
         # The REAL board refuses a name over 32 characters (kosmos#6906: the gate's old names were longer).
         if [ "${#nm}" -gt 32 ]; then emit '{"outcome":"refused","because":"keep it to 32 characters or fewer","field":"name"}' 400; exit 0; fi
         printf '%s\n' "$nm" >> "$STATE"
+        # kosmos#6906: lost = the board made the agent but the answer never arrived (a timeout): no body, code 000.
+        if [ "${MOCK_CREATE:-ok}" = lost ]; then printf '000'; exit 0; fi
         # The REAL board returns the result object at TOP LEVEL (server.js sendJson(res,code,result)
         # -> {outcome, name, ...}), NOT nested under a `result` key. Emit that so the gate's
         # top-level `j.name` read path is exercised (its `j.result.name||j.name` fallback stays
@@ -165,11 +171,16 @@ case "$route" in
     else
       msgs=""
       if grep -qx "$nm" "${STATE}.sent" 2>/dev/null; then
-        msgs='{"at":"2026-10-22T15:58:00Z","text":"A release check: please reply with the single word ready.","from":null}'
+        now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        msgs="{\"at\":\"$now\",\"text\":\"A release check: reply ready.\",\"from\":null}"
         case "${MOCK_REPLY:-ready}" in
           none) ;;
-          other) msgs="$msgs,{\"at\":\"2026-10-22T15:58:04Z\",\"text\":\"ready\",\"from\":\"someone-else\"}" ;;
-          *) msgs="$msgs,{\"at\":\"2026-10-22T15:58:04Z\",\"text\":\"ready\",\"from\":\"$nm\"}" ;;
+          other) msgs="$msgs,{\"at\":\"$now\",\"text\":\"ready\",\"from\":\"someone-else\"}" ;;
+          # The real thread adds a kind:"question" row FROM the agent while it waits on a prompt: not an answer.
+          question) msgs="$msgs,{\"at\":\"$now\",\"text\":\"Allow this?\",\"from\":\"$nm\",\"kind\":\"question\"}" ;;
+          # A row from the agent dated before the message was sent: not an answer to it.
+          old) msgs="$msgs,{\"at\":\"2026-01-01T00:00:00Z\",\"text\":\"ready\",\"from\":\"$nm\"}" ;;
+          *) msgs="$msgs,{\"at\":\"$now\",\"text\":\"ready\",\"from\":\"$nm\"}" ;;
         esac
       fi
       emit "{\"messages\":[$msgs]}" 200
@@ -247,6 +258,10 @@ run_case "positive control removes the Claude agent too" 0 --expect "removed 've
 run_case "online but NO answer to the first message -> cannot-tell (2)" 2 --expect "did not answer its first message" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_REPLY=none
 run_case "an answer from ANOTHER name does not count -> cannot-tell (2)" 2 --expect "did not answer its first message" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_REPLY=other
 run_case "first message refused -> cannot-tell (2)" 2 --expect "could not send" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_SEND=refuse
+run_case "a question row FROM the agent is not an answer -> cannot-tell (2)" 2 --expect "did not answer its first message" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_REPLY=question
+run_case "an agent row from BEFORE the send is not an answer -> cannot-tell (2)" 2 --expect "did not answer its first message" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_REPLY=old
+run_case "a create whose answer is lost is still removed (2)" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_CREATE=lost
+run_case "waiting on a NON-trust question (usage limit) -> cannot-tell (2), not a refusal" 2 --expect "not the trust prompt" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=needs-you-other
 run_case "a FAILED arm still removes its agent (trust wedge, 1)" 1 --expect "removed 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=trust-wedge
 run_case "a removal that fails is said, and the verdict stands (0)" 0 --expect "could not remove" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_REMOVE=fail
 # kosmos#5849 control: the CALLER exports every fixture variable and a broken home; a case that names no scenario

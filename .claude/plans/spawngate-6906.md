@@ -10,13 +10,19 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
 
 ## The change
 - The populated-board refusal is gone. The gate still fails closed when it cannot count the board's agents.
-- Every agent it creates is removed when it ends (EXIT trap; INT/TERM clean up and exit 2), and it says whether each is
-  gone from /api/status. A removal that fails is said with the name to remove by hand; the verdict stands.
-- After an agent is online (two consecutive polls, unchanged), it is sent one message, and the arm passes only when an
-  entry `from` its session name appears in its thread (`GET /api/agent/<name>/thread`: `{messages:[{at,text,from}]}`;
-  the person's message has from null). No answer within KOSMOS_AGENT_REPLY_TIMEOUT (180 s) is cannot-tell (2,
+- Every agent it creates is removed when it ends (EXIT trap; INT/TERM clean up and exit 2; cleanup ignores further
+  signals), and it says whether each is gone from /api/status. A removal that fails is said with the name to remove by
+  hand; the verdict stands. A create whose answer never came (lost, timed out, interrupted) is removed only if the board
+  lists it; one that answered 200 is removed whatever the list says; one refused (400) is not this run's to remove.
+- Creates send `notifyCreated:false`, so gate agents never raise the public agents-created count.
+- After an agent is online (two consecutive polls, unchanged), it is sent one message, and the arm passes only on a
+  STORED reply: an entry `from` its session name with no `kind`, dated at or after the send (5 s of slack). The thread
+  (`GET /api/agent/<name>/thread`, `{messages:[{at,text,from}]}`) also carries a `kind:"question"` row from the agent
+  while it waits on a prompt (engine/chat.js withQuestionRow), which must never read as an answer (review 1).
+- An agent still waiting on a question that is not the trust prompt when the online window ends (a usage or rate limit
+  on a working board) is cannot-tell (2), no longer a refusal (review 1). No answer within KOSMOS_AGENT_REPLY_TIMEOUT (180 s) is cannot-tell (2,
   forceable), never a refusal: a slow model or a spent quota must not block a good build unforceably.
-- Names are `verify2129-<claude|openai>-<epoch>`, at most 28 characters. Found by running it for real: the board refuses
+- Names are `verify2129-<claude|openai>-<epoch>-<pid mod 1000>`, at most 32 characters, unique per run. Found by running it for real: the board refuses
   a name over 32 ("keep it to 32 characters or fewer"), and the old `verify2129-<provider>-<epoch>-<pid>` was 31 to 37,
   so on Mortals every create came back 400 and the gate read cannot-tell. The test's fake board now enforces 32.
 - docs/staging-channel.md and promote-channel.sh say what the gate now does.
@@ -25,7 +31,9 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
 - Mortals' board, 0.7.63, 8 agents, 2026-10-22 ~11:10 CDT: the new gate PASSED (exit 0). A Claude and an OpenAI agent each
   came online, answered "ready", and were removed and gone from /api/status (aoc-6906-mortals.out).
 - The same run with the old names: both creates refused (400, 32 characters), exit 2.
-- tools/test-staging-agent-online-check.sh: 24 arms pass. Against main's gate: 18 fail (agents left on the board, no
+- After review 1, Mortals again: PASS, both answered "ready", both removed (aoc-6906-mortals2.out).
+- tools/test-staging-agent-online-check.sh: 28 arms pass; mutants dropping the kind filter, the date filter, or
+  notifyCreated each turn arms red. Earlier: 24 arms Against main's gate: 18 fail (agents left on the board, no
   removal). With first_reply forced to succeed: the no-answer, other-sender and refused-message arms fail. With the old
   long names: 16 fail. tools/test-staging-channel-2036.sh passes.
 
@@ -35,6 +43,11 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
 - Removal runs whatever the verdict, and a failed removal does not change it: the verdict is about the build, the
   removal about tidiness.
 - KOSMOS_STAGING_VERIFY_ALLOW_LIVE and KOSMOS_AGENT_ONLINE_MAX_EXISTING no longer do anything.
+
+## Not done here (follow-up)
+- A gate agent is made like any agent, so on a board with the Community switch on its instructions carry the community
+  block and may ask it to introduce itself. Its first message says to do nothing but reply, and it is removed within
+  about a minute; there is no create-time way to leave the block out. Filed as a follow-up card.
 
 ## Weakest premise
 That two agents created and removed on a working fleet board for about a minute disturb nobody. Each gets a home folder
