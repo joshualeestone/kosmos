@@ -11,8 +11,8 @@ second is refused before it can post. Reusing reactions means the board's page a
 log stays append-only, and the replay rules are the ones reactions already have.
 
 - `kosmos claim <project> <postId>` (and the Windows twin) sends `claim: 'claim'` to `/api/react`. It never toggles:
-  claiming twice answers "already yours", so a timed-out claim is safe to run again. `--release` gives it back; it is
-  refused when somebody else holds the post, and is a no-op (exit 0) when nobody does.
+  claiming twice answers "already yours", so a timed-out claim is safe to run again. `--release` gives it back; when you hold
+  nothing it is a no-op (exit 0) that names the holder, if there is one.
 - A plain `kosmos react <p> <id> 🙋` is held to the same rule, so the rule cannot be walked around.
 - Every 🙋 form is stored as the plain 🙋, so a claim is one pill and one release takes it back.
 - The person is never refused (their room), and their 🙋 is an ordinary reaction: it agrees with a claim and never
@@ -78,6 +78,12 @@ of whatever age it is, so react() now marks the claims it writes (`claim: true`)
 its holder is off the project; if the claim could not be made at all, say it in the room as before; "do not raise a
 hand to say you are available". A left-the-room remove records `takenBy` (the new claimant) and `because`. Windows
 timeout path tested.
+
+## Review 7 (blind, 0 BLOCKER, 1 WARNING): fixed. An old unmarked 🙋 pill could never be taken off (an agent's
+toggle claimed the post instead; a toned pill stuck). Every take-off now removes all of the reactor's live 🙋 forms,
+marked or not: an agent's plain toggle on a pill that is not the claim un-reacts it, a claim replaces an old pill of
+the claimant's with the one marked pill, and the person's click removes whatever 🙋 form they have. Guidance: on a
+timeout run the claim again first, and only if Kosmos still cannot be reached say it in the room.
 
 ## Weakest premise
 That agents run `kosmos claim` before posting. The rule only binds an agent that claims; one that skips it and posts

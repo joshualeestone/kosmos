@@ -3672,7 +3672,9 @@ const NOT_ON_PROJECT_FIX = "; ask the person to add this agent with the + beside
    its own name and must be on the project (`members` is the project's member
    sessionNames, the caller's derivation, same as sendPost -- the operator is
    exempt, being in every room they own). Returns {ok, op, emoji, of} or
-   {ok:false, because}. */
+   {ok:false, because}.
+   #6946: a 🙋 from an agent is a CLAIM (see the claim rule below): `claim` 'claim' never toggles and can answer op
+   'already', 'release' can answer op 'none', and a refusal or a no-op also carries `claimedBy` (and `claimedAt`). */
 function react({ project, of, emoji, from, operator, members, claim }) {
   const projectId = String(project == null ? '' : project).trim();
   const postId = messageIdOf(of);   // #4631: '530' and 'message 530' name m530 too
@@ -3735,45 +3737,49 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   }
   /* #6946: the claim rule. Checked and written in this one synchronous call, so of two agents racing on one request
      the second is refused here, with the first one's name, before it can post that it is taking it. */
+  /* Every 🙋 pill a reactor has live, in any form, marked as a claim or not (round 7: a raised hand from before the
+     claim mark is a pill too, and taking yours off must take it off, not claim the post). */
+  const pillsOf = (who) => reactionsFor(postId, rows).filter((r) => isClaimEmoji(r.emoji) && r.who.includes(who)).map((r) => r.emoji);
+  // A remove the holder did not make itself carries `takenBy` (the agent whose claim ended it) and `because`, so the
+  // log says who acted and why; replay reads it as that holder's remove all the same.
+  const dropPills = (who, ended) => { for (const em of pillsOf(who)) appendLog(stamp({ emoji: em, op: 'remove', ...as(who), ...(ended || {}) })); };
   /* Round 3: the person's 🙋 is an ordinary reaction, never a claim. Their picker has no 🙋, so the only way they make
-     one is by clicking an agent's 🙋 pill, which says "yes, you do it", not "it is mine now". */
+     one is by clicking an agent's 🙋 pill, which says "yes, you do it", not "it is mine now". A click takes off any 🙋
+     of theirs, whatever its form, or adds the plain one. */
   if (operator === true) {
-    const op = has ? 'remove' : 'add';
-    appendLog(stamp({ emoji: e, op, ...as('you') }));
-    return { ok: true, op, emoji: e, of: postId };
+    if (pillsOf('you').length) { dropPills('you'); return { ok: true, op: 'remove', emoji: e, of: postId }; }
+    appendLog(stamp({ emoji: e, op: 'add', ...as('you') }));
+    return { ok: true, op: 'add', emoji: e, of: postId };
   }
   const claimants = claimantsOf(postId, rows, roomNow);
   const holder = claimOf(postId, rows, roomNow);
-  const mine = claimants.get(reactor);
-  // A release, or a toggle off: every 🙋 form this reactor has live goes, so nothing of theirs is left behind.
-  // A remove the holder did not make itself carries `takenBy` (the agent whose claim ended it) and `because`, so the
-  // log says who acted and why; replay reads it as that holder's remove all the same.
-  const takeBack = (who, c, ended) => { for (const em of c.emojis) appendLog(stamp({ emoji: em, op: 'remove', ...as(who), ...(ended || {}) })); };
+  const holds = !!(claimants.get(reactor) && holder && holder.by === reactor);
+  const pills = pillsOf(reactor).length > 0;   // a 🙋 of this agent's, whether or not it is the claim
   const refuse = () => ({ ok: false, claimedBy: holder.by, claimedAt: holder.at,
     because: holder.by + ' claimed that post ' + claimAge(holder.at)
       + ', so do not post that you are taking it: read the room, and ask ' + holder.by + ' if you can help' });
   if (claim === 'release') {
-    if (mine && holder && holder.by === reactor) { takeBack(reactor, mine); return { ok: true, op: 'remove', emoji: e, of: postId }; }
-    // Nothing of yours is held: a retried release, or a 🙋 of yours from before this rule that was never the claim
-    // (taken off, so no pill of yours is left). What you asked for is already true, so it is not a failure; who holds
-    // the post now, if anyone, is said with it.
-    if (mine) takeBack(reactor, mine);
+    if (holds) { dropPills(reactor); return { ok: true, op: 'remove', emoji: e, of: postId }; }
+    // Nothing of yours is held: a retried release, or a 🙋 of yours that was never the claim (taken off, so no pill
+    // of yours is left). What you asked for is already true, so it is not a failure; who holds the post, if anyone,
+    // is said with it.
+    if (pills) dropPills(reactor);
     return { ok: true, op: 'none', emoji: e, of: postId, ...(holder ? { claimedBy: holder.by } : {}) };
   }
-  if (mine && holder && holder.by === reactor) {
+  if (holds) {
     if (claim === 'claim') return { ok: true, op: 'already', emoji: e, of: postId };
-    takeBack(reactor, mine);   // the holder's own toggle off
+    dropPills(reactor);   // the holder's own toggle off
     return { ok: true, op: 'remove', emoji: e, of: postId };
   }
-  if (holder && holder.by !== reactor) {
-    if (mine && claim !== 'claim') { takeBack(reactor, mine); return { ok: true, op: 'remove', emoji: e, of: postId }; }
-    return refuse();   // includes a later 🙋 of yours from before this rule: it is not the claim
-  }
+  // A plain 🙋 toggle by an agent with a pill that is not the claim takes that pill off, as any reaction would.
+  if (claim !== 'claim' && pills) { dropPills(reactor); return { ok: true, op: 'remove', emoji: e, of: postId }; }
+  if (holder && holder.by !== reactor) return refuse();
   /* Round 2: a claimant who has left the room no longer holds anything, so a new claim ENDS theirs in the log too.
      Otherwise re-adding them to the project would bring their old claim back above this one. */
   if (Array.isArray(roomNow)) {
-    for (const [who, c] of claimantsOf(postId, rows, null)) { if (!roomNow.includes(who)) takeBack(who, c, { takenBy: reactor, because: 'left-the-room' }); }
+    for (const [who] of claimantsOf(postId, rows, null)) { if (!roomNow.includes(who)) dropPills(who, { takenBy: reactor, because: 'left-the-room' }); }
   }
+  if (pills) dropPills(reactor);   // an old unmarked 🙋 of yours goes, so the claim is your one pill
   appendLog(stamp({ emoji: e, op: 'add', claim: true, ...as(reactor) }));
   return { ok: true, op: 'add', emoji: e, of: postId };
 }

@@ -263,3 +263,38 @@ test('round 5: the holder\'s own plain 🙋 react takes its claim back (a toggle
   assert.equal(holder(), null);
   assert.equal(claim('bob').op, 'add');
 });
+
+test('round 7: an old unmarked 🙋 pill can be taken off, by an agent or the person, in any form', () => {
+  const pills = (of = 'm1') => messages.reactionsFor(of, messages.record().rows).filter((r) => messages.isClaimEmoji(r.emoji));
+  // Case 1: ann's old plain 🙋, nobody holds the post; her plain toggle takes it off, it does not claim.
+  seedPost('m1', 'p');
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'ann', op: 'add', at: '2026-10-21T00:00:00.000Z' });
+  const off = messages.react({ project: 'p', of: 'm1', emoji: HAND, from: 'ann', members: MEMBERS });
+  assert.equal(off.op, 'remove', 'ann\'s toggle on her old 🙋 claimed the post instead of taking it off');
+  assert.deepEqual(pills(), []);
+  assert.equal(holder(), null);
+  // Case 2: ann's old 🙋 while bob holds the post; her release takes her pill off and names bob.
+  seedPost('m2', 'p');
+  append({ kind: 'reaction', project: 'p', of: 'm2', emoji: HAND, from: 'ann', op: 'add', at: '2026-10-21T00:00:00.000Z' });
+  assert.equal(claim('bob', 'm2').op, 'add');
+  const rel = claim('ann', 'm2', 'release');
+  assert.equal(rel.op, 'none');
+  assert.equal(rel.claimedBy, 'bob');
+  assert.deepEqual(pills('m2').map((r) => r.who), [['bob']], 'ann\'s old pill was left beside bob\'s claim');
+  // Case 3: ann's old toned 🙋 goes with one toggle (it does not add a second pill).
+  seedPost('m3', 'p');
+  append({ kind: 'reaction', project: 'p', of: 'm3', emoji: HAND_TONE, from: 'ann', op: 'add', at: '2026-10-21T00:00:00.000Z' });
+  assert.equal(messages.react({ project: 'p', of: 'm3', emoji: HAND_TONE, from: 'ann', members: MEMBERS }).op, 'remove');
+  assert.deepEqual(pills('m3'), [], 'a toned old pill could not be taken off');
+  // ... and a claim on top of an old pill leaves ONE pill, the marked claim.
+  seedPost('m4', 'p');
+  append({ kind: 'reaction', project: 'p', of: 'm4', emoji: HAND_TONE, from: 'ann', op: 'add', at: '2026-10-21T00:00:00.000Z' });
+  assert.equal(claim('ann', 'm4').op, 'add');
+  assert.deepEqual(pills('m4').map((r) => r.emoji), [HAND], 'claiming left the old toned pill beside the claim');
+  assert.equal(holder('m4'), 'ann');
+  // Case 4: the person's old toned 🙋 goes with one click.
+  seedPost('m5', 'p');
+  append({ kind: 'reaction', project: 'p', of: 'm5', emoji: HAND_TONE, operator: true, op: 'add', at: '2026-10-21T00:00:00.000Z' });
+  assert.equal(messages.react({ project: 'p', of: 'm5', emoji: HAND_TONE, operator: true }).op, 'remove');
+  assert.deepEqual(pills('m5'), [], 'the person\'s old toned pill could not be taken off');
+});
