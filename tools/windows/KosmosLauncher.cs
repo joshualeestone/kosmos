@@ -3823,7 +3823,7 @@ class BoardWindowForm : System.Windows.Forms.Form
                         else if (startOverWanted && boardNotConfirmed) { startOverWanted = false; SignInAgain(); }
                         return;
                     }
-                    // #6882: the opener proved the board for this sign-in a moment ago (SignInLoadGoes).
+                    // #6882: the opener proved the board for this sign-in a moment ago (signInLoadApproved).
                     if (fresh != null && fresh.Contains("?boot=")) signInLoadApproved = true;
                     if (fresh != null && fresh.Contains("?boot=") && webView != null) webView.Navigate(KosmosLauncher.WithModeQuery(KosmosLauncher.SignInAgainAddress(fresh, keepPage, port), mode));
                     else if (!KosmosLauncher.MayKeepPageOpen(check, keepPage != null)) ShowNotConfirmed();
@@ -3871,7 +3871,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         navigatedToBoard = true;
         boardVisit++;   // #6882
         watchNoAnswers = 0;
-        signInLoadApproved = true;   // #6882: the opener proved the board for this address a moment ago (SignInLoadGoes)
+        signInLoadApproved = true;   // #6882: the opener proved the board for this address a moment ago
         webView.Navigate(boardAddress);
     }
 
@@ -4032,10 +4032,10 @@ class BoardWindowForm : System.Windows.Forms.Form
     {
         string uri;
         args.get_Uri(out uri);
-        // #6882: a navigation to the board carries the window's sign-in cookie to whatever answers on the port, so the
-        // board proves itself here before the navigation may go on: every navigation to the board, a link, the page's
-        // own reload, a sign-in's ?boot= load and its redirect, the retry of a load that failed. Cancelled first, so a
-        // fault in what follows cannot let it go.
+        // #6882: every board navigation is held here until a check says its page may be SHOWN (a link, the page's own
+        // reload, Back and Forward, and the rest). Not checked again here: a sign-in load the opener has just proved
+        // (signInLoadApproved), its redirect, and a navigation CheckNavigationAgain has just proved (navigationApproved).
+        // Cancelled first, so a fault in what follows cannot let it go.
         // ⚠️ MEASURED (#6882 live rig, WebView2 Runtime on this box): WebView2 has already sent a navigation's request
         // when this event is raised: for a navigation the page starts (its own reload, a link), for a Reload, and for
         // this window's own Navigate alike (a squatter saw the request before this check reached it, or before it was
