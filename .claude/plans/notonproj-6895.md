@@ -18,7 +18,12 @@ Angel's slice, decided on the card and kept: show it where the person looks, no 
   #6896). It now reads `sessionName` (a bare name accepted too), and web.task-repeat-4787.test.js uses the object shape.
 
 ## Decided
-- Only OPEN parts count. A finished part's holder who later left is history, not a task waiting on someone absent.
+- Only OPEN parts of an OPEN task count. A finished part's holder who later left is history, and so is a finished task
+  (closing a task leaves its parts open, so review 1 found the Tasks row and the task page marking a closed task while
+  the project count, over open tasks only, did not). The engine skips a closed task (progressOf, as ownerIn does) and
+  the task page passes `TK_ACT !== 'reopen'`.
+- The count has its own class, `.pj-offproject` (callout size, label-3, left-aligned under the list). Review 1: it first
+  borrowed `.tk-empty`, the centred, padded empty-state style.
 - The label goes through `tkMemberName` rather than a new helper: about a dozen web tests lift that painter with a fixed
   list of names, and every one already lifts `tkMemberName`.
 - The Tasks rows take the fact from the engine (`offProject`), as they take `ownerNames`, rather than re-deriving
@@ -26,7 +31,7 @@ Angel's slice, decided on the card and kept: show it where the person looks, no 
 - Rejected (Angel, on the card): adding the agent back automatically; refusing to remove an agent who holds tasks.
 
 ## Measured
-- New tests: engine/tasks.offproject-6895.test.js (2), web.notonproject-6895.test.js (4). Against main's code both
+- New tests: engine/tasks.offproject-6895.test.js (3), web.notonproject-6895.test.js (4). Against main's code both
   files fail every test (red control); on this branch they pass, with the 15 other task-related web and engine test
   files (197 tests).
 
