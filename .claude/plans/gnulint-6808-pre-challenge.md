@@ -1,7 +1,7 @@
 ---
 method: challenge-loop
 branch: gnulint-6808
-diff_hash: 9c177c21e97a49b21fb176d101116dcc983f14af50c6b94356e74dcec301e5ef
+diff_hash: 3471ebd25b009fb516abdfaaf69ea1099bee7d970f42061a9bc87d1949b027f5
 timestamp: 2026-10-21T08:13:27Z
 iterations: 5
 converged: true
@@ -41,3 +41,6 @@ install/kosmos-report-hook.sh goes red naming the line; tools.every-test-runs an
 | 3 | 0 | 1 | 0 | fixed |
 | 4 | 0 | 1 | 0 | fixed, mutant-proved |
 | 5 | 0 | 0 | 0 | converged |
+
+#### Rebase 2026-10-22 03:4xZ
+- Rebased onto main: package.json test:shell conflict resolved as all 278 of main's pieces plus the branch's two (checked by script). tools/test-gnu-only-forms-6808.sh passes on the rebased tree.
