@@ -35,7 +35,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
-const tls = require('node:tls');
+const https = require('node:https');
 const dns = require('node:dns');
 const crypto = require('node:crypto');
 const { spawn, execFileSync } = require('node:child_process');
@@ -389,9 +389,10 @@ async function webSignupSession(email, deviceId) {
 }
 const bearer = (tok) => ({ authorization: 'Bearer ' + tok });
 /* kosmos#6887: a browser opens board b through the relay with its session, as the gate's sign-in page posts it
-   (kosmos-relay crates/e2e/tests/door.rs does the same). Since kosmos-relay #433 (kosmos#6407) a computer lists only
-   devices that asked it, and this POST is that asking: the gate notes the knock. TLS ends at b's tunnel, trusted by the
-   CA in its state folder, under the address it registered. Resolves { status, text }; status 0 when it never answered. */
+   (kosmos-relay crates/e2e/tests/door.rs sends the same request). Since kosmos-relay #433 (kosmos#6407) a computer lists
+   only devices that asked it, and this POST is that asking: the gate notes the knock. TLS ends at b's tunnel, trusted by
+   the CA in its state folder, under the address it registered. Resolves { status, text }; status 0 when no HTTP answer
+   came back (the relay drops a name with no tunnel attached, measured: "visitor dropped: no tunnel registered"). */
 function knockAt(b, token) {
   let host = null;
   let ca = null;
@@ -399,18 +400,18 @@ function knockAt(b, token) {
   try { ca = fs.readFileSync(path.join(b.state, 'ca.crt')); } catch { /* said below */ }
   if (!host || !ca) return Promise.resolve({ status: 0, text: 'no ' + (host ? 'ca.crt' : 'address') + ' in ' + b.letter + '\'s tunnel state' });
   const body = JSON.stringify({ token });
-  const req = 'POST /_kosmos/session HTTP/1.1\r\nhost: ' + host + '\r\norigin: https://' + host + '\r\nsec-fetch-site: same-origin\r\n'
-    + 'content-type: application/json\r\ncontent-length: ' + Buffer.byteLength(body) + '\r\nconnection: close\r\n\r\n' + body;
   return new Promise((res) => {
-    let out = '';
     let done = false;
-    const end = (status, text) => { if (!done) { done = true; s.destroy(); res({ status, text }); } };
-    const s = tls.connect({ host: '127.0.0.1', port: REL.publicPort, servername: host, ca }, () => s.write(req));
-    s.setEncoding('utf8');
-    s.on('data', (d) => { out += d; });
-    s.on('end', () => { const m = out.match(/^HTTP\/1\.1 (\d{3})/); const at = out.indexOf('\r\n\r\n'); end(m ? Number(m[1]) : 0, at < 0 ? out : out.slice(at + 4)); });
-    s.on('error', (e) => end(0, String(e.message || e)));
-    s.setTimeout(15000, () => end(0, 'no answer in 15 s'));
+    const end = (status, text) => { if (!done) { done = true; res({ status, text }); } };
+    let req;
+    try {
+      req = https.request({ host: '127.0.0.1', port: REL.publicPort, servername: host, ca, agent: false, method: 'POST', path: '/_kosmos/session',
+        headers: { host, origin: 'https://' + host, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), connection: 'close' } },
+      (r) => { let text = ''; r.setEncoding('utf8'); r.on('data', (d) => { text += d; }); r.on('end', () => end(r.statusCode || 0, text)); r.on('error', (e) => end(0, String(e.message || e))); });
+    } catch (e) { end(0, String(e.message || e)); return; }
+    req.on('error', (e) => end(0, String(e.message || e)));
+    req.setTimeout(15000, () => { end(0, 'no answer in 15 s'); req.destroy(); });
+    req.end(body);
   });
 }
 
@@ -523,7 +524,8 @@ async function main() {
   }
   /* kosmos#6887: the browser asks P by opening it (the knock; without it P lists nothing since kosmos#6407). The gate
      answers a valid session it has not allowed with 403 pending and the code the browser shows, which must be the code
-     the sign-up answered. Retried while P's tunnel is still connecting to the relay. */
+     the sign-up answered. Retried for 30 s only while no HTTP answer comes back (status 0, as while P's tunnel is still
+     attaching); the first answer with a status is the one checked. */
   let knock = { status: 0, text: 'no session' };
   if (sess) knock = (await waitFor(async () => { const k = await knockAt(P, sess.token); return k.status ? k : null; }, 30000, 1000)) || await knockAt(P, sess.token);
   const kj = (() => { try { return JSON.parse(knock.text); } catch { return null; } })();
