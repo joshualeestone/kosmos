@@ -50,7 +50,10 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      in its own thread. It **creates real agents** and **removes them when it ends** (the board's
      Remove agent, `DELETE /api/agent/<name>/removal`), so it runs on a populated board too, which is
      what releases are promoted from (kosmos#6906). It still fails closed on a board whose agents it
-     cannot count, and needs both providers signed in.
+     cannot count, and needs both providers signed in. "Answers" means a reply stored in the agent's own thread after
+     the message was sent (the screen's question rows do not count); it does not read what the reply says. At a promote
+     it runs in the machine's suite queue (tools/queued-heavy.sh), so a promote can wait quietly, up to the queue's
+     bound, while a suite finishes: the QUEUED-HEAVY lines say it is waiting, not hung.
      - **Exit codes are centered on the CLAUDE arm** (Splinter, 2026-09-04): #2129 fixes the
        Claude spawn wedge definitively, but a separate OpenAI/Codex spawn issue may remain and
        must not block shipping the Claude fix + the OpenAI-only gating. `0` both online and answering; `1` the

@@ -115,6 +115,8 @@ case "$route" in
     # status-garbage: a 200 with NO recognized agent list - the gate must FAIL CLOSED (exit 2),
     # never read it as "0 agents" and let the fleet guard pass.
     if [ "${MOCK_AGENT_STATE:-idle}" = status-garbage ]; then emit '{"unexpected":"shape"}' 200; exit 0; fi
+    # kosmos#6906: unreadable once something has been removed (the gate must then keep that agent's files, and say so).
+    if [ "${MOCK_STATUS_AFTER_RM:-}" = garbage ] && [ -s "${STATE}.removed" ]; then emit 'not json' 200; exit 0; fi
     # POLLNUM = the Nth /api/status poll AFTER at least one agent was created. The pre-create
     # fleet-count call sees an empty STATE and does not advance it, so poll 1 is the first real
     # poll (transition modes above rely on this).
@@ -229,7 +231,7 @@ run_case() {
   # exported scenario and goes red with nothing naming why. The "CALLER exports" case below is the control for this
   # list: the caller exports every name on it.
   outp="$(env -u KOSMOS_HOME -u KOSMOS_AGENT_REPLY_TIMEOUT -u KOSMOS_WORLD \
-    -u MOCK_ACCOUNTS -u MOCK_AGENT_STATE -u MOCK_CREATE -u MOCK_PREEXISTING -u MOCK_REPLY -u MOCK_SEND -u MOCK_REMOVE \
+    -u MOCK_ACCOUNTS -u MOCK_AGENT_STATE -u MOCK_CREATE -u MOCK_PREEXISTING -u MOCK_REPLY -u MOCK_SEND -u MOCK_REMOVE -u MOCK_STATUS_AFTER_RM \
     AGENT_WORKFORCE_LAUNCH="$root/LaunchAgents" AGENT_WORKFORCE_WORKERS="$root/workers" AGENT_WORKFORCE_DATA="$root/data" \
     "$@" MOCK_STATE="$state" KOSMOS_AOC_CURL="$FIXDIR/fakeboard" \
     KOSMOS_STORE_ROOT="$root" KOSMOS_PORT=19999 \
@@ -240,7 +242,7 @@ run_case() {
   # exempts the case from this assertion).
   # ... and nothing of theirs on disk: no job file, no worker folder (kosmos#6906: they broke validations on Mortals).
   local files; files="$(ls "$root/LaunchAgents" "$root/workers" 2>/dev/null | grep verify2129 | tr '\n' ' ')"
-  if [ -n "$files" ] && ! has "$outp" "could not remove"; then
+  if [ -n "$files" ] && ! has "$outp" "could not remove" && ! has "$outp" "so its files were left"; then
     rm -rf "$root" "$state"*; bad "$label: files left on disk after the check: $files"; return
   fi
   if [ -s "$state" ] && ! has "$outp" "could not remove"; then
@@ -319,6 +321,19 @@ sleep 1; kill -TERM "$pid" 2>/dev/null; wait "$pid"; rc=$?
 if [ "$rc" = 2 ] && [ -s "${ST}.removed" ] && ! grep -q '^verify2129-' "$ST"; then
   pass "TERM part way through -> exit 2, its agent removed"
 else bad "TERM part way: rc=$rc removed=[$(tr '\n' ' ' < "${ST}.removed" 2>/dev/null)] left=[$(tr '\n' ' ' < "$ST")]"; fi
+rm -rf "$R" "$ST"*
+
+# kosmos#6906: after a 200 removal the board's list cannot be read: the gate must KEEP that agent's files (an unreadable
+# list does not confirm it is gone) and say so; the verdict stands. Asserted on the files themselves.
+R="$(mktemp -d "${TMPDIR:-/tmp}/aoc-root.XXXXXX")"; printf 'tok\n' > "$R/board.token"; ST="$(mktemp "${TMPDIR:-/tmp}/aoc-state.XXXXXX")"; : > "$ST"
+out="$(env -u KOSMOS_HOME -u KOSMOS_WORLD AGENT_WORKFORCE_LAUNCH="$R/LaunchAgents" AGENT_WORKFORCE_WORKERS="$R/workers" AGENT_WORKFORCE_DATA="$R/data" \
+  MOCK_STATE="$ST" KOSMOS_AOC_CURL="$FIXDIR/fakeboard" KOSMOS_STORE_ROOT="$R" KOSMOS_PORT=19999 \
+  KOSMOS_AGENT_ONLINE_POLL_INT=1 KOSMOS_AGENT_ONLINE_TIMEOUT=4 KOSMOS_AGENT_REPLY_TIMEOUT=3 MOCK_ACCOUNTS=both MOCK_STATUS_AFTER_RM=garbage \
+  bash "$CHECK" 2>&1)"; rc=$?
+kept="$(ls "$R/LaunchAgents" "$R/workers" 2>/dev/null | grep -c verify2129)"
+if [ "$rc" = 0 ] && [ "$kept" -ge 2 ] && has "$out" "so its files were left"; then
+  pass "status unreadable after removal -> its files KEPT and said, verdict 0"
+else bad "status unreadable after removal: rc=$rc kept=$kept out=$(printf '%s' "$out" | tail -3 | tr '\n' '~')"; fi
 rm -rf "$R" "$ST"*
 
 # no board.token -> cannot-tell (fails before any transport call)
