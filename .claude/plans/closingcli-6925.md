@@ -12,8 +12,8 @@ the agent learned it was used only on its next refusal.
 - engine/messages.js: the `room_held` refusal carries `closingEligible: true` when this member's refusal row is recorded
   (already there, or written now without throwing), it has not used a summary in the window, and it has a name.
 - install/kosmos and tools/windows/kosmos-cli.js: the exception line is said only on `closingEligible`; an older board
-  never sends it, so it is never offered there. A placed post with `closing: true` says "This went through as your one
-  summary while the room is held; anything more waits until the room opens."
+  never sends it, so it is never offered there. A placed or unconfirmed post with `closing: true` says "This went through
+  as your one summary while the room is held; anything more is not posted until the room opens."
 - The bash CLI reads both flags with `grep -E '"flag": *true'`, so a space after the colon does not hide them.
 
 Not here: the room's held strip wording in web/index.html (card item 3). A web/index.html change runs every web test,
@@ -29,4 +29,7 @@ refused row no longer counts: the summary is then held again and refused with an
 ## Tests
 - engine/messages.test.js "#6920": a refused member's refusal carries closingEligible; one that used its summary does not.
 - cli.room-reopen-2710.test.js and tools.windows-kosmos-cli-570.test.js: offered with closingEligible; not with
-  closingUsed; not from an older board (no flag); the landed line on `closing: true` and not on an ordinary post.
+  closingUsed; not from an older board (no flag); the landed line on `closing: true` (placed and unconfirmed; the bash
+  test includes a spaced-JSON body) and not on an ordinary post. Mutants, each red: a compact-only bash match (spaced
+  case); the bash unconfirmed line removed.
+- Not tested: the refused-row write failing (refusalRecorded false); simple to read, hard to arrange in this harness.
