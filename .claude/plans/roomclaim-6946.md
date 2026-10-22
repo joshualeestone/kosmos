@@ -72,6 +72,13 @@ CLIs; the card comment that described the round-0 behaviour is corrected on #694
 means finished, so a finished request would show as free and be redone; it now says to release only when stopping
 before it is done, and to keep a finished one claimed. The holder's own plain 🙋 toggle-off is tested.
 
+## Review 6 (blind, 0 BLOCKER, 1 WARNING): fixed. A raised hand from before this rule would have counted as a claim
+of whatever age it is, so react() now marks the claims it writes (`claim: true`) and only marked adds count; an old
+🙋 stays an ordinary reaction (control: the same row with the mark is a claim). Guidance: a claim stops counting while
+its holder is off the project; if the claim could not be made at all, say it in the room as before; "do not raise a
+hand to say you are available". A left-the-room remove records `takenBy` (the new claimant) and `because`. Windows
+timeout path tested.
+
 ## Weakest premise
 That agents run `kosmos claim` before posting. The rule only binds an agent that claims; one that skips it and posts
 "taking this" is not stopped. The guidance is the lever, and the claim line in `kosmos room` is the second chance.

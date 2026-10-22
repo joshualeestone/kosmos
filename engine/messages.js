@@ -3548,7 +3548,7 @@ function isClaimEmoji(e) { return typeof e === 'string' && CLAIM_FORM.test(e); }
 /* Every reactor with a live 🙋 on post `of`: Map(reactor -> {at, emojis}) in the order each one's claim began. A
    reactor stays live while any 🙋 form of theirs is (rows from before react() stored them plain can hold several);
    `at` is when that run began. `members`, when given, is the room's current members: an agent not among them is not
-   a claimant. The person's own 🙋 rows are never a claim. */
+   a claimant. The person's own 🙋 rows are never a claim, and neither is an add without the `claim: true` mark. */
 function claimantsOf(of, rows, members) {
   const postId = String(of == null ? '' : of);
   const inRoom = Array.isArray(members) ? new Set(members) : null;
@@ -3563,6 +3563,9 @@ function claimantsOf(of, rows, members) {
       if (cur) { cur.emojis.delete(m.emoji); if (!cur.emojis.size) live.delete(reactor); }
       continue;
     }
+    // Round 6: only a 🙋 written as a claim (react() marks it) is one. A raised hand from before this rule, perhaps
+    // meaning "I am free", stays an ordinary reaction instead of becoming a claim of whatever age it is.
+    if (m.claim !== true) continue;
     if (cur) cur.emojis.add(m.emoji);
     else live.set(reactor, { at: typeof m.at === 'string' ? m.at : null, emojis: new Set([m.emoji]) });
   }
@@ -3743,9 +3746,9 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   const holder = claimOf(postId, rows, roomNow);
   const mine = claimants.get(reactor);
   // A release, or a toggle off: every 🙋 form this reactor has live goes, so nothing of theirs is left behind.
-  // `takenBy` marks a remove the holder did not make itself (a holder who left the room), so the log says who acted;
-  // replay reads it as that holder's remove all the same.
-  const takeBack = (who, c, takenBy) => { for (const em of c.emojis) appendLog(stamp({ emoji: em, op: 'remove', ...as(who), ...(takenBy ? { takenBy } : {}) })); };
+  // A remove the holder did not make itself carries `takenBy` (the agent whose claim ended it) and `because`, so the
+  // log says who acted and why; replay reads it as that holder's remove all the same.
+  const takeBack = (who, c, ended) => { for (const em of c.emojis) appendLog(stamp({ emoji: em, op: 'remove', ...as(who), ...(ended || {}) })); };
   const refuse = () => ({ ok: false, claimedBy: holder.by, claimedAt: holder.at,
     because: holder.by + ' claimed that post ' + claimAge(holder.at)
       + ', so do not post that you are taking it: read the room, and ask ' + holder.by + ' if you can help' });
@@ -3769,9 +3772,9 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   /* Round 2: a claimant who has left the room no longer holds anything, so a new claim ENDS theirs in the log too.
      Otherwise re-adding them to the project would bring their old claim back above this one. */
   if (Array.isArray(roomNow)) {
-    for (const [who, c] of claimantsOf(postId, rows, null)) { if (!roomNow.includes(who)) takeBack(who, c, 'left-the-room'); }
+    for (const [who, c] of claimantsOf(postId, rows, null)) { if (!roomNow.includes(who)) takeBack(who, c, { takenBy: reactor, because: 'left-the-room' }); }
   }
-  appendLog(stamp({ emoji: e, op: 'add', ...as(reactor) }));
+  appendLog(stamp({ emoji: e, op: 'add', claim: true, ...as(reactor) }));
   return { ok: true, op: 'add', emoji: e, of: postId };
 }
 

@@ -79,16 +79,21 @@ test('review 1 #2: a skin-toned 🙋 is stored as the plain one, so --release ta
   assert.deepEqual(messages.reactionsFor('m1', messages.record().rows), [], 'a 🙋 pill was left on the post after the release');
 });
 
-test('review 1 #2: a holder with two 🙋 forms from before this rule stays the holder until both are gone, and one release takes both', () => {
+test('round 6: a raised hand written before this rule (no claim mark) is an ordinary reaction, not a claim', () => {
   seedPost('m1', 'p');
-  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND_TONE, from: 'ann', op: 'add', at: new Date().toISOString() });
-  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'ann', op: 'add', at: new Date().toISOString() });
-  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'ann', op: 'remove', at: new Date().toISOString() });
-  assert.equal(holder(), 'ann', 'removing one of two 🙋 forms dropped the holder while the other is still on the post');
-  assert.equal(claim('bob').ok, false);
-  assert.equal(claim('ann', 'm1', 'release').op, 'remove');
-  assert.equal(holder(), null);
-  assert.deepEqual(messages.reactionsFor('m1', messages.record().rows), [], 'the toned 🙋 pill survived the release');
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND_TONE, from: 'bob', op: 'add', at: '2026-10-21T00:00:00.000Z' });
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'add', at: '2026-10-21T00:00:00.000Z' });
+  assert.equal(holder(), null, 'an old raised hand became a claim of whatever age it is');
+  const ann = claim('ann');
+  assert.equal(ann.op, 'add', 'an old raised hand locked the post');
+  assert.equal(holder(), 'ann');
+  // CONTROL: the same old row WITH the mark is a claim.
+  seedPost('m2', 'p');
+  append({ kind: 'reaction', project: 'p', of: 'm2', emoji: HAND, from: 'bob', op: 'add', claim: true, at: '2026-10-21T00:00:00.000Z' });
+  assert.equal(holder('m2'), 'bob');
+  assert.equal(claim('ann', 'm2').claimedBy, 'bob');
+  assert.ok(reactionRows().filter((m) => m.from === 'ann' && m.of === 'm1' && m.op === 'add').every((m) => m.claim === true),
+    'react() did not mark the claim it wrote');
 });
 
 test('claiming twice keeps the claim; a release with nothing of yours held is a no-op that names the holder', () => {
@@ -114,8 +119,8 @@ test('claiming twice keeps the claim; a release with nothing of yours held is a 
 
 test('review 1 #3: "already yours" is said only to the holder; a later 🙋 from before the rule is not the claim', () => {
   seedPost('m1', 'p');
-  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'ann', op: 'add', at: new Date(Date.now() - 120000).toISOString() });
-  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'add', at: new Date().toISOString() });
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'ann', op: 'add', claim: true, at: new Date(Date.now() - 120000).toISOString() });
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'add', claim: true, at: new Date().toISOString() });
   const bob = claim('bob');
   assert.equal(bob.ok, false, 'bob was told the post is his while ann holds it');
   assert.equal(bob.claimedBy, 'ann');
@@ -157,8 +162,8 @@ test('round 3: the person\'s 🙋 agrees with a claim and never claims; control:
 
 test('round 3: a non-holder\'s release is a no-op that takes their stray 🙋 off and names the holder', () => {
   seedPost('m1', 'p');
-  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'ann', op: 'add', at: new Date(Date.now() - 60000).toISOString() });
-  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'add', at: new Date().toISOString() });
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'ann', op: 'add', claim: true, at: new Date(Date.now() - 60000).toISOString() });
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'add', claim: true, at: new Date().toISOString() });
   const back = claim('bob', 'm1', 'release');
   assert.equal(back.op, 'none', 'bob was told he gave back a post he never held');
   assert.equal(back.claimedBy, 'ann');
@@ -178,15 +183,15 @@ test('the claim rules keep react\'s other refusals: a non-member, a missing post
 
 test('claimOf replays: the earliest live claimant holds, a full remove clears that reactor, other posts never leak', () => {
   const rows = [
-    { kind: 'reaction', of: 'm1', emoji: HAND, from: 'ann', op: 'add', at: '2026-10-22T23:00:00.000Z' },
-    { kind: 'reaction', of: 'm1', emoji: HAND_TONE, from: 'bob', op: 'add', at: '2026-10-22T23:00:01.000Z' },
-    { kind: 'reaction', of: 'm2', emoji: HAND, from: 'cy', op: 'add', at: '2026-10-22T23:00:02.000Z' },
+    { kind: 'reaction', of: 'm1', emoji: HAND, from: 'ann', op: 'add', claim: true, at: '2026-10-22T23:00:00.000Z' },
+    { kind: 'reaction', of: 'm1', emoji: HAND_TONE, from: 'bob', op: 'add', claim: true, at: '2026-10-22T23:00:01.000Z' },
+    { kind: 'reaction', of: 'm2', emoji: HAND, from: 'cy', op: 'add', claim: true, at: '2026-10-22T23:00:02.000Z' },
   ];
   assert.deepEqual(messages.claimOf('m1', rows), { by: 'ann', at: '2026-10-22T23:00:00.000Z' });
   rows.push({ kind: 'reaction', of: 'm1', emoji: HAND, from: 'ann', op: 'remove', at: '2026-10-22T23:00:03.000Z' });
   assert.deepEqual(messages.claimOf('m1', rows), { by: 'bob', at: '2026-10-22T23:00:01.000Z' });
   assert.equal(messages.claimOf('m3', rows), null);
-  assert.equal(messages.claimOf('m1', [{ kind: 'reaction', of: 'm1', emoji: THUMB, from: 'ann', op: 'add' }]), null,
+  assert.equal(messages.claimOf('m1', [{ kind: 'reaction', of: 'm1', emoji: THUMB, from: 'ann', op: 'add', claim: true }]), null,
     'an ordinary reaction is not a claim');
 });
 
@@ -207,7 +212,8 @@ test('round 2 W2: a claim made while the earlier holder was out of the room surv
   assert.equal(claim('bob', 'm1', 'claim', ['bob']).op, 'add', 'bob could not claim after ann left');
   const ended = reactionRows().filter((m) => m.from === 'ann' && m.op === 'remove');
   assert.equal(ended.length, 1, 'bob\'s claim did not end the claim of a holder who had left');
-  assert.equal(ended[0].takenBy, 'left-the-room');
+  assert.equal(ended[0].takenBy, 'bob', 'the log does not say whose claim ended ann\'s');
+  assert.equal(ended[0].because, 'left-the-room');
   // ann is back on the project: bob still holds it.
   assert.equal(holder('m1', ['ann', 'bob']), 'bob', 'ann\'s old claim came back above bob\'s when ann rejoined');
   assert.equal(claim('bob', 'm1', 'claim', ['ann', 'bob']).op, 'already');

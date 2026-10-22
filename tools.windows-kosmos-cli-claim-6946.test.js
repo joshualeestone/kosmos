@@ -42,6 +42,8 @@ async function run(argv, answer, env, readStdin) {
   return { code, calls, out: out.join('\n'), err: err.join('\n') };
 }
 
+const refusedWith = (e) => () => { throw e; };
+
 test('claim: /api/react with claim, never an emoji, and the agent token; each answer in words', async () => {
   const r = await run(['claim', 'proj-1', 'm3'], () => ({ body: { ok: true, op: 'add', emoji: '\u{1F64B}' } }));
   assert.equal(r.code, 0);
@@ -85,4 +87,10 @@ test('claim: an answer with no ok field is not read as a refusal, and a missing 
   const e = await run(['claim', 'proj-1']);
   assert.equal(e.code, 2);
   assert.equal(e.calls.length, 0);
+});
+
+test('claim: a timeout says running it again is safe (a claim never toggles) and exits 3', async () => {
+  const slow = await run(['claim', 'proj-1', 'm3'], refusedWith(Object.assign(new Error('timeout'), { name: 'TimeoutError' })));
+  assert.equal(slow.code, 3);
+  assert.equal(slow.err, 'Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe, and it says whether the claim is yours.');
 });
