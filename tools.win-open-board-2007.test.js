@@ -263,10 +263,13 @@ test('CONTROL: a non-hex nonce is refused, and nothing is opened (kosmos#6464: n
   // Proves the hex guard is load-bearing: without it, junk would be pasted onto
   // the url as if it were a nonce. kosmos#6464: a mint that fails right after a
   // passing proof opens nothing; it used to fall back to the plain url.
-  const { server, port } = await startFixtureBoard({ nonceBody: '{"nonce":"not a nonce!"}' });
+  const seen = [];
+  const { server, port } = await startFixtureBoard({ nonceBody: '{"nonce":"not a nonce!"}', seen });
   const { appDir } = makeAppDir({ withToken: true });
   try {
     const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS });
+    // The proof passed and the mint was asked, so the null below is the mint's refusal, not the proof's.
+    assert.equal(seen.filter((r) => r.method === 'POST' && r.url === '/api/board-nonce').length, 1, 'the mint was never asked');
     assert.equal(url, null, 'a junk nonce was accepted onto the url, or the plain url was opened after a failed mint');
   } finally { server.close(); }
 });
@@ -321,10 +324,11 @@ test('kosmos#6464: a mint that returns a non-2xx right after a passing proof ope
   // sign-in cookie.
   // #1765: this board proves it holds the token (a board that cannot is never sent it: see the #1765 tests below), so
   // the 403 here is the mint's own refusal.
+  let mints = 0;
   const server = http.createServer((req, res) => {
     if (answerProof(req, res, [FIXTURE_TOKEN])) return;
     if (req.method === 'GET' && req.url === '/') { res.writeHead(200); res.end('board'); return; }
-    if (req.method === 'POST' && req.url === '/api/board-nonce') { res.writeHead(403); res.end('{"error":"nope"}'); return; }
+    if (req.method === 'POST' && req.url === '/api/board-nonce') { mints += 1; res.writeHead(403); res.end('{"error":"nope"}'); return; }
     res.writeHead(404); res.end();
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -332,6 +336,7 @@ test('kosmos#6464: a mint that returns a non-2xx right after a passing proof ope
   const { appDir } = makeAppDir({ withToken: true });
   try {
     const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS });
+    assert.equal(mints, 1, 'the mint was never asked, so the null below is not the mint refusing');
     assert.equal(url, null, 'a failed mint after a passing proof opened the plain url');
   } finally { server.close(); }
 });

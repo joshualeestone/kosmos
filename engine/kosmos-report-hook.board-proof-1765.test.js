@@ -194,7 +194,8 @@ function repoScripts() {
     };
     walk(REPO_ROOT);
   }
-  scriptsCache = all.filter((p) => SCRIPT_RE.test(p) && !TEST_RE.test(p)).sort();
+  // A tracked file deleted in the working tree is not a script here to read.
+  scriptsCache = all.filter((p) => SCRIPT_RE.test(p) && !TEST_RE.test(p) && fs.existsSync(path.join(REPO_ROOT, p))).sort();
   return scriptsCache;
 }
 /* Whether a script's text may call main of the module it loads by moduleName (require or import, any path form).
