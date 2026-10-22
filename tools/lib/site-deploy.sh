@@ -116,6 +116,9 @@ site_deploy_export() {
   if ! git -C "$site" archive --format=tar "$head" > "$tarf"; then echo "site_deploy_export: git archive of $head failed" >&2; rm -f "$tarf"; rm -rf "$out"; return 1; fi
   if ! tar -x -C "$out" -f "$tarf"; then echo "site_deploy_export: could not extract the archive of $head" >&2; rm -f "$tarf"; rm -rf "$out"; return 1; fi
   rm -f "$tarf"
+  # kosmos#6620: the pointer-freeze marker is for the tools, not the public: its reason may name a live incident.
+  # Removed before the served-versions table is written (kosmos#6738), so the table never lists it.
+  rm -f "$out/dist/POINTER_FROZEN"
   _site_served_versions "$site" "$out" "$head"
   # The named artifact classes, from the working tree, because that is
   # where the release puts them and git does not carry them.

@@ -58,6 +58,11 @@ rel="${url#"$HOST_URL"/}"
 # NB: not `path=` -- in zsh `path` is tied to PATH, and tools/test-zsh-tied-names.sh
 # statically refuses any shell file that writes it (a file sourced into zsh would clobber PATH).
 served_file="$LIVE_DIR/$rel"
+# kosmos#6620's mid-run arm: once, when the run fetches FREEZE_MID_RUN_ON, push the freeze waiting in FREEZE_MID_RUN_CLONE
+# (another machine freezing while this deploy fetches its artifacts, after its early freeze check).
+if [ -n "${FREEZE_MID_RUN_ON:-}" ] && [ "$rel" = "$FREEZE_MID_RUN_ON" ] && [ ! -e "$FREEZE_MID_RUN_CLONE.pushed" ]; then
+  git -C "$FREEZE_MID_RUN_CLONE" push -q origin main 2>/dev/null && : > "$FREEZE_MID_RUN_CLONE.pushed"
+fi
 # #5589: an edge that cannot be reached for one file: <name>.down answers like a failed connection
 # (curl prints 000 for -w and exits 7). <name>.dropafter is served once, then goes down.
 case "$rel" in *must-404.bin)
@@ -175,7 +180,7 @@ run_deploy() {  # <site> <live> <flag...> ; echoes output, sets RC
   local s="$1" live="$2"; shift 2
   out="$(PATH="$BIN:$PATH" LIVE_DIR="$live" HOST_URL="$HOSTURL" \
     KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$s" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" \
-    bash "$DEPLOY" "$@" 2>&1)"
+    ${DEPLOY_SHELL:-bash} "$DEPLOY" "$@" 2>&1)"   # DEPLOY_SHELL=dash: the arms that run it as /bin/sh is on Linux
   RC=$?
 }
 
@@ -629,6 +634,215 @@ run_deploy_real "$S40" "$L40" --promote
 run_deploy_real "$S40" "$L40" --publish
 { [ "$RC" = 0 ] && [ "$(cat "$L40/dist/latest.json")" = "$GOODLIVE41" ]; } \
   && pass "#6149 repair (usual case): --publish deploys the restored set, as the doc says" || bad "#6149 repair usual: --publish (rc=$RC) out=$out"
+
+# =============================================================================================
+# kosmos#6620: the pointer freeze (tools/pointer-freeze.sh). While the COMMITTED tree carries dist/POINTER_FROZEN, a deploy
+# publishes only the frozen version. Arm 1: a freeze naming the rollback's own version deploys it. Arm 2 (the control
+# that can return the dangerous answer): a freeze naming another version refuses, and live keeps what it served.
+read -r S45 L45 <<<"$(make_rollback_scenario)"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S45/dist/POINTER_FROZEN"
+git -C "$S45" add -- dist/POINTER_FROZEN && git -C "$S45" commit -q -m "frozen at $OLD" -- dist/POINTER_FROZEN
+run_deploy "$S45" "$L45" --promote
+{ [ "$RC" = 0 ] && has "$out" "FROZEN at $OLD (dist/POINTER_FROZEN); the committed Mac pointers name it"; } \
+  && pass "#6620: frozen at the committed version, the rollback promote deploys it" || bad "#6620 frozen at the committed version (rc=$RC) out=$out"
+read -r S46 L46 <<<"$(make_rollback_scenario)"
+LIVE46="$(cat "$L46/dist/latest.json")"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S46/dist/POINTER_FROZEN"
+git -C "$S46" add -- dist/POINTER_FROZEN && git -C "$S46" commit -q -m "frozen at $NEW" -- dist/POINTER_FROZEN
+run_deploy "$S46" "$L46" --promote
+{ [ "$RC" = 1 ] && has "$out" "the pointers are FROZEN at $NEW" && [ "$(cat "$L46/dist/latest.json")" = "$LIVE46" ]; } \
+  && pass "#6620: frozen at another version, the deploy is refused and live is untouched" || bad "#6620 frozen at another version (rc=$RC) out=$out"
+
+# The runbook's two lines end to end (docs/staging-channel.md): tools/pointer-freeze.sh on, then the deploy it prints.
+read -r S47 L47 <<<"$(make_rollback_scenario)"
+# The real site commits the installer pair together (#2511); this scenario committed setup alone, so add its checksum.
+( cd "$S47" && shasum -a 256 setup > setup.sha256 ) && git -C "$S47" add -- setup.sha256 && git -C "$S47" commit -q --amend --no-edit -- setup.sha256
+git init -q --bare --initial-branch=main "$S47.origin.git" && git -C "$S47" remote add origin "$S47.origin.git" && git -C "$S47" push -q origin main
+# The pinned build's signed manifest, served (pointer-freeze checks it is, before it pins).
+printf '{"manifest":1}\n' > "$L47/dist/kosmos-$OLD-arm64.manifest.json"; printf 'SIG\n' > "$L47/dist/kosmos-$OLD-arm64.manifest.json.sig"
+cp "$L47/dist/kosmos-$OLD-arm64.manifest.json" "$L47/dist/kosmos-$OLD-arm64.manifest.json.sig" "$S47/dist/"   # tracked on the real site
+git -C "$S47" add -- dist/kosmos-$OLD-arm64.manifest.json dist/kosmos-$OLD-arm64.manifest.json.sig && git -C "$S47" commit -q -m "the manifest pair" -- dist/kosmos-$OLD-arm64.manifest.json dist/kosmos-$OLD-arm64.manifest.json.sig && git -C "$S47" push -q origin main
+fout="$(PATH="$BIN:$PATH" LIVE_DIR="$L47" HOST_URL="$HOSTURL" KOSMOS_SITE="$S47" KOSMOS_SITE_URL="$HOSTURL" \
+  bash "$REPO/tools/pointer-freeze.sh" on --mac "$OLD" --because "an end-to-end test incident" 2>&1)"; frc=$?
+[ "$frc" = 0 ] || bad "#6620 end to end: pointer-freeze on (rc=$frc) out=$fout"
+KOSMOS_STAGING_ROLLBACK="$OLD" run_deploy "$S47" "$L47" --promote
+{ [ "$frc" = 0 ] && [ "$RC" = 0 ] && has "$out" "FROZEN at $OLD" && has "$(cat "$L47/dist/latest.json")" "\"version\":\"$OLD\"" && [ ! -e "$L47/dist/POINTER_FROZEN" ]; } \
+  && pass "#6620 end to end: on, then the printed --promote, serves the pinned $OLD (and not the marker)" || bad "#6620 end to end (rc=$RC) out=$out"
+
+# The marker records the pinned pointer's sha256: the frozen version with OTHER bytes (a re-cut, a hand edit) is refused.
+read -r S49 L49 <<<"$(make_rollback_scenario)"
+LIVE49="$(cat "$L49/dist/latest.json")"
+printf 'mac=%s\nsha256=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" "0000000000000000000000000000000000000000000000000000000000000000" > "$S49/dist/POINTER_FROZEN"
+git -C "$S49" add -- dist/POINTER_FROZEN && git -C "$S49" commit -q -m "frozen at $OLD, other bytes" -- dist/POINTER_FROZEN
+run_deploy "$S49" "$L49" --promote
+{ [ "$RC" = 1 ] && has "$out" "names another artifact" && [ "$(cat "$L49/dist/latest.json")" = "$LIVE49" ]; } \
+  && pass "#6620: frozen at the version but other bytes: refused, live untouched" || bad "#6620 sha mismatch (rc=$RC) out=$out"
+
+# A freeze pushed from another machine, not yet pulled here: deploy-site reads origin/main and refuses a pointer that is
+# not the frozen version. CONTROL: arm 45 above (frozen at the committed version) deploys.
+read -r S48 L48 <<<"$(make_rollback_scenario)"
+git init -q --bare --initial-branch=main "$S48.origin.git" && git -C "$S48" remote add origin "$S48.origin.git" && git -C "$S48" push -q origin main
+git clone -q "$S48.origin.git" "$S48.other" && git -C "$S48.other" config user.email t@t && git -C "$S48.other" config user.name t
+printf 'mac=%s\nbecause=another machine\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S48.other/dist/POINTER_FROZEN"
+git -C "$S48.other" add dist/POINTER_FROZEN && git -C "$S48.other" commit -q -m "frozen elsewhere" && git -C "$S48.other" push -q origin main
+LIVE48="$(cat "$L48/dist/latest.json")"
+run_deploy "$S48" "$L48" --promote
+{ [ "$RC" = 1 ] && has "$out" "the pointers are FROZEN at $NEW" && [ "$(cat "$L48/dist/latest.json")" = "$LIVE48" ]; } \
+  && pass "#6620: a freeze only on origin/main (this checkout stale) still refuses the deploy" || bad "#6620 origin-only freeze (rc=$RC) out=$out"
+
+# A freeze pushed from another machine WHILE this deploy runs (after its early check, during its artifact fetches):
+# the re-check just before vercel refuses, and live keeps what it served. CONTROL: arm 45 above deploys.
+read -r S51 L51 <<<"$(make_rollback_scenario)"
+git init -q --bare --initial-branch=main "$S51.origin.git" && git -C "$S51" remote add origin "$S51.origin.git" && git -C "$S51" push -q origin main
+git clone -q "$S51.origin.git" "$S51.other" && git -C "$S51.other" config user.email t@t && git -C "$S51.other" config user.name t
+printf 'mac=%s\nbecause=frozen mid-run\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S51.other/dist/POINTER_FROZEN"
+git -C "$S51.other" add dist/POINTER_FROZEN && git -C "$S51.other" commit -q -m "frozen elsewhere, mid-run"
+LIVE51="$(cat "$L51/dist/latest.json")"
+FREEZE_MID_RUN_ON="dist/$OLDART" FREEZE_MID_RUN_CLONE="$S51.other" run_deploy "$S51" "$L51" --promote
+{ [ "$RC" = 1 ] && [ -e "$S51.other.pushed" ] && has "$out" "FROZEN at $NEW on origin/main while this ran" && [ "$(cat "$L51/dist/latest.json")" = "$LIVE51" ]; } \
+  && pass "#6620: a freeze pushed while the deploy fetches is caught just before vercel, live untouched" || bad "#6620 mid-run freeze (rc=$RC, pushed=$([ -e "$S51.other.pushed" ] && echo y || echo n)) out=$out"
+
+# A site whose origin cannot be fetched: the freeze cannot be checked, so the deploy is refused (fails closed), unless
+# KOSMOS_POINTER_FREEZE_OFFLINE=1 says to decide on the committed tree (CONTROL: then it deploys).
+read -r S50 L50 <<<"$(make_rollback_scenario)"
+git -C "$S50" remote add origin "$T/no-such-origin.git"
+LIVE50="$(cat "$L50/dist/latest.json")"
+run_deploy "$S50" "$L50" --promote
+{ [ "$RC" = 75 ] && has "$out" "could not fetch origin/main to check the pointer freeze" && [ "$(cat "$L50/dist/latest.json")" = "$LIVE50" ]; } \
+  && pass "#6620: a site origin that cannot be fetched refuses the deploy, live untouched" || bad "#6620 fail closed (rc=$RC) out=$out"
+KOSMOS_POINTER_FREEZE_OFFLINE=1 run_deploy "$S50" "$L50" --promote
+{ [ "$RC" = 0 ] && has "$out" "KOSMOS_POINTER_FREEZE_OFFLINE=1, so deciding the pointer freeze"; } \
+  && pass "#6620 CONTROL: with KOSMOS_POINTER_FREEZE_OFFLINE=1 the same deploy goes ahead on the committed tree" || bad "#6620 offline (rc=$RC) out=$out"
+
+# A stale checkout holding an OLD freeze (at the version its own pointers name, so on its own it would deploy) while
+# origin/main is frozen at another version: origin/main decides. CONTROL: arm 45 (the same freeze, no origin) deploys.
+read -r S52 L52 <<<"$(make_rollback_scenario)"
+git init -q --bare --initial-branch=main "$S52.origin.git" && git -C "$S52" remote add origin "$S52.origin.git" && git -C "$S52" push -q origin main
+git clone -q "$S52.origin.git" "$S52.other" && git -C "$S52.other" config user.email t@t && git -C "$S52.other" config user.name t
+printf 'mac=%s\nbecause=the newer freeze\nat=2026-10-20T01:00:00Z\n' "$NEW" > "$S52.other/dist/POINTER_FROZEN"
+git -C "$S52.other" add dist/POINTER_FROZEN && git -C "$S52.other" commit -q -m "frozen at $NEW elsewhere" && git -C "$S52.other" push -q origin main
+printf 'mac=%s\nbecause=the old freeze\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S52/dist/POINTER_FROZEN"
+git -C "$S52" add -- dist/POINTER_FROZEN && git -C "$S52" commit -q -m "frozen at $OLD here" -- dist/POINTER_FROZEN
+LIVE52="$(cat "$L52/dist/latest.json")"
+run_deploy "$S52" "$L52" --promote
+{ [ "$RC" = 1 ] && has "$out" "the pointers are FROZEN at $NEW" && [ "$(cat "$L52/dist/latest.json")" = "$LIVE52" ]; } \
+  && pass "#6620: an old freeze in this checkout does not answer for a newer one on origin/main; refused, live untouched" || bad "#6620 stale local freeze (rc=$RC) out=$out"
+
+# An installer committed on top of the freeze (a staging pair: the real setup plus one line, so every installer check
+# passes it, and this scenario has no latest-staging.json to name its bytes): refused, so a hand commit cannot ship under the pin. Before kosmos#6620 review 14
+# this deployed. CONTROL: arm 45 deploys.
+read -r S53 L53 <<<"$(make_rollback_scenario)"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S53/dist/POINTER_FROZEN"
+git -C "$S53" add -- dist/POINTER_FROZEN && git -C "$S53" commit -q -m "frozen at $OLD" -- dist/POINTER_FROZEN
+{ cat "$S53/setup"; printf '# a hand edit\n'; } > "$S53/setup-staging"; ( cd "$S53" && shasum -a 256 setup-staging > setup-staging.sha256 )
+git -C "$S53" add -- setup-staging setup-staging.sha256 && git -C "$S53" commit -q -m "an installer by hand on top of the freeze" -- setup-staging setup-staging.sha256
+LIVE53="$(cat "$L53/dist/latest.json")"
+run_deploy "$S53" "$L53" --promote
+{ [ "$RC" = 1 ] && has "$out" "since the freeze commit" && has "$out" "setup-staging" && has "$out" "do NOT lift the freeze" && ! has "$out" "lift the freeze first" && [ "$(cat "$L53/dist/latest.json")" = "$LIVE53" ]; } \
+  && pass "#6620: an installer moved on top of the freeze is refused, live untouched" || bad "#6620 moved on top (rc=$RC) out=$out"
+
+# A freeze landing WHILE this deploy runs, at the very version this deploy carries, whose commit restores an installer
+# this tree had edited by hand: the late re-check compares the rest of what a freeze holds too, so it refuses.
+# CONTROL: arm 51's shape with nothing moved is arm 45 (deploys).
+read -r S54 L54 <<<"$(make_rollback_scenario)"
+{ cat "$S54/setup"; printf '# a hand edit\n'; } > "$S54/setup-staging"; ( cd "$S54" && shasum -a 256 setup-staging > setup-staging.sha256 )
+git -C "$S54" add -- setup-staging setup-staging.sha256 && git -C "$S54" commit -q -m "an installer by hand" -- setup-staging setup-staging.sha256
+git init -q --bare --initial-branch=main "$S54.origin.git" && git -C "$S54" remote add origin "$S54.origin.git" && git -C "$S54" push -q origin main
+git clone -q "$S54.origin.git" "$S54.other" && git -C "$S54.other" config user.email t@t && git -C "$S54.other" config user.name t
+cp "$S54/setup" "$S54.other/setup-staging"; ( cd "$S54.other" && shasum -a 256 setup-staging > setup-staging.sha256 )
+printf 'mac=%s\nbecause=frozen mid-run at this version\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S54.other/dist/POINTER_FROZEN"
+git -C "$S54.other" add dist/POINTER_FROZEN setup-staging setup-staging.sha256 && git -C "$S54.other" commit -q -m "frozen elsewhere, installer restored"
+LIVE54="$(cat "$L54/dist/latest.json")"
+FREEZE_MID_RUN_ON="dist/$OLDART" FREEZE_MID_RUN_CLONE="$S54.other" run_deploy "$S54" "$L54" --promote
+{ [ "$RC" = 1 ] && [ -e "$S54.other.pushed" ] && has "$out" "on origin/main while this ran, and this deploy changes setup-staging" && [ "$(cat "$L54/dist/latest.json")" = "$LIVE54" ]; } \
+  && pass "#6620: a freeze landing mid-run at this version, which restores an installer this tree changed, is refused before vercel" || bad "#6620 mid-run moved installer (rc=$RC, pushed=$([ -e "$S54.other.pushed" ] && echo y || echo n)) out=$out"
+
+# A BAD pointer pushed to origin/main ON TOP of the freeze, deployed from a checkout that is up to date: the refusal
+# must not send the operator to pull (pulling changes nothing); it says what is true, a file committed on top.
+read -r S55 L55 <<<"$(make_rollback_scenario)"
+git init -q --bare --initial-branch=main "$S55.origin.git" && git -C "$S55" remote add origin "$S55.origin.git"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S55/dist/POINTER_FROZEN"
+git -C "$S55" add -- dist/POINTER_FROZEN && git -C "$S55" commit -q -m "frozen at $OLD" -- dist/POINTER_FROZEN
+cp "$L55/dist/latest.json" "$S55/dist/latest.json"
+git -C "$S55" commit -q -m "the bad pointer by hand on top of the freeze" -- dist/latest.json && git -C "$S55" push -q origin main
+LIVE55="$(cat "$L55/dist/latest.json")"
+run_deploy "$S55" "$L55" --promote
+{ [ "$RC" = 1 ] && has "$out" "the pointers are FROZEN at $OLD" && has "$out" "committed on top of the freeze" && ! has "$out" "pull it" && [ "$(cat "$L55/dist/latest.json")" = "$LIVE55" ]; } \
+  && pass "#6620: a pointer pushed on top of the freeze, from an up-to-date checkout: refused, and not told to pull" || bad "#6620 on-top advice (rc=$RC) out=$out"
+# CONTROL for that advice: the same freeze on origin, this checkout BEHIND it (arm 48's shape): told to pull.
+read -r S56 L56 <<<"$(make_rollback_scenario)"
+git init -q --bare --initial-branch=main "$S56.origin.git" && git -C "$S56" remote add origin "$S56.origin.git" && git -C "$S56" push -q origin main
+git clone -q "$S56.origin.git" "$S56.other" && git -C "$S56.other" config user.email t@t && git -C "$S56.other" config user.name t
+printf 'mac=%s\nbecause=another machine\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S56.other/dist/POINTER_FROZEN"
+git -C "$S56.other" add dist/POINTER_FROZEN && git -C "$S56.other" commit -q -m "frozen elsewhere" && git -C "$S56.other" push -q origin main
+run_deploy "$S56" "$L56" --promote
+{ [ "$RC" = 1 ] && has "$out" "This checkout is behind origin/main: pull it"; } \
+  && pass "#6620 CONTROL: a checkout behind a freeze on origin/main is told to pull" || bad "#6620 behind advice (rc=$RC) out=$out"
+
+# A commit that moves an installer AND edits the marker (a because= line, say) after the freeze: the anchor is the
+# commit that ADDED the marker, so the move is still seen. CONTROL: arm 45 (nothing moved) deploys.
+read -r S57 L57 <<<"$(make_rollback_scenario)"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S57/dist/POINTER_FROZEN"
+git -C "$S57" add -- dist/POINTER_FROZEN && git -C "$S57" commit -q -m "frozen at $OLD" -- dist/POINTER_FROZEN
+{ cat "$S57/setup"; printf '# a hand edit\n'; } > "$S57/setup-staging"; ( cd "$S57" && shasum -a 256 setup-staging > setup-staging.sha256 )
+printf 'mac=%s\nbecause=a test incident, reworded\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S57/dist/POINTER_FROZEN"
+git -C "$S57" add -- setup-staging setup-staging.sha256 dist/POINTER_FROZEN && git -C "$S57" commit -q -m "an installer and a reworded marker" -- setup-staging setup-staging.sha256 dist/POINTER_FROZEN
+LIVE57="$(cat "$L57/dist/latest.json")"
+run_deploy "$S57" "$L57" --promote
+{ [ "$RC" = 1 ] && has "$out" "since the freeze commit" && has "$out" "setup-staging" && [ "$(cat "$L57/dist/latest.json")" = "$LIVE57" ]; } \
+  && pass "#6620: an installer moved in the same commit as a marker edit is still refused" || bad "#6620 marker-edit anchor (rc=$RC) out=$out"
+
+# An ordinary site change on top of the pin (a page, not a release file) deploys while frozen: the freeze holds the
+# release files, not the site. Run under dash, the shell deploy-site.sh's #!/bin/sh is on Linux, so the freeze block's
+# success path runs there too. The refusal beside it is arm 53 (an installer moved on top).
+read -r S58 L58 <<<"$(make_rollback_scenario)"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S58/dist/POINTER_FROZEN"
+git -C "$S58" add -- dist/POINTER_FROZEN && git -C "$S58" commit -q -m "frozen at $OLD" -- dist/POINTER_FROZEN
+printf '<p>an incident notice</p>\n' > "$S58/incident.html"
+git -C "$S58" add -- incident.html && git -C "$S58" commit -q -m "a page during the freeze" -- incident.html
+DEPLOY_SHELL=dash run_deploy "$S58" "$L58" --promote
+{ [ "$RC" = 0 ] && has "$out" "no release pointer or installer moved since the freeze"; } \
+  && pass "#6620 (dash): a page committed on top of the pin deploys while frozen" || bad "#6620 page during freeze (rc=$RC) out=$out"
+
+# After off, the release tools are free again: a deploy of the (pulled) checkout is not refused for a freeze.
+# The refusal beside it is arm 46 (frozen at another version).
+read -r S59 L59 <<<"$(make_rollback_scenario)"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S59/dist/POINTER_FROZEN"
+git -C "$S59" add -- dist/POINTER_FROZEN && git -C "$S59" commit -q -m "frozen at $NEW" -- dist/POINTER_FROZEN
+git -C "$S59" rm -q -- dist/POINTER_FROZEN && git -C "$S59" commit -q -m "lifted" -- dist/POINTER_FROZEN
+run_deploy "$S59" "$L59" --promote
+{ [ "$RC" = 0 ] && ! has "$out" "FROZEN"; } \
+  && pass "#6620: after off, the same deploy arm 46 refused goes ahead" || bad "#6620 after off (rc=$RC) out=$out"
+
+# The two refusal paths that read git under dash: the moved-files diff (arm 57's shape) and an origin fetch (arm 56's).
+DEPLOY_SHELL=dash run_deploy "$S57" "$L57" --promote
+{ [ "$RC" = 1 ] && has "$out" "since the freeze commit" && has "$out" "setup-staging"; } \
+  && pass "#6620 (dash): an installer moved on top of the freeze is refused" || bad "#6620 dash moved (rc=$RC) out=$out"
+DEPLOY_SHELL=dash run_deploy "$S56" "$L56" --promote
+{ [ "$RC" = 1 ] && has "$out" "This checkout is behind origin/main: pull it"; } \
+  && pass "#6620 (dash): a freeze read from origin/main refuses a checkout behind it, and says pull" || bad "#6620 dash origin (rc=$RC) out=$out"
+
+# A checkout that has DIVERGED from a frozen origin/main (a local commit origin/main lacks, origin/main frozen since):
+# told it diverged, not to pull (a pull would merge) and not that a file was committed on top.
+read -r S60 L60 <<<"$(make_rollback_scenario)"
+git init -q --bare --initial-branch=main "$S60.origin.git" && git -C "$S60" remote add origin "$S60.origin.git" && git -C "$S60" push -q origin main
+git clone -q "$S60.origin.git" "$S60.other" && git -C "$S60.other" config user.email t@t && git -C "$S60.other" config user.name t
+printf 'mac=%s\nbecause=another machine\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S60.other/dist/POINTER_FROZEN"
+git -C "$S60.other" add dist/POINTER_FROZEN && git -C "$S60.other" commit -q -m "frozen elsewhere" && git -C "$S60.other" push -q origin main
+printf '<p>local</p>\n' > "$S60/local.html"; git -C "$S60" add -- local.html && git -C "$S60" commit -q -m "a local commit" -- local.html
+run_deploy "$S60" "$L60" --promote
+{ [ "$RC" = 1 ] && has "$out" "has diverged from origin/main" && ! has "$out" "pull it" && ! has "$out" "committed on top"; } \
+  && pass "#6620: a checkout diverged from a frozen origin/main is told so" || bad "#6620 diverged advice (rc=$RC) out=$out"
+
+# A freeze committed here and never pushed (origin/main not frozen, this checkout ahead of it): told so, with the
+# command that pushes it, not "pull" (which would do nothing).
+read -r S61 L61 <<<"$(make_rollback_scenario)"
+git init -q --bare --initial-branch=main "$S61.origin.git" && git -C "$S61" remote add origin "$S61.origin.git" && git -C "$S61" push -q origin main
+printf 'mac=%s\nbecause=never pushed\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S61/dist/POINTER_FROZEN"
+git -C "$S61" add -- dist/POINTER_FROZEN && git -C "$S61" commit -q -m "frozen here only" -- dist/POINTER_FROZEN
+run_deploy "$S61" "$L61" --promote
+{ [ "$RC" = 1 ] && has "$out" "this freeze was never pushed" && ! has "$out" "pull it"; } \
+  && pass "#6620: a freeze committed here and never pushed is told so, with the command that pushes it" || bad "#6620 unpushed advice (rc=$RC) out=$out"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi
