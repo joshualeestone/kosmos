@@ -1652,6 +1652,9 @@ function allTasks(everyProject) {
            comes through: the nearest held ancestor, else the tree's lowest held task), so a second agent sees whose work
            it is before starting. Absent otherwise. */
         ...(() => { const o = ownerIn(tree, t, members, owners); return o ? { ownerNames: o.who, ownerFrom: o.from } : {}; })(),
+        /* #6895: who holds an open part of this task without being one of the project's agents (removed after it was
+           given to them). The screen names them "(not on this project)". Absent when there are none. */
+        ...(() => { const off = openHolders(t).filter((w) => !members.has(w)); return off.length ? { offProject: off } : {}; })(),
       }));
     }
   }
