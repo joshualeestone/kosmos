@@ -34,7 +34,7 @@ Angel's slice, decided on the card and kept: show it where the person looks, no 
 - Rejected (Angel, on the card): adding the agent back automatically; refusing to remove an agent who holds tasks.
 
 ## Measured
-- New tests: engine/tasks.offproject-6895.test.js (3), web.notonproject-6895.test.js (4). Against main's code both
+- New tests: engine/tasks.offproject-6895.test.js (3), web.notonproject-6895.test.js (5, one runs the real paintTaskPage). Against main's code both
   files fail every test (red control); on this branch they pass, with the 15 other task-related web and engine test
   files (197 tests).
 
