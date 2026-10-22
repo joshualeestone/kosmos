@@ -232,7 +232,9 @@ case "$route" in
       # The real plan refuses with ok:false where the DELETE would (running, tmux unreadable).
       case "${MOCK_LEFTOVER:-}" in running|nocheck) emit '{"ok":false,"because":"refused by the plan"}' 200; exit 0;; esac
       # transient: the plan refuses too until the first DELETE has met the closing pane (review 6).
-      if [ "${MOCK_LEFTOVER:-}" = transient ] && [ "$(grep -cx "$nm" "${STATE}.leftover" 2>/dev/null)" = 0 ]; then
+      # (cat, not grep -c on the file: grep -c on a file not made yet prints nothing, not 0, which hid this for the
+      # first agent until a mutant showed it.)
+      if [ "${MOCK_LEFTOVER:-}" = transient ] && [ "$(cat "${STATE}.leftover" 2>/dev/null | grep -cx "$nm")" = 0 ]; then
         emit "{\"ok\":false,\"because\":\"$nm is running, so there is nothing left over to delete\"}" 200; exit 0
       fi
       if [ "${MOCK_PLAN:-}" = refused ]; then emit '{"ok":false,"because":"we could not check whether it is running right now"}' 200; exit 0; fi
