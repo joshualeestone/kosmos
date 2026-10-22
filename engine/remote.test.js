@@ -369,6 +369,8 @@ if (args[0] === 'devices') {
   if (verb === 'allow' && mode.includes('slow-allow')) { const until = Date.now() + 1500; while (Date.now() < until) { /* wait */ } }
   // kosmos#5786 (b): an allow the tunnel refuses (the vouch path's retry cap).
   if (verb === 'allow' && mode.includes('allow-fails')) { process.stderr.write('error: the coordinator refused\\n'); process.exit(1); }
+  // kosmos#6666: an Allow refused because Kosmos+ is paused for maintenance (kosmos-relay #509: exit 0, paused true).
+  if (verb === 'allow' && mode.includes('allow-paused')) { console.log(JSON.stringify({ device_id: flag('--device-id'), acked: false, check: false, allowed: false, paused: true })); process.exit(0); }
   if (verb === 'allow' && mode.includes('allow-unknown')) { console.log(JSON.stringify({ allowed: true, acked: false, account_ack: 'unknown_device', device_id: flag('--device-id') })); process.exit(0); }
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
   process.exit(0);
@@ -1226,6 +1228,51 @@ test('kosmos#6286: an allow the coordinator answers "no such sign-in" is a refus
     assert.match(r.because, /^Kosmos\+ holds no sign-in waiting with that id \(it was refused, or never asked\)\. It is on this computer's list/);
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
   // CONTROL: the same call with the tunnel's ordinary answer is still allowed.
+  const ok = await remote.deviceAllow('dev-9', 'iPhone');
+  assert.equal(ok.ok, true, ok.because);
+});
+
+test('kosmos#6666: pending says Kosmos+ is paused only when the tunnel wrote paused exactly true', () => {
+  const dir = enrol();
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+  remote.setOn(true);
+  const write = (extra) => fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [], ...extra }));
+  write({ paused: true });
+  assert.equal(remote.pendingDevices().paused, true, 'a paused snapshot did not read as paused');
+  for (const extra of [{ paused: false }, { paused: 'true' }, { paused: 1 }, {}]) {
+    write(extra);
+    assert.equal(remote.pendingDevices().paused, false, 'read as paused: ' + JSON.stringify(extra));
+  }
+  // A snapshot older than two minutes (the tunnel stopped, or the Mac slept) no longer says paused.
+  write({ paused: true });
+  const old = new Date(Date.now() - 3 * 60 * 1000);
+  fs.utimesSync(nodePath.join(dir, 'pending.json'), old, old);
+  assert.equal(remote.pendingDevices().paused, false, 'a stale paused snapshot still read as paused');
+  const recent = new Date(Date.now() - 60 * 1000);
+  fs.utimesSync(nodePath.join(dir, 'pending.json'), recent, recent);
+  assert.equal(remote.pendingDevices().paused, true, 'a minute-old paused snapshot did not read as paused');
+  // A snapshot dated a minute ahead (the clock stepped back) is not fresh.
+  const ahead = new Date(Date.now() + 60 * 1000);
+  fs.utimesSync(nodePath.join(dir, 'pending.json'), ahead, ahead);
+  assert.equal(remote.pendingDevices().paused, false, 'a paused snapshot dated in the future read as paused');
+  fs.rmSync(nodePath.join(dir, 'pending.json'), { force: true });
+  assert.equal(remote.pendingDevices().paused, false, 'no snapshot read as paused');
+  write({ paused: true });
+  remote.setOn(false);
+  assert.equal(remote.pendingDevices().paused, false, 'a board with Plus off said Kosmos+ is paused, or left the field out');
+});
+
+test('kosmos#6666: an Allow refused while Kosmos+ is paused says so, and is neither allowed nor listed', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'allow-paused';
+  try {
+    const r = await remote.deviceAllow('dev-9', 'iPhone');
+    assert.equal(r.ok, false, 'an Allow refused while paused read as allowed');
+    assert.equal(r.paused, true);
+    assert.match(r.because, /^Kosmos\+ is paused for maintenance, so no new device can be allowed right now\./);
+    assert.notEqual(r.listed, true, 'a paused Allow writes nothing to this computer\'s list');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  // CONTROL: the same call with the tunnel's ordinary answer is allowed.
   const ok = await remote.deviceAllow('dev-9', 'iPhone');
   assert.equal(ok.ok, true, ok.because);
 });
@@ -4654,6 +4701,32 @@ test('#5786 (b): removing a vouched device (Undo) drops its "on this computer" n
   assert.equal(r.ok, true, r.because);
   assert.equal(remote.read().vouched['dev-undo'], undefined, 'the note survived the Undo');
   assert.equal(remote.pendingDevices().connected_here, null, 'the notice still offers an Undo for a removed device');
+  remote.setOn(false);
+});
+
+test('kosmos#6666: a vouched browser refused because Kosmos+ is paused is not noted, not removed, and is let in once the pause ends', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchpaused');
+  plant([{ device_id: 'dev-paused', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'premise: the browser was opened');
+  plant([{ device_id: 'dev-paused', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-paused') }]);
+  const removesOf = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-paused')).length;
+  const before = allowsOf().filter((x) => x === 'dev-paused').length;
+  process.env.FAKE_TUNNEL_MODE = 'allow-paused';
+  try {
+    for (let i = 1; i <= 3; i += 1) {
+      remote.vouchTickForTests();
+      await until(() => allowsOf().filter((x) => x === 'dev-paused').length === before + i, 'paused allow attempt ' + i);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(remote.read().vouched['dev-paused'], undefined, 'a paused refusal was noted as on this computer');
+  assert.equal(removesOf(), 0, 'a paused refusal was taken back out as if Kosmos+ had refused the device');
+  // A pause is waited out, not counted: three refusals (the cap for real ones) leave the secret live.
+  assert.ok(remote.vouchSecretForTests(), 'three paused refusals ended the secret, as if they were real refusals');
+  // The pause ends: the next tick lets the browser in, without the Allow card.
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-paused'], 'the vouched allow to be noted once the pause ended');
   remote.setOn(false);
 });
 

@@ -503,6 +503,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   @media (hover: none) { .askcard button { min-height: 44px; } }
   /* #3829 addendum: the same thumb-size buttons where the cards now live on Kosmos Plus (above the panel). */
   @media (hover: none) { .plus-asks button { min-height: 44px; } }
+  .plus-asks .plus-paused { margin: 4px 0 0; max-width: 64ch; color: var(--k-ink-2); }   /* kosmos#6666 */
   .askcard p { margin: 0; max-width: 64ch; }
   .askcard p b { color: var(--k-ink); font-weight: 600; }
   .askcard .code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .06em;
@@ -19419,6 +19420,8 @@ window.kosmosMeasureScrollbarWidth();
          while the connected panel shows, so there this is still directly above #plus-flow. -->
     <div class="plus-asks" id="plus-asks" role="status" aria-live="polite" hidden>
       <p class="setname" id="plus-asks-title">Waiting for you</p>
+      <!-- kosmos#6666: while Kosmos+ is paused for maintenance it shows no new requests; this says why. -->
+      <p class="plus-paused" id="plus-paused" hidden>Kosmos+ is paused for maintenance. No new phone, browser or computer can be let in until it is back, and one that was asking may need to ask again then.</p>
       <div id="plus-ask-rows"></div>
     </div>
 
@@ -51894,7 +51897,7 @@ paintStyles(true);
    it asked, never by anything that identifies it; the time keeps ticking
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
-const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null,
+const ASK = { devices: [], paused: false, email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null,
   /* #6315: the compact notice's dismissal (askNote*): the keys it names now, and this tab's own record. */
   noteKeys: [], noteDismissed: [],
   /* kosmos#5786 (b): the browser this computer opened and allowed without asking (the engine's connected_here), the id
@@ -52047,6 +52050,7 @@ async function pollAsk() {
   try { r = await (await fetch('/api/remote/pending', { cache: 'no-store' })).json(); } catch { r = null; }
   if (!r || !Array.isArray(r.devices)) return;   /* a blip keeps the last paint; nothing is invented */
   ASK.devices = r.devices;
+  ASK.paused = r.paused === true;   // kosmos#6666
   askForgetOldChecks();
   ASK.email = r.email || '';
   ASK.here = r.connected_here && typeof r.connected_here.device_id === 'string' ? r.connected_here : null;
@@ -52083,7 +52087,8 @@ function paintAsk() {
   // What an Undo said stays as long as a Remove's line does (REMOVE_SAID_MS), then goes.
   if (ASK.hereSaid && Date.now() - ASK.hereSaidAt > REMOVE_SAID_MS) ASK.hereSaid = '';
   const here = ASK.here && askHereKey(ASK.here) !== ASK.hereGone ? ASK.here : null;
-  const anything = live.length || doneIds.length || here || ASK.hereSaid;
+  const anything = live.length || doneIds.length || here || ASK.hereSaid || ASK.paused;
+  { const p = document.getElementById('plus-paused'); if (p) p.hidden = !ASK.paused; }   // kosmos#6666
   /* #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the full cards render ABOVE the panel; on any
      other view the top card is one compact line linking there. */
   const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
