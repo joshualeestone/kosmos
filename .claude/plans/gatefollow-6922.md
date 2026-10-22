@@ -43,6 +43,10 @@ standing in for: `DELETE /api/agent/<name>/leftover` (#514).
   this machine's paths is a warning to check LaunchAgents, never "its files are gone" (said only for a PARTIAL).
 - **A plan refusal is asked once more after 3 s** (review 4): "is running" while the pane closes, and "could not check
   ... right now", can pass in a moment, and leaving the job file on one tmux read would be the #3011 red again.
+  The plan is read again before that second DELETE (review 6), for the board's label and typed words: after a refusal
+  the first GET had neither.
+- **Accepted cost:** cleanup ignores signals and can take up to about 160 s per agent on a slow board (GET 20, DELETE 60,
+  wait, DELETE 60, GET 20). It runs only after the board answered the removal, so the board is alive.
 - **Gate agents are created with `community:false`** (#6908, merged as #6939 while this was in review): no community
   account, so nothing for the clear to retire.
 - **HUP and PIPE exit 2.** They exited 129/141; through the queue that maps to cannot-tell, but an explicit
@@ -50,7 +54,8 @@ standing in for: `DELETE /api/agent/<name>/leftover` (#514).
 - **Queue log in the EXIT trap.** Measured first: bash 3.2 and 5 run the EXIT trap on TERM, INT and HUP.
 
 ## Measured
-- test-staging-agent-online-check.sh: 62 arms pass (35 before). test-staging-channel-2036.sh: ALL PASS (2 new).
+- test-staging-agent-online-check.sh: 64 arms pass (35 before). test-staging-channel-2036.sh: ALL PASS (2 new).
+- Mortals full suite at 915c8db69 (after review 4 and #6908): clean. At 0ca4a8d66: clean, node 23328 0 fail, shell 284/284.
 - Mortals full suite at df19f29da: node 23328, 0 fail; the shell shard stopped at 10/284 on the #6710 sleep-control
   guard (the waiting stub queue's `exec sleep 30` had no opt-out marker). Fixed; the guard passes alone.
 - Mutants, each reverted after: no HUP/PIPE in the trap (2 red), no clear (30 red), no typed name (1), no launchctl

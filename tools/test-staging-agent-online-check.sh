@@ -220,8 +220,8 @@ case "$route" in
     # job file and worker folder to the Trash (deleted here, in the case's sandbox) and answers deleted. A stand-in for
     # the real refusal set (a live session, tmux unreadable, a held move), not a model of it: it refuses while the name
     # is still listed. MOCK_LEFTOVER=refuse (files kept) / partial (files kept) / partial-tokens (files gone, tokens
-    # stuck) / nothing / notrash (deleted for good) / lost (the first DELETE gets no answer and does nothing) / landed (the
-# first DELETE acts, then its answer is lost) / running and nocheck (the real safety refusals) / noroute (an old board);
+        # stuck) / nothing / notrash (deleted for good) / lost (the first DELETE gets no answer and does nothing) / landed
+    # (the first DELETE acts, then its answer is lost) / running and nocheck (the real safety refusals) / noroute (an old board);
     # MOCK_LEFTOVER_TYPED=1 refuses unless the body types the name.
     nm="${route#/api/agent/}"; nm="${nm%/leftover}"
     if [ "$method" = GET ] || [ -z "$method" ]; then
@@ -231,6 +231,10 @@ case "$route" in
       # MOCK_PLAN=refused: the real plan answers 200 with ok:false for a refusal; fail: the GET itself fails.
       # The real plan refuses with ok:false where the DELETE would (running, tmux unreadable).
       case "${MOCK_LEFTOVER:-}" in running|nocheck) emit '{"ok":false,"because":"refused by the plan"}' 200; exit 0;; esac
+      # transient: the plan refuses too until the first DELETE has met the closing pane (review 6).
+      if [ "${MOCK_LEFTOVER:-}" = transient ] && [ "$(grep -cx "$nm" "${STATE}.leftover" 2>/dev/null)" = 0 ]; then
+        emit "{\"ok\":false,\"because\":\"$nm is running, so there is nothing left over to delete\"}" 200; exit 0
+      fi
       if [ "${MOCK_PLAN:-}" = refused ]; then emit '{"ok":false,"because":"we could not check whether it is running right now"}' 200; exit 0; fi
       if [ "${MOCK_PLAN:-}" = fail ]; then emit '{"error":"boom"}' 500; exit 0; fi
       emit "{\"ok\":true,\"name\":\"$nm\",\"job\":{\"path\":\"/x/com.kosmos.agent.$nm.plist\",\"label\":\"com.kosmos.agent.$nm${MOCK_LABEL_SUFFIX:-}\"},\"toTrash\":true,\"typeToConfirm\":$ttc}" 200
@@ -245,7 +249,7 @@ case "$route" in
         err500) emit '{"error":"the delete failed partway and we cannot tell you how far it got"}' 500; exit 0;;
         lost2) printf '000'; exit 0;;
         lostnothing) if [ "$(grep -cx "$nm" "${STATE}.leftover")" = 1 ]; then printf '000'; exit 0; fi
-                     emit "{\"outcome\":\"refused\",\"because\":\"nothing of $nm is left on this computer, so there is nothing to delete.\"}" 400; exit 0;;
+                     emit "{\"outcome\":\"refused\",\"because\":\"nothing of ${MOCK_SHOWN:-$nm} is left on this computer, so there is nothing to delete.\"}" 400; exit 0;;
         garbage200) emit '<html>proxy</html>' 200; exit 0;;
       esac
       # transient: the first DELETE meets a pane still closing (a plan refusal, no steps); the next one clears.
@@ -259,7 +263,7 @@ case "$route" in
       gone() { rm -f "${AGENT_WORKFORCE_LAUNCH:-/nonexistent}/com.kosmos.agent.$nm.plist"; rm -rf "${AGENT_WORKFORCE_WORKERS:-/nonexistent}/$nm"; }
       if [ "${MOCK_LEFTOVER:-ok}" = landed ]; then
         if [ "$(grep -cx "$nm" "${STATE}.leftover")" = 1 ]; then gone; printf '000'; exit 0; fi
-        emit "{\"outcome\":\"refused\",\"because\":\"nothing of $nm is left on this computer, so there is nothing to delete.\"}" 400; exit 0
+        emit "{\"outcome\":\"refused\",\"because\":\"nothing of ${MOCK_SHOWN:-$nm} is left on this computer, so there is nothing to delete.\"}" 400; exit 0
       fi
       case "${MOCK_LEFTOVER:-ok}" in
         running) emit "{\"outcome\":\"refused\",\"because\":\"$nm is running, so there is nothing left over to delete\"}" 400; exit 0;;
@@ -270,7 +274,7 @@ case "$route" in
         partial) emit '{"outcome":"partial","because":"we could not move its folder. its auto-start file is gone."}' 200; exit 0;;
         partial-tokens) gone; emit '{"outcome":"partial","because":"we could not revoke its sender tokens. its folder and its auto-start file are gone."}' 200; exit 0;;
         # The real board says this only when it finds no files: as if create had written them where the board does not look.
-        nothing) gone; emit "{\"outcome\":\"refused\",\"because\":\"nothing of $nm is left on this computer, so there is nothing to delete.\"}" 400; exit 0;;
+        nothing) gone; emit "{\"outcome\":\"refused\",\"because\":\"nothing of ${MOCK_SHOWN:-$nm} is left on this computer, so there is nothing to delete.\"}" 400; exit 0;;
         notrash) gone; emit "{\"outcome\":\"deleted\",\"toTrash\":false,\"shown\":\"$nm\"}" 200; exit 0;;
       esac
       gone; emit "{\"outcome\":\"deleted\",\"toTrash\":true,\"shown\":\"$nm\"}" 200
@@ -372,6 +376,7 @@ run_case "a lost DELETE, then 'nothing of' it while the files are still here: de
 run_case "a 200 the gate cannot read: its files are left and said (0)" 0 --kept --expect "could not read what it did" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=garbage200
 run_case "no route and nothing at this machine's paths: a warning to check LaunchAgents, not 'gone' (0)" 0 --expect "found no files at" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=noroute MOCK_NO_FILES=1
 run_case "a plan refusal that passes in a moment (a pane closing) is asked once more and clears (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=transient
+run_case "after a refusal, the board's typed words from the plan read again (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=transient MOCK_LEFTOVER_TYPED=1 MOCK_SHOWN=Gate-Display
 run_case "a plan that answers ok:false, then a DELETE that clears, is cleared (0)" 0 --expect "cleared 'verify2129-openai-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=refused
 run_case "the typed words are the board's (its shown name), not the session name (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER_TYPED=1 MOCK_SHOWN=Gate-Display
 run_case "a board with no leftover route (404): the gate deletes the files itself (0)" 0 --expect "were deleted here instead" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=noroute
@@ -438,13 +443,15 @@ done
 # fake's carries a world suffix the gate could not derive), once per provider. Run
 # UNsandboxed (no AGENT_WORKFORCE_LAUNCH) under a throwaway HOME, with a stub launchctl first on PATH that only records.
 # The control is the same run sandboxed: no enable at all.
-for arm in live sandboxed noroute noplan; do
+for arm in live sandboxed noroute noplan transient; do
   R="$(mktemp -d "${TMPDIR:-/tmp}/aoc-root.XXXXXX")"; printf 'tok\n' > "$R/board.token"; ST="$(mktemp "${TMPDIR:-/tmp}/aoc-state.XXXXXX")"; : > "$ST"
   mkdir -p "$R/stub"; printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\n' "$R/launchctl.log" > "$R/stub/launchctl"; chmod +x "$R/stub/launchctl"
   if [ "$arm" = live ]; then sb=(-u AGENT_WORKFORCE_LAUNCH -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_DATA)
   # noroute: a board without the leftover route; the gate deletes the files the fake wrote into the real layout under
   # this HOME, and re-enables the label from the job file it checked (no plan to give one).
   # noplan: the plan's GET fails, the DELETE clears: the label comes from this machine's engine for the name.
+  # transient: the first plan refuses (no label) and the DELETE meets a closing pane; the label is the re-read plan's.
+  elif [ "$arm" = transient ]; then sb=(-u AGENT_WORKFORCE_LAUNCH -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_DATA MOCK_LEFTOVER=transient)
   elif [ "$arm" = noplan ]; then sb=(-u AGENT_WORKFORCE_LAUNCH -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_DATA MOCK_PLAN=fail)
   elif [ "$arm" = noroute ]; then sb=(-u AGENT_WORKFORCE_LAUNCH -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_DATA MOCK_LEFTOVER=noroute MOCK_WRITE_HOME=1)
   else sb=(AGENT_WORKFORCE_LAUNCH="$R/LaunchAgents" AGENT_WORKFORCE_WORKERS="$R/workers" AGENT_WORKFORCE_DATA="$R/data"); fi
@@ -454,8 +461,8 @@ for arm in live sandboxed noroute noplan; do
     bash "$CHECK" 2>&1)"; rc=$?
   en="$(grep -cE "^enable gui/$(id -u)/com\.kosmos\.agent\.verify2129-(claude|openai)-[0-9-]+\+w1$" "$R/launchctl.log" 2>/dev/null)"
   other="$(grep -vc '^enable gui/' "$R/launchctl.log" 2>/dev/null)"
-  if [ "$arm" = live ] && [ "$rc" = 0 ] && [ "${en:-0}" = 2 ] && [ "${other:-0}" = 0 ] && has "$out" "cleared 'verify2129-claude-"; then
-    pass "after a clear, both agents' launchd labels are re-enabled, by the board's exact label"
+  if { [ "$arm" = live ] || [ "$arm" = transient ]; } && [ "$rc" = 0 ] && [ "${en:-0}" = 2 ] && [ "${other:-0}" = 0 ] && has "$out" "cleared 'verify2129-claude-"; then
+    pass "$arm: both agents' launchd labels are re-enabled, by the board's exact label"
   elif [ "$arm" = sandboxed ] && [ "$rc" = 0 ] && [ ! -s "$R/launchctl.log" ] && has "$out" "cleared 'verify2129-claude-"; then
     pass "control: a sandboxed run clears too and never calls launchctl"
   elif [ "$arm" = noroute ] && [ "$rc" = 0 ] && [ "$(grep -cE "^enable gui/$(id -u)/com\.kosmos\.agent\.verify2129-(claude|openai)-[0-9-]+$" "$R/launchctl.log" 2>/dev/null)" = 2 ] \
