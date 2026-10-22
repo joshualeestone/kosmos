@@ -44,7 +44,7 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
 - The same run with the old names: both creates refused (400, 32 characters), exit 2.
 - After review 1, Mortals again: PASS, both answered "ready", both removed (aoc-6906-mortals2.out).
 - After review 2, the exact default command promote-channel now builds (queued-heavy.sh agent-spawn-gate bash
-  staging-agent-online-check.sh 16180), run on Mortals from this branch at be1fa9cec1: it waited about 34 minutes in
+  staging-agent-online-check.sh 16180), run on Mortals from this branch at be1fa9cec1: it waited 35 minutes (11:46:20 to 12:21:44) in
   the queue (two suites ran in turn; a suite may start while it waits, since suites can run side by side), then PASS,
   both answered "ready", each one's job file and worker folder deleted and the agent removed; QUEUED-HEAVY END rc=0;
   afterwards 0 verify2129 plists in ~/Library/LaunchAgents and 0 worker folders (aoc-6906-queue.out).
