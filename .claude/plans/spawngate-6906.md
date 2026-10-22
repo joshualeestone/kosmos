@@ -15,6 +15,17 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
   hand; the verdict stands. A create whose answer never came (lost, timed out, interrupted) is removed only if the board
   lists it; one that answered 200 is removed whatever the list says; one refused (400) is not this run's to remove.
 - Creates send `notifyCreated:false`, so gate agents never raise the public agents-created count.
+- After each removal the gate DELETES that agent's launchd job file and worker folder. The board's Remove agent deletes
+  nothing on disk (engine/remove.js: removal is reversible), and on 2026-10-22 the job files my manual runs left on
+  Mortals, made while Pete's full validations ran, redded their #3011 LaunchAgents guard. The paths come from the
+  board's own engine (create.js now exports plistPath; workerDir was already exported), only a `verify2129-` name of
+  the gate's own form is touched, and each path's last part must be that name. An older board without the export gets
+  a warning naming the files, and nothing is guessed.
+- promote-channel.sh runs the gate through tools/queued-heavy.sh by default (a real turn in the machine's suite queue,
+  holding the machine claim, its exit code passed through), so it never starts beside a suite. An explicit
+  KOSMOS_PROMOTE_AGENT_GATE_CMD runs as given (the tests use one).
+- A 200 create is confirmed at once (before the name is parsed), and a board that answers with another name is
+  cannot-tell, with only the name the gate asked for removed (review 2).
 - After an agent is online (two consecutive polls, unchanged), it is sent one message, and the arm passes only on a
   STORED reply: an entry `from` its session name with no `kind`, dated at or after the send (5 s of slack). The thread
   (`GET /api/agent/<name>/thread`, `{messages:[{at,text,from}]}`) also carries a `kind:"question"` row from the agent
@@ -32,6 +43,11 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
   came online, answered "ready", and were removed and gone from /api/status (aoc-6906-mortals.out).
 - The same run with the old names: both creates refused (400, 32 characters), exit 2.
 - After review 1, Mortals again: PASS, both answered "ready", both removed (aoc-6906-mortals2.out).
+- After review 2, the exact default command promote-channel now builds (queued-heavy.sh agent-spawn-gate bash
+  staging-agent-online-check.sh 16180), run on Mortals from this branch at be1fa9cec1: it waited about 34 minutes in
+  the queue (two suites ran in turn; a suite may start while it waits, since suites can run side by side), then PASS,
+  both answered "ready", each one's job file and worker folder deleted and the agent removed; QUEUED-HEAVY END rc=0;
+  afterwards 0 verify2129 plists in ~/Library/LaunchAgents and 0 worker folders (aoc-6906-queue.out).
 - tools/test-staging-agent-online-check.sh: 28 arms pass; mutants dropping the kind filter, the date filter, or
   notifyCreated each turn arms red. Earlier: 24 arms Against main's gate: 18 fail (agents left on the board, no
   removal). With first_reply forced to succeed: the no-answer, other-sender and refused-message arms fail. With the old
@@ -48,6 +64,10 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
 - A gate agent is made like any agent, so on a board with the Community switch on its instructions carry the community
   block and may ask it to introduce itself. Its first message says to do nothing but reply, and it is removed within
   about a minute; there is no create-time way to leave the block out. Filed as a follow-up card.
+
+## Known cost
+At a promote the gate may now wait for the machine's suites to finish: up to the queue's bound (6300 s), and a suite
+can start while it waits. Bounded, and the price of never redding someone's validation.
 
 ## Weakest premise
 That two agents created and removed on a working fleet board for about a minute disturb nobody. Each gets a home folder
