@@ -38,3 +38,8 @@ Card: kosmos#6928, filed when #6501's review loop stopped at the 8-round cap (PR
   covers the fix above).
 - The failed-reload arm's comment claimed focus "stays where it was"; it only asserts focus is not moved to the top
   (a disabled button drops focus), and now says that.
+
+## Review round 2
+- The parent-refused arm waited on a condition that is true at the click (the press disables itself), so it read as a
+  guard and was none. Removed; the switch is immediate, and the comment says so.
+- The two wordings for a refusal share one isParent instead of two copies of the test.

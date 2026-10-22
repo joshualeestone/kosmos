@@ -360,8 +360,7 @@ function chk(ok, label, extra) {
       await delayed('**/task/1/close', (r) => r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'the person set this task to repeat' }) }));
       const parentAsked = page.waitForResponse((resp) => /\/task\/1\/close$/.test(resp.url()), { timeout: 15000 });
       await page.click('#tk-subs-closeall');
-      await page.waitForFunction(() => document.getElementById('tk-subs-built').hidden || !!document.getElementById('tk-subs-closeall').disabled, null, { timeout: 8000 });
-      await page.evaluate(() => showTab('agents'));
+      await page.evaluate(() => showTab('agents'));   // at once: the whole run happens away; the parent's answer is held 1.5 s
       await parentAsked;
       const parentRefused = await toastSays(/was not closed/);
       chk(parentRefused === 'Task #1 was not closed: the person set this task to repeat. Its built subtasks are closed.', `${tag} #6928 after a tab switch, a refused parent is said as a toast`, parentRefused);

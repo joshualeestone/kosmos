@@ -68641,10 +68641,11 @@ document.getElementById('tk-subs-closeall').addEventListener('click', async () =
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         const why = (body && body.error) || 'we could not close it';
-        say(n === Number(t.number)
+        const isParent = n === Number(t.number);
+        say(isParent
           ? why + '. Its built subtasks are closed.'   // the guard means at least one, all closed before the parent is asked
           : 'Task #' + n + ': ' + why + '.' + (closedKids ? ' ' + closedKids + (closedKids === 1 ? ' subtask before it is' : ' subtasks before it are') + ' closed.' : '') + ' This task is still open.',
-        n === Number(t.number)
+        isParent
           ? 'Task #' + t.number + ' was not closed: ' + why + '. Its built subtasks are closed.'
           : 'Closing task #' + t.number + ' stopped at task #' + n + ': ' + why + '. Task #' + t.number + ' is still open.');
         return;
