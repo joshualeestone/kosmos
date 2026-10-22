@@ -156,6 +156,12 @@ arm6907 cut '  100     1 /bin/bash tools/release.sh 0.7.64' '  200   100 bash to
   '  300   200 bash /Users/x/work/kosmos/tools/deploy-site.sh --promote'
 { [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -qF '(pid 100: /bin/bash tools/release.sh 0.7.64)'; } \
   && pass "a cut whose own gate runs a test of deploy-site.sh still holds, named as the cut" || bad "a cut running its tests did not hold or was misnamed (deploys=$N): $OUT"
+arm6907 node '  100     1 node --test --test-concurrency=4 tools.release-gate.test.js' \
+  '  150   100 /usr/local/bin/node --test-reporter=tap /Users/x/work/k/tools.release-gate.test.js' \
+  '  200   150 bash /var/folders/x/T/rg-1/tools/release.sh 0.7.99'
+{ [ "$RC" = 0 ] && [ "$N" = 1 ]; } && pass "a release.sh the node suite started does not hold the deploy" || bad "a node test's release.sh held the deploy (rc=$RC, deploys=$N): $OUT"
+arm6907 nodeserver '  100     1 node server.js --port 16180' '  200   100 bash tools/release.sh 0.7.99'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ]; } && pass "control: a release.sh under a node process that is not a test still holds" || bad "a release.sh under a plain node process did not hold (deploys=$N)"
 mkdir -p "$T/badawk"; printf '#!/bin/sh\nexit 2\n' > "$T/badawk/awk"; chmod +x "$T/badawk/awk"
 PATH="$T/badawk:$PATH" arm6907 awkfail '  100     1 -zsh'
 { [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -q 'could not be matched'; } \

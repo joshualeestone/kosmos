@@ -29,8 +29,8 @@
 # build, the alias, tmux and the pkg are fetched from live and checked by deploy-site.sh as before.
 #
 # Skips, retried on the next tick: a release, deploy-site.sh or promote-channel.sh running on this
-# machine; another tick still running; exit 75 from deploy-site.sh (the live site moved or could not
-# be read). A commit the live site already serves (its .kosmos-release-export names it, as right
+# machine, unless a test started it (kosmos#6907); another tick still running; exit 75 from
+# deploy-site.sh (the live site moved or could not be read). A commit the live site already serves (its .kosmos-release-export names it, as right
 # after a cut's own step 8) is recorded as deployed without deploying it again. A deploy left running
 # by a tick killed outright: waited for while under 1200 s, then stopped; a failure either way.
 # A failed deploy is retried once on the next tick (one network blip should not park a website
@@ -283,15 +283,19 @@ fi
 # the SIGPIPE ps gets when grep stops at the first match (rc 141) on any list over a pipe buffer, so a
 # busy machine would read as "nothing running" exactly when a cut is.
 # A publisher that a TEST started is not one (kosmos#6907): the shell suite runs the real deploy-site.sh and
-# release.sh as test subjects, and a validation can run for half an hour, so a match whose ancestry reaches a
-# tools/test-*.sh is passed over. Ancestry needs pid and ppid, so the list is "pid ppid command"; a line without
-# them (a list that cannot say) has no ancestry, so a match there still holds the deploy (fails closed, like a
-# test harness that has died and left its subject to launchd: ppid 1, no test above it, so it holds too).
+# release.sh as test subjects, and so does the node suite (tools.release-gate.test.js spawns release.sh), and a
+# validation can run for half an hour, so a match whose ancestry reaches a tools/test-*.sh, or a node process
+# running --test or a *.test.js file, is passed over. Ancestry needs pid and ppid, so the list is
+# "pid ppid command"; a line without them (a list that cannot say) has no ancestry, so a match there still holds
+# the deploy (fails closed, like a test harness that has died and left its subject to launchd: ppid 1, no test
+# above it, so it holds too).
 PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo pid=,ppid=,command=}"
 # Fails CLOSED: a process list that cannot be read (the command fails or prints nothing; a real one
 # always lists this tick) cannot rule out a cut, so nothing deploys, and it is reported red once a day
 # (red_once psread) rather than skipping silently forever.
-# Sets PUBLISHER to "pid <n>: <command>" (the first match no test started), so a skip names what held it.
+# Sets PUBLISHER to what held the deploy, so a skip names it: "pid <n>: <command>" for the first match no test
+# started ("pid ?" on a line without a pid), or a sentence when the matcher itself failed. The command goes into
+# the log and the job's output.
 PUBLISHER=""
 publisher_running() {
   local procs
@@ -301,7 +305,8 @@ publisher_running() {
   fi
   PUBLISHER=$(awk '
     BEGIN { pub = "^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\\.sh( |$)"
-            tst = "^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/test-[^ /]*\\.sh( |$)" }
+            tst = "^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/test-[^ /]*\\.sh( |$)"
+            nod = "^([^ ]*/)?node( [^ ]+)* (--test(=[^ ]*)?|[^ ]*\\.test\\.[cm]?js)( |$)" }
     { n++; c = $0
       if (match(c, /^ *[0-9]+ +[0-9]+ /)) { pid[n] = $1; par[n] = $2; c = substr(c, RLENGTH + 1); id[$1] = n }
       else { pid[n] = "?"; par[n] = "" }
@@ -310,7 +315,7 @@ publisher_running() {
       for (i = 1; i <= n; i++) {
         if (cmd[i] !~ pub) continue
         t = 0; p = par[i]
-        for (h = 0; h < 64 && p != "" && p > 1 && (p in id); h++) { j = id[p]; if (cmd[j] ~ tst) { t = 1; break }; p = par[j] }
+        for (h = 0; h < 64 && p != "" && p > 1 && (p in id); h++) { j = id[p]; if (cmd[j] ~ tst || cmd[j] ~ nod) { t = 1; break }; p = par[j] }
         if (!t) { print "pid " pid[i] ": " substr(cmd[i], 1, 200); exit }
       }
     }' <<<"$procs") || PUBLISHER="the process list could not be matched, so a cut cannot be ruled out"   # closed, as above
