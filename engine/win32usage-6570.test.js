@@ -206,6 +206,10 @@ test('#6570 review 3: a HIGHER figure under another reset time (another account)
   p.event(ev(0.6, nowS + 3 * 86400 - 3600));   // another account, its reset an hour earlier: inside the status line's one-day tolerance
   assert.deepEqual(hist(), [[60, nowS + 3 * 86400 - 3600]], 'the rows of the other account were kept as the baseline of this one');
   assert.equal(accountsweekly.weeklyOf({ dir, apiKey: false }).usedPct, 60);
+  // Review 4: the same figure under a moved reset is recorded too (the reset is part of the reading).
+  p.event(ev(0.6, nowS + 2 * 86400));
+  assert.equal(accountsweekly.weeklyOf({ dir, apiKey: false }).resetsAt, (nowS + 2 * 86400) * 1000);
+  assert.deepEqual(hist(), [[60, nowS + 2 * 86400]]);
   p.stopped();
 });
 
@@ -271,7 +275,8 @@ test('#6570 the account folder: the agent\'s CLAUDE_CONFIG_DIR, or the default o
 test('#6570 only a Claude agent records into a Claude account folder', () => {
   const named = accountDir();
   assert.equal(sup.usageDirFor({ runner: 'claude', configDir: named }), named);
-  for (const runner of ['codex', 'gemini', 'grok', 'antigravity', undefined]) {
+  assert.equal(sup.usageDirFor({ configDir: named }), named, 'an omitted runner means Claude');
+  for (const runner of ['codex', 'gemini', 'grok', 'antigravity']) {
     assert.equal(sup.usageDirFor({ runner, configDir: named }), null, runner + ': its configDir is the home of its own provider');
   }
 });

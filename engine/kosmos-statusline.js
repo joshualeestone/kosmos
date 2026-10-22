@@ -97,7 +97,10 @@ function record(dir, reading, now, opt = {}) {
        agent's rate_limit_event, sent as the response arrives), not a figure a session carried from its last response.
        Then a lower figure in the same window is news, not lag (measured on the Windows box 10-22: the stored 96% and a
        live 3% in the same week, after the folder's sign-in changed), so only an unchanged one is skipped. */
-    const stale = opt.latestWins ? reading.usedPct === cur.usedPct : reading.usedPct <= cur.usedPct;
+    /* (Review 4: a same figure under a moved reset is still news: the reset is part of the reading.) */
+    const stale = opt.latestWins
+      ? reading.usedPct === cur.usedPct && Math.abs(reading.resetsAt - cur.resetsAt) < LATEST_SAME_RESET_SECONDS
+      : reading.usedPct <= cur.usedPct;
     /* And a different window is news too while its reset is still ahead: a folder signed in to another account carries
        that account's own reset, which can fall before the stored one (review 1). One already past is not current. */
     const older = opt.latestWins ? reading.resetsAt * 1000 <= now : reading.resetsAt < cur.resetsAt;
