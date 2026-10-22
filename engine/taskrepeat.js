@@ -35,7 +35,7 @@ function repeatProblem(r) {
   if (!EVERY.includes(r.every)) return 'a task can repeat every so many minutes, every hour, every day or every week';
   if (r.every === 'minutes') {
     if (!(Number.isInteger(r.n) && r.n >= N_MIN && r.n <= N_MAX && 1440 % r.n === 0)) {
-      return 'say the minutes as a number from ' + N_MIN + ' to ' + N_MAX + ' that divides the day evenly, for example 15, 20, 30, 45 or 90';
+      return 'say the minutes as a number from ' + N_MIN + ' to ' + N_MAX + ' that divides the day evenly (12 hours at most), for example 15, 20, 30, 45 or 90';
     }
     if (r.at !== undefined || r.day !== undefined || r.minute !== undefined) return 'a task every so many minutes takes only the number of minutes';
     return null;
