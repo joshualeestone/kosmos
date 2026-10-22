@@ -37,7 +37,8 @@ const ok = (over) => ({ ok: true, tasks: 2, notCounted: 0, failed: 0, unread: 0,
 
 test('the finished tasks, their tokens and the cost at API prices, from the page\'s one price table', () => {
   assert.ok(B.usageApiCost({ receipt: { 'claude-fable-5': buckets(1e6) } }).cost > 0, 'control: the fixture model is priced');
-  assert.match(B.pjsCostParts(ok()).line, /^2 finished tasks: 1(\.0)?M tokens, \$10 at API prices\. An agent working on two tasks at once counts on both, so this can read high\.$/);
+  assert.match(B.pjsCostParts(ok()).line, /^2 finished tasks: 1(\.0)?M tokens, \$10 at API prices\.$/, 'no agent on two tasks: no overlap line');
+  assert.match(B.pjsCostParts(ok({ sharedAgent: true })).line, / An agent working on two tasks at once counts on both, so this can read high\.$/);
   assert.match(B.pjsCostParts(ok({ tasks: 1 })).line, /^1 finished task: /);
 });
 
@@ -70,9 +71,9 @@ test('the pull requests the tasks worked on, at most 20 named and the rest count
 });
 
 test('pull requests that were never recorded read as unknown, not none', () => {
-  assert.match(text(B.pjsCostParts(ok({ prsUnknown: 1 })).prs), /^1 part of the work does not record pull requests, so there may be more\.$/);
+  assert.match(text(B.pjsCostParts(ok({ prsUnknown: 1 })).prs), /^Some of the work on these tasks does not record pull requests, so there may be more\.$/);
   const both = text(B.pjsCostParts(ok({ prsUnknown: 3, prs: [{ repo: 'acme/app', number: 4, url: 'https://github.com/acme/app/pull/4' }] })).prs);
-  assert.match(both, /^Worked on pull request app#4 .*\. 3 parts of the work do not record pull requests, so there may be more\.$/);
+  assert.match(both, /^Worked on pull request app#4 .*\. Some of the work on these tasks does not record pull requests, so there may be more\.$/);
   assert.equal(B.pjsCostParts(ok({ prsUnknown: 0 })).prs, '', 'control: none unknown, no line');
 });
 
@@ -92,4 +93,9 @@ test('the project total and the task receipt word their cost the same way (one h
     assert.match(body(name), /tkTokensAndCost\(/, name + ' does not use the shared helper');
     assert.doesNotMatch(body(name), /at API prices/, name + ' words the cost itself again');
   }
+});
+
+test('a total with nothing readable says so, never "0 tokens"', () => {
+  assert.equal(B.pjsCostParts(ok({ tasks: 2, unread: 2, models: {} })).line, 'Kosmos could not read the work on its finished tasks.');
+  assert.match(B.pjsCostParts(ok({ tasks: 2, models: {} })).line, /^2 finished tasks: 0 tokens/, 'the control: read, and none, is 0');
 });

@@ -74,7 +74,7 @@ test('an agent whose receipt has no prs is counted as unknown, not as none', asy
     { who: 'c', available: false },
   ] });
   const r = await receipt.forProject(id, { now: ms('15:00'), receiptOf });
-  assert.equal(r.prsUnknown, 1, 'only the readable agent with no prs field; an empty list is a measured none');
+  assert.equal(r.prsUnknown, 3, 'b with no prs field once, and the unreadable c once per task; a\'s empty list is a measured none');
   assert.deepEqual(r.prs, []);
 });
 
@@ -88,6 +88,29 @@ test('one pull request kept with its url on one receipt and without it on anothe
   assert.equal(r.prs[0].url, pr(7).url, 'the url is kept from the receipt that had it');
   assert.deepEqual(r.prs[0].tasks.sort(), [1, 2]);
   assert.equal(r.picked, 2);
+});
+
+test('sharedAgent: an agent on two counted tasks; an unreadable agent makes its pull requests unknown', async () => {
+  const id = project([closedTask(1, '11:00'), closedTask(2, '12:00')]);
+  const one = await receipt.forProject(id, { now: ms('15:00'), receiptOf: async (pid, task) => ({ agents: [
+    { who: task.number === 1 ? 'a' : 'b', available: true, models: {}, prs: [] },
+  ] }) });
+  assert.equal(one.sharedAgent, false, 'different agents on each task');
+  const two = await receipt.forProject(id, { now: ms('15:00'), receiptOf: async () => ({ agents: [
+    { who: 'a', available: true, models: {}, prs: [] },
+    { who: 'x', available: false, because: 'no-folder' },
+  ] }) });
+  assert.equal(two.sharedAgent, true, 'agent a on both tasks');
+  assert.equal(two.prsUnknown, 2, 'the unreadable agent, once per task');
+});
+
+test('two asks for one project while it is worked out share one computation', async () => {
+  const id = project([closedTask(1, '11:00')]);
+  const a = receipt.forProject(id, { now: ms('15:00') });
+  const b = receipt.forProject(id, { now: ms('15:00') });
+  assert.equal(a, b, 'the second ask got the same promise');
+  await a;
+  assert.notEqual(receipt.forProject(id, { now: ms('15:00') }), a, 'a later ask computes afresh');
 });
 
 test('what could not be read is counted as such, never folded into the total', async (t) => {

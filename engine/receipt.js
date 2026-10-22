@@ -545,13 +545,25 @@ async function forAgent(who, { limit = 10, now = Date.now(), receiptOf = forTask
 /**
  * kosmos#6842 slice 2: what a project's closed tasks cost, as the sum of their receipts: tokens per model across every
  * agent that held a part, the tasks counted and the pull requests they worked on (each once, with the tasks that list
- * it; `tasks` is for a later view, the page does not show it yet). The newest `limit` closed tasks are counted (a receipt not yet kept reads transcripts); `notCounted` says how many
- * older ones were left out. An agent whose work could not be read (no folder, a provider with no receipt) is counted in
- * `unread`, and a receipt read only in part in `partial`, so the total never reads as more complete than it is. An agent
- * whose receipt has no `prs` is counted in `prsUnknown`, so its pull requests read as unknown rather than none. Each
- * task's receipt is the one its task page shows (forTask), so the two never disagree.
+ * it; `tasks` is for a later view, the page does not show it yet). The newest `limit` closed tasks are counted (a
+ * receipt not yet kept reads transcripts); `notCounted` says how many older ones were left out. An agent whose work
+ * could not be read (no folder, a provider with no receipt) is counted in `unread`, and a receipt read only in part in
+ * `partial`, so the total never reads as more complete than it is. An agent whose pull requests are not known (no `prs`,
+ * or its work could not be read) is counted in `prsUnknown`, so they read as unknown rather than none. `sharedAgent` says
+ * an agent worked on two or more of the counted tasks, the only case where one stretch of work can be on two receipts.
+ * Each task's receipt is the one its task page shows (forTask), so the two never disagree. Asks for one project while
+ * one is being worked out share it (every Project settings paint asks).
  */
-async function forProject(projectId, { limit = 50, now = Date.now(), receiptOf = forTask } = {}) {   // receiptOf: a test seam
+const PROJECT_IN_FLIGHT = new Map();
+function forProject(projectId, opts = {}) {
+  if (opts.receiptOf) return forProjectNow(projectId, opts);   // a test seam: never shared
+  const key = String(projectId) + '\0' + String(opts.limit || 50);
+  if (PROJECT_IN_FLIGHT.has(key)) return PROJECT_IN_FLIGHT.get(key);
+  const p = forProjectNow(projectId, opts).finally(() => PROJECT_IN_FLIGHT.delete(key));
+  PROJECT_IN_FLIGHT.set(key, p);
+  return p;
+}
+async function forProjectNow(projectId, { limit = 50, now = Date.now(), receiptOf = forTask } = {}) {
   const lim = Math.max(1, Math.min(200, Number(limit) || 50));
   let proj = null;
   try { proj = (require('./projects').readAll() || []).find((x) => x && x.id === projectId) || null; }
@@ -579,13 +591,15 @@ async function forProject(projectId, { limit = 50, now = Date.now(), receiptOf =
   let partial = 0;
   let failed = 0;
   let prsMore = 0;   // beyond each agent's own shown list: counted, not named, so not de-duplicated (an upper bound)
-  let prsUnknown = 0;   // agents whose receipt has no `prs` (kept before #6842, or not a Claude agent): unknown, not none
+  let prsUnknown = 0;   // agents whose pull requests are not known (no `prs`, or not readable): unknown, not none
+  const tasksOf = new Map();   // agent -> how many counted tasks it worked on
   receipts.forEach((r, i) => {
     const number = picked[i].task.number;
     if (!r || !Array.isArray(r.agents)) { failed += 1; return; }
     for (const a of r.agents) {
       if (!a || typeof a !== 'object') continue;
-      if (!a.available) { unread += 1; continue; }
+      if (typeof a.who === 'string' && a.who) tasksOf.set(a.who, (tasksOf.get(a.who) || 0) + 1);
+      if (!a.available) { unread += 1; prsUnknown += 1; continue; }
       if (a.complete === false) partial += 1;
       for (const [m, b] of Object.entries(a.models || {})) {
         if (!b || typeof b !== 'object') continue;
@@ -607,7 +621,7 @@ async function forProject(projectId, { limit = 50, now = Date.now(), receiptOf =
   });
   // picked: the newest tasks looked at (the "newest N" the page names); tasks: those whose receipt could be worked out.
   return { ok: true, picked: picked.length, tasks: picked.length - failed, notCounted: closed.length - picked.length, failed, unread, partial,
-    models, prs: [...prs.values()], prsMore, prsUnknown };
+    models, prs: [...prs.values()], prsMore, prsUnknown, sharedAgent: [...tasksOf.values()].some((n) => n > 1) };
 }
 
 module.exports = { forAgent, forTask, forProject, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION,
