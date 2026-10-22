@@ -359,7 +359,8 @@ const ROOM_SENTENCE_MAX = 120;
 function roomRunLine(before, after) {
   if (!after || after.duplicate || !after.repeat || !after.lastRunAt) return null;
   const plain = (s, max) => require('./agentnudge').plainWords(s, max);
-  const noteChanged = !after.lastRunUnchanged && after.lastChangeAt === after.lastRunAt && typeof after.lastChangeNote === 'string' && after.lastChangeNote !== '';
+  // recordRun moves lastChangeAt to this run only for a note that is not unchanged (marked or inferred), so this is it.
+  const noteChanged = after.lastChangeAt === after.lastRunAt && typeof after.lastChangeNote === 'string' && after.lastChangeNote !== '';
   const was = before && before.verified && typeof before.verified.value === 'string' ? before.verified.value : '';
   const now = after.verified && after.verified.at === after.lastRunAt && typeof after.verified.value === 'string' ? after.verified.value : '';
   const readingChanged = now !== '' && now !== was;
