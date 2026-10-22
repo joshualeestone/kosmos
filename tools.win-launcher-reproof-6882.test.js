@@ -88,6 +88,8 @@ test('#6882: every navigation to the board is checked before it leaves, and canc
   }
   const block = nav.slice(gate, nav.indexOf('boardNavs[boardNav] = uri;', gate));
   inOrder(block, ['args.put_Cancel(1);',
+    // no board page loads while the window shows why or starts over (Back to one in the history)
+    'if (boardNotConfirmed || !navigatedToBoard) return;',
     'bool checkedAlready = (boardRedirect != 0 && boardNavs.ContainsKey(boardNav)) || (navigationApproved != null && navigationApproved == uri);',
     'navigationApproved = null;',
     'KosmosLauncher.NavigationDecision(KosmosLauncher.CheckBoardBeforeReuse(port, KosmosLauncher.ReuseQuickCheckMs))',
@@ -149,7 +151,7 @@ test('#6882: the reloads the window starts itself (a crashed page, F5 and the ot
   inOrder(keys, ['args.get_KeyEventKind(out kind);',
     'if (kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN && kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN) return;',
     'args.get_VirtualKey(out key);', 'KosmosLauncher.GetKeyState(KosmosLauncher.VirtualKeyControl) & 0x8000',
-    'if (!KosmosLauncher.IsReloadKey(key, control)) return;', 'string onScreen = BoardPageOnScreen();', 'if (onScreen == null) return;',
+    'KosmosLauncher.GetKeyState(KosmosLauncher.VirtualKeyAlt) & 0x8000', 'if (!KosmosLauncher.IsReloadKey(key, control, alt)) return;', 'string onScreen = BoardPageOnScreen();', 'if (onScreen == null) return;',
     'args.put_Handled(1);', 'CheckNavigationAgain(onScreen);'], 'the reload keys');
   assert.match(SOURCE, /controller\.add_AcceleratorKeyPressed\(new AcceleratorKeyPressed\(this\), out token\);/, 'the window never hears a reload key');
   assert.match(SOURCE, /public class AcceleratorKeyPressed : ICoreWebView2AcceleratorKeyPressedEventHandler\n\{[\s\S]*?try \{ form\.OnAcceleratorKeyPressed\(args\); \}/);
@@ -280,7 +282,7 @@ class ReproofProbe {
         break;
       }
       case "keys": {
-        foreach (string k in a[1].Split(',')) { string[] p = k.Split(':'); Console.Write(KosmosLauncher.IsReloadKey(Convert.ToUInt32(p[0], 16), p[1] == "ctrl") ? "1" : "0"); }
+        foreach (string k in a[1].Split(',')) { string[] p = k.Split(':'); Console.Write(KosmosLauncher.IsReloadKey(Convert.ToUInt32(p[0], 16), p[1].Contains("ctrl"), p[1].Contains("alt")) ? "1" : "0"); }
         break;
       }
       case "patient": Console.Write(KosmosLauncher.CheckBoardPatiently(int.Parse(a[1]), KosmosLauncher.ReuseProofTimeoutMs, int.Parse(a[2]))); break;
@@ -394,7 +396,8 @@ test('#6882: the rules, over every way a check can come out', WINDOWS_ONLY, asyn
 test('#6882: the reload keys are F5, the Refresh key and Ctrl+R, and nothing else', WINDOWS_ONLY, async (t) => {
   if (!needsProbe(t)) return;
   // F5, Ctrl+F5, Refresh, Ctrl+R | R alone, F4, F6, Ctrl+T, Ctrl+Shift+... is Ctrl
-  assert.equal(await probeAsync(['keys', '74:no,74:ctrl,A8:no,52:ctrl,52:no,73:no,75:no,54:ctrl,0D:ctrl']), '111100000');
+  // AltGr+R (Ctrl+Alt+R) types a character on some layouts, so it is not a reload.
+  assert.equal(await probeAsync(['keys', '74:no,74:ctrl,A8:no,52:ctrl,52:no,73:no,75:no,54:ctrl,0D:ctrl,52:ctrl+alt,74:alt']), '11110000001');
 });
 
 test('#6882: a board too busy for the quick check waits for the full one, which it passes, and is never refused for it', WINDOWS_ONLY, async (t) => {
