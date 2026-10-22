@@ -1988,7 +1988,8 @@ test('the task routes: create over the wire, refusals write nothing, close and r
   for (const [label, body, want] of [
     ['no sentence', {}, /say what needs doing/],
     ['blank sentence', { sentence: '  ' }, /say what needs doing/],
-    ['oversize sentence', { sentence: 'x'.repeat(201) }, /200 characters or fewer/],
+    // #6921: an oversize title is shortened now; it is refused only when moving it overflows the detail.
+    ['oversize sentence that overflows the detail', { sentence: 'x'.repeat(201), detail: 'y'.repeat(1900) }, /with it moved into the detail/],
   ]) {
     const r = await post(`/api/project/${made.project.id}/tasks`, body);
     assert.equal(r.status, 400, `${label} was accepted`);

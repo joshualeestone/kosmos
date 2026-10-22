@@ -51,9 +51,22 @@ test('#6921: fitTitle cuts at a word, keeps the whole title first in the detail'
   assert.ok(r.sentence.length <= MAX, 'the new title fits: ' + r.sentence.length);
   assert.ok(r.sentence.endsWith('...'));
   assert.ok(title.startsWith(r.sentence.slice(0, -3)), 'the title is a prefix of the original');
-  assert.match(r.sentence.slice(0, -3), /word\d+$/, 'cut at a word boundary, not mid-word');
+  const kept = r.sentence.slice(0, -3);
+  assert.match(title.charAt(kept.length), /\s/, 'cut at a word boundary: the next character of the original is a space');
   assert.equal(r.detail, title + '\n\nwhat they should know');
   assert.equal(tasks.fitTitle(title, '   ').detail, title, 'a blank detail becomes just the title');
+});
+
+test('#6921: a detail that is not text is still refused when the title is long', () => {
+  const p = projects.create({ name: 'Typed' });
+  assert.equal(tasks.fitTitle(long(60), 42).moved, false, 'no move, so taskProblem sees the 42');
+  assert.throws(() => tasks.create(p.id, { sentence: long(60), detail: 42 }), Error);
+  assert.equal((projects.readAll().find((x) => x.id === p.id).tasks || []).length, 0, 'nothing written');
+});
+
+test('#6921: a title whose only space comes early is hard-cut, never left near-empty', () => {
+  const r = tasks.fitTitle('a ' + 'y'.repeat(300), null);
+  assert.equal(r.sentence, ('a ' + 'y'.repeat(300)).slice(0, MAX - 3) + '...');
 });
 
 test('#6921: one word longer than the cap is hard-cut; a surrogate pair is never split', () => {
@@ -71,7 +84,7 @@ test('#6921: create stores the shortened title, and refuses only when the move o
   assert.ok(made.sentence.length <= MAX);
   assert.equal(made.detail, title + '\n\nmore');
   assert.throws(() => tasks.create(p.id, { sentence: title, detail: 'z'.repeat(tasks.DETAIL_MAX - 10) }),
-    /over 200 characters, and with it moved into the detail/);
+    new RegExp('over ' + MAX + ' characters, and with it moved into the detail'));
   assert.equal(projects.readAll().find((x) => x.id === p.id).tasks.length, 1, 'the refusal wrote nothing');
 });
 

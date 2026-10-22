@@ -115,12 +115,14 @@ function doneWhenWords(list) {
 }
 
 /* #6921: a title over SENTENCE_MAX is shortened instead of refused (an agent's add failed outright and it had to retry).
-   The title is cut at the last space that leaves room for "...", or hard-cut when a single word is longer; the whole
-   original title goes first in the detail, so no words are lost. Returns { sentence, detail, moved }; anything that is
-   not an over-long string comes back unchanged, so taskProblem still judges it. The screen caps the box at
-   SENTENCE_MAX, so this only ever acts on the CLI and API paths. */
+   The title is cut at the last space that leaves room for "...", or hard-cut when there is no space in the second half
+   of that room; the whole original title goes first in the detail, so no words are lost. Returns
+   { sentence, detail, moved }; a title that is not an over-long string, or a detail that is not text, comes back
+   unchanged, so taskProblem still judges it. The screen caps the box at SENTENCE_MAX, and the webhook route refuses an
+   over-long title before it gets here, so this acts on the CLI and API paths. */
 function fitTitle(sentence, detail) {
   if (typeof sentence !== 'string' || sentence.trim().length <= SENTENCE_MAX) return { sentence, detail, moved: false };
+  if (detail !== undefined && detail !== null && typeof detail !== 'string') return { sentence, detail, moved: false };
   const full = sentence.trim();
   const room = SENTENCE_MAX - 3;
   let cut = '';
@@ -129,7 +131,7 @@ function fitTitle(sentence, detail) {
     cut += ch;
   }
   const space = cut.search(/\s\S*$/u);
-  const title = (space > 0 ? cut.slice(0, space) : cut).trimEnd() + '...';
+  const title = (space > room / 2 ? cut.slice(0, space) : cut).trimEnd() + '...';
   const extra = (typeof detail === 'string' && detail.trim()) ? detail.trim() : '';
   return { sentence: title, detail: extra ? full + '\n\n' + extra : full, moved: true };
 }

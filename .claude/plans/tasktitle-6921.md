@@ -17,7 +17,11 @@ report asked to stop; moving loses nothing, because every word is kept in the de
   so a surrogate pair is never split.
 - Whole original title first in the detail, then a blank line, then any detail that was given.
 - If that makes the detail pass its 2000 cap, the add is still refused, with a message naming both caps.
-- In tasks.create, so every non-screen path (CLI, API, webhook) gets it. The screen's box already stops at 200.
+- In tasks.create, so the CLI and API paths get it. The screen's box already stops at 200. The webhook route keeps
+  its own refusal (server.js, before tasks.create; pinned by server.webhooks-1307.test.js): a webhook caller gets clear
+  wording and has no note channel to hear that a title was shortened.
+- A detail that is not text stays refused, whatever the title's length.
+- A title whose only space comes early is hard-cut instead, so the cut never leaves a near-empty title.
 - The note goes first in the add's answer, so #5319's copyable command stays the end of the line. No double quote or
   backslash in it (the macOS CLI lifts it with sed).
 
