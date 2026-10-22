@@ -64,6 +64,12 @@ test('#6921: a detail that is not text is still refused when the title is long',
   assert.equal((projects.readAll().find((x) => x.id === p.id).tasks || []).length, 0, 'nothing written');
 });
 
+test('#6921: a word that ends exactly at the room is kept, not dropped', () => {
+  const room = MAX - 3;
+  const title = 'a'.repeat(room - 10) + ' ' + 'b'.repeat(9) + ' tail words after the cut';   // the b-word ends at room
+  assert.equal(tasks.fitTitle(title, null).sentence, title.slice(0, room) + '...');
+});
+
 test('#6921: a title whose only space comes early is hard-cut, never left near-empty', () => {
   const r = tasks.fitTitle('a ' + 'y'.repeat(300), null);
   assert.equal(r.sentence, ('a ' + 'y'.repeat(300)).slice(0, MAX - 3) + '...');

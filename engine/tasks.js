@@ -115,8 +115,8 @@ function doneWhenWords(list) {
 }
 
 /* #6921: a title over SENTENCE_MAX is shortened instead of refused (an agent's add failed outright and it had to retry).
-   The title is cut at the last space that leaves room for "...", or hard-cut when there is no space in the second half
-   of that room; the whole original title goes first in the detail, so no words are lost. Returns
+   The title keeps the most whole words that leave room for "...", or is hard-cut when that would keep less than half
+   of the room; the whole original title goes first in the detail, so no words are lost. Returns
    { sentence, detail, moved }; a title that is not an over-long string, or a detail that is not text, comes back
    unchanged, so taskProblem still judges it. The screen caps the box at SENTENCE_MAX, and the webhook route refuses an
    over-long title before it gets here, so this acts on the CLI and API paths. */
@@ -130,7 +130,7 @@ function fitTitle(sentence, detail) {
     if ((cut + ch).length > room) break;
     cut += ch;
   }
-  const space = cut.search(/\s\S*$/u);
+  const space = /\s/u.test(full.charAt(cut.length)) ? cut.length : cut.search(/\s\S*$/u);
   const title = (space > room / 2 ? cut.slice(0, space) : cut).trimEnd() + '...';
   const extra = (typeof detail === 'string' && detail.trim()) ? detail.trim() : '';
   return { sentence: title, detail: extra ? full + '\n\n' + extra : full, moved: true };
