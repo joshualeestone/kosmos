@@ -31,7 +31,7 @@ test('#3417 decide() answers allow for the shapes of Claude\'s dangerous-rm safe
   }
 });
 
-test('#3417 CONTROL: the protected-place rule still stays silent for the same shape, and only there', () => {
+test('#3417 CONTROL: the protected-place rule still stays silent for the same shape (.git, not .github)', () => {
   assert.equal(hook.decide(bash('rm -rf "$S"/.git')), null);
   assert.equal(hook.decide(bash('rm -rf "$S"/.github')).hookSpecificOutput.decision.behavior, 'allow', '.github is not .git');
 });
