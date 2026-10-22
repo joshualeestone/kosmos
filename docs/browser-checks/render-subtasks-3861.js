@@ -217,17 +217,17 @@ function chk(ok, label, extra) {
     }
     /* kosmos#6501: every subtask built or closed, so the parent's page offers "Close them and this task". One press
        closes the built subtasks and then the parent; a refusal stops it there, names the task, and leaves the parent
-       open. A fresh project per run: 1 the parent, 2 and 3 built, 4 already closed. */
+       open. A fresh project per run: 1 the parent, 2, 3 and 5 built, 4 already closed. */
     for (const width of [1400, 390]) {
       const tag = `[rollup ${width}]`;
       const roll = projects.create({ name: 'Roll-up ' + width });
       projects.addAgent(roll.id, 'ada', null);
       tasks.create(roll.id, { sentence: 'Ship the brochure' });
-      for (const s of ['Draft the copy', 'Lay out the pages', 'Old proof']) tasks.create(roll.id, { sentence: s, parent: 1, who: 'ada' });
-      tasks.setBuilt(roll.id, 2, { by: 'ada' });
-      tasks.setBuilt(roll.id, 3, { by: 'ada' });
+      for (const s of ['Draft the copy', 'Lay out the pages', 'Old proof', 'Print the cover']) tasks.create(roll.id, { sentence: s, parent: 1, who: 'ada' });
+      for (const n of [2, 3, 5]) tasks.setBuilt(roll.id, n, { by: 'ada' });
       tasks.close(roll.id, 4);
       const read = (n) => projects.readAll().find((p) => p.id === roll.id).tasks.find((t) => t.number === n);
+      const closed = () => JSON.stringify([1, 2, 3, 4, 5].map((n) => (read(n).closedAt ? n : 0)).filter(Boolean));
       const page = await browser.newPage({ viewport: { width, height: 1000 } });
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
@@ -243,29 +243,28 @@ function chk(ok, label, extra) {
         allDone: !document.getElementById('tk-subs-done').hidden }));
       chk(line.shown && !line.allDone && /Close them and this task$/.test(line.text), `${tag} every subtask built or closed: the line offers Close them and this task`, JSON.stringify(line));
 
-      // Review 2: a request that never answers (aborted) on task 3: 2 closes, 3 and the parent stay open, and the line says it could not finish.
-      await page.route('**/task/3/close', (r) => r.abort('connectionreset'));
-      await page.click('#tk-subs-closeall');
-      await page.waitForFunction(() => /^We could not finish/.test(document.getElementById('tk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
-      const threwMsg = await page.evaluate(() => document.getElementById('tk-msg').textContent);
-      chk(threwMsg === 'We could not finish closing them. The list below shows where it stopped.', `${tag} a request with no answer says it could not finish`, threwMsg);
-      chk(!!read(2).closedAt && !read(3).closedAt && !read(1).closedAt, `${tag} it stopped where the request failed: 2 closed, 3 and the parent open`,
-        JSON.stringify([read(1).closedAt, read(2).closedAt, read(3).closedAt]));
-      await page.unroute('**/task/3/close');
-
-      // The refusal arm: task 3's close is refused, so nothing more closes, the parent stays open, and the line says which.
-      await openParent();
+      // The refusal arm: 3's close is refused after 2 closed, so it stops there: 5 is never asked, the parent stays open,
+      // and the line names 3 and counts what it already closed (review 3).
       await page.route('**/task/3/close', (r) => r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'that task cannot be closed right now' }) }));
       await page.click('#tk-subs-closeall');
       await page.waitForFunction(() => /^Task #3: /.test(document.getElementById('tk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
       const refusedMsg = await page.evaluate(() => document.getElementById('tk-msg').textContent);
-      chk(refusedMsg === 'Task #3: that task cannot be closed right now. This task is still open.', `${tag} a refusal names the task and says the parent is still open`, refusedMsg);
-      chk(!!read(2).closedAt && !read(3).closedAt && !read(1).closedAt, `${tag} it stopped at the refusal: 2 closed, 3 and the parent open`,
-        JSON.stringify([read(1).closedAt, read(2).closedAt, read(3).closedAt]));
+      chk(refusedMsg === 'Task #3: that task cannot be closed right now. 1 subtask before it is closed. This task is still open.', `${tag} a refusal names the task, counts what closed before it, and says the parent is still open`, refusedMsg);
+      chk(closed() === JSON.stringify([2, 4]), `${tag} it stopped at the refusal: 2 closed; 3, the later 5 and the parent open`, closed());
       await page.unroute('**/task/3/close');
 
-      // The press, pressed twice in a row (review 2): what is left (3) closes, then the parent, each asked once; the closed
-      // subtask stays closed and is never asked again.
+      // Review 2: a request that never answers (aborted) on 5: 3 closes, 5 and the parent stay open, and the line says it could not finish.
+      await openParent();
+      await page.route('**/task/5/close', (r) => r.abort('connectionreset'));
+      await page.click('#tk-subs-closeall');
+      await page.waitForFunction(() => /^We could not finish/.test(document.getElementById('tk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+      const threwMsg = await page.evaluate(() => document.getElementById('tk-msg').textContent);
+      chk(threwMsg === 'We could not finish closing them. The list below shows where it stopped.', `${tag} a request with no answer says it could not finish`, threwMsg);
+      chk(closed() === JSON.stringify([2, 3, 4]), `${tag} it stopped where the request failed: 3 closed, 5 and the parent open`, closed());
+      await page.unroute('**/task/5/close');
+
+      // The press, pressed twice in a row (review 2): what is left (5) closes, then the parent, each asked once; the closed
+      // subtasks are never asked again. Focus then sits on the page's own Mark as done (review 3).
       await openParent();
       const asked = [];
       const count = (req) => { const m = /\/task\/(\d+)\/close$/.exec(req.url()); if (m && req.method() === 'POST') asked.push(Number(m[1])); };
@@ -274,9 +273,10 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.getElementById('tk-subs-built').hidden, null, { timeout: 8000 }).catch(() => {});
       await page.waitForTimeout(500);
       page.off('request', count);
-      chk(JSON.stringify(asked) === JSON.stringify([3, 1]), `${tag} a double press asks each close once: 3, then the parent`, JSON.stringify(asked));
-      chk(!!read(3).closedAt && !!read(1).closedAt && !!read(2).closedAt && !!read(4).closedAt, `${tag} one press closed the built subtasks and then the parent`,
-        JSON.stringify([1, 2, 3, 4].map((n) => !!read(n).closedAt)));
+      chk(JSON.stringify(asked) === JSON.stringify([5, 1]), `${tag} a double press asks each close once: 5, then the parent`, JSON.stringify(asked));
+      chk(closed() === JSON.stringify([1, 2, 3, 4, 5]), `${tag} one press closed the built subtasks and then the parent`, closed());
+      const focused = await page.evaluate(() => document.activeElement && document.activeElement.id);
+      chk(focused === 'tk-done', `${tag} focus moves to Mark as done once the line is gone`, String(focused));
       chk(await page.evaluate(() => document.getElementById('tk-msg').textContent) === '', `${tag} no message after it succeeded`);
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'subtasks-rollup-' + width + '.png'), fullPage: false });
       chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));

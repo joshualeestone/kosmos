@@ -68628,7 +68628,7 @@ document.getElementById('tk-subs-closeall').addEventListener('click', async () =
         const why = (body && body.error) || 'we could not close it';
         msg.textContent = n === Number(t.number)
           ? why + (closedKids ? '. Its built subtasks are closed.' : '')
-          : 'Task #' + n + ': ' + why + '. This task is still open.';
+          : 'Task #' + n + ': ' + why + '.' + (closedKids ? ' ' + closedKids + (closedKids === 1 ? ' subtask before it is' : ' subtasks before it are') + ' closed.' : '') + ' This task is still open.';
         return;
       }
       if (n !== Number(t.number)) closedKids += 1;
@@ -68639,9 +68639,10 @@ document.getElementById('tk-subs-closeall').addEventListener('click', async () =
     msg.textContent = 'We could not finish closing them. The list below shows where it stopped.';   // the reload repaints the truth
   } finally {
     // Repainted before the press is live again, so a second press acts on the new state, not the old one (as Mark as done).
-    try { await pjReload(); paintTaskActivity(TK_OPEN); tkReceiptSync(); } catch { /* the next poll repaints */ }
+    let repainted = false;
+    try { await pjReload(); paintTaskActivity(TK_OPEN); tkReceiptSync(); repainted = true; } catch { /* the next poll repaints */ }
     btn.disabled = false;
-    if (finished) { const doneBtn = document.getElementById('tk-done'); if (doneBtn) doneBtn.focus(); }   // the line is gone; keep focus on the page
+    if (finished && repainted) { const doneBtn = document.getElementById('tk-done'); if (doneBtn) doneBtn.focus(); }   // the line is gone; keep focus on the page
   }
 });
 document.getElementById('tk-subadd').addEventListener('click', () => openNewTask(PJ_CURRENT, 'task', TK_OPEN));

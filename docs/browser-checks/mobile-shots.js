@@ -191,15 +191,17 @@ async function offProject6895(page, data) {
     return id;
   }, [OFFPROJECT_6895, data.chatAgent, data.askAgent]);
 }
-async function offProject6895Gone(page) {
+/* A screen's throwaway project, by name, deleted after its shot (kosmos#6501: one helper for every such screen). */
+async function throwawayProjectGone(page, projectName) {
   const st = await page.evaluate(async (name) => {
     const all = await (await fetch('/api/projects')).json().catch(() => ({}));
     const list = Array.isArray(all) ? all : (all && Array.isArray(all.projects) ? all.projects : []);
     const p = list.find((x) => x && x.name === name);
     return p ? (await fetch('/api/project/' + encodeURIComponent(p.id), { method: 'DELETE' })).status : 200;
-  }, OFFPROJECT_6895);
-  if (st !== 200) throw new Error('could not delete the throwaway project after the shot (' + st + ')');
+  }, projectName);
+  if (st !== 200) throw new Error('could not delete the throwaway project "' + projectName + '" after the shot (' + st + ')');
 }
+async function offProject6895Gone(page) { await throwawayProjectGone(page, OFFPROJECT_6895); }
 async function openTab(page, tab) {
   // kosmos#6846 (--app-tabs): the iPhone app opens a section from its native tab bar, through the board's own door.
   if (await page.evaluate(() => document.documentElement.classList.contains('kapptabs') && typeof window.kosmosAppTab === 'function')) {
@@ -1598,15 +1600,7 @@ const SCREENS = [
     await page.waitForSelector('#tk-subs-built:not([hidden])', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => document.getElementById('tk-subs-built').scrollIntoView({ block: 'center' }));
     await page.waitForTimeout(300);
-  }, after: async (page) => {
-    const st = await page.evaluate(async (name) => {
-      const all = await (await fetch('/api/projects')).json().catch(() => ({}));
-      const list = Array.isArray(all) ? all : (all && Array.isArray(all.projects) ? all.projects : []);
-      const p = list.find((x) => x && x.name === name);
-      return p ? (await fetch('/api/project/' + encodeURIComponent(p.id), { method: 'DELETE' })).status : 200;
-    }, ROLLUP_6501);
-    if (st !== 200) throw new Error('could not delete the task-rollup-6501 project after the shot (' + st + ')');
-  } },
+  }, after: async (page) => { await throwawayProjectGone(page, ROLLUP_6501); } },
   /* kosmos#4787 slice 1b: the task page's Repeats control with a rule set (every Tuesday at 10:30am), scrolled to it. */
   { name: 'task-repeat', owner: 'Mona Lisa', go: async (page, data) => {
     const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ every: 'week', on: 'tue', at: '10:30' }) }).then((r) => r.status), data.projectId);

@@ -19,8 +19,10 @@ Card: kosmos#6501 (agent feedback 10-18 and 10-22, two installs). Item 1 shipped
 ## Rejected
 - Auto-closing built tasks (#3951: closing is the person's "it is live").
 - A "reviewed and delivered" state; the daily status view (item 3) stays parked.
-- One server route that closes a family in one call: a second close path to keep in step with setClosed's side
-  effects (built, hold and repeat dropped, events). Several calls through the one route keep one path.
+- The existing bulk route, POST /api/tasks/close (screen-only, an ordered list, the same tasks.close): it carries on
+  past a refusal and skips tasks already closed, so the parent could close after a subtask was refused. This press
+  must stop at the first refusal and leave the parent open, so it makes one call per task, in order. (Corrected in
+  review round 3: the first version of this line said no such route existed.)
 - The same link on the Tasks board row ("all subtasks built, ready for you to check"): the check happens on the
   parent's page, where the person sees each subtask.
 
@@ -51,3 +53,16 @@ Card: kosmos#6501 (agent feedback 10-18 and 10-22, two installs). Item 1 shipped
   each). The node order pin alone could not see a missing disabled flag.
 - Not changed (NITs): focus after a refusal (as Mark as done), a press that outlives leaving the page (the reload
   repaints), and the subtask-refusal message not counting the subtasks it already closed (the list shows them).
+
+## Review round 3
+- The plan said no route closes a family in one call; POST /api/tasks/close does. The real reason not to use it is
+  now written above: it carries on past a refusal, and this press must stop there with the parent open.
+- A refused subtask now counts what this press already closed ("1 subtask before it is closed."), as the
+  refused-parent message already did.
+- Focus moves to Mark as done only when the reload worked (the line is gone only then).
+- The browser check has a third built subtask after the refused one, so it proves the press stops (5 is never
+  asked), and it checks the focus move.
+- mobile-shots.js: the two throwaway-project screens delete through one helper, throwawayProjectGone(page, name).
+- Known, stated: a built subtask that has open subtasks of its own counts as built (as tkPaintSubtasks shows it), so
+  this press closes it and leaves its own subtasks open. The line says to check each one first; the engine allows it
+  (nothing cascades).
