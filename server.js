@@ -22791,19 +22791,22 @@ const server = http.createServer(async (req, res) => {
           /* Held. Review 3: the held note follows the task's LATEST change note, and is cleared when that is what the room
              already heard, so a problem that cleared within the hour is never said later as news. */
           const latest = typeof task.lastChangeNote === 'string' ? task.lastChangeNote : '';
-          if (latest) {
-            if (taskrepeat.sameWords(latest, said.note)) delete said.pending; else said.pending = latest;
-          }
+          /* Review 4: a run with no note (it clears the task's change note) drops the held one too: it does not say the
+             problem is still there, so the held words are never said later as news. */
+          if (latest && !taskrepeat.sameWords(latest, said.note)) said.pending = latest; else delete said.pending;
         } else {
           // Review 2: measured against what the room was last told, so a change held back by the hour is said now.
           const line = taskrepeat.roomRunLine(tasks.runBefore(task), task, said);
-          if (line) {
+          /* Review 4: remembered only when the room actually got the line, so a failed append does not mute the task. */
+          if (line && messages.roomNote(id, line.text)) {
             /* Review 3: remember what the line SAID: its note (or the note the room already had), and the reading as it now
-               stands (the line says it when it changed; otherwise the room already had it). */
+               stands (the line says it when it changed; otherwise the room already had it).
+               Review 4: the FIRST line of a task that names no note records the task's standing change note as known, so
+               an older note (from before this run, or before the board started) is never said later as news. */
+            const standing = typeof task.lastChangeNote === 'string' ? task.lastChangeNote : '';
             ROOM_RUN_SAID.set(key, { at: Date.now(), ruleAt: task.repeatSetAt || '',
               reading: line.reading || (said ? said.reading : (task.verified && typeof task.verified.value === 'string' ? task.verified.value : '')),
-              note: line.note || (said ? said.note : '') });
-            messages.roomNote(id, line.text);
+              note: line.note || (said ? said.note : standing) });
           }
         }
       }

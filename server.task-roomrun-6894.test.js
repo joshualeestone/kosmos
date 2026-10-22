@@ -163,24 +163,81 @@ test('#6894: review 3: a held problem that cleared is not said later; a new rule
   _ageRoomRunSaidForTest(61 * 60 * 1000);
   await ran({}, mona);
   assert.deepEqual(roomNotes().slice(c0).length, 1, 'the cleared problem is never said as news');
-  // Flushed once, then the same note after a bare run is not said again.
+  // Review 4: a held note that a bare run then replaced is dropped, not said after the hour (the bare run does not say
+  // the problem is still there). CONTROL: a held note that nothing replaced IS said after the hour.
   await ran({ note: 'disk at 80 percent' }, zed);         // said (the hour has passed): opens a new hour
   await ran({ note: 'disk at 95 percent' }, mona);        // held
-  await ran({}, zed);                                     // clears the task's note
+  await ran({}, zed);                                     // clears the task's note, and the held one
   _ageRoomRunSaidForTest(61 * 60 * 1000);
-  await ran({}, mona);                                    // flush: says the held note
+  await ran({}, mona);
   let notes = roomNotes().slice(c0);
-  assert.equal(notes.length, 3);
-  assert.match(notes[2], /: disk at 95 percent$/);
+  assert.equal(notes.length, 2, 'a held note a bare run replaced is never said as news');
+  assert.match(notes[1], /: disk at 80 percent$/);
+  await ran({ note: 'disk at 97 percent' }, zed);         // said: the hour has passed
+  await ran({ note: 'disk at 99 percent' }, mona);        // held
   _ageRoomRunSaidForTest(61 * 60 * 1000);
-  await ran({ note: 'disk at 95 percent' }, zed);
-  assert.equal(roomNotes().slice(c0).length, 3, 'the note the room just heard is not said again');
+  await ran({ unchanged: true }, zed);                    // flush: nothing replaced it, so the held note is said
+  notes = roomNotes().slice(c0);
+  assert.equal(notes.length, 4, 'CONTROL: a held note nothing replaced is said after the hour');
+  assert.match(notes[3], /: disk at 99 percent$/);
+  _ageRoomRunSaidForTest(61 * 60 * 1000);
+  await ran({ note: 'disk at 99 percent' }, mona);
+  assert.equal(roomNotes().slice(c0).length, 4, 'the note the room just heard is not said again');
+  await ran({}, zed);                                     // clears the task's note, as before a new rule
   // A new rule starts fresh: the old rule's note does not silence the same words under it.
   assert.equal((await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '09:00' }, mona)).status, 200);
-  await ran({ note: 'disk at 95 percent' }, mona);
+  await ran({ note: 'disk at 99 percent' }, mona);
   notes = roomNotes().slice(c0);
-  assert.equal(notes.length, 4, 'under the new rule the note is news again');
-  assert.match(notes[3], /\(every day at 9am\): disk at 95 percent$/);
+  assert.equal(notes.length, 5, 'under the new rule the note is news again');
+  assert.match(notes[4], /\(every day at 9am\): disk at 99 percent$/);
+});
+
+test('#6894: review 4: a change note older than the room\'s first line is never said later as news', async () => {
+  _resetRoomRunSaidForTest();
+  const mona = { 'x-kosmos-agent-token': sendertoken.mint('mona').token };
+  const zed = { 'x-kosmos-agent-token': sendertoken.mint('zed').token };
+  const n = tasks.create(projectId, { sentence: 'Price watch', who: 'mona' }).number;
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, mona)).status, 200);
+  // Runners alternate: the same runner twice within a minute is one run (a duplicate).
+  let turn = 0;
+  const ran = async (body) => assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, body, (turn++ % 2) ? zed : mona)).status, 200);
+  // Yesterday's change note, recorded before the room has heard anything of this task (as after a board restart).
+  await ran({ note: 'price dropped to 40' });
+  _resetRoomRunSaidForTest();
+  const c0 = roomNotes().length;
+  await ran({ unchanged: true, value: '41' });            // a reading-only run: said, naming the reading alone
+  let notes = roomNotes().slice(c0);
+  assert.equal(notes.length, 1);
+  assert.match(notes[0], /reading 41/);
+  assert.doesNotMatch(notes[0], /price dropped/);
+  _ageRoomRunSaidForTest(61 * 60 * 1000);
+  await ran({ unchanged: true });                         // nothing new: the old note is not news
+  assert.equal(roomNotes().slice(c0).length, 1, 'the standing note from before the first line is not said as news');
+  // CONTROL: a new note after that IS said.
+  await ran({ note: 'price rose to 45' });
+  notes = roomNotes().slice(c0);
+  assert.equal(notes.length, 2, 'CONTROL: a new note is said');
+  assert.match(notes[1], /price rose to 45/);
+});
+
+test('#6894: review 4: a line the room did not get does not mute the task', async () => {
+  _resetRoomRunSaidForTest();
+  const mona = { 'x-kosmos-agent-token': sendertoken.mint('mona').token };
+  const zed = { 'x-kosmos-agent-token': sendertoken.mint('zed').token };
+  const n = tasks.create(projectId, { sentence: 'Queue watch', who: 'mona' }).number;
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, mona)).status, 200);
+  let turn = 0;   // the same runner twice within a minute is one run (a duplicate), so runners alternate
+  const ran = async (body) => assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, body, (turn++ % 2) ? zed : mona)).status, 200);
+  const real = messages.roomNote;
+  let failed = 0;
+  messages.roomNote = () => { failed++; return false; };
+  try { await ran({ note: 'queue at 12' }); } finally { messages.roomNote = real; }
+  assert.equal(failed, 1, 'the line was tried');
+  const c0 = roomNotes().length;
+  await ran({ note: 'queue at 14' });                     // within the hour: said, since the room never got the first
+  const notes = roomNotes().slice(c0);
+  assert.equal(notes.length, 1, 'a failed line does not hold the next one back for the hour');
+  assert.match(notes[0], /queue at 14/);
 });
 
 test('#6894: CONTROL: setting the rule or a one-off task says nothing in the room', async () => {
