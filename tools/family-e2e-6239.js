@@ -15,8 +15,8 @@
  * WHAT IT PROVES, each step a person's own action through the real routes:
  *   1-2  a local coordinator (dev codes, no second factor) and relay come up.
  *   3-4  the parent signs up on the web (a browser session) and on P; the parent makes the child's account at a
- *        plus-address of the parent's (kosmos#6379), and that account signs in on K;
- *        P allows the parent's browser, as the console needs an allowed sign-in.
+ *        plus-address of the parent's (kosmos#6379), and that account signs in on K; the parent's browser opens P
+ *        through the relay (the knock, kosmos#6887) and P allows it, as the console needs an allowed sign-in.
  *   5    the operator makes the family: org-create --kind family, the parent its admin.
  *   6    the parent makes a join code in the console (/v1/org/invites).
  *   7    K previews it: a family, with the family's own words (no company), and nothing joined (control).
@@ -35,6 +35,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
+const tls = require('node:tls');
 const dns = require('node:dns');
 const crypto = require('node:crypto');
 const { spawn, execFileSync } = require('node:child_process');
@@ -83,7 +84,7 @@ const nextTickOffset = (t) => (t < ROLLUP_FIRST_MS ? ROLLUP_FIRST_MS : t < ROLLU
 const COMPANY_CONSENT_HASH = '34a95f58313ab7cc39946efb67c9e744ae3fa8a85962f70b554a73ff9b88f1ba';   // kosmos#6594: the reviewer line split in two, each under the board's 300 (relay #546)
 // One table: each step's label prefix and how many checks it makes. EXPECTED_CHECKS and the "never ran" list both come
 // from it, so adding a check means changing one number here.
-const STEP_CHECKS = { 'step 1': 1, 'step 2': 1, 'step 4': 4, 'step 4b': 3, 'step 5': 1, 'step 6': 1, 'step 7': 3, 'step 8': 1,
+const STEP_CHECKS = { 'step 1': 1, 'step 2': 1, 'step 4': 4, 'step 4b': 4, 'step 5': 1, 'step 6': 1, 'step 7': 3, 'step 8': 1,
   'step 9': 3, 'step 9b': 2, 'step 10': 1, 'step 11': 3 };
 const EXPECTED_CHECKS = Object.values(STEP_CHECKS).reduce((a, b) => a + b, 0);
 const T0 = Date.now();
@@ -334,6 +335,10 @@ function boardEnv(b) {
     AGENT_WORKFORCE_TUNNEL_RELAY: REL.tunnelAddr,
     AGENT_WORKFORCE_TUNNEL_CA: REL.ca,
     AGENT_WORKFORCE_TUNNEL_STATE: b.state,
+    /* kosmos#6887: the tunnel inherits this. Its gate asks for the second sign-in step unless told otherwise, and this
+       run's coordinator mints none (KOSMOS_REQUIRE_SECOND 0), so without it P's gate refuses the parent's browser in 4b
+       as "not valid any more" instead of asking P. */
+    KOSMOS_REQUIRE_SECOND: '0',
   });
 }
 async function startBoard(letter) {
@@ -383,6 +388,31 @@ async function webSignupSession(email, deviceId) {
   return r.json;
 }
 const bearer = (tok) => ({ authorization: 'Bearer ' + tok });
+/* kosmos#6887: a browser opens board b through the relay with its session, as the gate's sign-in page posts it
+   (kosmos-relay crates/e2e/tests/door.rs does the same). Since kosmos-relay #433 (kosmos#6407) a computer lists only
+   devices that asked it, and this POST is that asking: the gate notes the knock. TLS ends at b's tunnel, trusted by the
+   CA in its state folder, under the address it registered. Resolves { status, text }; status 0 when it never answered. */
+function knockAt(b, token) {
+  let host = null;
+  let ca = null;
+  try { host = fs.readFileSync(path.join(b.state, 'address'), 'utf8').trim() || null; } catch { /* said below */ }
+  try { ca = fs.readFileSync(path.join(b.state, 'ca.crt')); } catch { /* said below */ }
+  if (!host || !ca) return Promise.resolve({ status: 0, text: 'no ' + (host ? 'ca.crt' : 'address') + ' in ' + b.letter + '\'s tunnel state' });
+  const body = JSON.stringify({ token });
+  const req = 'POST /_kosmos/session HTTP/1.1\r\nhost: ' + host + '\r\norigin: https://' + host + '\r\nsec-fetch-site: same-origin\r\n'
+    + 'content-type: application/json\r\ncontent-length: ' + Buffer.byteLength(body) + '\r\nconnection: close\r\n\r\n' + body;
+  return new Promise((res) => {
+    let out = '';
+    let done = false;
+    const end = (status, text) => { if (!done) { done = true; s.destroy(); res({ status, text }); } };
+    const s = tls.connect({ host: '127.0.0.1', port: REL.publicPort, servername: host, ca }, () => s.write(req));
+    s.setEncoding('utf8');
+    s.on('data', (d) => { out += d; });
+    s.on('end', () => { const m = out.match(/^HTTP\/1\.1 (\d{3})/); end(m ? Number(m[1]) : 0, out.slice(out.indexOf('\r\n\r\n') + 4) || out); });
+    s.on('error', (e) => end(0, String(e.message || e)));
+    s.setTimeout(15000, () => end(0, 'no answer in 15 s'));
+  });
+}
 
 async function main() {
   console.log('#6239 family join proof, run ' + RUN + ', sandbox ' + SANDBOX);
@@ -446,9 +476,13 @@ async function main() {
   const pub = await freePort();
   const tun = await freePort();
   REL.tunnelAddr = '127.0.0.1:' + tun;
+  REL.publicPort = pub;   // where a phone or browser reaches a computer (kosmos#6887: the parent's browser knocks at P)
   REL.ca = path.join(tls, 'ca.pem');
   REL.args = ['serve', '--public-addr', '127.0.0.1:' + pub, '--tunnel-addr', REL.tunnelAddr,
-    '--tunnel-cert', path.join(tls, 'cert.pem'), '--tunnel-key', path.join(tls, 'key.pem'), '--coordinator-key', pinned];
+    '--tunnel-cert', path.join(tls, 'cert.pem'), '--tunnel-key', path.join(tls, 'key.pem'), '--coordinator-key', pinned,
+    /* kosmos#6887: the coordinator's domain, or the relay keeps its placeholder (kosmos.invalid), refuses every tunnel's
+       ticket for the name the tunnel asks, and no browser can reach a board through it (only 4b's knock needs that). */
+    '--domain', FEDPROOF_DOMAIN];
   const rl = start('relay', BIN.relay, REL.args, { env: relayEnv });
   REL.proc = rl; REL.log = rl.log;
   const relayUp = await waitFor(() => {
@@ -477,9 +511,9 @@ async function main() {
   chk(await boardSignin(K, kid, 'famk-' + RUN), 'step 4: K signs in as the child');
 
   // 4b. the parent's browser is allowed from P, as a person allows a new browser (the console needs an allowed sign-in).
-  /* A browser is listed on a computer once it knocks there; this harness has no browser to knock, so P's Allow is sent
-     with the code the sign-up answered (the four characters the person would match on screen), and the console's own
-     answer below (an allowed sign-in, or session_not_allowed) is what shows the Allow took. */
+  /* A browser is listed on a computer once it knocks there (kosmos#6407), so the harness knocks at P as the browser,
+     through the relay; P's Allow is sent with the code the sign-up answered (the four characters the person would match
+     on screen), and the console's own answer below (an allowed sign-in, or session_not_allowed) is what shows it took. */
   if (sess) {
     // CONTROL for step 6: before any Allow, the console refuses the parent's browser (not an allowed sign-in). Matched by
     // its words: the coordinator's answer carries no code field for this refusal, so the wording is the only handle.
@@ -487,6 +521,14 @@ async function main() {
     chk(c.status === 403 && /allow this sign-in on one of your computers first/.test(c.text), 'step 4b control: before the Allow, the console refuses the parent\'s browser',
       c.status + ' ' + c.text.slice(0, 160) + (c.status === 403 ? ' (matched by its words: a 403 with other words means the coordinator reworded it)' : ''));
   }
+  /* kosmos#6887: the browser asks P by opening it (the knock; without it P lists nothing since kosmos#6407). The gate
+     answers a valid session it has not allowed with 403 pending and the code the browser shows, which must be the code
+     the sign-up answered. Retried while P's tunnel is still connecting to the relay. */
+  let knock = { status: 0, text: 'no session' };
+  if (sess) knock = (await waitFor(async () => { const k = await knockAt(P, sess.token); return k.status ? k : null; }, 30000, 1000)) || await knockAt(P, sess.token);
+  const kj = (() => { try { return JSON.parse(knock.text); } catch { return null; } })();
+  chk(knock.status === 403 && !!kj && kj.pending === true && !!sess && kj.code === sess.match_code,
+    'step 4b: the parent\'s browser opens P through the relay and is told to wait, with the code its sign-up showed', knock.status + ' ' + String(knock.text).slice(0, 200));
   /* The coordinator names a session's device itself (kosmos#5422: an id the browser offers is replaced), so the row on
      P is found by the four characters the sign-up answered, as the person matches them on screen. */
   const listed = await waitFor(async () => {
