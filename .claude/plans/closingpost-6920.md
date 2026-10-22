@@ -42,7 +42,10 @@ decides.
 - The room's held strip still says paused while closing posts appear (web wording). The CLI side is done: a `room_held`
   refusal carries `closingUsed` when the member already landed one, and both CLIs offer the summary only without it.
 - A failed write of the tip post's refused row (best-effort, in a try/catch) leaves the member never eligible: holds,
-  the safe direction.
+  the safe direction. The CLI cannot see that, so it still offers the exception and the summary is held again.
+- Fan-out: a closing post is uncharged but still delivered to every member, so a room of N members can pass N long posts
+  per window, each waking the other N-1. Their replies are held, so it does not chain. Accepted over a per-room cap,
+  which could hold the coordinator's summary behind another member's.
 
 ## Tests
 
