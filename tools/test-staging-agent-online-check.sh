@@ -157,7 +157,8 @@ case "$route" in
         if [ "${#nm}" -gt 32 ]; then emit '{"outcome":"refused","because":"keep it to 32 characters or fewer","field":"name"}' 400; exit 0; fi
         printf '%s\n' "$nm" >> "$STATE"
         # kosmos#6906: what the real create writes to disk (in the case's sandbox): a launchd job file and a worker folder.
-        if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -n "${AGENT_WORKFORCE_WORKERS:-}" ]; then
+        if [ "${MOCK_NO_FILES:-}" = 1 ]; then :   # kosmos#6922: the board wrote its files where the gate does not look
+        elif [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -n "${AGENT_WORKFORCE_WORKERS:-}" ]; then
           mkdir -p "$AGENT_WORKFORCE_LAUNCH" "$AGENT_WORKFORCE_WORKERS/$nm"; : > "$AGENT_WORKFORCE_LAUNCH/com.kosmos.agent.$nm.plist"
         elif [ "${MOCK_WRITE_HOME:-}" = 1 ]; then
           # kosmos#6922: unsandboxed, the engine's default layout under the case's own throwaway HOME.
@@ -228,6 +229,8 @@ case "$route" in
       ttc=null; [ "${MOCK_LEFTOVER_TYPED:-}" = 1 ] && ttc="\"${MOCK_SHOWN:-$nm}\""
       if [ "${MOCK_LEFTOVER:-ok}" = noroute ]; then emit '{}' 404; exit 0; fi
       # MOCK_PLAN=refused: the real plan answers 200 with ok:false for a refusal; fail: the GET itself fails.
+      # The real plan refuses with ok:false where the DELETE would (running, tmux unreadable).
+      case "${MOCK_LEFTOVER:-}" in running|nocheck) emit '{"ok":false,"because":"refused by the plan"}' 200; exit 0;; esac
       if [ "${MOCK_PLAN:-}" = refused ]; then emit '{"ok":false,"because":"we could not check whether it is running right now"}' 200; exit 0; fi
       if [ "${MOCK_PLAN:-}" = fail ]; then emit '{"error":"boom"}' 500; exit 0; fi
       emit "{\"ok\":true,\"name\":\"$nm\",\"job\":{\"path\":\"/x/com.kosmos.agent.$nm.plist\",\"label\":\"com.kosmos.agent.$nm${MOCK_LABEL_SUFFIX:-}\"},\"toTrash\":true,\"typeToConfirm\":$ttc}" 200
@@ -235,6 +238,16 @@ case "$route" in
       printf '%s\n' "$nm" >> "${STATE}.leftover"
       if [ "${MOCK_LEFTOVER:-ok}" = lost ] && [ "$(grep -cx "$nm" "${STATE}.leftover")" = 1 ]; then printf '000'; exit 0; fi
       if [ "${MOCK_LEFTOVER:-ok}" = noroute ]; then emit '{}' 404; exit 0; fi
+      # err500: the route failed part way; lost2: no answer, twice; lostnothing: the first DELETE is lost and does nothing,
+      # and the retry's board looks elsewhere ("nothing of" it) while the files are still at this machine's paths;
+      # garbage200: a 200 the gate cannot read.
+      case "${MOCK_LEFTOVER:-ok}" in
+        err500) emit '{"error":"the delete failed partway and we cannot tell you how far it got"}' 500; exit 0;;
+        lost2) printf '000'; exit 0;;
+        lostnothing) if [ "$(grep -cx "$nm" "${STATE}.leftover")" = 1 ]; then printf '000'; exit 0; fi
+                     emit "{\"outcome\":\"refused\",\"because\":\"nothing of $nm is left on this computer, so there is nothing to delete.\"}" 400; exit 0;;
+        garbage200) emit '<html>proxy</html>' 200; exit 0;;
+      esac
       # transient: the first DELETE meets a pane still closing (a plan refusal, no steps); the next one clears.
       if [ "${MOCK_LEFTOVER:-ok}" = transient ] && [ "$(grep -cx "$nm" "${STATE}.leftover")" = 1 ]; then
         emit "{\"outcome\":\"refused\",\"because\":\"$nm is running, so there is nothing left over to delete\"}" 400; exit 0
@@ -286,7 +299,7 @@ run_case() {
   # exported scenario and goes red with nothing naming why. The "CALLER exports" case below is the control for this
   # list: the caller exports every name on it.
   outp="$(env -u KOSMOS_HOME -u KOSMOS_AGENT_REPLY_TIMEOUT -u KOSMOS_WORLD \
-    -u MOCK_ACCOUNTS -u MOCK_AGENT_STATE -u MOCK_CREATE -u MOCK_PREEXISTING -u MOCK_REPLY -u MOCK_SEND -u MOCK_REMOVE -u MOCK_STATUS_AFTER_RM -u MOCK_LEFTOVER -u MOCK_LEFTOVER_TYPED -u MOCK_LABEL_SUFFIX -u MOCK_SHOWN -u MOCK_WRITE_HOME -u MOCK_PLAN \
+    -u MOCK_ACCOUNTS -u MOCK_AGENT_STATE -u MOCK_CREATE -u MOCK_PREEXISTING -u MOCK_REPLY -u MOCK_SEND -u MOCK_REMOVE -u MOCK_STATUS_AFTER_RM -u MOCK_LEFTOVER -u MOCK_LEFTOVER_TYPED -u MOCK_LABEL_SUFFIX -u MOCK_SHOWN -u MOCK_WRITE_HOME -u MOCK_PLAN -u MOCK_NO_FILES \
     AGENT_WORKFORCE_LAUNCH="$root/LaunchAgents" AGENT_WORKFORCE_WORKERS="$root/workers" AGENT_WORKFORCE_DATA="$root/data" \
     "$@" MOCK_STATE="$state" KOSMOS_AOC_CURL="$FIXDIR/fakeboard" \
     KOSMOS_STORE_ROOT="$root" KOSMOS_PORT=19999 \
@@ -353,6 +366,11 @@ run_case "a board saying the agent is RUNNING: its files are left alone and said
 run_case "a board that cannot check whether it runs: its files are left alone (0)" 0 --kept --expect "so its files were left" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=nocheck
 run_case "any other answer (409) is a refusal: its files are left alone (0)" 0 --kept --expect "so its files were left" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=held409
 run_case "a refusal carrying steps (every move failed) is an act that failed: deleted here (0)" 0 --expect "were deleted here instead" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=movefail
+run_case "a 5xx from the route: the gate deletes the files itself (0)" 0 --expect "were deleted here instead" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=err500
+run_case "no answer, twice: the gate deletes the files itself (0)" 0 --expect "were deleted here instead" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=lost2
+run_case "a lost DELETE, then 'nothing of' it while the files are still here: deleted here, not called cleared (0)" 0 --expect "were deleted here instead" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=lostnothing
+run_case "a 200 the gate cannot read: its files are left and said (0)" 0 --kept --expect "could not read what it did" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=garbage200
+run_case "no route and nothing at this machine's paths: a warning to check LaunchAgents, not 'gone' (0)" 0 --expect "found no files at" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=noroute MOCK_NO_FILES=1
 run_case "a plan refusal that passes in a moment (a pane closing) is asked once more and clears (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=transient
 run_case "a plan that answers ok:false, then a DELETE that clears, is cleared (0)" 0 --expect "cleared 'verify2129-openai-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=refused
 run_case "the typed words are the board's (its shown name), not the session name (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER_TYPED=1 MOCK_SHOWN=Gate-Display
@@ -366,8 +384,8 @@ run_case "a made agent with nothing left on disk is a warning (0)" 0 --expect "f
 # kosmos#5849 control: the CALLER exports every fixture variable and a broken home; a case that names no scenario
 # still gets the default one, both agents online and answering.
 mkdir -p "$FIXDIR/badhome/runtime/bin"; printf '#!/bin/sh\nexit 0\n' > "$FIXDIR/badhome/runtime/bin/node"; chmod +x "$FIXDIR/badhome/runtime/bin/node"
-KOSMOS_HOME="$FIXDIR/badhome" MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=auth MOCK_CREATE=refuse400 MOCK_PREEXISTING=5 MOCK_REPLY=none MOCK_SEND=refuse MOCK_REMOVE=fail MOCK_LEFTOVER=running MOCK_LEFTOVER_TYPED=1 MOCK_LABEL_SUFFIX=+x KOSMOS_AGENT_REPLY_TIMEOUT=0 \
-  run_case "default scenario, the CALLER exports a broken home and every fixture variable -> still both online" 0
+KOSMOS_HOME="$FIXDIR/badhome" MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=auth MOCK_CREATE=refuse400 MOCK_PREEXISTING=5 MOCK_REPLY=none MOCK_SEND=refuse MOCK_REMOVE=fail MOCK_LEFTOVER=running MOCK_LEFTOVER_TYPED=1 MOCK_LABEL_SUFFIX=+x MOCK_SHOWN=Leaked MOCK_WRITE_HOME=1 MOCK_PLAN=fail MOCK_NO_FILES=1 KOSMOS_AGENT_REPLY_TIMEOUT=0 \
+  run_case "default scenario, the CALLER exports a broken home and every fixture variable -> still both online, and cleared" 0 --expect "cleared 'verify2129-claude-"
 run_case "unreadable /api/status (200, no agent list) -> FAIL CLOSED" 2 --expect "cannot count the fleet" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=status-garbage
 run_case "Claude ONLINE, OpenAI WEDGED -> PARTIAL (3, surface not auto-hold)" 3 --expect "PARTIAL" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=claude-ok-openai-wedge
 run_case "no openai account -> cannot-tell"             2  MOCK_ACCOUNTS=no-openai MOCK_AGENT_STATE=idle

@@ -213,17 +213,30 @@ tidy_agent() {
     else say "cleared '$nm': its files are deleted (the Trash could not take them), and the name is free."; fi
     return
   fi
+  # After a plan refusal and the wait, the plan is asked once more: the label is the board's, not one guessed here.
+  if [ -n "$waited" ] && [ "$gcode" != 200 -o -z "$label" ]; then
+    : > "$_BODYF"
+    gcode="$("$CURL" -sS --max-time 20 -H @"$HF" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
+    [ "$gcode" = 200 ] && label="$(body_field label)"
+    [ -z "$label" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] && pp="$(paths_of "$nm")" && label="$(basename "${pp%%$'\n'*}" .plist)"
+  fi
+  local here=""
   case "$because" in
     "nothing of "*)
-      if [ "$tries" -gt 0 ]; then
+      # The board finds nothing. If this machine's engine finds the files, the board looks elsewhere (another world or
+      # launch folder): they are deleted here, below. Only an empty disk on both sides is cleared (review 5).
+      pp="$(paths_of "$nm")" || pp=""; plist="${pp%%$'\n'*}"; dir="${pp#*$'\n'}"
+      if [ -n "$pp" ] && { [ -e "$plist" ] || [ -e "$dir" ]; }; then here=1
+      elif [ "$tries" -gt 0 ]; then
         # The first DELETE landed and its answer was lost: the retry finds it already cleared.
         reenable_label "$label"
         say "cleared '$nm' (the first answer was lost; the retry found nothing left), and the name is free."
+        return
       else
         # The board answered 200 for this one, so it wrote files somewhere: none found means the board looks elsewhere.
         say "WARNING: the board made '$nm' but finds nothing of it left on disk: check ~/Library/LaunchAgents for com.kosmos.agent.$nm*"
-      fi
-      return ;;
+        return
+      fi ;;
   esac
   local why="DELETE leftover -> HTTP ${code:-<none>}, ${outcome:-no outcome}${because:+: $because}"
   # Only these let the gate delete the files itself (below): no answer, a board without this route (404), an error part
@@ -231,7 +244,7 @@ tidy_agent() {
   # (every move, or the community standing). A refusal WITHOUT steps is the plan's own judgement, and some are safety
   # ones the gate cannot see (the session still running, tmux unreadable, an account move holding it), so its files
   # are left alone (reviews 2 and 3); so is any other answer (401, 409, a 200 it cannot read).
-  local act=""
+  local act="$here"
   case "$code" in
     ""|000|404|5[0-9][0-9]) act=1 ;;
     200) [ "$outcome" = partial ] && act=1 ;;
@@ -239,6 +252,11 @@ tidy_agent() {
   esac
   if [ -z "$act" ]; then
     pp="$(paths_of "$nm" | tr '\n' ' ')"
+    if [ "$code" = 200 ]; then
+      # Only deleted and partial answer 200, so the board acted, but its answer is not one the gate can read.
+      say "WARNING: the board answered 200 for '$nm' but the gate could not read what it did (${outcome:-no outcome}), so its files were left: check ${pp:-its com.kosmos.agent plist and worker folder}, and delete what is still there."
+      return
+    fi
     say "WARNING: could not clear '$nm' ($why), so its files were left: once it is not running, on its page, Delete what is left, or delete ${pp:-its com.kosmos.agent plist and worker folder} by hand."
     return
   fi
@@ -259,10 +277,13 @@ tidy_agent() {
     reenable_label "${label:-$(basename "$plist" .plist)}"
     if [ "$outcome" = partial ]; then say "WARNING: could not clear '$nm' fully ($why), so its job file and worker folder were deleted here instead."
     else say "WARNING: could not clear '$nm' ($why), so its job file and worker folder were deleted here instead. Its row stays in the Removed list."; fi
-  else
+  elif [ "$outcome" = partial ]; then
     # Nothing on disk: the board got as far as the files and stopped after them (tokens, or the community account).
     reenable_label "$label"
     say "WARNING: could not clear '$nm' fully ($why). Its files are gone; what is left is what that sentence names."
+  else
+    # No answer, 404 or 5xx, and nothing at this machine's paths: the board's files may be elsewhere (review 5).
+    say "WARNING: could not clear '$nm' ($why), and found no files at $plist or $dir: check ~/Library/LaunchAgents for com.kosmos.agent.$nm* and delete it by hand."
   fi
 }
 # kosmos#6906: remove one agent this check created, and say whether it is gone from /api/status.
