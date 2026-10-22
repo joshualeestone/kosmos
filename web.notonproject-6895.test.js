@@ -58,6 +58,12 @@ test('#6895: the project\'s task cards name an off-project holder, and the page 
   assert.doesNotMatch(all['pj-tasklist'].innerHTML, /not on this project/);
   const one = paintProject({ id: 'p1', agents: [member('ada')], tasks: [tasks[0], tasks[1]] });
   assert.equal(one['pj-offproject'].textContent, '1 open task is held by an agent not on this project.');
+  // A legacy task with only `who` (no parts) counts by the same rule; a finished one does not (it is not in the column).
+  const legacy = { number: 9, sentence: 'old', who: 'rex', closedAt: null, progress: { done: 0, total: 1, closed: false, assigned: 1 } };
+  assert.equal(paintProject({ id: 'p1', agents: [member('ada')], tasks: [legacy] })['pj-offproject'].textContent,
+    '1 open task is held by an agent not on this project.');
+  const legacyDone = { ...legacy, closedAt: '2026-10-21T00:00:00Z', progress: { done: 1, total: 1, closed: true, assigned: 1 } };
+  assert.equal(paintProject({ id: 'p1', agents: [member('ada')], tasks: [legacyDone] })['pj-offproject'].hidden, true, 'CONTROL: finished, not counted');
 });
 
 test('#6895: the Tasks row names an off-project holder as the engine marks it, and leaves a member alone', () => {
