@@ -542,6 +542,113 @@ async function forAgent(who, { limit = 10, now = Date.now(), receiptOf = forTask
   return { ok: true, receipts: out, more };
 }
 
-module.exports = { forAgent, forTask, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION,
+/**
+ * kosmos#6842 slice 2: what a project's closed tasks cost, as the sum of their receipts: tokens per model across every
+ * agent that held a part, the tasks counted and the pull requests they worked on (each once, with the tasks that list
+ * it; each pull request's own `tasks` list is for a later view, the page does not show it yet). The newest `limit` closed tasks are counted (a
+ * receipt not yet kept reads transcripts); `notCounted` says how many older ones were left out. An agent whose work
+ * could not be read (no folder, a provider with no receipt) is counted in `unread`, and a receipt read only in part in
+ * `partial`, so the total never reads as more complete than it is. An agent whose pull requests are not known (no `prs`,
+ * or its work could not be read) is counted in `prsUnknown`, so they read as unknown rather than none. `overlapping` says
+ * one agent's holds on two different counted tasks share a moment, so that work is on both receipts and the total
+ * counts it twice.
+ * Each task's receipt is the one its task page shows (forTask), so the two never disagree. Asks for one project while
+ * one is being worked out share it (every Project settings paint asks).
+ */
+const PROJECT_IN_FLIGHT = new Map();
+function forProject(projectId, opts = {}) {
+  if (opts.receiptOf) return forProjectNow(projectId, opts);   // a test seam: never shared
+  // A shared computation uses the first ask's `now`; the route passes none, so asks do not differ in it.
+  const key = String(projectId) + '\0' + String(Math.max(1, Math.min(200, Number(opts.limit) || 50)));   // as forProjectNow clamps it
+  if (PROJECT_IN_FLIGHT.has(key)) return PROJECT_IN_FLIGHT.get(key);
+  const p = forProjectNow(projectId, opts).finally(() => PROJECT_IN_FLIGHT.delete(key));
+  PROJECT_IN_FLIGHT.set(key, p);
+  return p;
+}
+async function forProjectNow(projectId, { limit = 50, now = Date.now(), receiptOf = forTask } = {}) {
+  const lim = Math.max(1, Math.min(200, Number(limit) || 50));
+  let proj = null;
+  try { proj = (require('./projects').readAll() || []).find((x) => x && x.id === projectId) || null; }
+  catch { return { ok: false, because: 'unreadable' }; }
+  if (!proj) return { ok: false, because: 'no-project' };
+  const closed = [];
+  for (const task of proj.tasks || []) {
+    const iso = closedAtOf(task);
+    const at = iso ? Date.parse(iso) : NaN;
+    if (Number.isFinite(at)) closed.push({ task, at });
+  }
+  closed.sort((x, y) => y.at - x.at || x.task.number - y.task.number);
+  const picked = closed.slice(0, lim);
+  const receipts = new Array(picked.length);
+  const AT_ONCE = 3;
+  for (let i = 0; i < picked.length; i += AT_ONCE) {
+    await Promise.all(picked.slice(i, i + AT_ONCE).map(async (c, j) => {
+      try { receipts[i + j] = await receiptOf(projectId, c.task, { now }); }
+      catch (err) { console.error('project receipts: task ' + c.task.number + ':', (err && err.message) || err); receipts[i + j] = null; }
+    }));
+  }
+  const models = {};
+  const prs = new Map();   // repo#number -> { repo, number, url, tasks }: one PR whether or not a receipt kept its url
+  let unread = 0;
+  let partial = 0;
+  let failed = 0;
+  let prsMore = 0;   // beyond each agent's own shown list: counted, not named, so not de-duplicated (an upper bound)
+  let prsUnknown = 0;   // agents whose pull requests are not known (no `prs`, or not readable): unknown, not none
+  const spansOf = new Map();   // agent -> [{ task, from, to }] from each receipt's holds (ms); every receipt this file
+                               // has written carries holds (an agent is on a receipt only because it held the task)
+  let readable = 0;   // agents whose work was read, activity or not
+  receipts.forEach((r, i) => {
+    const number = picked[i].task.number;
+    if (!r || !Array.isArray(r.agents)) { failed += 1; return; }
+    for (const a of r.agents) {
+      if (!a || typeof a !== 'object') continue;
+      if (!a.available) { unread += 1; prsUnknown += 1; continue; }
+      readable += 1;
+      // Holds of counted agents only: an unreadable agent adds nothing to the total, so it cannot make it read high.
+      if (typeof a.who === 'string' && a.who) {
+        const list = spansOf.get(a.who) || [];
+        for (const h of Array.isArray(a.holds) ? a.holds : []) {
+          const from = Date.parse(h && h.from); const to = Date.parse(h && h.to);
+          if (Number.isFinite(from) && Number.isFinite(to)) list.push({ task: number, from, to });
+        }
+        spansOf.set(a.who, list);
+      }
+      if (a.complete === false) partial += 1;
+      for (const [m, b] of Object.entries(a.models || {})) {
+        if (!b || typeof b !== 'object') continue;
+        const into = models[m] || (models[m] = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 });
+        for (const f of BUCKET_FIELDS) into[f] += Number(b[f]) || 0;
+        into.rows += Number(b.rows) || 0;
+      }
+      if (!Array.isArray(a.prs)) prsUnknown += 1;
+      prsMore += Number(a.prsMore) || 0;
+      for (const p of Array.isArray(a.prs) ? a.prs : []) {
+        if (!p || typeof p !== 'object' || !Number.isFinite(Number(p.number))) continue;
+        const key = String(p.repo || '') + '#' + Number(p.number);
+        const e = prs.get(key) || { repo: String(p.repo || ''), number: Number(p.number), url: '', tasks: [] };
+        if (!e.url && typeof p.url === 'string' && p.url) e.url = p.url;
+        if (!e.tasks.includes(number)) e.tasks.push(number);
+        prs.set(key, e);
+      }
+    }
+  });
+  // picked: the newest tasks looked at (the "newest N" the page names); tasks: those whose receipt could be worked out.
+  return { ok: true, picked: picked.length, tasks: picked.length - failed, notCounted: closed.length - picked.length, failed, unread, partial,
+    models, prs: [...prs.values()], prsMore, prsUnknown, readable, overlapping: [...spansOf.values()].some(overlapAcrossTasks) };
+}
+/* One agent's holds on two DIFFERENT tasks that share any moment: the work in that moment is on both receipts. */
+function overlapAcrossTasks(spans) {
+  for (let i = 0; i < spans.length; i += 1) {
+    for (let j = i + 1; j < spans.length; j += 1) {
+      const a = spans[i]; const b = spans[j];
+      // Strict: one hold ending the moment another starts shares only that instant (a row stamped exactly then could be
+      // on both, which is negligible), so it is not reported as overlap.
+      if (a.task !== b.task && a.from < b.to && b.from < a.to) return true;
+    }
+  }
+  return false;
+}
+
+module.exports = { forAgent, forTask, forProject, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION,
   /* #5683: engine/agentevents.js reads the same transcript folders (one rule for where they are). */
   transcriptDirs, transcriptsIn };

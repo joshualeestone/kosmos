@@ -741,6 +741,23 @@ const SCREENS = [
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForFunction(() => { const b = document.querySelector('#pj-head-pause'); return b && !b.hidden && /Pause/.test(b.textContent); }, null, { timeout: 8000 });
   } },
+  /* kosmos#6842 slice 2: Project settings with "What its finished tasks cost". The throwaway board has no transcripts, so
+     the cost READ is stubbed with a fixture (two models, three pull requests, one older task not counted) and nothing is
+     written to the board. */
+  { name: 'project-settings-cost-6842', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page, data) => {
+    const b = (i, o, cw, cr) => ({ input_tokens: i, output_tokens: o, cache_creation_input_tokens: cw, cache_read_input_tokens: cr, rows: 40 });
+    const pr = (repo, n) => ({ repo, number: n, url: 'https://github.com/' + repo + '/pull/' + n, tasks: [1] });
+    await page.route('**/api/project/*/receipts', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ok: true, tasks: 12, notCounted: 1, failed: 0, unread: 0, partial: 0,
+      models: { 'claude-opus-5-5': b(120000, 380000, 900000, 14000000), 'claude-sonnet-5-5': b(40000, 90000, 200000, 3000000) },
+      prs: [pr('example/app', 412), pr('example/app', 415), pr('example/site', 88)], prsMore: 0 }) }));
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.click('#pj-settings-link');
+    await page.waitForFunction(() => { const c = document.querySelector('#pjs-cost'); return c && /finished task/.test(c.textContent); }, null, { timeout: 8000 });
+    await page.evaluate(() => document.getElementById('pjs-cost-field').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(300);
+  }, after: async (page) => { await page.unroute('**/api/project/*/receipts'); } },
   /* #6501: the project page with task 1 marked built, so its card reads "Task 1 (built)" and "Built, waiting for you to check
      it". Marked from the page (as the person) and cleared after, so no later screen shoots it built. */
   { name: 'project-built', owner: 'PigeonPete', go: async (page, data) => {

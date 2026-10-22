@@ -17737,6 +17737,14 @@ window.kosmosMeasureScrollbarWidth();
       <p class="fmsg" id="pjs-chats-msg" aria-live="polite"></p>
     </div>
 
+    <!-- kosmos#6842 slice 2: what this project's finished tasks cost, the sum of the receipts their task pages show.
+         Here rather than in the project head (my call, for Mona Lisa's review): the head is tight in all three looks. -->
+    <div class="field" id="pjs-cost-field">
+      <span class="flabel">What its finished tasks cost</span>
+      <p class="fhint" id="pjs-cost" aria-live="polite"></p>
+      <div id="pjs-cost-prs"></div>
+    </div>
+
     <div class="field">
       <span class="flabel" id="pjs-agents-label">Project members</span>
       <!-- #762 (Josh, 2026-08-24 22:02): a duplicate of New project's agents
@@ -67906,6 +67914,17 @@ function tkActPhrase(ev, p) {
    `name` its display name. Commands are a COUNT (their text is Josh's call); dollars come from usageApiCost, the one
    price table, and say "at API prices" because a subscription is not billed this. */
 const TKR_PROVIDER = { codex: 'Codex', gemini: 'Gemini CLI', grok: 'Grok', antigravity: 'Antigravity', muse: 'Muse' };
+/* kosmos#6842: tokens and the cost words for a model -> buckets map, the ONE derivation the task receipt and a project's
+   total both use, so their numbers and wording cannot drift apart. costBit is null when nothing is priced or unpriced. */
+function tkTokensAndCost(models) {
+  let tokens = 0;
+  for (const b of Object.values(models || {})) tokens += usageRowTokenTotal(b);
+  const { cost, unpriced } = usageApiCost({ receipt: models || {} });
+  let costBit = null;
+  if (cost !== null) costBit = usageUsd(cost) + ' at API prices' + (unpriced.length ? ' (not counting ' + unpriced.join(', ') + (unpriced.length > 1 ? ', which have' : ', which has') + ' no published price)' : '');
+  else if (unpriced.length) costBit = 'no published price for ' + unpriced.join(', ');
+  return { tokens, costBit };
+}
 function tkReceiptAgentHtml(a, name) {
   const head = '<div class="tkr-name">' + esc(name) + '</div>';
   if (!a.available) {
@@ -67918,18 +67937,14 @@ function tkReceiptAgentHtml(a, name) {
     const tool = a.provider === 'claude' || !a.provider ? 'Claude Code' : (TKR_PROVIDER[a.provider] || a.provider);
     return '<div class="tkr-agent">' + head + '<p class="tkr-line tkr-muted">' + esc('No ' + tool + ' activity found while it held this task.') + '</p></div>';
   }
-  const models = a.models || {};
-  let tokens = 0;
-  for (const b of Object.values(models)) tokens += usageRowTokenTotal(b);
-  const { cost, unpriced } = usageApiCost({ receipt: models });
+  const { tokens, costBit } = tkTokensAndCost(a.models);
   const nFiles = (a.files || []).length + (Number(a.filesMore) || 0);
   const bits = [
     nFiles === 1 ? 'Edited 1 file' : 'Edited ' + usageNum(nFiles) + ' files',
     a.commands === 1 ? 'ran 1 command' : 'ran ' + usageNum(Number(a.commands) || 0) + ' commands',
     usageAbbr(tokens) + ' tokens',
   ];
-  if (cost !== null) bits.push(usageUsd(cost) + ' at API prices' + (unpriced.length ? ' (not counting ' + unpriced.join(', ') + (unpriced.length > 1 ? ', which have' : ', which has') + ' no published price)' : ''));
-  else if (unpriced.length) bits.push('no published price for ' + unpriced.join(', '));
+  if (costBit) bits.push(costBit);
   /* The page's own toggle, not the browser's <details> (Mona Lisa): "4 files" with the chevron, a plain list, the folder
      as its muted foot. Opened by the delegated click on #tk-receipt. */
   const list = (a.files || []).map((f) => '<li>' + esc(f) + '</li>').join('')
@@ -67963,7 +67978,7 @@ function tkReceiptPrsHtml(a) {
   const more = Number(a.prsMore) || 0;
   const n = prs.length + more;
   return '<p class="tkr-line">' + (n === 1 ? 'Worked on pull request ' : 'Worked on pull requests ')
-    + prs.map(one).join(', ') + (more ? ' and ' + usageNum(more) + ' more' : '') + '.</p>';
+    + prs.map(one).join(', ') + (more ? (a.upTo ? ' and up to ' : ' and ') + usageNum(more) + ' more' : '') + '.</p>';
 }
 /* #5153: the whole receipt. Pure. The put-back line first: it ends the task's history above, then the receipt follows
    (Mona Lisa: the receipt between the activity and its summary split the history in two). */
@@ -69236,6 +69251,65 @@ function paintProjectSettings(p) {
   document.getElementById('pjs-add-row').hidden = true;
   paintSettingsFacts(p);
   pjsHooksOpen(p);   // #1307
+  pjsLoadCost(p);   // kosmos#6842
+}
+/* kosmos#6842 slice 2: the project's cost, from GET /api/project/:id/receipts. Pure: the sentence and the pull request
+   line. Says what was left out (older tasks, work that could not be read), so the total never reads as complete when
+   it is not. */
+const PJS_COST_PRS_SHOWN = 20;
+function pjsCostParts(r) {
+  if (!r || !r.ok) return { line: 'Kosmos could not work out what these tasks cost just now.', prs: '' };
+  const n = Number(r.tasks) || 0;
+  const older = Number(r.notCounted) || 0;
+  const failed = Number(r.failed) || 0;
+  // The newest tasks looked at (older answers have no `picked`: the counted ones then).
+  const picked = Number.isFinite(Number(r.picked)) ? Number(r.picked) : n;
+  const unread = (Number(r.unread) || 0) + (Number(r.partial) || 0) + (Number(r.failed) || 0);
+  if (!n && !older) return { line: unread ? 'Kosmos could not read the work on its finished tasks.' : 'No finished tasks yet.', prs: '' };
+  // Every task looked at failed: no total to show, whatever is older.
+  if (!n) return { line: 'Kosmos could not read the work on its newest finished tasks.', prs: '' };
+  const { tokens, costBit } = tkTokensAndCost(r.models && typeof r.models === 'object' ? r.models : {});
+  // Nothing readable at all: no agent's work was read (`readable`), and some could not be.
+  const unreadOnly = !tokens && unread && !(Number(r.readable) > 0);
+  // With some tasks failed the counted ones are fewer than those looked at: name the tasks looked at.
+  const shown = failed > 0 ? picked : n;
+  const bits = [(shown === 1 ? '1 finished task' : usageNum(shown) + ' finished tasks') + ': ' + usageAbbr(tokens) + ' tokens'];
+  if (costBit) bits.push(costBit);
+  // Nothing counted and something unreadable: say that, never "0 tokens" (which reads as measured none); any pull
+  // requests and the older-tasks note still follow.
+  let line = unreadOnly ? 'Kosmos could not read the work on its newest finished tasks.' : bits.join(', ') + '.';
+  if (older && !unreadOnly) line += ' Counting the newest ' + usageNum(picked) + '; ' + (older === 1 ? '1 older task is' : usageNum(older) + ' older tasks are') + ' not counted.';
+  if (unread && !unreadOnly) line += ' Some of the work could not be read, so the real cost may be higher.';
+  // An agent's work on two tasks at the same time is on both receipts, so the sum counts it twice: said only when one
+  // agent's holds on two counted tasks really overlap (the engine's `overlapping`).
+  if (r.overlapping === true && !unreadOnly) line += ' An agent worked on two of these tasks at once, and that time counts on both, so this reads high.';
+  const prs = Array.isArray(r.prs) ? r.prs.filter((p) => p && typeof p === 'object') : [];
+  const prsMore = Math.max(0, prs.length - PJS_COST_PRS_SHOWN) + (Number(r.prsMore) || 0);
+  const unknown = Number(r.prsUnknown) || 0;
+  const unknownLine = unknown
+    // prsUnknown counts an agent once per task, so no number is given: it would read as a count of agents.
+    ? '<p class="tkr-line tkr-muted">Some of the work on these tasks may not record pull requests, so some may not be listed.</p>'
+    : '';
+  // Each agent's unnamed count cannot be matched across tasks, so "more" is an upper bound: "up to".
+  return { line, prs: tkReceiptPrsHtml({ prs: prs.slice(0, PJS_COST_PRS_SHOWN), prsMore, upTo: Number(r.prsMore) > 0 }) + unknownLine };
+}
+let PJS_COST_ASK = 0;
+async function pjsLoadCost(p) {
+  const line = document.getElementById('pjs-cost');
+  const prsEl = document.getElementById('pjs-cost-prs');
+  if (!line || !prsEl || !p || !p.id) return;
+  const ask = ++PJS_COST_ASK;
+  line.textContent = 'Working it out…';
+  prsEl.innerHTML = '';
+  let r = null;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/receipts', { cache: 'no-store' });
+    r = await res.json();
+  } catch { r = null; }
+  if (ask !== PJS_COST_ASK) return;   // another project's settings were opened meanwhile
+  const parts = pjsCostParts(r);
+  line.textContent = parts.line;
+  prsEl.innerHTML = parts.prs;
 }
 /* ---- #1307: a project's webhooks ---------------------------------------------------------
    Listed, made, renamed and deleted through /api/project/:id/webhooks. The full link exists only

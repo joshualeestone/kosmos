@@ -24,6 +24,7 @@ function bundle() {
     + lift('usageModelPrice') + '\n'
     + lift('usageApiCost') + '\n'
     + lift('tkReceiptPrsHtml') + '\n'
+    + lift('tkTokensAndCost') + '\n'
     + lift('tkReceiptAgentHtml') + '\n'
     + lift('tkReceiptHtml') + '\n'
     + 'function tkMemberName(p, sn) { return sn === "ann" ? "Ann <Lee>" : sn; }\n'

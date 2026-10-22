@@ -22220,6 +22220,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#6842 slice 2: what a project's closed tasks cost (engine/receipt.js forProject), the sum of the same receipts
+     the task pages show. For the person's page, so an agent's token is refused, as on the task receipt route. */
+  const projectReceipts = pathname.match(/^\/api\/project\/([^/]+)\/receipts$/);
+  if (projectReceipts && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'a project\'s receipts are for the person, not for agents' }); return; }
+    const id = decodeSegment(projectReceipts[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    require('./engine/receipt').forProject(id)
+      .then((out) => sendJson(res, out.ok ? 200 : out.because === 'no-project' ? 404 : 500, out))
+      .catch((err) => {
+        console.error('project receipts: could not be worked out:', (err && err.message) || err);
+        sendJson(res, 500, { ok: false, because: 'we could not work out the project\'s cost just now' });
+      });
+    return;
+  }
+
   const taskAct = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(close|reopen)$/);
   if (taskAct && req.method === 'POST') {
     const id = decodeSegment(taskAct[1]);
