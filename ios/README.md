@@ -216,7 +216,11 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   script), opens in Safari, so no third-party page ever shows inside the app's frame. Plain http
   never loads in the app. Mail, phone and text links need a tap. Other schemes are refused.
 - **A page that will not load** offers Try again and "Back to Kosmos" (`Shell.backAction`: after a
-  tap that failed before loading it just closes, leaving the page you were on).
+  tap that failed before loading it just closes, leaving the page you were on). When it is your Mac
+  that is not answering it also offers "Choose another computer" (kosmos#6850,
+  `Shell.offersOtherComputer`), which opens the Kosmos+ account page (`/account`, never `/`, which can
+  open a lone computer by itself): your computers, which of them are answering, and Open on each one
+  that is.
 - **A tapped notification** opens the agent that asked
   (`?tab=detail&agent=<session>`, the session checked against the board's agent-name rule), or
   the board home when the push carries no usable session.

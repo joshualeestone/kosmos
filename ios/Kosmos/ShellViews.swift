@@ -35,6 +35,9 @@ final class ShellState: ObservableObject {
     func retry() { retrying = true; retryCount += 1 }
 
     func back() { failure = nil; retrying = false; autoRetried = false; backCount += 1 }
+    // kosmos#6850: leave a Mac that is not answering for the list of the person's computers.
+    @Published var otherComputerCount = 0
+    func otherComputer() { failure = nil; retrying = false; autoRetried = false; otherComputerCount += 1 }
 
     // A page failed. If it says offline but the phone is already online again, the
     // monitor will report no change, so retry once now (Shell.retriesOnShow).
@@ -73,6 +76,8 @@ struct LoadFailureView: View {
     let onRetry: () -> Void
     // Leaves a page that will not load: back to the page before it, or the board home.
     let onBack: () -> Void
+    // kosmos#6850: shown only for a Mac that is not answering (Shell.offersOtherComputer).
+    var onOtherComputer: (() -> Void)? = nil
 
     private var title: String {
         switch failure {
@@ -129,6 +134,18 @@ struct LoadFailureView: View {
                 .background(KosmosColor.accent)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .padding(.top, 8)
+                if Shell.offersOtherComputer(failure), let onOtherComputer = onOtherComputer {
+                    Button(action: onOtherComputer) {
+                        Text("Choose another computer")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            // The whole outlined row takes the tap, not only the words: it has no fill of its own,
+                            // and a button's hit area is its label's (review 2).
+                            .contentShape(Rectangle())
+                    }
+                    .foregroundColor(KosmosColor.ink)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(KosmosColor.muted, lineWidth: 1))
+                }
                 Button("Back to Kosmos", action: onBack)
                     .font(.body)
                     .foregroundColor(KosmosColor.ink)
