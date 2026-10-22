@@ -1,13 +1,19 @@
 'use strict';
 /**
- * kosmos#6464: every fetch a Windows sender makes to the board refuses redirects (redirect: 'error'). The board never
- * redirects an /api/ request, and fetch would otherwise carry the board and agent tokens (and the body) to wherever a
- * listener pointed it, past the proof that the listener holds the token (#1765, #6437).
+ * kosmos#6464: every fetch a Windows sender makes to the board never follows a redirect. The board never redirects an
+ * /api/ request, and fetch would otherwise carry the board and agent tokens (and the body) to wherever a listener
+ * pointed it, past the proof that the listener holds the token (#1765, #6437).
+ *
+ * The senders say redirect: 'manual' (the 3xx comes back to them, unfollowed), never 'error': with 'error', undici's
+ * own one retry of a 421 (the board serving another Kosmos, #1704) fails on a request with a body, so the wrong-world
+ * answer arrives as a network error. Measured on node 24 while writing this; the 421 arm below holds it. The proof
+ * itself (engine/boardproof.js, a GET with no body) keeps 'error'.
  *
  * Two halves:
  *   - a SOURCE guard over every sender that ships in the Windows bundle (the report hook, the kosmos command, the
- *     board opener, the proof itself, and every bin/*-report-bridge.js): each fetch call names redirect: 'error',
- *     except the opener's wait for the board, which carries no token. A call added later without it goes red here.
+ *     board opener, the proof itself, and every bin/*-report-bridge.js): each fetch call names redirect: 'manual'
+ *     (the proof: 'error'), except the opener's wait for the board, which carries no token. A call added later
+ *     without it goes red here.
  *   - a REAL redirect, here through the gemini and grok bridges (their main takes its env and input), and for the
  *     hook, the kosmos command and the opener in engine/kosmos-report-hook.board-proof-1765.test.js,
  *     tools.windows-kosmos-cli-board-proof-1765.test.js and tools.win-open-board-2007.test.js. The codex and agy
@@ -85,7 +91,7 @@ test('kosmos#6464: every token-bearing fetch in a Windows sender refuses redirec
   const missing = [];
   for (const f of SENDERS) {
     for (const c of fetchCalls(fs.readFileSync(path.join(REPO, f), 'utf8'))) {
-      if (/redirect:\s*'error'/.test(c.args)) continue;
+      if ((f === 'engine/boardproof.js' ? /redirect:\s*'error'/ : /redirect:\s*'manual'/).test(c.args)) continue;
       if ((NO_TOKEN[f] || []).some((re) => re.test(c.args))) continue;
       missing.push(f + ':' + c.at + ' ' + c.args.replace(/\s+/g, ' ').slice(0, 120));
     }
@@ -123,3 +129,30 @@ for (const [name, working] of [['gemini', 'BeforeAgent'], ['grok', 'UserPromptSu
     } finally { server.closeAllConnections(); server.close(); await elsewhere.close(); }
   });
 }
+
+/* The reason the senders say 'manual' and not 'error': the board answers a request from another Kosmos's agent with
+   421 (#1704), and undici retries a 421 once on a fresh connection. With 'error' that retry fails on a request with a
+   body and the 421 never arrives. A real 421 listener, through the hook's report and the kosmos command's reply. */
+function startWrongWorld() {
+  const server = http.createServer((req, res) => {
+    if (answerProof(req, res, [BOARD])) return;
+    let b = '';
+    req.on('data', (d) => { b += d; });
+    req.on('end', () => {
+      res.writeHead(421, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ wrongWorld: true, serving: 'default', because: 'another Kosmos' }));
+    });
+  });
+  return new Promise((r) => server.listen(0, '127.0.0.1', () => r(server)));
+}
+
+test('kosmos#6464: a 421 from a board serving another Kosmos still arrives as a 421 through the hook (redirect: manual)', async () => {
+  const server = await startWrongWorld();
+  try {
+    const hook = require('./engine/kosmos-report-hook');
+    const r = await hook.deliver({ state: 'working', text: 'x' }, { url: 'http://127.0.0.1:' + server.address().port, boardToken: BOARD, agentToken: AGENT });
+    assert.equal(r.error, undefined, 'the send failed instead of reading the board\'s answer: ' + r.error);
+    assert.equal(r.status, 421);
+    assert.equal(r.wrongWorld, true);
+  } finally { server.closeAllConnections(); server.close(); }
+});

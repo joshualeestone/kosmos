@@ -12,7 +12,7 @@ pin test. The launcher's board window (ask 3) is split out: see "Deferred" below
    proving between two requests gets nothing at the second.
 2. A request carrying a secret in its BODY (`kosmos connect`, `secret: true`) is never sent without a token in its
    headers to prove the listener with: with no readable board token it is refused, exit 1, nothing sent.
-3. Every token-bearing fetch on the Windows senders refuses redirects (`redirect: 'error'`): the CLI's requests, the
+3. Every token-bearing fetch on the Windows senders never follow a redirect (`redirect: 'manual'`, a 3xx refused as a failed send): the CLI's requests, the
    opener's mint, the report hook's keep, toolfail and report sends, and the four report bridges the Windows bundle
    ships (codex, gemini, grok, agy). A source guard (tools.board-redirects-6464.test.js) holds every fetch call in
    those files to it, so a call added later without it goes red.
@@ -114,3 +114,16 @@ pin test. The launcher's board window (ask 3) is split out: see "Deferred" below
   `room`, mutant red).
 - [NIT] an unreadable token plus a board that never answers writes two refusal notes to stderr. Kept: the outcome is
   right and each note is true.
+
+### Validation found a regression: redirect 'error' broke the board's 421 (fixed)
+The affected-suite run (branch against an origin/main control, compared by test name) showed four new failures in
+tools.windows-kosmos-cli-outbox-1704.test.js: a reply/msg/post/report/react to a board serving another Kosmos read as
+"could not reach Kosmos". Cause, measured on node 24: undici retries a 421 once on a fresh connection, and with
+`redirect: 'error'` that retry fails on a request with a body ("Request body length does not match content-length
+header"), so the 421 never arrives. `redirect: 'manual'` keeps the retry and still never follows a 3xx (measured: a
+307 comes back with status 307, the second listener gets nothing).
+FIXED: every sender says 'manual' (the proof itself, a GET with no body, keeps 'error'); the CLI reads any 3xx as its
+refused-redirect reason; the opener's mint and the hook read a 3xx as a failed send (not ok). The source guard now
+requires 'manual' in the senders, and a real 421 arm through the hook holds the reason (mutant with 'error': red;
+the outbox-1704 tests: red with the CLI on 'error', green on 'manual'). Every redirect arm re-run against 'follow'
+mutants: red.

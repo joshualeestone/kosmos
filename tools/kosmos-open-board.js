@@ -146,8 +146,8 @@ async function mintNonce(url, token) {
       // the launcher); mirrors cmd_open's `-m 15` on the mint.
       signal: AbortSignal.timeout(MINT_TIMEOUT_MS),
       // kosmos#6464: the board never redirects the mint, and fetch would carry the board token to wherever a
-      // listener pointed it, past the proof. Refused (a failed mint), never followed.
-      redirect: 'error',
+      // listener pointed it, past the proof. 'manual': the 3xx comes back as a failed mint (not r.ok), never followed.
+      redirect: 'manual',
     });
     if (!r || !r.ok) return '';
     const body = await r.json();
