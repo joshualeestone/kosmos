@@ -1,0 +1,36 @@
+# notonproj-6895 (kosmos): a task's holder who is not on its project is named so (#6895), and the reviewer choice reads members by name (#6896)
+
+Card: kosmos#6895, split from #6893 (a user's feedback; never quoted or named). Moved to Baron by Splinter 10-22 06:43.
+Angel's slice, decided on the card and kept: show it where the person looks, no automatic fix.
+
+## The change
+- engine/tasks.js `allTasks`: each Tasks row gets `offProject`, the holders of an OPEN part who are not in the project's
+  `agents` (absent when none). The Tasks row (`tskRow`) names them "Rex (not on this project)".
+- web/index.html `tkMemberName(p, sessionName, holds)`: a third argument; when true and the name is not one of
+  `p.agents` (member objects), it appends " (not on this project)". Passed as `!part.closedAt` by the project's task
+  cards (each part row and the sole holder) and the task page's part rows. Every other caller (built by, receipts,
+  history, claims) is unchanged.
+- The project page: `#pj-offproject` under the task list, "N open tasks are held by agents not on this project", over
+  every open task (not only the five cards shown), hidden at 0.
+- #6896, found while reading the "(left the project)" precedent: `tkPaintReviewer` read `p.agents` as names, but the
+  page's members are objects, so on a real board the "If missed, tell" choice listed "[object Object]" and called a
+  member's stored reviewer "(left the project)". Measured by lifting it as its unit test does, with both shapes (card
+  #6896). It now reads `sessionName` (a bare name accepted too), and web.task-repeat-4787.test.js uses the object shape.
+
+## Decided
+- Only OPEN parts count. A finished part's holder who later left is history, not a task waiting on someone absent.
+- The label goes through `tkMemberName` rather than a new helper: about a dozen web tests lift that painter with a fixed
+  list of names, and every one already lifts `tkMemberName`.
+- The Tasks rows take the fact from the engine (`offProject`), as they take `ownerNames`, rather than re-deriving
+  membership on a screen that has no project roster.
+- Rejected (Angel, on the card): adding the agent back automatically; refusing to remove an agent who holds tasks.
+
+## Measured
+- New tests: engine/tasks.offproject-6895.test.js (2), web.notonproject-6895.test.js (4). Against main's code both
+  files fail every test (red control); on this branch they pass, with the 15 other task-related web and engine test
+  files (197 tests).
+
+## Weakest premise
+That the mismatch arises only by removal after assignment (the card's premise too): assigning already requires
+membership in engine/tasks.js. A route that assigns without that check would be its own bug. Second: the count's
+wording and place (a muted line under the task list) were chosen here without a design review.
