@@ -172,6 +172,12 @@ const OVERFLOW_SELECTORS = ['html', 'body', 'main', '.view', '.panel', '[role="m
 /* The shared helpers the screens use. */
 /* On a phone the areas sit behind the ☰ (#burger, controls #tabs): open it
    first when it is showing, then choose the area. */
+/* kosmos#6895: take the chat agent off (DELETE) or put it back on (POST) the seeded project; its tasks stay with it. */
+async function offProject6895(page, data, method) {
+  const st = await page.evaluate(([id, sn, m]) => fetch('/api/project/' + encodeURIComponent(id) + '/agent/' + encodeURIComponent(sn), { method: m }).then((r) => r.status),
+    [data.projectId, data.chatAgent, method]);
+  if (st !== 200) throw new Error('offProject6895: ' + method + ' of the member answered ' + st);
+}
 async function openTab(page, tab) {
   // kosmos#6846 (--app-tabs): the iPhone app opens a section from its native tab bar, through the board's own door.
   if (await page.evaluate(() => document.documentElement.classList.contains('kapptabs') && typeof window.kosmosAppTab === 'function')) {
@@ -772,6 +778,24 @@ const SCREENS = [
   }, after: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/built', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }), data.projectId);
   } },
+  /* kosmos#6895: the seeded tasks are held by the chat agent; taken off the project, they keep their holder, who is named
+     "(not on this project)" on the cards and the task page, and the page counts them under the list. */
+  { name: 'project-offproject-6895', owner: 'Baron Draxum', go: async (page, data) => {
+    await offProject6895(page, data, 'DELETE');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-offproject', { state: 'visible', timeout: 15000 });
+    await page.evaluate(() => document.getElementById('pj-offproject').scrollIntoView({ block: 'end' }));
+    await page.waitForTimeout(300);
+  }, after: async (page, data) => { await offProject6895(page, data, 'POST'); } },
+  { name: 'task-offproject-6895', owner: 'Baron Draxum', go: async (page, data) => {
+    await offProject6895(page, data, 'DELETE');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-tasklist .tkcard', { state: 'visible', timeout: 15000 });
+    await page.click('#pj-tasklist .tkcard');
+    await page.waitForFunction(() => /not on this project/.test((document.getElementById('tk-who') || {}).textContent || ''), null, { timeout: 15000 });
+  }, after: async (page, data) => { await offProject6895(page, data, 'POST'); } },
   { name: 'project-paused', owner: 'Mona Lisa', go: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
     await openTab(page, 'projects');
