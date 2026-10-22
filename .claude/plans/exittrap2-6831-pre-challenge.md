@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: exittrap2-6831
-diff_hash: ad35a7878ae387154681540716d83b92c0ce00543f5ffdf3ae98b2e29311d1d7
+diff_hash: 04c12e485534852fac3da53753c2572fbd90c2e1d127c4d5a27196f78026b735
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-21T20:51:17Z
@@ -11,6 +11,15 @@ converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
+
+**Re-hashed 2026-10-21 19:33 CDT after rebasing onto main** (PR #6860 was green but behind main). The only conflict
+was package.json `test:shell`, resolved as main's line plus this branch's three entries (exit-guard.sh, its test,
+computed against the merge base: nothing removed, nothing already on main). No code changed. Main now runs most
+shell tests on Linux (#6814); the guard library has no bash-only syntax and behaves correctly under dash (run by
+hand: the two deaths keep status 2, falling off the end becomes 1 with its line, a finished run exits 0), which is
+the "keeps the status" branch the test already handles. On the rebased head: test-exit-guard-6831.sh 43 ok, 0 bad;
+every-test-runs + engine.reachable + shell-shard-4317 35/0. The full local suite ran at the pre-rebase hash
+ad35a787 (22956 tests, fail 0); the PR's CI validates the rebased tree.
 
 **Iterations:** 6
 **Converged:** Yes (iteration 6 returned no new BLOCKER, WARNING or CONVENTION)
