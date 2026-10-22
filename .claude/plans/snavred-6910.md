@@ -39,3 +39,8 @@ addition is that background read of #panel-settings.hidden, which is never used;
     "settingsParent":"panel-projects","pageErrors":[],"pill":{"w":138,"h":34,"visibility":"visible"},"chain":[],
     "shownInProjects":["pj-list-view","panel-settings"],"layout":"consolidated","body":"consolidated fold-a",...}`
     The gate's reason grep quoted it, and its 200 characters reached into the pill field.
+- Re-run at the final code (289c799d, after the 300 ms read), same way, 14:28 to 14:29 CDT 2026-10-22:
+  - one normal run: rc 0, 0 FAIL, no SKIPPED, the three webkit consolidated 1280px PASS lines.
+  - one forced run: rc 2, no unhandled rejection. Its line starts
+    `Computer pill never showed: {"settingsHidden":false,"settingsHiddenAt300ms":false,"settingsParent":"panel-projects","pageErrors":[],"pill":...`
+    and the gate's 200-character quote held all three Settings fields and the page errors.
