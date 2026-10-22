@@ -174,7 +174,10 @@ test('#4474: every field create reads is either one an agent may send or one it 
   const NOT_FROM_AN_AGENT = ['platform', 'configDir', 'accountDir', 'pickedByPerson', 'runner', 'createdBy', 'purpose', 'createdByName', 'askedAt',
     'claudeBin', 'codexBin', 'tmuxBin', 'museBin', 'grokBin', 'geminiBin', 'antigravityBin', 'teamInstructions',
     // carryImports (kosmos#6063): only setProvider passes it, to setAccount; createAgent never reads it.
-    'carryImports'];
+    'carryImports',
+    // community (kosmos#6908): only the person's create route passes it (the promote gate's test agents). An agent
+    // must not opt the agents it makes out of the community the person's Community switch has them in.
+    'community'];
   assert.ok(read.has('claudeBin') && read.has('reportsTo'), 'CONTROL: the scan of create.js found nothing');
   const unsorted = [...read].filter((k) => !team.AGENT_MEMBER_KEYS.includes(k) && !NOT_FROM_AN_AGENT.includes(k));
   assert.deepEqual(unsorted, [], 'create reads a field nobody decided whether an agent may send: ' + unsorted.join(', '));
