@@ -197,8 +197,8 @@ test('the guard also fires at the SECOND await (res.json), not only after fetch'
     json: async () => { globalThis.TK_OPEN = 9; return { events: [{ at: minsAgo(1), kind: 'created' }], count: 1 }; },
   });
   try {
-    const paint = new Function('document', 'pjById', 'PJ_CURRENT', 'fetch', 'Date',
-      src + '\n; return paintTaskActivity;')(doc, () => PROJECT, PROJECT.id, fetchStub, FixedDate);
+    const paint = new Function('document', 'pjById', 'PJ_CURRENT', 'fetch', 'Date', 'tkMarkSeen',
+      src + '\n; return paintTaskActivity;')(doc, () => PROJECT, PROJECT.id, fetchStub, FixedDate, () => {});   // #6947
     await paint(7);
     assert.equal(acts.innerHTML, '', 'the post-json guard did not fire: task 7 events painted after the page moved to 9');
   } finally {

@@ -22306,7 +22306,8 @@ const server = http.createServer(async (req, res) => {
   /* #6947: the person opened this task's page (engine/taskseen.js says what "seen" means and what it misses). The page
      sends it after it draws the task's conversation on screen (engine/taskseen.js lists when). Only a request from the page counts
      (isViaScreen: no agent token, and the browser's own Sec-Fetch-Site or a local Origin), so an agent cannot mark its
-     own nudge seen with its token or with the shared board token alone. Answers { seenAt }. */
+     own nudge seen with its token or with the shared board token alone; those headers are advisory, so a local process
+     that forges them can. Answers { seenAt }. */
   const taskSeen = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/seen$/);
   if (taskSeen && req.method === 'POST') {
     if (!isViaScreen(req)) { sendJson(res, 403, { error: 'only the person\'s page can mark a task seen' }); return; }
@@ -22314,8 +22315,8 @@ const server = http.createServer(async (req, res) => {
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     let task = null;
     try {
-      const proj = (projects.readAll() || []).find((x) => x && x.id === id);
-      task = proj ? tasks.byNumber(proj, Number(taskSeen[2])) || null : null;
+      // Any row with this id, as the activity route reads it, so the two routes agree on which tasks exist.
+      for (const proj of (projects.readAll() || []).filter((x) => x && x.id === id)) { task = tasks.byNumber(proj, Number(taskSeen[2])) || task; }
     } catch { task = null; }
     if (!task) { sendJson(res, 404, { error: 'no such task' }); return; }
     const seenAt = require('./engine/taskseen').markSeen(id, task.number);

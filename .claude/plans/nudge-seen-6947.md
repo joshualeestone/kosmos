@@ -25,6 +25,8 @@ Rejected:
 - A task with no events at all prints "Nothing recorded" and no viewed line (every task records its creation, so this does not arise in practice).
 - Nothing removes a task's record when its project is deleted, so a project made again under the same id could inherit an old view time for a reused task number.
 - "The latest message" means the latest `said` event. Some messages carry no author (the composer's and `kosmos task message`'s), so it may be the person's own reply; the conversation above the line shows which. Other ways an agent reaches the person (a hold notice, a message kept while an agent was out of usage) are not compared.
+- A view that could not be recorded (the board failed to write it, or the page's post was refused or lost: the page ignores the answer) reads to the agent exactly like never viewed.
+- A newer command against an older board, which sends no viewed field, prints no line at all, so the agent cannot tell anything either way.
 - Only the person's page can mark a task seen (server.js isViaScreen: no agent token, and the browser's own fetch headers or a local Origin). Those headers are advisory, so a local process that sends them deliberately can still forge it.
 
 ## Built
