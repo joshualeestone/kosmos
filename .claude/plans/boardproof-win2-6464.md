@@ -70,3 +70,19 @@ pin test. The launcher's board window (ask 3) is split out: see "Deferred" below
 - `engine/kosmos-report-hook.board-proof-1765.test.js`: a proven board redirecting the keep, report and toolfail
   sends; the repo-wide caller pin for the hook's main and the CLI's main, with matcher fixtures.
 - Each new or flipped test went red with its fix reverted (mutation runs recorded in the PR).
+
+### Round 2 (fresh blind reviewer): no blockers, 2 warnings, 5 nits
+- [WARNING] the two flipped opener tests could pass on a proof refusal, never reaching the mint. FIXED: each asserts
+  the mint was asked once (mutant restoring the plain-url fallback: both red).
+- [WARNING] availability: a mint slower than its 15 s bound on a busy board now opens nothing where it used to open
+  the plain address (which the window's still-valid session cookie often signed in), and the window's refusal page
+  says it "could not confirm it was reaching your own Kosmos", which is not quite this case. ACCEPTED as the card's
+  ask; stated here, and the wording goes to the launcher follow-up (the page text is in the signed exe).
+- [NIT] a refused redirect read as a cut answer: msg asked again and verbs said "Is it running?". FIXED: its own
+  reason and sentence, no retry (arm asserts one msg, mutant red).
+- [NIT] a tracked file deleted in the working tree would throw in the pin. FIXED: existsSync filter.
+- [NIT] msg's retry refused by a failed proof keeps the first attempt's "may have been delivered": true, since the
+  first attempt was cut after sending. Kept.
+- [NIT] the plan's mutation claim needs the runs in the PR. Done there.
+- [NIT, out of scope] bin/codex-report-bridge.js and bin/agy-report-bridge.js follow redirects with tokens: Mac
+  senders, not #6437's. Listed for a follow-up card.

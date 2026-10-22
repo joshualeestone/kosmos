@@ -76,6 +76,7 @@ const PROOF_MAX_MS = 15000;
    request carrying a secret in its body has neither to prove the listener with. */
 const TOKEN_HEADER_NAMES = ['x-kosmos-board-token', 'x-kosmos-agent-token'];
 const NO_TOKEN_TO_PROVE = 'no token to prove with';
+const REDIRECT_REFUSED = 'answered with a redirect';
 // #4580: the pause before the one retry of a send whose reply was cut; KOSMOS_RETRY_PAUSE_MS (the injected env) is the test seam.
 function retryPauseMs(env) { const v = (env && env.KOSMOS_RETRY_PAUSE_MS) || ''; return /^\d+$/.test(v) ? Number(v) : 1000; }
 
@@ -2545,6 +2546,12 @@ async function main(argv, io) {
       try { json = JSON.parse(text); } catch { /* a text route, or not the board */ }
       return { reached: true, status: res.status, json, text };
     } catch (e) {
+      /* kosmos#6464: a redirect refused (redirect: 'error' above). The board never redirects an /api/ request, so
+         this is not the board acting: say so in its own words, and no verb asks again (refused). */
+      if (e && e.cause && /unexpected redirect/i.test(String(e.cause.message || ''))) {
+        lastNotProven = REDIRECT_REFUSED;
+        return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true };
+      }
       const timedOut = Boolean(e && (e.name === 'TimeoutError' || e.name === 'AbortError'));
       /* #4373 part B: a failure to CONNECT at all means nothing reached the board; anything else (a reset or a
          cut-off answer after the request went) may come after the board acted. Only the connect-phase codes. */
@@ -2620,7 +2627,8 @@ async function main(argv, io) {
       /* No "try again": this is also the timeout path of writes (a task, a project, a report), where the
          board may already have acted, so a retry could make a duplicate. */
       /* #1765: the check before the send did not pass, so nothing was sent. */
-      if (lastNotProven === NO_TOKEN_TO_PROVE) err('This computer could not read its Kosmos board token, so it cannot check that Kosmos is what answers, and we did not ' + what + ': nothing was sent. Restarting Kosmos usually fixes this; if it does not, reinstalling does.');
+      if (lastNotProven === REDIRECT_REFUSED) err('Whatever answered at ' + url + ' tried to send this request somewhere else, which Kosmos never does, so we did not follow it and did not ' + what + '.');
+      else if (lastNotProven === NO_TOKEN_TO_PROVE) err('This computer could not read its Kosmos board token, so it cannot check that Kosmos is what answers, and we did not ' + what + ': nothing was sent. Restarting Kosmos usually fixes this; if it does not, reinstalling does.');
       else if (lastNotProven === 'out of time') err('Kosmos took the whole time we had to check it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
       else if (/^(the check (could not load|failed)|headers unreadable)/.test(lastNotProven)) err('This computer could not check it was reaching your Kosmos (' + lastNotProven + '), so we did not ' + what + ' and sent nothing.');
       else if (lastNotProven === 'timed out') err('Kosmos did not answer in time when we checked it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
