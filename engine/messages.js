@@ -2631,14 +2631,18 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   }
 
   /* #6920 (agent feedback, 2026-10-22): a held room also held the coordinator's one summarizing post, the post a hold
-     exists to bring about. So while the volume valve is holding the room, each member may land ONE long post that is not
-     agreement-only (CLOSING_POST_MIN characters or more) per hold window, the same countFrom that resets the arrival
-     budget; it is stored with `closing: true`, which is how the second one is found and held. Acknowledgements and short
-     posts are held exactly as before. Rejected: one closing post per ROOM (another member's long post landing first would
-     hold the coordinator's), and any long post (a loop of long posts would never be stopped). */
+     exists to bring about. So once the volume valve HAS held the room (a stopped valve row since countFrom: the post that
+     tips the room over is held as before, so members learn of the hold first), each member may land ONE post of
+     CLOSING_POST_MIN characters or more of its one-line form, not agreement-only, since countFrom: the rolling window,
+     reset by the person's post or a reopen, as the arrival budget is. A room that stays held past the window gives each
+     member one more. It is stored with `closing: true`, which is how a second one is found and held. Rejected: one
+     closing post per ROOM (another member's long post landing first would hold the coordinator's), and any long post
+     (a loop of long posts would never be stopped). */
   const closing = lim.on && operator !== true && arrivals + charged > allowed
     && typeof from === 'string' && from !== ''
-    && stored.trim().length >= CLOSING_POST_MIN && !chat.acknowledgementOnly(stored)
+    && cleaned.length >= CLOSING_POST_MIN && !chat.acknowledgementOnly(stored)
+    && log.some((m) => m && m.kind === 'valve' && m.stopped !== false
+      && m.project === projectId && Date.parse(m.at) >= countFrom)
     && !log.some((m) => m && m.kind === 'post' && m.closing === true && m.from === from
       && m.project === projectId && Date.parse(m.at) >= countFrom);
   if (!closing && operator !== true && arrivals + charged > allowed) {
@@ -3035,6 +3039,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
     return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
+      ...(closing ? { closing: true } : {}),   // #6920: landed as this member's one post through a held room
       /* #6254: whether this post answers one the PERSON wrote (operator), the one signal the phone-notify
          `posted` seam needs from here (the route has no other way to know; the person is never an @mention).
          A boolean, never the posts' words. Only present on a reply, so an ordinary post's answer is unchanged. */

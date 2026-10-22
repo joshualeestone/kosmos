@@ -1631,7 +1631,12 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     };
     const closingRows = () => messages.record().rows.filter((m) => m.kind === 'post' && m.closing === true);
 
-    // CONTROL first: an acknowledgement in the held room is held, as before.
+    // The post that TIPS the room over is held, even a long one: the room was not held yet, so it is not a closing post,
+    // and the member keeps its one for after it learns of the hold.
+    const tip = posted('leo-discord', summary);
+    assert.equal(tip.code, 'room_held', 'the post that tipped the room over landed as a closing post');
+    assert.equal(closingRows().length, 0);
+    // CONTROL: an acknowledgement in the held room is held, as before.
     const ack = posted('leo-discord', 'agreed, thanks');
     assert.equal(ack.code, 'room_held', 'a short ack got through a held room');
     // A short post with content is held too: only a long one is a closing post.
@@ -1644,6 +1649,7 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     // The summary lands, delivered, and is stored as this member's closing post.
     const landed = posted('leo-discord', summary);
     assert.notEqual(landed.state, chat.DELIVERY.COULD_NOT, 'the summarizing post was held: ' + JSON.stringify(landed));
+    assert.equal(landed.closing, true, 'the sender is not told its post went through as its one closing post');
     assert.equal(closingRows().length, 1, 'the summary was not stored as a closing post');
     assert.equal(closingRows()[0].from, 'leo');
 
@@ -1659,7 +1665,14 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     wipeLog(); chat.resetForTests(); messages.resetForTests();
     const plain = posted('leo-discord', summary);
     assert.notEqual(plain.state, chat.DELIVERY.COULD_NOT);
+    assert.equal(plain.closing, undefined);
     assert.equal(closingRows().length, 0, 'a post in a room that was not held was marked closing');
+    // A short post padded out with indented lines is measured on its one-line form, so it is not a closing post.
+    wipeLog(); chat.resetForTests(); messages.resetForTests();
+    seedPosts(now, posts);
+    posted('mara-discord', 'tipping it over');
+    const padded = posted('leo-discord', 'one more thing' + ('\n' + ' '.repeat(60) + 'x').repeat(8));
+    assert.equal(padded.code, 'room_held', 'indentation padding made a short post a closing post');
   });
 });
 
