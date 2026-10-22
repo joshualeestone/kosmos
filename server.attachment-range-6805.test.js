@@ -195,6 +195,7 @@ test('#6805: a ranged download the client abandons releases its descriptor', asy
   assert.ok(await until(() => fdsOn(rec.file) === 0), 'the abandoned ranged download still holds a descriptor');
 });
 
+// Replaces fs.fstatSync for the whole process while it runs: this file's tests must stay sequential (no concurrency).
 test('#6805: a ranged answer sends exactly its length on a keep-alive socket, even if the file grew after it was measured', async () => {
   const bytes = crypto.randomBytes(3 * MB);
   const rec = stored(bytes, 'grows.bin');

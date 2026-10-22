@@ -3790,7 +3790,8 @@ function parseByteRange(header, size) {
 /* `opts.etag`, when given, lets a GET ask for one byte range (#6805), so a cut download resumes instead of starting
    again. It names the file (an attachment's id); the ETag sent adds the file's size and modification time as
    measured on the open descriptor, so if the bytes under that name ever change, an If-Range from before no longer
-   matches and the client gets the whole file instead of the end of one file joined onto the start of another. */
+   matches and the client gets the whole file instead of the end of one file joined onto the start of another.
+   The ETag is for resuming only: If-None-Match is not answered (no 304), since the route sends no caching. */
 function sendFileStream(req, res, file, unread, headers, opts = {}) {
   let fd = null;
   let size = 0;
