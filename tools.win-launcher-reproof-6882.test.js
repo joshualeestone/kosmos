@@ -7,8 +7,11 @@
  * The window's web profile keeps the board's sign-in cookie, scoped to 127.0.0.1 and not to the port, so every later
  * request to the board's address carries it to whatever answers there then. Before #6882 the board was proven only
  * when the window first resolved its address (the opener, #1765). Now:
- *   - every navigation to the board (a crashed page's reload, F5, the page's own reload, the retry of a failed load)
- *     is checked in OnNavigationStarting before it leaves;
+ *   - the navigations the window starts itself (a crashed page's reload, F5 and the other reload keys, a failed
+ *     board load's one retry) are proved BEFORE they start (CheckNavigationAgain); a sign-in load is proved by the
+ *     opener just before it;
+ *   - every board navigation is held in OnNavigationStarting until a check says its page may be shown. Measured on
+ *     the Windows box: WebView2 has already sent the request by then, so this guards what is shown, not what is sent;
  *   - a board load that failed is checked, and shows why instead of WebView2's error page when the board does not prove;
  *   - "open Kosmos.exe again" with no signed-in address checks before the open page is left talking to the port;
  *   - the page's own polling is watched on the badge's timer;
@@ -77,7 +80,7 @@ test('#6882: the instrument is reading the launcher', () => {
   assert.ok(SOURCE.length > 100000, 'KosmosLauncher.cs read back only ' + SOURCE.length + ' bytes');
 });
 
-test('#6882: every navigation to the board is checked before it leaves, and cancelled until the check says go', () => {
+test('#6882: every navigation to the board is held until a check says its page may be shown', () => {
   const nav = method('internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)');
   const gate = nav.indexOf('if (mode != KosmosLauncher.ComputerMode.Connect && KosmosLauncher.IsBoardAddress(uri, port))');
   assert.notEqual(gate, -1, 'board navigations are not gated');
