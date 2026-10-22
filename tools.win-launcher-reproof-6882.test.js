@@ -118,7 +118,14 @@ test('#6882: a navigation the quick check could not settle waits for the full ch
     'navigationWaiting = null;',
     'if (!KosmosLauncher.MayNavigateSignedIn(check)) { ShowNotConfirmed(); return; }',
     // approved, or the re-issued navigation would meet a slow quick check again and wait for ever
-    'navigationApproved = waiting;', 'webView.Navigate(waiting);'], 'the full check of a navigation');
+    'navigationApproved = waiting;', 'webView.get_Source(out onScreen);',
+    // a reload of the address on screen is a Reload: a Navigate to it, fragment and all, would load nothing
+    'if (onScreen == waiting) webView.Reload();', 'else webView.Navigate(waiting);'], 'the full check of a navigation');
+  // get_Source sits in ICoreWebView2's own slot for it (WebView2.h: its second method).
+  const coreAt = SOURCE.indexOf('public interface ICoreWebView2\n{');
+  assert.notEqual(coreAt, -1);
+  assert.ok(SOURCE.slice(coreAt).startsWith('public interface ICoreWebView2\n{\n    void get_Settings(out ICoreWebView2Settings settings);\n    void get_Source([MarshalAs(UnmanagedType.LPWStr)] out string uri);'),
+    'get_Source is not ICoreWebView2\'s second method');
   // The full check waits for a board restarting as long as the opener waits for the board.
   const opener = fs.readFileSync(path.join(REPO, 'tools', 'kosmos-open-board.js'), 'utf8');
   assert.equal(Number((SOURCE.match(/internal const int ReuseWaitForBoardMs = (\d+);/) || [])[1]), Number(opener.match(/argValue\('--timeout-ms', '(\d+)'\)/)[1]),
@@ -156,13 +163,14 @@ test('#6882: "open Kosmos.exe again" with no signed-in address checks before it 
     'if (boardNotConfirmed && !signingInAgain && resolveBoardAddress != null)', 'startOverWanted = false;',
     'if (startOverWanted && boardNotConfirmed) { startOverWanted = false; SignInAgain(); }'], 'the double-click during a sign-in');
   // A double-click's sign-in that came back signed in after the window showed why is loaded, as a fresh first load.
-  inOrder(again, ['if (boardNotConfirmed && keepPage == null && fresh != null && fresh.Contains("?boot=") && webView != null)',
-    'boardNotConfirmed = false;', 'navigatedToBoard = false;', 'boardAddress = KosmosLauncher.WithModeQuery(fresh, mode);', 'NavigateToBoard();'],
+  inOrder(again, ['if (boardNotConfirmed && fresh != null && fresh.Contains("?boot=") && webView != null)',
+    'boardNotConfirmed = false;', 'recheckRefused = false;', 'navigatedToBoard = false;',
+    'boardAddress = KosmosLauncher.WithModeQuery(KosmosLauncher.SignInAgainAddress(fresh, keepPage, port), mode);', 'NavigateToBoard();'],
   'the double-click whose sign-in outlived a failed check');
 });
 
 test('#6882: the page\'s own polling is watched on the badge timer, per visit', () => {
-  assert.match(method('void StartBadge()'), /badgeTimer\.Tick \+= \(sender, args\) => \{ RefreshBadge\(\); WatchBoard\(\); \};/, 'nothing watches the page\'s polling');
+  assert.match(method('void StartBadge()'), /badgeTimer\.Tick \+= \(sender, args\) => \{ RefreshBadge\(\); WatchBoard\(\); RecoverBoard\(\); \};/, 'nothing watches the page\'s polling, or brings the window back');
   const watch = method('void WatchBoard()');
   inOrder(watch, ['if (mode == KosmosLauncher.ComputerMode.Connect || !navigatedToBoard || boardNotConfirmed || watchInFlight) return;',
     'watchInFlight = true;', 'int visit = boardVisit;', 'ThreadPool.QueueUserWorkItem', 'KosmosLauncher.CheckBoardBeforeReuse(boardPort, KosmosLauncher.ReuseProofTimeoutMs)',
@@ -170,6 +178,22 @@ test('#6882: the page\'s own polling is watched on the badge timer, per visit', 
     'bool show = KosmosLauncher.WatchShowsNotConfirmed(check, watchNoAnswers);',
     'watchNoAnswers = check == KosmosLauncher.ReuseCheck.NoAnswer ? watchNoAnswers + 1 : 0;',
     'if (show && navigatedToBoard) ShowNotConfirmed();'], 'the watch');
+});
+
+test('#6882: a window its own check took off the board comes back by itself once the board proves, capped until a board read works', () => {
+  const back = method('void RecoverBoard()');
+  inOrder(back, ['!boardNotConfirmed || !recheckRefused || recoveryInFlight || signingInAgain', 'autoRecoveries >= KosmosLauncher.AutoRecoveriesLimit) return;',
+    'recoveryInFlight = true;', 'int visit = boardVisit;', 'ThreadPool.QueueUserWorkItem', 'KosmosLauncher.CheckBoardBeforeReuse(boardPort, KosmosLauncher.ReuseProofTimeoutMs)',
+    'recoveryInFlight = false;', 'if (visit != boardVisit || !boardNotConfirmed || !recheckRefused || signingInAgain || !KosmosLauncher.MayNavigateSignedIn(check)) return;',
+    'autoRecoveries++;', 'SignInAgain();'], 'RecoverBoard');
+  // Only a refusal of the window's own (ShowNotConfirmed), never the opener's; cleared when the window starts over.
+  assert.match(method('void ShowNotConfirmed()'), /recheckRefused = true;/);
+  assert.doesNotMatch(method('internal void BoardAddressResolved(string address)'), /recheckRefused/, 'the opener\'s refusal would retry itself');
+  assert.match(method('internal void SignInAgain(string keepPage = null)'), /if \(boardNotConfirmed && !signingInAgain && resolveBoardAddress != null\)\s*\{[^}]*recheckRefused = false;/);
+  assert.match(method('void RunAgentsHere()'), /recheckRefused = false;/);
+  // A board read that worked (the page's badge post) resets the cap, as it resets the page-asked sign-in's.
+  assert.match(method('internal void OnWebMessage(ICoreWebView2WebMessageReceivedEventArgs args)'), /signInsWithoutRead = 0;\s*autoRecoveries = 0;/);
+  assert.equal(Number((SOURCE.match(/internal const int AutoRecoveriesLimit = (\d+);/) || [])[1]), 3);
 });
 
 test('#6882: a failed check shows NotConfirmedPage and forgets the board, and every start or end of a visit moves the visit on', () => {
@@ -182,7 +206,7 @@ test('#6882: a failed check shows NotConfirmedPage and forgets the board, and ev
   assert.match(method('internal void SignInAgain(string keepPage = null)'),
     /if \(boardNotConfirmed && !signingInAgain && resolveBoardAddress != null\)\s*\{\s*boardNotConfirmed = false;[\s\S]*?ResolveBoardAddressInBackground\(\);/);
   inOrder(method('void NavigateToBoard()'), ['if (navigatedToBoard) return;', 'navigatedToBoard = true;', 'boardVisit++;', 'webView.Navigate(boardAddress);'], 'NavigateToBoard');
-  assert.match(method('void RunAgentsHere()'), /boardNotConfirmed = false;\s*boardVisit\+\+;/, 'a check still out for the board before Run agents can act after it');
+  assert.match(method('void RunAgentsHere()'), /boardNotConfirmed = false;\s*recheckRefused = false;\s*boardVisit\+\+;/, 'a check still out for the board before Run agents can act after it');
   assert.match(method('void SwitchToConnect()'), /mode = KosmosLauncher\.ComputerMode\.Connect;\s*boardVisit\+\+;/);
 });
 
