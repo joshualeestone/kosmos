@@ -2476,6 +2476,25 @@ test('#4289: an agent created with the Community switch OFF gets no community bl
   }
 });
 
+test('#6908: community:false makes an agent with no community section, with the switch ON (CONTROL: without it, the section)', () => {
+  recorder();
+  create.setDryRun(false);
+  const sw = require('./communityswitch');
+  const communityblock = require('./communityblock');
+  const projects = require('./projects');
+  fs.rmSync(sw.FILE, { force: true });   // no community.json: the default, ON
+  const plain = create.createAgent({ ...BINS, name: 'nc-plain', role: 'pm' });
+  assert.equal(plain.outcome, create.OUTCOME.CREATED, plain.because);
+  assert.ok(projects.findBlock(fs.readFileSync(create.instructionFile('nc-plain'), 'utf8'), communityblock.START, communityblock.END),
+    'CONTROL: with the switch ON and no option, the section is written');
+  const quiet = create.createAgent({ ...BINS, name: 'nc-quiet', role: 'pm', community: false });
+  assert.equal(quiet.outcome, create.OUTCOME.CREATED, quiet.because);
+  const text = fs.readFileSync(create.instructionFile('nc-quiet'), 'utf8');
+  assert.equal(projects.findBlock(text, communityblock.START, communityblock.END), null, 'community:false still wrote the community section');
+  assert.ok(!/If you have not posted to the community yet/.test(text), 'the agent was still asked to introduce itself');
+  assert.ok(!(quiet.steps || []).some((st) => /community/i.test(st.label || '')), 'leaving the section out on purpose was reported as a failure');
+});
+
 test('#5023: a new agent is asked to introduce itself at birth; one whose key already has a post is not', () => {
   recorder();
   create.setDryRun(false);

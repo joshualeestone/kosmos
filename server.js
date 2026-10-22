@@ -8774,6 +8774,10 @@ const server = http.createServer(async (req, res) => {
           // Validated above; composed into the file BEFORE the session starts
           // (#323), so the addAgent below finds the block already there.
           projects: projectsToJoin,
+          // kosmos#6908: `community: false` makes an agent with no Kosmos+ community section (a test agent, such as the
+          // promote gate's throwaway ones, must not be asked to post in public). Only a literal false counts; anything
+          // else is the usual rule (the Community switch). Last, so #732's check still finds `projects:` near the call.
+          ...(body.community === false ? { community: false } : {}),
         });
         /* #3038: RESTORED. The create-agent beacon was removed by an AGENT in
            #2623; Josh ruled that removal was NOT his and that he "always wanted"

@@ -6014,8 +6014,12 @@ function createAgentInner(opts) {
       }
       /* #4289: the Kosmos community block, from birth, while the Community switch is ON. The same
          non-gating posture as the files section: a block that does not fit is reported, and the agent
-         is still made. */
-      {
+         is still made.
+         kosmos#6908: a create that asks for `community: false` (a test agent: the promote gate's throwaway agents) gets
+         no community section at all, so nothing in its instructions asks it to post in public. This covers its birth;
+         a later refresh of every agent (a board restart, the Community switch changing) would write the usual block,
+         which a throwaway agent removed within a minute does not live to see. */
+      if (!(opts && opts.community === false)) {
         let cm = null;
         try { cm = require('./communityswitch').participating() ? require('./communityblock') : null; } catch { cm = null; }
         if (cm) {
