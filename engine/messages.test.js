@@ -1673,6 +1673,39 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     posted('mara-discord', 'tipping it over');
     const padded = posted('leo-discord', 'one more thing' + ('\n' + ' '.repeat(60) + 'x').repeat(8));
     assert.equal(padded.code, 'room_held', 'indentation padding made a short post a closing post');
+    // A room the valve held earlier but that has drifted back under budget: the long post that tips it over AGAIN is
+    // held, not let through on the old valve row.
+    wipeLog(); chat.resetForTests(); messages.resetForTests();
+    const under1 = [];
+    for (let i = 0; i < ROOM_BUDGET / 2 - 1; i += 1) under1.push({ from: MEMBERS[i % 3], text: 'round ' + i + ' carries real content' });
+    seedPosts(now, under1);
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'solo', project: 'henderson-lease', from: 'april',
+      to: ['mara'], text: 'one to one', at: new Date(now - 60000).toISOString(), outcomes: {} }) + '\n');
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'valve', from: 'mara', to: 'henderson-lease', project: 'henderson-lease',
+      at: new Date(now - 30000).toISOString(), because: 'held earlier', stopped: true }) + '\n');
+    const retip = posted('leo-discord', summary);
+    assert.equal(retip.code, 'room_held', 'a long post that re-tipped a room under budget landed on an old valve row');
+    assert.equal(closingRows().length, 0);
+  });
+});
+
+test('#6920: with the limit Off nothing is held, so a long post is an ordinary post, never a closing one', () => {
+  withFleet(room3(), (board) => {
+    assert.equal(limits.write({ on: false, perHour: 10 }).ok, true);
+    try {
+      const now = Date.now();
+      const posts = [];
+      for (let i = 0; i < 20; i += 1) posts.push({ from: MEMBERS[i % 3], text: 'round ' + i + ' carries real content' });
+      seedPosts(now, posts);
+      armSender('leo-discord'); arm([]);
+      const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'x'.repeat(10) + ' ' + 'summary words '.repeat(40) },
+        board.agents, MEMBERS);
+      assert.equal(out.state, chat.DELIVERY.PLACED, out.because || '');
+      assert.equal(out.closing, undefined, 'a post in a room with the limit off was marked closing');
+      assert.equal(messages.record().rows.filter((m) => m.kind === 'post' && m.closing === true).length, 0);
+    } finally {
+      fs.rmSync(limits.FILE, { force: true });
+    }
   });
 });
 

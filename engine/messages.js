@@ -2631,14 +2631,16 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   }
 
   /* #6920 (agent feedback, 2026-10-22): a held room also held the coordinator's one summarizing post, the post a hold
-     exists to bring about. So once the volume valve HAS held the room (a stopped valve row since countFrom: the post that
-     tips the room over is held as before, so members learn of the hold first), each member may land ONE post of
+     exists to bring about. So once the volume valve HAS held the room and it is still at or over budget without this post
+     (a stopped valve row since countFrom, and arrivals >= allowed: the post that tips the room over, the first time or
+     again after old posts aged out, is held as before, so members learn of the hold first), each member may land ONE post of
      CLOSING_POST_MIN characters or more of its one-line form, not agreement-only, since countFrom: the rolling window,
      reset by the person's post or a reopen, as the arrival budget is. A room that stays held past the window gives each
      member one more. It is stored with `closing: true`, which is how a second one is found and held. Rejected: one
      closing post per ROOM (another member's long post landing first would hold the coordinator's), and any long post
      (a loop of long posts would never be stopped). */
   const closing = lim.on && operator !== true && arrivals + charged > allowed
+    && arrivals >= allowed   // already at or over before THIS post: a post that re-tips a room back under is held too
     && typeof from === 'string' && from !== ''
     && cleaned.length >= CLOSING_POST_MIN && !chat.acknowledgementOnly(stored)
     && log.some((m) => m && m.kind === 'valve' && m.stopped !== false
