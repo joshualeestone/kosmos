@@ -38,6 +38,9 @@ standing in for: `DELETE /api/agent/<name>/leftover` (#514).
   the gate's environment, so a board under another world cannot make it enable a stranger (review 1).
 - **Accepted cost:** each promote leaves 4 items (2 job files, 2 folders) in the board user's Trash, never emptied by
   Kosmos. Harmless to #3011 (it reads LaunchAgents only); a person can empty it.
+- **"Cleared" needs an empty disk on both sides** (review 5): a "nothing of" answer while this machine's engine still
+  finds the files means the board looks elsewhere, so they are deleted here; and no answer, 404 or 5xx with nothing at
+  this machine's paths is a warning to check LaunchAgents, never "its files are gone" (said only for a PARTIAL).
 - **A plan refusal is asked once more after 3 s** (review 4): "is running" while the pane closes, and "could not check
   ... right now", can pass in a moment, and leaving the job file on one tmux read would be the #3011 red again.
 - **Gate agents are created with `community:false`** (#6908, merged as #6939 while this was in review): no community
@@ -47,7 +50,7 @@ standing in for: `DELETE /api/agent/<name>/leftover` (#514).
 - **Queue log in the EXIT trap.** Measured first: bash 3.2 and 5 run the EXIT trap on TERM, INT and HUP.
 
 ## Measured
-- test-staging-agent-online-check.sh: 57 arms pass (35 before). test-staging-channel-2036.sh: ALL PASS (2 new).
+- test-staging-agent-online-check.sh: 62 arms pass (35 before). test-staging-channel-2036.sh: ALL PASS (2 new).
 - Mortals full suite at df19f29da: node 23328, 0 fail; the shell shard stopped at 10/284 on the #6710 sleep-control
   guard (the waiting stub queue's `exec sleep 30` had no opt-out marker). Fixed; the guard passes alone.
 - Mutants, each reverted after: no HUP/PIPE in the trap (2 red), no clear (30 red), no typed name (1), no launchctl
