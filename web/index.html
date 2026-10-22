@@ -11220,6 +11220,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-n { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard::before { grid-column: 1; grid-row: 1; content: "#" attr(data-task); content: "#" attr(data-task) / ""; font: 400 .875rem var(--font-ui); color: var(--nl-ink-3); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.closed::before { content: "#" attr(data-task) " (done)"; content: "#" attr(data-task) " (done)" / ""; }
+/* #6923: a task closed as replaced says so in the drawn label too. */
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.closed.replaced::before { content: "#" attr(data-task) " (replaced by " attr(data-replaced-by) ")"; content: "#" attr(data-task) " (replaced by " attr(data-replaced-by) ")" / ""; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-t { grid-column: 2; grid-row: 1; font: 400 .9375rem var(--font-ui); color: var(--k-ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard.closed .tkcard-t { color: var(--label-2); }
 /* A subtask whose parent is not shown says "Part of #N" FIRST in the markup, so it takes the top row
@@ -66796,7 +66798,9 @@ function paintProjectTasks(p) {
       + (sub.done === sub.total ? ', all subtasks done' : (!t.closedAt && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total) ? ', all subtasks built' : '<span class="vh"> subtasks done</span>') + '</span>' : '';
     const partOf = crumb && t.parent != null
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
-    return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
+    const replacedBy = t.closedAt && Number.isInteger(t.replacedBy) ? t.replacedBy : null;   // #6923
+    return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (replacedBy !== null ? ' replaced' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '"'
+      + (replacedBy !== null ? ' data-replaced-by="' + replacedBy + '"' : '') + '>'
       + partOf
       + '<span class="tkcard-n">Task ' + n + (t.closedAt ? (Number.isInteger(t.replacedBy) ? ' (replaced by ' + t.replacedBy + ')' : ' (done)') : builtOpen ? ' (built)' : '') + '</span>'
       + '<div class="tkcard-t">' + esc(t.sentence) + '</div>'
@@ -68048,7 +68052,7 @@ function tkPaintSubtasks(p, t, closed) {
        unconditional write would take a keyboard user's focus off a subtask every tick. */
     const html = kids.length ? kids.map((x) => '<button class="tksub' + (done(x) ? ' done' : '') + '" type="button" data-sub="' + Number(x.number) + '">'
       + '<span class="tksub-n">#' + Number(x.number) + '</span><span class="tksub-t">' + esc(x.sentence) + '</span>'
-      + '<span class="tksub-s">' + (done(x) ? 'Done' : built(x) ? 'Built' : 'Open') + '</span></button>').join('')
+      + '<span class="tksub-s">' + (done(x) ? (Number.isInteger(x.replacedBy) ? 'Replaced' : 'Done') : built(x) ? 'Built' : 'Open') + '</span></button>').join('')
       : '<p class="dhint" style="margin:0;">None yet. Break this task into smaller ones, each with its own page.</p>';
     if (list.innerHTML !== html) list.innerHTML = html;
   }

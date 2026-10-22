@@ -947,7 +947,6 @@ function clearBuilt(projectId, n, { by = null, person = false, refusePersonMark 
   return { ok: true, task: changed, changed: had };
 }
 
-/** Close: a record edit, never an act on an agent (see the header). */
 /* #6923: `replacedBy` closes it as replaced by that task rather than done. A task number only: a whole number above 0,
    or the digits of one (the CLI sends text). */
 function replacedByValue(v) {
@@ -956,6 +955,7 @@ function replacedByValue(v) {
   if (!Number.isSafeInteger(n) || n < 1) throw new Error('the task that replaced it has to be a task number');
   return n;
 }
+/** Close: a record edit, never an act on an agent (see the header). */
 function close(projectId, n, { replacedBy = null } = {}) {
   return setClosed(projectId, n, new Date().toISOString(), {}, { replacedBy: replacedByValue(replacedBy) });
 }
