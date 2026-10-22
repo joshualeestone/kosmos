@@ -176,8 +176,9 @@ function usageOfEvent(event) {
  * certain (then nothing is recorded: a reading filed under the wrong account is worse than none). `configDir` is the
  * agent's CLAUDE_CONFIG_DIR (win32launch.childEnv sets exactly this, or deletes it for the default account, which then
  * reads <home>\.claude). The default's folder is the one the agent's Claude reads (its home, os.homedir()), and it is
- * used only when the board lists the same folder as its default account (accounts.homeDir(): AGENT_WORKFORCE_HOME when
- * set), so a sandboxed board is never written into the real home. Only an absolute folder that already exists.
+ * used only when this process's AGENT_WORKFORCE_HOME, if it names one (a test, a sandboxed run started with it; a
+ * Scheduled Task carries none), gives the same default folder (accounts.homeDir()), so a run pointed at another home
+ * never writes into the real one. Only an absolute folder that already exists.
  */
 function claudeAccountDirFor(configDir, opts) {
   const o = opts || {};
@@ -369,7 +370,10 @@ function publisher(name, opts) {
   const onProblem = typeof o.onProblem === 'function' ? o.onProblem : () => {};
   /* kosmos#6570: the agent's Claude account folder (claudeAccountDirFor), where each rate_limit_event's readings are
      recorded the way the status line records them; none, and nothing is. `recordUsage` is injectable for tests. */
-  const usageDir = typeof o.usageDir === 'string' && o.usageDir ? o.usageDir : null;
+  /* A folder, or a function naming it (asked at each event, so an account folder made after the agent started is
+     found without a restart; review 3). */
+  const usageDirNow = typeof o.usageDir === 'function' ? o.usageDir
+    : (() => { const d = typeof o.usageDir === 'string' && o.usageDir ? o.usageDir : null; return () => d; })();
   const recordUsage = typeof o.recordUsage === 'function' ? o.recordUsage
     : (dir, readings) => require('./kosmos-statusline').recordReadings(dir, readings, Date.now(), { latestWins: true });
 
@@ -428,8 +432,12 @@ function publisher(name, opts) {
     event(e) {
       if (!current) return;
       /* #6570: on its own: a reading that cannot be recorded must never cost the card its state. */
-      if (usageDir && e && e.type === 'rate_limit_event') {
-        try { const u = usageOfEvent(e); if (u) recordUsage(usageDir, u); } catch { /* the next event tries again */ }
+      if (e && e.type === 'rate_limit_event') {
+        try {
+          const u = usageOfEvent(e);
+          const dir = u ? usageDirNow() : null;
+          if (u && typeof dir === 'string' && dir) recordUsage(dir, u);
+        } catch { /* the next event tries again */ }
       }
       const next = stateAfterEvent(e);
       if (next) current.state = next;

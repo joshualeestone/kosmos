@@ -303,7 +303,7 @@ function main(argv, deps) {
       onProblem: (why) => say(new Date().toISOString() + ' ' + spec.name + ' state-unrecorded -- ' + why),
       /* kosmos#6570: a Claude agent's account usage, from its own stream (Claude Code runs no status line headless).
          Claude only: another runner's configDir is its own provider's home, never a Claude account. */
-      usageDir: usageDirFor(spec),
+      usageDir: () => usageDirFor(spec),   // asked at each reading: a folder made after this start is still found
     }),
     onEvent: (e) => {
       /* One line per transition, on stderr and the persisted log so it survives.

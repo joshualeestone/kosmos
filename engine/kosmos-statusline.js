@@ -51,6 +51,9 @@ const HISTORY_MAX = 400;
    stamped slightly differently by two sessions" from "the next week" with room
    on both sides. */
 const SAME_WEEK_TOLERANCE_SECONDS = 86400;
+/* kosmos#6570: for a latest-wins writer, two readings whose reset times are this close are the same account's same
+   window (the provider's reset is one fixed time; this allows only for a rounding), so its history carries on. */
+const LATEST_SAME_RESET_SECONDS = 60;
 /* #6176: the five-hour reading, in its own file so the weekly file's history and its calibration are untouched. Its
    windows reset five hours apart, so readings within an hour of each other's reset time are the same window. */
 const FIVE_HOUR_FILE = 'kosmos-fivehour.json';
@@ -107,8 +110,11 @@ function record(dir, reading, now, opt = {}) {
        account's baseline by the calibration (allowance.pointsSince), so the history starts again from here. Two agents
        on one account racing (each writer reads, then renames) can also land an older figure last; the next event puts
        the current one back, at the cost of a restarted history, which only delays a calibration. */
+    /* Review 3: and on ANY change of reset time, which a higher figure can hide: one account's reset is one fixed time
+       (measured on the Windows box: 1792965600 in events a day apart), so another one is another account or another
+       week, and either way the older rows are no baseline for this one. */
     const restart = !!(opt.latestWins && cur && typeof cur.usedPct === 'number' && typeof cur.resetsAt === 'number'
-      && Math.abs(reading.resetsAt - cur.resetsAt) < tolerance && reading.usedPct < cur.usedPct);
+      && (Math.abs(reading.resetsAt - cur.resetsAt) >= LATEST_SAME_RESET_SECONDS || reading.usedPct < cur.usedPct));
     const history = !restart && cur && Array.isArray(cur.history) ? cur.history.slice(-(HISTORY_MAX - 1)) : [];
     history.push([now, reading.usedPct, reading.resetsAt]);
     next.history = history;
