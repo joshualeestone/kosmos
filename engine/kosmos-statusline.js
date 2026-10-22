@@ -90,7 +90,12 @@ function record(dir, reading, now, opt = {}) {
   if (opt.maxAheadSeconds && reading.resetsAt > now / 1000 + opt.maxAheadSeconds) return false;
   if (cur && typeof cur.usedPct === 'number' && typeof cur.resetsAt === 'number') {
     const sameWindow = Math.abs(reading.resetsAt - cur.resetsAt) < tolerance;
-    if (sameWindow ? reading.usedPct <= cur.usedPct : reading.resetsAt < cur.resetsAt) return false;
+    /* kosmos#6570: `latestWins` is for a writer whose every reading is the provider's answer at that moment (a Windows
+       agent's rate_limit_event, sent as the response arrives), not a figure a session carried from its last response.
+       Then a lower figure in the same window is news, not lag (measured on the Windows box 10-22: the stored 96% and a
+       live 3% in the same week, after the folder's sign-in changed), so only an unchanged one is skipped. */
+    const stale = opt.latestWins ? reading.usedPct === cur.usedPct : reading.usedPct <= cur.usedPct;
+    if (sameWindow ? stale : reading.resetsAt < cur.resetsAt) return false;
   }
   const next = { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: now };
   if (keepHistory) {
@@ -133,9 +138,20 @@ function main(argv, input, now) {
   try { if (!fs.statSync(dir).isDirectory()) return; } catch { return; }
   let payload = null;
   try { payload = JSON.parse(input); } catch { return; }
-  // Each reading on its own: a failure recording one must never cost the other.
-  try { const reading = weeklyOf(payload); if (reading) record(dir, reading, now); } catch { /* the five-hour one still goes */ }
-  try { const five = fiveHourOf(payload); if (five) record(dir, five, now, { file: FIVE_HOUR_FILE, tolerance: SAME_WINDOW_TOLERANCE_SECONDS, history: false, maxAheadSeconds: FIVE_HOUR_MAX_AHEAD_SECONDS }); } catch { /* nothing to show */ }
+  let weekly = null; let fiveHour = null;
+  try { weekly = weeklyOf(payload); } catch { weekly = null; }
+  try { fiveHour = fiveHourOf(payload); } catch { fiveHour = null; }
+  recordReadings(dir, { weekly, fiveHour }, now);
+}
+
+/** Record a weekly and a five-hour reading (either may be null) in `dir`, each on its own: a failure recording one must
+ *  never cost the other. The one place the two files' options live, shared by main() here and by a Windows agent's
+ *  event stream (kosmos#6570, engine/win32streamstate.js), so the two writers cannot disagree. Never throws. */
+function recordReadings(dir, readings, now, opt = {}) {
+  const r = readings && typeof readings === 'object' ? readings : {};
+  const latestWins = !!(opt && opt.latestWins);   // see record(): only for readings that are the provider's answer now
+  try { if (r.weekly) record(dir, r.weekly, now, { latestWins }); } catch { /* the five-hour one still goes */ }
+  try { if (r.fiveHour) record(dir, r.fiveHour, now, { file: FIVE_HOUR_FILE, tolerance: SAME_WINDOW_TOLERANCE_SECONDS, history: false, maxAheadSeconds: FIVE_HOUR_MAX_AHEAD_SECONDS, latestWins }); } catch { /* nothing to show */ }
 }
 
 if (require.main === module) {
@@ -145,4 +161,4 @@ if (require.main === module) {
   process.exitCode = 0;
 }
 
-module.exports = { FILE, HISTORY_MAX, SAME_WEEK_TOLERANCE_SECONDS, FIVE_HOUR_FILE, SAME_WINDOW_TOLERANCE_SECONDS, FIVE_HOUR_MAX_AHEAD_SECONDS, weeklyOf, fiveHourOf, record, main };
+module.exports = { FILE, HISTORY_MAX, SAME_WEEK_TOLERANCE_SECONDS, FIVE_HOUR_FILE, SAME_WINDOW_TOLERANCE_SECONDS, FIVE_HOUR_MAX_AHEAD_SECONDS, weeklyOf, fiveHourOf, record, recordReadings, main };
