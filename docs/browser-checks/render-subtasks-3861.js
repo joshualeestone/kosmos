@@ -265,7 +265,12 @@ function chk(ok, label, extra) {
 
       // Review 4: the person opens another task while the press runs; the refusal that arrives later is not written on that page.
       await openParent();
-      await page.route('**/task/5/close', async (r) => { await new Promise((res) => setTimeout(res, 1500)); await r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'that task cannot be closed right now' }) }); });
+      await page.route('**/task/5/close', async (r) => {
+        try {   // #6022: a page closed before the delayed answer must not crash the check at teardown
+          await new Promise((res) => setTimeout(res, 1500));
+          await r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'that task cannot be closed right now' }) });
+        } catch { /* the page went away first */ }
+      });
       // Review 5: wait for the refusal itself and for the press to finish, so the check reads after it, never before.
       const refused = page.waitForResponse((resp) => /\/task\/5\/close$/.test(resp.url()), { timeout: 15000 });
       await page.click('#tk-subs-closeall');
