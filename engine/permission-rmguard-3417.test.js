@@ -5,9 +5,11 @@
  * rm -f "$S"/*.png. Measured with 2.1.308 (interactive, --dangerously-skip-permissions): that check reaches the
  * PermissionRequest hook, and Kosmos's allow hook answers it, so the person sees no prompt and the command runs. These
  * tests pin that the hook answers allow for those shapes, so a later narrowing of decide() cannot bring the prompt back.
+ * decide() has no rm-specific path: these pass through its general Bash allow. The payload Claude sent carried no field
+ * naming the check (permission_suggestions was empty), so decide() cannot tell a safety check from an ask rule.
  *
  * DELIBERATE, NOT AN OVERSIGHT: with the variable empty, rm -f "$S"/*.png deletes /*.png. Josh chose auto-approve
- * anyway. A change that makes these red is a change to his ruling, so take it back to him.
+ * anyway. A change that turns the allow tests red is a change to his ruling, so take it back to him.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -30,13 +32,13 @@ test('#3417 decide() answers allow for the shapes of Claude\'s dangerous-rm safe
   }
 });
 
-test('#3417 a payload modelled on what Claude Code 2.1.308 sent for this check (2026-10-22, paths replaced) is answered allow', () => {
+test('#3417 a payload modelled on what Claude Code 2.1.308 sent for this check (2026-10-22, paths and ids replaced) is answered allow', () => {
   const real = {
-    session_id: '67745d23-daaa-4843-8e19-5c4179d0e26f',
+    session_id: '00000000-0000-0000-0000-000000000000',
     transcript_path: '/tmp/kosmos-test/transcript.jsonl',
     cwd: '/tmp/kosmos-test/proj',
     scratchpad_dir: '/tmp/kosmos-test/scratchpad',
-    prompt_id: '07831c28-9ed7-4bd4-93d7-dad790034353',
+    prompt_id: '00000000-0000-0000-0000-000000000001',
     permission_mode: 'bypassPermissions',
     effort: { level: 'medium' },
     hook_event_name: 'PermissionRequest',

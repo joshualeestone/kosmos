@@ -12,7 +12,7 @@
  *   - AskUserQuestion: the agent asking the person something; "allow" would answer it with nothing;
  *   - anything naming a protected place (.claude, a Kosmos account folder .claude-<label>, .claude.json, .git). Not
  *     live today: measured, Claude Code 2.1.292 in bypass mode does not prompt there. It is future-proofing, so the hook
- *     never answers for that guard if Claude adds it (deliberately outside #3417's auto-approve); judged by the file
+ *     never answers for that guard if Claude adds it (#5406's rule; #3417 left it as it was); judged by the file
  *     path or, for a shell command, its text;
  *   - input it cannot read: a hook that guesses is worse than one that steps aside.
  * ExitPlanMode is allowed: Kosmos runs agents unattended with no plan screen, so a plan waiting on approval only stalls.

@@ -38,5 +38,5 @@ any narrowing that would refuse them, rm-specific or not.
 
 ## Out of scope, routed
 
-Fleet bots: add `--settings "<Kosmos data>/agent-permission-settings.json"` to their launch (shared launchers,
-Splinter). The raw dump in chat is #6727.
+Fleet bots: add `--settings "<Kosmos data>/agent-permission-settings.json"` to their launch (shared launchers:
+kosmos#6911, April). The raw dump in chat is #6727.
