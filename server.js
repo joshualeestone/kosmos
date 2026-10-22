@@ -22245,26 +22245,6 @@ const server = http.createServer(async (req, res) => {
      the SAME (id, number) the record side used, so the file matches. taskchat.read
      is fail-soft -- no file or an unreadable one both return [], which the page
      renders as "Nothing yet" rather than an error. */
-  /* #6947: the person opened this task's page (engine/taskseen.js says what "seen" means and what it misses). The page
-     sends it when it opens a task, or when its tab comes back into view on one; an agent's token is refused, so an
-     agent cannot mark its own nudge seen. Answers { seenAt }. */
-  const taskSeen = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/seen$/);
-  if (taskSeen && req.method === 'POST') {
-    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'only the person can mark a task seen' }); return; }
-    const id = decodeSegment(taskSeen[1]);
-    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    let task = null;
-    try {
-      const proj = (projects.readAll() || []).find((x) => x && x.id === id);
-      task = proj ? tasks.byNumber(proj, Number(taskSeen[2])) || null : null;
-    } catch { task = null; }
-    if (!task) { sendJson(res, 404, { error: 'no such task' }); return; }
-    const seenAt = require('./engine/taskseen').markSeen(id, task.number);
-    if (!seenAt) { sendJson(res, 500, { error: 'we could not record that just now' }); return; }
-    sendJson(res, 200, { seenAt });
-    return;
-  }
-
   const taskActivity = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/activity$/);
   if (taskActivity && (req.method === 'GET' || req.method === 'HEAD')) {
     const id = decodeSegment(taskActivity[1]);
@@ -22320,6 +22300,27 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     sendJson(res, 200, { events, count: events.length });
+    return;
+  }
+
+  /* #6947: the person opened this task's page (engine/taskseen.js says what "seen" means and what it misses). The page
+     sends it when it opens a task, or when its tab comes back into view on one. Only a request from the page counts
+     (isViaScreen: no agent token, and the browser's own Sec-Fetch-Site or a local Origin), so an agent cannot mark its
+     own nudge seen with its token or with the shared board token alone. Answers { seenAt }. */
+  const taskSeen = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/seen$/);
+  if (taskSeen && req.method === 'POST') {
+    if (!isViaScreen(req)) { sendJson(res, 403, { error: 'only the person\'s page can mark a task seen' }); return; }
+    const id = decodeSegment(taskSeen[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let task = null;
+    try {
+      const proj = (projects.readAll() || []).find((x) => x && x.id === id);
+      task = proj ? tasks.byNumber(proj, Number(taskSeen[2])) || null : null;
+    } catch { task = null; }
+    if (!task) { sendJson(res, 404, { error: 'no such task' }); return; }
+    const seenAt = require('./engine/taskseen').markSeen(id, task.number);
+    if (!seenAt) { sendJson(res, 500, { error: 'we could not record that just now' }); return; }
+    sendJson(res, 200, { seenAt });
     return;
   }
 

@@ -15,15 +15,15 @@ Rejected:
 
 ## What it misses (said plainly, as the card asked)
 - A nudge read somewhere else: the project room, a phone or desktop notification, the task's card in a column, the Needs your decision list. Those count as not seen.
-- A page opened but not read: opening is not reading; the person may glance and leave.
-- Only the latest open is kept, not each one.
-- Tasks opened before this version read as not opened.
-- Messages carry no author on the board, so "the latest message" may be the person's own; the agent reads the conversation above the line to tell.
-- Anything that can call the board without an agent token (the person's own terminal) can mark a task seen; an agent's token is refused.
+- A page opened but not read: opening is not reading; the person may glance and leave. A tab can also report visible while another app's window covers it.
+- A message that arrives while the task's page is already open: the page draws the conversation when the task opens or after an action, not on its timer, so the new message is not on screen and reads as not seen until the person opens the task again.
+- Only the latest open is kept, not each one. Tasks opened before this version read as not opened.
+- "The latest message" means the latest `said` event. Some messages carry no author (the composer's and `kosmos task message`'s), so it may be the person's own reply; the conversation above the line shows which. Other ways an agent reaches the person (a hold notice, a message kept while an agent was out of usage) are not compared.
+- Only the person's page can mark a task seen (server.js isViaScreen: no agent token, and the browser's own fetch headers or a local Origin). Those headers are advisory, so a local process that sends them deliberately can still forge it.
 
 ## Built
 - engine/taskseen.js (markSeen, seenAt), own folder so the room's progress allowance (which counts recently written task-chats files) does not count an open as progress.
-- server.js: the seen route (agent token refused, unknown task 404); activity?words=1 adds seenByPerson.
+- server.js: the seen route (page only via isViaScreen, unknown task 404); activity?words=1 adds seenByPerson.
 - web/index.html: tkMarkSeen after pjView('task') in openTaskPage, and on visibilitychange.
 - install/kosmos and tools/windows/kosmos-cli.js: the last line of task activity.
 - Tests: server.task-seen-6947, web.task-seen-6947, cli.task-activity-5874 (both CLIs, after and before).
