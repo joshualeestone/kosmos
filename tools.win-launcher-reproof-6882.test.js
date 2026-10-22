@@ -77,7 +77,7 @@ test('#6882: the instrument is reading the launcher', () => {
   assert.ok(SOURCE.length > 100000, 'KosmosLauncher.cs read back only ' + SOURCE.length + ' bytes');
 });
 
-test('#6882: every navigation to the board is checked before it leaves, and cancelled when the check fails', () => {
+test('#6882: every navigation to the board is checked before it leaves, and cancelled until the check says go', () => {
   const nav = method('internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)');
   const gate = nav.indexOf('if (mode != KosmosLauncher.ComputerMode.Connect && KosmosLauncher.IsBoardAddress(uri, port))');
   assert.notEqual(gate, -1, 'board navigations are not gated');
@@ -88,14 +88,36 @@ test('#6882: every navigation to the board is checked before it leaves, and canc
   }
   const block = nav.slice(gate, nav.indexOf('boardNavs[boardNav] = uri;', gate));
   inOrder(block, ['args.put_Cancel(1);',
-    'if (!KosmosLauncher.MayNavigateSignedIn(KosmosLauncher.CheckBoardBeforeReuse(port, KosmosLauncher.ReuseProofTimeoutMs)))',
-    'BeginInvoke(new Action(ShowNotConfirmed));', 'return;', 'args.put_Cancel(0);'], 'the navigation check');
+    'bool checkedAlready = (boardRedirect != 0 && boardNavs.ContainsKey(boardNav)) || (navigationApproved != null && navigationApproved == uri);',
+    'navigationApproved = null;',
+    'KosmosLauncher.NavigationDecision(KosmosLauncher.CheckBoardBeforeReuse(port, KosmosLauncher.ReuseQuickCheckMs))',
+    'if (step == KosmosLauncher.NavigationStep.Refuse) { BeginInvoke(new Action(ShowNotConfirmed)); return; }',
+    'if (step == KosmosLauncher.NavigationStep.CheckAgain) { string waiting = uri; BeginInvoke(new Action(() => CheckNavigationAgain(waiting))); return; }',
+    'args.put_Cancel(0);'], 'the navigation check');
   assert.equal((SOURCE.match(/put_Cancel\(0\)/g) || []).length, 1, 'something else lets a cancelled navigation go');
+  // The quick check waits on the window's own thread, so it is short; the full one has the opener's own budget.
+  const quick = Number((SOURCE.match(/internal const int ReuseQuickCheckMs = (\d+);/) || [])[1]);
+  const full = Number((SOURCE.match(/internal const int ReuseProofTimeoutMs = (\d+);/) || [])[1]);
+  const opener = fs.readFileSync(path.join(REPO, 'tools', 'kosmos-open-board.js'), 'utf8');
+  assert.equal(full, Number(opener.match(/const PROOF_TIMEOUT_MS = (\d+);/)[1]), 'the full check refuses a board the opener\'s own check would pass');
+  assert.ok(quick > 0 && quick <= 2000 && quick < full, 'the quick check can freeze the window for ' + quick + ' ms');
   // The crashed page's reload has no path of its own: it is a navigation, so it meets the check above.
-  const failed = method('internal void OnProcessFailed(ICoreWebView2ProcessFailedEventArgs args)');
-  assert.match(failed, /webView\.Reload\(\)/);
+  assert.match(method('internal void OnProcessFailed(ICoreWebView2ProcessFailedEventArgs args)'), /webView\.Reload\(\)/);
   assert.match(SOURCE, /webView\.add_NavigationStarting\(new NavigationStarting\(this\), out token\);/, 'the check never hears a navigation');
   assert.match(SOURCE, /public class NavigationStarting : ICoreWebView2NavigationStartingEventHandler\n\{[\s\S]*?try \{ form\.OnNavigationStarting\(args\); \}/);
+});
+
+test('#6882: a navigation the quick check could not settle waits for the full check, then goes once or shows why', () => {
+  const again = method('void CheckNavigationAgain(string uri)');
+  inOrder(again, ['navigationWaiting = uri;', 'if (navigationCheckInFlight) return;', 'navigationCheckInFlight = true;', 'int visit = boardVisit;',
+    'ThreadPool.QueueUserWorkItem', 'KosmosLauncher.CheckBoardBeforeReuse(boardPort, KosmosLauncher.ReuseProofTimeoutMs)',
+    'navigationCheckInFlight = false;', 'string waiting = navigationWaiting;', 'navigationWaiting = null;',
+    'if (waiting == null || visit != boardVisit || mode == KosmosLauncher.ComputerMode.Connect || webView == null) return;',
+    'if (!KosmosLauncher.MayNavigateSignedIn(check)) { ShowNotConfirmed(); return; }',
+    // approved, or the re-issued navigation would meet a slow quick check again and wait for ever
+    'navigationApproved = waiting;', 'webView.Navigate(waiting);'], 'the full check of a navigation');
+  // A board navigation that goes replaces the one waiting.
+  assert.match(method('internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)'), /args\.put_Cancel\(0\);\s*navigationWaiting = null;/);
 });
 
 test('#6882: a board load that failed is checked, and a cancelled one is not taken for a failure', () => {
@@ -106,39 +128,49 @@ test('#6882: a board load that failed is checked, and a cancelled one is not tak
     'if (mode != KosmosLauncher.ComputerMode.Connect && mode != KosmosLauncher.ComputerMode.Run && mode != KosmosLauncher.ComputerMode.Both) return;'],
   'the failed board load');
   const later = method('void CheckThenShowNotConfirmed(Func<KosmosLauncher.ReuseCheck, bool> mayStay)');
-  assert.match(later, /ThreadPool\.QueueUserWorkItem/, 'the check blocks the window');
-  assert.match(later, /if \(navigatedToBoard && !mayStay\(check\)\) ShowNotConfirmed\(\);/);
+  inOrder(later, ['int visit = boardVisit;', 'ThreadPool.QueueUserWorkItem', 'KosmosLauncher.ReuseProofTimeoutMs',
+    'if (visit == boardVisit && navigatedToBoard && !mayStay(check)) ShowNotConfirmed();'], 'the failed load\'s check');
 });
 
 test('#6882: "open Kosmos.exe again" with no signed-in address checks before it leaves the open page talking to the port', () => {
   const again = method('internal void SignInAgain(string keepPage = null)');
-  inOrder(again, ['fresh = resolveBoardAddress();',
+  inOrder(again, ['int visit = boardVisit;', 'fresh = resolveBoardAddress();',
     'if (fresh == null || !fresh.Contains("?boot=")) check = KosmosLauncher.CheckBoardBeforeReuse(port, KosmosLauncher.ReuseProofTimeoutMs);',
-    'BeginInvoke(', 'if (boardNotConfirmed) return;',
+    'BeginInvoke(', 'if (boardNotConfirmed || visit != boardVisit)',
     'if (fresh != null && fresh.Contains("?boot=") && webView != null) webView.Navigate(',
-    'else if (!KosmosLauncher.MayKeepPageOpen(check)) ShowNotConfirmed();'], 'the sign-in that named no address');
+    // the page's own sign-in (#6512) is judged more patiently than a double-click
+    'else if (!KosmosLauncher.MayKeepPageOpen(check, keepPage != null)) ShowNotConfirmed();'], 'the sign-in that named no address');
   // The check is made on the sign-in's own thread, not the window's.
   assert.ok(again.indexOf('CheckBoardBeforeReuse') < again.indexOf('BeginInvoke('), 'the check runs on the window\'s thread');
+  // A double-click while that sign-in is still out, with the window already showing why, is kept for its end.
+  inOrder(again, ['if (boardNotConfirmed && signingInAgain) { startOverWanted = true; return; }',
+    'if (boardNotConfirmed && !signingInAgain && resolveBoardAddress != null)', 'startOverWanted = false;',
+    'if (startOverWanted && boardNotConfirmed) { startOverWanted = false; SignInAgain(); }'], 'the double-click during a sign-in');
 });
 
-test('#6882: the page\'s own polling is watched on the badge timer, and only an answer that does not prove stops it', () => {
+test('#6882: the page\'s own polling is watched on the badge timer, per visit', () => {
   assert.match(method('void StartBadge()'), /badgeTimer\.Tick \+= \(sender, args\) => \{ RefreshBadge\(\); WatchBoard\(\); \};/, 'nothing watches the page\'s polling');
   const watch = method('void WatchBoard()');
   inOrder(watch, ['if (mode == KosmosLauncher.ComputerMode.Connect || !navigatedToBoard || boardNotConfirmed || watchInFlight) return;',
-    'watchInFlight = true;', 'ThreadPool.QueueUserWorkItem', 'KosmosLauncher.CheckBoardBeforeReuse(boardPort, KosmosLauncher.ReuseProofTimeoutMs)',
-    'watchInFlight = false;', 'if (navigatedToBoard && KosmosLauncher.WatchShowsNotConfirmed(check)) ShowNotConfirmed();'], 'the watch');
+    'watchInFlight = true;', 'int visit = boardVisit;', 'ThreadPool.QueueUserWorkItem', 'KosmosLauncher.CheckBoardBeforeReuse(boardPort, KosmosLauncher.ReuseProofTimeoutMs)',
+    'watchInFlight = false;', 'if (visit != boardVisit) return;',
+    'bool show = KosmosLauncher.WatchShowsNotConfirmed(check, watchNoAnswers);',
+    'watchNoAnswers = check == KosmosLauncher.ReuseCheck.NoAnswer ? watchNoAnswers + 1 : 0;',
+    'if (show && navigatedToBoard) ShowNotConfirmed();'], 'the watch');
 });
 
-test('#6882: a failed check shows NotConfirmedPage and forgets the board, so nothing reloads it until Kosmos.exe is opened again', () => {
+test('#6882: a failed check shows NotConfirmedPage and forgets the board, and every start or end of a visit moves the visit on', () => {
   const show = method('void ShowNotConfirmed()');
   inOrder(show, ['if (mode == KosmosLauncher.ComputerMode.Connect || boardNotConfirmed || webView == null) return;',
-    'boardNotConfirmed = true;', 'navigatedToBoard = false;', 'boardAddress = null;',
-    'webView.NavigateToString(KosmosLauncher.NotConfirmedPage);'], 'ShowNotConfirmed');
+    'boardNotConfirmed = true;', 'navigatedToBoard = false;', 'boardAddress = null;', 'navigationWaiting = null;', 'navigationApproved = null;',
+    'boardVisit++;', 'webView.NavigateToString(KosmosLauncher.NotConfirmedPage);'], 'ShowNotConfirmed');
   // Opening Kosmos.exe again starts over from the opener, and the address it brings back navigates again
   // (NavigateToBoard does nothing while navigatedToBoard is still set).
   assert.match(method('internal void SignInAgain(string keepPage = null)'),
     /if \(boardNotConfirmed && !signingInAgain && resolveBoardAddress != null\)\s*\{\s*boardNotConfirmed = false;[\s\S]*?ResolveBoardAddressInBackground\(\);/);
-  assert.match(method('void NavigateToBoard()'), /if \(navigatedToBoard\) return;/);
+  inOrder(method('void NavigateToBoard()'), ['if (navigatedToBoard) return;', 'navigatedToBoard = true;', 'boardVisit++;', 'webView.Navigate(boardAddress);'], 'NavigateToBoard');
+  assert.match(method('void RunAgentsHere()'), /boardNotConfirmed = false;\s*boardVisit\+\+;/, 'a check still out for the board before Run agents can act after it');
+  assert.match(method('void SwitchToConnect()'), /mode = KosmosLauncher\.ComputerMode\.Connect;\s*boardVisit\+\+;/);
 });
 
 test('#6882: the check reads board.token afresh and hands it only to the proof', () => {
@@ -175,7 +207,7 @@ class ReproofProbe {
   static int Main(string[] a) {
     switch (a[0]) {
       case "check": {
-        int timeout = a[2] == "window" ? KosmosLauncher.ReuseProofTimeoutMs : int.Parse(a[2]);
+        int timeout = a[2] == "window" ? KosmosLauncher.ReuseProofTimeoutMs : a[2] == "quick" ? KosmosLauncher.ReuseQuickCheckMs : int.Parse(a[2]);
         Console.Write(KosmosLauncher.CheckBoardBeforeReuse(int.Parse(a[1]), timeout));
         break;
       }
@@ -186,7 +218,11 @@ class ReproofProbe {
       }
       case "rules": {
         foreach (KosmosLauncher.ReuseCheck c in Enum.GetValues(typeof(KosmosLauncher.ReuseCheck)))
-          Console.Write(c + ":" + (KosmosLauncher.MayNavigateSignedIn(c) ? 1 : 0) + (KosmosLauncher.MayKeepPageOpen(c) ? 1 : 0) + (KosmosLauncher.WatchShowsNotConfirmed(c) ? 1 : 0) + "\\n");
+          Console.Write(c + ":" + KosmosLauncher.NavigationDecision(c) + ":" + (KosmosLauncher.MayNavigateSignedIn(c) ? 1 : 0)
+            + (KosmosLauncher.MayKeepPageOpen(c, false) ? 1 : 0) + (KosmosLauncher.MayKeepPageOpen(c, true) ? 1 : 0)
+            + (KosmosLauncher.WatchShowsNotConfirmed(c, 0) ? 1 : 0) + (KosmosLauncher.WatchShowsNotConfirmed(c, KosmosLauncher.WatchNoAnswersLimit - 2) ? 1 : 0)
+            + (KosmosLauncher.WatchShowsNotConfirmed(c, KosmosLauncher.WatchNoAnswersLimit - 1) ? 1 : 0) + "\\n");
+        Console.Write("limit:" + KosmosLauncher.WatchNoAnswersLimit + "\\n");
         break;
       }
       case "token": { string t; Console.Write(TaskbarBadge.ReadBoardTokenState(out t) + ":" + (t == null ? "<null>" : t)); break; }
@@ -228,6 +264,11 @@ function switchable(port, opts) {
   const sockets = new Set();
   const server = http.createServer((req, res) => {
     state.seen.push({ url: req.url, headers: { ...req.headers } });
+    // A busy board: the proof answers, but only after delayMs.
+    if (o.delayMs && !req.kosmosDelayed) { req.kosmosDelayed = true; setTimeout(() => answer(req, res), o.delayMs); return; }
+    answer(req, res);
+  });
+  function answer(req, res) {
     const u = new URL(req.url, 'http://127.0.0.1');
     if (o.status) { res.writeHead(o.status, o.status >= 300 && o.status < 400 ? { location: 'http://127.0.0.1:1/elsewhere' } : {}); res.end('{}'); return; }
     if (state.proving && u.pathname === boardproof.PROOF_PATH) {
@@ -238,7 +279,7 @@ function switchable(port, opts) {
     }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ proof: 'c'.repeat(boardproof.PROOF_HEX), counts: { waiting: 1 } }));
-  });
+  }
   server.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.delete(s)); });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -262,17 +303,32 @@ test('#6882: the probe compiles beside the launcher', WINDOWS_ONLY, (t) => {
   probeExe = out;
 });
 
-test('#6882: the three rules, over every way a check can come out', WINDOWS_ONLY, async (t) => {
+test('#6882: the rules, over every way a check can come out', WINDOWS_ONLY, async (t) => {
   if (!needsProbe(t)) return;
-  // navigate, keep the open page, watch-stops-it
+  // After the quick check : after the full check, navigate | keep the page on a double-click | keep it when the page
+  // asked | the watch stops it on a first no-answer | with limit-2 before it | with limit-1 before it (this one the limit-th).
   assert.equal(await probeAsync(['rules']), [
-    'Proved:110',          // the board proved: go on
-    'NotEnforcing:110',    // no board.token: the board issued no sign-in to protect
-    'NoListener:010',      // nothing on the port: a page may wait for it, a navigation may not race a squatter for it
-    'NoAnswer:000',        // held open or cut: a squatter can look like this, so no reuse; the timer does not act (a busy board)
-    'NotProven:001',       // an answer that is not the proof: no reuse, and the timer stops the page
-    'TokenUnreadable:000', // an enforcing board this process cannot prove (#6464); the timer does not act (antivirus)
+    'Proved:Go:111000',                  // the board proved: go on
+    'NotEnforcing:Go:111000',            // no board.token: the board issued no sign-in to protect
+    'NoListener:CheckAgain:011000',      // nothing on the port: a page may wait for it, a navigation may not race a squatter for it
+    'NoAnswer:CheckAgain:001001',        // held open: a busy board or a stalling squatter; only the page-asked sign-in waits; the watch at the limit
+    'NotProven:Refuse:000111',           // an answer that is not the proof: refused at once, everywhere
+    'TokenUnreadable:CheckAgain:001000', // an enforcing board this process cannot prove now (#6464), or antivirus for a moment
+    'limit:3',
   ].join('\n') + '\n');
+});
+
+test('#6882: a board too busy for the quick check waits for the full one, which it passes, and is never refused for it', WINDOWS_ONLY, async (t) => {
+  if (!needsProbe(t)) return;
+  const env = dataWith(TOKEN);
+  const slow = await switchable(0, { delayMs: 2500 });
+  try {
+    const t0 = Date.now();
+    assert.equal(await probeAsync(['check', String(slow.port), 'quick'], env), 'NoAnswer', 'a board slower than the quick check read as something else');
+    assert.ok(Date.now() - t0 < 2500, 'the quick check waited past its bound, freezing the window: ' + (Date.now() - t0) + ' ms');
+    assert.equal(await probeAsync(['check', String(slow.port), 'window'], env), 'Proved', 'a board slower than the quick check but inside the opener\'s budget was refused');
+    assert.deepEqual(slow.carriedToken(), []);
+  } finally { await slow.close(); }
 });
 
 test('#6882: a board that proved at the first load and then STOPS proving is not reused, and never gets the token', WINDOWS_ONLY, async (t) => {
