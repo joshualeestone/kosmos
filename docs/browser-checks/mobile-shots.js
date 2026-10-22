@@ -1576,6 +1576,8 @@ const SCREENS = [
       await at(page, '?tab=tasks');
       await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
       await page.evaluate((id) => openProjectTasks(id), data.projectId);
+      await page.waitForSelector('details.tsk-fold > summary', { timeout: 8000 });
+      await page.evaluate(() => { const d = document.querySelector('details.tsk-fold'); if (d && !d.open) d.querySelector('summary').click(); });   // the finished group, opened as a person would
       await page.waitForSelector('.tsk-replaced', { timeout: 8000 });
       await page.evaluate(() => document.querySelector('.tsk-replaced').scrollIntoView({ block: 'center' }));
       return;
