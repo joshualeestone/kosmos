@@ -22293,7 +22293,7 @@ const server = http.createServer(async (req, res) => {
         return (card && card.name) || sn;   // the card's name is its display name (engine/status.js)
       };
       const { phrase } = require('./engine/taskactphrase');
-      /* #6947: when the person last opened this task's page, so the agent can tell an unseen nudge from one seen and
+      /* #6947: when the person last viewed this task's conversation, so the agent can tell an unseen nudge from one seen and
          not yet acted on (null: not since this was recorded). */
       const seenByPerson = require('./engine/taskseen').seenAt(id, Number(taskActivity[2]));
       sendJson(res, 200, { events: events.map((ev) => Object.assign({}, ev, { words: phrase(ev, nameOf, { forAgent: true }) })), count: events.length, seenByPerson });
@@ -22304,7 +22304,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #6947: the person opened this task's page (engine/taskseen.js says what "seen" means and what it misses). The page
-     sends it when it opens a task, or when its tab comes back into view on one. Only a request from the page counts
+     sends it after it draws the task's conversation on screen (engine/taskseen.js lists when). Only a request from the page counts
      (isViaScreen: no agent token, and the browser's own Sec-Fetch-Site or a local Origin), so an agent cannot mark its
      own nudge seen with its token or with the shared board token alone. Answers { seenAt }. */
   const taskSeen = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/seen$/);

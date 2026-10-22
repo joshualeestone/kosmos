@@ -88,6 +88,7 @@ test('#6947: a draw that lands after the person moved to another task, or to the
   proj.set('p two', 3);
   proj.release(); await b;
   assert.deepEqual(proj.posts, [], 'task 3 of another project must not be marked by project one\'s draw');
+  assert.equal(proj.acts.innerHTML, '', 'project one\'s conversation must not be drawn into project two\'s page');
 });
 
 test('#6947: coming back to the tab redraws the conversation, which marks it; off screen it does neither', async () => {

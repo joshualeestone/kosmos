@@ -18,7 +18,7 @@ Rejected:
 - A page opened but not read: opening is not reading; the person may glance and leave. A tab can also report visible while another app's window covers it.
 - A message that arrives while the task's page is open and the person stays on it: the page draws the conversation when the task opens, after an action on the page, or when the tab comes back, not on its timer, so the new message is not on screen and reads as not seen until one of those happens. (Coming back to the tab draws it first, so a message that arrived while the tab was away is not counted as seen before it is drawn.)
 - The person answering from the task page's composer adds the latest message and redraws, so the line then reads "after the latest message", where the latest message is the person's own. The conversation above it shows that.
-- A message that lands in the milliseconds between the page reading the conversation and telling the board: counted as seen though not drawn.
+- A message that lands between the page reading the conversation and the board receiving its seen post (one round trip to this computer's own board): counted as seen though not drawn. Closing it would mean the page sending the time of the newest event it drew; not done, as the window is one local request.
 - Only the latest view is kept, not each one. Tasks viewed before this version read as not viewed.
 - Any draw on screen counts, including a redraw after an unrelated action on the task's page (a due date, a part): the conversation is on screen then, but the person may not have read a new message in it.
 - Any browser that shows the board's page counts as the person, the phone's included.

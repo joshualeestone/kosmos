@@ -68394,12 +68394,12 @@ async function paintTaskActivity(n) {
   let events = [];
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/activity', { cache: 'no-store' });
-    if (n !== TK_OPEN) return;
+    if (n !== TK_OPEN || p.id !== PJ_CURRENT) return;
     if (!res.ok) throw new Error('not ok');
     const out = await res.json();
     events = Array.isArray(out.events) ? out.events : [];
   } catch {
-    if (n !== TK_OPEN) return;
+    if (n !== TK_OPEN || p.id !== PJ_CURRENT) return;
     /* A failed read says nothing about the task, so it must not read as "nothing
        happened". Keep whatever is already shown; only when the list is empty put
        a quiet could-not-read line, never a false empty state. */
@@ -68410,7 +68410,7 @@ async function paintTaskActivity(n) {
      res.json() was resolving would otherwise paint this task's events into the
      shared #tk-activity of the new one. Same check as after the fetch await -- a
      second await is a second chance for the page to have moved on. */
-  if (n !== TK_OPEN) return;
+  if (n !== TK_OPEN || p.id !== PJ_CURRENT) return;
   if (!events.length) {
     holder.innerHTML = '<p class="dhint tkacts-empty">Nothing yet. As this task is worked on, what happens shows up here.</p>';
     tkMarkSeen(n, p.id);   // #6947

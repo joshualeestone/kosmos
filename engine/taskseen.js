@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * #6947 (agent feedback 10-22): when the person last opened a task's page, so an agent that left a nudge on the task
+ * #6947 (agent feedback 10-22): when the person last viewed a task's conversation, so an agent that left a nudge on the task
  * can tell "not seen yet" from "seen, not acted on".
  *
  * WHAT "SEEN" MEANS HERE: the task's conversation was drawn on the person's screen in Kosmos (the board's web page),
@@ -32,7 +32,7 @@ function seenFile(projectId, number) {
   return k ? path.join(seenDir(), `${k}.task-${number}.json`) : null;
 }
 
-/** Record that the person opened the task now. Returns the ISO time, or null when it could not be written (never
+/** Record that the person viewed the task now. Returns the ISO time, or null when it could not be written (never
  *  throws: a failed record must not break the page that sent it). Written whole and renamed into place. */
 function markSeen(projectId, number, at = new Date()) {
   const file = seenFile(projectId, number);
@@ -50,7 +50,7 @@ function markSeen(projectId, number, at = new Date()) {
   }
 }
 
-/** When the person last opened the task, as an ISO string, or null (never opened, or unreadable). */
+/** When the person last viewed the task, as an ISO string, or null (never viewed, or unreadable). */
 function seenAt(projectId, number) {
   const file = seenFile(projectId, number);
   if (!file) return null;
