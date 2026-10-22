@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: pauseall-6781
-diff_hash: a0bc66c8619201d1992fe3c7bfe46a46f501172bf4f45c6badafa729e0118d3b
-validation: partial until the rebase (focused tests green: install.installer-pause-6781, cli.update-ifnewer-4382, native-app.update-ifnewer-4382, install.recoverykey-setup-6609, the native app's update selftest 26 rows; the static set 3313 pass 0 fail on e83e4d8afd; browser-check surface gate rc 0). This branch is stacked on updpause-6620 (kosmos PR 6783), so the diff above still carries that PR's commits. After 6783 merges: rebase onto main, run the full node suite and the shell tests, re-hash, and state the result here.
+diff_hash: 968354ca57b07c70826e97e163ddf1881d7d0ff7d499bd8bbe936795341bb8b3
+validation: passed on Mortals for the rebased tree (node 23294 tests 0 fail, shell 280/280), recorded failed only by the #3011 LaunchAgents leak guard, which caught plists another run (verify2129, spawncheck1057) wrote during it
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
-timestamp: 2026-10-21T19:11:40Z
+timestamp: 2026-10-22T16:31:22Z
 iterations: 7
 converged: true
 ---
