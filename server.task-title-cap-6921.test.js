@@ -70,6 +70,15 @@ test('#6921: a word that ends exactly at the room is kept, not dropped', () => {
   assert.equal(tasks.fitTitle(title, null).sentence, title.slice(0, room) + '...');
 });
 
+test('#6921: a detail over its cap on its own is refused as itself, whatever the title', () => {
+  const p = projects.create({ name: 'Detailcap' });
+  const big = 'd'.repeat(tasks.DETAIL_MAX + 100);
+  assert.throws(() => tasks.create(p.id, { sentence: long(60), detail: big }), /has to be words/);
+  assert.throws(() => tasks.create(p.id, { sentence: 'Short', detail: big }), /has to be words/, 'CONTROL: the same verdict with a short title');
+  assert.throws(() => tasks.create(p.id, { sentence: long(60), detail: ' '.repeat(tasks.DETAIL_MAX + 10) + 'a' }), /has to be words/,
+    'an over-cap detail is not rescued by trimming during the move');
+});
+
 test('#6921: a title whose only space comes early is hard-cut, never left near-empty', () => {
   const r = tasks.fitTitle('a ' + 'y'.repeat(300), null);
   assert.equal(r.sentence, ('a ' + 'y'.repeat(300)).slice(0, MAX - 3) + '...');
@@ -116,4 +125,15 @@ test('#6921: the route adds an over-long title instead of failing, and says it w
   const ok = await add('A normal title');
   assert.equal(ok.code, 200);
   assert.equal(ok.json.note, undefined, 'CONTROL: a title under the cap gets no note');
+});
+
+test('#6921: the shortened note comes first, so #5319 copyable close command stays the end of the line', async () => {
+  seed();
+  const title = long(60);
+  const first = await add(title);
+  assert.equal(first.code, 200);
+  const again = await add(title);   // the same long title again: same stored sentence and detail, so #5319 names #1
+  assert.equal(again.code, 200, JSON.stringify(again.json));
+  assert.ok(again.json.note.startsWith('Note: the title was over ' + MAX + ' characters'), again.json.note);
+  assert.match(again.json.note, /kosmos task close p6921 2$/, '#5319 command is the end of the line');
 });

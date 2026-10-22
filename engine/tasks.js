@@ -140,13 +140,22 @@ function taskProblem({ sentence, detail, who } = {}) {
   if (typeof sentence !== 'string' || !sentence.trim()) {
     return 'say what needs doing';
   }
+  // Still live after #6921: create() shortens an over-long title first, and other callers of taskProblem do not.
   if (sentence.trim().length > SENTENCE_MAX) {
     return `say what needs doing in ${SENTENCE_MAX} characters or fewer; the detail box below has the room`;
   }
+  return detailProblem(detail) || whoProblem(who);
+}
+
+function detailProblem(detail) {
   if (detail !== undefined && detail !== null
       && (typeof detail !== 'string' || detail.length > DETAIL_MAX)) {
     return `anything they should know has to be words (${DETAIL_MAX} characters or fewer)`;
   }
+  return null;
+}
+
+function whoProblem(who) {
   // ⚠️ A PRESENT who is refused when it cannot be an agent's name, never
   // silently dropped: a caller who asked to assign and got a 200 with a
   // "Nobody yet" task believes an assignment happened. Absent/blank means
@@ -346,6 +355,9 @@ function subtaskProgress(p, n) {
  * the task, so two concurrent creates cannot share one.
  */
 function create(projectId, { sentence: asked, detail: askedDetail, who, parent, doneWhen, made: origin } = {}, roster) {
+  // A detail that is bad on its own is refused as itself, before any move, so a long title never changes its verdict.
+  const ownDetail = (typeof asked === 'string' && asked.trim().length > SENTENCE_MAX) ? detailProblem(askedDetail) : null;
+  if (ownDetail) throw new Error(ownDetail);
   const fit = fitTitle(asked, askedDetail);
   const { sentence, detail } = fit;
   const problem = (fit.moved && typeof detail === 'string' && detail.length > DETAIL_MAX)
