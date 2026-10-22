@@ -80,6 +80,7 @@ card() {  # <name> -> a status card JSON for the scenario state
     stopped-forever) state=stopped;     because="Claude is not running for this one";;
     needs-you-other) state=needs_you;   because="it has hit its usage limit";;
     needs-you-firstrun) state=needs_you; because="it is asking whether to turn on bypass permissions mode";;
+    rate-limited)    state=rate_limited; because="its account reported a usage limit";;
     *)               state=idle;        because="it is sitting at its prompt";;
   esac
   # The REAL /api/status card is TOP-LEVEL sessionName/state/because (server.js status route),
@@ -183,7 +184,8 @@ case "$route" in
         case "${MOCK_REPLY:-ready}" in
           none) ;;
           other) msgs="$msgs,{\"at\":\"$now\",\"text\":\"ready\",\"from\":\"someone-else\"}" ;;
-          # The real thread adds a kind:"question" row FROM the agent while it waits on a prompt: not an answer.
+          # The real thread adds a kind:"question" row FROM the agent while it waits on a prompt: not an answer. Dated, as a
+          # REPORTED question's row is (askedAt); an unreported one carries at:null, which the date filter drops anyway.
           question) msgs="$msgs,{\"at\":\"$now\",\"text\":\"Allow this?\",\"from\":\"$nm\",\"kind\":\"question\"}" ;;
           # A row from the agent dated before the message was sent: not an answer to it.
           old) msgs="$msgs,{\"at\":\"2026-01-01T00:00:00Z\",\"text\":\"ready\",\"from\":\"$nm\"}" ;;
@@ -198,6 +200,8 @@ case "$route" in
     nm="${route#/api/agent/}"; nm="${nm%/removal}"
     if [ "$method" = DELETE ]; then
       if [ "${MOCK_REMOVE:-ok}" = fail ]; then emit '{"error":"we could not remove that"}' 500; exit 0; fi
+      # The real route answers 200 for a PARTIAL removal too (the agent may still run): nothing taken off the board.
+      if [ "${MOCK_REMOVE:-ok}" = partial ]; then emit '{"outcome":"partial","because":"we could not stop it starting again"}' 200; exit 0; fi
       grep -vx "$nm" "$STATE" > "${STATE}.tmp" 2>/dev/null; mv "${STATE}.tmp" "$STATE"
       printf '%s\n' "$nm" >> "${STATE}.removed"
       emit '{"outcome":"removed"}' 200
@@ -276,6 +280,8 @@ run_case "an agent row from BEFORE the send is not an answer -> cannot-tell (2)"
 run_case "a create whose answer is lost is still removed (2)" 2 MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_CREATE=lost
 run_case "waiting on a usage limit -> cannot-tell (2), not a refusal" 2 --expect "usage or rate limit" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=needs-you-other
 run_case "waiting on ANOTHER first-run question -> do-not-promote (1)" 1 --expect "first-run wedge" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=needs-you-firstrun
+run_case "a rate_limited account -> cannot-tell (2), not a refusal" 2 --expect "rate-limited" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=rate-limited
+run_case "a PARTIAL removal (200) leaves its files and is said; the verdict stands (0)" 0 --expect "could not remove 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_REMOVE=partial
 run_case "a FAILED arm still removes its agent (trust wedge, 1)" 1 --expect "removed 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=trust-wedge
 run_case "a removal that fails is said, and the verdict stands (0)" 0 --expect "could not remove" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_REMOVE=fail
 # kosmos#5849 control: the CALLER exports every fixture variable and a broken home; a case that names no scenario

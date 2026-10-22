@@ -267,6 +267,10 @@ out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QFAIL" 
 [ "$rc" = 2 ] && has "$out" "never got a turn" && ! has "$out" "PARTIAL" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queue exits 3 without running the gate -> cannot-tell HOLD (2), not PARTIAL" || bad "promote queued-gate-qfail (rc=$rc, out=$out)"
 out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=75 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && has "$out" "did not finish with a verdict" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queue stopped the gate (END rc=75) -> cannot-tell HOLD (2)" || bad "promote queued-gate-75 (rc=$rc, out=$out)"
+# Inside a turn that already holds the machine, the queue exec's the gate and prints no END line: its exit IS the gate's.
+QINH="$T/stub-queue-inherited.sh"; printf '#!/usr/bin/env bash\necho "QUEUED-HEAVY 12:00:00 $1 runs now, inside the turn that already holds the box (it claims and releases nothing)"\nexit "${QRC:-0}"\n' > "$QINH"
+out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QINH" QRC=1 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" --force 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: gate run inside an inherited turn exits 1 -> refuse even with --force" || bad "promote queued-inherited-1 (rc=$rc, out=$out)"
 out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=143 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && has "$out" "did not finish with a verdict" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queued gate killed (END rc=143) -> cannot-tell HOLD (2), not a refusal" || bad "promote queued-gate-143 (rc=$rc, out=$out)"
 out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=1 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" --force 2>&1)"; rc=$?

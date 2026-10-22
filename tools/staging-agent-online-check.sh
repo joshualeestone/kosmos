@@ -189,11 +189,24 @@ remove_agent() {
       [ "$HTTP_CODE" = "200" ] && [ "$(listed "$nm")" = "yes" ] && { seen=1; break; }
       tries=$((tries + 1)); [ "$tries" -lt 6 ] && sleep 10
     done
-    # Its files are deleted either way: only this run makes this name.
-    [ -n "$seen" ] || { tidy_agent "$nm"; return; }
+    # Never seen: it may not exist, or the board may not have listed it yet. Its files are left alone (deleting them under
+    # a live agent is worse than leaving them), and said.
+    if [ -z "$seen" ]; then
+      local pp; pp="$(paths_of "$nm" | tr '\n' ' ')"
+      say "WARNING: a create of '$nm' got no answer and the board never listed it; it may still be made. Check for it on the board and at ${pp:-its com.kosmos.agent plist and worker folder}."
+      return
+    fi
   fi
   : > "$_BODYF"
   code="$("$CURL" -sS --max-time 60 -H @"$HF" -X DELETE -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/removal" 2>/dev/null || true)"
+  local outcome; outcome="$("$NODE" -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).outcome||""))}catch{}' "$_BODYF")"
+  if [ "$code" = "200" ] && [ "$outcome" != "removed" ]; then
+    # The board answers 200 for a PARTIAL removal too (it could not stop it, or stop it starting again): the agent may
+    # still run, so its files are left alone.
+    local pp; pp="$(paths_of "$nm" | tr '\n' ' ')"
+    say "WARNING: could not remove '$nm' fully (outcome '${outcome:-?}'): it may still run. Remove it on its page under Remove, then delete ${pp:-its com.kosmos.agent plist and worker folder}."
+    return
+  fi
   if [ "$code" != "200" ]; then
     local pp; pp="$(paths_of "$nm" | tr '\n' ' ')"
     say "WARNING: could not remove '$nm' (DELETE removal -> HTTP ${code:-<none>}): remove it by hand, on its page under Remove, then delete ${pp:-its com.kosmos.agent plist and worker folder}."
@@ -201,7 +214,7 @@ remove_agent() {
   fi
   api_get /api/status
   still="$(listed "$nm")"
-  tidy_agent "$nm" confirmed
+  [ "$still" = "yes" ] || tidy_agent "$nm" confirmed   # never delete the files of an agent the board still lists
   case "$still" in
     no)  say "removed '$nm' (gone from /api/status)." ;;
     yes) say "WARNING: removed '$nm' (HTTP 200) but it is still listed in /api/status: check it on the board." ;;
@@ -420,6 +433,8 @@ create_and_wait() {
       auth_failed)
         online_streak=0
         say "  [$prov] auth_failed: '$because' (a sign-in failure, e.g. #2128/#2130 class)"; return 1 ;;
+      rate_limited)
+        online_streak=0 ;;   # the account's limit, not the build: judged at the end of the window (cannot-tell)
       *)
         online_streak=0 ;;
     esac
@@ -452,10 +467,14 @@ create_and_wait() {
   fi
   # kosmos#6906: still waiting on a question at the end. A usage or rate limit is the account on a working fleet board,
   # not the build: cannot-tell (forceable).
+  if [ "$st" = "rate_limited" ]; then
+    say "  [$prov] its account is rate-limited at ${POLL_SECS}s: '$because' - the account, not the build: cannot tell (HOLD)."
+    return 2
+  fi
   # Only a usage or rate limit: any other first-run prompt a build brings in is the #2129 class itself (a refusal).
   if [ "$st" = "needs_you" ]; then
     case "$(printf '%s' "$because" | tr '[:upper:]' '[:lower:]')" in
-      *limit*|*quota*|*credit*|*"rate "*)
+      *"usage limit"*|*"rate limit"*|*"out of usage"*|*"quota ran out"*)   # the board's own phrasings (engine/status.js)
         say "  [$prov] still waiting on a usage or rate limit at ${POLL_SECS}s: '$because' - the account, not the build: cannot tell (HOLD)."
         return 2 ;;
     esac

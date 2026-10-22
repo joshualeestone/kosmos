@@ -312,8 +312,14 @@ if [ "$FAMILY" = mac ]; then
     _pc_qlog="$(mktemp "${TMPDIR:-/tmp}/promote-agentgate.XXXXXX")" || _pc_qlog=/dev/null   # no log: no END line: cannot-tell
     bash "$_pc_queue" agent-spawn-gate $AGENT_GATE_CMD ${PORT:+"$PORT"} 2>&1 | tee "$_pc_qlog"; _pc_qrc=${PIPESTATUS[0]}
     AGENT_RC="$(sed -n 's/^QUEUED-HEAVY [0-9:]* END rc=\([0-9][0-9]*\):.*/\1/p' "$_pc_qlog" | tail -1)"
+    _pc_inherited=""; grep -q "agent-spawn-gate runs now, inside the turn" "$_pc_qlog" 2>/dev/null && _pc_inherited=1
     [ "$_pc_qlog" = /dev/null ] || rm -f "$_pc_qlog"
-    if [ -z "$AGENT_RC" ]; then
+    if [ -z "$AGENT_RC" ] && [ -n "$_pc_inherited" ]; then
+      # Started inside a turn that already holds the machine (an inherited claim): the queue exec'd the gate itself and
+      # prints no END line, so its exit code IS the gate's.
+      AGENT_RC="$_pc_qrc"
+      case "$AGENT_RC" in 0|1|2|3) ;; *) echo "promote-channel: the agent-spawn gate did not finish with a verdict (rc=$AGENT_RC) - treating it as cannot-tell." >&2; AGENT_RC=2 ;; esac
+    elif [ -z "$AGENT_RC" ]; then
       echo "promote-channel: the agent-spawn gate never got a turn in the machine's queue (the queue exited $_pc_qrc) - treating it as cannot-tell." >&2
       AGENT_RC=2
     else
