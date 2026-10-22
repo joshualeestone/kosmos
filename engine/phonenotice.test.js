@@ -20,6 +20,11 @@ test('#6487 words are shortened for a lock screen at a word, and short ones are 
   const long = 'word '.repeat(200);
   const s = pn.shorten(long);
   assert.ok(s.length <= pn.TEXT_MAX && s.endsWith('…') && !/\s…$/.test(s), JSON.stringify(s.slice(-20)));
+  // No space to cut at, and an emoji's two halves straddle the cut: the lone half is dropped, never sent.
+  const emoji = 'x'.repeat(pn.TEXT_MAX - 2) + '😀' + 'y'.repeat(20);
+  const e = pn.shorten(emoji);
+  assert.ok(!/[\uD800-\uDBFF]…$/.test(e), 'a lone high surrogate before the ellipsis');
+  assert.equal(e, 'x'.repeat(pn.TEXT_MAX - 2) + '…');
 });
 
 test('#6487 a report\'s reason (because) is found by its exact time; another time, or no reason, is nothing', () => {
@@ -68,6 +73,24 @@ test('#6487 only the END of a report file is read: a row before the window is no
     assert.equal(pn.reportNote('irma', '2026-10-22T17:00:00.000Z', { selfreport, tailBytes }), null, 'before the window');
     // CONTROL: the same old row IS found when the window covers it, so the null above is the window, not the row.
     assert.equal(pn.reportNote('irma', '2026-10-22T17:00:00.000Z', { selfreport }), 'an old question');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#6487 a window that starts partway into a row drops that row, and one that starts on a whole row keeps it', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-phonenotice-cut-'));
+  const file = path.join(dir, 'irma.jsonl');
+  const at = '2026-10-22T18:00:00.000Z';
+  const whole = JSON.stringify({ state: 'needs_you', at, because: 'cut' });
+  // The row is preceded on its OWN line by junk, so a window starting at its `{` sees text that parses on its own.
+  fs.writeFileSync(file, 'GARBAGE' + whole + '\n' + whole.replace('cut', 'kept').replace(at, '2026-10-22T18:01:00.000Z') + '\n');
+  const selfreport = { fileFor: () => file };
+  const size = fs.statSync(file).size;
+  try {
+    // Starts at the `{` of a line whose start (GARBAGE) is outside: that half row must not be read as a report.
+    assert.equal(pn.reportNote('irma', at, { selfreport, tailBytes: size - 'GARBAGE'.length }), null);
+    // Starts exactly on the second line: that whole row is kept, not thrown away as if it were cut.
+    const second = size - (whole.length + 1 + 'GARBAGE'.length);
+    assert.equal(pn.reportNote('irma', '2026-10-22T18:01:00.000Z', { selfreport, tailBytes: second }), 'kept');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

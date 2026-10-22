@@ -37,7 +37,8 @@ function parseId(id) {
 function shorten(text, max = TEXT_MAX) {
   const t = String(text == null ? '' : text).replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
   if (t.length <= max) return t;
-  const cut = t.slice(0, max - 1);
+  // A hard cut can land between the two halves of an emoji; a lone half makes JSON a strict phone decoder refuses.
+  const cut = t.slice(0, max - 1).replace(/[\uD800-\uDBFF]$/, '');
   const sp = cut.search(/\s\S*$/);
   return (sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,.;:!?-]+$/, '') + '…';
 }
@@ -55,11 +56,12 @@ function reportNote(session, at, { selfreport = require('./selfreport'), tailByt
   try {
     fd = fs.openSync(selfreport.fileFor(session), 'r');
     const size = fs.fstatSync(fd).size;
-    const start = Math.max(0, size - tailBytes);
+    // One byte before the window is read too: it says whether the window starts on a whole row or partway into one.
+    const start = Math.max(0, size - tailBytes - 1);
     const buf = Buffer.alloc(size - start);
-    fs.readSync(fd, buf, 0, buf.length, start);
-    text = buf.toString('utf8');
-    if (start > 0) text = text.slice(text.indexOf('\n') + 1);   // the first line may be cut: never parse half a row
+    const got = fs.readSync(fd, buf, 0, buf.length, start);
+    text = buf.subarray(0, got).toString('utf8');
+    if (start > 0) text = text.slice(text.indexOf('\n') + 1);   // drop the partial first row (or the byte before a whole one)
   } catch { return null; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
   const lines = text.split('\n');
   for (let i = lines.length - 1; i >= 0; i--) {

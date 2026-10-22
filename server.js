@@ -7447,7 +7447,7 @@ const server = http.createServer(async (req, res) => {
     try { asked = new URL(req.url, ROUTING_BASE).searchParams.get('id'); } catch { asked = null; }
     const got = require('./engine/phonenotice').wordsFor(asked, { mask: guideMasked });   // #3769: rows kept before the write-side mask
     if (!got || borrowedName(got.session)) { sendJson(res, 404, { error: 'we have no words for that notification' }); return; }
-    const card = (safeRoster() || []).find((a) => a && a.sessionName === got.session);
+    const card = ourCardByName(safeRoster(), got.session);   // as the thread readers find it: any spelling, tied only
     let picture = null;
     try { picture = store.avatarPath(got.session) ? '/api/agent/' + encodeURIComponent(got.session) + '/avatar' : null; } catch { picture = null; }
     sendJson(res, 200, { kind: got.kind, session: got.session, agent: (card && card.name) || got.session, text: got.text, picture });
