@@ -15,8 +15,9 @@
 #
 # kosmos#6906: THIS CREATES REAL AGENTS ON THE TARGET BOARD, one per provider, named
 # verify2129-<claude|openai>-<time>-<pid> so they never collide with a person's agent, and REMOVES them when it ends
-# (DELETE /api/agent/<name>/removal, the board's own Remove agent), then deletes their launchd job file and worker
-# folder, which that route keeps (a removal that fails is said, with the files to delete by hand). So it runs on a
+# (DELETE /api/agent/<name>/removal, the board's own Remove agent), then clears what removal keeps with the board's own
+# delete-leftover (DELETE /api/agent/<name>/leftover, #514): the job file and worker folder go to the Trash, and the
+# Removed list loses its row (#6922, #6915). A removal or clear that fails is said, with what to do by hand. So it runs on a
 # populated board too: the boards releases are promoted from are fleet boards, and the old refusal there meant this
 # gate never ran at a promote. Each arm must also ANSWER a first message in its own thread (a stored entry `from` its
 # session name, after the send): online alone does not show an agent can take a turn.
@@ -34,8 +35,10 @@
 #        a provider not signed in, a board whose agents cannot be counted, a non-numeric port, an
 #        unexpected create-400, or an agent that NEVER appeared in /api/status (a shape mismatch
 #        / contract drift), or an agent that came online but did not answer its first message in
-#        time (slow, rate-limited, or the thread unreadable). Also: the Claude arm is online but the OpenAI arm could not be
-#        determined. The invariant: cannot-tell never reads as a pass.
+#        time (slow, rate-limited, or the thread unreadable), or an agent still waiting on a usage or rate limit (or
+#        rate_limited) when the online window ends: the account, not the build. Also: the Claude arm is online but the
+#        OpenAI arm could not be determined. Stopped by INT, TERM, HUP or PIPE part way (its agents are still removed).
+#        The invariant: cannot-tell never reads as a pass.
 #      3 PARTIAL - the CLAUDE arm is ONLINE but the OpenAI/Codex arm FAILED to come online. This
 #        may be a separate codex-spawn issue #2129 does not fix. The promoter SURFACES which arm
 #        failed and routes the decision (forceable); it must NOT auto-hold the whole promote,
@@ -87,7 +90,7 @@ HF=""; CREATED_NAMES=""; MAYBE_NAMES=""
 cleanup() {
   # kosmos#6906: remove every agent this check created, BEFORE the token file goes. A removal
   # that fails is said loudly with the name to remove by hand; it does not change the verdict.
-  trap '' INT TERM PIPE   # a signal, or a reader that has gone (a promote's tee on Ctrl-C), must not abandon the rest
+  trap '' INT TERM HUP PIPE   # a signal, a dropped ssh, or a reader that has gone (a promote's tee on Ctrl-C) must not abandon the rest
   local nm todo="$CREATED_NAMES" maybe="$MAYBE_NAMES"
   CREATED_NAMES=""; MAYBE_NAMES=""   # once only: an INT/TERM runs this, then the EXIT trap runs it again
   for nm in $todo; do remove_agent "$nm"; done
@@ -96,7 +99,9 @@ cleanup() {
   [ -n "${_BODYF:-}" ] && rm -f "$_BODYF" 2>/dev/null
 }
 trap cleanup EXIT
-trap 'cleanup; exit 2' INT TERM   # stopped part way: its agents are still removed, and the answer is cannot-tell
+# Stopped part way: its agents are still removed, and the answer is cannot-tell. HUP (a dropped ssh) and PIPE (the reader
+# gone) too, or they exit 129 and 141, which an unqueued KOSMOS_PROMOTE_AGENT_GATE_CMD reads as a refusal (#6922).
+trap 'cleanup; exit 2' INT TERM HUP PIPE
 HF="$(mktemp 2>/dev/null || echo "/tmp/kaoc.$$.hdr")"
 : > "$HF"; chmod 600 "$HF" 2>/dev/null
 printf 'x-kosmos-board-token: %s\n' "$TOKEN" > "$HF"
@@ -143,39 +148,47 @@ listed() {
       const a=j.agents||j.cards||j.fleet||(Array.isArray(j)?j:null);if(!a){process.stdout.write("?");return}
       process.stdout.write(a.some(c=>(c.sessionName||c.session||c.name||"")===process.argv[1])?"yes":"no")})' "$1"
 }
-# kosmos#6906: after its removal, delete one of THIS gate's throwaway agents' launchd job file and worker folder. The
-# board's Remove agent deletes nothing on disk (engine/remove.js: removal is reversible), and a job file left in
-# ~/Library/LaunchAgents is what a full validation's #3011 guard reads. The paths come from create.js plistPath and
-# workerDir: the installed app's engine when KOSMOS_HOME names one, else this checkout's (a promote's case, the same
-# rules as the board it promoted), in this process's environment; never from a copy of them. Only a name this gate
-# makes is ever touched.
+# kosmos#6922: after its removal, clear what is left of one of THIS gate's throwaway agents with the board's own
+# delete-leftover (DELETE /api/agent/<name>/leftover, #514): its launchd job file and worker folder go to the Trash, the
+# Removed list loses its row, and the name is free. The board's Remove agent deletes nothing (engine/remove.js: removal is
+# reversible), and a job file left in ~/Library/LaunchAgents is what a full validation's #3011 guard reads. The name is
+# sent as the typed confirmation: the route asks for it only when the Trash cannot take the files, and these are the
+# gate's own throwaway agents, which hold nothing. Only a name this gate makes is ever cleared.
 # The two paths (job file, worker folder) this machine's engine gives a gate agent, one per line; empty if it cannot say.
+# Used for the launchd label and for what to delete by hand when the board cannot clear it.
 paths_of() {
   "$NODE" -e 'const c=require(process.argv[1]+"/create");if(typeof c.plistPath!=="function")process.exit(3);process.stdout.write(c.plistPath(process.argv[2])+"\n"+c.workerDir(process.argv[2]))' "$(dirname "$STORE")" "$1" 2>/dev/null
 }
 tidy_agent() {
-  local nm="$1" confirmed="${2:-}" paths plist dir
+  local nm="$1" confirmed="${2:-}" code outcome because body pp plist
   case "$nm" in verify2129-claude-*|verify2129-openai-*) ;; *) return ;; esac
   case "${nm#verify2129-*-}" in *[!0-9-]*|'') return ;; esac
-  paths="$(paths_of "$nm")" \
-    || { say "WARNING: could not ask the engine at $(dirname "$STORE") where '$nm' keeps its files: remove its com.kosmos.agent plist and worker folder by hand."; return; }
-  plist="${paths%%$'\n'*}"; dir="${paths#*$'\n'}"
-  local had=""
-  case "${plist##*/}" in "com.kosmos.agent.$nm"*.plist) [ -f "$plist" ] && { had=1; rm -f "$plist"; } ;; esac
-  [ "${dir##*/}" = "$nm" ] && [ -d "$dir" ] && { had=1; rm -rf "$dir"; }
-  # Removal disabled the job's label in launchd (that is how it stays off); with the job file gone, drop that record too.
-  # Only for a real job file in the real LaunchAgents folder: `enable` writes launchd's own override database, which a
-  # sandboxed run (AGENT_WORKFORCE_LAUNCH set, as the tests do) must never touch.
-  if [ -n "$had" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] && command -v launchctl >/dev/null 2>&1; then
-    launchctl enable "gui/$(id -u)/$(basename "$plist" .plist)" >/dev/null 2>&1
+  body="$("$NODE" -e 'process.stdout.write(JSON.stringify({typed:process.argv[1]}))' "$nm")"
+  : > "$_BODYF"
+  code="$("$CURL" -sS --max-time 60 -H @"$HF" -H 'Content-Type: application/json' -X DELETE --data "$body" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
+  outcome="$("$NODE" -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).outcome||""))}catch{}' "$_BODYF")"
+  because="$("$NODE" -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).because||"").replace(/\s+/g," ").slice(0,300))}catch{}' "$_BODYF")"
+  if [ "$code" = 200 ] && [ "$outcome" = deleted ]; then
+    # Removal disabled the job's label in launchd (that is how it stays off) and the clear does not undo that; a gate
+    # name is never made again, so drop the record. Never in a sandboxed run (AGENT_WORKFORCE_LAUNCH set, as the tests
+    # do): `enable` writes launchd's own override database.
+    pp="$(paths_of "$nm")"; plist="${pp%%$'\n'*}"
+    if [ -n "$plist" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] && command -v launchctl >/dev/null 2>&1; then
+      launchctl enable "gui/$(id -u)/$(basename "$plist" .plist)" >/dev/null 2>&1
+    fi
+    say "cleared '$nm': its job file and worker folder are in the Trash, and the name is free."
+    return
   fi
-  if [ -e "$plist" ] || [ -e "$dir" ]; then say "WARNING: '$nm' left files behind: $plist $dir"
-  elif [ -n "$had" ]; then say "deleted '$nm''s job file and worker folder."
-  elif [ -n "$confirmed" ]; then
-    # The board answered 200 for this one, so it wrote these files somewhere: not finding them means the gate may be
-    # looking in another place than the board does (another KOSMOS_WORLD or AGENT_WORKFORCE_* setting).
-    say "WARNING: no job file or worker folder for '$nm' at $plist or $dir, though the board made it: check ~/Library/LaunchAgents for com.kosmos.agent.$nm*"
-  else say "found no job file or worker folder for '$nm' (looked at $plist and $dir)."; fi
+  case "$because" in
+    "nothing of "*)
+      if [ -n "$confirmed" ]; then
+        # The board answered 200 for this one, so it wrote files somewhere: none found means the board looks elsewhere.
+        say "WARNING: the board made '$nm' but finds nothing of it left on disk: check ~/Library/LaunchAgents for com.kosmos.agent.$nm*"
+      else say "found nothing of '$nm' left to clear."; fi
+      return ;;
+  esac
+  pp="$(paths_of "$nm" | tr '\n' ' ')"
+  say "WARNING: could not clear '$nm' (DELETE leftover -> HTTP ${code:-<none>}, ${outcome:-no outcome}${because:+: $because}): on its page, Delete what is left, or delete ${pp:-its com.kosmos.agent plist and worker folder} by hand."
 }
 # kosmos#6906: remove one agent this check created, and say whether it is gone from /api/status.
 remove_agent() {
