@@ -28,3 +28,11 @@ Stacked on kidcommunity-6862 (#6862); rebase onto main with --onto once it merge
 - Mutations: contactAllows' family branch back to CONTACT_STOPS (2 red); the route, the room line and the note each
   frozen to the policy's text (1 red each).
 - 15 test files naming the touched code: 359 pass, 0 fail.
+
+## Review 1 (sonnet)
+- NIT fixed: the room line chose its wording by comparing text with CONTACT_STOPS; it now branches on the `family`
+  flag contactAllows sets (fedseats.contactReason: { family, text }), and the fallback takes op.CONTACT_STOPS instead
+  of a hard-coded copy. Mutations: the room line always the policy form (1 red), the flag inverted (1 red).
+- Not added: a family arm with `outside_contact: {}`. The board refuses that bundle ("not one this Kosmos
+  understands"), so the state cannot happen.
+- Accepted: contactReason's second read (documented). The throw / now-allows fallbacks are not exercised by a test.

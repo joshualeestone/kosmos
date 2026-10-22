@@ -21208,11 +21208,11 @@ const server = http.createServer(async (req, res) => {
         try {
           if (fedseats.linkFor(id)) {
             const cs = fedseats.contactState();   // kosmos#6239: a room closed under the policy, or a fault, says so instead
-            const why = cs === 'policy' ? fedseats.contactStops() : null;   // kosmos#6870: a family default says its own
+            const why = cs === 'policy' ? fedseats.contactReason() : null;   // kosmos#6870: a family default says its own
             shared = cs === 'policy'
-              ? (why === require('./engine/orgpolicy').CONTACT_STOPS
+              ? (!why.family
                 ? '[kosmos] This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer.\n'
-                : '[kosmos] This room is shared with another computer, but it is closed: ' + why + ', so nothing posted here leaves this computer.\n')
+                : '[kosmos] This room is shared with another computer, but it is closed: ' + why.text + ', so nothing posted here leaves this computer.\n')
               : cs === 'unreadable'
                 ? '[kosmos] This room is shared with another computer, but it is closed for now: Kosmos cannot read the policy set for this Kosmos, so nothing posted here leaves this computer.\n'
                 : '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n';
