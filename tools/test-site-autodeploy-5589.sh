@@ -134,6 +134,33 @@ KOSMOS_AUTODEPLOY_PS="printf %s\\n 'grep tools/release.sh' 'vim tools/release.sh
 { [ "$(ndeploys)" = 6 ] && [ "$(cat "$ST/last-deployed")" = "$H6" ]; } \
   && pass "a grep or an editor naming release.sh is not a cut (control: the deploy goes ahead)" || bad "a mention of release.sh held the deploy (deploys=$(ndeploys))"
 
+# 7b) kosmos#6907: a publisher a TEST started (the shell suite runs the real deploy-site.sh) does not hold the deploy;
+# one with no test above it does, and the skip names it. Each arm has its own state and deploy log, so the counts
+# the rest of this file reads are untouched.
+arm6907() {  # <name> <ps lines...>: one tick on fresh state; leaves OUT, RC and N (deploys it made)
+  local name="$1"; shift; local lines="$T/ps6907-$name"; printf '%s\n' "$@" > "$lines"
+  KOSMOS_AUTODEPLOY_STATE="$T/state6907-$name" KOSMOS_AUTODEPLOY_PS="cat $lines" \
+    KOSMOS_AUTODEPLOY_DEPLOY="echo x >> $T/deploys6907-$name" tick
+  N=$(cat "$T/deploys6907-$name" 2>/dev/null | wc -l | tr -d ' ')
+}
+arm6907 test '  100     1 /bin/bash /Users/x/work/val-pauseall-6781/tools/test-deploy-site-promote.sh' \
+  '  150   100 sh -c bash "$REPO/tools/deploy-site.sh" --promote' \
+  '  200   150 bash /Users/x/work/val-pauseall-6781/tools/deploy-site.sh --promote'
+{ [ "$RC" = 0 ] && [ "$N" = 1 ]; } && pass "a deploy-site.sh a test-*.sh started (two levels up) does not hold the deploy" || bad "a test's deploy-site.sh held the deploy (rc=$RC, deploys=$N): $OUT"
+arm6907 real '  100     1 -zsh' '  200   100 bash tools/deploy-site.sh --publish'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -qF '(pid 200: bash tools/deploy-site.sh --publish)'; } \
+  && pass "control: a hand-run deploy-site.sh holds the deploy and the skip names its pid and command" || bad "a hand-run deploy-site.sh did not hold, or was not named (deploys=$N): $OUT"
+arm6907 orphan '  200     1 bash /Users/x/work/val-pauseall-6781/tools/deploy-site.sh --promote'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ]; } && pass "a test subject whose harness died (ppid 1) still holds the deploy (fails closed)" || bad "an orphaned deploy-site.sh did not hold (deploys=$N)"
+arm6907 cut '  100     1 /bin/bash tools/release.sh 0.7.64' '  200   100 bash tools/test-deploy-site-promote.sh' \
+  '  300   200 bash /Users/x/work/kosmos/tools/deploy-site.sh --promote'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -qF '(pid 100: /bin/bash tools/release.sh 0.7.64)'; } \
+  && pass "a cut whose own gate runs a test of deploy-site.sh still holds, named as the cut" || bad "a cut running its tests did not hold or was misnamed (deploys=$N): $OUT"
+mkdir -p "$T/badawk"; printf '#!/bin/sh\nexit 2\n' > "$T/badawk/awk"; chmod +x "$T/badawk/awk"
+PATH="$T/badawk:$PATH" arm6907 awkfail '  100     1 -zsh'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -q 'could not be matched'; } \
+  && pass "a matcher that fails holds the deploy (fails closed) and says why" || bad "a failing matcher let the deploy through (deploys=$N): $OUT"
+
 # 8) a failed deploy is retried once, then parked; a new merge tries again and clears it.
 H7=$(advance seven)
 DEPLOY_RC=1 tick

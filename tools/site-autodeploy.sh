@@ -281,22 +281,43 @@ fi
 # or a path with a space in it; cuts are launched as `bash tools/release.sh <version>`.
 # The list is captured first and matched without a pipeline: under pipefail, `ps | grep -q` reports
 # the SIGPIPE ps gets when grep stops at the first match (rc 141) on any list over a pipe buffer, so a
-# busy machine would read as "nothing running" exactly when a cut is. This also matches the shell
-# suite's own runs of tools/deploy-site.sh on this machine, which only delays a deploy a tick.
-PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo command=}"
+# busy machine would read as "nothing running" exactly when a cut is.
+# A publisher that a TEST started is not one (kosmos#6907): the shell suite runs the real deploy-site.sh and
+# release.sh as test subjects, and a validation can run for half an hour, so a match whose ancestry reaches a
+# tools/test-*.sh is passed over. Ancestry needs pid and ppid, so the list is "pid ppid command"; a line without
+# them (a list that cannot say) has no ancestry, so a match there still holds the deploy (fails closed, like a
+# test harness that has died and left its subject to launchd: ppid 1, no test above it, so it holds too).
+PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo pid=,ppid=,command=}"
 # Fails CLOSED: a process list that cannot be read (the command fails or prints nothing; a real one
 # always lists this tick) cannot rule out a cut, so nothing deploys, and it is reported red once a day
 # (red_once psread) rather than skipping silently forever.
+# Sets PUBLISHER to "pid <n>: <command>" (the first match no test started), so a skip names what held it.
+PUBLISHER=""
 publisher_running() {
   local procs
   procs=$(sh -c "$PS_CMD" 2>/dev/null) || procs=""
   if [ -z "$procs" ]; then
     red_once psread "FAIL: could not read the process list ($PS_CMD), so a release cut cannot be ruled out; nothing deployed"
   fi
-  grep -Eq '^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\.sh( |$)' <<<"$procs"
+  PUBLISHER=$(awk '
+    BEGIN { pub = "^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\\.sh( |$)"
+            tst = "^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/test-[^ /]*\\.sh( |$)" }
+    { n++; c = $0
+      if (match(c, /^ *[0-9]+ +[0-9]+ /)) { pid[n] = $1; par[n] = $2; c = substr(c, RLENGTH + 1); id[$1] = n }
+      else { pid[n] = "?"; par[n] = "" }
+      cmd[n] = c }
+    END {
+      for (i = 1; i <= n; i++) {
+        if (cmd[i] !~ pub) continue
+        t = 0; p = par[i]
+        for (h = 0; h < 64 && p != "" && p > 1 && (p in id); h++) { j = id[p]; if (cmd[j] ~ tst) { t = 1; break }; p = par[j] }
+        if (!t) { print "pid " pid[i] ": " substr(cmd[i], 1, 200); exit }
+      }
+    }' <<<"$procs") || PUBLISHER="the process list could not be matched, so a cut cannot be ruled out"   # closed, as above
+  [ -n "$PUBLISHER" ]
 }
 if publisher_running; then
-  say "skip: a release cut, deploy or promote is running; main ${TARGET:0:9} waits for the next tick"
+  say "skip: a release cut, deploy or promote is running ($PUBLISHER); main ${TARGET:0:9} waits for the next tick"
   exit 0
 fi
 
@@ -424,7 +445,7 @@ fi
 # Asked again now that the mirror is done: a cut that started while it ran may have been mid-write or
 # mid-prune in the source, so the mirror may not be the set to ship. Next tick, then.
 if publisher_running; then
-  say "skip: a release cut, deploy or promote started during the mirror; main ${TARGET:0:9} waits for the next tick"
+  say "skip: a release cut, deploy or promote started during the mirror ($PUBLISHER); main ${TARGET:0:9} waits for the next tick"
   exit 0
 fi
 now > "$STATE/heartbeat"   # fresh before the long part, so a slow deploy never reads as a wedged lock
