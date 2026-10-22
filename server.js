@@ -3788,8 +3788,9 @@ function parseByteRange(header, size) {
 }
 
 /* `opts.etag`, when given, lets a GET ask for one byte range (#6805), so a cut download resumes instead of starting
-   again. Only a caller whose file never changes under the same address may pass it: the ETag is what stops a resume
-   from joining the end of one file onto the start of another. */
+   again. It names the file (an attachment's id); the ETag sent adds the file's size and modification time as
+   measured on the open descriptor, so if the bytes under that name ever change, an If-Range from before no longer
+   matches and the client gets the whole file instead of the end of one file joined onto the start of another. */
 function sendFileStream(req, res, file, unread, headers, opts = {}) {
   let fd = null;
   let size = 0;
@@ -3802,10 +3803,11 @@ function sendFileStream(req, res, file, unread, headers, opts = {}) {
     if (!st.isFile()) throw new Error('not a file');
     size = st.size;
     length = size;
-    const ranged = opts.etag ? { ...headers, 'accept-ranges': 'bytes', etag: opts.etag } : headers;
+    const etag = opts.etag ? `"${opts.etag}-${st.size.toString(36)}-${Math.trunc(st.mtimeMs).toString(36)}"` : null;
+    const ranged = etag ? { ...headers, 'accept-ranges': 'bytes', etag } : headers;
     /* #6805: an If-Range that is not exactly this file's ETag (another file's, or a date: no Last-Modified is sent)
        means the client's first part may be of different bytes, so it gets the whole file. */
-    const range = opts.etag && req.method === 'GET' && (req.headers['if-range'] === undefined || req.headers['if-range'] === opts.etag)
+    const range = etag && req.method === 'GET' && (req.headers['if-range'] === undefined || req.headers['if-range'] === etag)
       ? parseByteRange(req.headers.range, size) : null;
     if (range === 'unsatisfiable') {
       fs.closeSync(fd);
@@ -19322,7 +19324,7 @@ const server = http.createServer(async (req, res) => {
       'content-type': rec.type, 'x-content-type-options': 'nosniff',
       'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(rec.name),
       'content-security-policy': "default-src 'none'; sandbox",
-    }, { etag: `"${rec.id}"` });   // #6805: a stored attachment never changes, so its id names its bytes
+    }, { etag: rec.id });   // #6805: the id names the file; sendFileStream adds its size and time
     return;
   }
   if (pathname === '/api/unfurl' && req.method === 'GET') {

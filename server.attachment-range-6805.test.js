@@ -53,6 +53,8 @@ function fdsOn(file) {
 function stored(bytes, name = 'file.bin', type = 'application/octet-stream') {
   return attachments.save('agent', 'ava', { name, type, bytes });
 }
+// The ETag the board sends for this attachment as it is now (its id, size and time).
+async function tagOf(rec) { return (await fetch(url(rec), { method: 'HEAD' })).headers.get('etag'); }
 async function get(rec, headers = {}, tail = '') {
   const res = await fetch(url(rec, tail), { headers });
   return { status: res.status, headers: res.headers, body: Buffer.from(await res.arrayBuffer()) };
@@ -86,14 +88,14 @@ test('#6805: a whole download says it can be resumed (Accept-Ranges, the ETag), 
   const whole = await get(rec);
   assert.equal(whole.status, 200);
   assert.equal(whole.headers.get('accept-ranges'), 'bytes');
-  assert.equal(whole.headers.get('etag'), `"${rec.id}"`);
+  assert.ok(whole.headers.get('etag').startsWith(`"${rec.id}-`) && whole.headers.get('etag').endsWith('"'), whole.headers.get('etag'));
   assert.equal(whole.headers.get('content-range'), null);
   assert.ok(whole.body.equals(bytes));
   const head = await fetch(url(rec), { method: 'HEAD', headers: { range: 'bytes=0-9' } });
   assert.equal(head.status, 200, 'HEAD answers as before, whatever Range says');
   assert.equal(head.headers.get('content-length'), String(bytes.length));
   assert.equal(head.headers.get('accept-ranges'), 'bytes');
-  assert.equal(head.headers.get('etag'), `"${rec.id}"`);
+  assert.equal(head.headers.get('etag'), whole.headers.get('etag'), 'HEAD and GET name the same bytes the same way');
 });
 
 test('#6805: a range is answered 206 with exactly that slice, its Content-Range and length', async () => {
@@ -106,12 +108,13 @@ test('#6805: a range is answered 206 with exactly that slice, its Content-Range 
     ['bytes=-17', bytes.length - 17, bytes.length - 1],
     [`bytes=${bytes.length - 5}-${bytes.length + 500}`, bytes.length - 5, bytes.length - 1],
   ];
+  const tag = await tagOf(rec);
   for (const [range, a, b] of cases) {
     const got = await get(rec, { range });
     assert.equal(got.status, 206, range);
     assert.equal(got.headers.get('content-range'), `bytes ${a}-${b}/${bytes.length}`, range);
     assert.equal(got.headers.get('content-length'), String(b - a + 1), range);
-    assert.equal(got.headers.get('etag'), `"${rec.id}"`, range);
+    assert.equal(got.headers.get('etag'), tag, range);
     assert.equal(got.headers.get('content-disposition'), "attachment; filename*=UTF-8''file.bin", range + ': still a download');
     assert.ok(got.body.equals(bytes.subarray(a, b + 1)), range + ': not the slice asked for');
   }
@@ -122,7 +125,7 @@ test('#6805: a resumed download joined to its first part is the file', async () 
   const rec = stored(bytes);
   const cut = 1234567;
   const first = await get(rec, { range: `bytes=0-${cut - 1}` });
-  const rest = await get(rec, { range: `bytes=${cut}-`, 'if-range': `"${rec.id}"` });
+  const rest = await get(rec, { range: `bytes=${cut}-`, 'if-range': first.headers.get('etag') });
   assert.equal(rest.status, 206);
   assert.ok(Buffer.concat([first.body, rest.body]).equals(bytes));
 });
@@ -135,7 +138,11 @@ test('#6805: nothing in the file asked for is 416 with bytes */size and no body'
     assert.equal(got.status, 416, range);
     assert.equal(got.headers.get('content-range'), 'bytes */1000', range);
     assert.equal(got.body.length, 0, range);
+    assert.equal(got.headers.get('accept-ranges'), 'bytes', range + ': a 416 still says ranges work, so the client retries with one');
   }
+  const head = await fetch(url(rec), { method: 'HEAD', headers: { range: 'bytes=5000-' } });
+  assert.equal(head.status, 200, 'HEAD with a range past the end answers as before, never 416');
+  assert.equal(head.headers.get('content-length'), '1000');
   assert.equal((await get(rec)).status, 200, 'the board keeps serving after a 416');
 });
 
@@ -155,8 +162,9 @@ test('#6805: If-Range other than this attachment\'s ETag gets the whole file, so
   const rec = stored(bytes);
   const other = stored(crypto.randomBytes(5000), 'other.bin');
   // CONTROL: the matching validator does give a 206, so the 200s below are the validator's doing.
-  assert.equal((await get(rec, { range: 'bytes=10-', 'if-range': `"${rec.id}"` })).status, 206);
-  for (const ifRange of [`"${other.id}"`, `W/"${rec.id}"`, rec.id, 'Wed, 21 Oct 2026 07:28:00 GMT']) {
+  const tag = await tagOf(rec);
+  assert.equal((await get(rec, { range: 'bytes=10-', 'if-range': tag })).status, 206);
+  for (const ifRange of [await tagOf(other), `W/${tag}`, tag.slice(1, -1), `"${rec.id}"`, 'Wed, 21 Oct 2026 07:28:00 GMT']) {
     const got = await get(rec, { range: 'bytes=10-', 'if-range': ifRange });
     assert.equal(got.status, 200, JSON.stringify(ifRange));
     assert.ok(got.body.equals(bytes), JSON.stringify(ifRange));
@@ -212,4 +220,26 @@ test('#6805: a ranged answer sends exactly its length on a keep-alive socket, ev
     assert.equal(got.complete, true);
     assert.ok(got.body.equals(bytes.subarray(MB, 2 * MB)), 'not the measured slice (an overrun lands in the next response)');
   }
+});
+
+test('#6805: an attachment whose bytes changed under the same id answers a resume with the whole new file', async () => {
+  const before = crypto.randomBytes(4000);
+  const rec = stored(before);
+  const oldTag = await tagOf(rec);
+  const onDisk = rec.file;
+  assert.ok(fs.readFileSync(onDisk).equals(before), 'the stored file is the one served');
+  const after = crypto.randomBytes(4500);
+  fs.writeFileSync(onDisk, after);
+  fs.utimesSync(onDisk, new Date(), new Date(Date.now() + 5000));
+  // CONTROL: the new tag does give a 206, so the 200 below is the old tag's doing.
+  assert.equal((await get(rec, { range: 'bytes=10-', 'if-range': await tagOf(rec) })).status, 206);
+  const got = await get(rec, { range: 'bytes=10-', 'if-range': oldTag });
+  assert.equal(got.status, 200);
+  assert.ok(got.body.equals(after));
+});
+
+test('#6805: a range for an attachment that does not exist is a 404, not bytes', async () => {
+  const got = await get({ id: 'f'.repeat(24) }, { range: 'bytes=0-9' });
+  assert.equal(got.status, 404);
+  assert.equal(got.headers.get('content-range'), null);
 });
