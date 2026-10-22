@@ -278,7 +278,7 @@ function chk(ok, label, extra) {
       await page.unroute('**/task/5/close');
 
       // The press, pressed twice in a row (review 2): what is left (5) closes, then the parent, each asked once; the closed
-      // subtasks are never asked again. Focus then sits on the page's own Mark as done (review 3).
+      // subtasks are never asked again.
       await openParent();
       const asked = [];
       const count = (req) => { const m = /\/task\/(\d+)\/close$/.exec(req.url()); if (m && req.method() === 'POST') asked.push(Number(m[1])); };

@@ -86,3 +86,6 @@ Card: kosmos#6501 (agent feedback 10-18 and 10-22, two installs). Item 1 shipped
   swallows a timeout.
 - The Tests section above is rewritten for the arms as they stand (the round 2 note's "aborted on task 3" was moved to
   task 5 in round 3).
+
+## Review round 6
+- A comment in the browser check still said focus lands on Mark as done; the claim is removed (the assertion names tk-back).
