@@ -40,6 +40,13 @@ test('#6893: choosing it sends the number in the form the board reads, and the b
   assert.deepEqual(sent, { every: 'minutes', at: '30' });
   // The route builds the rule with fromWords(body.every, { at: body.at }): the same rule the CLI's 30m makes.
   assert.deepEqual(taskrepeat.fromWords(sent.every, { at: sent.at }), taskrepeat.fromWords('30m'));
+  // Review 2: as the board will store it: a leading zero is the same number, and 60 is the hourly rule.
+  els['tk-repeat-mins'].value = '030';
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'minutes', at: '30' });
+  els['tk-repeat-mins'].value = '60';
+  assert.deepEqual(f.tkRepeatChoice(), { every: 'hour' });
+  f.tkRepeatDirty({ repeat: { every: 'hour', minute: 0 } });
+  assert.equal(els['tk-repeat-save'].disabled, true, '60 on an hourly task is no change: Save stays off');
   els['tk-repeat-mins'].value = '  ';
   assert.deepEqual(f.tkRepeatChoice(), { needsTime: true }, 'an empty box is no choice yet');
   f.tkRepeatDirty({ repeat: null });

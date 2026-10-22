@@ -68648,7 +68648,11 @@ function tkRepeatChoice() {
   /* kosmos#6893: the number of minutes travels as `at`, the form the route reads; an empty box is no choice yet. */
   if (every === 'minutes') {
     const mins = document.getElementById('tk-repeat-mins').value.trim();
-    return mins ? { every: 'minutes', at: mins } : { needsTime: true };
+    if (!mins) return { needsTime: true };
+    /* Review 2: written as the board will store it, so a choice equal to the stored rule reads as unchanged: "030" is 30,
+       and 60 is the hourly rule (the board stores every 60 minutes as hourly). */
+    const n = /^\d+$/.test(mins) ? String(Number(mins)) : mins;
+    return n === '60' ? { every: 'hour' } : { every: 'minutes', at: n };
   }
   const atEl = document.getElementById('tk-repeat-at');
   const at = atEl.value;

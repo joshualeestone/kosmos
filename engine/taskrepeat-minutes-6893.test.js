@@ -80,6 +80,11 @@ test('#6893: the next run is the next multiple of n from midnight, and tomorrow 
   assert.equal(r.nextAfter({ every: 'minutes', n: 90 }, at(22, 31)), at(0, 0, 23), '22:30 is the last 90-minute slot');
   assert.equal(r.nextAfter({ every: 'minutes', n: 720 }, at(12, 0)), at(0, 0, 23));
   assert.equal(r.nextAfter({ every: 'minutes', n: 7 }, at(9, 0)), null, 'a rule that does not check out has no next run');
+  // Review 2: the walk's start (a slot before now) at the edges of the day.
+  assert.equal(r.nextAfter(half, at(0, 0) + 30000), at(0, 30), 'just after midnight: the next slot, not midnight again');
+  assert.equal(r.nextAfter(half, at(0, 0) - 1), at(0, 0), 'just before midnight: midnight');
+  assert.equal(r.nextAfter({ every: 'minutes', n: 45 }, at(23, 59)), at(0, 0, 23), '45 minutes: 23:15 is the last slot, then midnight');
+  assert.equal(r.nextAfter({ every: 'minutes', n: 45 }, at(23, 14)), at(23, 15));
 });
 
 test('#6893: a daylight-saving day is walked slot by slot without going backwards or stalling', () => {
@@ -107,7 +112,8 @@ test('#6893: in US Central time, the slots around both clock changes land where 
     const r = require(${JSON.stringify(require.resolve('./taskrepeat'))});
     const walk = (from, k) => { const out = []; let s = from; for (let i = 0; i < k; i += 1) { s = r.nextAfter({ every: 'minutes', n: 30 }, s); const d = new Date(s);
       out.push(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ' ' + d.getTimezoneOffset()); } return out; };
-    process.stdout.write(JSON.stringify({ fall: walk(new Date(2026, 10, 1, 0, 50).getTime(), 4), spring: walk(new Date(2026, 2, 8, 1, 10).getTime(), 4) }));`;
+    process.stdout.write(JSON.stringify({ fall: walk(new Date(2026, 10, 1, 0, 50).getTime(), 4), spring: walk(new Date(2026, 2, 8, 1, 10).getTime(), 4),
+      at0310: walk(new Date(2026, 2, 8, 3, 10).getTime(), 1)[0] }));`;
   const out = spawnSync(process.execPath, ['-e', script], { env: { ...process.env, TZ: 'America/Chicago' }, encoding: 'utf8' });
   assert.equal(out.status, 0, out.stderr);
   const got = JSON.parse(out.stdout);
@@ -115,6 +121,8 @@ test('#6893: in US Central time, the slots around both clock changes land where 
   assert.deepEqual(got.fall, ['01:00 300', '01:30 300', '02:00 360', '02:30 360']);
   // Spring forward (8 March): 01:30 standard, the skipped 02:00 lands at 03:00 daylight, then 03:30, 04:00.
   assert.deepEqual(got.spring, ['01:30 360', '03:00 300', '03:30 300', '04:00 300']);
+  // Review 2: asked at 03:10 that morning, the next is 03:30 (the walk's start lands among slots the clock moved).
+  assert.equal(got.at0310, '03:30 300');
   // CONTROL: the child really is in Central time (an ordinary day reads its offset).
   const ctl = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(new Date(2026, 6, 1).getTimezoneOffset()))'], { env: { ...process.env, TZ: 'America/Chicago' }, encoding: 'utf8' });
   assert.equal(ctl.stdout, '300');
@@ -143,6 +151,14 @@ test('#6893: a task made to repeat every 30 minutes stores the rule, says it, an
   assert.ok(due - setAt <= 30 * 60000 && due > setAt);
   assert.equal(r.waitingForNextRun(t, due - 1000), true, 'before its slot it is waiting');
   assert.equal(r.waitingForNextRun(t, due + 1000), false, 'at its slot it is due');
+  // Review 2: every 60 minutes on a task already hourly at :00 is the same rule: no change is recorded, the time it was set stays.
+  const hourly = tasks.create(p.id, { sentence: 'Hourly check' }).number;
+  const h1 = tasks.setRepeat(p.id, hourly, { every: 'hour' }, { person: true });
+  const setsBefore = taskchat.read(p.id, hourly).filter((e) => e.kind === 'repeat-set').length;
+  const h2 = tasks.setRepeat(p.id, hourly, r.fromWords('60m'), { person: true });
+  assert.deepEqual(h2.repeat, { every: 'hour', minute: 0 });
+  assert.equal(h2.repeatSetAt, h1.repeatSetAt, 'the rule did not change, so neither did when it was set');
+  assert.equal(taskchat.read(p.id, hourly).filter((e) => e.kind === 'repeat-set').length, setsBefore, 'and nothing new in its history');
   // A bad number is refused whole, with the sentence, and the stored rule stays.
   assert.throws(() => tasks.setRepeat(p.id, n, r.fromWords('7m'), { person: true }), /divides the day evenly/);
   assert.deepEqual(tasks.byNumber(projects.readAll().find((x) => x.id === p.id), n).repeat, { every: 'minutes', n: 30 });
