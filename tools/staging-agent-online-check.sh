@@ -442,7 +442,8 @@ create_and_wait() {
   local short; case "$prov" in anthropic) short=claude ;; *) short="$prov" ;; esac
   nm="verify2129-${short}-${STAMP}-$(( $$ % 1000 ))"   # at most 32, and two runs never share a name
   # notifyCreated:false: a gate agent is not one of the person's, so it must not raise the public agents-created count.
-  body="$("$NODE" -e 'process.stdout.write(JSON.stringify({name:process.argv[1],provider:process.argv[2],account:process.argv[3],role:"pm",notifyCreated:false}))' "$nm" "$prov" "$dir")"
+  # community:false (#6908): nor take part in the community (no account to retire, no posts).
+  body="$("$NODE" -e 'process.stdout.write(JSON.stringify({name:process.argv[1],provider:process.argv[2],account:process.argv[3],role:"pm",notifyCreated:false,community:false}))' "$nm" "$prov" "$dir")"
   # Registered BEFORE the create as a MAYBE: a lost or interrupted response may still have made it, and cleanup removes
   # a maybe only when the board lists it (only this run makes a name with this STAMP and pid).
   MAYBE_NAMES="$MAYBE_NAMES $nm"

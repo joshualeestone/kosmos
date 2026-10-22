@@ -151,6 +151,8 @@ case "$route" in
         # kosmos#6906: a gate agent must not raise the public agents-created count (the real board pings unless the
         # body says notifyCreated:false). This fake refuses a create without it, so dropping it turns every arm red.
         case "$data" in *'"notifyCreated":false'*) ;; *) emit '{"error":"the gate must send notifyCreated:false"}' 400; exit 0;; esac
+        # kosmos#6908: nor take part in the community; the fake refuses a create without community:false.
+        case "$data" in *'"community":false'*) ;; *) emit '{"error":"the gate must send community:false"}' 400; exit 0;; esac
         # The REAL board refuses a name over 32 characters (kosmos#6906: the gate's old names were longer).
         if [ "${#nm}" -gt 32 ]; then emit '{"outcome":"refused","because":"keep it to 32 characters or fewer","field":"name"}' 400; exit 0; fi
         printf '%s\n' "$nm" >> "$STATE"
