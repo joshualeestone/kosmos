@@ -334,8 +334,9 @@ function chk(ok, label, extra) {
               const st = await Promise.race([snap, new Promise((r) => { timer = setTimeout(() => r({ evalFailed: 'no answer in 5 s' }), 5000); })])
                 .catch((x) => ({ evalFailed: x.message }))
                 .finally(() => clearTimeout(timer));
-              st.pageErrors = errs;
-              throw new Error(`${tag}: Settings > Computer never became visible: ${JSON.stringify(st)}: ${e.message}`);
+              // the page errors third, after the two Settings fields: a later key would fall past the gate's quote
+              const out = Object.assign({ settingsHidden: st.settingsHidden, settingsParent: st.settingsParent, pageErrors: errs }, st);
+              throw new Error(`${tag}: Computer pill never showed: ${JSON.stringify(out)}: ${e.message}`);
             });
           await page.evaluate(() => document.querySelector('#s-nav button[data-go="mac"]').click());
           await page.waitForTimeout(300);
