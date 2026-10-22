@@ -11462,6 +11462,19 @@ const server = http.createServer(async (req, res) => {
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
   }
+  /* kosmos#6817 item 1: the board's reviewer notice reads the recent grants here, not from /api/org, because a GET there
+     spends the one-time notes (stoppedFor, leaveRefused) the Settings block exists to show. This route spends nothing.
+     Grants and the company's kind go to the screen only, as on /api/org (review 12 there). */
+  if (pathname === '/api/org/grants' && req.method === 'GET') {
+    try {
+      const oe = require('./engine/orgenroll');
+      const here = oe.isEnrolledHere();
+      const rec = here && isViaScreen(req, {}) ? oe.readEnrollment() : null;
+      sendJson(res, 200, { enrolled: here, kind: rec && rec.org ? (rec.org.kind === 'family' ? 'family' : 'company') : null,
+        reviewerGrants: rec && Array.isArray(rec.reviewerGrants) ? oe.cleanReviewerGrants(rec.reviewerGrants) : [] });
+    } catch { sendJson(res, 200, { enrolled: false, kind: null, reviewerGrants: [] }); }
+    return;
+  }
   if ((pathname === '/api/org/preview' || pathname === '/api/org/enroll' || pathname === '/api/org/leave') && req.method === 'POST') {
     readBody(req, 4096)
       .then(async (buf) => {

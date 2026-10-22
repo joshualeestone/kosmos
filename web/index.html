@@ -1152,6 +1152,7 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 /* #6714: the restart notice is a .utoast now; its buttons get the same phone tap height, at the width its phone layout
    and its one-notice cap use. */
 @media (max-width: 720px) { .utoast.survival .uacts button, .utoast.survival .ux { min-height: 44px; } .utoast.survival .ux { min-width: 44px; } }
+@media (max-width: 720px) { .utoast.reviewer-note .uacts button, .utoast.reviewer-note .ux { min-height: 44px; } .utoast.reviewer-note .ux { min-width: 44px; } }
 /* 🛑 #2615: THE aria-disabled ARM NEEDS ITS OWN RULE, AND ITS ABSENCE SHIPPED A
    CARD TITLED "grey out the control" THAT GREYED NOTHING OUT. `disabled` was
    doing TWO jobs: the semantics AND the dimming, via `.btn:disabled` right
@@ -1338,6 +1339,7 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 /* #6714: an agent that will not come back after a restart: a warning with a remedy, so the amber of an expiring login.
    Its report (.done) is a fact, neutral like .reboot. Restated in each theme block below. */
 .utoast.survival { --utone: var(--warn-ink); }
+.utoast.reviewer-note { --utone: var(--label-2); }   /* kosmos#6817: news, not a warning */
 .utoast.survival.done, .utoast.survival.unknown { --utone: var(--label-2); }
 .utoast.survival.done .utxt b, .utoast.survival.unknown .utxt b { color: var(--label); font-weight: 400; }
 .utoast.survival.report .utxt b b, .utoast.survival.report .utxt small b { display: inline; font-weight: 600; }   /* the name, inside its sentence */
@@ -1516,6 +1518,11 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   .utoast.survival .utxt { flex: 1 1 0; min-width: 0; }
   .utoast.survival .ux { order: 2; }
   .utoast.survival .uacts { order: 3; flex: 1 0 100%; margin-left: 19px; }
+  /* kosmos#6817: the reviewer notice takes the same phone rows: words and x, then its button beneath. */
+  .utoast.reviewer-note { flex-wrap: wrap; row-gap: 8px; }
+  .utoast.reviewer-note .utxt { flex: 1 1 0; min-width: 0; }
+  .utoast.reviewer-note .ux { order: 2; }
+  .utoast.reviewer-note .uacts { order: 3; flex: 1 0 100%; margin-left: 19px; }
   /* kosmos#6613: the certificate notice's small line says whether the check is still on; a phone keeps it. */
   .utoast.cwnote .utxt small { display: block; }
 }
@@ -2182,7 +2189,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#cwnote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
+#cwnote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reviewer-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -9268,6 +9275,7 @@ svg { display: block; }
   :root:not([data-theme="light"]) .utoast.streak { --utone: var(--gold-edge); }
   :root:not([data-theme="light"]) .utoast.login-adv.warn { --utone: var(--warn-ink); }
   :root:not([data-theme="light"]) .utoast.survival { --utone: var(--warn-ink); }
+  :root:not([data-theme="light"]) .utoast.reviewer-note { --utone: var(--label-2); }
   :root:not([data-theme="light"]) .utoast.survival.done, :root:not([data-theme="light"]) .utoast.survival.unknown { --utone: var(--label-2); }
   :root:not([data-theme="light"]) .utoast.login-adv.urgent { --utone: #ff8c82; }
 }
@@ -11479,6 +11487,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-theme="dark"] .utoast.streak { --utone: var(--gold-edge); }
 :root[data-theme="dark"] .utoast.login-adv.warn { --utone: var(--warn-ink); }
 :root[data-theme="dark"] .utoast.survival { --utone: var(--warn-ink); }
+:root[data-theme="dark"] .utoast.reviewer-note { --utone: var(--label-2); }
 :root[data-theme="dark"] .utoast.survival.done, :root[data-theme="dark"] .utoast.survival.unknown { --utone: var(--label-2); }
 :root[data-theme="dark"] .utoast.login-adv.urgent { --utone: #ff8c82; }
 
@@ -11640,6 +11649,7 @@ body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice, body.
 body.plus-active .utoast.streak { --utone: var(--gold-edge); }
 body.plus-active .utoast.login-adv.warn { --utone: var(--warn-ink); }
 body.plus-active .utoast.survival { --utone: var(--warn-ink); }
+body.plus-active .utoast.reviewer-note { --utone: var(--label-2); }
 body.plus-active .utoast.survival.done, body.plus-active .utoast.survival.unknown { --utone: var(--label-2); }
 body.plus-active .utoast.login-adv.urgent { --utone: #ff8c82; }
 /* #3692: the cards and warnings that lost their left bar are marked by a hairline and a tint, and
@@ -12587,6 +12597,9 @@ window.kosmosMeasureScrollbarWidth();
     <!-- #6714 review 18: the result of a start sits in its own slot, so the notices below keep repainting while it is read. -->
     <div id="survival-report-slot"></div>
     <div id="survival-slot"></div>
+    <!-- kosmos#6817: someone in this person's company (or family) was made a reviewer. One notice, cleared on its x or
+         when the Settings reviewers list is in view; See who only takes the person there. Its own slot. -->
+    <div id="reviewer-slot"></div>
     <!-- #5359: the computer restarted while Kosmos was running and Kosmos came back by itself. A fact, so it sits
          below the notices that need action (update, login); its own slot so it co-occurs with them (Mona Lisa). -->
     <div id="reboot-slot"></div>
@@ -25788,6 +25801,7 @@ async function tick() {
     // is active, so `grid.hidden` stopped meaning "not on the agents tab".
     // `onAgentsTab()` reads boardbar, which tracks the tab and nothing else.
     if (onAgentsTab()) { paintRemoved(); paintSurvival(); }
+    try { reviewerNoteMaybe(); } catch { /* kosmos#6817: the notice never fails the status read */ }
   } catch (err) {
     clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
     if (answered && !(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;   // a refusal is an answer too (#268)
@@ -52068,6 +52082,37 @@ for (const cid of ['askcard', 'plus-asks']) {
     if (allow && !allow.disabled) allow.click();   // short of six digits the press says so on the card
   });
 }
+/* kosmos#6817: the reviewer notice's See who and x. Kept above the Kosmos+ panel script, which web.plus-stale.test.js
+   runs alone with a document that takes no listeners; REVIEWER_NOTE and its functions are declared below it and are
+   read only when a click comes. */
+document.addEventListener('click', (e) => {
+  const see = e.target.closest && e.target.closest('[data-reviewer-see]');
+  const hide = e.target.closest && e.target.closest('[data-reviewer-hide]');
+  if (hide) {
+    reviewerNoteSeen(REVIEWER_NOTE.grants, Date.now() / 1000);   // clears the notice whatever another tab already saw
+    // The x went with its notice: focus to the first notice left in the stack that takes it, else the board, never the page.
+    const next = document.querySelector('#topnotes .utoast .utxt[tabindex="-1"]');
+    if (next) next.focus(); else if (typeof focusBoardHome === 'function') focusBoardHome();
+    return;
+  }
+  if (!see) return;
+  /* Not marked seen here: the list on screen does that (reviewerNoteSeenList), so a list that has not caught up yet
+     leaves the notice for next time. A fresh read, not the once-a-minute one, so the list has the new grant. */
+  PLUS_ORG.at = 0;
+  showTab('settings'); settingsGo('plus');
+  let tries = 0;
+  (function land() {
+    if (!plusOnScreen()) return;   // the person moved on: do not pull the page around
+    const box = document.getElementById('plus-org-reviewers');
+    if (box && !box.hidden) {
+      box.scrollIntoView({ block: 'center' });
+      const head = document.getElementById('plus-org-reviewers-head');   // focus where they asked to go, not the section top
+      if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); }
+      return;
+    }
+    if ((tries += 1) < 40) setTimeout(land, 100);
+  })();
+});
 /* The Settings list: the devices already allowed. Painted on arrival at the Plus section and after
    any action, from the tunnel's list (one subprocess). Pending requests are shown once, as cards in
    #askcard (#3829), not here. */
@@ -52766,6 +52811,7 @@ function plusOrgPaint() {
   else if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.';
   else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : ''));
   plusOrgReviewers(here ? st : null);   // kosmos#6752
+  if (here) reviewerNoteSeenList(st);   // kosmos#6817: the list on screen counts as seen
 }
 /* kosmos#6752: what follows the reviewer's name on one grant's line, leading with what is true now (Mona Lisa's review):
    every grant is inside 30 days, so a date has no year and no time, except a grant that lands within a day, the one
@@ -52823,6 +52869,75 @@ function plusOrgReviewers(st) {
     line.appendChild(document.createTextNode(plusOrgReviewerLine(g, now, fmt)));
     list.appendChild(line);
   }
+}
+/* kosmos#6817 item 1: a member who never opens Settings is told on the board that someone in their company (or family)
+   was made a reviewer. One notice in the floating stack while any grant from the last 30 days, not removed, is one this
+   browser has not seen; its x and the reviewers list in view count as seen (See who only takes the person there).
+   Seen is the set of grants seen (name and time), kept per browser on this computer (the design call on the card), so
+   no clock comparison is involved: a grant stamped ahead of this computer's clock is just another grant. A removed
+   grant is not news. Read from /api/org/grants, which spends none of the one-time notes /api/org does. */
+const REVIEWER_NOTE_KEY = 'kosmos.reviewerGrantsSeen';
+const REVIEWER_NOTE = { at: 0, grants: null, kind: null, seen: new Set() };   // seen: this visit's, for when storage refuses
+const reviewerNoteKey = (g) => g.grantedAt + '|' + String(g.who || '');
+/* The grants that are news if unseen: in the list's 30 days and not removed. */
+function reviewerNoteFresh(grants, now) {
+  return (Array.isArray(grants) ? grants : []).filter((g) => g && !g.removedAt && typeof g.grantedAt === 'number'
+    && g.grantedAt >= now - PLUS_ORG_REVIEWER_DAYS * 86400).map(reviewerNoteKey);
+}
+function reviewerNoteSeenSet() {
+  const seen = new Set(REVIEWER_NOTE.seen);
+  try { for (const k of JSON.parse(localStorage.getItem(REVIEWER_NOTE_KEY) || '[]')) if (typeof k === 'string') seen.add(k); }
+  catch { /* refused or unreadable: this visit's alone */ }
+  return seen;
+}
+function reviewerNoteUnseen(grants, now) {
+  const seen = reviewerNoteSeenSet();
+  return reviewerNoteFresh(grants, now).filter((k) => !seen.has(k));
+}
+/* Marks these grants seen and clears the notice. Kept: what is seen and still inside the 30 days (others cannot show). */
+function reviewerNoteSeen(grants, now) {
+  const fresh = reviewerNoteFresh(grants, now);
+  const keep = new Set([...reviewerNoteSeenSet()].filter((k) => Number(k.split('|')[0]) >= now - PLUS_ORG_REVIEWER_DAYS * 86400));
+  for (const k of fresh) { keep.add(k); REVIEWER_NOTE.seen.add(k); }
+  // 100 is well above the 20 grants the engine keeps (MAX_REVIEWER_GRANTS), so no grant still listed is dropped.
+  try { localStorage.setItem(REVIEWER_NOTE_KEY, JSON.stringify([...keep].slice(-100))); } catch { /* refused: kept for this visit */ }
+  const slot = document.getElementById('reviewer-slot');
+  if (slot) { slot.innerHTML = ''; slot.dataset.v = ''; }
+}
+/* The reviewers list counts as seen once it is in view, not merely because Settings > Kosmos+ is open. */
+function reviewerNoteSeenList(st) {
+  const box = document.getElementById('plus-org-reviewers');
+  if (!box || box.hidden || !plusOnScreen()) return;
+  const r = box.getBoundingClientRect();
+  // Rendered (a box under a hidden ancestor measures zero), and more than a sliver at an edge in view.
+  if (!(r.height > 0) || Math.min(r.bottom, innerHeight) - Math.max(r.top, 0) < Math.min(48, r.height)) return;
+  if (reviewerNoteUnseen(st && st.reviewerGrants, Date.now() / 1000).length) reviewerNoteSeen(st.reviewerGrants, Date.now() / 1000);
+}
+function paintReviewerNote() {
+  const slot = document.getElementById('reviewer-slot');
+  if (!slot) return;
+  const news = onAgentsTab() && REVIEWER_NOTE.grants ? reviewerNoteUnseen(REVIEWER_NOTE.grants, Date.now() / 1000).length > 0 : false;
+  const html = news
+    ? '<div class="utoast reviewer-note"><span class="udot" aria-hidden="true"></span>'
+      + '<div class="utxt" role="status" tabindex="-1"><b>' + esc(plusOrgIn({ kind: REVIEWER_NOTE.kind }, 'Someone was made a reviewer for your company.')) + '</b></div>'
+      + '<div class="uacts"><button type="button" class="uprime" data-reviewer-see>See who</button></div>'
+      + '<button type="button" class="ux" data-reviewer-hide aria-label="Close this notice" title="Close this notice">&times;</button>'
+      + '</div>'
+    : '';
+  if (slot.dataset.v === html) return;   // the same words do not repaint, so a poll never takes focus off its button
+  slot.dataset.v = html;
+  slot.innerHTML = html;
+}
+function reviewerNoteMaybe() {
+  paintReviewerNote();
+  if (!onAgentsTab() || Date.now() - REVIEWER_NOTE.at < 60000) return;   // at most once a minute, failed reads included
+  REVIEWER_NOTE.at = Date.now();
+  fetch('/api/org/grants', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+    if (!j) return;   // a failed read keeps what is on screen
+    REVIEWER_NOTE.grants = j.enrolled === true && Array.isArray(j.reviewerGrants) ? j.reviewerGrants : [];
+    REVIEWER_NOTE.kind = j.kind === 'family' ? 'family' : 'company';
+    paintReviewerNote();
+  }).catch(() => { /* the next minute tries again */ });
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */
