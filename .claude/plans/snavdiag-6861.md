@@ -34,7 +34,7 @@ Settings); a longer timeout (20 s is already long, and the button stays hidden, 
 ## Proof
 Two arms through the machine queue: the committed check passes (arm 1); a throwaway detached worktree with a mutant
 that hides #panel-settings right after the click fails with
-`hiddenBy:["#panel-settings[hidden] display=none visibility=visible"]` (arm 2). The first arm-2 attempt ran the
+`hiddenBy:["#panel-settings[hidden] display:none"]` (that run used an earlier wording of the same field) (arm 2). The first arm-2 attempt ran the
 committed tree, not the mutant: browser-checks.sh freezes a copy of the last commit (#758), and said so in its log.
 
 ## Weakest premise
