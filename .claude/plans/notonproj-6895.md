@@ -26,9 +26,10 @@ Angel's slice, decided on the card and kept: show it where the person looks, no 
   borrowed `.tk-empty`, the centred, padded empty-state style.
 - The label goes through `tkMemberName` rather than a new helper: about a dozen web tests lift that painter with a fixed
   list of names, and every one already lifts `tkMemberName`.
-- Not labelled (review 2): the claim line that names the agent a claim is about, and the notification text. The claim
-  line sits beside the part row that already carries the label, so repeating it there doubles it; the notification
-  says what happened, not who holds the task now. Every holder ROW is labelled.
+- Not labelled (reviews 2 and 4): the claim line that names the agent a claim is about, the task page's close-note
+  ("It does not stop Rex", from `aboutName || who`), the history lines, and the notification text. The claim line and
+  the close-note sit beside the part row that already carries the label, so repeating it there doubles it; history and
+  notifications say what happened, not who holds the task now. Every holder ROW is labelled.
 - The Tasks rows take the fact from the engine (`offProject`), as they take `ownerNames`, rather than re-deriving
   membership on a screen that has no project roster.
 - Rejected (Angel, on the card): adding the agent back automatically; refusing to remove an agent who holds tasks.
