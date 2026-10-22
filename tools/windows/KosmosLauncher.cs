@@ -2708,7 +2708,7 @@ class KosmosLauncher
     //     cookie in them is already dead: a board restart ends every session, #6449, and a squatter can only take
     //     the port once the board has let go of it).
     // Whenever the answer is no, the window shows NotConfirmedPage and loads nothing more until Kosmos.exe is opened
-    // again (or, for a navigation, a later full check proves the board: then the navigation goes after all).
+    // again, or, after a check of its own, until RecoverBoard signs it back in once the board proves again.
     internal enum ReuseCheck { Proved, NotEnforcing, NoListener, NoAnswer, NotProven, TokenUnreadable }
 
     // The quick check, on the window's own thread (OnNavigationStarting has no deferral, so the navigation waits on
@@ -3535,7 +3535,8 @@ class BoardWindowForm : System.Windows.Forms.Form
     // and the board spends a ?boot= code on its first use, so a sign-in load held there for the full check and then
     // replayed would arrive with a spent code and land signed out. It goes, once.
     bool signInLoadApproved;
-    // #6882: the visit on which a failed board load was last retried, so a load that keeps failing is retried once.
+    // #6882: the visit on which a failed board load was last retried, so a load that keeps failing is retried once
+    // (until a board load works again).
     int failedLoadRetriedVisit = -1;
     // #6882: Kosmos.exe was opened again while a sign-in was under way and the window was showing why it is not
     // showing the board: that sign-in, when it ends, starts over instead (SignInAgain).
@@ -4002,7 +4003,8 @@ class BoardWindowForm : System.Windows.Forms.Form
                     if (visit != boardVisit) return;
                     bool show = KosmosLauncher.WatchShowsNotConfirmed(check, watchNoAnswers);
                     watchNoAnswers = check == KosmosLauncher.ReuseCheck.NoAnswer ? watchNoAnswers + 1 : 0;
-                    if (show && navigatedToBoard) ShowNotConfirmed();
+                    // Only a board page polls the board: a Kosmos Plus page opened in this window (#5492) is left alone.
+                    if (show && BoardPageOnScreen() != null) ShowNotConfirmed();
                 }));
             }
             catch { /* the window closed meanwhile */ }
@@ -4156,6 +4158,8 @@ class BoardWindowForm : System.Windows.Forms.Form
         string failedLoad;
         bool boardNav = boardNavs.TryGetValue(navId, out failedLoad);
         boardNavs.Remove(navId);
+        // A board load that worked ends a run of failures: the next failure is retried again (once).
+        if (boardNav && success != 0) failedLoadRetriedVisit = -1;
         if (boardNav && success == 0)
         {
             int failure;
@@ -5235,7 +5239,7 @@ static class TaskbarBadge
     // #6882: the same read, saying WHY there is no token, as tools/kosmos-open-board.js readBoardToken does since
     // #6464: no file (or an empty one) is a board that enforces nothing; a file that is there but cannot be read
     // (EACCES, EBUSY while antivirus holds it, a folder in its place) is an enforcing board this process cannot
-    // prove, which the board window reads as not proven (KosmosLauncher.CheckBoardBeforeReuse).
+    // prove right now: the board window's ReuseCheck.TokenUnreadable (KosmosLauncher.CheckBoardBeforeReuse).
     internal enum TokenOnDisk { None, Unreadable, Read }
 
     internal static TokenOnDisk ReadBoardTokenState(out string token)
