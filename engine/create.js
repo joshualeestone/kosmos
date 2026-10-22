@@ -6808,6 +6808,9 @@ module.exports = {
      unfroze (#1432) */
   get WORKERS_DIR() { return workersDir(); },
   get AGENTS_DIR() { return agentsDir(); },
+  // kosmos#6906: the agent-spawn gate removes its own throwaway agents' launchd job file after removing them, by the
+  // same rule the board writes it with (the world's label), never by a second copy of that rule.
+  plistPath,
   setModel,
   installJob,
   nameUsable,
