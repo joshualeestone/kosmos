@@ -19150,7 +19150,7 @@ window.kosmosMeasureScrollbarWidth();
            measurement the headline numbers add up from. All from the existing
            /api/usage data. The per-agent breakdown is the "By agent" block
            below (#2617, from /api/usage's byAgent). -->
-      <p class="dhint">What your agents used, per class, over the last 14 days. Read from the transcripts on this computer, shown in full. Nothing here leaves the machine.</p>
+      <p class="dhint">What your agents used, per class, since Kosmos was installed on this computer (the daily charts show the last 14 days). Read from the transcripts on this computer, shown in full. Nothing here leaves the machine.</p>
       <!-- #5362 (Josh, 2026-10-05: "add our loading spinner to the token usage page"): the standard Sweep spinner beside
            the reading line while it loads. Every later message is set with textContent, which removes it, so it never
            spins beside a result or an error. -->
@@ -44173,6 +44173,22 @@ function usageRowValue(total) {
    week x 52), matching the approved /design/token-value calc. Display layer, with
    the other two value constants. */
 const USAGE_VALUE_HOURS_PER_YEAR = 2080;
+/* #6829: Active Days on Kosmos counts from the install day (1 on that day), as the board reports it. It used to be
+   the number of days in the window asked for, so a brand-new install showed 14. Without the figure the box shows the
+   days that have any usage, never the window's length. */
+function usageActiveDays(data) {
+  const n = Number(data && data.daysOnKosmos);
+  if (Number.isFinite(n) && n >= 1) return Math.floor(n);
+  const byDay = (data && data.byDay) || {};
+  return Object.keys(byDay).filter((d) => Object.values(byDay[d] || {}).some((b) => usageRowTokenTotal(b) > 0)).length;
+}
+/* #6829: the four daily charts keep the approved two-week trend; the series is all-time. */
+const USAGE_CHART_DAYS = 14;
+/* #6829: Claude Code's default cleanupPeriodDays. */
+const USAGE_TRANSCRIPT_KEEP_DAYS = 30;
+function usageChartDays(series) {
+  return (series || []).slice(-USAGE_CHART_DAYS);
+}
 /* #2840: the approved /design/token-value hero, built verbatim per Josh's
    2026-09-14 ruling (the blended total is the headline and is correct as full
    engineering value). Reuses the design's own calc, already live in the app for
@@ -44183,8 +44199,8 @@ const USAGE_VALUE_HOURS_PER_YEAR = 2080;
    The three stats are work-hours, years, and the equivalent API cost; apiCostUsd
    is computed by the caller from published provider list prices (usageApiCost) and
    passed in, or null while that is unavailable, in which case the box shows a
-   quiet "-" rather than a guessed number. `activeDays` is the count of days with
-   any recorded usage. Pure + node-testable like its siblings. */
+   quiet "-" rather than a guessed number. `activeDays` comes from usageActiveDays
+   (above). Pure + node-testable like its siblings. */
 function usageHeroDigits(n) {
   return String(Math.max(0, Math.floor(Number(n) || 0)))
     .split('')
@@ -44411,7 +44427,7 @@ function usageCharts4Html(series, totals, grandTotal) {
     return '<div class="tv-mini"><div class="tv-mh"><span class="tv-nm">' + spec.name
       + '<span class="tv-tg">' + spec.tag + '</span></span><span class="tv-tot">' + esc(usageAbbr(spec.tot))
       + '<span class="tv-pc">' + ps + '</span></span></div>'
-      + '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(spec.name) + ' per day, ' + n + ' days">'
+      + '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(spec.name) + ' per day, last ' + n + ' days">'
       + '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + color(spec.key) + '" stop-opacity="0.28"/><stop offset="1" stop-color="' + color(spec.key) + '" stop-opacity="0.02"/></linearGradient></defs>'
       + '<path d="' + area + '" fill="url(#' + gid + ')"/>'
       + '<path d="' + line + '" fill="none" stroke="' + color(spec.key) + '" stroke-width="1.8" stroke-linejoin="round"/></svg></div>';
@@ -44549,7 +44565,7 @@ async function paintUsage() {
   const anote = document.getElementById('usage-agents-note');
   if (!msg || !hero || USAGE_BUSY) return;
   USAGE_BUSY = true;
-  msg.innerHTML = LOAD_SPIN_HTML + ' Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.';   // #5362
+  msg.innerHTML = LOAD_SPIN_HTML + ' Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute, and the first time after an update it can take a few.';   // #5362, #6829
   /* #2840: reset every value-view region to a known-empty state. Shared by the
      no-data and error paths so they cannot drift apart. */
   const clearAll = () => {
@@ -44564,9 +44580,10 @@ async function paintUsage() {
     if (anote) anote.textContent = '';
   };
   try {
-    /* 14 days -- the approved design shows a two-week trend. Completed days are
-       frozen to disk and load instantly; the extra week is nearly free. */
-    const res = await fetch('/api/usage?days=14');
+    /* #6829 (Josh 10-21): every day since this install began, not a fixed 14. Completed days are frozen to disk and
+       load instantly. The four daily charts keep the approved two-week window (usageChartDays); every total, the
+       tables and the history are all-time. */
+    const res = await fetch('/api/usage?days=all');
     if (!res.ok) throw new Error('status ' + res.status);
     const data = await res.json();
     const byDay = (data && data.byDay) || {};
@@ -44587,13 +44604,13 @@ async function paintUsage() {
        held no usage -- the same "nothing to show" signal the old per-day table
        gave, without that table. */
     if (!historyHtml) {
-      msg.textContent = 'No usage recorded in the last fourteen days.';
+      msg.textContent = 'No usage recorded since Kosmos was installed on this computer.';
       clearAll();
       return;
     }
-    if (hero) hero.innerHTML = usageHeroHtml(totals, Object.keys(byDay).length, api.cost);
+    if (hero) hero.innerHTML = usageHeroHtml(totals, usageActiveDays(data), api.cost);
     if (charts4) {
-      const c4 = usageCharts4Html(usageDailySeries(byDay), totals, grandTotal);
+      const c4 = usageCharts4Html(usageChartDays(usageDailySeries(byDay)), totals, grandTotal);
       charts4.innerHTML = c4;
       charts4.hidden = !c4;
     }
@@ -44626,6 +44643,10 @@ async function paintUsage() {
       said += ' The equivalent API cost leaves out '
         + api.unpriced.length + (api.unpriced.length === 1 ? ' model' : ' models')
         + ' with no published price (' + api.unpriced.join(', ') + ').';
+    }
+    /* #6829: on an install older than Claude keeps transcripts, an old day counts only if Kosmos saved it in time. */
+    if (Number(data.daysOnKosmos) > USAGE_TRANSCRIPT_KEEP_DAYS) {
+      said += ' Claude removes transcripts after about ' + USAGE_TRANSCRIPT_KEEP_DAYS + ' days, so an older day counts only if Kosmos saved it in time.';
     }
     msg.textContent = said;
   } catch (e) {

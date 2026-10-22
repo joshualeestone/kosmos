@@ -11872,7 +11872,8 @@ const server = http.createServer(async (req, res) => {
    * #853: real per-model, per-day token usage, not the point-in-time
    * context-window reading `/api/status` answers per agent. `?days=N`
    * (default 7) is clamped inside `dailyUsageByModel` itself, so a bad or
-   * hostile value cannot crash this route.
+   * hostile value cannot crash this route. `?days=all` (#6829) is every day
+   * since install, and adds `installDay` and `daysOnKosmos`.
    *
    * ⚠️ FOUR BUCKETS, NEVER BLENDED -- the response carries
    * input_tokens/output_tokens/cache_creation_input_tokens/
@@ -11886,13 +11887,20 @@ const server = http.createServer(async (req, res) => {
    */
   if (pathname === '/api/usage' && (req.method === 'GET' || req.method === 'HEAD')) {
     let days = 7;
-    try { days = Number(new URL(req.url, ROUTING_BASE).searchParams.get('days')) || 7; } catch { days = 7; }
+    let raw = null;
+    try { raw = new URL(req.url, ROUTING_BASE).searchParams.get('days'); } catch { raw = null; }
+    /* #6829: `days=all` is every day since this install began (usage.installDay), and the answer says which day
+       that was (`installDay`) and how many days it is (`daysOnKosmos`, 1 on install day). A number is a window as before. */
+    const sinceInstall = raw === 'all';
+    if (!sinceInstall) days = Number(raw) || 7;
     // Async, not a blocking call: usage.dailyUsageByModel reads potentially
     // hundreds of transcripts (tens of MB) off disk, and a synchronous read
     // there would stall every other route on this single-threaded server
     // for the scan's duration -- found in review, fixed at the source.
-    usage.dailyUsageByModel(days)
-      .then((result) => {
+    (sinceInstall ? usage.readSinceInstall() : usage.dailyUsageByModel(days))
+      .then((full) => {
+        const { installDay: since, days: n, ...result } = full;
+        const extra = sinceInstall ? { installDay: since, daysOnKosmos: n } : {};
         /* #2617: the same window per agent. Every agent Kosmos has a record
            of, stopped ones included, keyed by its folder. A roster that cannot
            be read gives no per-agent split: every token then lands in
@@ -11916,7 +11924,7 @@ const server = http.createServer(async (req, res) => {
         return split.then((byAgent) => byAgent, (err) => {
           console.error('usage: the per-agent split failed:', (err && err.message) || err);
           return null;
-        }).then((byAgent) => sendJson(res, 200, { ...rest, byAgent }));
+        }).then((byAgent) => sendJson(res, 200, { ...rest, byAgent, ...extra }));
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read token usage' }));
     return;
@@ -24428,6 +24436,8 @@ function start(port = PORT) {
   /* kosmos#6309: this board counts the month for a family's usage cap, in a worker thread that starts only when a cap
      is in force. Any other process reads the month's saved count. */
   try { require('./engine/usagecap').countOnThisBoard(); } catch { /* the cap reads the saved count */ }
+  /* kosmos#6829: past days of token usage are saved on a clock, before Claude deletes their transcripts. */
+  try { usage.startSaving(); } catch { /* best effort */ }
   setTimeout(agentEventsTick, 2 * 60 * 1000).unref();   // #5683: a first look two minutes after start, a minute after the rollup's, so their computer-print reads do not land together
   setInterval(agentEventsTick, ORG_ROLLUP_TICK_MS).unref();   // #5683: every five minutes, as the rollup
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The

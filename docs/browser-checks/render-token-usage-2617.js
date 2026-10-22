@@ -44,6 +44,8 @@ const USAGE = {
     '2026-08-31': { 'claude-opus-4-8': { input_tokens: 2010445, output_tokens: 701558, cache_creation_input_tokens: 8702558, cache_read_input_tokens: 940558112 } },
   },
   rootsRead: ['/tmp/fixture'],
+  // #6829: the board says how many days since install; two days of usage, 40 days on Kosmos.
+  installDay: '2026-07-23', daysOnKosmos: 40,
   // #2617: the per-agent split, as /api/usage sends it. Ann towers, Bob is small,
   // some work was the person's own, and 2,000 tokens could not be matched.
   byAgent: {
@@ -114,6 +116,7 @@ function readUsage(page) {
         return { wideOverflows, abbrFits };
       })(),
       heroDays: heroText.includes('Active Days on Kosmos'),
+      heroDayNum: ((document.querySelector('#usage-hero .tv-dnum') || {}).textContent || '').trim(),   // #6829
       // #2840 charts4: four per-class daily mini-charts, each with an svg.
       charts4Count: document.querySelectorAll('#usage-charts4 .tv-mini').length,
       charts4Svgs: document.querySelectorAll('#usage-charts4 .tv-mini svg').length,
@@ -211,6 +214,8 @@ function readUsage(page) {
       'CONTROL: the fit check can see a clip (a figure too wide for the cost tile overflows it) and the abbreviated $176.3K fits (#3137) -- '
       + JSON.stringify(v.tileFitControl));
     ok(v.heroDays, 'the Active Days on Kosmos eyebrow is shown');
+    // #6829: the box shows the board's days since install (40), not the number of days in the answer (2).
+    ok(v.heroDayNum === '40', `Active Days shows the days since install, 40 (got ${JSON.stringify(v.heroDayNum)})`);
     // charts4
     ok(v.charts4Count === 4, `four per-class daily mini-charts render (got ${v.charts4Count})`);
     ok(v.charts4Svgs === 4, `each mini-chart has its sparkline svg (got ${v.charts4Svgs})`);
@@ -540,6 +545,9 @@ function readUsage(page) {
     const after = await spinState();
     ok(after.spin === false && /^Counted from/.test(after.text || ''),
       `once it answers, the spinner is gone and the line says what was counted (got ${JSON.stringify(after)})`);
+    // #6829: 40 days on Kosmos is past Claude's 30-day transcript keep, so the line says old days count only if saved.
+    ok(/Claude removes transcripts after about 30 days, so an older day counts only if Kosmos saved it in time\.$/.test(after.text || ''),
+      `an install older than 30 days is told older days count only if saved (got ${JSON.stringify(after.text)})`);
     await p.unroute('**/api/usage*');
     await p.route('**/api/usage*', (r) => r.fulfill({ status: 500, json: { error: 'x' } }));
     await p.evaluate(() => paintUsage());

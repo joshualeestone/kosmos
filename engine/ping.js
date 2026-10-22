@@ -20,6 +20,8 @@
  * What this file keeps:
  *
  *   installId   a random per-install id, made once and kept in a local file
+ *   installedAt when that id was made (kosmos#6829: Token Usage counts days from it; engine/usage.js reads only
+ *               this, never the id, and it never leaves the computer)
  *   underTest   whether we are inside node's test runner
  *
  * ⚠️ `installId` IS RANDOM, never derived from anything about the machine. A hash
@@ -58,7 +60,10 @@ function read() {
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return { installId: null }; }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { installId: null };
-  return { installId: typeof parsed.installId === 'string' && parsed.installId ? parsed.installId : null };
+  const out = { installId: typeof parsed.installId === 'string' && parsed.installId ? parsed.installId : null };
+  /* #6829: kept through read() because write() merges over it; dropping it here would erase it on the next write. */
+  if (typeof parsed.installedAt === 'string' && Number.isFinite(Date.parse(parsed.installedAt))) out.installedAt = parsed.installedAt;
+  return out;
 }
 
 function write(patch) {
@@ -83,8 +88,24 @@ function installId() {
   const had = read();
   if (had.installId) return had.installId;
   const made = crypto.randomUUID();
-  write({ installId: made });
+  write({ installId: made, installedAt: new Date().toISOString() });   // #6829: when the id is first minted
   return made;
+}
+
+/**
+ * #6829: when this install began, as an ISO time, or null when it cannot be told.
+ * The time recorded when the id was minted. An install that predates that field
+ * takes ping.json's mtime once and records it, so a later copy that does not keep
+ * mtimes cannot move it. Never mints an id.
+ */
+function installedAt() {
+  const had = read();
+  if (had.installedAt) return had.installedAt;
+  if (!had.installId) return null;
+  let at;
+  try { at = new Date(fs.statSync(FILE).mtimeMs).toISOString(); } catch { return null; }
+  write({ installedAt: at });
+  return at;
 }
 
 /**
@@ -97,4 +118,4 @@ function underTest() {
   return Boolean(process.env.NODE_TEST_CONTEXT);
 }
 
-module.exports = { FILE, read, installId, underTest };
+module.exports = { FILE, read, installId, installedAt, underTest };
