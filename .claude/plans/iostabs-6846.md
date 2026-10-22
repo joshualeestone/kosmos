@@ -57,26 +57,39 @@ board inside the app shows no tab strip of its own, because the app marks every 
   and loading ?tab= over the box, which would throw away the box the person had not answered.
 
 ## Weakest premise
-What "at launch" means. The bar takes the remembered value, then the first page read of the launch that answers, in
-either direction. Usually that is the first seconds, but after a late sign-in it can be minutes in, so the bar can
-change on screen once per launch (review 1, N3). If Tasks is showing when it leaves, the app goes to Today and presses
-Today, so the board follows. Rejected: holding the first read to the next return, which leaves an earned Tasks out of
-the bar for a first launch's whole session. What would change this: per-Mac memory, or a person reporting the jump.
+What "at launch" means. The bar takes the remembered value, then one launch round of reads per Mac host (every 2 s
+for 20 s from the load): a "1" ends it at once, a "0" is applied and the round reads on to its end (it can be last
+session's flag), and later loads on the same host start no new round (review 10 W2). A return to the front reads
+at 6, 12 and 18 s, each applied. So the bar can change on screen once per launch, once per return and on a switch
+of Mac in the page. If Tasks is showing when it leaves, the bar goes to Today and presses Today. Rejected: holding
+removals while Tasks is selected (review 11 W4): it would show a tab the Mac does not have. What would change this:
+per-Mac memory, or a person reporting the jump.
 
-Also: in the board's wide layout (a large iPhone in landscape) Settings opens in place and the address keeps the
-section it was on, so a refusal there puts the bar on that section instead of Settings (review 5, N3). Accepted: a
-refusal needs a box up, and the bar still names a section the board can show.
+The bar follows the page (review 9 W1): when the address moves between sections (previous and new address
+compared, replaceState included), the bar lights that section, held while a press runs or waits on a loading page,
+never on the sign-in page, and it never presses. A Tasks section the bar does not offer (a project's View all
+below the Tasks threshold) lights Projects and the page is left there (review 13 blocker: pressing it away made
+that list unreachable). In the board's wide layout (a large iPhone in landscape) Settings opens in place and the
+address keeps its earlier section, so the address cannot see that move; accepted, since the bar still names a
+section the board can show.
 
 ## Validation
-LogicTests: AppTabs order and the Tasks gate, keep(), board names, door JS text, answer reading (true only), the
-kapptabs script text, the page flag reading ("1"/"0" only). The kapptabs and localStorage scripts run in a real JS engine
-(JavaScriptCore on the Mac) where they can, not only as text. Mutants: a tasks gate that always
-shows; an answer reader that takes non-nil as opened. Simulator build (queued-heavy). NOT checkable here, so named for the device check: Tasks entering the bar while
-Settings is selected and leaving while Tasks is selected (UIKit's tab bar tracks the selection by position; review 5
-W3), the first press of a signed-in launch landing on its section, whether a press on the selected tab is reported
-(review 6), and the board's first layout in a host that starts at zero size or is hidden (review 6, N5).
-Return reads: at 6, 12 and 18 s after a return, each applied, since the first can predate the board's next poll
-(review 6 W1); a launch round ends at its first answer. The page state a press sees (none / loading / ready) is
-decided in PressTracker, so its rule (a press with no web view waits) is tested; BoardWeb's call order (it must ask
-the tracker before it looks for a web view) is NOT, and is checked on a device (review 7 W2). Real-device check is Baron's
-TestFlight run (#6838 frames).
+LogicTests (464): AppTabs order and the Tasks gate, keep() and barTab(), board names, the door script and its
+answers (true only is opened; absent waits only on the sign-in host), the kapptabs and flag scripts run in
+JavaScriptCore, PressTracker (presses, serials, running/pending, opened and refused answers, lock), the read rounds
+(launch per host, return) and follow(). Mutants red for each guard named in the commits.
+Simulator build (queued-heavy): compiles ContentView, which LogicTests cannot.
+
+NOT checkable here, so named for the device check (Baron's TestFlight run, #6838 frames):
+- whether a press on the tab already selected reaches the binding's setter on iOS 16 (review 6, review 14 W1). If
+  it does not, "press Today to go back to the board's home" needs another tab first; the fix then is a UIKit
+  reselect hook.
+- Tasks entering the bar while Settings is selected and leaving while Tasks is selected (UIKit tracks the selection
+  by position; review 5 W3).
+- the first press of a signed-in launch landing on its section, through the sign-in hand-off, with the bar held
+  and not flickering (reviews 5, 10, 13).
+- BoardWeb's wiring: KVO on the address, barHeld with a real isLoading, the order of an answer and an address
+  change (review 14 W3).
+- the board's first layout in a host that starts at zero size or is hidden (review 6, N5).
+- the door itself: the board side is window.kosmosAppTab in #6854 (parts a and c); the app's tests use a stub, so
+  a rename there would not show here. Check after #6854 is on main.
