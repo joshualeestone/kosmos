@@ -58,6 +58,9 @@ test that ran a publisher against the real site would be a defect in that test w
   missed-hold direction, named above); pid reuse inside one ps snapshot; the first 7b arm's middle hop is
   not itself publisher-named (the shellc and mixed arms cover the neighbours).
 
+- Unchanged residual: the shell suite's syntax checks (`bash -n tools/release.sh`) run under `sh -c`
+  from yarn, not a test-named ancestor, so they still hold a tick; they last milliseconds.
+
 ## Tests
 
 `tools/test-site-autodeploy-5589.sh` section 7b: test-started (passes over), hand-run control (holds, named),

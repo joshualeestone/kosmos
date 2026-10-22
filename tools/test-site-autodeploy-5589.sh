@@ -175,6 +175,8 @@ arm6907 nodeserver '  100     1 node server.js --port 16180' '  200   100 bash t
 { [ "$RC" = 0 ] && [ "$N" = 0 ]; } && pass "control: a release.sh under a node process that is not a test still holds" || bad "a release.sh under a plain node process did not hold (deploys=$N)"
 arm6907 cycle '  200   300 bash tools/deploy-site.sh --publish' '  300   200 /bin/zsh -l'
 { [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -qF '(pid 200:'; } && pass "a parent cycle with no test in it ends and holds the deploy" || bad "a parent cycle did not hold (rc=$RC, deploys=$N): $OUT"
+realps=$(ps -axo pid=,ppid=,command=); first=${realps%%$'\n'*}
+[[ "$first" =~ ^\ *[0-9]+\ +[0-9]+\ . ]] && pass "this machine's ps -axo pid=,ppid=,command= has the pid ppid command shape the matcher reads" || bad "real ps output is not 'pid ppid command': '$first'"
 mkdir -p "$T/badawk"; printf '#!/bin/sh\nexit 2\n' > "$T/badawk/awk"; chmod +x "$T/badawk/awk"
 PATH="$T/badawk:$PATH" arm6907 awkfail '  100     1 -zsh'
 { [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -q 'could not be matched'; } \

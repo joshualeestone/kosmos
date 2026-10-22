@@ -288,7 +288,8 @@ fi
 # release.sh as test subjects, and so does the node suite (tools.release-gate.test.js spawns release.sh), and a
 # validation can run for half an hour, so a match whose ancestry reaches a tools/test-*.sh, or a node process
 # running --test or a *.test.js file, is passed over, unless that ancestor's own command line also names a
-# publisher (bash -c 'tools/test-x.sh && tools/deploy-site.sh --publish' runs a real publish). Ancestry needs pid and ppid, so the list is
+# publisher (bash -c 'tools/test-x.sh && tools/deploy-site.sh --publish' runs a real publish).
+# Ancestry needs pid and ppid, so the list is
 # "pid ppid command"; a line without them (a list that cannot say) has no ancestry, so a match there still holds
 # the deploy (fails closed, like a test harness that has died and left its subject to launchd: ppid 1, no test
 # above it, so it holds too).
@@ -321,7 +322,11 @@ publisher_running() {
       for (i = 1; i <= n; i++) {
         if (cmd[i] !~ pub) continue
         t = 0; p = par[i]
-        for (h = 0; h < 64 && p != "" && p > 1 && (p in id); h++) { j = id[p]; if ((cmd[j] ~ tst || cmd[j] ~ nod) && cmd[j] !~ any) { t = 1; break }; p = par[j] }
+        for (h = 0; h < 64 && p != "" && p > 1 && (p in id); h++) {
+          j = id[p]
+          if ((cmd[j] ~ tst || cmd[j] ~ nod) && cmd[j] !~ any) { t = 1; break }   # p and j stay on the test
+          p = par[j]
+        }
         if (t) { print "T pid " pid[i] ": " substr(cmd[i], 1, 200) " (under pid " p ": " substr(cmd[j], 1, 120) ")"; continue }
         print "H pid " pid[i] ": " substr(cmd[i], 1, 200); exit
       }
