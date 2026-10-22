@@ -20,8 +20,8 @@ Stacked on prreceipt-6842 (slice 1). Opens as a PR only after slice 1 merges (re
 - The newest 50, not all: an unkept receipt reads transcripts; older tasks are counted and said.
 - Rejected: a stored per-project total (would drift from the task receipts; this sums the kept receipts instead).
 - Residual, stated: an agent that holds parts of two tasks at the same time has those tokens on both receipts (each
-  counts its transcript inside that task's hold spans), so a project total can count them twice. The page says so ("An
-  agent working on two tasks at once counts on both, so this can read high."); de-duplicating spans per agent across
+  counts its transcript inside that task's hold spans), so a project total can count them twice. The page says so only
+  when one agent's holds on two counted tasks really overlap (`overlapping`, review 3); de-duplicating spans per agent across
   tasks is a separate change (found in slice 3's review).
 - PRs merge on repo#number (a receipt may keep a PR's url or not); each agent's unnamed count cannot be matched across
   tasks, so the page says "up to N more"; "the newest N" names the tasks looked at, even when some failed (review 1).

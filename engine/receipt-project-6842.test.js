@@ -90,19 +90,21 @@ test('one pull request kept with its url on one receipt and without it on anothe
   assert.equal(r.picked, 2);
 });
 
-test('sharedAgent: an agent on two counted tasks; an unreadable agent makes its pull requests unknown', async () => {
+test('overlapping: one agent\'s holds on two tasks share a moment; one after the other does not', async () => {
   const id = project([closedTask(1, '11:00'), closedTask(2, '12:00')]);
-  const one = await receipt.forProject(id, { now: ms('15:00'), receiptOf: async (pid, task) => ({ agents: [
-    { who: task.number === 1 ? 'a' : 'b', available: true, models: {}, prs: [] },
+  const span = (from, to) => [{ from: new Date(ms(from)).toISOString(), to: new Date(ms(to)).toISOString() }];
+  const seq = await receipt.forProject(id, { now: ms('15:00'), receiptOf: async (pid, task) => ({ agents: [
+    { who: 'a', available: true, models: {}, prs: [], holds: task.number === 1 ? span('09:00', '10:00') : span('10:30', '11:30') },
   ] }) });
-  assert.equal(one.sharedAgent, false, 'different agents on each task');
-  const two = await receipt.forProject(id, { now: ms('15:00'), receiptOf: async () => ({ agents: [
-    { who: 'a', available: true, models: {}, prs: [] },
+  assert.equal(seq.overlapping, false, 'the same agent, one task after the other: no double count');
+  const both = await receipt.forProject(id, { now: ms('15:00'), receiptOf: async (pid, task) => ({ agents: [
+    { who: 'a', available: true, models: {}, prs: [], holds: task.number === 1 ? span('09:00', '11:00') : span('10:30', '11:30') },
     { who: 'x', available: false, because: 'no-folder' },
   ] }) });
-  assert.equal(two.sharedAgent, true, 'agent a on both tasks');
-  assert.equal(two.prsUnknown, 2, 'the unreadable agent, once per task');
+  assert.equal(both.overlapping, true, 'agent a held both tasks from 10:30 to 11:00');
+  assert.equal(both.prsUnknown, 2, 'the unreadable agent, once per task');
 });
+
 
 test('two asks for one project while it is worked out share one computation', async () => {
   const id = project([closedTask(1, '11:00')]);

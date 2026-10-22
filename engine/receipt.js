@@ -549,14 +549,16 @@ async function forAgent(who, { limit = 10, now = Date.now(), receiptOf = forTask
  * receipt not yet kept reads transcripts); `notCounted` says how many older ones were left out. An agent whose work
  * could not be read (no folder, a provider with no receipt) is counted in `unread`, and a receipt read only in part in
  * `partial`, so the total never reads as more complete than it is. An agent whose pull requests are not known (no `prs`,
- * or its work could not be read) is counted in `prsUnknown`, so they read as unknown rather than none. `sharedAgent` says
- * an agent worked on two or more of the counted tasks, the only case where one stretch of work can be on two receipts.
+ * or its work could not be read) is counted in `prsUnknown`, so they read as unknown rather than none. `overlapping` says
+ * one agent's holds on two different counted tasks share a moment, so that work is on both receipts and the total
+ * counts it twice.
  * Each task's receipt is the one its task page shows (forTask), so the two never disagree. Asks for one project while
  * one is being worked out share it (every Project settings paint asks).
  */
 const PROJECT_IN_FLIGHT = new Map();
 function forProject(projectId, opts = {}) {
   if (opts.receiptOf) return forProjectNow(projectId, opts);   // a test seam: never shared
+  // A shared computation uses the first ask's `now`; the route passes none, so asks do not differ in it.
   const key = String(projectId) + '\0' + String(opts.limit || 50);
   if (PROJECT_IN_FLIGHT.has(key)) return PROJECT_IN_FLIGHT.get(key);
   const p = forProjectNow(projectId, opts).finally(() => PROJECT_IN_FLIGHT.delete(key));
@@ -592,13 +594,20 @@ async function forProjectNow(projectId, { limit = 50, now = Date.now(), receiptO
   let failed = 0;
   let prsMore = 0;   // beyond each agent's own shown list: counted, not named, so not de-duplicated (an upper bound)
   let prsUnknown = 0;   // agents whose pull requests are not known (no `prs`, or not readable): unknown, not none
-  const tasksOf = new Map();   // agent -> how many counted tasks it worked on
+  const spansOf = new Map();   // agent -> [{ task, from, to }] from each receipt's holds (ms)
   receipts.forEach((r, i) => {
     const number = picked[i].task.number;
     if (!r || !Array.isArray(r.agents)) { failed += 1; return; }
     for (const a of r.agents) {
       if (!a || typeof a !== 'object') continue;
-      if (typeof a.who === 'string' && a.who) tasksOf.set(a.who, (tasksOf.get(a.who) || 0) + 1);
+      if (typeof a.who === 'string' && a.who) {
+        const list = spansOf.get(a.who) || [];
+        for (const h of Array.isArray(a.holds) ? a.holds : []) {
+          const from = Date.parse(h && h.from); const to = Date.parse(h && h.to);
+          if (Number.isFinite(from) && Number.isFinite(to)) list.push({ task: number, from, to });
+        }
+        spansOf.set(a.who, list);
+      }
       if (!a.available) { unread += 1; prsUnknown += 1; continue; }
       if (a.complete === false) partial += 1;
       for (const [m, b] of Object.entries(a.models || {})) {
@@ -621,7 +630,17 @@ async function forProjectNow(projectId, { limit = 50, now = Date.now(), receiptO
   });
   // picked: the newest tasks looked at (the "newest N" the page names); tasks: those whose receipt could be worked out.
   return { ok: true, picked: picked.length, tasks: picked.length - failed, notCounted: closed.length - picked.length, failed, unread, partial,
-    models, prs: [...prs.values()], prsMore, prsUnknown, sharedAgent: [...tasksOf.values()].some((n) => n > 1) };
+    models, prs: [...prs.values()], prsMore, prsUnknown, overlapping: [...spansOf.values()].some(overlapAcrossTasks) };
+}
+/* One agent's holds on two DIFFERENT tasks that share any moment: the work in that moment is on both receipts. */
+function overlapAcrossTasks(spans) {
+  for (let i = 0; i < spans.length; i += 1) {
+    for (let j = i + 1; j < spans.length; j += 1) {
+      const a = spans[i]; const b = spans[j];
+      if (a.task !== b.task && a.from <= b.to && b.from <= a.to) return true;
+    }
+  }
+  return false;
 }
 
 module.exports = { forAgent, forTask, forProject, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION,

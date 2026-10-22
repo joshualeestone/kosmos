@@ -68948,21 +68948,23 @@ function pjsCostParts(r) {
   if (!n) return { line: 'Kosmos could not read the work on its newest finished tasks.', prs: '' };
   const { tokens, costBit } = tkTokensAndCost(r.models && typeof r.models === 'object' ? r.models : {});
   // Nothing counted and something unreadable: say that, never "0 tokens", which reads as measured none.
-  if (!tokens && unread) return { line: 'Kosmos could not read the work on its finished tasks.', prs: '' };
+  const unreadOnly = !tokens && unread;
   const bits = [(n === 1 ? '1 finished task' : usageNum(n) + ' finished tasks') + ': ' + usageAbbr(tokens) + ' tokens'];
   if (costBit) bits.push(costBit);
-  let line = bits.join(', ') + '.';
+  // Nothing counted and something unreadable: say that, never "0 tokens" (which reads as measured none); any pull
+  // requests and the older-tasks note still follow.
+  let line = unreadOnly ? 'Kosmos could not read the work on its finished tasks.' : bits.join(', ') + '.';
   if (older) line += ' Counting the newest ' + usageNum(picked) + '; ' + (older === 1 ? '1 older task is' : usageNum(older) + ' older tasks are') + ' not counted.';
-  if (unread) line += ' Some of the work could not be read, so the real cost is higher.';
-  // An agent's work on two tasks at the same time is on both receipts, so a sum over tasks can count it twice: said only
-  // when an agent worked on two or more of the counted tasks, the only case where it can happen.
-  if (r.sharedAgent === true) line += ' An agent working on two tasks at once counts on both, so this can read high.';
+  if (unread && !unreadOnly) line += ' Some of the work could not be read, so the real cost is higher.';
+  // An agent's work on two tasks at the same time is on both receipts, so the sum counts it twice: said only when one
+  // agent's holds on two counted tasks really overlap (the engine's `overlapping`).
+  if (r.overlapping === true) line += ' An agent worked on two of these tasks at once, and that time counts on both, so this reads high.';
   const prs = Array.isArray(r.prs) ? r.prs.filter((p) => p && typeof p === 'object') : [];
   const prsMore = Math.max(0, prs.length - PJS_COST_PRS_SHOWN) + (Number(r.prsMore) || 0);
   const unknown = Number(r.prsUnknown) || 0;
   const unknownLine = unknown
     // prsUnknown counts an agent once per task, so no number is given: it would read as a count of agents.
-    ? '<p class="tkr-line tkr-muted">Some of the work on these tasks does not record pull requests, so there may be more.</p>'
+    ? '<p class="tkr-line tkr-muted">Some of the work on these tasks does not record pull requests, so some may not be listed.</p>'
     : '';
   // Each agent's unnamed count cannot be matched across tasks, so "more" is an upper bound: "up to".
   return { line, prs: tkReceiptPrsHtml({ prs: prs.slice(0, PJS_COST_PRS_SHOWN), prsMore, upTo: Number(r.prsMore) > 0 }) + unknownLine };

@@ -37,8 +37,8 @@ const ok = (over) => ({ ok: true, tasks: 2, notCounted: 0, failed: 0, unread: 0,
 
 test('the finished tasks, their tokens and the cost at API prices, from the page\'s one price table', () => {
   assert.ok(B.usageApiCost({ receipt: { 'claude-fable-5': buckets(1e6) } }).cost > 0, 'control: the fixture model is priced');
-  assert.match(B.pjsCostParts(ok()).line, /^2 finished tasks: 1(\.0)?M tokens, \$10 at API prices\.$/, 'no agent on two tasks: no overlap line');
-  assert.match(B.pjsCostParts(ok({ sharedAgent: true })).line, / An agent working on two tasks at once counts on both, so this can read high\.$/);
+  assert.match(B.pjsCostParts(ok()).line, /^2 finished tasks: 1(\.0)?M tokens, \$10 at API prices\.$/, 'no overlapping holds: no overlap line');
+  assert.match(B.pjsCostParts(ok({ overlapping: true })).line, / An agent worked on two of these tasks at once, and that time counts on both, so this reads high\.$/);
   assert.match(B.pjsCostParts(ok({ tasks: 1 })).line, /^1 finished task: /);
 });
 
@@ -71,9 +71,9 @@ test('the pull requests the tasks worked on, at most 20 named and the rest count
 });
 
 test('pull requests that were never recorded read as unknown, not none', () => {
-  assert.match(text(B.pjsCostParts(ok({ prsUnknown: 1 })).prs), /^Some of the work on these tasks does not record pull requests, so there may be more\.$/);
+  assert.match(text(B.pjsCostParts(ok({ prsUnknown: 1 })).prs), /^Some of the work on these tasks does not record pull requests, so some may not be listed\.$/);
   const both = text(B.pjsCostParts(ok({ prsUnknown: 3, prs: [{ repo: 'acme/app', number: 4, url: 'https://github.com/acme/app/pull/4' }] })).prs);
-  assert.match(both, /^Worked on pull request app#4 .*\. Some of the work on these tasks does not record pull requests, so there may be more\.$/);
+  assert.match(both, /^Worked on pull request app#4 .*\. Some of the work on these tasks does not record pull requests, so some may not be listed\.$/);
   assert.equal(B.pjsCostParts(ok({ prsUnknown: 0 })).prs, '', 'control: none unknown, no line');
 });
 
