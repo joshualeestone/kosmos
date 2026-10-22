@@ -912,7 +912,9 @@ function federationPolicyStop() {
   try {
     const op = require('./engine/orgpolicy');
     op.inForce(); const c = op.contactAllows();   // fresh: a route, not a hot path (apply, then the strict read)
-    return c.ok === true ? null : 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so a project cannot be shared or joined here.';
+    if (c.ok === true) return null;
+    const why = typeof c.because === 'string' ? c.because : op.CONTACT_STOPS;   // kosmos#6870: a family default says its own
+    return why.charAt(0).toUpperCase() + why.slice(1) + ', so a project cannot be shared or joined here.';
   } catch { return 'Kosmos could not read the policy set for this Kosmos just now, so a project cannot be shared or joined here.'; }
 }
 function federationLiveNow() {
@@ -21206,8 +21208,11 @@ const server = http.createServer(async (req, res) => {
         try {
           if (fedseats.linkFor(id)) {
             const cs = fedseats.contactState();   // kosmos#6239: a room closed under the policy, or a fault, says so instead
+            const why = cs === 'policy' ? fedseats.contactStops() : null;   // kosmos#6870: a family default says its own
             shared = cs === 'policy'
-              ? '[kosmos] This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer.\n'
+              ? (why === require('./engine/orgpolicy').CONTACT_STOPS
+                ? '[kosmos] This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer.\n'
+                : '[kosmos] This room is shared with another computer, but it is closed: ' + why + ', so nothing posted here leaves this computer.\n')
               : cs === 'unreadable'
                 ? '[kosmos] This room is shared with another computer, but it is closed for now: Kosmos cannot read the policy set for this Kosmos, so nothing posted here leaves this computer.\n'
                 : '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n';
@@ -24044,7 +24049,7 @@ function federateOut(projectId, delivery, operator) {
   const cs = fedseats.contactState();
   if (cs !== 'open') {
     messages.roomNote(projectId, cs === 'policy'
-      ? 'That post stayed on this computer: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.'
+      ? 'That post stayed on this computer: ' + fedseats.contactStops() + '.'   // kosmos#6870: a family default says its own
       : 'That post stayed on this computer: Kosmos cannot read the policy set for this Kosmos just now, so this room is closed until it can.');
     return;
   }

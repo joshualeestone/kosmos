@@ -1175,6 +1175,17 @@ function contactStopped() { return contactState() !== 'open'; }
 function contactState() {
   try { return require('./orgpolicy').contactAllows().ok === true ? 'open' : 'policy'; } catch { return 'unreadable'; }
 }
+/* kosmos#6870: why outside contact is closed, said after contactState() gave 'policy': the policy's sentence, or the
+   family default's (orgpolicy.FAMILY_CONTACT_STOPS) where no policy said off. The state stays 'policy' for both, on
+   purpose: readers branch on open | policy | unreadable, and a new value would fall through to their open sentence.
+   A second read; one that throws or now allows gives the policy's sentence. Never throws. */
+function contactStops() {
+  try {
+    const op = require('./orgpolicy');
+    const c = op.contactAllows();
+    return c && c.ok !== true && typeof c.because === 'string' ? c.because : op.CONTACT_STOPS;
+  } catch { return 'the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers'; }
+}
 
 /** Try an own room refused earlier this session again, on the person's explicit ask. */
 function retryOwn(projectId) {
@@ -1655,4 +1666,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { contactStopped, contactState, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
+module.exports = { contactStopped, contactState, contactStops, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };

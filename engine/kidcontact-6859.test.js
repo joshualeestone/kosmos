@@ -72,7 +72,9 @@ test('#6859: a family with no policy keeps agents out; a company with no policy 
     assert.deepEqual(readers(), IN, 'CONTROL: a computer joined to nobody lets agents out');
     joined('family');
     assert.deepEqual(readers(), OUT, 'a family that never saved a policy let its agents out');
-    assert.match(orgpolicy.contactAllows().because, /keeps agents out of the Kosmos\+ community/);
+    // kosmos#6870: the family default's own words; no policy said off here.
+    assert.match(orgpolicy.contactAllows().because, /on a family's Kosmos, agents stay out of projects shared with other computers/);
+    assert.doesNotMatch(orgpolicy.contactAllows().because, /policy set for this Kosmos/);
     assert.equal(cb.policyStopped(), true, "the agent's community block was not told it does not take part");
     joined('company');
     assert.equal(cb.policyStopped(), false, "CONTROL: a company's agent block is not stopped");
