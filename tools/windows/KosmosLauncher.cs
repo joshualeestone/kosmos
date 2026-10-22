@@ -2741,6 +2741,27 @@ class KosmosLauncher
         catch { return ReuseCheck.NoAnswer; }
     }
 
+    // How long the full check waits for a board that is not there yet: the opener's own wait for the board
+    // (tools/kosmos-open-board.js --timeout-ms default), so a board restarting under a reload is waited for as long
+    // as a double-click would wait for it. And how long between looks while it waits.
+    internal const int ReuseWaitForBoardMs = 20000;
+    const int ReuseLookAgainMs = 500;
+
+    // #6882: the full check. Nothing listening, or a board.token that cannot be read right now (antivirus holding it
+    // for a moment), is looked at again until `waitMs` has passed, since waiting sends nothing anywhere; any other
+    // answer is final at once. Returns the last answer. Off the window's thread only: it can take `waitMs` and more.
+    internal static ReuseCheck CheckBoardPatiently(int port, int timeoutMs, int waitMs)
+    {
+        Stopwatch waited = Stopwatch.StartNew();
+        while (true)
+        {
+            ReuseCheck check = CheckBoardBeforeReuse(port, timeoutMs);
+            if (check != ReuseCheck.NoListener && check != ReuseCheck.TokenUnreadable) return check;
+            if (waited.ElapsedMilliseconds + ReuseLookAgainMs >= waitMs) return check;
+            Thread.Sleep(ReuseLookAgainMs);
+        }
+    }
+
     // What a navigation to the board does after the quick check: go, be refused at once (a listener answered and
     // did not prove), or wait, cancelled, for the full check (nothing listening yet, no answer in time, or a
     // board.token that antivirus may be holding for a moment).
@@ -2753,8 +2774,8 @@ class KosmosLauncher
     }
 
     // A navigation carries the cookie in its own request, so only a board that proved (or one that enforces nothing
-    // and so issued no sign-in) may have it. On the full check nothing listening is refused too: a squatter could
-    // take the port between the check and the request, and the window's own page says what to do.
+    // and so issued no sign-in) may have it. After the full check (CheckBoardPatiently has already waited out a
+    // board restarting), nothing listening is refused too: the window's own page says what to do.
     internal static bool MayNavigateSignedIn(ReuseCheck check)
     {
         return check == ReuseCheck.Proved || check == ReuseCheck.NotEnforcing;
@@ -3475,6 +3496,7 @@ class BoardWindowForm : System.Windows.Forms.Form
     // #6882: a board navigation the quick check could not settle waits here, cancelled, for the full check
     // (CheckNavigationAgain); a newer board navigation that goes replaces it.
     string navigationWaiting;
+    int navigationWaitingVisit;
     bool navigationCheckInFlight;
     string navigationApproved;
     // #6882: Kosmos.exe was opened again while a sign-in was under way and the window was showing why it is not
@@ -3736,10 +3758,20 @@ class BoardWindowForm : System.Windows.Forms.Form
                     signingInAgain = false;
                     if (mode == KosmosLauncher.ComputerMode.Connect) return;
                     // #6882: the window showed why it is not showing the board while this ran, or moved on to another
-                    // visit: nothing here applies. A double-click that came meanwhile starts over now.
+                    // visit. A sign-in the person asked for (a double-click, no keepPage) that came back signed in is
+                    // still what they asked for: it is loaded as a fresh first load, whose navigation is checked again
+                    // (OnNavigationStarting). Otherwise a double-click that came meanwhile starts over now.
                     if (boardNotConfirmed || visit != boardVisit)
                     {
-                        if (startOverWanted && boardNotConfirmed) { startOverWanted = false; SignInAgain(); }
+                        if (boardNotConfirmed && keepPage == null && fresh != null && fresh.Contains("?boot=") && webView != null)
+                        {
+                            boardNotConfirmed = false;
+                            startOverWanted = false;
+                            navigatedToBoard = false;
+                            boardAddress = KosmosLauncher.WithModeQuery(fresh, mode);
+                            NavigateToBoard();
+                        }
+                        else if (startOverWanted && boardNotConfirmed) { startOverWanted = false; SignInAgain(); }
                         return;
                     }
                     if (fresh != null && fresh.Contains("?boot=") && webView != null) webView.Navigate(KosmosLauncher.WithModeQuery(KosmosLauncher.SignInAgainAddress(fresh, keepPage, port), mode));
@@ -3807,42 +3839,51 @@ class BoardWindowForm : System.Windows.Forms.Form
         webView.NavigateToString(KosmosLauncher.NotConfirmedPage);
     }
 
-    // #6882: the full check, off this thread (it waits on the network), then ShowNotConfirmed unless `mayStay` allows
-    // what it found. Only on the visit it was asked for: an answer that lands after the window moved on (it already
-    // shows why, it is starting over, or it signed in again) changes nothing.
+    // #6882: the full check (CheckBoardPatiently: a board restarting is waited for), off this thread, then
+    // ShowNotConfirmed unless `mayStay` allows what it found. Only on the visit it was asked for: an answer that lands
+    // after the window moved on (it already shows why, it is starting over, or it signed in again) changes nothing.
     void CheckThenShowNotConfirmed(Func<KosmosLauncher.ReuseCheck, bool> mayStay)
     {
         int boardPort = port;
         int visit = boardVisit;
         ThreadPool.QueueUserWorkItem(unused =>
         {
-            KosmosLauncher.ReuseCheck check = KosmosLauncher.CheckBoardBeforeReuse(boardPort, KosmosLauncher.ReuseProofTimeoutMs);
+            KosmosLauncher.ReuseCheck check = KosmosLauncher.CheckBoardPatiently(boardPort, KosmosLauncher.ReuseProofTimeoutMs, KosmosLauncher.ReuseWaitForBoardMs);
             try { BeginInvoke(new Action(() => { if (visit == boardVisit && navigatedToBoard && !mayStay(check)) ShowNotConfirmed(); })); }
             catch { /* the window closed meanwhile */ }
         });
     }
 
-    // #6882: a board navigation the quick check could not settle (OnNavigationStarting cancelled it): the full check,
-    // off this thread, then the navigation goes after all (marked approved, so it is not held a second time) or the
-    // window shows why. One full check at a time; a later navigation that has to wait replaces the one waiting.
+    // #6882: a board navigation the quick check could not settle (OnNavigationStarting cancelled it): the full check
+    // (CheckBoardPatiently: a board restarting is waited for), off this thread, then the navigation goes after all
+    // (marked approved, so it is not held a second time) or the window shows why. One full check at a time; a later
+    // navigation that has to wait replaces the one waiting, and one that came on a later visit than the check out
+    // now is checked again for itself when that check ends, never dropped.
+    // ⚠️ Accepted cost: the navigation that goes is a plain Navigate to the same address, not what was cancelled. A
+    // reload becomes a load of the same page (the same document, a history entry more), and Back or Forward to a board
+    // page becomes a load of it. No board navigation carries a request body (the page's one form, its ask box,
+    // cancels its own submit), so nothing is lost from one.
     void CheckNavigationAgain(string uri)
     {
         navigationWaiting = uri;
+        navigationWaitingVisit = boardVisit;
         if (navigationCheckInFlight) return;
         navigationCheckInFlight = true;
         int boardPort = port;
         int visit = boardVisit;
         ThreadPool.QueueUserWorkItem(unused =>
         {
-            KosmosLauncher.ReuseCheck check = KosmosLauncher.CheckBoardBeforeReuse(boardPort, KosmosLauncher.ReuseProofTimeoutMs);
+            KosmosLauncher.ReuseCheck check = KosmosLauncher.CheckBoardPatiently(boardPort, KosmosLauncher.ReuseProofTimeoutMs, KosmosLauncher.ReuseWaitForBoardMs);
             try
             {
                 BeginInvoke(new Action(() =>
                 {
                     navigationCheckInFlight = false;
                     string waiting = navigationWaiting;
+                    if (waiting == null || navigationWaitingVisit != boardVisit || mode == KosmosLauncher.ComputerMode.Connect || webView == null) { navigationWaiting = null; return; }
+                    // The navigation waiting now came on a later visit than this check was made for: check for it.
+                    if (visit != boardVisit) { CheckNavigationAgain(waiting); return; }
                     navigationWaiting = null;
-                    if (waiting == null || visit != boardVisit || mode == KosmosLauncher.ComputerMode.Connect || webView == null) return;
                     if (!KosmosLauncher.MayNavigateSignedIn(check)) { ShowNotConfirmed(); return; }
                     navigationApproved = waiting;
                     webView.Navigate(waiting);
