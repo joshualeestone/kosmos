@@ -109,3 +109,24 @@ test('#6923: closing a built task as replaced drops the built mark, so it no lon
   tasks.close(pid, 1, { replacedBy: 2 });
   assert.ok(!stored(pid, 1).builtAt, 'the built mark is gone');
 });
+
+test('#6936: an open task never carries replacedBy, whatever closed and reopened it (the loop check relies on it)', () => {
+  const pid = two('Invariant');
+  tasks.create(pid, { sentence: 'Third try' });
+  const openWithLink = () => projects.readAll().find((x) => x.id === pid).tasks.filter((t) => !t.closedAt && t.replacedBy !== undefined).map((t) => t.number);
+  tasks.close(pid, 1, { replacedBy: 2 });
+  tasks.reopen(pid, 1);
+  assert.deepEqual(openWithLink(), [], 'after a reopen');
+  tasks.close(pid, 1, { replacedBy: 3 });
+  tasks.close(pid, 1);   // a plain re-close keeps the link on a CLOSED task
+  assert.equal(stored(pid, 1).replacedBy, 3);
+  tasks.reopen(pid, 1, { why: 'not replaced after all' });
+  assert.deepEqual(openWithLink(), [], 'after a reopen with a reason');
+  tasks.close(pid, 2, { replacedBy: 3 });
+  tasks.reopen(pid, 2, { person: true });
+  assert.deepEqual(openWithLink(), [], 'after a reopen by the person');
+  // CONTROL: the probe sees a link where one is.
+  tasks.close(pid, 1, { replacedBy: 2 });
+  const closedWithLink = projects.readAll().find((x) => x.id === pid).tasks.filter((t) => t.closedAt && Number.isInteger(t.replacedBy)).map((t) => t.number);
+  assert.deepEqual(closedWithLink, [1]);
+});

@@ -1124,7 +1124,7 @@ async function taskClose(ctx, args) {
   if (!r.reached) return ctx.unreachable('close that task');
   if (r.json && r.json.task && by && !Number.isInteger(r.json.task.replacedBy)) {
     // An older board ignores replacedBy and closes it as done: say so, never claim a link it did not record.
-    ctx.err('Closed task ' + num + ' on ' + project + ', but this Kosmos did not record what replaced it (it is older than this command). It now reads as done.');
+    ctx.err('Closed task ' + num + ' on ' + project + ', but this Kosmos did not record what replaced it (it is older than this command). It now reads as done. To undo that: kosmos task reopen ' + projectSlug(project) + ' ' + num);
     return 1;
   }
   if (r.json && r.json.task) { ctx.out('Closed task ' + num + ' on ' + project + (by ? ' as replaced by task ' + r.json.task.replacedBy : '') + '.'); return 0; }

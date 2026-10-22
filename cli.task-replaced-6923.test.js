@@ -69,8 +69,8 @@ async function win(argv, agentToken = null) {
 const MAC_HOME = path.join(SANDBOX, 'kosmos-home');
 fs.mkdirSync(path.join(MAC_HOME, 'runtime', 'bin'), { recursive: true });
 fs.symlinkSync(process.execPath, path.join(MAC_HOME, 'runtime', 'bin', 'node'));
-function mac(args, agentToken = '') {
-  const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: agentToken };
+function mac(args, agentToken = '', port = server.address().port) {
+  const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: agentToken };
   return new Promise((resolve, reject) => {
     execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 20000 }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code: ' + (stderr || err.signal))); return; }
@@ -155,6 +155,8 @@ test('#6923: the route: no body is a plain close (older callers); a body it cann
   for (const body of ['{"replacedby":2}', '{"replaced_by":2}', '[2]', '"2"', '2', '{"replacedBy":2,"x":1}']) {
     const r = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${g}/close`, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
     assert.equal(r.status, 400, body);
+    // #6936: a well-formed object with a key other than replacedBy is told which key a close takes.
+    assert.match(await r.text(), body.startsWith('{') ? /a close takes only replacedBy/ : /could not read that request/, body);
     assert.equal(isDone(g), false, body + ': closed it anyway');
   }
   const [b, c] = openTwo('route-bad');
@@ -195,7 +197,34 @@ test('#6923: against an older board that ignores replacedBy, the command says th
     });
     assert.equal(code, 1, out.concat(err).join('\n'));
     assert.match(err.join('\n'), /did not record what replaced it/);
+    assert.match(err.join('\n'), new RegExp('To undo that: kosmos task reopen ' + projectId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' 4$', 'm'), 'says how to undo the plain close');
     assert.doesNotMatch(out.join('\n'), /as replaced by task/, 'never claims a link the board did not record');
+  } finally {
+    old.close();
+  }
+});
+
+test('#6923: against an older board that ignores replacedBy, the Mac command says the link was not recorded and how to undo it', async () => {
+  const http = require('node:http');
+  const [a, b] = openTwo('older-mac');
+  // An older board: every request passes through to the real one, except the close, which it answers as a plain close.
+  const old = http.createServer((req, res) => {
+    if (req.method === 'POST' && /\/task\/\d+\/close$/.test(req.url)) {
+      req.resume();
+      req.on('end', () => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ task: { number: a, closedAt: new Date().toISOString() }, told: [] })); });
+      return;
+    }
+    const up = http.request({ host: '127.0.0.1', port: server.address().port, path: req.url, method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+    up.on('error', () => { res.statusCode = 502; res.end(); });
+    req.pipe(up);
+  });
+  await new Promise((r) => old.listen(0, '127.0.0.1', r));
+  try {
+    const r = await mac(['task', 'close', projectId, String(a), '--replaced-by', String(b)], token('mara'), old.address().port);
+    assert.equal(r.code, 1, r.text);
+    assert.match(r.text, /did not record what replaced it/);
+    assert.match(r.text, new RegExp('To undo that: kosmos task reopen ' + projectId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' ' + a + '$', 'm'), 'says how to undo the plain close');
+    assert.doesNotMatch(r.text, /as replaced by task/, 'never claims a link the board did not record');
   } finally {
     old.close();
   }
