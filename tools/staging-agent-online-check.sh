@@ -161,9 +161,11 @@ paths_of() {
 }
 # One field of the JSON in $_BODYF ('' if absent or unreadable). job.label is the launchd label, and only for a launchd job.
 body_field() {
-  "$NODE" -e 'let j;try{j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))}catch{process.exit(0)}
+  "$NODE" -e 'let j;try{j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))||{}}catch{process.exit(0)}
     const f=process.argv[2];let v=f==="label"?(j.job&&!j.job.unit&&!j.job.task?j.job.label:""):f==="steps"?(Array.isArray(j.steps)?"yes":""):j[f];
-    process.stdout.write(v===undefined||v===null?"":String(v).replace(/\s+/g," ").slice(0,300))' "$_BODYF" "$1"
+    if(v===undefined||v===null)process.exit(0);
+    // The typed words go back exactly as the board gave them; everything else is for a message, so one line.
+    process.stdout.write(f==="typeToConfirm"?String(v):String(v).replace(/\s+/g," ").slice(0,300))' "$_BODYF" "$1" 2>/dev/null
 }
 # Removal disabled the job's launchd label (that is how it stays off) and a clear does not re-enable it; a gate name is
 # never made again, so flip the override back rather than leave it disabled. The label is the BOARD's (its leftover
@@ -176,7 +178,7 @@ reenable_label() {
   fi
 }
 tidy_agent() {
-  local nm="$1" code outcome because toTrash steps body pp plist dir label typed gcode tries=0
+  local nm="$1" code outcome because toTrash steps body pp plist dir label typed gcode tries=0 waited=""
   case "$nm" in verify2129-claude-*|verify2129-openai-*) ;; *) return ;; esac
   case "${nm#verify2129-*-}" in *[!0-9-]*|'') return ;; esac
   # The board's own plan first, ONE try (this runs in cleanup, where a second Ctrl-C is ignored): the label it will boot
@@ -186,15 +188,25 @@ tidy_agent() {
   label=""; typed=""
   if [ "$gcode" = 200 ]; then label="$(body_field label)"; typed="$(body_field typeToConfirm)"; fi
   body="$("$NODE" -e 'process.stdout.write(JSON.stringify({typed:process.argv[1]}))' "${typed:-$nm}")"
-  # A transport blip (no code, or 000) is tried once more. A second DELETE after one that DID land finds "nothing of" it,
-  # which below counts as cleared. Once only: this runs inside cleanup, where a second Ctrl-C is ignored (review 2).
+  # A transport blip (no code, or 000) is tried once more: a second DELETE after one that DID land finds "nothing of" it,
+  # which below counts as cleared. A plan refusal (400, no steps) is asked once more after 3 s: the two that can pass in
+  # a moment are "is running" while its pane closes and "could not check ... right now" (review 4). Once each: this runs
+  # inside cleanup, where a second Ctrl-C is ignored (review 2).
   while :; do
     : > "$_BODYF"
     code="$("$CURL" -sS --max-time 60 -H @"$HF" -H 'Content-Type: application/json' -X DELETE --data "$body" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
-    case "$code" in ""|000) ;; *) break ;; esac
-    tries=$((tries+1)); [ "$tries" -ge 2 ] && break; sleep 1
+    case "$code" in
+      ""|000) [ "$tries" -ge 1 ] && break; tries=$((tries+1)); sleep 1 ;;
+      400) [ -z "$waited" ] && [ -z "$(body_field steps)" ] || break
+           case "$(body_field because)" in "nothing of "*) break ;; esac
+           waited=1; sleep 3 ;;
+      *) break ;;
+    esac
   done
   outcome="$(body_field outcome)"; because="$(body_field because)"; toTrash="$(body_field toTrash)"; steps="$(body_field steps)"
+  # No plan (its GET failed, or an old board): the label this machine's engine gives the name, which reenable_label
+  # still requires to be a gate agent's.
+  if [ -z "$label" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ]; then pp="$(paths_of "$nm")" && label="$(basename "${pp%%$'\n'*}" .plist)"; fi
   if [ "$code" = 200 ] && [ "$outcome" = deleted ]; then
     reenable_label "$label"
     if [ "$toTrash" = true ]; then say "cleared '$nm': its files are in the Trash, and the name is free."
