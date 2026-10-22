@@ -2633,7 +2633,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   /* #6920 (agent feedback, 2026-10-22): a held room also held the coordinator's one summarizing post, the post a hold
      exists to bring about. While the volume valve holds the room, a member this hold has already refused (its
      ROOM_HELD_REFUSAL row since countFrom, so the post that tips the room over is held as before and the member learns of
-     the hold first) may land ONE post of CLOSING_POST_MIN characters or more of its one-line form, not agreement-only,
+     the hold first) may land ONE post of CLOSING_POST_MIN characters or more of its one-line form (the length decides:
+     chat.acknowledgementOnly is false above its own 200 characters, so that check is only a floor),
      per window (countFrom: rolling, reset by the person's post or a reopen, as the arrival budget is).
      It is stored with `closing: true`, which is how a second one is found and held (and `closingUsed` on the refusal
      tells the CLI not to offer it again). It is NOT charged to the room: arrivals here and roomHeldRead's count skip it,

@@ -100,9 +100,12 @@ test('#6920: a room_held refusal offers the one closing summary, unless the boar
       const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
       const out = await runCli(['post', 'henderson', 'the lease renews monthly'], env);
       assert.match(out.stdout, /Not posted: this room went back and forth/, 'CONTROL: the refusal itself is still said');
-      const hint = /The one exception: a summary that settles the thread can go through now, once: 400 characters or more, not just agreement\./;
+      const hint = /The one exception: a summary that settles the thread can go through now, once: 400 characters or more\./;
       if (offered) {
         assert.match(out.stdout, hint, 'the closing summary was not offered');
+        const min = (fs.readFileSync(path.join(__dirname, 'engine', 'messages.js'), 'utf8').match(/^const CLOSING_POST_MIN = (\d+);/m) || [])[1];
+        assert.ok(min, 'CLOSING_POST_MIN not found in engine/messages.js');
+        assert.ok(out.stdout.includes(min + ' characters or more'), 'the CLI offers a different length than the board requires (' + min + ')');
         assert.ok(out.stdout.indexOf('Do not send it another way') < out.stdout.indexOf('The one exception'),
           'the exception was said before the wait, so the two read as opposite instructions');
       }
