@@ -156,7 +156,7 @@ test('#6893: a minutes task re-tells its reviewer at most hourly; an hourly task
   const task = (repeat, toldAt) => ({ number: 1, sentence: 's', repeat, repeatReviewer: 'zed', repeatSetAt: new Date(at(6, 0)).toISOString(),
     repeatReviewerSetAt: new Date(at(6, 0)).toISOString(), lastRunAt: new Date(at(8, 0)).toISOString(), missToldAt: new Date(toldAt).toISOString() });
   const owedFor = (t) => mt.owed([{ id: 'p', name: 'P', agents: ['zed'], tasks: [t] }], now).length;
-  assert.equal(owedFor(task({ every: 'minutes', n: 30 }, at(11, 30))), 0, 'told 30 minutes ago: not again yet');
+  assert.equal(owedFor(task({ every: 'minutes', n: 30 }, at(11, 0))), 0, 'told of 11:00; the 11:30 miss is newer but within the hour: not yet');
   assert.equal(owedFor(task({ every: 'minutes', n: 30 }, at(10, 30))), 1, 'told an hour and more ago: told again');
   // CONTROL: an hourly task told an hour ago is owed the newer miss, as before.
   assert.equal(owedFor(task({ every: 'hour', minute: 0 }, at(10, 0))), 1);
