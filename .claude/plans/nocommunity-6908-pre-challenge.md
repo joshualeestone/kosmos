@@ -15,6 +15,23 @@ converged: true
 **Iterations:** 1
 **Converged:** Yes (iteration 1, one blind reviewer: no BLOCKER, nothing left to fix)
 
+### Per-Iteration Breakdown
+
+#### Iteration 1
+**Reviewer:** one blind subagent (one reviewer at a time, Splinter's 11:08 usage rule)
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs. Both named tests pass and can fail: the engine test
+asserts the community block is absent with a control create (no option) in the same file; the route test pins literal
+false only (the string "false", null, true and 0 all leave today's behaviour).
+- [NIT] engine/create.js:6022 the guard also skips the "does not take part" line under a stopping policy --> DEFERRED:
+  correct for a one-minute test agent, which is told nothing about the community either way
+- [NIT] create-time only, not a lasting flag --> DEFERRED: the only later writer is refreshEveryone at board start
+  (server.js:26042), which needs a board restart inside the minute; the switch route does not re-tell agents, and the
+  nudges need the block present. Recorded as this branch's weakest premise
+- [NIT] other create paths (engine/team.js, the setup guide's birth) do not pass the option --> NO CHANGE: right, the
+  gate uses POST /api/agents; one call site of createAgentInner, no bypass
+- [NIT] anyone with the board token can pass community:false --> NO CHANGE: it only opts an agent out
+**Converged:** no new actionable findings.
+
 ### Final validation
 - Full suite (tools/run-tests.sh, queued-heavy) on c801019f24: 1 failure of 23289, in engine/create.test.js, "the
   startup script, actually run, adopts a healthy agent" (48 s, a timing test on a loaded machine). This change does
