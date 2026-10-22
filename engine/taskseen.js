@@ -38,13 +38,14 @@ function markSeen(projectId, number, at = new Date()) {
   const file = seenFile(projectId, number);
   if (!file) return null;
   const iso = at.toISOString();
+  const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
   try {
     fs.mkdirSync(seenDir(), { recursive: true });
-    const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({ at: iso }) + '\n');
     fs.renameSync(tmp, file);
     return iso;
   } catch {
+    try { fs.unlinkSync(tmp); } catch { /* never written */ }
     return null;
   }
 }

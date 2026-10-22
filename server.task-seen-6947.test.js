@@ -56,6 +56,8 @@ async function call(p, { method = 'GET', headers = {} } = {}) {
 }
 const asAgent = (t) => ({ 'x-kosmos-agent-token': t });
 const asBoard = { 'x-kosmos-board-token': BOARD };
+// What the person's page sends: the board's own gate, plus the browser's fetch metadata (server.js isViaScreen).
+const asPage = { ...asBoard, 'sec-fetch-site': 'same-origin' };
 
 function withProjects(t) {
   const realAll = projectsEngine.readAll;
@@ -76,7 +78,7 @@ test('#6947: before the person opens it, the agent reads seenByPerson null; afte
   withProjects(t);
   assert.equal(await seenOf(2), null, 'a task the person never opened reads as not seen');
   const before = Date.now();
-  const r = await call('/api/project/p6947/task/2/seen', { method: 'POST', headers: asBoard });
+  const r = await call('/api/project/p6947/task/2/seen', { method: 'POST', headers: asPage });
   assert.equal(r.code, 200, r.text);
   const at = JSON.parse(r.text).seenAt;
   assert.ok(Date.parse(at) >= before - 1000, 'seenAt is now: ' + at);
@@ -84,23 +86,26 @@ test('#6947: before the person opens it, the agent reads seenByPerson null; afte
   assert.equal(await seenOf(1), null, 'opening one task does not mark another');
 });
 
-test('#6947: an agent cannot mark a task seen with its own token, and nothing is recorded', async (t) => {
+test('#6947: an agent cannot mark a task seen, with its own token or with the shared board token alone', async (t) => {
   withProjects(t);
-  const r = await call('/api/project/p6947/task/1/seen', { method: 'POST', headers: { ...asBoard, ...asAgent(agentToken) } });
-  assert.equal(r.code, 403, r.text);
+  const withToken = await call('/api/project/p6947/task/1/seen', { method: 'POST', headers: { ...asPage, ...asAgent(agentToken) } });
+  assert.equal(withToken.code, 403, withToken.text);
+  // An agent on this Mac can read the homedir-shared board token; without the page's browser headers it is not the page.
+  const boardOnly = await call('/api/project/p6947/task/1/seen', { method: 'POST', headers: asBoard });
+  assert.equal(boardOnly.code, 403, boardOnly.text);
   assert.equal(taskseen.seenAt('p6947', 1), null);
 });
 
 test('#6947: an unknown task or project is 404 and records nothing', async (t) => {
   withProjects(t);
-  assert.equal((await call('/api/project/p6947/task/99/seen', { method: 'POST', headers: asBoard })).code, 404);
-  assert.equal((await call('/api/project/nope/task/1/seen', { method: 'POST', headers: asBoard })).code, 404);
+  assert.equal((await call('/api/project/p6947/task/99/seen', { method: 'POST', headers: asPage })).code, 404);
+  assert.equal((await call('/api/project/nope/task/1/seen', { method: 'POST', headers: asPage })).code, 404);
   assert.equal(taskseen.seenAt('p6947', 99), null);
 });
 
 test('#6947: the page\'s own activity read (no words) is unchanged, and the seen record is not in task-chats', async (t) => {
   withProjects(t);
-  await call('/api/project/p6947/task/1/seen', { method: 'POST', headers: asBoard });
+  assert.equal((await call('/api/project/p6947/task/1/seen', { method: 'POST', headers: asPage })).code, 200);
   const plain = JSON.parse((await call('/api/project/p6947/task/1/activity', { headers: asBoard })).text);
   assert.equal('seenByPerson' in plain, false, 'the page read carries no new field');
   // The room's progress allowance counts recently written files in task-chats as steps forward; opening is not one.
