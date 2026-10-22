@@ -4,6 +4,8 @@
 <dict>
 	<key>KosmosSharedKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)$(KOSMOS_BUNDLE_ID).shared</string>
+	<key>KosmosMessageStyle</key>
+	<false/>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>

@@ -110,6 +110,24 @@ enum PhoneNotice {
         return r
     }
 
+    // kosmos#6487: true only once io.kosmos.app holds the Communication Notifications capability AND Kosmos.entitlements
+    // asks for it (the App Store Connect API cannot turn it on, so it waits on the developer portal). Until then the
+    // picture rides as the notice's attachment: a message-style notice with no capability would show no picture at all.
+    static let messageStyleKey = "KosmosMessageStyle"
+
+    // The file name ending iOS needs to show a picture as an attachment, from the picture's content type; nil for a
+    // kind an attachment cannot show (it would fail the whole attachment).
+    static func attachmentExtension(contentType: String?) -> String? {
+        let type = (contentType ?? "").lowercased().split(separator: ";").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        switch type {
+        case "image/png": return "png"
+        case "image/jpeg", "image/jpg": return "jpg"
+        case "image/gif": return "gif"
+        case "image/heic": return "heic"
+        default: return nil
+        }
+    }
+
     // A picture answer worth showing: a 200 image, not empty, not huge.
     static func pictureData(status: Int, contentType: String?, data: Data) -> Data? {
         guard status == 200, (contentType ?? "").lowercased().hasPrefix("image/"), !data.isEmpty, data.count <= maxPictureBytes

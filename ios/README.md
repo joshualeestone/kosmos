@@ -174,8 +174,13 @@ shows as it came.
 
 - The app and the extension share one keychain group, `<team>.<KOSMOS_BUNDLE_ID>.shared` (both entitlements files).
   The app moves a session kept before this group existed into it the first time it reads it.
-- The app carries the Communication Notifications capability (`com.apple.developer.usernotifications.communication`)
-  and declares `INSendMessageIntent`; without them the words still show, without the picture.
+- Until `io.kosmos.app` holds the Communication Notifications capability, the agent's picture rides as the notice's
+  attachment. The App Store Connect API cannot turn that capability on (it is not one of the types the API takes), so
+  it is turned on once in the developer portal (Identifiers, io.kosmos.app). Then, in one change: add
+  `com.apple.developer.usernotifications.communication` to `Kosmos.entitlements`, set `KosmosMessageStyle` to true in
+  `KosmosNotice-Info.plist`, and make a fresh "Kosmos App Store" profile (a capability change invalidates it). The
+  notice then shows as a message from the agent, picture and name, as a chat app's do. Asking for the entitlement
+  before the capability is on fails signing.
 - The UIKit-free part (`KosmosNotice/NoticeLogic.swift`) runs in `LogicTests/run.sh`;
   `tools/check-ipa-entitlements.sh` checks the extension in a store build.
 - `--build` is required: App Store Connect refuses a build number it has already seen.

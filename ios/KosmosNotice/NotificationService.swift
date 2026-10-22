@@ -79,13 +79,27 @@ final class NotificationService: UNNotificationServiceExtension {
               let content = original.mutableCopy() as? UNMutableNotificationContent
         else { return nil }
         var picture: Data?
+        var pictureType: String?
         if let r = PhoneNotice.pictureRequest(words, userInfo: info, stored: stored), let (pd, ph) = await fetch(r) {
-            picture = PhoneNotice.pictureData(status: ph.statusCode, contentType: ph.value(forHTTPHeaderField: "Content-Type"), data: pd)
+            pictureType = ph.value(forHTTPHeaderField: "Content-Type")
+            picture = PhoneNotice.pictureData(status: ph.statusCode, contentType: pictureType, data: pd)
         }
         // What the notice already said stays above the words: "Irma needs you" and, when it named one, "in Spring catalogue".
         content.subtitle = original.body.isEmpty ? original.title : "\(original.title), \(original.body)"
         content.title = words.agent
         content.body = words.text
+
+        guard Bundle.main.object(forInfoDictionaryKey: PhoneNotice.messageStyleKey) as? Bool == true else {
+            // No Communication Notifications capability yet: the picture rides as the notice's attachment.
+            if let picture, let ext = PhoneNotice.attachmentExtension(contentType: pictureType) {
+                let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + ext)
+                if (try? picture.write(to: file)) != nil,
+                   let attachment = try? UNNotificationAttachment(identifier: "agent", url: file, options: nil) {
+                    content.attachments = [attachment]
+                }
+            }
+            return content
+        }
 
         // A message from a person: iOS then shows the agent's picture and name the way a chat app's notices look.
         let image = picture.map { INImage(imageData: $0) }
@@ -98,7 +112,7 @@ final class NotificationService: UNNotificationServiceExtension {
         let interaction = INInteraction(intent: intent, response: nil)
         interaction.direction = .incoming
         try? await interaction.donate()
-        // Without the Communication Notifications capability this throws; the words still show, without the picture.
+        // Should the capability be missing after all, this throws; the words still show, without the picture.
         return (try? content.updating(from: intent)) ?? content
     }
 }

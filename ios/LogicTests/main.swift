@@ -1387,6 +1387,10 @@ if let w {
 check(PhoneNotice.pictureData(status: 200, contentType: "image/png", data: Data([1, 2, 3])) != nil, "a 200 image is shown")
 check(PhoneNotice.pictureData(status: 200, contentType: "text/html", data: Data([1])) == nil && PhoneNotice.pictureData(status: 404, contentType: "image/png", data: Data([1])) == nil, "anything else is not")
 
+section("phone notice: a picture as an attachment needs a file type iOS shows")
+check(PhoneNotice.attachmentExtension(contentType: "image/png") == "png" && PhoneNotice.attachmentExtension(contentType: "image/jpeg; charset=binary") == "jpg", "png and jpeg get their endings")
+check(PhoneNotice.attachmentExtension(contentType: "image/webp") == nil && PhoneNotice.attachmentExtension(contentType: nil) == nil, "a kind an attachment cannot show is left off, so the words still go")
+
 section("phone notice: the shared keychain group, checked the same in the app and the extension")
 for (group, ok) in [("6563JLN5HF.io.kosmos.app.shared", true), ("io.kosmos.app.shared", false), (".io.kosmos.app.shared", false), ("$(AppIdentifierPrefix)io.kosmos.app.shared", false), ("6563jln5hf.io.kosmos.app.shared", false), ("6563JLN5HF.", false), ("", false)] {
     check(PhoneNotice.hasTeamPrefix(group) == ok && (SessionKeychain.usableGroup(group) != nil) == ok, "\(group.isEmpty ? "(empty)" : group): \(ok ? "held" : "not held")")
