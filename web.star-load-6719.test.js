@@ -5,9 +5,20 @@
  * ({ names: [], ok: false }), rather than unpinning every agent; and an agent with no session name gets no star,
  * since a press could only be refused. Runs the page's real loadStars and starBtn.
  */
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+/* The board's REAL cards (fixture-discipline): sandbox the roots before requiring the fleet. */
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'star-load-6719-'));
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const fleet = require('./test-support/fleet');
+const BOARD = fleet.install([fleet.agent('renet', { displayName: 'Renet' })]);
+test.after(() => { try { BOARD.restore(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 const PAGE = fs.readFileSync(require.resolve('./web/index.html'), 'utf8');
 function slice(start, end) {
@@ -51,9 +62,14 @@ test('#6719 review 7 CONTROL: a good read with no stars does clear them', async 
 
 test('#6719 review 7: an agent with no session name has no star; one with a name has one', () => {
   const p = page({ names: [], ok: true });
-  assert.equal(p.starBtn({ name: 'Echo' }), '');
-  assert.equal(p.starBtn({ name: 'Echo', sessionName: '' }), '');
-  assert.match(p.starBtn({ name: 'Renet', sessionName: 'renet' }), /data-star="renet"[^>]*aria-label="Unstar Renet"/);
+  // A real card, then the same card with only its session name gone or blank (as another computer's agent arrives).
+  const renet = BOARD.agents.find((a) => a.sessionName === 'renet');
+  assert.ok(renet, 'the fleet did not produce the renet card');
+  const none = { ...renet }; delete none.sessionName;
+  const blank = { ...renet }; blank.sessionName = '';
+  assert.equal(p.starBtn(none), '');
+  assert.equal(p.starBtn(blank), '');
+  assert.match(p.starBtn(renet), /data-star="renet"[^>]*aria-label="Unstar Renet"/);
 });
 
 test('#6719 review 11: a good read clears a star\'s failed-save line; another receipt is left alone (CONTROL)', async () => {
