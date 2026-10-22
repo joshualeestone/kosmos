@@ -7445,7 +7445,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/phone/notice' && req.method === 'GET') {
     let asked = null;
     try { asked = new URL(req.url, ROUTING_BASE).searchParams.get('id'); } catch { asked = null; }
-    const got = require('./engine/phonenotice').wordsFor(asked);
+    const got = require('./engine/phonenotice').wordsFor(asked, { mask: guideMasked });   // #3769: rows kept before the write-side mask
     if (!got || borrowedName(got.session)) { sendJson(res, 404, { error: 'we have no words for that notification' }); return; }
     const card = (safeRoster() || []).find((a) => a && a.sessionName === got.session);
     let picture = null;

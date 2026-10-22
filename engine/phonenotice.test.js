@@ -37,6 +37,7 @@ test('#6487 a report\'s reason (because) is found by its exact time; another tim
     assert.equal(pn.reportNote('irma', '2026-10-22T18:28:41.000Z', { selfreport }), null, 'a time that is not there');
     assert.equal(pn.reportNote('irma', '2026-10-22T18:30:00.000Z', { selfreport }), null, 'a report with no reason');
     assert.equal(pn.reportNote('irma', 'x', { selfreport: { fileFor: () => path.join(dir, 'none.jsonl') } }), null, 'no file');
+    assert.equal(pn.reportNote('irma', '2026-10-22T18:00:00.000Z', { selfreport }), null, 'a working row at that time is not a needs_you report');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -51,4 +52,36 @@ test('#6487 a reply is the AGENT\'s own message at that time, never the person\'
   assert.equal(pn.replyText('irma', at, { chat: { DIRECT: '@you', readThread: () => { throw new Error('unreadable'); } } }), null);
   assert.deepEqual(pn.wordsFor('reply:' + at + ':irma', { chat }), { kind: 'reply', session: 'irma', text: 'Irma replied this' });
   assert.equal(pn.wordsFor('reply:' + at + ':nobody', { chat }), null);
+});
+
+test('#6487 only the END of a report file is read: a row before the window is nothing, and a cut first line is never parsed', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-phonenotice-tail-'));
+  const file = path.join(dir, 'irma.jsonl');
+  const old = JSON.stringify({ state: 'needs_you', at: '2026-10-22T17:00:00.000Z', because: 'an old question' });
+  const filler = JSON.stringify({ state: 'working', at: '2026-10-22T17:30:00.000Z', because: 'x'.repeat(200) });
+  const recent = JSON.stringify({ state: 'needs_you', at: '2026-10-22T18:28:40.123Z', because: 'the new question' });
+  fs.writeFileSync(file, [old, filler, filler, recent].join('\n') + '\n');
+  const selfreport = { fileFor: () => file };
+  const tailBytes = recent.length + filler.length + 40;   // ends inside the first filler row, past the old one
+  try {
+    assert.equal(pn.reportNote('irma', '2026-10-22T18:28:40.123Z', { selfreport, tailBytes }), 'the new question');
+    assert.equal(pn.reportNote('irma', '2026-10-22T17:00:00.000Z', { selfreport, tailBytes }), null, 'before the window');
+    // CONTROL: the same old row IS found when the window covers it, so the null above is the window, not the row.
+    assert.equal(pn.reportNote('irma', '2026-10-22T17:00:00.000Z', { selfreport }), 'an old question');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#6487 the mask runs on the WHOLE words before they are shortened, and a mask that fails serves nothing', () => {
+  const at = '2026-10-22T18:28:40.123Z';
+  const secret = 'SECRET-' + 'k'.repeat(pn.TEXT_MAX);
+  const text = 'ok '.repeat(30) + secret;   // one word longer than the limit, so the cut lands INSIDE it, not at a space
+  const chat = { DIRECT: '@you', readThread: () => ({ messages: [{ at, from: 'guide', text }] }) };
+  const seen = [];
+  const mask = (who, t) => { seen.push([who, t.length]); return t.replace(/SECRET-k+/, '[hidden]'); };
+  const got = pn.wordsFor('reply:' + at + ':guide', { chat, mask });
+  assert.deepEqual(seen, [['guide', text.length]], 'the mask saw the whole words, for that agent');
+  assert.ok(!got.text.includes('SECRET'), JSON.stringify(got.text.slice(-30)));
+  assert.equal(pn.wordsFor('reply:' + at + ':guide', { chat, mask: () => { throw new Error('mask broke'); } }), null);
+  // CONTROL: with no mask the cut words do carry part of the secret, so the test above can fail.
+  assert.ok(pn.wordsFor('reply:' + at + ':guide', { chat }).text.includes('SECRET'));
 });

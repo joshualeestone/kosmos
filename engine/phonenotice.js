@@ -42,17 +42,31 @@ function shorten(text, max = TEXT_MAX) {
   return (sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,.;:!?-]+$/, '') + '…';
 }
 
-/** The reason (`because`, what `kosmos report needs_you "..."` says) of the report an agent recorded at exactly `at`,
- *  or null. Reads the agent's report file from the end. */
-function reportNote(session, at, { selfreport = require('./selfreport') } = {}) {
+/** How far back from the end of an agent's report file to look. The hooks add a row on every tool call, so a busy
+ *  agent's file runs to megabytes, while the row asked for is minutes old when the phone asks. The board's own
+ *  longest look back (selfreport.HISTORY_MAX_BYTES) bounds it; an older report answers null (the plain notification). */
+const REPORT_TAIL_BYTES = 4 * 1024 * 1024;
+
+/** The reason (`because`, what `kosmos report needs_you "..."` says) of the needs_you report an agent recorded at
+ *  exactly `at`, or null. Reads only the end of the agent's report file, from the last row back. */
+function reportNote(session, at, { selfreport = require('./selfreport'), tailBytes = REPORT_TAIL_BYTES } = {}) {
   let text;
-  try { text = fs.readFileSync(selfreport.fileFor(session), 'utf8'); } catch { return null; }
+  let fd = null;
+  try {
+    fd = fs.openSync(selfreport.fileFor(session), 'r');
+    const size = fs.fstatSync(fd).size;
+    const start = Math.max(0, size - tailBytes);
+    const buf = Buffer.alloc(size - start);
+    fs.readSync(fd, buf, 0, buf.length, start);
+    text = buf.toString('utf8');
+    if (start > 0) text = text.slice(text.indexOf('\n') + 1);   // the first line may be cut: never parse half a row
+  } catch { return null; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
   const lines = text.split('\n');
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i].trim()) continue;
     let row;
     try { row = JSON.parse(lines[i]); } catch { continue; }
-    if (row && row.at === at) return typeof row.because === 'string' && row.because.trim() ? row.because : null;
+    if (row && row.at === at && row.state === 'needs_you') return typeof row.because === 'string' && row.because.trim() ? row.because : null;
   }
   return null;
 }
@@ -66,13 +80,19 @@ function replyText(session, at, { chat = require('./chat') } = {}) {
 }
 
 /** What the phone shows for an event: { kind, session, text } with the words shortened, or null when the id is not
- *  one of ours or its words are not (or no longer) here. Never throws. */
+ *  one of ours or its words are not (or no longer) here. `deps.mask(session, text)` runs on the whole words BEFORE
+ *  they are shortened (server.js passes the setup guide's secret mask: a cut first could leave half a key the mask no
+ *  longer recognises). Never throws. */
 function wordsFor(id, deps = {}) {
   const p = parseId(id);
   if (!p) return null;
-  const raw = p.kind === 'report' ? reportNote(p.session, p.at, deps) : replyText(p.session, p.at, deps);
+  let raw = p.kind === 'report' ? reportNote(p.session, p.at, deps) : replyText(p.session, p.at, deps);
   if (raw === null) return null;
+  if (typeof deps.mask === 'function') {
+    try { raw = deps.mask(p.session, raw); } catch { return null; }   // a mask that fails must not serve the words unmasked
+    if (typeof raw !== 'string') return null;
+  }
   return { kind: p.kind, session: p.session, text: shorten(raw) };
 }
 
-module.exports = { TEXT_MAX, parseId, shorten, reportNote, replyText, wordsFor };
+module.exports = { TEXT_MAX, REPORT_TAIL_BYTES, parseId, shorten, reportNote, replyText, wordsFor };
