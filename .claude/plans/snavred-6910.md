@@ -29,6 +29,12 @@ pass path is unchanged.
 
 ## Validation
 - node --check passes.
-- Queued on this Mac (queued-heavy.sh, headless): three normal runs of the check, both engines, to see whether
-  the webkit 1280px arm reproduces here; then one forced run of a copy whose wait selector can never match, to
-  prove the diagnostic path runs and prints. Results are recorded here and on kosmos#6910 when they land.
+- On this Mac, headless, through queued-heavy.sh, 13:03 to 13:05 CDT 2026-10-22, at the branch's code then:
+  - three normal runs of the check, both engines: rc 0, 0 FAIL, no SKIPPED, and each shows the three
+    "PASS  webkit consolidated view 1280px" lines. **The CI red did not reproduce here**, as with #5018.
+  - one forced run of a copy whose wait selector can never match (substituted on exactly that line): rc 2, and the
+    diagnostic printed real fields, not evalFailed:
+    `chromium consolidated view 1000px mac: Computer pill never showed: {"settingsHidden":false,
+    "settingsParent":"panel-projects","pageErrors":[],"pill":{"w":138,"h":34,"visibility":"visible"},"chain":[],
+    "shownInProjects":["pj-list-view","panel-settings"],"layout":"consolidated","body":"consolidated fold-a",...}`
+    The gate's reason grep quoted it, and its 200 characters reached into the pill field.
