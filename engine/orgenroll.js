@@ -703,6 +703,13 @@ async function enrollNow(code, accepted, opts) {
   // A review's Accept is not a new enrollment: it keeps the date this Kosmos joined (orgreview review 1).
   const prior = review ? held : null;
   const rec = { org, role, world, enrolledAt: prior && prior.world === world && typeof prior.enrolledAt === 'string' ? prior.enrolledAt : new Date().toISOString() };
+  /* kosmos#6817 review 1: a review's Accept keeps the reviewer list and the time it was confirmed, for the same company,
+     so a coordinator that then cannot read the grants still has a list to keep (the next refresh replaces it). */
+  if (prior && prior.world === world && prior.org && prior.org.id === org.id && Array.isArray(prior.reviewerGrants)
+    && prior.reviewerGrants.length && Number.isFinite(prior.reviewerGrantsAt)) {
+    rec.reviewerGrants = cleanReviewerGrants(prior.reviewerGrants);
+    rec.reviewerGrantsAt = prior.reviewerGrantsAt;
+  }
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
   /* A print sent and NOT pinned (rollup review 16): the company says the salt is not the one on record, or its binding
      write failed, so this computer's reports would not match whatever print it holds. The join stands, but its words
@@ -1091,9 +1098,21 @@ async function refreshNow(opts) {
   // family's record a family's; read as a company's, it would let a child's agents out (orgpolicy.contactAllows).
   keepFamily(org, d.org, before && before.org && before.org.id === org.id ? before.org.kind : null);
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
-  // kosmos#6752: this answer's reviewer grants, or none (an answer without them, an older coordinator's, drops the old list).
-  const grants = cleanReviewerGrants(d.reviewerGrants);
-  if (grants.length) rec.reviewerGrants = grants;
+  /* kosmos#6752: this answer's reviewer grants. kosmos#6817: a coordinator sends [] for none and leaves the field out
+     only when it could not read them (kosmos-relay #542), so an answer WITHOUT the field keeps the list this record
+     had, for the same world and company, with the time it was last confirmed (`reviewerGrantsAt`, epoch ms); the page
+     says how old a list is and drops grants past 30 days itself. An older coordinator never sends the field, so its
+     records never have a list to keep. */
+  if (Array.isArray(d.reviewerGrants)) {
+    const grants = cleanReviewerGrants(d.reviewerGrants);
+    if (grants.length) rec.reviewerGrants = grants;
+    rec.reviewerGrantsAt = Date.now();
+  } else if (before && before.world === world && before.org && before.org.id === org.id
+    && Array.isArray(before.reviewerGrants) && before.reviewerGrants.length && Number.isFinite(before.reviewerGrantsAt)) {
+    // Review 1: only a list with a confirmed time is kept; one without came from before "absent" meant "unread".
+    rec.reviewerGrants = cleanReviewerGrants(before.reviewerGrants);
+    rec.reviewerGrantsAt = before.reviewerGrantsAt;
+  }
   // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
   if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
   // #5532: the salt belongs to the company its print was pinned for; a different company on the answer drops it (review 11).

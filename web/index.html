@@ -19797,8 +19797,9 @@ window.kosmosMeasureScrollbarWidth();
           <!-- kosmos#6752: every member sees when someone is made a reviewer (kosmos#6594): the grants of the last 30 days,
                from the hourly status read. Shown only when there are some. -->
           <div id="plus-org-reviewers" hidden>
-            <p class="fhint" id="plus-org-reviewers-head"></p>
+            <!-- kosmos#6817 (Mona Lisa's design): what a reviewer is first, then the heading straight above its list. -->
             <p class="fhint" id="plus-org-reviewers-what"></p>
+            <p class="fhint" id="plus-org-reviewers-head"></p>
             <div id="plus-org-reviewers-list"></div>
           </div>
           <!-- kosmos#6239: a family's words not accepted on this computer wait for a parent; this opens them (plusOrgFamilyReview). -->
@@ -52728,7 +52729,13 @@ function plusOrgReviewers(st) {
   list.textContent = '';
   box.hidden = grants.length === 0;
   if (!grants.length) return;
-  document.getElementById('plus-org-reviewers-head').textContent = plusOrgIn(st.org, 'Reviewers added to your company in the last 30 days:');
+  /* kosmos#6817: a list not confirmed for over a day (the company's grants could not be read, or this Kosmos did not
+     ask, asleep or with live execution off) says when it last was, in the heading (Mona Lisa's design). A clock that
+     ran ahead delays it. */
+  const at = Number(st.reviewerGrantsAt);
+  const stale = Number.isFinite(at) && at > 0 && Date.now() - at > 24 * 3600 * 1000;
+  document.getElementById('plus-org-reviewers-head').textContent = plusOrgIn(st.org, 'Reviewers added to your company in the last 30 days')
+    + (stale ? ' (last confirmed ' + new Date(at).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ')' : '') + ':';
   // What the role means for this member, in the coordinator's own consent words (relay #516; Mona Lisa's question 5).
   document.getElementById('plus-org-reviewers-what').textContent = st.org && st.org.kind === 'family'
     ? 'In a family, a reviewer opens nothing: there is no family backup.'
