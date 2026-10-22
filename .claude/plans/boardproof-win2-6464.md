@@ -31,7 +31,24 @@ pin test. The launcher's board window (ask 3) is split out: see "Deferred" below
 - **Mint failure after proof refuses**, as the card asks. The Mac's cmd_open still falls back to the plain address
   when the board answers without a nonce; that is the Mac's to change, noted in the opener's header.
 - Weakest part: the proof and the send are still two connections (stated on #6437 and #6471): a takeover in the
-  milliseconds between them still lands. Narrowed, not closed.
+  milliseconds between them still lands. Narrowed, not closed. The same gap covers node fetch's own one retry of a
+  421 on a fresh connection (noted at WRONG_WORLD_STATUS in the CLI): it carries the tokens without a fresh proof,
+  inside fetch where the CLI cannot prove between the two.
+- The body-secret rule reads the two token headers, not a cookie: the CLI never sends a cookie. If headersFor ever
+  adds one, this check and boardproof.tokenIn could disagree.
+
+## Review log
+
+### Round 1 (fresh blind reviewer): no blockers, 3 warnings, 4 nits
+- [WARNING] the three redirect tests asserted only that the second listener saw nothing, never that the sends reached
+  the redirecting board. FIXED: each asserts the board received the sends it redirected.
+- [WARNING] the hook redirect arm's Windows paths were unescaped. FIXED.
+- [WARNING] the pin matcher missed destructured, imported and later-assigned shapes. FIXED: all covered, each with a
+  matcher fixture; a probe file in each new shape outside engine/ turns the pin red.
+- [NIT] fetch's own 421 retry is unproven. Stated above (the existing proof-to-send gap).
+- [NIT] the walk read untracked files. FIXED: git ls-files (walk only without git).
+- [NIT] the secret check ignores a cookie. Stated above.
+- [NIT] a control title said "proved once". FIXED.
 
 ## Deferred
 - **Ask 3, the board window (tools/windows/KosmosLauncher.cs)**: proving again before the window reuses its sign-in

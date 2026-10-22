@@ -533,8 +533,10 @@ test('#1765: main() against a squatter opens no browser, prints no address, exit
 
 test('kosmos#6464: a proven board that redirects the mint elsewhere: the token never reaches the other address, and nothing is opened', async () => {
   const elsewhere = await startListener({ mode: 'squatter' });
+  const minted = [];
   const server = http.createServer((req, res) => {
     if (answerProof(req, res, [FIXTURE_TOKEN])) return;
+    if (req.method === 'POST') minted.push(req.url);
     if (req.method === 'GET' && req.url === '/') { res.writeHead(200); res.end('board'); return; }
     // 307 keeps the method, the body and (cross-origin, another port) the custom token header, if followed.
     if (req.method === 'POST' && req.url === '/api/board-nonce') { res.writeHead(307, { location: elsewhere.url + '/api/board-nonce' }); res.end(); return; }
@@ -544,6 +546,7 @@ test('kosmos#6464: a proven board that redirects the mint elsewhere: the token n
   const { appDir } = makeAppDir({ withToken: true });
   try {
     const url = await helper.resolveOpenUrl({ appDir, port: server.address().port, timeoutMs: BOARD_WAIT_MS });
+    assert.deepEqual(minted, ['/api/board-nonce'], 'the mint never reached the board, so this arm measures nothing');
     assert.deepEqual(elsewhere.seen.map((r) => r.method + ' ' + r.url), [], 'the mint followed the redirect');
     assert.equal(url, null, 'a failed mint after a passing proof opened something');
   } finally { server.close(); await elsewhere.close(); }
