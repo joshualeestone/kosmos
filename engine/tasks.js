@@ -115,7 +115,7 @@ function doneWhenWords(list) {
 }
 
 /* #6921: a title over SENTENCE_MAX is shortened instead of refused (an agent's add failed outright and it had to retry).
-   The title keeps the most whole words that leave room for "...", or is hard-cut when that would keep less than half
+   The title keeps the most whole words that leave room for "...", or is hard-cut when that would keep half or less
    of the room; the whole original title goes first in the detail, so no words are lost. Returns
    { sentence, detail, moved }; a title that is not an over-long string, or a detail that is not text, comes back
    unchanged, so taskProblem still judges it. The screen caps the box at SENTENCE_MAX, and the webhook route refuses an
@@ -126,7 +126,7 @@ function fitTitle(sentence, detail) {
   const full = sentence.trim();
   const room = SENTENCE_MAX - 3;
   let cut = '';
-  for (const ch of Array.from(full)) {   // by code point, so a surrogate pair is never split
+  for (const ch of full) {   // by code point (a string iterates lazily), so a surrogate pair is never split
     if ((cut + ch).length > room) break;
     cut += ch;
   }
@@ -361,7 +361,9 @@ function create(projectId, { sentence: asked, detail: askedDetail, who, parent, 
   const fit = fitTitle(asked, askedDetail);
   const { sentence, detail } = fit;
   const problem = (fit.moved && typeof detail === 'string' && detail.length > DETAIL_MAX)
-    ? `that title is over ${SENTENCE_MAX} characters, and with it moved into the detail the detail would pass ${DETAIL_MAX}; shorten one of them`
+    ? ((typeof askedDetail === 'string' && askedDetail.trim())
+      ? `that title is over ${SENTENCE_MAX} characters, and with it moved into the detail the detail would pass ${DETAIL_MAX}; shorten one of them`
+      : `that title is over ${SENTENCE_MAX} characters, and moved into the detail it would still pass ${DETAIL_MAX}; shorten it`)
     : (taskProblem({ sentence, detail, who }) || doneWhenProblem(doneWhen));
   if (problem) throw new Error(problem);
   // #5152: a webhook's words are outside text, so they never say what finished means for a task.

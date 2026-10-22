@@ -60,7 +60,7 @@ test('#6921: fitTitle cuts at a word, keeps the whole title first in the detail'
 test('#6921: a detail that is not text is still refused when the title is long', () => {
   const p = projects.create({ name: 'Typed' });
   assert.equal(tasks.fitTitle(long(60), 42).moved, false, 'no move, so taskProblem sees the 42');
-  assert.throws(() => tasks.create(p.id, { sentence: long(60), detail: 42 }), Error);
+  assert.throws(() => tasks.create(p.id, { sentence: long(60), detail: 42 }), /has to be words/);
   assert.equal((projects.readAll().find((x) => x.id === p.id).tasks || []).length, 0, 'nothing written');
 });
 
@@ -88,7 +88,7 @@ test('#6921: one word longer than the cap is hard-cut; a surrogate pair is never
   const r = tasks.fitTitle('y'.repeat(MAX + 50), null);
   assert.equal(r.sentence, 'y'.repeat(MAX - 3) + '...');
   const emoji = tasks.fitTitle('\u{1F600}'.repeat(MAX), null);   // each one is two UTF-16 units
-  assert.ok(emoji.sentence.length <= MAX);
+  assert.equal(emoji.sentence, '\u{1F600}'.repeat(98) + '...', 'whole pairs only: 98 of them fill 196 of the 197 units');
   assert.ok(!/[\ud800-\udbff]\.\.\.$/u.test(emoji.sentence), 'no lone high surrogate before the dots');
 });
 
@@ -139,4 +139,9 @@ test('#6921: the shortened note comes first, so #5319 copyable close command sta
   assert.equal(again.code, 200, JSON.stringify(again.json));
   assert.ok(again.json.note.startsWith('Note: the title was over ' + MAX + ' characters'), again.json.note);
   assert.match(again.json.note, /kosmos task close p6921 2$/, '#5319 command is the end of the line');
+});
+
+test('#6921: with no detail sent, an over-long title that cannot fit even as a detail says to shorten it, not one of them', () => {
+  const p = projects.create({ name: 'Nodetail' });
+  assert.throws(() => tasks.create(p.id, { sentence: 'w '.repeat(tasks.DETAIL_MAX) }), /would still pass .*; shorten it$/);
 });
