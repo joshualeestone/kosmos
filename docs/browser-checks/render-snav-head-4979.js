@@ -304,7 +304,23 @@ function chk(ok, label, extra) {
           await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 20000 })
             .catch((e) => { throw new Error(`${tag}: the page never became consolidated: ${e.message}`); });
           await page.evaluate(() => document.getElementById('userpop-settings').click());
-          await page.waitForSelector('#s-nav button[data-go="mac"]', { state: 'visible', timeout: 20000 });
+          /* #6861: this wait times out on the CI runner in webkit only (the button stays hidden), never locally.
+             On a timeout, say which ancestor hides the button and what the column holds, so the red names its cause. */
+          await page.waitForSelector('#s-nav button[data-go="mac"]', { state: 'visible', timeout: 20000 }).catch(async (e) => {
+            const why = await page.evaluate(() => {
+              const out = { body: document.body.className, url: location.search, hiddenBy: [] };
+              for (let el = document.querySelector('#s-nav button[data-go="mac"]'); el; el = el.parentElement) {
+                const cs = getComputedStyle(el);
+                if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') out.hiddenBy.push((el.id ? '#' + el.id : el.tagName) + (el.hidden ? '[hidden]' : '') + ' display=' + cs.display + ' visibility=' + cs.visibility);
+              }
+              const ps = document.getElementById('panel-settings');
+              out.settingsParent = ps && ps.parentElement ? ps.parentElement.id : null;
+              out.column = ['panel-settings', 'panel-create', 'panel-tasks', 'panel-cons-agents', 'panel-cons-projects']
+                .filter((id) => { const el = document.getElementById(id); return el && !el.hidden; });
+              return out;
+            }).catch((x) => ({ evalFailed: x.message }));
+            throw new Error(`${tag}: the Settings nav never showed after the Settings link: ${JSON.stringify(why)} (${e.message.split('\n')[0]})`);
+          });
           await page.evaluate(() => document.querySelector('#s-nav button[data-go="mac"]').click());
           await page.waitForTimeout(300);
           const read = () => page.evaluate(() => {
