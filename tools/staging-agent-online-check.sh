@@ -214,11 +214,12 @@ remove_agent() {
   fi
   api_get /api/status
   still="$(listed "$nm")"
-  [ "$still" = "yes" ] || tidy_agent "$nm" confirmed   # never delete the files of an agent the board still lists
+  # Files only once the board CONFIRMS it no longer lists the agent: an unreadable list is not a confirmation.
+  [ "$still" = "no" ] && tidy_agent "$nm" confirmed
   case "$still" in
     no)  say "removed '$nm' (gone from /api/status)." ;;
     yes) say "WARNING: removed '$nm' (HTTP 200) but it is still listed in /api/status: check it on the board." ;;
-    *)   say "removed '$nm' (HTTP 200); /api/status could not be read to confirm it is gone." ;;
+    *)   say "WARNING: removed '$nm' (HTTP 200) but /api/status could not be read to confirm it is gone, so its files were left: delete $(paths_of "$nm" | tr '\n' ' ')once it is off the board." ;;
   esac
 }
 

@@ -64,7 +64,7 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
   both answered "ready", each one's job file and worker folder deleted and the agent removed; QUEUED-HEAVY END rc=0;
   afterwards 0 verify2129 plists in ~/Library/LaunchAgents and 0 worker folders (aoc-6906-queue.out).
 - tools/test-staging-agent-online-check.sh: 33 arms pass at a6ee41d777 (counted PASS lines); mutants dropping the kind filter, the date filter, or
-  notifyCreated each turn arms red. Earlier: 24 arms Against main's gate: 18 fail (agents left on the board, no
+  notifyCreated each turn arms red. Earlier, at the first commit: 24 arms. Against main's gate: 18 fail (agents left on the board, no
   removal). With first_reply forced to succeed: the no-answer, other-sender and refused-message arms fail. With the old
   long names: 16 fail. tools/test-staging-channel-2036.sh passes.
 
