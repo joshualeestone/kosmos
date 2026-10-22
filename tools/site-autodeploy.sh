@@ -474,11 +474,12 @@ if publisher_running; then
   exit 0
 fi
 now > "$STATE/heartbeat"   # fresh before the long part, so a slow deploy never reads as a wedged lock
-# kosmos#6771: the deploy authenticates with a scoped project token, never this machine's CLI sign-in (which lapsed on
-# 10-20 and failed as a bare "Not authorized"). An inherited VERCEL_TOKEN wins; otherwise it is read from the secrets
-# map. The CLI reads VERCEL_TOKEN from the environment, so the token is never on a command line. Missing, nothing
-# is deployed and it is red once a day (no failure counted, no park): filing the token is the whole fix, and the next
-# tick then deploys.
+# kosmos#6771: the deploy authenticates with a scoped project token when one is filed. An inherited VERCEL_TOKEN wins;
+# otherwise it is read from the secrets map. The CLI reads VERCEL_TOKEN from the environment, so the token is never on
+# a command line. With NO token it deploys on this machine's own vercel CLI sign-in when `vercel whoami` answers
+# (kosmos#6771, 10-22): the 10-20 "Not authorized" was transient (this same job deployed on that sign-in at 18:15 that
+# day), and refusing without a token blocked every site merge for two days, Josh's homepage trailer among them. Only
+# when there is neither is nothing deployed, red once a day (no failure counted, no park).
 VERCEL_TOKEN_TARGET="${KOSMOS_AUTODEPLOY_VERCEL_TARGET:-vercel-chaoskosmos-site}"
 if [ -z "${VERCEL_TOKEN:-}" ]; then
   SECRETS_CMD="${KOSMOS_AUTODEPLOY_SECRETS:-}"
@@ -486,20 +487,38 @@ if [ -z "${VERCEL_TOKEN:-}" ]; then
   # A lookup that cannot run is not a token nobody filed: told apart, so nobody files a token that is already there.
   # TARGET="" keys the red record on no sha (as the fetch's is), so a new site merge does not make it red again the
   # same day: the cause is the machine's, not the commit's.
-  [ -x "$SECRETS_CMD" ] || TARGET="" red_once nosecrets "FAIL: cannot read the Vercel token: $SECRETS_CMD is not there or not executable (secrets-map.sh, the fleet's credential accessor); nothing deployed (kosmos#6771)"
-  # The accessor's reason on stderr names the target and the file, never the value (secrets-map.sh's own rule; a
-  # KOSMOS_AUTODEPLOY_SECRETS stand-in must keep it).
-  _whyf=$(mktemp "${TMPDIR:-/tmp}/site-autodeploy-why.XXXXXX") || _whyf=/dev/null
-  VERCEL_TOKEN=$("$SECRETS_CMD" value "$VERCEL_TOKEN_TARGET" 2>"$_whyf") || VERCEL_TOKEN=""
-  _why=$(head -1 "$_whyf" 2>/dev/null | tr '\r\n' '  '); [ "$_whyf" = /dev/null ] || rm -f "$_whyf"
+  _nosecrets=""
+  if [ -x "$SECRETS_CMD" ]; then
+    # The accessor's reason on stderr names the target and the file, never the value (secrets-map.sh's own rule; a
+    # KOSMOS_AUTODEPLOY_SECRETS stand-in must keep it).
+    _whyf=$(mktemp "${TMPDIR:-/tmp}/site-autodeploy-why.XXXXXX") || _whyf=/dev/null
+    VERCEL_TOKEN=$("$SECRETS_CMD" value "$VERCEL_TOKEN_TARGET" 2>"$_whyf") || VERCEL_TOKEN=""
+    _why=$(head -1 "$_whyf" 2>/dev/null | tr '\r\n' '  '); [ "$_whyf" = /dev/null ] || rm -f "$_whyf"
+  else _nosecrets=1; fi
+  if [ -z "${VERCEL_TOKEN:-}" ]; then
+    # No token: this machine's own CLI sign-in, if it answers (30 s at most; KOSMOS_AUTODEPLOY_VERCEL is the CLI, for the
+    # test). Its account name is said, never a credential.
+    VCLI="${KOSMOS_AUTODEPLOY_VERCEL:-vercel}"
+    _who=$(perl -e 'alarm shift; exec @ARGV or exit 127' 30 "$VCLI" whoami 2>/dev/null | tail -1 | tr -cd 'A-Za-z0-9_.@-') || _who=""
+    if [ -n "$_who" ]; then
+      say "no Vercel token${_nosecrets:+ (the secrets accessor $SECRETS_CMD is not there)} for $VERCEL_TOKEN_TARGET: deploying on this machine's vercel sign-in ($_who) (kosmos#6771)"
+      _signedin=1
+    fi
+  fi
+  # A lookup that cannot run is not a token nobody filed: told apart, so nobody files a token that is already there.
+  # TARGET="" keys the red record on no sha (as the fetch's is), so a new site merge does not make it red again the
+  # same day: the cause is the machine's, not the commit's.
+  [ -n "${_signedin:-}" ] || [ -z "$_nosecrets" ] || TARGET="" red_once nosecrets "FAIL: cannot read the Vercel token: $SECRETS_CMD is not there or not executable (secrets-map.sh, the fleet's credential accessor), and this machine's vercel CLI is not signed in; nothing deployed (kosmos#6771)"
 fi
 case "${VERCEL_TOKEN:-}" in *"
 "*) TARGET="" red_once notoken "FAIL: the Vercel token read for $VERCEL_TOKEN_TARGET has more than one line, which no token has; refile it (kosmos#6771); nothing deployed" ;; esac
-[ -n "${VERCEL_TOKEN:-}" ] || TARGET="" red_once notoken "FAIL: no Vercel token for the deploy (secrets target $VERCEL_TOKEN_TARGET${_why:+; the accessor said: $_why}): file a scoped token for the chaoskosmos-site project with /add-secret on this machine (kosmos#6771); nothing deployed"
-# In GitHub Actions the token did not come from a repository secret, so the log does not know to hide it: tell it.
-# Straight to stdout, never through say: the mask line itself must not go into $LOG.
-[ "${GITHUB_ACTIONS:-}" = true ] && printf '::add-mask::%s\n' "$VERCEL_TOKEN"
-export VERCEL_TOKEN   # deploy-site.sh takes it out of the environment again and gives it to the vercel command only
+[ -n "${VERCEL_TOKEN:-}" ] || [ -n "${_signedin:-}" ] || TARGET="" red_once notoken "FAIL: no Vercel token for the deploy (secrets target $VERCEL_TOKEN_TARGET${_why:+; the accessor said: $_why}), and this machine's vercel CLI is not signed in (vercel whoami gave nothing): sign it in here, or file a scoped token for the chaoskosmos-site project with /add-secret on this machine (kosmos#6771); nothing deployed"
+if [ -n "${VERCEL_TOKEN:-}" ]; then
+  # In GitHub Actions the token did not come from a repository secret, so the log does not know to hide it: tell it.
+  # Straight to stdout, never through say: the mask line itself must not go into $LOG.
+  [ "${GITHUB_ACTIONS:-}" = true ] && printf '::add-mask::%s\n' "$VERCEL_TOKEN"
+  export VERCEL_TOKEN   # deploy-site.sh takes it out of the environment again and gives it to the vercel command only
+else unset VERCEL_TOKEN; fi   # the CLI's own sign-in, as deploy-site.sh does with no token
 say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9}); its output is printed when it ends, and kept in $STATE/deploy.out"
 # The deploy's output goes to this run's output and the log once it ends; rc is the deploy's own.
 # KOSMOS_REPO pins deploy-site.sh's libraries to THIS checkout; without it they load from
