@@ -305,8 +305,8 @@ function chk(ok, label, extra) {
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'subtasks-rollup-' + width + '.png'), fullPage: false });
 
       /* kosmos#6928: the closes land but the reload that follows fails (the board's project read is refused). The page
-         knows the read failed (PJ_READ_FAILED), and focus stays where it was rather than jumping to the top of a page
-         that still shows the old line. Its own project, so the arms above are untouched. */
+         knows the read failed (PJ_READ_FAILED), and focus is not moved to the top of a page that still shows the old
+         line. Its own project, so the arms above are untouched. */
       const roll2 = projects.create({ name: 'Roll-up reload ' + width });
       projects.addAgent(roll2.id, 'ada', null);
       tasks.create(roll2.id, { sentence: 'Send the mailer' });
@@ -323,6 +323,50 @@ function chk(ok, label, extra) {
       chk(!!read2(2).closedAt && !!read2(1).closedAt, `${tag} #6928 the closes landed though the reload failed`, JSON.stringify([read2(1).closedAt, read2(2).closedAt]));
       chk(afterFail.failed === true && afterFail.focus !== 'tk-back', `${tag} #6928 a failed reload does not move focus to the top`, JSON.stringify(afterFail));
       await page.unroute('**/api/projects');
+
+      /* kosmos#6928 review 1: the other two away sentences, after a real tab switch (which keeps PJ_CURRENT and TK_OPEN).
+         A fresh project: 1 the parent, 2 and 3 built. First a request that never answers, then the parent refused. */
+      const roll3 = projects.create({ name: 'Roll-up away ' + width });
+      projects.addAgent(roll3.id, 'ada', null);
+      tasks.create(roll3.id, { sentence: 'Open the shop' });
+      for (const s of ['Stock the shelves', 'Price the stock']) tasks.create(roll3.id, { sentence: s, parent: 1, who: 'ada' });
+      for (const n of [2, 3]) tasks.setBuilt(roll3.id, n, { by: 'ada' });
+      const read3 = (n) => projects.readAll().find((p) => p.id === roll3.id).tasks.find((t) => t.number === n);
+      const openParent3 = async () => {
+        await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); openTaskPage(1); }, roll3.id);
+        await page.waitForFunction(() => !document.getElementById('tk-subs-built').hidden, null, { timeout: 8000 });
+      };
+      const delayed = (pattern, answer) => page.route(pattern, async (r) => {
+        try {   // #6022: a page closed before the delayed answer must not crash the check at teardown
+          await new Promise((res) => setTimeout(res, 1500));
+          await answer(r);
+        } catch { /* the page went away first */ }
+      });
+      const toastSays = async (re) => {
+        await page.waitForFunction((src) => { const el = document.getElementById('msg-toast'); return el && !el.hidden && new RegExp(src).test(el.textContent); }, re.source, { timeout: 15000 });
+        return page.evaluate(() => document.getElementById('msg-toast').textContent);
+      };
+      await openParent3();
+      await delayed('**/task/2/close', (r) => r.abort('connectionreset'));
+      await page.click('#tk-subs-closeall');
+      await page.evaluate(() => showTab('agents'));
+      const noAnswer = await toastSays(/did not finish/);
+      chk(noAnswer === 'Closing task #1 and its subtasks did not finish. Open it to see where it stopped.', `${tag} #6928 after a tab switch, a request with no answer is said as a toast`, noAnswer);
+      chk(!read3(1).closedAt && !read3(2).closedAt && !read3(3).closedAt, `${tag} #6928 and nothing closed`, JSON.stringify([1, 2, 3].map((n) => !!read3(n).closedAt)));
+      await page.unroute('**/task/2/close');
+      await page.waitForFunction(() => !document.getElementById('tk-subs-closeall').disabled, null, { timeout: 15000 });
+
+      await openParent3();
+      await delayed('**/task/1/close', (r) => r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'the person set this task to repeat' }) }));
+      const parentAsked = page.waitForResponse((resp) => /\/task\/1\/close$/.test(resp.url()), { timeout: 15000 });
+      await page.click('#tk-subs-closeall');
+      await page.waitForFunction(() => document.getElementById('tk-subs-built').hidden || !!document.getElementById('tk-subs-closeall').disabled, null, { timeout: 8000 });
+      await page.evaluate(() => showTab('agents'));
+      await parentAsked;
+      const parentRefused = await toastSays(/was not closed/);
+      chk(parentRefused === 'Task #1 was not closed: the person set this task to repeat. Its built subtasks are closed.', `${tag} #6928 after a tab switch, a refused parent is said as a toast`, parentRefused);
+      chk(!read3(1).closedAt && !!read3(2).closedAt && !!read3(3).closedAt, `${tag} #6928 its built subtasks closed, the parent did not`, JSON.stringify([1, 2, 3].map((n) => !!read3(n).closedAt)));
+      await page.unroute('**/task/1/close');
       chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
       await page.close();
     }

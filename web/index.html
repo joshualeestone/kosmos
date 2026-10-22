@@ -68625,7 +68625,9 @@ document.getElementById('tk-subs-closeall').addEventListener('click', async () =
   btn.disabled = true;
   /* Review 4: the person may open another task (or leave) while the closes run. What this press says, and where it
      puts focus, belongs to this task's page only; the reload still repaints whatever page is open. */
-  const here = () => PJ_CURRENT === p.id && TK_OPEN === t.number;
+  /* kosmos#6928 review 1: a tab switch keeps PJ_CURRENT and TK_OPEN, so "here" also needs the page itself showing. */
+  const here = () => PJ_CURRENT === p.id && TK_OPEN === t.number
+    && !document.getElementById('panel-projects').hidden && !document.getElementById('pj-task-view').hidden;
   /* kosmos#6928: a refusal while the person is on another page is not dropped: it goes to the page-wide toast, worded
      for someone who is not looking at this task. Success while away needs nothing said. */
   const say = (s, away) => { if (here()) msg.textContent = s; else if (away) msgToast(away, 9000); };

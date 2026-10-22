@@ -18,14 +18,23 @@ Card: kosmos#6928, filed when #6501's review loop stopped at the 8-round cap (PR
 ## Rejected
 - A note kept on the parent until the person returns: new state for a rare case; the toast reaches them where they are.
 - Re-pinning the reload-before-re-enable order by behaviour in the node test: the browser check's double press already
-  guards it (a press without the disabled flag asks [3,3,1,1]); the source pin stays as a second line.
+  guards it (a press without the disabled flag asks [5,5,1,1]); the source pin stays as a second line.
 
 ## Weakest premise
-- That the toast is seen: it shows for 9 s on whatever page is open. If the person has left the board entirely, the
-  repainted list is still the record when they come back.
+- That the toast is seen: it shows for 9 s on whatever page is open, and a later toast inside that time (msgToast keeps
+  one element) replaces it. If the person has left the board entirely, the repainted list is still the record.
 
 ## Tests
 - docs/browser-checks/render-subtasks-3861.js, at 1400 and 390: the leave-the-page arm now also reads the toast's
   words; a new arm on its own project fails the reload after the closes and checks PJ_READ_FAILED and focus.
 - Mutants, each red: the toast removed (the toast arm times out); the reload always counted as repainted (focus goes to
   tk-back).
+
+## Review round 1
+- "Here" missed a tab switch: going to Agents, Tasks or Settings keeps PJ_CURRENT and TK_OPEN, so a refusal went into
+  the hidden task page and no toast showed, and reopening the task cleared it. here() now also needs the Projects panel
+  and the task view showing.
+- The parent-refused and no-answer toasts had no arm; both now have one, each after a real tab switch (which also
+  covers the fix above).
+- The failed-reload arm's comment claimed focus "stays where it was"; it only asserts focus is not moved to the top
+  (a disabled button drops focus), and now says that.
