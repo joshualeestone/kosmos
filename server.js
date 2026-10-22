@@ -22303,7 +22303,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* #6947: the person opened this task's page (engine/taskseen.js says what "seen" means and what it misses). The page
+  /* #6947: the page drew this task's conversation on the person's screen (engine/taskseen.js says what "seen" means and what it misses). The page
      sends it after it draws the task's conversation on screen (engine/taskseen.js lists when). Only a request from the page counts
      (isViaScreen: no agent token, and the browser's own Sec-Fetch-Site or a local Origin), so an agent cannot mark its
      own nudge seen with its token or with the shared board token alone; those headers are advisory, so a local process
@@ -22313,11 +22313,13 @@ const server = http.createServer(async (req, res) => {
     if (!isViaScreen(req)) { sendJson(res, 403, { error: 'only the person\'s page can mark a task seen' }); return; }
     const id = decodeSegment(taskSeen[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let every = null;
+    try { every = projects.readAll() || []; } catch { every = null; }
+    // A read that failed is not "no such task" (the activity route's answer for the same case).
+    if (every === null) { sendJson(res, 503, { error: 'we could not read the projects just now, so this was not recorded' }); return; }
     let task = null;
-    try {
-      // Any row with this id, as the activity route reads it, so the two routes agree on which tasks exist.
-      for (const proj of (projects.readAll() || []).filter((x) => x && x.id === id)) { task = tasks.byNumber(proj, Number(taskSeen[2])) || task; }
-    } catch { task = null; }
+    // Any row with this id, as the activity route reads it, so the two routes agree on which tasks exist.
+    for (const proj of every.filter((x) => x && x.id === id)) { task = tasks.byNumber(proj, Number(taskSeen[2])) || task; }
     if (!task) { sendJson(res, 404, { error: 'no such task' }); return; }
     const seenAt = require('./engine/taskseen').markSeen(id, task.number);
     if (!seenAt) { sendJson(res, 500, { error: 'we could not record that just now' }); return; }
