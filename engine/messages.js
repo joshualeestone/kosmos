@@ -2638,9 +2638,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      It is stored with `closing: true`, which is how a second one is found and held (and `closingUsed` on the refusal
      tells the CLI not to offer it again). It is NOT charged to the room: arrivals here and roomHeldRead's count skip it,
      so a summary does not push the lift later.
+     The refused row may be from an EARLIER hold in the same window (a room that lifted and was held again): the refused
+     row is written once per member per window (#315), so keying it to the latest hold would leave that member never
+     eligible in the second one. It still knew of a hold, and the one-per-window bound is unchanged.
      Rejected: one closing post per ROOM (another member's long post landing first would hold the coordinator's), and
      any long post (a loop of long posts would never be stopped). */
-  const closingUsed = typeof from === 'string' && from !== ''
+  const closingUsed = arrivals + charged > allowed && typeof from === 'string' && from !== ''
     && log.some((m) => m && m.kind === 'post' && m.closing === true && m.from === from
       && m.project === projectId && Date.parse(m.at) >= countFrom);
   const closing = lim.on && operator !== true && arrivals + charged > allowed

@@ -100,8 +100,12 @@ test('#6920: a room_held refusal offers the one closing summary, unless the boar
       const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
       const out = await runCli(['post', 'henderson', 'the lease renews monthly'], env);
       assert.match(out.stdout, /Not posted: this room went back and forth/, 'CONTROL: the refusal itself is still said');
-      const hint = /One summary that settles the thread can still go through, once: 400 characters or more, not just agreement\./;
-      if (offered) assert.match(out.stdout, hint, 'the closing summary was not offered');
+      const hint = /The one exception: a summary that settles the thread can go through now, once: 400 characters or more, not just agreement\./;
+      if (offered) {
+        assert.match(out.stdout, hint, 'the closing summary was not offered');
+        assert.ok(out.stdout.indexOf('Do not send it another way') < out.stdout.indexOf('The one exception'),
+          'the exception was said before the wait, so the two read as opposite instructions');
+      }
       else assert.doesNotMatch(out.stdout, hint, 'a member that used its closing post was offered it again');
     });
   }

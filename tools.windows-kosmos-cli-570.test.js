@@ -247,9 +247,11 @@ test('#4934 parity: a loop-guard refusal (code room_held) says nothing was kept 
 test('#6920 parity: a room_held refusal offers the one closing summary, unless the board says this member used it', async () => {
   const held = (extra) => () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'x', ...extra } } });
   const offered = await run(['post', 'proj-1', 'a long substantive update'], held({}));
-  assert.match(offered.err, /One summary that settles the thread can still go through, once: 400 characters or more, not just agreement\./);
+  assert.match(offered.err, /The one exception: a summary that settles the thread can go through now, once: 400 characters or more, not just agreement\./);
   const used = await run(['post', 'proj-1', 'a long substantive update'], held({ closingUsed: true }));
-  assert.doesNotMatch(used.err, /One summary that settles the thread/, 'a member that used its closing post was offered it again');
+  assert.doesNotMatch(used.err, /The one exception: a summary/, 'a member that used its closing post was offered it again');
+  assert.ok(offered.err.indexOf('Do not send it another way') < offered.err.indexOf('The one exception'),
+    'the exception was said before the wait, so the two read as opposite instructions');
   assert.match(used.err, /Not posted: this room went back and forth/, 'CONTROL: the refusal itself is still said');
 });
 

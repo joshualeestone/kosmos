@@ -1660,7 +1660,6 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     assert.equal(again.code, 'room_held', 'a second long post from the same member got through');
     assert.equal(again.closingUsed, true, 'the refusal does not tell the CLI this member has used its closing post');
     assert.equal(ack.closingUsed, undefined, 'a member that has not used its closing post was told it had');
-    // Another member still gets their own one.
     // The summary did not push the room's lift later: closing posts are not charged to the room.
     assert.equal(again.clearsAt, liftBefore, 'the closing post moved the room\'s lift time');
     // Another member that this hold has not refused yet is held first (it learns of the hold), then lands its own.
@@ -1708,6 +1707,10 @@ test('#6920: with the limit Off nothing is held, so a long post is an ordinary p
       const posts = [];
       for (let i = 0; i < 20; i += 1) posts.push({ from: MEMBERS[i % 3], text: 'round ' + i + ' carries real content' });
       seedPosts(now, posts);
+      // A refusal from while the limit was on, so the limit being off is the only thing that keeps this post ordinary.
+      fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'refused', from: 'leo', to: 'henderson-lease', project: 'henderson-lease',
+        because: 'the room was going back and forth without landing, so Kosmos was holding it for the person',
+        at: new Date(now - 30000).toISOString() }) + '\n');
       armSender('leo-discord'); arm([]);
       const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'x'.repeat(10) + ' ' + 'summary words '.repeat(40) },
         board.agents, MEMBERS);
