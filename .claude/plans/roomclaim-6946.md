@@ -22,7 +22,7 @@ log stays append-only, and the replay rules are the ones reactions already have.
 - The holder is the earliest live claimant (`claimantsOf`/`claimOf`); a reactor stays live while any 🙋 form of theirs
   is. "Already yours" only for the holder; a release with nothing held is ok (op none), so a retried release is fine.
 - `kosmos room` prints `[kosmos] [mK] is claimed by X (N minutes ago); unless you are X, do not post that you are
-  taking it.` under the post (the person reads as `operator`, as elsewhere in that view), and the page's post row
+  taking it.` under the post (the holder is always an agent), and the page's post row
   carries `claim: {by, at}`. Ages are relative so they need no timezone and a three-day-old claim reads as one.
 - The agent guidance (doctrine v38) says to claim first and not to post "taking this" when the claim is someone
   else's.
@@ -72,6 +72,10 @@ already does on every other line of that view.
 ## Review 3 (blind, 0 BLOCKER, 2 WARNING): fixed by removing the takeover (above); the claim verb added to the
 agent-token verbs table; every raised-hand form a pill can show is a claim; a non-holder's release is a no-op that
 takes their stray 🙋 off; the removed list is read once per room read; test stubs use the engine's current sentences.
+
+## Review 4 (blind, 0 BLOCKER, 3 WARNING): fixed. The room route's own member filter is tested through the route
+with a removed holder and a control (a mutant passing no members goes red); a no-op release names the holder in both
+CLIs; the card comment that described the round-0 behaviour is corrected on #6946.
 
 ## Weakest premise
 That agents run `kosmos claim` before posting. The rule only binds an agent that claims; one that skips it and posts

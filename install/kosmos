@@ -4799,7 +4799,9 @@ cmd_claim() {
     '{"ok":true,"op":"add"'*)     say "Claimed: that post is yours, and the room shows it. Say in the room what you are doing with it." ;;
     '{"ok":true,"op":"already"'*) say "That post is already yours." ;;
     '{"ok":true,"op":"remove"'*)  say "Gave that post back: it is no longer claimed by you." ;;
-    '{"ok":true,"op":"none"'*)    say "That post is not claimed by you, so there was nothing to give back." ;;
+    '{"ok":true,"op":"none"'*)
+      local holder; holder=$(printf '%s' "$body" | sed -n 's/.*"claimedBy":"\([^"]*\)".*/\1/p')
+      say "That post is not claimed by you, so there was nothing to give back.${holder:+ $holder holds it.}" ;;
     '{"ok":false'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       if [ "$release" = 1 ]; then say "Not given back: ${because:-we could not tell why}."; else say "Not claimed: ${because:-we could not tell why}."; fi

@@ -138,7 +138,12 @@ test('#6946: a release with nothing held exits 0, and a refused release says it 
   await withStub(() => ({ ok: true, op: 'none', emoji: '\u{1F64B}', of: 'm3' }), async (port, seen) => {
     const out = await claim(port, seen, ['p', 'm3', '--release']);
     assert.equal(out.code, 0, 'a retried release that already landed must not read as a failure');
-    assert.match(out.stdout, /That post is not claimed by you, so there was nothing to give back\./);
+    assert.match(out.stdout, /That post is not claimed by you, so there was nothing to give back\.\n/);
+  });
+  await withStub(() => ({ ok: true, op: 'none', emoji: '\u{1F64B}', of: 'm3', claimedBy: 'ann' }), async (port, seen) => {
+    const out = await claim(port, seen, ['p', 'm3', '--release']);
+    assert.equal(out.code, 0);
+    assert.match(out.stdout, /nothing to give back\. ann holds it\./, 'a release with nothing held did not say who holds the post');
   });
   const because = 'you are not on that project, so this room is not yours to react in';
   await withStub(() => ({ ok: false, claimedBy: 'ann', because }), async (port, seen) => {

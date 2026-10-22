@@ -2375,7 +2375,7 @@ async function verbClaim(ctx, args) {
   if (op === 'add') { ctx.out('Claimed: that post is yours, and the room shows it. Say in the room what you are doing with it.'); return 0; }
   if (op === 'already') { ctx.out('That post is already yours.'); return 0; }
   if (op === 'remove') { ctx.out('Gave that post back: it is no longer claimed by you.'); return 0; }
-  if (op === 'none') { ctx.out('That post is not claimed by you, so there was nothing to give back.'); return 0; }
+  if (op === 'none') { const by = clause(r.json.claimedBy); ctx.out('That post is not claimed by you, so there was nothing to give back.' + (by ? ' ' + by + ' holds it.' : '')); return 0; }
   if (!(r.json && r.json.ok === false)) { ctx.err('Kosmos gave an answer we could not read, so we cannot tell whether the claim changed. Run kosmos room to see.'); return 1; }
   ctx.err((release ? 'Not given back: ' : 'Not claimed: ') + (clause(r.json.because) || 'we could not tell why') + '.');
   return 1;

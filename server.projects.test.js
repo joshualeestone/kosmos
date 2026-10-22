@@ -3007,6 +3007,20 @@ test('#6946: kosmos claim through the real /api/react route, and `kosmos room` s
     res = await req(`/api/project/${project.id}/room?as=text`);
     assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'the person\'s click changed who holds the post:\n' + res.body);
 
+    // Round 4: the room's own member filter. zeta removed from the project: the line goes (control: it was there above).
+    const remove = require('./engine/remove');
+    fs.mkdirSync(path.dirname(remove.REMOVED_FILE), { recursive: true });
+    fs.writeFileSync(remove.REMOVED_FILE, JSON.stringify([{ name: 'zeta', stopped: true }]));
+    try {
+      res = await req(`/api/project/${project.id}/room?as=text`);
+      assert.doesNotMatch(res.body, /is claimed by/, 'kosmos room still says a removed agent holds the post:\n' + res.body);
+      assert.equal(JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.find((r) => r.id === id).claim, undefined);
+    } finally {
+      fs.rmSync(remove.REMOVED_FILE, { force: true });
+    }
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('is claimed by zeta'), 'CONTROL: zeta back on the project does not hold the post again');
+
     // zeta gives it back: the line goes, and a second release is a no-op.
     assert.equal((await asZeta({ claim: 'release' })).op, 'remove');
     res = await req(`/api/project/${project.id}/room?as=text`);

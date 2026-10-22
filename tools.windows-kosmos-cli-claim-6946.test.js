@@ -64,6 +64,8 @@ test('claim --release: sent as release in either position; given back, or nothin
   const none = await run(['claim', 'proj-1', 'm3', '--release'], () => ({ body: { ok: true, op: 'none' } }));
   assert.equal(none.code, 0, 'a retried release that already landed must not read as a failure');
   assert.equal(none.out, 'That post is not claimed by you, so there was nothing to give back.');
+  const held = await run(['claim', 'proj-1', 'm3', '--release'], () => ({ body: { ok: true, op: 'none', claimedBy: 'ann' } }));
+  assert.equal(held.out, 'That post is not claimed by you, so there was nothing to give back. ann holds it.');
 });
 
 test('claim: a post somebody else holds exits 1 naming them; a refused release says it was not given back', async () => {
