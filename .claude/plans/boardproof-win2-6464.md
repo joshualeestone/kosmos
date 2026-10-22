@@ -95,3 +95,16 @@ pin test. The launcher's board window (ask 3) is split out: see "Deferred" below
   got the request). FIXED: the sentence says to check before doing it again; the comment says why notConnected.
 - [NIT] the opener's sentence said "this window" on the browser path too. FIXED: "did not sign you in".
 - [NIT] the no-git fallback walk read .claude and dist. FIXED: skipped.
+
+### Round 4 (fresh blind reviewer): no blockers, 1 warning, 2 nits
+- [WARNING] the opener still opened the plain address, unproven, when board.token was there but unreadable (EACCES,
+  or EBUSY while antivirus holds it): the same cookie exposure this branch refuses after a failed mint, and ask 2's
+  "no secret unproven" case. #6437 had stated it as a limit. FIXED: readBoardToken returns null for a token it
+  cannot read, and every caller (after the wait, after a wait that ran out, main's catch) opens nothing (exit 10).
+  Tests put a folder where board.token goes (EISDIR on every platform); the #2007 chmod arm now expects null. Mutant
+  (the opener before this fix): both new arms red.
+- [NIT] connect against a fixture board that writes no board.token is now refused, with restart advice that does not
+  fit there. ACCEPTED: refusing is the safe direction, and production boards on Windows always enforce (write the
+  token); stated here.
+- [NIT] the source guard knew only the names fetch and doFetch. FIXED: it adds every name the file binds to something
+  mentioning fetch or fetchImpl, with a fixture for an alias.
