@@ -990,13 +990,16 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null } = {}
     // close paths never emit two `closed` lines for one completion.
     const before = progressOf(t).closed;
     changed = { ...t, closedAt };
-    /* #6923: a close may name what replaced it: another task on this project, not one already replaced by this task,
+    /* #6923: a close may name what replaced it: another task on this project that does not lead back to this one,
        checked inside this same read. A reopen clears the link; a plain close leaves an existing one alone. */
     if (replacedBy !== null) {
       if (replacedBy === t.number) throw new Error('a task cannot be replaced by itself');
       const by = byNumber(p, replacedBy);
       if (!by) throw new Error('there is no task ' + replacedBy + ' on this project to have replaced it');
-      if (by.replacedBy === t.number) throw new Error('task ' + replacedBy + ' is already marked as replaced by this one');
+      // No loop of any length: follow what replaced the replacing task, and refuse if it comes back here.
+      for (let at = by, seen = 0; at && Number.isInteger(at.replacedBy) && seen < 10000; at = byNumber(p, at.replacedBy), seen += 1) {
+        if (at.replacedBy === t.number) throw new Error('task ' + replacedBy + ' is already marked as replaced by this one, directly or through other tasks');
+      }
       replacedNew = changed.replacedBy !== replacedBy;
       changed.replacedBy = replacedBy;
       // Marking a task already closed keeps when it finished: only the link is new.

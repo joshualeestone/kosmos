@@ -67908,16 +67908,16 @@ function paintTaskPage() {
   const replaces = (p.tasks || []).filter((x) => x && x.replacedBy === t.number).map((x) => x.number).sort((a, b) => a - b);
   const tkTaskLink = (num) => '<button type="button" class="linkish" data-sub="' + Number(num) + '">task ' + Number(num) + '</button>';   // #6923
   const stateWord = tkStateWord(t);
-  const replacedLink = Number.isInteger(t.replacedBy) && stateWord === 'Replaced by task ' + t.replacedBy;
+  const replacedLink = Number.isInteger(t.replacedBy) && Boolean(t.progress ? t.progress.closed : t.closedAt);   // as tkStateWord decides it
   const builtWords = t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '';
   const stateEl = document.getElementById('tk-state');
-  if (!replacedLink && !replaces.length) stateEl.textContent = stateWord + builtWords;   // plain words when there is no link
+  if (!replacedLink && !replaces.length) { stateEl.textContent = stateWord + builtWords; stateEl.tkPainted = null; }   // plain words when there is no link
   else {
     /* Written only when it changed: the five-second poll repaints this page, and a rewrite would take a keyboard
        user's focus off a task link (tkPaintSubtasks guards the same way). */
     const html = (replacedLink ? 'Replaced by ' + tkTaskLink(t.replacedBy) : esc(stateWord)) + esc(builtWords)
       + (replaces.length ? '. Replaces ' + replaces.map(tkTaskLink).join(', ') : '');
-    if (stateEl.innerHTML !== html) stateEl.innerHTML = html;
+    if (stateEl.tkPainted !== html) { stateEl.innerHTML = html; stateEl.tkPainted = html; }   // our own string, not the browser's re-serialised one
   }
   /* #768: the due date. `document.activeElement` guard so the five-second poll
      does not yank the value out from under someone mid-edit (the same reason the

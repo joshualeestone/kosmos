@@ -77,6 +77,18 @@ test('#6923: two tasks cannot each be marked as replaced by the other', () => {
   assert.equal(stored(pid, 2).closedAt, null, 'nothing was closed');
 });
 
+test('#6923: a longer loop is refused too, and a task can be pointed at a different replacement', () => {
+  const pid = two('Loop');
+  tasks.create(pid, { sentence: 'Third try' });
+  tasks.close(pid, 1, { replacedBy: 2 });
+  tasks.close(pid, 2, { replacedBy: 3 });
+  assert.throws(() => tasks.close(pid, 3, { replacedBy: 1 }), /through other tasks/);
+  assert.equal(stored(pid, 3).closedAt, null, 'nothing was closed');
+  tasks.close(pid, 1, { replacedBy: 3 });   // re-pointed
+  assert.equal(stored(pid, 1).replacedBy, 3);
+  assert.deepEqual(kinds(pid, 1).filter((k) => k.startsWith('closed') || k.startsWith('replaced')), ['closed:2', 'replaced:3']);
+});
+
 test('#6923: a task already closed can be marked replaced afterwards, and the history says so once', () => {
   const pid = two('Later');
   tasks.close(pid, 1);
