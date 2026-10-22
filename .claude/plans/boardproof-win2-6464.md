@@ -57,7 +57,7 @@ pin test. The launcher's board window (ask 3) is split out: see "Deferred" below
   cookie (a reload after a crashed page, a failed navigation, F5). Any change to KosmosLauncher.cs needs the committed
   signed Kosmos.exe rebuilt and re-signed, and since #6512 the git-order test
   (tools.win-launcher-signin-6512.test.js) and the build's LAUNCHER_INPUTS check fail on every platform until it is.
-  So it goes in its own follow-up, cut with the next Windows release's rebuild and re-sign.
+  So it goes in its own follow-up, joshualeestone/kosmos#6882, cut with the next Windows release's rebuild and re-sign.
 
 ## Tests
 - `tools.windows-kosmos-cli-board-proof-1765.test.js`: a real listener that proves once, cuts the first msg and then
@@ -108,3 +108,9 @@ pin test. The launcher's board window (ask 3) is split out: see "Deferred" below
   token); stated here.
 - [NIT] the source guard knew only the names fetch and doFetch. FIXED: it adds every name the file binds to something
   mentioning fetch or fetchImpl, with a fixture for an alias.
+
+### Round 5 (fresh blind reviewer): no blockers, no warnings, 2 nits: converged
+- [NIT] the refused-redirect sentence told reads to "check before doing it again". FIXED: reads end plainly (arm on
+  `room`, mutant red).
+- [NIT] an unreadable token plus a board that never answers writes two refusal notes to stderr. Kept: the outcome is
+  right and each note is true.
