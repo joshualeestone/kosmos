@@ -34,7 +34,7 @@ pin test. The launcher's board window (ask 3) is split out: see "Deferred" below
   when the board answers without a nonce; that is the Mac's to change, noted in the opener's header.
 - Weakest part: the proof and the send are still two connections (stated on #6437 and #6471): a takeover in the
   milliseconds between them still lands. Narrowed, not closed. The same gap covers node fetch's own one retry of a
-  421 on a fresh connection (noted at WRONG_WORLD_STATUS in the CLI): it carries the tokens without a fresh proof,
+  421 on a fresh connection: it carries the tokens without a fresh proof,
   inside fetch where the CLI cannot prove between the two.
 - The body-secret rule reads the two token headers, not a cookie: the CLI never sends a cookie. If headersFor ever
   adds one, this check and boardproof.tokenIn could disagree.
@@ -127,3 +127,9 @@ refused-redirect reason; the opener's mint and the hook read a 3xx as a failed s
 requires 'manual' in the senders, and a real 421 arm through the hook holds the reason (mutant with 'error': red;
 the outbox-1704 tests: red with the CLI on 'error', green on 'manual'). Every redirect arm re-run against 'follow'
 mutants: red.
+
+### Round 6 (fresh blind reviewer, after the 'manual' switch): no blockers, no warnings, 2 nits: converged
+- [NIT] the plan said the 421 retry gap is noted at WRONG_WORLD_STATUS in the CLI; that comment does not say so.
+  FIXED: the plan no longer points there.
+- [NIT] a test comment said the 421 arm drives the CLI too; it drives the hook. FIXED: the comment names the outbox
+  test that holds the CLI's 421.
