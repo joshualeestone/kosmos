@@ -4,8 +4,8 @@ Stacked on kidcommunity-6862 (#6862); rebase onto main with --onto once it merge
 
 ## Change
 - orgpolicy.contactAllows: when #6859's family default closes outside contact (no policy, or one that does not set
-  outside_contact), `because` is FAMILY_CONTACT_STOPS ("on a family's Kosmos, agents stay out of projects shared with
-  other computers until the parent turns on outside contact") and `family: true`. A policy saying off keeps
+  outside_contact), `because` is FAMILY_CONTACT_STOPS (engine/orgpolicy.js; its wording is the console's, see review 2) and
+  `family: true`. A policy saying off keeps
   CONTACT_STOPS. CONTACT_STOPS and FAMILY_CONTACT_STOPS exported.
 - fedseats.contactStops(): the reason in force after contactState() gave 'policy'. contactState keeps its three values on
   purpose: the room view branches policy | unreadable | else-open, so a new 'family' value would say "every post here is
@@ -44,3 +44,7 @@ Stacked on kidcommunity-6862 (#6862); rebase onto main with --onto once it merge
   branch checked before a policy saying off (2 red).
 - NIT fixed: wording "until a parent allows outside contact in the family's policy" (the console's label and value).
 - NIT fixed: the room line is two sentences, the closed fact first, as the policy form reads.
+
+## Review 3 (sonnet)
+- NIT fixed: the Change section quoted the old wording; it points at the constant now.
+- Accepted: the stayed-here note has no family-with-policy-off arm (the room line has one; both take contactReason).
