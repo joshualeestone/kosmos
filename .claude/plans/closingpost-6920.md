@@ -9,8 +9,10 @@ a member, so the coordinator's single summarizing post, the one meant to end the
 
 ## Decision
 
-Once the volume valve HAS held the room (a stopped valve row since `countFrom`; the post that tips the room over is held
-as before, so members learn of the hold first), a member's post (not an operator post) lands anyway when ALL hold:
+Once the volume valve HAS held the room and it is still at or over budget without this post (a stopped valve row since
+`countFrom`, and `arrivals >= allowed`; the post that tips the room over, the first time or again after old posts aged
+out, is held as before, so members learn of the hold first), a member's post (not an operator post) lands anyway when ALL
+hold:
 - its one-line form (`cleaned`, whitespace collapsed) is CLOSING_POST_MIN (400) characters or more;
 - `chat.acknowledgementOnly` says it is not agreement-only;
 - the same member has not already landed a closing post in this room since `countFrom` (the window the arrival budget
