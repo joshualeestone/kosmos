@@ -210,6 +210,33 @@ test('install anchors FIRST and registers with the anchored node + shim', () => 
   assert.ok(r.calls.some((c) => c.startsWith('/Create /F /TN Kosmos\\board /XML ')), r.calls.join(' | '));
 });
 
+test('kosmos#6760: the logon shim carries AGENT_WORKFORCE_CREATED_URL only when the installer has a plain http(s) one', () => {
+  assert.equal(board.bootJsFor({}), board.BOOT_JS, 'a real install (unset) gets the shim byte for byte');
+  assert.equal(board.bootJsFor(null), board.BOOT_JS);
+  const url = 'http://127.0.0.1:9/api/created';
+  const ci = board.bootJsFor({ AGENT_WORKFORCE_CREATED_URL: url });
+  const lines = ci.split('\n').filter((l) => l.includes('AGENT_WORKFORCE_CREATED_URL'));
+  assert.equal(lines.length, 1, ci);
+  assert.ok(lines[0].startsWith('process.env.AGENT_WORKFORCE_CREATED_URL = ' + JSON.stringify(url) + ';'), lines[0]);
+  assert.equal(ci.split('\n').filter((l) => !l.includes('AGENT_WORKFORCE_CREATED_URL')).join('\n'), board.BOOT_JS, 'nothing else in the shim changes');
+  assert.ok(ci.indexOf('AGENT_WORKFORCE_CREATED_URL') > ci.indexOf(JSON.stringify(board.MARKER_ENV)), 'set beside the marker, before the board loads');
+  for (const bad of ['http://x/a b', 'http://x/"); require("child_process")', "http://x/'", 'http://x/%h', 'file:///etc/passwd', 'http://x/\\', '', 'http://x/\x01', 'http://x/\x7f']) {
+    assert.equal(board.bootJsFor({ AGENT_WORKFORCE_CREATED_URL: bad }), board.BOOT_JS, 'carried an unsafe value: ' + JSON.stringify(bad));
+  }
+});
+
+test('kosmos#6760: install writes the shim for the INSTALLER\'s environment (the address set, then unset)', () => {
+  const r = runner(NONE);
+  board.setRunner(r);
+  const url = 'http://127.0.0.1:9/api/created';
+  const out = board.install({ platform: 'win32', env: { ...ENV, AGENT_WORKFORCE_CREATED_URL: url } });
+  assert.equal(out.ok, true, out.because);
+  assert.equal(fs.readFileSync(out.boot, 'utf8'), board.bootJsFor({ AGENT_WORKFORCE_CREATED_URL: url }));
+  const plain = board.install({ platform: 'win32', env: ENV });
+  assert.equal(plain.ok, true, plain.because);
+  assert.equal(fs.readFileSync(plain.boot, 'utf8'), board.BOOT_JS, 'CONTROL: unset, the shim is the plain one');
+});
+
 test('install REFUSES when the anchor fails, rather than registering a task that could never start', () => {
   board.setAnchorer(() => ({ ok: false, because: 'we could not set up the files an agent needs to start at login (EACCES)' }));
   const r = runner(NONE);

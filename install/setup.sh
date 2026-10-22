@@ -5674,6 +5674,20 @@ if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
   _extra_env_kv="$( { _env_kv AGENT_WORKFORCE_DATA "$AGENT_WORKFORCE_DATA"; _env_kv AGENT_WORKFORCE_PROJECTS "$AGENT_WORKFORCE_PROJECTS"; _env_kv AGENT_WORKFORCE_WORKERS "$AGENT_WORKFORCE_WORKERS"; _env_kv AGENT_WORKFORCE_HALF_SANDBOX_OK "$AGENT_WORKFORCE_HALF_SANDBOX_OK"; printf 'X'; } )"
   _extra_env_kv="${_extra_env_kv%X}"
 fi
+# kosmos#6760: an install made with AGENT_WORKFORCE_CREATED_URL set (our CI and test installs point it at a dead
+# address, #5519) keeps it in the board's launchd job (and the watchdog's, which shares this block and never pings), so the board's install beacon never reaches the live counter
+# across logins and updates (an update re-runs this script from the board's own environment). engine/linuxboard.js
+# does the same for a systemd unit. Unset, which every real install is, nothing is added (zero bytes, as above).
+# Only a plain http(s) URL, the rule linuxboard.js applies: no whitespace, quotes, backslash or %, nor control
+# characters (XML forbids them, so launchd would refuse the plist). The last run of this script wins, as on Linux.
+case "${AGENT_WORKFORCE_CREATED_URL:-}" in
+  http://?*|https://?*)
+    case "$AGENT_WORKFORCE_CREATED_URL" in
+      *[[:space:][:cntrl:]\"\'\\%]*) ;;
+      *) _extra_env_kv="${_extra_env_kv}$(_env_kv AGENT_WORKFORCE_CREATED_URL "$AGENT_WORKFORCE_CREATED_URL"; printf X)"
+         _extra_env_kv="${_extra_env_kv%X}" ;;
+    esac ;;
+esac
 _board_ok=no
 # 🛑 THIS HEREDOC IS UNQUOTED, so every $(...) and every backtick in its body
 # RUNS while the plist is written. That is REQUIRED for the $(_xmlq ...) escaping
