@@ -109,13 +109,22 @@ test('#6882: every navigation to the board is checked before it leaves, and canc
 
 test('#6882: a navigation the quick check could not settle waits for the full check, then goes once or shows why', () => {
   const again = method('void CheckNavigationAgain(string uri)');
-  inOrder(again, ['navigationWaiting = uri;', 'if (navigationCheckInFlight) return;', 'navigationCheckInFlight = true;', 'int visit = boardVisit;',
-    'ThreadPool.QueueUserWorkItem', 'KosmosLauncher.CheckBoardBeforeReuse(boardPort, KosmosLauncher.ReuseProofTimeoutMs)',
-    'navigationCheckInFlight = false;', 'string waiting = navigationWaiting;', 'navigationWaiting = null;',
-    'if (waiting == null || visit != boardVisit || mode == KosmosLauncher.ComputerMode.Connect || webView == null) return;',
+  inOrder(again, ['navigationWaiting = uri;', 'navigationWaitingVisit = boardVisit;', 'if (navigationCheckInFlight) return;', 'navigationCheckInFlight = true;', 'int visit = boardVisit;',
+    'ThreadPool.QueueUserWorkItem', 'KosmosLauncher.CheckBoardPatiently(boardPort, KosmosLauncher.ReuseProofTimeoutMs, KosmosLauncher.ReuseWaitForBoardMs)',
+    'navigationCheckInFlight = false;', 'string waiting = navigationWaiting;',
+    'if (waiting == null || navigationWaitingVisit != boardVisit || mode == KosmosLauncher.ComputerMode.Connect || webView == null) { navigationWaiting = null; return; }',
+    // one that came on a later visit than this check is checked for itself, never dropped
+    'if (visit != boardVisit) { CheckNavigationAgain(waiting); return; }',
+    'navigationWaiting = null;',
     'if (!KosmosLauncher.MayNavigateSignedIn(check)) { ShowNotConfirmed(); return; }',
     // approved, or the re-issued navigation would meet a slow quick check again and wait for ever
     'navigationApproved = waiting;', 'webView.Navigate(waiting);'], 'the full check of a navigation');
+  // The full check waits for a board restarting as long as the opener waits for the board.
+  const opener = fs.readFileSync(path.join(REPO, 'tools', 'kosmos-open-board.js'), 'utf8');
+  assert.equal(Number((SOURCE.match(/internal const int ReuseWaitForBoardMs = (\d+);/) || [])[1]), Number(opener.match(/argValue\('--timeout-ms', '(\d+)'\)/)[1]),
+    'the window gives up on a restarting board sooner, or later, than the opener does');
+  assert.match(method('void CheckThenShowNotConfirmed(Func<KosmosLauncher.ReuseCheck, bool> mayStay)'),
+    /KosmosLauncher\.CheckBoardPatiently\(boardPort, KosmosLauncher\.ReuseProofTimeoutMs, KosmosLauncher\.ReuseWaitForBoardMs\)/, 'a failed load during a restart is refused without waiting for the board');
   // A board navigation that goes replaces the one waiting.
   assert.match(method('internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)'), /args\.put_Cancel\(0\);\s*navigationWaiting = null;/);
 });
@@ -146,6 +155,10 @@ test('#6882: "open Kosmos.exe again" with no signed-in address checks before it 
   inOrder(again, ['if (boardNotConfirmed && signingInAgain) { startOverWanted = true; return; }',
     'if (boardNotConfirmed && !signingInAgain && resolveBoardAddress != null)', 'startOverWanted = false;',
     'if (startOverWanted && boardNotConfirmed) { startOverWanted = false; SignInAgain(); }'], 'the double-click during a sign-in');
+  // A double-click's sign-in that came back signed in after the window showed why is loaded, as a fresh first load.
+  inOrder(again, ['if (boardNotConfirmed && keepPage == null && fresh != null && fresh.Contains("?boot=") && webView != null)',
+    'boardNotConfirmed = false;', 'navigatedToBoard = false;', 'boardAddress = KosmosLauncher.WithModeQuery(fresh, mode);', 'NavigateToBoard();'],
+  'the double-click whose sign-in outlived a failed check');
 });
 
 test('#6882: the page\'s own polling is watched on the badge timer, per visit', () => {
@@ -211,6 +224,7 @@ class ReproofProbe {
         Console.Write(KosmosLauncher.CheckBoardBeforeReuse(int.Parse(a[1]), timeout));
         break;
       }
+      case "patient": Console.Write(KosmosLauncher.CheckBoardPatiently(int.Parse(a[1]), KosmosLauncher.ReuseProofTimeoutMs, int.Parse(a[2]))); break;
       case "answer": {
         string token = new System.IO.StreamReader(Console.OpenStandardInput(), new System.Text.UTF8Encoding(false)).ReadToEnd();
         Console.Write(BoardProof.Check(int.Parse(a[1]), token, int.Parse(a[2])));
@@ -329,6 +343,43 @@ test('#6882: a board too busy for the quick check waits for the full one, which 
     assert.equal(await probeAsync(['check', String(slow.port), 'window'], env), 'Proved', 'a board slower than the quick check but inside the opener\'s budget was refused');
     assert.deepEqual(slow.carriedToken(), []);
   } finally { await slow.close(); }
+});
+
+test('#6882: the full check waits out a board restarting (and a board.token held for a moment), but not a listener that does not prove', WINDOWS_ONLY, async (t) => {
+  if (!needsProbe(t)) return;
+  // The board is away when the check starts and back on its own port about 3 s later: the check waits for it.
+  const port = await freePort();
+  const env = dataWith(TOKEN);
+  let back = null;
+  const comes = setTimeout(async () => { back = await switchable(port); }, 3000);
+  try {
+    const t0 = Date.now();
+    assert.equal(await probeAsync(['patient', String(port), '12000'], env), 'Proved', 'a board restarting under a reload was refused instead of waited for');
+    assert.ok(Date.now() - t0 >= 2500, 'CONTROL: the check proved before the board was back');
+  } finally { clearTimeout(comes); if (back) await back.close(); }
+  // Nothing ever comes: the wait ends, and nothing listening is the answer.
+  const t1 = Date.now();
+  assert.equal(await probeAsync(['patient', String(await freePort()), '3000'], env), 'NoListener');
+  assert.ok(Date.now() - t1 >= 2500 && Date.now() - t1 < 3000 + 4000, 'the wait did not keep to its bound: ' + (Date.now() - t1) + ' ms');
+  // board.token unreadable (a folder in its place) until it is written, about 1.5 s in: waited for too.
+  const data = env.AGENT_WORKFORCE_DATA;
+  const file = path.join(data, 'Kosmos', 'board.token');
+  fs.rmSync(file);
+  fs.mkdirSync(file);
+  const board = await switchable(0);
+  const fixes = setTimeout(() => { fs.rmSync(file, { recursive: true }); fs.writeFileSync(file, TOKEN); }, 1500);
+  try {
+    assert.equal(await probeAsync(['patient', String(board.port), '8000'], env), 'Proved', 'a board.token held for a moment was refused at once');
+  } finally { clearTimeout(fixes); await board.close(); }
+  // A listener that answers and does not prove is final at once: no waiting on a squatter.
+  const sq = await switchable(0);
+  sq.state.proving = false;
+  try {
+    const t2 = Date.now();
+    assert.equal(await probeAsync(['patient', String(sq.port), '15000'], dataWith(TOKEN)), 'NotProven');
+    assert.ok(Date.now() - t2 < 5000, 'the check waited on a squatter: ' + (Date.now() - t2) + ' ms');
+    assert.equal(sq.state.seen.length, 1, 'the squatter was asked again');
+  } finally { await sq.close(); }
 });
 
 test('#6882: a board that proved at the first load and then STOPS proving is not reused, and never gets the token', WINDOWS_ONLY, async (t) => {
