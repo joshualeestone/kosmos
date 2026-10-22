@@ -1,0 +1,100 @@
+'use strict';
+/**
+ * #6921 (agent feedback 10-22): a task title over SENTENCE_MAX made the add fail outright, so the agent had to retry.
+ * Now the title is shortened and the whole of it goes first in the detail; the add answers with a note saying so. Pure
+ * rows on tasks.fitTitle, then tasks.create, then the real route on a sandboxed board.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const os = require('node:os');
+const path = require('node:path');
+const fs = require('node:fs');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-6921-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const { start, server, boardAuthState } = require('./server');
+const projects = require('./engine/projects');
+const tasks = require('./engine/tasks');
+
+let base;
+test.before(async () => {
+  await start(0);
+  base = `http://127.0.0.1:${server.address().port}`;
+  assert.equal(boardAuthState.on, false, 'a fully-sandboxed board must not enforce');
+});
+test.after(() => {
+  try { server.close(); } catch { /* ignore */ }
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
+});
+
+const MAX = tasks.SENTENCE_MAX;
+const long = (n) => Array.from({ length: n }, (_, i) => 'word' + i).join(' ');
+
+test('#6921: fitTitle leaves a title at or under the cap alone', () => {
+  const at = 'x'.repeat(MAX);
+  assert.deepEqual(tasks.fitTitle(at, 'd'), { sentence: at, detail: 'd', moved: false });
+  assert.deepEqual(tasks.fitTitle('  short  ', undefined), { sentence: '  short  ', detail: undefined, moved: false });
+  assert.equal(tasks.fitTitle(42, null).moved, false, 'a non-string is left for taskProblem to refuse');
+});
+
+test('#6921: fitTitle cuts at a word, keeps the whole title first in the detail', () => {
+  const title = long(60);   // well over the cap
+  const r = tasks.fitTitle(title, 'what they should know');
+  assert.equal(r.moved, true);
+  assert.ok(r.sentence.length <= MAX, 'the new title fits: ' + r.sentence.length);
+  assert.ok(r.sentence.endsWith('...'));
+  assert.ok(title.startsWith(r.sentence.slice(0, -3)), 'the title is a prefix of the original');
+  assert.match(r.sentence.slice(0, -3), /word\d+$/, 'cut at a word boundary, not mid-word');
+  assert.equal(r.detail, title + '\n\nwhat they should know');
+  assert.equal(tasks.fitTitle(title, '   ').detail, title, 'a blank detail becomes just the title');
+});
+
+test('#6921: one word longer than the cap is hard-cut; a surrogate pair is never split', () => {
+  const r = tasks.fitTitle('y'.repeat(MAX + 50), null);
+  assert.equal(r.sentence, 'y'.repeat(MAX - 3) + '...');
+  const emoji = tasks.fitTitle('\u{1F600}'.repeat(MAX), null);   // each one is two UTF-16 units
+  assert.ok(emoji.sentence.length <= MAX);
+  assert.ok(!/[\ud800-\udbff]\.\.\.$/u.test(emoji.sentence), 'no lone high surrogate before the dots');
+});
+
+test('#6921: create stores the shortened title, and refuses only when the move overflows the detail', () => {
+  const p = projects.create({ name: 'Titles' });
+  const title = long(60);
+  const made = tasks.create(p.id, { sentence: title, detail: 'more' });
+  assert.ok(made.sentence.length <= MAX);
+  assert.equal(made.detail, title + '\n\nmore');
+  assert.throws(() => tasks.create(p.id, { sentence: title, detail: 'z'.repeat(tasks.DETAIL_MAX - 10) }),
+    /over 200 characters, and with it moved into the detail/);
+  assert.equal(projects.readAll().find((x) => x.id === p.id).tasks.length, 1, 'the refusal wrote nothing');
+});
+
+const PID = 'p6921';
+function seed() {
+  const folder = fs.mkdtempSync(path.join(SANDBOX, 'pf-'));
+  projects.writeAll([{ id: PID, name: 'Research', folder, agents: [], taskCounter: 0, tasks: [] }]);
+}
+async function add(sentence) {
+  const res = await fetch(base + '/api/project/' + PID + '/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sentence }) });
+  return { code: res.status, json: await res.json() };
+}
+
+test('#6921: the route adds an over-long title instead of failing, and says it was shortened', async () => {
+  seed();
+  const title = long(60);
+  const r = await add(title);
+  assert.equal(r.code, 200, JSON.stringify(r.json));
+  assert.ok(r.json.task.sentence.length <= MAX);
+  assert.equal(r.json.task.detail, title);
+  assert.equal(r.json.note, 'Note: the title was over ' + MAX + ' characters, so it was shortened and the whole title is at the start of the details.');
+  assert.doesNotMatch(r.json.note, /["\\]/, 'the macOS CLI lifts the note with sed: no double quote or backslash');
+  const ok = await add('A normal title');
+  assert.equal(ok.code, 200);
+  assert.equal(ok.json.note, undefined, 'CONTROL: a title under the cap gets no note');
+});

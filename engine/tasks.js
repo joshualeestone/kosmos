@@ -114,6 +114,26 @@ function doneWhenWords(list) {
   return Array.isArray(list) && list.length ? list.map((c, i) => (i + 1) + ') ' + c).join(' ') : null;
 }
 
+/* #6921: a title over SENTENCE_MAX is shortened instead of refused (an agent's add failed outright and it had to retry).
+   The title is cut at the last space that leaves room for "...", or hard-cut when a single word is longer; the whole
+   original title goes first in the detail, so no words are lost. Returns { sentence, detail, moved }; anything that is
+   not an over-long string comes back unchanged, so taskProblem still judges it. The screen caps the box at
+   SENTENCE_MAX, so this only ever acts on the CLI and API paths. */
+function fitTitle(sentence, detail) {
+  if (typeof sentence !== 'string' || sentence.trim().length <= SENTENCE_MAX) return { sentence, detail, moved: false };
+  const full = sentence.trim();
+  const room = SENTENCE_MAX - 3;
+  let cut = '';
+  for (const ch of Array.from(full)) {   // by code point, so a surrogate pair is never split
+    if ((cut + ch).length > room) break;
+    cut += ch;
+  }
+  const space = cut.search(/\s\S*$/u);
+  const title = (space > 0 ? cut.slice(0, space) : cut).trimEnd() + '...';
+  const extra = (typeof detail === 'string' && detail.trim()) ? detail.trim() : '';
+  return { sentence: title, detail: extra ? full + '\n\n' + extra : full, moved: true };
+}
+
 function taskProblem({ sentence, detail, who } = {}) {
   if (typeof sentence !== 'string' || !sentence.trim()) {
     return 'say what needs doing';
@@ -323,8 +343,12 @@ function subtaskProgress(p, n) {
  * write; the number is issued inside the same atomic mutate that stores
  * the task, so two concurrent creates cannot share one.
  */
-function create(projectId, { sentence, detail, who, parent, doneWhen, made: origin } = {}, roster) {
-  const problem = taskProblem({ sentence, detail, who }) || doneWhenProblem(doneWhen);
+function create(projectId, { sentence: asked, detail: askedDetail, who, parent, doneWhen, made: origin } = {}, roster) {
+  const fit = fitTitle(asked, askedDetail);
+  const { sentence, detail } = fit;
+  const problem = (fit.moved && typeof detail === 'string' && detail.length > DETAIL_MAX)
+    ? `that title is over ${SENTENCE_MAX} characters, and with it moved into the detail the detail would pass ${DETAIL_MAX}; shorten one of them`
+    : (taskProblem({ sentence, detail, who }) || doneWhenProblem(doneWhen));
   if (problem) throw new Error(problem);
   // #5152: a webhook's words are outside text, so they never say what finished means for a task.
   if (origin && origin.via === 'webhook' && doneWhenValue(doneWhen)) {
@@ -2157,4 +2181,4 @@ module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, c
   taskState, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };

@@ -23,7 +23,8 @@ test('a task is validated whole-or-not-at-all before any write', () => {
   for (const [label, bad] of [
     ['no sentence', {}],
     ['a blank sentence', { sentence: '   ' }],
-    ['a sentence over the cap', { sentence: 'x'.repeat(tasks.SENTENCE_MAX + 1) }],
+    // #6921: an over-cap title is shortened, not refused; it is refused only when moving it overflows the detail.
+    ['an over-cap title whose move overflows the detail', { sentence: 'x'.repeat(tasks.SENTENCE_MAX + 1), detail: 'y'.repeat(tasks.DETAIL_MAX - 100) }],
     ['a non-string detail', { sentence: 'Real work', detail: 42 }],
     ['detail over the cap', { sentence: 'Real work', detail: 'y'.repeat(tasks.DETAIL_MAX + 1) }],
     // ⚠️ A present who that cannot be a name is REFUSED, never silently
