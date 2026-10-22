@@ -125,9 +125,10 @@ test('#6882: a navigation the quick check could not settle waits for the full ch
     'navigationWaiting = null;',
     'if (!KosmosLauncher.MayNavigateSignedIn(check)) { ShowNotConfirmed(); return; }',
     // approved, or the re-issued navigation would meet a slow quick check again and wait for ever
-    'navigationApproved = waiting;', 'webView.get_Source(out onScreen);',
-    // a reload of the address on screen is a Reload: a Navigate to it, fragment and all, would load nothing
-    'if (onScreen == waiting) webView.Reload();', 'else webView.Navigate(waiting);'], 'the full check of a navigation');
+    'webView.get_Source(out onScreen);', 'signInLoadApproved = KosmosLauncher.IsSignInLoad(waiting);',
+    // a reload of the document on screen is a Reload (a Navigate to it would load nothing), approved as what loads
+    'if (KosmosLauncher.SameDocument(onScreen, waiting)) { navigationApproved = onScreen; webView.Reload(); }',
+    'else { navigationApproved = waiting; webView.Navigate(waiting); }'], 'the full check of a navigation');
   // get_Source sits in ICoreWebView2's own slot for it (WebView2.h: its second method).
   const coreAt = SOURCE.indexOf('public interface ICoreWebView2\n{');
   assert.notEqual(coreAt, -1);
@@ -313,6 +314,7 @@ class ReproofProbe {
       }
       case "reach": foreach (string v in a[1].Split(',')) Console.Write(KosmosLauncher.CouldNotReachBoard(int.Parse(v)) ? "1" : "0"); break;
       case "resolve": { string r = KosmosLauncher.ResolveBoardAddress(a[1], a[2], a[3], a[4], int.Parse(a[5])); Console.Write(r == KosmosLauncher.NotConfirmed ? "<notconfirmed>" : r); break; }
+      case "same": Console.Write(KosmosLauncher.SameDocument(a[1] == "null" ? null : a[1], a[2]) ? "1" : "0"); break;
       case "patient": Console.Write(KosmosLauncher.CheckBoardPatiently(int.Parse(a[1]), KosmosLauncher.ReuseProofTimeoutMs, int.Parse(a[2]))); break;
       case "answer": {
         string token = new System.IO.StreamReader(Console.OpenStandardInput(), new System.Text.UTF8Encoding(false)).ReadToEnd();
@@ -442,6 +444,16 @@ test('#6882: an opener that names no address while board.token is there but unre
   assert.equal(await probeAsync(['resolve', REPO, process.execPath, crashing, app, '1'], dataWith('folder')), '<notconfirmed>');
   // CONTROL: with no board.token at all (a board that enforces nothing), the plain address, as before.
   assert.equal(await probeAsync(['resolve', REPO, process.execPath, crashing, app, '1'], dataWith(null)), 'http://127.0.0.1:1');
+});
+
+test('#6882: the same document is the address without its fragment', WINDOWS_ONLY, async (t) => {
+  if (!needsProbe(t)) return;
+  const same = (x, y) => probeAsync(['same', x, y]);
+  assert.equal(await same('http://127.0.0.1:1/#a', 'http://127.0.0.1:1/#b'), '1');
+  assert.equal(await same('http://127.0.0.1:1/?t=x', 'http://127.0.0.1:1/?t=x#b'), '1');
+  assert.equal(await same('http://127.0.0.1:1/?t=x', 'http://127.0.0.1:1/?t=y'), '0');
+  assert.equal(await same('http://127.0.0.1:1/a', 'http://127.0.0.1:1/b#a'), '0');
+  assert.equal(await same('null', 'http://127.0.0.1:1/'), '0');
 });
 
 test('#6882: a board too busy for the quick check waits for the full one, which it passes, and is never refused for it', WINDOWS_ONLY, async (t) => {
