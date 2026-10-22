@@ -18,8 +18,8 @@ only if it fails, so "never opened" and "opened, then hidden" differ), and its p
 size and visibility (or that it is not in the page); every ancestor that hides itself (hidden or display:none);
 which children of #panel-projects are showing (the overlay that took the column, if one did); then data-layout,
 body classes and URL. The gate's 200-character summary line carries the three Settings fields; the full line is in
-the job log. The read has 5 s, so a wedged page cannot turn the timeout into a hang. Nothing else changes; the
-pass path is unchanged.
+the job log. The read has 5 s, so a wedged page cannot turn the timeout into a hang. On a passing run the one
+addition is that background read of #panel-settings.hidden, which is never used; nothing else runs.
 
 ## Decisions
 - A diagnostic first, not a guessed fix. #5018 shipped a guessed cause and the red came back.
