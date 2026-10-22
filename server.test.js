@@ -4527,6 +4527,14 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
     assert.equal(JSON.parse(late.body).startedAt, null);
     assert.ok(logged(/FAIL update press: started, but its start stamp could not be read: the stamp exploded/), lines.join('\n'));
     assert.ok(!logged(/press answered/), 'a started update was logged as a refusal:\n' + lines.join('\n'));
+
+    // A second press joins the running install; the same throw there is not a refusal either.
+    lines.length = 0;
+    const again = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(again.status, 200, 'a press joining a running install was answered as a refusal: ' + again.body);
+    assert.equal(JSON.parse(again.body).already, true, 'the second press did not join the running install');
+    assert.equal(ran, 2, 'a second installer ran');
+    assert.ok(logged(/FAIL update press: started, but its start stamp could not be read/), lines.join('\n'));
   } finally {
     console.log = realLog;
     console.error = realError;

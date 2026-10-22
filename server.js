@@ -16011,8 +16011,7 @@ const server = http.createServer(async (req, res) => {
            stamp rides back so a reattached overlay can see its verdict.
            🪟 S5 (#3017): tell the truth about WHAT is running. If a rollback holds the single-flight, an
            Update press must not claim an update is under way -- report the actual operation instead. */
-        const inflight = updates.lastAttempt();
-        const startedAt = inflight ? inflight.startedAt : null;
+        const startedAt = startedStamp('update');
         if (updates.inFlightKind() === 'rollback') {
           say(200, { ok: true, already: true, operation: 'rollback', startedAt });
           return;
@@ -16064,8 +16063,7 @@ const server = http.createServer(async (req, res) => {
       if (updates.alreadyInstalling()) {
         /* 🪟 S5 (#3017): honest `already` -- if a forward UPDATE holds the single-flight, do not claim a
            rollback is under way (the board will come back on the newer build, not the previous one). */
-        const inflight = updates.lastAttempt();
-        const startedAt = inflight ? inflight.startedAt : null;
+        const startedAt = startedStamp('rollback');
         if (updates.inFlightKind() === 'update') {
           say(200, { ok: true, already: true, operation: 'update', startedAt });
           return;

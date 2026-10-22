@@ -32,6 +32,13 @@ Card: kosmos#6903 (Josh, 2026-10-22 10:46 CDT: the dialog showed only "we could 
 - Not changed: the test cannot itself see the pre-fix failure (an unhandledRejection the runner turns red); the
   mutant run recorded above is the evidence.
 
+## Review round 2
+- The already-installing branch of both routes still read the stamp unguarded, so a throw there refused an install
+  that was running. Both now use startedStamp(). Test arm (a second press joins the running install, 200, already,
+  no second installer) plus mutant (the old read in the Update route): red.
+- Not changed: `detail` (a raw error message) reaches the board log on a 500. That is the point of the log; the
+  dialog never shows it.
+
 ## Rejected
 - A process-level unhandledRejection handler for the whole board: much wider than this card, and it would change how
   every other route fails. Out of scope; the two routes that start installs are guarded where they are.
