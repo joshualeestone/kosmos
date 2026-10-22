@@ -30,8 +30,8 @@
 #
 # Skips, retried on the next tick: a release, deploy-site.sh or promote-channel.sh running on this
 # machine, unless a test started it (kosmos#6907); another tick still running; exit 75 from
-# deploy-site.sh (the live site moved or could not be read). A commit the live site already serves (its .kosmos-release-export names it, as right
-# after a cut's own step 8) is recorded as deployed without deploying it again. A deploy left running
+# deploy-site.sh (the live site moved or could not be read). A commit the live site already serves
+# (its .kosmos-release-export names it, as right after a cut's own step 8) is recorded as deployed without deploying it again. A deploy left running
 # by a tick killed outright: waited for while under 1200 s, then stopped; a failure either way.
 # A failed deploy is retried once on the next tick (one network blip should not park a website
 # change), then PARKED: a second failure on the same sha is a finding, not a blip, and a tick

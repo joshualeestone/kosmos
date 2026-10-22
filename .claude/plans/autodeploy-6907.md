@@ -16,7 +16,8 @@ lock-only check would miss a hand-run deploy), and add ancestry:
 
 - the list becomes `ps -axo pid=,ppid=,command=`;
 - a publisher match whose parent chain reaches a `tools/test-*.sh` command (same anchoring as the publisher
-  pattern) is passed over;
+  pattern), or a node process running `--test` or a `*.test.js` file (the node suite spawns the real
+  release.sh: tools.release-gate.test.js), is passed over; a plain node process is not a test;
 - the skip message names the pid and command that held it.
 
 Rejected: using release.sh's cut marker only (misses hand-run deploy-site/promote-channel); excluding by
@@ -31,11 +32,21 @@ path (validation worktrees have arbitrary names, and a real deploy can run from 
 
 ## Weakest premise
 
-Every test that runs a publisher has a `tools/test-*.sh` ancestor. A node test spawning deploy-site.sh
-directly would still hold the deploy (the safe direction, a delay, as before).
+Every test that runs a publisher has a `tools/test-*.sh` ancestor or a node `--test` / `*.test.js`
+ancestor. A test launched any other way still holds the deploy (the safe direction, a delay, as before).
+The reverse risk: a REAL publisher started under a node test process would be passed over; nothing does
+that today, since a cut starts release.sh from a shell and release.sh's own gate runs the node suite
+beneath it, not above it.
+
+## Deferred
+
+- The skip line prints up to 200 characters of the matched command into the log and the job output. The
+  three publishers take a version or flags; deploy-site.sh reads the Vercel token from the environment.
+  Kept, because the path is what tells a reader the holder was a test worktree.
 
 ## Tests
 
 `tools/test-site-autodeploy-5589.sh` section 7b: test-started (passes over), hand-run control (holds, named),
-orphan (holds), cut running its tests (holds, named as the cut), failing matcher (holds). Mutants: removing
+orphan (holds), cut running its tests (holds, named as the cut), node suite's release.sh (passes over),
+release.sh under a plain node process (holds), a parent cycle (holds), failing matcher (holds). Mutants: removing
 the ancestry exclusion reds the test-started arm; exempting every parented line reds the three hold arms.
