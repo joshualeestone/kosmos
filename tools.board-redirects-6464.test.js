@@ -132,7 +132,7 @@ for (const [name, working] of [['gemini', 'BeforeAgent'], ['grok', 'UserPromptSu
 
 /* The reason the senders say 'manual' and not 'error': the board answers a request from another Kosmos's agent with
    421 (#1704), and undici retries a 421 once on a fresh connection. With 'error' that retry fails on a request with a
-   body and the 421 never arrives. A real 421 listener, through the hook's report and the kosmos command's reply. */
+   body and the 421 never arrives. A real 421 listener, through the hook's report (the CLI's 421 is held by tools.windows-kosmos-cli-outbox-1704.test.js). */
 function startWrongWorld() {
   const server = http.createServer((req, res) => {
     if (answerProof(req, res, [BOARD])) return;
