@@ -52857,7 +52857,8 @@ function plusOrgFamilyShow(code, p) {
      It names no address (review 1): the engine's stored email is the last one a sign-in STARTED with, kept after Remove,
      so it can name an account this computer is not signed in as. */
   document.getElementById('plus-org-family-account').textContent = 'On a child\u2019s computer, Kosmos+ must be signed in with the child\u2019s account, not the address you sign in with yourself; for a child under 13, '
-    + 'one you made for them, at an email address you read. If it is the wrong one, press Not now, then Remove this computer, and sign in again with the child\u2019s account.';
+    + 'one you made for them, at an email address you read. Do not use a child\u2019s own email address for a child under 13. '
+    + 'If this computer was signed in with your own address, press Not now, then Remove this computer, sign in again with the child\u2019s account, and enter the family\u2019s join code again.';
   const acceptBtn = document.getElementById('plus-org-family-accept');
   if (acceptBtn) acceptBtn.textContent = p.review === true ? 'Accept' : 'Accept and join';
   fill('plus-org-family-reports', c.reports);
@@ -55131,6 +55132,9 @@ async function plusCompanyManaged() {
   try { const res = await fetch('/api/remote/managed', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }
   const btn = document.getElementById('plus-signin-company');
   if (btn) btn.hidden = !(r && r.managed);
+  // kosmos#6873 review 2: a computer its company manages is not a child's; the child line is not for it.
+  const child = document.getElementById('plus-si-child');
+  if (child) child.hidden = !!(r && r.managed);
   return !!(r && r.managed);
 }
 async function plusCompanyStart(btn) {

@@ -48,3 +48,15 @@ the child's computer, in the console's words, so the decision does not depend on
   an address, and it is read once on focus.
 - NIT kept as is: straight apostrophes in HTML, ’ in the JS string, as the surrounding code does.
 - Mutation: the line never filled (2 red per engine run).
+
+## Review 2 (opus)
+- SHOULD-FIX fixed: the recovery stopped at "sign in again", which leaves the computer in no family (and in the review
+  flow, Remove has taken it out of the family). It now ends "and enter the family's join code again", as the console's
+  steps do. F11 holds the full sentence in the join flow and its ending in the review flow. Mutation: the step
+  dropped (4 red).
+- NIT fixed: "If it is the wrong one" assumed the parent can tell, with no address on screen; it is now "If this
+  computer was signed in with your own address", which the parent knows.
+- NIT fixed: the console's "Do not use a child's own email address for a child under 13." is in the family line.
+  The sign-in line keeps the shorter form ("an email address you read") to stay one quiet line for adults.
+- NIT fixed: a computer its company manages is not shown the sign-in line (render-plus-company-5628: shown unmanaged
+  as the control, hidden managed). Mutation: the hide removed (1 red).

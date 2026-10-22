@@ -182,7 +182,8 @@ async function run(engineName) {
     // F11 (kosmos#6873): the rule, and the way to change account, which is on screen with the words.
     const acct = await text('plus-org-family-account');
     const RULE = 'On a child\u2019s computer, Kosmos+ must be signed in with the child\u2019s account, not the address you sign in with yourself; for a child under 13, one you made for them, at an email address you read.';
-    chk(acct.startsWith(RULE) && acct.includes('press Not now, then Remove this computer') && !acct.includes('@')
+    const RECOVER = 'If this computer was signed in with your own address, press Not now, then Remove this computer, sign in again with the child\u2019s account, and enter the family\u2019s join code again.';
+    chk(acct.startsWith(RULE) && acct.includes('Do not use a child\u2019s own email address for a child under 13.') && acct.endsWith(RECOVER) && !acct.includes('@')
         && await shown('plus-org-family-account') && await shown('plus-forget-go'),
       E + ' F11 the words say whose account this must be, name no address, and Remove this computer is on screen', JSON.stringify({ acct, remove: await shown('plus-forget-go') }));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'org-family-words-' + engineName + '.png') });
@@ -303,7 +304,8 @@ async function run(engineName) {
     const r2 = { box: await shown('plus-org-family'), lead: await text('plus-org-family-lead'), accept: (await text('plus-org-family-accept')).trim(), focus: await focus(), row: await shown('plus-org-words') };
     chk(p.length === 1 && p[0].path === '/api/org/preview' && JSON.stringify(p[0].body) === JSON.stringify({ review: true }),
       E + ' R2 Read the family\'s words asks for exactly { review: true }', JSON.stringify(p.map((x) => [x.path, x.body])));
-    chk((await text('plus-org-family-account')).startsWith('On a child\u2019s computer, Kosmos+ must be signed in with the child\u2019s account') && await shown('plus-forget-go'),
+    chk((await text('plus-org-family-account')).startsWith('On a child\u2019s computer, Kosmos+ must be signed in with the child\u2019s account')
+        && (await text('plus-org-family-account')).endsWith('and enter the family\u2019s join code again.') && await shown('plus-forget-go'),
       E + ' F11 the review flow says whose account this must be, and Remove this computer is on screen');
     chk(r2.box && r2.lead.includes('Its words are not accepted on this computer') && r2.lead.includes('parent or guardian') && r2.accept === 'Accept' && r2.focus === 'plus-org-family-lead' && !r2.row,
       E + ' R2 the words show as not accepted here, with Accept, focus on them, and the button folds', JSON.stringify(r2));
