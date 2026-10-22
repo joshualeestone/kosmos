@@ -1635,6 +1635,8 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     // and the member keeps its one for after it learns of the hold.
     const tip = posted('leo-discord', summary);
     assert.equal(tip.code, 'room_held', 'the post that tipped the room over landed as a closing post');
+    const liftBefore = tip.clearsAt;
+    assert.ok(typeof liftBefore === 'string' && liftBefore !== '', 'the hold gave no lift time, so the no-charge check below would prove nothing');
     assert.equal(closingRows().length, 0);
     // CONTROL: an acknowledgement in the held room is held, as before.
     const ack = posted('leo-discord', 'agreed, thanks');
@@ -1657,6 +1659,11 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     const again = posted('leo-discord', summary + ' Adding one more detail.');
     assert.equal(again.code, 'room_held', 'a second long post from the same member got through');
     // Another member still gets their own one.
+    // The summary did not push the room's lift later: closing posts are not charged to the room.
+    assert.equal(again.clearsAt, liftBefore, 'the closing post moved the room\'s lift time');
+    // Another member that this hold has not refused yet is held first (it learns of the hold), then lands its own.
+    const maraFirst = posted('mara-discord', summary.replace('Where we landed', 'My side'));
+    assert.equal(maraFirst.code, 'room_held', 'a member the hold had not refused yet landed a closing post');
     const mara = posted('mara-discord', summary.replace('Where we landed', 'My side'));
     assert.notEqual(mara.state, chat.DELIVERY.COULD_NOT, 'another member was refused its own closing post');
     assert.equal(closingRows().length, 2);
@@ -1670,11 +1677,11 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     // A short post padded out with indented lines is measured on its one-line form, so it is not a closing post.
     wipeLog(); chat.resetForTests(); messages.resetForTests();
     seedPosts(now, posts);
-    posted('mara-discord', 'tipping it over');
+    posted('leo-discord', 'tipping it over');
     const padded = posted('leo-discord', 'one more thing' + ('\n' + ' '.repeat(60) + 'x').repeat(8));
     assert.equal(padded.code, 'room_held', 'indentation padding made a short post a closing post');
-    // A room the valve held earlier but that has drifted back under budget: the long post that tips it over AGAIN is
-    // held, not let through on the old valve row.
+    // A room held just UNDER its budget (posts of uneven size leave it one arrival short, and every 2-recipient post is
+    // refused): the hold still lets a summary through, once the member has been refused once.
     wipeLog(); chat.resetForTests(); messages.resetForTests();
     const under1 = [];
     for (let i = 0; i < ROOM_BUDGET / 2 - 1; i += 1) under1.push({ from: MEMBERS[i % 3], text: 'round ' + i + ' carries real content' });
@@ -1684,8 +1691,10 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'valve', from: 'mara', to: 'henderson-lease', project: 'henderson-lease',
       at: new Date(now - 30000).toISOString(), because: 'held earlier', stopped: true }) + '\n');
     const retip = posted('leo-discord', summary);
-    assert.equal(retip.code, 'room_held', 'a long post that re-tipped a room under budget landed on an old valve row');
-    assert.equal(closingRows().length, 0);
+    assert.equal(retip.code, 'room_held', 'a member the hold had not refused landed a closing post');
+    const retry = posted('leo-discord', summary);
+    assert.notEqual(retry.state, chat.DELIVERY.COULD_NOT, 'a room held just under budget never let the summary through');
+    assert.equal(closingRows().length, 1);
   });
 });
 

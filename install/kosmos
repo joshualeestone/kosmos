@@ -3275,6 +3275,8 @@ cmd_post() {
           else
             say "Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in. Nothing was sent to anyone, and Kosmos does not keep it or send it later."
           fi
+          # #6920: the one exception the board makes while a room is held; without it no agent would try a summary.
+          say "One summary that settles the thread can still go through, once: 400 characters or more, not just agreement."
           # #6420: the board says when the room's limit lifts; an older board does not, and gets the old words.
           # A whole number of minutes, 1 to 59, as the board writes it (compact JSON); anything else, the old words.
           _clears="$(printf '%s' "$body" | sed -n 's/.*"clearsInMinutes":\([1-9][0-9]*\)[,}].*/\1/p')" || true
