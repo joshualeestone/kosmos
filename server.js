@@ -8737,6 +8737,10 @@ const server = http.createServer(async (req, res) => {
           maxHelpers: body.maxHelpers,
           dailyTokenLimit: body.dailyTokenLimit,
           dailyAllowancePct: body.dailyAllowancePct, // #3946: the share of the weekly allowance, when chosen
+          // kosmos#6908: `community: false` makes an agent with no Kosmos+ community section in its instructions (a test
+          // agent, such as the promote gate's throwaway ones, must not be asked to post in public). Only a literal false
+          // counts; anything else, or nothing, is the board's usual rule (the Community switch).
+          ...(body.community === false ? { community: false } : {}),
           // Validated above; composed into the file BEFORE the session starts
           // (#323), so the addAgent below finds the block already there.
           projects: projectsToJoin,
