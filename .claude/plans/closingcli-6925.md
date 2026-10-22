@@ -14,7 +14,8 @@ the agent learned it was used only on its next refusal.
 - install/kosmos and tools/windows/kosmos-cli.js: the exception line is said only on `closingEligible`; an older board
   never sends it, so it is never offered there. A placed or unconfirmed post with `closing: true` says "This went through
   as your one summary while the room is held; anything more is not posted until the room opens."
-- The bash CLI reads both flags with `grep -E '"flag": *true'`, so a space after the colon does not hide them.
+- The bash CLI reads both flags with case globs on the captured body (compact, or one space after the colon), not
+  printf | grep -q, which this file avoids under pipefail.
 
 Not here: the room's held strip wording in web/index.html (card item 3). A web/index.html change runs every web test,
 so it is its own branch.
