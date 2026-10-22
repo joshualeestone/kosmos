@@ -320,8 +320,10 @@ function chk(ok, label, extra) {
               if (p && real && real.set) Object.defineProperty(p, 'hidden', {
                 configurable: true,
                 get() { return real.get.call(this); },
-                set(v) {
-                  const frame = (new Error().stack || '').split('\n').map((l) => l.trim()).filter((l) => l && !/^Error\b|set \[as hidden\]|^set@/.test(l))[0] || '?';   // drop this setter's own frame (chromium, webkit)
+                set: function kosmosHiddenSpy(v) {
+                  // A named setter, so its own frame is dropped by name in both engines (chromium calls an object-literal
+                  // setter HTMLElement.set, webkit set@), leaving the caller as the first frame.
+                  const frame = (new Error().stack || '').split('\n').map((l) => l.trim()).filter((l) => l && !/^Error\b|kosmosHiddenSpy/.test(l))[0] || '?';
                   window.__hideBy.push((v ? 'hide@' : 'show@') + Math.round(performance.now() - t0) + ' ' + frame.replace(/https?:\/\/[^/ ]+/, '').slice(0, 60));
                   real.set.call(this, v);
                 },
