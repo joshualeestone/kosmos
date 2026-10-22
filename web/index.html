@@ -19834,7 +19834,7 @@ window.kosmosMeasureScrollbarWidth();
              none (#5791). Filled from the family's own words (the coordinator's). -->
         <div id="plus-org-family" role="group" aria-label="The family's words" hidden>
           <p class="fhint" id="plus-org-family-lead" tabindex="-1"></p>
-          <!-- kosmos#6873: which account this computer is signed in as, and whose it should be (#6379), before Accept. -->
+          <!-- kosmos#6873: whose account a child's computer must be signed in with (#6379), before Accept. -->
           <p class="fhint" id="plus-org-family-account"></p>
           <p class="fhint" id="plus-org-family-reports-head">What the family will see from this computer:</p>
           <ul class="fhint" id="plus-org-family-reports"></ul>
@@ -52853,12 +52853,11 @@ function plusOrgFamilyShow(code, p) {
   document.getElementById('plus-org-family-lead').textContent = p.review === true
     ? lead + ' Its words are not accepted on this computer. As this child\u2019s parent or guardian, read them, then accept them on this computer.'
     : lead + ' As this child\u2019s parent or guardian, read what joining shares, then accept to connect this computer.';
-  /* kosmos#6873: the account this computer is signed in as (the engine's, from the Allow poll) and the rule for it, so a
-     parent can see before accepting that this is not their own sign-in. Nothing named when it is not known yet. */
-  const who = typeof ASK === 'object' && ASK && typeof ASK.email === 'string' && ASK.email.includes('@') ? ASK.email : '';
-  document.getElementById('plus-org-family-account').textContent = (who ? 'This computer is signed in to Kosmos+ as ' + who + '. ' : '')
-    + 'On a child\u2019s computer that must be the child\u2019s account, not the address you sign in with yourself; for a child under 13, '
-    + 'one you made for them, at an email address you read. If it is not, press Not now, then Remove this computer, and sign in again with the child\u2019s account.';
+  /* kosmos#6873: whose account a child's computer must be signed in with (#6379), and how to change it, before Accept.
+     It names no address (review 1): the engine's stored email is the last one a sign-in STARTED with, kept after Remove,
+     so it can name an account this computer is not signed in as. */
+  document.getElementById('plus-org-family-account').textContent = 'On a child\u2019s computer, Kosmos+ must be signed in with the child\u2019s account, not the address you sign in with yourself; for a child under 13, '
+    + 'one you made for them, at an email address you read. If it is the wrong one, press Not now, then Remove this computer, and sign in again with the child\u2019s account.';
   const acceptBtn = document.getElementById('plus-org-family-accept');
   if (acceptBtn) acceptBtn.textContent = p.review === true ? 'Accept' : 'Accept and join';
   fill('plus-org-family-reports', c.reports);
