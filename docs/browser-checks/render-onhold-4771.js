@@ -152,9 +152,13 @@ function chk(ok, label, extra) {
       /* A task put on hold from its page. */
       await openTask(page, launch.id, 1);
       chk(await text(page, '#tk-hold') === 'Put on hold', `${tag} a task's page offers Put on hold`, await text(page, '#tk-hold'));
+      chk(await text(page, '#tk-hold-hint') === 'Kosmos does not nudge anyone about a task on hold, or hand it out.',
+        `${tag} #6683 CONTROL: a task not on hold names nobody who lifts a hold`, await text(page, '#tk-hold-hint'));
       await page.click('#tk-hold');
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Take off hold', null, { timeout: 5000 }).catch(() => {});
       chk(await text(page, '#tk-hold') === 'Take off hold', `${tag} pressing it puts the task on hold; the button then offers Take off hold`, await text(page, '#tk-hold'));
+      chk(/^You put this on hold, so only you can take it off, here\./.test(await text(page, '#tk-hold-hint') || ''),
+        `${tag} #6683 the person's own hold says only they take it off`, await text(page, '#tk-hold-hint'));
       await page.waitForFunction(() => /Put on hold/.test(document.getElementById('tk-activity').textContent), null, { timeout: 5000 }).catch(() => {});
       chk(/Put on hold/.test(await text(page, '#tk-activity') || ''), `${tag} the task's activity says Put on hold`);
       chk(!/by an agent/.test(await text(page, '#tk-activity') || ''), `${tag} the person's own hold is not credited to an agent`, await text(page, '#tk-activity'));
@@ -332,6 +336,15 @@ function chk(ok, label, extra) {
       await openSettings(page, summer.id);
       chk(await text(page, '#pj-one-pause') === 'Resume it' && /^An agent paused it\./.test(await text(page, '#pj-one-pause-hint') || ''),
         `${tag} a project an agent paused says an agent paused it`, JSON.stringify([await text(page, '#pj-one-pause'), await text(page, '#pj-one-pause-hint')]));
+
+      /* #6683: a hold made outside the screen (here the engine, as an agent's CLI does) says an agent or the person can
+         lift it. Taken off again after, so the next viewport starts with the same tasks held. */
+      tasks.setOnHold(launch.id, 2, true);
+      await openTask(page, launch.id, 2);
+      await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Take off hold', null, { timeout: 5000 }).catch(() => {});
+      chk(/^This was put on hold outside this screen \(by an agent, or with kosmos task hold\), so an agent or you can take it off\./.test(await text(page, '#tk-hold-hint') || ''),
+        `${tag} #6683 a hold made outside the screen says an agent or the person can take it off`, await text(page, '#tk-hold-hint'));
+      tasks.setOnHold(launch.id, 2, false);
 
       /* A finished task offers no hold; the open task above is the control that it is offered at all. */
       await page.evaluate(async (pid) => { if (await tskGoToProject(pid)) openTaskPage(3); }, launch.id);
