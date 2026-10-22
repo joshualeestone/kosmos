@@ -254,6 +254,22 @@ Sa0="$(make_site)"; bash "$PUBLISH" "$Sa0" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=0 bash "$PROMOTE" "$Sa0" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "agent-spawn gate PASSED" && [ -f "$Sa0/dist/latest.json" ] && pass "promote: both gates pass -> promote" || bad "promote both-gates (rc=$rc, out=$out)"
 
+# kosmos#6906: the DEFAULT agent gate runs in the machine's queue (no KOSMOS_PROMOTE_AGENT_GATE_CMD). The verdict is the
+# queue's "END rc=<n>" line; a queue that never ran the gate (it exits 2/3/4/75 for its own reasons) is cannot-tell, never
+# PARTIAL (3) and never a refusal. A stub queue stands in: it prints the END line with QRC, or fails without running.
+QRAN="$T/stub-queue-ran.sh"; printf '#!/usr/bin/env bash\necho "QUEUED-HEAVY 12:00:00 END rc=${QRC:-0}: $1"\nexit "${QRC:-0}"\n' > "$QRAN"
+QFAIL="$T/stub-queue-fail.sh"; printf '#!/usr/bin/env bash\necho "QUEUED-HEAVY: cannot load its lib" >&2\nexit 3\n' > "$QFAIL"
+Sq0="$(make_site)"; bash "$PUBLISH" "$Sq0" >/dev/null 2>&1
+out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=0 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq0" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "agent-spawn gate PASSED" && has "$out" "in the machine's queue" && [ -f "$Sq0/dist/latest.json" ] && pass "promote: queued gate END rc=0 -> promote" || bad "promote queued-gate-0 (rc=$rc, out=$out)"
+Sq3="$(make_site)"; bash "$PUBLISH" "$Sq3" >/dev/null 2>&1
+out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QFAIL" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && has "$out" "never got a turn" && ! has "$out" "PARTIAL" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queue exits 3 without running the gate -> cannot-tell HOLD (2), not PARTIAL" || bad "promote queued-gate-qfail (rc=$rc, out=$out)"
+out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=75 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && has "$out" "stopped the agent-spawn gate part way" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queue stopped the gate (END rc=75) -> cannot-tell HOLD (2)" || bad "promote queued-gate-75 (rc=$rc, out=$out)"
+out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=1 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" --force 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queued gate END rc=1 -> refuse even with --force" || bad "promote queued-gate-1 (rc=$rc, out=$out)"
+
 # agent gate PARTIAL (exit 3: Claude online, OpenAI/Codex arm failed) -> HOLD (3), no promote;
 # --force promotes the Claude fix + gating (the codex issue is chased separately). Must NOT be
 # treated as a hard non-forceable refuse (that is the auto-hold Splinter's ruling forbids).
