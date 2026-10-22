@@ -12,9 +12,12 @@ was hidden again (takeOverDisplayColumn hides #panel-settings for any later over
 with no size.
 
 ## Change
-docs/browser-checks/render-snav-head-4979.js: when that wait times out, the error carries the page state
-(body classes, data-layout, #panel-settings parent and hidden, URL, and every ancestor of the pill that is hidden,
-display:none, not visible or has no box). Nothing else; the pass path is unchanged.
+docs/browser-checks/render-snav-head-4979.js: when that wait times out, the error carries the page state, the
+deciding fields first (the gate quotes only 200 characters of a line): #panel-settings hidden and parent, the
+pill's own size and visibility (or that it is not in the page), every ancestor that is hidden, display:none or has
+no box, which children of #panel-projects are showing (the overlay that took the column, if one did), then
+data-layout, body classes and URL. The read has 5 s, so a wedged page cannot turn the timeout into a hang.
+Nothing else; the pass path is unchanged.
 
 ## Decisions
 - A diagnostic first, not a guessed fix. #5018 shipped a guessed cause and the red came back.
@@ -25,4 +28,6 @@ display:none, not visible or has no box). Nothing else; the pass path is unchang
 
 ## Validation
 - node --check passes.
-- Local headless runs: see the card.
+- Queued on this Mac (queued-heavy.sh, headless): three normal runs of the check, both engines, to see whether
+  the webkit 1280px arm reproduces here; then one forced run of a copy whose wait selector can never match, to
+  prove the diagnostic path runs and prints. Results are recorded here and on kosmos#6910 when they land.

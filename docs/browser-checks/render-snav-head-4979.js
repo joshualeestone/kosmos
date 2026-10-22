@@ -308,20 +308,30 @@ function chk(ok, label, extra) {
              and was hidden again, or from a nav that is there but has no size. Say which, with the state that decides it. */
           await page.waitForSelector('#s-nav button[data-go="mac"]', { state: 'visible', timeout: 20000 })
             .catch(async (e) => {
-              const st = await page.evaluate(() => {
+              const snap = page.evaluate(() => {
                 const pill = document.querySelector('#s-nav button[data-go="mac"]');
+                const ps = document.getElementById('panel-settings');
+                const pj = document.getElementById('panel-projects');
+                const box = pill && pill.getBoundingClientRect();
                 const chain = [];
                 for (let n = pill; n && n !== document.documentElement; n = n.parentElement) {
                   const cs = getComputedStyle(n);
-                  if (n.hidden || cs.display === 'none' || cs.visibility !== 'visible' || !n.getClientRects().length) {
-                    chain.push({ el: n.tagName.toLowerCase() + (n.id ? '#' + n.id : ''), hidden: n.hidden, display: cs.display, visibility: cs.visibility, rects: n.getClientRects().length });
+                  if (cs.display === 'contents') continue;   // no box of its own, by design
+                  if (n.hidden || cs.display === 'none' || !n.getClientRects().length || (cs.visibility !== 'visible' && n === pill)) {
+                    chain.push({ el: n.tagName.toLowerCase() + (n.id ? '#' + n.id : ''), hidden: n.hidden, display: cs.display, visibility: cs.visibility });
                   }
                 }
-                const ps = document.getElementById('panel-settings');
-                return { body: document.body.className, layout: document.documentElement.getAttribute('data-layout'),
-                  settingsParent: ps && ps.parentElement && ps.parentElement.id, settingsHidden: ps && ps.hidden,
-                  url: location.href, chain };
-              }).catch((x) => ({ evalFailed: x.message }));
+                return { settingsHidden: ps ? ps.hidden : 'no #panel-settings', settingsParent: ps && ps.parentElement && ps.parentElement.id,
+                  pill: pill ? { w: Math.round(box.width), h: Math.round(box.height), visibility: getComputedStyle(pill).visibility } : 'not in the page',
+                  chain,
+                  // whichever view or overlay holds the display column now: the one that took it from Settings, if any
+                  shownInProjects: pj ? [...pj.children].filter((c) => !c.hidden && c.id).map((c) => c.id) : 'no #panel-projects',
+                  layout: document.documentElement.getAttribute('data-layout'), body: document.body.className, url: location.href };
+              });
+              // a wedged page must not swap this error for a hang: give the read 5 s
+              snap.catch(() => {});   // a read that fails after the 5 s is not a second, unhandled error
+              const st = await Promise.race([snap, new Promise((r) => setTimeout(() => r({ evalFailed: 'no answer in 5 s' }), 5000))])
+                .catch((x) => ({ evalFailed: x.message }));
               throw new Error(`${tag}: Settings > Computer never became visible: ${JSON.stringify(st)}: ${e.message}`);
             });
           await page.evaluate(() => document.querySelector('#s-nav button[data-go="mac"]').click());
