@@ -17429,6 +17429,8 @@ window.kosmosMeasureScrollbarWidth();
       <button class="linkish pj-viewall" id="pj-alltasks" type="button" hidden></button>
       <button class="btn" id="pj-newtask" type="button"><span aria-hidden="true">+</span> New task</button>
       <div class="tkcards" id="pj-tasklist"></div>
+      <!-- #6895: how many of this project's open tasks an agent who is not on the project holds. -->
+      <p class="tk-empty" id="pj-offproject" hidden></p>
     </div>
     </aside>
     </div>
@@ -66581,9 +66583,13 @@ async function pjReload() {
   await loadProjects();
 }
 
-function tkMemberName(p, sessionName) {
+/* #6895: `holds` is true when the name is shown as holding OPEN work on this task. Then a holder who is not one of the
+   project's agents (removed after the task was given to them) is named with " (not on this project)", as the reviewer
+   choice names one with " (left the project)". Nothing is changed for them. */
+function tkMemberName(p, sessionName, holds) {
   const m = (p.agents || []).find((a) => a && a.sessionName === sessionName);
-  return (m && m.name) || (typeof tskAgentName === 'function' ? tskAgentName(sessionName) : sessionName);   // #4421: a former member by its current card, as pjNameOf
+  const name = (m && m.name) || (typeof tskAgentName === 'function' ? tskAgentName(sessionName) : sessionName);   // #4421: a former member by its current card, as pjNameOf
+  return holds === true && !m ? name + ' (not on this project)' : name;
 }
 
 /* THE SAME FACE THE MEMBERS COLUMN DRAWS, built from `pjMember`'s rule
@@ -66756,14 +66762,14 @@ function paintProjectTasks(p) {
       const sayPart = tkSayPart(parts, t.claim && t.claim.about);
       const rows = parts.map((part) => '<span class="tkcard-part' + (part.who ? '' : ' none') + '">'
         + tkFace(p, part.who)
-        + '<span class="tkcard-who-b"><b>' + esc(part.who ? tkMemberName(p, part.who) : 'Nobody yet') + '</b>'
+        + '<span class="tkcard-who-b"><b>' + esc(part.who ? tkMemberName(p, part.who, !part.closedAt) : 'Nobody yet') + '</b>'
         + (part === sayPart ? sayHtml : '') + '</span></span>').join('');
       who = '<span class="tkcard-parts">' + rows + '</span>'
         + '<span class="tkcard-status">' + esc(t.progress.assigned + ' of ' + t.progress.total + ' assigned') + '</span>';
     } else {
       const sole = assigned[0].who;
       who = '<span class="tkcard-who">' + tkFace(p, sole)
-        + '<span class="tkcard-who-b"><b>' + esc(tkMemberName(p, sole)) + '</b>' + sayHtml + '</span></span>';
+        + '<span class="tkcard-who-b"><b>' + esc(tkMemberName(p, sole, !assigned[0].closedAt)) + '</b>' + sayHtml + '</span></span>';
     }
     /* #3861 part 2: the parent's "2/5", and what a subtask is part of when the indent cannot say. */
     const sub = t.subtasks && t.subtasks.total > 0 ? t.subtasks : null;
@@ -66824,6 +66830,16 @@ function paintProjectTasks(p) {
   // no "tasks", no arrow, un-underlined via .pj-viewall (in the header row at the right in both
   // views since #3756; it was centred on its own line in the tab view before).
   door.textContent = 'View All';
+  /* #6895: every open task (not only the five shown) with an open part held by an agent not on this project. */
+  const off = document.getElementById('pj-offproject');
+  if (off) {
+    const isMember = (sn) => (p.agents || []).some((a) => a && a.sessionName === sn);
+    const held = column.filter((t) => (Array.isArray(t.parts) && t.parts.length ? t.parts : [{ who: t.who || null, closedAt: t.closedAt || null }])
+      .some((part) => part && part.who && !part.closedAt && !isMember(part.who))).length;
+    off.hidden = held === 0;
+    off.textContent = held === 0 ? '' : held === 1 ? '1 open task is held by an agent not on this project.'
+      : held + ' open tasks are held by agents not on this project.';
+  }
 }
 
 /* The door LEAVES THE PAGE (#1382), and since #3703 it opens the Tasks view scoped to this project
@@ -67171,7 +67187,8 @@ function tskRow(t, at) {
   const moved = t.lastActivityAt ? agoWords(now - Date.parse(t.lastActivityAt)) : '';
   const who = (t.whoNames || []);
   const whoHtml = who.length
-    ? who.map((w) => '<button type="button" class="tsk-who" data-agent="' + esc(w) + '">' + esc(tskAgentName(w)) + '</button>').join('')
+    ? who.map((w) => '<button type="button" class="tsk-who" data-agent="' + esc(w) + '">' + esc(tskAgentName(w)
+      + (Array.isArray(t.offProject) && t.offProject.includes(w) ? ' (not on this project)' : '')) + '</button>').join('')   // #6895
     /* Mona's design review of #3949: inside the Unassigned group the heading already says it; a project
        grouping mixes states, so the chip stays there. */
     : TSK.by !== 'project' && (t.state === 'nobody' || t.state === 'scheduled') ? ''
@@ -67897,7 +67914,6 @@ function paintTaskPage() {
   const parts = Array.isArray(t.parts) && t.parts.length
     ? t.parts : [{ id: 1, who: t.who || null, sentence: t.sentence, closedAt: t.closedAt || null }];
   const prog = t.progress || { done: parts.filter((x) => x.closedAt).length, total: parts.length };
-  const nameOf = (sn) => (sn ? tkMemberName(p, sn) : null);
   // Face-drawing itself moved to the shared tkFace(p, sessionName) (#761
   // item 8), reused by the card list below -- one rule, not two that can
   // drift.
@@ -67915,7 +67931,7 @@ function paintTaskPage() {
      the same value. */
   const sayPart = tkSayPart(parts, t.claim && t.claim.about);
   document.getElementById('tk-who').innerHTML = parts.map((part) => {
-    const shown = nameOf(part.who);
+    const shown = part.who ? tkMemberName(p, part.who, !part.closedAt) : null;   // #6895
     const line = part.sentence && part.sentence !== t.sentence ? part.sentence : '';
     return '<div class="tkpart' + (part.closedAt ? ' done' : '') + '" data-part="' + esc(String(part.id)) + '">'
       + faceFor(part.who)
@@ -68768,10 +68784,12 @@ function tkPaintReviewer(p, t, force) {
   row.hidden = !t.repeat || TK_ACT === 'reopen';
   if (row.hidden) { if (msg) msg.textContent = ''; return; }   // review 7: its answer goes with it
   const stored = tkReviewerOf(t);
-  const agents = (Array.isArray(p.agents) ? p.agents : []).slice();
-  if (stored !== 'none' && stored !== 'me' && !agents.includes(stored)) agents.push(stored);
+  /* #6896: by session name. The projects route sends member objects ({ sessionName, ... }), so reading p.agents as names
+     listed every agent as "[object Object]" and marked the stored reviewer as having left. A bare name is accepted too. */
+  const onProject = new Set((Array.isArray(p.agents) ? p.agents : []).map((a) => (typeof a === 'string' ? a : a && a.sessionName)).filter((n) => typeof n === 'string' && n));
+  const agents = [...onProject];
+  if (stored !== 'none' && stored !== 'me' && !onProject.has(stored)) agents.push(stored);
   /* Review 12: a reviewer no longer on the project stays listed (so the select shows what is stored) and says so. */
-  const onProject = new Set(Array.isArray(p.agents) ? p.agents : []);
   const opts = [['none', 'Nobody'], ['me', 'Me']].concat(agents.map((a) => [a, tskAgentName(a) + (onProject.has(a) ? '' : ' (left the project)')]));
   const sig = key + '|' + JSON.stringify(opts) + '|' + stored;
   if (sel.dataset.busy === '1' || (!force && document.activeElement === sel && sel.dataset.task === key)) return;
