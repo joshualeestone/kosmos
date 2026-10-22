@@ -302,9 +302,10 @@ final class BoardWeb: ObservableObject {
         }
     }
 
-    func press(_ tab: AppTabs.Tab) {
+    // `ready` is given by a finished load (didFinish says the page is ready, whatever isLoading still reads).
+    func press(_ tab: AppTabs.Tab, ready: Bool = false) {
         // The tracker decides from what the page is (PressTracker.Page); a press with no web view yet waits.
-        let page: PressTracker.Page = webView.map { $0.isLoading ? .loading : .ready } ?? .noView
+        let page: PressTracker.Page = webView.map { ready || !$0.isLoading ? .ready : .loading } ?? .noView
         guard let run = tracker.press(tab, page: page), let webView = webView else { return }
         webView.evaluateJavaScript(run.script) { [weak self] result, error in
             guard let self = self else { return }
@@ -321,7 +322,7 @@ final class BoardWeb: ObservableObject {
     // A page finished loading: run a press that waited for it, and start a launch round of Tasks reads if no read has
     // answered this launch (PressTracker.launchReads). A later load replaces the round.
     func loaded() {
-        if let tab = tracker.pending { press(tab) }
+        if let tab = tracker.pending { press(tab, ready: true) }
         if let round = tracker.loaded() { schedule(round, at: PressTracker.launchReads) }
     }
 

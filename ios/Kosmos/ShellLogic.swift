@@ -353,6 +353,9 @@ struct PressTracker {
     private(set) var readRoundIsLaunch = true
     // Whether a Tasks read of this launch has answered; until then a read may change the bar.
     private(set) var readThisLaunch = false
+    // Whether a launch round has had an answer at all (a "0" too). Its round reads on to its end, but later loads
+    // start no new launch round: the bar changes only at launch or on a return (Mona Lisa), not at every load.
+    private(set) var launchAnswered = false
 
     // What BoardWeb sees of its page when a press comes: no web view yet (a signed-in launch opens on Agents, and a
     // web tab's host is made only when first shown), one still loading, or one that can take the press.
@@ -399,7 +402,7 @@ struct PressTracker {
     // A page finished loading: a launch round of Tasks reads starts if none has answered this launch (its number, or
     // nil).
     mutating func loaded() -> Int? {
-        guard !readThisLaunch else { return nil }
+        guard !readThisLaunch && !launchAnswered else { return nil }
         readRound += 1
         readRoundIsLaunch = true
         return readRound
@@ -423,6 +426,7 @@ struct PressTracker {
     mutating func read(_ shown: Bool?, generation: Int) -> Bool? {
         guard generation == self.generation, let shown = shown else { return nil }
         if shown || !readRoundIsLaunch { readThisLaunch = true }
+        if readRoundIsLaunch { launchAnswered = true }
         return shown
     }
 
@@ -432,5 +436,6 @@ struct PressTracker {
         generation += 1
         pending = AppTabs.pressScript(selected) == nil ? nil : selected
         readThisLaunch = false
+        launchAnswered = false
     }
 }

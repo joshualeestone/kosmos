@@ -1253,6 +1253,14 @@ do {
     check(t.read(nil, generation: g) == nil && !t.readThisLaunch, "the sign-in page's nothing does not end the launch's reads")
     check(t.read(false, generation: g) == false && !t.readThisLaunch && t.shouldRead(round: r2, generation: g), "a launch's 0 is applied but the round reads on (it can be last session's flag)")
     check(t.read(true, generation: g) == true && t.readThisLaunch, "a 1 sets the bar and ends the launch's reads")
+    do {
+        var z = PressTracker()
+        let zr = z.loaded()!
+        _ = z.read(false, generation: z.generation)
+        check(z.shouldRead(round: zr, generation: z.generation) && z.loaded() == nil, "after a launch's 0 its round reads on, but a later load (an agent tap) starts no new round")
+        z.drop(selected: .today)
+        check(z.loaded() != nil, "a lock's fresh page reads again, as at launch")
+    }
     check(!t.shouldRead(round: r2, generation: g) && t.loaded() == nil, "and then the rounds stop, and loads start none")
     let back = t.returned()
     check(t.shouldRead(round: back, generation: g) && t.read(false, generation: g) == false, "a return to the front starts a round, and its answers count")
