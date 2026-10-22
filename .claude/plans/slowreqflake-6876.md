@@ -29,9 +29,15 @@ unit tests earlier in the same file, which inject `now`.
 
 ## Weakest premise
 
-Anything else in the server that reads `Date.now` during that request sees time jump by seconds.
-`GET /api/health` is the route under test; if a future change made it time-sensitive, this test
-would need a narrower stub.
+The stub is process-wide, for the fetch and the 100 ms wait after it, so anything in the process
+that reads `Date.now` in that window sees time jump by seconds: code on the request path, and async
+work `start(0)` began that resumes then. One reader on the request path is known:
+`remoteStepUpRefusal` reads it before the route, which is why the line says 2.0 s (it returns
+before using the value for a loopback request). Timers do not read `Date.now`, so the wait is
+unaffected. A reader that misbehaved on a jumped clock would need a narrower stub.
+
+The test also depends on `watchSlowRequest` reading `Date.now` per request. That is guarded: the
+duration assertion requires at least 1.0 s, and a real request under a second reads 0.x s.
 
 ## Verification
 
