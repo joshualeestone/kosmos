@@ -2636,8 +2636,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      the hold first) may land ONE post of CLOSING_POST_MIN characters or more of its one-line form (the length decides:
      chat.acknowledgementOnly is false above its own 200 characters, so that check is only a floor),
      per window (countFrom: rolling, reset by the person's post or a reopen, as the arrival budget is).
-     It is stored with `closing: true`, which is how a second one is found and held (and `closingUsed` on the refusal
-     tells the CLI not to offer it again). It is NOT charged to the room: arrivals here and roomHeldRead's count skip it,
+     It is stored with `closing: true`, which is how a second one is found and held (#6925: the refusal says
+     `closingEligible` when the board will take one, which is what the CLIs key on; `closingUsed` stays as a fact).
+     It is NOT charged to the room: arrivals here and roomHeldRead's count skip it,
      so a summary does not push the lift later. It is otherwise an ordinary post: delivered to every member and stored.
      The refused row may be from an EARLIER hold in the same window (a room that lifted and was held again): the refused
      row is written once per member per window (#315), so keying it to the latest hold would leave that member never
@@ -2674,6 +2675,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       appendLog({ kind: 'valve', from, to: projectId, project: projectId, at, because, stopped: lim.on });
     }
     if (lim.on) {
+      let refusalRecorded = false;
       /* 🔑 WHO WAS REFUSED, not only that the room was stopped (#315). The
          valve notice above is deduped per room, correctly -- so every agent
          blocked after the first vanished silently, and read from the outside
@@ -2693,6 +2695,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         if (!already) {
           appendLog({ kind: 'refused', from, to: projectId, project: projectId, because: ROOM_HELD_REFUSAL, at });
         }
+        refusalRecorded = true;   // #6925: the closing post keys on this row; true when it was in this snapshot or written now
       } catch { /* the record is best-effort; the verdict is not */ }
       // #4934: a code, so the CLI can tell the agent what this refusal means for its text (nothing was kept; do not send
       // it another way) without reading the person-facing sentence above.
@@ -2709,7 +2712,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       const heldNow = roomHeldRead(projectId, now, lim, log, charged, progressFrom, recipients.length);
       const clearsAt = heldNow && heldNow.until ? heldNow.until : null;
       const clears = clearsAt === null ? {} : { clearsAt, clearsInMinutes: Math.max(1, Math.ceil((Date.parse(clearsAt) - now) / 60000)) };
+      /* #6925: closingEligible says the board will let this member's one summary through (its refusal is recorded and it
+         has not used one), if the window has not moved on before the next post; the CLI offers the exception only then,
+         and an older board never sends it, so it is never offered there. */
+      const eligible = refusalRecorded && !closingUsed && typeof from === 'string' && from !== '';
       return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, ...clears, ...(closingUsed ? { closingUsed: true } : {}),
+        ...(eligible ? { closingEligible: true } : {}),
         id: null, at, outcomes: null };
     }
   }

@@ -244,9 +244,9 @@ test('#4934 parity: a loop-guard refusal (code room_held) says nothing was kept 
   assert.match(r.err, /Here it is to keep:\n *a long substantive update/);
 });
 
-test('#6920 parity: a room_held refusal offers the one closing summary, unless the board says this member used it', async () => {
+test('#6920 / #6925 parity: a room_held refusal offers the one closing summary only when the board says it will take it', async () => {
   const held = (extra) => () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'x', ...extra } } });
-  const offered = await run(['post', 'proj-1', 'a long substantive update'], held({}));
+  const offered = await run(['post', 'proj-1', 'a long substantive update'], held({ closingEligible: true }));
   assert.match(offered.err, /The one exception: a summary that settles the thread can go through now, once: 400 characters or more\./);
   const used = await run(['post', 'proj-1', 'a long substantive update'], held({ closingUsed: true }));
   assert.doesNotMatch(used.err, /The one exception: a summary/, 'a member that used its closing post was offered it again');
@@ -257,6 +257,34 @@ test('#6920 parity: a room_held refusal offers the one closing summary, unless t
   assert.ok(offered.err.indexOf('Do not send it another way') < offered.err.indexOf('The one exception'),
     'the exception was said before the wait, so the two read as opposite instructions');
   assert.match(used.err, /Not posted: this room went back and forth/, 'CONTROL: the refusal itself is still said');
+  // #6925: an older board sends neither flag and cannot honour a summary, so nothing is offered.
+  const older = await run(['post', 'proj-1', 'a long substantive update'], held({}));
+  assert.doesNotMatch(older.err, /The one exception: a summary/, 'offered a summary the board did not say it would take');
+});
+
+test('#6925 parity: after a cut-reply retry the refusal does not offer the summary (the first try may have been it)', async () => {
+  let n = 0;
+  const cutThenHeld = () => {
+    n += 1;
+    if (n === 1) { const e = new Error('socket hang up'); e.code = 'ECONNRESET'; throw e; }
+    return { body: { delivery: { state: 'could_not', code: 'room_held', because: 'x', closingEligible: true } } };
+  };
+  const r = await run(['post', 'proj-1', 'a long summary'], cutThenHeld, { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_RETRY_PAUSE_MS: '0' });
+  assert.equal(n, 2, 'the cut reply was not asked once more');
+  assert.match(r.err, /Not posted this time: this room went back and forth/, 'CONTROL: the retried refusal wording');
+  assert.doesNotMatch(r.err, /The one exception: a summary/, 'offered the summary after a retry whose first try may have been it');
+});
+
+test('#6925 parity: a post that went through a held room as the one summary says so; an ordinary post does not', async () => {
+  const landed = await run(['post', 'proj-1', 'a long summary'], () => ({ body: { delivery: { state: 'placed', closing: true } } }));
+  assert.equal(landed.code, 0);
+  assert.match(landed.out, /This went through as your one summary while the room is held; anything more is not posted until the hold lifts\./);
+  const plain = await run(['post', 'proj-1', 'a post'], () => ({ body: { delivery: { state: 'placed' } } }));
+  assert.doesNotMatch(plain.out, /your one summary/, 'an ordinary post was called the one summary');
+  const named = await run(['post', 'proj-1', 'a post'], () => ({ body: { delivery: { state: 'placed', outcomes: { closing: 'placed' } } } }));
+  assert.doesNotMatch(named.out, /your one summary/, 'an agent named closing made an ordinary post the one summary');
+  const unconf = await run(['post', 'proj-1', 'a long summary'], () => ({ body: { delivery: { state: 'unconfirmed', closing: true } } }));
+  assert.match(unconf.err, /This went through as your one summary while the room is held/, 'an unconfirmed summary was not called the one summary');
 });
 
 test('#3224: post --new sends new_post:true (not held to ask which room); without it no field; combines with the other leading flags; non-leading is text', async () => {

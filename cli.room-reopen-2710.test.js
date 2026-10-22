@@ -93,9 +93,13 @@ test('#4934: a loop-guard refusal (code room_held) says nothing was kept, not to
   });
 });
 
-test('#6920: a room_held refusal offers the one closing summary, unless the board says this member used it', async () => {
-  for (const [extra, offered] of [[{}, true], [{ closingUsed: true }, false]]) {
-    const routes = { 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', code: 'room_held', because: VALVE_BECAUSE, ...extra } } } };
+test('#6920 / #6925: a room_held refusal offers the one closing summary only when the board says it will take it', async () => {
+  for (const [extra, offered] of [[{ closingEligible: true }, true], [{ closingUsed: true }, false], [{}, false], ['spaced', true]]) {   // #6925: {} is an older board
+    // 'spaced': the board's JSON with a space after the colon, which the CLI's match must still read
+    const body = extra === 'spaced'
+      ? '{"delivery":{"state":"could_not","code":"room_held","because":' + JSON.stringify(VALVE_BECAUSE) + ', "closingEligible": true}}'
+      : { delivery: { state: 'could_not', code: 'room_held', because: VALVE_BECAUSE, ...extra } };
+    const routes = { 'POST /api/post': { code: 200, body } };
     await withBoard(routes, async (port) => {
       const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
       const out = await runCli(['post', 'henderson', 'the lease renews monthly'], env);
@@ -109,7 +113,7 @@ test('#6920: a room_held refusal offers the one closing summary, unless the boar
         assert.ok(out.stdout.indexOf('Do not send it another way') < out.stdout.indexOf('The one exception'),
           'the exception was said before the wait, so the two read as opposite instructions');
       }
-      else assert.doesNotMatch(out.stdout, hint, 'a member that used its closing post was offered it again');
+      else assert.doesNotMatch(out.stdout, hint, 'offered a summary the board did not say it would take');
     });
   }
 });
@@ -199,4 +203,27 @@ test('#2710: reopen of an unknown project reports it and exits non-zero', () => 
     assert.match(out.stdout, /no project called "nope"/, 'a 404 reopen was not reported clearly: ' + out.stdout);
     assert.notEqual(out.code, 0, 'a failed reopen must exit non-zero');
   });
+});
+
+/* #6925: a post that went through a held room as this member's one summary says so, placed or unconfirmed; an ordinary
+   post does not. One body is written with a space after the colon, the shape the CLI's match must still read. */
+test('#6925: the one-summary line on a landed closing post (compact and spaced JSON), not on an ordinary post', async () => {
+  const LINE = /This went through as your one summary while the room is held; anything more is not posted until the hold lifts\./;
+  const cases = [
+    ['{"delivery":{"state":"placed","closing":true}}', true],
+    ['{"delivery":{"state":"placed", "closing": true}}', true],
+    ['{"delivery":{"state":"unconfirmed","because":"x","closing":true}}', true],
+    ['{"delivery":{"state":"placed"}}', false],
+    // an agent named closing is an outcomes key with a delivery-state string value, never the flag
+    ['{"delivery":{"state":"placed","outcomes":{"closing":"placed","closingEligible":"placed"}}}', false],
+  ];
+  for (const [body, said] of cases) {
+    const routes = { 'POST /api/post': { code: 200, body } };
+    await withBoard(routes, async (port) => {
+      const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+      const out = await runCli(['post', 'henderson', 'a summary'], env);
+      if (said) assert.match(out.stdout, LINE, 'not told it used the one summary: ' + body);
+      else assert.doesNotMatch(out.stdout, /your one summary/, 'an ordinary post was called the one summary');
+    });
+  }
 });
