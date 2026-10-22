@@ -14,6 +14,12 @@
  *     path or, for a shell command, its text;
  *   - input it cannot read: a hook that guesses is worse than one that steps aside.
  * ExitPlanMode is allowed: Kosmos runs agents unattended with no plan screen, so a plan waiting on approval only stalls.
+ *
+ * #3417: DENIED, with the rewrite in the message, for an rm whose path starts with a variable that may be empty
+ * (rm -f "$S"/*.png). Claude Code's own check prompts for it even in bypass mode, and allowing it would run
+ * rm -f /*.png when S is empty. Measured with 2.1.308: the agent reads the message, retries with "${S:?}"/*.png, and that
+ * runs with no prompt, so the person still sees nothing. The hook input does not say which check prompted, so this
+ * judges the command text. To accept these instead (Josh's literal words), remove the rmDanger branch in decide().
  * Always exits 0: a failed hook must never block the agent harder than no hook.
  */
 const SILENT_FOR = new Set(['AskUserQuestion']);
@@ -32,12 +38,42 @@ function touchesProtected(input, depth = 0) {
   return false;
 }
 
+/* #3417: a path argument that starts with $NAME or ${NAME}, quoted or not, followed by a slash. ${NAME:?} and any other
+   ${NAME<op>...} form do not match, so the rewrite the message asks for is allowed. */
+const UNGUARDED_VAR_PATH = /(?:^|[\s"'=])"?\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))"?\//;
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=\S*$/;
+const PREFIX_WORDS = new Set(['sudo', 'command', 'exec', 'env', 'nice', 'time']);
+
+/** The variable name when a Bash command holds an rm whose path starts with a possibly-empty variable, else null.
+ *  Splits on ; & | newline, backticks and $( ), skips leading NAME=value and wrapper words, and needs the first real
+ *  word to be rm (or a path ending /rm). A text heuristic, like touchesProtected. */
+function rmDanger(command) {
+  if (typeof command !== 'string') return null;
+  for (const seg of command.split(/[;&|\n`()]|\$\(/)) {
+    const words = seg.trim().split(/\s+/);
+    let i = 0;
+    while (i < words.length && (ASSIGNMENT.test(words[i]) || PREFIX_WORDS.has(words[i]))) i++;
+    if (i >= words.length || !/(^|\/)rm$/.test(words[i])) continue;
+    const m = UNGUARDED_VAR_PATH.exec(' ' + words.slice(i + 1).join(' '));
+    if (m) return m[1] || m[2];
+  }
+  return null;
+}
+
+function rmMessage(name) {
+  return 'Kosmos did not run this rm: its path starts with $' + name + ', which may be empty, and then rm would delete'
+    + ' from the wrong folder. Rewrite the path as "${' + name + ':?}"/... (it stops if ' + name + ' is empty) or use a'
+    + ' literal path, then run it again.';
+}
+
 function decide(input) {
   let req;
   try { req = JSON.parse(String(input || '')); } catch { return null; }
   if (!req || req.hook_event_name !== 'PermissionRequest' || typeof req.tool_name !== 'string') return null;
   if (SILENT_FOR.has(req.tool_name)) return null;
   if (touchesProtected(req.tool_input)) return null;
+  const danger = req.tool_name === 'Bash' && req.tool_input ? rmDanger(req.tool_input.command) : null;
+  if (danger) return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message: rmMessage(danger) } } };
   return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } };
 }
 
@@ -53,4 +89,4 @@ if (require.main === module) {
   process.stdin.on('error', () => { process.exitCode = 0; });
 }
 
-module.exports = { decide, SILENT_FOR, touchesProtected };
+module.exports = { decide, SILENT_FOR, touchesProtected, rmDanger };
