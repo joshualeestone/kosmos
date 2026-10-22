@@ -309,16 +309,20 @@ if [ "$FAMILY" = mac ]; then
     _pc_queue="${KOSMOS_PROMOTE_AGENT_QUEUE:-$_pc_repo/tools/queued-heavy.sh}"
     AGENT_GATE_CMD="bash $_pc_repo/tools/staging-agent-online-check.sh"
     echo "promote-channel: running the agent-spawn gate in the machine's queue: $_pc_queue agent-spawn-gate $AGENT_GATE_CMD${PORT:+ (port $PORT)}"
-    _pc_qlog="$(mktemp "${TMPDIR:-/tmp}/promote-agentgate.XXXXXX")"
+    _pc_qlog="$(mktemp "${TMPDIR:-/tmp}/promote-agentgate.XXXXXX")" || _pc_qlog=/dev/null   # no log: no END line: cannot-tell
     bash "$_pc_queue" agent-spawn-gate $AGENT_GATE_CMD ${PORT:+"$PORT"} 2>&1 | tee "$_pc_qlog"; _pc_qrc=${PIPESTATUS[0]}
     AGENT_RC="$(sed -n 's/^QUEUED-HEAVY [0-9:]* END rc=\([0-9][0-9]*\):.*/\1/p' "$_pc_qlog" | tail -1)"
-    rm -f "$_pc_qlog"
+    [ "$_pc_qlog" = /dev/null ] || rm -f "$_pc_qlog"
     if [ -z "$AGENT_RC" ]; then
       echo "promote-channel: the agent-spawn gate never got a turn in the machine's queue (the queue exited $_pc_qrc) - treating it as cannot-tell." >&2
       AGENT_RC=2
-    elif [ "$AGENT_RC" = 75 ]; then
-      echo "promote-channel: the machine's queue stopped the agent-spawn gate part way (END rc=75) - treating it as cannot-tell." >&2
-      AGENT_RC=2
+    else
+      case "$AGENT_RC" in
+        0|1|2|3) ;;
+        *) # 75 (the queue stopped it), 126/127 (it could not start), 128+n (killed): not a verdict the gate gave
+           echo "promote-channel: the agent-spawn gate did not finish with a verdict (END rc=$AGENT_RC) - treating it as cannot-tell." >&2
+           AGENT_RC=2 ;;
+      esac
     fi
   fi
   case "$AGENT_RC" in

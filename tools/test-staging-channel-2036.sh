@@ -266,7 +266,9 @@ Sq3="$(make_site)"; bash "$PUBLISH" "$Sq3" >/dev/null 2>&1
 out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QFAIL" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" 2>&1)"; rc=$?
 [ "$rc" = 2 ] && has "$out" "never got a turn" && ! has "$out" "PARTIAL" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queue exits 3 without running the gate -> cannot-tell HOLD (2), not PARTIAL" || bad "promote queued-gate-qfail (rc=$rc, out=$out)"
 out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=75 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" 2>&1)"; rc=$?
-[ "$rc" = 2 ] && has "$out" "stopped the agent-spawn gate part way" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queue stopped the gate (END rc=75) -> cannot-tell HOLD (2)" || bad "promote queued-gate-75 (rc=$rc, out=$out)"
+[ "$rc" = 2 ] && has "$out" "did not finish with a verdict" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queue stopped the gate (END rc=75) -> cannot-tell HOLD (2)" || bad "promote queued-gate-75 (rc=$rc, out=$out)"
+out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=143 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && has "$out" "did not finish with a verdict" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queued gate killed (END rc=143) -> cannot-tell HOLD (2), not a refusal" || bad "promote queued-gate-143 (rc=$rc, out=$out)"
 out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=1 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" --force 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queued gate END rc=1 -> refuse even with --force" || bad "promote queued-gate-1 (rc=$rc, out=$out)"
 
