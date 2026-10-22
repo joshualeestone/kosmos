@@ -68214,7 +68214,7 @@ function tkReceiptPrsHtml(a) {
 }
 /* #5153: the whole receipt. Pure. The put-back line first: it ends the task's history above, then the receipt follows
    (Mona Lisa: the receipt between the activity and its summary split the history in two). */
-function tkReceiptHtml(r, p) {
+function tkReceiptHtml(r, p, replacedBy) {   // #6923: replacedBy, when the task was closed as replaced
   const agents = Array.isArray(r && r.agents) ? r.agents : [];
   const rt = (r && r.retries) || {};
   const times = (k) => (k === 1 ? '1 time' : usageNum(k) + ' times');
@@ -68222,7 +68222,7 @@ function tkReceiptHtml(r, p) {
   const body = agents.length
     ? agents.map((a) => tkReceiptAgentHtml(a, tkMemberName(p, a.who))).join('')
     : '<p class="tkr-line tkr-muted">Nobody held this task, so there is no work to show.</p>';
-  return '<p class="tkr-again">' + esc(again.length ? 'This task was ' + again.join(' and ') + '.' : 'Done without being put back or handed on.') + '</p>'
+  return '<p class="tkr-again">' + esc(again.length ? 'This task was ' + again.join(' and ') + '.' : (Number.isInteger(replacedBy) ? 'Replaced by task ' + replacedBy : 'Done') + ' without being put back or handed on.') + '</p>'
     + '<h3 class="dlab">Receipt</h3>'
     + '<p class="tkr-intro">What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.</p>'
     + body;
@@ -68361,7 +68361,8 @@ async function paintTaskReceipt(n) {
   if (!r) { TKR_FAILED = TKR_SHOWN ? { key: TKR_SHOWN, at: Date.now() } : null; TKR_SHOWN = null; }
   else TKR_FAILED = null;
   if (!r || r.ready === false || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; tkUndoHide(); return; }
-  holder.innerHTML = tkReceiptHtml(r, pjById(PJ_CURRENT) || p);
+  const tkr = ((pjById(PJ_CURRENT) || p).tasks || []).find((x) => x && x.number === n);
+  holder.innerHTML = tkReceiptHtml(r, pjById(PJ_CURRENT) || p, tkr ? tkr.replacedBy : undefined);
   holder.hidden = false;
   paintTaskUndo(n);   // #5153 slice 4: offered only while Settings' undo switch is on
 }
