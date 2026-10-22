@@ -2538,22 +2538,25 @@ async function main(argv, io) {
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(left),
         // kosmos#6464: the board never redirects an /api/ request, and fetch would carry these tokens (and the body)
-        // to wherever a listener pointed it, past the proof above. Refused, never followed.
-        redirect: 'error',
+        // to wherever a listener pointed it, past the proof above. 'manual' hands the 3xx back, never followed (below).
+        // Not 'error': with it, undici's own one retry of a 421 (the board serving another Kosmos, #1704) fails on
+        // a request with a body, so a wrong-world answer read as an unreachable board.
+        redirect: 'manual',
       });
+      /* kosmos#6464: a redirect, not followed. The board never redirects an /api/ request, so this is not the board
+         acting: say so in its own words, and no verb asks again (refused). notConnected reads as "nothing reached the
+         board": the listener that redirected did get the request, but it is not acting as the board, and the sentence
+         ctx.unreachable gives does not claim nothing happened. */
+      if (res.status >= 300 && res.status < 400) {
+        try { if (res.body && typeof res.body.cancel === 'function') await res.body.cancel(); } catch { /* gone */ }
+        lastNotProven = REDIRECT_REFUSED;
+        return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true };
+      }
       const text = await res.text();
       let json = null;
       try { json = JSON.parse(text); } catch { /* a text route, or not the board */ }
       return { reached: true, status: res.status, json, text };
     } catch (e) {
-      /* kosmos#6464: a redirect refused (redirect: 'error' above). The board never redirects an /api/ request, so
-         this is not the board acting: say so in its own words, and no verb asks again (refused). notConnected reads
-         as "nothing reached the board": the listener that redirected did get the request, but it is not acting as the
-         board, and the sentence below does not claim nothing happened. */
-      if (e && e.cause && /unexpected redirect/i.test(String(e.cause.message || ''))) {
-        lastNotProven = REDIRECT_REFUSED;
-        return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true };
-      }
       const timedOut = Boolean(e && (e.name === 'TimeoutError' || e.name === 'AbortError'));
       /* #4373 part B: a failure to CONNECT at all means nothing reached the board; anything else (a reset or a
          cut-off answer after the request went) may come after the board acted. Only the connect-phase codes. */
