@@ -22786,15 +22786,14 @@ const server = http.createServer(async (req, res) => {
         if (said && said.ruleAt !== (task.repeatSetAt || '')) { ROOM_RUN_SAID.delete(key); said = null; }
         /* Review 1: one line per task an hour (in memory: a restart can let one more through). The task page has every run.
            Review 2: a clock stepped back counts as the hour passed, so it never mutes a task. */
+        /* Review 5: a run that leaves the task with no change note (a run with no note clears it) ends what the room heard
+           as current, so the same words after it are news again (a problem that came back), never silenced by a note the
+           room heard, or was taken to know, before the clear. */
+        if (said && !(typeof task.lastChangeNote === 'string' && task.lastChangeNote)) said.note = '';
         const age = said ? Date.now() - said.at : Infinity;
-        if (age >= 0 && age < ROOM_RUN_EVERY_MS) {
-          /* Held. Review 3: the held note follows the task's LATEST change note, and is cleared when that is what the room
-             already heard, so a problem that cleared within the hour is never said later as news. */
-          const latest = typeof task.lastChangeNote === 'string' ? task.lastChangeNote : '';
-          /* Review 4: a run with no note (it clears the task's change note) drops the held one too: it does not say the
-             problem is still there, so the held words are never said later as news. */
-          if (latest && !taskrepeat.sameWords(latest, said.note)) said.pending = latest; else delete said.pending;
-        } else {
+        /* Inside the hour the run is held, and nothing is kept for it: the next line reads the task's own LATEST change
+           note (review 5: a held copy outlived the runs that replaced it and was said later as news). */
+        if (!(age >= 0 && age < ROOM_RUN_EVERY_MS)) {
           // Review 2: measured against what the room was last told, so a change held back by the hour is said now.
           const line = taskrepeat.roomRunLine(tasks.runBefore(task), task, said);
           /* Review 4: remembered only when the room actually got the line, so a failed append does not mute the task. */

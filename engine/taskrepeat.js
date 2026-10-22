@@ -356,9 +356,9 @@ function fieldsOf(t, now = Date.now()) {
    - Without `said` (the room has heard nothing of this task since the board started): the run's own change, as
      recordRun saw it (`prev` is tasks.runBefore(after)): a note that is the new last change and not word for word the
      last one, or a reading that differs from the one before (a duplicate's corrected reading too).
-   - With `said` ({ note, reading, pending }: what the room was last told, and the latest change note held back since by
-     the route's hour): measured against THAT, so a held change is said on the first run after the hour and "was" is a
-     reading the room saw. This side reads the task's state, not the single run, on purpose: it is catching the room up.
+   - With `said` ({ note, reading }: what the room was last told): measured against THAT, so a change held back by the
+     route's hour is said on the first run after it (the task's latest change note; review 5: never a copy held aside,
+     which outlived the runs that replaced it) and "was" is a reading the room saw. This side reads the task's state, not the single run, on purpose: it is catching the room up.
    Kosmos says it, in its own voice (messages.roomNote). */
 const ROOM_SENTENCE_MAX = 120;
 function roomPlain(s, max) { return require('./agentnudge').plainWords(String(s == null ? '' : s).replace(/\p{Cf}/gu, ''), max); }
@@ -370,7 +370,7 @@ function roomRunLine(prev, after, said) {
   let reading = '';
   let was = '';
   if (said) {
-    const latest = (typeof after.lastChangeNote === 'string' && after.lastChangeNote) || (typeof said.pending === 'string' ? said.pending : '');
+    const latest = typeof after.lastChangeNote === 'string' ? after.lastChangeNote : '';
     if (latest && !sameWords(latest, said.note)) note = latest;
     if (nowReading && nowReading !== (said.reading || '')) { reading = nowReading; was = said.reading || ''; }
   } else {

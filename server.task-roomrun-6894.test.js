@@ -118,8 +118,9 @@ test('#6894: review 1: a task is said in the room at most once an hour, however 
   assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, { note: 'saw 2 things' }, zed)).status, 200);
   assert.equal(roomNotes().length - before, 1, 'the second change inside the hour is not said');
   // Review 2: once the hour has passed, the next run says what the room has not heard, even a run that changed nothing.
+  // Review 5: one that found nothing new (a run with no note clears the task's change note, so it would say nothing).
   _ageRoomRunSaidForTest(61 * 60 * 1000);
-  assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, {}, mona)).status, 200);
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, { unchanged: true }, mona)).status, 200);
   const flushed = roomNotes().slice(before);
   assert.equal(flushed.length, 2, 'the held change is said on the first run after the hour');
   assert.match(flushed[1], /: saw 2 things$/);
@@ -238,6 +239,59 @@ test('#6894: review 4: a line the room did not get does not mute the task', asyn
   const notes = roomNotes().slice(c0);
   assert.equal(notes.length, 1, 'a failed line does not hold the next one back for the hour');
   assert.match(notes[0], /queue at 14/);
+});
+
+test('#6894: review 5: a change the room never heard is not said once later runs replaced or cleared it', async () => {
+  _resetRoomRunSaidForTest();
+  const mona = { 'x-kosmos-agent-token': sendertoken.mint('mona').token };
+  const zed = { 'x-kosmos-agent-token': sendertoken.mint('zed').token };
+  const n = tasks.create(projectId, { sentence: 'Disk level', who: 'mona' }).number;
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, mona)).status, 200);
+  let turn = 0;   // the same runner twice within a minute is one run (a duplicate), so runners alternate
+  const ran = async (body) => assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, body, (turn++ % 2) ? zed : mona)).status, 200);
+  const c0 = roomNotes().length;
+  await ran({ note: 'disk at 50 percent' });              // said
+  await ran({ note: 'disk at 95 percent' });              // held
+  _ageRoomRunSaidForTest(61 * 60 * 1000);
+  await ran({ note: 'disk at 50 percent' });              // back to what the room heard: nothing to say
+  await ran({});                                          // a bare run: says nothing of 95
+  assert.equal(roomNotes().slice(c0).length, 1, 'the replaced 95 percent is never said as news');
+  // A bare run as the FIRST run after the hour says nothing either (it cleared the note it would have said).
+  await ran({ note: 'disk at 60 percent' });              // said: the hour had passed
+  await ran({ note: 'disk at 97 percent' });              // held
+  _ageRoomRunSaidForTest(61 * 60 * 1000);
+  await ran({});
+  let notes = roomNotes().slice(c0);
+  assert.equal(notes.length, 2, 'a bare run never says the note it cleared');
+  assert.match(notes[1], /: disk at 60 percent$/);
+  // CONTROL: the same held change, with nothing replacing it, IS said after the hour.
+  await ran({ note: 'disk at 70 percent' });              // said: the hour had passed
+  await ran({ note: 'disk at 98 percent' });              // held
+  _ageRoomRunSaidForTest(61 * 60 * 1000);
+  await ran({ unchanged: true });
+  notes = roomNotes().slice(c0);
+  assert.equal(notes.length, 4, 'CONTROL: a held change nothing replaced is said');
+  assert.match(notes[3], /: disk at 98 percent$/);
+});
+
+test('#6894: review 5: a problem that returns after a clear is news, even if the room was taken to know its words', async () => {
+  _resetRoomRunSaidForTest();
+  const mona = { 'x-kosmos-agent-token': sendertoken.mint('mona').token };
+  const zed = { 'x-kosmos-agent-token': sendertoken.mint('zed').token };
+  const n = tasks.create(projectId, { sentence: 'Space check', who: 'mona' }).number;
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, mona)).status, 200);
+  let turn = 0;
+  const ran = async (body) => assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, body, (turn++ % 2) ? zed : mona)).status, 200);
+  await ran({ note: 'disk full' });                       // recorded before the room heard anything of this task
+  _resetRoomRunSaidForTest();
+  const c0 = roomNotes().length;
+  await ran({ unchanged: true, value: '41' });            // the first line: the reading; "disk full" taken as known
+  await ran({});                                          // the problem clears
+  _ageRoomRunSaidForTest(61 * 60 * 1000);
+  await ran({ note: 'disk full' });                       // it comes back
+  const notes = roomNotes().slice(c0);
+  assert.equal(notes.length, 2, 'a problem that came back after a clear is said');
+  assert.match(notes[1], /: disk full$/);
 });
 
 test('#6894: CONTROL: setting the rule or a one-off task says nothing in the room', async () => {
