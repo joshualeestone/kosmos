@@ -161,6 +161,8 @@ test('#6570 the stream latest figure wins in its window (it is the answer now, n
   p.event(ev(0.96, nowS + 86400));
   p.event(ev(0.03, nowS + 86400));
   assert.equal(accountsweekly.weeklyOf(row).usedPct, 3);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, statusline.FILE), 'utf8')).history.map((r) => r[1]), [3],
+    'review 2: a lower figure in the same week is another account (or a reset): its history starts again, so the calibration never reads 96 as its baseline');
   const at = JSON.parse(fs.readFileSync(path.join(dir, statusline.FILE), 'utf8')).at;
   const rows = JSON.parse(fs.readFileSync(path.join(dir, statusline.FILE), 'utf8')).history.length;
   p.event(ev(0.03, nowS + 86400));

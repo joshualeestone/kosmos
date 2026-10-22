@@ -102,7 +102,14 @@ function record(dir, reading, now, opt = {}) {
   }
   const next = { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: now };
   if (keepHistory) {
-    const history = cur && Array.isArray(cur.history) ? cur.history.slice(-(HISTORY_MAX - 1)) : [];
+    /* kosmos#6570 review 2: a latest-wins figure LOWER than the stored one in the same window is not usage going back:
+       the folder now answers for another account (or the provider reset it). Its earlier rows would be read as this
+       account's baseline by the calibration (allowance.pointsSince), so the history starts again from here. Two agents
+       on one account racing (each writer reads, then renames) can also land an older figure last; the next event puts
+       the current one back, at the cost of a restarted history, which only delays a calibration. */
+    const restart = !!(opt.latestWins && cur && typeof cur.usedPct === 'number' && typeof cur.resetsAt === 'number'
+      && Math.abs(reading.resetsAt - cur.resetsAt) < tolerance && reading.usedPct < cur.usedPct);
+    const history = !restart && cur && Array.isArray(cur.history) ? cur.history.slice(-(HISTORY_MAX - 1)) : [];
     history.push([now, reading.usedPct, reading.resetsAt]);
     next.history = history;
   }
