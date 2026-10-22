@@ -155,28 +155,46 @@ listed() {
 # sent as the typed confirmation: the route asks for it only when the Trash cannot take the files, and these are the
 # gate's own throwaway agents, which hold nothing. Only a name this gate makes is ever cleared.
 # The two paths (job file, worker folder) this machine's engine gives a gate agent, one per line; empty if it cannot say.
-# Used for the launchd label and for what to delete by hand when the board cannot clear it.
+# Used only when the board cannot clear it: to delete the files here instead, or to say which to delete by hand.
 paths_of() {
   "$NODE" -e 'const c=require(process.argv[1]+"/create");if(typeof c.plistPath!=="function")process.exit(3);process.stdout.write(c.plistPath(process.argv[2])+"\n"+c.workerDir(process.argv[2]))' "$(dirname "$STORE")" "$1" 2>/dev/null
 }
+# One field of the JSON in $_BODYF ('' if absent or unreadable). job.label is the launchd label, and only for a launchd job.
+body_field() {
+  "$NODE" -e 'let j;try{j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))}catch{process.exit(0)}
+    const f=process.argv[2];let v=f==="label"?(j.job&&!j.job.unit&&!j.job.task?j.job.label:""):j[f];
+    process.stdout.write(v===undefined||v===null?"":String(v).replace(/\s+/g," ").slice(0,300))' "$_BODYF" "$1"
+}
+# Removal disabled the job's launchd label (that is how it stays off) and a clear does not re-enable it; a gate name is
+# never made again, so flip the override back rather than leave it disabled. The label is the BOARD's (its leftover
+# plan), never one derived here, so a board under another world or launch folder cannot make this enable a stranger.
+# Never in a sandboxed run (AGENT_WORKFORCE_LAUNCH set, as the tests do): `enable` writes launchd's own database.
+reenable_label() {
+  case "$1" in com.kosmos.agent.verify2129-*) ;; *) return ;; esac
+  if [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] && command -v launchctl >/dev/null 2>&1; then
+    launchctl enable "gui/$(id -u)/$1" >/dev/null 2>&1
+  fi
+}
 tidy_agent() {
-  local nm="$1" confirmed="${2:-}" code outcome because body pp plist
+  local nm="$1" confirmed="${2:-}" code outcome because toTrash body pp plist dir label tries=0
   case "$nm" in verify2129-claude-*|verify2129-openai-*) ;; *) return ;; esac
   case "${nm#verify2129-*-}" in *[!0-9-]*|'') return ;; esac
+  # The board's own plan first, for the label it will boot out.
+  api_get "/api/agent/$nm/leftover"
+  label=""; [ "$HTTP_CODE" = 200 ] && label="$(body_field label)"
   body="$("$NODE" -e 'process.stdout.write(JSON.stringify({typed:process.argv[1]}))' "$nm")"
-  : > "$_BODYF"
-  code="$("$CURL" -sS --max-time 60 -H @"$HF" -H 'Content-Type: application/json' -X DELETE --data "$body" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
-  outcome="$("$NODE" -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).outcome||""))}catch{}' "$_BODYF")"
-  because="$("$NODE" -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).because||"").replace(/\s+/g," ").slice(0,300))}catch{}' "$_BODYF")"
+  # A transport blip (no code, or 000) is tried again: a second DELETE after one that did land finds "nothing of" it.
+  while :; do
+    : > "$_BODYF"
+    code="$("$CURL" -sS --max-time 60 -H @"$HF" -H 'Content-Type: application/json' -X DELETE --data "$body" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
+    case "$code" in ""|000) ;; *) break ;; esac
+    tries=$((tries+1)); [ "$tries" -ge 3 ] && break; sleep 1
+  done
+  outcome="$(body_field outcome)"; because="$(body_field because)"; toTrash="$(body_field toTrash)"
   if [ "$code" = 200 ] && [ "$outcome" = deleted ]; then
-    # Removal disabled the job's label in launchd (that is how it stays off) and the clear does not undo that; a gate
-    # name is never made again, so drop the record. Never in a sandboxed run (AGENT_WORKFORCE_LAUNCH set, as the tests
-    # do): `enable` writes launchd's own override database.
-    pp="$(paths_of "$nm")"; plist="${pp%%$'\n'*}"
-    if [ -n "$plist" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] && command -v launchctl >/dev/null 2>&1; then
-      launchctl enable "gui/$(id -u)/$(basename "$plist" .plist)" >/dev/null 2>&1
-    fi
-    say "cleared '$nm': its job file and worker folder are in the Trash, and the name is free."
+    reenable_label "$label"
+    if [ "$toTrash" = true ]; then say "cleared '$nm': its files are in the Trash, and the name is free."
+    else say "cleared '$nm': its files are deleted (the Trash could not take them), and the name is free."; fi
     return
   fi
   case "$because" in
@@ -187,8 +205,25 @@ tidy_agent() {
       else say "found nothing of '$nm' left to clear."; fi
       return ;;
   esac
-  pp="$(paths_of "$nm" | tr '\n' ' ')"
-  say "WARNING: could not clear '$nm' (DELETE leftover -> HTTP ${code:-<none>}, ${outcome:-no outcome}${because:+: $because}): on its page, Delete what is left, or delete ${pp:-its com.kosmos.agent plist and worker folder} by hand."
+  local why="DELETE leftover -> HTTP ${code:-<none>}, ${outcome:-no outcome}${because:+: $because}"
+  # The board could not clear it. The job file must not stay in LaunchAgents (the #3011 guard), so the gate deletes
+  # what is still there itself, as before #6922: the paths from this machine's engine, each checked against the name.
+  pp="$(paths_of "$nm")" || pp=""
+  plist="${pp%%$'\n'*}"; dir="${pp#*$'\n'}"
+  local had=""
+  if [ -n "$pp" ]; then
+    case "${plist##*/}" in "com.kosmos.agent.$nm"*.plist) [ -f "$plist" ] && { had=1; rm -f "$plist"; } ;; esac
+    [ "${dir##*/}" = "$nm" ] && [ -d "$dir" ] && { had=1; rm -rf "$dir"; }
+  fi
+  if [ -z "$pp" ] || [ -e "$plist" ] || [ -e "$dir" ]; then
+    say "WARNING: could not clear '$nm' ($why), and could not delete its files here: on its page, Delete what is left, or delete ${plist:-its com.kosmos.agent plist} and ${dir:-its worker folder} by hand."
+  elif [ -n "$had" ]; then
+    reenable_label "$label"
+    say "WARNING: could not clear '$nm' ($why), so its job file and worker folder were deleted here instead. Its row stays in the Removed list."
+  else
+    # Nothing on disk: the board got as far as the files and stopped after them (tokens, or the community account).
+    say "WARNING: could not clear '$nm' fully ($why). Its files are gone; what is left is what that sentence names."
+  fi
 }
 # kosmos#6906: remove one agent this check created, and say whether it is gone from /api/status.
 remove_agent() {
