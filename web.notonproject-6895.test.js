@@ -93,3 +93,31 @@ test('#6896: the reviewer choice reads member objects: agents by session name, a
   paint({ id: 'p1', agents: [member('bo')] }, t);
   assert.ok(els['tk-review-who'].children.some((o) => o.value === 'ada' && o.textContent === 'Ada (left the project)'), 'a reviewer who left says so');
 });
+
+/* The task page's parts, painted by the real paintTaskPage (as web.task-page.test.js runs it), with the real tkMemberName. */
+function paintTask(task, project) {
+  const els = {};
+  for (const id of ['tk-back', 'tk-num', 'tk-title', 'tk-detail', 'tk-project', 'tk-added', 'tk-state', 'tk-who', 'tk-why', 'tk-note',
+    'tk-done', 'tk-msg', 'tk-due', 'tk-activity', 'pj-task-view', 'pj-newtask']) els[id] = { textContent: '', innerHTML: '', hidden: false, focus() {}, disabled: false, value: '' };
+  const proj = { ...project, tasks: [task] };
+  const src = ['let TK_ACT = null;', page.liftAll(SCRIPT, ['tkStateWord', 'tkAdded', 'tkFace', 'tkSayPart', 'claimNotReported', 'taskClaimHtml',
+    'tkMemberName', 'paintTaskPage', 'tkPaintSubtasks'])].join('\n');
+  new Function('document', 'pjById', 'PJ_CURRENT', 'TK_OPEN', 'pjView', 'esc', 'discTint', 'discInk', 'initials', 'tskAgentName', 'tkPaintRepeat',
+    src + '\n; paintTaskPage();')({ getElementById: (id) => els[id] || null, querySelector: () => null }, () => proj, proj.id, task.number, () => {},
+    (s) => String(s), () => '#dfe5ea', () => '#4a5560', (n) => String(n).slice(0, 2).toUpperCase(), (s) => NAMES[s] || s, () => {});
+  return els['tk-who'].innerHTML;
+}
+
+test('#6895: the task page names an off-project holder of an open part of an OPEN task; a finished task or part is history', () => {
+  const P1 = { id: 'p1', name: 'Book', agents: [member('ada')] };
+  const parts = [{ id: 1, who: 'rex', sentence: 'a', closedAt: null }, { id: 2, who: 'ada', sentence: 'b', closedAt: null }];
+  const live = { number: 7, sentence: 'Draft', createdAt: '2026-10-20T00:00:00Z', closedAt: null, parts,
+    progress: { done: 0, total: 2, closed: false, assigned: 2 } };
+  const html = paintTask(live, P1);
+  assert.match(html, />Rex \(not on this project\)</);
+  assert.doesNotMatch(html, /Ada \(not on this project\)/, 'CONTROL: a member');
+  const done = { ...live, closedAt: '2026-10-21T00:00:00Z', progress: { done: 0, total: 2, closed: true, assigned: 2 } };
+  assert.doesNotMatch(paintTask(done, P1), /not on this project/, 'a finished task with its parts left open is not marked');
+  const partDone = { ...live, parts: [{ ...parts[0], closedAt: '2026-10-21T00:00:00Z' }, parts[1]] };
+  assert.doesNotMatch(paintTask(partDone, P1), /not on this project/, 'a finished part is not marked');
+});
