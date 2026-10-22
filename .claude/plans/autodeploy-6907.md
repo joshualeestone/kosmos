@@ -1,0 +1,41 @@
+# autodeploy-6907: a publisher a test started must not hold the site deploy
+
+Card: kosmos#6907 (claimed: icecreamkitty). Owner of site deploys: Ice Cream Kitty.
+
+## Problem
+
+`tools/site-autodeploy.sh` `publisher_running()` decided "a release cut, deploy or promote is running" by
+matching command lines alone. On 2026-10-22 11:00 CDT a #6781 validation on Mortals ran
+`tools/test-deploy-site-promote.sh`, which launches the real `tools/deploy-site.sh --promote` as a test
+subject; the match held chaoskosmos-site#237 off the live site and the skip message claimed a cut.
+
+## Decision
+
+Keep the process-list match (deploy-site.sh and promote-channel.sh take no lock of their own, so a
+lock-only check would miss a hand-run deploy), and add ancestry:
+
+- the list becomes `ps -axo pid=,ppid=,command=`;
+- a publisher match whose parent chain reaches a `tools/test-*.sh` command (same anchoring as the publisher
+  pattern) is passed over;
+- the skip message names the pid and command that held it.
+
+Rejected: using release.sh's cut marker only (misses hand-run deploy-site/promote-channel); excluding by
+path (validation worktrees have arbitrary names, and a real deploy can run from a worktree too).
+
+## Fail-closed cases (all still hold the deploy)
+
+- a line without pid/ppid (no ancestry known);
+- a test subject whose harness died (ppid 1, no test above it);
+- a real cut whose own gate runs a test of deploy-site.sh (the cut itself matches with no test above it);
+- the matcher (awk) failing.
+
+## Weakest premise
+
+Every test that runs a publisher has a `tools/test-*.sh` ancestor. A node test spawning deploy-site.sh
+directly would still hold the deploy (the safe direction, a delay, as before).
+
+## Tests
+
+`tools/test-site-autodeploy-5589.sh` section 7b: test-started (passes over), hand-run control (holds, named),
+orphan (holds), cut running its tests (holds, named as the cut), failing matcher (holds). Mutants: removing
+the ancestry exclusion reds the test-started arm; exempting every parented line reds the three hold arms.
