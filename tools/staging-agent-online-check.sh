@@ -162,7 +162,7 @@ paths_of() {
 # One field of the JSON in $_BODYF ('' if absent or unreadable). job.label is the launchd label, and only for a launchd job.
 body_field() {
   "$NODE" -e 'let j;try{j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))}catch{process.exit(0)}
-    const f=process.argv[2];let v=f==="label"?(j.job&&!j.job.unit&&!j.job.task?j.job.label:""):j[f];
+    const f=process.argv[2];let v=f==="label"?(j.job&&!j.job.unit&&!j.job.task?j.job.label:""):f==="steps"?(Array.isArray(j.steps)?"yes":""):j[f];
     process.stdout.write(v===undefined||v===null?"":String(v).replace(/\s+/g," ").slice(0,300))' "$_BODYF" "$1"
 }
 # Removal disabled the job's launchd label (that is how it stays off) and a clear does not re-enable it; a gate name is
@@ -176,13 +176,16 @@ reenable_label() {
   fi
 }
 tidy_agent() {
-  local nm="$1" confirmed="${2:-}" code outcome because toTrash body pp plist dir label tries=0
+  local nm="$1" code outcome because toTrash steps body pp plist dir label typed gcode tries=0
   case "$nm" in verify2129-claude-*|verify2129-openai-*) ;; *) return ;; esac
   case "${nm#verify2129-*-}" in *[!0-9-]*|'') return ;; esac
-  # The board's own plan first, for the label it will boot out.
-  api_get "/api/agent/$nm/leftover"
-  label=""; [ "$HTTP_CODE" = 200 ] && label="$(body_field label)"
-  body="$("$NODE" -e 'process.stdout.write(JSON.stringify({typed:process.argv[1]}))' "$nm")"
+  # The board's own plan first, ONE try (this runs in cleanup, where a second Ctrl-C is ignored): the label it will boot
+  # out, and the words it wants typed (its display name; the session name when it has none, as gate agents do).
+  : > "$_BODYF"
+  gcode="$("$CURL" -sS --max-time 20 -H @"$HF" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
+  label=""; typed=""
+  if [ "$gcode" = 200 ]; then label="$(body_field label)"; typed="$(body_field typeToConfirm)"; fi
+  body="$("$NODE" -e 'process.stdout.write(JSON.stringify({typed:process.argv[1]}))' "${typed:-$nm}")"
   # A transport blip (no code, or 000) is tried once more. A second DELETE after one that DID land finds "nothing of" it,
   # which below counts as cleared. Once only: this runs inside cleanup, where a second Ctrl-C is ignored (review 2).
   while :; do
@@ -191,7 +194,7 @@ tidy_agent() {
     case "$code" in ""|000) ;; *) break ;; esac
     tries=$((tries+1)); [ "$tries" -ge 2 ] && break; sleep 1
   done
-  outcome="$(body_field outcome)"; because="$(body_field because)"; toTrash="$(body_field toTrash)"
+  outcome="$(body_field outcome)"; because="$(body_field because)"; toTrash="$(body_field toTrash)"; steps="$(body_field steps)"
   if [ "$code" = 200 ] && [ "$outcome" = deleted ]; then
     reenable_label "$label"
     if [ "$toTrash" = true ]; then say "cleared '$nm': its files are in the Trash, and the name is free."
@@ -204,16 +207,25 @@ tidy_agent() {
         # The first DELETE landed and its answer was lost: the retry finds it already cleared.
         reenable_label "$label"
         say "cleared '$nm' (the first answer was lost; the retry found nothing left), and the name is free."
-      elif [ -n "$confirmed" ]; then
+      else
         # The board answered 200 for this one, so it wrote files somewhere: none found means the board looks elsewhere.
         say "WARNING: the board made '$nm' but finds nothing of it left on disk: check ~/Library/LaunchAgents for com.kosmos.agent.$nm*"
-      else say "found nothing of '$nm' left to clear."; fi
+      fi
       return ;;
   esac
   local why="DELETE leftover -> HTTP ${code:-<none>}, ${outcome:-no outcome}${because:+: $because}"
-  # A REFUSAL (400) is the board's own judgement, and some are safety ones the gate cannot see (the agent's session is
-  # still running, tmux could not be asked, an account move holds it): its files are left alone (review 2).
-  if [ "$code" = 400 ]; then
+  # Only these let the gate delete the files itself (below): no answer, a board without this route (404), an error part
+  # way (5xx), a PARTIAL, or a refusal carrying `steps`, which del() gives only once its plan passed and an act failed
+  # (every move, or the community standing). A refusal WITHOUT steps is the plan's own judgement, and some are safety
+  # ones the gate cannot see (the session still running, tmux unreadable, an account move holding it), so its files
+  # are left alone (reviews 2 and 3); so is any other answer (401, 409, a 200 it cannot read).
+  local act=""
+  case "$code" in
+    ""|000|404|5[0-9][0-9]) act=1 ;;
+    200) [ "$outcome" = partial ] && act=1 ;;
+    400) [ -n "$steps" ] && act=1 ;;
+  esac
+  if [ -z "$act" ]; then
     pp="$(paths_of "$nm" | tr '\n' ' ')"
     say "WARNING: could not clear '$nm' ($why), so its files were left: once it is not running, on its page, Delete what is left, or delete ${pp:-its com.kosmos.agent plist and worker folder} by hand."
     return
@@ -231,8 +243,10 @@ tidy_agent() {
   if [ -z "$pp" ] || [ -e "$plist" ] || [ -e "$dir" ]; then
     say "WARNING: could not clear '$nm' ($why), and could not delete its files here: on its page, Delete what is left, or delete ${plist:-its com.kosmos.agent plist} and ${dir:-its worker folder} by hand."
   elif [ -n "$had" ]; then
-    reenable_label "$label"
-    say "WARNING: could not clear '$nm' ($why), so its job file and worker folder were deleted here instead. Its row stays in the Removed list."
+    # No plan from the board (an older board, or its GET failed): the job file just checked against the name gives it.
+    reenable_label "${label:-$(basename "$plist" .plist)}"
+    if [ "$outcome" = partial ]; then say "WARNING: could not clear '$nm' fully ($why), so its job file and worker folder were deleted here instead."
+    else say "WARNING: could not clear '$nm' ($why), so its job file and worker folder were deleted here instead. Its row stays in the Removed list."; fi
   else
     # Nothing on disk: the board got as far as the files and stopped after them (tokens, or the community account).
     reenable_label "$label"
@@ -280,7 +294,7 @@ remove_agent() {
   api_get /api/status
   still="$(listed "$nm")"
   # Files only once the board CONFIRMS it no longer lists the agent: an unreadable list is not a confirmation.
-  [ "$still" = "no" ] && tidy_agent "$nm" confirmed
+  [ "$still" = "no" ] && tidy_agent "$nm"
   case "$still" in
     no)  say "removed '$nm' (gone from /api/status)." ;;
     yes) say "WARNING: removed '$nm' (HTTP 200) but it is still listed in /api/status: check it on the board." ;;
