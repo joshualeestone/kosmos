@@ -13,7 +13,8 @@ with no size.
 
 ## Change
 docs/browser-checks/render-snav-head-4979.js: when that wait times out, the error carries the page state, the
-deciding fields first (the gate quotes only 200 characters of a line): #panel-settings hidden and parent, the
+Settings fields first, so the gate's 200-character summary line carries at least those; the rest is in the job
+log: #panel-settings hidden and parent, the
 first three page errors caught so far (80 characters each), the pill's own size and visibility (or that it is not in the page), every ancestor that hides itself (hidden or
 display:none), which children of #panel-projects are showing (the overlay that took the column, if one did), then
 data-layout, body classes and URL. The read has 5 s, so a wedged page cannot turn the timeout into a hang.

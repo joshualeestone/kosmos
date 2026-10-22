@@ -321,7 +321,7 @@ function chk(ok, label, extra) {
                     chain.push({ el: n.tagName.toLowerCase() + (n.id ? '#' + n.id : ''), hidden: n.hidden, display: cs.display, visibility: cs.visibility });
                   }
                 }
-                return { settingsHidden: ps ? ps.hidden : 'no #panel-settings', settingsParent: ps && ps.parentElement && ps.parentElement.id,
+                return { settingsHidden: ps ? ps.hidden : 'no #panel-settings', settingsParent: ps ? (ps.parentElement ? ps.parentElement.id || ps.parentElement.tagName.toLowerCase() : 'detached') : null,
                   pill: pill ? { w: Math.round(box.width), h: Math.round(box.height), visibility: getComputedStyle(pill).visibility } : 'not in the page',
                   chain,
                   // whichever view or overlay holds the display column now: the one that took it from Settings, if any
@@ -334,7 +334,7 @@ function chk(ok, label, extra) {
               const st = await Promise.race([snap, new Promise((r) => { timer = setTimeout(() => r({ evalFailed: 'no answer in 5 s' }), 5000); })])
                 .catch((x) => ({ evalFailed: x.message }))
                 .finally(() => clearTimeout(timer));
-              // the page errors third, after the two Settings fields, and short: a long one would push the rest past the gate's quote
+              // key order is deliberate: the Settings fields, then the page errors, then the rest
               const pageErrors = errs.slice(0, 3).map((m) => m.slice(0, 80));
               const out = Object.assign({ settingsHidden: st.settingsHidden, settingsParent: st.settingsParent, pageErrors }, st);
               throw new Error(`${tag}: Computer pill never showed: ${JSON.stringify(out)}: ${e.message}`);
