@@ -1551,6 +1551,39 @@ const SCREENS = [
     if (st !== 200) throw new Error('could not close the task after the shot (' + st + ')');
     data.toldTask = null;
   } },
+  /* #6923: a task closed as replaced by a later one, and the later one's page. Each screen adds its own pair of tasks,
+     closes the first as replaced by the second, opens one of them, and closes both plainly after the shot. */
+  ...['replaced', 'replaces'].map((which) => ({ name: 'task-' + which + '-6923', owner: 'Angel', go: async (page, data) => {
+    const post = (path, body) => page.evaluate(([pth, b]) => fetch(pth, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })
+      .then(async (r) => ({ status: r.status, json: await r.json().catch(() => ({})) })), [path, body]);
+    const base = '/api/project/' + encodeURIComponent(data.projectId);
+    const add = async (sentence) => {
+      const made = await post(base + '/tasks', { sentence });
+      const n = made.status === 200 ? ((made.json.task && made.json.task.number) || made.json.number) : null;
+      if (typeof n !== 'number') throw new Error('could not add the task (' + made.status + ')');
+      return n;
+    };
+    const first = await add('Draft the onboarding email');
+    const second = await add('Draft the onboarding email, shorter, after review');
+    data.replacedPair = [first, second];
+    const closed = await post(base + '/task/' + first + '/close', { replacedBy: second });
+    if (closed.status !== 200) throw new Error('could not close it as replaced (' + closed.status + ')');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.evaluate(async (num) => { await pjReload(); openTaskPage(num); }, which === 'replaced' ? first : second);
+    await page.waitForSelector('#tk-state', { timeout: 8000 });
+  }, verify: async (page, data) => {
+    const [first, second] = data.replacedPair || [];
+    const t = await page.evaluate(() => (document.getElementById('tk-state') || {}).textContent || '');
+    const want = which === 'replaced' ? 'Replaced by task ' + second : 'Replaces task ' + first;
+    if (!t.includes(want)) throw new Error('the state line says: ' + JSON.stringify(t) + ', not ' + JSON.stringify(want));
+  }, after: async (page, data) => {
+    for (const num of data.replacedPair || []) {
+      await page.evaluate(([id, n]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + n + '/close', { method: 'POST' }), [data.projectId, num]);
+    }
+    data.replacedPair = null;
+  } })),
   /* #5053: one project's Tasks view, with its back chevron beside the title. The built-in seed's project name is long
      enough to wrap on a phone, so the shot shows the title wrapping beside the chevron (a store data set's may not). */
   { name: 'project-tasks', owner: 'PigeonPete', go: async (page, data) => {
