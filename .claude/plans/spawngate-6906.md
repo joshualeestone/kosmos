@@ -21,17 +21,23 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
   board's own engine (create.js now exports plistPath; workerDir was already exported), only a `verify2129-` name of
   the gate's own form is touched, and each path's last part must be that name. An older board without the export gets
   a warning naming the files, and nothing is guessed.
-- promote-channel.sh runs the gate through tools/queued-heavy.sh by default (a real turn in the machine's suite queue,
-  holding the machine claim, its exit code passed through), so it never starts beside a suite. An explicit
-  KOSMOS_PROMOTE_AGENT_GATE_CMD runs as given (the tests use one).
+- promote-channel.sh runs the gate through tools/queued-heavy.sh by default (KOSMOS_PROMOTE_AGENT_QUEUE overrides it),
+  so it never starts beside a suite. The verdict is taken only from the queue's "QUEUED-HEAVY ... END rc=<n>" line: the
+  queue exits 2, 3, 4 and 75 for its own reasons before the gate runs, so no END line (or rc 75, a stopped turn) is
+  cannot-tell, never PARTIAL and never a refusal (review 3 BLOCKER). test-staging-channel-2036.sh drives this with
+  stub queues. An explicit KOSMOS_PROMOTE_AGENT_GATE_CMD runs as given, unqueued.
+- After deleting a job file, the gate re-enables its launchd label (`launchctl enable`), since removal disabled it;
+  never in a sandboxed run (AGENT_WORKFORCE_LAUNCH set). It says "found no job file or worker folder" when there was
+  nothing to delete. A lost create is looked for three times, 5 s apart, and its files are deleted either way.
 - A 200 create is confirmed at once (before the name is parsed), and a board that answers with another name is
   cannot-tell, with only the name the gate asked for removed (review 2).
 - After an agent is online (two consecutive polls, unchanged), it is sent one message, and the arm passes only on a
   STORED reply: an entry `from` its session name with no `kind`, dated at or after the send (5 s of slack). The thread
   (`GET /api/agent/<name>/thread`, `{messages:[{at,text,from}]}`) also carries a `kind:"question"` row from the agent
   while it waits on a prompt (engine/chat.js withQuestionRow), which must never read as an answer (review 1).
-- An agent still waiting on a question that is not the trust prompt when the online window ends (a usage or rate limit
-  on a working board) is cannot-tell (2), no longer a refusal (review 1). No answer within KOSMOS_AGENT_REPLY_TIMEOUT (180 s) is cannot-tell (2,
+- An agent still waiting on a usage or rate limit when the online window ends (its `because` names a limit, quota,
+  credit or rate) is cannot-tell (2): the account, not the build. Any other first-run question stays a refusal (1),
+  since a build that brings in a new first-run prompt is the #2129 class (reviews 1 and 3). No answer within KOSMOS_AGENT_REPLY_TIMEOUT (180 s) is cannot-tell (2,
   forceable), never a refusal: a slow model or a spent quota must not block a good build unforceably.
 - Names are `verify2129-<claude|openai>-<epoch>-<pid mod 1000>`, at most 32 characters, unique per run. Found by running it for real: the board refuses
   a name over 32 ("keep it to 32 characters or fewer"), and the old `verify2129-<provider>-<epoch>-<pid>` was 31 to 37,
@@ -61,6 +67,8 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
 - KOSMOS_STAGING_VERIFY_ALLOW_LIVE and KOSMOS_AGENT_ONLINE_MAX_EXISTING no longer do anything.
 
 ## Not done here (follow-up)
+- The board keeps a Removed-list row for each removed agent and has no way to forget one, so every promote adds two
+  `verify2129-*` rows whose Restore cannot work. Filed as a follow-up card (a forget route the gate would call).
 - A gate agent is made like any agent, so on a board with the Community switch on its instructions carry the community
   block and may ask it to introduce itself. Its first message says to do nothing but reply, and it is removed within
   about a minute; there is no create-time way to leave the block out. Filed as a follow-up card.
@@ -70,5 +78,7 @@ At a promote the gate may now wait for the machine's suites to finish: up to the
 can start while it waits. Bounded, and the price of never redding someone's validation.
 
 ## Weakest premise
-That two agents created and removed on a working fleet board for about a minute disturb nobody. Each gets a home folder
-that the removal leaves on disk (verify2129-*), and creating an agent re-runs the board's setup steps for it.
+That two agents created and removed on a working fleet board for about a minute disturb nobody. Their files are
+deleted, but their profile, direct thread and Removed-list rows stay, and creating an agent re-runs the board's setup
+steps for it. Second: that the gate's process computes the same paths as the board (both use the same user and,
+at a promote, no KOSMOS_WORLD).

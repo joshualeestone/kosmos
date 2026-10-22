@@ -15,8 +15,8 @@
 #
 # kosmos#6906: THIS CREATES REAL AGENTS ON THE TARGET BOARD, one per provider, named
 # verify2129-<claude|openai>-<time> so they never collide with a person's agent, and REMOVES
-# them when it ends (DELETE /api/agent/<name>/removal, the board's own Remove agent; their
-# folders stay on disk, as that route leaves them), however it ends. So it runs on a populated
+# them when it ends (DELETE /api/agent/<name>/removal, the board's own Remove agent), then
+# deletes their launchd job file and worker folder, which that route keeps, however it ends. So it runs on a populated
 # board too: the boards releases are promoted from are fleet boards, and the old refusal there
 # meant this gate never ran at a promote. Each arm must also ANSWER a first message in its own
 # thread (an entry `from` its session name): online alone does not show an agent can take a turn.
@@ -28,7 +28,7 @@
 # shipping the Claude fix + the OpenAI-only gating.
 # Exit 0 both providers came ONLINE (state idle|working, confirmed on 2 consecutive polls) and answered a first message.
 #      1 DO-NOT-PROMOTE (proven bad build, non-forceable): the CLAUDE agent wedged at the trust
-#        prompt (#2129), appeared but never reached idle|working, hit auth_failed, or its create
+#        prompt (#2129) or another first-run question (anything but a usage or rate limit), stayed stopped, hit auth_failed, or its create
 #        was refused with a real provider sign-in failure. The #2129 Claude fix is not working.
 #      2 cannot-tell (HOLD, forceable after a hand check): no enforcing board (no board.token),
 #        a provider not signed in, a board whose agents cannot be counted, a non-numeric port, an
@@ -145,8 +145,9 @@ listed() {
 }
 # kosmos#6906: after its removal, delete one of THIS gate's throwaway agents' launchd job file and worker folder. The
 # board's Remove agent deletes nothing on disk (engine/remove.js: removal is reversible), and a job file left in
-# ~/Library/LaunchAgents is what a full validation's #3011 guard reads. The paths come from the board's own engine
-# (plistPath, workerDir), never from a copy of its rules, and only a name this gate makes is ever touched.
+# ~/Library/LaunchAgents is what a full validation's #3011 guard reads. The paths come from this machine's engine
+# rules (create.js plistPath and workerDir, in this process's environment, which a promote shares with the board),
+# never from a copy of them, and only a name this gate makes is ever touched.
 tidy_agent() {
   local nm="$1" paths plist dir
   case "$nm" in verify2129-claude-*|verify2129-openai-*) ;; *) return ;; esac
@@ -154,9 +155,18 @@ tidy_agent() {
   paths="$("$NODE" -e 'const c=require(process.argv[1]+"/create");if(typeof c.plistPath!=="function")process.exit(3);process.stdout.write(c.plistPath(process.argv[2])+"\n"+c.workerDir(process.argv[2]))' "$(dirname "$STORE")" "$nm" 2>/dev/null)" \
     || { say "WARNING: could not ask this board's engine where '$nm' keeps its files (an older board?): remove its com.kosmos.agent plist and worker folder by hand."; return; }
   plist="${paths%%$'\n'*}"; dir="${paths#*$'\n'}"
-  case "${plist##*/}" in "com.kosmos.agent.$nm"*.plist) [ -f "$plist" ] && rm -f "$plist" ;; esac
-  [ "${dir##*/}" = "$nm" ] && [ -d "$dir" ] && rm -rf "$dir"
-  if [ -e "$plist" ] || [ -e "$dir" ]; then say "WARNING: '$nm' left files behind: $plist $dir"; else say "deleted '$nm''s job file and worker folder."; fi
+  local had=""
+  case "${plist##*/}" in "com.kosmos.agent.$nm"*.plist) [ -f "$plist" ] && { had=1; rm -f "$plist"; } ;; esac
+  [ "${dir##*/}" = "$nm" ] && [ -d "$dir" ] && { had=1; rm -rf "$dir"; }
+  # Removal disabled the job's label in launchd (that is how it stays off); with the job file gone, drop that record too.
+  # Only for a real job file in the real LaunchAgents folder: `enable` writes launchd's own override database, which a
+  # sandboxed run (AGENT_WORKFORCE_LAUNCH set, as the tests do) must never touch.
+  if [ -n "$had" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] && command -v launchctl >/dev/null 2>&1; then
+    launchctl enable "gui/$(id -u)/$(basename "$plist" .plist)" >/dev/null 2>&1
+  fi
+  if [ -e "$plist" ] || [ -e "$dir" ]; then say "WARNING: '$nm' left files behind: $plist $dir"
+  elif [ -n "$had" ]; then say "deleted '$nm''s job file and worker folder."
+  else say "found no job file or worker folder for '$nm' (looked at $plist and $dir)."; fi
 }
 # kosmos#6906: remove one agent this check created, and say whether it is gone from /api/status.
 remove_agent() {
@@ -164,8 +174,14 @@ remove_agent() {
   # if-listed: a create whose answer never came (lost, timed out, interrupted) may or may not have made the agent, so
   # it is removed only when the board lists it. A create that answered 200 is removed whatever the list says.
   if [ "${2:-}" = if-listed ]; then
-    api_get /api/status
-    [ "$HTTP_CODE" = "200" ] && [ "$(listed "$nm")" = "yes" ] || return
+    local tries=0 seen=""
+    while [ "$tries" -lt 3 ]; do   # a board may still be bringing it up: ask again before giving up
+      api_get /api/status
+      [ "$HTTP_CODE" = "200" ] && [ "$(listed "$nm")" = "yes" ] && { seen=1; break; }
+      tries=$((tries + 1)); [ "$tries" -lt 3 ] && sleep 5
+    done
+    # Its files are deleted either way: only this run makes this name.
+    [ -n "$seen" ] || { tidy_agent "$nm"; return; }
   fi
   : > "$_BODYF"
   code="$("$CURL" -sS --max-time 60 -H @"$HF" -X DELETE -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/removal" 2>/dev/null || true)"
@@ -424,11 +440,17 @@ create_and_wait() {
     say "  [$prov] reached ${st:-online} but never on 2 consecutive polls within ${POLL_SECS}s (slow/flapping) - cannot tell (HOLD)."
     return 2
   fi
-  # kosmos#6906: still waiting on a NON-trust question at the end (a usage limit, a rate limit, an account prompt):
-  # on a working fleet board that is the account, not the build, so cannot-tell (forceable), never a refusal.
+  # kosmos#6906: still waiting on a question at the end. A usage or rate limit is the account on a working fleet board,
+  # not the build: cannot-tell (forceable).
+  # Only a usage or rate limit: any other first-run prompt a build brings in is the #2129 class itself (a refusal).
   if [ "$st" = "needs_you" ]; then
-    say "  [$prov] still waiting on a question that is not the trust prompt at ${POLL_SECS}s: '$because' - cannot tell (HOLD)."
-    return 2
+    case "$(printf '%s' "$because" | tr '[:upper:]' '[:lower:]')" in
+      *limit*|*quota*|*credit*|*"rate "*)
+        say "  [$prov] still waiting on a usage or rate limit at ${POLL_SECS}s: '$because' - the account, not the build: cannot tell (HOLD)."
+        return 2 ;;
+    esac
+    say "  [$prov] still waiting on a question that is not the trust prompt at ${POLL_SECS}s: '$because' - a first-run wedge: do not promote."
+    return 1
   fi
   # It appeared but NEVER reached idle/working (stuck 'stopped') - a real not-online, a do-not-promote.
   say "  [$prov] did NOT come online within ${POLL_SECS}s (last state='${st:-<none>}')"; return 1
