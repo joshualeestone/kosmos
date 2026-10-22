@@ -350,47 +350,40 @@ function fieldsOf(t, now = Date.now()) {
   return out;
 }
 
-/* kosmos#6894: the line a recorded run puts in the project room, or null for none. Only a run that CHANGED something is
-   relayed, so a task every 30 minutes does not fill the room: a run whose note is the new last change (not marked or
-   inferred unchanged, and not word for word the last change's note), or whose reading differs from the one before
-   (also a reading corrected by a duplicate inside the minute, review 1). `prev` is tasks.runBefore(after): the reading
-   and the last change's note as the run's own write saw them. Kosmos says it, in its own voice (messages.roomNote). The
-   route also holds each task to one line an hour (review 1: a note with a count in it is never "unchanged"). */
+/* kosmos#6894: what a recorded run puts in the project room, or null for nothing: { text, note, reading } (note and
+   reading are what the line says, '' for a part it does not), so the route can remember exactly what the room heard.
+   Only a run that CHANGED something is said, so a task every 30 minutes does not fill the room.
+   - Without `said` (the room has heard nothing of this task since the board started): the run's own change, as
+     recordRun saw it (`prev` is tasks.runBefore(after)): a note that is the new last change and not word for word the
+     last one, or a reading that differs from the one before (a duplicate's corrected reading too).
+   - With `said` ({ note, reading, pending }: what the room was last told, and the latest change note held back since by
+     the route's hour): measured against THAT, so a held change is said on the first run after the hour and "was" is a
+     reading the room saw. This side reads the task's state, not the single run, on purpose: it is catching the room up.
+   Kosmos says it, in its own voice (messages.roomNote). */
 const ROOM_SENTENCE_MAX = 120;
-/* Review 2: `said` (when given) is what the room was last told about this task, { reading, note }. The line is then
-   measured against THAT, not the run before: a change held back by the route's hour is said on the next run after it,
-   and "was" is always a reading the room saw. Without it (the first line, or after a restart), the run before. */
+function roomPlain(s, max) { return require('./agentnudge').plainWords(String(s == null ? '' : s).replace(/\p{Cf}/gu, ''), max); }
+function sameWords(a, b) { return String(a || '').replace(/\s+/g, ' ').trim() === String(b || '').replace(/\s+/g, ' ').trim(); }
 function roomRunLine(prev, after, said) {
   if (!after || !after.repeat || !after.lastRunAt) return null;
+  const nowReading = after.verified && typeof after.verified.value === 'string' ? after.verified.value : '';
+  let note = '';
+  let reading = '';
+  let was = '';
   if (said) {
-    const plainS = (s, max) => require('./agentnudge').plainWords(String(s == null ? '' : s).replace(/\p{Cf}/gu, ''), max);
-    const sameS = (a, b) => String(a || '').replace(/\s+/g, ' ').trim() === String(b || '').replace(/\s+/g, ' ').trim();
-    const nowR = after.verified && typeof after.verified.value === 'string' ? after.verified.value : '';
-    // A note held back by the hour is kept by the route (said.pending): a run with no note since then clears the task's.
-    const noteNow = (typeof after.lastChangeNote === 'string' && after.lastChangeNote) || (typeof said.pending === 'string' ? said.pending : '');
-    const rChanged = nowR !== '' && nowR !== (said.reading || '');
-    const nChanged = noteNow !== '' && !sameS(noteNow, said.note);
-    if (!rChanged && !nChanged) return null;
-    const headS = 'Task #' + after.number + ', "' + plainS(after.sentence || '', ROOM_SENTENCE_MAX) + '" (' + describe(after.repeat) + ')';
-    const partsS = [];
-    if (nChanged) partsS.push(plainS(noteNow, NOTE_MAX));
-    if (rChanged) partsS.push('reading ' + plainS(nowR, VALUE_MAX) + (said.reading ? ' (was ' + plainS(said.reading, VALUE_MAX) + ')' : ''));
-    return headS + ': ' + partsS.join('; ');
+    const latest = (typeof after.lastChangeNote === 'string' && after.lastChangeNote) || (typeof said.pending === 'string' ? said.pending : '');
+    if (latest && !sameWords(latest, said.note)) note = latest;
+    if (nowReading && nowReading !== (said.reading || '')) { reading = nowReading; was = said.reading || ''; }
+  } else {
+    const before = prev && typeof prev.verified === 'string' ? prev.verified : '';
+    if (nowReading && nowReading !== before && (after.duplicate || after.verified.at === after.lastRunAt)) { reading = nowReading; was = before; }
+    if (!after.duplicate && after.lastChangeAt === after.lastRunAt && typeof after.lastChangeNote === 'string' && after.lastChangeNote
+      && !sameWords(after.lastChangeNote, prev && prev.changeNote)) note = after.lastChangeNote;
   }
-  const plain = (s, max) => require('./agentnudge').plainWords(String(s == null ? '' : s).replace(/\p{Cf}/gu, ''), max);
-  const same = (a, b) => String(a || '').replace(/\s+/g, ' ').trim() === String(b || '').replace(/\s+/g, ' ').trim();
-  const was = prev && typeof prev.verified === 'string' ? prev.verified : '';
-  const now = after.verified && typeof after.verified.value === 'string' ? after.verified.value : '';
-  // A duplicate changes nothing but, at most, the reading (recordRun keeps a corrected one); a run's own reading is the one stamped at it.
-  const readingChanged = now !== '' && now !== was && (after.duplicate || after.verified.at === after.lastRunAt);
-  const noteChanged = !after.duplicate && after.lastChangeAt === after.lastRunAt && typeof after.lastChangeNote === 'string'
-    && after.lastChangeNote !== '' && !same(after.lastChangeNote, prev && prev.changeNote);
-  if (!noteChanged && !readingChanged) return null;
-  const head = 'Task #' + after.number + ', "' + plain(after.sentence || '', ROOM_SENTENCE_MAX) + '" (' + describe(after.repeat) + ')';
+  if (!note && !reading) return null;
   const parts = [];
-  if (noteChanged) parts.push(plain(after.lastChangeNote, NOTE_MAX));
-  if (readingChanged) parts.push('reading ' + plain(now, VALUE_MAX) + (was ? ' (was ' + plain(was, VALUE_MAX) + ')' : ''));
-  return head + ': ' + parts.join('; ');
+  if (note) parts.push(roomPlain(note, NOTE_MAX));
+  if (reading) parts.push('reading ' + roomPlain(reading, VALUE_MAX) + (was ? ' (was ' + roomPlain(was, VALUE_MAX) + ')' : ''));
+  return { text: 'Task #' + after.number + ', "' + roomPlain(after.sentence || '', ROOM_SENTENCE_MAX) + '" (' + describe(after.repeat) + '): ' + parts.join('; '), note, reading };
 }
 
-module.exports = { roomRunLine, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
+module.exports = { roomRunLine, sameWords, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };

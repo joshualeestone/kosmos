@@ -22780,21 +22780,30 @@ const server = http.createServer(async (req, res) => {
          look idle while the job runs. Unchanged runs and duplicates say nothing there. Best effort, as every room note. */
       if (taskRepeat[3] === 'ran' && task) {
         const key = id + '#' + task.number;
-        const said = ROOM_RUN_SAID.get(key) || null;
+        let said = ROOM_RUN_SAID.get(key) || null;
+        /* Review 3: what the room heard belongs to one rule. A changed or cleared rule (closing a task clears it) starts
+           the room's record of this task again, so an old rule's notes are never said, or used to silence, under a new one. */
+        if (said && said.ruleAt !== (task.repeatSetAt || '')) { ROOM_RUN_SAID.delete(key); said = null; }
         /* Review 1: one line per task an hour (in memory: a restart can let one more through). The task page has every run.
            Review 2: a clock stepped back counts as the hour passed, so it never mutes a task. */
         const age = said ? Date.now() - said.at : Infinity;
         if (age >= 0 && age < ROOM_RUN_EVERY_MS) {
-          // Held: a changed note is kept, so the first line after the hour says it even if a later run has no note.
-          const note = typeof task.lastChangeNote === 'string' ? task.lastChangeNote : '';
-          if (note && taskrepeat.roomRunLine(tasks.runBefore(task), task, said)) said.pending = note;
+          /* Held. Review 3: the held note follows the task's LATEST change note, and is cleared when that is what the room
+             already heard, so a problem that cleared within the hour is never said later as news. */
+          const latest = typeof task.lastChangeNote === 'string' ? task.lastChangeNote : '';
+          if (latest) {
+            if (taskrepeat.sameWords(latest, said.note)) delete said.pending; else said.pending = latest;
+          }
         } else {
           // Review 2: measured against what the room was last told, so a change held back by the hour is said now.
           const line = taskrepeat.roomRunLine(tasks.runBefore(task), task, said);
           if (line) {
-            ROOM_RUN_SAID.set(key, { at: Date.now(), reading: task.verified && typeof task.verified.value === 'string' ? task.verified.value : '',
-              note: typeof task.lastChangeNote === 'string' ? task.lastChangeNote : '' });
-            messages.roomNote(id, line);
+            /* Review 3: remember what the line SAID: its note (or the note the room already had), and the reading as it now
+               stands (the line says it when it changed; otherwise the room already had it). */
+            ROOM_RUN_SAID.set(key, { at: Date.now(), ruleAt: task.repeatSetAt || '',
+              reading: line.reading || (said ? said.reading : (task.verified && typeof task.verified.value === 'string' ? task.verified.value : '')),
+              note: line.note || (said ? said.note : '') });
+            messages.roomNote(id, line.text);
           }
         }
       }

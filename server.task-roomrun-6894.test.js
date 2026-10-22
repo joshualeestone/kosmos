@@ -148,6 +148,40 @@ test('#6894: review 1: a task is said in the room at most once an hour, however 
   assert.equal(roomNotes().length - c1, 1, 'a line stamped in the future does not hold the next one');
 });
 
+test('#6894: review 3: a held problem that cleared is not said later; a new rule starts fresh; a flushed note is not said twice', async () => {
+  _resetRoomRunSaidForTest();
+  const mona = { 'x-kosmos-agent-token': sendertoken.mint('mona').token };
+  const zed = { 'x-kosmos-agent-token': sendertoken.mint('zed').token };
+  const n = tasks.create(projectId, { sentence: 'Disk watch', who: 'mona' }).number;
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'hourly' }, mona)).status, 200);
+  const ran = async (body, who) => assert.equal((await post(`/api/project/${projectId}/task/${n}/ran`, body, who)).status, 200);
+  const c0 = roomNotes().length;
+  await ran({ note: 'all clear' }, mona);                 // said
+  await ran({ note: 'disk at 91 percent' }, zed);         // held
+  await ran({ note: 'all clear' }, mona);                 // held: back to what the room heard
+  await ran({}, zed);                                     // a run with no note clears the task's change note
+  _ageRoomRunSaidForTest(61 * 60 * 1000);
+  await ran({}, mona);
+  assert.deepEqual(roomNotes().slice(c0).length, 1, 'the cleared problem is never said as news');
+  // Flushed once, then the same note after a bare run is not said again.
+  await ran({ note: 'disk at 95 percent' }, zed);         // held
+  await ran({}, mona);                                    // clears the task's note
+  _ageRoomRunSaidForTest(61 * 60 * 1000);
+  await ran({}, zed);                                     // flush: says the held note
+  let notes = roomNotes().slice(c0);
+  assert.equal(notes.length, 2);
+  assert.match(notes[1], /: disk at 95 percent$/);
+  _ageRoomRunSaidForTest(61 * 60 * 1000);
+  await ran({ note: 'disk at 95 percent' }, mona);
+  assert.equal(roomNotes().slice(c0).length, 2, 'the note the room just heard is not said again');
+  // A new rule starts fresh: the old rule's note does not silence the same words under it.
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '09:00' }, mona)).status, 200);
+  await ran({ note: 'disk at 95 percent' }, zed);
+  notes = roomNotes().slice(c0);
+  assert.equal(notes.length, 3, 'under the new rule the note is news again');
+  assert.match(notes[2], /\(every day at 9am\): disk at 95 percent$/);
+});
+
 test('#6894: CONTROL: setting the rule or a one-off task says nothing in the room', async () => {
   const before = roomNotes().length;
   const n = tasks.create(projectId, { sentence: 'Daily summary', who: 'mona' }).number;
