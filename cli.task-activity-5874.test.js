@@ -176,3 +176,33 @@ test('#6947: both commands say whether the person has viewed the task, and wheth
   assert.match(await lastLine(win), /, before the latest message\.$/);
   assert.match(await lastLine(mac), /, before the latest message\.$/);
 });
+
+test('#6947: against an older board that sends no seenByPerson field, neither command prints a viewed line', async () => {
+  const http = require('node:http');
+  // An older board: every request passes through to the real one, and the activity answer loses the new field.
+  const old = http.createServer((req, res) => {
+    const up = http.request({ host: '127.0.0.1', port: server.address().port, path: req.url, method: req.method, headers: req.headers }, (r) => {
+      if (!/\/activity\?words=1$/.test(req.url)) { res.writeHead(r.statusCode, r.headers); r.pipe(res); return; }
+      let body = ''; r.on('data', (c) => { body += c; }); r.on('end', () => {
+        const d = JSON.parse(body); assert.ok('seenByPerson' in d, 'CONTROL: the real board sends the field'); delete d.seenByPerson;
+        res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(d));
+      });
+    });
+    up.on('error', () => { res.statusCode = 502; res.end(); });
+    req.pipe(up);
+  });
+  await new Promise((r) => old.listen(0, '127.0.0.1', r));
+  const oldBase = 'http://127.0.0.1:' + old.address().port;
+  try {
+    const w = await win(['task', 'activity', projectId, String(num)], oldBase);
+    assert.equal(w.code, 0, w.err);
+    assert.doesNotMatch(w.out, /The person (has not viewed|last viewed)/, 'Windows claimed a view state an older board did not give');
+    assert.deepEqual(WORDS(w.out), WANT, 'CONTROL: the conversation itself still printed');
+    const m = await mac(['task', 'activity', projectId, String(num)], old.address().port);
+    assert.equal(m.code, 0, m.out);
+    assert.doesNotMatch(m.out, /The person (has not viewed|last viewed)/, 'Mac claimed a view state an older board did not give');
+    assert.deepEqual(WORDS(m.out), WANT, 'CONTROL: the conversation itself still printed (Mac)');
+  } finally {
+    old.close();
+  }
+});
