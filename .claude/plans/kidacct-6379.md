@@ -5,17 +5,18 @@ the terms branch kidterms-6379 (chaoskosmos-site, waits for Kids launch).
 
 ## The change
 `tools/family-e2e-6239.js` makes the child's account at `parent-<run>+kid@example.com`, a plus-address of the parent's,
-instead of `kid-<run>@example.com`. That is the path the console now tells a parent to take: an account the parent
-makes for a child under 13, at an address the parent reads. The step's words say so.
+instead of `kid-<run>@example.com`. The console (kosmos-relay #554) tells a parent to make a child under 13's account
+at an address the parent reads; a plus-address of the parent's is one way to do that, and the one this proof uses.
 
 ## Measured
 - The board's address rule (`server.js` EMAIL_RULE, `^[^\s@]+@[^\s@]+\.[^\s@]+$`) and the coordinator's
   (`util.rs` looks_like_email: refuses only control and invisible characters) both accept a plus-address. The harness
   reads codes with `\S+`, which includes `+`.
-- Run on Agent1s 2026-10-21 22:22 (binaries from relay 48e97318 + #554): steps 1 to 4 PASS, including "the parent
-  makes the child's account through the web sign-up, at a plus-address of their own" and "K signs in as the child".
-- The run is red at step 4b, and so is a control with main's own unedited harness on the same binaries (00:27). That
-  red is already on main and is filed as kosmos#6887. Steps 7 to 11 (the child joining under the family's words) are
+- Run on Agent1s 2026-10-21 22:20 (log ~/.cache/claude-handoffs/baron-jobs/e2e-6379.log on Agent1s): debug binaries
+  built from kosmos-relay 602609433 (the head later gated and squash-merged as #554, 6f642327), kosmos e7b7a6046d with
+  this harness edit. Steps 1 to 4 PASS, including the child's account at the plus-address and "K signs in as the child".
+- That run is red at step 4b, and so is a control at 00:25 with main's own unedited harness on the same binaries (log
+  e2e-6379-control.log, same folder). That red is already on main and is filed as kosmos#6887. Steps 7 to 11 (the child joining under the family's words) are
   therefore not proven by either run.
 
 ## Weakest premise
