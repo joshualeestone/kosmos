@@ -5685,7 +5685,7 @@ cmd_task() {
         '{"task":'*) if [ -n "$_by" ]; then
             local _got; _got=$(printf '%s' "$body" | sed -n 's/.*"replacedBy":\([0-9][0-9]*\).*/\1/p')   # the board's own number
             # An older board ignores replacedBy and closes it as done: say so, never claim a link it did not record.
-            if [ -z "$_got" ]; then say "Closed task $num on ${project:-the project}, but this Kosmos did not record what replaced it (it is older than this command). It now reads as done."; exit 1; fi
+            if [ -z "$_got" ]; then say "Closed task $num on ${project:-the project}, but this Kosmos did not record what replaced it (it is older than this command). It now reads as done. To undo that: kosmos task reopen $project $num"; exit 1; fi
             say "Closed task $num on ${project:-the project} as replaced by task $_got."
           else say "Closed task $num on ${project:-the project}."; fi ;;
         '{"error":'*)

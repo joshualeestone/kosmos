@@ -22402,8 +22402,11 @@ const server = http.createServer(async (req, res) => {
         if (text.trim()) {
           try { body = JSON.parse(text); } catch { body = undefined; }
           // Anything but { replacedBy } (a misspelled key, a bare number, a list) is refused the same way, never taken as a plain close.
-          if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => k !== 'replacedBy')) {
+          if (!body || typeof body !== 'object' || Array.isArray(body)) {
             sendJson(res, 400, { error: 'we could not read that request, so the task was not closed' }); return;
+          }
+          if (Object.keys(body).some((k) => k !== 'replacedBy')) {
+            sendJson(res, 400, { error: 'a close takes only replacedBy (the number of the task that replaced it), so the task was not closed' }); return;
           }
         }
         act('', body && typeof body === 'object' ? body.replacedBy : undefined);
