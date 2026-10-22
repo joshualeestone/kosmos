@@ -2644,7 +2644,7 @@ class KosmosLauncher
         catch { /* the plain address, below, or NotConfirmed */ }
         // #1765: no address named, however the opener ended. On an enforcing board (its token on disk) nothing has
         // shown it is this account's board, so the window loads nothing rather than the plain address.
-        return TaskbarBadge.ReadBoardToken() != null ? NotConfirmed : plain;
+        return TaskbarBadge.BoardTokenOnDisk() ? NotConfirmed : plain;
     }
 
     // #1765: open-board.js's exit code when it refused to open anything (tools/kosmos-open-board.js sets
@@ -2781,6 +2781,15 @@ class KosmosLauncher
         return virtualKey == VirtualKeyF5 || virtualKey == VirtualKeyBrowserRefresh || (control && !alt && virtualKey == VirtualKeyR);
     }
 
+    // #6882: a board load that failed because nothing answered it (WebView2.h COREWEBVIEW2_WEB_ERROR_STATUS values:
+    // unreachable 6, timeout 7, connection reset 10, disconnected 11, cannot connect 12): what a board restarting
+    // looks like, and so worth one more try once it proves. Not an aborted load (9, which is also how a navigation
+    // that became a download ends), nor any other failure.
+    internal static bool CouldNotReachBoard(int webErrorStatus)
+    {
+        return webErrorStatus == 6 || webErrorStatus == 7 || webErrorStatus == 10 || webErrorStatus == 11 || webErrorStatus == 12;
+    }
+
     // #6882: a sign-in load, carrying a single-use ?boot= code (only the window navigates to one; the page never does).
     internal static bool IsSignInLoad(string uri)
     {
@@ -2845,7 +2854,7 @@ class KosmosLauncher
                 // Bounded: past the opener's own worst case (its wait, check and mint), the outcome is told as unknown.
                 if (!p.WaitForExit(OpenerBrowserWaitCapMs)) { try { p.Kill(); } catch { /* it ended meanwhile */ } unknown = true; }
                 // As the window reads it (ResolveBoardAddress): the refusal code, or any failure while a token is on disk.
-                else refused = p.ExitCode == OpenerRefusedExit || (p.ExitCode != 0 && TaskbarBadge.ReadBoardToken() != null);
+                else refused = p.ExitCode == OpenerRefusedExit || (p.ExitCode != 0 && TaskbarBadge.BoardTokenOnDisk());
             }
         }
         catch (Exception e) { opened = e.Message; }
@@ -3715,7 +3724,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         {
             string resolved = null;
             try { resolved = resolveBoardAddress(); } catch { /* the plain address, below */ }
-            if (resolved == null) resolved = TaskbarBadge.ReadBoardToken() != null ? KosmosLauncher.NotConfirmed : "http://127.0.0.1:" + port;   // #1765, as ResolveBoardAddress
+            if (resolved == null) resolved = TaskbarBadge.BoardTokenOnDisk() ? KosmosLauncher.NotConfirmed : "http://127.0.0.1:" + port;   // #1765, as ResolveBoardAddress
             try { BeginInvoke(new Action(() => BoardAddressResolved(resolved))); }
             catch { /* the window closed before the board answered */ }
         });
@@ -3805,10 +3814,9 @@ class BoardWindowForm : System.Windows.Forms.Form
                     signingInAgain = false;
                     if (mode == KosmosLauncher.ComputerMode.Connect) return;
                     // #6882: the window showed why it is not showing the board while this ran, or moved on to another
-                    // visit. A sign-in that came back signed in (the opener proved the board just now) is still wanted,
-                    // the person's or the page's: it is loaded as a fresh first load, on the page it keeps, and its
-                    // navigation is checked again (OnNavigationStarting). Otherwise a double-click that came meanwhile
-                    // starts over now.
+                    // visit. A sign-in that came back signed in is still wanted, the person's or the page's: it is
+                    // loaded as a fresh visit, on the page it keeps, once the board proves again (CheckNavigationAgain).
+                    // Otherwise a double-click that came meanwhile starts over now.
                     if (boardNotConfirmed || visit != boardVisit)
                     {
                         if (boardNotConfirmed && fresh != null && fresh.Contains("?boot=") && webView != null)
@@ -3818,7 +3826,12 @@ class BoardWindowForm : System.Windows.Forms.Form
                             recheckRefused = false;
                             navigatedToBoard = false;
                             boardAddress = KosmosLauncher.WithModeQuery(KosmosLauncher.SignInAgainAddress(fresh, keepPage, port), mode);
-                            NavigateToBoard();
+                            // The opener's proof may be older than the failed check: prove again, then load (its code
+                            // is not spent yet, as nothing has loaded it).
+                            navigatedToBoard = true;
+                            boardVisit++;
+                            watchNoAnswers = 0;
+                            CheckNavigationAgain(boardAddress);
                         }
                         else if (startOverWanted && boardNotConfirmed) { startOverWanted = false; SignInAgain(); }
                         return;
@@ -4090,7 +4103,7 @@ class BoardWindowForm : System.Windows.Forms.Form
             // began; WebView2 counts its own Navigate as user-initiated), and only a committed Kosmos Plus
             // SITE page may send the window to another site by script.
             KosmosLauncher.ConnectLink decided = KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0 && redirected == 0, KosmosLauncher.IsKosmosPlusSiteAddress(committedPage), runsBoard ? port : 0);
-            if (decided == KosmosLauncher.ConnectLink.InApp) { connectInWindow[navId] = uri; return; }
+            if (decided == KosmosLauncher.ConnectLink.InApp) { connectInWindow[navId] = uri; if (!KosmosLauncher.IsBoardAddress(uri, port)) navigationWaiting = null; return; }   // #6882: a page the person moved on to replaces a board navigation waiting for its check
             if (decided == KosmosLauncher.ConnectLink.Block && connectLoadPending && connectLoadNavKnown && navId == connectLoadNavId) connectLoadRefused = true;
             args.put_Cancel(1);
             if (decided == KosmosLauncher.ConnectLink.Browser) BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri, true)));
@@ -4169,7 +4182,8 @@ class BoardWindowForm : System.Windows.Forms.Form
                 // Once per visit, the load is tried again after the board proves (CheckNavigationAgain: it waits out a
                 // board restarting, then loads, or shows why). A load that fails again is only checked: it shows why if
                 // the board does not prove, and otherwise stays on WebView2's error page, whose retry is checked too.
-                if (failedLoadRetriedVisit != boardVisit && navigatedToBoard && !boardNotConfirmed && !KosmosLauncher.IsSignInLoad(failedLoad))
+                if (failedLoadRetriedVisit != boardVisit && navigatedToBoard && !boardNotConfirmed && !KosmosLauncher.IsSignInLoad(failedLoad)
+                    && KosmosLauncher.CouldNotReachBoard(failure))
                 {
                     failedLoadRetriedVisit = boardVisit;
                     string again = failedLoad;
@@ -5241,6 +5255,15 @@ static class TaskbarBadge
     // (EACCES, EBUSY while antivirus holds it, a folder in its place) is an enforcing board this process cannot
     // prove right now: the board window's ReuseCheck.TokenUnreadable (KosmosLauncher.CheckBoardBeforeReuse).
     internal enum TokenOnDisk { None, Unreadable, Read }
+
+    // #6882: whether the board enforces a token: board.token is there, readable or not. The window's fallbacks read it
+    // so (ResolveBoardAddress, its background caller, the browser fallback), as tools/kosmos-open-board.js does since
+    // #6464: a token that cannot be read proves nothing, so nothing is opened.
+    internal static bool BoardTokenOnDisk()
+    {
+        string token;
+        return ReadBoardTokenState(out token) != TokenOnDisk.None;
+    }
 
     internal static TokenOnDisk ReadBoardTokenState(out string token)
     {
