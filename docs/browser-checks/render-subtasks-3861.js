@@ -1,4 +1,4 @@
-// Browser-check-surface: panel-tasks tsk-groups pj-tasklist tk-subs tk-subadd tk-partof nt-parent
+// Browser-check-surface: panel-tasks tsk-groups pj-tasklist tk-subs tk-subadd tk-partof nt-parent tk-subs-built tk-subs-closeall
 'use strict';
 /**
  * Subtasks on the screen (#3861 part 2; part 1, the data, is #3873).
@@ -213,6 +213,93 @@ function chk(ok, label, extra) {
       await page.evaluate((id) => { const s = document.getElementById('nt-proj'); s.value = id; s.dispatchEvent(new Event('change')); }, other.id);
       const sw = await page.evaluate(() => ({ v: document.getElementById('nt-parent').value, first: (document.getElementById('nt-parent').options[1] || {}).textContent }));
       chk(sw.v === '' && /^#3 Send the test$/.test(sw.first || ''), '[new task] switching project in the dialog drops the Part of pick and lists the new project\'s tasks', JSON.stringify(sw));
+      await page.close();
+    }
+    /* kosmos#6501: every subtask built or closed, so the parent's page offers "Close them and this task". One press
+       closes the built subtasks and then the parent; a refusal stops it there, names the task, and leaves the parent
+       open. A fresh project per run: 1 the parent, 2, 3 and 5 built, 4 already closed. */
+    for (const width of [1400, 390]) {
+      const tag = `[rollup ${width}]`;
+      const roll = projects.create({ name: 'Roll-up ' + width });
+      projects.addAgent(roll.id, 'ada', null);
+      tasks.create(roll.id, { sentence: 'Ship the brochure' });
+      for (const s of ['Draft the copy', 'Lay out the pages', 'Old proof', 'Print the cover']) tasks.create(roll.id, { sentence: s, parent: 1, who: 'ada' });
+      for (const n of [2, 3, 5]) tasks.setBuilt(roll.id, n, { by: 'ada' });
+      tasks.close(roll.id, 4);
+      const read = (n) => projects.readAll().find((p) => p.id === roll.id).tasks.find((t) => t.number === n);
+      const closed = () => JSON.stringify([1, 2, 3, 4, 5].map((n) => (read(n).closedAt ? n : 0)).filter(Boolean));
+      const page = await browser.newPage({ viewport: { width, height: 1000 } });
+      const errs = [];
+      page.on('pageerror', (e) => errs.push(e.message));
+      await page.goto(URL, { waitUntil: 'networkidle' });
+      await clearFirstRun(page);
+      const openParent = async () => {
+        await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); openTaskPage(1); }, roll.id);
+        await page.waitForFunction(() => !document.getElementById('tk-subs-built').hidden, null, { timeout: 8000 }).catch(() => {});
+      };
+      await openParent();
+      const line = await page.evaluate(() => ({
+        shown: !document.getElementById('tk-subs-built').hidden, text: document.getElementById('tk-subs-built').textContent,
+        allDone: !document.getElementById('tk-subs-done').hidden }));
+      chk(line.shown && !line.allDone && /Close them and this task$/.test(line.text), `${tag} every subtask built or closed: the line offers Close them and this task`, JSON.stringify(line));
+
+      // The refusal arm: 3's close is refused after 2 closed, so it stops there: 5 is never asked, the parent stays open,
+      // and the line names 3 and counts what it already closed (review 3).
+      await page.route('**/task/3/close', (r) => r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'that task cannot be closed right now' }) }));
+      await page.click('#tk-subs-closeall');
+      await page.waitForFunction(() => /^Task #3: /.test(document.getElementById('tk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+      const refusedMsg = await page.evaluate(() => document.getElementById('tk-msg').textContent);
+      chk(refusedMsg === 'Task #3: that task cannot be closed right now. 1 subtask before it is closed. This task is still open.', `${tag} a refusal names the task, counts what closed before it, and says the parent is still open`, refusedMsg);
+      chk(closed() === JSON.stringify([2, 4]), `${tag} it stopped at the refusal: 2 closed; 3, the later 5 and the parent open`, closed());
+      await page.unroute('**/task/3/close');
+
+      // Review 2: a request that never answers (aborted) on 5: 3 closes, 5 and the parent stay open, and the line says it could not finish.
+      await openParent();
+      await page.route('**/task/5/close', (r) => r.abort('connectionreset'));
+      await page.click('#tk-subs-closeall');
+      await page.waitForFunction(() => /^We could not finish/.test(document.getElementById('tk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+      const threwMsg = await page.evaluate(() => document.getElementById('tk-msg').textContent);
+      chk(threwMsg === 'We could not finish closing them. The list below shows where it stopped.', `${tag} a request with no answer says it could not finish`, threwMsg);
+      chk(closed() === JSON.stringify([2, 3, 4]), `${tag} it stopped where the request failed: 3 closed, 5 and the parent open`, closed());
+      await page.unroute('**/task/5/close');
+
+      // Review 4: the person opens another task while the press runs; the refusal that arrives later is not written on that page.
+      await openParent();
+      await page.route('**/task/5/close', async (r) => {
+        try {   // #6022: a page closed before the delayed answer must not crash the check at teardown
+          await new Promise((res) => setTimeout(res, 1500));
+          await r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'that task cannot be closed right now' }) });
+        } catch { /* the page went away first */ }
+      });
+      // Review 5: wait for the refusal itself and for the press to finish, so the check reads after it, never before.
+      const refused = page.waitForResponse((resp) => /\/task\/5\/close$/.test(resp.url()), { timeout: 15000 });
+      await page.click('#tk-subs-closeall');
+      await page.evaluate(() => openTaskPage(2));
+      await refused;
+      await page.waitForFunction(() => !document.getElementById('tk-subs-closeall').disabled, null, { timeout: 15000 });
+      const away = await page.evaluate(() => ({ open: TK_OPEN, msg: document.getElementById('tk-msg').textContent }));
+      chk(away.open === 2 && away.msg === '', `${tag} a refusal that arrives after the person opened another task is not written there`, JSON.stringify(away));
+      chk(closed() === JSON.stringify([2, 3, 4]), `${tag} and nothing more closed`, closed());
+      await page.unroute('**/task/5/close');
+
+      // The press, pressed twice in a row (review 2): what is left (5) closes, then the parent, each asked once; the closed
+      // subtasks are never asked again.
+      await openParent();
+      const asked = [];
+      const count = (req) => { const m = /\/task\/(\d+)\/close$/.exec(req.url()); if (m && req.method() === 'POST') asked.push(Number(m[1])); };
+      page.on('request', count);
+      await page.dblclick('#tk-subs-closeall');
+      await page.waitForFunction(() => document.getElementById('tk-subs-built').hidden, null, { timeout: 8000 });   // a timeout here is the failure, not a later count
+      await page.waitForTimeout(500);
+      page.off('request', count);
+      chk(JSON.stringify(asked) === JSON.stringify([5, 1]), `${tag} a double press asks each close once: 5, then the parent`, JSON.stringify(asked));
+      chk(closed() === JSON.stringify([1, 2, 3, 4, 5]), `${tag} one press closed the built subtasks and then the parent`, closed());
+      await page.waitForFunction(() => !document.getElementById('tk-subs-closeall').disabled, null, { timeout: 8000 });
+      const focused = await page.evaluate(() => document.activeElement && document.activeElement.id);
+      chk(focused === 'tk-back', `${tag} focus moves to the top of the page (not Reopen) once the line is gone`, String(focused));
+      chk(await page.evaluate(() => document.getElementById('tk-msg').textContent) === '', `${tag} no message after it succeeded`);
+      if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'subtasks-rollup-' + width + '.png'), fullPage: false });
+      chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
       await page.close();
     }
   } finally {

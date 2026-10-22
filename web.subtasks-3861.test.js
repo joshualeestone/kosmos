@@ -146,8 +146,13 @@ test('kosmos#5956: the task page marks a built subtask Built and says when every
     { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
   assert.match(els['tk-subs'].innerHTML, /data-sub="2">[\s\S]*?<span class="tksub-s">Built<\/span>/);
   assert.equal(els['tk-subs-built'].hidden, false);
-  assert.match(PAGE_HTML_5956, /<p class="dhint tksubs-done" id="tk-subs-built" hidden>All subtasks are built\. Check each one and close it, then close this task\.<\/p>/);
+  assert.match(PAGE_HTML_5956, /<p class="dhint tksubs-done" id="tk-subs-built" hidden><span>All subtasks are built\. Check each one first\.<\/span><button class="linkish" type="button" id="tk-subs-closeall">Close them and this task<\/button><\/p>/);   // kosmos#6501
   assert.equal(els['tk-subs-done'].hidden, true, 'not every subtask is closed');
+  // kosmos#6501 review 1: the roll-up's press is live again only after the reload, so a second press reads the new state.
+  const rollup = PAGE_HTML_5956.slice(PAGE_HTML_5956.indexOf("getElementById('tk-subs-closeall').addEventListener"));
+  const handler = rollup.slice(0, rollup.indexOf('\n});\n'));
+  assert.ok(handler.indexOf('await pjReload()') > 0 && handler.indexOf('btn.disabled = false') > handler.indexOf('await pjReload()'),
+    'the roll-up press must be re-enabled only after the reload');
   project.tasks[1].builtAt = undefined;
   new Function('document', 'esc', 'p', 't', page.liftAll(SCRIPT, ['tkPaintSubtasks']) + '\n; tkPaintSubtasks(p, t, false);')(
     { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
