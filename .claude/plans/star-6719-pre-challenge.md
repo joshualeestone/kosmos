@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: star-6719
-diff_hash: b8c6cc771208ff1c5b4044ee4c029d6d6066598850f1ca1e205546ad8b82a59c
+diff_hash: 8a573d3388419863d641300a4a3b637aeeede5f7806b684c279e0a57fdaf66ce
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-22T04:03:01Z
+timestamp: 2026-10-22T10:33:23Z
 iterations: 16
 converged: true
 ---
@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 16, blind; 1 to 12 recorded in their commits and the plan, 13 to 16 alternating opus and sonnet
 **Converged:** Yes (iteration 16, sonnet: NO NEW ISSUES)
-**Validation:** full validation passed on this diff (node 23051 tests, 22738 pass, 0 fail, 313 skipped; shell 270 of 270; hash b8c6cc771208)
+**Validation:** full validation passed on this diff (node 23230 tests, 22917 pass, 0 fail, 313 skipped; shell 280 of 280; hash 8a573d338841), after main was merged in and the three checks below were fixed
 **Browser-check gates:** the twelve checks that cover the change ran on ccb0fc0ad3, all passed, trailers in cadece5a18
 
 ### Per-Iteration Breakdown
@@ -41,3 +41,7 @@ converged: true
 ### After iteration 16
 - Rebased onto main after #6797 (README conflict, kept both rows); 86 related unit tests pass.
 - Validation found a hand-built card in web.star-load-6719.test.js; it now uses a real fleet card (fixture-discipline).
+- PR #6881's CI found three checks the change broke that its covering list had missed. render-agent-lines now reads the name's dim on the name (the star keeps its contrast); render-home-phone-718 no longer counts the out-of-flow star as a card line (5a82cf97bd).
+- render-help-tips-3574 T5: the star takes the place beside a board ring (measured at 1280x860: ring 130-212 x 211-293, a 300px card there covers the star at 276-312 x 193-229), so the check's stand-in tip sits flat. T5 now asserts the tip is off its ring and off every control, the star included (f768563474). Arms: passes on the branch (122 passed); fails on a mutant where the star is not a control to a tip (the card lands on the star). No real tip points at a board ring.
+- Every browser check ran on the branch before these fixes: only render-avatar-4038 (fixed on main by #6885, merged in at c97b339cee) and T5 were red.
+- These fixes were not put through another blind review round; they are check changes, each proven against a failing arm.
