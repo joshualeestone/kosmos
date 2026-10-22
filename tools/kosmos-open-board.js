@@ -22,8 +22,9 @@
  *      `_bt` non-empty);
  *   3. POST /api/board-nonce to mint a SINGLE-USE, short-TTL nonce, and open
  *      `<url>/?boot=<nonce>` (cmd_open: same);
- *   4. on a non-enforcing board, or any failure, open the PLAIN url unchanged
- *      (cmd_open falls back the same way).
+ *   4. on a non-enforcing board, open the PLAIN url unchanged. On an enforcing
+ *      board a failed mint opens nothing (kosmos#6464; cmd_open still falls back
+ *      to the plain url when the board answers without a nonce).
  *
  * WHY A NONCE, NOT THE TOKEN, ON THE URL: #1979 deliberately removed the durable
  * token from the browser argv (macOS `ps` exposes argv cross-account; the durable
@@ -58,8 +59,9 @@
  * behavior, never a crash with no url. EXCEPT ON AN ENFORCING BOARD (#1765, a
  * token on disk), where nothing is opened and no address is printed (exit
  * OPENER_REFUSED_EXIT) when: a listener cannot prove it holds this account's
- * token (see boardProven below), nothing answers within the wait, or the helper
- * fails before it could check (main's catch).
+ * token (see boardProven below), the mint fails right after a passing proof
+ * (kosmos#6464), nothing answers within the wait, or the helper fails before it
+ * could check (main's catch).
  */
 
 const path = require('path');
@@ -140,6 +142,9 @@ async function mintNonce(url, token) {
       // Bound the mint too (a board that accepts but never answers must not hang
       // the launcher); mirrors cmd_open's `-m 15` on the mint.
       signal: AbortSignal.timeout(MINT_TIMEOUT_MS),
+      // kosmos#6464: the board never redirects the mint, and fetch would carry the board token to wherever a
+      // listener pointed it, past the proof. Refused (a failed mint), never followed.
+      redirect: 'error',
     });
     if (!r || !r.ok) return '';
     const body = await r.json();
@@ -208,10 +213,14 @@ async function resolveOpenUrl({ appDir, port, timeoutMs, proveBoard }) {
     process.stderr.write('kosmos-open-board: ' + refusalWords(url, proof) + '\n');
     return null;
   }
+  /* kosmos#6464: the proof covers this one mint, sent straight after it, and nothing later: the mint is never tried
+   * again here (a retry would need a proof of its own). A mint that fails right after a passing proof means the
+   * listener changed or misbehaved between the two, so nothing is opened: the plain address would hand whatever
+   * answers there the sign-in cookie, as a failed proof would. Opening Kosmos again proves afresh. */
   const nonce = await mintNonce(url, token);
   if (!nonce) {
-    process.stderr.write('kosmos-open-board: could not mint a boot nonce; opening the plain url (may 403 on an enforcing board)\n');
-    return url;
+    process.stderr.write('kosmos-open-board: Kosmos showed it is your Kosmos but then did not sign this window in, so nothing was opened. Try again in a minute.\n');
+    return null;
   }
   return `${url}/?boot=${nonce}`;
 }

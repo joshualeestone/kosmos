@@ -72,6 +72,10 @@ const POST_TIMEOUT_MS = 120000;
    KOSMOS_PROOF_MIN_S and KOSMOS_PROOF_MAX_S); the request then gets what is left. */
 const PROOF_MIN_MS = 500;
 const PROOF_MAX_MS = 15000;
+/* kosmos#6464: the headers a token rides in (the board token, the agent token), and the reason call() gives when a
+   request carrying a secret in its body has neither to prove the listener with. */
+const TOKEN_HEADER_NAMES = ['x-kosmos-board-token', 'x-kosmos-agent-token'];
+const NO_TOKEN_TO_PROVE = 'no token to prove with';
 // #4580: the pause before the one retry of a send whose reply was cut; KOSMOS_RETRY_PAUSE_MS (the injected env) is the test seam.
 function retryPauseMs(env) { const v = (env && env.KOSMOS_RETRY_PAUSE_MS) || ''; return /^\d+$/.test(v) ? Number(v) : 1000; }
 
@@ -2301,8 +2305,10 @@ async function verbConnect(ctx, args) {
   if (!piped.ended) { ctx.err('Nothing was sent: the token on stdin stopped arriving without ending, so it may be cut short.'); return 2; }
   const route = svc === 'cloudflare' ? '/api/cloudflare/token' : '/api/svc/' + svc + '/token';
   const shown = svc === 'cloudflare' ? 'Cloudflare' : svc;
-  const r = await ctx.call('POST', route, { token }, { agent: false, timeoutMs: CONNECT_TIMEOUT_MS });
+  // kosmos#6464: `secret`: the body carries the service key, so it is never sent without a token to prove with.
+  const r = await ctx.call('POST', route, { token }, { agent: false, timeoutMs: CONNECT_TIMEOUT_MS, secret: true });
   if (!r.reached) {
+    if (r.notProven) return ctx.unreachable('connect ' + shown);   // the check said why; nothing was sent
     if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have connected; check with: kosmos connections');
     ctx.err('We could not reach Kosmos, so nothing was connected. Is it running at ' + ctx.url + '?');
     return 1;
@@ -2478,12 +2484,13 @@ async function main(argv, io) {
 
   /* #1765: a token goes only to a listener that has proved it already holds that token (engine/boardproof.js: an
      HMAC over a fresh random nonce, checked here with our own copy). Every account on a Windows computer uses the
-     same board port, so whatever answers there is not always this account's board. A proof that passed is kept for
-     the rest of this process, per token; one that failed is asked again next time, with a new nonce.
+     same board port, so whatever answers there is not always this account's board. kosmos#6464: the check runs
+     before EVERY request, never kept for the process: a proof is about the listener at that moment, and the board
+     can restart, or another process take its port, between one request and the next (a retry after a request that
+     did not complete is exactly that moment). Each check uses a new nonce, as install/kosmos does on every call.
      `o.proveBoard` is the test seam: a function (url, token, timeoutMs) resolving a boolean or { ok, why }. With no
      seam the real check runs, unless the caller handed in its own `fetch` or `hook`: that is a test standing in for
      the board or its token, and production (the entry at the bottom of this file) passes neither. */
-  const proved = new Map();
   const seamed = typeof o.proveBoard === 'function';
   const checking = seamed || !(o.fetch || o.hook);
   async function provenFor(headers, boundMs) {
@@ -2494,10 +2501,7 @@ async function main(argv, io) {
     const t = boardproof.tokenIn(headers);
     if (t === '') return { ok: true };   // no token: nothing to protect
     if (t === null) return { ok: false, why: 'headers unreadable', nothingThere: false };
-    if (proved.get(t) === true) return { ok: true };
-    const r = await boardproof.checkBoard(url, t, { timeoutMs: Math.min(PROOF_MAX_MS, Math.max(PROOF_MIN_MS, Math.floor(boundMs / 2))), prove: seamed ? o.proveBoard : undefined });
-    if (r.ok) proved.set(t, true);
-    return r;
+    return boardproof.checkBoard(url, t, { timeoutMs: Math.min(PROOF_MAX_MS, Math.max(PROOF_MIN_MS, Math.floor(boundMs / 2))), prove: seamed ? o.proveBoard : undefined });
   }
 
   async function call(method, route, body, opts) {
@@ -2508,6 +2512,14 @@ async function main(argv, io) {
     const headers = headersFor(c.agent !== false, c.person === true);
     const bound = c.timeoutMs || REQUEST_TIMEOUT_MS;
     const started = Date.now();
+    /* kosmos#6464: a request whose BODY carries a secret (connect's service key, `secret: true`) needs a token in its
+       headers to prove the listener with. With none (board.token missing or unreadable, and no agent token sent)
+       there is nothing to prove with, so it is refused rather than sent unproven. Read from the headers themselves,
+       whatever the test seams say. */
+    if (c.secret === true && !TOKEN_HEADER_NAMES.some((n) => headers[n])) {
+      lastNotProven = NO_TOKEN_TO_PROVE;
+      return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true };
+    }
     const p = await provenFor(headers, bound);
     if (!p.ok) {
       /* Nothing was sent, so every verb reads this as a refused connection (never "it may have happened", never a
@@ -2524,6 +2536,9 @@ async function main(argv, io) {
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(left),
+        // kosmos#6464: the board never redirects an /api/ request, and fetch would carry these tokens (and the body)
+        // to wherever a listener pointed it, past the proof above. Refused, never followed.
+        redirect: 'error',
       });
       const text = await res.text();
       let json = null;
@@ -2605,7 +2620,8 @@ async function main(argv, io) {
       /* No "try again": this is also the timeout path of writes (a task, a project, a report), where the
          board may already have acted, so a retry could make a duplicate. */
       /* #1765: the check before the send did not pass, so nothing was sent. */
-      if (lastNotProven === 'out of time') err('Kosmos took the whole time we had to check it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
+      if (lastNotProven === NO_TOKEN_TO_PROVE) err('This computer could not read its Kosmos board token, so it cannot check that Kosmos is what answers, and we did not ' + what + ': nothing was sent. Restarting Kosmos usually fixes this; if it does not, reinstalling does.');
+      else if (lastNotProven === 'out of time') err('Kosmos took the whole time we had to check it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
       else if (/^(the check (could not load|failed)|headers unreadable)/.test(lastNotProven)) err('This computer could not check it was reaching your Kosmos (' + lastNotProven + '), so we did not ' + what + ' and sent nothing.');
       else if (lastNotProven === 'timed out') err('Kosmos did not answer in time when we checked it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
       else if (lastNotProven) err('Whatever is answering at ' + url + ' could not show it is your Kosmos, so we did not ' + what + ' and sent it nothing. If Kosmos is restarting, try again in a minute.');

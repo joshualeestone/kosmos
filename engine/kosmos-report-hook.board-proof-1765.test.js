@@ -168,8 +168,77 @@ test('#1765: no production caller hands main a fetch of its own (which would sta
   assert.match(src('kosmos-report-hook.js'), /const run = \(input\) => main\(\{ input \}\)/);
   // The Codex supervisor's idle report: the event, its env and a quiet stdout, nothing else.
   assert.match(src('win32codexsup.js'), /require\('\.\/kosmos-report-hook'\)\s*\.main\(\{ input: JSON\.stringify\(\{ hook_event_name: 'Stop' \}\), env, stdout: \(\) => \{\} \}\)\)/);
-  // Nothing else outside the tests calls main.
-  const callers = fs.readdirSync(__dirname).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
-    .filter((f) => /kosmos-report-hook['"]\)\s*\.main\(/.test(src(f)));
-  assert.deepEqual(callers, ['win32codexsup.js']);
+  // Nothing else outside the tests calls main, anywhere in the repo (kosmos#6464: not only engine/*.js).
+  assert.deepEqual(reportHookMainCallers(), ['engine/win32codexsup.js']);
+});
+
+/* kosmos#6464: every non-test script in the repo (.js, .cjs, .mjs; node_modules, .git and the tests skipped), by its
+   path from the repo root with forward slashes. */
+const REPO_ROOT = path.join(__dirname, '..');
+const SKIP_DIRS = new Set(['node_modules', '.git']);
+function repoScripts(dir = REPO_ROOT, out = []) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) repoScripts(path.join(dir, e.name), out); continue; }
+    if (!/\.(c|m)?js$/.test(e.name) || /\.test\.(c|m)?js$/.test(e.name)) continue;
+    out.push(path.relative(REPO_ROOT, path.join(dir, e.name)).split(path.sep).join('/'));
+  }
+  return out;
+}
+/* The scripts that call the report hook's main, in either shape: chained on the require (require('...kosmos-report-
+   hook').main(...)), or through a name the require was given (const h = require(path.join(dir, 'kosmos-report-hook.js'));
+   h.main(...)). A file is read once and only when it names the hook. */
+function callsMainOf(text, moduleName) {
+  const at = new RegExp(moduleName.replace(/[-.]/g, '\\$&') + '(\\.js)?[\'"]', 'g');
+  for (const m of text.matchAll(at)) {
+    const lineStart = text.lastIndexOf('\n', m.index) + 1;
+    const lineEnd = text.indexOf('\n', m.index);
+    const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
+    if (!/\brequire\s*\(/.test(line)) continue;
+    if (/^\s*\)*\s*\.main\s*\(/.test(text.slice(m.index + m[0].length))) return true;   // chained on the require
+    const named = line.match(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/);
+    if (named && new RegExp('(^|[^\\w$.])' + named[1].replace(/\$/g, '\\$&') + '\\s*\\.main\\s*\\(').test(text)) return true;
+  }
+  return false;
+}
+function reportHookMainCallers() {
+  return repoScripts().filter((f) => f !== 'engine/kosmos-report-hook.js')
+    .filter((f) => { const t = fs.readFileSync(path.join(REPO_ROOT, f), 'utf8'); return t.includes('kosmos-report-hook') && callsMainOf(t, 'kosmos-report-hook'); })
+    .sort();
+}
+
+test('kosmos#6464: the caller pin finds a caller outside engine/, in either shape, and finds none in a file that only names the hook', () => {
+  // Fixtures for the matcher itself: a chained call, a named call through path.join, and a mention that calls nothing.
+  assert.equal(callsMainOf("require('../engine/kosmos-report-hook').main({ input })", 'kosmos-report-hook'), true);
+  assert.equal(callsMainOf("const hook = o.hook || require(path.join(engineDir(), 'kosmos-report-hook.js'));\nawait hook.main({ input, fetchImpl });", 'kosmos-report-hook'), true);
+  assert.equal(callsMainOf("const hook = o.hook || require(path.join(engineDir(), 'kosmos-report-hook.js'));\nhook.resolveUrl(env);", 'kosmos-report-hook'), false);
+  assert.equal(callsMainOf("// see engine/kosmos-report-hook.js main()", 'kosmos-report-hook'), false);
+  // And the walk reaches beyond engine/: the CLI under tools/windows is found among the scripts it reads.
+  assert.ok(repoScripts().includes('tools/windows/kosmos-cli.js'), 'the walk does not reach tools/windows');
+  assert.ok(repoScripts().includes('bin/agy-report-bridge.js'), 'the walk does not reach bin/');
+});
+
+test('kosmos#6464: no production script passes the Windows kosmos command a fetch, hook or seam of its own', () => {
+  // The CLI's main(argv, io) skips the check when io carries fetch or hook (a test). Only its own entry calls main.
+  const callers = repoScripts().filter((f) => f !== 'tools/windows/kosmos-cli.js')
+    .filter((f) => { const t = fs.readFileSync(path.join(REPO_ROOT, f), 'utf8'); return t.includes('kosmos-cli') && callsMainOf(t, 'kosmos-cli'); });
+  assert.deepEqual(callers, []);
+});
+
+test('kosmos#6464: a proven board that redirects the sends elsewhere: no token, keep, report or failure reaches the other address', async () => {
+  const http = require('node:http');
+  const { answerProof } = require('../test-support/proof-listener-1765');
+  const elsewhere = await startListener({ mode: 'squatter' });
+  const server = http.createServer((req, res) => {
+    if (answerProof(req, res, [BOARD])) return;
+    res.writeHead(307, { location: elsewhere.url + req.url });   // 307 keeps the method and body if followed
+    res.end();
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const url = 'http://127.0.0.1:' + server.address().port;
+  try {
+    // The keep and the report (a file edit), and the failure digest.
+    assert.equal(await hook.main(io(url, evt('PreToolUse', { tool_name: 'Edit', tool_input: { file_path: 'C:\w\a.md' }, cwd: 'C:\w', session_id: 's' })).io), 0);
+    assert.equal(await hook.main(io(url, evt('PostToolUseFailure', { tool_name: 'Bash', tool_input: { command: 'x' }, error: 'boom' })).io), 0);
+    assert.deepEqual(elsewhere.seen.map((r) => r.method + ' ' + r.url), [], 'a send followed the redirect');
+  } finally { server.closeAllConnections(); server.close(); await elsewhere.close(); }
 });
