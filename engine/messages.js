@@ -2420,7 +2420,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   // sum is ARRIVALS (each post costs its recipient count), and this
   // post's own arrivals are charged up front: a nine-arrival post at
   // thirty-nine is over the budget, not under it.
-  const arrivals = log.filter((m) => m && m.kind === 'post' && !m.operator
+  const arrivals = log.filter((m) => m && m.kind === 'post' && !m.operator && m.closing !== true   // #6920: not charged
     && m.project === projectId && Date.parse(m.at) >= countFrom)
     .reduce((n, m) => n + (Array.isArray(m.to) ? m.to.length : 0), 0);
   const cleaned = chat.cleanMessage(text);
@@ -2630,7 +2630,29 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     }
   }
 
-  if (operator !== true && arrivals + charged > allowed) {
+  /* #6920 (agent feedback, 2026-10-22): a held room also held the coordinator's one summarizing post, the post a hold
+     exists to bring about. While the volume valve holds the room, a member this hold has already refused (its
+     ROOM_HELD_REFUSAL row since countFrom, so the post that tips the room over is held as before and the member learns of
+     the hold first) may land ONE post of CLOSING_POST_MIN characters or more of its one-line form (the length decides:
+     chat.acknowledgementOnly is false above its own 200 characters, so that check is only a floor),
+     per window (countFrom: rolling, reset by the person's post or a reopen, as the arrival budget is).
+     It is stored with `closing: true`, which is how a second one is found and held (and `closingUsed` on the refusal
+     tells the CLI not to offer it again). It is NOT charged to the room: arrivals here and roomHeldRead's count skip it,
+     so a summary does not push the lift later. It is otherwise an ordinary post: delivered to every member and stored.
+     The refused row may be from an EARLIER hold in the same window (a room that lifted and was held again): the refused
+     row is written once per member per window (#315), so keying it to the latest hold would leave that member never
+     eligible in the second one. It still knew of a hold, and the one-per-window bound is unchanged.
+     Rejected: one closing post per ROOM (another member's long post landing first would hold the coordinator's), and
+     any long post (a loop of long posts would never be stopped). */
+  const closingUsed = arrivals + charged > allowed && typeof from === 'string' && from !== ''
+    && log.some((m) => m && m.kind === 'post' && m.closing === true && m.from === from
+      && m.project === projectId && Date.parse(m.at) >= countFrom);
+  const closing = lim.on && operator !== true && arrivals + charged > allowed
+    && typeof from === 'string' && from !== '' && !closingUsed
+    && cleaned.length >= CLOSING_POST_MIN && !chat.acknowledgementOnly(stored)
+    && log.some((m) => m && m.kind === 'refused' && m.from === from && m.project === projectId
+      && m.because === ROOM_HELD_REFUSAL && Date.parse(m.at) >= countFrom);
+  if (!closing && operator !== true && arrivals + charged > allowed) {
     const because = lim.on
       ? 'This conversation went back and forth for a while without landing, '
         + 'so Kosmos stopped it and asked everyone to bring you in.'
@@ -2687,7 +2709,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       const heldNow = roomHeldRead(projectId, now, lim, log, charged, progressFrom, recipients.length);
       const clearsAt = heldNow && heldNow.until ? heldNow.until : null;
       const clears = clearsAt === null ? {} : { clearsAt, clearsInMinutes: Math.max(1, Math.ceil((Date.parse(clearsAt) - now) / 60000)) };
-      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, ...clears, id: null, at, outcomes: null };
+      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, ...clears, ...(closingUsed ? { closingUsed: true } : {}),
+        id: null, at, outcomes: null };
     }
   }
 
@@ -2984,6 +3007,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     appendLog({ kind: 'post', id, project: projectId, from, to: recipients.filter((n) => !offHere.has(n)), text: stored, at, outcomes,
       ...(Object.keys(heldUntil).length ? { heldUntil } : {}),
       ...(quotes.length ? { quotes } : {}),
+      ...(closing ? { closing: true } : {}),   // #6920: this member's one post through a held room
       /* #185: the tokenizer's verdict, persisted at the one moment it runs.
          The unanswered state keys on WHO WAS ASKED, and re-deriving that at
          render time would be a second tokenizer that can drift from this
@@ -3023,6 +3047,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
     return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
+      ...(closing ? { closing: true } : {}),   // #6920: landed as this member's one post through a held room
       /* #6254: whether this post answers one the PERSON wrote (operator), the one signal the phone-notify
          `posted` seam needs from here (the route has no other way to know; the person is never an @mention).
          A boolean, never the posts' words. Only present on a reply, so an ordinary post's answer is unchanged. */
@@ -3531,6 +3556,9 @@ const ROOM_HELD_REFUSAL = 'the room was going back and forth without landing, so
 // the loop a user's Windows room hit (eleven "agreed"/"acknowledged" posts before the volume
 // valve fired). Reversible constant.
 const ACK_RUN_LIMIT = 4;
+/* #6920: how long a post must be to land as a member's one closing post in a held room. Agreement replies run well under
+   100 characters; a summary that closes a thread runs to several sentences. */
+const CLOSING_POST_MIN = 400;
 // #6608 review 2: words that ask the whole room for an answer, so a hand-off that also says them is not left to its owner
 // alone. Deliberately wide (a missed ask drops an answer someone wanted; a false one only lets an acknowledgement through).
 const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|confirm|let (me|us) know|reply|respond|thumbs up)\b/i;
@@ -3732,7 +3760,7 @@ function roomHeldRead(projectId, at, lim, rows, charge, progressFrom, roomRecipi
     const t = Date.parse(m.at);
     if (!Number.isFinite(t) || t > at || t < countFrom) continue;
     if (m.kind === 'valve' && (!band || t >= band.t)) band = { t, at: m.at, because: m.because || null };
-    else if (m.kind === 'post' && !m.operator) counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
+    else if (m.kind === 'post' && !m.operator && m.closing !== true) counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
   }
   counted.sort((a, b) => a.t - b.t);
   const size = Number.isInteger(charge) && charge > 0 ? charge : Math.max(1, counted.length ? counted[counted.length - 1].n : 1);

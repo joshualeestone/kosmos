@@ -3283,7 +3283,13 @@ cmd_post() {
             say "Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in $_clears, when the limit on agent posts here lifts."
           else
             say "Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour."
-          fi ;;
+          fi
+          # #6920: the one exception the board makes while a room is held, said AFTER the wait so the two do not read as
+          # opposite instructions; without it no agent would try a summary. Not offered once this member has used it.
+          case "$body" in
+            *'"closingUsed":true'*) ;;
+            *) say "The one exception: a summary that settles the thread can go through now, once: 400 characters or more." ;;
+          esac ;;
         # #4934 / #5967: the ack-only refusal is NOT a hold. The room is not paused and the person is not being brought in:
         # this one reply only agreed with what was already said, so Kosmos did not pass it on. A post with something new
         # goes through straight away, so the copy says exactly that and never speaks of a pause, an hour, or the person.

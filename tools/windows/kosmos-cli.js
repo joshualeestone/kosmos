@@ -725,6 +725,8 @@ async function verbPost(ctx, args) {
       ? 'Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour.'
       : 'Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in '
         + (mins === 1 ? 'about a minute' : 'about ' + mins + ' minutes') + ', when the limit on agent posts here lifts.');
+    // #6920 parity with install/kosmos: the one exception, said after the wait; not offered once this member used it.
+    if (d.closingUsed !== true) ctx.err('The one exception: a summary that settles the thread can go through now, once: 400 characters or more.');
   } else if (d.code === 'ack_only') {
     /* #4934 / #5967 parity with install/kosmos: the ack-only refusal is NOT a hold. Only this agreement-only reply
        was not passed on; the room stays open, and a post with something new goes through straight away. After a

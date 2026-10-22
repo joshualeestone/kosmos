@@ -93,6 +93,27 @@ test('#4934: a loop-guard refusal (code room_held) says nothing was kept, not to
   });
 });
 
+test('#6920: a room_held refusal offers the one closing summary, unless the board says this member used it', async () => {
+  for (const [extra, offered] of [[{}, true], [{ closingUsed: true }, false]]) {
+    const routes = { 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', code: 'room_held', because: VALVE_BECAUSE, ...extra } } } };
+    await withBoard(routes, async (port) => {
+      const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+      const out = await runCli(['post', 'henderson', 'the lease renews monthly'], env);
+      assert.match(out.stdout, /Not posted: this room went back and forth/, 'CONTROL: the refusal itself is still said');
+      const hint = /The one exception: a summary that settles the thread can go through now, once: 400 characters or more\./;
+      if (offered) {
+        assert.match(out.stdout, hint, 'the closing summary was not offered');
+        const min = (fs.readFileSync(path.join(__dirname, 'engine', 'messages.js'), 'utf8').match(/^const CLOSING_POST_MIN = (\d+);/m) || [])[1];
+        assert.ok(min, 'CLOSING_POST_MIN not found in engine/messages.js');
+        assert.ok(out.stdout.includes(min + ' characters or more'), 'the CLI offers a different length than the board requires (' + min + ')');
+        assert.ok(out.stdout.indexOf('Do not send it another way') < out.stdout.indexOf('The one exception'),
+          'the exception was said before the wait, so the two read as opposite instructions');
+      }
+      else assert.doesNotMatch(out.stdout, hint, 'a member that used its closing post was offered it again');
+    });
+  }
+});
+
 /* #6420: the board says when the held room's limit lifts (clearsInMinutes); the CLI passes it on in place of
    "about an hour". The test above, with no such field (an older board), is the CONTROL that the old words stay. */
 test('#6420: a held room\'s refusal says when the limit lifts', () => {

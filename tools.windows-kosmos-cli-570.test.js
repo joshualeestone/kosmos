@@ -244,6 +244,21 @@ test('#4934 parity: a loop-guard refusal (code room_held) says nothing was kept 
   assert.match(r.err, /Here it is to keep:\n *a long substantive update/);
 });
 
+test('#6920 parity: a room_held refusal offers the one closing summary, unless the board says this member used it', async () => {
+  const held = (extra) => () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'x', ...extra } } });
+  const offered = await run(['post', 'proj-1', 'a long substantive update'], held({}));
+  assert.match(offered.err, /The one exception: a summary that settles the thread can go through now, once: 400 characters or more\./);
+  const used = await run(['post', 'proj-1', 'a long substantive update'], held({ closingUsed: true }));
+  assert.doesNotMatch(used.err, /The one exception: a summary/, 'a member that used its closing post was offered it again');
+  // The number the CLI says is the board's own minimum (engine/messages.js CLOSING_POST_MIN), read from the source.
+  const min = (require('fs').readFileSync(require('path').join(__dirname, 'engine', 'messages.js'), 'utf8').match(/^const CLOSING_POST_MIN = (\d+);/m) || [])[1];
+  assert.ok(min, 'CLOSING_POST_MIN not found in engine/messages.js');
+  assert.ok(offered.err.includes(min + ' characters or more'), 'the CLI offers a different length than the board requires (' + min + ')');
+  assert.ok(offered.err.indexOf('Do not send it another way') < offered.err.indexOf('The one exception'),
+    'the exception was said before the wait, so the two read as opposite instructions');
+  assert.match(used.err, /Not posted: this room went back and forth/, 'CONTROL: the refusal itself is still said');
+});
+
 test('#3224: post --new sends new_post:true (not held to ask which room); without it no field; combines with the other leading flags; non-leading is text', async () => {
   const ok = () => ({ body: { delivery: { state: 'placed' } } });
   const a = await run(['post', '--new', 'proj-1', 'a new post'], ok);
