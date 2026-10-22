@@ -62,10 +62,10 @@ test('#1765: the badge read checks the board holds the token before the token go
 test('#1765: the board token is put in a header in one place only, the read that checks first', () => {
   const sends = [...SOURCE.matchAll(/Headers\[BoardTokenHeader\]\s*=/g)];
   assert.equal(sends.length, 1, 'another place sends the board token: it must check the board first too');
-  // The definition, ReadBoard, and ResolveBoardAddress, its background caller and OpenInBrowserInstead (which only ask whether a token is on
-  // disk, and send nothing).
-  assert.equal((SOURCE.match(/ReadBoardToken\(\)/g) || []).length, 5, 'the token is read somewhere new');
-  assert.match(slice('internal static string ResolveBoardAddress(', '\n    }\n'), /return TaskbarBadge\.ReadBoardToken\(\) != null \? NotConfirmed : plain;/);
+  // The definition and ReadBoard. #6882: ResolveBoardAddress, its background caller and OpenInBrowserInstead only ask whether a token is on
+  // disk, readable or not (BoardTokenOnDisk), and send nothing.
+  assert.equal((SOURCE.match(/ReadBoardToken\(\)/g) || []).length, 2, 'the token is read somewhere new');
+  assert.match(slice('internal static string ResolveBoardAddress(', '\n    }\n'), /return TaskbarBadge\.BoardTokenOnDisk\(\) \? NotConfirmed : plain;/);
 });
 
 test('#1765: the C# constants are engine/boardproof.js\'s', () => {
@@ -246,7 +246,7 @@ test('#1765: a refusal from the opener is NotConfirmed in the window, which then
   const again = slice('internal void SignInAgain(string keepPage = null)', '\n    }\n');
   assert.match(again, /if \(boardNotConfirmed && !signingInAgain && resolveBoardAddress != null\)[\s\S]*?ResolveBoardAddressInBackground\(\);/, 'reopening Kosmos.exe does not ask again');
   const browser = slice('static int OpenInBrowserInstead(', '\n    }\n');
-  assert.match(browser, /if \(!p\.WaitForExit\(OpenerBrowserWaitCapMs\)\) \{ try \{ p\.Kill\(\); \} catch \{[^}]*\} unknown = true; \}\s*(?:\/\/[^\n]*\n\s*)?else refused = p\.ExitCode == OpenerRefusedExit \|\| \(p\.ExitCode != 0 && TaskbarBadge\.ReadBoardToken\(\) != null\);/,
+  assert.match(browser, /if \(!p\.WaitForExit\(OpenerBrowserWaitCapMs\)\) \{ try \{ p\.Kill\(\); \} catch \{[^}]*\} unknown = true; \}\s*(?:\/\/[^\n]*\n\s*)?else refused = p\.ExitCode == OpenerRefusedExit \|\| \(p\.ExitCode != 0 && TaskbarBadge\.BoardTokenOnDisk\(\)\);/,
     'the browser fallback waits for the opener without a bound, or reads a timeout as success');
   const cap = Number((SOURCE.match(/const int OpenerBrowserWaitCapMs = (\d+);/) || [])[1]);
   const openerSrc = fs.readFileSync(path.join(REPO, 'tools', 'kosmos-open-board.js'), 'utf8');

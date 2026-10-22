@@ -207,7 +207,7 @@ test('#4381: a connect window follows the connect link rules; Kosmos Plus not an
   inOrder(nav, ['if (mode == KosmosLauncher.ComputerMode.Connect || runsBoard)', 'args.get_IsUserInitiated(out userInitiated);', 'args.get_IsRedirected(out redirected);',
     'args.get_NavigationId(out navId);',
     'KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0 && redirected == 0, KosmosLauncher.IsKosmosPlusSiteAddress(committedPage), runsBoard ? port : 0)',
-    'if (decided == KosmosLauncher.ConnectLink.InApp) { connectInWindow[navId] = uri; return; }',
+    'if (decided == KosmosLauncher.ConnectLink.InApp) { connectInWindow[navId] = uri; if (!KosmosLauncher.IsBoardAddress(uri, port)) navigationWaiting = null; return; }',
     'args.put_Cancel(1);', 'OpenInPersonsBrowser(uri, true)', 'return;', 'KosmosLauncher.IsBoardAddress(uri, port)'], 'the connect rules');
   const popup = method('internal void OnNewWindowRequested(ICoreWebView2NewWindowRequestedEventArgs args)');
   assert.match(popup, /KosmosLauncher\.ConnectLinkDecision\(uri, true\)/);

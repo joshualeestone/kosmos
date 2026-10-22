@@ -188,7 +188,9 @@ test('#6882: a board load that failed is checked, and a cancelled one is not tak
     'if (boardNav && success != 0) failedLoadRetriedVisit = -1;', 'if (boardNav && success == 0)',
     'if (failure != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED)',
     // retried once per visit through the prove-first path (a quick restart recovers by itself), never a spent sign-in code
-    'if (failedLoadRetriedVisit != boardVisit && navigatedToBoard && !boardNotConfirmed && !KosmosLauncher.IsSignInLoad(failedLoad))',
+    'if (failedLoadRetriedVisit != boardVisit && navigatedToBoard && !boardNotConfirmed && !KosmosLauncher.IsSignInLoad(failedLoad)',
+    // only a load nothing answered: an aborted one is also how a download ends
+    '&& KosmosLauncher.CouldNotReachBoard(failure))',
     'failedLoadRetriedVisit = boardVisit;', 'BeginInvoke(new Action(() => CheckNavigationAgain(again)));',
     'else CheckThenShowNotConfirmed(KosmosLauncher.MayNavigateSignedIn);',
     // before the early return that skips a window whose mode is not chosen yet: those load the board too
@@ -216,7 +218,9 @@ test('#6882: "open Kosmos.exe again" with no signed-in address checks before it 
   // A double-click's sign-in that came back signed in after the window showed why is loaded, as a fresh first load.
   inOrder(again, ['if (boardNotConfirmed && fresh != null && fresh.Contains("?boot=") && webView != null)',
     'boardNotConfirmed = false;', 'recheckRefused = false;', 'navigatedToBoard = false;',
-    'boardAddress = KosmosLauncher.WithModeQuery(KosmosLauncher.SignInAgainAddress(fresh, keepPage, port), mode);', 'NavigateToBoard();'],
+    'boardAddress = KosmosLauncher.WithModeQuery(KosmosLauncher.SignInAgainAddress(fresh, keepPage, port), mode);',
+    // the opener's proof may be older than the failed check: proved again before it loads
+    'navigatedToBoard = true;', 'boardVisit++;', 'CheckNavigationAgain(boardAddress);'],
   'the double-click whose sign-in outlived a failed check');
 });
 
@@ -266,8 +270,12 @@ test('#6882: the check reads board.token afresh and hands it only to the proof',
   assert.match(check, /TaskbarBadge\.ReadBoardTokenState\(out token\)/);
   assert.equal((check.match(/\btoken\b/g) || []).length, 3, 'the token goes somewhere other than the proof: ' + check);
   assert.match(check, /BoardProof\.Check\(port, token, timeoutMs\)/);
-  // Its definition, ReadBoardToken, and the check.
-  assert.equal((SOURCE.match(/ReadBoardTokenState\(out /g) || []).length, 3, 'board.token is read somewhere new (ReadBoardToken and the check only)');
+  // Its definition, ReadBoardToken, BoardTokenOnDisk (whether it is there at all), and the check.
+  assert.equal((SOURCE.match(/ReadBoardTokenState\(out /g) || []).length, 4, 'board.token is read somewhere new');
+  assert.match(method('internal static bool BoardTokenOnDisk()'), /return ReadBoardTokenState\(out token\) != TokenOnDisk\.None;/);
+  // A page the person moves on to (in the window, not the board) replaces a board navigation waiting for its check.
+  assert.match(method('internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)'),
+    /if \(decided == KosmosLauncher\.ConnectLink\.InApp\) \{ connectInWindow\[navId\] = uri; if \(!KosmosLauncher\.IsBoardAddress\(uri, port\)\) navigationWaiting = null; return; \}/);
   // Holds keeps its meaning for every other caller.
   assert.match(method('internal static bool Holds(int port, string token, int timeoutMs)'), /return Check\(port, token, timeoutMs\) == Answer\.Proves;/);
   // The board token is still put in a header in one place only (#1765).
@@ -303,6 +311,8 @@ class ReproofProbe {
         foreach (string k in a[1].Split(',')) { string[] p = k.Split(':'); Console.Write(KosmosLauncher.IsReloadKey(Convert.ToUInt32(p[0], 16), p[1].Contains("ctrl"), p[1].Contains("alt")) ? "1" : "0"); }
         break;
       }
+      case "reach": foreach (string v in a[1].Split(',')) Console.Write(KosmosLauncher.CouldNotReachBoard(int.Parse(v)) ? "1" : "0"); break;
+      case "resolve": { string r = KosmosLauncher.ResolveBoardAddress(a[1], a[2], a[3], a[4], int.Parse(a[5])); Console.Write(r == KosmosLauncher.NotConfirmed ? "<notconfirmed>" : r); break; }
       case "patient": Console.Write(KosmosLauncher.CheckBoardPatiently(int.Parse(a[1]), KosmosLauncher.ReuseProofTimeoutMs, int.Parse(a[2]))); break;
       case "answer": {
         string token = new System.IO.StreamReader(Console.OpenStandardInput(), new System.Text.UTF8Encoding(false)).ReadToEnd();
@@ -416,6 +426,22 @@ test('#6882: the reload keys are F5, the Refresh key and Ctrl+R, and nothing els
   // F5, Ctrl+F5, Refresh, Ctrl+R | R alone, F4, F6, Ctrl+T, Ctrl+Shift+... is Ctrl
   // AltGr+R (Ctrl+Alt+R) types a character on some layouts, so it is not a reload.
   assert.equal(await probeAsync(['keys', '74:no,74:ctrl,A8:no,52:ctrl,52:no,73:no,75:no,54:ctrl,0D:ctrl,52:ctrl+alt,74:alt']), '11110000001');
+});
+
+test('#6882: a failed load is retried only when nothing answered it (WebView2.h web error statuses)', WINDOWS_ONLY, async (t) => {
+  if (!needsProbe(t)) return;
+  // unknown 0, invalid response 8, aborted 9 (a download), unreachable 6, timeout 7, reset 10, disconnected 11, cannot connect 12, cancelled 14, redirect failed 15
+  assert.equal(await probeAsync(['reach', '0,8,9,6,7,10,11,12,14,15']), '0001111100');
+});
+
+test('#6882: an opener that names no address while board.token is there but unreadable is NotConfirmed, never the plain address (#6464)', WINDOWS_ONLY, async (t) => {
+  if (!needsProbe(t)) return;
+  const crashing = path.join(SANDBOX, 'crashing-opener.js');
+  fs.writeFileSync(crashing, 'process.exit(1);\n');
+  const app = fs.mkdtempSync(path.join(SANDBOX, 'app-'));
+  assert.equal(await probeAsync(['resolve', REPO, process.execPath, crashing, app, '1'], dataWith('folder')), '<notconfirmed>');
+  // CONTROL: with no board.token at all (a board that enforces nothing), the plain address, as before.
+  assert.equal(await probeAsync(['resolve', REPO, process.execPath, crashing, app, '1'], dataWith(null)), 'http://127.0.0.1:1');
 });
 
 test('#6882: a board too busy for the quick check waits for the full one, which it passes, and is never refused for it', WINDOWS_ONLY, async (t) => {
