@@ -68507,11 +68507,12 @@ function openTaskPage(n) {
    can tell "not seen" from "seen, not acted on" (engine/taskseen.js). paintTaskActivity calls it after every draw that
    succeeded (opening the task, a redraw after an action, coming back to the tab), with the project and task it drew;
    it posts only if that is still the task open, and the tab is visible with the task's page on screen (its back button
-   has a layout box): a task restored in a background tab, or left open behind another Kosmos tab, has not been seen.
+   has a layout box; getClientRects, which a hidden ancestor empties and fixed positioning does not): a task restored in
+   a background tab, or left open behind another Kosmos tab, has not been seen.
    Best effort; a failure changes nothing on the page. */
 function tkMarkSeen(n, projectId) {
   const back = document.getElementById('tk-back');
-  if (TK_OPEN === null || n !== TK_OPEN || projectId !== PJ_CURRENT || document.visibilityState !== 'visible' || !back || back.offsetParent === null) return;
+  if (TK_OPEN === null || n !== TK_OPEN || projectId !== PJ_CURRENT || document.visibilityState !== 'visible' || !back || !back.getClientRects().length) return;
   fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' }).catch(() => {});
 }
 /* #6947: coming back to the tab while a task's page is showing: draw the conversation again (it is not redrawn on the
@@ -68519,7 +68520,7 @@ function tkMarkSeen(n, projectId) {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible' || TK_OPEN === null) return;
   const back = document.getElementById('tk-back');
-  if (back && back.offsetParent !== null) paintTaskActivity(TK_OPEN);
+  if (back && back.getClientRects().length) paintTaskActivity(TK_OPEN);
 });
 function leaveTaskPage() {
   const was = TK_OPEN;
