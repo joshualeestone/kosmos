@@ -79,7 +79,7 @@ test('#6921: a detail over its cap on its own is refused as itself, whatever the
     'an over-cap detail is not rescued by trimming during the move');
 });
 
-test('#6921: a title whose only space comes early is hard-cut, never left near-empty', () => {
+test('#6921: a title whose only space comes early is hard-cut instead of cut at that space', () => {
   const r = tasks.fitTitle('a ' + 'y'.repeat(300), null);
   assert.equal(r.sentence, ('a ' + 'y'.repeat(300)).slice(0, MAX - 3) + '...');
 });
@@ -144,4 +144,19 @@ test('#6921: the shortened note comes first, so #5319 copyable close command sta
 test('#6921: with no detail sent, an over-long title that cannot fit even as a detail says to shorten it, not one of them', () => {
   const p = projects.create({ name: 'Nodetail' });
   assert.throws(() => tasks.create(p.id, { sentence: 'w '.repeat(tasks.DETAIL_MAX) }), /would still pass .*; shorten it$/);
+});
+
+test('#6921: refusals keep one order whatever the title length: title, then detail, then who, then done-when', () => {
+  const p = projects.create({ name: 'Order' });
+  const msg = (body) => { try { tasks.create(p.id, body); return 'accepted'; } catch (e) { return e.message; } };
+  assert.match(msg({ sentence: '', who: 42 }), /say what needs doing/, 'a blank title comes before a bad who');
+  assert.match(msg({ sentence: 'Short', detail: 42, who: 42 }), /has to be words/, 'a bad detail comes before a bad who');
+  assert.match(msg({ sentence: long(60), detail: 42, who: 42 }), /has to be words/, 'the same with a long title');
+  assert.match(msg({ sentence: 'Short', who: 42, doneWhen: 'x' }), /agent's name/, 'a bad who comes before bad done-when checks');
+  assert.match(msg({ sentence: long(60), who: 42, doneWhen: 'x' }), /agent's name/, 'the same with a long title');
+});
+
+test('#6921: taskProblem itself still refuses an over-long title (a direct caller gets no shortening)', () => {
+  assert.match(tasks.taskProblem({ sentence: 'x'.repeat(MAX + 1) }), /characters or fewer/);
+  assert.equal(tasks.taskProblem({ sentence: 'x'.repeat(MAX) }), null, 'CONTROL: at the cap is fine');
 });

@@ -360,12 +360,12 @@ function create(projectId, { sentence: asked, detail: askedDetail, who, parent, 
   if (ownDetail) throw new Error(ownDetail);
   const fit = fitTitle(asked, askedDetail);
   const { sentence, detail } = fit;
-  // The who and done-when checks run first, so a request wrong in several ways hears those before the title.
-  const problem = whoProblem(who) || doneWhenProblem(doneWhen) || ((fit.moved && typeof detail === 'string' && detail.length > DETAIL_MAX)
+  // The order is the one taskProblem keeps: title, then detail (the overflow is a detail problem), then who, then done-when.
+  const problem = ((fit.moved && typeof detail === 'string' && detail.length > DETAIL_MAX)
     ? ((typeof askedDetail === 'string' && askedDetail.trim())
       ? `that title is over ${SENTENCE_MAX} characters, and with it moved into the detail the detail would pass ${DETAIL_MAX}; shorten one of them`
       : `that title is over ${SENTENCE_MAX} characters, and moved into the detail it would still pass ${DETAIL_MAX}; shorten it`)
-    : taskProblem({ sentence, detail, who }));
+    : (taskProblem({ sentence, detail, who }) || doneWhenProblem(doneWhen)));
   if (problem) throw new Error(problem);
   // #5152: a webhook's words are outside text, so they never say what finished means for a task.
   if (origin && origin.via === 'webhook' && doneWhenValue(doneWhen)) {
