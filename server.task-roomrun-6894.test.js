@@ -164,22 +164,23 @@ test('#6894: review 3: a held problem that cleared is not said later; a new rule
   await ran({}, mona);
   assert.deepEqual(roomNotes().slice(c0).length, 1, 'the cleared problem is never said as news');
   // Flushed once, then the same note after a bare run is not said again.
-  await ran({ note: 'disk at 95 percent' }, zed);         // held
-  await ran({}, mona);                                    // clears the task's note
+  await ran({ note: 'disk at 80 percent' }, zed);         // said (the hour has passed): opens a new hour
+  await ran({ note: 'disk at 95 percent' }, mona);        // held
+  await ran({}, zed);                                     // clears the task's note
   _ageRoomRunSaidForTest(61 * 60 * 1000);
-  await ran({}, zed);                                     // flush: says the held note
+  await ran({}, mona);                                    // flush: says the held note
   let notes = roomNotes().slice(c0);
-  assert.equal(notes.length, 2);
-  assert.match(notes[1], /: disk at 95 percent$/);
+  assert.equal(notes.length, 3);
+  assert.match(notes[2], /: disk at 95 percent$/);
   _ageRoomRunSaidForTest(61 * 60 * 1000);
-  await ran({ note: 'disk at 95 percent' }, mona);
-  assert.equal(roomNotes().slice(c0).length, 2, 'the note the room just heard is not said again');
+  await ran({ note: 'disk at 95 percent' }, zed);
+  assert.equal(roomNotes().slice(c0).length, 3, 'the note the room just heard is not said again');
   // A new rule starts fresh: the old rule's note does not silence the same words under it.
   assert.equal((await post(`/api/project/${projectId}/task/${n}/repeat`, { every: 'daily', at: '09:00' }, mona)).status, 200);
-  await ran({ note: 'disk at 95 percent' }, zed);
+  await ran({ note: 'disk at 95 percent' }, mona);
   notes = roomNotes().slice(c0);
-  assert.equal(notes.length, 3, 'under the new rule the note is news again');
-  assert.match(notes[2], /\(every day at 9am\): disk at 95 percent$/);
+  assert.equal(notes.length, 4, 'under the new rule the note is news again');
+  assert.match(notes[3], /\(every day at 9am\): disk at 95 percent$/);
 });
 
 test('#6894: CONTROL: setting the rule or a one-off task says nothing in the room', async () => {
