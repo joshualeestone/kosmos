@@ -19469,7 +19469,11 @@ window.kosmosMeasureScrollbarWidth();
         <div class="field">
           <label class="flabel" for="plus-signin-email">Enter your Kosmos+ account email address</label>
           <input type="email" id="plus-signin-email" class="tk-inp plus-si-wide" maxlength="120" autocomplete="email"
-            placeholder="you@example.com">
+            placeholder="you@example.com" aria-describedby="plus-si-child">
+          <!-- kosmos#6873 (#6379, PigeonPete's decision 10-21, in the words of the family console's Add a child steps): a
+               child's computer is signed in with the child's account, never the parent's own; under 13, one the parent
+               makes, at an address the parent reads. Says nothing about where the account is made (#6873 step 2). -->
+          <p class="fhint" id="plus-si-child">Setting up a child's computer? Sign in with your child's account, not with the address you sign in with yourself: this computer would then be signed in as you. For a child under 13, use an account you make for them, at an email address you read, so the sign-in emails come to you.</p>
         </div>
         <!-- kosmos#5995 item 4: the name this computer is sent under, shown BEFORE it is sent. Filled from the
              computer (plusSiComputerName); the person can keep it, change it or clear it. Hidden until the name
@@ -19831,6 +19835,8 @@ window.kosmosMeasureScrollbarWidth();
              none (#5791). Filled from the family's own words (the coordinator's). -->
         <div id="plus-org-family" role="group" aria-label="The family's words" hidden>
           <p class="fhint" id="plus-org-family-lead" tabindex="-1"></p>
+          <!-- kosmos#6873: whose account a child's computer must be signed in with (#6379), before Accept. -->
+          <p class="fhint" id="plus-org-family-account"></p>
           <p class="fhint" id="plus-org-family-reports-head">What the family will see from this computer:</p>
           <ul class="fhint" id="plus-org-family-reports"></ul>
           <p class="fhint" id="plus-org-family-backsup-head">Backed up from this computer:</p>
@@ -52869,6 +52875,12 @@ function plusOrgFamilyShow(code, p) {
   document.getElementById('plus-org-family-lead').textContent = p.review === true
     ? lead + ' Its words are not accepted on this computer. As this child\u2019s parent or guardian, read them, then accept them on this computer.'
     : lead + ' As this child\u2019s parent or guardian, read what joining shares, then accept to connect this computer.';
+  /* kosmos#6873: whose account a child's computer must be signed in with (#6379), and how to change it, before Accept.
+     It names no address (review 1): the engine's stored email is the last one a sign-in STARTED with, kept after Remove,
+     so it can name an account this computer is not signed in as. */
+  document.getElementById('plus-org-family-account').textContent = 'On a child\u2019s computer, Kosmos+ must be signed in with the child\u2019s account, not the address you sign in with yourself; for a child under 13, '
+    + 'one you made for them, at an email address you read. Do not use a child\u2019s own email address for a child under 13. '
+    + 'If this computer was signed in with your own address, press Not now, then Remove this computer, sign in again with the child\u2019s account, and enter the family\u2019s join code again.';
   const acceptBtn = document.getElementById('plus-org-family-accept');
   if (acceptBtn) acceptBtn.textContent = p.review === true ? 'Accept' : 'Accept and join';
   fill('plus-org-family-reports', c.reports);
@@ -55142,6 +55154,9 @@ async function plusCompanyManaged() {
   try { const res = await fetch('/api/remote/managed', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }
   const btn = document.getElementById('plus-signin-company');
   if (btn) btn.hidden = !(r && r.managed);
+  // kosmos#6873 review 2: a computer its company manages is not a child's; the child line is not for it.
+  const child = document.getElementById('plus-si-child');
+  if (child) child.hidden = !!(r && r.managed);
   return !!(r && r.managed);
 }
 async function plusCompanyStart(btn) {
