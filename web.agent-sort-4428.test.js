@@ -145,8 +145,10 @@ test('#4428: sorting is pure and invalid input remains harmless', () => {
 test('#4428: the persisted control repaints both flat views and hides for the org chart', () => {
   assert.match(SCRIPT, /localStorage\.getItem\('kosmos\.sort\.agents'\)/);
   assert.match(SCRIPT, /localStorage\.setItem\('kosmos\.sort\.agents', AGENT_SORT\)/);
-  assert.match(SCRIPT, /const orderedAgents = sortAgents\(shown, AGENT_SORT, PROJECTS\);[\s\S]*orderedAgents\.map\(card\)/);
-  assert.match(SCRIPT, /const shown = sortAgents\(lim \? src\.slice\(0, Number\(lim\)\) : src, AGENT_SORT, PROJECTS\);[\s\S]*shown\.map\(lrow\)/);
+  // #6719: and with the person's stars, so a starred agent is first in both flat views.
+  assert.match(SCRIPT, /const orderedAgents = sortAgents\(shown, AGENT_SORT, PROJECTS, typeof AGENT_STARS === 'undefined' \? null : AGENT_STARS\);[\s\S]*orderedAgents\.map\(card\)/);
+  assert.match(SCRIPT, /const shown = sortAgents\(lim \? src\.slice\(0, Number\(lim\)\) : src, AGENT_SORT, PROJECTS, typeof AGENT_STARS === 'undefined' \? null : AGENT_STARS\);[\s\S]*shown\.map\(lrow\)/);
+  assert.match(SCRIPT, /const ordered = sortAgents\(shown, AGENT_SORT, PROJECTS, AGENT_STARS\);[\s\S]*ordered\.map\(card\)/, 'the shared repaint (sort control and star) lost the stars');
   assert.match(SCRIPT, /agentSortVisibility\(\)/);
   assert.match(SCRIPT, /BOARD_LAYOUT === 'org'/);
   assert.match(SCRIPT, /mode === 'model'[\s\S]*text\(tileModelLine\(x\)\)/);   // #6716: what the tile shows
@@ -178,4 +180,44 @@ test('#4569: an agent on Muse with no model yet sorts by the Meta Muse its card 
   ];
   assert.equal(modelLine(rows[1]), 'Meta Muse', 'the card does not say Meta Muse (Josh: Unknown Model)');
   assert.deepEqual(sortAgents(rows, 'model', projects).map((x) => x.name), ['Bea', 'Cam', 'Zed', 'Missing'], 'the sort and the card disagree about a Muse agent');
+});
+
+/* #6719 (Josh, 2026-10-20): "if I starred you it would basically pin you to the top". Starred agents come first in
+   every order, and each group keeps that order among itself. */
+test('#6719: in every sort mode, starred agents come first, each group in the mode\'s own order', () => {
+  const { AGENT_SORTS, sortAgents } = api();
+  const rows = [
+    a('Zulu', { lastTalkedAt: '2026-10-02T00:00:00Z', lastActiveAt: '2026-10-01T00:00:00Z', createdAt: '2026-01-01T00:00:00Z', state: 'idle' }),
+    a('Ada', { lastTalkedAt: '2026-10-05T00:00:00Z', lastActiveAt: '2026-10-04T00:00:00Z', createdAt: '2026-03-01T00:00:00Z', state: 'working' }),
+    a('Bea', { lastTalkedAt: '2026-10-01T00:00:00Z', lastActiveAt: '2026-10-06T00:00:00Z', createdAt: '2026-02-01T00:00:00Z', state: 'needs_you' }),
+    a('Cam', { lastTalkedAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-02T00:00:00Z', createdAt: '2026-05-01T00:00:00Z', state: 'idle' }),
+  ];
+  const stars = new Set([board.card('zulu').sessionName, board.card('cam').sessionName]);
+  for (const mode of AGENT_SORTS) {
+    const plain = sortAgents(rows, mode, projects).map((x) => x.name);
+    const got = sortAgents(rows, mode, projects, stars).map((x) => x.name);
+    const isStar = (n) => n === 'Zulu' || n === 'Cam';
+    assert.deepEqual(got, [...plain.filter(isStar), ...plain.filter((n) => !isStar(n))], `${mode}: ${got} from ${plain}`);
+    // CONTROL: in this mode the stars are not already first, so the assertion above is about the star, not luck.
+    if (mode === 'talked') assert.notDeepEqual(plain.slice(0, 2).sort(), ['Cam', 'Zulu'], 'the fixture already put the stars first');
+  }
+});
+
+test('#6719: no stars, an empty set, or stars naming nobody on the board leave every order as it was', () => {
+  const { AGENT_SORTS, sortAgents } = api();
+  const rows = [a('Zulu', { lastTalkedAt: '2026-10-02T00:00:00Z' }), a('Ada', { lastTalkedAt: '2026-10-05T00:00:00Z' }), a('Bea')];
+  for (const mode of AGENT_SORTS) {
+    const plain = sortAgents(rows, mode, projects).map((x) => x.name);
+    for (const stars of [undefined, null, new Set(), new Set(['someone-gone'])]) {
+      assert.deepEqual(sortAgents(rows, mode, projects, stars).map((x) => x.name), plain, `${mode} changed with ${stars && [...stars]}`);
+    }
+  }
+});
+
+test('#6719: every repaint of the grid (the 5 s poll included) and of the list keeps a focused star focused', () => {
+  // The browser check stubs the poll's timer, so the poll's own repaint is pinned here: it goes through keepStarFocus.
+  assert.match(SCRIPT, /const paintGrid = \(\) => \{ document\.getElementById\('grid'\)\.innerHTML = orderedAgents\.length \? orderedAgents\.map\(card\)\.join\(''\) : boardEmpty\(\); \};\s*if \(typeof keepStarFocus === 'function'\) keepStarFocus\(paintGrid\); else paintGrid\(\);/,
+    'the poll repaints the grid without keeping a focused star');
+  assert.match(SCRIPT, /function paintAgentList\(\) \{\s*if \(typeof keepStarFocus === 'function'\) keepStarFocus\(paintAgentListNow\); else paintAgentListNow\(\);\s*\}/,
+    'the list repaint no longer keeps a focused star');
 });
