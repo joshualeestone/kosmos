@@ -1660,6 +1660,8 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     assert.equal(again.code, 'room_held', 'a second long post from the same member got through');
     assert.equal(again.closingUsed, true, 'the refusal does not tell the CLI this member has used its closing post');
     assert.equal(ack.closingUsed, undefined, 'a member that has not used its closing post was told it had');
+    assert.equal(ack.closingEligible, true, '#6925: a refused member with its summary unused is not told the board will take one');
+    assert.equal(again.closingEligible, undefined, '#6925: a member that used its summary is still told the board will take one');
     // The summary did not push the room's lift later: closing posts are not charged to the room.
     assert.equal(again.clearsAt, liftBefore, 'the closing post moved the room\'s lift time');
     // Another member that this hold has not refused yet is held first (it learns of the hold), then lands its own.
