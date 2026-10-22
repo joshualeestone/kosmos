@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: d-file-btn d-file d-img d-msg d-untied d-withdrawn
+// Browser-check-surface: d-file-btn d-file d-img d-msg d-untied d-withdrawn cropmodal crop-go
 
 /**
  * #4038 (Josh, 2026-09-26: "Change picture for an agent doesn't seem to be working"). A sandboxed board:
