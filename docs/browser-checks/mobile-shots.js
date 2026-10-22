@@ -172,11 +172,32 @@ const OVERFLOW_SELECTORS = ['html', 'body', 'main', '.view', '.panel', '[role="m
 /* The shared helpers the screens use. */
 /* On a phone the areas sit behind the ☰ (#burger, controls #tabs): open it
    first when it is showing, then choose the area. */
-/* kosmos#6895: take the chat agent off (DELETE) or put it back on (POST) the seeded project; its tasks stay with it. */
-async function offProject6895(page, data, method) {
-  const st = await page.evaluate(([id, sn, m]) => fetch('/api/project/' + encodeURIComponent(id) + '/agent/' + encodeURIComponent(sn), { method: m }).then((r) => r.status),
-    [data.projectId, data.chatAgent, method]);
-  if (st !== 200) throw new Error('offProject6895: ' + method + ' of the member answered ' + st);
+/* kosmos#6895: make a throwaway project with the chat agent and the ask agent on it, give the chat agent two tasks, then
+   take the chat agent off it (its tasks stay with it). Answers the project's id. offProject6895Gone deletes it. */
+const OFFPROJECT_6895 = 'Plan the autumn launch';
+async function offProject6895(page, data) {
+  return page.evaluate(async ([name, chat, ask]) => {
+    const call = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const made = await (await call('POST', '/api/projects', { name, agents: [chat, ask] })).json().catch(() => ({}));
+    const id = made && made.project && made.project.id;
+    if (!id) throw new Error('offProject6895: the board made no project');
+    for (const sentence of ['Write the autumn press release', 'Choose the cover photo']) {
+      const r = await call('POST', '/api/project/' + encodeURIComponent(id) + '/tasks', { sentence, who: chat });
+      if (r.status !== 200) throw new Error('offProject6895: a task was refused (' + r.status + ')');
+    }
+    const off = await call('DELETE', '/api/project/' + encodeURIComponent(id) + '/agent/' + encodeURIComponent(chat));
+    if (off.status !== 200) throw new Error('offProject6895: taking the member off answered ' + off.status);
+    return id;
+  }, [OFFPROJECT_6895, data.chatAgent, data.askAgent]);
+}
+async function offProject6895Gone(page) {
+  const st = await page.evaluate(async (name) => {
+    const all = await (await fetch('/api/projects')).json().catch(() => ({}));
+    const list = Array.isArray(all) ? all : (all && Array.isArray(all.projects) ? all.projects : []);
+    const p = list.find((x) => x && x.name === name);
+    return p ? (await fetch('/api/project/' + encodeURIComponent(p.id), { method: 'DELETE' })).status : 200;
+  }, OFFPROJECT_6895);
+  if (st !== 200) throw new Error('could not delete the throwaway project after the shot (' + st + ')');
 }
 async function openTab(page, tab) {
   // kosmos#6846 (--app-tabs): the iPhone app opens a section from its native tab bar, through the board's own door.
@@ -778,24 +799,26 @@ const SCREENS = [
   }, after: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/built', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }), data.projectId);
   } },
-  /* kosmos#6895: the seeded tasks are held by the chat agent; taken off the project, they keep their holder, who is named
-     "(not on this project)" on the cards and the task page, and the page counts them under the list. */
+  /* kosmos#6895: a throwaway project (offProject6895) whose tasks the chat agent holds after leaving it, so the cards and
+     the task page name the holder "(not on this project)" and the page counts them. The project is deleted after the
+     shot, so no other screen sees it. */
   { name: 'project-offproject-6895', owner: 'Baron Draxum', go: async (page, data) => {
-    await offProject6895(page, data, 'DELETE');
+    const id = await offProject6895(page, data);
     await openTab(page, 'projects');
-    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.click(`#pj-list .pj-row[data-project="${id}"]`);
     await page.waitForSelector('#pj-offproject', { state: 'visible', timeout: 15000 });
     await page.evaluate(() => document.getElementById('pj-offproject').scrollIntoView({ block: 'end' }));
     await page.waitForTimeout(300);
-  }, after: async (page, data) => { await offProject6895(page, data, 'POST'); } },
+  }, after: async (page) => { await offProject6895Gone(page); } },
   { name: 'task-offproject-6895', owner: 'Baron Draxum', go: async (page, data) => {
-    await offProject6895(page, data, 'DELETE');
+    const id = await offProject6895(page, data);
     await openTab(page, 'projects');
-    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
-    await page.waitForSelector('#pj-tasklist .tkcard', { state: 'visible', timeout: 15000 });
-    await page.click('#pj-tasklist .tkcard');
+    await page.click(`#pj-list .pj-row[data-project="${id}"]`);
+    const card = page.locator('#pj-tasklist .tkcard', { hasText: 'not on this project' }).first();
+    await card.waitFor({ state: 'visible', timeout: 15000 });
+    await card.click();
     await page.waitForFunction(() => /not on this project/.test((document.getElementById('tk-who') || {}).textContent || ''), null, { timeout: 15000 });
-  }, after: async (page, data) => { await offProject6895(page, data, 'POST'); } },
+  }, after: async (page) => { await offProject6895Gone(page); } },
   { name: 'project-paused', owner: 'Mona Lisa', go: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
     await openTab(page, 'projects');
