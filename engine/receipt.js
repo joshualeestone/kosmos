@@ -545,7 +545,7 @@ async function forAgent(who, { limit = 10, now = Date.now(), receiptOf = forTask
 /**
  * kosmos#6842 slice 2: what a project's closed tasks cost, as the sum of their receipts: tokens per model across every
  * agent that held a part, the tasks counted and the pull requests they worked on (each once, with the tasks that list
- * it; `tasks` is for a later view, the page does not show it yet). The newest `limit` closed tasks are counted (a
+ * it; each pull request's own `tasks` list is for a later view, the page does not show it yet). The newest `limit` closed tasks are counted (a
  * receipt not yet kept reads transcripts); `notCounted` says how many older ones were left out. An agent whose work
  * could not be read (no folder, a provider with no receipt) is counted in `unread`, and a receipt read only in part in
  * `partial`, so the total never reads as more complete than it is. An agent whose pull requests are not known (no `prs`,

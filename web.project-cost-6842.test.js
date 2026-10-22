@@ -47,7 +47,7 @@ test('what was left out is said: older tasks, and work that could not be read', 
   assert.match(older, /Counting the newest 50; 3 older tasks are not counted\./);
   assert.match(B.pjsCostParts(ok({ notCounted: 1 })).line, /1 older task is not counted\./);
   for (const k of ['unread', 'partial', 'failed']) {
-    assert.match(B.pjsCostParts(ok({ [k]: 1 })).line, /could not be read, so the real cost is higher\./, k);
+    assert.match(B.pjsCostParts(ok({ [k]: 1 })).line, /could not be read, so the real cost may be higher\./, k);
   }
   assert.doesNotMatch(B.pjsCostParts(ok()).line, /could not be read|not counted/, 'the control says neither');
 });
@@ -96,11 +96,22 @@ test('the project total and the task receipt word their cost the same way (one h
 });
 
 test('a total with nothing readable says so, never "0 tokens"', () => {
-  assert.equal(B.pjsCostParts(ok({ tasks: 2, unread: 2, models: {} })).line, 'Kosmos could not read the work on its finished tasks.');
+  assert.equal(B.pjsCostParts(ok({ tasks: 2, unread: 2, models: {} })).line, 'Kosmos could not read the work on its newest finished tasks.');
   assert.match(B.pjsCostParts(ok({ tasks: 2, models: {} })).line, /^2 finished tasks: 0 tokens/, 'the control: read, and none, is 0');
 });
 
 test('nothing readable: no "reads high" sentence, since there is no total', () => {
   const line = B.pjsCostParts(ok({ tasks: 2, unread: 2, models: {}, overlapping: true })).line;
-  assert.equal(line, 'Kosmos could not read the work on its finished tasks.');
+  assert.equal(line, 'Kosmos could not read the work on its newest finished tasks.');
+});
+
+test('some unread, some readable, and overlapping: "may be higher" and "reads high" both said, in that order', () => {
+  const line = B.pjsCostParts(ok({ tasks: 2, unread: 1, overlapping: true })).line;
+  assert.match(line, /may be higher\. An agent worked on two of these tasks at once, and that time counts on both, so this reads high\.$/);
+  assert.doesNotMatch(line, /cost is higher/, 'an unread agent may have cost nothing: never "is higher"');
+});
+
+test('with some tasks failed, the leading count names the tasks looked at', () => {
+  assert.match(B.pjsCostParts(ok({ picked: 50, tasks: 48, failed: 2 })).line, /^50 finished tasks: /);
+  assert.match(B.pjsCostParts(ok({ picked: 50, tasks: 50 })).line, /^50 finished tasks: /, 'the control');
 });

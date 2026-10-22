@@ -68940,6 +68940,7 @@ function pjsCostParts(r) {
   if (!r || !r.ok) return { line: 'Kosmos could not work out what these tasks cost just now.', prs: '' };
   const n = Number(r.tasks) || 0;
   const older = Number(r.notCounted) || 0;
+  const failed = Number(r.failed) || 0;
   // The newest tasks looked at (older answers have no `picked`: the counted ones then).
   const picked = Number.isFinite(Number(r.picked)) ? Number(r.picked) : n;
   const unread = (Number(r.unread) || 0) + (Number(r.partial) || 0) + (Number(r.failed) || 0);
@@ -68947,14 +68948,17 @@ function pjsCostParts(r) {
   // Every task looked at failed: no total to show, whatever is older.
   if (!n) return { line: 'Kosmos could not read the work on its newest finished tasks.', prs: '' };
   const { tokens, costBit } = tkTokensAndCost(r.models && typeof r.models === 'object' ? r.models : {});
-  const unreadOnly = !tokens && unread;
-  const bits = [(n === 1 ? '1 finished task' : usageNum(n) + ' finished tasks') + ': ' + usageAbbr(tokens) + ' tokens'];
+  // Nothing readable at all: no model counted anything and some work could not be read.
+  const unreadOnly = !tokens && unread && !Object.keys(r.models && typeof r.models === 'object' ? r.models : {}).length;
+  // With some tasks failed the counted ones are fewer than those looked at: name the tasks looked at.
+  const shown = failed > 0 ? picked : n;
+  const bits = [(shown === 1 ? '1 finished task' : usageNum(shown) + ' finished tasks') + ': ' + usageAbbr(tokens) + ' tokens'];
   if (costBit) bits.push(costBit);
   // Nothing counted and something unreadable: say that, never "0 tokens" (which reads as measured none); any pull
   // requests and the older-tasks note still follow.
-  let line = unreadOnly ? 'Kosmos could not read the work on its finished tasks.' : bits.join(', ') + '.';
-  if (older) line += ' Counting the newest ' + usageNum(picked) + '; ' + (older === 1 ? '1 older task is' : usageNum(older) + ' older tasks are') + ' not counted.';
-  if (unread && !unreadOnly) line += ' Some of the work could not be read, so the real cost is higher.';
+  let line = unreadOnly ? 'Kosmos could not read the work on its newest finished tasks.' : bits.join(', ') + '.';
+  if (older && !unreadOnly) line += ' Counting the newest ' + usageNum(picked) + '; ' + (older === 1 ? '1 older task is' : usageNum(older) + ' older tasks are') + ' not counted.';
+  if (unread && !unreadOnly) line += ' Some of the work could not be read, so the real cost may be higher.';
   // An agent's work on two tasks at the same time is on both receipts, so the sum counts it twice: said only when one
   // agent's holds on two counted tasks really overlap (the engine's `overlapping`).
   if (r.overlapping === true && !unreadOnly) line += ' An agent worked on two of these tasks at once, and that time counts on both, so this reads high.';
