@@ -6704,6 +6704,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkreceipt { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
 .tkreceipt .dlab { margin: 10px 0 4px; }
 .tkr-line, .tkr-intro, .tkr-again { margin: 2px 0 0; font-size: inherit; }
+/* kosmos#6842: a pull request label (repo#number) is one word, and a repository name may have no hyphen to break at. */
+.tkr-line { overflow-wrap: anywhere; }
 .tkr-intro, .tkr-again, .tkr-muted { color: var(--k-ink-3, var(--label-2)); }
 .tkr-agent { padding: 8px 0; }
 .tkr-agent + .tkr-agent { border-top: 1px solid var(--k-rule); }
@@ -67619,8 +67621,28 @@ function tkReceiptAgentHtml(a, name) {
     : (a.folder ? '<p class="tkr-line tkr-where">In ' + esc(a.folder) + '</p>' : '');
   return '<div class="tkr-agent">' + head
     + '<p class="tkr-line" title="' + esc(usageNum(tokens)) + ' tokens">' + esc(bits.join(', ')) + '.</p>'
+    + tkReceiptPrsHtml(a)
     + toggle
     + '</div>';
+}
+/* kosmos#6842: the pull requests the agent worked on (opened, commented on, merged) while it held the task, beside what
+   the task cost. No line when there are none, or the receipt has no `prs`. A link only to a github.com pull request, as
+   the engine wrote it. Pure. */
+function tkReceiptPrsHtml(a) {
+  const prs = Array.isArray(a && a.prs) ? a.prs.filter((p) => p && typeof p === 'object') : null;
+  if (!prs || !prs.length) return '';
+  const one = (p) => {
+    const repo = String(p.repo || '');
+    const label = esc(repo.split('/').pop() + '#' + p.number);
+    const full = esc(repo + '#' + p.number);
+    return typeof p.url === 'string' && /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/\d+$/.test(p.url)
+      ? '<a href="' + esc(p.url) + '" target="_blank" rel="noopener noreferrer" title="' + full + '">' + label + '<span class="vh"> (opens in your browser)</span></a>'
+      : '<span title="' + full + '">' + label + '</span>';
+  };
+  const more = Number(a.prsMore) || 0;
+  const n = prs.length + more;
+  return '<p class="tkr-line">' + (n === 1 ? 'Worked on pull request ' : 'Worked on pull requests ')
+    + prs.map(one).join(', ') + (more ? ' and ' + usageNum(more) + ' more' : '') + '.</p>';
 }
 /* #5153: the whole receipt. Pure. The put-back line first: it ends the task's history above, then the receipt follows
    (Mona Lisa: the receipt between the activity and its summary split the history in two). */

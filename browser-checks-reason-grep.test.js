@@ -504,6 +504,7 @@ const SITE_COUNTS = {
   'render-switch-claude-5091.js': [1, 1],
   'render-talk-anchor-1926.js': [1, 1],
   'render-talk.js': [1, 0],
+  'render-task-receipt-prs-6842.js': [2, 1],
   'render-taskhover-4880.js': [1, 0],
   'render-tasks.js': [0, 1],
   'render-teamcreate-4557.js': [1, 1],

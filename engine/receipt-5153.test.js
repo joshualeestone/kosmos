@@ -375,6 +375,77 @@ test('a receipt kept by slice 1 with no Codex or Gemini agent is kept as it was,
   assert.equal((await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('12:00') })).agents[0].available, true);
 });
 
+/* kosmos#6842: a pr-link row as Claude Code writes it when a session acts on a pull request (opens, comments on or
+   merges it), repeated on that session's later turns. */
+const prLink = (at, repo, number, session = 's', url = `https://github.com/${repo}/pull/${number}`) =>
+  JSON.stringify({ type: 'pr-link', timestamp: T(at), sessionId: session, prNumber: number, prRepository: repo, prUrl: url });
+
+test('#6842: the pull requests an agent worked on while it held the task: a session\'s first row for a PR, inside a hold', async () => {
+  const project = 'p' + (++pn);
+  const pia = worker('pia');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'pia' }, { at: '11:00', kind: 'closed' }]);
+  const d = claudeDir(pia);
+  // A PR opened earlier in another session (whose file is read: it was written to after the hold began), then acted on
+  // in this session during the hold: worked on in the hold. Its earliest row overall is before the hold, so only the
+  // per-session first row lists it.
+  fs.writeFileSync(path.join(d, 'other-session.jsonl'), prLink('09:30', 'acme/app', 7, 'other') + '\n');
+  fs.writeFileSync(path.join(d, 's.jsonl'), [
+    prLink('09:50', 'acme/app', 40),   // this session acted on #40 before the hold ...
+    assistant('10:05', { id: 'p1', usage: use(1, 1) }),
+    prLink('10:06', 'acme/app', 7),
+    prLink('10:10', 'acme/app', 40),   // ... and only carries it forward on later turns: not this task's
+    prLink('10:20', 'acme/app', 12),
+    prLink('10:21', 'acme/app', 12),   // a later turn repeats it: one PR
+    prLink('10:30', 'acme/relay', 3, 's', 'https://evil.example/acme/relay/pull/3'),   // a URL that is not this PR's: no link
+    prLink('10:31', 'not a repo', 4),
+    JSON.stringify({ type: 'pr-link', timestamp: T('10:32'), sessionId: 's', prRepository: 'acme/app', prNumber: '5' }),   // a number as text
+    prLink('11:30', 'acme/app', 99),   // after the hold
+  ].join('\n') + '\n');
+  // A second session acts on #12 later in the same hold (a merge after the open): still one #12, at the earlier time.
+  fs.writeFileSync(path.join(d, 'merge-session.jsonl'), prLink('10:50', 'acme/app', 12, 'merger') + '\n');
+  // Rows with no sessionId are keyed by their file: #8 first acted on in one such file before the hold, and in another
+  // inside it, is listed (a key shared by every such row would see only the earlier act).
+  const noSession = (at, number) => JSON.stringify({ type: 'pr-link', timestamp: T(at), prRepository: 'acme/app', prNumber: number, prUrl: `https://github.com/acme/app/pull/${number}` });
+  fs.writeFileSync(path.join(d, 'no-session-a.jsonl'), noSession('09:40', 8) + '\n');
+  fs.writeFileSync(path.join(d, 'no-session-b.jsonl'), noSession('10:55', 8) + '\n');
+  const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
+  const a = r.agents[0];
+  assert.equal(r.version, 3);
+  assert.deepEqual(a.prs, [
+    { repo: 'acme/app', number: 7, url: 'https://github.com/acme/app/pull/7' },
+    { repo: 'acme/app', number: 12, url: 'https://github.com/acme/app/pull/12' },
+    { repo: 'acme/relay', number: 3, url: null },
+    { repo: 'acme/app', number: 8, url: 'https://github.com/acme/app/pull/8' },
+  ], 'a session\'s first row inside the hold, once each, in order; not #40 (carried forward), #99 (after) or malformed rows');
+  assert.equal(a.prsMore, 0);
+});
+
+test('#6842: at most 20 pull requests are listed, oldest first, and the rest are counted', async () => {
+  const project = 'p' + (++pn);
+  const max = worker('max');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'max' }, { at: '11:00', kind: 'closed' }]);
+  const rows = [];
+  for (let n = 1; n <= 23; n++) rows.push(prLink('10:' + String(n + 10).padStart(2, '0'), 'acme/app', n));
+  fs.writeFileSync(path.join(claudeDir(max), 's.jsonl'), rows.join('\n') + '\n');
+  const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
+  assert.deepEqual(a.prs.map((p) => p.number), Array.from({ length: 20 }, (_, i) => i + 1));
+  assert.equal(a.prsMore, 3);
+});
+
+test('#6842: a version 2 receipt is kept as it was (no prs), never worked out again', async () => {
+  const project = 'p' + (++pn);
+  worker('vic');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'vic' }, { at: '11:00', kind: 'closed' }]);
+  const kept = { version: 2, closedAt: T('11:00'), retries: { reopened: 0, handoffs: 0 },
+    agents: [{ who: 'vic', provider: 'codex', available: true, commands: 9, files: [], models: {}, transcriptsWithWork: 1 }] };
+  const f = receipt.receiptFile(project, 1);
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(kept));
+  const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('12:00') });
+  assert.equal(r.agents[0].commands, 9, 'a kept version 2 receipt was thrown away (its transcripts may be gone)');
+  assert.equal('prs' in r.agents[0], false, 'no prs field: the page says nothing about pull requests, not "none"');
+});
+
 test('a Codex line that parses to null is skipped, and the files after it are still read', async () => {
   const project = 'p' + (++pn);
   const pip = worker('pip');
