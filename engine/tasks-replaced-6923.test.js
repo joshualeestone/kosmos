@@ -4,6 +4,7 @@
  * work waiting for review. A close can now say which task replaced it: the task is closed, carries replacedBy, and its
  * history says replaced. Reopening clears the link; a later plain close of a replaced task keeps it.
  */
+require('../test-support/tmpscope');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const os = require('node:os');
