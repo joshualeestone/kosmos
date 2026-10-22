@@ -89,3 +89,11 @@ Card: kosmos#6501 (agent feedback 10-18 and 10-22, two installs). Item 1 shipped
 
 ## Review round 6
 - A comment in the browser check still said focus lands on Mark as done; the claim is removed (the assertion names tk-back).
+
+## Review round 7
+- Round 3's "focus moves only when the reload worked" was not what the code did: loadProjects catches its own
+  failures, so a failed read never threw and `repainted` was set regardless. It now reads PJ_READ_FAILED after the
+  reload. Not covered by an arm (a failed read after successful closes); the change is one condition.
+- Not changed (NITs): the refused-parent message is the route's own sentence (as Mark as done shows it); a poll that
+  repaints the line as "All subtasks done" mid-press would let a second parent close race (no duplicate event); the
+  leave-the-page arm drives the refusal path only.

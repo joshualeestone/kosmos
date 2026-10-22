@@ -68644,7 +68644,8 @@ document.getElementById('tk-subs-closeall').addEventListener('click', async () =
   } finally {
     // Repainted before the press is live again, so a second press acts on the new state, not the old one (as Mark as done).
     let repainted = false;
-    try { await pjReload(); if (here()) { paintTaskActivity(TK_OPEN); tkReceiptSync(); } repainted = true; } catch { /* the next poll repaints */ }
+    // Review 7: loadProjects catches its own failures, so the read's outcome is PJ_READ_FAILED, not a throw.
+    try { await pjReload(); repainted = !PJ_READ_FAILED; if (here()) { paintTaskActivity(TK_OPEN); tkReceiptSync(); } } catch { /* the next poll repaints */ }
     btn.disabled = false;
     /* Review 5: the line is gone; focus goes to the top of the page, as openTaskPage does. Not Mark as done: on a closed
        task it reads Reopen, and a repeated Enter would reopen what was just closed. */
