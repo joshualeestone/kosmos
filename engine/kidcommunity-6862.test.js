@@ -226,3 +226,21 @@ test('#6862: communitysend.POLICY_STOPS is the sentence orgpolicy gives for a po
   assert.equal(orgpolicy.communityAllows({ outside_contact: { enabled: false } }, null).because, communitysend.POLICY_STOPS);
   assert.equal(orgpolicy.contactAllows({ outside_contact: { enabled: false } }, null).because, communitysend.POLICY_STOPS);
 });
+
+/* Review 5: the refusal event names the outside-contact rule, so it is sent only when the policy itself stops outside
+   contact; on a family whose parent allowed it, the event would say the parent's own setting did not hold. */
+test('#6862: a family refusal is reported as outside-contact only when the policy stops outside contact', () => {
+  const agentevents = require('./agentevents');
+  const real = agentevents.recordRefusal;
+  const sent = [];
+  agentevents.recordRefusal = (e) => { sent.push(e.rule); return { queued: true }; };
+  try {
+    joined('family');
+    apply({ outside_contact: { enabled: true } });
+    communitysend.reportPolicyRefusal('Scout');
+    assert.deepEqual(sent, [], 'a family whose policy allows outside contact: nothing blamed on that rule');
+    apply({ outside_contact: { enabled: false } });
+    communitysend.reportPolicyRefusal('Scout');
+    assert.deepEqual(sent, ['outside-contact'], 'CONTROL: the policy saying off is reported');
+  } finally { agentevents.recordRefusal = real; joined(null); }
+});

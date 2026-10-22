@@ -238,7 +238,8 @@ function switchState() {
     const r = switchRead ? switchRead() : require('./communityswitch').read();
     state = !r ? 'off' : r.ok !== true ? 'unreadable' : r.on === true ? 'on' : 'off';
   } catch { state = 'unreadable'; }
-  /* kosmos#6239: the policy set for this Kosmos keeps agents out (outside_contact: { enabled: false }), whatever the
+  /* kosmos#6239: the policy set for this Kosmos keeps agents out (outside_contact: { enabled: false }), or (kosmos#6862)
+     this is a family's Kosmos (orgpolicy.communityAllows), whatever the
      person's switch says: 'policy', which sends nothing, as off. Over ON and OFF alike (round 7: over OFF too, so an
      agent is never told that turning it on would help); an unreadable switch keeps its own words. A policy read that
      throws is 'policy_unreadable' over ON (its own words and log line, round 3); over OFF the person's OFF is the
@@ -290,11 +291,15 @@ function withPolicyStops(sentence) {
 /* kosmos#6239: an agent's community act refused under the policy is reported to whoever set it, through the agent-events
    route (agentevents.recordRefusal: only on an enrolled board whose accepted words name these events, at most one per
    agent in ten minutes). Never throws. */
-/* kosmos#6862 review 2, decided: on a family's Kosmos this records 'outside-contact' too, even where the policy allows
-   outside contact. The event feed has no community-only rule, and outside contact is the nearest one; a parent reading it
-   learns an agent tried the community, which is what they need. A rule of its own would be a change to the feed. */
+/* kosmos#6862 review 5 (reversing review 2's call): recorded only when the policy itself stops outside contact. On a
+   family's Kosmos whose policy allows it, the refusal is the family's, and an 'outside-contact' event would tell the
+   parent their own setting did not hold. The feed has no community-only rule, so that refusal is said on the board and
+   not sent. A policy read that throws is not reported either (the cause is unknown). */
 function reportPolicyRefusal(agentKey) {
-  try { require('./agentevents').recordRefusal({ agent: agentKey, rule: 'outside-contact' }); } catch { /* not reported */ }
+  try {
+    if (require('./orgpolicy').contactAllows().ok === true) return;
+    require('./agentevents').recordRefusal({ agent: agentKey, rule: 'outside-contact' });
+  } catch { /* not reported */ }
 }
 /* Round 8: an agent's act meeting the policy also ends the ON period at once, as turning Community OFF does
    (endOnPeriodNow), so nothing it makes before the next sweep can go out if the policy lifts in between. */

@@ -299,7 +299,7 @@ function blockBody({ introduce = false } = {}) {
 /* kosmos#6239 (Josh, 2026-10-15 10:45 CDT: an agent a kid uses gets "explicit instructions" that it "is not to participate
    in the community aspect"): what an agent is told while the policy set for this Kosmos stops outside contact, or
    (kosmos#6862) while this Kosmos is a family's (orgpolicy.communityAllows). Between the community block's own markers, so it takes the block's place, and the block
-   takes its place again when the policy allows contact and the switch is on. The board refuses the community under that
+   takes its place again when communityAllows says yes (never on a family's Kosmos) and the switch is on. The board refuses the community under that
    policy whatever the agent does (communitysend 'policy'); this tells the agent so it does not try. */
 const STOPPED_LINES = Object.freeze([
   '## The Kosmos+ community',
@@ -413,7 +413,7 @@ function refreshEveryone(roster, participating) {
   if (!Array.isArray(roster)) {
     return [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not check which agents are running', changed: false, rulesChanged: false }];
   }
-  // kosmos#6239: with the policy stopping outside contact, every agent of ours is told it does not take part.
+  // kosmos#6239: with the policy stopping outside contact, or on a family's Kosmos (kosmos#6862), every agent of ours is told it does not take part.
   const stopped = participating !== true && policyStopped();
   if (participating !== true && !stopped) return [];
   const instructions = require('./instructions');

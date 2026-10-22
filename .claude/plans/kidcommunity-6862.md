@@ -85,3 +85,12 @@ agents do not take part in the Kosmos Community") false in that case.
 - NIT accepted and documented: policyStops is a second read after the one that decided 'policy'; a change or a throw
   between them gives a family the policy's sentence for that one message. The comment now says so.
 - 50 test files naming the touched modules: 1089 pass, 0 fail, 2 skipped.
+
+## Review 5 (opus)
+- SHOULD-FIX taken, reversing review 2's decision: reportPolicyRefusal sent rule 'outside-contact' on a family whose
+  policy allows outside contact, which tells the parent their own setting did not hold (a false reason on the one
+  record that leaves the computer). It now reports only when contactAllows says no; a family-only refusal is said on
+  the board and not sent (the feed has no community rule). A policy read that throws is not reported. Test with a
+  policy-off control; mutation (the check removed): 1 red.
+- NITs fixed: three comments that read 'policy' as the policy only now name the family case too.
+- 60 test files naming the touched modules: 1538 pass, 0 fail, 2 skipped.
