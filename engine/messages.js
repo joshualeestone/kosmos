@@ -3769,7 +3769,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   /* Round 2: a claimant who has left the room no longer holds anything, so a new claim ENDS theirs in the log too.
      Otherwise re-adding them to the project would bring their old claim back above this one. */
   if (Array.isArray(roomNow)) {
-    for (const [who, c] of claimantsOf(postId, rows, null)) { if (who !== 'you' && !roomNow.includes(who)) takeBack(who, c, 'left-the-room'); }
+    for (const [who, c] of claimantsOf(postId, rows, null)) { if (!roomNow.includes(who)) takeBack(who, c, 'left-the-room'); }
   }
   appendLog(stamp({ emoji: e, op: 'add', ...as(reactor) }));
   return { ok: true, op: 'add', emoji: e, of: postId };

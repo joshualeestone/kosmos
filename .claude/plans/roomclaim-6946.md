@@ -42,8 +42,9 @@ Rejected:
   an unclaimed post lands); plain 🙋 and a skin-toned 🙋 refused; already/release; the person; react's other refusals
   kept; the claimOf replay; the review-1 cases. Mutation: with the claim rule disabled, the race, the plain-react
   bypass and claiming over the person go red; see Review 1 for the later rules' mutants.
-- server.projects.test.js #6946: through the REAL /api/react route with an agent token; the text line appears, names
-  the agent, names `operator` after the person takes it over, and goes when freed; control with no claim prints nothing.
+- server.projects.test.js #6946: through the REAL /api/react route with an agent token; the text line appears and
+  names the agent; the person's click on the pill leaves the holder alone; a removed holder drops out of the line
+  (control: back on the project, they hold it); it goes when given back; control with no claim prints nothing.
 - cli.claim-6946.test.js and tools.windows-kosmos-cli-claim-6946.test.js: what each CLI sends, each answer's words,
   exit 1 on a refusal, exit 0 on a no-op release, usage on a missing id.
 
@@ -53,21 +54,11 @@ a retried release reading as failure, untested route passthrough and Windows ver
 not to take its own post; plus refusal time as UTC, the guidance paragraph's position and its missing escape hatch.
 Each new rule has a mutant that a test catches (members, canonical form, takeover, already, route passthrough).
 
-## Review 2 (blind, 0 BLOCKER, 3 WARNING): fixed
-- The person's 🙋 still takes a claim over (it is their only way out of a quiet holder), but it is no longer silent:
-  an agents-only room note names who lost it, and the page route returns `tookOver`. The takeover's remove rows carry
-  `takenBy: 'you'`, so the log does not say the agent gave it up.
-- A new claim ENDS (in the log, `takenBy: 'left-the-room'`) the claim of anyone no longer in the room, so re-adding
-  them does not bring it back above the newer one.
-- roomClaimOf tested with a removed holder and a control; with no member list (registry unreadable) nobody is
-  filtered, so a held post is never shown as free.
-- A release with nothing of yours held is op none (with the holder named), never a failure, including after a takeover.
-- Only real 🙋 forms are a claim (skin tone, gendered ZWJ, VS16); 🙋 followed by another emoji is an ordinary reaction.
-- Guidance: a 🙋 is a claim, not a "free" signal; a claim ends when its holder leaves; other computers in a shared room
-  do not see claims, so say it in the room there.
-Not fixed, on purpose: the 🙋 pill still lists a removed holder while the claim line does not (the pill is a reaction
-list, the line is the claim; harmless), and an agent named `operator` reads like the person in the text view, as it
-already does on every other line of that view.
+## Review 2 (blind, 0 BLOCKER, 3 WARNING): fixed, partly SUPERSEDED by round 3
+Round 2 kept and announced the person's takeover (a room note, `tookOver`, `takenBy: 'you'`); round 3 removed the
+takeover entirely, so none of that is in the code. What round 2 left that stands: a new claim ends a departed holder's
+claim (`takenBy: 'left-the-room'`); roomClaimOf with a removed holder and a control; no member list filters nobody; a
+release with nothing held is op none; only 🙋 forms claim.
 
 ## Review 3 (blind, 0 BLOCKER, 2 WARNING): fixed by removing the takeover (above); the claim verb added to the
 agent-token verbs table; every raised-hand form a pill can show is a claim; a non-holder's release is a no-op that
@@ -76,6 +67,10 @@ takes their stray 🙋 off; the removed list is read once per room read; test st
 ## Review 4 (blind, 0 BLOCKER, 3 WARNING): fixed. The room route's own member filter is tested through the route
 with a removed holder and a control (a mutant passing no members goes red); a no-op release names the holder in both
 CLIs; the card comment that described the round-0 behaviour is corrected on #6946.
+
+## Review 5 (blind, 0 BLOCKER, 1 WARNING): fixed. The guidance said to release "when you stop", and Stopped also
+means finished, so a finished request would show as free and be redone; it now says to release only when stopping
+before it is done, and to keep a finished one claimed. The holder's own plain 🙋 toggle-off is tested.
 
 ## Weakest premise
 That agents run `kosmos claim` before posting. The rule only binds an agent that claims; one that skips it and posts

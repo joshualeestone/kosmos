@@ -248,3 +248,12 @@ test('only 🙋 forms are a claim (every raised hand a pill can show); 🙋 foll
   assert.equal(two.ok, true, 'a two-emoji reaction starting with 🙋 was treated as a claim');
   assert.equal(two.emoji, '\u{1F64B}\u{1F525}');
 });
+
+test('round 5: the holder\'s own plain 🙋 react takes its claim back (a toggle, unlike kosmos claim)', () => {
+  seedPost('m1', 'p');
+  assert.equal(claim('ann').op, 'add');
+  const off = messages.react({ project: 'p', of: 'm1', emoji: HAND, from: 'ann', members: MEMBERS });
+  assert.equal(off.op, 'remove', 'the holder\'s own plain 🙋 did not take the claim back');
+  assert.equal(holder(), null);
+  assert.equal(claim('bob').op, 'add');
+});
