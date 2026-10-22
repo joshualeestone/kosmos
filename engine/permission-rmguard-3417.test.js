@@ -5,6 +5,9 @@
  * rm -f "$S"/*.png. Measured with 2.1.308 (interactive, --dangerously-skip-permissions): that check reaches the
  * PermissionRequest hook, and Kosmos's allow hook answers it, so the person sees no prompt and the command runs. These
  * tests pin that the hook answers allow for those shapes, so a later narrowing of decide() cannot bring the prompt back.
+ *
+ * DELIBERATE, NOT AN OVERSIGHT: allowing rm -rf $X/ means an empty X runs rm -rf /. That cost was put to Josh on the
+ * card and he chose auto-approve. A change that makes these red is a change to his ruling, so take it back to him.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -27,8 +30,9 @@ test('#3417 Claude\'s dangerous-rm safety prompt is answered allow, never shown 
   }
 });
 
-test('#3417 CONTROL: the protected-place rule still stays silent for the same shape', () => {
+test('#3417 CONTROL: the protected-place rule still stays silent for the same shape, and only there', () => {
   assert.equal(hook.decide(bash('rm -rf "$S"/.git')), null);
+  assert.equal(hook.decide(bash('rm -rf "$S"/.github')).hookSpecificOutput.decision.behavior, 'allow', '.github is not .git');
 });
 
 test('#3417 the shipped hook script prints the allow for it', () => {
