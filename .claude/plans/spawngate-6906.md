@@ -28,7 +28,16 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
   stub queues. An explicit KOSMOS_PROMOTE_AGENT_GATE_CMD runs as given, unqueued.
 - After deleting a job file, the gate re-enables its launchd label (`launchctl enable`), since removal disabled it;
   never in a sandboxed run (AGENT_WORKFORCE_LAUNCH set). It says "found no job file or worker folder" when there was
-  nothing to delete. A lost create is looked for three times, 5 s apart, and its files are deleted either way.
+  nothing to delete. A lost create is looked for for a minute (6 times, 10 s apart); if the board never lists it, its
+  files are left alone and the gate says where to check (deleting files under a live agent is worse than leaving them).
+- Files are deleted only after a FULL removal: the board answers 200 for a partial one too, so the gate reads the
+  body's `outcome` and, unless it is `removed` and /api/status no longer lists the agent, says what to do by hand
+  and deletes nothing (review 5).
+- A `rate_limited` agent at the end of the window is cannot-tell (2), like a usage-limit question; the limit wording
+  matched is the board's own ("usage limit", "rate limit", "out of usage", "quota ran out"), so a first-run prompt
+  that happens to contain "generate" or "unlimited" stays a refusal (review 5).
+- When the promote itself runs inside a turn that already holds the machine, the queue runs the gate directly and
+  prints no END line, so its exit code is the gate's ("runs now, inside the turn" in the log) (review 5).
 - A 200 create is confirmed at once (before the name is parsed), and a board that answers with another name is
   cannot-tell, with only the name the gate asked for removed (review 2).
 - After an agent is online (two consecutive polls, unchanged), it is sent one message, and the arm passes only on a
@@ -54,7 +63,7 @@ is out of date: `DELETE /api/agent/<name>/removal` is the board's own Remove age
   the queue (two suites ran in turn; a suite may start while it waits, since suites can run side by side), then PASS,
   both answered "ready", each one's job file and worker folder deleted and the agent removed; QUEUED-HEAVY END rc=0;
   afterwards 0 verify2129 plists in ~/Library/LaunchAgents and 0 worker folders (aoc-6906-queue.out).
-- tools/test-staging-agent-online-check.sh: 28 arms pass; mutants dropping the kind filter, the date filter, or
+- tools/test-staging-agent-online-check.sh: 34 arms pass at the last count; mutants dropping the kind filter, the date filter, or
   notifyCreated each turn arms red. Earlier: 24 arms Against main's gate: 18 fail (agents left on the board, no
   removal). With first_reply forced to succeed: the no-answer, other-sender and refused-message arms fail. With the old
   long names: 16 fail. tools/test-staging-channel-2036.sh passes.
