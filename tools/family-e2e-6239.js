@@ -408,7 +408,7 @@ function knockAt(b, token) {
     const s = tls.connect({ host: '127.0.0.1', port: REL.publicPort, servername: host, ca }, () => s.write(req));
     s.setEncoding('utf8');
     s.on('data', (d) => { out += d; });
-    s.on('end', () => { const m = out.match(/^HTTP\/1\.1 (\d{3})/); end(m ? Number(m[1]) : 0, out.slice(out.indexOf('\r\n\r\n') + 4) || out); });
+    s.on('end', () => { const m = out.match(/^HTTP\/1\.1 (\d{3})/); const at = out.indexOf('\r\n\r\n'); end(m ? Number(m[1]) : 0, at < 0 ? out : out.slice(at + 4)); });
     s.on('error', (e) => end(0, String(e.message || e)));
     s.setTimeout(15000, () => end(0, 'no answer in 15 s'));
   });
@@ -467,9 +467,9 @@ async function main() {
 
   // 2. relay (the boards' tunnels reach the coordinator through it)
   const relayEnv = serviceEnv(path.join(SANDBOX, 'relay-home'), { RUST_LOG: 'info' });
-  const tls = path.join(SANDBOX, 'relay-tls');
+  const tlsDir = path.join(SANDBOX, 'relay-tls');
   try {
-    execFileSync(BIN.relay, ['dev-cert', '--hosts', '127.0.0.1', '--out-dir', tls], { stdio: ['ignore', 'pipe', 'pipe'], env: relayEnv, timeout: SYNC_MS, killSignal: 'SIGKILL' });
+    execFileSync(BIN.relay, ['dev-cert', '--hosts', '127.0.0.1', '--out-dir', tlsDir], { stdio: ['ignore', 'pipe', 'pipe'], env: relayEnv, timeout: SYNC_MS, killSignal: 'SIGKILL' });
   } catch (e) { throw new Error('relay dev-cert failed: ' + String(e.stderr || e.message || e).slice(0, 600)); }
   const pinned = path.join(SANDBOX, 'relay-coordinator-key');
   fs.writeFileSync(pinned, meta.coordinator_pubkey + '\n');
@@ -477,9 +477,9 @@ async function main() {
   const tun = await freePort();
   REL.tunnelAddr = '127.0.0.1:' + tun;
   REL.publicPort = pub;   // where a phone or browser reaches a computer (kosmos#6887: the parent's browser knocks at P)
-  REL.ca = path.join(tls, 'ca.pem');
+  REL.ca = path.join(tlsDir, 'ca.pem');
   REL.args = ['serve', '--public-addr', '127.0.0.1:' + pub, '--tunnel-addr', REL.tunnelAddr,
-    '--tunnel-cert', path.join(tls, 'cert.pem'), '--tunnel-key', path.join(tls, 'key.pem'), '--coordinator-key', pinned,
+    '--tunnel-cert', path.join(tlsDir, 'cert.pem'), '--tunnel-key', path.join(tlsDir, 'key.pem'), '--coordinator-key', pinned,
     /* kosmos#6887: the coordinator's domain, or the relay keeps its placeholder (kosmos.invalid), refuses every tunnel's
        ticket for the name the tunnel asks, and no browser can reach a board through it (only 4b's knock needs that). */
     '--domain', FEDPROOF_DOMAIN];

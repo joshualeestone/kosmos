@@ -38,8 +38,8 @@ coordinator replaces the id a browser offers, #5422, and the sign-up answer does
 gate a real browser goes through.
 
 ## Weakest premise
-That the second-step refusal was the reason for "not valid any more": the tunnel's stderr does not reach the board log,
-so it was not read. It is the only refusal in `admit` that fits the state on disk (own account matches, no cutoffs, not a
+That the second-step refusal was the reason for "not valid any more": the tunnel logs to stdout, which the board
+discards (engine/remote.js spawns it with stdout ignored), so its refusal line was not read. It is the only refusal in `admit` that fits the state on disk (own account matches, no cutoffs, not a
 computer id), and setting the variable alone turned it into 403 pending.
 
 ## Not changed
