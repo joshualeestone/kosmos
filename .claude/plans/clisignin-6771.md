@@ -25,3 +25,10 @@ and `vercel whoami` on Mortals answers joshualeestone-6084 today; two hand publi
 - tools/test-site-autodeploy-5589.sh: ALL PASS, with 3 new arms (no token + signed in deploys with no VERCEL_TOKEN;
   no accessor + signed in deploys; a filed token wins and whoami is not run). The test never runs the real CLI: a
   stand-in that is not signed in is the default, so every earlier no-token arm is red as before.
+- Review 1: whoami must exit 0 with exactly one name-shaped line (an error on stdout was read as a name), its stdout
+  goes to a file (a child holding a pipe outlived the limit: measured 101 s for a 3 s limit), and arms for an error on
+  stdout, two lines, a hang with a child holding stdout, and an exported empty token. Mutants: exit code ignored,
+  no unset, a pipe instead of the file, no line count: 1 red each.
+- Review 2: a limit of 0 falls back to 30 (perl's alarm 0 cancels it). REASONED, NOT TESTED: telling "30 s" from "no
+  limit" needs a stand-in that hangs past 30 s, which this test will not spend. The accessor's reason is now said on a
+  sign-in deploy (tested), and the exit 77 line names both fixes, a new sign-in or a token.

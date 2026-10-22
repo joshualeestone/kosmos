@@ -505,14 +505,14 @@ if [ -z "${VERCEL_TOKEN:-}" ]; then
     # FILE, not a pipe, so a child the CLI leaves running (it spawns an update worker) cannot hold this tick past the
     # limit (KOSMOS_AUTODEPLOY_WHOAMI_SECS, default 30; KOSMOS_AUTODEPLOY_VERCEL is the CLI, for the test).
     VCLI="${KOSMOS_AUTODEPLOY_VERCEL:-vercel}"; _wsecs="${KOSMOS_AUTODEPLOY_WHOAMI_SECS:-30}"
-    case "$_wsecs" in ''|*[!0-9]*) _wsecs=30 ;; esac
+    case "$_wsecs" in ''|*[!0-9]*|0*) _wsecs=30 ;; esac   # 0 would cancel perl's alarm: no limit at all (review 2)
     _who=""; _whof=$(mktemp "${TMPDIR:-/tmp}/site-autodeploy-who.XXXXXX") || _whof=""
     if [ -n "$_whof" ] && perl -e 'alarm shift; exec @ARGV or exit 127' "$_wsecs" "$VCLI" whoami > "$_whof" 2>/dev/null; then
       [ "$(grep -c . "$_whof")" = 1 ] && _who=$(grep . "$_whof" | grep -E '^[A-Za-z0-9_.@-]{1,100}$')
     fi
     [ -z "$_whof" ] || rm -f "$_whof"
     if [ -n "$_who" ]; then
-      say "no Vercel token${_nosecrets:+ (the secrets accessor $SECRETS_CMD is not there)} for $VERCEL_TOKEN_TARGET: deploying on this machine's vercel sign-in ($_who) (kosmos#6771)"
+      say "no Vercel token${_nosecrets:+ (the secrets accessor $SECRETS_CMD is not there)}${_why:+ (the accessor said: $_why)} for $VERCEL_TOKEN_TARGET: deploying on this machine's vercel sign-in ($_who) (kosmos#6771)"
       _signedin=1
     fi
   fi
@@ -631,7 +631,7 @@ fi
 # finding about this sha. Not counted and NOT parked, so a new token is the whole fix; red once a day, on no sha.
 if [ "$rc" = 77 ]; then
   accounted=1
-  TARGET="" red_once vercelauth "FAIL: Vercel refused this machine's authorization for the deploy (deploy-site.sh exit 77; its own line above says whether a token was given). Make a scoped token for the chaoskosmos-site project and file it as vercel-chaoskosmos-site (kosmos#6771); nothing counted, not parked"
+  TARGET="" red_once vercelauth "FAIL: Vercel refused this machine's authorization for the deploy (deploy-site.sh exit 77; its own line above says whether a token was given). Sign this machine's vercel CLI in again, or make a scoped token for the chaoskosmos-site project and file it as vercel-chaoskosmos-site (kosmos#6771); nothing counted, not parked"
 fi
 printf '%s rc=%s %s\n' "$TARGET" "$rc" "$(now)" > "$STATE/last-failure"
 n=$(( $(count_for "$STATE/failures") + 1 )); echo "$TARGET $n" > "$STATE/failures"; accounted=1
