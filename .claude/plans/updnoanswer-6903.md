@@ -85,3 +85,6 @@ Card: kosmos#6903 (Josh, 2026-10-22 10:46 CDT: the dialog showed only "we could 
 - docs/browser-checks/render-update-toast.js: presses Update against a stubbed route (abort, 502 with no body, and the
   route's own 500 as control); reads the words and checks the dialog is not stranded. Mutant (old page): red,
   "no answer said: we could not start the update".
+- Full node suite (tools/run-tests.sh) on b04fbad56e: 23284 tests, 1 fail, the third source pin on the same rename:
+  accountmove-stop-6214.test.js counts the four move refusals by their `sendJson(res, 409` spelling. The regex now
+  takes either spelling and still requires four; the file passes 20/20.
