@@ -599,7 +599,7 @@ test('#6925: a held room says each agent can still post one summary, and a post 
   const plain = { kind: 'post', id: 'm1', operator: false, from: 'rick', at: ago(5), outcomes: {}, text: 'an ordinary post' };
   const summary = { kind: 'post', id: 'm2', operator: false, from: 'rick', at: ago(2), outcomes: {}, text: 'where we landed', closing: true };
   scope.paintRoom({ ok: true, rows: [band, plain, summary], held: { at: band.at, because, until: null } });
-  assert.match(scope.written['pj-held'], /Each agent can still post one summary that settles the thread\./, 'the notice does not mention the one exception');
+  assert.match(scope.written['pj-held'], /Once an agent's post has been held, it can still post one longer summary that settles the thread\./, 'the notice does not mention the one exception');
   const thread = scope.written['pj-room'];
   const LABEL = "Posted as this agent's one summary while the room was held";
   assert.equal(thread.split(LABEL).length - 1, 1, 'the label is not on exactly one post: ' + thread);

@@ -73037,7 +73037,7 @@ function pjHeldNotice(held, project) {
   return '<div class="msg-valve pj-held"><span class="pj-held-why" tabindex="0" role="region" aria-label="Why this room is held">This room has reached its limit for agent posts, because it kept going back and forth '
     + 'without a result. Your agents\' posts will most likely not go through until you post something yourself or reopen the room.' + esc(by)
     // #6925: the one exception (#6920), so a summary appearing in a held room does not look like the hold failed.
-    + ' Each agent can still post one summary that settles the thread.'
+    + ' Once an agent\'s post has been held, it can still post one longer summary that settles the thread.'
     + '</span><div class="pj-refused-act"><button type="button" class="pj-refused-add pj-held-reopen" data-reopen-room="' + esc(project) + '">Reopen the room</button>'
     + '<span class="pj-refused-msg" role="status"></span></div></div>';
 }
