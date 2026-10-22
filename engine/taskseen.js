@@ -4,9 +4,9 @@
  * #6947 (agent feedback 10-22): when the person last opened a task's page, so an agent that left a nudge on the task
  * can tell "not seen yet" from "seen, not acted on".
  *
- * WHAT "SEEN" MEANS HERE: the person opened that task's page in Kosmos (the board's web page), with the page visible,
- * or came back to the tab while it was open. It is recorded when the page says so (POST .../task/<n>/seen), never
- * from the page's own background reads, which run on a timer whether or not anyone is looking.
+ * WHAT "SEEN" MEANS HERE: the task's conversation was drawn on the person's screen in Kosmos (the board's web page):
+ * they opened the task's page, or came back to the tab while it was open, which draws it again first. It is recorded
+ * when the page says so (POST .../task/<n>/seen), not from any read the page makes.
  * What it misses is in the plan (.claude/plans/nudge-seen-6947.md): a nudge read somewhere else (the project room, a
  * notification, the task's card in a column), and a page opened but not read.
  *
