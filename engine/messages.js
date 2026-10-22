@@ -3534,6 +3534,30 @@ function reactionsFor(of, rows, youReactor) {
   return out;
 }
 
+/* #6946: a room request is CLAIMED with the raised-hand reaction, so the second agent to answer it sees the first
+   before it posts "taking this". Any 🙋 counts (skin tones and the gendered sequences start with the same codepoint).
+   react() refuses an agent's 🙋 on a post someone else already holds, so a claim is one holder in practice; the
+   person's own 🙋 is never refused (it is their room). */
+const CLAIM_EMOJI = '\u{1F64B}';
+function isClaimEmoji(e) { return typeof e === 'string' && e.codePointAt(0) === 0x1F64B; }
+
+/* The holder of the claim on post `of`, replayed from the reaction rows: the reactor whose live 🙋 was added
+   EARLIEST (a remove clears that reactor; a later re-add counts from then). {by, at} or null; `by` is 'you' for the
+   person, as in reactionsFor. */
+function claimOf(of, rows) {
+  const postId = String(of == null ? '' : of);
+  const live = new Map();   // reactor -> at of the add, in add order
+  for (const m of rows) {
+    if (!m || m.kind !== 'reaction' || String(m.of) !== postId || !isClaimEmoji(m.emoji)) continue;
+    const reactor = m.operator === true ? 'you' : (typeof m.from === 'string' && m.from ? m.from : null);
+    if (!reactor) continue;
+    if (m.op === 'remove') { live.delete(reactor); continue; }
+    if (!live.has(reactor)) live.set(reactor, typeof m.at === 'string' ? m.at : null);
+  }
+  for (const [by, at] of live) return { by, at };
+  return null;
+}
+
 /* #4631: a message id as a PERSON may write it. Ids are stored as 'm' + a number, one sequence for the whole
    Kosmos, so the number alone names the message. A person copies "message 530 in Kosmos Growth" (the page's
    Copy message reference, #5312: Copy message id) and pastes it to an agent, or types "530"; each input point runs its value
@@ -3601,10 +3625,12 @@ const NOT_ON_PROJECT_FIX = "; ask the person to add this agent with the + beside
    sessionNames, the caller's derivation, same as sendPost -- the operator is
    exempt, being in every room they own). Returns {ok, op, emoji, of} or
    {ok:false, because}. */
-function react({ project, of, emoji, from, operator, members }) {
+function react({ project, of, emoji, from, operator, members, claim }) {
   const projectId = String(project == null ? '' : project).trim();
   const postId = messageIdOf(of);   // #4631: '530' and 'message 530' name m530 too
-  const e = normalizeReactionEmoji(emoji);
+  // #6946: `claim` is 'claim' (never takes it back) or 'release' (only takes it back); either one means 🙋.
+  if (claim !== undefined && claim !== 'claim' && claim !== 'release') return { ok: false, because: 'we could not tell whether to claim that post or give it back' };
+  const e = claim ? CLAIM_EMOJI : normalizeReactionEmoji(emoji);
   if (!projectId) return { ok: false, because: 'we could not tell which project this post is in' };
   if (!postId) return { ok: false, because: 'we could not tell which post to react to' };
   if (!e) return { ok: false, because: 'that is not an emoji we can react with' };
@@ -3649,6 +3675,17 @@ function react({ project, of, emoji, from, operator, members }) {
   if (!post) return { ok: false, because: 'there is no post by that id in this room' };
   const cur = reactionsFor(postId, rows).find((r) => r.emoji === e);
   const has = !!(cur && cur.who.includes(reactor));
+  /* #6946: the claim rule. Checked and written in this one synchronous call, so of two agents racing on one request
+     the second is refused here, with the first one's name, before it can post that it is taking it. */
+  const holder = isClaimEmoji(e) ? claimOf(postId, rows) : null;
+  if (claim === 'claim' && has) return { ok: true, op: 'already', emoji: e, of: postId };
+  if (claim === 'release' && !has) return { ok: false, because: 'you have not claimed that post, so there is nothing to give back' };
+  if (!has && holder && holder.by !== reactor && operator !== true) {
+    const who = holder.by === 'you' ? 'the person' : holder.by;
+    return { ok: false, claimedBy: holder.by, claimedAt: holder.at,
+      because: who + ' already claimed that post' + (holder.at ? ' at ' + holder.at : '')
+        + ', so do not post that you are taking it: read the room, and ask ' + (holder.by === 'you' ? 'them' : who) + ' if you can help' };
+  }
   const op = has ? 'remove' : 'add';
   appendLog({ kind: 'reaction', project: projectId, of: postId, emoji: e, op,
     at: new Date().toISOString(),
@@ -4010,7 +4047,7 @@ module.exports = {
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
-  react, reactionsFor, normalizeReactionEmoji,
+  react, reactionsFor, normalizeReactionEmoji, claimOf,
   messageIdOf, // #4631
   operatorDirect, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,

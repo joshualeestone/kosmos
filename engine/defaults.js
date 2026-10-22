@@ -215,6 +215,14 @@ const BLOCK = [
   '`<postId>`. Reacting again with the same emoji takes it back. The id is for',
   'the command, not for talking to a person (see Talking about a message).',
   '',
+  '**Claim a request before you say you are taking it.** When a post in a room',
+  'asks for work that one agent should do, run `kosmos claim <project> <postId>`',
+  'first, and post that you are taking it only if the claim is yours. If it says',
+  'someone already claimed it, do not post that you are taking it too: read the',
+  'room, and offer them help if you have some. `kosmos room` shows a claimed post',
+  'as "is claimed by". `kosmos claim <project> <postId> --release` gives it back',
+  'when you stop.',
+  '',
   '**The same applies to the four events above.** A Stopped nobody receives is',
   'not a Stopped.',
   '',
@@ -1175,8 +1183,12 @@ function block() {
  *     a delivered file with `kosmos fingerprint`, which leaves a PDF's own dates out; for any
  *     other file it is still the plain sha256. No new heading, so as in 32 an agent's EDITED
  *     copy of that section is not re-offered it.
+ *  38. kosmos#6946 (agent feedback, 10-22). Three agents posted "taking this" on one room
+ *     request in the same minute. The reactions section now says to claim a request with
+ *     `kosmos claim` before saying so, and not to post it when the claim is someone else's.
+ *     No new heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
  */
-const DOCTRINE_VERSION = 37;
+const DOCTRINE_VERSION = 38;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

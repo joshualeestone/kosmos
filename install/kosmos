@@ -4752,6 +4752,63 @@ cmd_react() {
   esac
 }
 
+# #6946: an agent CLAIMS a request posted in a project room before it says it is taking it, so two agents never both
+# start on one request. A claim is the 🙋 reaction with one rule: the board refuses it when somebody else already
+# holds it, and says who. Unlike react it never toggles: claiming twice keeps the claim, and --release is the only way
+# to give it back. Same transport as cmd_react.
+cmd_claim() {
+  local release=0 usage="Usage: kosmos claim <project-id> <post-id> [--release]   (the post id is in brackets before each post in kosmos room, e.g. [m3])"
+  local -a words=()
+  local w
+  for w in "$@"; do
+    case "$w" in --release) release=1 ;; *) words+=("$w") ;; esac
+  done
+  local project="${words[0]:-}" post="${words[1]:-}"
+  if [ -z "$project" ] || [ -z "$post" ]; then say "$usage"; exit 2; fi
+  _no_more_words claim 2 "$usage" "${words[@]}"
+  if ! healthy; then
+    say_not_up "the claim could not be kept"
+    exit 1
+  fi
+  local esc_project esc_post esc_pane mode=claim
+  [ "$release" = 1 ] && mode=release
+  esc_project=$(printf '%s' "$project" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  esc_post=$(printf '%s' "$post" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  local _bt; _bt="$(agent_board_token || true)"
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+  local body because rc=0   # `|| rc=$?` for the bash 3.2 set -e reason cmd_react gives
+  body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/react" \
+    -H 'content-type: application/json' \
+    --data "{\"project\":\"$esc_project\",\"of\":\"$esc_post\",\"claim\":\"$mode\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+  # A claim never toggles, so running it again after a timeout is safe and answers whether it landed.
+  if [ "$rc" -eq 28 ]; then
+    say "Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe, and it says whether the claim is yours."
+    exit 3
+  elif [ "$rc" -ne 0 ]; then
+    say_unreached "keep that claim" "$rc" write
+    exit 1
+  fi
+  case "$body" in '{"wrongWorld":true'*) say "Your Kosmos is not the one open right now, so that could not be done. Try again once it is open."; exit 1 ;; esac
+  case "$body" in
+    '{"error":'*)
+      because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+      say "Kosmos could not read that claim: ${because:-it did not say why}."
+      exit 1 ;;
+    '{"ok":true,"op":"add"'*)     say "Claimed: that post is yours, and the room shows it. Say in the room what you are doing with it." ;;
+    '{"ok":true,"op":"already"'*) say "That post is already yours." ;;
+    '{"ok":true,"op":"remove"'*)  say "Gave that post back: it is no longer claimed by you." ;;
+    '{"ok":false'*)
+      because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
+      say "Not claimed: ${because:-we could not tell why}."
+      exit 1 ;;
+    *)
+      say "Not claimed: Kosmos gave an answer we could not read."
+      exit 1 ;;
+  esac
+}
+
 # Read a project room's recent talk (#314): the tail, oldest first, shaped by
 # the server (?as=text) because stock bash has no JSON parser. This is the
 # command an agent brought in after a valve is taught, so it must work with
@@ -4951,6 +5008,7 @@ kosmos_command_list() {
   printf '  kosmos reply-channel say where you answer the person, when it is not kosmos reply\n'
   printf '  kosmos inbox         read your recent messages with the person (a notice can arrive without them)\n'
   printf '  kosmos react         react to a post in a project room\n'
+  printf '  kosmos claim         claim a request in a project room before you take it on\n'
   printf '  kosmos report        say what you are doing: working, blocked, waiting on someone\n'
   printf '  kosmos room          read a project room\n'
   printf '  kosmos feedback      write or read the daily feedback report\n'
@@ -4965,7 +5023,7 @@ kosmos_command_list() {
   printf '  kosmos connections   list the outside services and which are connected\n'
   printf '  kosmos accounts      list the provider accounts and whether each is signed in\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
-  printf '  For how to use one: kosmos <command> --help (agents, accounts, msg, post, reply, reply-channel, inbox, react, report,\n'
+  printf '  For how to use one: kosmos <command> --help (agents, accounts, msg, post, reply, reply-channel, inbox, react, claim, report,\n'
   printf '  room, feedback, community, task, project, agent and connect show their usage).\n'
 }
 
@@ -4993,7 +5051,7 @@ done
 [ "${1:-}" = help ] && _kosmos_help=1
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|react|report|room|feedback|community|task|project|agent|connect|update|reply-channel)
+    msg|reply|post|react|claim|report|room|feedback|community|task|project|agent|connect|update|reply-channel)
       # kosmos#3036: these verbs, run bare, print their own usage and exit 2 --
       # the missing-required-argument error. A --help re-dispatched here to GET
       # that usage SUCCEEDED, so it must exit 0, not inherit the bare-usage 2 (a
@@ -6358,6 +6416,7 @@ case "${1:-}" in
   reply-channel) shift; cmd_reply_channel "$@" ;;   # kosmos#5805 part 2
   post)    shift; cmd_post "$@" ;;
   react)   shift; cmd_react "$@" ;;
+  claim)   shift; cmd_claim "$@" ;;   # kosmos#6946
   report)  shift; cmd_report "$@" ;;
   whoami)  shift; cmd_whoami "$@" ;;
   handoff) shift; cmd_handoff "$@" ;;   # kosmos#6506

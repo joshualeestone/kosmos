@@ -17973,7 +17973,9 @@ const server = http.createServer(async (req, res) => {
         // #2255: the project's members, same derivation as /api/post -- react()
         // refuses an agent that is not on the project (room isolation).
         const members = (found.agents || []).map((a) => a.sessionName);
-        const out = messages.react({ project: found.id, of: body.of, emoji: body.emoji, from: sender.card.sessionName, members });
+        // #6946: `claim` ('claim' | 'release') is `kosmos claim`; react() refuses any other value.
+        const out = messages.react({ project: found.id, of: body.of, emoji: body.emoji, from: sender.card.sessionName, members,
+          ...(body.claim !== undefined ? { claim: body.claim } : {}) });
         // #2255: 200 for a refusal too, matching /api/post and this route's own
         // pre-react refusals above -- a react refusal is a room-state answer the
         // caller reads off `ok`, not an HTTP-level error.
@@ -21244,7 +21246,9 @@ const server = http.createServer(async (req, res) => {
                    row written before #185 recorded it (08-24) also reads [], and its @names show plain,
                    the safe direction (measured: 0 such rows among 221 posts on a real board, 09-29). */
                 mentioned: Array.isArray(m.mentioned) ? m.mentioned : [],
-                ...(reactions.length ? { reactions } : {}) };
+                ...(reactions.length ? { reactions } : {}),
+                // #6946: who holds the 🙋 claim on this post, {by, at}; `by` is 'you' for the person.
+                ...((() => { const c = messages.claimOf(m.id, rec.rows); return c ? { claim: c } : {}; })()) };
             })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
@@ -21366,7 +21370,15 @@ const server = http.createServer(async (req, res) => {
             ? [when + '  [kosmos] reactions on [' + m.id + ']: '
               + shown.map((r) => r.emoji + ' ' + r.who.join(', ')).join('; ')]
             : [];
-          return [line, ...reacted, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
+          /* #6946: the claim on its own line, so an agent reading the room before it answers a request sees that
+             someone already has it, and in words rather than as one pill among the reactions. */
+          const c = m.claim && typeof m.claim.by === 'string' && m.claim.by ? m.claim : null;
+          const claimedBy = c ? (c.by === 'you' ? 'the person' : String(c.by).replace(/\s+/g, ' ')) : '';
+          const claimed = c
+            ? [when + '  [kosmos] [' + m.id + '] is claimed by ' + claimedBy
+              + (c.at ? ' (since ' + messages.roomClock(c.at, zone) + ')' : '') + '; do not post that you are taking it.']
+            : [];
+          return [line, ...reacted, ...claimed, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
         });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'

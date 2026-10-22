@@ -94,6 +94,7 @@ const USAGE = {
   reply: 'Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and $ arrive as written)',
   post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624).',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
+  claim: 'Usage: kosmos claim <project-id> <post-id> [--release]   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
   fingerprint: 'Usage: kosmos fingerprint <file>   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: the sha256 of the file, with the creation and change dates and document ID inside a PDF left out, so the same source rendered twice matches; a PDF over 64 MB is hashed as plain bytes)',
@@ -2359,6 +2360,25 @@ function subcommandRequired(verb) {
   };
 }
 
+/* #6946: install/kosmos cmd_claim's twin. A claim never toggles, so a timed-out one is safe to run again. */
+async function verbClaim(ctx, args) {
+  const release = args.includes('--release');
+  const words = args.filter((a) => a !== '--release');
+  const [project, of] = words;
+  if (!project || !of) { ctx.err(USAGE.claim); return 2; }
+  if (tooManyWords(ctx, 'claim', 2, USAGE.claim, words)) return 2;
+  const r = await ctx.call('POST', '/api/react', { project, of, claim: release ? 'release' : 'claim', from_pane: '' });
+  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe, and it says whether the claim is yours.') : ctx.unreachable('claim');
+  if (ctx.wrongWorld(r)) { ctx.err(ctx.outbox().WRONG_WORLD_SENTENCES.notOpen); return 1; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
+  const op = r.json && r.json.ok ? r.json.op : null;
+  if (op === 'add') { ctx.out('Claimed: that post is yours, and the room shows it. Say in the room what you are doing with it.'); return 0; }
+  if (op === 'already') { ctx.out('That post is already yours.'); return 0; }
+  if (op === 'remove') { ctx.out('Gave that post back: it is no longer claimed by you.'); return 0; }
+  ctx.err('Not claimed: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
+  return 1;
+}
+
 /* 🔑 THE DISPATCH, AND THE ONLY LIST OF WHAT THIS COMMAND DOES. A subcommand
    handler wins when the first argument names one; otherwise the verb's handler
    runs with every argument (a project id, a state, a message). */
@@ -2368,6 +2388,7 @@ const VERB_HANDLERS = {
   'reply-channel': verbReplyChannel,
   post: verbPost,
   react: verbReact,
+  claim: verbClaim,
   report: verbReport,
   whoami: verbWhoami,
   handoff: verbHandoff,
@@ -2416,6 +2437,7 @@ const DESCRIBE = {
   inbox: 'read your recent messages with the person (a notice can arrive without them)',
   post: 'post in a project room',
   react: 'react to a post in a project room',
+  claim: 'claim a request in a project room before you take it on',
   report: 'say what you are doing: working, blocked, waiting on someone',
   whoami: 'say which agent you are and which account you are on',
   handoff: 'print facts for your handoff: your live state, artifact fingerprints, instruction and git status',

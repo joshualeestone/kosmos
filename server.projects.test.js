@@ -2974,6 +2974,33 @@ test('#3570: `kosmos room` shows a post\'s reactions under it, and drops the lin
   });
 });
 
+test('#6946: `kosmos room` says a claimed post is claimed, by whom, and drops it when the claim is given back', async () => {
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    const posted = await post(`/api/project/${project.id}/room`, { text: 'can someone take the release notes' });
+    assert.equal(posted.status, 200, posted.body);
+    const jrows = JSON.parse((await req(`/api/project/${project.id}/room`)).body);
+    const id = jrows.rows.filter((r) => r.kind === 'post').slice(-1)[0].id;
+    // Control: nobody has claimed it, so no claim line and no claim field.
+    let res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.doesNotMatch(res.body, /is claimed by/, 'an unclaimed post printed a claim line');
+    assert.equal(jrows.rows.find((r) => r.id === id).claim, undefined);
+
+    const messages = require('./engine/messages');
+    const c = messages.react({ project: project.id, of: id, from: 'zeta', members: ['zeta'], claim: 'claim' });
+    assert.equal(c.ok, true, JSON.stringify(c));
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.match(res.body, new RegExp('\\[kosmos\\] \\[' + id + '\\] is claimed by zeta \\(since \\d\\d:\\d\\d\\); do not post that you are taking it\\.\\n'),
+      'the claim line is missing or worded differently:\n' + res.body);
+    const row = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.find((r) => r.id === id);
+    assert.equal(row.claim && row.claim.by, 'zeta', 'the page row does not carry the claim');
+
+    assert.equal(messages.react({ project: project.id, of: id, from: 'zeta', members: ['zeta'], claim: 'release' }).op, 'remove');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.doesNotMatch(res.body, /is claimed by/, 'a given-back claim still printed');
+  });
+});
+
 test('#2702: the room rejects an UNKNOWN project id (404) but still serves a real empty project (200)', async () => {
   /* Before this, `room` rendered ANY id as an empty room, so a typo or a
      hyphenated-name guess was indistinguishable from silence -- while `post`
