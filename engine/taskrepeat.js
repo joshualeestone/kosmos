@@ -10,12 +10,19 @@
  *   { every: 'day',  at: ['HH:MM', ...] }            kosmos#5752: every day at each time (2 to 24, sorted; one time is
  *                                                    stored as the string above, so older rules read as they always did)
  *   { every: 'week', day: 0-6 (Sunday 0), at: 'HH:MM' } every week on that day at HH:MM
+ *   { every: 'minutes', n: 15-720 }                  kosmos#6893: every n minutes, on the multiples of n from local
+ *                                                    midnight (n divides the day: 15, 30, 45, 90, 120...), so the
+ *                                                    slots are the same every day and a person can say when they fall
  * Kosmos does not START the job (the person's own scheduler or the agent's loop does); the agent reports each run
  * (`kosmos task ran`), and the next run is worked out from the rule, never stored, so a changed rule never leaves a
  * stale "next". Pure functions only: the writes are tasks.setRepeat / tasks.recordRun.
  */
 
-const EVERY = ['hour', 'day', 'week'];
+const EVERY = ['hour', 'day', 'week', 'minutes'];
+/* kosmos#6893: the shortest interval. Review 3: every run is a row in the task's history, which keeps them all, so a
+   5-minute task would write 288 a day; 15 is 96, four times the busiest rule before this (hourly). */
+const N_MIN = 15;
+const N_MAX = 720;    // the longest; past half a day, a daily task with times says it better
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const NOTE_MAX = 500;   // a run's note: one line about what this run found, not the result itself
@@ -24,8 +31,15 @@ const TIMES_MAX = 24;   // kosmos#5752: a daily task's times of day; more than h
 /* The rule as given (CLI or screen), checked whole: a sentence for what is wrong, or null. */
 function repeatProblem(r) {
   if (r === null || r === undefined) return null;   // clearing
-  if (typeof r !== 'object' || Array.isArray(r)) return 'a repeat has to say how often: every hour, day or week';
-  if (!EVERY.includes(r.every)) return 'a task can repeat every hour, every day or every week';
+  if (typeof r !== 'object' || Array.isArray(r)) return 'a repeat has to say how often: every so many minutes, every hour, day or week';
+  if (!EVERY.includes(r.every)) return 'a task can repeat every so many minutes, every hour, every day or every week';
+  if (r.every === 'minutes') {
+    if (!(Number.isInteger(r.n) && r.n >= N_MIN && r.n <= N_MAX && 1440 % r.n === 0)) {
+      return 'say the minutes as a number from ' + N_MIN + ' to ' + N_MAX + ' that divides the day evenly (12 hours at most), for example 15, 20, 30, 45 or 90';
+    }
+    if (r.at !== undefined || r.day !== undefined || r.minute !== undefined) return 'a task every so many minutes takes only the number of minutes';
+    return null;
+  }
   if (r.every === 'hour') {
     if (r.minute !== undefined && !(Number.isInteger(r.minute) && r.minute >= 0 && r.minute <= 59)) return 'the minute past the hour has to be 0 to 59';
     if (r.at !== undefined || r.day !== undefined) return 'an hourly task takes only the minute past the hour';
@@ -53,6 +67,8 @@ function repeatProblem(r) {
 function normalise(r) {
   if (r === null || r === undefined) return null;
   if (r.every === 'hour') return { every: 'hour', minute: r.minute === undefined ? 0 : r.minute };
+  // Review 1: every 60 minutes IS hourly, stored as the hourly rule so switching between the two words is no change.
+  if (r.every === 'minutes') return r.n === 60 ? { every: 'hour', minute: 0 } : { every: 'minutes', n: r.n };
   if (r.every === 'day') {
     /* kosmos#5752: one time stays a string, so every rule stored before lists existed reads exactly as it did; two or
        more are kept sorted, so the same times in another order are the same rule (setRepeat compares them). */
@@ -74,6 +90,24 @@ function nextAfter(rule, ms) {
   if (!r || repeatProblem(r)) return null;
   const from = new Date(ms);
   const y = from.getFullYear(), mo = from.getMonth(), d = from.getDate();
+  /* kosmos#6893: each slot built from (day, 0:00 + k*n minutes), as the other rules build theirs, so a DST day takes its
+     slots as the clock gives them. Today, then tomorrow (whose 0:00 is the first slot past today's last). */
+  if (r.every === 'minutes') {
+    /* Review 1: today's walk starts a slot before the current time, not at midnight: missedRuns and the latest-slot walk
+       call this in loops, for every task on every read. */
+    const k0 = Math.max(0, Math.floor((from.getHours() * 60 + from.getMinutes()) / r.n) - 1);
+    for (let n = 0; n <= 1; n += 1) {
+      for (let k = n === 0 ? k0 : 0; k * r.n < 1440; k += 1) {
+        const slot = new Date(y, mo, d + n, 0, k * r.n, 0, 0);
+        /* Review 3: a time the spring change skips is not moved onto the clock (02:15 would become 03:15, off the
+           grid, and crowd the real 03:00 slot): it is dropped, as a person's scheduler would skip it. */
+        if (slot.getHours() * 60 + slot.getMinutes() !== k * r.n) continue;
+        const t = slot.getTime();
+        if (t > ms) return t;
+      }
+    }
+    return null;
+  }
   if (r.every === 'hour') {
     // Hour by hour from this hour's slot, each built from its own parts, so the clock's own rules decide a DST hour.
     for (let k = 0; k <= 26; k += 1) {
@@ -110,6 +144,7 @@ function describe(rule) {
   const r = normalise(rule);
   if (!r || repeatProblem(r)) return '';
   if (r.every === 'hour') return 'every hour' + (r.minute ? ' at :' + String(r.minute).padStart(2, '0') : '');
+  if (r.every === 'minutes') return r.n % 60 === 0 && r.n > 60 ? 'every ' + (r.n / 60) + ' hours' : 'every ' + r.n + ' minutes';
   const said = timesOf(r).map((a) => clock(...hm(a)));
   const list = said.length === 1 ? said[0] : said.slice(0, -1).join(', ') + ' and ' + said[said.length - 1];
   return (r.every === 'day' ? 'every day' : 'every ' + DAY_NAMES[r.day]) + ' at ' + list;
@@ -145,6 +180,19 @@ function timesWords(at) {
 /* CLI words to a rule: ('day', { at: '09:00' }), ('week', { on: 'mon', at: '09:30' }), ('hour', { at: ':15' }). */
 function fromWords(every, opts = {}) {
   const e = String(every || '').toLowerCase().replace(/ly$/, '').replace(/^dai$/, 'day');   // hourly/daily/weekly too
+  /* kosmos#6893: "30m", "30min", "45 minutes", "2h" (the CLIs' word), or every 'minutes' with the number as --at (the
+     screen). Anything else in that shape is passed on as a rule the board refuses with the minutes sentence. */
+  const short = /^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$/.exec(String(every || '').trim().toLowerCase());
+  /* Review 1: a time or a day sent with the word is kept, so the board refuses it ("takes only the number of minutes")
+     instead of dropping it without a word. */
+  if (short) {
+    return { every: 'minutes', n: Number(short[1]) * (/^h/.test(short[2]) ? 60 : 1),
+      ...(opts.at === undefined ? {} : { at: opts.at }), ...(opts.on === undefined || opts.on === '' ? {} : { day: opts.on }) };
+  }
+  if (e === 'minute' || e === 'minutes') {
+    const n = opts.at === undefined ? NaN : String(opts.at).trim();
+    return { every: 'minutes', n: /^\d{1,4}$/.test(n) ? Number(n) : NaN, ...(opts.on === undefined || opts.on === '' ? {} : { day: opts.on }) };
+  }
   if (e === 'hour') {
     const at = opts.at === undefined ? undefined : String(opts.at).replace(/^:/, '');
     return { every: 'hour', ...(at === undefined ? {} : { minute: /^\d{1,2}$/.test(at) ? Number(at) : NaN }) };
@@ -230,7 +278,7 @@ function missGraceFor(rule) {
 }
 function periodOf(rule) {
   const r = normalise(rule);
-  return !r ? 0 : r.every === 'hour' ? 3600000 : r.every === 'day' ? 86400000 : 7 * 86400000;
+  return !r ? 0 : r.every === 'minutes' ? r.n * 60000 : r.every === 'hour' ? 3600000 : r.every === 'day' ? 86400000 : 7 * 86400000;
 }
 /* kosmos#5752: the shortest time between two slots, which sizes the graces: the period for one time a day, otherwise
    the smallest gap between the day's times, counting the wrap past midnight. The latest-slot walk keeps periodOf, so a
@@ -350,4 +398,40 @@ function fieldsOf(t, now = Date.now()) {
   return out;
 }
 
-module.exports = { VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
+/* kosmos#6894: what a recorded run puts in the project room, or null for nothing: { text, note, reading } (note and
+   reading are what the line says, '' for a part it does not), so the route can remember exactly what the room heard.
+   Only a run that CHANGED something is said, so a task every 30 minutes does not fill the room.
+   - Without `said` (the room has heard nothing of this task since the board started): the run's own change, as
+     recordRun saw it (`prev` is tasks.runBefore(after)): a note that is the new last change and not word for word the
+     last one, or a reading that differs from the one before (a duplicate's corrected reading too).
+   - With `said` ({ note, reading }: what the room was last told): measured against THAT, so a change held back by the
+     route's hour is said on the first run after it (the task's latest change note; review 5: never a copy held aside,
+     which outlived the runs that replaced it) and "was" is a reading the room saw. This side reads the task's state, not the single run, on purpose: it is catching the room up.
+   Kosmos says it, in its own voice (messages.roomNote). */
+const ROOM_SENTENCE_MAX = 120;
+function roomPlain(s, max) { return require('./agentnudge').plainWords(String(s == null ? '' : s).replace(/\p{Cf}/gu, ''), max); }
+function sameWords(a, b) { return String(a || '').replace(/\s+/g, ' ').trim() === String(b || '').replace(/\s+/g, ' ').trim(); }
+function roomRunLine(prev, after, said) {
+  if (!after || !after.repeat || !after.lastRunAt) return null;
+  const nowReading = after.verified && typeof after.verified.value === 'string' ? after.verified.value : '';
+  let note = '';
+  let reading = '';
+  let was = '';
+  if (said) {
+    const latest = typeof after.lastChangeNote === 'string' ? after.lastChangeNote : '';
+    if (latest && !sameWords(latest, said.note)) note = latest;
+    if (nowReading && nowReading !== (said.reading || '')) { reading = nowReading; was = said.reading || ''; }
+  } else {
+    const before = prev && typeof prev.verified === 'string' ? prev.verified : '';
+    if (nowReading && nowReading !== before && (after.duplicate || after.verified.at === after.lastRunAt)) { reading = nowReading; was = before; }
+    if (!after.duplicate && after.lastChangeAt === after.lastRunAt && typeof after.lastChangeNote === 'string' && after.lastChangeNote
+      && !sameWords(after.lastChangeNote, prev && prev.changeNote)) note = after.lastChangeNote;
+  }
+  if (!note && !reading) return null;
+  const parts = [];
+  if (note) parts.push(roomPlain(note, NOTE_MAX));
+  if (reading) parts.push('reading ' + roomPlain(reading, VALUE_MAX) + (was ? ' (was ' + roomPlain(was, VALUE_MAX) + ')' : ''));
+  return { text: 'Task #' + after.number + ', "' + roomPlain(after.sentence || '', ROOM_SENTENCE_MAX) + '" (' + describe(after.repeat) + '): ' + parts.join('; '), note, reading };
+}
+
+module.exports = { roomRunLine, sameWords, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };

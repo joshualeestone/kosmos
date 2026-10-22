@@ -471,8 +471,13 @@ const BLOCK = [
   '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
   '',
   'If the work is a file, add `--file <path>`: the next agents are sent its fingerprint',
-  'to check their copy against (`shasum -a 256 <file>` on a Mac, `(Get-FileHash <file>).Hash`',
-  'on Windows, which prints capitals: the case does not matter). If you change the file,',
+  'to check their copy with `kosmos fingerprint <file>`. It leaves out the dates and ID a',
+  'PDF records about itself, so the same source rendered twice gives the same fingerprint;',
+  'for a PDF it is not a byte-for-byte proof (and a PDF over 64 MB is hashed as plain',
+  'bytes). For any other file it is the plain sha256: `shasum -a 256 <file>` on a Mac,',
+  '`(Get-FileHash <file>).Hash` on Windows, which prints capitals: the case does not matter.',
+  'A PDF marked before this may carry its plain sha256 instead: if `kosmos fingerprint` does',
+  'not match one, check it with `shasum` or `Get-FileHash` as above. If you change the file,',
   'mark it again with `--file`: your own mark without it drops the fingerprint.',
   '',
   '**Work that comes back on a schedule is one task that repeats,** not a new task',
@@ -1165,8 +1170,13 @@ function block() {
  *     leave such a post to the agent it names, and engine/messages.js stops passing on
  *     another agent's agreement-only reply to it from the first one. No new heading, so as
  *     in 32 an agent's EDITED copy of that section is not re-offered it.
+ *  37. kosmos#6849 (a user's feedback, 10-21). The same source rendered twice as a PDF gave
+ *     two fingerprints (each render stamps its own dates). The tasks section now says to check
+ *     a delivered file with `kosmos fingerprint`, which leaves a PDF's own dates out; for any
+ *     other file it is still the plain sha256. No new heading, so as in 32 an agent's EDITED
+ *     copy of that section is not re-offered it.
  */
-const DOCTRINE_VERSION = 36;
+const DOCTRINE_VERSION = 37;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

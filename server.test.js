@@ -4312,11 +4312,13 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     }
     assert.match(api.card(limited), /<b>Rate Limit<\/b>/, 'the pill does not read Rate Limit');
     assert.match(api.card({ ...limited, stuckError: null }), /<div class="atask"><\/div>/, 'a plain rate-limited card carries a sentence');
-    // CONTROL: a crash loop outranks the pill (Keeps stopping) and keeps its own sentence; no rate-limit hover on it.
+    // CONTROL: a crash loop outranks the pill (Keeps stopping) and keeps its own sentence, which since #6716 is that
+    // pill's hover (no sentence is drawn on a tile); the rate-limit sentence is not on it.
     const looping = api.card({ ...limited, crashLoop: { looping: true, count: 4 } });
     assert.match(looping, /<b>Keeps stopping<\/b>/);
-    assert.match(looping, /restarted it 4 times/, 'a crash-looping rate-limited card lost its crash-loop sentence');
-    assert.doesNotMatch(looping, /<div class="astate[^"]*" title=/, 'a Keeps stopping pill carries the rate-limit hover');
+    assert.match(looping, /<div class="astate[^"]*" title="[^"]*restarted it 4 times/, 'a crash-looping card lost its crash-loop sentence');
+    assert.doesNotMatch(looping, /<div class="astate[^"]*" title="[^"]*rate limit/, 'a Keeps stopping pill carries the rate-limit hover');
+    assert.doesNotMatch(drawn(looping), /restarted it 4 times/, '#6716: the crash-loop sentence is drawn on the tile');
     /* 🛑 WHERE THE ROUTE GOES, not just that it exists. Nothing tested the
        DESTINATION, which is how it went stale: the button was written when a
        project room was the only place a question could be answered, #119 put

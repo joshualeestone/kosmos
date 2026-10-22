@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: d-file-btn d-file d-img d-msg d-untied d-withdrawn
+// Browser-check-surface: d-file-btn d-file d-img d-msg d-untied d-withdrawn cropmodal crop-go
 
 /**
  * #4038 (Josh, 2026-09-26: "Change picture for an agent doesn't seem to be working"). A sandboxed board:
@@ -89,6 +89,11 @@ function solidPng(r, g, b) {
   for (const round of ['first', 'same file again']) {
     const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 4000 }), page.click('#d-file-btn')]);
     await chooser.setFiles(red);
+    // kosmos#6722: a chosen picture opens the picture editor first, and is saved only by its Save. Without this press the
+    // check waited for a "Saved." that the page no longer writes before Save (it timed out on PR #6869's run).
+    const editor = await page.waitForSelector('#cropmodal:not([hidden])', { timeout: 5000 }).then(() => true, () => false);
+    chk(editor, `(${round}) the picture editor opens for the chosen picture`);
+    if (editor) await page.click('#crop-go');
     await page.waitForFunction(() => /Saved\./.test(document.getElementById('d-msg').textContent), null, { timeout: 8000 }).catch(() => {});
     const msg = await page.evaluate(() => document.getElementById('d-msg').textContent);
     chk(msg === 'Saved.', `(${round}) the chosen picture is saved`, JSON.stringify(msg));

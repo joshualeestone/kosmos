@@ -13,6 +13,7 @@
  *    (an agent the board never confirms, as when it restarted mid-move, is "No answer yet", never moved);
  *  - a row with no reading says so plainly and carries no warning; a 40% row carries no warning;
  *  - an API-key row draws no meter (a key has no weekly limit); an older board's row (no agentsHere) draws nothing;
+ *  - a reading whose week has reset is not drawn, and does not keep its account out of the move menu (#6570);
  *  - an agent name with markup is shown as text;
  *  - at 390 px the page does not scroll sideways and the move control fits its row.
  *
@@ -62,6 +63,8 @@ const ACCOUNTS = [
   claude('default@example.com', 'default', { isDefault: true, weekly: null, agentsHere: { names: [], complete: true } }),
   // #6174: moved here, but its process still runs on its old account (the move came back partial).
   claude('arrive@example.com', 'arrive', { weekly: { usedPct: 10, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-ari', 's-bo'], complete: true, moving: ['s-ari'] } }),
+  // #6570: a reading whose week reset while the list was open (the board drops one at its next read): not drawn as current.
+  claude('lastweek@example.com', 'lastweek', { weekly: { usedPct: 100, resetsAt: now - H, at: now - 50 * H }, agentsHere: { names: [], complete: true } }),
   claude('noshare@example.com', 'noshare', { memoryShared: false, weekly: { usedPct: 5, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
 ];
 const AGENTS = [{ sessionName: 's-ari', name: 'Ari', state: 'working' }, { sessionName: 's-bo', name: 'Bo', state: 'working' }, { sessionName: 's-dana', name: 'Dana', state: 'working' }, { sessionName: 's-eli', name: 'Eli', state: 'working' }, { sessionName: 's-x', name: 'x<b>y', state: 'working' },
@@ -164,7 +167,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           const label = getComputedStyle(document.documentElement).getPropertyValue('--label').trim();
           const probe = document.createElement('span'); probe.style.color = 'var(--label)'; b.appendChild(probe); const labelRgb = getComputedStyle(probe).color; probe.remove();
           return { vis, font: cs ? cs.fontSize : null, color: cs ? cs.color : null, labelRgb, margin: cs ? cs.marginBottom : null, warnText: warnEl ? warnEl.textContent.trim() : null, note: note ? note.textContent.trim() : null, has: !!u, line: u && u.querySelector('.acct-usage-line') ? u.querySelector('.acct-usage-line').textContent.trim() : null,
-            fill: fill ? fill.style.width : null, warn: !!(u && u.querySelector('.acct-usage-warn')), text: u ? u.textContent.replace(/\s+/g, ' ').trim() : null,
+            fill: fill ? fill.style.width : null, weekResets: u && u.querySelector('.acct-usage-week[data-resets]') ? Number(u.querySelector('.acct-usage-week').dataset.resets) : null, warn: !!(u && u.querySelector('.acct-usage-warn')), text: u ? u.textContent.replace(/\s+/g, ' ').trim() : null,
             descOf: [sel, btn].map((el) => { const id = el && el.getAttribute('aria-describedby'); const d = id && document.getElementById(id); return d ? d.textContent.trim() : null; }),
             agents: u && u.querySelector('.acct-agents-line') ? u.querySelector('.acct-agents-line').textContent.trim() : null,
             agentsEls: u && u.querySelector('.acct-agents-line') ? u.querySelector('.acct-agents-line').querySelectorAll('b').length : 0,
@@ -254,19 +257,20 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         window.__acctPatch = null; where.set('s-in', '/home/.claude-inc'); await paintAccounts();
         const warmstop = read('warmstop@example.com'), frozen = read('frozen@example.com'), unknown = read('unknown@example.com'), fullmix = read('fullmix@example.com');
         const fullstop = read('fullstop@example.com'), weekout = read('weekout@example.com');
-        const mine = read('mine@example.com'), unwired = read('unwired@example.com');
+        const mine = read('mine@example.com'), unwired = read('unwired@example.com'), lastweek = read('lastweek@example.com');
         const unsureNote = acctMoveNote([{ sessionName: 'a', state: 'working' }, { sessionName: 'b', state: 'unknown' }]);
         // Two minutes on, a repaint shows the row plain again.
         const st = ACCT_MOVE.get('/home/.claude-busy'); if (st) st.doneAt -= 3 * 60e3;
         await paintAccounts();
         const expired = msgOf('/home/.claude-busy');
         /* Sideways overflow of the page itself, with the list in its real place. */
-        return { contrast, incMove, warmstop, frozen, unknown, fullmix, tgMove, lostMove, fullstop, weekout, weekoutDay: new Date(Date.now() + 162 * 3600e3).getDate(), staleMove, ncMove, sleepyMove, mine, unwired, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
+        return { contrast, incMove, warmstop, frozen, unknown, fullmix, tgMove, lostMove, fullstop, weekout, weekoutDay: new Date(Date.now() + 162 * 3600e3).getDate(), staleMove, ncMove, sleepyMove, mine, unwired, lastweek, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
       /* #6175: the page stays open for the set-up step below; it is closed after it (and here, on an error). */
       if (r.error) { say(false, tag + ' ' + r.error); await page.close(); continue; }
       const { busy, fresh, calm, key, old, def, guideonly, full, sleepy } = r.before;
       say(!!busy && busy.has && busy.fill === '82%', tag + ' an 82% row draws its meter at 82%', JSON.stringify(busy && busy.fill));
+      say(!!busy && busy.weekResets === Math.round(now + 50 * H), tag + ' the weekly meter carries its reset, so the reset timers and the on-show look see it (#6570)', JSON.stringify(busy && busy.weekResets));
       say(!!busy && busy.vis && busy.font === '13px' && busy.color === busy.labelRgb && busy.margin === '0px', tag + ' inside the real Settings panel the usage line keeps its own size, ink and spacing (the panel\'s paragraph rule does not win)', JSON.stringify(busy && { vis: busy.vis, font: busy.font, color: busy.color, label: busy.labelRgb, margin: busy.margin }));
       say(!!busy && /^82% of its weekly limit used · resets .+ · Kosmos last saw it change 2 hours ago$/.test(busy.line || ''), tag + ' the row says how much is used, when it resets and how old the reading is', JSON.stringify(busy && busy.line));
       say(!!busy && busy.warn && busy.warnText === 'Close to its weekly limit. Move its agents to another account before they stop.', tag + ' at 82% the row warns, and says what to do', JSON.stringify(busy && busy.warnText));
@@ -283,6 +287,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('nearfull@')), tag + ' an account its own row calls full (99.6% shows as 100%) is not offered either', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('key@')), tag + ' an API-key account is not a bulk target (that would change who pays)', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('full@')), tag + ' a full account (100%) is not offered: it cannot run them either', JSON.stringify(busy && busy.options));
+      say(!!r.lastweek && r.lastweek.line === 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.' && !r.lastweek.warn && r.lastweek.fill === null, tag + ' a reading whose week has reset is not drawn as the current one (#6570)', JSON.stringify(r.lastweek));
+      say(!!busy && Array.isArray(busy.options) && busy.options.includes('lastweek@example.com'), tag + ' an account full only last week is offered again, with no stale figure beside it (#6570)', JSON.stringify(busy && busy.options));
       say(!!busy && Array.isArray(busy.options) && !busy.options.some((o) => o.startsWith('noshare@')), tag + ' an account without shared history is not offered (a move there always fails)', JSON.stringify(busy && busy.options));
       say(!!def && def.line === 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.', tag + ' the default account (wired by the installer) waits for a reading, never "cannot"', JSON.stringify(def && def.line));
       say(!!r.mine && r.mine.line === 'Kosmos cannot read usage for this account. It is set up its own way, and Kosmos leaves that alone.', tag + ' "cannot read" appears only when the server knows why', JSON.stringify(r.mine && r.mine.line));

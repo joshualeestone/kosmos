@@ -28,7 +28,8 @@ cd "$REPO"
 # #4317: CI runs the two halves as separate parallel jobs. KOSMOS_TEST_PART picks one:
 #   all   (the default, and what `yarn test` runs): the node suite, then test:shell, as before;
 #   node  the node suite only;
-#   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js).
+#   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js), and with
+#         KOSMOS_SHELL_PLATFORM=linux|mac as well (only with a shard, #6791) just that platform's share of it.
 # Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates). --only (#4929,
 # below) keeps the temp root, the --require guards and the leak guards, and skips the queue wait, the coverage count,
 # the shell part and the browser-check gates.
@@ -139,6 +140,13 @@ fi
 if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
   if [ "$KOSMOS_TEST_PART" != shell ] || ! printf '%s' "$KOSMOS_SHELL_SHARD" | grep -Eq '^[0-9]+/[0-9]+$'; then
     echo "run-tests: KOSMOS_SHELL_SHARD must be i/n and only with KOSMOS_TEST_PART=shell (got part '$KOSMOS_TEST_PART', shard '$KOSMOS_SHELL_SHARD')" >&2
+    exit 2
+  fi
+fi
+# #6791: which platform's share of test:shell a shard runs (tools/shell-macos-only.txt): linux or mac, only with a shard.
+if [ -n "${KOSMOS_SHELL_PLATFORM:-}" ]; then
+  if [ -z "${KOSMOS_SHELL_SHARD:-}" ] || { [ "$KOSMOS_SHELL_PLATFORM" != linux ] && [ "$KOSMOS_SHELL_PLATFORM" != mac ]; }; then
+    echo "run-tests: KOSMOS_SHELL_PLATFORM must be linux or mac and only with KOSMOS_SHELL_SHARD (got platform '$KOSMOS_SHELL_PLATFORM', shard '${KOSMOS_SHELL_SHARD:-}')" >&2
     exit 2
   fi
 fi
@@ -383,6 +391,7 @@ export KOSMOS_NO_LEGACY_MIGRATION=1
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
+export KOSMOS_UPDATE_PAUSE_URL=http://127.0.0.1:9/v1/meta   # kosmos#6620: the update pause asks a dead port, never the coordinator
 export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test that inherits this env writes no language block, whatever this Mac's language is
 # #4632: the roles and teams catalogue a board downloads when asked (the picker, `kosmos agent
 # roles`, a create for a role it does not hold). A test that needs it serves its own.
@@ -449,7 +458,7 @@ seen_before() {
   # pre-initialised for `set -u` since the guard may leave it unassigned.
   local load="" cores=""
   command -v kosmos_box_load_1min >/dev/null 2>&1 && load="$(kosmos_box_load_1min)"
-  cores="$(sysctl -n hw.ncpu 2>/dev/null)"
+  command -v kosmos_cpu_count >/dev/null 2>&1 && cores="$(kosmos_cpu_count)"
   [ -n "$load" ] && lines+=("1-minute load $load on ${cores:-?} cores")
   # #5727: the wall-clock time-scale the eventually() helper applies this run, so the
   # reader of a timing red sees whether budgets were stretched for load (scale > 1x).
@@ -777,7 +786,7 @@ if [ "$KOSMOS_ONLY" = 1 ]; then
   :   # #4929: --only runs named node files; the shell part is the whole suite's
 elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
   if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
-    node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}"
+    node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}" ${KOSMOS_SHELL_PLATFORM:+"$KOSMOS_SHELL_PLATFORM"}
   else
     # #5907: the whole of test:shell as shard 1 of 1 (the same commands in the same order, stopping at the first
     # red, as the && chain did), so the log names each command's time and the slowest ones.

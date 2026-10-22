@@ -3419,6 +3419,17 @@ cmd_accounts() {
 # is a local read, so it still works when the board is busy. The words it reuses
 # live once (engine/autohandoff.js HANDOFF_CONTENTS, engine/handoff.js), as
 # cmd_accounts reuses engine/accountline.js.
+# kosmos#6849: a file's fingerprint, the one `kosmos task built --file` sends and `kosmos handoff` prints, so an agent
+# checking a handed-off file compares like with like (engine/fileprint.js: plain sha256, a PDF's own dates and document
+# ID left out). A local read; it changes nothing.
+cmd_fingerprint() {
+  if [ "$#" -ne 1 ] || [ -z "$1" ]; then say "Usage: kosmos fingerprint <file>" >&2; exit 2; fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to fingerprint that file."; exit 1; }
+  local _mod; _mod="$(kosmos_engine_module fileprint).js"
+  [ -f "$_mod" ] || { say "Kosmos could not find its own fingerprint reader; this install looks incomplete."; exit 1; }
+  "$_node" "$_mod" "$1"
+}
+
 cmd_handoff() {
   local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to gather your handoff facts."; exit 1; }
   local _mod; _mod="$(kosmos_engine_module handoff).js"
@@ -4913,6 +4924,7 @@ kosmos_command_list() {
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
   printf '  kosmos handoff       print facts for your handoff: your live state, artifact fingerprints, instruction and git status\n'
+  printf '  kosmos fingerprint   print the fingerprint of a file, to check a handed-off copy (the dates and ID inside a PDF are left out)\n'
   printf '  kosmos connections   list the outside services and which are connected\n'
   printf '  kosmos accounts      list the provider accounts and whether each is signed in\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
@@ -4975,9 +4987,12 @@ if [ "$_kosmos_help" = 1 ]; then
       # messages, which is not what --help promises.
       printf 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)\n'
       exit 0 ;;
+    fingerprint)
+      printf 'Usage: kosmos fingerprint <file>   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: the sha256 of the file, with the creation and change dates and document ID inside a PDF left out, so the same source rendered twice matches; a PDF over 64 MB is hashed as plain bytes)\n'
+      exit 0 ;;
     handoff)
       # #6506: run bare it prints your handoff facts (a local read); --help must only say what it does, not gather them.
-      printf 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a sha256 for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)\n'
+      printf 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)\n'
       exit 0 ;;
     adopt|whoami|connections)
       # These show read-only OUTPUT on --help (they act read-only), so their own
@@ -5183,12 +5198,12 @@ cmd_task() {
       say "  kosmos task activity <project-id> <task-number>              read a task's conversation, oldest first, in this computer's local time"
       say "  kosmos task built <project-id> <task-number> [\"note\"]  mark it built; with checks, the note says how each went"
       say "      --clear                                                  take the built mark off"
-      say "      --file <path>                                            send the delivered file's fingerprint (sha256) with the mark; another agent's mark keeps it, your own mark without --file drops it"
+      say "      --file <path>                                            send the delivered file's fingerprint (its sha256; for a PDF, with its own dates and ID left out) with the mark; another agent's mark keeps it, your own mark without --file drops it"
       say "  kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]  say what finished means for it"
       say "      --clear                                                  take its checks off"
       say "  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)"
       say "  kosmos task unhold <project-id> <task-number>                 take it off hold"
-      say "  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly>  a job you run on a schedule: the board shows when it runs"
+      say "  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m>  a job you run on a schedule: the board shows when it runs"
       say "  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed"
       say "      --at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating"
       say "  kosmos task ran <project-id> <task-number> [\"what this run found\"]  record that a repeating task's job just ran"
@@ -5201,11 +5216,14 @@ cmd_task() {
     # cmd_post and cmd_room use, so a malformed invocation is named even when the board is stopped
     # (rather than reporting "not running" and hiding the usage).
     list)
-      [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id> [--state open|built|held|done]"; exit 2; }
+      [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built]"; exit 2; }
       # #5705: --state keeps one group; the value is checked here, so only these four words reach the URL.
       if [ "${2:-}" = "--state" ]; then
         case "${3:-}" in open|built|held|done) ;; *) say "--state takes one of: open, built, held, done."; exit 2 ;; esac
-      fi ;;
+      fi
+      # #6761: the compact forms (one line per task, then a count) take nothing after them.
+      # (Counted, not tested for emptiness, so an empty word after it is refused as the Windows CLI refuses it.)
+      case "${2:-}" in --open|--blocked|--built) [ "$#" -le 2 ] || { say "${2} takes nothing after it: kosmos task list <project-id> ${2}"; exit 2; } ;; esac ;;
     add)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"] [--parent <task-number>] [--who <agent>|me] [--done \"<check>\"]"; exit 2; }
       # #3861: the sentence comes first, so `add <project> --parent 3 "x"` would file a task
@@ -5331,24 +5349,33 @@ cmd_task() {
       [ "$_wantp" != 1 ] || { say "--part needs a part number; the board lists them if you leave it out."; exit 2; }
       [ "$_whos" = 1 ] || { say "$_usage"; exit 2; } ;;
     repeat)
-      # kosmos#4787: <project> <task-number> <hourly|daily|weekly> [--at HH:MM|:MM] [--on <day>], or --clear. Checked before
+      # kosmos#4787: <project> <task-number> <hourly|daily|weekly|30m> [--at HH:MM|:MM] [--on <day>], or --clear. Checked before
       # the board, as built is; the rule itself is checked whole by the board (taskrepeat.repeatProblem).
-      local _rusage="Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)"
+      local _rusage="Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m|2h> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "$_rusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
-      local _r _rwant=""
+      local _r _rwant="" _rmin="" _rtime="" _rfreq=0
       for _r in "${@:3}"; do
         if [ -n "$_rwant" ]; then _rwant=""; continue; fi
+        # kosmos#6893: every so many minutes ("30m", "45min", "2h", any case). Matched as a whole word here, in the loop that
+        # knows which words are values, so a reviewer's name or a time can never read as one (review 1).
+        if [[ "$(printf '%s' "$_r" | tr '[:upper:]' '[:lower:]')" =~ ^[0-9]+(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$ ]]; then _rmin=1; _rfreq=$((_rfreq + 1)); continue; fi
         case "$_r" in
-          --at|--on|--reviewer) _rwant=1 ;;   # slice 3: --reviewer names who is told when a run is missed
-          --clear|hour|hourly|day|daily|week|weekly) ;;
+          --at|--on) _rwant=1; _rtime=1 ;;
+          --reviewer) _rwant=1 ;;   # slice 3: --reviewer names who is told when a run is missed
+          --clear) ;;
+          hour|hourly|day|daily|week|weekly) _rfreq=$((_rfreq + 1)) ;;
           --*) _refuse_option "task repeat" "$_rusage" "$_r" ;;
-          *) say "Say how often: hourly, daily or weekly. $_rusage"; exit 2 ;;
+          *) say "Say how often: hourly, daily, weekly, or every so many minutes (30m, 2h). $_rusage"; exit 2 ;;
         esac
       done
       [ -z "$_rwant" ] || { say "--at, --on and --reviewer each need a value. $_rusage"; exit 2; }
+      # kosmos#6893 review 3: one frequency (a second would silently replace the first).
+      [ "$_rfreq" -le 1 ] || { say "Say how often once. $_rusage"; exit 2; }
+      # kosmos#6893: a task every so many minutes has no time or day to give.
+      if [ -n "$_rmin" ] && [ -n "$_rtime" ]; then say "A task every so many minutes takes no --at or --on. $_rusage"; exit 2; fi
       # slice 3 review 2: --at and --on belong to a frequency; without one they would be dropped without a word.
-      case " ${*:3} " in *" hourly "*|*" hour "*|*" daily "*|*" day "*|*" weekly "*|*" week "*|*" --clear "*) ;;
+      [ -n "$_rmin" ] || case " ${*:3} " in *" hourly "*|*" hour "*|*" daily "*|*" day "*|*" weekly "*|*" week "*|*" --clear "*) ;;
         *" --at "*|*" --on "*) say "--at and --on go with how often: hourly, daily or weekly. $_rusage"; exit 2 ;; esac ;;
     ran)
       local _ranusage="Usage: kosmos task ran <project-id> <task-number> [\"what this run found\"]   (or --note \"...\") [--unchanged] [--value \"<reading>\"]"
@@ -5401,12 +5428,25 @@ cmd_task() {
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _ltok="$KOSMOS_AGENT_TOKEN" ;; esac
       # #5705: grouped (open, built, on hold, done); --state keeps one group (its word was checked above).
       local _lst=""; [ "${2:-}" = "--state" ] && _lst="&state=${3:-}"
+      # #6761: --open, --blocked (the board's on-hold group) and --built ask for one group each and print it compactly,
+      # through engine/tasklist.js (the Windows CLI runs the same module, so the two print it the same way).
+      local _compact=""
+      case "${2:-}" in --open) _compact=open; _lst="&state=open" ;; --blocked) _compact=blocked; _lst="&state=held" ;; --built) _compact=built; _lst="&state=built" ;; esac
       body=$(kosmos_curl "$_bt" "$_ltok" -sS -m 15 "$URL/api/tasks?project=$esc_project&order=state$_lst" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "list tasks" "$rc"; exit 1; }
       case "$body" in '{"error":'*)
         local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
         say "Kosmos refused that: ${because:-it did not say why}."; exit 1 ;;
       esac
+      if [ -n "$_compact" ]; then
+        # The module checks the group the board answered (an older board's whole list is never passed off as it).
+        local _tnode _tmod
+        _tnode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print that list; list it without ${2}." >&2; exit 1; }
+        _tmod="$(kosmos_engine_module tasklist).js"
+        [ -f "$_tmod" ] || { say "This install of Kosmos has no compact task list yet; update Kosmos, or list without ${2}." >&2; exit 1; }   # stderr, as every refusal here
+        printf '%s' "$body" | "$_tnode" "$_tmod" compact "$_compact" "${1:-}"
+        exit $?
+      fi
       # #5705 review 1: an older board ignores --state and lists every task; never pass that off as the group asked for.
       # (A JSON string value cannot hold this unescaped, so a task's words cannot forge it.)
       if [ -n "$_lst" ]; then
@@ -5643,11 +5683,16 @@ cmd_task() {
       if [ "$_bfile" = 2 ]; then   # given, even as "" (an unset variable): refused below as Windows refuses it (review 2)
         [ "$clear" = true ] && { say "--clear takes the mark off, so it takes no file. Run it without --file."; exit 2; }
         [ -f "$file" ] && [ -r "$file" ] || { say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2; }
-        local _hasher="shasum -a 256"; command -v shasum >/dev/null 2>&1 || _hasher="sha256sum"   # one reader: a fallback after a partial read would hash the empty rest (review 4)
-        # From stdin: a name with \ or a leading - is not escaped or read as an option. `|| fingerprint=""`: under set -e a
-        # failed read (a folder privacy controls block) ended the script silently (review 7).
-        fingerprint=$($_hasher < "$file" 2>/dev/null | awk '{print $1}') || fingerprint=""
-        case "$fingerprint" in ????????????????????????????????????????????????????????????????) fingerprint="sha256:$fingerprint" ;; *) say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2 ;; esac
+        # kosmos#6849: the fingerprint `kosmos fingerprint` and `kosmos handoff` give (engine/fileprint.js): plain sha256,
+        # except that a PDF's own dates and document ID are left out, so a re-render of the same source matches. The path
+        # is the script's argument, after the script, so a leading - is not read as an option. `|| fingerprint=""`: under
+        # set -e a failed read (a folder privacy controls block) ended the script silently (review 7).
+        local _fnode _fmod
+        _fnode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to fingerprint that file."; exit 1; }
+        _fmod="$(kosmos_engine_module fileprint).js"
+        [ -f "$_fmod" ] || { say "Kosmos could not find its own fingerprint reader; this install looks incomplete."; exit 1; }
+        fingerprint=$("$_fnode" "$_fmod" "$file" 2>/dev/null) || fingerprint=""
+        case "$fingerprint" in sha256:????????????????????????????????????????????????????????????????) ;; *) say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2 ;; esac
       fi
       local esc_note esc_pane
       # Control bytes other than tab, CR and newline would make the JSON invalid (review round 1): dropped, as
@@ -5671,7 +5716,9 @@ cmd_task() {
             # double quote (taskMessageSummary strips them; the refusal and fixed sentences hold none), so this sed cannot stop
             # early inside it; and it is the answer's last key, which is what the greedy match relies on.
             local told; told=$(printf '%s' "$body" | sed -n 's/.*"summary":"\([^"]*\)".*/\1/p')
-            say "Marked task $num on ${project:-the project} built, waiting to be released or checked. Closing it clears the mark.${told:+ $told}"; fi ;;
+            say "Marked task $num on ${project:-the project} built, waiting to be released or checked. Closing it clears the mark.${told:+ $told}"
+            # #6761: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
+            [ -z "$fingerprint" ] || say "Fingerprint sent: $fingerprint for $file"; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not mark that task: ${because:-it did not say why}."; exit 1 ;;
@@ -6258,6 +6305,7 @@ case "${1:-}" in
   report)  shift; cmd_report "$@" ;;
   whoami)  shift; cmd_whoami "$@" ;;
   handoff) shift; cmd_handoff "$@" ;;   # kosmos#6506
+  fingerprint) shift; cmd_fingerprint "$@" ;;   # kosmos#6849
   inbox)   shift; cmd_inbox "$@" ;;
   connections) cmd_connections ;;
   accounts) cmd_accounts ;;

@@ -35,7 +35,8 @@ test('#4885: Settings > Community says each agent\'s picture goes with it, and t
 
 test('#4885: every path that stores an agent\'s picture passes it through fitPicture first', () => {
   // The detail panel's file input, the create flow's pending picture, and a team member's portrait or mark.
-  assert.match(HTML, /const pic = await fitPicture\(f\);[^\n]*\n\s*const res = await fetch\('\/api\/agent\/' \+ encodeURIComponent\(forAgent\) \+ '\/avatar',\n\s*\{ method: 'PUT', headers: \{ 'content-type': pic\.type \|\| f\.type \}, body: pic \}\);/);
+  // #6722: the panel's picture is the editor's cut (`cut`), still fitted before it is stored.
+  assert.match(HTML, /const pic = await fitPicture\(cut\);[^\n]*\n\s*const res = await fetch\('\/api\/agent\/' \+ encodeURIComponent\(forAgent\) \+ '\/avatar',\n\s*\{ method: 'PUT', headers: \{ 'content-type': pic\.type \|\| cut\.type \}, body: pic \}\);/);
   assert.match(HTML, /const up = await fitPicture\(chosen\);/);
   assert.match(HTML, /blob = await fitPicture\(blob\);[^\n]*\n\s*const res = await fetch\('\/api\/agent\/' \+ encodeURIComponent\(name\) \+ '\/avatar', \{ method: 'PUT'/);
   // A tripwire, not a proof: it counts PUTs written in this one form, so a fourth written the same way trips it.

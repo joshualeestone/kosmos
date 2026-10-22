@@ -41,7 +41,7 @@ URL="http://127.0.0.1:9/api/created"
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 pass() { printf 'ok   %s\n' "$*"; }
 
-# ruby ships on dev Macs and the macos-latest runner the shell shards use; it is the
+# ruby ships on dev Macs and on the runners the shell shards use (ubuntu-latest and macos-latest, #6791); it is the
 # repo's house YAML parser (see tools/test-browser-checks-workflow.sh). Hard-fail if
 # it is missing under CI (a silent skip there would disarm this guard); skip locally.
 if ! command -v ruby >/dev/null 2>&1; then

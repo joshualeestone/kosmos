@@ -169,6 +169,9 @@ command -v vercel >/dev/null 2>&1 || { echo "deploy-site: vercel CLI not found";
 # --- 1) fetch and verify the CURRENT live artifacts into the site dist/ -------
 # The export carries whatever is in dist/. We make the critical current artifacts present
 # and correct so the deploy cannot drop them; a stale or empty checkout is then safe.
+# kosmos#6826: 0 until a success exit sets it to 1; the EXIT trap in the block below reads it. Kept OUTSIDE
+# the block on purpose: the #4745 test runs the block alone, where an unset flag counts as finished.
+_DS_FINISHED=0
 # >>> site-fetch helpers (#4745) -- tools/test-deploy-site-fetch-4745.sh extracts and tests this block.
 # 🛑 #4745: NEVER FETCH ONTO THE REAL NAME. This used to be `curl ... "$1" -o "$2"`, straight onto
 # the artifact path. A stalled download (curl exit 18, "Transferred a partial file") refused
@@ -204,7 +207,11 @@ _fetch_cleanup() {
 # Every exit path removes a temp in flight: the refusals below remove it explicitly, and these
 # traps cover an interrupt or an unexpected set -e abort mid-fetch. (They also remove the deploy
 # step's output and code files, VOUT and VRC: kosmos#6771.)
-trap '_fetch_cleanup' EXIT
+# kosmos#6826: on this Mac's /bin/sh (bash 3.2), a run that dies on a missing library (a failed `.`) or an
+# unset variable (set -u) reaches this trap with $? already 0, so it would exit 0 having done nothing. So a 0
+# here is a failure unless a success exit set _DS_FINISHED=1. Unset (this block run on its own, as the #4745
+# test does) counts as finished, which keeps that test's exits as they were.
+trap '_ds_rc=$?; _fetch_cleanup; [ "$_ds_rc" != 0 ] || [ "${_DS_FINISHED:-1}" = 1 ] || { echo "deploy-site: the run stopped before finishing; the cause is above. Treat the run as FAILED (kosmos#6826)" >&2; exit 1; }' EXIT
 trap '_fetch_cleanup; exit 130' INT
 trap '_fetch_cleanup; exit 143' TERM HUP
 _fetch_tmp_for() {  # <dest> -> the temp path beside it
@@ -410,7 +417,7 @@ ptr_versioned() { printf '%s' "$1" | sed -n 's/.*"versioned":[[:space:]]*"\([^"]
 win_zip_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p'; }
 # kosmos#6149 point 1: the rollback floor. The COMMITTED Mac pointers are what this deploy serves, so neither may name
 # a build older than the setup floor (tools/lib/setup-floor.sh); the installers are checked with them on the export.
-. "$REPO/tools/lib/setup-floor.sh"   # as this script's other libs (a failed . fails closed: set -eu ends the run)
+. "$REPO/tools/lib/setup-floor.sh"   # as this script's other libs (a failed . ends the run; the EXIT trap makes it a failure, kosmos#6826)
 # Absent is not unreadable: a pointer the commit HAS but that could not be read is refused, not skipped.
 CSJ=""
 if git -C "$SITE" cat-file -e "$H:dist/latest-staging.json" 2>/dev/null; then
@@ -903,6 +910,7 @@ DROP=$(pkg_upload_filter_excludes "$EXPORT/.vercelignore") || { echo "deploy-sit
 if [ "$PUBLISH" != 1 ]; then
   echo "DRY RUN complete. The export carried Kosmos.pkg, the current tarball ($ART)${STAGED_ART:+, the staged Mac build ($STAGED_ART)}, tmux-arm64, the unversioned alias, the Windows zip, and an honest marker, and the .vercelignore guard passed. Re-run with --publish to deploy (or --promote to publish a moved pointer)."
   rm -rf "$EXPORT"   # a dry run leaves no temp dir behind; the summary above is the artifact
+  _DS_FINISHED=1
   exit 0
 fi
 
@@ -1413,4 +1421,5 @@ fi
 # exit non-zero. Baron saw DEPLOY_EXIT=128 (a git-fatal code) trail a verified 0.6.55 publish; a
 # deploy script that exits non-zero on success is a latent false-alarm trap for any runner or CI
 # gate reading DEPLOY_EXIT. Make success unambiguous and immune to a trailing command.
+_DS_FINISHED=1
 exit 0

@@ -264,14 +264,38 @@ function reportingRequired(policy) {
   return !!(p && typeof p === 'object' && p.telemetry && typeof p.telemetry === 'object' && p.telemetry.required === true);
 }
 
+const CONTACT_STOPS = `${POLICY_SETTER} keeps agents out of the Kosmos+ community and out of projects shared with other computers`;
 /** kosmos#6239: whether agents may reach anyone outside this computer (the Kosmos community, federation, rooms shared
- *  with another computer). Stopped only by `outside_contact: { enabled: false }`; no policy, or the key unset, allows. */
-function contactAllows(policy = currentStrict()) {
+ *  with another computer). Stopped by `outside_contact: { enabled: false }`. kosmos#6859: on a computer joined to a
+ *  family it is also stopped while the key is unset or there is no policy (a parent never saved one), and only
+ *  `{ enabled: true }` allows; for anyone else no policy, or the key unset, allows. The kind is read
+ *  (orgenroll.kindStrict) only when the policy does not settle it and the caller gave none (undefined; null means
+ *  joined to nobody); an enrollment file that is there but cannot be read then throws, as a damaged policy record
+ *  does. */
+function contactAllows(policy = currentStrict(), kind) {
   const oc = policy && policy.outside_contact;
-  if (oc && typeof oc === 'object' && oc.enabled === false) {
-    return { ok: false, because: `${POLICY_SETTER} keeps agents out of the Kosmos+ community and out of projects shared with other computers` };
-  }
-  return { ok: true };
+  const set = oc && typeof oc === 'object' ? oc.enabled : undefined;
+  if (set === false) return { ok: false, because: CONTACT_STOPS };
+  if (set === true) return { ok: true };
+  const k = kind === undefined ? require('./orgenroll').kindStrict() : kind;
+  return k === 'family' ? { ok: false, because: FAMILY_CONTACT_STOPS, family: true } : { ok: true };
+}
+/* kosmos#6870: the family default's own sentence. There is no policy saying off there (none was saved, or it does not
+   set outside contact), so the policy's sentence would name a policy that does not exist. About shared projects only:
+   the community has its own (FAMILY_COMMUNITY_STOPS). */
+const FAMILY_CONTACT_STOPS = "on a family's Kosmos, agents stay out of projects shared with other computers until a parent allows outside contact in the family's policy";
+/* kosmos#6862: the same sentence's family form, for the community alone. */
+const FAMILY_COMMUNITY_STOPS = "on a family's Kosmos, agents do not take part in the Kosmos+ community";
+/** kosmos#6862 (Josh, 2026-10-15 10:45 #6239: an agent a kid uses "is not to participate in the community aspect"):
+ *  whether agents may take part in the Kosmos+ community. On a computer joined to a family never, whatever the policy
+ *  says, `{ enabled: true }` included (that still opens projects shared with other computers: contactAllows); a policy
+ *  saying `{ enabled: false }` keeps its own sentence. For anyone else, the same answer as contactAllows.
+ *  { ok: true } | { ok: false, because, family? }. Throws as contactAllows does. */
+function communityAllows(policy = currentStrict(), kind) {
+  const oc = policy && policy.outside_contact;
+  if (oc && typeof oc === 'object' && oc.enabled === false) return { ok: false, because: CONTACT_STOPS };
+  const k = kind === undefined ? require('./orgenroll').kindStrict() : kind;
+  return k === 'family' ? { ok: false, because: FAMILY_COMMUNITY_STOPS, family: true } : { ok: true };
 }
 
 /* The local weekday (0 Sunday) and minute of the day at `ms` in `tz`. */
@@ -410,4 +434,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, reportingRequired, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, capSentence, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, communityAllows, FAMILY_COMMUNITY_STOPS, FAMILY_CONTACT_STOPS, CONTACT_STOPS, reportingRequired, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, capSentence, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };

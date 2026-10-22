@@ -77,7 +77,7 @@ has() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
 # holds a pipe open. Sets OURPID_OUT to the pid.
 make_server_js() { # kosmoshome
   h="$1"; mkdir -p "$h/app"
-  printf '#!/bin/sh\nsleep 30\n' > "$h/app/server.js"; chmod +x "$h/app/server.js"
+  printf '#!/bin/sh\nperl -e "select(undef, undef, undef, 30)"\n' > "$h/app/server.js"; chmod +x "$h/app/server.js"   # kosmos#6730: a stray pkill -f sleep would end the stub's child, and the stub with it
 }
 KILL_PIDS=""
 # kill THEN wait, so the shell reaps the job synchronously and does not print an
@@ -103,7 +103,7 @@ fi
 # would pass this and wrongly take the "our board" branch; the ps-command match must
 # route it to the foreign path.
 L="$TMP/logs-reused"; mkdir -p "$L"; H="$TMP/home-reused"; mkdir -p "$H"
-sleep 30 & FOREIGNPID=$!; KILL_PIDS="$KILL_PIDS $FOREIGNPID"
+perl -e 'select(undef, undef, undef, 30)' & FOREIGNPID=$!; KILL_PIDS="$KILL_PIDS $FOREIGNPID"
 printf '%s' "$FOREIGNPID" > "$H/board.pid"
 OUT_REUSED="$(run_arm 'Kosmos' "$H" 16180 "$L")"
 chk "a LIVE but non-server pid (reused) -> the foreign 'Another Kosmos' die, not our-board" has "$OUT_REUSED" "Another Kosmos is answering on port 16180"

@@ -17,7 +17,13 @@ T="$(mktemp -d "${TMPDIR:-/tmp}/test-cut-guard.XXXXXXXXXX")"; trap 'kill "${SUIT
 # #4609: a stand-in for a RUNNING suite must be a live process, because the suite check now drops a candidate that is
 # gone (ESRCH): a waiter's subshell that exited between pgrep and the walk was counted as a live suite. $DEAD stays the
 # stand-in for the release, browser and harness arms, which do not check that a candidate exists.
-sleep 3600 </dev/null >/dev/null 2>&1 & SUITE=$!
+# #6710: the long-lived stand-in controls in this file are bounded waits (perl select), not `sleep N`, so a
+# stray `pkill -f sleep` (which matches any command line that contains "sleep") cannot end one mid-test; a
+# perl select still ends by itself if cleanup never runs. q_ready's default glob (in q_ready itself) is `perl*` to match.
+# NOT converted (documented on #6710): the `--sleep N` seams of the fixture test-install.sh / run-tests.sh
+# (the real installer CLI, matched by script name, degrading to a SKIP if killed) and the fake run-tests.sh
+# busy-loop `while :; do sleep 1`.
+perl -e 'select(undef, undef, undef, 3600)' </dev/null >/dev/null 2>&1 & SUITE=$!
 # #1796: isolate the run-marker dir so the always-on marker arm reads THIS test's
 # fixtures, never a real marker a live run on this box may have left in the default
 # /tmp dir. The existing arms below get an empty dir (marker arm inert); the marker
@@ -27,13 +33,13 @@ fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
 has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
-# q_ready <pid> [glob]: waits (up to 3 s) until <pid> has exec'd sleep (or a command matching [glob]). Between the fork and the exec, ps shows the forking
+# q_ready <pid> [glob]: waits (up to 3 s) until <pid> has exec'd its bounded wait (a perl select, #6710; or a command matching [glob]). Between the fork and the exec, ps shows the forking
 # shell's command (this script's). A marker that records that command reads as stale once the exec has happened, so the
 # guard deletes it and the arm tests a box with no waiter (#5914: measured 1 read in 600 on a loaded box, and one red
 # on CI). So a stand-in whose command goes into a marker is waited for first, and one that never gets there FAILS by
 # name instead. The check at the end of this file sees only some shapes of a missing wait (it says which).
-q_ready() { local j g="${2:-sleep*}"; for j in $(seq 1 30); do case "$(ps -ww -o command= -p "$1")" in $g) return 0 ;; esac; sleep 0.1; done
-  fail "FIXTURE: stand-in process $1 never showed as ${2:-sleep}, so the arms after it cannot be trusted"; return 1; }
+q_ready() { local j g="${2:-perl*}"; for j in $(seq 1 30); do case "$(ps -ww -o command= -p "$1")" in $g) return 0 ;; esac; sleep 0.1; done
+  fail "FIXTURE: stand-in process $1 never showed as ${2:-perl}, so the arms after it cannot be trusted"; return 1; }
 # A pid named in OUT as a whole number: plain has() would pass if pid 123 were only a substring of a
 # sibling pid 91234 printed there instead (#4206 review 8).
 has_pid() { case " $1 " in *[!0-9]"$2"[!0-9]*) return 0;; *) return 1;; esac; }
@@ -87,8 +93,8 @@ has_pid "$out" "$DEAD" && pass "and it names the OTHER cut, not itself" || fail 
 # Use ordinary live pids through the probe seam. A test process genuinely named
 # tools/release.sh would be visible to every agent's pgrep and could block a real
 # cut, recreating #4206 merely by testing its fix.
-( cd / && exec sleep 30 ) & cut_self=$!
-( cd / && exec sleep 30 ) & cut_other=$!
+( cd / && exec perl -e 'select(undef, undef, undef, 30)' ) & cut_self=$!
+( cd / && exec perl -e 'select(undef, undef, undef, 30)' ) & cut_other=$!
 printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n"\n' "$cut_self" > "$T/probe-real-self"; chmod +x "$T/probe-real-self"
 printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n%s bash tools/release.sh 0.5.98\\n"\n' "$cut_self" "$cut_other" > "$T/probe-real-two"; chmod +x "$T/probe-real-two"
 out="$(KOSMOS_CUT_SELF_PID="$cut_self" KOSMOS_CUT_PROBE="$T/probe-real-self" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
@@ -119,10 +125,10 @@ mkdir -p "$T/tmp/kt4206"
 # Waits until PID's cwd is DIR (up to 3s), so an arm never reads a process that has not moved yet:
 # a late cd would leave the test's own cwd, and a control could then pass for the wrong reason.
 wait_cwd() { local i=0; while [ "$i" -lt 30 ]; do [ "$(lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n '/^n/{s/^n//p;q;}')" = "$2" ] && return 0; sleep 0.1; i=$((i+1)); done; return 1; }
-( cd "$T/tmp/kt4206" && exec sleep 30 ) & kt_fx=$!
-( cd / && exec sleep 30 ) & kt_real=$!
-wait_cwd "$kt_fx" "$(cd "$T/tmp/kt4206" && pwd -P)" || fail "the kt fixture sleep never reached its cwd, so its arms cannot answer"
-wait_cwd "$kt_real" "/" || fail "the / control sleep never reached its cwd, so its arms cannot answer"
+( cd "$T/tmp/kt4206" && exec perl -e 'select(undef, undef, undef, 30)' ) & kt_fx=$!
+( cd / && exec perl -e 'select(undef, undef, undef, 30)' ) & kt_real=$!
+wait_cwd "$kt_fx" "$(cd "$T/tmp/kt4206" && pwd -P)" || fail "the kt fixture wait never reached its cwd, so its arms cannot answer"
+wait_cwd "$kt_real" "/" || fail "the / control wait never reached its cwd, so its arms cannot answer"
 printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n"\n' "$kt_fx" > "$T/probe-kt-fixture"; chmod +x "$T/probe-kt-fixture"
 printf '#!/bin/sh\nprintf "%s bash tools/release.sh 0.5.99\\n"\n' "$kt_real" > "$T/probe-kt-real"; chmod +x "$T/probe-kt-real"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-kt-fixture" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
@@ -153,8 +159,8 @@ kill "$kt_fx" "$kt_real" 2>/dev/null; wait "$kt_fx" "$kt_real" 2>/dev/null
 
 # The SCRIPT half of the sandbox rule: cwd /, but the script it runs sits in a kt folder. Its
 # control is the same line with a script path outside any sandbox.
-( cd / && exec sleep 30 ) & kt_script=$!
-wait_cwd "$kt_script" "/" || fail "the kt-script sleep never reached /, so its arms cannot answer"
+( cd / && exec perl -e 'select(undef, undef, undef, 30)' ) & kt_script=$!
+wait_cwd "$kt_script" "/" || fail "the kt-script wait never reached /, so its arms cannot answer"
 printf '#!/bin/sh\nprintf "%s bash %s/tools/release.sh 0.5.99\\n"\n' "$kt_script" "$T/tmp/kt4206" > "$T/probe-kt-script"; chmod +x "$T/probe-kt-script"
 printf '#!/bin/sh\nprintf "%s bash /opt/kosmos/tools/release.sh 0.5.99\\n"\n' "$kt_script" > "$T/probe-plain-script"; chmod +x "$T/probe-plain-script"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-kt-script" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
@@ -196,8 +202,8 @@ FR="$(mktemp -d /tmp/cutguard-frozen.XXXXXX)" && [ -n "$FR" ] || { echo "FAIL  n
 trap 'kill "${SUITE:-}" 2>/dev/null; rm -rf "$T" "$FR"' EXIT
 FROZEN="$FR/T//kosmos-release.msHOlx/kosmos-aad0d84cd3e8"
 mkdir -p "$FROZEN/tools"
-( cd "$FROZEN" && exec sleep 30 ) & frozen=$!
-wait_cwd "$frozen" "$(cd "$FROZEN" && pwd -P)" || fail "the frozen-tree sleep never reached its cwd, so its arm cannot answer"
+( cd "$FROZEN" && exec perl -e 'select(undef, undef, undef, 30)' ) & frozen=$!
+wait_cwd "$frozen" "$(cd "$FROZEN" && pwd -P)" || fail "the frozen-tree wait never reached its cwd, so its arm cannot answer"
 printf '#!/bin/sh\nprintf "%s bash %s/tools/release.sh 0.7.03\\n"\n' "$frozen" "$(cd "$FROZEN" && pwd -P)" > "$T/probe-frozen"; chmod +x "$T/probe-frozen"
 FRT="$(cd "$FR/T" && pwd -P)/"
 out="$(TMPDIR="$FRT" KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_CUT_PROBE="$T/probe-frozen" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
@@ -210,8 +216,8 @@ kill "$frozen" 2>/dev/null; wait "$frozen" 2>/dev/null
 # still refuse through both halves of the sandbox rule.
 BCFROZEN="$FR/T//kosmos-bc-freeze.sfQH4q/kosmos-71d1f796503531bea19198c04b5768f25f7c998e"
 mkdir -p "$BCFROZEN/tools"
-( cd "$BCFROZEN" && exec sleep 30 ) & bcfrozen=$!
-wait_cwd "$bcfrozen" "$(cd "$BCFROZEN" && pwd -P)" || fail "the browser frozen-tree sleep never reached its cwd, so its arm cannot answer"
+( cd "$BCFROZEN" && exec perl -e 'select(undef, undef, undef, 30)' ) & bcfrozen=$!
+wait_cwd "$bcfrozen" "$(cd "$BCFROZEN" && pwd -P)" || fail "the browser frozen-tree wait never reached its cwd, so its arm cannot answer"
 printf '#!/bin/sh\nprintf "%s bash %s/tools/browser-checks.sh\\n"\n' "$bcfrozen" "$(cd "$BCFROZEN" && pwd -P)" > "$T/bprobe-frozen"; chmod +x "$T/bprobe-frozen"
 out="$(TMPDIR="$FRT" KOSMOS_BC_SELF_PID=999999 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_BC_PROBE="$T/bprobe-frozen" kosmos_refuse_if_browser_run_live "a run" 2>&1)"; rc=$?
 { [ "$rc" -ne 0 ] && has_pid "$out" "$bcfrozen"; } && pass "a real browser run from its frozen tree under TMPDIR still refuses, and is named" \
@@ -313,13 +319,13 @@ else
   # would pass on an empty process table rather than by the filter -- vacuous. A
   # compound `-c` body defeats that optimization, so bash stays alive with the
   # string in its own command line for pgrep to find and the filter to exclude.
-  ( bash -c 'sleep 4; : tools/test-install.sh' ) & mention=$!
+  ( bash -c 'perl -e "select(undef, undef, undef, 4)"; : tools/test-install.sh' ) & mention=$!
   sleep 1
   # Prove the mention is actually VISIBLE to pgrep (else this arm is vacuous):
-  # Anchor the pid at line start (pgrep -fl prints '<pid> <cmdline>'), so a pid
-  # that is a SUBSTRING of another process's pid cannot false-satisfy the very
+  # Anchor the pid at line start (_kosmos_pgrep_cmdlines prints '<pid> <cmdline>' on macOS and Linux, #6799), so a
+  # pid that is a SUBSTRING of another process's pid cannot false-satisfy the very
   # check that exists to prove this arm is not vacuous.
-  pgrep -fl 'test-install\.sh' 2>/dev/null | grep -qE "^$mention " \
+  _kosmos_pgrep_cmdlines 'test-install\.sh' 2>/dev/null | grep -qE "^$mention " \
     && pass "the mention is present in the process table (the filter arm is not vacuous)" \
     || fail "the mention did not survive in argv, so the filter arm below proves nothing"
   # #1967: RE-CHECK for a foreign live harness immediately before this assertion,
@@ -382,7 +388,7 @@ fi
 # --- dir and probe-quiet (the NAME arm clean), so ONLY the marker arm can fire --
 # --- proving it works independently of the pgrep detection.
 # A live foreign-cookie marker refuses even when the name arm is clean.
-M1="$T/m1"; mkdir -p "$M1"; ( exec sleep 30 ) & p1=$!; q_ready "$p1"; printf 'FOREIGN\n%s\n' "$(ps -ww -o command= -p "$p1" 2>/dev/null)" > "$M1/cut.$p1"
+M1="$T/m1"; mkdir -p "$M1"; ( exec perl -e 'select(undef, undef, undef, 30)' ) & p1=$!; q_ready "$p1"; printf 'FOREIGN\n%s\n' "$(ps -ww -o command= -p "$p1" 2>/dev/null)" > "$M1/cut.$p1"
 out="$(KOSMOS_RUN_MARKER_DIR="$M1" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && pass "#1796 a live marked cut (foreign cookie) refuses with the name arm clean" \
   || fail "#1796 marked cut did not refuse (rc=$rc, $out)"
@@ -390,7 +396,7 @@ has_pid "$out" "$p1" && pass "#1796 and it names the marked run's pid" || fail "
 kill "$p1" 2>/dev/null; wait "$p1" 2>/dev/null
 
 # The caller's OWN marker (matching cookie) is excluded -- the self-refuse outage.
-M2="$T/m2"; mkdir -p "$M2"; ( exec sleep 30 ) & p2=$!; q_ready "$p2"; printf 'MINE\n%s\n' "$(ps -ww -o command= -p "$p2" 2>/dev/null)" > "$M2/cut.$p2"
+M2="$T/m2"; mkdir -p "$M2"; ( exec perl -e 'select(undef, undef, undef, 30)' ) & p2=$!; q_ready "$p2"; printf 'MINE\n%s\n' "$(ps -ww -o command= -p "$p2" 2>/dev/null)" > "$M2/cut.$p2"
 out="$(KOSMOS_RUN_MARKER_DIR="$M2" KOSMOS_RUN_COOKIE_CUT=MINE KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#1796 the caller's OWN marker (matching cookie) is not a reason to refuse" \
   || fail "#1796 own marker refused itself (rc=$rc, $out)"
@@ -414,7 +420,7 @@ out="$(KOSMOS_RUN_MARKER_DIR="$M4" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refu
 # not false-refuse. The pid is genuinely alive (kill -0 succeeds), so ONLY the
 # command mismatch prevents the refuse: the old kill-0-only check refused here, which
 # is exactly the false-positive that aborted the 6.32 cut against a system daemon.
-MR="$T/mr"; mkdir -p "$MR"; ( sleep 30 ) & pR=$!; printf 'FOREIGN\nnot-the-command-that-marked-this recycled pid\n' > "$MR/cut.$pR"
+MR="$T/mr"; mkdir -p "$MR"; ( perl -e 'select(undef, undef, undef, 30)' ) & pR=$!; printf 'FOREIGN\nnot-the-command-that-marked-this recycled pid\n' > "$MR/cut.$pR"
 out="$(KOSMOS_RUN_MARKER_DIR="$MR" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#2215 a live pid whose command does not match (recycled pid) does not refuse" \
   || fail "#2215 a recycled-pid marker false-refused (rc=$rc, $out)"
@@ -425,7 +431,7 @@ kill "$pR" 2>/dev/null; wait "$pR" 2>/dev/null
 # verified, so it is treated stale and unlinked rather than trusted -- clearing the
 # accumulation the old kill-0-only check could never remove. A genuine foreign run is
 # still caught by the name arm each guard OR's with this one.
-MC="$T/mc"; mkdir -p "$MC"; ( sleep 30 ) & pC=$!; printf 'FOREIGN\n' > "$MC/cut.$pC"
+MC="$T/mc"; mkdir -p "$MC"; ( perl -e 'select(undef, undef, undef, 30)' ) & pC=$!; printf 'FOREIGN\n' > "$MC/cut.$pC"
 out="$(KOSMOS_RUN_MARKER_DIR="$MC" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#2215 a command-less (pre-fix) marker on a live pid does not refuse" \
   || fail "#2215 a command-less marker false-refused (rc=$rc, $out)"
@@ -448,7 +454,7 @@ cat > "$T/mark-harness.sh" <<SH
 #!/bin/bash
 . "$HERE/lib/cut-guard.sh"
 kosmos_mark_run harness
-sleep 30
+perl -e 'select(undef, undef, undef, 30)'
 SH
 chmod +x "$T/mark-harness.sh"
 KOSMOS_RUN_MARKER_DIR="$M5" bash "$T/mark-harness.sh" & p5=$!
@@ -514,8 +520,8 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID="$
 # #6334: run-tests.sh may start beside KOSMOS_SUITE_MAX - 1 other suites (the third argument). Two more live stand-ins:
 # SUITE2, a second, separate suite; PAIRP with its child PAIRC, ONE suite seen twice (a bash subshell keeps its parent's
 # command line, so a real suite can show as several candidates).
-sleep 3600 </dev/null >/dev/null 2>&1 & SUITE2=$!
-bash -c 'sleep 3600 </dev/null >/dev/null 2>&1 & wait' </dev/null >/dev/null 2>&1 & PAIRP=$!
+perl -e 'select(undef, undef, undef, 3600)' </dev/null >/dev/null 2>&1 & SUITE2=$!
+bash -c 'perl -e "select(undef, undef, undef, 3600)" </dev/null >/dev/null 2>&1 & wait' </dev/null >/dev/null 2>&1 & PAIRP=$!
 trap 'kill "${SUITE:-}" "${SUITE2:-}" "${PAIRP:-}" "${PAIRC:-}" 2>/dev/null; rm -rf "$T" "$FR"' EXIT
 q_ready "$SUITE2"; q_ready "$PAIRP" 'bash*'
 PAIRC=""; for _i in $(seq 1 30); do PAIRC="$(pgrep -P "$PAIRP" | head -1)"; [ -n "$PAIRC" ] && break; sleep 0.1; done
@@ -609,7 +615,7 @@ _wired "$RT" '&& ! kosmos_holds_machine_claim; then' \
   || fail "#4410 run-tests.sh's harness check is not scoped to the claim holder"
 
 # kosmos_holds_machine_claim: our live claim yes; a foreign one, none, or no cookie of ours, no.
-MCD="$T/mc4410"; mkdir -p "$MCD"; sleep 30 & mcp=$!
+MCD="$T/mc4410"; mkdir -p "$MCD"; perl -e 'select(undef, undef, undef, 30)' & mcp=$!
 printf 'MINE %s %s host release x\n' "$mcp" "$(( $(date +%s) + 600 ))" > "$MCD/machine-claim"
 KOSMOS_RUN_MARKER_DIR="$MCD" KOSMOS_MACHINE_CLAIM_COOKIE=MINE bash -c '. "$1"; kosmos_holds_machine_claim' _ "$HERE/lib/cut-guard.sh" \
   && pass "#4410 the run holding the live claim is recognised as the claim holder" \
@@ -648,7 +654,7 @@ out="$(KOSMOS_WAIT_SLEEP=false kosmos_wait_until_clear "a test run" wcheck 2>&1)
   || fail "#4498 a clear box did not start quietly (rc=$rc, $out)"
 
 # A waiting suite is not a live suite. The stand-in waiter is a real process of ours, stopped by pid.
-sleep 60 & wp=$!
+perl -e 'select(undef, undef, undef, 60)' & wp=$!
 q_ready "$wp"
 printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$wp" > "$T/sprobe-waiter"; chmod +x "$T/sprobe-waiter"
@@ -673,9 +679,9 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=99
   || fail "#4498 a recycled pid running the same command was taken for the waiter (rc=$rc, $out)"
 
 # A waiter's own subshells, several levels down, are part of the waiter (review 1): a candidate two levels below the
-# waiter is dropped. A real process tree of ours: sh -> sh -> sleep, all stopped by pid below.
+# waiter is dropped. A real process tree of ours: sh -> sh -> perl, all stopped by pid below.
 # Each level runs a second command, so no shell execs straight into its child.
-sh -c 'sh -c "sleep 60; :" & wait; :' & deep=$!
+sh -c 'sh -c "perl -e \"select(undef, undef, undef, 60)\"; :" & wait; :' & deep=$!
 q_ready "$deep" 'sh -c*'
 sleep 1; mid="$(pgrep -P "$deep" | head -1)"; leaf="$(pgrep -P "$mid" 2>/dev/null | head -1)"
 printf '100 %s\n%s\n%s\n%s\n' "$deep" "$(ps -ww -o command= -p "$deep")" "$(_kosmos_pid_started_local "$deep")" "$(_kosmos_pid_started "$deep")" > "$W/markers/suitewait.$deep"
@@ -876,7 +882,7 @@ out="$(WPASS_AFTER=99 KOSMOS_WAIT_MAX_S=30 KOSMOS_WAIT_SLEEP=: kosmos_wait_until
 # marker (what a waiter that starts does), and the stand-in sleeper removes one on chosen calls. A fake clock
 # (KOSMOS_WAIT_NOW) moves by QSTEP per sleep, so the wall-clock arm of the bound is exercised as well as the sleep count.
 # (q_ready, used below, is defined at the top of this file.)
-q_ahead() { local i; : > "$W/ahead"; for i in $(seq 1 "${1:-3}"); do sleep 300 & echo "$!" >> "$W/ahead"
+q_ahead() { local i; : > "$W/ahead"; for i in $(seq 1 "${1:-3}"); do perl -e 'select(undef, undef, undef, 300)' & echo "$!" >> "$W/ahead"
   q_ready "$!"
   printf '%s %s\n%s\n%s\n%s\n' "$((10 + i))" "$!" "$(ps -ww -o command= -p "$!")" "$(_kosmos_pid_started_local "$!")" "$(_kosmos_pid_started "$!")" > "$W/markers/suitewait.$!"; done; }
 q_clear() { local p; for p in $(cat "$W/ahead" 2>/dev/null); do rm -f "$W/markers/suitewait.$p"; kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; done; rm -f "$W/ahead" "$W/calls" "$W/clock" "$W/sleeps"; }
@@ -978,7 +984,7 @@ out="$(unset KOSMOS_WAIT_QUEUE_CEIL_S; WPASS_AFTER=999 KOSMOS_WAIT_MAX_S=60 KOSM
 q_clear
 # The start time a marker records does not depend on the reader's zone or locale, and a marker written the older way
 # (the writer's own zone and locale) still reads as live.
-sleep 300 & zp=$!
+perl -e 'select(undef, undef, undef, 300)' & zp=$!
 q_ready "$zp"
 # The writer runs in Tokyo and the reader in Chicago. With the pin, both compute the same UTC form; without it (the
 # mutation) they print different local times and the live waiter reads as stale. Line 3 holds the Tokyo local form,
@@ -1013,7 +1019,7 @@ kosmos_mark_suite_waiting 500
   || fail "#4574 the marker's start-time lines are not local then UTC ($(sed -n '3,4p' "$W/markers/suitewait.$$" | tr '\n' '|'))"
 kosmos_unmark_suite_waiting
 # A marker half-written (its .tmp, before the mv) is not a waiter of its own (review 19).
-sleep 300 & zt=$!
+perl -e 'select(undef, undef, undef, 300)' & zt=$!
 q_ready "$zt"
 # The shape that matters: the real marker AND its .tmp present at once (a re-mark in flight). Counted, the one waiter
 # would read as two, and the drop back to one as a fall.
@@ -1025,7 +1031,7 @@ done
 rm -f "$W/markers/suitewait.$zt" "$W/markers/suitewait.$zt.tmp.$zt"; kill "$zt" 2>/dev/null; wait "$zt" 2>/dev/null
 # The .tmp filter reads the file NAME: a marker dir whose own path holds ".tmp." still counts its waiters (review 21).
 D21="$T/x.tmp.y/markers"; mkdir -p "$D21"
-sleep 300 & zd=$!
+perl -e 'select(undef, undef, undef, 300)' & zd=$!
 q_ready "$zd"
 printf '1 %s\n%s\n%s\n%s\n' "$zd" "$(ps -ww -o command= -p "$zd")" "$(_kosmos_pid_started_local "$zd")" "$(_kosmos_pid_started "$zd")" > "$D21/suitewait.$zd"
 [ "$(KOSMOS_RUN_MARKER_DIR="$D21" _kosmos_suite_waiters_ahead | grep -c .)" = 1 ] && pass "#4574 a marker dir whose path holds .tmp. still counts its waiters" \
@@ -1075,7 +1081,7 @@ out="$(unset KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S; WPASS_AFTER=999 KOSMOS_WAIT_
 rm -f "$W/calls"
 
 # The loop itself honours the queue: the box is clear, but an older suite is waiting, so this one waits.
-sleep 60 & wp=$!
+perl -e 'select(undef, undef, undef, 60)' & wp=$!
 q_ready "$wp"
 printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 rm -f "$W/calls"
@@ -1095,13 +1101,13 @@ out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test r
 RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; RP_LIVE=""; trap 'kill "${SUITE:-}" "${SUITE2:-}" "${PAIRP:-}" "${PAIRC:-}" ${RP_LIVE:-} 2>/dev/null; type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$FR" "$RT" ${RT2:+"$RT2"}' EXIT
 mkdir -p "$RT/tools/lib" "$RT/sub"; cp "$HERE/run-tests.sh" "$RT/tools/"; cp "$HERE"/lib/*.sh "$RT/tools/lib/"
 : > "$RT/sub/stray.test.js"
-sleep 60 & wp=$!
+perl -e 'select(undef, undef, undef, 60)' & wp=$!
 q_ready "$wp"
 printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 # The caller reads as a fixture (a node --test ancestor), except the stand-in pids $DEAD and $SUITE (see the wiring test below).
 printf '#!/bin/sh\n{ [ "$1" = '"$DEAD"' ] || [ "$1" = '"$SUITE"' ]; } || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
 rt_run() { (cd "$RT" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
-  KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= "$@" bash tools/run-tests.sh 2>&1); }
+  KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= "$@" bash tools/run-tests.sh 2>&1); }
 out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none")"
 has "$out" "is ahead of" && pass "#4498 CONTROL: a plain run waits behind an older waiting suite" \
   || fail "#4498 CONTROL: a plain run did not queue ($(printf '%s' "$out" | tail -2))"
@@ -1124,7 +1130,7 @@ chmod +x "$T/fakebin/node"
 # Every other listed name set to 1, built here: a case pattern's ")" inside a nested $( ) ends the substitution on bash 3.2.
 _ovr=""; for v in $KOSMOS_WAIT_CONTROL_VARS; do [ "$v" = KOSMOS_NO_WAIT ] || [ "$v" = KOSMOS_WAIT_MAX_S ] || _ovr="$_ovr $v=1"; done
 out="$(cd "$RT2" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
-  KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=node KOSMOS_TEST_PART_LOCAL=1 KOSMOS_SHELL_SHARD= \
+  KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=node KOSMOS_TEST_PART_LOCAL=1 KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= \
   $_ovr PATH="$T/fakebin:$PATH" bash tools/run-tests.sh 2>&1)"
 rm -rf "$RT2"
 # One list: run-tests.sh unsets the lib's list, not its own copy (review 19).
@@ -1139,11 +1145,11 @@ _seen_all=1; for v in $KOSMOS_WAIT_CONTROL_VARS; do has "$out" "SEEN $v=unset" |
 # writes is read. CONTROL: the same copy with the assignment removed writes "light", so the arm can see the danger.
 _rt_marker_class() {   # <tree> [class]: start its run-tests.sh (class light by default) queued behind a waiter, print its marker's line 5, stop it
   local tree="$1" qc="${2:-light}" rp i cls="" wq
-  sleep 60 & wq=$!
+  perl -e 'select(undef, undef, undef, 60)' & wq=$!
   q_ready "$wq"
   printf '100 %s\n%s\n%s\n%s\n' "$wq" "$(ps -ww -o command= -p "$wq")" "$(_kosmos_pid_started_local "$wq")" "$(_kosmos_pid_started "$wq")" > "$(_kosmos_marker_dir)/suitewait.$wq"
   (cd "$tree" && exec env KOSMOS_QUEUE_CLASS="$qc" KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
-    KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh) >/dev/null 2>&1 &
+    KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= bash tools/run-tests.sh) >/dev/null 2>&1 &
   rp=$!; RP_LIVE="$rp $wq"   # stopped by the EXIT trap too, if this test is interrupted before the cleanup below
   for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     [ -s "$(_kosmos_marker_dir)/suitewait.$rp" ] && { cls="$(sed -n '5p' "$(_kosmos_marker_dir)/suitewait.$rp")" || cls=""; break; }
@@ -1180,7 +1186,7 @@ kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; rm -f "$W/markers/suitewait.$wp"
 # asked the claim only once, before waiting, would now start inside the cut (COVERAGE MISMATCH); this one keeps
 # waiting, names the release, and refuses at its short bound. KOSMOS_SUITE_MAX=1 (#6334): the first ask must be a
 # reason to wait, which one live suite is only at one suite at a time.
-sleep 60 & holder=$!
+perl -e 'select(undef, undef, undef, 60)' & holder=$!
 cat > "$T/sprobe-then-cut" <<SH
 #!/bin/sh
 n=\$(cat "$W/cutcalls" 2>/dev/null || echo 0); n=\$((n + 1)); echo "\$n" > "$W/cutcalls"
@@ -1192,7 +1198,7 @@ exit 1
 SH
 chmod +x "$T/sprobe-then-cut"; rm -f "$W/cutcalls" "$W/markers/machine-claim"
 out="$(cd "$RT" && env KOSMOS_SUITE_MAX=1 KOSMOS_WAIT_EVERY_S=1 KOSMOS_WAIT_MAX_S=3 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" \
-  KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/sprobe-then-cut" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh 2>&1)"; rc=$?
+  KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/sprobe-then-cut" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= bash tools/run-tests.sh 2>&1)"; rc=$?
 # It began waiting on the suite (the first ask), then the claim held it to the bound. After the claim appears the claim
 # is asked first and refuses, so the suite probe is asked only once.
 { [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running" && has "$out" "release 0.9.99" \
@@ -1205,7 +1211,7 @@ kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null; rm -f "$W/markers/machin
 # KOSMOS_NO_WAIT=1 (and KOSMOS_WAIT_MAX_S=0, so even a build that ignores it cannot wait) and names the suite, before it runs a test. (A green end-to-end would run the whole
 # suite; the go paths are shown above.) test-install.sh refuses an unknown argument.
 out="$(cd "$HERE/.." && KOSMOS_SUITE_MAX=1 KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/sprobe-live" \
-  KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh 2>&1)"; rc=$?
+  KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= bash tools/run-tests.sh 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running" && has "$out" "KOSMOS_TESTS_IGNORE_SUITE=1"; } \
   && pass "#4498 run-tests.sh refuses beside another live suite at KOSMOS_SUITE_MAX=1 (KOSMOS_NO_WAIT=1), naming its override" \
   || fail "#4498 run-tests.sh did not refuse beside a live suite (rc=$rc, $(printf '%s' "$out" | tail -3))"
@@ -1214,7 +1220,7 @@ out="$(cd "$HERE/.." && KOSMOS_SUITE_MAX=1 KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 
 # kept, a probe line), which is asked after the suite check: that the suite check passed is shown by reaching it. They run
 # in the $RT scratch tree, so a run that got past both checks would stop at its coverage check, never start a suite.
 rt_e2e() { (cd "$RT" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_KEEP_FIXTURES=1 \
-  KOSMOS_HARNESS_SELF_PID=999999 KOSMOS_HARNESS_PROBE="$T/hprobe-real" KOSMOS_SUITE_PROBE="$T/$1" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= "${@:2}" bash tools/run-tests.sh 2>&1); }
+  KOSMOS_HARNESS_SELF_PID=999999 KOSMOS_HARNESS_PROBE="$T/hprobe-real" KOSMOS_SUITE_PROBE="$T/$1" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= "${@:2}" bash tools/run-tests.sh 2>&1); }
 out="$(rt_e2e sprobe-live)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "an install harness" && ! has "$out" "test suite (tools/run-tests.sh) is already running" && ! has "$out" "test suites (tools/run-tests.sh) are"; } \
   && pass "#6334 run-tests.sh by default passes the suite check beside one live suite (it reached the harness check)" \
@@ -1287,7 +1293,7 @@ out="$(rt_e2e sprobe-live KOSMOS_RUN_MARKER_DIR="$SMAX")"; rc=$?
 printf '#!/bin/sh\n{ [ "$1" = '"$DEAD"' ] || [ "$1" = '"$SUITE"' ]; } || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
 # #6334: KOSMOS_SUITE_MAX=1, or a broken skip would pass the suite check beside one suite and print the same harness line.
 out="$(cd "$HERE/.." && KOSMOS_SUITE_MAX=1 KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all" KOSMOS_HARNESS_KEEP_FIXTURES=1 KOSMOS_HARNESS_SELF_PID=999999 \
-  KOSMOS_HARNESS_PROBE="$T/hprobe-real" KOSMOS_SUITE_PROBE="$T/sprobe-live" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh 2>&1)"; rc=$?
+  KOSMOS_HARNESS_PROBE="$T/hprobe-real" KOSMOS_SUITE_PROBE="$T/sprobe-live" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= bash tools/run-tests.sh 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "an install harness" && ! has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
   && pass "#4498 a run-tests.sh inside a test does not wait on the suite that started it" \
   || fail "#4498 a run-tests.sh fixture checked for other suites (rc=$rc, $(printf '%s' "$out" | tail -3))"

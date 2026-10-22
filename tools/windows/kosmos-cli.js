@@ -72,6 +72,11 @@ const POST_TIMEOUT_MS = 120000;
    KOSMOS_PROOF_MIN_S and KOSMOS_PROOF_MAX_S); the request then gets what is left. */
 const PROOF_MIN_MS = 500;
 const PROOF_MAX_MS = 15000;
+/* kosmos#6464: the headers a token rides in (the board token, the agent token), and the reason call() gives when a
+   request carrying a secret in its body has neither to prove the listener with. */
+const TOKEN_HEADER_NAMES = ['x-kosmos-board-token', 'x-kosmos-agent-token'];
+const NO_TOKEN_TO_PROVE = 'no token to prove with';
+const REDIRECT_REFUSED = 'answered with a redirect';
 // #4580: the pause before the one retry of a send whose reply was cut; KOSMOS_RETRY_PAUSE_MS (the injected env) is the test seam.
 function retryPauseMs(env) { const v = (env && env.KOSMOS_RETRY_PAUSE_MS) || ''; return /^\d+$/.test(v) ? Number(v) : 1000; }
 
@@ -91,7 +96,8 @@ const USAGE = {
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
-  handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a sha256 for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
+  fingerprint: 'Usage: kosmos fingerprint <file>   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: the sha256 of the file, with the creation and change dates and document ID inside a PDF left out, so the same source rendered twice matches; a PDF over 64 MB is hashed as plain bytes)',
+  handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
   inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
@@ -109,12 +115,12 @@ const USAGE = {
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
-    '      --file <path>                                            send the delivered file\'s fingerprint (sha256) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
+    '      --file <path>                                            send the delivered file\'s fingerprint (its sha256; for a PDF, with its own dates and ID left out) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
     '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
     '  kosmos task unhold <project-id> <task-number>                 take it off hold',
-    '  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly>  a job you run on a schedule: the board shows when it runs',
+    '  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m>  a job you run on a schedule: the board shows when it runs',
     '      --at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
     '  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed',
     '  kosmos task ran <project-id> <task-number> ["what this run found"]  record that a repeating task\'s job just ran',
@@ -907,12 +913,28 @@ async function roomReopen(ctx, args) {
 
 async function taskList(ctx, args) {
   const project = args[0];
-  if (!project) { ctx.err('Usage: kosmos task list <project-id> [--state open|built|held|done]'); return 2; }
+  if (!project) { ctx.err('Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built]'); return 2; }
   /* #5705, as install/kosmos: grouped (open, built, on hold, done); --state keeps one group, checked here. */
   let only = '';
   if (args[1] === '--state') {
     if (!['open', 'built', 'held', 'done'].includes(args[2])) { ctx.err('--state takes one of: open, built, held, done.'); return 2; }
     only = '&state=' + args[2];
+  }
+  /* #6761, as install/kosmos: --open, --blocked (the on-hold group) and --built print one group compactly, through
+     engine/tasklist.js, the one copy both CLIs run. */
+  const compactFlag = /^--(open|blocked|built)$/.test(args[1] || '') ? args[1].slice(2) : '';
+  if (compactFlag) {
+    if (args.length > 2) { ctx.err(args[1] + ' takes nothing after it: kosmos task list <project-id> ' + args[1]); return 2; }
+    let tasklist;
+    try { tasklist = require(path.join(engineDir(), 'tasklist.js')); }
+    catch { ctx.err('This install of Kosmos has no compact task list yet; update Kosmos, or list without ' + args[1] + '.'); return 1; }
+    only = '&state=' + tasklist.COMPACT[compactFlag];
+    const rc = await ctx.call('GET', '/api/tasks?project=' + projectSlug(project) + '&order=state' + only);
+    if (!rc.reached) return ctx.unreachable('list tasks');
+    if (ctx.refusedBy(rc)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(rc) + '.'); return 1; }
+    const shown = tasklist.compactLines(rc.json, compactFlag, project);
+    for (const line of shown.lines) (shown.rc ? ctx.err : ctx.out)(line);
+    return shown.rc;
   }
   const r = await ctx.call('GET', '/api/tasks?project=' + projectSlug(project) + '&order=state' + only);   // #4491 slice 4: with the agent's own token
   if (!r.reached) return ctx.unreachable('list tasks');
@@ -1216,21 +1238,16 @@ async function taskBuilt(ctx, args) {
   if (wantFile) { ctx.err('--file needs the path of the delivered file.'); return 2; }
   const note = words.join(' ');
   if (clear && note) { ctx.err('--clear takes the mark off, so it takes no note. Run it without the note.'); return 2; }
-  /* #6330 slice 2: the delivered file's sha256, hashed here; the board never reads the file. */
+  /* #6330 slice 2: the delivered file's fingerprint, worked out here; the board never reads the file. kosmos#6849: the one
+     engine/fileprint.js gives, as the Mac and `kosmos fingerprint` do (a PDF's own dates and document ID left out). */
   let fingerprint = null;
   if (file !== null) {
     if (clear) { ctx.err('--clear takes the mark off, so it takes no file. Run it without --file.'); return 2; }
-    /* In chunks, as shasum streams on the Mac: a whole-file read refuses anything over 2 GiB (review 1). */
-    const hash = require('node:crypto').createHash('sha256');
-    let fd = null;
-    try {
-      if (!fs.statSync(file).isFile()) throw new Error('not a file');
-      fd = fs.openSync(file, 'r');
-      const buf = Buffer.alloc(1 << 20);
-      for (let got; (got = fs.readSync(fd, buf, 0, buf.length, null)) > 0;) hash.update(buf.subarray(0, got));
-    } catch { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
-    finally { if (fd !== null) fs.closeSync(fd); }
-    fingerprint = 'sha256:' + hash.digest('hex');
+    let fileprint;
+    try { fileprint = ctx.engine('fileprint'); } catch { ctx.err('Kosmos could not find its own fingerprint reader; this install looks incomplete.'); return 1; }
+    const got = fileprint.fingerprint(file);
+    if (!fileprint.isPrint(got)) { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
+    fingerprint = got;
   }
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}) });
   if (!r.reached) {
@@ -1242,6 +1259,8 @@ async function taskBuilt(ctx, args) {
     const told = typeof r.json.summary === 'string' && r.json.summary.trim() ? ' ' + r.json.summary.trim() : '';
     ctx.out(clear ? (r.json.changed === false ? 'Task ' + num + ' on ' + project + ' was not marked built.' : 'Took the built mark off task ' + num + ' on ' + project + '.')
       : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.' + told);
+    // #6761, as install/kosmos: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
+    if (!clear && fingerprint) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that task: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -1286,7 +1305,9 @@ async function taskDoneWhen(ctx, args) {
 
 /* kosmos#4787, as install/kosmos cmd_task repeat / ran: a repeating task's rule, and a run of its job. The agent token
    names who ran it (no pane on Windows); the board checks the rule whole and refuses a caller it cannot name. */
-const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)';
+const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m|2h> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)';
+/* kosmos#6893, as install/kosmos: every so many minutes ("30m", "2h"); the board checks the number. */
+const EVERY_MINUTES_RE = /^[0-9]+(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$/i;
 async function taskRepeat(ctx, args) {
   const [project, num] = args;
   if (!project || !num || args.length < 3) { ctx.err(REPEAT_USAGE); return 2; }
@@ -1298,13 +1319,18 @@ async function taskRepeat(ctx, args) {
     else if (a === '--on') want = 'on';
     else if (a === '--reviewer') want = 'reviewer';   // slice 3, as install/kosmos: who is told when a run is missed
     else if (a === '--clear') clear = true;
-    else if (/^(hour|hourly|day|daily|week|weekly)$/.test(a)) every = a;
+    else if (/^(hour|hourly|day|daily|week|weekly)$/.test(a) || EVERY_MINUTES_RE.test(a)) {
+      // kosmos#6893 review 3, as install/kosmos: one frequency (a second would silently replace the first).
+      if (every) { ctx.err('Say how often once. ' + REPEAT_USAGE); return 2; }
+      every = a;
+    }
     else if (/^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task repeat', REPEAT_USAGE, a); return 2; }
-    else { ctx.err('Say how often: hourly, daily or weekly. ' + REPEAT_USAGE); return 2; }
+    else { ctx.err('Say how often: hourly, daily, weekly, or every so many minutes (30m, 2h). ' + REPEAT_USAGE); return 2; }
   }
   if (want) { ctx.err('--at, --on and --reviewer each need a value. ' + REPEAT_USAGE); return 2; }
   // Review 2, as install/kosmos: --at and --on belong to a frequency; without one they would be dropped without a word.
   if (!every && !clear && (at || on)) { ctx.err('--at and --on go with how often: hourly, daily or weekly. ' + REPEAT_USAGE); return 2; }
+  if (EVERY_MINUTES_RE.test(every) && (at || on)) { ctx.err('A task every so many minutes takes no --at or --on. ' + REPEAT_USAGE); return 2; }
   /* Each field only when given, as install/kosmos: no frequency leaves the rule as it is, so --reviewer can change alone. */
   const body = { clear, from_pane: '' };
   if (every) body.every = every;
@@ -2245,6 +2271,18 @@ async function verbHandoff(ctx, args) {
   return 0;
 }
 
+/* kosmos#6849, as install/kosmos cmd_fingerprint: a file's fingerprint, the one `kosmos task built --file` sends and
+   `kosmos handoff` prints (engine/fileprint.js), so an agent checking a handed-off copy compares like with like. */
+async function verbFingerprint(ctx, args) {
+  if (args.length !== 1 || !args[0]) { ctx.err(USAGE.fingerprint); return 2; }
+  let fileprint;
+  try { fileprint = ctx.engine('fileprint'); } catch { ctx.err('Kosmos could not find its own fingerprint reader; this install looks incomplete.'); return 1; }
+  const got = fileprint.fingerprint(args[0]);
+  if (!fileprint.isPrint(got)) { ctx.err(args[0] + ': ' + got); return 2; }
+  ctx.out(got);
+  return 0;
+}
+
 /* The door checks the token with the service (up to 30 s) before storing it, so connect waits longer. */
 const CONNECT_TIMEOUT_MS = 35000;
 const CONNECT_TOKEN_MAX_BYTES = 64 * 1024;
@@ -2275,8 +2313,10 @@ async function verbConnect(ctx, args) {
   if (!piped.ended) { ctx.err('Nothing was sent: the token on stdin stopped arriving without ending, so it may be cut short.'); return 2; }
   const route = svc === 'cloudflare' ? '/api/cloudflare/token' : '/api/svc/' + svc + '/token';
   const shown = svc === 'cloudflare' ? 'Cloudflare' : svc;
-  const r = await ctx.call('POST', route, { token }, { agent: false, timeoutMs: CONNECT_TIMEOUT_MS });
+  // kosmos#6464: `secret`: the body carries the service key, so it is never sent without a token to prove with.
+  const r = await ctx.call('POST', route, { token }, { agent: false, timeoutMs: CONNECT_TIMEOUT_MS, secret: true });
   if (!r.reached) {
+    if (r.notProven) return ctx.unreachable('connect ' + shown);   // the check said why; nothing was sent
     if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have connected; check with: kosmos connections');
     ctx.err('We could not reach Kosmos, so nothing was connected. Is it running at ' + ctx.url + '?');
     return 1;
@@ -2313,6 +2353,7 @@ const VERB_HANDLERS = {
   report: verbReport,
   whoami: verbWhoami,
   handoff: verbHandoff,
+  fingerprint: verbFingerprint,
   inbox: verbInbox,
   room: verbRoom,
   task: subcommandRequired('task'),
@@ -2360,6 +2401,7 @@ const DESCRIBE = {
   report: 'say what you are doing: working, blocked, waiting on someone',
   whoami: 'say which agent you are and which account you are on',
   handoff: 'print facts for your handoff: your live state, artifact fingerprints, instruction and git status',
+  fingerprint: 'print the fingerprint of a file, to check a handed-off copy (the dates and ID inside a PDF are left out)',
   room: 'read a project room',
   task: "a project's tasks: list, add, close, reopen, message, mark built",
   project: 'list, show, create or pause projects, or say your role on one',
@@ -2450,12 +2492,13 @@ async function main(argv, io) {
 
   /* #1765: a token goes only to a listener that has proved it already holds that token (engine/boardproof.js: an
      HMAC over a fresh random nonce, checked here with our own copy). Every account on a Windows computer uses the
-     same board port, so whatever answers there is not always this account's board. A proof that passed is kept for
-     the rest of this process, per token; one that failed is asked again next time, with a new nonce.
+     same board port, so whatever answers there is not always this account's board. kosmos#6464: the check runs
+     before EVERY request, never kept for the process: a proof is about the listener at that moment, and the board
+     can restart, or another process take its port, between one request and the next (a retry after a request that
+     did not complete is exactly that moment). Each check uses a new nonce, as install/kosmos does on every call.
      `o.proveBoard` is the test seam: a function (url, token, timeoutMs) resolving a boolean or { ok, why }. With no
      seam the real check runs, unless the caller handed in its own `fetch` or `hook`: that is a test standing in for
      the board or its token, and production (the entry at the bottom of this file) passes neither. */
-  const proved = new Map();
   const seamed = typeof o.proveBoard === 'function';
   const checking = seamed || !(o.fetch || o.hook);
   async function provenFor(headers, boundMs) {
@@ -2466,10 +2509,7 @@ async function main(argv, io) {
     const t = boardproof.tokenIn(headers);
     if (t === '') return { ok: true };   // no token: nothing to protect
     if (t === null) return { ok: false, why: 'headers unreadable', nothingThere: false };
-    if (proved.get(t) === true) return { ok: true };
-    const r = await boardproof.checkBoard(url, t, { timeoutMs: Math.min(PROOF_MAX_MS, Math.max(PROOF_MIN_MS, Math.floor(boundMs / 2))), prove: seamed ? o.proveBoard : undefined });
-    if (r.ok) proved.set(t, true);
-    return r;
+    return boardproof.checkBoard(url, t, { timeoutMs: Math.min(PROOF_MAX_MS, Math.max(PROOF_MIN_MS, Math.floor(boundMs / 2))), prove: seamed ? o.proveBoard : undefined });
   }
 
   async function call(method, route, body, opts) {
@@ -2480,6 +2520,14 @@ async function main(argv, io) {
     const headers = headersFor(c.agent !== false, c.person === true);
     const bound = c.timeoutMs || REQUEST_TIMEOUT_MS;
     const started = Date.now();
+    /* kosmos#6464: a request whose BODY carries a secret (connect's service key, `secret: true`) needs a token in its
+       headers to prove the listener with. With none (board.token missing or unreadable, and no agent token sent)
+       there is nothing to prove with, so it is refused rather than sent unproven. Read from the headers themselves,
+       whatever the test seams say. */
+    if (c.secret === true && !TOKEN_HEADER_NAMES.some((n) => headers[n])) {
+      lastNotProven = NO_TOKEN_TO_PROVE;
+      return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true };
+    }
     const p = await provenFor(headers, bound);
     if (!p.ok) {
       /* Nothing was sent, so every verb reads this as a refused connection (never "it may have happened", never a
@@ -2496,7 +2544,21 @@ async function main(argv, io) {
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(left),
+        // kosmos#6464: the board never redirects an /api/ request, and fetch would carry these tokens (and the body)
+        // to wherever a listener pointed it, past the proof above. 'manual' hands the 3xx back, never followed (below).
+        // Not 'error': with it, undici's own one retry of a 421 (the board serving another Kosmos, #1704) fails on
+        // a request with a body, so a wrong-world answer read as an unreachable board.
+        redirect: 'manual',
       });
+      /* kosmos#6464: a redirect, not followed. The board never redirects an /api/ request, so this is not the board
+         acting: say so in its own words, and no verb asks again (refused). notConnected reads as "nothing reached the
+         board": the listener that redirected did get the request, but it is not acting as the board, and the sentence
+         ctx.unreachable gives does not claim nothing happened. */
+      if (res.status >= 300 && res.status < 400) {
+        try { if (res.body && typeof res.body.cancel === 'function') await res.body.cancel(); } catch { /* gone */ }
+        lastNotProven = REDIRECT_REFUSED;
+        return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true };
+      }
       const text = await res.text();
       let json = null;
       try { json = JSON.parse(text); } catch { /* a text route, or not the board */ }
@@ -2577,7 +2639,9 @@ async function main(argv, io) {
       /* No "try again": this is also the timeout path of writes (a task, a project, a report), where the
          board may already have acted, so a retry could make a duplicate. */
       /* #1765: the check before the send did not pass, so nothing was sent. */
-      if (lastNotProven === 'out of time') err('Kosmos took the whole time we had to check it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
+      if (lastNotProven === REDIRECT_REFUSED) err('Whatever answered at ' + url + ' tried to send this request somewhere else, which Kosmos never does, so we did not follow it. We could not ' + what + (lastWasRead ? '.' : '; check before doing it again.'));
+      else if (lastNotProven === NO_TOKEN_TO_PROVE) err('This computer could not read its Kosmos board token, so it cannot check that Kosmos is what answers, and we did not ' + what + ': nothing was sent. Restarting Kosmos usually fixes this; if it does not, reinstalling does.');
+      else if (lastNotProven === 'out of time') err('Kosmos took the whole time we had to check it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
       else if (/^(the check (could not load|failed)|headers unreadable)/.test(lastNotProven)) err('This computer could not check it was reaching your Kosmos (' + lastNotProven + '), so we did not ' + what + ' and sent nothing.');
       else if (lastNotProven === 'timed out') err('Kosmos did not answer in time when we checked it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
       else if (lastNotProven) err('Whatever is answering at ' + url + ' could not show it is your Kosmos, so we did not ' + what + ' and sent it nothing. If Kosmos is restarting, try again in a minute.');

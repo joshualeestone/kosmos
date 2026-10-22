@@ -19,6 +19,9 @@
  * Claude only in this slice. An agent on another provider (create.recordedRunner) is listed with `available: false`,
  * never a guessed zero. Four token buckets per model, never blended; one assistant message counted once by its id, and
  * synthetic rows skipped, as engine/usage.js counts them.
+ *
+ * kosmos#6842: a Claude agent's receipt also lists the pull requests it worked on while it held the task, from the
+ * `pr-link` rows Claude Code writes, so a task's cost sits beside the PRs it produced.
  */
 
 const fs = require('node:fs');
@@ -35,9 +38,16 @@ const BUCKET_FIELDS = ['input_tokens', 'output_tokens', 'cache_creation_input_to
 const SYNTHETIC_ROW = /"model":"<[^"]*>"/;
 const FILE_TOOLS = { Edit: 'file_path', Write: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
 const COMMAND_TOOLS = new Set(['Bash']);
-/* Bumped when the receipt's shape or counting changes, so a kept receipt from an older build is worked out again.
-   2: Codex and Gemini CLI agents are read (slice 2). */
-const VERSION = 2;
+/* Bumped when the receipt's shape or counting changes. A kept receipt of an older version is worked out again unless
+   keptStillRight says it is still right as it was.
+   2: Codex and Gemini CLI agents are read (slice 2).
+   3: the pull requests a Claude agent worked on while it held the task (`prs`, kosmos#6842). */
+const VERSION = 3;
+/* kosmos#6842: Claude Code writes a `pr-link` row (prRepository, prNumber, prUrl) when a session acts on a pull request
+   (opens, comments on or merges it), then repeats it on that session's later turns. A PR is listed when some session's
+   first row for it is inside a hold. The measurements behind this are in the branch's plan. */
+const PR_REPO = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+const PRS_SHOWN = 20;
 /* Slice 2: the providers read besides Claude, by the agent's recorded runner. */
 const OTHER_PROVIDERS = new Set(['codex', 'gemini']);
 
@@ -189,6 +199,7 @@ async function claudeWork(dir, holds) {
   let complete = true;
   const seenMsg = new Set();
   const seenTool = new Set();
+  const prFirstInSession = new Map();   // "session\0owner/name#n" -> { repo, number, url, t }: that session's first row for it
   const found = [];
   for (const d of transcriptDirs(dir)) found.push(...await transcriptsIn(d));
   for (const file of [...new Set(found)]) {
@@ -201,11 +212,27 @@ async function claudeWork(dir, holds) {
       const rl = readline.createInterface({ input: fs.createReadStream(file, { encoding: 'utf8' }), crlfDelay: Infinity });
       for await (const line of rl) {
         if (!line || SYNTHETIC_ROW.test(line)) continue;
+        const isPr = line.includes('"pr-link"');
         const isAssistant = line.includes('"assistant"');
         const isResult = line.includes('"tool_result"');
-        if (!isAssistant && !isResult) continue;
+        if (!isPr && !isAssistant && !isResult) continue;
         let row;
         try { row = JSON.parse(line); } catch { continue; }
+        if (row && row.type === 'pr-link') {
+          const repo = row.prRepository;
+          const number = row.prNumber;
+          const t = Date.parse(row.timestamp);
+          if (typeof repo === 'string' && PR_REPO.test(repo) && Number.isSafeInteger(number) && number > 0 && Number.isFinite(t)) {
+            const session = typeof row.sessionId === 'string' && row.sessionId ? row.sessionId : file;
+            const key = session + '\0' + repo + '#' + number;
+            const seen = prFirstInSession.get(key);
+            if (!seen || t < seen.t) {
+              const url = 'https://github.com/' + repo + '/pull/' + number;
+              prFirstInSession.set(key, { repo, number, url: row.prUrl === url ? url : null, t });
+            }
+          }
+          continue;
+        }
         const message = row && row.message;
         if (!message || typeof message !== 'object') continue;
         const blocks = Array.isArray(message.content) ? message.content : [];
@@ -246,7 +273,18 @@ async function claudeWork(dir, holds) {
   const files = new Map();
   for (const [id, shown] of edits) if (answered.has(id) && !failed.has(id)) files.set(shown, true);
   const all = [...files.keys()];
-  return { models, files: all.slice(0, FILES_SHOWN), filesMore: Math.max(0, all.length - FILES_SHOWN), commands, transcriptsWithWork: withWork, transcriptsRead: read, complete };
+  /* A session repeats a PR's row on its later turns, so only its first row for a PR marks the act (review 2). A PR is
+     the hold's when some session's first row for it is inside a hold. */
+  const prsWorked = new Map();
+  for (const p of prFirstInSession.values()) {
+    if (!inHold(p.t)) continue;
+    const key = p.repo + '#' + p.number;
+    const seen = prsWorked.get(key);
+    if (!seen || p.t < seen.t) prsWorked.set(key, p);
+  }
+  const worked = [...prsWorked.values()].sort((a, b) => a.t - b.t).map(({ repo, number, url }) => ({ repo, number, url }));
+  return { models, files: all.slice(0, FILES_SHOWN), filesMore: Math.max(0, all.length - FILES_SHOWN), commands,
+    prs: worked.slice(0, PRS_SHOWN), prsMore: Math.max(0, worked.length - PRS_SHOWN), transcriptsWithWork: withWork, transcriptsRead: read, complete };
 }
 
 /**
@@ -397,8 +435,11 @@ function closedAtOf(task) {
 }
 
 /* A receipt kept by slice 1 (VERSION 1) is still right when no agent on it was a Codex or Gemini agent, which is all
-   slice 2 changes; working it out again could only lose work whose transcripts have since been pruned (review 1). */
+   slice 2 changes; working it out again could only lose work whose transcripts have since been pruned (review 1).
+   A VERSION 2 receipt is kept as it was for the same reason. It has no `prs`, so its page shows no pull request line,
+   as for an agent that worked on none (kosmos#6842). */
 function keptStillRight(kept) {
+  if (kept.version === 2) return Array.isArray(kept.agents);
   return kept.version === 1 && Array.isArray(kept.agents)
     && !kept.agents.some((a) => a && OTHER_PROVIDERS.has(a.provider));
 }
@@ -501,6 +542,113 @@ async function forAgent(who, { limit = 10, now = Date.now(), receiptOf = forTask
   return { ok: true, receipts: out, more };
 }
 
-module.exports = { forAgent, forTask, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION,
+/**
+ * kosmos#6842 slice 2: what a project's closed tasks cost, as the sum of their receipts: tokens per model across every
+ * agent that held a part, the tasks counted and the pull requests they worked on (each once, with the tasks that list
+ * it; each pull request's own `tasks` list is for a later view, the page does not show it yet). The newest `limit` closed tasks are counted (a
+ * receipt not yet kept reads transcripts); `notCounted` says how many older ones were left out. An agent whose work
+ * could not be read (no folder, a provider with no receipt) is counted in `unread`, and a receipt read only in part in
+ * `partial`, so the total never reads as more complete than it is. An agent whose pull requests are not known (no `prs`,
+ * or its work could not be read) is counted in `prsUnknown`, so they read as unknown rather than none. `overlapping` says
+ * one agent's holds on two different counted tasks share a moment, so that work is on both receipts and the total
+ * counts it twice.
+ * Each task's receipt is the one its task page shows (forTask), so the two never disagree. Asks for one project while
+ * one is being worked out share it (every Project settings paint asks).
+ */
+const PROJECT_IN_FLIGHT = new Map();
+function forProject(projectId, opts = {}) {
+  if (opts.receiptOf) return forProjectNow(projectId, opts);   // a test seam: never shared
+  // A shared computation uses the first ask's `now`; the route passes none, so asks do not differ in it.
+  const key = String(projectId) + '\0' + String(Math.max(1, Math.min(200, Number(opts.limit) || 50)));   // as forProjectNow clamps it
+  if (PROJECT_IN_FLIGHT.has(key)) return PROJECT_IN_FLIGHT.get(key);
+  const p = forProjectNow(projectId, opts).finally(() => PROJECT_IN_FLIGHT.delete(key));
+  PROJECT_IN_FLIGHT.set(key, p);
+  return p;
+}
+async function forProjectNow(projectId, { limit = 50, now = Date.now(), receiptOf = forTask } = {}) {
+  const lim = Math.max(1, Math.min(200, Number(limit) || 50));
+  let proj = null;
+  try { proj = (require('./projects').readAll() || []).find((x) => x && x.id === projectId) || null; }
+  catch { return { ok: false, because: 'unreadable' }; }
+  if (!proj) return { ok: false, because: 'no-project' };
+  const closed = [];
+  for (const task of proj.tasks || []) {
+    const iso = closedAtOf(task);
+    const at = iso ? Date.parse(iso) : NaN;
+    if (Number.isFinite(at)) closed.push({ task, at });
+  }
+  closed.sort((x, y) => y.at - x.at || x.task.number - y.task.number);
+  const picked = closed.slice(0, lim);
+  const receipts = new Array(picked.length);
+  const AT_ONCE = 3;
+  for (let i = 0; i < picked.length; i += AT_ONCE) {
+    await Promise.all(picked.slice(i, i + AT_ONCE).map(async (c, j) => {
+      try { receipts[i + j] = await receiptOf(projectId, c.task, { now }); }
+      catch (err) { console.error('project receipts: task ' + c.task.number + ':', (err && err.message) || err); receipts[i + j] = null; }
+    }));
+  }
+  const models = {};
+  const prs = new Map();   // repo#number -> { repo, number, url, tasks }: one PR whether or not a receipt kept its url
+  let unread = 0;
+  let partial = 0;
+  let failed = 0;
+  let prsMore = 0;   // beyond each agent's own shown list: counted, not named, so not de-duplicated (an upper bound)
+  let prsUnknown = 0;   // agents whose pull requests are not known (no `prs`, or not readable): unknown, not none
+  const spansOf = new Map();   // agent -> [{ task, from, to }] from each receipt's holds (ms); every receipt this file
+                               // has written carries holds (an agent is on a receipt only because it held the task)
+  let readable = 0;   // agents whose work was read, activity or not
+  receipts.forEach((r, i) => {
+    const number = picked[i].task.number;
+    if (!r || !Array.isArray(r.agents)) { failed += 1; return; }
+    for (const a of r.agents) {
+      if (!a || typeof a !== 'object') continue;
+      if (!a.available) { unread += 1; prsUnknown += 1; continue; }
+      readable += 1;
+      // Holds of counted agents only: an unreadable agent adds nothing to the total, so it cannot make it read high.
+      if (typeof a.who === 'string' && a.who) {
+        const list = spansOf.get(a.who) || [];
+        for (const h of Array.isArray(a.holds) ? a.holds : []) {
+          const from = Date.parse(h && h.from); const to = Date.parse(h && h.to);
+          if (Number.isFinite(from) && Number.isFinite(to)) list.push({ task: number, from, to });
+        }
+        spansOf.set(a.who, list);
+      }
+      if (a.complete === false) partial += 1;
+      for (const [m, b] of Object.entries(a.models || {})) {
+        if (!b || typeof b !== 'object') continue;
+        const into = models[m] || (models[m] = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 });
+        for (const f of BUCKET_FIELDS) into[f] += Number(b[f]) || 0;
+        into.rows += Number(b.rows) || 0;
+      }
+      if (!Array.isArray(a.prs)) prsUnknown += 1;
+      prsMore += Number(a.prsMore) || 0;
+      for (const p of Array.isArray(a.prs) ? a.prs : []) {
+        if (!p || typeof p !== 'object' || !Number.isFinite(Number(p.number))) continue;
+        const key = String(p.repo || '') + '#' + Number(p.number);
+        const e = prs.get(key) || { repo: String(p.repo || ''), number: Number(p.number), url: '', tasks: [] };
+        if (!e.url && typeof p.url === 'string' && p.url) e.url = p.url;
+        if (!e.tasks.includes(number)) e.tasks.push(number);
+        prs.set(key, e);
+      }
+    }
+  });
+  // picked: the newest tasks looked at (the "newest N" the page names); tasks: those whose receipt could be worked out.
+  return { ok: true, picked: picked.length, tasks: picked.length - failed, notCounted: closed.length - picked.length, failed, unread, partial,
+    models, prs: [...prs.values()], prsMore, prsUnknown, readable, overlapping: [...spansOf.values()].some(overlapAcrossTasks) };
+}
+/* One agent's holds on two DIFFERENT tasks that share any moment: the work in that moment is on both receipts. */
+function overlapAcrossTasks(spans) {
+  for (let i = 0; i < spans.length; i += 1) {
+    for (let j = i + 1; j < spans.length; j += 1) {
+      const a = spans[i]; const b = spans[j];
+      // Strict: one hold ending the moment another starts shares only that instant (a row stamped exactly then could be
+      // on both, which is negligible), so it is not reported as overlap.
+      if (a.task !== b.task && a.from < b.to && b.from < a.to) return true;
+    }
+  }
+  return false;
+}
+
+module.exports = { forAgent, forTask, forProject, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION,
   /* #5683: engine/agentevents.js reads the same transcript folders (one rule for where they are). */
   transcriptDirs, transcriptsIn };

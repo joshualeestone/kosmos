@@ -1233,6 +1233,11 @@ function setReviewer(projectId, n, who, opts = {}) {
 const RUN_DEDUP_MS = 60 * 1000;
 // kosmos#5643 retry review 3: how many recent run ids (per task, keyed by runner) are kept to absorb a late retry.
 const RUN_IDS_KEPT = 5;
+/* kosmos#6894 review 1: what a run replaced, read INSIDE the write (so two runs at once each see the one before them):
+   the reading and the last change's note before this run. Kept beside the returned task (never stored), for the
+   room line (taskrepeat.roomRunLine); runBefore(task) reads it. */
+const RUN_BEFORE = new WeakMap();
+function runBefore(task) { return (task && RUN_BEFORE.get(task)) || null; }
 function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
   /* review 5: the person is a FLAG, never a name (as setBuilt's builtByPerson): an agent called "operator" is not the person. */
   const isPerson = opts.person === true;
@@ -1249,9 +1254,12 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
   let duplicate = false;
   let inferred = false;   // kosmos#5643 review 2: set in the write, read by the transcript row after it
   let skipped = null;   // kosmos#5920: the runs this one comes after with none of them run, set in the write
+  let prior = null;   // kosmos#6894 (review 2: not `before`, which a block below also names)
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
+    prior = { verified: t.verified && typeof t.verified.value === 'string' ? t.verified.value : '',
+      changeNote: typeof t.lastChangeNote === 'string' ? t.lastChangeNote : '' };
     if (!t.repeat) throw new Error('that task does not repeat; set how often with kosmos task repeat, or close it when it is done');
     if (progressOf(t).closed) throw new Error('that task is closed, so it no longer repeats');
     /* #4787 review 1: the same run reported twice (a retried command, a duplicated job: the 10-03 report) within a minute
@@ -1327,7 +1335,8 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     } else delete changed.lastRunRecovered;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
-  if (duplicate) return Object.assign({}, changed, { duplicate: true });
+  if (duplicate) { const out = Object.assign({}, changed, { duplicate: true }); if (prior) RUN_BEFORE.set(out, prior); return out; }
+  if (prior) RUN_BEFORE.set(changed, prior);
   taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}), ...(changed.lastRunLate ? { late: true } : {}), ...(skipped ? { missedBefore: skipped.count, ...(skipped.more ? { missedMore: true } : {}) } : {}), ...(changed.lastRunUnchanged ? { unchanged: true, ...(inferred ? { inferred: true } : {}) } : {}) });
   return changed;
 }
@@ -1652,6 +1661,10 @@ function allTasks(everyProject) {
            comes through: the nearest held ancestor, else the tree's lowest held task), so a second agent sees whose work
            it is before starting. Absent otherwise. */
         ...(() => { const o = ownerIn(tree, t, members, owners); return o ? { ownerNames: o.who, ownerFrom: o.from } : {}; })(),
+        /* #6895: who holds an open part of this OPEN task without being one of the project's agents (removed after it was
+           given to them). The screen names them "(not on this project)". Absent when there are none, or the task is
+           finished (closing leaves parts open, and a finished task is history). */
+        ...(() => { const off = progressOf(t).closed ? [] : openHolders(t).filter((w) => !members.has(w)); return off.length ? { offProject: off } : {}; })(),
       }));
     }
   }
@@ -2140,7 +2153,7 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   return out.slice(0, 3);
 }
 
-module.exports = { create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,

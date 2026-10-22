@@ -38,7 +38,11 @@ set -euo pipefail
 # exit-1 paths once sat between the download's mktemp and a trap that was
 # "folded in" later, each leaking ~150MB of Node tarball per failed build.
 TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; _reload_table_stderr=""; _wake_table_stderr=""; _menu_table_stderr=""; _connector_probe_dir=""
-trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}" "${_wake_table_stderr:-}" "${_menu_table_stderr:-}" "${_connector_probe_dir:-}"' EXIT
+# kosmos#6831: the same trap also turns a death after it (a missing library, an unset variable) into a failure,
+# which bash 3.2 would otherwise report as exit 0; the build's last line marks it finished.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/exit-guard.sh"
+_cleanup() { rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}" "${_wake_table_stderr:-}" "${_menu_table_stderr:-}" "${_connector_probe_dir:-}"; }
+kosmos_exit_guard _cleanup build-kosmos-bundle
 
 NODE_VERSION="${KOSMOS_NODE_VERSION:-24.19.0}"
 OUT="${1:-dist}"
@@ -1131,3 +1135,4 @@ echo "    contains: $(tar -tzf "$TARBALL_OUT" | wc -l | tr -d ' ') files"
 cp "$REPO/install/setup.sh" "$OUT/setup"
 ( cd "$OUT" && shasum -a 256 setup > setup.sha256 )
 echo "==> installer emitted at $OUT/setup (+ .sha256), byte-for-byte install/setup.sh"
+kosmos_finished

@@ -153,6 +153,91 @@ function verifySetup({ manifest, sig, setup, version, installedVersion, keys = K
   return { code: 0, why: `the installer matches the signed manifest for ${version}` };
 }
 
+/* ---- kosmos#6620 (O04-5): the fleet's update pause, the board half. Here, not in a module of its own, because
+ * run-setup is called by .pkg files already downloaded and by fixtures that carry this one file. ---- */
+/**
+ * During a release incident the operator turns the pause on at the coordinator (kosmos-relay
+ * `deploy/updates-pause.sh on`), and its public `/v1/meta` answers `"updates_paused": true`. Before this Kosmos
+ * installs (engine/manifest-verify.js runSetup on a Mac, any version it is asked for, a same-version reinstall too;
+ * engine/win32update.js begin on Windows, a new install), it asks, and holds back while the answer is true. Rolling
+ * back is not asked: it installs no new code. Only a Kosmos that already carries this code can be paused: one on an
+ * older version installs as it always has.
+ *
+ * Why the coordinator: the release site, its pointer and its signing key are the suspect part in that incident, so a
+ * pause carried there could be removed by whoever holds them.
+ *
+ * It fails OPEN. No answer, a slow answer, an answer that is not JSON, or one without the field all read as "not
+ * paused": a fleet that holds every update whenever the coordinator blinks cannot take a security fix. So the pause
+ * covers the computers that can reach the coordinator; for the rest the signed manifest is the only defence.
+ *
+ * The reverse also holds: whoever controls that answer can hold every update, a security fix included, until the
+ * pause is turned off; the only way past it on one computer is the override below.
+ *
+ * Under `node --test` (NODE_TEST_CONTEXT, in the env given or this process's own) it asks nothing unless a test names
+ * the address with KOSMOS_UPDATE_PAUSE_URL; tools/run-tests.sh points that at a dead local port for every suite.
+ * Two overrides, both needing control of this computer's env: KOSMOS_UPDATE_IGNORE_PAUSE=1 skips the question (for an
+ * operator who must install during a pause), and KOSMOS_UPDATE_PAUSE_URL asks another address. Neither, nor
+ * AGENT_WORKFORCE_TUNNEL_COORDINATOR, is required to be https: one set to http lets a network in between hold updates,
+ * the same reach as whoever controls the answer above, and setting it already takes control of this computer's env.
+ *
+ * Not held today: a .pkg install that takes the pinned path (install/pkg-verify/floor not "off") and a pasted
+ * install line over an existing install, which run the installer without run-setup (#6781).
+ *
+ * A second reader of /v1/meta beside engine/remote.js fetchMetaFlag, on purpose: run-setup is the installed copy of
+ * this file run on its own (also by .pkg files already downloaded), so it requires nothing of the board's modules, and
+ * it needs a synchronous form (curl) that fetchMetaFlag cannot give. Both refuse redirects and read only a boolean.
+ */
+const PAUSE_DEFAULT_COORDINATOR = 'https://login.kosmosplus.com';
+const PAUSE_TIMEOUT_SECS = 5;
+
+/** The /v1/meta address to ask, or null when nothing should be asked (an override, or a test that named none). */
+function pauseUrl(env = process.env) {
+  if (env.KOSMOS_UPDATE_IGNORE_PAUSE === '1') return null;
+  if (env.KOSMOS_UPDATE_PAUSE_URL) return String(env.KOSMOS_UPDATE_PAUSE_URL);
+  // This process's own env too: a test may hand in an env of its own without NODE_TEST_CONTEXT (review 1).
+  if (env.NODE_TEST_CONTEXT || process.env.NODE_TEST_CONTEXT) return null;
+  const base = String(env.AGENT_WORKFORCE_TUNNEL_COORDINATOR || PAUSE_DEFAULT_COORDINATOR).replace(/\/+$/, '');
+  return base + '/v1/meta';
+}
+
+/** True only for a JSON object whose `updates_paused` is exactly true; anything else is "not paused". */
+function pausedIn(body) {
+  try {
+    const v = JSON.parse(String(body));
+    return Boolean(v && typeof v === 'object' && v.updates_paused === true);
+  } catch {
+    return false;
+  }
+}
+
+/** The Mac form, for runSetup (which is synchronous): curl, as runSetup fetches everything else. */
+function pausedSync({ env = process.env, spawnSync = require('child_process').spawnSync } = {}) {
+  const url = pauseUrl(env);
+  if (!url) return false;
+  try {
+    const r = spawnSync('curl', ['-q', '-fsS', '--max-time', String(PAUSE_TIMEOUT_SECS), url], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return r && r.status === 0 ? pausedIn(r.stdout) : false;
+  } catch {
+    return false;
+  }
+}
+
+/** The Windows form, for win32update.begin (async). */
+async function pausedAsync({ env = process.env, fetchImpl = globalThis.fetch } = {}) {
+  const url = pauseUrl(env);
+  if (!url || typeof fetchImpl !== 'function') return false;
+  try {
+    const res = await fetchImpl(url, { redirect: 'error', signal: AbortSignal.timeout(PAUSE_TIMEOUT_SECS * 1000) });
+    if (!res || !res.ok) return false;
+    return pausedIn(await res.text());
+  } catch {
+    return false;
+  }
+}
+
+/** The one sentence a held install says, on either platform. */
+const PAUSED_SENTENCE = 'updates are paused while Kosmos checks a problem with a release, so this update waits until the pause is lifted';
+
 /* 🛑 A FROZEN INTERFACE. `run-setup <setup-url> <release-base> <version> <installed-home>` and its exit codes (0 or
  * the installer's own, 96 not fetched, 97 refused) are also called by .pkg files already downloaded (#6474), which
  * run against whatever NEWER copy of this file is installed. Add forms; never reorder or remove these.
@@ -174,6 +259,10 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
   const sayFetch = (why) => { process.stderr.write('Kosmos: ' + why + ', so the installer was not run.\n'); return NOT_FETCHED; };
   if (!/^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(String(version || ''))) return say('the version to install is not known');
   if (!home) return say('the installed copy could not be found');
+  // kosmos#6620: held during the fleet's update pause (any version run-setup is asked for, a reinstall of the same one
+  // too), as NOT_FETCHED: a retry, once the pause is off, succeeds.
+  // Its own curl, not the injected spawnSync: a test that counts runSetup's downloads must see only those.
+  if (pausedSync()) { process.stderr.write('Kosmos: ' + PAUSED_SENTENCE + '; the installer was not run.\n'); return NOT_FETCHED; }
   let dir;
   try { dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'kosmos-setup-')); } catch { return say('there was no private folder to check the installer in'); }
   try {
@@ -407,7 +496,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   return { ok: true, why: v.why, keys: v.keys };
 }
 
-module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles, signedManifest, filesRefusal, win32HeaderRefusal, PARTS,
+module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, pauseUrl, pausedIn, pausedSync, pausedAsync, PAUSED_SENTENCE, PAUSE_DEFAULT_COORDINATOR, KEYS, listFiles, signedManifest, filesRefusal, win32HeaderRefusal, PARTS,
   RECOVERY_KEYS, KEY_LIST_STATE, KEY_LIST_TYPE, MIN_KEY_LIST_SEQ, MAX_SEQ, ed25519Key, verifyKeyList, storedKeyList, trustedKeys };
 
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before

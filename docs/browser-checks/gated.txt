@@ -28,12 +28,14 @@ render-agentdm-3414
 render-agentpage-fullwidth-2012
 render-allagents-4812
 render-alltasks
+render-apptabs-6846
 render-assigner-live-3595
 render-assistant-bubble-3034
 render-assistant-hosted-3660
 render-autohello-2686
 render-autohello-switch-2716
 render-avatar-4038
+render-avatar-crop-6722
 render-brief-note-agents
 render-bubblepop-2407
 render-build-marker-2066
@@ -224,6 +226,7 @@ render-restart-screen-4343
 render-restarting-2019
 render-restore-dircheck-2615
 render-restore-refused-4976
+render-reviewerptr-6817
 render-richtext-2067
 render-richtext-room-2239
 render-room-busy-scope-2882
@@ -241,6 +244,7 @@ render-signin-visible-3892
 render-snav-head-4979
 render-sound-master-2436
 render-stale-auth-1930
+render-star-6719
 render-start-agent-3410
 render-subback-4586
 render-subprojects-1994
@@ -252,6 +256,7 @@ render-talk
 render-talk-anchor-1926
 render-talk-fill-2622
 render-talk-search
+render-task-receipt-prs-6842
 render-task-taps-5200
 render-taskhover-4880
 render-tasks

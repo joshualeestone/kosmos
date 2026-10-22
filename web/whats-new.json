@@ -1,33 +1,30 @@
 {
-  "version": "0.7.61",
+  "version": "0.7.63",
   "highlights": [
     {
-      "icon": "tasks",
-      "title": "Quiet projects stop flagging you",
-      "line": "Paused projects and agents out of usage no longer mark a project as an Issue, and every row in a project's needs-you list can be dismissed."
+      "icon": "list",
+      "title": "Browse an agent's files",
+      "line": "An agent's Files screen lists its folders and files, previews images and text, and downloads a folder as one zip."
+    },
+    {
+      "icon": "spark",
+      "title": "Crop a picture before saving it",
+      "line": "Choosing a still picture for an agent or for yourself opens an editor to move and zoom it inside the circle before it is saved."
     },
     {
       "icon": "swarm",
-      "title": "Less repeated text",
-      "line": "Notices, setup and adding a computer drop lines that repeated what was already on screen."
-    },
-    {
-      "icon": "phone",
-      "title": "A way back to this computer",
-      "line": "In the Kosmos app, View, Back to This Computer (Command Shift H) returns the window to this computer after you open another.",
-      "platforms": [
-        "mac"
-      ]
+      "title": "A team map for each project",
+      "line": "A project's Team map, on its Members card or above its Agents list, shows who reports to whom, what each holds and who handed work on."
     },
     {
       "icon": "shield",
-      "title": "Joining says why it waits",
-      "line": "A computer joining your Kosmos+ account now says, after a minute with no code, that your other computer adds one at a time."
+      "title": "Files show a fingerprint",
+      "line": "An agent's Files screen and a project's Documents screen show a fingerprint beside the files in their folders, to tell copies apart."
     },
     {
       "icon": "tasks",
-      "title": "An agent marking a task built tells the others",
-      "line": "When an agent marks a task built, Kosmos now tells the task's other agents and whoever holds the task above it."
+      "title": "Agents are told how to finish a task",
+      "line": "An agent that reports on a task it holds, with kosmos task message, is now told how to mark that task done."
     }
   ]
 }

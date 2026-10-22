@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-state1 plus-state2 plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status otp-boxes otp-cell otp-cells otp-fit plus-si-code-change plus-si-code-late plus-si-code-join
+// Browser-check-surface: plus-si-child plus-state1 plus-state2 plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status otp-boxes otp-cell otp-cells otp-fit plus-si-code-change plus-si-code-late plus-si-code-join
 'use strict';
 /**
  * #3478: the Kosmos+ sign-in links open the IN-APP wizard, not the web.
@@ -190,6 +190,12 @@ const visible = (page, sel) => page.evaluate((s) => {
       chk(page.url() === beforeUrl, `[${key}] the #${entry} sign-in link did NOT navigate away`, page.url());
       await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
       chk(!(await visible(page, '#plus-state1')), `[${key}] state 1 gives way to the wizard on the sign-in click`);
+      // kosmos#6873: the email step says whose account a child's computer signs in with, and is the field's description.
+      const child = (await page.textContent('#plus-si-child')).trim();
+      chk(await visible(page, '#plus-si-child') && child.startsWith("Setting up a child's computer? Sign in with your child's account, not with the address you sign in with yourself")
+          && child.includes('For a child under 13, use an account you make for them, at an email address you read')
+          && (await page.getAttribute('#plus-signin-email', 'aria-describedby')) === 'plus-si-child',
+        `[${key}] kosmos#6873: the email step says a child's computer signs in with the child's account`, child);
 
       // #12/#13 (once, on the first scenario): "Sign out" (#3796, was "Not now") hides the wizard
       // synchronously and returns to the marketing state, re-entering starts from a cleared field

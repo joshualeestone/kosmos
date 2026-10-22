@@ -23,6 +23,7 @@ const { spawn } = require('node:child_process');
 const liveExec = require('./live-execution');
 const platformGate = require('./platform'); // #570: can this OS replace its own Kosmos?
 const updating = require('./updating');
+const manifestVerify = require('./manifest-verify'); // kosmos#6620: the fleet's update pause
 const { version: RUNNING } = require('../package.json');
 
 const DEFAULT_BASE = 'https://installkosmos.com/dist';
@@ -413,8 +414,21 @@ async function refresh() {
         const prod = await readProdAlongside(doFetch, lookBase, platform, ctl.signal);
         if (prod && newer(prod.version, latest.version)) { latest = prod; pointer = 'prod'; }
       }
+      const wasPaused = cache.paused === true;
       cache = { at: Date.now(), latest, reached: true, readable: latest !== null, base: lookBase, channel, pointer };
       landed = true;
+      // kosmos#6620: ask whether the fleet's updates are paused (fails open) only when an automatic install would
+      // follow this look (autoInstallWouldStart: the same gates maybeAutoInstall uses), so a board that would not
+      // install makes no call to the coordinator. A manual press asks at the press (/api/update); run-setup is the
+      // backstop. The last answer is carried while this one is asked; it lands on THIS look's cache only.
+      let would = false;
+      try { would = autoInstallWouldStart(); } catch { would = false; }   // a preference that throws reads as off
+      if (would) {
+        const mine = cache;
+        mine.paused = wasPaused;
+        const paused = await manifestVerify.pausedAsync({});
+        if (cache === mine) cache.paused = paused;
+      }
     }
   } finally {
     clearTimeout(timer);
@@ -476,15 +490,22 @@ async function refresh() {
 const AUTO_RETRY_AFTER = 60 * 60 * 1000;
 let autoFailedAt = 0;
 
+/* Every gate on an automatic install except the fleet's pause, in one place: maybeAutoInstall installs on it, and
+   refresh asks the coordinator about the pause only when it holds (kosmos#6620 review 7), so the two cannot drift. */
+function autoInstallWouldStart() {
+  if (!available()) return false;
+  if (!installedRoot()) return false;
+  if (!(autoPref() || {}).on) return false;
+  if (autoFailedAt && Date.now() - autoFailedAt < AUTO_RETRY_AFTER) return false;
+  /* #6173: not while an account move restarts agents; the install restarts the board, and a board restarted between
+     an agent's bootout and bootstrap leaves it unloaded. The next look installs. */
+  if (autoDefer && autoDefer()) return false;
+  return true;
+}
 function maybeAutoInstall() {
   try {
-    if (!available()) return;
-    if (!installedRoot()) return;
-    if (!(autoPref() || {}).on) return;
-    if (autoFailedAt && Date.now() - autoFailedAt < AUTO_RETRY_AFTER) return;
-    /* #6173: not while an account move restarts agents; the install restarts the board, and a board restarted between
-       an agent's bootout and bootstrap leaves it unloaded. The next look installs. */
-    if (autoDefer && autoDefer()) return;
+    if (!autoInstallWouldStart()) return;
+    if (cache.paused === true) return;   // kosmos#6620: the fleet's update pause; the next look asks again
     beginInstall({ auto: true });
   } catch { /* an update that cannot start must not break the one that shows */ }
 }
@@ -706,7 +727,7 @@ function readStatusRecord() {
   if (!s) return null;
   if (s.code === 0) return null;   // a success seeds nothing: success is the board coming back changed
   // #6468 ask 3: 97 is run-setup's "not run": the installer did not match its signed release (or could not be checked).
-  if (s.code === 96) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be downloaded, so nothing was installed. Try again in a few minutes', log: installLog() };
+  if (s.code === 96) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be downloaded, or updates are paused for now, so nothing was installed. Try again in a few minutes', log: installLog() };
   if (s.code === 97) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be checked against its signed release, so nothing was installed. Try again in a few minutes', log: installLog() };
   return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the installer stopped before it could restart the board', log: installLog() };
 }
@@ -1349,7 +1370,24 @@ function prodPublishesRunning() {
   return cache.latest.version.trim() === String(RUNNING).trim();
 }
 
+/** kosmos#6620: the last look found the fleet's updates paused. */
+function paused() { return cache.paused === true; }
+
+/** kosmos#6620: a person's Install press asks the coordinator NOW, not the last look's answer, so a pause lifted since
+ *  that look (up to a TTL ago) does not refuse an install run-setup would allow. Returns the refusal sentence or null;
+ *  fails open (no answer is not paused), and an install already under way is joined, never refused. */
+async function pauseRefusalNow({ fetchImpl } = {}) {
+  if (alreadyInstalling()) return null;
+  const mine = cache;
+  const p = await manifestVerify.pausedAsync(fetchImpl ? { fetchImpl } : {});
+  if (cache === mine) cache.paused = p;
+  return p ? manifestVerify.PAUSED_SENTENCE.charAt(0).toUpperCase() + manifestVerify.PAUSED_SENTENCE.slice(1) + '.' : null;
+}
+
 module.exports = {
+  paused, pauseRefusalNow, // kosmos#6620
+  PAUSED_SENTENCE: manifestVerify.PAUSED_SENTENCE, // kosmos#6620
+
   installedHomeAsInstalled /* #6659: the home as the installer knows it; exported so a test RUNS its fallbacks */, setInstalledHomeAsInstalled,
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, windowsBuildName, windowsGenericName, // the per-platform check (win32-update-check)

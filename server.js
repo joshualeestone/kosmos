@@ -534,8 +534,9 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
     + (n ? ': "' + n + '"' : '')
     + (forParent.includes(m) ? ' (it is under your task ' + heldAt.number + ')' : '')
     /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
-       Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). */
-    + (/^sha256:[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint : '')
+       Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). kosmos#6849: it
+       names the command, since a PDF's fingerprint is not its shasum and an older instruction says shasum. */
+    + (/^sha256:[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file>)' : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
@@ -902,6 +903,8 @@ function fedKosmosPlusNow() {
 const FEDERATION_OFF = 'Sharing a project with people outside this computer is not turned on yet.';
 // kosmos#6239: Settings' community switch, under a policy that stops outside contact (orgpolicy.contactAllows).
 const COMMUNITY_STOPPED = 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so they do not take part in the Kosmos+ community whatever this switch says.';
+// kosmos#6862: the same on a family's Kosmos, where the reason is the family, not a policy (orgpolicy.communityAllows).
+const FAMILY_COMMUNITY_STOPPED = "On a family's Kosmos, agents do not take part in the Kosmos+ community, whatever this switch says.";
 /* kosmos#6239: the sentence refusing a new link to another computer (an invite, joining one, an own-computer code) while
    the policy set for this Kosmos stops outside contact, else null. Removing someone or withdrawing an invite is never
    refused: it only takes contact away. A policy read that throws refuses. */
@@ -909,7 +912,9 @@ function federationPolicyStop() {
   try {
     const op = require('./engine/orgpolicy');
     op.inForce(); const c = op.contactAllows();   // fresh: a route, not a hot path (apply, then the strict read)
-    return c.ok === true ? null : 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so a project cannot be shared or joined here.';
+    if (c.ok === true) return null;
+    const why = typeof c.because === 'string' ? c.because : op.CONTACT_STOPS;   // kosmos#6870: a family default says its own
+    return why.charAt(0).toUpperCase() + why.slice(1) + ', so a project cannot be shared or joined here.';
   } catch { return 'Kosmos could not read the policy set for this Kosmos just now, so a project cannot be shared or joined here.'; }
 }
 function federationLiveNow() {
@@ -1341,6 +1346,11 @@ const recordGuideOutcome = guidestate.makeRecorder({
 const heartbeat = require('./engine/heartbeat');
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
 const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
+/* kosmos#6894: when each task last put a run in its project room, so a task that changes every run says so at most hourly. */
+const ROOM_RUN_SAID = new Map();
+const ROOM_RUN_EVERY_MS = 60 * 60 * 1000;
+function _resetRoomRunSaidForTest() { ROOM_RUN_SAID.clear(); }
+function _ageRoomRunSaidForTest(ms) { for (const v of ROOM_RUN_SAID.values()) v.at -= ms; }   // review 2: the hour, passed
 const holdstale = require('./engine/holdstale'); // kosmos#6209 part 3: an owner still working a held task in its room is asked about the hold
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new comments, once per comment
@@ -2231,7 +2241,9 @@ function whoamiFor(card, known, live) {
        📌 Keyed on a KNOWN non-claude runner, so an answer carrying no runner at
        all (every injected reader that predates this field) takes the old path. */
     const foreignRunner = !!(resolvedRunner && resolvedRunner !== 'claude');
-    if (!foreignRunner && rec && rec.model) {
+    /* #6716: a model borrowed from an EARLIER session is not what this one runs (a switch or relaunch that has not
+       replied yet): skip it, so the launch argument below answers, as it did before the borrowing existed. */
+    if (!foreignRunner && rec && rec.model && rec.earlierSession !== true) {
       /* `modelDisplayName`, NOT the raw id, and this is the branch that normally
          answers. The LIVE path's display name was pinned; this one - the
          PREFERRED source for the model - was asserted nowhere, so swapping it
@@ -3759,28 +3771,76 @@ function sendJson(res, code, obj) {
    file that cannot be opened. */
 let DOWNLOAD_STALL_MS = 120 * 1000;
 function _setDownloadStallForTest(ms) { DOWNLOAD_STALL_MS = ms == null ? 120 * 1000 : ms; }
-function sendFileStream(req, res, file, unread, headers) {
+
+/* #6805: one `Range: bytes=...` against a file of `size` bytes (RFC 9110 14.1.2). Answers { start, end } (both
+   inclusive) for a range to send, 'unsatisfiable' for a 416, or null when the header is to be ignored and the whole
+   file sent: no header, another unit, a malformed spec, or more than one range (no multipart answers). */
+function parseByteRange(header, size) {
+  if (typeof header !== 'string') return null;
+  const m = /^\s*bytes\s*=\s*(\d*)\s*-\s*(\d*)\s*$/i.exec(header);
+  if (!m || (m[1] === '' && m[2] === '')) return null;
+  if (m[1] === '') {   // `-n`: the last n bytes
+    const n = Number(m[2]);
+    if (n === 0 || size === 0) return 'unsatisfiable';
+    return { start: Math.max(0, size - n), end: size - 1 };
+  }
+  const start = Number(m[1]);
+  // `b < a` is not a valid spec, so the header is ignored. Compared with the end as WRITTEN: `a-` past the file is a
+  // 416, not a spec whose filled-in end (size - 1) happens to fall before its start.
+  if (m[2] !== '' && Number(m[2]) < start) return null;
+  if (!Number.isSafeInteger(start) || start >= size) return 'unsatisfiable';
+  return { start, end: m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1) };
+}
+
+/* `opts.etag`, when given, lets a GET ask for one byte range (#6805), so a cut download resumes instead of starting
+   again. It names the file (an attachment's id); the ETag sent adds the file's size and modification time as
+   measured on the open descriptor, so if the bytes under that name ever change, an If-Range from before no longer
+   matches and the client gets the whole file instead of the end of one file joined onto the start of another.
+   The ETag is for resuming only: If-None-Match is not answered (no 304), since the route sends no caching. */
+function sendFileStream(req, res, file, unread, headers, opts = {}) {
   let fd = null;
   let size = 0;
+  let start = 0;
+  let length = 0;
   try {
     // Review 3: without blocking, so a FIFO put in a file's place cannot stall the board; isFile() then refuses it.
     fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
     const st = fs.fstatSync(fd);
     if (!st.isFile()) throw new Error('not a file');
     size = st.size;
-    res.writeHead(200, { ...headers, 'content-length': size });   // review 4: inside the try, so a throw closes fd
+    length = size;
+    const etag = opts.etag ? `"${opts.etag}-${st.size.toString(36)}-${Math.trunc(st.mtimeMs).toString(36)}"` : null;
+    const ranged = etag ? { ...headers, 'accept-ranges': 'bytes', etag } : headers;
+    /* #6805: an If-Range that is not exactly this file's ETag (another file's, or a date: no Last-Modified is sent)
+       means the client's first part may be of different bytes, so it gets the whole file. */
+    const range = etag && req.method === 'GET' && (req.headers['if-range'] === undefined || req.headers['if-range'] === etag)
+      ? parseByteRange(req.headers.range, size) : null;
+    if (range === 'unsatisfiable') {
+      fs.closeSync(fd);
+      fd = null;
+      res.writeHead(416, { ...ranged, 'content-range': `bytes */${size}`, 'content-length': 0 });
+      res.end();
+      return;
+    }
+    if (range) {
+      start = range.start;
+      length = range.end - range.start + 1;
+      res.writeHead(206, { ...ranged, 'content-range': `bytes ${range.start}-${range.end}/${size}`, 'content-length': length });
+    } else {
+      res.writeHead(200, { ...ranged, 'content-length': size });   // review 4: inside the try, so a throw closes fd
+    }
   } catch {
     if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ }
     if (!res.headersSent) sendJson(res, 404, { error: unread });
     else res.destroy();
     return;
   }
-  if (req.method === 'HEAD' || size === 0) { res.end(); try { fs.closeSync(fd); } catch { /* closed */ } return; }
+  if (req.method === 'HEAD' || length === 0) { res.end(); try { fs.closeSync(fd); } catch { /* closed */ } return; }
   /* Review 2: read no further than the size measured, so a file that grows meanwhile cannot overrun Content-Length.
      Review 4: and one that shrank cuts the response at its end instead of ending it short, so a keep-alive client is
-     not left waiting for bytes that will never come. */
-  const rs = fs.createReadStream(null, { fd, start: 0, end: size - 1, autoClose: true });
-  rs.once('end', () => { if (rs.bytesRead < size) res.destroy(); });
+     not left waiting for bytes that will never come. #6805: both measured against the range sent, not the file. */
+  const rs = fs.createReadStream(null, { fd, start, end: start + length - 1, autoClose: true });
+  rs.once('end', () => { if (rs.bytesRead < length) res.destroy(); });
   /* Review 26: a client that stays connected but stops reading would hold the descriptor for ever; as the folder zip
      does (ZIP_STALL_MS), a download that moves no bytes for DOWNLOAD_STALL_MS is ended, which closes it. */
   let stall = null;
@@ -7947,7 +8007,7 @@ const server = http.createServer(async (req, res) => {
       // it, so it is dropped here rather than sent on every poll.
       // Flat on purpose (#2245 round 7): the agent's instructions (engine/dmfiles.js) tell it to save
       // directly in Files, and this page says so; only a PROJECT's list walks subfolders.
-      const { names: _allNames, ...listed } = projects.listFiles(folder, cap, { maxDepth: 0 });
+      const { names: _allNames, ...listed } = projects.listFiles(folder, cap, { maxDepth: 0, fingerprint: true });   // #6761: each row's sha256
       sendJson(res, 200, { ...listed, folder });
       return;
     }
@@ -7966,7 +8026,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ok: true, missing: true, dir: '', dirs: [], files: [], stamp: 'missing' });
         return;
       }
-      const listed = projects.listDir(folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH });
+      const listed = projects.listDir(folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH, fingerprint: true });   // #6761
       /* Iteration 1: 404 is kept for "no such agent" (the page says it has no folder of its own); a Files that is a file
          or cannot be read answers 409 with its reason, and a folder inside Files that is not there is 404 as a file is. */
       sendJson(res, listed.ok ? 200 : (dir ? 404 : 409), listed);
@@ -10090,9 +10150,10 @@ const server = http.createServer(async (req, res) => {
   /* #4820: no `noticeSeen` any more (the one-time notice is gone). A page from an older build opened
      that notice only on noticeSeen === false, so an answer without the field opens nothing there either. */
   /* kosmos#6239: `stopped` is the sentence for a policy that keeps agents out of the community whatever the switch says
-     (orgpolicy.contactAllows), else null; the switch stays the person's to set. */
+     (orgpolicy.communityAllows; kosmos#6862: the family's sentence on a family's Kosmos), else null; the switch stays the
+     person's to set. */
   const communityStopped = () => {
-    try { const op = require('./engine/orgpolicy'); op.inForce(); return op.contactAllows().ok === true ? null : COMMUNITY_STOPPED; }
+    try { const op = require('./engine/orgpolicy'); op.inForce(); const c = op.communityAllows(); return c.ok === true ? null : c.family === true ? FAMILY_COMMUNITY_STOPPED : COMMUNITY_STOPPED; }
     catch { return 'Kosmos cannot read the policy set for this Kosmos just now, so agents do not take part in the Kosmos+ community until it can.'; }   // round 3: as the send layer reads it
   };
   const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null, stopped: communityStopped() }; };
@@ -10190,6 +10251,32 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { on: r.on, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* #6719 (Josh, 2026-10-20): the person's starred agents, which sort first on the board. GET reads them; PUT
+     { name, on } stars or unstars one agent by its session name. The person's, like the settings above: an agent's
+     token is refused on PUT. A file that could not be read answers ok false and is never overwritten from that. */
+  if (pathname === '/api/agent-stars' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const r = require('./engine/stars').read();
+    sendJson(res, 200, { names: r.names, ok: r.ok });
+    return;
+  }
+  if (pathname === '/api/agent-stars' && req.method === 'PUT') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'stars are the person\'s, not an agent\'s' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        // Review 3: an agent token in the body is refused too, as the language route does.
+        if (presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'stars are the person\'s, not an agent\'s' }); return; }
+        const r = require('./engine/stars').set(body.name, body.on);
+        if (r.refused) { sendJson(res, 400, { error: r.refused }); return; }
+        if (!r.ok) { sendJson(res, 500, { error: 'we could not save that star' }); return; }
+        sendJson(res, 200, { names: r.names, ok: true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that star' }));
     return;
   }
   if (pathname === '/api/undo/keep' && req.method === 'POST') {
@@ -11400,9 +11487,23 @@ const server = http.createServer(async (req, res) => {
       const reportingRequired = here ? require('./engine/orgpolicy').reportingRequired() : false;
       sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
        // kosmos#6752: recent reviewer grants, to the screen only and only when there are some (the not-joined shape is unchanged).
-       ...(here && rec && Array.isArray(rec.reviewerGrants) && rec.reviewerGrants.length ? { reviewerGrants: oe.cleanReviewerGrants(rec.reviewerGrants) } : {}),
+       ...(here && rec && Array.isArray(rec.reviewerGrants) && rec.reviewerGrants.length ? { reviewerGrants: oe.cleanReviewerGrants(rec.reviewerGrants),
+         ...(Number.isFinite(rec.reviewerGrantsAt) ? { reviewerGrantsAt: rec.reviewerGrantsAt } : {}) } : {}),   // kosmos#6817: when the list was last confirmed
        stoppedFor: stopped, ...(stopped ? { stoppedKind } : {}), leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
+    return;
+  }
+  /* kosmos#6817 item 1: the board's reviewer notice reads the recent grants here, not from /api/org, because a GET there
+     spends the one-time notes (stoppedFor, leaveRefused) the Settings block exists to show. This route spends nothing.
+     Grants and the company's kind go to the screen only, as on /api/org (review 12 there). */
+  if (pathname === '/api/org/grants' && req.method === 'GET') {
+    try {
+      const oe = require('./engine/orgenroll');
+      const here = oe.isEnrolledHere();
+      const rec = here && isViaScreen(req, {}) ? oe.readEnrollment() : null;
+      sendJson(res, 200, { enrolled: here, kind: rec && rec.org ? (rec.org.kind === 'family' ? 'family' : 'company') : null,
+        reviewerGrants: rec && Array.isArray(rec.reviewerGrants) ? oe.cleanReviewerGrants(rec.reviewerGrants) : [] });
+    } catch { sendJson(res, 200, { enrolled: false, kind: null, reviewerGrants: [] }); }
     return;
   }
   if ((pathname === '/api/org/preview' || pathname === '/api/org/enroll' || pathname === '/api/org/leave') && req.method === 'POST') {
@@ -11863,7 +11964,8 @@ const server = http.createServer(async (req, res) => {
    * #853: real per-model, per-day token usage, not the point-in-time
    * context-window reading `/api/status` answers per agent. `?days=N`
    * (default 7) is clamped inside `dailyUsageByModel` itself, so a bad or
-   * hostile value cannot crash this route.
+   * hostile value cannot crash this route. `?days=all` (#6829) is every day
+   * since install, and adds `installDay` and `daysOnKosmos`.
    *
    * ⚠️ FOUR BUCKETS, NEVER BLENDED -- the response carries
    * input_tokens/output_tokens/cache_creation_input_tokens/
@@ -11877,13 +11979,20 @@ const server = http.createServer(async (req, res) => {
    */
   if (pathname === '/api/usage' && (req.method === 'GET' || req.method === 'HEAD')) {
     let days = 7;
-    try { days = Number(new URL(req.url, ROUTING_BASE).searchParams.get('days')) || 7; } catch { days = 7; }
+    let raw = null;
+    try { raw = new URL(req.url, ROUTING_BASE).searchParams.get('days'); } catch { raw = null; }
+    /* #6829: `days=all` is every day since this install began (usage.installDay), and the answer says which day
+       that was (`installDay`) and how many days it is (`daysOnKosmos`, 1 on install day). A number is a window as before. */
+    const sinceInstall = raw === 'all';
+    if (!sinceInstall) days = Number(raw) || 7;
     // Async, not a blocking call: usage.dailyUsageByModel reads potentially
     // hundreds of transcripts (tens of MB) off disk, and a synchronous read
     // there would stall every other route on this single-threaded server
     // for the scan's duration -- found in review, fixed at the source.
-    usage.dailyUsageByModel(days)
-      .then((result) => {
+    (sinceInstall ? usage.readSinceInstall() : usage.dailyUsageByModel(days))
+      .then((full) => {
+        const { installDay: since, days: n, ...result } = full;
+        const extra = sinceInstall ? { installDay: since, daysOnKosmos: n } : {};
         /* #2617: the same window per agent. Every agent Kosmos has a record
            of, stopped ones included, keyed by its folder. A roster that cannot
            be read gives no per-agent split: every token then lands in
@@ -11907,7 +12016,7 @@ const server = http.createServer(async (req, res) => {
         return split.then((byAgent) => byAgent, (err) => {
           console.error('usage: the per-agent split failed:', (err && err.message) || err);
           return null;
-        }).then((byAgent) => sendJson(res, 200, { ...rest, byAgent }));
+        }).then((byAgent) => sendJson(res, 200, { ...rest, byAgent, ...extra }));
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read token usage' }));
     return;
@@ -15826,6 +15935,11 @@ const server = http.createServer(async (req, res) => {
    * update never touches.
    */
   if (pathname === '/api/update' && req.method === 'POST') {
+    /* kosmos#6620: the fleet's update pause, asked live (review 4) and FIRST (review 5): the ask can take seconds, so
+       every check below reads the board as it is after it, not before (a move begun meanwhile still holds the board).
+       Its refusal is answered further down, after the platform and source refusals, whose sentences are truer. With
+       nothing on offer and nothing running (review 6), the answer below is "no update" whatever the pause says: no ask. */
+    const pauseRefusal = (updates.available() || updates.alreadyInstalling()) ? await updates.pauseRefusalNow() : null;
     const avail = updates.available();
     if (!avail) { sendJson(res, 409, { error: 'there is no update to install right now' }); return; }
     /* 🛑 #570: THE PLATFORM ARM GOES FIRST, AND ITS ORDER IS THE WHOLE POINT.
@@ -15852,6 +15966,8 @@ const server = http.createServer(async (req, res) => {
        skipped) on the Mac and for a normal win32 bundle. */
     const locationRefusal = updates.windowsLocationRefusal();
     if (locationRefusal) { sendJson(res, 409, { error: locationRefusal }); return; }
+    // kosmos#6620: the pause asked at the top; an install that started during that ask is joined below, not refused.
+    if (pauseRefusal && !updates.alreadyInstalling()) { sendJson(res, 409, { error: pauseRefusal }); return; }
     if (updates.alreadyInstalling()) {
       // Idempotent: the first POST started it; a retry, a double click, or a
       // second tab gets the same true answer without a second installer
@@ -19014,6 +19130,8 @@ const server = http.createServer(async (req, res) => {
            comes back on Claude's own default rather than not coming back. */
         const out = register.repair({
           only,
+          /* #6716: a model from the agent's EARLIER session is accepted here on purpose. Repair restores what it LAST
+             RAN AS and acts only on agents with no login job, so no planned model competes; the borrowed one is that. */
           modelFor: (name) => {
             try { const m = status.readModel(name); return (m && m.model) || null; }
             catch { return null; }
@@ -19251,7 +19369,7 @@ const server = http.createServer(async (req, res) => {
       'content-type': rec.type, 'x-content-type-options': 'nosniff',
       'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(rec.name),
       'content-security-policy': "default-src 'none'; sandbox",
-    });
+    }, { etag: rec.id });   // #6805: the id names the file; sendFileStream adds its size and time
     return;
   }
   if (pathname === '/api/unfurl' && req.method === 'GET') {
@@ -21190,8 +21308,11 @@ const server = http.createServer(async (req, res) => {
         try {
           if (fedseats.linkFor(id)) {
             const cs = fedseats.contactState();   // kosmos#6239: a room closed under the policy, or a fault, says so instead
+            const why = cs === 'policy' ? fedseats.contactReason() : null;   // kosmos#6870: a family default says its own
             shared = cs === 'policy'
-              ? '[kosmos] This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer.\n'
+              ? (!why.family
+                ? '[kosmos] This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer.\n'
+                : '[kosmos] This room is shared with another computer, but it is closed: nothing posted here leaves this computer. ' + why.text.charAt(0).toUpperCase() + why.text.slice(1) + '.\n')
               : cs === 'unreadable'
                 ? '[kosmos] This room is shared with another computer, but it is closed for now: Kosmos cannot read the policy set for this Kosmos, so nothing posted here leaves this computer.\n'
                 : '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n';
@@ -21378,7 +21499,7 @@ const server = http.createServer(async (req, res) => {
        the view asks for up to 500, and an unbounded ask cannot be minted. */
     let fileCap = 10;
     try { const l = Number(new URL(req.url, ROUTING_BASE).searchParams.get('limit')); if (Number.isFinite(l) && l > 0) fileCap = Math.min(Math.floor(l), 500); } catch { fileCap = 10; }
-    const listed = projects.listFiles(record.folder, fileCap);
+    const listed = projects.listFiles(record.folder, fileCap, { fingerprint: true });   // #6761: each row's sha256
     /* #5812: each row says which agent changed it last, when the board recorded one close enough to the change. */
     if (listed && listed.ok && Array.isArray(listed.files)) {
       try {
@@ -22130,6 +22251,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#6842 slice 2: what a project's closed tasks cost (engine/receipt.js forProject), the sum of the same receipts
+     the task pages show. For the person's page, so an agent's token is refused, as on the task receipt route. */
+  const projectReceipts = pathname.match(/^\/api\/project\/([^/]+)\/receipts$/);
+  if (projectReceipts && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'a project\'s receipts are for the person, not for agents' }); return; }
+    const id = decodeSegment(projectReceipts[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    require('./engine/receipt').forProject(id)
+      .then((out) => sendJson(res, out.ok ? 200 : out.because === 'no-project' ? 404 : 500, out))
+      .catch((err) => {
+        console.error('project receipts: could not be worked out:', (err && err.message) || err);
+        sendJson(res, 500, { ok: false, because: 'we could not work out the project\'s cost just now' });
+      });
+    return;
+  }
+
   const taskAct = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(close|reopen)$/);
   if (taskAct && req.method === 'POST') {
     const id = decodeSegment(taskAct[1]);
@@ -22664,6 +22801,39 @@ const server = http.createServer(async (req, res) => {
         const msg = String((err && err.message) || 'we could not change that task');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat|stop it repeating)|only the person can name/.test(msg) ? 403 : 400, { error: msg });
         return;
+      }
+      /* kosmos#6894: a run that changed something is said in the project room (taskrepeat.roomRunLine), so the room does not
+         look idle while the job runs. Unchanged runs and duplicates say nothing there. Best effort, as every room note. */
+      if (taskRepeat[3] === 'ran' && task) {
+        const key = id + '#' + task.number;
+        let said = ROOM_RUN_SAID.get(key) || null;
+        /* Review 3: what the room heard belongs to one rule. A changed or cleared rule (closing a task clears it) starts
+           the room's record of this task again, so an old rule's notes are never said, or used to silence, under a new one. */
+        if (said && said.ruleAt !== (task.repeatSetAt || '')) { ROOM_RUN_SAID.delete(key); said = null; }
+        /* Review 1: one line per task an hour (in memory: a restart can let one more through). The task page has every run.
+           Review 2: a clock stepped back counts as the hour passed, so it never mutes a task. */
+        /* Review 5: a run that leaves the task with no change note (a run with no note clears it) ends what the room heard
+           as current, so the same words after it are news again (a problem that came back), never silenced by a note the
+           room heard, or was taken to know, before the clear. */
+        if (said && !(typeof task.lastChangeNote === 'string' && task.lastChangeNote)) said.note = '';
+        const age = said ? Date.now() - said.at : Infinity;
+        /* Inside the hour the run is held, and nothing is kept for it: the next line reads the task's own LATEST change
+           note (review 5: a held copy outlived the runs that replaced it and was said later as news). */
+        if (!(age >= 0 && age < ROOM_RUN_EVERY_MS)) {
+          // Review 2: measured against what the room was last told, so a change held back by the hour is said now.
+          const line = taskrepeat.roomRunLine(tasks.runBefore(task), task, said);
+          /* Review 4: remembered only when the room actually got the line, so a failed append does not mute the task. */
+          if (line && messages.roomNote(id, line.text)) {
+            /* Review 3: remember what the line SAID: its note (or the note the room already had), and the reading as it now
+               stands (the line says it when it changed; otherwise the room already had it).
+               Review 4: the FIRST line of a task that names no note records the task's standing change note as known, so
+               an older note (from before this run, or before the board started) is never said later as news. */
+            const standing = typeof task.lastChangeNote === 'string' ? task.lastChangeNote : '';
+            ROOM_RUN_SAID.set(key, { at: Date.now(), ruleAt: task.repeatSetAt || '',
+              reading: line.reading || (said ? said.reading : (task.verified && typeof task.verified.value === 'string' ? task.verified.value : '')),
+              note: line.note || (said ? said.note : standing) });
+          }
+        }
       }
       // kosmos#5836: a run that sent a reading hears how it compares with what the person was last told.
       // Review 1: the reading SENT (masked as stored), never only the stored one, so a run absorbed as a duplicate still
@@ -24028,7 +24198,7 @@ function federateOut(projectId, delivery, operator) {
   const cs = fedseats.contactState();
   if (cs !== 'open') {
     messages.roomNote(projectId, cs === 'policy'
-      ? 'That post stayed on this computer: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.'
+      ? 'That post stayed on this computer: ' + fedseats.contactStops() + '.'   // kosmos#6870: a family default says its own
       : 'That post stayed on this computer: Kosmos cannot read the policy set for this Kosmos just now, so this room is closed until it can.');
     return;
   }
@@ -24407,6 +24577,8 @@ function start(port = PORT) {
   /* kosmos#6309: this board counts the month for a family's usage cap, in a worker thread that starts only when a cap
      is in force. Any other process reads the month's saved count. */
   try { require('./engine/usagecap').countOnThisBoard(); } catch { /* the cap reads the saved count */ }
+  /* kosmos#6829: past days of token usage are saved on a clock, before Claude deletes their transcripts. */
+  try { usage.startSaving(); } catch { /* best effort */ }
   setTimeout(agentEventsTick, 2 * 60 * 1000).unref();   // #5683: a first look two minutes after start, a minute after the rollup's, so their computer-print reads do not land together
   setInterval(agentEventsTick, ORG_ROLLUP_TICK_MS).unref();   // #5683: every five minutes, as the rollup
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
@@ -25984,11 +26156,12 @@ if (require.main === module) {
 // re-implementation of it. Testing the path helper in isolation would not have
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
-module.exports = {
+module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
   _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
   _setDownloadStallForTest, // kosmos#6734: the download's stall timeout, for its test
+  parseByteRange, // kosmos#6805: the Range parser, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up

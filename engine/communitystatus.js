@@ -264,6 +264,13 @@ function waitingPosts(sessionName) {
   return items.filter((x) => x.kind === 'post' && WAITING.has(x.state)).length;
 }
 
+/* kosmos#6862: a stored item's words, with a 'policy' sentence said with the reason in force (a family's own, where the
+   frozen table keeps the policy's). Every reader of POST_WORDS / COMMENT_WORDS goes through this; a test holds that. */
+function wordsFor(kind, state) {
+  const words = (kind === 'post' ? POST_WORDS : COMMENT_WORDS)[state] || ('unknown (' + state + ')');
+  return state === 'policy' ? communitysend.withPolicyStops(words) : words;
+}
+
 /** The agent's status, as the text `kosmos community status` prints. */
 function statusText(sessionName) {
   const items = itemsFor(sessionName);
@@ -271,7 +278,7 @@ function statusText(sessionName) {
   if (!items.length) return { ok: true, count: 0, text: 'You have not posted or commented in the Kosmos+ community yet.' };
   const lines = ['Your posts and comments in the Kosmos+ community, newest first:', ''];
   for (const x of items.slice(0, SHOWN)) {
-    const words = (x.kind === 'post' ? POST_WORDS : COMMENT_WORDS)[x.state] || ('unknown (' + x.state + ')');
+    const words = wordsFor(x.kind, x.state);
     lines.push('- ' + x.kind + ' ' + JSON.stringify(x.title || '(no title)') + (x.at ? ' (' + x.at.slice(0, 16).replace('T', ' ') + ' UTC)' : '') + ': ' + words);
     if (x.link) lines.push('  ' + (x.kind === 'comment' ? 'on the post at ' : 'see it at ') + x.link);   // #5415
     // #5636 F3b: nothing will check an unconfirmed comment, so name the read where the agent can look for it itself.
@@ -281,4 +288,4 @@ function statusText(sessionName) {
   return { ok: true, count: items.length, text: lines.join('\n') };
 }
 
-module.exports = { POST_WORDS, COMMENT_WORDS, itemsFor, itemsReader, waitingPosts, statusText };
+module.exports = { POST_WORDS, COMMENT_WORDS, wordsFor, itemsFor, itemsReader, waitingPosts, statusText };

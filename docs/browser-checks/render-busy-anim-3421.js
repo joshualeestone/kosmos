@@ -121,20 +121,17 @@ function chk(ok, label, extra) {
     });
     chk(changed.rebuilt, 'CONTROL: a real state change rebuilds the line (guard is not a frozen node)', JSON.stringify(changed));
 
-    // An auth_failed agent renders "last seen: <stateEvidence>". Unlike working,
-    // that line MUST refresh when the evidence changes (it has no .act dots to
-    // preserve), so the key includes stateEvidence ONLY for auth_failed. Assert a
-    // second evidence value re-renders the line.
+    // #6716: an auth_failed agent's line says its sign-in is not working and does NOT quote its screen (the page's
+    // folded "What <name>'s screen said" carries that). CONTROL: the line is drawn and names the sign-in.
     const evAuth = await page.evaluate(() => {
-      const before = (document.getElementById('d-busy').textContent || '');
       CURRENT.state = 'auth_failed';
-      CURRENT.stateEvidence = 'second evidence CHANGED';
+      CURRENT.stateEvidence = 'Please run /login. second evidence CHANGED';
       paintBusy(CURRENT, CURRENT.name);
       const after = (document.getElementById('d-busy').textContent || '');
-      return { before, after, refreshed: /second evidence CHANGED/.test(after) };
+      return { after, signin: /sign-in isn.t working/.test(after), quoted: /second evidence CHANGED|Please run \/login/.test(after) };
     });
-    chk(evAuth.refreshed,
-      'an auth_failed line refreshes when its "last seen" evidence changes', JSON.stringify(evAuth.after.slice(0, 80)));
+    chk(evAuth.signin && !evAuth.quoted,
+      'an auth_failed line names the sign-in and does not quote the screen (#6716)', JSON.stringify(evAuth.after.slice(0, 120)));
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.screenshot({ path: path.join(OUT, 'busy-anim.png'), clip: { x: 0, y: 0, width: 480, height: 200 } }).catch(() => {});

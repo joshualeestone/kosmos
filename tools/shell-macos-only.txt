@@ -1,0 +1,79 @@
+# #6791: the test:shell commands that need macOS. Every other test:shell command runs on Linux.
+#
+# Measured on ubuntu-latest (probe run 39535595626, main dc583148): each of the 264 commands run ALONE, 238 passed and
+# 26 failed on a macOS dependency (the probe's 27th red was its own workflow's missing env, not a Linux failure).
+# A second probe (run 39538876370) kept each passing command's skip lines: 8 of the 238 passed on Linux only by
+# skipping their macOS work (a whole file, or the arms that need macOS), so on Linux they would test nothing they test
+# on macOS. They are listed too, at the end. #6799 then fixed a BSD-first `stat -f || stat -c` fallback, which moved
+# three of the 26 to Linux (measured there, probe run 39551438303), and a BSD-only `sed -i ''` one more (probe run
+# 39553501883), and a core count and load read only from macOS sysctl (`hw.ncpu`, `vm.loadavg`) two more (probe run
+# 39558291451), and `pgrep -fl`, which prints only the process name on Linux, three more (probe run 39559795454).
+# That is 26 here. (The Linux share is every other test:shell command, so its size moves with package.json:
+# `node tools/shell-shard.js list 1 1 linux | wc -l` gives it.)
+# tools/shell-shard.js reads this file: `linux` shards run everything NOT listed here, the `mac` shard runs these, plus
+# every syntax-only check (`sh -n` / `bash -n`), which runs on both: macOS /bin/sh is bash 3.2, Linux sh is dash.
+# Each line is a test:shell command exactly as package.json writes it; a line naming no such command fails every shard,
+# so this list cannot go stale silently. A new macOS-only test is NOT listed by default, so it goes red on the Linux
+# shards, loudly, and is added here (or fixed) on purpose. To move a test to Linux, make it pass there and remove it.
+# The other direction is NOT guarded in PR CI: product shell code that only works on Linux (a GNU-only flag, or bash 4+
+# syntax that a Mac's bash 3.2 refuses at run time) passes its test here, and only the release cut's full macOS suite
+# runs it on a Mac (#6808).
+# A line written `both: <command>` runs on macOS AND stays on Linux, for a test whose arms on each platform cover
+# what the other cannot. Lines starting with # and blank lines are ignored.
+
+# Compiles and runs Cocoa code with swiftc; skips off macOS (#6799), so on Linux it would test nothing.
+bash tools/test-a11y-writer-mock-2125.sh
+# Asserts the Darwin branch of install/setup.sh's app-bundle status, unguarded.
+bash tools/test-app-bundle-status.sh
+# BSD stat -f and date -r; reads kern.boottime (bin/board-watchdog.sh).
+bash tools/test-board-watchdog-2955.sh
+# BSD stat -f; launchd and pmset (tools/ci-runner-setup.sh).
+bash tools/test-ci-runner-setup-4601.sh
+# A status above 128 decodes as a signal on Linux (which has more signals), so its non-signal arm differs.
+bash tools/test-cut-step-record.sh
+# BSD stat -f in install/setup.sh, and a real /Library path.
+bash tools/test-data-root-1511.sh
+# BSD date -v.
+bash tools/test-feedback-digest-daily.sh
+# BSD stat -f.
+bash tools/test-install-page-readable-3268.sh
+# Apple's nc -G (tools/test-install.sh).
+bash tools/test-install-portprobe-6457.sh
+# The LaunchAgents guard's subject is macOS: on Linux only _la_mtime's GNU branch runs, and on a clean hosted Mac the
+# guard sees no plists, so this test is the only CI run of its BSD branch (stat -f %m). #6799 review 1.
+bash tools/test-launchagent-leak-guard-3011.sh
+# Its CONTROL relies on BSD sed's N on the last line (GNU sed prints the pattern space instead).
+bash tools/test-msg-newlines-1927.sh
+# Real codesign and PlistBuddy.
+bash tools/test-release-detached.sh
+# Real pgrep on both: macOS's own ancestor exclusion, which the release guards rely on, and the Linux ancestor filter
+# that reproduces it (#6799).
+both: bash tools/test-running-anchor-5470.sh
+# Compiles Cocoa code with swiftc; skips off macOS (#6799), so on Linux it would test nothing.
+bash tools/test-scan-hatch-symlink-2125b.sh
+# BSD date -v.
+bash tools/test-site-autodeploy-5589.sh
+# The process start token has another shape on Linux.
+bash tools/test-stopmark-6651.sh
+# bsdtar's --uname/--gname.
+bash tools/test-tar-owner-gate-6562.sh
+# Apple's nc -G (tools/tunnel-handshake-gate.sh).
+bash tools/test-tunnel-handshake-gate.sh
+
+# --- Passed on Linux only by SKIPPING their macOS work (probe run 39538876370). On Linux they would cover nothing. ---
+# Skips the whole file off Darwin (the CI mini's hook).
+bash tools/test-ci-cleanup-relay-6245.sh
+# Skips the whole file without sandbox-exec.
+bash tools/test-setup-pause-sandbox-4651.sh
+# Skips the whole file without swiftc or off arm64.
+bash tools/test-floor-gate-tree.sh
+# Skips the whole file off a Mac with a pinned browser build.
+bash tools/test-supervisor-agentbrowser-3633.sh
+# Skips the whole file without /usr/bin/plutil (the guard runs only on the Mac).
+bash tools/test-ci-runner-job-guard-5488.sh
+# Skips its real-launchctl arm without launchctl.
+bash tools/test-test-leak-guard-4273.sh
+# Skips its two lsof holder cases without system node and /usr/sbin/lsof (its Linux arms run in test-linux-setup-4920.yml).
+bash tools/test-board-foreground-2956.sh
+# Skips its locked-file arms (macOS's flag); its Linux arms run in test-linux-setup-4920.yml.
+sh tools/test-update-locked-app-4455.sh

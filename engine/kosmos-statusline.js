@@ -51,6 +51,9 @@ const HISTORY_MAX = 400;
    stamped slightly differently by two sessions" from "the next week" with room
    on both sides. */
 const SAME_WEEK_TOLERANCE_SECONDS = 86400;
+/* kosmos#6570: for a latest-wins writer, two readings whose reset times are this close are the same account's same
+   window (the provider's reset is one fixed time; this allows only for a rounding), so its history carries on. */
+const LATEST_SAME_RESET_SECONDS = 60;
 /* #6176: the five-hour reading, in its own file so the weekly file's history and its calibration are untouched. Its
    windows reset five hours apart, so readings within an hour of each other's reset time are the same window. */
 const FIVE_HOUR_FILE = 'kosmos-fivehour.json';
@@ -90,11 +93,32 @@ function record(dir, reading, now, opt = {}) {
   if (opt.maxAheadSeconds && reading.resetsAt > now / 1000 + opt.maxAheadSeconds) return false;
   if (cur && typeof cur.usedPct === 'number' && typeof cur.resetsAt === 'number') {
     const sameWindow = Math.abs(reading.resetsAt - cur.resetsAt) < tolerance;
-    if (sameWindow ? reading.usedPct <= cur.usedPct : reading.resetsAt < cur.resetsAt) return false;
+    /* kosmos#6570: `latestWins` is for a writer whose every reading is the provider's answer at that moment (a Windows
+       agent's rate_limit_event, sent as the response arrives), not a figure a session carried from its last response.
+       Then a lower figure in the same window is news, not lag (measured on the Windows box 10-22: the stored 96% and a
+       live 3% in the same week, after the folder's sign-in changed), so only an unchanged one is skipped. */
+    /* (Review 4: a same figure under a moved reset is still news: the reset is part of the reading.) */
+    const stale = opt.latestWins
+      ? reading.usedPct === cur.usedPct && Math.abs(reading.resetsAt - cur.resetsAt) < LATEST_SAME_RESET_SECONDS
+      : reading.usedPct <= cur.usedPct;
+    /* And a different window is news too while its reset is still ahead: a folder signed in to another account carries
+       that account's own reset, which can fall before the stored one (review 1). One already past is not current. */
+    const older = opt.latestWins ? reading.resetsAt * 1000 <= now : reading.resetsAt < cur.resetsAt;
+    if (sameWindow ? stale : older) return false;
   }
   const next = { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: now };
   if (keepHistory) {
-    const history = cur && Array.isArray(cur.history) ? cur.history.slice(-(HISTORY_MAX - 1)) : [];
+    /* kosmos#6570 review 2: a latest-wins figure LOWER than the stored one in the same window is not usage going back:
+       the folder now answers for another account (or the provider reset it). Its earlier rows would be read as this
+       account's baseline by the calibration (allowance.pointsSince), so the history starts again from here. Two agents
+       on one account racing (each writer reads, then renames) can also land an older figure last; the next event puts
+       the current one back, at the cost of a restarted history, which only delays a calibration. */
+    /* Review 3: and on ANY change of reset time, which a higher figure can hide: one account's reset is one fixed time
+       (measured on the Windows box: 1792965600 in events a day apart), so another one is another account or another
+       week, and either way the older rows are no baseline for this one. */
+    const restart = !!(opt.latestWins && cur && typeof cur.usedPct === 'number' && typeof cur.resetsAt === 'number'
+      && (Math.abs(reading.resetsAt - cur.resetsAt) >= LATEST_SAME_RESET_SECONDS || reading.usedPct < cur.usedPct));
+    const history = !restart && cur && Array.isArray(cur.history) ? cur.history.slice(-(HISTORY_MAX - 1)) : [];
     history.push([now, reading.usedPct, reading.resetsAt]);
     next.history = history;
   }
@@ -133,9 +157,20 @@ function main(argv, input, now) {
   try { if (!fs.statSync(dir).isDirectory()) return; } catch { return; }
   let payload = null;
   try { payload = JSON.parse(input); } catch { return; }
-  // Each reading on its own: a failure recording one must never cost the other.
-  try { const reading = weeklyOf(payload); if (reading) record(dir, reading, now); } catch { /* the five-hour one still goes */ }
-  try { const five = fiveHourOf(payload); if (five) record(dir, five, now, { file: FIVE_HOUR_FILE, tolerance: SAME_WINDOW_TOLERANCE_SECONDS, history: false, maxAheadSeconds: FIVE_HOUR_MAX_AHEAD_SECONDS }); } catch { /* nothing to show */ }
+  let weekly = null; let fiveHour = null;
+  try { weekly = weeklyOf(payload); } catch { weekly = null; }
+  try { fiveHour = fiveHourOf(payload); } catch { fiveHour = null; }
+  recordReadings(dir, { weekly, fiveHour }, now);
+}
+
+/** Record a weekly and a five-hour reading (either may be null) in `dir`, each on its own: a failure recording one must
+ *  never cost the other. The one place the two files' options live, shared by main() here and by a Windows agent's
+ *  event stream (kosmos#6570, engine/win32streamstate.js), so the two writers cannot disagree. Never throws. */
+function recordReadings(dir, readings, now, opt = {}) {
+  const r = readings && typeof readings === 'object' ? readings : {};
+  const latestWins = !!(opt && opt.latestWins);   // see record(): only for readings that are the provider's answer now
+  try { if (r.weekly) record(dir, r.weekly, now, { latestWins }); } catch { /* the five-hour one still goes */ }
+  try { if (r.fiveHour) record(dir, r.fiveHour, now, { file: FIVE_HOUR_FILE, tolerance: SAME_WINDOW_TOLERANCE_SECONDS, history: false, maxAheadSeconds: FIVE_HOUR_MAX_AHEAD_SECONDS, latestWins }); } catch { /* nothing to show */ }
 }
 
 if (require.main === module) {
@@ -145,4 +180,4 @@ if (require.main === module) {
   process.exitCode = 0;
 }
 
-module.exports = { FILE, HISTORY_MAX, SAME_WEEK_TOLERANCE_SECONDS, FIVE_HOUR_FILE, SAME_WINDOW_TOLERANCE_SECONDS, FIVE_HOUR_MAX_AHEAD_SECONDS, weeklyOf, fiveHourOf, record, main };
+module.exports = { FILE, HISTORY_MAX, SAME_WEEK_TOLERANCE_SECONDS, FIVE_HOUR_FILE, SAME_WINDOW_TOLERANCE_SECONDS, FIVE_HOUR_MAX_AHEAD_SECONDS, weeklyOf, fiveHourOf, record, recordReadings, main };

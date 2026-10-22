@@ -33,7 +33,7 @@
 # gets from `git show <commit>:tools/ci-runner-setup.sh | shasum -a 256`. Run that copy only if the two match.
 #
 # The one-suite-per-Mac lock (#4574) needs nothing new here, only nothing switched OFF: a CI job runs
-# tools/run-tests.sh, whose name arm is `pgrep -fl` with no -u (tools/lib/cut-guard.sh), so it sees a suite of ANY
+# tools/run-tests.sh, whose name arm is pgrep (`-fl` on macOS) with no -u (tools/lib/cut-guard.sh), so it sees a suite of ANY
 # user on this Mac and waits. The run markers are per-HOME and do not cross users; the name arm does. So the
 # runner's .env must never set a KOSMOS_ variable (KOSMOS_TESTS_IGNORE_SUITE, KOSMOS_NO_WAIT and the other wait
 # controls would turn the lock off for every job): install and register refuse one, verify flags one. That file is the only

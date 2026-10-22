@@ -4,10 +4,10 @@
  * Kosmos to a company. Runs the real page (web/index.html, file://) with fetch answered by a stand-in for the board's
  * /api/org routes, so nothing reaches a board or a coordinator, and drives the block directly.
  *
- * #5791 (Josh 10-10): the company decided, so there is no consent preview. "Join Corporate Account" opens a code field
+ * #5791 (Josh 10-10): the company decided, so there is no consent preview. The join button ("Join Company or Family Account" since kosmos#6380) opens a code field
  * with an X Cancel; Connect Account joins at once.
  *
- *   O0  no company: only the "Join Corporate Account" button shows; no heading, code field or joined line.
+ *   O0  no company: only the "Join Company or Family Account" button shows; no heading, code field or joined line.
  *   O1  opened: the X Cancel, the copy and the code field show, with no "Your company" heading and no opener.
  *   O16 Cancel (and Escape) closes it, clears the code, sends nothing, and puts focus back on the button; an empty code
  *       sends nothing and says what to do.
@@ -113,8 +113,8 @@ const text = (pg, id) => pg.evaluate((i) => document.getElementById(i).textConte
     const o0 = { opener: await shown(page, 'plus-org-open'), label: (await text(page, 'plus-org-open')).trim(), icon: await page.evaluate(() => !!document.querySelector('#plus-org-open svg')),
       outlined: await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('plus-org-open')); return cs.borderStyle !== 'none' && parseFloat(cs.borderWidth) > 0; }),
       heading: await shown(page, 'plus-org-title'), out: await shown(page, 'plus-org-out'), in: await shown(page, 'plus-org-in') };
-    chk(o0.opener && o0.label === 'Join Corporate Account' && o0.icon && o0.outlined && !o0.heading && !o0.out && !o0.in,
-      'O0 no company: only the outlined "Join Corporate Account" button, with its icon', JSON.stringify(o0));
+    chk(o0.opener && o0.label === 'Join Company or Family Account' && o0.icon && o0.outlined && !o0.heading && !o0.out && !o0.in,
+      'O0 no company: only the outlined "Join Company or Family Account" button, with its icon', JSON.stringify(o0));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'orgenroll-opener.png') });
 
     await page.click('#plus-org-open');
@@ -124,8 +124,8 @@ const text = (pg, id) => pg.evaluate((i) => document.getElementById(i).textConte
       placeholder: await page.getAttribute('#plus-org-code', 'placeholder'), focus: await page.evaluate(() => document.activeElement && document.activeElement.id),
       in: await shown(page, 'plus-org-in'), heading: await shown(page, 'plus-org-title'), opener: await shown(page, 'plus-org-open') };
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'orgenroll-connect.png') });
-    chk(o1.out && o1.cancel && o1.cancelText === '✕ Cancel' && o1.copy.includes("Enter your company's code to connect your Kosmos to your corporate enterprise account.")
-        && o1.button === 'Connect Account' && o1.placeholder === 'Company code' && o1.focus === 'plus-org-code' && !o1.heading && !o1.opener && !o1.in,
+    chk(o1.out && o1.cancel && o1.cancelText === '✕ Cancel' && o1.copy.includes("Enter the code your company or family gave you to connect this Kosmos.")
+        && o1.button === 'Connect Account' && o1.placeholder === 'Join code' && o1.focus === 'plus-org-code' && !o1.heading && !o1.opener && !o1.in,
       'O1 opened: X Cancel, the copy, the code field (focused) and Connect Account; no heading, no button, no joined line', JSON.stringify(o1));
 
     // O16: Cancel closes and clears; Escape in the field does the same; an empty code says what to do. Nothing is posted.

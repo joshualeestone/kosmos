@@ -243,7 +243,7 @@ test('an UNREADABLE token warns (not a silent 403), but a MISSING one is silent'
       const isUnreadable = (() => { try { fs.readFileSync(tokFile); return false; } catch { return true; } })();
       if (isUnreadable) {
         assert.match(err, /board\.token exists but could not be read/, 'no warning on an unreadable token');
-        assert.equal(url, `http://127.0.0.1:${port}`, 'an unreadable token should fall back to the plain url');
+        assert.equal(url, null, 'kosmos#6464: an unreadable token opens nothing, never the plain url');
       }
     } finally { fs.chmodSync(tokFile, 0o600); server.close(); }
   }
@@ -259,15 +259,18 @@ test('an UNREADABLE token warns (not a silent 403), but a MISSING one is silent'
   }
 });
 
-test('CONTROL: a non-hex nonce is refused, url falls back to plain', async () => {
+test('CONTROL: a non-hex nonce is refused, and nothing is opened (kosmos#6464: no plain-url fallback after a proof)', async () => {
   // Proves the hex guard is load-bearing: without it, junk would be pasted onto
-  // the url as if it were a nonce.
-  const { server, port } = await startFixtureBoard({ nonceBody: '{"nonce":"not a nonce!"}' });
+  // the url as if it were a nonce. kosmos#6464: a mint that fails right after a
+  // passing proof opens nothing; it used to fall back to the plain url.
+  const seen = [];
+  const { server, port } = await startFixtureBoard({ nonceBody: '{"nonce":"not a nonce!"}', seen });
   const { appDir } = makeAppDir({ withToken: true });
   try {
     const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS });
-    assert.equal(url, `http://127.0.0.1:${port}`,
-      'a junk nonce was accepted onto the url');
+    // The proof passed and the mint was asked, so the null below is the mint's refusal, not the proof's.
+    assert.equal(seen.filter((r) => r.method === 'POST' && r.url === '/api/board-nonce').length, 1, 'the mint was never asked');
+    assert.equal(url, null, 'a junk nonce was accepted onto the url, or the plain url was opened after a failed mint');
   } finally { server.close(); }
 });
 
@@ -314,16 +317,18 @@ test('openInBrowser reports a launch FAILURE (diagnostic not lost to process exi
   }
 });
 
-test('a mint that returns a non-2xx (stale/wrong token -> 403) falls back to plain', async () => {
-  // The realistic enforcing-board failure: the board token on disk is stale, so
-  // POST /api/board-nonce returns 403 (not a malformed body). mintNonce must treat
-  // !r.ok as no-nonce and resolveOpenUrl fall back to the plain url.
+test('kosmos#6464: a mint that returns a non-2xx right after a passing proof opens nothing (no plain-url fallback)', async () => {
+  // POST /api/board-nonce returns 403 (not a malformed body). mintNonce treats !r.ok
+  // as no nonce, and kosmos#6464: resolveOpenUrl then opens nothing (null), where it
+  // used to fall back to the plain url, which would hand whatever answers there the
+  // sign-in cookie.
   // #1765: this board proves it holds the token (a board that cannot is never sent it: see the #1765 tests below), so
   // the 403 here is the mint's own refusal.
+  let mints = 0;
   const server = http.createServer((req, res) => {
     if (answerProof(req, res, [FIXTURE_TOKEN])) return;
     if (req.method === 'GET' && req.url === '/') { res.writeHead(200); res.end('board'); return; }
-    if (req.method === 'POST' && req.url === '/api/board-nonce') { res.writeHead(403); res.end('{"error":"nope"}'); return; }
+    if (req.method === 'POST' && req.url === '/api/board-nonce') { mints += 1; res.writeHead(403); res.end('{"error":"nope"}'); return; }
     res.writeHead(404); res.end();
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -331,7 +336,8 @@ test('a mint that returns a non-2xx (stale/wrong token -> 403) falls back to pla
   const { appDir } = makeAppDir({ withToken: true });
   try {
     const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS });
-    assert.equal(url, `http://127.0.0.1:${port}`, 'a 403 mint should fall back to the plain url');
+    assert.equal(mints, 1, 'the mint was never asked, so the null below is not the mint refusing');
+    assert.equal(url, null, 'a failed mint after a passing proof opened the plain url');
   } finally { server.close(); }
 });
 
@@ -526,4 +532,54 @@ test('#1765: main() against a squatter opens no browser, prints no address, exit
     assert.equal(fs.existsSync(path.join(dir, 'opened.txt')), false, 'a browser was opened at the unproven listener');
     assert.deepEqual(sq.carrying([FIXTURE_TOKEN]), []);
   } finally { await sq.close(); }
+});
+
+/* ---- kosmos#6464: the mint never follows a redirect ---- */
+
+test('kosmos#6464: a proven board that redirects the mint elsewhere: the token never reaches the other address, and nothing is opened', async () => {
+  const elsewhere = await startListener({ mode: 'squatter' });
+  const minted = [];
+  const server = http.createServer((req, res) => {
+    if (answerProof(req, res, [FIXTURE_TOKEN])) return;
+    if (req.method === 'POST') minted.push(req.url);
+    if (req.method === 'GET' && req.url === '/') { res.writeHead(200); res.end('board'); return; }
+    // 307 keeps the method, the body and (cross-origin, another port) the custom token header, if followed.
+    if (req.method === 'POST' && req.url === '/api/board-nonce') { res.writeHead(307, { location: elsewhere.url + '/api/board-nonce' }); res.end(); return; }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { appDir } = makeAppDir({ withToken: true });
+  try {
+    const url = await helper.resolveOpenUrl({ appDir, port: server.address().port, timeoutMs: BOARD_WAIT_MS });
+    assert.deepEqual(minted, ['/api/board-nonce'], 'the mint never reached the board, so this arm measures nothing');
+    assert.deepEqual(elsewhere.seen.map((r) => r.method + ' ' + r.url), [], 'the mint followed the redirect');
+    assert.equal(url, null, 'a failed mint after a passing proof opened something');
+  } finally { server.close(); await elsewhere.close(); }
+});
+
+/* kosmos#6464: a board.token that is there but cannot be read (here a folder in its place: EISDIR on every platform,
+   where a 000 file is still readable to root and on Windows) means an enforcing board this helper cannot check, so
+   nothing is opened, not the plain address. */
+function makeUnreadableTokenAppDir() {
+  const { appDir, dataRoot } = makeAppDir({ withToken: false });
+  fs.mkdirSync(path.join(dataRoot, 'board.token'));
+  return appDir;
+}
+
+test('kosmos#6464: an unreadable board.token opens nothing at a listener that answers, and sends it nothing', async () => {
+  const sq = await startListener({ mode: 'squatter' });
+  const appDir = makeUnreadableTokenAppDir();
+  try {
+    assert.equal(helper.readBoardToken(appDir), null, 'the token reads as absent, so this arm measures the old path');
+    assert.equal(await helper.resolveOpenUrl({ appDir, port: sq.port, timeoutMs: BOARD_WAIT_MS }), null, 'the plain url was opened');
+    assert.deepEqual(sq.seen.filter((r) => r.method === 'POST'), []);
+  } finally { await sq.close(); }
+});
+
+test('kosmos#6464: an unreadable board.token opens nothing when nothing answers in time either', async () => {
+  const s = http.createServer();
+  await new Promise((r) => s.listen(0, '127.0.0.1', r));
+  const port = s.address().port;
+  await new Promise((r) => s.close(r));
+  assert.equal(await helper.resolveOpenUrl({ appDir: makeUnreadableTokenAppDir(), port, timeoutMs: 1200 }), null);
 });

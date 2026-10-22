@@ -148,8 +148,8 @@ function chk(ok, label, extra) {
           hits,
           slot: !!document.getElementById('d-conflict'),
           // Only notes on cards that are ON SCREEN count (review pass 1: hidden grid cards counted on
-          // other surfaces), and the needs-trust card's note is allowed: it asks the person to act.
-          cardNotes: [...document.querySelectorAll('.acard:not(.needstrust) .note')].filter(shown).length,
+          // other surfaces). Since #6716 no card carries a note, the needs-trust card included.
+          cardNotes: [...document.querySelectorAll('.acard .note')].filter(shown).length,
           emptyNotes: [...document.querySelectorAll('.note')].filter((n) => shown(n) && !n.textContent.trim()).length,
           layout: document.documentElement.getAttribute('data-layout') || 'tabs',
           trustCards: document.querySelectorAll('.acard.needstrust').length,
@@ -161,8 +161,9 @@ function chk(ok, label, extra) {
         };
       }, { phrases: [...PHRASES, UNKNOWN_NOTE] });
       const surfaces = [
-        // The grid is also where the needs-trust card must exist and keep its note: the one note allowed.
-        ['grid', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="grid"]'); }, (m) => m.view === 'grid' && m.trustCards === 1 && m.trustNote === 1],
+        // The grid is also where the needs-trust card must exist. #6716 (Josh, 2026-10-20: no sentences on tiles): it
+        // carries no note now either; its reason is its pill's hover and hidden text (web.trust-wait-card-3013).
+        ['grid', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="grid"]'); }, (m) => m.view === 'grid' && m.trustCards === 1 && m.trustNote === 0],
         ['list', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="list"]'); }, (m) => m.view === 'list'],
         ['org chart', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="org"]'); }, (m) => m.view === 'org'],
         ['agent page', async () => { await page.evaluate(() => openDetail('beatrix')); }, (m) => m.detail === 'Beatrix'],

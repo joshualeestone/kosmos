@@ -476,6 +476,9 @@ test('#6330 slice 2: task built --file sends the file\'s sha256 and keeps the pa
     assert.equal(ok.calls[0].body.note, 'merged', 'the path leaked into the note');
     const none = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true } }));
     assert.equal('fingerprint' in none.calls[0].body, false, 'CONTROL: a mark without --file sent a fingerprint');
+    // #6761: the fingerprint sent is printed, whole, under the mark's sentence; a mark without --file prints none.
+    assert.equal(ok.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark.\nFingerprint sent: ' + want + ' for ' + file);
+    assert.doesNotMatch(none.out, /Fingerprint sent/);
     for (const [argv, said] of [[['--file', path.join(dir, 'missing')], /cannot read that file/], [['--file'], /--file needs the path/], [['--file', ''], /cannot read that file/], [['--clear', '--file', file], /takes no file/]]) {
       const r = await run(['task', 'built', 'proj/1', '4', ...argv]);
       assert.equal(r.code, 2, argv.join(' ') + ': ' + r.err);
@@ -785,4 +788,26 @@ test('#3878: a Windows feedback pull whose engine module cannot load says so pla
     fetch: async () => { throw new Error('feedback reached the network'); } });
   assert.equal(code, 1);
   assert.equal(err.join('\n'), 'could not pull the collected feedback');
+});
+
+test('#6849: task built --file and kosmos fingerprint give a PDF the fingerprint without its own dates', async () => {
+  const fileprint = require('./engine/fileprint');
+  const fix = path.join(__dirname, 'test-support', 'fileprint-6849');
+  const a = path.join(fix, 'chrome-a.pdf'), b = path.join(fix, 'chrome-b.pdf');
+  const want = fileprint.fingerprint(a);
+  const plain = (p) => 'sha256:' + require('node:crypto').createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+  assert.ok(want !== plain(a) && plain(a) !== plain(b), 'CONTROL: the fixtures no longer drift, so this test cannot tell the two apart');
+  const ok = await run(['task', 'built', 'proj/1', '4', 'delivered', '--file', b], () => ({ body: { task: { number: 4 }, changed: true } }));
+  assert.equal(ok.code, 0, ok.err);
+  assert.equal(ok.calls[0].body.fingerprint, want, 'the second render was sent another fingerprint than the first');
+  const printed = await run(['fingerprint', a]);
+  assert.equal(printed.code, 0, printed.err);
+  assert.equal(printed.out, want);
+  assert.equal(printed.calls.length, 0, 'fingerprint reached the board');
+  const bare = await run(['fingerprint']);
+  assert.equal(bare.code, 2);
+  assert.match(bare.err, /Usage: kosmos fingerprint <file>/);
+  const missing = await run(['fingerprint', path.join(fix, 'nope.pdf')]);
+  assert.equal(missing.code, 2);
+  assert.match(missing.err, /missing \(no such file\)/);
 });

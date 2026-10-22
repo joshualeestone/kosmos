@@ -27,6 +27,9 @@
  * leaves this computer. Two differences from a real phone, neither shown by any screen today: a board redirect is
  * followed by the router (the page never sees the 3xx), and the made-up http host is not a secure context, so no
  * service worker registers.
+ * --app-tabs (kosmos#6846) is --remote as the iPhone app with its native tab bar shows the board: the app adds the class
+ * `kapptabs` to the page at document start, so the bar is the app's own header (no Kosmos+ mark, no two lines, the
+ * computer switcher and the person's face). The app-* screens are meant for it.
  * --data marketing (#5782) is the store fleet with a shape, for installkosmos.com's product shots: Cleo leads and the
  * others report to her (the org chart draws a team), the person is a made-up "Sam Rivera" (the hub shows an initial),
  * and the tasks are spread across the team, each agent reporting what it is on. --faces DIR seeds pictures from a
@@ -153,7 +156,11 @@ const sizeSkipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || (s.tablet && s.wid
 /* #6542: `needsData: '<set>'` on a screen whose subject only exists in that data set (tasks-decision needs a question
    row, which only --data marketing has). Skipped, and listed as skipped with the reason, in any other run, rather than
    timing out as an ERROR in every full sweep. */
-const skipWhy = (s, sc, data) => sizeSkipWhy(s, sc) || (sc.needsData && (data || 'sample') !== sc.needsData ? 'screen that needs --data ' + sc.needsData : '');
+/* kosmos#6846: `needsAppTabs: true` on a screen of the iPhone app's own header (it exists only with --app-tabs), and
+   `notInApp: true` on one that cannot exist there (the two lines' menu: the app hides them). Either is listed as
+   skipped rather than timing out. */
+const skipWhy = (s, sc, data, appTabs) => sizeSkipWhy(s, sc) || (sc.needsData && (data || 'sample') !== sc.needsData ? 'screen that needs --data ' + sc.needsData : '')
+  || (sc.needsAppTabs && !appTabs ? 'screen that needs --app-tabs' : '') || (sc.notInApp && appTabs ? 'screen the app does not have (--app-tabs)' : '');
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
 
@@ -165,7 +172,40 @@ const OVERFLOW_SELECTORS = ['html', 'body', 'main', '.view', '.panel', '[role="m
 /* The shared helpers the screens use. */
 /* On a phone the areas sit behind the ☰ (#burger, controls #tabs): open it
    first when it is showing, then choose the area. */
+/* kosmos#6895: make a throwaway project with the chat agent and the ask agent on it, give the chat agent two tasks, then
+   take the chat agent off it (its tasks stay with it). Answers the project's id. offProject6895Gone deletes it. */
+const OFFPROJECT_6895 = 'Plan the autumn launch';
+async function offProject6895(page, data) {
+  return page.evaluate(async ([name, chat, ask]) => {
+    const call = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const made = await (await call('POST', '/api/projects', { name, agents: [chat, ask] })).json().catch(() => ({}));
+    const id = made && made.project && made.project.id;
+    if (!id) throw new Error('offProject6895: the board made no project');
+    for (const sentence of ['Write the autumn press release', 'Choose the cover photo']) {
+      const r = await call('POST', '/api/project/' + encodeURIComponent(id) + '/tasks', { sentence, who: chat });
+      if (r.status !== 200) throw new Error('offProject6895: a task was refused (' + r.status + ')');
+    }
+    const off = await call('DELETE', '/api/project/' + encodeURIComponent(id) + '/agent/' + encodeURIComponent(chat));
+    if (off.status !== 200) throw new Error('offProject6895: taking the member off answered ' + off.status);
+    return id;
+  }, [OFFPROJECT_6895, data.chatAgent, data.askAgent]);
+}
+async function offProject6895Gone(page) {
+  const st = await page.evaluate(async (name) => {
+    const all = await (await fetch('/api/projects')).json().catch(() => ({}));
+    const list = Array.isArray(all) ? all : (all && Array.isArray(all.projects) ? all.projects : []);
+    const p = list.find((x) => x && x.name === name);
+    return p ? (await fetch('/api/project/' + encodeURIComponent(p.id), { method: 'DELETE' })).status : 200;
+  }, OFFPROJECT_6895);
+  if (st !== 200) throw new Error('could not delete the throwaway project after the shot (' + st + ')');
+}
 async function openTab(page, tab) {
+  // kosmos#6846 (--app-tabs): the iPhone app opens a section from its native tab bar, through the board's own door.
+  if (await page.evaluate(() => document.documentElement.classList.contains('kapptabs') && typeof window.kosmosAppTab === 'function')) {
+    if (!(await page.evaluate((t) => window.kosmosAppTab(t), tab))) throw new Error('kosmosAppTab refused ' + tab);
+    await page.waitForSelector(`#panel-${tab}`, { state: 'visible', timeout: 5000 });
+    return;
+  }
   // Over Kosmos+ (--remote) a phone has the Kosmos+ bar's own menu (#pnav) instead of the burger (kosmos#5510).
   if (await page.isVisible('#kplus-menu')) {
     await page.click('#kplus-menu');
@@ -550,7 +590,7 @@ const SCREENS = [
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
   // phoneOnly: the menu button (#burger) exists only at phone widths, so the desktop size skips it.
-  { name: 'nav-menu', owner: 'Raiden', phoneOnly: true, go: async (page) => {
+  { name: 'nav-menu', owner: 'Raiden', phoneOnly: true, notInApp: true, go: async (page) => {
     if (await page.isVisible('#kplus-menu')) {   // --remote: the Kosmos+ bar's menu (kosmos#5510)
       await page.click('#kplus-menu');
       await page.waitForSelector('#pnav:not([hidden])', { timeout: 5000 });
@@ -560,6 +600,24 @@ const SCREENS = [
     }
     await page.click('#burger');
     await page.waitForSelector('#burger[aria-expanded="true"]', { timeout: 5000 });
+  } },
+  // kosmos#6846: the iPhone app's own header (run with --app-tabs). One computer: the face only (Josh #6396).
+  { name: 'app-header', owner: 'Mona Lisa', phoneOnly: true, needsAppTabs: true, go: async (page) => {
+    await page.waitForSelector('#kapp-me', { state: 'visible', timeout: 8000 });
+  } },
+  // The face opens the phone menu at Settings.
+  { name: 'app-header-menu', owner: 'Mona Lisa', phoneOnly: true, needsAppTabs: true, go: async (page) => {
+    await page.click('#kapp-me');
+    await page.waitForSelector('#pnav .pnav-level[data-level="settings"]:not([hidden])', { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById('pnav').getAnimations({ subtree: true }).every((a) => a.playState !== 'running'), null, { timeout: 5000 });
+  } },
+  // Two computers: this computer's name on the left (the board re-reads them, answered here with two).
+  { name: 'app-header-two', owner: 'Mona Lisa', phoneOnly: true, needsAppTabs: true, noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/remote/computers*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, domain: 'kosmosplus.example', computers: [
+      { name: 'Studio Mac', address: 'studio.kosmosplus.example', this: true, online: true },
+      { name: 'Desk Mini', address: 'desk.kosmosplus.example', this: false, online: true }] }) }));
+    await page.evaluate(() => computersFetch().catch(() => {}));
+    await page.waitForSelector('#kapp-comp', { state: 'visible', timeout: 8000 });
   } },
   // #4470: the new look (the hidden switch), on the Agents page as a grid and as a list, and on the project room.
   { name: 'nl-home', owner: 'Mona Lisa', go: async (page) => { await newLook(page); } },
@@ -710,6 +768,23 @@ const SCREENS = [
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForFunction(() => { const b = document.querySelector('#pj-head-pause'); return b && !b.hidden && /Pause/.test(b.textContent); }, null, { timeout: 8000 });
   } },
+  /* kosmos#6842 slice 2: Project settings with "What its finished tasks cost". The throwaway board has no transcripts, so
+     the cost READ is stubbed with a fixture (two models, three pull requests, one older task not counted) and nothing is
+     written to the board. */
+  { name: 'project-settings-cost-6842', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page, data) => {
+    const b = (i, o, cw, cr) => ({ input_tokens: i, output_tokens: o, cache_creation_input_tokens: cw, cache_read_input_tokens: cr, rows: 40 });
+    const pr = (repo, n) => ({ repo, number: n, url: 'https://github.com/' + repo + '/pull/' + n, tasks: [1] });
+    await page.route('**/api/project/*/receipts', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ok: true, tasks: 12, notCounted: 1, failed: 0, unread: 0, partial: 0,
+      models: { 'claude-opus-5-5': b(120000, 380000, 900000, 14000000), 'claude-sonnet-5-5': b(40000, 90000, 200000, 3000000) },
+      prs: [pr('example/app', 412), pr('example/app', 415), pr('example/site', 88)], prsMore: 0 }) }));
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.click('#pj-settings-link');
+    await page.waitForFunction(() => { const c = document.querySelector('#pjs-cost'); return c && /finished task/.test(c.textContent); }, null, { timeout: 8000 });
+    await page.evaluate(() => document.getElementById('pjs-cost-field').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(300);
+  }, after: async (page) => { await page.unroute('**/api/project/*/receipts'); } },
   /* #6501: the project page with task 1 marked built, so its card reads "Task 1 (built)" and "Built, waiting for you to check
      it". Marked from the page (as the person) and cleared after, so no later screen shoots it built. */
   { name: 'project-built', owner: 'PigeonPete', go: async (page, data) => {
@@ -724,6 +799,26 @@ const SCREENS = [
   }, after: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/built', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }), data.projectId);
   } },
+  /* kosmos#6895: a throwaway project (offProject6895) whose tasks the chat agent holds after leaving it, so the cards and
+     the task page name the holder "(not on this project)" and the page counts them. The project is deleted after the
+     shot, so no other screen sees it. */
+  { name: 'project-offproject-6895', owner: 'Baron Draxum', go: async (page, data) => {
+    const id = await offProject6895(page, data);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${id}"]`);
+    await page.waitForSelector('#pj-offproject', { state: 'visible', timeout: 15000 });
+    await page.evaluate(() => document.getElementById('pj-offproject').scrollIntoView({ block: 'end' }));
+    await page.waitForTimeout(300);
+  }, after: async (page) => { await offProject6895Gone(page); } },
+  { name: 'task-offproject-6895', owner: 'Baron Draxum', go: async (page, data) => {
+    const id = await offProject6895(page, data);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${id}"]`);
+    const card = page.locator('#pj-tasklist .tkcard', { hasText: 'not on this project' }).first();
+    await card.waitFor({ state: 'visible', timeout: 15000 });
+    await card.click();
+    await page.waitForFunction(() => /not on this project/.test((document.getElementById('tk-who') || {}).textContent || ''), null, { timeout: 15000 });
+  }, after: async (page) => { await offProject6895Gone(page); } },
   { name: 'project-paused', owner: 'Mona Lisa', go: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
     await openTab(page, 'projects');
@@ -845,7 +940,7 @@ const SCREENS = [
     await at(page, '?tab=settings&sec=plus');
     await page.waitForFunction(() => /Working out the code with laptop/.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
   } },
-  /* #5531, #5791: Join Corporate Account opened, a company code typed, before Connect Account (which joins at once). */
+  /* #5531, #5791, kosmos#6380: Join Company or Family Account opened, a company code typed, before Connect Account (which joins at once). */
   { name: 'plus-org-connect', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => { await orgConnected(page, false); await at(page, '?tab=settings&sec=plus');
     // A computer with no company sees one button first (10-08): open it the person's way.
     await page.waitForSelector('#plus-org-open', { state: 'visible', timeout: 10000 });
@@ -867,10 +962,27 @@ const SCREENS = [
       { who: 'jordan', grantedAt: now - 3 * day, effectiveAt: now - 2 * day },
       { who: 'alex', grantedAt: now - 2 * day, effectiveAt: now - day, removedAt: now - day / 2 },
       { who: 'sam.ortiz', grantedAt: now - 3600, effectiveAt: now - 3600 + day },
-    ] });
+    // kosmos#6817: last confirmed three days ago, so the shot shows the "last confirmed" line too.
+    ], reviewerGrantsAt: (now - 3 * day) * 1000 });
     await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-org-reviewers', { state: 'visible', timeout: 10000 });
     await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));
+  } },
+  /* kosmos#6817 (Mona Lisa): the board's notice that someone in the company was made a reviewer, in the floating stack
+     on the agents tab, with See who and its x. Two unseen grants (one notice); the name is a sample. The page reads the
+     grants once a minute, so the shot asks for that read itself rather than wait for it. */
+  { name: 'reviewer-notice', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    const now = Math.floor(Date.now() / 1000), day = 86400;
+    const reviewerGrants = [
+      { who: 'jordan', grantedAt: now - 3 * day, effectiveAt: now - 2 * day },
+      { who: 'sam.ortiz', grantedAt: now - 3600, effectiveAt: now - 3600 + day },
+    ];
+    await orgConnected(page, true, { reviewerGrants });
+    await page.route('**/api/org/grants', (r) => r.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ enrolled: true, kind: 'company', reviewerGrants }) }));
+    await at(page, '?tab=agents');
+    await page.evaluate(() => { REVIEWER_NOTE.at = 0; reviewerNoteMaybe(); });
+    await page.waitForSelector('#reviewer-slot .utoast.reviewer-note', { state: 'visible', timeout: 10000 });
   } },
   /* #5787 (Mona Lisa): the connected Kosmos+ pane, where every sign-in now lands: the connect block (line art, the
      address with Copy, the Scan to connect code, the store buttons greyed with Coming soon) at the top. */
@@ -1867,7 +1979,7 @@ const SCREENS = [
 
 /* ------------------------------------------------------------------ args */
 function parseArgs(argv) {
-  const a = { out: null, screens: null, sizes: DEFAULT_SIZES, themes: THEMES, engines: ENGINES, strict: false, list: false, keep: false, data: 'sample', scale: 'css', remote: false };
+  const a = { out: null, screens: null, sizes: DEFAULT_SIZES, themes: THEMES, engines: ENGINES, strict: false, list: false, keep: false, data: 'sample', scale: 'css', remote: false, appTabs: false };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = () => argv[++i];
@@ -1882,6 +1994,7 @@ function parseArgs(argv) {
     else if (k === '--data') a.data = v();
     else if (k === '--scale') a.scale = v();
     else if (k === '--remote') a.remote = true;
+    else if (k === '--app-tabs') { a.appTabs = true; a.remote = true; }   // kosmos#6846: the iPhone app's own header
     else if (k === '--faces') a.faces = v();
     else throw new Error('unknown argument ' + k);
   }
@@ -2583,7 +2696,7 @@ async function run() {
   }
   /* Nothing to shoot is not a pass: every requested screen is skipped at the sizes asked for (skipWhy:
      phone-only at desktop or a tablet over 56rem, desktop-only at a phone or a tablet under 960px, or a screen whose needsData is another --data set, #6542). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
-  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !skipWhy(SIZES[sz], sc, args.data)).length, 0);
+  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !skipWhy(SIZES[sz], sc, args.data, args.appTabs)).length, 0);
   if (!planned) throw new Error('no shot would be taken: every requested screen is skipped at these sizes (phone-only at desktop or a tablet over 56rem, desktop-only at a phone or a tablet under 960px) or needs another --data set (needsData, #6542)');
   // Test hook (tools.mobile-shots-desktop.test.js): report the plan and stop, before any browser or board.
   if (process.env.MSHOTS_PLAN_ONLY === '1') { console.log(`planned ${planned} screen(s) per theme and engine`); return 0; }
@@ -2650,7 +2763,7 @@ async function run() {
             if (wedged) break;
             for (const sc of screens) {
               if (wedged) break;
-              const why = skipWhy(s, sc, args.data);
+              const why = skipWhy(s, sc, args.data, args.appTabs);
               if (why) {
                 // The same shape as a shot row, so report.json stays one kind of entry.
                 skipped.push({ file: null, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: why });
@@ -2700,6 +2813,12 @@ async function run() {
                  itself, so the page's own address is not loopback (kplusRemote() true -> html.kremote) while every
                  byte still comes from this board. Registered FIRST so the stubs below, registered after it, win
                  (Playwright tries the newest route first); they fetch through fetchBoard, which points back at the board. */
+              // kosmos#6846: what the iPhone app's WKUserScript does at document start when it shows its native tab bar.
+              // The init script can run before <html> exists, so the class lands as soon as it does (render-apptabs-6846).
+              if (args.appTabs) await ctx.addInitScript(() => {
+                const add = () => { const h = document.documentElement; if (h) h.classList.add('kapptabs'); return !!h; };
+                if (!add()) new MutationObserver((m, o) => { if (add()) o.disconnect(); }).observe(document, { childList: true });
+              });
               if (args.remote) {
                 await ctx.route(REMOTE_BASE + '/**', (r) => fetchBoard(r).then((res) => r.fulfill({ response: res }).catch(() => {}), () => r.abort().catch(() => {})).catch(() => {}));   // board gone: fail now, not at the screen's timeout; a late answer after close is quiet (#6022)
               }

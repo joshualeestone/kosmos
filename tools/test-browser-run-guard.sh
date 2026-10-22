@@ -53,10 +53,10 @@ if [ "$rc" -eq 1 ] && has "$out" "could not tell"; then pass "a probe that canno
 # process probe, so isolating the marker dir above must not have disabled it. A live marked browser run
 # in the CONTROLLED marker dir must refuse even with a QUIET process probe. Red-capable: remove the
 # marker file and the same call passes (the very next arm).
-sleep 30 & mpid=$!
+perl -e 'select(undef, undef, undef, 30)' & mpid=$!   # kosmos#6730: a bounded wait with no "sleep" in its command line, so a stray pkill -f sleep cannot end it
 # #5914: wait for the exec. Until then ps shows this script's own command, and a marker recording that reads as stale.
-for _ in $(seq 1 30); do case "$(ps -ww -o command= -p "$mpid")" in sleep*) break ;; esac; sleep 0.1; done
-case "$(ps -ww -o command= -p "$mpid")" in sleep*) ;; *) fail "FIXTURE: stand-in process $mpid never showed as sleep, so the marker arms after it cannot be trusted" ;; esac
+for _ in $(seq 1 30); do case "$(ps -ww -o command= -p "$mpid")" in perl*) break ;; esac; sleep 0.1; done
+case "$(ps -ww -o command= -p "$mpid")" in perl*) ;; *) fail "FIXTURE: stand-in process $mpid never showed as its perl wait, so the marker arms after it cannot be trusted" ;; esac
 { printf 'test-cookie-2271\n'; ps -ww -o command= -p "$mpid"; } > "$T/markers/browser.$mpid"
 out="$(KOSMOS_BC_PROBE="$T/probe-quiet" kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "marked"; then pass "a live marker refuses even under a quiet process probe (#2271)"; else fail "marker not detected (rc=$rc, out=$out)"; fi
@@ -73,23 +73,23 @@ if [ "$rc" -eq 0 ] && [ -z "$out" ]; then pass "quiet probe + isolated empty mar
 # without this the gate refuses EVERY page-layer run on a Mac with no other
 # run -- a total outage that reads exactly like the guard working.
 printf '#!/bin/sh\nprintf "%%s bash tools/browser-checks.sh\\n" "$$SELF"\n' > "$T/probe-self"
-sed -i '' "s/\$\$SELF/$$/" "$T/probe-self"; chmod +x "$T/probe-self"
+sed "s/\$\$SELF/$$/" "$T/probe-self" > "$T/probe-self.new" && mv "$T/probe-self.new" "$T/probe-self"; chmod +x "$T/probe-self"   # #6799: a portable rewrite, not BSD-only in-place sed
 out="$(KOSMOS_BC_PROBE="$T/probe-self" KOSMOS_BC_SELF_PID=$$ kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ]; then pass "does not refuse itself"; else fail "does not refuse itself (rc=$rc, out=$out)"; fi
 
 # #1391: THE CALLER'S OWN SUBTREE MUST NOT COUNT. The disarm happened because a
 # `bash tools/browser-checks.sh` that is the caller's own DESCENDANT (an argv-
 # inheriting subshell) survived a single-pid exclusion and the gate refused
-# itself. These two use a REAL pid (a cheap `sleep`, never a browser process, so
+# itself. These two use a REAL pid (a cheap perl bounded wait, never a browser process, so
 # they are safe by default on a shared Mac) fed through the seam's command line,
 # and drive `self` to the ancestor vs. an unrelated sibling.
-sleep 30 & kid=$!
+perl -e 'select(undef, undef, undef, 30)' & kid=$!
 printf '#!/bin/sh\nprintf "%%s bash tools/browser-checks.sh\\n" "%s"\n' "$kid" > "$T/probe-kid"; chmod +x "$T/probe-kid"
 out="$(KOSMOS_BC_PROBE="$T/probe-kid" KOSMOS_BC_SELF_PID=$$ kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
 kill "$kid" 2>/dev/null; wait "$kid" 2>/dev/null
 if [ "$rc" -eq 0 ]; then pass "excludes a candidate that is the caller's own DESCENDANT (#1391)"; else fail "#1391 descendant not excluded (rc=$rc): $out"; fi
 
-sleep 30 & kid=$!; sleep 30 & unrel=$!
+perl -e 'select(undef, undef, undef, 30)' & kid=$!; perl -e 'select(undef, undef, undef, 30)' & unrel=$!
 printf '#!/bin/sh\nprintf "%%s bash tools/browser-checks.sh\\n" "%s"\n' "$kid" > "$T/probe-kid2"; chmod +x "$T/probe-kid2"
 out="$(KOSMOS_BC_PROBE="$T/probe-kid2" KOSMOS_BC_SELF_PID=$unrel kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
 kill "$kid" "$unrel" 2>/dev/null; wait "$kid" "$unrel" 2>/dev/null
@@ -113,7 +113,7 @@ fi
 # nothing at all. A decoy process with the true command line proves the shipped
 # expression matches what it claims to. It sleeps; it never starts a browser.
 mkdir -p "$T/tools"
-printf '#!/bin/bash\nsleep 30\n' > "$T/tools/browser-checks.sh"; chmod +x "$T/tools/browser-checks.sh"
+printf '#!/bin/bash\nperl -e "select(undef, undef, undef, 30)"\n' > "$T/tools/browser-checks.sh"; chmod +x "$T/tools/browser-checks.sh"
 # ⚠️ MEASURED AS A DELTA, NOT AS A VERDICT. A colleague's real page-layer run
 # may be live on this shared Mac while this test runs, and then "the guard
 # refused" would be true no matter what the shipped expression matched -- the
@@ -164,7 +164,7 @@ fi
 # adds zero -- so theirs - mine == 1 proves BOTH that the shipped pgrep sees it
 # AND that the subtree exclusion drops it for its own run.
 ( cd "$T" && bash tools/browser-checks.sh ) & decoy=$!
-sleep 30 & unrel=$!
+perl -e 'select(undef, undef, undef, 30)' & unrel=$!
 sleep 1
 mine="$(live_refuses $$)"        # the decoy is OUR descendant -> excluded -> guard does NOT refuse
 theirs="$(live_refuses $unrel)"  # the decoy is unrelated to $unrel -> seen -> guard refuses
