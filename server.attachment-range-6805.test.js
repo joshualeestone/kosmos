@@ -236,6 +236,14 @@ test('#6805: an attachment whose bytes changed under the same id answers a resum
   const got = await get(rec, { range: 'bytes=10-', 'if-range': oldTag });
   assert.equal(got.status, 200);
   assert.ok(got.body.equals(after));
+  // The same length again, so only the time can tell the two apart: the size alone would let this splice.
+  const sameSizeTag = await tagOf(rec);
+  const again = crypto.randomBytes(after.length);
+  fs.writeFileSync(onDisk, again);
+  fs.utimesSync(onDisk, new Date(), new Date(Date.now() + 10000));
+  const sameSize = await get(rec, { range: 'bytes=10-', 'if-range': sameSizeTag });
+  assert.equal(sameSize.status, 200, 'a same-size rewrite is caught by its time');
+  assert.ok(sameSize.body.equals(again));
 });
 
 test('#6805: a range for an attachment that does not exist is a 404, not bytes', async () => {
