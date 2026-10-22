@@ -22303,8 +22303,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* #6947: the page drew this task's conversation on the person's screen (engine/taskseen.js says what "seen" means and what it misses). The page
-     sends it after it draws the task's conversation on screen (engine/taskseen.js lists when). Only a request from the page counts
+  /* #6947: the page drew this task's conversation on the person's screen (engine/taskseen.js says what "seen" means,
+     when the page sends it, and what it misses). Only a request from the page counts
      (isViaScreen: no agent token, and the browser's own Sec-Fetch-Site or a local Origin), so an agent cannot mark its
      own nudge seen with its token or with the shared board token alone; those headers are advisory, so a local process
      that forges them can. Answers { seenAt }. */

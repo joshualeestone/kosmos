@@ -1,8 +1,8 @@
 'use strict';
 /**
  * #6947 (agent feedback 10-22): an agent that left a nudge on a task cannot tell "not seen" from "seen, not acted on".
- * The person's page posts POST /api/project/<id>/task/<n>/seen when it opens a task's page (engine/taskseen.js says
- * what that counts and misses), and `kosmos task activity` (GET .../activity?words=1) answers seenByPerson.
+ * The person's page posts POST /api/project/<id>/task/<n>/seen after it draws a task's conversation on screen
+ * (engine/taskseen.js says when, and what it misses), and `kosmos task activity` (GET .../activity?words=1) answers seenByPerson.
  * Same harness as server.task-activity-5874.test.js: a sandboxed board, enforcement on in memory, projects stubbed.
  */
 require('./test-support/tmpscope');
