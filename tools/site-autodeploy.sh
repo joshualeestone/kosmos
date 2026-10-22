@@ -39,9 +39,11 @@
 # re-running a refusing deploy every 15 minutes would bury it. The next merge, or deleting `parked`,
 # tries again. A checkout fault (off main, dirty, diverged) or a missing source of the older
 # downloads parks at once: retrying cannot fix either.
-# kosmos#6771, the Vercel token: no secrets accessor (nosecrets), no token filed (notoken), or deploy-site.sh's exit 77
-# (Vercel refused the authorization before making a deployment) are each red once a day, keyed on no sha, never
-# counted and never parked: filing or replacing the token is the whole fix, and the next tick deploys.
+# kosmos#6771, the Vercel token: with no token filed the deploy uses this machine's own vercel CLI sign-in when
+# `vercel whoami` answers. No token and no sign-in (notoken, or nosecrets when the accessor itself is missing), or
+# deploy-site.sh's exit 77 (Vercel refused the authorization before making a deployment), are each red once a day,
+# keyed on no sha, never counted and never parked: signing the CLI in or filing a token is the whole fix, and the next
+# tick deploys.
 #
 # State (KOSMOS_AUTODEPLOY_STATE, default ~/.kosmos-site-autodeploy):
 #   heartbeat      the time of the last tick that held the lock (a stall shows as an old heartbeat)
@@ -79,7 +81,9 @@
 # https://installkosmos.com, the same variable deploy-site.sh reads), VERCEL_TOKEN (the deploy's Vercel token; when
 # unset it is read from the secrets map, target KOSMOS_AUTODEPLOY_VERCEL_TARGET, default vercel-chaoskosmos-site:
 # kosmos#6771), KOSMOS_AUTODEPLOY_SECRETS (the PATH of the secrets-map accessor, an executable, default secrets-map.sh
-# on PATH or in ~/.claude/scripts).
+# on PATH or in ~/.claude/scripts), KOSMOS_AUTODEPLOY_WHOAMI_SECS (the sign-in check's limit, default 30).
+# KOSMOS_AUTODEPLOY_VERCEL (TEST ONLY: the PATH of the vercel CLI the sign-in check asks, an executable, default
+# `vercel` on PATH; not run with sh -c).
 # Test seams, TEST ONLY (each is run with sh -c, so never set them in the job's environment):
 # KOSMOS_AUTODEPLOY_DEPLOY (the deploy command, default this repo's deploy-site.sh --publish),
 # KOSMOS_AUTODEPLOY_PS (the process list command, default `ps -axo pid=,ppid=,command=`; a line without
@@ -487,7 +491,7 @@ if [ -z "${VERCEL_TOKEN:-}" ]; then
   # A lookup that cannot run is not a token nobody filed: told apart, so nobody files a token that is already there.
   # TARGET="" keys the red record on no sha (as the fetch's is), so a new site merge does not make it red again the
   # same day: the cause is the machine's, not the commit's.
-  _nosecrets=""
+  _nosecrets=""; _signedin=""; _why=""
   if [ -x "$SECRETS_CMD" ]; then
     # The accessor's reason on stderr names the target and the file, never the value (secrets-map.sh's own rule; a
     # KOSMOS_AUTODEPLOY_SECRETS stand-in must keep it).
@@ -496,10 +500,17 @@ if [ -z "${VERCEL_TOKEN:-}" ]; then
     _why=$(head -1 "$_whyf" 2>/dev/null | tr '\r\n' '  '); [ "$_whyf" = /dev/null ] || rm -f "$_whyf"
   else _nosecrets=1; fi
   if [ -z "${VERCEL_TOKEN:-}" ]; then
-    # No token: this machine's own CLI sign-in, if it answers (30 s at most; KOSMOS_AUTODEPLOY_VERCEL is the CLI, for the
-    # test). Its account name is said, never a credential.
-    VCLI="${KOSMOS_AUTODEPLOY_VERCEL:-vercel}"
-    _who=$(perl -e 'alarm shift; exec @ARGV or exit 127' 30 "$VCLI" whoami 2>/dev/null | tail -1 | tr -cd 'A-Za-z0-9_.@-') || _who=""
+    # No token: this machine's own CLI sign-in, if it answers. Its exit code must be 0 and its stdout exactly one line
+    # shaped like an account name: an error printed to stdout is never read as a name (review 1). Its stdout goes to a
+    # FILE, not a pipe, so a child the CLI leaves running (it spawns an update worker) cannot hold this tick past the
+    # limit (KOSMOS_AUTODEPLOY_WHOAMI_SECS, default 30; KOSMOS_AUTODEPLOY_VERCEL is the CLI, for the test).
+    VCLI="${KOSMOS_AUTODEPLOY_VERCEL:-vercel}"; _wsecs="${KOSMOS_AUTODEPLOY_WHOAMI_SECS:-30}"
+    case "$_wsecs" in ''|*[!0-9]*) _wsecs=30 ;; esac
+    _who=""; _whof=$(mktemp "${TMPDIR:-/tmp}/site-autodeploy-who.XXXXXX") || _whof=""
+    if [ -n "$_whof" ] && perl -e 'alarm shift; exec @ARGV or exit 127' "$_wsecs" "$VCLI" whoami > "$_whof" 2>/dev/null; then
+      [ "$(grep -c . "$_whof")" = 1 ] && _who=$(grep . "$_whof" | grep -E '^[A-Za-z0-9_.@-]{1,100}$')
+    fi
+    [ -z "$_whof" ] || rm -f "$_whof"
     if [ -n "$_who" ]; then
       say "no Vercel token${_nosecrets:+ (the secrets accessor $SECRETS_CMD is not there)} for $VERCEL_TOKEN_TARGET: deploying on this machine's vercel sign-in ($_who) (kosmos#6771)"
       _signedin=1
