@@ -2547,7 +2547,9 @@ async function main(argv, io) {
       return { reached: true, status: res.status, json, text };
     } catch (e) {
       /* kosmos#6464: a redirect refused (redirect: 'error' above). The board never redirects an /api/ request, so
-         this is not the board acting: say so in its own words, and no verb asks again (refused). */
+         this is not the board acting: say so in its own words, and no verb asks again (refused). notConnected reads
+         as "nothing reached the board": the listener that redirected did get the request, but it is not acting as the
+         board, and the sentence below does not claim nothing happened. */
       if (e && e.cause && /unexpected redirect/i.test(String(e.cause.message || ''))) {
         lastNotProven = REDIRECT_REFUSED;
         return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true };
@@ -2627,7 +2629,7 @@ async function main(argv, io) {
       /* No "try again": this is also the timeout path of writes (a task, a project, a report), where the
          board may already have acted, so a retry could make a duplicate. */
       /* #1765: the check before the send did not pass, so nothing was sent. */
-      if (lastNotProven === REDIRECT_REFUSED) err('Whatever answered at ' + url + ' tried to send this request somewhere else, which Kosmos never does, so we did not follow it and did not ' + what + '.');
+      if (lastNotProven === REDIRECT_REFUSED) err('Whatever answered at ' + url + ' tried to send this request somewhere else, which Kosmos never does, so we did not follow it. We could not ' + what + '; check before doing it again.');
       else if (lastNotProven === NO_TOKEN_TO_PROVE) err('This computer could not read its Kosmos board token, so it cannot check that Kosmos is what answers, and we did not ' + what + ': nothing was sent. Restarting Kosmos usually fixes this; if it does not, reinstalling does.');
       else if (lastNotProven === 'out of time') err('Kosmos took the whole time we had to check it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
       else if (/^(the check (could not load|failed)|headers unreadable)/.test(lastNotProven)) err('This computer could not check it was reaching your Kosmos (' + lastNotProven + '), so we did not ' + what + ' and sent nothing.');

@@ -13,7 +13,9 @@ pin test. The launcher's board window (ask 3) is split out: see "Deferred" below
 2. A request carrying a secret in its BODY (`kosmos connect`, `secret: true`) is never sent without a token in its
    headers to prove the listener with: with no readable board token it is refused, exit 1, nothing sent.
 3. Every token-bearing fetch on the Windows senders refuses redirects (`redirect: 'error'`): the CLI's requests, the
-   opener's mint, the report hook's keep, toolfail and report sends.
+   opener's mint, the report hook's keep, toolfail and report sends, and the four report bridges the Windows bundle
+   ships (codex, gemini, grok, agy). A source guard (tools.board-redirects-6464.test.js) holds every fetch call in
+   those files to it, so a call added later without it goes red.
 4. The opener refuses (opens nothing, exit 10) when the mint fails right after a passing proof, instead of opening
    the plain address. It never retries the mint, so a proof covers exactly one mint.
 5. The caller pin test walks the whole repo (every .js/.cjs/.mjs outside node_modules, .git and tests), not only
@@ -56,8 +58,6 @@ pin test. The launcher's board window (ask 3) is split out: see "Deferred" below
   signed Kosmos.exe rebuilt and re-signed, and since #6512 the git-order test
   (tools.win-launcher-signin-6512.test.js) and the build's LAUNCHER_INPUTS check fail on every platform until it is.
   So it goes in its own follow-up, cut with the next Windows release's rebuild and re-sign.
-- bin/agy-report-bridge.js also sends tokens with fetch and follows redirects; it is not one of #6437's Windows
-  senders and is left for its owner.
 
 ## Tests
 - `tools.windows-kosmos-cli-board-proof-1765.test.js`: a real listener that proves once, cuts the first msg and then
@@ -84,5 +84,14 @@ pin test. The launcher's board window (ask 3) is split out: see "Deferred" below
 - [NIT] msg's retry refused by a failed proof keeps the first attempt's "may have been delivered": true, since the
   first attempt was cut after sending. Kept.
 - [NIT] the plan's mutation claim needs the runs in the PR. Done there.
-- [NIT, out of scope] bin/codex-report-bridge.js and bin/agy-report-bridge.js follow redirects with tokens: Mac
-  senders, not #6437's. Listed for a follow-up card.
+- [NIT] bin/codex-report-bridge.js and bin/agy-report-bridge.js follow redirects with tokens. Taken up in round 3.
+
+### Round 3 (fresh blind reviewer): no blockers, 1 warning, 3 nits
+- [WARNING] the plan called the report bridges Mac senders, but the Windows build ships all four (codex, gemini,
+  grok, agy; tools/build-kosmos-windows.sh) and win32keyed.js runs gemini and grok per turn. FIXED: redirect: 'error'
+  on all six of their fetch calls; a source guard over every sender's fetch calls (mutant without the bridge fix:
+  six calls named, red) and a real redirect through the gemini and grok bridges (mutant: both red).
+- [NIT] a refused redirect returned notConnected and said "did not <what>", which the CLI cannot know (the listener
+  got the request). FIXED: the sentence says to check before doing it again; the comment says why notConnected.
+- [NIT] the opener's sentence said "this window" on the browser path too. FIXED: "did not sign you in".
+- [NIT] the no-git fallback walk read .claude and dist. FIXED: skipped.
