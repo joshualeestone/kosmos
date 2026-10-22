@@ -1600,7 +1600,29 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote .apphead { border-bottom: 0; }
   html.kremote .apphead header { padding: 0; gap: 0; }
   html.kremote .apphead header .headleft { gap: 8px; }
+  /* #6846 (Mona Lisa's frames, ios-design-2026-10-19/tabbar-6846): inside the iPhone app with its native tab bar
+     (html.kapptabs, set by the app) the bar is the app's own header: 44px, no Kosmos+ mark (the app is Kosmos) and no
+     two lines (the native bar does their job); this computer's name left when there is another computer to switch to,
+     the person's face right, both opening the phone menu. */
+  html.kremote.kapptabs .kplus-bar { height: 44px; min-height: 44px; }
+  html.kremote.kapptabs .kplus-bar-mark, html.kremote.kapptabs .kplus-bar-menu { display: none; }
+  html.kremote.kapptabs .kplus-bar-end { margin-left: auto; }
+  html.kremote.kapptabs .kapp-comp:not([hidden]) { display: inline-flex; align-items: center; gap: 6px; min-width: 44px; height: 44px;
+    padding: 0; border: 0; background: none; color: #fff; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; }
+  html.kremote.kapptabs .kapp-comp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  html.kremote.kapptabs .kapp-comp-chev { flex: none; opacity: .8; }
+  /* The face is 32px; the button around it is the 44px tap target, its right edge on the bar's padding like the two lines. */
+  html.kremote.kapptabs .kapp-me { display: inline-grid; place-items: center; width: 44px; height: 44px; margin-right: -6px; padding: 0;
+    border: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  html.kremote.kapptabs .kapp-me > img, html.kremote.kapptabs .kapp-me > .youtint { width: 32px; height: 32px; border-radius: 50%; overflow: hidden; }
+  html.kremote.kapptabs .kapp-me > img { object-fit: cover; display: block; }
+  html.kremote.kapptabs .kapp-me > .youtint { display: grid; place-items: center; background: rgba(255,255,255,.14); color: #fff;
+    font-size: 14px; font-weight: 600; }
+  html.kremote.kapptabs .kapp-comp:focus-visible, html.kremote.kapptabs .kapp-me:focus-visible { outline: 2px solid #fff; outline-offset: -2px; border-radius: 8px; }
 }
+/* Off the app's header (a browser, an older app, the Mac itself, a wide window) the two controls are never drawn. */
+.kapp-comp, .kapp-me { display: none; }
 /* #4823: the phone menu, Josh's navigation-mock.png ("copied almost identically from Apple's website"): full screen,
    Kosmos+ navy in both themes, large white type, red bubbles, an X where the two lines were. Settings goes one level
    deeper the way apple.com's menu does (Josh 20:56), measured from apple.com's own globalheader.css: the words of the
@@ -20680,6 +20702,61 @@ function kplusBarFit() {
   if (bar.style.marginLeft !== l) bar.style.marginLeft = l;
   if (bar.style.marginRight !== r) bar.style.marginRight = r;
 }
+/* #6846: the app header's two controls, painted from the board's own facts so they cannot disagree with it: this
+   computer's name and whether there is another to go to (worldswComputersSeen, after each answer from Kosmos+), and the
+   person's face (youFaceHtml, as the user menu draws it). Safe before the bar exists, and called again whenever either
+   fact changes. */
+function kappHeadPaint() {
+  const comp = document.getElementById('kapp-comp'), me = document.getElementById('kapp-me');
+  if (comp) {
+    const name = typeof THIS_COMPUTER_NAME === 'string' && THIS_COMPUTER_NAME ? THIS_COMPUTER_NAME : 'This computer';
+    document.getElementById('kapp-comp-name').textContent = name;
+    comp.setAttribute('aria-label', 'Your computers. This computer: ' + name);
+    const hide = !(typeof COMPUTERS_OPENABLE !== 'undefined' && COMPUTERS_OPENABLE);
+    // Back to one computer while the switcher has focus: focus moves to the face rather than falling to the page.
+    const hadFocus = hide && !comp.hidden && document.activeElement === comp;
+    comp.hidden = hide;
+    if (hadFocus && me) me.focus({ preventScroll: true });
+  }
+  /* In the app the bar is the app's own header, not a "remote session" banner (it is Kosmos, signed in). */
+  const bar = document.getElementById('kplus-bar');
+  if (bar) bar.setAttribute('aria-label', document.documentElement.classList.contains('kapptabs') ? 'Kosmos' : 'Kosmos+ remote session');
+  if (me) {
+    // Only when it changed: rewriting the picture on every computers answer would reload and re-announce it.
+    const face = typeof youFaceHtml === 'function' ? youFaceHtml() : '';
+    if (me.innerHTML !== face) me.innerHTML = face;
+    // It opens Settings (and Appearance, Log out), so it is named for that and for whose it is.
+    me.setAttribute('aria-label', 'Settings, ' + ((typeof YOU_NAME === 'string' && YOU_NAME) || 'You'));
+  }
+}
+/* #6846: open the phone menu straight at a level: Settings for the person's menu, Switch Computers for the switcher.
+   The level is put in place at once, never passing through the first level (whose Agents, Projects and Tasks the
+   native tab bar already shows), with the trail set as if walked there, so Back walks up the way it would have come. */
+function kappOpenAt(levels, opener) {
+  const nav = document.getElementById('pnav');
+  if (!nav || !nav.hidden) return;
+  pnavOpen(true);
+  pnavOpened();   // in place at once: no drop-in animation on a level whose items are not numbered for it
+  PNAV_OPENER = opener;
+  opener.setAttribute('aria-expanded', 'true');
+  for (const lv of levels) {
+    /* As pnavTo does: the computers are read as their level opens, before the copy (so a stale row is never offered). */
+    if (lv === 'computers' && typeof computersFetch === 'function') computersFetch().catch(() => {});
+    pnavFill(lv);
+    /* The item that leads to this level, as if walked: Back lands on it (Settings on the first level, Switch Computers
+       on Settings), never on the first item. */
+    PNAV_FROM.push(lv === 'computers' ? document.getElementById('pnav-computers') : nav.querySelector('[data-pnav-go="' + lv + '"]'));
+    PNAV_TRAIL.push(lv);
+  }
+  const last = PNAV_TRAIL[PNAV_TRAIL.length - 1];
+  for (const lv of nav.querySelectorAll('.pnav-level')) { lv.hidden = lv.dataset.level !== last; lv.className = 'pnav-level'; }
+  nav.classList.toggle('deep', PNAV_TRAIL.length > 1);
+  const back = document.getElementById('pnav-back');
+  back.tabIndex = PNAV_TRAIL.length > 1 ? 0 : -1;
+  back.setAttribute('aria-label', PNAV_TRAIL.length > 2 ? 'Back to Settings' : 'Main menu');
+  const level = pnavLevel(last);
+  (level.querySelector('button.pnav-item, a.pnav-item, .pnav-small:not([hidden])') || level).focus({ preventScroll: true });
+}
 function kplusBar() {
   if (!kplusRemote() || document.getElementById('kplus-bar')) return;
   const head = document.querySelector('.apphead');
@@ -20688,13 +20765,19 @@ function kplusBar() {
   bar.id = 'kplus-bar'; bar.className = 'kplus-bar';
   bar.setAttribute('role', 'region'); bar.setAttribute('aria-label', 'Kosmos+ remote session');
   bar.innerHTML = '<canvas class="kplus-bar-mark" role="img" aria-label="Kosmos+"></canvas>'
+    /* #6846: the iPhone app's own header, drawn only when the app shows its native tab bar (html.kapptabs, set by the
+       app): the computer switcher (two or more computers, Josh #6396) and the person's menu, both opening #pnav. */
+    + '<button type="button" class="kapp-comp" id="kapp-comp" aria-haspopup="dialog" aria-expanded="false" aria-controls="pnav" hidden><span class="kapp-comp-name" id="kapp-comp-name"></span>'
+    + '<svg class="kapp-comp-chev" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.4L6 7.6l3.2-3.2"/></svg></button>'
     + '<span class="kplus-bar-end">'
+    + '<button type="button" class="kapp-me" id="kapp-me" aria-haspopup="dialog" aria-expanded="false" aria-controls="pnav"></button>'
     /* kosmos#6718: no Log out here any more; it is at the bottom of Settings > Kosmos+ (plus-logout below). */
     /* #4823: the two lines that open the phone menu (#pnav). Shown only at phone width, by CSS. */
     + '<button type="button" class="kplus-bar-menu" id="kplus-menu" aria-label="Menu" aria-haspopup="dialog" aria-expanded="false" aria-controls="pnav">'
     + '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M.5 4.5h17M.5 13.5h17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></span>';
   head.insertBefore(bar, head.firstChild);
   document.documentElement.classList.add('kremote');   // #4823: the phone header and menu key on this
+  kappHeadPaint();
   try { kplusBarDrawMark(bar.querySelector('canvas')); } catch { /* the words still say Kosmos+ to a screen reader */ }
   kplusBarFit();
   window.addEventListener('resize', kplusBarFit);
@@ -20796,7 +20879,10 @@ function pnavBuild() {
     const src = document.getElementById('nav-badge-' + k);
     if (src && !src.hidden) setNavBadge('nav-badge-' + k, src.textContent === '99+' ? 100 : Number(src.textContent));
   }
-  document.getElementById('kplus-menu').addEventListener('click', pnavOpen);
+  document.getElementById('kplus-menu').addEventListener('click', () => { PNAV_OPENER = null; pnavOpen(); });
+  /* #6846: the app header's controls (shown only with the app's native tab bar). */
+  document.getElementById('kapp-me').addEventListener('click', (e) => kappOpenAt(['settings'], e.currentTarget));
+  document.getElementById('kapp-comp').addEventListener('click', (e) => kappOpenAt(['settings', 'computers'], e.currentTarget));
   document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('.pnav-themeopt')) pnavThemeRove(); });
   boardPhoneView();
   /* Widened past the phone width (a rotated tablet, a resized window), the menu's button is gone, so the menu goes too. */
@@ -20812,9 +20898,10 @@ function pnavBuild() {
     const tab = e.target.closest('[data-pnav-tab]');
     if (tab) {
       const real = document.querySelector('#tabs .tab[data-tab="' + tab.dataset.pnavTab + '"]');
+      const opener = PNAV_OPENER;
       pnavClose(false);
       if (real) real.click();
-      document.getElementById('kplus-menu').focus({ preventScroll: true });
+      pnavReturnFocus(opener);
       return;
     }
     const go = e.target.closest('[data-pnav-go]');
@@ -20822,10 +20909,11 @@ function pnavBuild() {
     if (go) { pnavTo(go.dataset.pnavGo, go); return; }
     const sec = e.target.closest('[data-pnav-sec]');
     if (sec) {
+      const opener = PNAV_OPENER;
       pnavClose(false);
       showTab('settings');
       settingsOpen(sec.dataset.pnavSec);
-      document.getElementById('kplus-menu').focus({ preventScroll: true });
+      pnavReturnFocus(opener);
     }
   });
   /* On the document, not the menu: focus can sit on a level itself (a level with nothing to press), and a key there
@@ -20904,11 +20992,16 @@ const ROOM_HINT_MQ = '(max-width: 40rem)';
 const PNAV_PHONE_MQ = '(max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem)';
 /* The level on screen, and the trail back to the first one. */
 let PNAV_TRAIL = ['main'];
+/* #6846: the control that opened the menu when it was not the two lines (the app header's), so closing gives focus
+   back to it; null means the two lines. */
+let PNAV_OPENER = null;
 let PNAV_OPENING_T = 0;
 /* The item that opened each deeper level, so Back returns focus to it (as apple.com's menu does). */
 let PNAV_FROM = [];
 function pnavLevel(name) { return document.querySelector('#pnav .pnav-level[data-level="' + name + '"]'); }
-function pnavOpen() {
+/* quiet (#6846): the caller puts focus itself (kappOpenAt, which opens at a deeper level), so the first level's first
+   item is never focused, or read out, on the way. */
+function pnavOpen(quiet) {
   const nav = document.getElementById('pnav');
   if (!nav || !nav.hidden) return;
   pnavSettle();
@@ -20929,7 +21022,7 @@ function pnavOpen() {
   document.documentElement.classList.add('pnav-up');
   document.getElementById('kplus-menu').setAttribute('aria-expanded', 'true');
   const first = nav.querySelector('.pnav-level[data-level="main"] .pnav-item');
-  if (first) first.focus({ preventScroll: true });
+  if (first && quiet !== true) first.focus({ preventScroll: true });
   PNAV_FROM = [];
 }
 function pnavClose(refocus) {
@@ -20941,7 +21034,16 @@ function pnavClose(refocus) {
   document.documentElement.classList.remove('pnav-up');
   const btn = document.getElementById('kplus-menu');
   btn.setAttribute('aria-expanded', 'false');
-  if (refocus) btn.focus();
+  const opener = PNAV_OPENER;
+  PNAV_OPENER = null;
+  if (opener) opener.setAttribute('aria-expanded', 'false');
+  if (refocus) pnavReturnFocus(opener);
+}
+/* #6846: where focus goes when the menu closes: what opened it while that is on screen (the app header's control),
+   else the app header's face, else the two lines, as before the app header. */
+function pnavReturnFocus(opener) {
+  const to = [opener, document.getElementById('kapp-me'), document.getElementById('kplus-menu')].find((el) => el && el.getClientRects().length);
+  if (to) to.focus({ preventScroll: true });
 }
 /* Fill a level from the board as it is now, then move to it the way apple.com does. */
 function pnavFill(name) {
@@ -23393,7 +23495,7 @@ function paintLoginAdvisories(advs) {
     // Keyboard focus stays on the notices while any is left, then goes to the first visible of the K mark, the
     // Kosmos+ bar's menu (the phone remote view hides the mark) and the page heading.
     const next = slot.querySelector('.ux')
-      || ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+      || ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   }));
 }
@@ -23411,7 +23513,7 @@ function rebootWhen(iso) {
 }
 /* Where focus goes when the note leaves under it: the K mark, as after the login notice. */
 function rebootFocusAway() {
-  const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+  const next = ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
   if (next) next.focus();
 }
 function paintRebootNote(note) {
@@ -30622,6 +30724,7 @@ function worldswComputersSeen(rows, good, signedOut) {
   }
 }
 function worldswOneKosmos() {
+  if (typeof kappHeadPaint === 'function') kappHeadPaint();   // #6846: the app header names the same computer, offered under the same rule (typeof: tests lift this alone)
   if (MULTI_KOSMOS) return;
   const sw = document.getElementById('worldsw');
   const btn = document.getElementById('worldsw-btn');
@@ -30653,7 +30756,7 @@ function worldswOneKosmos() {
     const wv = document.getElementById('wv-modal');
     if (wv && !wv.hidden) wvClose();
     if (focusWasInside) {
-      const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+      const next = ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
       if (next) next.focus();
     }
     btn.removeAttribute('aria-expanded');
@@ -36744,6 +36847,32 @@ function burgerClose() {
   document.getElementById('tabs').classList.add('closed');
   b.setAttribute('aria-expanded', 'false');
 }
+
+/* #6846: the iPhone app's native tab bar opens a board section through here with a real press, so it lands where a
+   person's press lands and every click tidier on the page runs as for a person (header menus and pickers close on a
+   click elsewhere): Agents, Projects and Tasks press their tab (which resets to the top of the section; showTab alone
+   would restore the last open project), and Settings, which has no tab, presses the user menu's Your Profile, its
+   first section, which also opens in place in the consolidated layout (userpopSettingsGo). The phone menu, which a
+   press does not close, is closed first, focus going back to what opened it.
+   It answers false, changing nothing, for a name the board has no such section for, and whenever a person could not
+   press at all: a full-screen step (first run, an update, a restart) has made #tabs or anything around it inert, or a
+   confirmation or other box has its backdrop up (those are not inert; the keystroke guard tests the backdrop the same
+   way). The app can then tell, instead of changing the page under a box.
+   A hidden Tasks tab is still pressed: it is hidden on a fresh page until the first status poll, and the app offers
+   Tasks only from that same poll's tasksTab (#3559), so refusing would turn an earned tab into a silent no-op. */
+if (typeof window !== 'undefined') window.kosmosAppTab = (name) => {
+  const tabs = document.getElementById('tabs');
+  if (!tabs || tabs.closest('[inert]')) return false;
+  if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return false;
+  const press = name === 'settings' ? document.getElementById('userpop-go-you')
+    : ['agents', 'projects', 'tasks'].includes(name) && tabs.querySelector('.tab[data-tab="' + name + '"]');
+  if (!press) return false;
+  /* pnavClose(true) gives focus back to what opened the menu (the two lines, or the app header's control). */
+  const menu = document.getElementById('pnav');
+  if (menu && !menu.hidden) pnavClose(true);
+  press.click();
+  return true;
+};
 
 /* Where focus lands when the thing it was on leaves the screen. The old
    fallback was the h1, which the pack header made visually hidden -- a
@@ -47602,6 +47731,7 @@ function paintRailMe() {
   const upName = document.getElementById('userpop-name');
   if (upFace) upFace.innerHTML = faceHtml;
   if (upName) upName.textContent = who;
+  if (typeof kappHeadPaint === 'function') kappHeadPaint();   // #6846: and the app header's face (typeof: tests lift this alone)
   const face = document.getElementById('rail-me-face');
   const name = document.getElementById('rail-me-name');
   if (!face || !name) return;
@@ -53710,7 +53840,7 @@ async function pollCwNote() {
       return;
     }
     // Keyboard focus goes where #5018's notices send it when they close: the K mark, the remote bar's menu, the heading.
-    const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+    const next = ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   });
   const ackBtn = document.getElementById('plus-cw-ack');
