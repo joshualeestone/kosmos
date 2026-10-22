@@ -17,7 +17,9 @@ lock-only check would miss a hand-run deploy), and add ancestry:
 - the list becomes `ps -axo pid=,ppid=,command=`;
 - a publisher match whose parent chain reaches a `tools/test-*.sh` command (same anchoring as the publisher
   pattern), or a node process running `--test` or a `*.test.js` file (the node suite spawns the real
-  release.sh: tools.release-gate.test.js), is passed over; a plain node process is not a test;
+  release.sh: tools.release-gate.test.js), is passed over; a plain node process is not a test, and neither
+  is an ancestor whose own command also names a publisher (`bash -c 'tools/test-x.sh && tools/deploy-site.sh'`);
+- a match passed over is logged with the test above it (a wrong exemption leaves a record);
 - the skip message names the pid and command that held it.
 
 Rejected: using release.sh's cut marker only (misses hand-run deploy-site/promote-channel); excluding by
@@ -43,6 +45,9 @@ beneath it, not above it.
 - The skip line prints up to 200 characters of the matched command into the log and the job output. The
   three publishers take a version or flags; deploy-site.sh reads the Vercel token from the environment.
   Kept, because the path is what tells a reader the holder was a test worktree.
+  The passed-over line carries the same text plus the test's command, on the same reasoning.
+- The passed-over line is written on both looks of a tick (before and after the mirror): two lines per
+  tick while a test runs. Kept: a record per look is what shows the second look saw it too.
 
 ## Tests
 
