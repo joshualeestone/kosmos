@@ -1198,7 +1198,11 @@ do {
     let run = t.press(.projects, page: .ready)
     check(run != nil && run?.script == AppTabs.pressScript(.projects) && run?.serial == serialBefore + 1, "a ready page: the press runs, with a new number")
     check(t.answered(serial: run!.serial, .absent, pageURL: nil) == nil && t.pending == .projects, "no door: it still waits")
-    check(t.answered(serial: run!.serial, .opened, pageURL: nil) == nil && t.pending == nil, "opened: over")
+    let waiting = t.press(.projects, page: .ready)!
+    check(t.running, "the press is running while it waits for its answer")
+    check(t.answered(serial: waiting.serial, .absent, pageURL: nil) == nil && !t.running && t.pending == .projects, "no answer: it waits for a load, but no longer holds the bar")
+    let again = t.press(.projects, page: .ready)!
+    check(t.answered(serial: again.serial, .opened, pageURL: nil) == .projects && t.pending == nil && !t.running, "opened: over, and the bar goes to the tab pressed")
 
     var u = PressTracker()
     let first = u.press(.projects, page: .ready)!
@@ -1237,16 +1241,23 @@ do {
 section("app tabs: the bar follows the page")
 do {
     let home = URL(string: "https://studio.kosmosplus.com/")
-    check(AppTabs.follow(pageURL: roomURL, selected: .today, pressWaiting: false, tasksTab: false) == .projects, "a link from Today into a project room lights Projects")
-    check(AppTabs.follow(pageURL: home, selected: .projects, pressWaiting: false, tasksTab: false) == .today, "a swipe back to the board's home lights Today")
-    check(AppTabs.follow(pageURL: roomURL, selected: .projects, pressWaiting: false, tasksTab: false) == nil, "already right: nothing moves")
-    check(AppTabs.follow(pageURL: settingsURL, selected: .today, pressWaiting: true, tasksTab: false) == nil, "a press waiting: its answer decides, not the address")
-    check(AppTabs.follow(pageURL: settingsURL, selected: .agents, pressWaiting: false, tasksTab: false) == nil, "never from Agents, which shows no page")
-    check(AppTabs.follow(pageURL: nil, selected: .settings, pressWaiting: false, tasksTab: false) == nil, "no address: nothing moves")
-    check(AppTabs.follow(pageURL: tasksURL, selected: .settings, pressWaiting: false, tasksTab: false) == .today, "a Tasks section the bar does not offer lights Today")
-    check(AppTabs.follow(pageURL: tasksURL, selected: .settings, pressWaiting: false, tasksTab: true) == .tasks, "and Tasks once the bar has it")
-    check(AppTabs.followPresses(pageURL: tasksURL, to: .today), "following onto a hidden Tasks section brings the page to Today")
-    check(!AppTabs.followPresses(pageURL: roomURL, to: .projects) && !AppTabs.followPresses(pageURL: home, to: .today), "an ordinary follow presses nothing")
+    let signIn = URL(string: "https://\(AppTabs.signInHost)/")
+    func f(_ from: URL?, _ to: URL?, _ selected: AppTabs.Tab, running: Bool = false, tasks: Bool = false) -> AppTabs.Follow? {
+        AppTabs.follow(from: from, to: to, selected: selected, pressRunning: running, tasksTab: tasks)
+    }
+    check(f(home, roomURL, .today) == AppTabs.Follow(barTo: .projects, press: nil), "a link from Today into a project room lights Projects, pressing nothing")
+    check(f(roomURL, home, .projects) == AppTabs.Follow(barTo: .today, press: nil), "a swipe back to the board's home lights Today")
+    check(f(home, roomURL, .projects) == nil, "already right: nothing moves")
+    check(f(home, settingsURL, .today, running: true) == nil, "a press running: its answer decides, not the address")
+    check(f(home, settingsURL, .agents) == nil, "never from Agents, which shows no page")
+    check(f(home, nil, .settings) == nil, "no address: nothing moves")
+    check(f(home, signIn, .projects) == nil, "never on the sign-in page, which a waiting press waits through")
+    let roomTwo = URL(string: "https://studio.kosmosplus.com/?tab=projects&project=y")
+    check(f(roomURL, roomTwo, .settings) == nil, "an address rewritten within one section (Settings opened over the consolidated layout keeps ?tab=projects) moves nothing")
+    check(f(home, tasksURL, .settings) == AppTabs.Follow(barTo: .today, press: .today), "a Tasks section the bar does not offer lights Today and brings the page there")
+    check(f(home, tasksURL, .today) == AppTabs.Follow(barTo: nil, press: .today), "with Today already lit, the page is still brought to Today")
+    check(f(home, tasksURL, .settings, tasks: true) == AppTabs.Follow(barTo: .tasks, press: nil), "and Tasks once the bar has it")
+    check(f(signIn, home, .today) == nil && f(signIn, roomURL, .today) == AppTabs.Follow(barTo: .projects, press: nil), "from the sign-in page to a Mac's page is a real move")
 }
 
 section("app tabs: Tasks read rounds")

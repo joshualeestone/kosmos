@@ -78,11 +78,11 @@ struct ContentView: View {
         .onChange(of: pushManager.boardToOpen) { request in
             if request != nil { tab = .today }
         }
-        // The board refused a press (a box was up): the bar goes to the tab the page really shows, so pressing the
-        // same tab again later is a real press.
-        .onChange(of: web.refused) { back in
+        // A press was answered: opened, the bar is on the tab pressed; refused (a box was up), it goes to the tab the
+        // page really shows, so pressing the same tab again later is a real press.
+        .onChange(of: web.answeredTab) { back in
             guard let back = back else { return }
-            web.refused = nil
+            web.answeredTab = nil
             let shown = AppTabs.keep(back, tasksTab: web.tasksTab)
             // The board can be on a Tasks section the bar does not offer (its door presses a hidden Tasks tab).
             // Then Today waits to be pressed at the next load, so the page comes to the tab the bar lights.
@@ -93,10 +93,11 @@ struct ContentView: View {
             tab = shown
         }
         // The page moved section by itself (a link in it, a swipe back): the bar follows, without pressing.
-        .onChange(of: web.pageURL) { url in
-            if let next = AppTabs.follow(pageURL: url, selected: tab, pressWaiting: web.pressWaiting, tasksTab: web.tasksTab) {
-                tab = next
-                if AppTabs.followPresses(pageURL: url, to: next) { web.press(next) }
+        .onChange(of: web.pageMove) { move in
+            guard let move = move else { return }
+            if let follow = AppTabs.follow(from: move.from, to: move.to, selected: tab, pressRunning: web.pressRunning, tasksTab: web.tasksTab) {
+                if let next = follow.barTo { tab = next }
+                if let press = follow.press { web.press(press) }
             }
         }
         // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing.
@@ -280,25 +281,31 @@ final class BoardWeb: ObservableObject {
     // Remembered for the app, not per computer (the board's own flag is per computer): after a switch, a launch shows
     // the last computer's bar until the first read lands.
     @Published private(set) var tasksTab = UserDefaults.standard.bool(forKey: AppTabs.rememberedTasksKey)
-    // Set when the board refuses a press: the tab to put the bar back on.
-    @Published var refused: AppTabs.Tab?
+    // Set when a press is answered: the tab to put the bar on.
+    @Published var answeredTab: AppTabs.Tab?
     // What to press and read, and which answers still count (ShellLogic.swift, tested).
     private var tracker = PressTracker()
 
     init() { coordinator.web = self }
 
-    // The page's address as it changes, also by replaceState, so the bar can follow the page's own moves.
-    @Published private(set) var pageURL: URL?
+    // Each change of the page's address (replaceState too), with the one before, so the bar can follow the page's own
+    // moves between sections.
+    struct PageMove: Equatable {
+        let from: URL?
+        let to: URL?
+    }
+    @Published private(set) var pageMove: PageMove?
     private var urlWatch: NSKeyValueObservation?
-    // Whether a press is still waiting for its answer; the bar does not follow the page meanwhile.
-    var pressWaiting: Bool { tracker.pending != nil }
+    // Whether a press's script is running; the bar does not follow the page meanwhile.
+    var pressRunning: Bool { tracker.running }
 
     func adopt(_ webView: WKWebView) {
         self.webView = webView
         urlWatch = webView.observe(\.url, options: [.new]) { [weak self] seen, _ in
             DispatchQueue.main.async {
                 guard let self = self, self.webView === seen else { return }
-                self.pageURL = seen.url
+                guard seen.url != self.pageMove?.to else { return }
+                self.pageMove = PageMove(from: self.pageMove?.to, to: seen.url)
             }
         }
     }
@@ -312,7 +319,7 @@ final class BoardWeb: ObservableObject {
             guard let self = self else { return }
             let answer = AppTabs.answer(result, error: error)
             if answer == .refused { NSLog("[Tabs] the board refused \(tab)") }
-            if let back = self.tracker.answered(serial: run.serial, answer, pageURL: webView.url) { self.refused = back }
+            if let back = self.tracker.answered(serial: run.serial, answer, pageURL: webView.url) { self.answeredTab = back }
         }
     }
 
@@ -361,7 +368,7 @@ final class BoardWeb: ObservableObject {
         webView?.removeFromSuperview()
         urlWatch = nil
         webView = nil
-        pageURL = nil
+        pageMove = nil
         // The fresh page opens the selected tab's section and its first read may set the bar, as at launch: it
         // comes right after an unlock, a return.
         tracker.drop(selected: selected)

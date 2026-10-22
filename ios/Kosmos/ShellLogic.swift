@@ -269,7 +269,8 @@ enum AppTabs {
         case noDoor
     }
 
-    // The coordinator's sign-in host (KosmosConfig.coordinatorOrigin), where a press waits for the hand-off.
+    // The coordinator's sign-in host, where a press waits for the hand-off. It must match KosmosConfig.coordinatorOrigin
+    // (ContentView.swift), which LogicTests cannot compile; change both together.
     static let signInHost = "login.kosmosplus.com"
 
     // What a press's answer does: whether the press is over, and where the bar goes (nil: it stays). A refusal puts
@@ -288,20 +289,26 @@ enum AppTabs {
         }
     }
 
-    // The page moved to another section by itself (a link in it, a swipe back): where the bar goes, or nil to leave it,
-    // so the bar never lights a tab the page is not on. Not while a press waits (its answer decides), and never from
-    // Agents, the native tab, which shows no page.
-    static func follow(pageURL: URL?, selected: Tab, pressWaiting: Bool, tasksTab: Bool) -> Tab? {
-        guard !pressWaiting, selected != .agents, let pageURL = pageURL else { return nil }
-        let next = keep(tab(forBoardURL: pageURL), tasksTab: tasksTab)
-        return next == selected ? nil : next
+    // What following the page does: the tab the bar moves to (nil: it stays), and a tab to press so the page comes to
+    // the bar (nil: none).
+    struct Follow: Equatable {
+        let barTo: Tab?
+        let press: Tab?
     }
 
-    // Whether following needs a press too: the page is on a section the bar does not offer (a Tasks section the bar
-    // has not earned), so the bar lit Today and the page is brought there. Pressed now, since no box is up: the page
-    // moved by itself.
-    static func followPresses(pageURL: URL?, to tab: Tab) -> Bool {
-        pageURL != nil && self.tab(forBoardURL: pageURL) != tab
+    // The page moved to another section by itself (a link in it, a swipe back): the bar follows, so it never lights a
+    // tab the page is not on. Only a real change of section counts: an address the board rewrites within a section
+    // (and a Settings opened over the consolidated layout, which keeps the previous ?tab=) moves nothing. Not while a
+    // press is running (its answer decides), never from Agents, the native tab, which shows no page, and never on the
+    // sign-in page, which a waiting press is waiting through. A section the bar does not offer (a Tasks section not
+    // earned) lights Today and is pressed there, now, since no box is up: the page moved by itself.
+    static func follow(from previous: URL?, to pageURL: URL?, selected: Tab, pressRunning: Bool, tasksTab: Bool) -> Follow? {
+        guard !pressRunning, selected != .agents, let pageURL = pageURL, pageURL.host != signInHost else { return nil }
+        let now = tab(forBoardURL: pageURL)
+        if let previous = previous, previous.host == pageURL.host, tab(forBoardURL: previous) == now { return nil }
+        let next = keep(now, tasksTab: tasksTab)
+        let move = Follow(barTo: next == selected ? nil : next, press: next == now ? nil : next)
+        return move.barTo == nil && move.press == nil ? nil : move
     }
 
     static func answer(_ result: Any?, error: Error?) -> DoorAnswer {
@@ -358,6 +365,9 @@ struct PressTracker {
     // sign-in page before the hand-off to the Mac). Tried again at every load until the door opens the section or
     // refuses; a new press, the native tab, or a page the app loads itself (an agent tap) replaces it.
     private(set) var pending: AppTabs.Tab?
+    // Whether the latest press's script is running (sent, no answer yet). Only then does the bar not follow the page:
+    // a press waiting for a load does not hold the bar, since the page can move many times before that load.
+    private(set) var running = false
     // Every press, every page the app loads itself and every drop take a new number; an answer counts only for the
     // latest, so a late answer to an earlier press can neither end nor move anything newer.
     private(set) var serial = 0
@@ -385,17 +395,22 @@ struct PressTracker {
     // (the native tab, which also ends a waiting press; or a page not ready, when the press waits for its load).
     mutating func press(_ tab: AppTabs.Tab, page: Page) -> (script: String, serial: Int)? {
         serial += 1
-        guard let script = AppTabs.pressScript(tab) else { pending = nil; return nil }
+        guard let script = AppTabs.pressScript(tab) else { pending = nil; running = false; return nil }
         pending = tab
-        return page == .ready ? (script, serial) : nil
+        running = page == .ready
+        return running ? (script, serial) : nil
     }
 
-    // An answer to the press numbered `serial`: where the bar goes, or nil.
+    // An answer to the press numbered `serial`: where the bar goes, or nil. An opened press puts the bar on the tab
+    // pressed, since the bar may have moved meanwhile (following the page while the press waited for a load). The
+    // tab can be one the bar does not offer (a refusal on a hidden Tasks section): the caller clamps it (keep).
     mutating func answered(serial: Int, _ answer: AppTabs.DoorAnswer, pageURL: URL?) -> AppTabs.Tab? {
         guard serial == self.serial else { return nil }
+        running = false
+        let pressed = pending
         let next = AppTabs.afterAnswer(answer, pageURL: pageURL)
         if next.over { pending = nil }
-        return next.barTo
+        return answer == .opened ? pressed : next.barTo
     }
 
     // A press the app makes for the person, to run at the next load rather than now: after a refusal on a Tasks section
@@ -403,6 +418,7 @@ struct PressTracker {
     // Not run now, since the box is still up and would refuse it again.
     mutating func waitToPress(_ tab: AppTabs.Tab) {
         serial += 1
+        running = false
         pending = AppTabs.pressScript(tab) == nil ? nil : tab
     }
 
@@ -410,6 +426,7 @@ struct PressTracker {
     // and no answer to one may move the bar.
     mutating func loadingOwnPage() {
         serial += 1
+        running = false
         pending = nil
     }
 
@@ -457,6 +474,7 @@ struct PressTracker {
     // The page was dropped (a lock): the fresh page opens the selected tab's section and may set Tasks, as at launch.
     mutating func drop(selected: AppTabs.Tab) {
         serial += 1
+        running = false
         generation += 1
         pending = AppTabs.pressScript(selected) == nil ? nil : selected
         readThisLaunch = false
