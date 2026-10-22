@@ -12,9 +12,9 @@ publisher under it would not hold the site deploy (the unsafe direction).
 `--import`; the test file itself may not start with `-`:
 `^([^ ]*/)?node(( -[^ ]+)|( (--require|-r|--import) [^ ]+))* (--test(=[^ ]*)?|[^ -][^ ]*\.test\.[cm]?js)( |$)`.
 
-Measured on this Mac (node 26.8.1), run the way tools/run-tests.sh runs it (`node --test --require <file>
---test-timeout=... <files>`): the parent is `node --test ...`; each child is the node binary, about thirty `--x=y`
-options, then the forwarded `--require <file> --test-timeout=... <file>.test.js`. The separate `--require` value is why
+Measured on this Mac (node 26.8.1), run the way tools/run-tests.sh runs it (`node --test --require <launch-guard>
+--require <tool-guard> --test-timeout=... <files>`): the parent is `node --test ...`; each child is the node binary, about thirty `--x=y`
+options, then the forwarded `--require` pairs, `--test-timeout=...` and the test file. The separate `--require` value is why
 the value is allowed (iteration 1: my first measurement ran node without --require, and the anchored pattern then missed
 the real child). The arm uses that measured child line with no matching parent, so it proves the child alone.
 
