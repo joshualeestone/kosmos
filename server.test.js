@@ -4463,6 +4463,7 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
   const realLocation = updates.windowsLocationRefusal;
   const realRollback = updates.rollbackOffer;
   const realLastAttempt = updates.lastAttempt;
+  const realBeginInstall = updates.beginInstall;
   const realLog = console.log;
   const realError = console.error;
   const lines = [];
@@ -4497,6 +4498,15 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
     assert.ok(logged(/FAIL rollback press: the rollback engine exploded/), 'the roll back throw was not logged');
     updates.windowsLocationRefusal = realLocation;
     updates.rollbackOffer = realRollback;
+
+    // The installer itself failing to start: the route's own 500, now logged with its cause (it logged nothing before).
+    updates.beginInstall = () => { throw new Error('the spawn exploded'); };
+    const spawnFail = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(spawnFail.status, 500);
+    assert.equal(JSON.parse(spawnFail.body).error, 'Kosmos could not start the update just now. Try again in a minute.');
+    assert.ok(logged(/^update press answered 500: Kosmos could not start the update just now\. Try again in a minute\. \(the spawn exploded\)$/),
+      'a failed start was not logged with its cause:\n' + lines.join('\n'));
+    updates.beginInstall = realBeginInstall;
 
     // A refusal is logged with the sentence the person saw.
     updates.setInstalledRoot(null);
@@ -4541,6 +4551,7 @@ test('#6903: an Update or Roll back press that throws answers with a sentence, t
     updates.windowsLocationRefusal = realLocation;
     updates.rollbackOffer = realRollback;
     updates.lastAttempt = realLastAttempt;
+    updates.beginInstall = realBeginInstall;
     updates.resetCache();
     updates.setFetcher(null);
     updates.setInstallRunner(null);

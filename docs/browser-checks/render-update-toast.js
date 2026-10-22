@@ -214,7 +214,8 @@ const RELPORT = freePort();
        from-source refusal. A source-run board no longer offers an update at
        all (Josh, 2026-08-23 13:03), so that state cannot arise, and this
        board is an installed layout on purpose, where Update would start a
-       real install. Update is not pressed here. */
+       real install. The real route is never pressed: the #6903 leg below
+       presses Update only after proving its stub catches the request. */
 
     /* #6903 (Josh, 2026-10-22 10:46): a press the board did not answer, or answered with no reason, showed only "we
        could not start the update". Update IS pressed here, but every press is answered by the page's own route
@@ -243,7 +244,13 @@ const RELPORT = freePort();
       if (!out.open || !out.enabled || out.go !== label) die('#6903: the dialog was left stranded: ' + JSON.stringify(out));
       return out.err;
     };
+    // Before any click: both stubs catch a POST, so a press can never reach the real route and start an install.
     answer = (route) => route.abort('connectionreset');
+    for (const url of ['/api/update', '/api/update/rollback']) {
+      const before = pressed;
+      const reached = await p.evaluate(async (u) => fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' } }).then(() => true, () => false), url);
+      if (reached || pressed !== before + 1) die('#6903: the stub did not catch a POST to ' + url + '; not pressing anything');
+    }
     const none = await press();
     if (none !== 'Kosmos did not answer, so this page cannot tell whether the update started. Kosmos may be restarting, perhaps to install it. Wait a minute, then reload this page.')
       die('#6903: no answer said: ' + none);

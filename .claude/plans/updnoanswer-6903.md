@@ -39,6 +39,14 @@ Card: kosmos#6903 (Josh, 2026-10-22 10:46 CDT: the dialog showed only "we could 
 - Not changed: `detail` (a raw error message) reaches the board log on a 500. That is the point of the log; the
   dialog never shows it.
 
+## Review round 3 (NITs only; fixed, so one more round follows)
+- The browser check proves both stubs catch a POST before any click, so a press can never reach the real route on
+  this installed-layout board and start an install. The retired-leg comment no longer says Update is never pressed.
+- The page comment said "often" for a cause that was never measured; it says "perhaps".
+- The installer failing to start (cause 3, the 500 that logged nothing) now has a test arm pinning its log line.
+- Not changed: a generic throw's raw message goes back as `detail` in the 500 body, as the existing beginInstall arm
+  already did. Local board, same-account clients; the dialog never shows it.
+
 ## Rejected
 - A process-level unhandledRejection handler for the whole board: much wider than this card, and it would change how
   every other route fails. Out of scope; the two routes that start installs are guarded where they are.

@@ -24416,7 +24416,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     // or a spawn failure. All are states, not scoldings.
     /* #6903 (Josh, 2026-10-22 10:46): with no sentence from the route the dialog said only "we could not start the
        update", which named neither what happened nor what to do. Two different things reach here: the board did not
-       answer at all (it was restarting, often for an automatic update that began a moment earlier), or it answered
+       answer at all (it was restarting, perhaps for an automatic update that began a moment earlier), or it answered
        without a reason. Each says what happened and the one thing to do; the board logs its own refusals (#6903). */
     const did = rollingBack ? 'roll back' : 'update';
     const said = (body && body.error) || (!res
