@@ -26,7 +26,7 @@ test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(S
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 // #6724: the Files screen is the browser now: its row, path and folder helpers come with it.
-const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'paintAgentFiles', 'folderIcon', 'agentDirRow', 'agentFilesPath', 'paintAgentFilesAll']);
+const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'fileFingerprint', 'rowKey', 'focusedRowKey', 'refocusRow', 'paintAgentFiles', 'folderIcon', 'agentDirRow', 'agentFilesPath', 'paintAgentFilesAll']);
 
 test('the Files block sits directly under the four-pack, inside the left column, with the Explorer copy', () => {
   const navEnd = PAGE.indexOf('</nav>', PAGE.indexOf('id="d-nav"'));

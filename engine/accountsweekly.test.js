@@ -54,12 +54,16 @@ test('#6178 summary is kept for CACHE_MS, and an account change does not wait fo
 
 test('#6178 weeklyBlockedOf names why there can be no reading', () => {
   const d = acct('e');
-  assert.equal(aw.weeklyBlockedOf({ dir: d }), 'not-wired');
+  // The Mac's reasons, named on any host (kosmos#6570: Windows has none, below).
+  assert.equal(aw.weeklyBlockedOf({ dir: d }, 'darwin'), 'not-wired');
+  assert.equal(aw.weeklyBlockedOf({ dir: d }, 'win32'), null, '#6570: on Windows an agent records it from its own stream, wired or not');
   fs.writeFileSync(path.join(d, 'settings.json'), JSON.stringify({ statusLine: { type: 'command', command: 'mine' } }));
-  assert.equal(aw.weeklyBlockedOf({ dir: d }), 'own-statusline');
+  assert.equal(aw.weeklyBlockedOf({ dir: d }, 'darwin'), 'own-statusline');
+  assert.equal(aw.weeklyBlockedOf({ dir: d }, 'win32'), null);
   fs.writeFileSync(path.join(d, 'settings.json'), '{not json');
-  assert.equal(aw.weeklyBlockedOf({ dir: d }), 'unreadable-settings');
-  assert.equal(aw.weeklyBlockedOf({ dir: d, apiKey: true }), null, 'a key account was given a reason');
+  assert.equal(aw.weeklyBlockedOf({ dir: d }, 'darwin'), 'unreadable-settings');
+  assert.equal(aw.weeklyBlockedOf({ dir: d }, 'win32'), null);
+  assert.equal(aw.weeklyBlockedOf({ dir: d, apiKey: true }, 'darwin'), null, 'a key account was given a reason');
 });
 
 test('#6178 an account that becomes an API key says so at once, not after the cache', () => {

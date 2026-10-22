@@ -279,7 +279,7 @@ async function post(port, route, headers, body, timeoutMs, fetchImpl) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), left);
   await Promise.resolve()
-    .then(() => doFetch(`http://127.0.0.1:${port}${route}`, { method: 'POST', headers, body, signal: controller.signal }))
+    .then(() => doFetch(`http://127.0.0.1:${port}${route}`, { method: 'POST', headers, body, signal: controller.signal, redirect: 'manual' }))
     .then((res) => (res && typeof res.text === 'function' ? res.text() : null))
     .catch(() => { /* a missed call must never become a failed turn */ })
     .finally(() => clearTimeout(timer));

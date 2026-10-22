@@ -240,7 +240,7 @@ async function post(port, route, headers, body, timeoutMs, fetchImpl) {
   if (left <= 0) return;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), left);
-  await Promise.resolve().then(() => doFetch(`http://127.0.0.1:${port}${route}`, { method: 'POST', headers, body, signal: controller.signal }))
+  await Promise.resolve().then(() => doFetch(`http://127.0.0.1:${port}${route}`, { method: 'POST', headers, body, signal: controller.signal, redirect: 'manual' }))
     .catch(() => { /* never break the agent */ })
     .finally(() => clearTimeout(timer));
 }

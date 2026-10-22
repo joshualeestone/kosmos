@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Browser-check-surface: plus-org-family plus-org-family-lead plus-org-family-accept plus-org-family-no plus-org-family-reports plus-org-family-backsup plus-org-family-readers plus-org-family-never plus-org-words plus-org-words-row
+// Browser-check-surface: plus-org-family plus-org-family-lead plus-org-family-account plus-org-family-accept plus-org-family-no plus-org-family-reports plus-org-family-backsup plus-org-family-readers plus-org-family-never plus-org-words plus-org-words-row
 /*
  * kosmos#6239 (Kosmos+Kids, slice 2; Josh 10-15 10:42): a FAMILY account's words are read and accepted by a parent
  * before this computer joins. Runs the real page (web/index.html, file://) with fetch answered by a stand-in for the
@@ -41,6 +41,9 @@
  *   W1  kosmos#6567: the board's leave refusal on a stale joined screen ("not your work Kosmos") reads in a family's words;
  *       a company keeps its own (CONTROL).
  *   W2  kosmos#6567: the stopped note says "is no longer in" the family; a company keeps "the work Kosmos for" (CONTROL).
+ *   F11 kosmos#6873: the words say whose account this computer must be signed in with (the child's, not the parent's own;
+ *       under 13 one the parent made, at an address the parent reads), name no address, and Remove this computer is on
+ *       screen with them; the review flow's words (R2) say the same.
  *   F10 a family's words checked while the block was held open only by a line under it stay up, with the code above.
  *   F9  no page errors.
  */
@@ -176,6 +179,13 @@ async function run(engineName) {
       E + ' F1 every part of the words shows, as the coordinator sent it', JSON.stringify(f1));
     chk(f1.accept === 'Accept and join' && f1.no === 'Not now' && f1.group === "group|The family's words",
       E + ' F1 Accept and join, Not now, and a labelled group', JSON.stringify({ a: f1.accept, n: f1.no, g: f1.group }));
+    // F11 (kosmos#6873): the rule, and the way to change account, which is on screen with the words.
+    const acct = await text('plus-org-family-account');
+    const RULE = 'On a child\u2019s computer, Kosmos+ must be signed in with the child\u2019s account, not the address you sign in with yourself; for a child under 13, one you made for them, at an email address you read.';
+    const RECOVER = 'If this computer was signed in with your own address, press Not now, then Remove this computer, sign in again with the child\u2019s account, and enter the family\u2019s join code again.';
+    chk(acct.startsWith(RULE) && acct.includes('Do not use a child\u2019s own email address for a child under 13.') && acct.endsWith(RECOVER) && !acct.includes('@')
+        && await shown('plus-org-family-account') && await shown('plus-forget-go'),
+      E + ' F11 the words say whose account this must be, name no address, and Remove this computer is on screen', JSON.stringify({ acct, remove: await shown('plus-forget-go') }));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'org-family-words-' + engineName + '.png') });
 
     // F2: Accept and join sends wordsShown and joins.
@@ -294,6 +304,9 @@ async function run(engineName) {
     const r2 = { box: await shown('plus-org-family'), lead: await text('plus-org-family-lead'), accept: (await text('plus-org-family-accept')).trim(), focus: await focus(), row: await shown('plus-org-words') };
     chk(p.length === 1 && p[0].path === '/api/org/preview' && JSON.stringify(p[0].body) === JSON.stringify({ review: true }),
       E + ' R2 Read the family\'s words asks for exactly { review: true }', JSON.stringify(p.map((x) => [x.path, x.body])));
+    chk((await text('plus-org-family-account')).startsWith('On a child\u2019s computer, Kosmos+ must be signed in with the child\u2019s account')
+        && (await text('plus-org-family-account')).endsWith('and enter the family\u2019s join code again.') && await shown('plus-forget-go'),
+      E + ' F11 the review flow says whose account this must be, and Remove this computer is on screen');
     chk(r2.box && r2.lead.includes('Its words are not accepted on this computer') && r2.lead.includes('parent or guardian') && r2.accept === 'Accept' && r2.focus === 'plus-org-family-lead' && !r2.row,
       E + ' R2 the words show as not accepted here, with Accept, focus on them, and the button folds', JSON.stringify(r2));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'org-family-review-' + engineName + '.png') });

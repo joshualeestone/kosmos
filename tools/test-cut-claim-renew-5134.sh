@@ -118,7 +118,7 @@ rm -f "$CLAIM"
 ( cut_run '
   step "== killed =="
   echo "$_CUT_RENEWER" > "'"$T"'/arm6r"
-  sleep 30 & echo $! > "'"$T"'/arm6s"; wait
+  perl -e "select(undef, undef, undef, 30)" & echo $! > "'"$T"'/arm6s"; wait
 ' ) 2>/dev/null &
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$T/arm6r" ] && break; sleep 0.3; done
 kill -9 "$(cat "$T/cut.pid")" 2>/dev/null || true
@@ -131,7 +131,7 @@ if [ -n "${e4:-}" ] && [ "$e4" = "$e5" ]; then pass "a killed cut's renewer stop
 else fail "the renewer kept renewing after its cut was killed (expiry ${e4:-?} -> ${e5:-?})"; fi
 if [ -n "$r6" ] && ! kill -0 "$r6" 2>/dev/null; then pass "and the renewer process is gone"
 else fail "the renewer ${r6:-?} is still running after its cut was killed"; kill "$r6" 2>/dev/null || true; fi
-kill "$(cat "$T/arm6s" 2>/dev/null)" 2>/dev/null || true   # the killed cut's own sleep, orphaned by the kill -9
+kill "$(cat "$T/arm6s" 2>/dev/null)" 2>/dev/null || true   # the killed cut's own wait, orphaned by the kill -9
 wait 2>/dev/null || true
 
 # Arm 7 (review 1): someone else's claim is never written over. Mid-step, a foreign claim replaces ours (as when ours

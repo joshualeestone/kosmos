@@ -65,9 +65,9 @@ verbs_try "$CRASH" "$OPEN"; [ "$VRC" = 0 ] && bad "gate open, a crashing connect
 verbs_try "$CRASH" "$SHUT"; if [ "$VRC" = 0 ]; then [ "$(wc -l < "$T/err" | tr -d ' ')" = 1 ] && grep -q "could not check" "$T/err" && grep -q "exited 139" "$T/err" && ! grep -Eq "$TIMEOUT_RE" "$T/err" && grep -q "stay unsigned-broken as before" "$T/err" && ok "gate closed, a crash is one line and the build goes on" || bad "closed-gate crash note wrong: $(cat "$T/err")"; else bad "gate closed, a crashing connector was refused"; fi
 EXIT2="$T/other-exit2"; printf '#!/bin/sh\necho "error: the argument --coordinator is required" >&2\nexit 2\n' > "$EXIT2"; chmod +x "$EXIT2"
 verbs_try "$EXIT2" "$OPEN"; [ "$VRC" = 0 ] && bad "an exit 2 without unrecognized subcommand was accepted" || { grep -q "could not check" "$T/err" && grep -q "running it exited 2 " "$T/err" && ! grep -Eq "$TIMEOUT_RE" "$T/err" && ok "exit 2 for another reason is not read as old" || bad "exit 2 misread: $(cat "$T/err")"; }
-HANG="$T/hang-tunnel"; printf '#!/bin/sh\nexec sleep 300\n' > "$HANG"; chmod +x "$HANG"
+HANG="$T/hang-tunnel"; printf '#!/bin/sh\nexec perl -e "select(undef, undef, undef, 300)"\n' > "$HANG"; chmod +x "$HANG"
 start=$(date +%s); CONNECTOR_PROBE_SECONDS=2 connector_verbs_check "$HANG" "$OPEN" 2>"$T/err"; took=$(( $(date +%s) - start ))
-# #4678: bounded means it returned well before the stand-in's own 300 s sleep, with the 2 s timeout named.
+# #4678: bounded means it returned well before the stand-in's own 300 s wait, with the 2 s timeout named.
 # The limit is 30 s, not the old 10: 10 was a guess at the box's speed that a busy box broke without the
 # bound failing, while 30 still catches a 2 s bound armed about fifteen times too long.
 [ "$took" -lt 30 ] && grep -q "could not check" "$T/err" && grep -q "did not answer within 2 seconds" "$T/err" && ok "a hanging connector is cut off by the bound (${took}s) and refused as unrunnable" || bad "a hang was not bounded (${took}s): $(cat "$T/err")"
@@ -104,15 +104,15 @@ child_hang_arm() {  # child_hang_arm <stand-in> <label> <bound seconds> [a file 
   done
   [ "$took" -lt 30 ] && grep -q "did not answer within $b seconds" "$T/err" && ok "$label: a connector whose child hangs is also cut off (${took}s), naming the time limit" || bad "$label: a hanging child was not bounded (${took}s): $(cat "$T/err")"
   pid="$(cat "$T/kid.pid")"
-  # The group was SIGKILLed, but perl waits only for the stand-in's shell, so the killed sleep can still be
-  # exiting for a moment on a busy box. Up to 5 s for it to go; a real leak is a sleep 300, still there.
+  # The group was SIGKILLed, but the timeout wrapper waits only for the stand-in's shell, so the killed wait can still be
+  # exiting for a moment on a busy box. Up to 5 s for it to go; a real leak is the 300 s wait, still there.
   n=0; while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
   if kill -0 "$pid" 2>/dev/null; then
     bad "$label: the hung connector's child outlived the bound"
-    /bin/ps -o command= -p "$pid" 2>/dev/null | grep -q '^sleep 300' && kill "$pid" 2>/dev/null
+    /bin/ps -o command= -p "$pid" 2>/dev/null | grep -qF 'select(undef, undef, undef, 300)' && kill "$pid" 2>/dev/null   # the stand-in's own wait (kosmos#6730), so a reused pid is never killed
   else ok "$label: the timed-out connector's child process is gone too"; fi
 }
-KID="$T/child-hang-tunnel"; printf '#!/bin/sh\nsleep 300 &\necho $! > "%s"\nwait\n' "$T/kid.pid" > "$KID"; chmod +x "$KID"
+KID="$T/child-hang-tunnel"; printf '#!/bin/sh\nperl -e "select(undef, undef, undef, 300)" &\necho $! > "%s"\nwait\n' "$T/kid.pid" > "$KID"; chmod +x "$KID"
 # A 5 s bound: this arm only needs the child to EXIST before the bound fires (the HANG arm above covers the
 # 2 s bound itself), so it gets room a busy box's scheduling needs.
 child_hang_arm "$KID" "child hang" 5
@@ -122,14 +122,14 @@ child_hang_arm "$KID" "child hang" 5
 # the stand-in had to write itself would depend on the very scheduling this card is about). Each arm also
 # checks that exactly one rerun happened.
 SLOWCRASH="$T/slow-once-crash"; : > "$T/sc.slow"
-printf '#!/bin/sh\n[ -e "%s" ] && exec sleep 300\necho "Segmentation fault" >&2\nexit 139\n' "$T/sc.slow" > "$SLOWCRASH"; chmod +x "$SLOWCRASH"
+printf '#!/bin/sh\n[ -e "%s" ] && exec perl -e "select(undef, undef, undef, 300)"\necho "Segmentation fault" >&2\nexit 139\n' "$T/sc.slow" > "$SLOWCRASH"; chmod +x "$SLOWCRASH"
 r0=$RETRIES; CONNECTOR_PROBE_SECONDS=1 VERBS_RERUN_SECONDS=20 VERBS_RERUN_CLEARS="$T/sc.slow" verbs_try "$SLOWCRASH" "$OPEN"; ON_PURPOSE=$((ON_PURPOSE + RETRIES - r0))
 [ $((RETRIES - r0)) = 1 ] && [ "$VRC" != 0 ] && grep -q "exited 139" "$T/err" && ok "a stand-in that timed out once is run once more and judged on its real answer" || bad "a first-run timeout was not rerun once and judged on the real answer ($((RETRIES - r0)) reruns): $(cat "$T/err")"
-ALWAYS="$T/always-slow"; printf '#!/bin/sh\nexec sleep 300\n' > "$ALWAYS"; chmod +x "$ALWAYS"
+ALWAYS="$T/always-slow"; printf '#!/bin/sh\nexec perl -e "select(undef, undef, undef, 300)"\n' > "$ALWAYS"; chmod +x "$ALWAYS"
 r0=$RETRIES; CONNECTOR_PROBE_SECONDS=1 verbs_try "$ALWAYS" "$OPEN"; ON_PURPOSE=$((ON_PURPOSE + RETRIES - r0))
 [ $((RETRIES - r0)) = 1 ] && [ "$VRC" != 0 ] && grep -q "did not answer within 1 seconds" "$T/err" && ok "CONTROL: a stand-in that times out every try is rerun exactly once and still refuses, naming the timeout" || bad "an always-timing-out stand-in was not refused after exactly one rerun ($((RETRIES - r0)) reruns): $(cat "$T/err")"
 SLOWKID="$T/slow-once-child-hang"; : > "$T/sk.slow"
-printf '#!/bin/sh\n[ -e "%s" ] && exec sleep 300\nsleep 300 &\necho $! > "%s"\nwait\n' "$T/sk.slow" "$T/kid.pid" > "$SLOWKID"; chmod +x "$SLOWKID"
+printf '#!/bin/sh\n[ -e "%s" ] && exec perl -e "select(undef, undef, undef, 300)"\nperl -e "select(undef, undef, undef, 300)" &\necho $! > "%s"\nwait\n' "$T/sk.slow" "$T/kid.pid" > "$SLOWKID"; chmod +x "$SLOWKID"
 # A 5 s bound here: the arm tests the rerun, not the 2 s bound (the KID arm above does), and its rerun is
 # spent on purpose, so its second try gets more room than a busy box's scheduling needs.
 r0=$RETRIES; child_hang_arm "$SLOWKID" "child hang, slow first run" 5 "$T/sk.slow"; ON_PURPOSE=$((ON_PURPOSE + RETRIES - r0))

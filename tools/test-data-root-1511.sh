@@ -281,9 +281,11 @@ run "KOSMOS_HOME=$FAKE; export AGENT_WORKFORCE_DATA=/tmp/sbx-1511; KOSMOS_DATA_R
 printf '%s\n' "module.exports = {};" > "$FAKE/app/engine/store.js"
 run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA; KOSMOS_DATA_ROOT_CONSULT_SECONDS=37" >/dev/null || true
 sleep 2
+# kosmos#6730: `sleep 37` here is the PRODUCT's old watchdog shape this check hunts for, not a control of this test;
+# matching it by name is the point, so it is not converted (the sleep-control guard does not flag a pgrep line).
 left=$(pgrep -fx 'sleep 37' | wc -l | tr -d ' '); leftsh=$(pgrep -f "KOSMOS_HOME=$FAKE" | wc -l | tr -d ' ')
 [ "$left" = "0" ] && [ "$leftsh" = "0" ] && ok "no watchdog, sleep or helper subshell outlives the consult on either outcome" \
-  || { bad "the consult left processes behind" "sleep-37=$left helper-subshells=$leftsh"; pkill -fx 'sleep 37' 2>/dev/null; pkill -f "KOSMOS_HOME=$FAKE" 2>/dev/null; }
+  || { bad "the consult left processes behind" "sleep-37=$left helper-subshells=$leftsh"; pkill -f "KOSMOS_HOME=$FAKE" 2>/dev/null; }   # kosmos#6730: no `pkill -fx 'sleep 37'`: it would end any agent's sleep 37 on this shared box; a leaked one ends by itself in 37 s
 
 # 11b. THE VALUE THAT REACHES A DELETING CONSUMER CAME FROM THE CONSULT, BEFORE THE
 #      DELETE. The two static arms below pin the call's count and position; they

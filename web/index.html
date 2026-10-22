@@ -1152,6 +1152,7 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 /* #6714: the restart notice is a .utoast now; its buttons get the same phone tap height, at the width its phone layout
    and its one-notice cap use. */
 @media (max-width: 720px) { .utoast.survival .uacts button, .utoast.survival .ux { min-height: 44px; } .utoast.survival .ux { min-width: 44px; } }
+@media (max-width: 720px) { .utoast.reviewer-note .uacts button, .utoast.reviewer-note .ux { min-height: 44px; } .utoast.reviewer-note .ux { min-width: 44px; } }
 /* 🛑 #2615: THE aria-disabled ARM NEEDS ITS OWN RULE, AND ITS ABSENCE SHIPPED A
    CARD TITLED "grey out the control" THAT GREYED NOTHING OUT. `disabled` was
    doing TWO jobs: the semantics AND the dimming, via `.btn:disabled` right
@@ -1338,6 +1339,7 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 /* #6714: an agent that will not come back after a restart: a warning with a remedy, so the amber of an expiring login.
    Its report (.done) is a fact, neutral like .reboot. Restated in each theme block below. */
 .utoast.survival { --utone: var(--warn-ink); }
+.utoast.reviewer-note { --utone: var(--label-2); }   /* kosmos#6817: news, not a warning */
 .utoast.survival.done, .utoast.survival.unknown { --utone: var(--label-2); }
 .utoast.survival.done .utxt b, .utoast.survival.unknown .utxt b { color: var(--label); font-weight: 400; }
 .utoast.survival.report .utxt b b, .utoast.survival.report .utxt small b { display: inline; font-weight: 600; }   /* the name, inside its sentence */
@@ -1516,6 +1518,11 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   .utoast.survival .utxt { flex: 1 1 0; min-width: 0; }
   .utoast.survival .ux { order: 2; }
   .utoast.survival .uacts { order: 3; flex: 1 0 100%; margin-left: 19px; }
+  /* kosmos#6817: the reviewer notice takes the same phone rows: words and x, then its button beneath. */
+  .utoast.reviewer-note { flex-wrap: wrap; row-gap: 8px; }
+  .utoast.reviewer-note .utxt { flex: 1 1 0; min-width: 0; }
+  .utoast.reviewer-note .ux { order: 2; }
+  .utoast.reviewer-note .uacts { order: 3; flex: 1 0 100%; margin-left: 19px; }
   /* kosmos#6613: the certificate notice's small line says whether the check is still on; a phone keeps it. */
   .utoast.cwnote .utxt small { display: block; }
 }
@@ -1593,7 +1600,29 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote .apphead { border-bottom: 0; }
   html.kremote .apphead header { padding: 0; gap: 0; }
   html.kremote .apphead header .headleft { gap: 8px; }
+  /* #6846 (Mona Lisa's frames, ios-design-2026-10-19/tabbar-6846): inside the iPhone app with its native tab bar
+     (html.kapptabs, set by the app) the bar is the app's own header: 44px, no Kosmos+ mark (the app is Kosmos) and no
+     two lines (the native bar does their job); this computer's name left when there is another computer to switch to,
+     the person's face right, both opening the phone menu. */
+  html.kremote.kapptabs .kplus-bar { height: 44px; min-height: 44px; }
+  html.kremote.kapptabs .kplus-bar-mark, html.kremote.kapptabs .kplus-bar-menu { display: none; }
+  html.kremote.kapptabs .kplus-bar-end { margin-left: auto; }
+  html.kremote.kapptabs .kapp-comp:not([hidden]) { display: inline-flex; align-items: center; gap: 6px; min-width: 44px; height: 44px;
+    padding: 0; border: 0; background: none; color: #fff; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; }
+  html.kremote.kapptabs .kapp-comp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  html.kremote.kapptabs .kapp-comp-chev { flex: none; opacity: .8; }
+  /* The face is 32px; the button around it is the 44px tap target, its right edge on the bar's padding like the two lines. */
+  html.kremote.kapptabs .kapp-me { display: inline-grid; place-items: center; width: 44px; height: 44px; margin-right: -6px; padding: 0;
+    border: 0; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  html.kremote.kapptabs .kapp-me > img, html.kremote.kapptabs .kapp-me > .youtint { width: 32px; height: 32px; border-radius: 50%; overflow: hidden; }
+  html.kremote.kapptabs .kapp-me > img { object-fit: cover; display: block; }
+  html.kremote.kapptabs .kapp-me > .youtint { display: grid; place-items: center; background: rgba(255,255,255,.14); color: #fff;
+    font-size: 14px; font-weight: 600; }
+  html.kremote.kapptabs .kapp-comp:focus-visible, html.kremote.kapptabs .kapp-me:focus-visible { outline: 2px solid #fff; outline-offset: -2px; border-radius: 8px; }
 }
+/* Off the app's header (a browser, an older app, the Mac itself, a wide window) the two controls are never drawn. */
+.kapp-comp, .kapp-me { display: none; }
 /* #4823: the phone menu, Josh's navigation-mock.png ("copied almost identically from Apple's website"): full screen,
    Kosmos+ navy in both themes, large white type, red bubbles, an X where the two lines were. Settings goes one level
    deeper the way apple.com's menu does (Josh 20:56), measured from apple.com's own globalheader.css: the words of the
@@ -2182,7 +2211,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#cwnote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
+#cwnote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reviewer-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -6750,6 +6779,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkreceipt { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
 .tkreceipt .dlab { margin: 10px 0 4px; }
 .tkr-line, .tkr-intro, .tkr-again { margin: 2px 0 0; font-size: inherit; }
+/* kosmos#6842: a pull request label (repo#number) is one word, and a repository name may have no hyphen to break at. */
+.tkr-line { overflow-wrap: anywhere; }
 .tkr-intro, .tkr-again, .tkr-muted { color: var(--k-ink-3, var(--label-2)); }
 .tkr-agent { padding: 8px 0; }
 .tkr-agent + .tkr-agent { border-top: 1px solid var(--k-rule); }
@@ -9312,6 +9343,7 @@ svg { display: block; }
   :root:not([data-theme="light"]) .utoast.streak { --utone: var(--gold-edge); }
   :root:not([data-theme="light"]) .utoast.login-adv.warn { --utone: var(--warn-ink); }
   :root:not([data-theme="light"]) .utoast.survival { --utone: var(--warn-ink); }
+  :root:not([data-theme="light"]) .utoast.reviewer-note { --utone: var(--label-2); }
   :root:not([data-theme="light"]) .utoast.survival.done, :root:not([data-theme="light"]) .utoast.survival.unknown { --utone: var(--label-2); }
   :root:not([data-theme="light"]) .utoast.login-adv.urgent { --utone: #ff8c82; }
 }
@@ -11525,6 +11557,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-theme="dark"] .utoast.streak { --utone: var(--gold-edge); }
 :root[data-theme="dark"] .utoast.login-adv.warn { --utone: var(--warn-ink); }
 :root[data-theme="dark"] .utoast.survival { --utone: var(--warn-ink); }
+:root[data-theme="dark"] .utoast.reviewer-note { --utone: var(--label-2); }
 :root[data-theme="dark"] .utoast.survival.done, :root[data-theme="dark"] .utoast.survival.unknown { --utone: var(--label-2); }
 :root[data-theme="dark"] .utoast.login-adv.urgent { --utone: #ff8c82; }
 
@@ -11686,6 +11719,7 @@ body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice, body.
 body.plus-active .utoast.streak { --utone: var(--gold-edge); }
 body.plus-active .utoast.login-adv.warn { --utone: var(--warn-ink); }
 body.plus-active .utoast.survival { --utone: var(--warn-ink); }
+body.plus-active .utoast.reviewer-note { --utone: var(--label-2); }
 body.plus-active .utoast.survival.done, body.plus-active .utoast.survival.unknown { --utone: var(--label-2); }
 body.plus-active .utoast.login-adv.urgent { --utone: #ff8c82; }
 /* #3692: the cards and warnings that lost their left bar are marked by a hairline and a tint, and
@@ -11857,14 +11891,14 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-remove-link { color: #f0877a; }
 #s-sec-plus .plus-remove-link:hover { color: #ff9f93; text-decoration: underline; text-underline-offset: 3px; }
 #s-sec-plus .plus-lost-link { color: var(--k-ink-2); font-weight: 500; }
-/* #5791: Join Corporate Account, an outlined button with a tiny building icon; X Cancel at the top right of the entry
+/* #5791: Join Corporate Account (kosmos#6380: Join Company or Family Account), an outlined button with a tiny building icon; X Cancel at the top right of the entry
    pane; Lost your phone? under the devices list. */
 #s-sec-plus .plus-org-open { display: inline-flex; align-items: center; gap: 6px; }
 #s-sec-plus .plus-org-ico { flex: none; opacity: .8; }
 #s-sec-plus .plus-org-outhead { display: flex; justify-content: flex-end; }
 #s-sec-plus #plus-devices #plus-lost-open { display: block; margin-top: 8px; }
 /* #6402: the company block starts its own section, ruled off like the foot (.plus-foot), so the devices block's last
-   line (Lost your phone?) does not read as a heading over Join Corporate Account. A rule, not a label: no new words
+   line (Lost your phone?) does not read as a heading over the join button (Join Company or Family Account since kosmos#6380). A rule, not a label: no new words
    (Josh 10-08: one quiet line for a person with no company; Josh 10-17: no new lines). */
 #s-sec-plus #plus-org { padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
 /* kosmos#6752 (Mona Lisa's review): each grant reads as a line of the block, the sentence's size and colour, 4px apart,
@@ -12633,6 +12667,9 @@ window.kosmosMeasureScrollbarWidth();
     <!-- #6714 review 18: the result of a start sits in its own slot, so the notices below keep repainting while it is read. -->
     <div id="survival-report-slot"></div>
     <div id="survival-slot"></div>
+    <!-- kosmos#6817: someone in this person's company (or family) was made a reviewer. One notice, cleared on its x or
+         when the Settings reviewers list is in view; See who only takes the person there. Its own slot. -->
+    <div id="reviewer-slot"></div>
     <!-- #5359: the computer restarted while Kosmos was running and Kosmos came back by itself. A fact, so it sits
          below the notices that need action (update, login); its own slot so it co-occurs with them (Mona Lisa). -->
     <div id="reboot-slot"></div>
@@ -19196,7 +19233,7 @@ window.kosmosMeasureScrollbarWidth();
            measurement the headline numbers add up from. All from the existing
            /api/usage data. The per-agent breakdown is the "By agent" block
            below (#2617, from /api/usage's byAgent). -->
-      <p class="dhint">What your agents used, per class, over the last 14 days. Read from the transcripts on this computer, shown in full. Nothing here leaves the machine.</p>
+      <p class="dhint">What your agents used, per class, since Kosmos was installed on this computer (the daily charts show the last 14 days). Read from the transcripts on this computer, shown in full. Nothing here leaves the machine.</p>
       <!-- #5362 (Josh, 2026-10-05: "add our loading spinner to the token usage page"): the standard Sweep spinner beside
            the reading line while it loads. Every later message is set with textContent, which removes it, so it never
            spins beside a result or an error. -->
@@ -19515,7 +19552,11 @@ window.kosmosMeasureScrollbarWidth();
         <div class="field">
           <label class="flabel" for="plus-signin-email">Enter your Kosmos+ account email address</label>
           <input type="email" id="plus-signin-email" class="tk-inp plus-si-wide" maxlength="120" autocomplete="email"
-            placeholder="you@example.com">
+            placeholder="you@example.com" aria-describedby="plus-si-child">
+          <!-- kosmos#6873 (#6379, PigeonPete's decision 10-21, in the words of the family console's Add a child steps): a
+               child's computer is signed in with the child's account, never the parent's own; under 13, one the parent
+               makes, at an address the parent reads. Says nothing about where the account is made (#6873 step 2). -->
+          <p class="fhint" id="plus-si-child">Setting up a child's computer? Sign in with your child's account, not with the address you sign in with yourself: this computer would then be signed in as you. For a child under 13, use an account you make for them, at an email address you read, so the sign-in emails come to you.</p>
         </div>
         <!-- kosmos#5995 item 4: the name this computer is sent under, shown BEFORE it is sent. Filled from the
              computer (plusSiComputerName); the person can keep it, change it or clear it. Hidden until the name
@@ -19837,16 +19878,18 @@ window.kosmosMeasureScrollbarWidth();
         <!-- Splinter/Josh 10-08 (0.7.29): a person with no company sees one quiet line, not an Enterprise box. The full
              block shows when this Kosmos is a company's work Kosmos, a code is being checked or reviewed, a company note
              is waiting, or the person opened it. -->
-        <!-- #5791 (Josh 10-10 14:32): an outlined button with a tiny icon, not a text link. -->
-        <button type="button" class="btn plus-org-open" id="plus-org-open"><svg class="plus-org-ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M2.5 14.5V3.2c0-.4.3-.7.7-.7h5.6c.4 0 .7.3.7.7v11.3M9.5 14.5V7.2h3.3c.4 0 .7.3.7.7v6.6M1.5 14.5h13M4.6 5h2.3M4.6 7.6h2.3M4.6 10.2h2.3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Join Corporate Account</button>
+        <!-- #5791 (Josh 10-10 14:32): an outlined button with a tiny icon, not a text link. kosmos#6380: it names both
+             kinds, because it is pressed before the code says which (Josh 10-10's "Join Corporate Account", widened). -->
+        <button type="button" class="btn plus-org-open" id="plus-org-open"><svg class="plus-org-ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M2.5 14.5V3.2c0-.4.3-.7.7-.7h5.6c.4 0 .7.3.7.7v11.3M9.5 14.5V7.2h3.3c.4 0 .7.3.7.7v6.6M1.5 14.5h13M4.6 5h2.3M4.6 7.6h2.3M4.6 10.2h2.3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Join Company or Family Account</button>
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say" tabindex="-1"></p>
           <!-- kosmos#6752: every member sees when someone is made a reviewer (kosmos#6594): the grants of the last 30 days,
                from the hourly status read. Shown only when there are some. -->
           <div id="plus-org-reviewers" hidden>
-            <p class="fhint" id="plus-org-reviewers-head"></p>
+            <!-- kosmos#6817 (Mona Lisa's design): what a reviewer is first, then the heading straight above its list. -->
             <p class="fhint" id="plus-org-reviewers-what"></p>
+            <p class="fhint" id="plus-org-reviewers-head"></p>
             <div id="plus-org-reviewers-list"></div>
           </div>
           <!-- kosmos#6239: a family's words not accepted on this computer wait for a parent; this opens them (plusOrgFamilyReview). -->
@@ -19864,9 +19907,9 @@ window.kosmosMeasureScrollbarWidth();
              Account joins. X Cancel closes it (it had no way out). -->
         <div id="plus-org-out" hidden>
           <div class="plus-org-outhead"><button type="button" class="plus-lost-link plus-org-cancel" id="plus-org-cancel"><span aria-hidden="true">&#x2715;</span> Cancel</button></div>
-          <p class="fhint">Enter your company's code to connect your Kosmos to your corporate enterprise account.</p>
+          <p class="fhint">Enter the code your company or family gave you to connect this Kosmos.</p>
           <div class="frow">
-            <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Your company's code" placeholder="Company code">
+            <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Your company's or family's join code" placeholder="Join code">
             <button class="btn uprime" type="button" id="plus-org-check">Connect Account</button>
           </div>
         </div>
@@ -19875,6 +19918,8 @@ window.kosmosMeasureScrollbarWidth();
              none (#5791). Filled from the family's own words (the coordinator's). -->
         <div id="plus-org-family" role="group" aria-label="The family's words" hidden>
           <p class="fhint" id="plus-org-family-lead" tabindex="-1"></p>
+          <!-- kosmos#6873: whose account a child's computer must be signed in with (#6379), before Accept. -->
+          <p class="fhint" id="plus-org-family-account"></p>
           <p class="fhint" id="plus-org-family-reports-head">What the family will see from this computer:</p>
           <ul class="fhint" id="plus-org-family-reports"></ul>
           <p class="fhint" id="plus-org-family-backsup-head">Backed up from this computer:</p>
@@ -20707,6 +20752,61 @@ function kplusBarFit() {
   if (bar.style.marginLeft !== l) bar.style.marginLeft = l;
   if (bar.style.marginRight !== r) bar.style.marginRight = r;
 }
+/* #6846: the app header's two controls, painted from the board's own facts so they cannot disagree with it: this
+   computer's name and whether there is another to go to (worldswComputersSeen, after each answer from Kosmos+), and the
+   person's face (youFaceHtml, as the user menu draws it). Safe before the bar exists, and called again whenever either
+   fact changes. */
+function kappHeadPaint() {
+  const comp = document.getElementById('kapp-comp'), me = document.getElementById('kapp-me');
+  if (comp) {
+    const name = typeof THIS_COMPUTER_NAME === 'string' && THIS_COMPUTER_NAME ? THIS_COMPUTER_NAME : 'This computer';
+    document.getElementById('kapp-comp-name').textContent = name;
+    comp.setAttribute('aria-label', 'Your computers. This computer: ' + name);
+    const hide = !(typeof COMPUTERS_OPENABLE !== 'undefined' && COMPUTERS_OPENABLE);
+    // Back to one computer while the switcher has focus: focus moves to the face rather than falling to the page.
+    const hadFocus = hide && !comp.hidden && document.activeElement === comp;
+    comp.hidden = hide;
+    if (hadFocus && me) me.focus({ preventScroll: true });
+  }
+  /* In the app the bar is the app's own header, not a "remote session" banner (it is Kosmos, signed in). */
+  const bar = document.getElementById('kplus-bar');
+  if (bar) bar.setAttribute('aria-label', document.documentElement.classList.contains('kapptabs') ? 'Kosmos' : 'Kosmos+ remote session');
+  if (me) {
+    // Only when it changed: rewriting the picture on every computers answer would reload and re-announce it.
+    const face = typeof youFaceHtml === 'function' ? youFaceHtml() : '';
+    if (me.innerHTML !== face) me.innerHTML = face;
+    // It opens Settings (and Appearance, Log out), so it is named for that and for whose it is.
+    me.setAttribute('aria-label', 'Settings, ' + ((typeof YOU_NAME === 'string' && YOU_NAME) || 'You'));
+  }
+}
+/* #6846: open the phone menu straight at a level: Settings for the person's menu, Switch Computers for the switcher.
+   The level is put in place at once, never passing through the first level (whose Agents, Projects and Tasks the
+   native tab bar already shows), with the trail set as if walked there, so Back walks up the way it would have come. */
+function kappOpenAt(levels, opener) {
+  const nav = document.getElementById('pnav');
+  if (!nav || !nav.hidden) return;
+  pnavOpen(true);
+  pnavOpened();   // in place at once: no drop-in animation on a level whose items are not numbered for it
+  PNAV_OPENER = opener;
+  opener.setAttribute('aria-expanded', 'true');
+  for (const lv of levels) {
+    /* As pnavTo does: the computers are read as their level opens, before the copy (so a stale row is never offered). */
+    if (lv === 'computers' && typeof computersFetch === 'function') computersFetch().catch(() => {});
+    pnavFill(lv);
+    /* The item that leads to this level, as if walked: Back lands on it (Settings on the first level, Switch Computers
+       on Settings), never on the first item. */
+    PNAV_FROM.push(lv === 'computers' ? document.getElementById('pnav-computers') : nav.querySelector('[data-pnav-go="' + lv + '"]'));
+    PNAV_TRAIL.push(lv);
+  }
+  const last = PNAV_TRAIL[PNAV_TRAIL.length - 1];
+  for (const lv of nav.querySelectorAll('.pnav-level')) { lv.hidden = lv.dataset.level !== last; lv.className = 'pnav-level'; }
+  nav.classList.toggle('deep', PNAV_TRAIL.length > 1);
+  const back = document.getElementById('pnav-back');
+  back.tabIndex = PNAV_TRAIL.length > 1 ? 0 : -1;
+  back.setAttribute('aria-label', PNAV_TRAIL.length > 2 ? 'Back to Settings' : 'Main menu');
+  const level = pnavLevel(last);
+  (level.querySelector('button.pnav-item, a.pnav-item, .pnav-small:not([hidden])') || level).focus({ preventScroll: true });
+}
 function kplusBar() {
   if (!kplusRemote() || document.getElementById('kplus-bar')) return;
   const head = document.querySelector('.apphead');
@@ -20715,13 +20815,19 @@ function kplusBar() {
   bar.id = 'kplus-bar'; bar.className = 'kplus-bar';
   bar.setAttribute('role', 'region'); bar.setAttribute('aria-label', 'Kosmos+ remote session');
   bar.innerHTML = '<canvas class="kplus-bar-mark" role="img" aria-label="Kosmos+"></canvas>'
+    /* #6846: the iPhone app's own header, drawn only when the app shows its native tab bar (html.kapptabs, set by the
+       app): the computer switcher (two or more computers, Josh #6396) and the person's menu, both opening #pnav. */
+    + '<button type="button" class="kapp-comp" id="kapp-comp" aria-haspopup="dialog" aria-expanded="false" aria-controls="pnav" hidden><span class="kapp-comp-name" id="kapp-comp-name"></span>'
+    + '<svg class="kapp-comp-chev" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.4L6 7.6l3.2-3.2"/></svg></button>'
     + '<span class="kplus-bar-end">'
+    + '<button type="button" class="kapp-me" id="kapp-me" aria-haspopup="dialog" aria-expanded="false" aria-controls="pnav"></button>'
     /* kosmos#6718: no Log out here any more; it is at the bottom of Settings > Kosmos+ (plus-logout below). */
     /* #4823: the two lines that open the phone menu (#pnav). Shown only at phone width, by CSS. */
     + '<button type="button" class="kplus-bar-menu" id="kplus-menu" aria-label="Menu" aria-haspopup="dialog" aria-expanded="false" aria-controls="pnav">'
     + '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M.5 4.5h17M.5 13.5h17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></span>';
   head.insertBefore(bar, head.firstChild);
   document.documentElement.classList.add('kremote');   // #4823: the phone header and menu key on this
+  kappHeadPaint();
   try { kplusBarDrawMark(bar.querySelector('canvas')); } catch { /* the words still say Kosmos+ to a screen reader */ }
   kplusBarFit();
   window.addEventListener('resize', kplusBarFit);
@@ -20823,7 +20929,10 @@ function pnavBuild() {
     const src = document.getElementById('nav-badge-' + k);
     if (src && !src.hidden) setNavBadge('nav-badge-' + k, src.textContent === '99+' ? 100 : Number(src.textContent));
   }
-  document.getElementById('kplus-menu').addEventListener('click', pnavOpen);
+  document.getElementById('kplus-menu').addEventListener('click', () => { PNAV_OPENER = null; pnavOpen(); });
+  /* #6846: the app header's controls (shown only with the app's native tab bar). */
+  document.getElementById('kapp-me').addEventListener('click', (e) => kappOpenAt(['settings'], e.currentTarget));
+  document.getElementById('kapp-comp').addEventListener('click', (e) => kappOpenAt(['settings', 'computers'], e.currentTarget));
   document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('.pnav-themeopt')) pnavThemeRove(); });
   boardPhoneView();
   /* Widened past the phone width (a rotated tablet, a resized window), the menu's button is gone, so the menu goes too. */
@@ -20839,9 +20948,10 @@ function pnavBuild() {
     const tab = e.target.closest('[data-pnav-tab]');
     if (tab) {
       const real = document.querySelector('#tabs .tab[data-tab="' + tab.dataset.pnavTab + '"]');
+      const opener = PNAV_OPENER;
       pnavClose(false);
       if (real) real.click();
-      document.getElementById('kplus-menu').focus({ preventScroll: true });
+      pnavReturnFocus(opener);
       return;
     }
     const go = e.target.closest('[data-pnav-go]');
@@ -20849,10 +20959,11 @@ function pnavBuild() {
     if (go) { pnavTo(go.dataset.pnavGo, go); return; }
     const sec = e.target.closest('[data-pnav-sec]');
     if (sec) {
+      const opener = PNAV_OPENER;
       pnavClose(false);
       showTab('settings');
       settingsOpen(sec.dataset.pnavSec);
-      document.getElementById('kplus-menu').focus({ preventScroll: true });
+      pnavReturnFocus(opener);
     }
   });
   /* On the document, not the menu: focus can sit on a level itself (a level with nothing to press), and a key there
@@ -20931,11 +21042,16 @@ const ROOM_HINT_MQ = '(max-width: 40rem)';
 const PNAV_PHONE_MQ = '(max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem)';
 /* The level on screen, and the trail back to the first one. */
 let PNAV_TRAIL = ['main'];
+/* #6846: the control that opened the menu when it was not the two lines (the app header's), so closing gives focus
+   back to it; null means the two lines. */
+let PNAV_OPENER = null;
 let PNAV_OPENING_T = 0;
 /* The item that opened each deeper level, so Back returns focus to it (as apple.com's menu does). */
 let PNAV_FROM = [];
 function pnavLevel(name) { return document.querySelector('#pnav .pnav-level[data-level="' + name + '"]'); }
-function pnavOpen() {
+/* quiet (#6846): the caller puts focus itself (kappOpenAt, which opens at a deeper level), so the first level's first
+   item is never focused, or read out, on the way. */
+function pnavOpen(quiet) {
   const nav = document.getElementById('pnav');
   if (!nav || !nav.hidden) return;
   pnavSettle();
@@ -20956,7 +21072,7 @@ function pnavOpen() {
   document.documentElement.classList.add('pnav-up');
   document.getElementById('kplus-menu').setAttribute('aria-expanded', 'true');
   const first = nav.querySelector('.pnav-level[data-level="main"] .pnav-item');
-  if (first) first.focus({ preventScroll: true });
+  if (first && quiet !== true) first.focus({ preventScroll: true });
   PNAV_FROM = [];
 }
 function pnavClose(refocus) {
@@ -20968,7 +21084,16 @@ function pnavClose(refocus) {
   document.documentElement.classList.remove('pnav-up');
   const btn = document.getElementById('kplus-menu');
   btn.setAttribute('aria-expanded', 'false');
-  if (refocus) btn.focus();
+  const opener = PNAV_OPENER;
+  PNAV_OPENER = null;
+  if (opener) opener.setAttribute('aria-expanded', 'false');
+  if (refocus) pnavReturnFocus(opener);
+}
+/* #6846: where focus goes when the menu closes: what opened it while that is on screen (the app header's control),
+   else the app header's face, else the two lines, as before the app header. */
+function pnavReturnFocus(opener) {
+  const to = [opener, document.getElementById('kapp-me'), document.getElementById('kplus-menu')].find((el) => el && el.getClientRects().length);
+  if (to) to.focus({ preventScroll: true });
 }
 /* Fill a level from the board as it is now, then move to it the way apple.com does. */
 function pnavFill(name) {
@@ -23420,7 +23545,7 @@ function paintLoginAdvisories(advs) {
     // Keyboard focus stays on the notices while any is left, then goes to the first visible of the K mark, the
     // Kosmos+ bar's menu (the phone remote view hides the mark) and the page heading.
     const next = slot.querySelector('.ux')
-      || ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+      || ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   }));
 }
@@ -23438,7 +23563,7 @@ function rebootWhen(iso) {
 }
 /* Where focus goes when the note leaves under it: the K mark, as after the login notice. */
 function rebootFocusAway() {
-  const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+  const next = ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
   if (next) next.focus();
 }
 function paintRebootNote(note) {
@@ -25833,6 +25958,7 @@ async function tick() {
     // is active, so `grid.hidden` stopped meaning "not on the agents tab".
     // `onAgentsTab()` reads boardbar, which tracks the tab and nothing else.
     if (onAgentsTab()) { paintRemoved(); paintSurvival(); }
+    try { reviewerNoteMaybe(); } catch { /* kosmos#6817: the notice never fails the status read */ }
   } catch (err) {
     clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
     if (answered && !(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;   // a refusal is an answer too (#268)
@@ -27862,8 +27988,8 @@ let acctFiveTimer = null, acctFiveMisses = 0;
    panel has no boxes. Opening Settings paints the list again, and switching back to AI Models reads or re-arms it
    (acctFiveHourOnShow), so nothing is lost by stopping. */
 function acctListShown() { const box = document.getElementById('set-accounts'); return !!box && box.getClientRects().length > 0; }
-/* #6176: every meter that goes away at a reset carries data-resets: Claude's five-hour line and each Codex, Grok or Antigravity window. */
-const ACCT_RESET_SEL = '#set-accounts .acct-usage-five[data-resets], #set-accounts .acct-usage-codex[data-resets]';
+/* #6176: every meter that goes away at a reset carries data-resets: Claude's five-hour and (#6570) weekly lines and each Codex, Grok or Antigravity window. */
+const ACCT_RESET_SEL = '#set-accounts .acct-usage-five[data-resets], #set-accounts .acct-usage-codex[data-resets], #set-accounts .acct-usage-week[data-resets]';   // #6570: Claude's weekly line too
 /* The list has just come back on screen (a section switch, not a paint): read it again if a line it shows is past its
    reset, otherwise arm the timer for the soonest reset it shows. */
 let acctReadOpen = 0, acctReadOpenAt = 0;   // the epoch of the list read still out (0: none) and when it began, so the on-show look never doubles one
@@ -27925,10 +28051,12 @@ function acctResetTimes(list) {
     if (!a) return [];
     const f = a.fiveHour;
     const claude = a.provider === 'anthropic' && !a.apiKey && f && Number.isFinite(f.usedPct) && Number.isFinite(f.resetsAt) && Number.isFinite(f.at) ? [f.resetsAt] : [];
+    // #6570: and its weekly line, so an open list does not keep last week's figure past its reset (acctWeeklyNow).
+    const wk = a.provider === 'anthropic' && !a.apiKey && acctWeeklyNow(a) ? [a.weekly.resetsAt] : [];
     // A Grok subscription's windows too (#6176 slice 3, review 1), so its meter goes at its reset on an open list.
     const codex = (a.provider === 'openai' || a.provider === 'xai' || a.provider === 'antigravity') && a.limits && Array.isArray(a.limits.windows)
       ? a.limits.windows.filter((w) => w && Number.isFinite(w.usedPct) && Number.isFinite(w.windowMinutes) && Number.isFinite(w.resetsAt)).map((w) => w.resetsAt) : [];
-    return claude.concat(codex);
+    return claude.concat(wk, codex);
   });
 }
 function acctFiveHourRepaint(list) {
@@ -27973,6 +28101,13 @@ function acctFiveHourArm(times, keep) {
    Only what Kosmos knows: the weekly reading exists for accounts Kosmos set up, while an agent on them runs, so a row
    without one says so plainly instead of guessing. An API key has no weekly limit, so its row shows no meter. */
 const ACCT_WARN_PCT = 75, ACCT_HIGH_PCT = 90;
+/* #6570: a Claude row's weekly reading while its week is still running, or null. The board drops a reading whose week
+   has reset (allowance.readWeekly), but a list left open across the reset would keep drawing last week's figure as this
+   week's, so the page applies the same test as it draws, as it does for the five-hour line. */
+function acctWeeklyNow(a) {
+  const w = a && a.weekly;
+  return w && Number.isFinite(w.usedPct) && !(Number.isFinite(w.resetsAt) && w.resetsAt <= Date.now()) ? w : null;
+}
 /* A move in progress or its outcome, by the source account's dir. The list repaints while agents move and after (a
    source row with no agents left has no move control), so the sentence lives here, not in the old element. */
 const ACCT_MOVE = new Map();
@@ -27984,7 +28119,7 @@ function acctBulkTarget(x, fromDir) {
   return !!x && x.provider === 'anthropic' && !!x.dir && x.dir !== fromDir && !!x.memoryShared
     && acctOfferableTarget(x)   // the create picker's own test: not refused, not signed out
     && !x.apiKey   // not a key: moving a whole account's agents onto a key changes who pays, so that stays a one-agent choice on its page
-    && !(x.weekly && Number.isFinite(x.weekly.usedPct) && Math.round(x.weekly.usedPct) >= 100)   // a full account cannot run them either (rounded as its row shows it)
+    && !(acctWeeklyNow(x) && Math.round(x.weekly.usedPct) >= 100)   // a full account cannot run them either (rounded as its row shows it); a week that has reset is not full
     // #6176: nor one at its five-hour limit until that resets (a reading past its reset is over and does not count)
     && !(x.fiveHour && Number.isFinite(x.fiveHour.usedPct) && Math.round(x.fiveHour.usedPct) >= 100 && !(Number.isFinite(x.fiveHour.resetsAt) && x.fiveHour.resetsAt <= Date.now()));
 }
@@ -28051,7 +28186,7 @@ function acctUsageHtml(a, list) {
      row); the agents line and the move need agentsHere, which comes only when the page asks (?agents=1). */
   if (!a || a.provider !== 'anthropic' || (!('weekly' in a) && !('weeklyBlocked' in a) && !('fiveHour' in a) && !a.agentsHere)) return '';
   const here = a.agentsHere && Array.isArray(a.agentsHere.names) ? a.agentsHere : null;
-  const w = a.weekly && Number.isFinite(a.weekly.usedPct) ? a.weekly : null;
+  const w = acctWeeklyNow(a);   // #6570: past its reset it is last week's figure, not drawn
   /* The setup guide is left out, as everywhere the page lists or counts agents (#3739); it is not moved either. The
      warning, the agents line and the move all count this one list, so they cannot disagree. */
   const known = new Map((Array.isArray(LAST) ? LAST : []).filter((x) => x && x.sessionName).map((x) => [x.sessionName, x]));
@@ -28125,7 +28260,7 @@ function acctUsageHtml(a, list) {
       const resets = new Date(w.resetsAt).toLocaleString([], w.resetsAt - Date.now() > 6 * 864e5
         ? { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
       const age = agoWords(Date.now() - w.at);
-      usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
+      usage = '<div class="acct-usage-meter acct-usage-week" data-resets="' + Math.round(w.resetsAt) + '"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
         + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · Kosmos last saw it change ' + esc(age) : '') + '</p></div>'   // what Kosmos saw: use elsewhere (claude.ai, another computer) is not seen
         + (frozenSay && !five ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' : '') + (five ? '' : usageSetup)
         + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.')
@@ -28163,7 +28298,7 @@ function acctUsageHtml(a, list) {
   const move = canMove || busy
     ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '"' + described + ' aria-label="Move the agents on ' + who + ' to another account">'
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
-      + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(nameOf(x)) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
+      + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(nameOf(x)) + (acctWeeklyNow(x) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
       + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + described + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc((!st.stopping && st.progress) || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
       /* #6214: a running move can be stopped once the board has it; the board finishes the agent it is restarting and puts
          the rest back. */
@@ -30644,6 +30779,7 @@ function worldswComputersSeen(rows, good, signedOut) {
   }
 }
 function worldswOneKosmos() {
+  if (typeof kappHeadPaint === 'function') kappHeadPaint();   // #6846: the app header names the same computer, offered under the same rule (typeof: tests lift this alone)
   if (MULTI_KOSMOS) return;
   const sw = document.getElementById('worldsw');
   const btn = document.getElementById('worldsw-btn');
@@ -30675,7 +30811,7 @@ function worldswOneKosmos() {
     const wv = document.getElementById('wv-modal');
     if (wv && !wv.hidden) wvClose();
     if (focusWasInside) {
-      const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+      const next = ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
       if (next) next.focus();
     }
     btn.removeAttribute('aria-expanded');
@@ -36767,6 +36903,32 @@ function burgerClose() {
   b.setAttribute('aria-expanded', 'false');
 }
 
+/* #6846: the iPhone app's native tab bar opens a board section through here with a real press, so it lands where a
+   person's press lands and every click tidier on the page runs as for a person (header menus and pickers close on a
+   click elsewhere): Agents, Projects and Tasks press their tab (which resets to the top of the section; showTab alone
+   would restore the last open project), and Settings, which has no tab, presses the user menu's Your Profile, its
+   first section, which also opens in place in the consolidated layout (userpopSettingsGo). The phone menu, which a
+   press does not close, is closed first, focus going back to what opened it.
+   It answers false, changing nothing, for a name the board has no such section for, and whenever a person could not
+   press at all: a full-screen step (first run, an update, a restart) has made #tabs or anything around it inert, or a
+   confirmation or other box has its backdrop up (those are not inert; the keystroke guard tests the backdrop the same
+   way). The app can then tell, instead of changing the page under a box.
+   A hidden Tasks tab is still pressed: it is hidden on a fresh page until the first status poll, and the app offers
+   Tasks only from that same poll's tasksTab (#3559), so refusing would turn an earned tab into a silent no-op. */
+if (typeof window !== 'undefined') window.kosmosAppTab = (name) => {
+  const tabs = document.getElementById('tabs');
+  if (!tabs || tabs.closest('[inert]')) return false;
+  if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return false;
+  const press = name === 'settings' ? document.getElementById('userpop-go-you')
+    : ['agents', 'projects', 'tasks'].includes(name) && tabs.querySelector('.tab[data-tab="' + name + '"]');
+  if (!press) return false;
+  /* pnavClose(true) gives focus back to what opened the menu (the two lines, or the app header's control). */
+  const menu = document.getElementById('pnav');
+  if (menu && !menu.hidden) pnavClose(true);
+  press.click();
+  return true;
+};
+
 /* Where focus lands when the thing it was on leaves the screen. The old
    fallback was the h1, which the pack header made visually hidden -- a
    focus point a sighted keyboard user cannot see. The Agents tab is
@@ -42641,6 +42803,22 @@ function fitDetailName() {
 const AGENT_FILES_SHOWN = 10;   // as many as the project page's Files list shows
 let AGENT_FILES_EPOCH = 0;
 let AGENT_FILES_STAMP = null;
+/* #6761 iteration 5: a fingerprint arriving moves a list's stamp, so a polled list repaints with no file changed. These
+   two let a repaint give the keyboard back to the same row (by its file or folder name), as the Documents fill does. */
+function rowKey(el) {
+  if (!el || !el.dataset) return null;
+  if (el.dataset.doc != null) return 'doc:' + el.dataset.doc;
+  return el.dataset.dir != null ? 'dir:' + el.dataset.dir : null;
+}
+function focusedRowKey(box) {
+  const at = document.activeElement;
+  return box && at && at !== box && box.contains(at) ? rowKey(at) : null;
+}
+function refocusRow(box, key) {
+  if (!key || !box) return;
+  const again = [...box.querySelectorAll('button')].find((r) => rowKey(r) === key);
+  if (again) again.focus({ preventScroll: true });   // iteration 6: a background repaint never scrolls the page
+}
 /* #6497 (Mona's 0.7.56 noise pass): `compact` is the agent page's narrow Files panel. A full date on every row cut the
    names to a few letters there, so it shows the size only, as the project page's Files panel does; the date is the
    row's hover text. The Files screen (View All) keeps the date on the row. */
@@ -42658,8 +42836,13 @@ function agentFileRow(f, compact = false, label = null) {   // #6724: `label` (t
   w.className = 'pj-doc-w';
   const when = f.modified ? new Date(f.modified) : null;
   const day = when && !isNaN(when) ? when.toLocaleDateString() : '';
-  w.textContent = (day && !compact ? day + ' · ' : '') + pjSize(f.size);
+  const fp = fileFingerprint(f);   // #6761
+  w.textContent = (day && !compact ? day + ' · ' : '') + pjSize(f.size) + (fp && !compact ? ' · fingerprint ' + fp.slice(0, 12) : '');
   if (day && compact) b.title = f.name + ', changed ' + day;
+  if (fp) b.title = (b.title || f.name) + ', fingerprint sha256 ' + fp;   // the whole value (the narrow panel shows it only here)
+  /* Iteration 7: a title is also a button's spoken description, and 64 hex read aloud on every row is noise. The
+     spoken one carries the short form (and the date the narrow row keeps only on hover). */
+  if (fp) b.setAttribute('aria-description', (day && compact ? 'changed ' + day + ', ' : '') + 'fingerprint ' + fp.slice(0, 12));   // iteration 8: the attribute, not the reflection property
   b.append(n, w);
   return b;
 }
@@ -42769,6 +42952,7 @@ async function paintAgentFiles(sessionName) {
   const stamp = ok ? String(body.stamp || '') : 'refused:' + status + ':' + String((body && body.because) || '');
   if (stamp && stamp === AGENT_FILES_STAMP) return;
   AGENT_FILES_STAMP = stamp;
+  const hadFocus = focusedRowKey(list);   // #6761 iteration 5
   list.textContent = '';
   if (all) all.hidden = true;
   const files = ok && Array.isArray(body.files) ? body.files : [];
@@ -42785,6 +42969,7 @@ async function paintAgentFiles(sessionName) {
   }
   msg.textContent = '';
   for (const f of files) list.append(agentFileRow(f, true));   // #6497: the narrow panel, size only
+  refocusRow(list, hadFocus);
   // #3994 (Josh, 11:18 and again 16:14 on 0.6.99): View All whenever there is a file, even one,
   // because it is the way to the Files screen and its Open in Finder button.
   if (all) all.hidden = false;
@@ -42893,6 +43078,7 @@ async function paintAgentFilesAll(sessionName) {
     AGENT_FILES_ALL_FAIL = fail;
   } else AGENT_FILES_ALL_FAIL = null;
   agentFilesPath(dir);
+  const hadFocus = focusedRowKey(list);   // #6761 iteration 5
   list.textContent = '';
   if (more) more.hidden = true;
   if (!ok) {
@@ -42919,7 +43105,7 @@ async function paintAgentFilesAll(sessionName) {
     AGENT_FILES_FOCUS = false;
     const to = list.querySelector('.pj-doc') || document.querySelector('#d-filesall-path [aria-current]') || document.getElementById('d-filesall-h');
     if (to && typeof to.focus === 'function') to.focus();
-  }
+  } else refocusRow(list, hadFocus);
 }
 for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-list', 'd-filesall-msg']]) document.getElementById(listId) && document.getElementById(listId).addEventListener('click', async (e) => {
   const row = e.target.closest('.pj-doc');
@@ -44324,6 +44510,22 @@ function usageRowValue(total) {
    week x 52), matching the approved /design/token-value calc. Display layer, with
    the other two value constants. */
 const USAGE_VALUE_HOURS_PER_YEAR = 2080;
+/* #6829: Active Days on Kosmos counts from the install day (1 on that day), as the board reports it. It used to be
+   the number of days in the window asked for, so a brand-new install showed 14. Without the figure the box shows the
+   days that have any usage, never the window's length. */
+function usageActiveDays(data) {
+  const n = Number(data && data.daysOnKosmos);
+  if (Number.isFinite(n) && n >= 1) return Math.floor(n);
+  const byDay = (data && data.byDay) || {};
+  return Object.keys(byDay).filter((d) => Object.values(byDay[d] || {}).some((b) => usageRowTokenTotal(b) > 0)).length;
+}
+/* #6829: the four daily charts keep the approved two-week trend; the series is all-time. */
+const USAGE_CHART_DAYS = 14;
+/* #6829: Claude Code's default cleanupPeriodDays. */
+const USAGE_TRANSCRIPT_KEEP_DAYS = 30;
+function usageChartDays(series) {
+  return (series || []).slice(-USAGE_CHART_DAYS);
+}
 /* #2840: the approved /design/token-value hero, built verbatim per Josh's
    2026-09-14 ruling (the blended total is the headline and is correct as full
    engineering value). Reuses the design's own calc, already live in the app for
@@ -44334,8 +44536,8 @@ const USAGE_VALUE_HOURS_PER_YEAR = 2080;
    The three stats are work-hours, years, and the equivalent API cost; apiCostUsd
    is computed by the caller from published provider list prices (usageApiCost) and
    passed in, or null while that is unavailable, in which case the box shows a
-   quiet "-" rather than a guessed number. `activeDays` is the count of days with
-   any recorded usage. Pure + node-testable like its siblings. */
+   quiet "-" rather than a guessed number. `activeDays` comes from usageActiveDays
+   (above). Pure + node-testable like its siblings. */
 function usageHeroDigits(n) {
   return String(Math.max(0, Math.floor(Number(n) || 0)))
     .split('')
@@ -44562,7 +44764,7 @@ function usageCharts4Html(series, totals, grandTotal) {
     return '<div class="tv-mini"><div class="tv-mh"><span class="tv-nm">' + spec.name
       + '<span class="tv-tg">' + spec.tag + '</span></span><span class="tv-tot">' + esc(usageAbbr(spec.tot))
       + '<span class="tv-pc">' + ps + '</span></span></div>'
-      + '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(spec.name) + ' per day, ' + n + ' days">'
+      + '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(spec.name) + ' per day, last ' + n + ' days">'
       + '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + color(spec.key) + '" stop-opacity="0.28"/><stop offset="1" stop-color="' + color(spec.key) + '" stop-opacity="0.02"/></linearGradient></defs>'
       + '<path d="' + area + '" fill="url(#' + gid + ')"/>'
       + '<path d="' + line + '" fill="none" stroke="' + color(spec.key) + '" stroke-width="1.8" stroke-linejoin="round"/></svg></div>';
@@ -44700,7 +44902,7 @@ async function paintUsage() {
   const anote = document.getElementById('usage-agents-note');
   if (!msg || !hero || USAGE_BUSY) return;
   USAGE_BUSY = true;
-  msg.innerHTML = LOAD_SPIN_HTML + ' Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.';   // #5362
+  msg.innerHTML = LOAD_SPIN_HTML + ' Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute, and the first time after an update it can take a few.';   // #5362, #6829
   /* #2840: reset every value-view region to a known-empty state. Shared by the
      no-data and error paths so they cannot drift apart. */
   const clearAll = () => {
@@ -44715,9 +44917,10 @@ async function paintUsage() {
     if (anote) anote.textContent = '';
   };
   try {
-    /* 14 days -- the approved design shows a two-week trend. Completed days are
-       frozen to disk and load instantly; the extra week is nearly free. */
-    const res = await fetch('/api/usage?days=14');
+    /* #6829 (Josh 10-21): every day since this install began, not a fixed 14. Completed days are frozen to disk and
+       load instantly. The four daily charts keep the approved two-week window (usageChartDays); every total, the
+       tables and the history are all-time. */
+    const res = await fetch('/api/usage?days=all');
     if (!res.ok) throw new Error('status ' + res.status);
     const data = await res.json();
     const byDay = (data && data.byDay) || {};
@@ -44738,13 +44941,13 @@ async function paintUsage() {
        held no usage -- the same "nothing to show" signal the old per-day table
        gave, without that table. */
     if (!historyHtml) {
-      msg.textContent = 'No usage recorded in the last fourteen days.';
+      msg.textContent = 'No usage recorded since Kosmos was installed on this computer.';
       clearAll();
       return;
     }
-    if (hero) hero.innerHTML = usageHeroHtml(totals, Object.keys(byDay).length, api.cost);
+    if (hero) hero.innerHTML = usageHeroHtml(totals, usageActiveDays(data), api.cost);
     if (charts4) {
-      const c4 = usageCharts4Html(usageDailySeries(byDay), totals, grandTotal);
+      const c4 = usageCharts4Html(usageChartDays(usageDailySeries(byDay)), totals, grandTotal);
       charts4.innerHTML = c4;
       charts4.hidden = !c4;
     }
@@ -44777,6 +44980,10 @@ async function paintUsage() {
       said += ' The equivalent API cost leaves out '
         + api.unpriced.length + (api.unpriced.length === 1 ? ' model' : ' models')
         + ' with no published price (' + api.unpriced.join(', ') + ').';
+    }
+    /* #6829: on an install older than Claude keeps transcripts, an old day counts only if Kosmos saved it in time. */
+    if (Number(data.daysOnKosmos) > USAGE_TRANSCRIPT_KEEP_DAYS) {
+      said += ' Claude removes transcripts after about ' + USAGE_TRANSCRIPT_KEEP_DAYS + ' days, so an older day counts only if Kosmos saved it in time.';
     }
     msg.textContent = said;
   } catch (e) {
@@ -47708,6 +47915,7 @@ function paintRailMe() {
   const upName = document.getElementById('userpop-name');
   if (upFace) upFace.innerHTML = faceHtml;
   if (upName) upName.textContent = who;
+  if (typeof kappHeadPaint === 'function') kappHeadPaint();   // #6846: and the app header's face (typeof: tests lift this alone)
   const face = document.getElementById('rail-me-face');
   const name = document.getElementById('rail-me-name');
   if (!face || !name) return;
@@ -52188,6 +52396,37 @@ for (const cid of ['askcard', 'plus-asks']) {
     if (allow && !allow.disabled) allow.click();   // short of six digits the press says so on the card
   });
 }
+/* kosmos#6817: the reviewer notice's See who and x. Kept above the Kosmos+ panel script, which web.plus-stale.test.js
+   runs alone with a document that takes no listeners; REVIEWER_NOTE and its functions are declared below it and are
+   read only when a click comes. */
+document.addEventListener('click', (e) => {
+  const see = e.target.closest && e.target.closest('[data-reviewer-see]');
+  const hide = e.target.closest && e.target.closest('[data-reviewer-hide]');
+  if (hide) {
+    reviewerNoteSeen(REVIEWER_NOTE.grants, Date.now() / 1000);   // clears the notice whatever another tab already saw
+    // The x went with its notice: focus to the first notice left in the stack that takes it, else the board, never the page.
+    const next = document.querySelector('#topnotes .utoast .utxt[tabindex="-1"]');
+    if (next) next.focus(); else if (typeof focusBoardHome === 'function') focusBoardHome();
+    return;
+  }
+  if (!see) return;
+  /* Not marked seen here: the list on screen does that (reviewerNoteSeenList), so a list that has not caught up yet
+     leaves the notice for next time. A fresh read, not the once-a-minute one, so the list has the new grant. */
+  PLUS_ORG.at = 0;
+  showTab('settings'); settingsGo('plus');
+  let tries = 0;
+  (function land() {
+    if (!plusOnScreen()) return;   // the person moved on: do not pull the page around
+    const box = document.getElementById('plus-org-reviewers');
+    if (box && !box.hidden) {
+      box.scrollIntoView({ block: 'center' });
+      const head = document.getElementById('plus-org-reviewers-head');   // focus where they asked to go, not the section top
+      if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); }
+      return;
+    }
+    if ((tries += 1) < 40) setTimeout(land, 100);
+  })();
+});
 /* The Settings list: the devices already allowed. Painted on arrival at the Plus section and after
    any action, from the tunnel's list (one subprocess). Pending requests are shown once, as cards in
    #askcard (#3829), not here. */
@@ -52886,6 +53125,7 @@ function plusOrgPaint() {
   else if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.';
   else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : ''));
   plusOrgReviewers(here ? st : null);   // kosmos#6752
+  if (here) reviewerNoteSeenList(st);   // kosmos#6817: the list on screen counts as seen
 }
 /* kosmos#6752: what follows the reviewer's name on one grant's line, leading with what is true now (Mona Lisa's review):
    every grant is inside 30 days, so a date has no year and no time, except a grant that lands within a day, the one
@@ -52912,7 +53152,13 @@ function plusOrgReviewers(st) {
   list.textContent = '';
   box.hidden = grants.length === 0;
   if (!grants.length) return;
-  document.getElementById('plus-org-reviewers-head').textContent = plusOrgIn(st.org, 'Reviewers added to your company in the last 30 days:');
+  /* kosmos#6817: a list not confirmed for over a day (the company's grants could not be read, or this Kosmos did not
+     ask, asleep or with live execution off) says when it last was, in the heading (Mona Lisa's design). A clock that
+     ran ahead delays it. */
+  const at = Number(st.reviewerGrantsAt);
+  const stale = Number.isFinite(at) && at > 0 && Date.now() - at > 24 * 3600 * 1000;
+  document.getElementById('plus-org-reviewers-head').textContent = plusOrgIn(st.org, 'Reviewers added to your company in the last 30 days')
+    + (stale ? ' (last confirmed ' + new Date(at).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ')' : '') + ':';
   // What the role means for this member, in the coordinator's own consent words (relay #516; Mona Lisa's question 5).
   document.getElementById('plus-org-reviewers-what').textContent = st.org && st.org.kind === 'family'
     ? 'In a family, a reviewer opens nothing: there is no family backup.'
@@ -52937,6 +53183,75 @@ function plusOrgReviewers(st) {
     line.appendChild(document.createTextNode(plusOrgReviewerLine(g, now, fmt)));
     list.appendChild(line);
   }
+}
+/* kosmos#6817 item 1: a member who never opens Settings is told on the board that someone in their company (or family)
+   was made a reviewer. One notice in the floating stack while any grant from the last 30 days, not removed, is one this
+   browser has not seen; its x and the reviewers list in view count as seen (See who only takes the person there).
+   Seen is the set of grants seen (name and time), kept per browser on this computer (the design call on the card), so
+   no clock comparison is involved: a grant stamped ahead of this computer's clock is just another grant. A removed
+   grant is not news. Read from /api/org/grants, which spends none of the one-time notes /api/org does. */
+const REVIEWER_NOTE_KEY = 'kosmos.reviewerGrantsSeen';
+const REVIEWER_NOTE = { at: 0, grants: null, kind: null, seen: new Set() };   // seen: this visit's, for when storage refuses
+const reviewerNoteKey = (g) => g.grantedAt + '|' + String(g.who || '');
+/* The grants that are news if unseen: in the list's 30 days and not removed. */
+function reviewerNoteFresh(grants, now) {
+  return (Array.isArray(grants) ? grants : []).filter((g) => g && !g.removedAt && typeof g.grantedAt === 'number'
+    && g.grantedAt >= now - PLUS_ORG_REVIEWER_DAYS * 86400).map(reviewerNoteKey);
+}
+function reviewerNoteSeenSet() {
+  const seen = new Set(REVIEWER_NOTE.seen);
+  try { for (const k of JSON.parse(localStorage.getItem(REVIEWER_NOTE_KEY) || '[]')) if (typeof k === 'string') seen.add(k); }
+  catch { /* refused or unreadable: this visit's alone */ }
+  return seen;
+}
+function reviewerNoteUnseen(grants, now) {
+  const seen = reviewerNoteSeenSet();
+  return reviewerNoteFresh(grants, now).filter((k) => !seen.has(k));
+}
+/* Marks these grants seen and clears the notice. Kept: what is seen and still inside the 30 days (others cannot show). */
+function reviewerNoteSeen(grants, now) {
+  const fresh = reviewerNoteFresh(grants, now);
+  const keep = new Set([...reviewerNoteSeenSet()].filter((k) => Number(k.split('|')[0]) >= now - PLUS_ORG_REVIEWER_DAYS * 86400));
+  for (const k of fresh) { keep.add(k); REVIEWER_NOTE.seen.add(k); }
+  // 100 is well above the 20 grants the engine keeps (MAX_REVIEWER_GRANTS), so no grant still listed is dropped.
+  try { localStorage.setItem(REVIEWER_NOTE_KEY, JSON.stringify([...keep].slice(-100))); } catch { /* refused: kept for this visit */ }
+  const slot = document.getElementById('reviewer-slot');
+  if (slot) { slot.innerHTML = ''; slot.dataset.v = ''; }
+}
+/* The reviewers list counts as seen once it is in view, not merely because Settings > Kosmos+ is open. */
+function reviewerNoteSeenList(st) {
+  const box = document.getElementById('plus-org-reviewers');
+  if (!box || box.hidden || !plusOnScreen()) return;
+  const r = box.getBoundingClientRect();
+  // Rendered (a box under a hidden ancestor measures zero), and more than a sliver at an edge in view.
+  if (!(r.height > 0) || Math.min(r.bottom, innerHeight) - Math.max(r.top, 0) < Math.min(48, r.height)) return;
+  if (reviewerNoteUnseen(st && st.reviewerGrants, Date.now() / 1000).length) reviewerNoteSeen(st.reviewerGrants, Date.now() / 1000);
+}
+function paintReviewerNote() {
+  const slot = document.getElementById('reviewer-slot');
+  if (!slot) return;
+  const news = onAgentsTab() && REVIEWER_NOTE.grants ? reviewerNoteUnseen(REVIEWER_NOTE.grants, Date.now() / 1000).length > 0 : false;
+  const html = news
+    ? '<div class="utoast reviewer-note"><span class="udot" aria-hidden="true"></span>'
+      + '<div class="utxt" role="status" tabindex="-1"><b>' + esc(plusOrgIn({ kind: REVIEWER_NOTE.kind }, 'Someone was made a reviewer for your company.')) + '</b></div>'
+      + '<div class="uacts"><button type="button" class="uprime" data-reviewer-see>See who</button></div>'
+      + '<button type="button" class="ux" data-reviewer-hide aria-label="Close this notice" title="Close this notice">&times;</button>'
+      + '</div>'
+    : '';
+  if (slot.dataset.v === html) return;   // the same words do not repaint, so a poll never takes focus off its button
+  slot.dataset.v = html;
+  slot.innerHTML = html;
+}
+function reviewerNoteMaybe() {
+  paintReviewerNote();
+  if (!onAgentsTab() || Date.now() - REVIEWER_NOTE.at < 60000) return;   // at most once a minute, failed reads included
+  REVIEWER_NOTE.at = Date.now();
+  fetch('/api/org/grants', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+    if (!j) return;   // a failed read keeps what is on screen
+    REVIEWER_NOTE.grants = j.enrolled === true && Array.isArray(j.reviewerGrants) ? j.reviewerGrants : [];
+    REVIEWER_NOTE.kind = j.kind === 'family' ? 'family' : 'company';
+    paintReviewerNote();
+  }).catch(() => { /* the next minute tries again */ });
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */
@@ -52998,6 +53313,12 @@ function plusOrgFamilyShow(code, p) {
   document.getElementById('plus-org-family-lead').textContent = p.review === true
     ? lead + ' Its words are not accepted on this computer. As this child\u2019s parent or guardian, read them, then accept them on this computer.'
     : lead + ' As this child\u2019s parent or guardian, read what joining shares, then accept to connect this computer.';
+  /* kosmos#6873: whose account a child's computer must be signed in with (#6379), and how to change it, before Accept.
+     It names no address (review 1): the engine's stored email is the last one a sign-in STARTED with, kept after Remove,
+     so it can name an account this computer is not signed in as. */
+  document.getElementById('plus-org-family-account').textContent = 'On a child\u2019s computer, Kosmos+ must be signed in with the child\u2019s account, not the address you sign in with yourself; for a child under 13, '
+    + 'one you made for them, at an email address you read. Do not use a child\u2019s own email address for a child under 13. '
+    + 'If this computer was signed in with your own address, press Not now, then Remove this computer, sign in again with the child\u2019s account, and enter the family\u2019s join code again.';
   const acceptBtn = document.getElementById('plus-org-family-accept');
   if (acceptBtn) acceptBtn.textContent = p.review === true ? 'Accept' : 'Accept and join';
   fill('plus-org-family-reports', c.reports);
@@ -53703,7 +54024,7 @@ async function pollCwNote() {
       return;
     }
     // Keyboard focus goes where #5018's notices send it when they close: the K mark, the remote bar's menu, the heading.
-    const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+    const next = ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   });
   const ackBtn = document.getElementById('plus-cw-ack');
@@ -55271,6 +55592,9 @@ async function plusCompanyManaged() {
   try { const res = await fetch('/api/remote/managed', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }
   const btn = document.getElementById('plus-signin-company');
   if (btn) btn.hidden = !(r && r.managed);
+  // kosmos#6873 review 2: a computer its company manages is not a child's; the child line is not for it.
+  const child = document.getElementById('plus-si-child');
+  if (child) child.hidden = !!(r && r.managed);
   return !!(r && r.managed);
 }
 async function plusCompanyStart(btn) {
@@ -66227,6 +66551,12 @@ function pjById(id) { return PROJECTS.find((p) => p.id === id) || null; }
    list left standing would dress another project's words as citations of files
    this one does not have. */
 let PJ_DOC_NAMES = null;
+function sameDocNames(a, b) {   // #6761 iteration 7: two PJ_DOC_NAMES values name the same files
+  if (!a || !b) return a === b;
+  if (a.size !== b.size) return false;
+  for (const n of a) if (!b.has(n)) return false;
+  return true;
+}
 /* #2245: shown by both document views when the folder walk stopped short. */
 let PJ_DOCS_VIEW_PARTIAL = false; // #2245: the open View All list was cut short
 let PJ_DOCS_RAIL_PARTIAL = false; // #2245: the rail's last list was cut short
@@ -67796,8 +68126,28 @@ function tkReceiptAgentHtml(a, name) {
     : (a.folder ? '<p class="tkr-line tkr-where">In ' + esc(a.folder) + '</p>' : '');
   return '<div class="tkr-agent">' + head
     + '<p class="tkr-line" title="' + esc(usageNum(tokens)) + ' tokens">' + esc(bits.join(', ')) + '.</p>'
+    + tkReceiptPrsHtml(a)
     + toggle
     + '</div>';
+}
+/* kosmos#6842: the pull requests the agent worked on (opened, commented on, merged) while it held the task, beside what
+   the task cost. No line when there are none, or the receipt has no `prs`. A link only to a github.com pull request, as
+   the engine wrote it. Pure. */
+function tkReceiptPrsHtml(a) {
+  const prs = Array.isArray(a && a.prs) ? a.prs.filter((p) => p && typeof p === 'object') : null;
+  if (!prs || !prs.length) return '';
+  const one = (p) => {
+    const repo = String(p.repo || '');
+    const label = esc(repo.split('/').pop() + '#' + p.number);
+    const full = esc(repo + '#' + p.number);
+    return typeof p.url === 'string' && /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/\d+$/.test(p.url)
+      ? '<a href="' + esc(p.url) + '" target="_blank" rel="noopener noreferrer" title="' + full + '">' + label + '<span class="vh"> (opens in your browser)</span></a>'
+      : '<span title="' + full + '">' + label + '</span>';
+  };
+  const more = Number(a.prsMore) || 0;
+  const n = prs.length + more;
+  return '<p class="tkr-line">' + (n === 1 ? 'Worked on pull request ' : 'Worked on pull requests ')
+    + prs.map(one).join(', ') + (more ? ' and ' + usageNum(more) + ' more' : '') + '.</p>';
 }
 /* #5153: the whole receipt. Pure. The put-back line first: it ends the task's history above, then the receipt follows
    (Mona Lisa: the receipt between the activity and its summary split the history in two). */
@@ -70060,8 +70410,42 @@ const PJ_DOCS_PER = 50;
 /* One Files row's small line: size, date, and (#5812) the agent that changed it last when the board recorded one. */
 function pjDocMeta(f) {
   return pjSize(f.size) + (f.modified ? ' · ' + new Date(f.modified).toLocaleDateString() : '')
-    + (typeof f.changedBy === 'string' && f.changedBy ? ' · changed by ' + f.changedBy : '');
+    + (typeof f.changedBy === 'string' && f.changedBy ? ' · changed by ' + f.changedBy : '')
+    + (fileFingerprint(f) ? ' · fingerprint ' + fileFingerprint(f).slice(0, 12) : '');   // #6761 (plain words; the hover says sha256)
 }
+/* #6761 iteration 1: the Documents view reads its list once, when it opens, and the board hashes files in the background,
+   so a row is often sent before its fingerprint exists. While the same open is showing and a listed row has none, read
+   the list again (every 2 s, at most 15 times) and put the fingerprints that have arrived onto the rows by name, never
+   reordering or replacing the list the person is reading; the page they are on repaints in place. A file the board
+   will not hash (too big) simply runs out the tries. */
+const DOCS_FP_TRIES = 15;
+function docsFingerprintFill(forProject, openGen, tries) {
+  if (tries >= DOCS_FP_TRIES || !Array.isArray(PJ_DOCS_FILES) || PJ_DOCS_FILES.every((f) => fileFingerprint(f))) return;
+  setTimeout(async () => {
+    if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs' || DOCS_OPEN_GEN !== openGen) return;   // another view or open now
+    let body = null;
+    try { body = await (await fetch('/api/project/' + encodeURIComponent(forProject) + '/documents?limit=500', { cache: 'no-store' })).json(); } catch { body = null; }
+    if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs' || DOCS_OPEN_GEN !== openGen) return;
+    const got = new Map((body && Array.isArray(body.files) ? body.files : []).filter((f) => fileFingerprint(f)).map((f) => [f.name + '\u0000' + f.size + '\u0000' + f.modified, f.sha256]));
+    let added = false;
+    for (const f of PJ_DOCS_FILES) {
+      const sha = !fileFingerprint(f) && got.get(f.name + '\u0000' + f.size + '\u0000' + f.modified);   // the same file as listed, never a newer one
+      if (sha) { f.sha256 = sha; added = true; }
+    }
+    if (added) {
+      // Iteration 2: the repaint rebuilds the rows; a row that had the keyboard keeps it (found again by its name).
+      const box = document.getElementById('docs-list');
+      const had = box && document.activeElement && box.contains(document.activeElement) ? document.activeElement.dataset.doc : null;
+      pjDocsPaintPage();
+      if (had != null && box) { const again = [...box.querySelectorAll('.pj-doc')].find((r) => r.dataset.doc === had); if (again) again.focus({ preventScroll: true }); }
+    }
+    docsFingerprintFill(forProject, openGen, tries + 1);
+  }, 2000);
+}
+/* #6761 (a feedback report: a revised file handed over can be mistaken for an earlier version): a Files row's sha256,
+   as the board sent it (hashed in the background, so a row may have none yet), or ''. Only a whole hex digest is shown;
+   the row shows its first 12 digits and the whole value is the row's hover text. */
+function fileFingerprint(f) { return f && typeof f.sha256 === 'string' && /^[0-9a-f]{64}$/.test(f.sha256) ? f.sha256 : ''; }
 function pjDocsPaintPage() {
   const box = document.getElementById('docs-list');
   const count = document.getElementById('docs-count');
@@ -70077,6 +70461,8 @@ function pjDocsPaintPage() {
     const n = document.createElement('span'); n.className = 'pj-doc-n'; n.textContent = f.name;
     const w = document.createElement('span'); w.className = 'pj-doc-w';
     w.textContent = pjDocMeta(f);
+    if (fileFingerprint(f)) b.title = f.name + ', fingerprint sha256 ' + fileFingerprint(f);   // #6761: the whole value
+    if (fileFingerprint(f)) b.setAttribute('aria-description', 'fingerprint ' + fileFingerprint(f).slice(0, 12));   // iteration 7: spoken short (an empty one would fall back to the title)
     b.append(n, w); box.append(b);
   }
   const floor = PJ_DOCS_TOTAL > PJ_DOCS_FILES.length
@@ -70190,6 +70576,7 @@ async function openDocsView() {
     PJ_DOCS_TOTAL = Number(body.total) || files.length;
     PJ_DOCS_PAGE = 0;
     pjDocsPaintPage();
+    docsFingerprintFill(forProject, docsOpen, 0);   // #6761 iteration 1: this view reads once; its fingerprints come later
     /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
     if (body.truncated === true) msg.textContent = pjDocsPartialHere();
   } catch {
@@ -70325,6 +70712,7 @@ async function pjLoadDocs(id) {
   if (nowOk && PJ_DOCS_OK && body.stamp === PJ_DOCS_STAMP) return;
   if (nowOk) PJ_DOCS_STAMP = body.stamp;
   PJ_DOCS_OK = nowOk;
+  const hadFocus = focusedRowKey(box);   // #6761 iteration 5
   box.textContent = '';
   if (!body || body.ok !== true) {
     PJ_DOCS_RAIL_PARTIAL = false; // #2245: a failed read carries no list to be partial about
@@ -70332,12 +70720,15 @@ async function pjLoadDocs(id) {
     all.hidden = true;
     return;
   }
+  const namesBefore = PJ_DOC_NAMES;
   PJ_DOC_NAMES = Array.isArray(body.names) ? new Set(body.names) : null;
   /* The room is repainted so citations become chips as soon as the names land.
      Its own cache key is cleared first, or the change-guard skips the repaint
-     and the chips appear only after the next unrelated change. */
+     and the chips appear only after the next unrelated change.
+     #6761 iteration 7: only when the NAMES moved. A fingerprint arriving moves the stamp too, and rebuilding the whole
+     conversation for it would close an open reaction picker and drop a selection with no name changed. */
   const roomBox = document.getElementById('pj-room');
-  if (roomBox) { roomBox.__lastRoom = undefined; if (roomBox.__lastBody) paintRoom(roomBox.__lastBody); }
+  if (roomBox && !sameDocNames(namesBefore, PJ_DOC_NAMES)) { roomBox.__lastRoom = undefined; if (roomBox.__lastBody) paintRoom(roomBox.__lastBody); }
   const files = Array.isArray(body.files) ? body.files : [];
   PJ_DOCS_RAIL_PARTIAL = body.truncated === true;
   if (!files.length) {
@@ -70361,9 +70752,12 @@ async function pjLoadDocs(id) {
     const w = document.createElement('span');
     w.className = 'pj-doc-w';
     w.textContent = pjSize(f.size);
+    if (fileFingerprint(f)) b.title = f.name + ', fingerprint sha256 ' + fileFingerprint(f);   // #6761: the narrow rail shows it on hover
+    if (fileFingerprint(f)) b.setAttribute('aria-description', 'fingerprint ' + fileFingerprint(f).slice(0, 12));   // iteration 7: spoken short
     b.append(n, w);
     box.append(b);
   }
+  refocusRow(box, hadFocus);
   all.hidden = false;
   /* The SCREEN Josh asked for exists now (#134), so the button opens it and
      says so; the Finder hand-off lives inside that screen, named as what it

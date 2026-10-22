@@ -165,7 +165,7 @@ function main() {
     const left = deadline - Date.now();
     if (!ok || left <= 0) return null;
     timer = setTimeout(() => controller.abort(), left);
-    return fetch(`http://127.0.0.1:${port}/api/report`, { method: 'POST', headers, body, signal: controller.signal });
+    return fetch(`http://127.0.0.1:${port}/api/report`, { method: 'POST', headers, body, signal: controller.signal, redirect: 'manual' });
   }).catch(() => { /* a missed report must never become a failed turn */ })
     .finally(() => clearTimeout(timer));
 }
@@ -271,7 +271,7 @@ async function hookMain(io) {
     return Promise.resolve()
       /* The answer is read under the same timer (review 3: a board that sent its headers and stalled its body held the
          hook 20 s once the timer was cleared on the headers). */
-      .then(() => doFetch(`http://127.0.0.1:${port}/api/undo/keep`, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal }))
+      .then(() => doFetch(`http://127.0.0.1:${port}/api/undo/keep`, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal, redirect: 'manual' }))
       .then((res) => (res && typeof res.text === 'function' ? res.text() : null))
       .catch(() => { /* a missed keep must never stop the edit */ })
       .finally(() => clearTimeout(timer));

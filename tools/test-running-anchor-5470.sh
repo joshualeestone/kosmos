@@ -15,9 +15,12 @@ trap cleanup EXIT
 
 # A unique script name, so nothing else on this machine can match, and a sleeper behind each shape.
 NAME="fake-run-5470-$$.sh"; SCRIPT="tools/$NAME"
+# The sleeper is a perl bounded wait, not `sleep 30` (kosmos#6730): a stray `pkill -f sleep` on this shared
+# box matches a `sh -c "sleep 30; ..."` stand-in or a stand-in script's child sleep and ends it mid-test.
+WAIT30="perl -e 'select(undef, undef, undef, 30)'"
 mkdir -p "$T/tools"
-printf '#!/bin/bash\nsleep 30\n' > "$T/$SCRIPT"
-printf '#!/bin/bash\nsleep 30\n' > "$T/tools/queued-heavy-standin.sh"
+printf '#!/bin/bash\n%s\n' "$WAIT30" > "$T/$SCRIPT"
+printf '#!/bin/bash\n%s\n' "$WAIT30" > "$T/tools/queued-heavy-standin.sh"
 chmod +x "$T/$SCRIPT" "$T/tools/queued-heavy-standin.sh"
 start() { "$@" >/dev/null 2>&1 & PIDS="$PIDS $!"; disown "$!" 2>/dev/null || true; }
 pids_of() { printf '%s\n' "$1" | awk 'NF {print $1}' | sort -n | tr '\n' ' '; }
@@ -31,9 +34,9 @@ out="$(kosmos_running_lines "$SCRIPT")"; rc=$?
 
 # The shapes that are NOT runs.
 ( cd "$T" && start bash tools/queued-heavy-standin.sh "#5470 standin" bash "$SCRIPT"; echo "$PIDS" > "$T/waiter.pid" ); WAITER=$(awk '{print $NF}' "$T/waiter.pid"); PIDS="$PIDS $WAITER"
-start sh -c "sleep 30; : bash $SCRIPT"; PARENT=$!
-start bash -c 'sleep 30; :' "mentions-$SCRIPT"; MENTION=$!   # compound, so bash stays and keeps the mention
-start bash -c "sleep 30; : $SCRIPT"; CSTRING=$!                  # a -c command string that names the script
+start sh -c "$WAIT30; : bash $SCRIPT"; PARENT=$!
+start bash -c "$WAIT30; :" "mentions-$SCRIPT"; MENTION=$!   # compound, so bash stays and keeps the mention
+start bash -c "$WAIT30; : $SCRIPT"; CSTRING=$!                  # a -c command string that names the script
 settle $WAITER $PARENT $MENTION $CSTRING
 # CONTROL: the unanchored pattern a hand-written wait used really does match them (else this proves nothing).
 loose="$(pgrep -f "${NAME//./\\.}" | tr '\n' ' ')"

@@ -54,6 +54,8 @@ test('#6589: it asks this computer\'s own board, with the board token, for that 
   // is required, and logged.
   assert.match(a, /guard resolvedPort != nil, let url = parts\.url else \{ done\(nil, \[\]\); return \}/);
   assert.match(a, /logLine\("tls-pin: the board did not answer[^\n]*\n\s+done\("required", \[\]\); return/);
+  // pinlog-6589: the same event reaches a person's Mac's unified log (logLine alone writes only the harness file).
+  assert.match(a, /logToSystem\("tls-pin: the board did not answer \(status [^\n]*\n\s+logLine\("tls-pin: the board did not answer for/);
   assert.match(a, /guard Thread\.isMainThread else \{ DispatchQueue\.main\.async \{ self\.askTlsPin\(host: host, fresh: fresh, done: done\) \}; return \}/);
 });
 
@@ -70,4 +72,8 @@ test('#6589: the leaf\'s key is hashed as the computer hashes it, and a refusal 
   assert.match(r, /: "Kosmos could not check that computer's certificate just now/);
   assert.match(r, /if let at = tlsPinToldAt\[host\], now - at < 60 \{ return \}/);
   assert.match(r, /logLine\(/, 'the refusal is logged even when the person is not told again');
+  // pinlog-6589: every refusal reaches the unified log, so the call must come BEFORE the once-a-minute return.
+  const sys = r.indexOf('logToSystem(mismatch ? "tls-pin: refused a computer: ');
+  const quiet = r.indexOf('if let at = tlsPinToldAt[host], now - at < 60 { return }');
+  assert.ok(sys >= 0 && quiet >= 0 && sys < quiet, 'the unified-log refusal line is missing or comes after the once-a-minute return');
 });

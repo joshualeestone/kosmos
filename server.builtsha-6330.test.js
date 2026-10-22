@@ -222,6 +222,8 @@ test('Mac `kosmos task built --file` sends the file\'s sha256, and task list sho
   assert.equal(r.code, 0, r.out);
   assert.equal(stored(n).builtFingerprint, want, 'the CLI sent another fingerprint: ' + r.out);
   assert.equal(stored(n).builtNote, 'delivered', 'the file path leaked into the note');
+  // #6761: the fingerprint sent is printed, whole, with the file named as given.
+  assert.ok(r.out.includes('Fingerprint sent: ' + want + ' for ' + path.basename(file)), r.out);
   const list = await mac(['task', 'list', projectId], { KOSMOS_AGENT_TOKEN: tok });
   assert.match(list.out, new RegExp('    fingerprint ' + want + ', sent by mona'), list.out);
 });

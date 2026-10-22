@@ -367,7 +367,7 @@ async function postKeep(body, env, fetchImpl) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), left);
   await Promise.resolve()
-    .then(() => doFetch(`http://127.0.0.1:${port}/api/undo/keep`, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal }))
+    .then(() => doFetch(`http://127.0.0.1:${port}/api/undo/keep`, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal, redirect: 'manual' }))
     .catch(() => { /* a missed keep must never stop the edit */ })
     .finally(() => clearTimeout(timer));
 }
@@ -415,6 +415,7 @@ async function main() {
   const timer = setTimeout(() => controller.abort(), left);
   await fetch(`http://127.0.0.1:${port}/api/report`, {
     method: 'POST', headers, body: JSON.stringify(buildBody(mapped.state, mapped.text, process.env, mapped.waiting, mapped.final, mapped.until)), signal: controller.signal,
+    redirect: 'manual',   // kosmos#6464: the board never redirects; never carry the tokens elsewhere
   }).catch(() => { /* a missed report must never become a failed turn */ })
     .finally(() => clearTimeout(timer));
 }

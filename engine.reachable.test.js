@@ -285,6 +285,13 @@ const SEAMS_5548 = {
   setLiveness: 'engine/win32job.js',
   setRunningClock: 'engine/win32job.js',
   setAlive: 'engine/win32stop.js',
+  // #6761: engine/filehash.js's background fingerprint cache. engine/filehash-6761.test.js and server.fingerprints-6761.test.js
+  // clear it between tests, hash at once instead of after the 5 s settle, observe each finished job, and wait for the
+  // queue to drain. Production never calls them.
+  _resetForTest: 'engine/filehash.js',
+  _settleForTest: 'engine/filehash.js',
+  _onHashedForTest: 'engine/filehash.js',
+  _idleForTest: 'engine/filehash.js',
   // #5309 p2: drops the per-folder plugin-reach mtime cache so a read-count test starts clean; production never clears it.
   _resetCache: 'engine/pluginreach.js',
 };

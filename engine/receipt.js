@@ -19,6 +19,9 @@
  * Claude only in this slice. An agent on another provider (create.recordedRunner) is listed with `available: false`,
  * never a guessed zero. Four token buckets per model, never blended; one assistant message counted once by its id, and
  * synthetic rows skipped, as engine/usage.js counts them.
+ *
+ * kosmos#6842: a Claude agent's receipt also lists the pull requests it worked on while it held the task, from the
+ * `pr-link` rows Claude Code writes, so a task's cost sits beside the PRs it produced.
  */
 
 const fs = require('node:fs');
@@ -35,9 +38,16 @@ const BUCKET_FIELDS = ['input_tokens', 'output_tokens', 'cache_creation_input_to
 const SYNTHETIC_ROW = /"model":"<[^"]*>"/;
 const FILE_TOOLS = { Edit: 'file_path', Write: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
 const COMMAND_TOOLS = new Set(['Bash']);
-/* Bumped when the receipt's shape or counting changes, so a kept receipt from an older build is worked out again.
-   2: Codex and Gemini CLI agents are read (slice 2). */
-const VERSION = 2;
+/* Bumped when the receipt's shape or counting changes. A kept receipt of an older version is worked out again unless
+   keptStillRight says it is still right as it was.
+   2: Codex and Gemini CLI agents are read (slice 2).
+   3: the pull requests a Claude agent worked on while it held the task (`prs`, kosmos#6842). */
+const VERSION = 3;
+/* kosmos#6842: Claude Code writes a `pr-link` row (prRepository, prNumber, prUrl) when a session acts on a pull request
+   (opens, comments on or merges it), then repeats it on that session's later turns. A PR is listed when some session's
+   first row for it is inside a hold. The measurements behind this are in the branch's plan. */
+const PR_REPO = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+const PRS_SHOWN = 20;
 /* Slice 2: the providers read besides Claude, by the agent's recorded runner. */
 const OTHER_PROVIDERS = new Set(['codex', 'gemini']);
 
@@ -189,6 +199,7 @@ async function claudeWork(dir, holds) {
   let complete = true;
   const seenMsg = new Set();
   const seenTool = new Set();
+  const prFirstInSession = new Map();   // "session\0owner/name#n" -> { repo, number, url, t }: that session's first row for it
   const found = [];
   for (const d of transcriptDirs(dir)) found.push(...await transcriptsIn(d));
   for (const file of [...new Set(found)]) {
@@ -201,11 +212,27 @@ async function claudeWork(dir, holds) {
       const rl = readline.createInterface({ input: fs.createReadStream(file, { encoding: 'utf8' }), crlfDelay: Infinity });
       for await (const line of rl) {
         if (!line || SYNTHETIC_ROW.test(line)) continue;
+        const isPr = line.includes('"pr-link"');
         const isAssistant = line.includes('"assistant"');
         const isResult = line.includes('"tool_result"');
-        if (!isAssistant && !isResult) continue;
+        if (!isPr && !isAssistant && !isResult) continue;
         let row;
         try { row = JSON.parse(line); } catch { continue; }
+        if (row && row.type === 'pr-link') {
+          const repo = row.prRepository;
+          const number = row.prNumber;
+          const t = Date.parse(row.timestamp);
+          if (typeof repo === 'string' && PR_REPO.test(repo) && Number.isSafeInteger(number) && number > 0 && Number.isFinite(t)) {
+            const session = typeof row.sessionId === 'string' && row.sessionId ? row.sessionId : file;
+            const key = session + '\0' + repo + '#' + number;
+            const seen = prFirstInSession.get(key);
+            if (!seen || t < seen.t) {
+              const url = 'https://github.com/' + repo + '/pull/' + number;
+              prFirstInSession.set(key, { repo, number, url: row.prUrl === url ? url : null, t });
+            }
+          }
+          continue;
+        }
         const message = row && row.message;
         if (!message || typeof message !== 'object') continue;
         const blocks = Array.isArray(message.content) ? message.content : [];
@@ -246,7 +273,18 @@ async function claudeWork(dir, holds) {
   const files = new Map();
   for (const [id, shown] of edits) if (answered.has(id) && !failed.has(id)) files.set(shown, true);
   const all = [...files.keys()];
-  return { models, files: all.slice(0, FILES_SHOWN), filesMore: Math.max(0, all.length - FILES_SHOWN), commands, transcriptsWithWork: withWork, transcriptsRead: read, complete };
+  /* A session repeats a PR's row on its later turns, so only its first row for a PR marks the act (review 2). A PR is
+     the hold's when some session's first row for it is inside a hold. */
+  const prsWorked = new Map();
+  for (const p of prFirstInSession.values()) {
+    if (!inHold(p.t)) continue;
+    const key = p.repo + '#' + p.number;
+    const seen = prsWorked.get(key);
+    if (!seen || p.t < seen.t) prsWorked.set(key, p);
+  }
+  const worked = [...prsWorked.values()].sort((a, b) => a.t - b.t).map(({ repo, number, url }) => ({ repo, number, url }));
+  return { models, files: all.slice(0, FILES_SHOWN), filesMore: Math.max(0, all.length - FILES_SHOWN), commands,
+    prs: worked.slice(0, PRS_SHOWN), prsMore: Math.max(0, worked.length - PRS_SHOWN), transcriptsWithWork: withWork, transcriptsRead: read, complete };
 }
 
 /**
@@ -397,8 +435,11 @@ function closedAtOf(task) {
 }
 
 /* A receipt kept by slice 1 (VERSION 1) is still right when no agent on it was a Codex or Gemini agent, which is all
-   slice 2 changes; working it out again could only lose work whose transcripts have since been pruned (review 1). */
+   slice 2 changes; working it out again could only lose work whose transcripts have since been pruned (review 1).
+   A VERSION 2 receipt is kept as it was for the same reason. It has no `prs`, so its page shows no pull request line,
+   as for an agent that worked on none (kosmos#6842). */
 function keptStillRight(kept) {
+  if (kept.version === 2) return Array.isArray(kept.agents);
   return kept.version === 1 && Array.isArray(kept.agents)
     && !kept.agents.some((a) => a && OTHER_PROVIDERS.has(a.provider));
 }

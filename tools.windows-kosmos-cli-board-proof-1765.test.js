@@ -54,7 +54,7 @@ test('#1765: a squatter gets nothing but the proof request, on a read, a write a
   } finally { await sq.close(); }
 });
 
-test('#1765 CONTROL: a board that holds the token gets the request, with its tokens, and is proved once', async () => {
+test('#1765 CONTROL: a board that holds the token gets the request, with its tokens, proved before it (one request, one proof)', async () => {
   const board = await startListener({ mode: 'board', holds: BOARD, reply: { ok: true, recorded: true, posts: [], project: { id: 'proj' } } });
   try {
     await run(board.url, ['report', 'working', 'on it']);
@@ -125,7 +125,7 @@ test('#1765: the seam is asked with the url, the token and at most half the requ
   assert.ok(asked[0].ms > 0 && asked[0].ms <= cli.REQUEST_TIMEOUT_MS / 2);
 });
 
-test('#1765: a check that passed serves the rest of the process: two sends in one command, one proof', async () => {
+test('kosmos#6464: each request proves for itself: two sends in one command, two proofs', async () => {
   let asked = 0, fetched = 0;
   // msg asks once more after a cut answer, so one command makes two requests.
   const r = await run('http://127.0.0.1:1', ['msg', 'bart', 'hi'], {
@@ -134,7 +134,7 @@ test('#1765: a check that passed serves the rest of the process: two sends in on
     proveBoard: async () => { asked += 1; return true; },
   });
   assert.equal(fetched, 2, 'the command did not make two requests: ' + r.err);
-  assert.equal(asked, 1, 'the second request asked for a second proof');
+  assert.equal(asked, 2, 'the retry after a request that did not complete went on the first request proof');
 });
 
 test('#1765: task ran is not asked again of a listener that failed the check, and says why nothing was sent', async () => {
@@ -152,4 +152,128 @@ test('#1765: task ran is not asked again of a listener that failed the check, an
 test('#1765: the command\'s own entry passes no fetch, hook or seam (any of which would skip the real check)', () => {
   const src = fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
   assert.match(src, /if \(require\.main === module\) \{\n  main\(process\.argv\.slice\(2\)\)\.then/);
+});
+
+/* ---- kosmos#6464: a proof covers one request, a body secret needs a token, and no redirect is followed ---- */
+const http = require('node:http');
+const { answerProof } = require('./test-support/proof-listener-1765');
+
+/* A real listener that proves it holds BOARD for its first `proves` proofs and then answers like a squatter (the
+   board restarted and something else took the port), and cuts its first /api/msg send after reading it (a reset, so
+   msg asks once more). Every request is recorded. */
+function startTurncoat({ proves }) {
+  const seen = [];
+  let proofs = 0, msgs = 0;
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => {
+      seen.push({ method: req.method, url: req.url, headers: { ...req.headers }, body });
+      if (req.url.startsWith('/api/board-proof')) {
+        proofs += 1;
+        if (proofs <= proves && answerProof(req, res, [BOARD])) return;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ proof: 'c'.repeat(64) }));
+        return;
+      }
+      if (req.url === '/api/msg' && ++msgs === 1) { req.socket.destroy(); return; }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, delivered: true }));
+    });
+  });
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({
+    url: 'http://127.0.0.1:' + server.address().port,
+    seen,
+    sends: () => seen.filter((x) => x.url === '/api/msg'),
+    proofs: () => seen.filter((x) => x.url.startsWith('/api/board-proof')),
+    close: () => new Promise((r) => { server.closeAllConnections(); server.close(() => r()); }),
+  })));
+}
+
+test('kosmos#6464: a retry after a request that did not complete proves again, and a listener that no longer proves gets nothing', async () => {
+  const l = await startTurncoat({ proves: 1 });
+  try {
+    const r = await run(l.url, ['msg', 'bart', 'hi']);
+    assert.equal(l.proofs().length, 2, 'the retry did not prove again: ' + l.seen.map((x) => x.method + ' ' + x.url).join(', '));
+    assert.equal(l.sends().length, 1, 'the retry went to a listener that had stopped proving itself');
+    assert.notEqual(r.code, 0, r.err);
+  } finally { await l.close(); }
+});
+
+test('kosmos#6464 CONTROL: a board that keeps proving itself gets the retry, proved again', async () => {
+  const l = await startTurncoat({ proves: 99 });
+  try {
+    const r = await run(l.url, ['msg', 'bart', 'hi']);
+    assert.equal(l.proofs().length, 2);
+    assert.equal(l.sends().length, 2, 'the retry did not reach a board that proved itself: ' + r.err);
+  } finally { await l.close(); }
+});
+
+/* `kosmos connect` carries a service key in the BODY. With no board token there is nothing in the headers to prove
+   the listener with, so it refuses rather than send the key unproven. */
+async function connect(url) {
+  return run(url, ['connect', 'brave-search'], { readStdin: async () => ({ text: 'svc-key-6464-win', ended: true }) });
+}
+function withoutBoardToken(fn) {
+  const p = boardauth.tokenPath();
+  const aside = p + '.aside-6464';
+  fs.renameSync(p, aside);
+  return Promise.resolve().then(fn).finally(() => fs.renameSync(aside, p));
+}
+
+test('kosmos#6464: with no board token, connect refuses to send a service key, and the listener gets nothing', async () => {
+  const sq = await startListener({ mode: 'squatter' });
+  try {
+    await withoutBoardToken(async () => {
+      assert.equal(require('./engine/kosmos-report-hook').readBoardToken(), null, 'the board token is still readable, so this arm measures nothing');
+      const r = await connect(sq.url);
+      assert.equal(r.code, 1, r.err);
+      assert.match(r.err, /could not read its Kosmos board token[\s\S]*nothing was sent/);
+    });
+    assert.deepEqual(sq.carrying(['svc-key-6464-win']), [], 'the service key reached an unproven listener');
+    assert.deepEqual(sq.seen.filter((x) => x.method === 'POST'), [], 'a request went out');
+  } finally { await sq.close(); }
+});
+
+test('kosmos#6464 CONTROL: with the board token, a board that proves itself receives the key', async () => {
+  const board = await startListener({ mode: 'board', holds: BOARD, reply: { connected: true, service: 'Brave Search' } });
+  try {
+    const r = await connect(board.url);
+    assert.equal(r.code, 0, r.err);
+    const posts = board.seen.filter((x) => x.method === 'POST');
+    assert.equal(posts.length, 1);
+    assert.match(posts[0].body, /svc-key-6464-win/);
+    assert.equal(board.proofRequests().length, 1);
+  } finally { await board.close(); }
+});
+
+test('kosmos#6464: a proven board that redirects a send elsewhere: the tokens and body never reach the other address', async () => {
+  const elsewhere = await startListener({ mode: 'squatter' });
+  const redirected = [];
+  const server = http.createServer((req, res) => {
+    if (answerProof(req, res, [BOARD])) return;
+    redirected.push(req.method + ' ' + req.url);
+    res.writeHead(307, { location: elsewhere.url + req.url });   // 307 keeps the method and body if followed
+    res.end();
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const r = await run('http://127.0.0.1:' + server.address().port, ['report', 'working', 'on it']);
+    assert.notEqual(r.code, 0, r.err);
+    assert.deepEqual(redirected, ['POST /api/report'], 'the report never reached the board (so this arm measures nothing), or was asked again');
+    assert.equal(r.code, 1, r.err);
+    assert.match(r.err, /tried to send this request somewhere else, which Kosmos never does, so we did not follow it. We could not record that; check before doing it again./);
+    // A read changes nothing, so it is not told to check before doing it again.
+    const rd = await run('http://127.0.0.1:' + server.address().port, ['room', 'proj']);
+    assert.equal(rd.code, 1, rd.err);
+    assert.match(rd.err, /so we did not follow it\. We could not [^;]+\.$/m);
+    assert.doesNotMatch(rd.err, /check before doing it again/);
+    redirected.length = 1;   // the room read's GET is not part of the msg count below
+    // msg asks once more after a cut answer; a refused redirect is not one, so it is sent once.
+    const m = await run('http://127.0.0.1:' + server.address().port, ['msg', 'bart', 'hi']);
+    assert.equal(m.code, 1, m.err);
+    assert.deepEqual(redirected, ['POST /api/report', 'POST /api/msg'], 'msg was asked again after a refused redirect');
+    assert.deepEqual(elsewhere.seen.map((x) => x.method + ' ' + x.url), [], 'the request followed the redirect');
+  } finally { server.closeAllConnections(); server.close(); await elsewhere.close(); }
 });

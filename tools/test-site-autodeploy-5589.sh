@@ -169,7 +169,7 @@ tick; n10=$(ndeploys)
 #     a dead holder's lock is taken over and the tick removes its own lock.
 H11=$(advance eleven)
 echo old > "$ST/heartbeat"
-mkdir "$ST/lock"; sleep 300 & live=$!; echo "$live" > "$ST/lock/pid"
+mkdir "$ST/lock"; perl -e 'select(undef, undef, undef, 300)' & live=$!; echo "$live" > "$ST/lock/pid"
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = "$n10" ] && [ "$(cat "$ST/heartbeat")" = old ]; } && pass "a live lock holder: no deploy, heartbeat untouched" || bad "deployed or beat under a live lock"
 # ...and once the lock has been held with no heartbeat for over an hour, it goes red (a wedged lock).
@@ -295,12 +295,12 @@ git -C "$T/site" remote set-url origin "$T/origin.git"
 #     published before hanging), not a retry: red, retried once, then parked; never blessed as live.
 H22=$(advance twentytwo); rm -f "$ST/retries" "$ST/failures"
 HANGPID="$T/hang.pid"
-KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANGPID"'; wait' tick
+KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANGPID"'; wait' tick
 hp=$(cat "$HANGPID" 2>/dev/null); sleep 1
 { [ "$RC" = 1 ] && [ -n "$hp" ] && ! kill -0 "$hp" 2>/dev/null && grep -q "^$H22 rc=124 " "$ST/last-failure" && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "past its 2s limit"; } \
   && pass "a hung deploy is stopped with its child and counted as a failure (rc 124), not parked yet" || { bad "hung deploy (rc=$RC, child $hp alive=$(kill -0 "$hp" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp" ] && kill "$hp" 2>/dev/null; }
 printf 'kosmos-release-export\ncommit=%s\n' "$H22" > "$SERVED/.kosmos-release-export"   # as if it published, then hung
-KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANGPID"'; wait' tick
+KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANGPID"'; wait' tick
 hp=$(cat "$HANGPID" 2>/dev/null); sleep 1; [ -n "$hp" ] && kill -0 "$hp" 2>/dev/null && kill "$hp"
 { [ "$RC" = 1 ] && [ "$(cat "$ST/parked" 2>/dev/null)" = "$H22" ] && [ "$(cat "$ST/last-deployed")" != "$H22" ]; } \
   && pass "a second hang parks the sha, and a marker naming it does not bless it as deployed" || bad "second hang (rc=$RC, parked=$(cat "$ST/parked" 2>/dev/null))"
@@ -308,7 +308,7 @@ rm -f "$ST/parked" "$ST/failures"; rm -rf "$ST/reported.d"
 
 # 23) the tick itself is killed mid-deploy (the runner cancels the job): its deploy group goes with it.
 H23=$(advance twentythree); HANG2="$T/hang2.pid"
-KOSMOS_AUTODEPLOY_DEPLOY='echo started-23; sleep 300 & echo $! > '"$HANG2"'; wait' bash "$AD" > "$T/tick23.out" 2>&1 & tick23=$!
+KOSMOS_AUTODEPLOY_DEPLOY='echo started-23; perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANG2"'; wait' bash "$AD" > "$T/tick23.out" 2>&1 & tick23=$!
 # Signal only once the tick has said it is deploying (its traps are set by then), not on the child alone.
 for i in $(seq 1 100); do [ -s "$HANG2" ] && command grep -q "deploying site main" "$T/tick23.out" && break; sleep 0.1; done; sleep 0.3
 kill -TERM "$tick23"; wait "$tick23" 2>/dev/null; sleep 1
@@ -364,35 +364,42 @@ rm -f "$CUTDIST/kosmos-0.7.22-arm64.tar.gz" "$CUTDIST/kosmos-0.7.22-arm64.tar.gz
   && pass "mirror: red once at the alarm under its own cause, then reported" || bad "mirror cause (c1=$c1 c2=$c2) $OUTC"
 rm -f "$ST/retries"; tick
 # wedged re-arm: a wedge reported, the lock freed (a tick takes it), then a NEW wedge is red at once.
-mkdir "$ST/lock"; sleep 300 & w1=$!; echo "$w1" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
+mkdir "$ST/lock"; perl -e 'select(undef, undef, undef, 300)' & w1=$!; echo "$w1" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
 tick; r1=$RC; kill "$w1" 2>/dev/null; wait "$w1" 2>/dev/null
 echo 999999 > "$ST/lock/pid"; tick   # takes over the dead lock: the wedge record clears
-mkdir "$ST/lock"; sleep 300 & w2=$!; echo "$w2" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
+mkdir "$ST/lock"; perl -e 'select(undef, undef, undef, 300)' & w2=$!; echo "$w2" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
 tick; r2=$RC; kill "$w2" 2>/dev/null; wait "$w2" 2>/dev/null; rm -rf "$ST/lock"
 { [ "$r1" = 1 ] && [ "$r2" = 1 ]; } && pass "wedged: after the lock is taken again, a new wedge is red at once" || bad "wedged re-arm (r1=$r1 r2=$r2)"
 
 # 26) a fetch that hangs is stopped at its limit with its whole process group, and is red_once fetch.
-#     (ext:: runs a command as the remote; the sleep's length is unique to this run, so it can be looked
-#     for afterwards without counting another run's.)
+#     (ext:: runs a command as the remote; the wait's length is unique to this run, so it can be looked
+#     for afterwards without counting another run's. kosmos#6730: a perl bounded wait, not `sleep`, so a stray
+#     `pkill -f sleep` cannot end the hang early and let this arm pass for the wrong reason. Its code has no
+#     spaces, because ext:: splits its command on them.)
 Z26="$(( 4000 + $$ % 900 )).$RANDOM$RANDOM"   # a fractional length: no two runs pick the same one
 git -C "$T/site" config protocol.ext.allow always
-git -C "$T/site" remote set-url origin "ext::sleep $Z26"
+HOLD26="select(undef,undef,undef,$Z26)"
+# Anchored at the start of the line, so the grep below never counts its own command line (which holds this text).
+# Any path before perl: git runs the remote by the full path it found on PATH (/usr/bin/perl here, a Homebrew or
+# CI perl elsewhere), and the control below is started the same way, so it proves the form git produces.
+HOLD26RE="^([^ ]*/)?perl -e select\\(undef,undef,undef,${Z26//./\\.}\\)\$"
+git -C "$T/site" remote set-url origin "ext::perl -e $HOLD26"
 t0=$SECONDS; KOSMOS_AUTODEPLOY_FETCH_MAX_S=2 tick; el=$((SECONDS - t0)); sleep 1
-left=$(ps -axo command= | command grep -Ec "(^|/)sleep ${Z26//./\\.}\$")   # ps names it /bin/sleep (measured)
+left=$(ps -axo command= | command grep -cE "$HOLD26RE")
 git -C "$T/site" remote set-url origin "$T/origin.git"; git -C "$T/site" config --unset protocol.ext.allow
 { [ "$RC" = 1 ] && [ "$el" -lt 10 ] && [ "$left" = 0 ] && printf '%s' "$OUT" | grep -q "could not fetch"; } \
   && pass "a hanging fetch is stopped at its limit, its helpers with it, and reported red" || bad "hanging fetch (rc=$RC, ${el}s, $left left) $OUT"
 # (No cleanup kill on a failure: this is a shared user, and a pattern kill reaches other people's
-#  processes. A leftover sleep ends by itself within 82 minutes.)
+#  processes. A leftover wait ends by itself within 82 minutes.)
 tick   # a good tick (the fetch record stays: see test 21)
-# Control: the count above can see a leftover (a sleep of the same length, started here, is counted).
-/bin/sleep "$Z26" & ctl26=$!; sleep 0.3; seen=$(ps -axo command= | command grep -Ec "(^|/)sleep ${Z26//./\\.}\$"); kill "$ctl26"; wait "$ctl26" 2>/dev/null
-[ "$seen" -ge 1 ] && pass "the leftover count sees a sleep of that length (control)" || bad "the leftover count cannot see a sleep (it counted $seen)"
+# Control: the count above can see a leftover (a wait of the same length, started here, is counted).
+"$(command -v perl)" -e "$HOLD26" & ctl26=$!; sleep 0.3; seen=$(ps -axo command= | command grep -cE "$HOLD26RE"); kill "$ctl26"; wait "$ctl26" 2>/dev/null
+[ "$seen" -ge 1 ] && pass "the leftover count sees a wait of that length (control)" || bad "the leftover count cannot see a wait (it counted $seen)"
 
 # 27) a SECOND signal while a killed tick is stopping a deploy that ignores TERM (a runner's cancel
 #     escalates) does not cut the failure record out.
 H27=$(advance twentyseven); HANG27="$T/hang27.pid"; rm -f "$ST/failures" "$ST/last-failure"
-KOSMOS_AUTODEPLOY_DEPLOY='trap "" TERM; echo started-27; sleep 300 & echo $! > '"$HANG27"'; wait' bash "$AD" > "$T/tick27.out" 2>&1 & tick27=$!
+KOSMOS_AUTODEPLOY_DEPLOY='trap "" TERM; echo started-27; perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANG27"'; wait' bash "$AD" > "$T/tick27.out" 2>&1 & tick27=$!
 for i in $(seq 1 100); do [ -s "$HANG27" ] && command grep -q "deploying site main" "$T/tick27.out" && break; sleep 0.1; done; sleep 0.3
 kill -TERM "$tick27"; sleep 1; kill -TERM "$tick27" 2>/dev/null; wait "$tick27" 2>/dev/null; sleep 1
 hp27=$(cat "$HANG27" 2>/dev/null)
@@ -405,7 +412,7 @@ rm -f "$ST/failures" "$ST/parked"; rm -rf "$ST/reported.d" "$ST/lock"
 #     next tick finds it from deploy.pid and waits; once it is past 1200 s it is stopped and counted
 #     as a failure (it may have published).
 H28=$(advance twentyeight); HANG28="$T/hang28.pid"
-KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANG28"'; wait' bash "$AD" > "$T/tick28.out" 2>&1 & tick28=$!
+KOSMOS_AUTODEPLOY_DEPLOY='perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANG28"'; wait' bash "$AD" > "$T/tick28.out" 2>&1 & tick28=$!
 for i in $(seq 1 100); do [ -s "$HANG28" ] && [ -s "$ST/deploy.pid" ] && break; sleep 0.1; done; sleep 0.3
 kill -KILL "$tick28"; wait "$tick28" 2>/dev/null; hp28=$(cat "$HANG28" 2>/dev/null)
 n28=$(ndeploys); tick
@@ -418,7 +425,7 @@ KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick; sleep 1
   && pass "past 1200 s the orphan is stopped and counted a failure; a marker naming its sha does not bless it" \
   || { bad "orphan stop (alive=$(kill -0 "$hp28" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp28" ] && kill "$hp28" 2>/dev/null; }
 # A pid in deploy.pid whose start time does not match (a reused pid) is not touched.
-sleep 300 & other=$!; printf '%s %s %s\n' "$other" "$H28" "Mon_Jan_1_00:00:00_2001" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+perl -e 'select(undef, undef, undef, 300)' & other=$!; printf '%s %s %s\n' "$other" "$H28" "Mon_Jan_1_00:00:00_2001" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick
 kill -0 "$other" 2>/dev/null && pass "a reused pid in deploy.pid (start time differs) is never signalled" || bad "signalled a process that was not the deploy"
 kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
@@ -426,7 +433,7 @@ rm -f "$ST/failures" "$ST/parked" "$ST/deploy.pid"; rm -rf "$ST/reported.d"
 
 # 29) a deploy whose leader exits leaving a child running in its group: the child is stopped.
 H29=$(advance twentynine); HANG29="$T/hang29.pid"
-KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANG29"'; exit 0' tick; sleep 1; hp29=$(cat "$HANG29" 2>/dev/null)
+KOSMOS_AUTODEPLOY_DEPLOY='perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANG29"'; exit 0' tick; sleep 1; hp29=$(cat "$HANG29" 2>/dev/null)
 { [ "$RC" = 0 ] && [ -n "$hp29" ] && ! kill -0 "$hp29" 2>/dev/null && printf '%s' "$OUT" | grep -q "left processes running"; } \
   && pass "a child left running in the deploy's group after it exits is stopped" || { bad "lingering child (rc=$RC alive=$(kill -0 "$hp29" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp29" ] && kill "$hp29" 2>/dev/null; }
 
@@ -450,13 +457,13 @@ KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=0 KOSMOS_AUTODEPLOY_DEPLOY='sleep 4; exit 0' tick
 
 # 32) deploy.pid identity. (a) the leader is alive but the file has NO start time: not ours, never
 #     signalled. (b) the leader has exited but its group still has a member: ours, stopped and counted.
-set -m; sleep 300 & own32=$!; set +m
+set -m; perl -e 'select(undef, undef, undef, 300)' & own32=$!; set +m
 printf '%s %s \n' "$own32" "$H31b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 tick
 kill -0 "$own32" 2>/dev/null && pass "a deploy.pid with no start time never signals a live leader" || bad "signalled a leader it could not identify"
 kill "$own32" 2>/dev/null; wait "$own32" 2>/dev/null
 M32="$T/member32.pid"
-set -m; sh -c 'sleep 300 & echo $! > '"$M32"'; exit 0' & lead32=$!; set +m; wait "$lead32" 2>/dev/null
+set -m; sh -c 'perl -e "select(undef, undef, undef, 300)" & echo $! > '"$M32"'; exit 0' & lead32=$!; set +m; wait "$lead32" 2>/dev/null
 for i in $(seq 1 50); do [ -s "$M32" ] && break; sleep 0.1; done; m32=$(cat "$M32")
 printf '%s %s Mon_Jan_1_00:00:00_2001\n' "$lead32" "$H31b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 tick; sleep 1

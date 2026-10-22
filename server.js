@@ -903,6 +903,8 @@ function fedKosmosPlusNow() {
 const FEDERATION_OFF = 'Sharing a project with people outside this computer is not turned on yet.';
 // kosmos#6239: Settings' community switch, under a policy that stops outside contact (orgpolicy.contactAllows).
 const COMMUNITY_STOPPED = 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so they do not take part in the Kosmos+ community whatever this switch says.';
+// kosmos#6862: the same on a family's Kosmos, where the reason is the family, not a policy (orgpolicy.communityAllows).
+const FAMILY_COMMUNITY_STOPPED = "On a family's Kosmos, agents do not take part in the Kosmos+ community, whatever this switch says.";
 /* kosmos#6239: the sentence refusing a new link to another computer (an invite, joining one, an own-computer code) while
    the policy set for this Kosmos stops outside contact, else null. Removing someone or withdrawing an invite is never
    refused: it only takes contact away. A policy read that throws refuses. */
@@ -910,7 +912,9 @@ function federationPolicyStop() {
   try {
     const op = require('./engine/orgpolicy');
     op.inForce(); const c = op.contactAllows();   // fresh: a route, not a hot path (apply, then the strict read)
-    return c.ok === true ? null : 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so a project cannot be shared or joined here.';
+    if (c.ok === true) return null;
+    const why = typeof c.because === 'string' ? c.because : op.CONTACT_STOPS;   // kosmos#6870: a family default says its own
+    return why.charAt(0).toUpperCase() + why.slice(1) + ', so a project cannot be shared or joined here.';
   } catch { return 'Kosmos could not read the policy set for this Kosmos just now, so a project cannot be shared or joined here.'; }
 }
 function federationLiveNow() {
@@ -3762,28 +3766,76 @@ function sendJson(res, code, obj) {
    file that cannot be opened. */
 let DOWNLOAD_STALL_MS = 120 * 1000;
 function _setDownloadStallForTest(ms) { DOWNLOAD_STALL_MS = ms == null ? 120 * 1000 : ms; }
-function sendFileStream(req, res, file, unread, headers) {
+
+/* #6805: one `Range: bytes=...` against a file of `size` bytes (RFC 9110 14.1.2). Answers { start, end } (both
+   inclusive) for a range to send, 'unsatisfiable' for a 416, or null when the header is to be ignored and the whole
+   file sent: no header, another unit, a malformed spec, or more than one range (no multipart answers). */
+function parseByteRange(header, size) {
+  if (typeof header !== 'string') return null;
+  const m = /^\s*bytes\s*=\s*(\d*)\s*-\s*(\d*)\s*$/i.exec(header);
+  if (!m || (m[1] === '' && m[2] === '')) return null;
+  if (m[1] === '') {   // `-n`: the last n bytes
+    const n = Number(m[2]);
+    if (n === 0 || size === 0) return 'unsatisfiable';
+    return { start: Math.max(0, size - n), end: size - 1 };
+  }
+  const start = Number(m[1]);
+  // `b < a` is not a valid spec, so the header is ignored. Compared with the end as WRITTEN: `a-` past the file is a
+  // 416, not a spec whose filled-in end (size - 1) happens to fall before its start.
+  if (m[2] !== '' && Number(m[2]) < start) return null;
+  if (!Number.isSafeInteger(start) || start >= size) return 'unsatisfiable';
+  return { start, end: m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1) };
+}
+
+/* `opts.etag`, when given, lets a GET ask for one byte range (#6805), so a cut download resumes instead of starting
+   again. It names the file (an attachment's id); the ETag sent adds the file's size and modification time as
+   measured on the open descriptor, so if the bytes under that name ever change, an If-Range from before no longer
+   matches and the client gets the whole file instead of the end of one file joined onto the start of another.
+   The ETag is for resuming only: If-None-Match is not answered (no 304), since the route sends no caching. */
+function sendFileStream(req, res, file, unread, headers, opts = {}) {
   let fd = null;
   let size = 0;
+  let start = 0;
+  let length = 0;
   try {
     // Review 3: without blocking, so a FIFO put in a file's place cannot stall the board; isFile() then refuses it.
     fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
     const st = fs.fstatSync(fd);
     if (!st.isFile()) throw new Error('not a file');
     size = st.size;
-    res.writeHead(200, { ...headers, 'content-length': size });   // review 4: inside the try, so a throw closes fd
+    length = size;
+    const etag = opts.etag ? `"${opts.etag}-${st.size.toString(36)}-${Math.trunc(st.mtimeMs).toString(36)}"` : null;
+    const ranged = etag ? { ...headers, 'accept-ranges': 'bytes', etag } : headers;
+    /* #6805: an If-Range that is not exactly this file's ETag (another file's, or a date: no Last-Modified is sent)
+       means the client's first part may be of different bytes, so it gets the whole file. */
+    const range = etag && req.method === 'GET' && (req.headers['if-range'] === undefined || req.headers['if-range'] === etag)
+      ? parseByteRange(req.headers.range, size) : null;
+    if (range === 'unsatisfiable') {
+      fs.closeSync(fd);
+      fd = null;
+      res.writeHead(416, { ...ranged, 'content-range': `bytes */${size}`, 'content-length': 0 });
+      res.end();
+      return;
+    }
+    if (range) {
+      start = range.start;
+      length = range.end - range.start + 1;
+      res.writeHead(206, { ...ranged, 'content-range': `bytes ${range.start}-${range.end}/${size}`, 'content-length': length });
+    } else {
+      res.writeHead(200, { ...ranged, 'content-length': size });   // review 4: inside the try, so a throw closes fd
+    }
   } catch {
     if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ }
     if (!res.headersSent) sendJson(res, 404, { error: unread });
     else res.destroy();
     return;
   }
-  if (req.method === 'HEAD' || size === 0) { res.end(); try { fs.closeSync(fd); } catch { /* closed */ } return; }
+  if (req.method === 'HEAD' || length === 0) { res.end(); try { fs.closeSync(fd); } catch { /* closed */ } return; }
   /* Review 2: read no further than the size measured, so a file that grows meanwhile cannot overrun Content-Length.
      Review 4: and one that shrank cuts the response at its end instead of ending it short, so a keep-alive client is
-     not left waiting for bytes that will never come. */
-  const rs = fs.createReadStream(null, { fd, start: 0, end: size - 1, autoClose: true });
-  rs.once('end', () => { if (rs.bytesRead < size) res.destroy(); });
+     not left waiting for bytes that will never come. #6805: both measured against the range sent, not the file. */
+  const rs = fs.createReadStream(null, { fd, start, end: start + length - 1, autoClose: true });
+  rs.once('end', () => { if (rs.bytesRead < length) res.destroy(); });
   /* Review 26: a client that stays connected but stops reading would hold the descriptor for ever; as the folder zip
      does (ZIP_STALL_MS), a download that moves no bytes for DOWNLOAD_STALL_MS is ended, which closes it. */
   let stall = null;
@@ -7950,7 +8002,7 @@ const server = http.createServer(async (req, res) => {
       // it, so it is dropped here rather than sent on every poll.
       // Flat on purpose (#2245 round 7): the agent's instructions (engine/dmfiles.js) tell it to save
       // directly in Files, and this page says so; only a PROJECT's list walks subfolders.
-      const { names: _allNames, ...listed } = projects.listFiles(folder, cap, { maxDepth: 0 });
+      const { names: _allNames, ...listed } = projects.listFiles(folder, cap, { maxDepth: 0, fingerprint: true });   // #6761: each row's sha256
       sendJson(res, 200, { ...listed, folder });
       return;
     }
@@ -7969,7 +8021,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ok: true, missing: true, dir: '', dirs: [], files: [], stamp: 'missing' });
         return;
       }
-      const listed = projects.listDir(folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH });
+      const listed = projects.listDir(folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH, fingerprint: true });   // #6761
       /* Iteration 1: 404 is kept for "no such agent" (the page says it has no folder of its own); a Files that is a file
          or cannot be read answers 409 with its reason, and a folder inside Files that is not there is 404 as a file is. */
       sendJson(res, listed.ok ? 200 : (dir ? 404 : 409), listed);
@@ -10093,9 +10145,10 @@ const server = http.createServer(async (req, res) => {
   /* #4820: no `noticeSeen` any more (the one-time notice is gone). A page from an older build opened
      that notice only on noticeSeen === false, so an answer without the field opens nothing there either. */
   /* kosmos#6239: `stopped` is the sentence for a policy that keeps agents out of the community whatever the switch says
-     (orgpolicy.contactAllows), else null; the switch stays the person's to set. */
+     (orgpolicy.communityAllows; kosmos#6862: the family's sentence on a family's Kosmos), else null; the switch stays the
+     person's to set. */
   const communityStopped = () => {
-    try { const op = require('./engine/orgpolicy'); op.inForce(); return op.contactAllows().ok === true ? null : COMMUNITY_STOPPED; }
+    try { const op = require('./engine/orgpolicy'); op.inForce(); const c = op.communityAllows(); return c.ok === true ? null : c.family === true ? FAMILY_COMMUNITY_STOPPED : COMMUNITY_STOPPED; }
     catch { return 'Kosmos cannot read the policy set for this Kosmos just now, so agents do not take part in the Kosmos+ community until it can.'; }   // round 3: as the send layer reads it
   };
   const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null, stopped: communityStopped() }; };
@@ -11429,9 +11482,23 @@ const server = http.createServer(async (req, res) => {
       const reportingRequired = here ? require('./engine/orgpolicy').reportingRequired() : false;
       sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
        // kosmos#6752: recent reviewer grants, to the screen only and only when there are some (the not-joined shape is unchanged).
-       ...(here && rec && Array.isArray(rec.reviewerGrants) && rec.reviewerGrants.length ? { reviewerGrants: oe.cleanReviewerGrants(rec.reviewerGrants) } : {}),
+       ...(here && rec && Array.isArray(rec.reviewerGrants) && rec.reviewerGrants.length ? { reviewerGrants: oe.cleanReviewerGrants(rec.reviewerGrants),
+         ...(Number.isFinite(rec.reviewerGrantsAt) ? { reviewerGrantsAt: rec.reviewerGrantsAt } : {}) } : {}),   // kosmos#6817: when the list was last confirmed
        stoppedFor: stopped, ...(stopped ? { stoppedKind } : {}), leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
+    return;
+  }
+  /* kosmos#6817 item 1: the board's reviewer notice reads the recent grants here, not from /api/org, because a GET there
+     spends the one-time notes (stoppedFor, leaveRefused) the Settings block exists to show. This route spends nothing.
+     Grants and the company's kind go to the screen only, as on /api/org (review 12 there). */
+  if (pathname === '/api/org/grants' && req.method === 'GET') {
+    try {
+      const oe = require('./engine/orgenroll');
+      const here = oe.isEnrolledHere();
+      const rec = here && isViaScreen(req, {}) ? oe.readEnrollment() : null;
+      sendJson(res, 200, { enrolled: here, kind: rec && rec.org ? (rec.org.kind === 'family' ? 'family' : 'company') : null,
+        reviewerGrants: rec && Array.isArray(rec.reviewerGrants) ? oe.cleanReviewerGrants(rec.reviewerGrants) : [] });
+    } catch { sendJson(res, 200, { enrolled: false, kind: null, reviewerGrants: [] }); }
     return;
   }
   if ((pathname === '/api/org/preview' || pathname === '/api/org/enroll' || pathname === '/api/org/leave') && req.method === 'POST') {
@@ -11892,7 +11959,8 @@ const server = http.createServer(async (req, res) => {
    * #853: real per-model, per-day token usage, not the point-in-time
    * context-window reading `/api/status` answers per agent. `?days=N`
    * (default 7) is clamped inside `dailyUsageByModel` itself, so a bad or
-   * hostile value cannot crash this route.
+   * hostile value cannot crash this route. `?days=all` (#6829) is every day
+   * since install, and adds `installDay` and `daysOnKosmos`.
    *
    * ⚠️ FOUR BUCKETS, NEVER BLENDED -- the response carries
    * input_tokens/output_tokens/cache_creation_input_tokens/
@@ -11906,13 +11974,20 @@ const server = http.createServer(async (req, res) => {
    */
   if (pathname === '/api/usage' && (req.method === 'GET' || req.method === 'HEAD')) {
     let days = 7;
-    try { days = Number(new URL(req.url, ROUTING_BASE).searchParams.get('days')) || 7; } catch { days = 7; }
+    let raw = null;
+    try { raw = new URL(req.url, ROUTING_BASE).searchParams.get('days'); } catch { raw = null; }
+    /* #6829: `days=all` is every day since this install began (usage.installDay), and the answer says which day
+       that was (`installDay`) and how many days it is (`daysOnKosmos`, 1 on install day). A number is a window as before. */
+    const sinceInstall = raw === 'all';
+    if (!sinceInstall) days = Number(raw) || 7;
     // Async, not a blocking call: usage.dailyUsageByModel reads potentially
     // hundreds of transcripts (tens of MB) off disk, and a synchronous read
     // there would stall every other route on this single-threaded server
     // for the scan's duration -- found in review, fixed at the source.
-    usage.dailyUsageByModel(days)
-      .then((result) => {
+    (sinceInstall ? usage.readSinceInstall() : usage.dailyUsageByModel(days))
+      .then((full) => {
+        const { installDay: since, days: n, ...result } = full;
+        const extra = sinceInstall ? { installDay: since, daysOnKosmos: n } : {};
         /* #2617: the same window per agent. Every agent Kosmos has a record
            of, stopped ones included, keyed by its folder. A roster that cannot
            be read gives no per-agent split: every token then lands in
@@ -11936,7 +12011,7 @@ const server = http.createServer(async (req, res) => {
         return split.then((byAgent) => byAgent, (err) => {
           console.error('usage: the per-agent split failed:', (err && err.message) || err);
           return null;
-        }).then((byAgent) => sendJson(res, 200, { ...rest, byAgent }));
+        }).then((byAgent) => sendJson(res, 200, { ...rest, byAgent, ...extra }));
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read token usage' }));
     return;
@@ -19289,7 +19364,7 @@ const server = http.createServer(async (req, res) => {
       'content-type': rec.type, 'x-content-type-options': 'nosniff',
       'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(rec.name),
       'content-security-policy': "default-src 'none'; sandbox",
-    });
+    }, { etag: rec.id });   // #6805: the id names the file; sendFileStream adds its size and time
     return;
   }
   if (pathname === '/api/unfurl' && req.method === 'GET') {
@@ -21228,8 +21303,11 @@ const server = http.createServer(async (req, res) => {
         try {
           if (fedseats.linkFor(id)) {
             const cs = fedseats.contactState();   // kosmos#6239: a room closed under the policy, or a fault, says so instead
+            const why = cs === 'policy' ? fedseats.contactReason() : null;   // kosmos#6870: a family default says its own
             shared = cs === 'policy'
-              ? '[kosmos] This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer.\n'
+              ? (!why.family
+                ? '[kosmos] This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer.\n'
+                : '[kosmos] This room is shared with another computer, but it is closed: nothing posted here leaves this computer. ' + why.text.charAt(0).toUpperCase() + why.text.slice(1) + '.\n')
               : cs === 'unreadable'
                 ? '[kosmos] This room is shared with another computer, but it is closed for now: Kosmos cannot read the policy set for this Kosmos, so nothing posted here leaves this computer.\n'
                 : '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n';
@@ -21416,7 +21494,7 @@ const server = http.createServer(async (req, res) => {
        the view asks for up to 500, and an unbounded ask cannot be minted. */
     let fileCap = 10;
     try { const l = Number(new URL(req.url, ROUTING_BASE).searchParams.get('limit')); if (Number.isFinite(l) && l > 0) fileCap = Math.min(Math.floor(l), 500); } catch { fileCap = 10; }
-    const listed = projects.listFiles(record.folder, fileCap);
+    const listed = projects.listFiles(record.folder, fileCap, { fingerprint: true });   // #6761: each row's sha256
     /* #5812: each row says which agent changed it last, when the board recorded one close enough to the change. */
     if (listed && listed.ok && Array.isArray(listed.files)) {
       try {
@@ -24066,7 +24144,7 @@ function federateOut(projectId, delivery, operator) {
   const cs = fedseats.contactState();
   if (cs !== 'open') {
     messages.roomNote(projectId, cs === 'policy'
-      ? 'That post stayed on this computer: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.'
+      ? 'That post stayed on this computer: ' + fedseats.contactStops() + '.'   // kosmos#6870: a family default says its own
       : 'That post stayed on this computer: Kosmos cannot read the policy set for this Kosmos just now, so this room is closed until it can.');
     return;
   }
@@ -24445,6 +24523,8 @@ function start(port = PORT) {
   /* kosmos#6309: this board counts the month for a family's usage cap, in a worker thread that starts only when a cap
      is in force. Any other process reads the month's saved count. */
   try { require('./engine/usagecap').countOnThisBoard(); } catch { /* the cap reads the saved count */ }
+  /* kosmos#6829: past days of token usage are saved on a clock, before Claude deletes their transcripts. */
+  try { usage.startSaving(); } catch { /* best effort */ }
   setTimeout(agentEventsTick, 2 * 60 * 1000).unref();   // #5683: a first look two minutes after start, a minute after the rollup's, so their computer-print reads do not land together
   setInterval(agentEventsTick, ORG_ROLLUP_TICK_MS).unref();   // #5683: every five minutes, as the rollup
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
@@ -26027,6 +26107,7 @@ module.exports = {
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
   _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
   _setDownloadStallForTest, // kosmos#6734: the download's stall timeout, for its test
+  parseByteRange, // kosmos#6805: the Range parser, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up
