@@ -1,4 +1,4 @@
-// Browser-check-surface: tsk-paused tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause pj-one-goalask paintGoalAsk tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
+// Browser-check-surface: tsk-paused tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-mins tk-repeat-mins-wrap tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause pj-one-goalask paintGoalAsk tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
 'use strict';
 /**
  * On hold and paused, on the screen (kosmos#4771).
@@ -276,6 +276,16 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => !document.getElementById('tk-repeat-line').hidden, null, { timeout: 5000 }).catch(() => {});
       chk(/^Repeats every Tuesday at 10:30am\. No run reported yet\. Next /.test(await text(page, '#tk-repeat-line') || '') && await page.isDisabled('#tk-repeat-save'),
         `${tag} #4787 Save sets the rule: the board's sentence shows and Save goes off again`, await text(page, '#tk-repeat-line'));
+      /* kosmos#6893: Every so many minutes shows only its number box (no time, no day); 30 saved is the board's own
+         "every 30 minutes", and Save goes off. */
+      await page.selectOption('#tk-repeat-every', 'minutes');
+      chk(await page.isVisible('#tk-repeat-mins') && await page.isHidden('#tk-repeat-at') && await page.isHidden('#tk-repeat-day') && await page.isEnabled('#tk-repeat-save'),
+        `${tag} #6893 Every so many minutes shows the number box only, with Save on`, String(await page.isVisible('#tk-repeat-mins')));
+      await page.fill('#tk-repeat-mins', '30');
+      await page.click('#tk-repeat-save');
+      await page.waitForFunction(() => /every 30 minutes/.test(document.getElementById('tk-repeat-line').textContent), null, { timeout: 5000 }).catch(() => {});
+      chk(/^Repeats every 30 minutes\. /.test(await text(page, '#tk-repeat-line') || '') && await page.isDisabled('#tk-repeat-save') && await page.inputValue('#tk-repeat-mins') === '30',
+        `${tag} #6893 Save sets every 30 minutes: the board's sentence says it and Save goes off`, await text(page, '#tk-repeat-line'));
       /* Review 2: an unsaved choice survives a refresh EVEN WHEN the stored rule changes under it (the rule moves to hourly
          elsewhere while the person has Every day chosen); once they choose what is stored now, the controls follow again. */
       const setRule = (body) => page.evaluate(([id, b]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.status), [winter.id, body]);
