@@ -39,8 +39,10 @@ decides.
 
 ## Deferred
 
-- The CLI does not yet tell the agent its one closing post is used (the result flag is there for it), and the room's held
-  strip still says paused while closing posts appear.
+- The room's held strip still says paused while closing posts appear (web wording). The CLI side is done: a `room_held`
+  refusal carries `closingUsed` when the member already landed one, and both CLIs offer the summary only without it.
+- A failed write of the tip post's refused row (best-effort, in a try/catch) leaves the member never eligible: holds,
+  the safe direction.
 
 ## Tests
 
