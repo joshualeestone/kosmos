@@ -308,8 +308,17 @@ function chk(ok, label, extra) {
           await page.evaluate(() => {
             const p = document.getElementById('panel-settings'); const t0 = performance.now();
             window.__settingsSeq = [p ? (p.hidden ? 'hidden@0' : 'shown@0') : 'absent@0'];
-            if (p) new MutationObserver(() => window.__settingsSeq.push((p.hidden ? 'hidden@' : 'shown@') + Math.round(performance.now() - t0)))
-              .observe(p, { attributes: true, attributeFilter: ['hidden'] });
+            const note = (state) => {   // one entry per change of state, so redundant hidden = true writes do not fill it
+              const seq = window.__settingsSeq; const ms = Math.round(performance.now() - t0);
+              if (!seq[seq.length - 1].startsWith(state + '@')) seq.push(state + '@' + ms);
+            };
+            /* One callback batches every change made in one task (open and re-hide in the same handler arrive together),
+               so each record is a state of its own: the attribute was absent before the NEXT record exactly when this one
+               left it shown; the last record reads the attribute as it is now. */
+            if (p) new MutationObserver((recs) => recs.forEach((r, i) => {
+              if (r.oldValue === null) { note('hidden'); return; }   // the attribute was added
+              note(i + 1 < recs.length ? (recs[i + 1].oldValue === null ? 'shown' : 'hidden') : (p.hidden ? 'hidden' : 'shown'));
+            })).observe(p, { attributes: true, attributeFilter: ['hidden'], attributeOldValue: true });
           });
           await page.evaluate(() => document.getElementById('userpop-settings').click());
           /* #6861: this wait times out on the CI runner in webkit only (the button stays hidden), never locally.
@@ -318,7 +327,7 @@ function chk(ok, label, extra) {
             if (!e || e.name !== 'TimeoutError') throw e;   // a closed page or a crash is its own error, not this one
             const probe = page.evaluate(() => {
               const btn = document.querySelector('#s-nav button[data-go="mac"]');
-              const out = { seq: (window.__settingsSeq || []).slice(0, 8), hiddenBy: [], exists: !!btn };
+              const out = { hiddenBy: [], seq: (window.__settingsSeq || ['lost: the page was replaced']).slice(0, 8), exists: !!btn };
               for (let el = btn; el; el = el.parentElement) {
                 const cs = getComputedStyle(el);
                 if (el.hidden || cs.display === 'none' || cs.visibility === 'hidden') out.hiddenBy.push((el.id ? '#' + el.id : el.tagName + (el.classList[0] ? '.' + el.classList[0] : '')) + (el.hidden ? '[hidden]' : '') + ' display=' + cs.display + ' visibility=' + cs.visibility);
@@ -337,7 +346,7 @@ function chk(ok, label, extra) {
             const why = await Promise.race([probe, new Promise((r) => { const t = setTimeout(() => r({ evalFailed: 'diagnostic timed out' }), 5000); if (t.unref) t.unref(); })]);
             why.pageErrors = errs.slice(0, 5);   // a throw inside the Settings handler would leave the panel hidden too
             const calls = String(e.message).split('\n').filter((l) => /resolved to|locator|Timeout/.test(l)).slice(0, 3).map((l) => l.trim());
-            throw new Error(`${tag}: the Settings nav never showed after the Settings link: ${JSON.stringify(why)} (${calls.join(' | ')})`);
+            throw new Error(`${tag}: Settings nav hidden: ${JSON.stringify(why)} (${calls.join(' | ')})`);
           });
           await page.evaluate(() => document.querySelector('#s-nav button[data-go="mac"]').click());
           await page.waitForTimeout(300);

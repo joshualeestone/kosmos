@@ -9,8 +9,10 @@ reds so far. The Playwright timeout says only "resolved to hidden", so no red ha
 
 ## Decision
 A diagnostic, not a fix. Just before the Settings click the check starts recording #panel-settings's `hidden`
-attribute (a MutationObserver: `shown@ms` / `hidden@ms` from the click). On that wait's timeout ONLY (a TimeoutError;
-anything else is rethrown as itself), it reports, sequence first: `seq`, then every hiding ancestor up to
+attribute (a MutationObserver with old values, one entry per change of state, `shown@ms` / `hidden@ms` from the click,
+so a show and a re-hide in the same task are both kept). On that wait's timeout ONLY (a TimeoutError; anything else is
+rethrown as itself), it fails with a short `<tag>: Settings nav hidden: {...}` so the driver's 200-character summary
+keeps the first fields: every hiding ancestor up to #panel-projects, then `seq`, then
 #panel-projects, whether the button exists and its size, #panel-settings's parent, which overlay holds the column, the
 body classes and query string, the page errors this arm collected, and Playwright's own "resolved to" lines. The probe
 has its own 5 s cap.
