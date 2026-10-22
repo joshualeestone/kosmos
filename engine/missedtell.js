@@ -40,6 +40,9 @@ function owed(projects, now = Date.now()) {
       if (!missed) continue;
       const told = Date.parse(t.missToldAt || '');
       if (Number.isFinite(told) && missed.lastAt <= told) continue;
+      /* kosmos#6893 review 1: a task every few minutes misses a slot every few minutes while it is stalled, so its
+         reviewer is told again only once the latest miss is an hour past the last one told (as hourly at most). */
+      if (t.repeat.every === 'minutes' && Number.isFinite(told) && missed.lastAt - told < HOUR_MS) continue;
       const named = Date.parse(t.repeatReviewerSetAt || '');
       if (Number.isFinite(named) && missed.lastAt < named) continue;
       out.push({

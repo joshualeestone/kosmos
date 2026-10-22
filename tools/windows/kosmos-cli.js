@@ -1307,7 +1307,7 @@ async function taskDoneWhen(ctx, args) {
    names who ran it (no pane on Windows); the board checks the rule whole and refuses a caller it cannot name. */
 const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m|2h> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)';
 /* kosmos#6893, as install/kosmos: every so many minutes ("30m", "2h"); the board checks the number. */
-const EVERY_MINUTES_RE = /^[0-9]+(m|min|mins|minutes|h|hrs|hours)$/;
+const EVERY_MINUTES_RE = /^[0-9]+(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$/i;
 async function taskRepeat(ctx, args) {
   const [project, num] = args;
   if (!project || !num || args.length < 3) { ctx.err(REPEAT_USAGE); return 2; }

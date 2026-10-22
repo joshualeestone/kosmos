@@ -29,7 +29,7 @@ const TIMES_MAX = 24;   // kosmos#5752: a daily task's times of day; more than h
 /* The rule as given (CLI or screen), checked whole: a sentence for what is wrong, or null. */
 function repeatProblem(r) {
   if (r === null || r === undefined) return null;   // clearing
-  if (typeof r !== 'object' || Array.isArray(r)) return 'a repeat has to say how often: every hour, day or week';
+  if (typeof r !== 'object' || Array.isArray(r)) return 'a repeat has to say how often: every so many minutes, every hour, day or week';
   if (!EVERY.includes(r.every)) return 'a task can repeat every so many minutes, every hour, every day or every week';
   if (r.every === 'minutes') {
     if (!(Number.isInteger(r.n) && r.n >= N_MIN && r.n <= N_MAX && 1440 % r.n === 0)) {
@@ -65,7 +65,8 @@ function repeatProblem(r) {
 function normalise(r) {
   if (r === null || r === undefined) return null;
   if (r.every === 'hour') return { every: 'hour', minute: r.minute === undefined ? 0 : r.minute };
-  if (r.every === 'minutes') return { every: 'minutes', n: r.n };
+  // Review 1: every 60 minutes IS hourly, stored as the hourly rule so switching between the two words is no change.
+  if (r.every === 'minutes') return r.n === 60 ? { every: 'hour', minute: 0 } : { every: 'minutes', n: r.n };
   if (r.every === 'day') {
     /* kosmos#5752: one time stays a string, so every rule stored before lists existed reads exactly as it did; two or
        more are kept sorted, so the same times in another order are the same rule (setRepeat compares them). */
@@ -90,8 +91,11 @@ function nextAfter(rule, ms) {
   /* kosmos#6893: each slot built from (day, 0:00 + k*n minutes), as the other rules build theirs, so a DST day takes its
      slots as the clock gives them. Today, then tomorrow (whose 0:00 is the first slot past today's last). */
   if (r.every === 'minutes') {
+    /* Review 1: today's walk starts a slot before the current time, not at midnight: missedRuns and the latest-slot walk
+       call this in loops, for every task on every read. */
+    const k0 = Math.max(0, Math.floor((from.getHours() * 60 + from.getMinutes()) / r.n) - 1);
     for (let n = 0; n <= 1; n += 1) {
-      for (let k = 0; k * r.n < 1440; k += 1) {
+      for (let k = n === 0 ? k0 : 0; k * r.n < 1440; k += 1) {
         const t = new Date(y, mo, d + n, 0, k * r.n, 0, 0).getTime();
         if (t > ms) return t;
       }
@@ -173,10 +177,15 @@ function fromWords(every, opts = {}) {
   /* kosmos#6893: "30m", "30min", "45 minutes", "2h" (the CLIs' word), or every 'minutes' with the number as --at (the
      screen). Anything else in that shape is passed on as a rule the board refuses with the minutes sentence. */
   const short = /^(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)$/.exec(String(every || '').trim().toLowerCase());
-  if (short) return { every: 'minutes', n: Number(short[1]) * (/^h/.test(short[2]) ? 60 : 1) };
+  /* Review 1: a time or a day sent with the word is kept, so the board refuses it ("takes only the number of minutes")
+     instead of dropping it without a word. */
+  if (short) {
+    return { every: 'minutes', n: Number(short[1]) * (/^h/.test(short[2]) ? 60 : 1),
+      ...(opts.at === undefined ? {} : { at: opts.at }), ...(opts.on === undefined || opts.on === '' ? {} : { day: opts.on }) };
+  }
   if (e === 'minute' || e === 'minutes') {
     const n = opts.at === undefined ? NaN : String(opts.at).trim();
-    return { every: 'minutes', n: /^\d{1,4}$/.test(n) ? Number(n) : NaN };
+    return { every: 'minutes', n: /^\d{1,4}$/.test(n) ? Number(n) : NaN, ...(opts.on === undefined || opts.on === '' ? {} : { day: opts.on }) };
   }
   if (e === 'hour') {
     const at = opts.at === undefined ? undefined : String(opts.at).replace(/^:/, '');

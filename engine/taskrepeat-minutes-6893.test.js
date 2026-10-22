@@ -44,7 +44,9 @@ test('#6893: stored with only its own fields, and said in words', () => {
   assert.deepEqual(r.normalise({ every: 'minutes', n: 30, junk: 1 }), { every: 'minutes', n: 30 });
   assert.equal(r.describe({ every: 'minutes', n: 30 }), 'every 30 minutes');
   assert.equal(r.describe({ every: 'minutes', n: 45 }), 'every 45 minutes');
-  assert.equal(r.describe({ every: 'minutes', n: 60 }), 'every 60 minutes');
+  // Review 1: every 60 minutes is the hourly rule, stored and said as one.
+  assert.deepEqual(r.normalise({ every: 'minutes', n: 60 }), { every: 'hour', minute: 0 });
+  assert.equal(r.describe({ every: 'minutes', n: 60 }), 'every hour');
   assert.equal(r.describe({ every: 'minutes', n: 120 }), 'every 2 hours');
   assert.equal(r.describe({ every: 'minutes', n: 90 }), 'every 90 minutes');
   assert.equal(r.describe({ every: 'minutes', n: 7 }), '', 'a rule that does not check out says nothing');
@@ -59,6 +61,11 @@ test('#6893: the CLI word (30m, 2h) and the screen form (minutes + at) make the 
   for (const bad of [r.fromWords('minutes', { at: 'half' }), r.fromWords('minutes'), r.fromWords('7m')]) {
     assert.match(String(r.repeatProblem(bad)), /divides the day evenly/, JSON.stringify(bad));
   }
+  // Review 1: a time or a day sent with the word is kept, so the board refuses it rather than dropping it.
+  assert.match(String(r.repeatProblem(r.fromWords('30m', { at: '09:00' }))), /takes only the number of minutes/);
+  assert.match(String(r.repeatProblem(r.fromWords('30m', { on: 'mon' }))), /takes only the number of minutes/);
+  assert.match(String(r.repeatProblem(r.fromWords('minutes', { at: '30', on: 'mon' }))), /takes only the number of minutes/);
+  assert.equal(r.repeatProblem(r.fromWords('minutes', { at: '30', on: '' })), null, 'an empty --on is no day');
   // CONTROL: the old words are untouched.
   assert.deepEqual(r.fromWords('hourly', { at: ':15' }), { every: 'hour', minute: 15 });
   assert.deepEqual(r.fromWords('daily', { at: '09:00' }), { every: 'day', at: '09:00' });
@@ -77,7 +84,6 @@ test('#6893: the next run is the next multiple of n from midnight, and tomorrow 
 
 test('#6893: a daylight-saving day is walked slot by slot without going backwards or stalling', () => {
   const rule = { every: 'minutes', n: 30 };
-  // 1 November 2026 (US clocks go back) and 8 March 2026 (forward), from the day before to the day after.
   for (const [y, mo, d] of [[2026, 10, 1], [2026, 2, 8]]) {
     let s = new Date(y, mo, d - 1, 23, 0).getTime();
     const end = new Date(y, mo, d + 1, 1, 0).getTime();
@@ -93,9 +99,30 @@ test('#6893: a daylight-saving day is walked slot by slot without going backward
   }
 });
 
+/* Review 1: the walk above proves nothing on a machine without daylight saving (CI runs in UTC), so the clock times are
+   checked in a child pinned to US Central time, where both changes happen. */
+test('#6893: in US Central time, the slots around both clock changes land where the clock puts them', () => {
+  const { spawnSync } = require('node:child_process');
+  const script = `
+    const r = require(${JSON.stringify(require.resolve('./taskrepeat'))});
+    const walk = (from, k) => { const out = []; let s = from; for (let i = 0; i < k; i += 1) { s = r.nextAfter({ every: 'minutes', n: 30 }, s); const d = new Date(s);
+      out.push(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ' ' + d.getTimezoneOffset()); } return out; };
+    process.stdout.write(JSON.stringify({ fall: walk(new Date(2026, 10, 1, 0, 50).getTime(), 4), spring: walk(new Date(2026, 2, 8, 1, 10).getTime(), 4) }));`;
+  const out = spawnSync(process.execPath, ['-e', script], { env: { ...process.env, TZ: 'America/Chicago' }, encoding: 'utf8' });
+  assert.equal(out.status, 0, out.stderr);
+  const got = JSON.parse(out.stdout);
+  // Fall back (1 November): 01:00 and 01:30 daylight time, then the repeated hour takes no slots: 02:00 standard time.
+  assert.deepEqual(got.fall, ['01:00 300', '01:30 300', '02:00 360', '02:30 360']);
+  // Spring forward (8 March): 01:30 standard, the skipped 02:00 lands at 03:00 daylight, then 03:30, 04:00.
+  assert.deepEqual(got.spring, ['01:30 360', '03:00 300', '03:30 300', '04:00 300']);
+  // CONTROL: the child really is in Central time (an ordinary day reads its offset).
+  const ctl = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(new Date(2026, 6, 1).getTimezoneOffset()))'], { env: { ...process.env, TZ: 'America/Chicago' }, encoding: 'utf8' });
+  assert.equal(ctl.stdout, '300');
+});
+
 test('#6893: the graces are sized by the interval, not by an hour', () => {
   const half = { every: 'minutes', n: 30 };
-  // missGraceFor is a quarter of gapOf, which for this rule is its period (neither is exported).
+  // missGraceFor is a quarter of gapOf, which for this rule is its period (gapOf and periodOf are not exported).
   assert.equal(r.missGraceFor({ every: 'minutes', n: 20 }), 5 * 60000);
   // CONTROL: an hourly rule's graces, which a 30-minute rule must be tighter than.
   assert.ok(r.missGraceFor(half) < r.missGraceFor({ every: 'hour' }), 'a 30-minute job is missed sooner than an hourly one');
@@ -119,4 +146,18 @@ test('#6893: a task made to repeat every 30 minutes stores the rule, says it, an
   // A bad number is refused whole, with the sentence, and the stored rule stays.
   assert.throws(() => tasks.setRepeat(p.id, n, r.fromWords('7m'), { person: true }), /divides the day evenly/);
   assert.deepEqual(tasks.byNumber(projects.readAll().find((x) => x.id === p.id), n).repeat, { every: 'minutes', n: 30 });
+});
+
+/* Review 1: a stalled task every few minutes misses a slot every few minutes; its reviewer is told again only once the
+   latest miss is an hour past the last one told. */
+test('#6893: a minutes task re-tells its reviewer at most hourly; an hourly task is unchanged', () => {
+  const mt = require('./missedtell');
+  const now = at(12, 0);
+  const task = (repeat, toldAt) => ({ number: 1, sentence: 's', repeat, repeatReviewer: 'zed', repeatSetAt: new Date(at(6, 0)).toISOString(),
+    repeatReviewerSetAt: new Date(at(6, 0)).toISOString(), lastRunAt: new Date(at(8, 0)).toISOString(), missToldAt: new Date(toldAt).toISOString() });
+  const owedFor = (t) => mt.owed([{ id: 'p', name: 'P', agents: ['zed'], tasks: [t] }], now).length;
+  assert.equal(owedFor(task({ every: 'minutes', n: 30 }, at(11, 30))), 0, 'told 30 minutes ago: not again yet');
+  assert.equal(owedFor(task({ every: 'minutes', n: 30 }, at(10, 30))), 1, 'told an hour and more ago: told again');
+  // CONTROL: an hourly task told an hour ago is owed the newer miss, as before.
+  assert.equal(owedFor(task({ every: 'hour', minute: 0 }, at(10, 0))), 1);
 });

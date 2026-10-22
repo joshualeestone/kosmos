@@ -79,7 +79,7 @@ test('#6893 Mac CLI: 30m and 2h go to the board as the frequency, which makes th
 
 test('#6893 Mac CLI: a minutes rule refuses --at and --on before asking the board; a wrong word names the new form', () =>
   withBoard(() => [200, OK], async (env, hits) => {
-    for (const args of [['30m', '--at', '09:00'], ['--at', '09:00', '30m'], ['30m', '--on', 'mon']]) {
+    for (const args of [['30m', '--at', '09:00'], ['--at', '09:00', '30m'], ['30m', '--on', 'mon'], ['30min', '--at', '09:00'], ['2Hours', '--on', 'tue']]) {
       const r = await runCli(['task', 'repeat', 'p1', '3', ...args], env);
       assert.equal(r.code, 2, args.join(' '));
       assert.match(r.stdout + r.stderr, /A task every so many minutes takes no --at or --on/, args.join(' '));
@@ -88,10 +88,18 @@ test('#6893 Mac CLI: a minutes rule refuses --at and --on before asking the boar
     assert.equal(r.code, 2);
     assert.match(r.stdout + r.stderr, /every so many minutes \(30m, 2h\)/);
     assert.equal(hits.length, 0, 'none of these reached the board');
-    // CONTROL: a daily rule with --at is still fine (the refusal is the minutes rule's only).
-    const ok = await runCli(['task', 'repeat', 'p1', '3', 'daily', '--at', '09:00'], env);
+    // CONTROL: a daily rule with --at is still fine (the refusal is the minutes rule's only), and so is a weekly rule
+    // whose reviewer's name ends in m, h or s after a time (review 1: the first version refused it).
+    let ok = await runCli(['task', 'repeat', 'p1', '3', 'daily', '--at', '09:00'], env);
     assert.equal(ok.code, 0, ok.stdout + ok.stderr);
-    assert.equal(hits.length, 1);
+    ok = await runCli(['task', 'repeat', 'p1', '3', 'weekly', '--on', 'mon', '--at', '09:00', '--reviewer', 'sam'], env);
+    assert.equal(ok.code, 0, ok.stdout + ok.stderr);
+    ok = await runCli(['task', 'repeat', 'p1', '3', 'daily', '--at', '9h', '--reviewer', 'tom'], env);
+    assert.equal(ok.code, 0, 'a value is never read as a frequency, even one shaped like 9h: ' + ok.stdout + ok.stderr);
+    assert.equal(hits.length, 3);
+    // Any case.
+    ok = await runCli(['task', 'repeat', 'p1', '3', '30M'], env);
+    assert.equal(ok.code, 0, ok.stdout + ok.stderr);
   }));
 
 test('#6893 Windows CLI: the same words, the same body, the same refusals', async () => {
@@ -101,10 +109,13 @@ test('#6893 Windows CLI: the same words, the same body, the same refusals', asyn
   const sent = JSON.parse(r.calls[r.calls.length - 1].body);
   assert.equal(sent.every, '30m');
   assert.deepEqual(taskrepeat.fromWords(sent.every, { at: sent.at }), { every: 'minutes', n: 30 });
+  r = await runWin(['task', 'repeat', 'p1', '3', '30MIN'], ok);
+  assert.equal(r.code, 0, r.err);
+  r = await runWin(['task', 'repeat', 'p1', '3', 'weekly', '--on', 'mon', '--at', '09:00', '--reviewer', 'sam'], ok);
+  assert.equal(r.code, 0, r.err);
   r = await runWin(['task', 'repeat', 'p1', '3', '30m', '--at', '09:00'], ok);
   assert.equal(r.code, 2);
   assert.match(r.err, /A task every so many minutes takes no --at or --on/);
-  assert.equal(r.calls.length, 0);
   r = await runWin(['task', 'repeat', 'p1', '3', 'fortnightly'], ok);
   assert.equal(r.code, 2);
   assert.match(r.err, /every so many minutes \(30m, 2h\)/);
