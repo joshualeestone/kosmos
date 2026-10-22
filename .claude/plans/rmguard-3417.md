@@ -5,8 +5,9 @@ it just auto approve stuff like this").
 
 ## Done means
 
-An agent Kosmos launches that runs `rm -f "$S"/*.png` gets no "Needs permission" and nothing in chat, proven against
-a control, and a test fails if decide() ever stops answering it.
+An agent Kosmos launches that runs `rm -f "$S"/*.png` gets no "Needs permission" and nothing in chat, proven by the
+no-hook vs. allow-hook measurement below (manual, recorded on the card), and a test fails if decide() ever stops
+answering it. The in-repo test cannot see whether Claude keeps routing the check through the hook.
 
 ## Measured (Claude Code 2.1.308, interactive, --dangerously-skip-permissions, 2026-10-22 11:28)
 

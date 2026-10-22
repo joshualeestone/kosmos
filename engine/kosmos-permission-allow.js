@@ -3,8 +3,10 @@
 /*
  * #5406: the PermissionRequest hook Kosmos gives its own Claude agents (engine/agentpermission.js). Claude Code runs it
  * when a permission prompt would appear. Kosmos launches agents with --dangerously-skip-permissions, so what prompts is
- * an ask rule (the person's, or a managed one). It answers allow, so the agent goes ahead instead of stopping on a
- * question the person cannot answer from the board (Josh's ruling, 2026-10-07).
+ * an ask rule (the person's, or a managed one), or one of Claude Code's own safety checks, such as "Dangerous rm
+ * operation on possibly-empty variable path" (#3417). It answers allow, so the agent goes ahead instead of stopping on
+ * a question the person cannot answer from the board (Josh's rulings, 2026-10-07, and 2026-10-22 for the safety
+ * checks; engine/permission-rmguard-3417.test.js pins the allow for those).
  *
  * Silent (no answer, so the prompt shows as before) for:
  *   - AskUserQuestion: the agent asking the person something; "allow" would answer it with nothing;
