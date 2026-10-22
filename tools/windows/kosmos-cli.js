@@ -120,7 +120,7 @@ const USAGE = {
     '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
     '  kosmos task unhold <project-id> <task-number>                 take it off hold',
-    '  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly>  a job you run on a schedule: the board shows when it runs',
+    '  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m>  a job you run on a schedule: the board shows when it runs',
     '      --at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
     '  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed',
     '  kosmos task ran <project-id> <task-number> ["what this run found"]  record that a repeating task\'s job just ran',
@@ -1305,7 +1305,9 @@ async function taskDoneWhen(ctx, args) {
 
 /* kosmos#4787, as install/kosmos cmd_task repeat / ran: a repeating task's rule, and a run of its job. The agent token
    names who ran it (no pane on Windows); the board checks the rule whole and refuses a caller it cannot name. */
-const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)';
+const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m|2h> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)';
+/* kosmos#6893, as install/kosmos: every so many minutes ("30m", "2h"); the board checks the number. */
+const EVERY_MINUTES_RE = /^[0-9]+(m|min|mins|minutes|h|hrs|hours)$/;
 async function taskRepeat(ctx, args) {
   const [project, num] = args;
   if (!project || !num || args.length < 3) { ctx.err(REPEAT_USAGE); return 2; }
@@ -1317,13 +1319,14 @@ async function taskRepeat(ctx, args) {
     else if (a === '--on') want = 'on';
     else if (a === '--reviewer') want = 'reviewer';   // slice 3, as install/kosmos: who is told when a run is missed
     else if (a === '--clear') clear = true;
-    else if (/^(hour|hourly|day|daily|week|weekly)$/.test(a)) every = a;
+    else if (/^(hour|hourly|day|daily|week|weekly)$/.test(a) || EVERY_MINUTES_RE.test(a)) every = a;
     else if (/^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task repeat', REPEAT_USAGE, a); return 2; }
-    else { ctx.err('Say how often: hourly, daily or weekly. ' + REPEAT_USAGE); return 2; }
+    else { ctx.err('Say how often: hourly, daily, weekly, or every so many minutes (30m, 2h). ' + REPEAT_USAGE); return 2; }
   }
   if (want) { ctx.err('--at, --on and --reviewer each need a value. ' + REPEAT_USAGE); return 2; }
   // Review 2, as install/kosmos: --at and --on belong to a frequency; without one they would be dropped without a word.
   if (!every && !clear && (at || on)) { ctx.err('--at and --on go with how often: hourly, daily or weekly. ' + REPEAT_USAGE); return 2; }
+  if (EVERY_MINUTES_RE.test(every) && (at || on)) { ctx.err('A task every so many minutes takes no --at or --on. ' + REPEAT_USAGE); return 2; }
   /* Each field only when given, as install/kosmos: no frequency leaves the rule as it is, so --reviewer can change alone. */
   const body = { clear, from_pane: '' };
   if (every) body.every = every;

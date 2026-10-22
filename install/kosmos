@@ -5203,7 +5203,7 @@ cmd_task() {
       say "      --clear                                                  take its checks off"
       say "  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)"
       say "  kosmos task unhold <project-id> <task-number>                 take it off hold"
-      say "  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly>  a job you run on a schedule: the board shows when it runs"
+      say "  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m>  a job you run on a schedule: the board shows when it runs"
       say "  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed"
       say "      --at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating"
       say "  kosmos task ran <project-id> <task-number> [\"what this run found\"]  record that a repeating task's job just ran"
@@ -5349,9 +5349,9 @@ cmd_task() {
       [ "$_wantp" != 1 ] || { say "--part needs a part number; the board lists them if you leave it out."; exit 2; }
       [ "$_whos" = 1 ] || { say "$_usage"; exit 2; } ;;
     repeat)
-      # kosmos#4787: <project> <task-number> <hourly|daily|weekly> [--at HH:MM|:MM] [--on <day>], or --clear. Checked before
+      # kosmos#4787: <project> <task-number> <hourly|daily|weekly|30m> [--at HH:MM|:MM] [--on <day>], or --clear. Checked before
       # the board, as built is; the rule itself is checked whole by the board (taskrepeat.repeatProblem).
-      local _rusage="Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)"
+      local _rusage="Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m|2h> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "$_rusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       local _r _rwant=""
@@ -5360,12 +5360,17 @@ cmd_task() {
         case "$_r" in
           --at|--on|--reviewer) _rwant=1 ;;   # slice 3: --reviewer names who is told when a run is missed
           --clear|hour|hourly|day|daily|week|weekly) ;;
+          [0-9]*m|[0-9]*min|[0-9]*mins|[0-9]*minutes|[0-9]*h|[0-9]*hrs|[0-9]*hours) ;;   # kosmos#6893: every so many minutes (the board checks the number)
           --*) _refuse_option "task repeat" "$_rusage" "$_r" ;;
-          *) say "Say how often: hourly, daily or weekly. $_rusage"; exit 2 ;;
+          *) say "Say how often: hourly, daily, weekly, or every so many minutes (30m, 2h). $_rusage"; exit 2 ;;
         esac
       done
       [ -z "$_rwant" ] || { say "--at, --on and --reviewer each need a value. $_rusage"; exit 2; }
       # slice 3 review 2: --at and --on belong to a frequency; without one they would be dropped without a word.
+      # kosmos#6893: a task every so many minutes has no time or day to give (asked first: the check below would read its
+      # --at as having no frequency at all).
+      case " ${*:3} " in *" "[0-9]*[mhs]" "*"--at "*|*" "[0-9]*[mhs]" "*"--on "*|*" --at "*" "[0-9]*[mhs]" "*|*" --on "*" "[0-9]*[mhs]" "*)
+        say "A task every so many minutes takes no --at or --on. $_rusage"; exit 2 ;; esac
       case " ${*:3} " in *" hourly "*|*" hour "*|*" daily "*|*" day "*|*" weekly "*|*" week "*|*" --clear "*) ;;
         *" --at "*|*" --on "*) say "--at and --on go with how often: hourly, daily or weekly. $_rusage"; exit 2 ;; esac ;;
     ran)
