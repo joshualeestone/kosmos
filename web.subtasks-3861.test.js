@@ -146,7 +146,7 @@ test('kosmos#5956: the task page marks a built subtask Built and says when every
     { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
   assert.match(els['tk-subs'].innerHTML, /data-sub="2">[\s\S]*?<span class="tksub-s">Built<\/span>/);
   assert.equal(els['tk-subs-built'].hidden, false);
-  assert.match(PAGE_HTML_5956, /<p class="dhint tksubs-done" id="tk-subs-built" hidden>All subtasks are built\. Check each one and close it, then close this task\.<\/p>/);
+  assert.match(PAGE_HTML_5956, /<p class="dhint tksubs-done" id="tk-subs-built" hidden><span>All subtasks are built\. Check each one, then close them and this task\.<\/span><button class="linkish" type="button" id="tk-subs-closeall">Close them and this task<\/button><\/p>/);   // kosmos#6501
   assert.equal(els['tk-subs-done'].hidden, true, 'not every subtask is closed');
   project.tasks[1].builtAt = undefined;
   new Function('document', 'esc', 'p', 't', page.liftAll(SCRIPT, ['tkPaintSubtasks']) + '\n; tkPaintSubtasks(p, t, false);')(

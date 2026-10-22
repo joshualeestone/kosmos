@@ -6719,7 +6719,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
   /* These two stand on their own lines, where padding with a negative margin cannot be paid back exactly (the line's
      strut moves the text 2 to 6px), so they are honest 44px boxes instead: the subtasks block grows a little on a
      phone, and stacked boxes in normal flow cannot overlap. Sideways the hit area still grows and is taken back. */
-  #pj-task-view :is(#tk-subadd, #tk-subs-close) { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; margin: 0 -10px; }
+  #pj-task-view :is(#tk-subadd, #tk-subs-close, #tk-subs-closeall) { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; margin: 0 -10px; }
 }
 .tkwho-pick { font: inherit; font-weight: 700; color: inherit; background: none;
               border: 0; padding: 0; cursor: pointer; text-align: left;
@@ -17504,7 +17504,7 @@ window.kosmosMeasureScrollbarWidth();
              with this task already picked as what it is part of. -->
         <h3 class="dlab" style="margin-top: var(--space-6);">Subtasks</h3>
         <div class="tksubs" id="tk-subs"></div>
-        <p class="dhint tksubs-done" id="tk-subs-built" hidden>All subtasks are built. Check each one and close it, then close this task.</p>
+        <p class="dhint tksubs-done" id="tk-subs-built" hidden><span>All subtasks are built. Check each one, then close them and this task.</span><button class="linkish" type="button" id="tk-subs-closeall">Close them and this task</button></p>
         <p class="dhint tksubs-done" id="tk-subs-done" hidden><span>All subtasks done.</span><button class="linkish" type="button" id="tk-subs-close">Close this task</button></p>
         <button class="linkish" type="button" id="tk-subadd">+ Add subtask</button>
       </section>
@@ -68602,6 +68602,42 @@ for (const id of ['tk-subs', 'tk-partof-row']) {
 }
 /* "All subtasks done": Close this task is the page's own Mark as done, the one verb a person owns. */
 document.getElementById('tk-subs-close').addEventListener('click', () => document.getElementById('tk-done').click());
+/* kosmos#6501: "All subtasks are built": one press closes each built subtask, then this task, through the same close
+   route as Mark as done. Closing stays the person's act (#3951), one press instead of one per task. The first refusal
+   stops it there and says which task; this task stays open. */
+document.getElementById('tk-subs-closeall').addEventListener('click', async () => {
+  const p = pjById(PJ_CURRENT);
+  const t = p && (p.tasks || []).find((x) => x.number === TK_OPEN);
+  const done = (x) => (x.progress ? Boolean(x.progress.closed) : Boolean(x.closedAt));
+  const built = (x) => !done(x) && x.onHold !== true && typeof x.builtAt === 'string' && x.builtAt !== '';   // as tkPaintSubtasks
+  const kids = t ? (p.tasks || []).filter((x) => x && x.parent === t.number) : [];
+  // The world may have moved since the paint (the poll): act only on the state the line was shown for.
+  if (!t || done(t) || !kids.length || !kids.every((x) => done(x) || built(x))) { paintTaskPage(); return; }
+  const btn = document.getElementById('tk-subs-closeall');
+  const msg = document.getElementById('tk-msg');
+  btn.disabled = true;
+  try {
+    for (const n of kids.filter(built).map((x) => Number(x.number)).concat(Number(t.number))) {
+      const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/close', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        const why = (body && body.error) || 'we could not close it';
+        msg.textContent = n === Number(t.number) ? why : 'Task #' + n + ': ' + why + '. This task is still open.';
+        return;
+      }
+    }
+    msg.textContent = '';
+  } catch {
+    msg.textContent = 'We could not finish closing them. The list below shows where it stopped.';   // the reload repaints the truth
+  } finally {
+    btn.disabled = false;
+    await pjReload();
+    paintTaskActivity(TK_OPEN);
+    tkReceiptSync();
+  }
+});
 document.getElementById('tk-subadd').addEventListener('click', () => openNewTask(PJ_CURRENT, 'task', TK_OPEN));
 document.getElementById('tk-done').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);

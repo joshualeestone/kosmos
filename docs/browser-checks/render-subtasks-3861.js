@@ -1,4 +1,4 @@
-// Browser-check-surface: panel-tasks tsk-groups pj-tasklist tk-subs tk-subadd tk-partof nt-parent
+// Browser-check-surface: panel-tasks tsk-groups pj-tasklist tk-subs tk-subadd tk-partof nt-parent tk-subs-built tk-subs-closeall
 'use strict';
 /**
  * Subtasks on the screen (#3861 part 2; part 1, the data, is #3873).
@@ -213,6 +213,55 @@ function chk(ok, label, extra) {
       await page.evaluate((id) => { const s = document.getElementById('nt-proj'); s.value = id; s.dispatchEvent(new Event('change')); }, other.id);
       const sw = await page.evaluate(() => ({ v: document.getElementById('nt-parent').value, first: (document.getElementById('nt-parent').options[1] || {}).textContent }));
       chk(sw.v === '' && /^#3 Send the test$/.test(sw.first || ''), '[new task] switching project in the dialog drops the Part of pick and lists the new project\'s tasks', JSON.stringify(sw));
+      await page.close();
+    }
+    /* kosmos#6501: every subtask built or closed, so the parent's page offers "Close them and this task". One press
+       closes the built subtasks and then the parent; a refusal stops it there, names the task, and leaves the parent
+       open. A fresh project per run: 1 the parent, 2 and 3 built, 4 already closed. */
+    for (const width of [1400, 390]) {
+      const tag = `[rollup ${width}]`;
+      const roll = projects.create({ name: 'Roll-up ' + width });
+      projects.addAgent(roll.id, 'ada', null);
+      tasks.create(roll.id, { sentence: 'Ship the brochure' });
+      for (const s of ['Draft the copy', 'Lay out the pages', 'Old proof']) tasks.create(roll.id, { sentence: s, parent: 1, who: 'ada' });
+      tasks.setBuilt(roll.id, 2, { by: 'ada' });
+      tasks.setBuilt(roll.id, 3, { by: 'ada' });
+      tasks.close(roll.id, 4);
+      const read = (n) => projects.readAll().find((p) => p.id === roll.id).tasks.find((t) => t.number === n);
+      const page = await browser.newPage({ viewport: { width, height: 1000 } });
+      const errs = [];
+      page.on('pageerror', (e) => errs.push(e.message));
+      await page.goto(URL, { waitUntil: 'networkidle' });
+      await clearFirstRun(page);
+      const openParent = async () => {
+        await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); openTaskPage(1); }, roll.id);
+        await page.waitForFunction(() => !document.getElementById('tk-subs-built').hidden, null, { timeout: 8000 }).catch(() => {});
+      };
+      await openParent();
+      const line = await page.evaluate(() => ({
+        shown: !document.getElementById('tk-subs-built').hidden, text: document.getElementById('tk-subs-built').textContent,
+        allDone: !document.getElementById('tk-subs-done').hidden }));
+      chk(line.shown && !line.allDone && /Close them and this task$/.test(line.text), `${tag} every subtask built or closed: the line offers Close them and this task`, JSON.stringify(line));
+
+      // The refusal arm first: task 3's close is refused, so 2 closes, 3 and the parent stay open, and the line says which.
+      await page.route('**/task/3/close', (r) => r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'that task cannot be closed right now' }) }));
+      await page.click('#tk-subs-closeall');
+      await page.waitForFunction(() => /^Task #3: /.test(document.getElementById('tk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+      const refusedMsg = await page.evaluate(() => document.getElementById('tk-msg').textContent);
+      chk(refusedMsg === 'Task #3: that task cannot be closed right now. This task is still open.', `${tag} a refusal names the task and says the parent is still open`, refusedMsg);
+      chk(!!read(2).closedAt && !read(3).closedAt && !read(1).closedAt, `${tag} it stopped at the refusal: 2 closed, 3 and the parent open`,
+        JSON.stringify([read(1).closedAt, read(2).closedAt, read(3).closedAt]));
+      await page.unroute('**/task/3/close');
+
+      // The press: what is left (3) closes, then the parent; the closed subtask stays closed.
+      await openParent();
+      await page.click('#tk-subs-closeall');
+      await page.waitForFunction(() => document.getElementById('tk-subs-built').hidden, null, { timeout: 8000 }).catch(() => {});
+      chk(!!read(3).closedAt && !!read(1).closedAt && !!read(2).closedAt && !!read(4).closedAt, `${tag} one press closed the built subtasks and then the parent`,
+        JSON.stringify([1, 2, 3, 4].map((n) => !!read(n).closedAt)));
+      chk(await page.evaluate(() => document.getElementById('tk-msg').textContent) === '', `${tag} no message after it succeeded`);
+      if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'subtasks-rollup-' + width + '.png'), fullPage: false });
+      chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
       await page.close();
     }
   } finally {
