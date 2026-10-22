@@ -24,12 +24,14 @@ at 96%. `weeklyBlockedOf` returns null (the status line is wired), so no "last r
    absolute folder.
 2. `engine/kosmos-statusline.js`: `recordReadings(dir, {weekly, fiveHour}, now, {latestWins})`, the one place the two
    files' options live (main() uses it too). `latestWins` (stream only): within a window the latest figure wins,
-   unchanged is skipped; the status line keeps forward-only. Measured 10-22: the default folder held 96% from its
+   unchanged is skipped, and another window is taken while its reset is ahead (a re-signed folder carries the new account's reset); the status line keeps forward-only. Measured 10-22: the default folder held 96% from its
    previous sign-in while a live turn said 3%.
 3. `engine/win32supervisor.js` main(): passes `usageDir` for runner `claude` only (another runner's configDir is its
    own provider's home).
-4. `web/index.html`: `acctWeeklyNow` drops a weekly reading past its reset on the page (row, move-menu figure, full
-   test), and the weekly reset joins the reset timer so an open list repaints at it. Browser check:
+4. `engine/accountsweekly.js`: `weeklyBlockedOf` names no reason on Windows (review 1): readings come from the stream
+   there, wired or not, so "will not update" and the set-up offer would be false under a live reading.
+5. `web/index.html`: `acctWeeklyNow` drops a weekly reading past its reset on the page (row, move-menu figure, full
+   test), and the weekly meter carries data-resets and joins the reset timer, so an open list repaints at its reset. Browser check:
    `docs/browser-checks/render-account-usage-6108.js` (lastweek row).
 
 ## Non-Claude providers on Windows (decision)
