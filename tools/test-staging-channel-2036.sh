@@ -275,6 +275,23 @@ out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" Q
 [ "$rc" = 2 ] && has "$out" "did not finish with a verdict" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queued gate killed (END rc=143) -> cannot-tell HOLD (2), not a refusal" || bad "promote queued-gate-143 (rc=$rc, out=$out)"
 out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=1 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" --force 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queued gate END rc=1 -> refuse even with --force" || bad "promote queued-gate-1 (rc=$rc, out=$out)"
+# kosmos#6922: a gate that ran in the queue and answered PARTIAL (END rc=3) is PARTIAL, as unqueued: held, forceable.
+out="$(env -u KOSMOS_PROMOTE_AGENT_GATE_CMD KOSMOS_PROMOTE_AGENT_QUEUE="$QRAN" QRC=3 KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sq3" 2>&1)"; rc=$?
+[ "$rc" = 3 ] && has "$out" "PARTIAL" && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: queued gate END rc=3 -> PARTIAL HOLD (3), no promote" || bad "promote queued-gate-3 (rc=$rc, out=$out)"
+# kosmos#6922: a promote stopped while the gate waits in the queue leaves no promote-agentgate.* log in TMPDIR.
+QWAIT="$T/stub-queue-wait.sh"; printf '#!/usr/bin/env bash
+echo $$ > "$QPID"
+sleep 30 & wait
+' > "$QWAIT"
+QT="$T/qtmp"; mkdir -p "$QT"; QPID="$T/qwait.pid"; rm -f "$QPID"
+env -u KOSMOS_PROMOTE_AGENT_GATE_CMD TMPDIR="$QT" QPID="$QPID" KOSMOS_PROMOTE_AGENT_QUEUE="$QWAIT" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 \
+  bash "$PROMOTE" "$Sq3" >/dev/null 2>&1 &
+ppid_=$!; n=0
+while [ ! -s "$QPID" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n+1)); done
+mid="$(ls "$QT" 2>/dev/null | grep -c '^promote-agentgate\.')"   # the control: the log exists while the gate waits
+kill -TERM "$ppid_" 2>/dev/null; kill -TERM "$(cat "$QPID" 2>/dev/null)" 2>/dev/null; wait "$ppid_" 2>/dev/null
+left="$(ls "$QT" 2>/dev/null | grep -c '^promote-agentgate\.')"
+[ "$mid" = 1 ] && [ "$left" = 0 ] && [ ! -f "$Sq3/dist/latest.json" ] && pass "promote: stopped while the gate waits in the queue -> its queue log is removed" || bad "promote queue-log leak (during=$mid after=$left)"
 
 # agent gate PARTIAL (exit 3: Claude online, OpenAI/Codex arm failed) -> HOLD (3), no promote;
 # --force promotes the Claude fix + gating (the codex issue is chased separately). Must NOT be
