@@ -26,7 +26,7 @@
 # Exit codes are CENTERED ON THE CLAUDE ARM (Splinter, 2026-09-04): #2129 fixes the Claude
 # spawn wedge definitively; a separate OpenAI/Codex spawn issue may remain and must NOT block
 # shipping the Claude fix + the OpenAI-only gating.
-# Exit 0 both providers came ONLINE (state idle|working, confirmed on 2 consecutive polls).
+# Exit 0 both providers came ONLINE (state idle|working, confirmed on 2 consecutive polls) and answered a first message.
 #      1 DO-NOT-PROMOTE (proven bad build, non-forceable): the CLAUDE agent wedged at the trust
 #        prompt (#2129), appeared but never reached idle|working, hit auth_failed, or its create
 #        was refused with a real provider sign-in failure. The #2129 Claude fix is not working.
@@ -83,13 +83,15 @@ case "$PORT" in ''|*[!0-9]*) say "port '${PORT}' is not numeric - cannot tell"; 
 URL="http://127.0.0.1:${PORT}"
 
 # --- token OFF argv (a mode-600 header file); argv is world-readable via ps (#1970). ---
-HF=""; CREATED_NAMES=""
+HF=""; CREATED_NAMES=""; MAYBE_NAMES=""
 cleanup() {
   # kosmos#6906: remove every agent this check created, BEFORE the token file goes. A removal
   # that fails is said loudly with the name to remove by hand; it does not change the verdict.
-  local nm todo="$CREATED_NAMES"
-  CREATED_NAMES=""   # once only: an INT/TERM runs this, then the EXIT trap runs it again
+  trap '' INT TERM   # a signal mid-removal must not abandon the rest
+  local nm todo="$CREATED_NAMES" maybe="$MAYBE_NAMES"
+  CREATED_NAMES=""; MAYBE_NAMES=""   # once only: an INT/TERM runs this, then the EXIT trap runs it again
   for nm in $todo; do remove_agent "$nm"; done
+  for nm in $maybe; do remove_agent "$nm" if-listed; done
   [ -n "$HF" ] && rm -f "$HF" 2>/dev/null
   [ -n "${_BODYF:-}" ] && rm -f "$_BODYF" 2>/dev/null
 }
@@ -134,9 +136,22 @@ api_post() {
   RESP_BODY="$(cat "$_BODYF" 2>/dev/null)"
 }
 
+# kosmos#6906: "yes" / "no" / "?" for whether the last /api/status read (RESP_BODY) lists session name $1.
+listed() {
+  printf '%s' "$RESP_BODY" | "$NODE" -e '
+    let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.stdout.write("?");return}
+      const a=j.agents||j.cards||j.fleet||(Array.isArray(j)?j:null);if(!a){process.stdout.write("?");return}
+      process.stdout.write(a.some(c=>(c.sessionName||c.session||c.name||"")===process.argv[1])?"yes":"no")})' "$1"
+}
 # kosmos#6906: remove one agent this check created, and say whether it is gone from /api/status.
 remove_agent() {
   local nm="$1" code still
+  # if-listed: a create whose answer never came (lost, timed out, interrupted) may or may not have made the agent, so
+  # it is removed only when the board lists it. A create that answered 200 is removed whatever the list says.
+  if [ "${2:-}" = if-listed ]; then
+    api_get /api/status
+    [ "$HTTP_CODE" = "200" ] && [ "$(listed "$nm")" = "yes" ] || return
+  fi
   : > "$_BODYF"
   code="$("$CURL" -sS --max-time 60 -H @"$HF" -X DELETE -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/removal" 2>/dev/null || true)"
   if [ "$code" != "200" ]; then
@@ -144,10 +159,7 @@ remove_agent() {
     return
   fi
   api_get /api/status
-  still="$(printf '%s' "$RESP_BODY" | "$NODE" -e '
-    let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.stdout.write("?");return}
-      const a=j.agents||j.cards||j.fleet||(Array.isArray(j)?j:null);if(!a){process.stdout.write("?");return}
-      process.stdout.write(a.some(c=>(c.sessionName||c.session||c.name||"")===process.argv[1])?"yes":"no")})' "$nm")"
+  still="$(listed "$nm")"
   case "$still" in
     no)  say "removed '$nm' (gone from /api/status)." ;;
     yes) say "WARNING: removed '$nm' (HTTP 200) but it is still listed in /api/status: check it on the board." ;;
@@ -160,23 +172,29 @@ remove_agent() {
 REPLY_SECS="${KOSMOS_AGENT_REPLY_TIMEOUT:-180}"
 case "$REPLY_SECS" in ''|*[!0-9]*) REPLY_SECS=180 ;; esac
 first_reply() {
-  local prov="$1" sess="$2" body waited=0 got
-  body="$("$NODE" -e 'process.stdout.write(JSON.stringify({text:"A release check (kosmos#6906): please reply with the single word ready."}))')"
+  local prov="$1" sess="$2" body sent_ms got end
+  body="$("$NODE" -e 'process.stdout.write(JSON.stringify({text:"A release check (kosmos#6906): reply here with the single word ready, and do nothing else: no posts, no files, no other messages."}))')"
+  sent_ms="$("$NODE" -e 'process.stdout.write(String(Date.now()))')"
   api_post "/api/agent/$sess/thread" "$body"
   if [ "$HTTP_CODE" != "200" ]; then
     say "  [$prov] could not send '$sess' its first message (HTTP ${HTTP_CODE:-<none>}) - cannot tell"; return 2
   fi
   say "  [$prov] sent '$sess' its first message - waiting for an answer (up to ${REPLY_SECS}s)..."
-  while [ "$waited" -lt "$REPLY_SECS" ]; do
+  end=$(( $(date +%s) + REPLY_SECS ))   # wall clock: each read can itself take up to its --max-time
+  while [ "$(date +%s)" -lt "$end" ]; do
     api_get "/api/agent/$sess/thread"
     if [ "$HTTP_CODE" = "200" ]; then
+      # Only a STORED reply counts: a row from the agent with no `kind` (the board adds kind:"question" rows from the
+      # agent while it waits on a prompt, engine/chat.js withQuestionRow), dated at or after the send (5 s of slack
+      # for second-rounded stamps), so an old row or a question on screen never reads as an answer.
       got="$(printf '%s' "$RESP_BODY" | "$NODE" -e '
         let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{return}
-          const m=(Array.isArray(j.messages)?j.messages:[]).filter(x=>x&&x.from===process.argv[1]);
-          if(m.length)process.stdout.write(String(m[m.length-1].text||"").replace(/\s+/g," ").slice(0,80)||"(an empty answer)")})' "$sess")"
+          const since=Number(process.argv[2])-5000;
+          const m=(Array.isArray(j.messages)?j.messages:[]).filter(x=>x&&x.from===process.argv[1]&&!x.kind&&Date.parse(x.at)>=since);
+          if(m.length)process.stdout.write(String(m[m.length-1].text||"").replace(/\s+/g," ").slice(0,80)||"(an empty answer)")})' "$sess" "$sent_ms")"
       if [ -n "$got" ]; then say "  [$prov] '$sess' ANSWERED its first message: '$got'"; return 0; fi
     fi
-    sleep "$POLL_INT"; waited=$((waited + POLL_INT))
+    sleep "$POLL_INT"
   done
   say "  [$prov] '$sess' came online but did not answer its first message within ${REPLY_SECS}s (slow, rate-limited, or the thread unreadable) - cannot tell"
   return 2
@@ -237,7 +255,7 @@ if [ "$HTTP_CODE" != "200" ]; then
 fi
 # Count existing agents. Emit ERR (not 0) when the body does not parse OR carries no
 # recognized agent list, so an unreadable /api/status FAILS CLOSED below rather than reading
-# as "0 agents" and letting the fleet guard pass on a board we cannot actually count.
+# as "0 agents" on a board we cannot actually count.
 N_EXISTING="$(printf '%s' "$STATUS0" | "$NODE" -e '
 let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
   let j; try{ j=JSON.parse(s) }catch{ process.stdout.write("ERR"); return }
@@ -249,9 +267,8 @@ let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
   else { process.stdout.write("ERR"); return }
   process.stdout.write(String(a.length));
 })')"
-# FAIL CLOSED: a 200 we cannot count (contract drift, unparseable) must not let the fleet
-# guard pass - refusing here is the safe direction (never spawn test agents on a board whose
-# population we cannot read). This also numeric-validates N_EXISTING before the -gt below.
+# FAIL CLOSED: a 200 we cannot count (contract drift, unparseable) is refused - never spawn test
+# agents on a board whose agents we cannot read, since the removal check reads the same list.
 case "$N_EXISTING" in
   ''|*[!0-9]*)
     say "GET /api/status returned 200 but no readable agent list (got '${N_EXISTING}') - cannot count the fleet."
@@ -263,7 +280,7 @@ say "this board carries ${N_EXISTING} agent(s); the agents this check creates ar
 STAMP="$(date +%s)"
 POLL_SECS="${KOSMOS_AGENT_ONLINE_TIMEOUT:-180}"
 POLL_INT="${KOSMOS_AGENT_ONLINE_POLL_INT:-5}"
-# Numeric-guard the poll vars (same discipline as PORT / MAX_EXISTING). A non-numeric TIMEOUT
+# Numeric-guard the poll vars (same discipline as PORT). A non-numeric TIMEOUT
 # is only safer, but a non-numeric OR ZERO POLL_INT makes `waited=$((waited + POLL_INT))` never
 # advance -> the poll loops forever (a hang). Fall back to the defaults on anything invalid.
 case "$POLL_SECS" in ''|*[!0-9]*) POLL_SECS=180 ;; esac
@@ -272,12 +289,18 @@ case "$POLL_INT"  in ''|0|*[!0-9]*) POLL_INT=5 ;; esac
 # create_and_wait <provider> <account-dir> -> echoes verdict, returns 0 online / 1 red / 2 cannot
 create_and_wait() {
   local prov="$1" dir="$2" nm body sess
-  # kosmos#6906: at most 28 characters. The board refuses a name over 32 ("keep it to 32 characters or fewer"), and the
+  # kosmos#6906: at most 32 characters. The board refuses a name over 32 ("keep it to 32 characters or fewer"), and the
   # old verify2129-<provider>-<time>-<pid> was longer, so every create here was refused as a 400 and read cannot-tell.
   local short; case "$prov" in anthropic) short=claude ;; *) short="$prov" ;; esac
-  nm="verify2129-${short}-${STAMP}"
-  body="$("$NODE" -e 'process.stdout.write(JSON.stringify({name:process.argv[1],provider:process.argv[2],account:process.argv[3],role:"pm"}))' "$nm" "$prov" "$dir")"
+  nm="verify2129-${short}-${STAMP}-$(( $$ % 1000 ))"   # at most 32, and two runs never share a name
+  # notifyCreated:false: a gate agent is not one of the person's, so it must not raise the public agents-created count.
+  body="$("$NODE" -e 'process.stdout.write(JSON.stringify({name:process.argv[1],provider:process.argv[2],account:process.argv[3],role:"pm",notifyCreated:false}))' "$nm" "$prov" "$dir")"
+  # Registered BEFORE the create as a MAYBE: a lost or interrupted response may still have made it, and cleanup removes
+  # a maybe only when the board lists it (only this run makes a name with this STAMP and pid).
+  MAYBE_NAMES="$MAYBE_NAMES $nm"
   local resp; api_post /api/agents "$body"; resp="$RESP_BODY"
+  # A 400 is the board refusing: nothing was made. A 200 made it: removed whatever the list says (below).
+  case "$HTTP_CODE" in 400|200) MAYBE_NAMES="${MAYBE_NAMES% $nm}" ;; esac
   if [ "$HTTP_CODE" = "400" ]; then
     local err400; err400="$(printf '%s' "$resp" | "$NODE" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).error||s)}catch{process.stdout.write(s)}})')"
     # A 400 is only a DO-NOT-PROMOTE signal when it names a real provider sign-in failure
@@ -377,8 +400,13 @@ create_and_wait() {
     say "  [$prov] reached ${st:-online} but never on 2 consecutive polls within ${POLL_SECS}s (slow/flapping) - cannot tell (HOLD)."
     return 2
   fi
-  # It appeared but NEVER reached idle/working (stuck 'stopped', or a persistent non-trust
-  # needs_you) - that is a real not-online, a do-not-promote.
+  # kosmos#6906: still waiting on a NON-trust question at the end (a usage limit, a rate limit, an account prompt):
+  # on a working fleet board that is the account, not the build, so cannot-tell (forceable), never a refusal.
+  if [ "$st" = "needs_you" ]; then
+    say "  [$prov] still waiting on a question that is not the trust prompt at ${POLL_SECS}s: '$because' - cannot tell (HOLD)."
+    return 2
+  fi
+  # It appeared but NEVER reached idle/working (stuck 'stopped') - a real not-online, a do-not-promote.
   say "  [$prov] did NOT come online within ${POLL_SECS}s (last state='${st:-<none>}')"; return 1
 }
 

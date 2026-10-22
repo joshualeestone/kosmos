@@ -53,7 +53,7 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      cannot count, and needs both providers signed in.
      - **Exit codes are centered on the CLAUDE arm** (Splinter, 2026-09-04): #2129 fixes the
        Claude spawn wedge definitively, but a separate OpenAI/Codex spawn issue may remain and
-       must not block shipping the Claude fix + the OpenAI-only gating. `0` both online; `1` the
+       must not block shipping the Claude fix + the OpenAI-only gating. `0` both online and answering; `1` the
        **Claude** arm failed (proven bad build, non-forceable); `2` cannot-tell (HOLD, forceable);
        `3` **partial** -- Claude online but the **OpenAI/Codex** arm failed, which the promoter
        **surfaces and routes** (forceable) rather than auto-holding.
