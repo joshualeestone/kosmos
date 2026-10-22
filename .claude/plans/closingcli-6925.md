@@ -41,4 +41,6 @@ removed from disk in between (rotation) would make the offer wrong once, followe
   closingUsed; not from an older board (no flag); the landed line on `closing: true` (placed and unconfirmed; the bash
   test includes a spaced-JSON body) and not on an ordinary post. Mutants, each red: a compact-only bash match (spaced
   case); the bash unconfirmed line removed.
+- After a cut-reply retry neither CLI offers the summary (the first try may have been it, still landing); tested in
+  the Windows CLI with a mutant. The bash retry path is the same one-line guard, not separately tested.
 - Not tested: the refused-row write failing (refusalRecorded false); simple to read, hard to arrange in this harness.

@@ -262,6 +262,19 @@ test('#6920 / #6925 parity: a room_held refusal offers the one closing summary o
   assert.doesNotMatch(older.err, /The one exception: a summary/, 'offered a summary the board did not say it would take');
 });
 
+test('#6925 parity: after a cut-reply retry the refusal does not offer the summary (the first try may have been it)', async () => {
+  let n = 0;
+  const cutThenHeld = () => {
+    n += 1;
+    if (n === 1) { const e = new Error('socket hang up'); e.code = 'ECONNRESET'; throw e; }
+    return { body: { delivery: { state: 'could_not', code: 'room_held', because: 'x', closingEligible: true } } };
+  };
+  const r = await run(['post', 'proj-1', 'a long summary'], cutThenHeld, { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_RETRY_PAUSE_MS: '0' });
+  assert.equal(n, 2, 'the cut reply was not asked once more');
+  assert.match(r.err, /Not posted this time: this room went back and forth/, 'CONTROL: the retried refusal wording');
+  assert.doesNotMatch(r.err, /The one exception: a summary/, 'offered the summary after a retry whose first try may have been it');
+});
+
 test('#6925 parity: a post that went through a held room as the one summary says so; an ordinary post does not', async () => {
   const landed = await run(['post', 'proj-1', 'a long summary'], () => ({ body: { delivery: { state: 'placed', closing: true } } }));
   assert.equal(landed.code, 0);
