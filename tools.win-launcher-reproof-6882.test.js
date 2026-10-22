@@ -105,7 +105,7 @@ test('#6882: every navigation to the board is checked before it leaves, and canc
   const opener = fs.readFileSync(path.join(REPO, 'tools', 'kosmos-open-board.js'), 'utf8');
   assert.equal(full, Number(opener.match(/const PROOF_TIMEOUT_MS = (\d+);/)[1]), 'the full check refuses a board the opener\'s own check would pass');
   assert.ok(quick > 0 && quick <= 2000 && quick < full, 'the quick check can freeze the window for ' + quick + ' ms');
-  // The crashed page's reload has no path of its own: it is a navigation, so it meets the check above.
+  // A page that is not the board's reloads as before; a board page's reload is proved first (the test below).
   assert.match(method('internal void OnProcessFailed(ICoreWebView2ProcessFailedEventArgs args)'), /webView\.Reload\(\)/);
   assert.match(SOURCE, /webView\.add_NavigationStarting\(new NavigationStarting\(this\), out token\);/, 'the check never hears a navigation');
   assert.match(SOURCE, /public class NavigationStarting : ICoreWebView2NavigationStartingEventHandler\n\{[\s\S]*?try \{ form\.OnNavigationStarting\(args\); \}/);
@@ -181,7 +181,8 @@ test('#6882: the window\'s own sign-in loads are approved once, as the opener pr
 
 test('#6882: a board load that failed is checked, and a cancelled one is not taken for a failure', () => {
   const done = method('internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)');
-  inOrder(done, ['bool boardNav = boardNavs.TryGetValue(navId, out failedLoad);', 'boardNavs.Remove(navId);', 'if (boardNav && success == 0)',
+  inOrder(done, ['bool boardNav = boardNavs.TryGetValue(navId, out failedLoad);', 'boardNavs.Remove(navId);',
+    'if (boardNav && success != 0) failedLoadRetriedVisit = -1;', 'if (boardNav && success == 0)',
     'if (failure != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED)',
     // retried once per visit through the prove-first path (a quick restart recovers by itself), never a spent sign-in code
     'if (failedLoadRetriedVisit != boardVisit && navigatedToBoard && !boardNotConfirmed && !KosmosLauncher.IsSignInLoad(failedLoad))',
@@ -224,7 +225,7 @@ test('#6882: the page\'s own polling is watched on the badge timer, per visit', 
     'watchInFlight = false;', 'if (visit != boardVisit) return;',
     'bool show = KosmosLauncher.WatchShowsNotConfirmed(check, watchNoAnswers);',
     'watchNoAnswers = check == KosmosLauncher.ReuseCheck.NoAnswer ? watchNoAnswers + 1 : 0;',
-    'if (show && navigatedToBoard) ShowNotConfirmed();'], 'the watch');
+    'if (show && BoardPageOnScreen() != null) ShowNotConfirmed();'], 'the watch');
 });
 
 test('#6882: a window its own check took off the board comes back by itself once the board proves, capped until a board read works', () => {
