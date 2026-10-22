@@ -295,12 +295,32 @@ if [ "$FAMILY" = mac ]; then
   # only after a HAND check. Override the command via KOSMOS_PROMOTE_AGENT_GATE_CMD.
   # kosmos#6906: the gate creates real agents, and a launchd job file made during someone's full validation reds that
   # run's #3011 guard (it did, 2026-10-22, on Mortals). So by default it takes a real turn in the machine's suite queue
-  # (tools/queued-heavy.sh: waits for no suite to be running, holds the machine claim while it runs, passes the gate's
-  # exit code through). An explicit KOSMOS_PROMOTE_AGENT_GATE_CMD runs as given.
+  # (tools/queued-heavy.sh, or KOSMOS_PROMOTE_AGENT_QUEUE: waits for no suite to be running and holds the machine claim
+  # while it runs). An explicit KOSMOS_PROMOTE_AGENT_GATE_CMD runs as given, with no queue.
+  # 🛑 The queue's OWN exit codes overlap the gate's (it exits 2, 3, 4, 75 for its own reasons, before the gate runs), so
+  # the verdict is the gate's only when the queue's "QUEUED-HEAVY ... END rc=<n>" line says the gate ran and what it
+  # answered. No such line: the gate never got a turn, which is cannot-tell (2), never PARTIAL and never a refusal.
   _pc_repo="$(cd "$(dirname "$0")/.." && pwd)"
-  AGENT_GATE_CMD="${KOSMOS_PROMOTE_AGENT_GATE_CMD:-bash $_pc_repo/tools/queued-heavy.sh agent-spawn-gate bash $_pc_repo/tools/staging-agent-online-check.sh}"
-  echo "promote-channel: running the agent-spawn gate: $AGENT_GATE_CMD${PORT:+ (port $PORT)}"
-  $AGENT_GATE_CMD ${PORT:+"$PORT"}; AGENT_RC=$?
+  if [ -n "${KOSMOS_PROMOTE_AGENT_GATE_CMD:-}" ]; then
+    AGENT_GATE_CMD="$KOSMOS_PROMOTE_AGENT_GATE_CMD"
+    echo "promote-channel: running the agent-spawn gate: $AGENT_GATE_CMD${PORT:+ (port $PORT)}"
+    $AGENT_GATE_CMD ${PORT:+"$PORT"}; AGENT_RC=$?
+  else
+    _pc_queue="${KOSMOS_PROMOTE_AGENT_QUEUE:-$_pc_repo/tools/queued-heavy.sh}"
+    AGENT_GATE_CMD="bash $_pc_repo/tools/staging-agent-online-check.sh"
+    echo "promote-channel: running the agent-spawn gate in the machine's queue: $_pc_queue agent-spawn-gate $AGENT_GATE_CMD${PORT:+ (port $PORT)}"
+    _pc_qlog="$(mktemp "${TMPDIR:-/tmp}/promote-agentgate.XXXXXX")"
+    bash "$_pc_queue" agent-spawn-gate $AGENT_GATE_CMD ${PORT:+"$PORT"} 2>&1 | tee "$_pc_qlog"; _pc_qrc=${PIPESTATUS[0]}
+    AGENT_RC="$(sed -n 's/^QUEUED-HEAVY [0-9:]* END rc=\([0-9][0-9]*\):.*/\1/p' "$_pc_qlog" | tail -1)"
+    rm -f "$_pc_qlog"
+    if [ -z "$AGENT_RC" ]; then
+      echo "promote-channel: the agent-spawn gate never got a turn in the machine's queue (the queue exited $_pc_qrc) - treating it as cannot-tell." >&2
+      AGENT_RC=2
+    elif [ "$AGENT_RC" = 75 ]; then
+      echo "promote-channel: the machine's queue stopped the agent-spawn gate part way (END rc=75) - treating it as cannot-tell." >&2
+      AGENT_RC=2
+    fi
+  fi
   case "$AGENT_RC" in
     0) echo "promote-channel: agent-spawn gate PASSED - a fresh Claude and OpenAI agent came online and answered a first message (the #2129 class is not present)."
        # #5084: it ran on the same board. When the experience gate could not tie that board to $V (cannot-tell,
