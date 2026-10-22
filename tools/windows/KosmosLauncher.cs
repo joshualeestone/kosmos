@@ -2668,19 +2668,91 @@ class KosmosLauncher
         return null;
     }
 
+    // #6882: one sentence for every way the window ends up here: the opener found nothing that proved it is this
+    // account's board, it proved but the sign-in could not be made (#6464), board.token is there but cannot be read
+    // (#6464), or the window checked again before reusing its sign-in and the check failed (CheckBoardBeforeReuse).
+    // "Could not confirm it was reaching" read as only the first of those; "could not sign you in" is true of all.
     internal const string NotConfirmedPage =
         "<!doctype html><html><head><meta charset=\"utf-8\"><title>Kosmos</title><style>"
         + "html,body{height:100%;margin:0}body{display:flex;align-items:center;justify-content:center;text-align:center;"
         + "font:15px 'Segoe UI',sans-serif;color:#555;background:#fafafa;padding:0 2em}"
         + "@media (prefers-color-scheme:dark){body{color:#bbb;background:#1e1e1e}}"
-        + "</style></head><body>Kosmos could not confirm it was reaching your own Kosmos, so nothing was opened.<br>"
+        + "</style></head><body>Kosmos could not sign you in to your own Kosmos, so this window is not showing it.<br>"
         + "If Kosmos is starting or restarting, open Kosmos.exe again in a minute.</body></html>";
 
     const string BrowserUnknownMessage =
         "Kosmos took too long to confirm it was reaching your own Kosmos. If no Kosmos page opened in your browser, open Kosmos.exe again in a minute.";
 
+    // #6882: the browser fallback's twin of NotConfirmedPage, for the same three opener outcomes.
     const string BrowserNotConfirmedMessage =
-        "Kosmos could not confirm it was reaching your own Kosmos, so it did not open your browser. If Kosmos is starting or restarting, open Kosmos.exe again in a minute.";
+        "Kosmos could not sign you in to your own Kosmos, so it did not open your browser. If Kosmos is starting or restarting, open Kosmos.exe again in a minute.";
+
+    // ---- #6882: the window proves the board again before it reuses its sign-in ----------------------------
+    //
+    // The window's web profile keeps the board's sign-in cookie, scoped to 127.0.0.1 and NOT to the port, so every
+    // later request to the board's address carries it to whatever answers there then. The opener proves the board
+    // once, when the window first resolves the address (#1765). These say whether the window may go on using that
+    // sign-in at each later point, from a fresh check (CheckBoardBeforeReuse) made right before it:
+    //   - a navigation to the board (a crashed page's reload, F5, the page's own reload, a link, the retry of a
+    //     load that failed): MayNavigateSignedIn, checked in OnNavigationStarting before the request leaves;
+    //   - "open Kosmos.exe again" when the opener names no signed-in address, which leaves the open page talking to
+    //     whatever answers: MayKeepPageOpen;
+    //   - the page's own polling, which the window cannot stop per request: WatchShowsNotConfirmed, on the badge's
+    //     10 s timer. Not before each request, after: the most a squatter gets is one tick of polls (the session
+    //     cookie in them is already dead: a board restart ends every session, #6449, and a squatter can only take
+    //     the port once the board has let go of it).
+    // Whenever one says no, the window shows NotConfirmedPage and loads nothing more until Kosmos.exe is opened again.
+    internal enum ReuseCheck { Proved, NotEnforcing, NoListener, NoAnswer, NotProven, TokenUnreadable }
+
+    // How long one check may take. On the window's own thread for a navigation (OnNavigationStarting has no
+    // deferral), so short: a board on loopback answers in milliseconds, and Windows takes about 2 s to report a
+    // refused loopback connection, which this must outlast to tell NoListener from NoAnswer.
+    internal const int ReuseProofTimeoutMs = 3000;
+
+    // A fresh read of board.token and a fresh proof, every time. Never throws.
+    internal static ReuseCheck CheckBoardBeforeReuse(int port, int timeoutMs)
+    {
+        try
+        {
+            string token;
+            TaskbarBadge.TokenOnDisk onDisk = TaskbarBadge.ReadBoardTokenState(out token);
+            if (onDisk == TaskbarBadge.TokenOnDisk.None) return ReuseCheck.NotEnforcing;
+            if (onDisk != TaskbarBadge.TokenOnDisk.Read) return ReuseCheck.TokenUnreadable;
+            switch (BoardProof.Check(port, token, timeoutMs))
+            {
+                case BoardProof.Answer.Proves: return ReuseCheck.Proved;
+                case BoardProof.Answer.NoListener: return ReuseCheck.NoListener;
+                case BoardProof.Answer.NotProven: return ReuseCheck.NotProven;
+                default: return ReuseCheck.NoAnswer;
+            }
+        }
+        catch { return ReuseCheck.NoAnswer; }
+    }
+
+    // A navigation carries the cookie in its own request, so only a board that proved (or one that enforces nothing
+    // and so issued no sign-in) may have it. Nothing listening is refused too: a squatter could take the port
+    // between this check and the request, and the window's own page says what to do.
+    internal static bool MayNavigateSignedIn(ReuseCheck check)
+    {
+        return check == ReuseCheck.Proved || check == ReuseCheck.NotEnforcing;
+    }
+
+    // The opener named no signed-in address, so the page on screen stays only if this check shows it is still
+    // talking to this account's board, or to nothing at all: a board restarting has let go of the port, and the
+    // page's own paced sign-in (#6512) must be able to try again once it is back. A listener that does not prove,
+    // or that holds the check open, or a token that cannot be read, ends it.
+    internal static bool MayKeepPageOpen(ReuseCheck check)
+    {
+        return check == ReuseCheck.Proved || check == ReuseCheck.NotEnforcing || check == ReuseCheck.NoListener;
+    }
+
+    // The timer acts only on a listener that ANSWERED and did not prove. No answer in time is also what a busy board
+    // looks like, and an unreadable token what antivirus holding the file for a moment looks like; on a 10 s timer
+    // either would throw a working window off its board. The next navigation still checks strictly.
+    internal static bool WatchShowsNotConfirmed(ReuseCheck check)
+    {
+        return check == ReuseCheck.NotProven;
+    }
 
     // What a double-click did before the window existed: the opener opens the board in the
     // default browser. Then the box that says why, because a browser tab where a window was
@@ -3359,7 +3431,12 @@ class BoardWindowForm : System.Windows.Forms.Form
     bool signInAgainGaveUp;
     int signInsWithoutRead;
     // #1765: the opener refused to name an address (KosmosLauncher.NotConfirmed), so the window shows why and loads nothing.
+    // #6882: also set when a check before reusing the sign-in failed (ShowNotConfirmed).
     bool boardNotConfirmed;
+    // #6882: the board navigations OnNavigationStarting let through, until each completes, so a failed one is known
+    // as the board's (OnNavigationCompleted); and whether the timer's check (WatchBoard) is out.
+    readonly Dictionary<ulong, string> boardNavs = new Dictionary<ulong, string>();
+    bool watchInFlight;
 
     // Set when this PC could not host the window after all: RunBoardWindow then opens the browser.
     internal string RuntimeProblem;
@@ -3597,13 +3674,22 @@ class BoardWindowForm : System.Windows.Forms.Form
         {
             string fresh = null;
             try { fresh = resolveBoardAddress(); } catch { /* nothing to load */ }
+            // #6882: no signed-in address (the opener refused, or ended with none) navigates nothing, but the page
+            // already open keeps talking to whatever answers on the port, with this window's sign-in. So the board is
+            // checked here, off the window's thread, and the page stays only if MayKeepPageOpen says so. A signed-in
+            // answer needs no check here: its own navigation is checked (OnNavigationStarting).
+            KosmosLauncher.ReuseCheck check = KosmosLauncher.ReuseCheck.Proved;
+            if (fresh == null || !fresh.Contains("?boot=")) check = KosmosLauncher.CheckBoardBeforeReuse(port, KosmosLauncher.ReuseProofTimeoutMs);
             try
             {
                 BeginInvoke(new Action(() =>
                 {
                     signingInAgain = false;
                     if (mode == KosmosLauncher.ComputerMode.Connect) return;
+                    // #6882: the window showed why it is not showing the board while this ran; opening Kosmos.exe again starts over.
+                    if (boardNotConfirmed) return;
                     if (fresh != null && fresh.Contains("?boot=") && webView != null) webView.Navigate(KosmosLauncher.WithModeQuery(KosmosLauncher.SignInAgainAddress(fresh, keepPage, port), mode));
+                    else if (!KosmosLauncher.MayKeepPageOpen(check)) ShowNotConfirmed();
                 }));
             }
             catch { /* the window closed meanwhile */ }
@@ -3649,6 +3735,56 @@ class BoardWindowForm : System.Windows.Forms.Form
         webView.Navigate(boardAddress);
     }
 
+    // #6882: a check before reusing the sign-in failed. The window shows why (NotConfirmedPage, as when the opener
+    // refuses) and forgets the board's address, so nothing reloads it; opening Kosmos.exe again starts over from the
+    // opener (SignInAgain's not-confirmed branch), which proves the board before it signs in.
+    void ShowNotConfirmed()
+    {
+        if (mode == KosmosLauncher.ComputerMode.Connect || boardNotConfirmed || webView == null) return;
+        boardNotConfirmed = true;
+        navigatedToBoard = false;
+        boardAddress = null;
+        committedPage = null;
+        webView.NavigateToString(KosmosLauncher.NotConfirmedPage);
+    }
+
+    // #6882: the check, off this thread (it waits on the network), then ShowNotConfirmed unless `mayStay` allows what
+    // it found. Only while the window is still on its board: an answer that lands after the window moved on (it
+    // already shows why, or it is starting over) changes nothing.
+    void CheckThenShowNotConfirmed(Func<KosmosLauncher.ReuseCheck, bool> mayStay)
+    {
+        int boardPort = port;
+        ThreadPool.QueueUserWorkItem(unused =>
+        {
+            KosmosLauncher.ReuseCheck check = KosmosLauncher.CheckBoardBeforeReuse(boardPort, KosmosLauncher.ReuseProofTimeoutMs);
+            try { BeginInvoke(new Action(() => { if (navigatedToBoard && !mayStay(check)) ShowNotConfirmed(); })); }
+            catch { /* the window closed meanwhile */ }
+        });
+    }
+
+    // #6882: the page polls the board itself, every 5 s, with this window's sign-in, and the window cannot stop those
+    // requests one by one. So on the badge's timer the window checks the board is still the one that proved, and
+    // stops showing it once a listener answers there without proving (WatchShowsNotConfirmed). One check at a time.
+    void WatchBoard()
+    {
+        if (mode == KosmosLauncher.ComputerMode.Connect || !navigatedToBoard || boardNotConfirmed || watchInFlight) return;
+        watchInFlight = true;
+        int boardPort = port;
+        ThreadPool.QueueUserWorkItem(unused =>
+        {
+            KosmosLauncher.ReuseCheck check = KosmosLauncher.CheckBoardBeforeReuse(boardPort, KosmosLauncher.ReuseProofTimeoutMs);
+            try
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    watchInFlight = false;
+                    if (navigatedToBoard && KosmosLauncher.WatchShowsNotConfirmed(check)) ShowNotConfirmed();
+                }));
+            }
+            catch { /* the window closed meanwhile */ }
+        });
+    }
+
     // Before anything was shown, a failure means this PC cannot host the window: close, and
     // RunBoardWindow opens the browser instead.
     void CouldNotHost(string problem)
@@ -3670,6 +3806,23 @@ class BoardWindowForm : System.Windows.Forms.Form
     {
         string uri;
         args.get_Uri(out uri);
+        // #6882: a navigation to the board carries the window's sign-in cookie to whatever answers on the port, so the
+        // board proves itself first, here, before the request leaves. This is every reuse that is a navigation: a
+        // crashed page's Reload (OnProcessFailed), F5, the page's own reload, a link, a sign-in's ?boot= load and its
+        // redirect, and the retry of a load that failed. Cancelled first, so a fault in what follows cannot let it go.
+        if (mode != KosmosLauncher.ComputerMode.Connect && KosmosLauncher.IsBoardAddress(uri, port))
+        {
+            ulong boardNav;
+            args.get_NavigationId(out boardNav);
+            args.put_Cancel(1);
+            if (!KosmosLauncher.MayNavigateSignedIn(KosmosLauncher.CheckBoardBeforeReuse(port, KosmosLauncher.ReuseProofTimeoutMs)))
+            {
+                BeginInvoke(new Action(ShowNotConfirmed));
+                return;
+            }
+            args.put_Cancel(0);
+            boardNavs[boardNav] = uri;
+        }
         // #5492: the page NavigateToString shows while the board starts stays in the window (the Mac has no such page).
         bool runsBoard = mode == KosmosLauncher.ComputerMode.Run || mode == KosmosLauncher.ComputerMode.Both;
         if (runsBoard && KosmosLauncher.IsWindowOwnPage(uri)) return;
@@ -3746,13 +3899,24 @@ class BoardWindowForm : System.Windows.Forms.Form
     // never reached Kosmos Plus, so the box shows and Reopen (SignInAgain) loads it again.
     internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)
     {
-        // #5492: run and both record their in-window pages too (OnNavigationStarting), so they forget them here;
-        // the first-load check below is connect's alone (connectLoadPending is never set on run or both).
-        if (mode != KosmosLauncher.ComputerMode.Connect && mode != KosmosLauncher.ComputerMode.Run && mode != KosmosLauncher.ComputerMode.Both) return;
         ulong navId;
         args.get_NavigationId(out navId);
         int success;
         args.get_IsSuccess(out success);
+        // #6882: a board load that failed (the board restarted, or something else holds the port) leaves WebView2's
+        // error page, whose retry is a navigation and is checked (OnNavigationStarting). The window checks now too, off
+        // this thread, and shows why instead of the error page when the board does not prove. A load that was cancelled
+        // (by the check above, the link rules, or a newer navigation) did not fail.
+        bool boardNav = boardNavs.Remove(navId);
+        if (boardNav && success == 0)
+        {
+            int failure;
+            args.get_WebErrorStatus(out failure);
+            if (failure != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) CheckThenShowNotConfirmed(KosmosLauncher.MayNavigateSignedIn);
+        }
+        // #5492: run and both record their in-window pages too (OnNavigationStarting), so they forget them here;
+        // the first-load check below is connect's alone (connectLoadPending is never set on run or both).
+        if (mode != KosmosLauncher.ComputerMode.Connect && mode != KosmosLauncher.ComputerMode.Run && mode != KosmosLauncher.ComputerMode.Both) return;
         connectInWindow.Remove(navId);
         // Settled by the first load's own completion; if its start was never recognised (an address in another
         // form), by the first completion, as before #5483, so a load that really failed still says so.
@@ -3772,6 +3936,8 @@ class BoardWindowForm : System.Windows.Forms.Form
 
     // A page that crashed or hung is loaded again. A browser process that ended leaves nothing to
     // load it in, so the window closes and says so, rather than sitting blank.
+    // #6882: the Reload is a navigation (WebView2 raises NavigationStarting for it), so a board page's reload is
+    // checked there before it leaves, and shows NotConfirmedPage instead when the board does not prove.
     internal void OnProcessFailed(ICoreWebView2ProcessFailedEventArgs args)
     {
         int kind;
@@ -3863,7 +4029,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         if (badgeTimer != null) return;
         badgeTimer = new System.Windows.Forms.Timer();
         badgeTimer.Interval = TaskbarBadge.PollEveryMs;
-        badgeTimer.Tick += (sender, args) => RefreshBadge();
+        badgeTimer.Tick += (sender, args) => { RefreshBadge(); WatchBoard(); };   // #6882: WatchBoard, the page's polling
         badgeTimer.Start();
         RefreshBadge();
     }
@@ -4542,7 +4708,22 @@ static class BoardProof
     // request is aborted when it passes. Never throws.
     internal static bool Holds(int port, string token, int timeoutMs)
     {
-        if (string.IsNullOrEmpty(token) || timeoutMs <= 0) return false;
+        return Check(port, token, timeoutMs) == Answer.Proves;
+    }
+
+    // #6882: how a check came out, for the board window, which treats "nothing is listening" differently from "a
+    // listener answered and did not prove" (KosmosLauncher.MayNavigateSignedIn and its siblings). Holds is
+    // Check == Proves, so every other caller reads it exactly as before.
+    //   Proves      the proof, for this token, nonce and port.
+    //   NoListener  the connection was refused: nothing listens on the port, so nothing can be sent anywhere.
+    //   NoAnswer    a listener took the connection and gave no answer in time (or cut it): a hung board, or a
+    //               squatter that holds connections open. Nothing shows which.
+    //   NotProven   a listener answered, and it was not the proof: a squatter, another account's board, a redirect.
+    internal enum Answer { Proves, NoListener, NoAnswer, NotProven }
+
+    internal static Answer Check(int port, string token, int timeoutMs)
+    {
+        if (string.IsNullOrEmpty(token) || timeoutMs <= 0) return Answer.NoAnswer;
         string nonce = NewNonce();
         System.Net.HttpWebRequest request = null;
         try
@@ -4558,7 +4739,7 @@ static class BoardProof
             using (new System.Threading.Timer(_ => { try { aborting.Abort(); } catch { /* already done */ } }, null, timeoutMs, Timeout.Infinite))
             using (System.Net.HttpWebResponse response = (System.Net.HttpWebResponse)request.GetResponse())
             {
-                if ((int)response.StatusCode != 200) return false;
+                if ((int)response.StatusCode != 200) return Answer.NotProven;
                 byte[] buffer = new byte[AnswerMaxBytes + 1];
                 int got = 0;
                 using (Stream stream = response.GetResponseStream())
@@ -4566,16 +4747,18 @@ static class BoardProof
                     int n;
                     while (got < buffer.Length && (n = stream.Read(buffer, got, buffer.Length - got)) > 0) got += n;
                 }
-                if (got > AnswerMaxBytes) return false;
-                return ProofMatches(token, nonce, ProofIn(Encoding.UTF8.GetString(buffer, 0, got)), port);
+                if (got > AnswerMaxBytes) return Answer.NotProven;
+                return ProofMatches(token, nonce, ProofIn(Encoding.UTF8.GetString(buffer, 0, got)), port) ? Answer.Proves : Answer.NotProven;
             }
         }
         catch (System.Net.WebException e)
         {
-            if (e.Response != null) { try { e.Response.Close(); } catch { /* the answer was not a proof */ } }
-            return false;
+            // A status the listener sent (a 404 from another account's board, a 403) is an answer that did not prove.
+            if (e.Response != null) { try { e.Response.Close(); } catch { /* the answer was not a proof */ } return Answer.NotProven; }
+            // Refused: nothing listens there. Anything else (the deadline's abort, a timeout, a cut connection) is no answer.
+            return e.Status == System.Net.WebExceptionStatus.ConnectFailure ? Answer.NoListener : Answer.NoAnswer;
         }
-        catch { return false; }
+        catch { return Answer.NoAnswer; }
     }
 }
 
@@ -4732,13 +4915,30 @@ static class TaskbarBadge
     // Read on every poll, never kept: it never leaves this process except in the request header.
     internal static string ReadBoardToken()
     {
+        string token;
+        return ReadBoardTokenState(out token) == TokenOnDisk.Read ? token : null;
+    }
+
+    // #6882: the same read, saying WHY there is no token, as tools/kosmos-open-board.js readBoardToken does since
+    // #6464: no file (or an empty one) is a board that enforces nothing; a file that is there but cannot be read
+    // (EACCES, EBUSY while antivirus holds it, a folder in its place) is an enforcing board this process cannot
+    // prove, which the board window reads as not proven (KosmosLauncher.CheckBoardBeforeReuse).
+    internal enum TokenOnDisk { None, Unreadable, Read }
+
+    internal static TokenOnDisk ReadBoardTokenState(out string token)
+    {
+        token = null;
         try
         {
             string root = BoardDataRoot(Environment.GetEnvironmentVariable, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
-            string token = File.ReadAllText(Path.Combine(root, BoardTokenFileName), Encoding.UTF8).Trim();
-            return token.Length > 0 ? token : null;
+            string read = File.ReadAllText(Path.Combine(root, BoardTokenFileName), Encoding.UTF8).Trim();
+            if (read.Length == 0) return TokenOnDisk.None;
+            token = read;
+            return TokenOnDisk.Read;
         }
-        catch { return null; }
+        catch (FileNotFoundException) { return TokenOnDisk.None; }
+        catch (DirectoryNotFoundException) { return TokenOnDisk.None; }
+        catch { return TokenOnDisk.Unreadable; }
     }
 
     // One read of /api/status. True when the board answered with its status (then `waiting` is its
