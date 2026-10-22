@@ -6634,6 +6634,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 /* kosmos#4787 slice 1b: the Repeats controls wear the Due date field's look (.tk-due-input), so the column reads as one set. */
 .tk-repeat-in { font: inherit; color: inherit; background: transparent; border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; min-height: 30px; }
 .tk-repeat-in:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+#tk-repeat-mins { width: 5em; }   /* kosmos#6893: up to 720 fits */
 .tk-repeat-when { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .tk-repeat-actions { display: flex; justify-content: flex-end; margin: 4px 0 0; }
 .tk-repeat-actions .btn[disabled] { opacity: .5; cursor: default; }
@@ -17573,7 +17574,7 @@ window.kosmosMeasureScrollbarWidth();
              an agent can set another minute with kosmos task repeat. -->
         <div class="tmeta" id="tk-repeat-row"><span>Repeats</span>
           <select id="tk-repeat-every" class="tsk-sel" aria-label="How often this task repeats">
-            <option value="">Never</option><option value="hour">Every hour</option><option value="day">Every day</option><option value="week">Every week</option>
+            <option value="">Never</option><option value="minutes">Every so many minutes</option><option value="hour">Every hour</option><option value="day">Every day</option><option value="week">Every week</option>
           </select>
         </div>
         <div class="tmeta" id="tk-repeat-when" hidden><span>When</span>
@@ -17582,6 +17583,8 @@ window.kosmosMeasureScrollbarWidth();
               <option value="mon">Monday</option><option value="tue">Tuesday</option><option value="wed">Wednesday</option><option value="thu">Thursday</option><option value="fri">Friday</option><option value="sat">Saturday</option><option value="sun">Sunday</option>
             </select>
             <input type="time" id="tk-repeat-at" class="tk-repeat-in" aria-label="When: time of day" value="09:00">
+            <!-- kosmos#6893: every so many minutes, on the multiples of that from midnight (the board checks the number). -->
+            <span id="tk-repeat-mins-wrap" hidden><input type="number" id="tk-repeat-mins" class="tk-repeat-in" min="15" max="720" step="1" value="30" inputmode="numeric" aria-label="When: every how many minutes"> minutes</span>
           </span>
         </div>
         <div class="tk-repeat-actions"><button class="btn" id="tk-repeat-save" type="button" aria-label="Save how this task repeats" disabled>Save</button></div>
@@ -68642,6 +68645,15 @@ function tkRepeatChoice() {
   const every = document.getElementById('tk-repeat-every').value;
   if (!every) return { clear: true };
   if (every === 'hour') return { every: 'hour' };
+  /* kosmos#6893: the number of minutes travels as `at`, the form the route reads; an empty box is no choice yet. */
+  if (every === 'minutes') {
+    const mins = document.getElementById('tk-repeat-mins').value.trim();
+    if (!mins) return { needsTime: true };
+    /* Review 2: written as the board will store it, so a choice equal to the stored rule reads as unchanged: "030" is 30,
+       and 60 is the hourly rule (the board stores every 60 minutes as hourly). */
+    const n = /^\d+$/.test(mins) ? String(Number(mins)) : mins;
+    return n === '60' ? { every: 'hour' } : { every: 'minutes', at: n };
+  }
   const atEl = document.getElementById('tk-repeat-at');
   const at = atEl.value;
   if (!at) return { needsTime: true };   // review 1: an empty time is no choice yet, never a silent 9am
@@ -68658,6 +68670,7 @@ function tkRepeatStoredChoice(t) {
   const r = t && t.repeat;
   if (!r) return { clear: true };
   if (r.every === 'hour') return { every: 'hour' };
+  if (r.every === 'minutes') return { every: 'minutes', at: String(r.n) };   // kosmos#6893
   // kosmos#5752: several times a day travel as one comma list, the form the route reads.
   return r.every === 'day' ? { every: 'day', at: Array.isArray(r.at) ? r.at.join(',') : r.at } : { every: 'week', on: TK_REPEAT_DAYS[r.day], at: r.at };
 }
@@ -68695,7 +68708,9 @@ function tkRepeatSaved(sent, boxAtSend) {
    starts from Monday 9am, never the last task's unsaved choice. */
 function tkRepeatShowChoice(c) {
   document.getElementById('tk-repeat-every').value = c.clear ? '' : c.every;
-  tkRepeatFillAt(c.at);
+  /* kosmos#6893: a minutes rule's number goes in its own box; the time box starts from 9am as for any other choice. */
+  document.getElementById('tk-repeat-mins').value = c.every === 'minutes' ? c.at : '30';
+  tkRepeatFillAt(c.every === 'minutes' ? undefined : c.at);
   document.getElementById('tk-repeat-day').value = c.on || 'mon';
 }
 /* kosmos#5752 round 3: the stored rule changed elsewhere (an agent) while the person has an unsaved edit. The edit stands
@@ -68708,8 +68723,10 @@ function tkRepeatFollowUnderEdit(t) {
 }
 function tkRepeatShowWhen() {
   const every = document.getElementById('tk-repeat-every').value;
-  document.getElementById('tk-repeat-when').hidden = every !== 'day' && every !== 'week';
+  document.getElementById('tk-repeat-when').hidden = every !== 'day' && every !== 'week' && every !== 'minutes';
   document.getElementById('tk-repeat-day').hidden = every !== 'week';
+  document.getElementById('tk-repeat-at').hidden = every === 'minutes';   // kosmos#6893
+  document.getElementById('tk-repeat-mins-wrap').hidden = every !== 'minutes';
 }
 function tkRepeatDirty(t) {
   const save = document.getElementById('tk-repeat-save');
@@ -68717,7 +68734,10 @@ function tkRepeatDirty(t) {
   const choice = tkRepeatChoice();
   if (save) save.disabled = choice.needsTime === true || JSON.stringify(choice) === JSON.stringify(tkRepeatStoredChoice(t));
   const msg = document.getElementById('tk-repeat-msg');
-  if (msg && choice.needsTime === true) { msg.textContent = 'Choose a time'; msg.dataset.needsTime = '1'; }
+  if (msg && choice.needsTime === true) {
+    msg.textContent = document.getElementById('tk-repeat-every').value === 'minutes' ? 'Say how many minutes' : 'Choose a time';   // kosmos#6893
+    msg.dataset.needsTime = '1';
+  }
   else if (msg && msg.dataset.needsTime === '1') { msg.textContent = ''; delete msg.dataset.needsTime; }
 }
 function tkPaintRepeat(p, t) {
@@ -68820,7 +68840,7 @@ function tkOpenTask() {
   if (!p || TK_OPEN === null) return [null, null];
   return [p, (p.tasks || []).find((x) => String(x.number) === String(TK_OPEN)) || null];
 }
-for (const id of ['tk-repeat-every', 'tk-repeat-at', 'tk-repeat-day']) {
+for (const id of ['tk-repeat-every', 'tk-repeat-at', 'tk-repeat-day', 'tk-repeat-mins']) {
   const el = document.getElementById(id);
   if (!el) continue;
   const on = () => {
