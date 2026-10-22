@@ -305,7 +305,12 @@ function chk(ok, label, extra) {
             .catch((e) => { throw new Error(`${tag}: the page never became consolidated: ${e.message}`); });
           await page.evaluate(() => document.getElementById('userpop-settings').click());
           /* #6910: a timeout here said only "hidden", which cannot tell a Settings that never opened from one that opened
-             and was hidden again, or from a nav that is there but has no size. Say which, with the state that decides it. */
+             and was hidden again, or from a nav that is there but has no size. Say which, with the state that decides it.
+             Settings is read twice, 300 ms after the click and at the timeout, since one late read shows the same for the
+             first two. The early read runs beside the wait and is only used if the wait fails. */
+          const settingsEarly = page.waitForTimeout(300)
+            .then(() => page.evaluate(() => { const ps = document.getElementById('panel-settings'); return ps ? ps.hidden : 'no #panel-settings'; }))
+            .catch((x) => 'not read: ' + String(x.message).slice(0, 60));
           await page.waitForSelector('#s-nav button[data-go="mac"]', { state: 'visible', timeout: 20000 })
             .catch(async (e) => {
               const snap = page.evaluate(() => {
@@ -316,16 +321,17 @@ function chk(ok, label, extra) {
                 const chain = [];
                 for (let n = pill; n && n !== document.documentElement; n = n.parentElement) {
                   const cs = getComputedStyle(n);
-                  // only an element that hides itself, so the list names the culprit, not everything under it
+                  // an element that is itself hidden or display:none, not every element under one
                   if (n.hidden || cs.display === 'none' || (n === pill && cs.visibility !== 'visible')) {
                     chain.push({ el: n.tagName.toLowerCase() + (n.id ? '#' + n.id : ''), hidden: n.hidden, display: cs.display, visibility: cs.visibility });
                   }
                 }
-                return { settingsHidden: ps ? ps.hidden : 'no #panel-settings', settingsParent: ps ? (ps.parentElement ? ps.parentElement.id || ps.parentElement.tagName.toLowerCase() : 'detached') : null,
+                return { settingsHidden: ps ? ps.hidden : 'no #panel-settings',
+                  settingsParent: ps ? (ps.parentElement ? ps.parentElement.id || ps.parentElement.tagName.toLowerCase() : 'detached') : null,
                   pill: pill ? { w: Math.round(box.width), h: Math.round(box.height), visibility: getComputedStyle(pill).visibility } : 'not in the page',
                   chain,
-                  // whichever view or overlay holds the display column now: the one that took it from Settings, if any
-                  shownInProjects: pj ? [...pj.children].filter((c) => !c.hidden && c.id).map((c) => c.id) : 'no #panel-projects',
+                  // the children of #panel-projects showing at the timeout
+                  shownInProjects: pj ? [...pj.children].filter((c) => !c.hidden && c.id && getComputedStyle(c).display !== 'none').map((c) => c.id) : 'no #panel-projects',
                   layout: document.documentElement.getAttribute('data-layout'), body: document.body.className, url: location.href };
               });
               // a wedged page must not swap this error for a hang: give the read 5 s
@@ -336,7 +342,8 @@ function chk(ok, label, extra) {
                 .finally(() => clearTimeout(timer));
               // key order is deliberate: the Settings fields, then the page errors, then the rest
               const pageErrors = errs.slice(0, 3).map((m) => m.slice(0, 80));
-              const out = Object.assign({ settingsHidden: st.settingsHidden, settingsParent: st.settingsParent, pageErrors }, st);
+              const out = Object.assign({ settingsHidden: st.settingsHidden, settingsHiddenAt300ms: await settingsEarly,
+                settingsParent: st.settingsParent, pageErrors }, st);
               throw new Error(`${tag}: Computer pill never showed: ${JSON.stringify(out)}: ${e.message}`);
             });
           await page.evaluate(() => document.querySelector('#s-nav button[data-go="mac"]').click());

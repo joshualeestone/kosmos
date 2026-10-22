@@ -13,10 +13,11 @@ with no size.
 
 ## Change
 docs/browser-checks/render-snav-head-4979.js: when that wait times out, the error carries the page state as JSON,
-in this order: #panel-settings hidden and parent; the first three page errors (80 characters each); the pill's own
+in this order: #panel-settings hidden at the timeout, hidden 300 ms after the click (read beside the wait, used
+only if it fails, so "never opened" and "opened, then hidden" differ), and its parent; the first three page errors (80 characters each); the pill's own
 size and visibility (or that it is not in the page); every ancestor that hides itself (hidden or display:none);
 which children of #panel-projects are showing (the overlay that took the column, if one did); then data-layout,
-body classes and URL. The gate's 200-character summary line carries the two Settings fields; the full line is in
+body classes and URL. The gate's 200-character summary line carries the three Settings fields; the full line is in
 the job log. The read has 5 s, so a wedged page cannot turn the timeout into a hang. Nothing else changes; the
 pass path is unchanged.
 
@@ -29,7 +30,7 @@ pass path is unchanged.
 
 ## Validation
 - node --check passes.
-- On this Mac, headless, through queued-heavy.sh, 13:03 to 13:05 CDT 2026-10-22, at the branch's code then:
+- On this Mac, headless, through queued-heavy.sh, 13:03 to 13:05 CDT 2026-10-22, at 1e159ec3 (before the 300 ms read):
   - three normal runs of the check, both engines: rc 0, 0 FAIL, no SKIPPED, and each shows the three
     "PASS  webkit consolidated view 1280px" lines. **The CI red did not reproduce here**, as with #5018.
   - one forced run of a copy whose wait selector can never match (substituted on exactly that line): rc 2, and the
