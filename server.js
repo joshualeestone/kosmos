@@ -22346,7 +22346,7 @@ const server = http.createServer(async (req, res) => {
   if (taskAct && req.method === 'POST') {
     const id = decodeSegment(taskAct[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    /* #4491 slice 5: `kosmos task close` presents the agent's own token (the header: this route reads no body). A
+    /* #4491 slice 5: `kosmos task close` presents the agent's own token (the header; the body, when there is one, carries only a reopen's reason or a close's replacedBy). A
        caller that presents one is named by it, and closes or reopens tasks only in a project it is on. A caller
        with none (the page, the person's terminal, an older CLI) is as before: this route has never read a pane,
        so an agent that sends no token is not named here, unlike on task add. The roster is read only for a token.
@@ -22371,11 +22371,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
     }
-    const act = (why) => {
+    const act = (why, replacedBy) => {
       try {
         /* #6157: a reopen records who put it back (the person from the screen, or the agent its token named; an agent
-           that sends no token stays unnamed, as above) and why. */
-        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2])
+           that sends no token stays unnamed, as above) and why. #6923: a close may name the task that replaced it. */
+        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2], { replacedBy })
           : tasks.reopen(id, taskAct[2], { by: actor, person: isViaScreen(req, {}), why });
         // Close and reopen change what the assignee's block should list, so
         // the block follows the record. Non-gating.
@@ -22391,7 +22391,25 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, code, { error: msg || 'we could not change that task' });
       }
     };
-    if (taskAct[3] !== 'reopen') { act(''); return; }
+    if (taskAct[3] === 'close') {
+      /* #6923: a close may carry { replacedBy: <task number> }. No body is a plain close, as every older caller sends. A
+         body that cannot be read is refused rather than taken as a plain close: closing drops the built mark, hold and
+         repeat, so a garbled replace must not close the task as done. tasks.close refuses a replacedBy that is not a
+         task number. */
+      readBody(req, 8 * 1024).then((raw) => {
+        let body = null;
+        const text = String(raw == null ? '' : raw);   // readBody can hand back a Buffer
+        if (text.trim()) {
+          try { body = JSON.parse(text); } catch { body = undefined; }
+          // Anything but { replacedBy } (a misspelled key, a bare number, a list) is refused the same way, never taken as a plain close.
+          if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => k !== 'replacedBy')) {
+            sendJson(res, 400, { error: 'we could not read that request, so the task was not closed' }); return;
+          }
+        }
+        act('', body && typeof body === 'object' ? body.replacedBy : undefined);
+      }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+      return;
+    }
     /* #6157: a reopen may say why ({ why }). No body, or one that is not JSON, is a reopen with no reason, as every
        older caller (the page, an older CLI) sends; a `why` that is not text is refused rather than dropped. 8 KiB, as
        the other small JSON routes: the reason is capped at 300 characters. */

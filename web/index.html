@@ -67263,6 +67263,8 @@ function tskRow(t, at) {
   /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
      so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
      run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
+  /* #6923: a task closed as replaced says so under its row, so it does not read as delivered among the done ones. */
+  const replacedLine = t.state === 'closed' && Number.isInteger(t.replacedBy) ? '<div class="why tsk-replaced">Replaced by task ' + t.replacedBy + '</div>' : '';
   const repeatLine = !t.repeat || t.state === 'closed' ? '' : '<div class="why tsk-repeat' + (tskRepeatMissed(t) ? ' missed' : '') + '">' + esc(tskRepeatSentence(t, Date.now())) + '</div>';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     /* #4226: the checkbox sits in a label, so on a touchscreen the label can widen the tap area to 44px (below). */
@@ -67288,7 +67290,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + waitLine + whoLine + repeatLine + builtLine + '</div>'
+    + '</div>' + cannot + waitLine + whoLine + repeatLine + builtLine + replacedLine + '</div>'
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */
@@ -67838,8 +67840,10 @@ function tkStateWord(t) {
      counting its own parts is a second implementation of the rule that decides
      what stored data means. */
   const g = t.progress;
+  const closed = g ? g.closed : t.closedAt;
+  if (closed && Number.isInteger(t.replacedBy)) return 'Replaced by task ' + t.replacedBy;   // #6923: before the parts count
   if (g && g.total > 1) return g.done + ' of ' + g.total + ' parts done';
-  return (g ? g.closed : t.closedAt) ? 'Done' : 'Open';
+  return closed ? 'Done' : 'Open';
 }
 /**
  * "Added" as a person would say it. Whole days apart, in the machine's own
@@ -67896,8 +67900,22 @@ function paintTaskPage() {
   /* #3951 (review round 4): the task page says the mark too, not only the Tasks tab: who marked it built and what
      is left. Closing clears it, so a closed task never says it. */
   const builtWho = t.builtByPerson ? 'you' : (t.builtBy ? tkMemberName(p, t.builtBy) : '');
-  document.getElementById('tk-state').textContent = tkStateWord(t)
-    + (t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '');
+  /* #6923: the tasks this one replaced, worked out from theirs (the link is stored once, on the replaced task). */
+  const replaces = (p.tasks || []).filter((x) => x && x.replacedBy === t.number && (x.progress ? x.progress.closed : x.closedAt)).map((x) => x.number).sort((a, b) => a - b);
+  const tkTaskLink = (num) => '<button type="button" class="linkish" data-sub="' + Number(num) + '">task ' + Number(num) + '</button>';   // #6923
+  const stateWord = tkStateWord(t);
+  const replacedLink = Number.isInteger(t.replacedBy) && Boolean(t.progress ? t.progress.closed : t.closedAt);   // as tkStateWord decides it
+  const builtWords = t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '';
+  const stateEl = document.getElementById('tk-state');
+  if (!replacedLink && !replaces.length) { stateEl.textContent = stateWord + builtWords; stateEl.tkPainted = null; }   // plain words when there is no link
+  else {
+    /* Written only when it changed: the five-second poll repaints this page, and a rewrite would take a keyboard
+       user's focus off a task link (tkPaintSubtasks guards the same way). */
+    const before = (replacedLink ? 'Replaced by task ' + t.replacedBy : stateWord) + builtWords;
+    const html = (replacedLink ? 'Replaced by ' + tkTaskLink(t.replacedBy) : esc(stateWord)) + esc(builtWords)
+      + (replaces.length ? (/[.!?]$/.test(before) ? ' ' : '. ') + 'Replaces ' + replaces.map(tkTaskLink).join(', ') : '');
+    if (stateEl.tkPainted !== html) { stateEl.innerHTML = html; stateEl.tkPainted = html; }   // our own string, not the browser's re-serialised one
+  }
   /* #768: the due date. `document.activeElement` guard so the five-second poll
      does not yank the value out from under someone mid-edit (the same reason the
      Prompter interval paint checks it). Empty input means no due date. */
@@ -68038,7 +68056,7 @@ function tkPaintSubtasks(p, t, closed) {
        unconditional write would take a keyboard user's focus off a subtask every tick. */
     const html = kids.length ? kids.map((x) => '<button class="tksub' + (done(x) ? ' done' : '') + '" type="button" data-sub="' + Number(x.number) + '">'
       + '<span class="tksub-n">#' + Number(x.number) + '</span><span class="tksub-t">' + esc(x.sentence) + '</span>'
-      + '<span class="tksub-s">' + (done(x) ? 'Done' : built(x) ? 'Built' : 'Open') + '</span></button>').join('')
+      + '<span class="tksub-s">' + (done(x) ? (Number.isInteger(x.replacedBy) ? 'Replaced' : 'Done') : built(x) ? 'Built' : 'Open') + '</span></button>').join('')
       : '<p class="dhint" style="margin:0;">None yet. Break this task into smaller ones, each with its own page.</p>';
     if (list.innerHTML !== html) list.innerHTML = html;
   }
@@ -68125,7 +68143,8 @@ function tkActPhrase(ev, p) {
       return ev.state === 'unconfirmed'
         ? 'Kosmos tried to send ' + subject + ' to ' + to + ' ' + when + ', but could not confirm ' + to + ' got it'
         : Subject + ' to ' + to + kept + 'was sent ' + when; }
-    case 'closed': return 'Marked done';
+    case 'closed': return Number.isInteger(ev.replacedBy) ? 'Closed as replaced by task ' + ev.replacedBy : 'Marked done';   // #6923
+    case 'replaced': return Number.isInteger(ev.replacedBy) ? 'Marked as replaced by task ' + ev.replacedBy : 'Marked as replaced';   // #6923: closed earlier, replaced later
     case 'undone': return ev.files === 1 ? 'One file’s changes undone' : 'File changes undone (' + (Number(ev.files) || 0) + ' files)';   // #5153 slice 4
     case 'reopened': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' put it back' : 'Put back') + (ev.why ? ': ' + ev.why : ''); }   // #6157
     /* #3951: who marked it built and what was left; and why the mark went. */
@@ -68208,7 +68227,7 @@ function tkReceiptPrsHtml(a) {
 }
 /* #5153: the whole receipt. Pure. The put-back line first: it ends the task's history above, then the receipt follows
    (Mona Lisa: the receipt between the activity and its summary split the history in two). */
-function tkReceiptHtml(r, p) {
+function tkReceiptHtml(r, p, replacedBy) {   // #6923: replacedBy, when the task was closed as replaced
   const agents = Array.isArray(r && r.agents) ? r.agents : [];
   const rt = (r && r.retries) || {};
   const times = (k) => (k === 1 ? '1 time' : usageNum(k) + ' times');
@@ -68216,7 +68235,8 @@ function tkReceiptHtml(r, p) {
   const body = agents.length
     ? agents.map((a) => tkReceiptAgentHtml(a, tkMemberName(p, a.who))).join('')
     : '<p class="tkr-line tkr-muted">Nobody held this task, so there is no work to show.</p>';
-  return '<p class="tkr-again">' + esc(again.length ? 'This task was ' + again.join(' and ') + '.' : 'Done without being put back or handed on.') + '</p>'
+  /* #6923 (Mona Lisa): a replaced task with nothing to add gets no line here; its history already says it was replaced. */
+  return (again.length || !Number.isInteger(replacedBy) ? '<p class="tkr-again">' + esc(again.length ? 'This task was ' + again.join(' and ') + '.' : 'Done without being put back or handed on.') + '</p>' : '')
     + '<h3 class="dlab">Receipt</h3>'
     + '<p class="tkr-intro">What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.</p>'
     + body;
@@ -68355,7 +68375,8 @@ async function paintTaskReceipt(n) {
   if (!r) { TKR_FAILED = TKR_SHOWN ? { key: TKR_SHOWN, at: Date.now() } : null; TKR_SHOWN = null; }
   else TKR_FAILED = null;
   if (!r || r.ready === false || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; tkUndoHide(); return; }
-  holder.innerHTML = tkReceiptHtml(r, pjById(PJ_CURRENT) || p);
+  const tkr = ((pjById(PJ_CURRENT) || p).tasks || []).find((x) => x && x.number === n);
+  holder.innerHTML = tkReceiptHtml(r, pjById(PJ_CURRENT) || p, tkr ? tkr.replacedBy : undefined);
   holder.hidden = false;
   paintTaskUndo(n);   // #5153 slice 4: offered only while Settings' undo switch is on
 }
@@ -68409,11 +68430,19 @@ async function paintTaskActivity(n) {
    The repeat line's count (unchangedRuns) counts late runs too, so "The last 5 runs found nothing new" can sit beside
    two rollups split by a late run: the line counts what was found, the history shows when (review 1). */
 function tkActRowsHtml(events, p, now) {
+  /* #6923: the replacing task's number as a link to its page (the subtask links' data-sub, so the same click opens
+     it). The words stay the CLI's, as #5874 checks; only the number at their end becomes the link. */
+  const what = (ev) => {
+    const html = esc(tkActPhrase(ev, p));
+    if (!ev || (ev.kind !== 'closed' && ev.kind !== 'replaced') || !Number.isInteger(ev.replacedBy)) return html;
+    const words = 'task ' + ev.replacedBy;
+    return html.endsWith(words) ? html.slice(0, -words.length) + '<button type="button" class="linkish" data-sub="' + ev.replacedBy + '">' + words + '</button>' : html;
+  };
   const row = (ev) => {
     const at = Date.parse(ev.at);
     const when = Number.isFinite(at) ? agoWords(now - at) : '';
     return '<div class="tkact"><time datetime="' + esc(String(ev.at)) + '">' + esc(when) + '</time>'
-      + '<span class="tkact-what">' + esc(tkActPhrase(ev, p)) + '</span></div>';
+      + '<span class="tkact-what">' + what(ev) + '</span></div>';
   };
   const quiet = (ev) => ev && ev.kind === 'run' && ev.unchanged === true && ev.late !== true && !(Number(ev.missedBefore) >= 1);   // kosmos#5920: a recovery is never folded away
   const out = [];
@@ -68601,7 +68630,7 @@ document.getElementById('tk-who').addEventListener('keydown', (e) => {
 
 document.getElementById('tk-back').addEventListener('click', leaveTaskPage);
 /* #3861 part 2: into a subtask or up to the parent (both are task pages on this project). */
-for (const id of ['tk-subs', 'tk-partof-row']) {
+for (const id of ['tk-subs', 'tk-partof-row', 'tk-state', 'tk-activity']) {   // #6923: the replaced-by links too
   document.getElementById(id).addEventListener('click', (e) => {
     const b = e.target.closest('[data-sub]');
     if (b && b.dataset.sub) openTaskPage(Number(b.dataset.sub));

@@ -947,9 +947,17 @@ function clearBuilt(projectId, n, { by = null, person = false, refusePersonMark 
   return { ok: true, task: changed, changed: had };
 }
 
+/* #6923: `replacedBy` closes it as replaced by that task rather than done. A task number only: a whole number above 0,
+   or the digits of one (the CLI sends text). */
+function replacedByValue(v) {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === 'number' ? v : (typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : NaN);
+  if (!Number.isSafeInteger(n) || n < 1) throw new Error('the task that replaced it has to be a task number');
+  return n;
+}
 /** Close: a record edit, never an act on an agent (see the header). */
-function close(projectId, n) {
-  return setClosed(projectId, n, new Date().toISOString());
+function close(projectId, n, { replacedBy = null } = {}) {
+  return setClosed(projectId, n, new Date().toISOString(), {}, { replacedBy: replacedByValue(replacedBy) });
 }
 
 /** Reopen: the undo of the one human verb. #6157: who put it back (`by`, an agent its token named; `person`, the
@@ -963,8 +971,9 @@ function reopen(projectId, n, { by = null, person = false, why = '' } = {}) {
   return setClosed(projectId, n, null, { ...(who ? { by: who } : {}), ...(isPerson ? { person: true } : {}), ...(said ? { why: said } : {}) });
 }
 
-function setClosed(projectId, n, closedAt, said = {}) {
+function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null } = {}) {
   let changed;
+  let replacedNew = false;   // #6923: an already-closed task newly marked replaced records that too
   // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
   let transition = 0;
   let heldDropped = false;
@@ -981,6 +990,23 @@ function setClosed(projectId, n, closedAt, said = {}) {
     // close paths never emit two `closed` lines for one completion.
     const before = progressOf(t).closed;
     changed = { ...t, closedAt };
+    /* #6923: a close may name what replaced it: another task on this project that does not lead back to this one,
+       checked inside this same read. A reopen clears the link; a plain close leaves an existing one alone. */
+    if (replacedBy !== null) {
+      if (replacedBy === t.number) throw new Error('a task cannot be replaced by itself');
+      const by = byNumber(p, replacedBy);
+      if (!by) throw new Error('there is no task ' + replacedBy + ' on this project to have replaced it');
+      // No loop of any length: follow what replaced the replacing task, and refuse if it comes back here.
+      for (let at = by, seen = 0; at && Number.isInteger(at.replacedBy) && seen < 10000; at = byNumber(p, at.replacedBy), seen += 1) {
+        if (at.replacedBy === t.number) throw new Error('task ' + replacedBy + ' is already marked as replaced by this one, directly or through other tasks');
+      }
+      replacedNew = changed.replacedBy !== replacedBy;
+      changed.replacedBy = replacedBy;
+      // Marking a task already closed keeps when it finished: only the link is new.
+      if (t.closedAt) changed.closedAt = t.closedAt;
+    } else if (closedAt === null) {
+      delete changed.replacedBy;   // a reopen clears the link; a plain close leaves one that is there
+    }
     const after = progressOf(changed).closed;
     if (before !== after) transition = after ? 1 : -1;
     /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
@@ -994,7 +1020,8 @@ function setClosed(projectId, n, closedAt, said = {}) {
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
   });
-  if (transition) taskchat.record(projectId, changed.number, transition > 0 ? { kind: 'closed' } : { kind: 'reopened', ...said });   // #6157
+  if (transition) taskchat.record(projectId, changed.number, transition > 0 ? { kind: 'closed', ...(replacedBy !== null ? { replacedBy } : {}) } : { kind: 'reopened', ...said });   // #6157, #6923
+  else if (replacedNew) taskchat.record(projectId, changed.number, { kind: 'replaced', replacedBy });   // #6923: closed earlier, replaced now
   if (heldDropped) taskchat.record(projectId, changed.number, { kind: 'hold-cleared', via: 'close' });
   if (repeatDropped) taskchat.record(projectId, changed.number, { kind: 'repeat-cleared', via: 'close' });
   return changed;

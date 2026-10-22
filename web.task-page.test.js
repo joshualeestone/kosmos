@@ -434,3 +434,15 @@ test('#768: the due-date input paints from the task, and is empty when there is 
   const noDue = runPaint({ project: { ...PROJECT, tasks: [] }, task: { ...base, dueDate: null } });
   assert.equal(noDue.doc.els['tk-due'].value, '', 'a task with no due date should paint an empty input');
 });
+
+test('#6923: a task closed as replaced says so, with the other task as a link; the replacing task names it', () => {
+  const at = new Date().toISOString();
+  const old = { number: 2, sentence: 's', createdAt: at, addedBy: 'operator', closedAt: at, replacedBy: 3 };
+  const next = { number: 3, sentence: 't', createdAt: at, addedBy: 'operator', closedAt: null };
+  const a = runPaint({ project: { ...PROJECT, tasks: [old, next] }, task: old });
+  assert.match(a.doc.els['tk-state'].innerHTML, /^Replaced by <button type="button" class="linkish" data-sub="3">task 3<\/button>$/);
+  const b = runPaint({ project: { ...PROJECT, tasks: [old, next] }, task: next });
+  assert.match(b.doc.els['tk-state'].innerHTML, /^Open\. Replaces <button type="button" class="linkish" data-sub="2">task 2<\/button>$/);
+  const c = runPaint({ project: { ...PROJECT, tasks: [] }, task: { ...old, replacedBy: undefined } });
+  assert.equal(c.doc.els['tk-state'].textContent, 'Done', 'CONTROL: a plain close is still Done');
+});
