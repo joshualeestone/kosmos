@@ -171,6 +171,12 @@ arm6907 nodetest '  100     1 node --test' '  200   100 bash /var/folders/x/T/rg
 arm6907 shellc "  100     1 bash -c tools/test-a.sh && bash tools/deploy-site.sh --publish" '  200   100 bash tools/deploy-site.sh --publish'
 { [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -qF '(pid 200: bash tools/deploy-site.sh --publish)'; } \
   && pass "a shell that runs a test and then a real publish is not a test: its publish holds" || bad "a real publish under a test-then-publish shell was passed over (deploys=$N): $OUT"
+arm6907 nodeflagsfirst "  100     1 node server.js --test" '  200   100 bash tools/release.sh 0.7.99'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ]; } && pass "#6912: a release.sh under node server.js --test holds (an argument before --test is not a test runner)" || bad "#6912: node server.js --test exempted a release.sh (deploys=$N): $OUT"
+arm6907 realchild '  100     1 node --test --test-concurrency=2 /x/k/tools.release-gate.test.js' \
+  '  150   100 /opt/homebrew/Cellar/node/26.8.1/bin/node --test-concurrency=2 --heap-prof-interval=524288 --stack-trace-limit=10 /x/k/tools.release-gate.test.js' \
+  '  200   150 bash /var/folders/x/T/rg-3/tools/release.sh 0.7.99'
+{ [ "$RC" = 0 ] && [ "$N" = 1 ]; } && pass "#6912: the node test runner's real child shape (options, then the file) still counts as a test" || bad "#6912: the real node test child no longer exempts (deploys=$N): $OUT"
 arm6907 nodeserver '  100     1 node server.js --port 16180' '  200   100 bash tools/release.sh 0.7.99'
 { [ "$RC" = 0 ] && [ "$N" = 0 ]; } && pass "control: a release.sh under a node process that is not a test still holds" || bad "a release.sh under a plain node process did not hold (deploys=$N)"
 arm6907 cycle '  200   300 bash tools/deploy-site.sh --publish' '  300   200 /bin/zsh -l'

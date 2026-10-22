@@ -287,7 +287,7 @@ fi
 # A publisher that a TEST started is not one (kosmos#6907): the shell suite runs the real deploy-site.sh and
 # release.sh as test subjects, and so does the node suite (tools.release-gate.test.js spawns release.sh), and a
 # validation can run for half an hour, so a match whose ancestry reaches a tools/test-*.sh, or a node process
-# running --test or a *.test.js file, is passed over, unless that ancestor's own command line also names a
+# running --test or a *.test.js file (with only options before it, so `node server.js --test` is not a test), is passed over, unless that ancestor's own command line also names a
 # publisher (bash -c 'tools/test-x.sh && tools/deploy-site.sh --publish' runs a real publish).
 # Ancestry needs pid and ppid, so the list is
 # "pid ppid command"; a line without them (a list that cannot say) has no ancestry, so a match there still holds
@@ -312,7 +312,7 @@ publisher_running() {
   found=$(awk '
     BEGIN { pub = "^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\\.sh( |$)"
             tst = "^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/test-[^ /]*\\.sh( |$)"
-            nod = "^([^ ]*/)?node( [^ ]+)* (--test(=[^ ]*)?|[^ ]*\\.test\\.[cm]?js)( |$)"
+            nod = "^([^ ]*/)?node( -[^ ]+)* (--test(=[^ ]*)?|[^ ]*\\.test\\.[cm]?js)( |$)"   # #6912: only options before it
             any = "tools/(release|deploy-site|promote-channel)\\.sh( |$)" }
     { n++; c = $0
       if (match(c, /^ *[0-9]+ +[0-9]+ /)) { pid[n] = $1; par[n] = $2; c = substr(c, RLENGTH + 1); id[$1] = n }
