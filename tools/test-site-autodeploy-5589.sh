@@ -161,6 +161,10 @@ arm6907 node '  100     1 node --test --test-concurrency=4 tools.release-gate.te
   '  150   100 /usr/local/bin/node --test-reporter=tap /Users/x/work/k/tools.release-gate.test.js' \
   '  200   150 bash /var/folders/x/T/rg-1/tools/release.sh 0.7.99'
 { [ "$RC" = 0 ] && [ "$N" = 1 ]; } && pass "a release.sh the node suite started does not hold the deploy" || bad "a node test's release.sh held the deploy (rc=$RC, deploys=$N): $OUT"
+arm6907 mixed '  100     1 bash tools/test-deploy-site-promote.sh' '  200   100 bash x/tools/deploy-site.sh --promote' \
+  '  300     1 -zsh' '  400   300 /bin/bash tools/promote-channel.sh /site --force'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -qF 'not held by pid 200:' && printf '%s' "$OUT" | grep -qF '(pid 400: /bin/bash tools/promote-channel.sh /site --force)'; } \
+  && pass "a test's deploy-site.sh listed first does not hide a real promote: logged, then held by the promote" || bad "a real promote after a test's deploy-site.sh was missed or misnamed (deploys=$N): $OUT"
 arm6907 nodetest '  100     1 node --test' '  200   100 bash /var/folders/x/T/rg-2/tools/release.sh 0.7.99'
 { [ "$RC" = 0 ] && [ "$N" = 1 ]; } && pass "a release.sh directly under a bare node --test does not hold the deploy" || bad "a release.sh under node --test held the deploy (rc=$RC, deploys=$N): $OUT"
 arm6907 nodeserver '  100     1 node server.js --port 16180' '  200   100 bash tools/release.sh 0.7.99'
