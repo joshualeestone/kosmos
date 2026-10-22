@@ -12,7 +12,7 @@ pin test. The launcher's board window (ask 3) is split out: see "Deferred" below
    proving between two requests gets nothing at the second.
 2. A request carrying a secret in its BODY (`kosmos connect`, `secret: true`) is never sent without a token in its
    headers to prove the listener with: with no readable board token it is refused, exit 1, nothing sent.
-3. Every token-bearing fetch on the Windows senders never follow a redirect (`redirect: 'manual'`, a 3xx refused as a failed send): the CLI's requests, the
+3. Every token-bearing fetch on the Windows senders never follows a redirect (`redirect: 'manual'`, a 3xx refused as a failed send): the CLI's requests, the
    opener's mint, the report hook's keep, toolfail and report sends, and the four report bridges the Windows bundle
    ships (codex, gemini, grok, agy). A source guard (tools.board-redirects-6464.test.js) holds every fetch call in
    those files to it, so a call added later without it goes red.
