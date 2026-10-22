@@ -265,9 +265,11 @@ test('#6920 parity: a room_held refusal offers the one closing summary, unless t
 test('#6925 parity: a post that went through a held room as the one summary says so; an ordinary post does not', async () => {
   const landed = await run(['post', 'proj-1', 'a long summary'], () => ({ body: { delivery: { state: 'placed', closing: true } } }));
   assert.equal(landed.code, 0);
-  assert.match(landed.out, /This went through as your one summary while the room is held; anything more waits until the room opens\./);
+  assert.match(landed.out, /This went through as your one summary while the room is held; anything more is not posted until the room opens\./);
   const plain = await run(['post', 'proj-1', 'a post'], () => ({ body: { delivery: { state: 'placed' } } }));
   assert.doesNotMatch(plain.out, /your one summary/, 'an ordinary post was called the one summary');
+  const unconf = await run(['post', 'proj-1', 'a long summary'], () => ({ body: { delivery: { state: 'unconfirmed', closing: true } } }));
+  assert.match(unconf.err, /This went through as your one summary while the room is held/, 'an unconfirmed summary was not called the one summary');
 });
 
 test('#3224: post --new sends new_post:true (not held to ask which room); without it no field; combines with the other leading flags; non-leading is text', async () => {

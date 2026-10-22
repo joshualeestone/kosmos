@@ -3252,13 +3252,17 @@ cmd_post() {
       esac
       # #6925: it went through a held room as this member's one summary; say so, so the agent does not try another.
       if printf '%s' "$body" | grep -Eq '"closing": *true'; then
-        say "This went through as your one summary while the room is held; anything more waits until the room opens."
+        say "This went through as your one summary while the room is held; anything more is not posted until the room opens."
       fi
       if [ -n "$_ambig" ]; then say "$_ambig"; fi
       ;;
     '{"delivery":{"state":"unconfirmed"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       say "Posted, but not everyone is confirmed${because:+: $because}. Do not re-post; the room screen shows who got it."
+      # #6925: an unconfirmed summary still used this member's one, so the agent is told here too.
+      if printf '%s' "$body" | grep -Eq '"closing": *true'; then
+        say "This went through as your one summary while the room is held; anything more is not posted until the room opens."
+      fi
       if [ -n "$_ambig" ]; then say "$_ambig"; fi
       exit 3
       ;;

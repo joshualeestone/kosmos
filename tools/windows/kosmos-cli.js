@@ -704,12 +704,14 @@ async function verbPost(ctx, args) {
   if (d.state === 'placed') {
     ctx.out('Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.'));
     // #6925 parity with install/kosmos: it went through a held room as this member's one summary.
-    if (d.closing === true) ctx.out('This went through as your one summary while the room is held; anything more waits until the room opens.');
+    if (d.closing === true) ctx.out('This went through as your one summary while the room is held; anything more is not posted until the room opens.');
     if (ambig) ctx.out(ambig);
     return 0;
   }
   if (d.state === 'unconfirmed') {
     const code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
+    // #6925 parity with install/kosmos: an unconfirmed summary still used this member's one.
+    if (d.closing === true) ctx.err('This went through as your one summary while the room is held; anything more is not posted until the room opens.');
     if (ambig) ctx.err(ambig);
     return code;
   }

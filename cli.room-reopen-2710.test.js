@@ -200,3 +200,24 @@ test('#2710: reopen of an unknown project reports it and exits non-zero', () => 
     assert.notEqual(out.code, 0, 'a failed reopen must exit non-zero');
   });
 });
+
+/* #6925: a post that went through a held room as this member's one summary says so, placed or unconfirmed; an ordinary
+   post does not. One body is written with a space after the colon, the shape the CLI's match must still read. */
+test('#6925: the one-summary line on a landed closing post (compact and spaced JSON), not on an ordinary post', async () => {
+  const LINE = /This went through as your one summary while the room is held; anything more is not posted until the room opens\./;
+  const cases = [
+    ['{"delivery":{"state":"placed","closing":true}}', true],
+    ['{"delivery":{"state":"placed", "closing": true}}', true],
+    ['{"delivery":{"state":"unconfirmed","because":"x","closing":true}}', true],
+    ['{"delivery":{"state":"placed"}}', false],
+  ];
+  for (const [body, said] of cases) {
+    const routes = { 'POST /api/post': { code: 200, body } };
+    await withBoard(routes, async (port) => {
+      const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+      const out = await runCli(['post', 'henderson', 'a summary'], env);
+      if (said) assert.match(out.stdout, LINE, 'not told it used the one summary: ' + body);
+      else assert.doesNotMatch(out.stdout, /your one summary/, 'an ordinary post was called the one summary');
+    });
+  }
+});
