@@ -307,6 +307,7 @@ function chk(ok, label, extra) {
           /* #6861: this wait times out on the CI runner in webkit only (the button stays hidden), never locally.
              On a timeout, say which ancestor hides the button and what the column holds, so the red names its cause. */
           await page.waitForSelector('#s-nav button[data-go="mac"]', { state: 'visible', timeout: 20000 }).catch(async (e) => {
+            if (!e || e.name !== 'TimeoutError') throw e;   // a closed page or a crash is its own error, not this one
             const probe = page.evaluate(() => {
               const btn = document.querySelector('#s-nav button[data-go="mac"]');
               const out = { hiddenBy: [], exists: !!btn };
@@ -318,13 +319,14 @@ function chk(ok, label, extra) {
               if (btn) { const r = btn.getBoundingClientRect(); out.rect = [Math.round(r.width), Math.round(r.height)]; }
               const ps = document.getElementById('panel-settings');
               out.settingsParent = ps && ps.parentElement ? ps.parentElement.id : null;
+              // The overlays takeOverDisplayColumn (web/index.html) hides; keep in step with its list.
               out.column = ['panel-settings', 'panel-create', 'panel-tasks', 'panel-cons-agents', 'panel-cons-projects']
                 .filter((id) => { const el = document.getElementById(id); return el && !el.hidden && el.parentElement && el.parentElement.id === 'panel-projects'; });
               out.body = document.body.className; out.url = location.search;
               return out;
             }).catch((x) => ({ evalFailed: x.message }));
             // A wedged page must not turn this red into a hang: the probe gets 5 s of its own.
-            const why = await Promise.race([probe, new Promise((r) => setTimeout(() => r({ evalFailed: 'diagnostic timed out' }), 5000))]);
+            const why = await Promise.race([probe, new Promise((r) => { const t = setTimeout(() => r({ evalFailed: 'diagnostic timed out' }), 5000); if (t.unref) t.unref(); })]);
             why.pageErrors = errs.slice(0, 5);   // a throw inside the Settings handler would leave the panel hidden too
             const calls = String(e.message).split('\n').filter((l) => /resolved to|locator|Timeout/.test(l)).slice(0, 3).map((l) => l.trim());
             throw new Error(`${tag}: the Settings nav never showed after the Settings link: ${JSON.stringify(why)} (${calls.join(' | ')})`);
