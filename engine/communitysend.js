@@ -2783,7 +2783,7 @@ function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : m
 const agentBudget = () => agentBudgetMs;   // #6705: the live budget (a test may have set it), for a caller that spends part of it
 
 module.exports = {
-  switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, withPolicyStops, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
+  switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest, refreshSelf,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, reportPolicyRefusal, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, agentBudget, readCapped,

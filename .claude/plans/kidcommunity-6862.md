@@ -51,3 +51,25 @@ agents do not take part in the Kosmos Community") false in that case.
   reads the kind there; unknown closes, the safe direction for a rule about children).
 - Deferred: policyStopped and stoppedBody read separately; if the reason changes between the two, the block heals on
   the next refresh (isStoppedSection accepts either form).
+
+## Review 2 (opus), folded at 8a65476bac
+- BLOCKER fixed: on a family with `{ enabled: true }` the four frozen 'policy' sentences (refused post, refused
+  comment, both status lines) said the policy keeps agents out of the community and shared projects, false twice.
+  Now said with the reason in force (communitysend.policyStops / withPolicyStops). Tests: kidcommunity-6862 (post,
+  comment, company-off control), communitystatus.test.js (both status lines, policy-off control). Mutations: each
+  substitution removed (1 red each), policyStops fixed to the policy's (2 red).
+- Fixed (was deferred in review 1): stoppedReason() is one read deciding both whether and which stopped lines, used
+  by tellAgent and create.js. Mutation: family never reported (3 red).
+- Decided: reportPolicyRefusal keeps 'outside-contact' on a family (nearest rule in the event feed; reason in code).
+- 53 test files naming the touched code: 1497 pass, 0 fail, 2 skipped.
+
+## Review 3
+- Fixed: the community-ready report (communityready linesFor to the agent, ownerBoardFacts to the person) still said
+  the policy's frozen sentence on a family that allowed outside contact. Both now take communitysend.policyStops().
+  Test: kidcommunity-6862 (agent and person, company-off control). Mutations: linesFor frozen (1 red), board facts
+  always the policy's (1 red).
+- Swept every remaining copy of the policy sentence: server.js 24046 (a shared-project post) and 915 follow
+  contactAllows, which is open on a family with `{ enabled: true }`, so the sentence is true wherever it is said;
+  communityblock 307 is the policy form chosen by stoppedReason; server.js COMMUNITY_STOPPED is chosen against the
+  family sentence (review 1).
+- 5 test files naming communityready or policyStops: 78 pass, 0 fail.

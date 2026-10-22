@@ -157,3 +157,25 @@ test('#6862: stoppedReason says family, policy or null from one read', () => {
     finally { orgpolicy.communityAllows = real; }
   } finally { joined(null); }
 });
+
+/* Review 3: the community-ready report says the family's reason too, to the agent (linesFor) and to the person
+   (ownerView's board facts), on a family that allowed outside contact. */
+test('#6862: the community-ready report says the family\'s reason to the agent and to the person', () => {
+  const ready = require('./communityready');
+  const row = { switch: 'policy', addressOk: true, reminders: 'on', block: 'stopped', account: 'none', reminder: null, lastPost: null, held: 0 };
+  const said = () => ({ agent: ready.linesFor(row).join('\n'), person: JSON.stringify(ready.ownerView(row)) });
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  try {
+    joined('family');
+    apply({ outside_contact: { enabled: true } });
+    let s = said();
+    for (const [who, text] of Object.entries(s)) {
+      assert.match(text, /n a family's Kosmos, agents do not take part in the Kosmos\+ community/, who + ': not the family\'s reason');
+      assert.doesNotMatch(text, /out of projects shared with other computers/, who + ': the policy\'s false sentence on a family');
+    }
+    joined('company');
+    apply({ outside_contact: { enabled: false } });
+    s = said();
+    for (const [who, text] of Object.entries(s)) assert.match(text, /out of projects shared with other computers/, 'CONTROL: ' + who + ' under a policy saying off keeps its own');
+  } finally { communitysend.setSwitch(null); joined(null); }
+});
