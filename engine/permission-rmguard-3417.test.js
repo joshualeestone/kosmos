@@ -58,10 +58,10 @@ test('#3417 the protected-place rule still holds for the same shape: .git stays 
   assert.equal(hook.decide(bash('rm -rf "$S"/.github')).hookSpecificOutput.decision.behavior, 'allow', '.github is not .git');
 });
 
-test('#3417 a .claude working folder does not change the answer: only the command is read (kosmos#6913)', () => {
+test('#3417 a .claude working folder does not change the answer: only tool_input is read (kosmos#6913)', () => {
   /* Agents run inside folders that hold .claude. A later change that scans the whole request (cwd, transcript_path)
      for protected places, not just tool_input, would make every rm in such a folder prompt again: this goes red then.
-     CONTROL: the same command with .git in the COMMAND is still silent (the rule reads the command). */
+     CONTROL: .git in the command (inside tool_input) is still silent: the rule reads tool_input, every field of it. */
   const inClaude = { hook_event_name: 'PermissionRequest', tool_name: 'Bash', cwd: '/tmp/kosmos-test/.claude/proj',
     transcript_path: '/tmp/kosmos-test/.claude/projects/x/transcript.jsonl', tool_input: { command: 'rm -f "$S"/*.png' } };
   assert.equal(hook.decide(JSON.stringify(inClaude)).hookSpecificOutput.decision.behavior, 'allow');
