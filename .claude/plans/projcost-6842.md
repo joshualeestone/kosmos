@@ -26,14 +26,14 @@ Stacked on prreceipt-6842 (slice 1). Opens as a PR only after slice 1 merges (re
 - PRs merge on repo#number (a receipt may keep a PR's url or not); each agent's unnamed count cannot be matched across
   tasks, so the page says "up to N more"; "the newest N" names the tasks looked at, even when some failed (review 1).
 - The cost words come from tkTokensAndCost, shared with the task receipt, so the two cannot drift (review 1).
-- Rebuilt on main after slice 1 (PR #6866) merged as a squash: only this slice's own four commits, cherry-picked.
+- Rebuilt on main after slice 1 (PR #6866) merged as a squash: only this slice's own commits, cherry-picked (four then; more since, from review).
 - Weakest premise: that 50 receipts (3 at a time) answer quickly enough on a busy project. Kept receipts are one file
   read each; only unkept ones read transcripts, once.
 
 ## Verify
-- engine/receipt-project-6842.test.js (6, incl. one through the real forTask and a real transcript); mutants caught:
+- engine/receipt-project-6842.test.js (10, incl. one through the real forTask and a real transcript); mutants caught:
   no newest-first order, no PR merging.
 - server.receipt-5153.test.js: the route (empty, one closed task, 403, 404, 400).
-- web.project-cost-6842.test.js (5); mutants caught: the could-not-be-read caveat dropped; the unknown-PRs line dropped.
+- web.project-cost-6842.test.js (9); mutants caught over the review rounds: the could-not-be-read caveat, the unknown-PRs line, the newest-N count, the PR key, the overlap test, unreadable agents as unknown, in-flight sharing.
 - engine prsUnknown test; mutant caught: not counting an agent with no prs.
 - Settings-related web tests (5 files) pass.

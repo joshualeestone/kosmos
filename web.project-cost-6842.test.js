@@ -99,3 +99,8 @@ test('a total with nothing readable says so, never "0 tokens"', () => {
   assert.equal(B.pjsCostParts(ok({ tasks: 2, unread: 2, models: {} })).line, 'Kosmos could not read the work on its finished tasks.');
   assert.match(B.pjsCostParts(ok({ tasks: 2, models: {} })).line, /^2 finished tasks: 0 tokens/, 'the control: read, and none, is 0');
 });
+
+test('nothing readable: no "reads high" sentence, since there is no total', () => {
+  const line = B.pjsCostParts(ok({ tasks: 2, unread: 2, models: {}, overlapping: true })).line;
+  assert.equal(line, 'Kosmos could not read the work on its finished tasks.');
+});

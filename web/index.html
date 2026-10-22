@@ -68947,7 +68947,6 @@ function pjsCostParts(r) {
   // Every task looked at failed: no total to show, whatever is older.
   if (!n) return { line: 'Kosmos could not read the work on its newest finished tasks.', prs: '' };
   const { tokens, costBit } = tkTokensAndCost(r.models && typeof r.models === 'object' ? r.models : {});
-  // Nothing counted and something unreadable: say that, never "0 tokens", which reads as measured none.
   const unreadOnly = !tokens && unread;
   const bits = [(n === 1 ? '1 finished task' : usageNum(n) + ' finished tasks') + ': ' + usageAbbr(tokens) + ' tokens'];
   if (costBit) bits.push(costBit);
@@ -68958,7 +68957,7 @@ function pjsCostParts(r) {
   if (unread && !unreadOnly) line += ' Some of the work could not be read, so the real cost is higher.';
   // An agent's work on two tasks at the same time is on both receipts, so the sum counts it twice: said only when one
   // agent's holds on two counted tasks really overlap (the engine's `overlapping`).
-  if (r.overlapping === true) line += ' An agent worked on two of these tasks at once, and that time counts on both, so this reads high.';
+  if (r.overlapping === true && !unreadOnly) line += ' An agent worked on two of these tasks at once, and that time counts on both, so this reads high.';
   const prs = Array.isArray(r.prs) ? r.prs.filter((p) => p && typeof p === 'object') : [];
   const prsMore = Math.max(0, prs.length - PJS_COST_PRS_SHOWN) + (Number(r.prsMore) || 0);
   const unknown = Number(r.prsUnknown) || 0;

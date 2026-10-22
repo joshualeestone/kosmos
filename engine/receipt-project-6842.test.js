@@ -103,8 +103,15 @@ test('overlapping: one agent\'s holds on two tasks share a moment; one after the
   ] }) });
   assert.equal(both.overlapping, true, 'agent a held both tasks from 10:30 to 11:00');
   assert.equal(both.prsUnknown, 2, 'the unreadable agent, once per task');
+  const touching = await receipt.forProject(id, { now: ms('15:00'), receiptOf: async (pid, task) => ({ agents: [
+    { who: 'a', available: true, models: {}, prs: [], holds: task.number === 1 ? span('09:00', '10:00') : span('10:00', '11:00') },
+  ] }) });
+  assert.equal(touching.overlapping, false, 'one hold ending as the other starts shares no time');
+  const unreadable = await receipt.forProject(id, { now: ms('15:00'), receiptOf: async () => ({ agents: [
+    { who: 'x', available: false, because: 'no-folder', holds: span('09:00', '11:00') },
+  ] }) });
+  assert.equal(unreadable.overlapping, false, 'an agent counted in nothing cannot make the total read high');
 });
-
 
 test('two asks for one project while it is worked out share one computation', async () => {
   const id = project([closedTask(1, '11:00')]);

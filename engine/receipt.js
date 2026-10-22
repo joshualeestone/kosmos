@@ -559,7 +559,7 @@ const PROJECT_IN_FLIGHT = new Map();
 function forProject(projectId, opts = {}) {
   if (opts.receiptOf) return forProjectNow(projectId, opts);   // a test seam: never shared
   // A shared computation uses the first ask's `now`; the route passes none, so asks do not differ in it.
-  const key = String(projectId) + '\0' + String(opts.limit || 50);
+  const key = String(projectId) + '\0' + String(Math.max(1, Math.min(200, Number(opts.limit) || 50)));   // as forProjectNow clamps it
   if (PROJECT_IN_FLIGHT.has(key)) return PROJECT_IN_FLIGHT.get(key);
   const p = forProjectNow(projectId, opts).finally(() => PROJECT_IN_FLIGHT.delete(key));
   PROJECT_IN_FLIGHT.set(key, p);
@@ -600,6 +600,8 @@ async function forProjectNow(projectId, { limit = 50, now = Date.now(), receiptO
     if (!r || !Array.isArray(r.agents)) { failed += 1; return; }
     for (const a of r.agents) {
       if (!a || typeof a !== 'object') continue;
+      if (!a.available) { unread += 1; prsUnknown += 1; continue; }
+      // Holds of counted agents only: an unreadable agent adds nothing to the total, so it cannot make it read high.
       if (typeof a.who === 'string' && a.who) {
         const list = spansOf.get(a.who) || [];
         for (const h of Array.isArray(a.holds) ? a.holds : []) {
@@ -608,7 +610,6 @@ async function forProjectNow(projectId, { limit = 50, now = Date.now(), receiptO
         }
         spansOf.set(a.who, list);
       }
-      if (!a.available) { unread += 1; prsUnknown += 1; continue; }
       if (a.complete === false) partial += 1;
       for (const [m, b] of Object.entries(a.models || {})) {
         if (!b || typeof b !== 'object') continue;
@@ -637,7 +638,8 @@ function overlapAcrossTasks(spans) {
   for (let i = 0; i < spans.length; i += 1) {
     for (let j = i + 1; j < spans.length; j += 1) {
       const a = spans[i]; const b = spans[j];
-      if (a.task !== b.task && a.from <= b.to && b.from <= a.to) return true;
+      // Strict: one hold ending the moment another starts shares no time, so nothing is on both receipts.
+      if (a.task !== b.task && a.from < b.to && b.from < a.to) return true;
     }
   }
   return false;
