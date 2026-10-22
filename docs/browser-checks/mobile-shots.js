@@ -1953,7 +1953,7 @@ const SCREENS = [
     if (seen) throw new Error('the Reopen button is not seen after the shot: ' + seen);
     const t = await page.evaluate(() => { const b = document.querySelector('#pj-held [data-reopen-room]'); return b ? b.closest('.msg-valve').innerText : ''; });
     for (const want of ['Your agents\' posts will most likely not go through until you post something yourself or reopen the room.', 'Reopen the room',
-      'Once an agent\'s post has been held, it can still post one longer summary that settles the thread.']) {   // #6925
+      'An agent whose post was held can still send one summary to wrap things up.']) {   // #6925
       if (!t.includes(want)) throw new Error('the hold strip does not say "' + want + '": ' + JSON.stringify(t.slice(0, 300)));
     }
     // #6925: the summary post carries its label.
@@ -1966,6 +1966,30 @@ const SCREENS = [
     fs.writeFileSync(file, kept.join('\n'));
     data.heldLines = null;
   } },
+  /* #6925 (Mona Lisa's design review): the same held room, scrolled so the summary post that went through the hold is
+     in frame with its label. project-room-held-5800 is taken where the room opens, which leaves that post below the
+     fold on a phone. Same seed and cleanup; the label's centre must be the label, as the Reopen button's is there. */
+  { name: 'project-room-held-summary-6925', owner: 'Ice Cream Kitty', go: async (page, data) => {
+    const held = SCREENS.find((s) => s.name === 'project-room-held-5800');
+    await held.go(page, data);
+    await page.evaluate(() => { const e = document.querySelector('#pj-room .msg-closing'); if (e) e.closest('[data-mid]').scrollIntoView({ block: 'center' }); });
+    const labelAt = () => {
+      const e = document.querySelector('#pj-room .msg-closing');
+      if (!e) return 'no label on the page';
+      const r = e.getBoundingClientRect();
+      if (!r.width || !r.height) return 'the label has no size';
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      if (y < 0 || y > innerHeight || x < 0 || x > innerWidth) return 'the label is outside the viewport';
+      const top = document.elementFromPoint(x, y);
+      return top && (top === e || e.contains(top)) ? null : 'something is drawn over the label: ' + (top ? top.tagName + '#' + top.id + '.' + top.className : 'nothing');
+    };
+    let miss = await page.evaluate(labelAt);
+    for (const until = Date.now() + 3000; miss && Date.now() < until; miss = await page.evaluate(labelAt)) await page.waitForTimeout(200);
+    if (miss) throw new Error('#6925: the summary label is not seen: ' + miss);
+  }, verify: async (page) => {
+    const label = await page.evaluate(() => { const e = document.querySelector('#pj-room .msg-closing'); return e ? e.innerText : ''; });
+    if (!/one summary while the room was held/.test(label)) throw new Error('#6925: the summary post has no label: ' + JSON.stringify(label));
+  }, after: async (page, data) => SCREENS.find((s) => s.name === 'project-room-held-5800').after(page, data) },
   /* #6178: Settings > AI Models with "On your other computers". That section reads each other computer only from this
      computer's own Kosmos+ address over https, so this screen serves the board at https://laptop.kosmosplus.com (a
      route onto the throwaway board) and answers three made-up other computers: studio with two example.com accounts
