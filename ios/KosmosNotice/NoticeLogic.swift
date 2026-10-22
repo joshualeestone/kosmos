@@ -1,4 +1,6 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 // kosmos#6487 (Josh, 2026-10-22 13:28: "use the agent avatar and put the actual text, like discord does"): what the
 // Notification Service Extension asks the person's own computer when a notification arrives, and what it reads back.
@@ -126,6 +128,19 @@ enum PhoneNotice {
         case "image/heic": return "heic"
         default: return nil
         }
+    }
+
+    // A picture as an attachment iOS can show: as it came when its type is one iOS takes, otherwise (a WebP picture,
+    // which the board accepts) redrawn as a PNG. Nil when it is not a picture at all.
+    static func attachable(_ data: Data, contentType: String?) -> (Data, String)? {
+        if let ext = attachmentExtension(contentType: contentType) { return (data, ext) }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, nil)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return (out as Data, "png")
     }
 
     // A picture answer worth showing: a 200 image, not empty, not huge.

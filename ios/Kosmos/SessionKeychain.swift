@@ -62,16 +62,29 @@ struct SessionKeychain: SessionStore {
         return String(data: data, encoding: .utf8)
     }
 
+    private func query(group: String?) -> [String: Any] {
+        var q = baseQuery
+        if let group { q[kSecAttrAccessGroup as String] = group }
+        return q
+    }
+
+    // The app's own group, where items were kept before kosmos#6487: "<team>.<bundle id>", the shared group less ".shared".
+    private var ownGroup: String? {
+        guard let group, group.hasSuffix(".shared") else { return nil }
+        return String(group.dropLast(".shared".count))
+    }
+
     func load() -> String? {
         guard let group else { return read(baseQuery) }
-        var inGroup = baseQuery
-        inGroup[kSecAttrAccessGroup as String] = group
-        if let kept = read(inGroup) { return kept }
-        // kosmos#6487: kept before the shared group existed. Moved there once, so the extension can read it.
-        guard let older = read(baseQuery) else { return nil }
-        SecItemDelete(baseQuery as CFDictionary)
-        if !save(older) { _ = add(older, group: nil) }   // never lose the session over the move
-        return older
+        if let kept = read(query(group: group)) { return kept }
+        // kosmos#6487: kept before the shared group existed. Moved there once, so the extension can read it: added to
+        // the shared group FIRST (a different group is a different item, so it cannot collide), and only then is the
+        // old one deleted, by its own group. A move that fails leaves the old item where it was, still read here.
+        if let ownGroup, let older = read(query(group: ownGroup)) {
+            if add(older, group: group) { SecItemDelete(query(group: ownGroup) as CFDictionary) }
+            return older
+        }
+        return read(baseQuery)
     }
 
     private func add(_ session: String, group: String?) -> Bool {
@@ -82,19 +95,24 @@ struct SessionKeychain: SessionStore {
         return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
-    @discardableResult
-    func save(_ session: String) -> Bool {
+    // Updates the item in `group` (nil: wherever it is), or adds it there.
+    private func write(_ session: String, group: String?) -> Bool {
         let update: [String: Any] = [
             kSecValueData as String: Data(session.utf8),
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
-        var query = baseQuery
-        if let group { query[kSecAttrAccessGroup as String] = group }
-        let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+        let status = SecItemUpdate(query(group: group) as CFDictionary, update as CFDictionary)
         if status == errSecSuccess { return true }
         guard status == errSecItemNotFound else { return false }
-        // A shared group this build cannot write (an entitlement missing from the signature) still keeps the session.
-        return add(session, group: group) || (group != nil && add(session, group: nil))
+        return add(session, group: group)
+    }
+
+    @discardableResult
+    func save(_ session: String) -> Bool {
+        if write(session, group: group) { return true }
+        // A shared group this build cannot write (its signature lacks the group: errSecMissingEntitlement, not "not
+        // found") still keeps the session, where the app kept it before kosmos#6487.
+        return group != nil && write(session, group: nil)
     }
 
     func delete() {

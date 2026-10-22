@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import JavaScriptCore
 import UserNotifications
 
@@ -1389,7 +1390,13 @@ check(PhoneNotice.pictureData(status: 200, contentType: "text/html", data: Data(
 
 section("phone notice: a picture as an attachment needs a file type iOS shows")
 check(PhoneNotice.attachmentExtension(contentType: "image/png") == "png" && PhoneNotice.attachmentExtension(contentType: "image/jpeg; charset=binary") == "jpg", "png and jpeg get their endings")
-check(PhoneNotice.attachmentExtension(contentType: "image/webp") == nil && PhoneNotice.attachmentExtension(contentType: nil) == nil, "a kind an attachment cannot show is left off, so the words still go")
+check(PhoneNotice.attachmentExtension(contentType: "image/webp") == nil && PhoneNotice.attachmentExtension(contentType: nil) == nil, "a kind an attachment cannot show has no ending of its own")
+// A 1x1 PNG, sent as if it were WebP: redrawn as a PNG iOS can attach. Not a picture at all: nothing.
+let onePixel = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!
+let redrawn = PhoneNotice.attachable(onePixel, contentType: "image/webp")
+check(redrawn?.1 == "png" && redrawn.map { CGImageSourceCreateWithData($0.0 as CFData, nil) != nil } == true, "a picture in a type iOS cannot attach is redrawn as a PNG")
+check(PhoneNotice.attachable(Data("not a picture".utf8), contentType: "image/webp") == nil, "bytes that are not a picture: no attachment")
+check(PhoneNotice.attachable(onePixel, contentType: "image/png")?.0 == onePixel, "a PNG goes as it came")
 
 section("phone notice: the shared keychain group, checked the same in the app and the extension")
 for (group, ok) in [("6563JLN5HF.io.kosmos.app.shared", true), ("io.kosmos.app.shared", false), (".io.kosmos.app.shared", false), ("$(AppIdentifierPrefix)io.kosmos.app.shared", false), ("6563jln5hf.io.kosmos.app.shared", false), ("6563JLN5HF.", false), ("", false)] {

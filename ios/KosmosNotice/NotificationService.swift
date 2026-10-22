@@ -10,6 +10,8 @@ final class NotificationService: UNNotificationServiceExtension {
     private let lock = NSLock()
     private var handler: ((UNNotificationContent) -> Void)?
     private var original: UNNotificationContent?
+    // The words, as soon as they are in: what the time limit shows if the picture is still on its way.
+    private var wordsOnly: UNNotificationContent?
     private var work: Task<Void, Never>?
 
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
@@ -23,18 +25,27 @@ final class NotificationService: UNNotificationServiceExtension {
             finish(request.content)
             return
         }
-        work = Task { [weak self] in
-            let shown = await Self.messageContent(original: request.content, ask: ask, info: info, stored: stored)
+        let task = Task { [weak self] in
+            let shown = await Self.messageContent(original: request.content, ask: ask, info: info, stored: stored) { words in
+                guard let self else { return }
+                self.lock.lock()
+                self.wordsOnly = words
+                self.lock.unlock()
+            }
             self?.finish(shown ?? request.content)
         }
+        lock.lock()
+        work = task
+        lock.unlock()
     }
 
-    // iOS is about to give up on this extension: show the notice as it came.
+    // iOS is about to give up on this extension: show the words if they are in, else the notice as it came.
     override func serviceExtensionTimeWillExpire() {
-        work?.cancel()
         lock.lock()
-        let kept = original
+        let kept = wordsOnly ?? original
+        let task = work
         lock.unlock()
+        task?.cancel()
         if let kept { finish(kept) }
     }
 
@@ -65,14 +76,17 @@ final class NotificationService: UNNotificationServiceExtension {
     }
 
     private static func fetch(_ r: URLRequest) async -> (Data, HTTPURLResponse)? {
-        let session = URLSession(configuration: .ephemeral)
+        // No redirect is followed, as in the app (BoardClient+App.swift NoRedirects): the request carries the computer's
+        // session cookie, which must never go to another host. A redirect is then a 3xx, and the notice shows as it came.
+        let session = URLSession(configuration: .ephemeral, delegate: NoticeNoRedirects(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         guard let (data, response) = try? await session.data(for: r), let http = response as? HTTPURLResponse else { return nil }
         return (data, http)
     }
 
     // The notice as a message from the agent, or nil to show it as it came.
-    static func messageContent(original: UNNotificationContent, ask: URLRequest, info: [AnyHashable: Any], stored: String?) async -> UNNotificationContent? {
+    static func messageContent(original: UNNotificationContent, ask: URLRequest, info: [AnyHashable: Any], stored: String?,
+                               wordsReady: (UNNotificationContent) -> Void) async -> UNNotificationContent? {
         guard let (data, http) = await fetch(ask),
               let words = PhoneNotice.words(status: http.statusCode, contentType: http.value(forHTTPHeaderField: "Content-Type"), data: data, userInfo: info),
               !Task.isCancelled,
@@ -88,12 +102,13 @@ final class NotificationService: UNNotificationServiceExtension {
         content.subtitle = original.body.isEmpty ? original.title : "\(original.title), \(original.body)"
         content.title = words.agent
         content.body = words.text
+        if let ready = content.copy() as? UNNotificationContent { wordsReady(ready) }
 
         guard Bundle.main.object(forInfoDictionaryKey: PhoneNotice.messageStyleKey) as? Bool == true else {
             // No Communication Notifications capability yet: the picture rides as the notice's attachment.
-            if let picture, let ext = PhoneNotice.attachmentExtension(contentType: pictureType) {
+            if let picture, let (bytes, ext) = PhoneNotice.attachable(picture, contentType: pictureType) {
                 let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + ext)
-                if (try? picture.write(to: file)) != nil,
+                if (try? bytes.write(to: file)) != nil,
                    let attachment = try? UNNotificationAttachment(identifier: "agent", url: file, options: nil) {
                     content.attachments = [attachment]
                 }
@@ -114,5 +129,12 @@ final class NotificationService: UNNotificationServiceExtension {
         try? await interaction.donate()
         // Should the capability be missing after all, this throws; the words still show, without the picture.
         return (try? content.updating(from: intent)) ?? content
+    }
+}
+
+private final class NoticeNoRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

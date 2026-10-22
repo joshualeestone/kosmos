@@ -51,6 +51,10 @@ lit=$(grep -E 'PRODUCT_BUNDLE_IDENTIFIER = ' "$pbx" | grep -vF 'PRODUCT_BUNDLE_I
 ref=$(grep -cF 'PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID)";' "$pbx")
 nref=$(grep -cF 'PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID).notice";' "$pbx")
 if [ "$lit" -eq 0 ] && [ "$ref" -ge 2 ] && [ "$nref" -eq 2 ]; then echo "PASS  project.pbxproj takes its bundle ids from Signing.xcconfig ($ref app, $nref extension configurations)"; else echo "FAIL  project.pbxproj sets a bundle id of its own ($lit literal, $ref app and $nref extension from the xcconfig)"; fail=1; fi
+# kosmos#6487: App Store validation flags an extension whose version differs from its app's.
+versions=$(grep -E '^[[:space:]]*MARKETING_VERSION = ' "$pbx" | sort -u | wc -l | tr -d ' ')
+if [ "$versions" -eq 1 ] && [ "$(grep -cE '^[[:space:]]*MARKETING_VERSION = ' "$pbx")" -eq 4 ]; then echo "PASS  the app and the extension carry one version"
+else echo "FAIL  the app and the extension carry different versions ($versions distinct)"; fail=1; fi
 # Each target signs by hand with its own profile setting, never one profile for both.
 if [ "$(grep -cF 'PROVISIONING_PROFILE_SPECIFIER = "$(KOSMOS_APP_PROFILE)";' "$pbx")" -eq 2 ] && [ "$(grep -cF 'PROVISIONING_PROFILE_SPECIFIER = "$(KOSMOS_NOTICE_PROFILE)";' "$pbx")" -eq 2 ] \
   && [ "$(grep -c 'PROVISIONING_PROFILE_SPECIFIER = ' "$pbx")" -eq 4 ]; then echo "PASS  the app and the extension each take their own profile setting"
