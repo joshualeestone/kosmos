@@ -294,6 +294,9 @@ function main(argv, deps) {
        task log, where a missing card state can be traced back to it. */
     stream: require('./win32streamstate').publisher(spec.name, {
       onProblem: (why) => say(new Date().toISOString() + ' ' + spec.name + ' state-unrecorded -- ' + why),
+      /* kosmos#6570: a Claude agent's account usage, from its own stream (Claude Code runs no status line headless).
+         Claude only: another runner's configDir is its own provider's home, never a Claude account. */
+      usageDir: spec.runner === 'claude' ? require('./win32streamstate').claudeAccountDirFor(spec.configDir) : null,
     }),
     onEvent: (e) => {
       /* One line per transition, on stderr and the persisted log so it survives.

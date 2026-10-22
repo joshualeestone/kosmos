@@ -27880,10 +27880,12 @@ function acctResetTimes(list) {
     if (!a) return [];
     const f = a.fiveHour;
     const claude = a.provider === 'anthropic' && !a.apiKey && f && Number.isFinite(f.usedPct) && Number.isFinite(f.resetsAt) && Number.isFinite(f.at) ? [f.resetsAt] : [];
+    // #6570: and its weekly line, so an open list does not keep last week's figure past its reset (acctWeeklyNow).
+    const wk = a.provider === 'anthropic' && !a.apiKey && acctWeeklyNow(a) ? [a.weekly.resetsAt] : [];
     // A Grok subscription's windows too (#6176 slice 3, review 1), so its meter goes at its reset on an open list.
     const codex = (a.provider === 'openai' || a.provider === 'xai' || a.provider === 'antigravity') && a.limits && Array.isArray(a.limits.windows)
       ? a.limits.windows.filter((w) => w && Number.isFinite(w.usedPct) && Number.isFinite(w.windowMinutes) && Number.isFinite(w.resetsAt)).map((w) => w.resetsAt) : [];
-    return claude.concat(codex);
+    return claude.concat(wk, codex);
   });
 }
 function acctFiveHourRepaint(list) {
@@ -27928,6 +27930,13 @@ function acctFiveHourArm(times, keep) {
    Only what Kosmos knows: the weekly reading exists for accounts Kosmos set up, while an agent on them runs, so a row
    without one says so plainly instead of guessing. An API key has no weekly limit, so its row shows no meter. */
 const ACCT_WARN_PCT = 75, ACCT_HIGH_PCT = 90;
+/* #6570: a Claude row's weekly reading while its week is still running, or null. The board drops a reading whose week
+   has reset (allowance.readWeekly), but a list left open across the reset would keep drawing last week's figure as this
+   week's, so the page applies the same test as it draws, as it does for the five-hour line. */
+function acctWeeklyNow(a) {
+  const w = a && a.weekly;
+  return w && Number.isFinite(w.usedPct) && !(Number.isFinite(w.resetsAt) && w.resetsAt <= Date.now()) ? w : null;
+}
 /* A move in progress or its outcome, by the source account's dir. The list repaints while agents move and after (a
    source row with no agents left has no move control), so the sentence lives here, not in the old element. */
 const ACCT_MOVE = new Map();
@@ -27939,7 +27948,7 @@ function acctBulkTarget(x, fromDir) {
   return !!x && x.provider === 'anthropic' && !!x.dir && x.dir !== fromDir && !!x.memoryShared
     && acctOfferableTarget(x)   // the create picker's own test: not refused, not signed out
     && !x.apiKey   // not a key: moving a whole account's agents onto a key changes who pays, so that stays a one-agent choice on its page
-    && !(x.weekly && Number.isFinite(x.weekly.usedPct) && Math.round(x.weekly.usedPct) >= 100)   // a full account cannot run them either (rounded as its row shows it)
+    && !(acctWeeklyNow(x) && Math.round(x.weekly.usedPct) >= 100)   // a full account cannot run them either (rounded as its row shows it); a week that has reset is not full
     // #6176: nor one at its five-hour limit until that resets (a reading past its reset is over and does not count)
     && !(x.fiveHour && Number.isFinite(x.fiveHour.usedPct) && Math.round(x.fiveHour.usedPct) >= 100 && !(Number.isFinite(x.fiveHour.resetsAt) && x.fiveHour.resetsAt <= Date.now()));
 }
@@ -28006,7 +28015,7 @@ function acctUsageHtml(a, list) {
      row); the agents line and the move need agentsHere, which comes only when the page asks (?agents=1). */
   if (!a || a.provider !== 'anthropic' || (!('weekly' in a) && !('weeklyBlocked' in a) && !('fiveHour' in a) && !a.agentsHere)) return '';
   const here = a.agentsHere && Array.isArray(a.agentsHere.names) ? a.agentsHere : null;
-  const w = a.weekly && Number.isFinite(a.weekly.usedPct) ? a.weekly : null;
+  const w = acctWeeklyNow(a);   // #6570: past its reset it is last week's figure, not drawn
   /* The setup guide is left out, as everywhere the page lists or counts agents (#3739); it is not moved either. The
      warning, the agents line and the move all count this one list, so they cannot disagree. */
   const known = new Map((Array.isArray(LAST) ? LAST : []).filter((x) => x && x.sessionName).map((x) => [x.sessionName, x]));
@@ -28118,7 +28127,7 @@ function acctUsageHtml(a, list) {
   const move = canMove || busy
     ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '"' + described + ' aria-label="Move the agents on ' + who + ' to another account">'
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
-      + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(nameOf(x)) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
+      + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(nameOf(x)) + (acctWeeklyNow(x) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
       + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + described + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc((!st.stopping && st.progress) || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
       /* #6214: a running move can be stopped once the board has it; the board finishes the agent it is restarting and puts
          the rest back. */
