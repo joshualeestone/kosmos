@@ -265,9 +265,11 @@ test('#6920 / #6925 parity: a room_held refusal offers the one closing summary o
 test('#6925 parity: a post that went through a held room as the one summary says so; an ordinary post does not', async () => {
   const landed = await run(['post', 'proj-1', 'a long summary'], () => ({ body: { delivery: { state: 'placed', closing: true } } }));
   assert.equal(landed.code, 0);
-  assert.match(landed.out, /This went through as your one summary while the room is held; anything more is not posted until the room opens\./);
+  assert.match(landed.out, /This went through as your one summary while the room is held; anything more is not posted until the hold lifts\./);
   const plain = await run(['post', 'proj-1', 'a post'], () => ({ body: { delivery: { state: 'placed' } } }));
   assert.doesNotMatch(plain.out, /your one summary/, 'an ordinary post was called the one summary');
+  const named = await run(['post', 'proj-1', 'a post'], () => ({ body: { delivery: { state: 'placed', outcomes: { closing: 'placed' } } } }));
+  assert.doesNotMatch(named.out, /your one summary/, 'an agent named closing made an ordinary post the one summary');
   const unconf = await run(['post', 'proj-1', 'a long summary'], () => ({ body: { delivery: { state: 'unconfirmed', closing: true } } }));
   assert.match(unconf.err, /This went through as your one summary while the room is held/, 'an unconfirmed summary was not called the one summary');
 });

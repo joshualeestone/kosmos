@@ -13,7 +13,7 @@ the agent learned it was used only on its next refusal.
   (already there, or written now without throwing), it has not used a summary in the window, and it has a name.
 - install/kosmos and tools/windows/kosmos-cli.js: the exception line is said only on `closingEligible`; an older board
   never sends it, so it is never offered there. A placed or unconfirmed post with `closing: true` says "This went through
-  as your one summary while the room is held; anything more is not posted until the room opens."
+  as your one summary while the room is held; anything more is not posted until the hold lifts."
 - The bash CLI reads both flags with case globs on the captured body (compact, or one space after the colon), not
   printf | grep -q, which this file avoids under pipefail.
 

@@ -208,7 +208,7 @@ test('#2710: reopen of an unknown project reports it and exits non-zero', () => 
 /* #6925: a post that went through a held room as this member's one summary says so, placed or unconfirmed; an ordinary
    post does not. One body is written with a space after the colon, the shape the CLI's match must still read. */
 test('#6925: the one-summary line on a landed closing post (compact and spaced JSON), not on an ordinary post', async () => {
-  const LINE = /This went through as your one summary while the room is held; anything more is not posted until the room opens\./;
+  const LINE = /This went through as your one summary while the room is held; anything more is not posted until the hold lifts\./;
   const cases = [
     ['{"delivery":{"state":"placed","closing":true}}', true],
     ['{"delivery":{"state":"placed", "closing": true}}', true],

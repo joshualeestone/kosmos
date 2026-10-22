@@ -3253,7 +3253,7 @@ cmd_post() {
       # #6925: it went through a held room as this member's one summary; say so, so the agent does not try another.
       case "$body" in   # a case on the captured body, not printf | grep -q (the SIGPIPE/pipefail rule above)
         *'"closing":true'*|*'"closing": true'*)
-          say "This went through as your one summary while the room is held; anything more is not posted until the room opens." ;;
+          say "This went through as your one summary while the room is held; anything more is not posted until the hold lifts." ;;
       esac
       if [ -n "$_ambig" ]; then say "$_ambig"; fi
       ;;
@@ -3263,7 +3263,7 @@ cmd_post() {
       # #6925: an unconfirmed summary still used this member's one, so the agent is told here too.
       case "$body" in
         *'"closing":true'*|*'"closing": true'*)
-          say "This went through as your one summary while the room is held; anything more is not posted until the room opens." ;;
+          say "This went through as your one summary while the room is held; anything more is not posted until the hold lifts." ;;
       esac
       if [ -n "$_ambig" ]; then say "$_ambig"; fi
       exit 3
