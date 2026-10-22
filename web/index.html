@@ -68610,12 +68610,14 @@ document.getElementById('tk-subs-closeall').addEventListener('click', async () =
   const t = p && (p.tasks || []).find((x) => x.number === TK_OPEN);
   const done = (x) => (x.progress ? Boolean(x.progress.closed) : Boolean(x.closedAt));
   const built = (x) => !done(x) && x.onHold !== true && typeof x.builtAt === 'string' && x.builtAt !== '';   // as tkPaintSubtasks
-  const kids = t ? (p.tasks || []).filter((x) => x && x.parent === t.number) : [];
-  // The world may have moved since the paint (the poll): act only on the state the line was shown for.
-  if (!t || done(t) || !kids.length || !kids.every((x) => done(x) || built(x))) { paintTaskPage(); return; }
-  const btn = document.getElementById('tk-subs-closeall');
+  const kids = t ? (p.tasks || []).filter((x) => x && x.parent === t.number).sort((a, b) => Number(a.number) - Number(b.number)) : [];
   const msg = document.getElementById('tk-msg');
+  // The world may have moved since the paint (the poll): act only on the state the line was shown for.
+  if (!t || done(t) || !kids.length || kids.every(done) || !kids.every((x) => done(x) || built(x))) { msg.textContent = ''; paintTaskPage(); return; }
+  const btn = document.getElementById('tk-subs-closeall');
   btn.disabled = true;
+  let closedKids = 0;
+  let finished = false;
   try {
     for (const n of kids.filter(built).map((x) => Number(x.number)).concat(Number(t.number))) {
       const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/close', {
@@ -68624,18 +68626,22 @@ document.getElementById('tk-subs-closeall').addEventListener('click', async () =
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         const why = (body && body.error) || 'we could not close it';
-        msg.textContent = n === Number(t.number) ? why : 'Task #' + n + ': ' + why + '. This task is still open.';
+        msg.textContent = n === Number(t.number)
+          ? why + (closedKids ? '. Its built subtasks are closed.' : '')
+          : 'Task #' + n + ': ' + why + '. This task is still open.';
         return;
       }
+      if (n !== Number(t.number)) closedKids += 1;
     }
     msg.textContent = '';
+    finished = true;
   } catch {
     msg.textContent = 'We could not finish closing them. The list below shows where it stopped.';   // the reload repaints the truth
   } finally {
+    // Repainted before the press is live again, so a second press acts on the new state, not the old one (as Mark as done).
+    try { await pjReload(); paintTaskActivity(TK_OPEN); tkReceiptSync(); } catch { /* the next poll repaints */ }
     btn.disabled = false;
-    await pjReload();
-    paintTaskActivity(TK_OPEN);
-    tkReceiptSync();
+    if (finished) { const doneBtn = document.getElementById('tk-done'); if (doneBtn) doneBtn.focus(); }   // the line is gone; keep focus on the page
   }
 });
 document.getElementById('tk-subadd').addEventListener('click', () => openNewTask(PJ_CURRENT, 'task', TK_OPEN));

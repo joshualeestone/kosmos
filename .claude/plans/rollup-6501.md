@@ -33,3 +33,13 @@ Card: kosmos#6501 (agent feedback 10-18 and 10-22, two installs). Item 1 shipped
 - docs/browser-checks/render-subtasks-3861.js, at 1400 and 390: the line offers the link; a refusal on subtask 3
   stops after closing 2, names #3 and leaves the parent open; a second press closes 3 and then the parent; the
   already-closed subtask stays closed; no message after success.
+
+## Review round 1
+- The press was live again before the reload, so a quick second press re-posted every close (no wrong state, but
+  fresh close times and fresh notices). It now repaints first, then re-enables, as Mark as done does; the node test
+  pins that order.
+- Not changed: a person's repeat rule dropped on a built subtask. The engine never lets the two meet: setBuilt
+  refuses a repeating task ("a recurring job is never built, waiting"), and setRepeat drops the built mark.
+- Also: the subtasks are sorted by number (as the list), the stale-state guard also covers every subtask already
+  closed and clears an old message, a refused parent says its built subtasks are closed, and focus moves to Mark as
+  done once the line is gone.
