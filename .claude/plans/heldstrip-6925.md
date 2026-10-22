@@ -17,10 +17,13 @@ Rejected: changing "most likely not go through" (still true for everything else;
 exception); a badge or colour (a person reads a sentence; nothing to learn).
 
 ## Weakest premise
-That the room read passes the stored `closing` field through to the page. The board's room route returns the log rows,
-and the test paints from rows with `closing: true`; a route that trimmed fields would leave the label off (no harm, the
-notice still says it).
+Checked rather than assumed, and it was false: the board's room route (server.js, `/api/project/<id>/room`) builds each
+post row field by field and did not pass `closing`, so the label could never have shown. The route now passes
+`closing: true`, and a server test reads it back. What remains: the label's wording and placement have not had a design
+review yet (design shots follow).
 
 ## Tests
 web.post-receipt.test.js "#6925": a held room's notice carries the sentence; of an ordinary post and a summary post, only
-the summary carries the label. Mutants, each red: the label not drawn in the bubble; the sentence removed.
+the summary carries the label. server.projects.test.js "#6925": the room route serves closing: true on the summary and
+no field on an ordinary post. Mutants, each red: the label not drawn in the bubble; the sentence removed; the route not
+passing closing.
