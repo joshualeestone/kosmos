@@ -1613,6 +1613,56 @@ test('#4934/#5967: after an ack-only refusal a content post from the same agent 
   });
 });
 
+test('#6920: a held room lets each member land ONE long post that is not agreement, and still holds acks, short posts and a second long one', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // A room over its volume budget: real content, alternating senders, so only the volume valve fires.
+    const posts = [];
+    for (let i = 0; i < ROOM_BUDGET / 2; i += 1) posts.push({ from: MEMBERS[i % 3], text: 'round ' + i + ' carries real content' });
+    seedPosts(now, posts);
+    const summary = 'Where we landed: the export moves to the new path, Mara owns the migration script, and April checks '
+      + 'the three customer folders before Friday. The two claims on the parser were the same change, so Leo keeps it and '
+      + 'Mara drops hers. Nothing else is open in this thread; the person decides whether the Friday date holds, and every '
+      + 'one of us waits for that rather than posting here again. Details are in the task notes for each step.';
+    assert.ok(summary.length >= 400, 'the fixture summary is shorter than the closing-post minimum: ' + summary.length);
+    const posted = (session, text) => {
+      armSender(session); arm([]);
+      return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text }, board.agents, MEMBERS);
+    };
+    const closingRows = () => messages.record().rows.filter((m) => m.kind === 'post' && m.closing === true);
+
+    // CONTROL first: an acknowledgement in the held room is held, as before.
+    const ack = posted('leo-discord', 'agreed, thanks');
+    assert.equal(ack.code, 'room_held', 'a short ack got through a held room');
+    // A short post with content is held too: only a long one is a closing post.
+    const short = posted('leo-discord', 'one more thing about the parser');
+    assert.equal(short.code, 'room_held', 'a short content post got through a held room');
+    // One character under the minimum is held (the line is where the constant says).
+    const under = posted('leo-discord', summary.slice(0, 399));
+    assert.equal(under.code, 'room_held', 'a 399-character post got through as a closing post');
+
+    // The summary lands, delivered, and is stored as this member's closing post.
+    const landed = posted('leo-discord', summary);
+    assert.notEqual(landed.state, chat.DELIVERY.COULD_NOT, 'the summarizing post was held: ' + JSON.stringify(landed));
+    assert.equal(closingRows().length, 1, 'the summary was not stored as a closing post');
+    assert.equal(closingRows()[0].from, 'leo');
+
+    // A second long post from the SAME member is held: one per member per hold.
+    const again = posted('leo-discord', summary + ' Adding one more detail.');
+    assert.equal(again.code, 'room_held', 'a second long post from the same member got through');
+    // Another member still gets their own one.
+    const mara = posted('mara-discord', summary.replace('Where we landed', 'My side'));
+    assert.notEqual(mara.state, chat.DELIVERY.COULD_NOT, 'another member was refused its own closing post');
+    assert.equal(closingRows().length, 2);
+
+    // CONTROL for the exemption itself: in an UNDER-budget room the same summary is an ordinary post, not marked closing.
+    wipeLog(); chat.resetForTests(); messages.resetForTests();
+    const plain = posted('leo-discord', summary);
+    assert.notEqual(plain.state, chat.DELIVERY.COULD_NOT);
+    assert.equal(closingRows().length, 0, 'a post in a room that was not held was marked closing');
+  });
+});
+
 test('#4934/#5967: in a room OVER the volume budget, an ack run yields the honest room_held, not ack_only (the "goes through straight away" promise must hold)', () => {
   withFleet(room3(), (board) => {
     const now = Date.now();

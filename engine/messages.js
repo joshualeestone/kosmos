@@ -2630,7 +2630,18 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     }
   }
 
-  if (operator !== true && arrivals + charged > allowed) {
+  /* #6920 (agent feedback, 2026-10-22): a held room also held the coordinator's one summarizing post, the post a hold
+     exists to bring about. So while the volume valve is holding the room, each member may land ONE long post that is not
+     agreement-only (CLOSING_POST_MIN characters or more) per hold window, the same countFrom that resets the arrival
+     budget; it is stored with `closing: true`, which is how the second one is found and held. Acknowledgements and short
+     posts are held exactly as before. Rejected: one closing post per ROOM (another member's long post landing first would
+     hold the coordinator's), and any long post (a loop of long posts would never be stopped). */
+  const closing = lim.on && operator !== true && arrivals + charged > allowed
+    && typeof from === 'string' && from !== ''
+    && stored.trim().length >= CLOSING_POST_MIN && !chat.acknowledgementOnly(stored)
+    && !log.some((m) => m && m.kind === 'post' && m.closing === true && m.from === from
+      && m.project === projectId && Date.parse(m.at) >= countFrom);
+  if (!closing && operator !== true && arrivals + charged > allowed) {
     const because = lim.on
       ? 'This conversation went back and forth for a while without landing, '
         + 'so Kosmos stopped it and asked everyone to bring you in.'
@@ -2984,6 +2995,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     appendLog({ kind: 'post', id, project: projectId, from, to: recipients.filter((n) => !offHere.has(n)), text: stored, at, outcomes,
       ...(Object.keys(heldUntil).length ? { heldUntil } : {}),
       ...(quotes.length ? { quotes } : {}),
+      ...(closing ? { closing: true } : {}),   // #6920: this member's one post through a held room
       /* #185: the tokenizer's verdict, persisted at the one moment it runs.
          The unanswered state keys on WHO WAS ASKED, and re-deriving that at
          render time would be a second tokenizer that can drift from this
@@ -3531,6 +3543,9 @@ const ROOM_HELD_REFUSAL = 'the room was going back and forth without landing, so
 // the loop a user's Windows room hit (eleven "agreed"/"acknowledged" posts before the volume
 // valve fired). Reversible constant.
 const ACK_RUN_LIMIT = 4;
+/* #6920: how long a post must be to land as a member's one closing post in a held room. Agreement replies run well under
+   100 characters; a summary that closes a thread runs to several sentences. */
+const CLOSING_POST_MIN = 400;
 // #6608 review 2: words that ask the whole room for an answer, so a hand-off that also says them is not left to its owner
 // alone. Deliberately wide (a missed ask drops an answer someone wanted; a false one only lets an acknowledgement through).
 const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|confirm|let (me|us) know|reply|respond|thumbs up)\b/i;
