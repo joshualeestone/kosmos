@@ -83,6 +83,15 @@ test('a project auto-opens on the first consolidated load, once, and only when n
   assert.ok(wantAt > -1 && wantAt < at, 'the deep-link check moved after the auto-open, so a deep link could lose the race');
 });
 
+test('#6910: a view the person opens into the display column stops a late auto-open from replacing it', () => {
+  const at = SCRIPT.indexOf('function takeOverDisplayColumn() {');
+  assert.ok(at > -1, 'takeOverDisplayColumn is gone');
+  const end = SCRIPT.indexOf('\n}\n', at);
+  const body = SCRIPT.slice(at, end);
+  assert.match(body, /PJ_AUTO_OPENED_ONCE = true;/,
+    'opening Settings, Agents, Tasks or New Agent before the first projects read lands lets the auto-open hide it (#6910)');
+});
+
 test('the agents and projects rail titles sit at the same height', () => {
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated #pj-list-view \{ grid-column: 1; padding-top: 0;/,
     'the projects rail lost the padding-top override that keeps it flush with the agents rail');

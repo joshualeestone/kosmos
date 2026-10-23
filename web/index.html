@@ -51335,6 +51335,9 @@ function placeAppSettings(consolidated) {
 function takeOverDisplayColumn() {
   const projects = document.getElementById('panel-projects');
   if (!projects) return;
+  /* #6910: the column is now the person's choice, so the arrival auto-open (#867, in loadProjects) must not
+     replace it when the first projects read lands late. Every caller here is a person's action. */
+  PJ_AUTO_OPENED_ONCE = true;
   projects.hidden = false;
   for (const v of ['one', 'add', 'settings', 'task', 'docs']) {
     const el = document.getElementById('pj-' + v + '-view');
