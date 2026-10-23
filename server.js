@@ -11119,10 +11119,11 @@ const server = http.createServer(async (req, res) => {
       .then((buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
-        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        /* A security check's off switch is a person's setting: not an agent's (the isViaScreen class). */
-        /* kosmos#6986: never switched off from a remote session (only adds protection when switched on). */
+        /* kosmos#6986: never switched off from a remote session (switching it on only adds protection); an unreadable
+           remote change gets the same answer. */
+        catch { if (isRemoteRequest(req)) sendJson(res, 403, REMOTE_NOT_ALLOWED.certWatchOff); else sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (body.on !== true && isRemoteRequest(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.certWatchOff); return; }
+        /* A security check's off switch is a person's setting: not an agent's (the isViaScreen class). */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
         const saved = remote.setCertWatch(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }

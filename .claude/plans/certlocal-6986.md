@@ -21,3 +21,10 @@ untouched; forwarded ON allowed; forwarded Got it refused and the loss still sai
 ## Weakest premise
 isRemoteRequest reads forwarder headers. A request with none of them is local by that rule, the same boundary every
 #6595 route relies on.
+
+## Review 1 (blind, 07:53 CDT): 0 BLOCKER, 0 WARNING, 3 NIT
+- An unreadable remote change answered 400 "could not read" --> FIXED (403 remote_not_allowed from the parse's catch)
+- The bare `Forwarded:` header was untested --> FIXED (test arm)
+- The page explains only after a press (a remote viewer sees a live switch and gets the server's sentence) --> DECIDED,
+  kept: the same as #6595's Allow today; the page already shows the refusal as said. Not hiding controls remotely
+  keeps this change server-only.

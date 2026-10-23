@@ -11814,6 +11814,11 @@ test('the Plus state route carries the certificate check, and its switch writes 
     }
     r = await req('/api/remote/cert-watch', { method: 'PUT', headers: { ...screen, 'x-forwarded-for': '203.0.113.9' }, body: JSON.stringify({ on: false }) });
     assert.equal(r.status, 403, 'nor through the webhook-shaped forwarder (x-forwarded-for only)');
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: { ...screen, forwarded: 'for=203.0.113.9' }, body: JSON.stringify({ on: false }) });
+    assert.equal(r.status, 403, 'nor through a standard Forwarded header');
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: remoteScreen, body: '{not json' });
+    assert.equal(r.status, 403, 'an unreadable remote change gets the remote sentence, not "could not read"');
+    assert.equal(JSON.parse(r.body).code, 'remote_not_allowed');
     r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: false }) });
     assert.equal(r.status, 200, r.body);
     assert.equal(JSON.parse(r.body).certWatch.on, false);
