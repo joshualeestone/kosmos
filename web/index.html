@@ -4200,7 +4200,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    in the list view, where #860 already handles it. */
 .pj-list.asgrid .pj-row { align-items: center; text-align: center; padding: 24px 22px 20px; }
 .pj-list.asgrid .pj-row .pjcard-h { display: contents; }
-.pj-list.asgrid .pj-row .pjname { order: 1; justify-content: center; max-width: 100%; }
+.pj-list.asgrid .pj-row .pjname { order: 1; justify-content: center; max-width: 100%; align-items: baseline; }
 /* Truncate in the GRID too (#1310). This view was deliberately left alone
    because it "has room for the pack's own wrap/clamp behaviour" -- and
    narrowing the card to the agents' width is exactly what takes that room
@@ -4216,8 +4216,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    It was already there and is not changed here; the browser check now
    ASSERTS it, so removing it fails loudly rather than quietly (Mona Lisa
    found this by reading, #1310). */
-.pj-list.asgrid .pj-row .pjname b { min-width: 0; overflow: hidden;
-                                    text-overflow: ellipsis; white-space: nowrap; }
+/* #6967: two lines, then the ellipsis (was one line). The title and the unread count align on the title's first
+   baseline, so the count stays on the first line however many lines the title takes. */
+.pj-list.asgrid .pj-row .pjname b { min-width: 0; overflow: hidden; overflow-wrap: anywhere;
+                                    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.pj-list.asgrid .pj-row .pjname .pj-unread { align-self: baseline; }   /* its own align-self: center would win over the row's */
 /* The same bubble recipe .astate draws on the agents grid, scoped here
    rather than sharing the class -- .astate carries a six-state agent
    vocabulary (working/attn/idle/paused/stopped/unknown) that does not
@@ -4228,10 +4231,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pj-list.asgrid .pj-row .pjpill.attn { border-color: rgba(179,38,30,.55); }
 .pj-list.asgrid .pj-row .pc-t { display: none; }
 /* "The icons... underneath that, the number" -- stacked, not the list
-   row's single inline line, so .pjfaces becomes a column here: the
-   avatar row, then the count as its own caption line beneath it. */
-.pj-list.asgrid .pj-row .pjfaces { order: 3; flex-direction: column; justify-content: center; gap: 6px; margin-top: 14px; }
-.pj-list.asgrid .pj-row .pjfaces > [aria-hidden] { justify-content: center; }
+   row's single inline line, so .pjfaces wraps here: the avatar row takes a
+   whole line, then the count (and #6966's provider tally beside it) is the
+   caption line beneath it. Do not turn it back into a column: the tally would
+   drop below the count. */
+.pj-list.asgrid .pj-row .pjfaces { order: 3; flex-flow: row wrap; justify-content: center; gap: 6px 0; margin-top: 14px; }
+/* #6966: the faces take a whole line, so the count (and the provider tally beside it) is the caption line beneath. */
+.pj-list.asgrid .pj-row .pjfaces > [aria-hidden] { justify-content: center; flex-basis: 100%; }
+.pj-list.asgrid .pj-row .pjfaces > [aria-hidden]:empty { display: none; }   /* no faces: no empty line above the count */
 .pj-list.asgrid .pj-row .pjcount { margin-left: 0; }
 .pj-list.asgrid .pj-row .pj-who, .pj-list.asgrid .pj-row .pj-warn { order: 4; }
 /* The empty state and the read-failure card span the grid: the failure
@@ -4747,6 +4754,18 @@ html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(
 .pjfaces > [aria-hidden] { display: flex; align-items: center; gap: 5px; }
 .pjfaces .lav { width: 22px; height: 22px; font-size: .625rem; }
 .pjcount { font-size: .8125rem; color: var(--k-ink-2); margin-left: 8px; }
+/* #6966: the provider tally beside the count, quiet: marks at 13px, a hairline before it. A zero flex-basis keeps
+   it on the count's line whatever its length; it grows to its own width (max-width) and its items wrap inside it. On the GRID cards
+   only for now: the list row, the roadmap and the narrow side rail hide or squeeze the faces, and the tally there is
+   a later step of the card. */
+.pjtally { display: none; }
+.pj-list.asgrid .pjtally { display: inline-flex; align-items: center; margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--k-rule);
+           font-size: .8125rem; color: var(--k-ink-2); flex: 1 1 0%; min-width: 0; max-width: max-content; }
+.pjtally > [aria-hidden] { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+.pjtally-i { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.pjtally-m { width: 13px; height: 13px; flex: none; color: var(--k-ink); }
+.pjtally-m[data-pmark="openai"] svg { transform: scale(1.5); }   /* as the provider picker does: the glyph fills ~51% of its viewBox */
+.pjtally-m.pcombo-chip { width: 13px; height: 13px; line-height: 13px; font-size: .5rem; border-radius: 3px; }
 /* #1994 sub-projects. Two ways the same relationship is shown, one per view:
    an INDENT in the wide Projects-tab list (the only place with room for a
    tree), and an ANCESTRY LINE everywhere the row is narrow or tiled (the asgrid
@@ -66121,6 +66140,40 @@ function pjSortByChain(list) {
   const chain = new Map(list.map((p) => [p, pjChainOf(p)]));   // each chain built once, not per comparison
   return list.slice().sort((a, b) => pjChainCompare(chain.get(a), chain.get(b)));
 }
+/* #6966 (Josh, 10-22): which AI each agent in the project runs on, as one tally beside the count ("2 [Claude]
+   1 [Gemini]"), never on the faces. `provider` is the engine's family name (projectview.familyOf), null when the
+   member is not tied to its agent or has no runner recorded (stopped); those are left out, so the tally can count
+   fewer than "N agents". The marks are the provider picker's (providerMarkNode, keyed by
+   the picker's own values; any other provider by its lowercased name), built once per provider and kept. */
+const PJ_TALLY = [
+  ['Claude', 'claude', 'Claude'], ['OpenAI', 'openai', 'GPT'], ['Gemini', 'google', 'Gemini'],
+  ['Gemini (Google subscription)', 'antigravity', 'Gemini'], ['Grok', 'xai', 'Grok'], ['Meta Muse', 'meta', 'Meta'], ['Qwen', 'alibaba', 'Qwen'],
+];
+const PJ_TALLY_MARKS = new Map();   // pick -> the mark's HTML (cloned from the first-run screen's marks, which stay in the page)
+function pjProviderTally(agents) {
+  const counts = new Map();   // the word shown -> { pick, n }, in PJ_TALLY order, then any other provider as it comes
+  for (const a of agents || []) {
+    if (!a || typeof a.provider !== 'string' || !a.provider) continue;
+    const row = PJ_TALLY.find((r) => r[0] === a.provider);
+    const word = row ? row[2] : a.provider;
+    const got = counts.get(word);
+    if (got) got.n += 1; else counts.set(word, { pick: row ? row[1] : a.provider.toLowerCase(), n: 1, at: row ? PJ_TALLY.indexOf(row) : PJ_TALLY.length });
+  }
+  if (!counts.size) return '';
+  const rows = [...counts].sort((x, y) => x[1].at - y[1].at);
+  const shown = rows.map(([word, c]) => {
+    let mark = PJ_TALLY_MARKS.get(c.pick);
+    if (mark === undefined) {
+      const node = providerMarkNode(c.pick, word);
+      node.classList.add('pjtally-m');
+      mark = node.outerHTML;
+      PJ_TALLY_MARKS.set(c.pick, mark);
+    }
+    return '<span class="pjtally-i" title="' + esc(c.n + ' ' + word) + '">' + mark + c.n + '</span>';
+  }).join('');
+  return '<span class="pjtally"><span aria-hidden="true">' + shown + '</span><span class="vh">'
+    + esc(', ' + rows.map(([word, c]) => c.n + ' ' + word).join(', ')) + '</span></span>';
+}
 function projectCard(p, unreadable, depth, childCount, lastKid) {
   const s = p.summary || {};
   const folder = pjFolderLine(p);
@@ -66181,7 +66234,7 @@ function projectCard(p, unreadable, depth, childCount, lastKid) {
     : '<span class="lav" title="' + esc(a.name) + '" style="background:' + discTint(a.name) + ';color:' + discInk(a.name) + '">' + esc(initials(a.name)) + '</span>').join('');
   const count = s.total ? '<span class="pjcount">' + Number(s.total) + (s.total === 1 ? ' agent' : ' agents') + '</span>' : '';
   const facesRow = (faces || count)
-    ? '<span class="pjfaces"><span aria-hidden="true">' + faces + '</span>' + count + '</span>' : '';
+    ? '<span class="pjfaces"><span aria-hidden="true">' + faces + '</span>' + count + pjProviderTally(p.agents) + '</span>' : '';
   /* #4730 (Josh, 2026-09-30 09:06): no "N we cannot see" line on the Projects views ("Let's just
      not list if we can't see an agent. We don't need that information here."). The card still never
      says everything is FINE: with no pill it makes no claim about state at all, and the project's

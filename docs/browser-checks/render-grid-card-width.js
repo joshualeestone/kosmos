@@ -19,7 +19,11 @@ const { chromium } = require('playwright');
 
 const URL = process.env.KOSMOS_URL || 'http://127.0.0.1:17401';
 const OUT = process.argv[2] || '/tmp/gridwidth';
-const CONTROL = process.argv.includes('--control');
+/* Two controls, one per "before" (env too: the harness passes no arguments). --control / GW_CONTROL=1 is #1310's
+   before (a 23rem card, the title never truncating); --control-6967 / GW_CONTROL=6967 is #6967's (one line, then the
+   ellipsis), which must turn the two-line arm red. They cannot be one revert: at 23rem the long title fits in two. */
+const CONTROL_6967 = process.argv.includes('--control-6967') || process.env.GW_CONTROL === '6967';
+const CONTROL = CONTROL_6967 || process.argv.includes('--control') || process.env.GW_CONTROL === '1';
 /* ⚠️ 60 CHARACTERS, WHICH IS THE CAP, NOT AN ARBITRARY LONG STRING.
    Measured against the live route: 67 characters is refused with "that name is
    too long to make a folder out of; keep it to 60 characters", and my first
@@ -67,21 +71,23 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
      ⇒ The pre-change state is the PROJECTS grid at a literal 23rem while the
      agents board stays on the token, plus the grid title NOT truncating.
      Both are reverted here so both assertions have to go red. */
-  const revert = () => {
+  const revert = (only6967) => {   // runs in the page: the mode comes in as an argument
     const st = document.createElement('style');
     st.id = 'ctl-revert';
-    st.textContent =
-      '.pj-list.asgrid{grid-template-columns:repeat(auto-fill,minmax(min(100%,23rem),1fr))!important}'
-      + '.pj-list.asgrid .pj-row .pjname{max-width:none!important}'
-      + '.pj-list.asgrid .pj-row .pjname b{overflow:visible!important;text-overflow:clip!important;'
-      + 'white-space:normal!important}';
+    st.textContent = only6967
+      ? '.pj-list.asgrid .pj-row .pjname b{display:block!important;-webkit-line-clamp:none!important;'
+        + 'white-space:nowrap!important;text-overflow:ellipsis!important}'
+      : '.pj-list.asgrid{grid-template-columns:repeat(auto-fill,minmax(min(100%,23rem),1fr))!important}'
+        + '.pj-list.asgrid .pj-row .pjname{max-width:none!important}'
+        + '.pj-list.asgrid .pj-row .pjname b{overflow:visible!important;text-overflow:clip!important;'
+        + 'white-space:normal!important;display:block!important;-webkit-line-clamp:none!important}';
     document.head.appendChild(st);
   };
-  if (CONTROL) await pg.evaluate(revert);
+  if (CONTROL) await pg.evaluate(revert, CONTROL_6967);
 
   await pg.reload({ waitUntil: 'networkidle' });
   await pg.waitForTimeout(500);
-  if (CONTROL) await pg.evaluate(revert);   // the reload dropped the injected style
+  if (CONTROL) await pg.evaluate(revert, CONTROL_6967);   // the reload dropped the injected style
 
   /* 🛑 THE AGENTS GRID IS READ WHILE IT IS ON SCREEN, AND THAT ORDERING IS THE
      CHECK. A hidden grid does not resolve its tracks: an earlier version of
@@ -104,15 +110,27 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
 
   // Seed an unread count on the long-titled project, so the badge is present
   // to compete with the name for the row's width.
-  const m = await pg.evaluate(() => {
-    const pj = document.querySelector('#pj-list.asgrid .pj-row');
+  const m = await pg.evaluate((long) => {
+    // The long-titled card by its title, not the first by position: another project can sort ahead of it.
+    const pj = [...document.querySelectorAll('#pj-list.asgrid .pj-row')].find((r) => (r.textContent || '').includes(long.slice(0, 30))) || null;
     const list = document.querySelector('#pj-list.asgrid');
     const track = list ? getComputedStyle(list).gridTemplateColumns.split(' ')[0] : null;
     const nameB = pj ? pj.querySelector('.pjname b') : null;
     return {
       pjTrack: track,
       pjCard: pj ? Math.round(pj.getBoundingClientRect().width) : null,
-      clipped: nameB ? (nameB.scrollWidth > nameB.clientWidth + 1) : null,
+      /* #6967: the title clamps at two lines, so it is clipped DOWNWARD; across is still checked. */
+      clipped: nameB ? (nameB.scrollWidth > nameB.clientWidth + 1 || nameB.scrollHeight > nameB.clientHeight + 1) : null,
+      /* Lines from the line box, not computed line-height (which can be 'normal'): a one-word probe in the same
+         element style gives one line's height. */
+      lines: nameB ? (() => {
+        const probe = nameB.cloneNode(false);
+        probe.textContent = 'x';
+        nameB.parentNode.appendChild(probe);
+        const one = probe.getBoundingClientRect().height;
+        probe.remove();
+        return one > 0 ? Math.round(nameB.getBoundingClientRect().height / one) : null;
+      })() : null,
       overflows: (pj && nameB)
         ? (Math.round(nameB.getBoundingClientRect().right) > Math.round(pj.getBoundingClientRect().right) + 1)
         : null,
@@ -129,7 +147,7 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
         return { w: Math.round(r.width), shrink: getComputedStyle(bd).flexShrink };
       })(),
     };
-  });
+  }, LONG);
   m.agTrack = agTrack;
   console.log('  measured: ' + JSON.stringify(m));
 
@@ -148,6 +166,7 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
       + ', agents ' + m.agTrack + ', difference ' + (Number.isFinite(gap) ? gap.toFixed(1) : '?') + 'px)');
   say(m.clipped === true, 'a long project title is clipped rather than widening the card');
   say(m.overflows === false, 'the title does not spill outside its card');
+  say(m.lines === 2, 'a long project title shows two lines before it is cut (#6967; ' + m.lines + ' lines)');
   if (m.badge === null) {
     console.log('  note: no unread badge on screen, so its width was not asserted this run');
   } else {
@@ -160,7 +179,12 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
   await b.close();
 
   if (CONTROL) {
-    if (fails.length) { console.log('\nCONTROL BEHAVED: the assertions go RED on the old 23rem value.'); process.exit(0); }
+    /* Each arm the revert aims at must go red on its own; any red alone is not enough. */
+    const red = (part) => fails.some((f) => f.includes(part));
+    const aimed = CONTROL_6967 ? ['two lines before it is cut'] : ['same width as an agent card', 'clipped rather than widening'];
+    if (aimed.every(red)) {
+      console.log('\nCONTROL BEHAVED: ' + aimed.join(' + ') + ' went RED on the old rules.'); process.exit(0);
+    }
     console.log('\nCONTROL FAILED TO FAIL: these assertions cannot detect the old value. Do not trust the green run.');
     process.exit(1);
   }

@@ -807,6 +807,40 @@ const SCREENS = [
   } },
   // Kano: projects, a room, and the waiting-on-you ask.
   { name: 'projects', owner: 'Kano', go: async (page) => openTab(page, 'projects') },
+  /* kosmos#6966 / #6967 (Mona Lisa): the Projects GRID, where a card shows which AI its agents run on (the tally beside
+     the count) and a long title takes two lines. The fixture fleet is all Claude, so the projects read is edited in the
+     page: the seed's members get mixed providers (and two more members), the second project a long title and an unread
+     count. The card, its CSS and the marks are the board's own. */
+  { name: 'projects-grid-6966', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/projects', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      try {
+        const res = await route.fetch();
+        const body = await res.json();
+        const [first, second] = body.projects || [];
+        if (first && Array.isArray(first.agents)) {
+          const mix = ['Claude', 'Gemini', 'Grok', 'Claude'];
+          first.agents.forEach((a, i) => { if (a && typeof a === 'object') a.provider = mix[i % mix.length]; });
+          const extra = (sessionName, name, provider) => ({ ...first.agents[0], sessionName, name, provider, hasAvatar: false });
+          if (first.agents[0]) {
+            first.agents.push(extra('gus', 'Gus', 'OpenAI'), extra('juno', 'Juno', 'Meta Muse'));
+            if (first.summary && Number.isFinite(first.summary.total)) first.summary.total += 2;   // the count says five too
+          }
+        }
+        if (second) {
+          second.name = 'Quarterly investor update and board deck for the October meeting';
+          second.unread = 3;
+          for (const a of second.agents || []) if (a && typeof a === 'object') a.provider = 'Claude';
+        }
+        await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
+    });
+    await page.evaluate(() => { try { localStorage.setItem('kosmos.layout.projects', 'grid'); } catch { /* shown below if not */ } });
+    await page.reload({ waitUntil: 'networkidle' });
+    await openTab(page, 'projects');
+    await page.waitForSelector('#pj-list.asgrid .pjtally', { state: 'visible', timeout: 8000 });
+    await page.mouse.move(1, 1);
+  } },
   { name: 'project-room', owner: 'Kano', go: async (page, data) => {
     freshCommitments();
     await openTab(page, 'projects');

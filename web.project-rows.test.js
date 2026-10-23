@@ -142,8 +142,11 @@ test('the grid tile stacks and centers title, then a status bubble, then the age
     'the status pill lost its bubble shape (border-radius: 100px)');
   assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pc-t \{ display: none; \}/,
     'the grid tile is showing the description again; #861 asked for this stack, not this field');
-  assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjfaces \{ order: 3; flex-direction: column;/,
+  // #6966: a wrapping row whose faces take a whole line, so the count (and the provider tally) is the caption beneath.
+  assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjfaces \{ order: 3; flex-flow: row wrap;/,
     'the agent icons and their count are not stacked (icon row, then caption)');
+  assert.match(PAGE, /\.pj-list\.asgrid \.pj-row \.pjfaces > \[aria-hidden\] \{ justify-content: center; flex-basis: 100%;/,
+    'the agent icons no longer take a whole line, so the count can climb up beside them');
   // The grid tile's own description rule (the pack's wrap-not-truncate
   // behaviour, and its pinned fixture) is untouched by hiding it here.
   assert.match(PAGE, /^\.pc-t \{ display: block;[^}]*overflow-wrap: anywhere;/m,
