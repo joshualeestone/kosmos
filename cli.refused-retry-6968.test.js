@@ -21,6 +21,8 @@ const os = require('node:os');
 const { execFile, spawn } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+// The CLI's own lsof paths (_lsof_cmd): without one it cannot tell a stopped board from a busy one.
+const HAS_LSOF = ['/usr/sbin/lsof', '/usr/bin/lsof'].some((p) => { try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } });
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-6968-'));
 test.after(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
 
@@ -148,11 +150,11 @@ test('#6968: a board that refuses the request once and then accepts: `task list`
   assertNoLeftovers(env);
 }));
 
-test('#6968 CONTROL: a board that stopped listening and never came back: "nothing is listening", never "is it running?" or "start it"', () => withRefusingBoard(null, async (port, seen) => {
+test('#6968 CONTROL: a board that stopped listening and never came back: "could not see anything listening", never "is it running?" or "start it"', { skip: !HAS_LSOF && 'needs lsof, which the CLI asks whether anything listens' }, () => withRefusingBoard(null, async (port, seen) => {
   const env = baseEnv(port);
   const out = await runCli(['task', 'list', 'proj'], env);
   assert.equal(out.code, 1, out.stdout + out.stderr);
-  assert.match(out.stdout, /Kosmos did not take the connection and nothing is listening at http:\/\/127\.0\.0\.1:\d+ right now, so we did not list tasks and nothing was sent\. If Kosmos is restarting, try again in a moment; kosmos status says whether it is running\./);
+  assert.match(out.stdout, /Kosmos did not take the connection and we could not see anything listening at http:\/\/127\.0\.0\.1:\d+, so we did not list tasks and nothing was sent\. If Kosmos is restarting, try again in a moment; kosmos status says whether it is running\./);
   assert.doesNotMatch(out.stdout, /Is it running|kosmos start|passing connection problem/);
   assert.equal(seen.length, 0);
   assert.equal(tries(env, /\/api\/tasks/), 2, 'the words come after a second try, not after one');
@@ -174,7 +176,7 @@ test('#6968 CONTROL: a board still listening that refuses every try (too busy): 
     const out = await runCli(['task', 'list', 'proj'], env);
     assert.equal(out.code, 1, out.stdout + out.stderr);
     assert.match(out.stdout, /Kosmos did not take the connection, so we did not list tasks and nothing was sent\. This is usually a passing connection problem \(Kosmos busy for a moment, or restarting\): try again in a moment\. It does not need a restart/);
-    assert.doesNotMatch(out.stdout, /Is it running|kosmos start|nothing is listening/);
+    assert.doesNotMatch(out.stdout, /Is it running|kosmos start|could not see anything listening/);
     assert.deepEqual(seen, []);
     assert.equal(tries(env, /\/api\/tasks/), 2);
     assertNoLeftovers(env);
@@ -279,7 +281,7 @@ test('#6968: every call of kosmos_curl that can buffer runs in a subshell, so it
   assert.ok(calls.length > 40, 'the scan found the calls (' + calls.length + ')');
   const bad = calls.filter(({ l }) => !(
     /\$\((_KOSMOS_CURL_ONCE=\S+ )?kosmos_curl "/.test(l)   // $(...)
-    || /\|\s*(_KOSMOS_CURL_ONCE=\S+ )?kosmos_curl "/.test(l)   // a pipe
+    || /(^|[^|])\|\s*(_KOSMOS_CURL_ONCE=\S+ )?kosmos_curl "/.test(l)   // a pipe, not a ||
     || /_KOSMOS_CURL_ONCE=1 kosmos_curl "/.test(l)   // one plain try, no trap
     || /[^&]&\s*$/.test(l)));   // a background job (connect), not a trailing &&
   assert.deepEqual(bad.map(({ n, l }) => n + ': ' + l.trim().slice(0, 100)), []);

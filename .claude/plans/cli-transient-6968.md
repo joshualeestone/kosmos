@@ -32,7 +32,7 @@ control that never takes the connection again (the new words).
   task ran, refused after an earlier 503 (it reached the board): "Kosmos was busy and then did not take the
   connection, so that run was not recorded."
 - After a refusal, `say_unreached` 7 asks lsof whether anything listens on the port: a listener (busy) gets the
-  passing-problem words; nothing listening gets "nothing is listening at URL right now ... if Kosmos is restarting,
+  passing-problem words; nothing seen listening gets "we could not see anything listening at URL ... if Kosmos is restarting,
   try again; kosmos status says whether it is running" (reply-channel has no health check, so a stopped board
   reaches it). No lsof, or lsof refused: the busy words. Neither says to start or restart.
 
@@ -55,3 +55,5 @@ on their machine.
   exits normally after an INT lets its parent carry on, which the re-raise prevents. CI's Linux shell job runs the
   arm on bash 5. Also unexercised: the trap removing the auth header file (an interrupt during a request, not the
   pause).
+- The trap runs once the running curl or pause ends (bash defers traps behind a foreground child), so a TERM sent
+  to the subshell alone waits up to the call's -m; Ctrl-C reaches the whole group and ends curl at once.

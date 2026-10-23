@@ -846,7 +846,7 @@ say_unreached() {   # <what could not happen, e.g. "record that"> <curl exit> [w
        if [ "$_lr" -ne 1 ]; then
          say "Kosmos did not take the connection, so we did not $1 and nothing was sent. This is usually a passing connection problem (Kosmos busy for a moment, or restarting): try again in a moment. It does not need a restart; if it keeps happening, kosmos status says what it sees."
        else
-         say "Kosmos did not take the connection and nothing is listening at $URL right now, so we did not $1 and nothing was sent. If Kosmos is restarting, try again in a moment; kosmos status says whether it is running."
+         say "Kosmos did not take the connection and we could not see anything listening at $URL, so we did not $1 and nothing was sent. If Kosmos is restarting, try again in a moment; kosmos status says whether it is running."
        fi ;;
     # #1765: kosmos_curl's refusals before anything was sent (see kosmos_board_proven).
     97) say "Kosmos did not finish answering, so we did not $1 and nothing was sent. Try again in a minute; it does not need a restart." ;;
