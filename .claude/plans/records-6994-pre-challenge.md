@@ -14,8 +14,8 @@ converged: true
 
 **Iterations:** 4 (round 4 raised CONVENTION and NIT only; the two CONVENTIONs fixed in 8b94c256)
 **Converged:** Yes
-**Total findings:** the sum of the per-round counts below (0 BLOCKERs, 17 WARNINGs, 5 CONVENTIONs, 27 NITs)
-**Fixed:** 16 warnings | **Decided, not changed:** 1 warning | **Asked (awaiting user):** 0
+**Total findings:** the sum of the per-round counts below (0 BLOCKERs, 13 WARNINGs, 5 CONVENTIONs, 29 NITs)
+**Fixed:** 11 warnings | **Decided, not changed:** 1 (a project named set, remove or label is not listed from the CLI) | **Checked, not changed:** 1 (the 30vh cap, in the shots) | **Asked (awaiting user):** 0
 **After the loop:** the design shots (a four-column table broke every word in the narrow Files column and its link was unreadable in dark: now a stacked list) and Mona Lisa's design review (the date said once, the records set apart from the files, a quieter note, no rule under the last row).
 **Source:** the reviewers' reports are in this session's transcript and summarised in the handoff; the commit bodies carry no ledger.
 
