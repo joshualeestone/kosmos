@@ -2212,7 +2212,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#cwnote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reviewer-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
+#cwnote-slot:empty, #sknote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reviewer-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -12708,6 +12708,9 @@ window.kosmosMeasureScrollbarWidth();
     <!-- kosmos#6613: a certificate check finding, on every view but Kosmos+ (where its own line says it). First in the
          stack: it asks the person to look. Painted by paintCwNote; only fixed sentences, never text from the report. -->
     <div id="cwnote-slot"></div>
+    <!-- kosmos#6587: the Kosmos+ service key warning, on every view but Kosmos+ (where #plus-sk-line says it). Second:
+         it asks the person to look too. Painted by paintSkNote; one fixed sentence. -->
+    <div id="sknote-slot"></div>
     <div id="utoast-slot"></div>
     <!-- #2055: the update-abort notice. Its own slot so it can co-occur with the
          post-update note and the offline note rather than overwriting either; a
@@ -21423,6 +21426,7 @@ function syncPlusChrome() {
   if (typeof paintAsk === 'function' && typeof ASK !== 'undefined') paintAsk();
   /* kosmos#6613: the certificate notice hides on Kosmos+ and comes back when the person leaves it. */
   if (typeof paintCwNote === 'function' && typeof CW_NOTE !== 'undefined') paintCwNote(CW_NOTE.last, CW_NOTE.lastPlusOn);
+  if (typeof paintSkNote === 'function' && typeof SK_NOTE !== 'undefined') paintSkNote(SK_NOTE.last);   // kosmos#6587, the same way
 }
 if (typeof window !== 'undefined') window.addEventListener('resize', function () { if (plusMounted) { plusStarsResize(); plusMarkBuild(); plusMarkDraw(null); } });   // #3778: the field keeps its dots on a window resize too
 /* ================= end #1615 Plus canvases ================= */
@@ -54018,6 +54022,7 @@ function paintPlusServiceKeys(sk) {
   const say = sk.state === 'mismatch' ? PLUS_SK_MISMATCH : '';
   if (line.textContent !== say) line.textContent = say;   // rewritten only on a change, so it is not re-read every poll
   if (line.dataset) line.dataset.state = say ? 'mismatch' : '';
+  if (typeof paintSkNote === 'function') paintSkNote(sk);   // kosmos#6587 slice 2b: the notice outside Kosmos+
 }
 /* kosmos#6613: the notice for a finding, a card in the floating stack (#cwnote-slot, the .utoast look and its red),
    on every view but Kosmos+. Its close (and Review) put away the finding set shown (its key, kept per browser, as
@@ -54084,6 +54089,8 @@ async function pollCwNote() {
   // A failed read (a board restarting) is not "no finding": keep what shows rather than blink a warning off and on.
   if (seq !== CW_NOTE.seq) return;
   if (!r || typeof r !== 'object' || typeof r.enrolled !== 'boolean') return;
+  // kosmos#6587: the service key warning rides on this poll. Set up but no serviceKeys (an older board): left as it is.
+  if (typeof paintSkNote === 'function' && (r.enrolled !== true || (r.serviceKeys && typeof r.serviceKeys === 'object'))) paintSkNote(r.enrolled === true ? r.serviceKeys : null);
   // Set up, but no certWatch in the answer (an older board): not an answer about the check, so nothing changes.
   if (r.enrolled === true && (!r.certWatch || typeof r.certWatch !== 'object')) return;
   CW_NOTE.quietUntil = r.enrolled === true ? 0 : Date.now() + 10 * 60 * 1000;
@@ -54160,6 +54167,66 @@ async function pollCwNote() {
   if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', () => { if (!document.hidden) pollCwNote(); });
   pollCwNote();
 }
+/* kosmos#6587 (S-7a slice 2b): the service key warning, raised in the floating stack (#sknote-slot, the certificate
+   notice's look) on every view but Kosmos+, where its own line (#plus-sk-line) says it. The server passes only a state,
+   so there is no finding to key a put-away on: Close and Review put it away for this tab (sessionStorage) until an
+   answer says anything but mismatch, so a later mismatch is raised again. Kosmos+'s own line is never put away. Only fixed sentences are written. */
+var SK_NOTE = { last: null, shown: false, away: false };
+var SK_NOTE_HEAD = 'Warning: the key this computer trusts for the Kosmos+ service is not on the signed list that came with this version of Kosmos.';
+function skNoteAway() {
+  try { return sessionStorage.getItem('kosmos.sknote.away') === '1' || SK_NOTE.away; } catch (e) { return SK_NOTE.away; }
+}
+function skNoteDismiss() {
+  SK_NOTE.away = true;
+  try { sessionStorage.setItem('kosmos.sknote.away', '1'); } catch (e) { /* this tab's record holds */ }
+}
+function paintSkNote(sk) {
+  SK_NOTE.last = sk || null;
+  // A real answer that is not a mismatch ends the one the person put away: a later mismatch in this tab is raised again.
+  if (sk && typeof sk.state === 'string' && sk.state !== 'mismatch') {
+    SK_NOTE.away = false;
+    try { sessionStorage.removeItem('kosmos.sknote.away'); } catch (e) { /* the tab's record is cleared above */ }
+  }
+  const slot = document.getElementById('sknote-slot');
+  if (!slot) return;
+  const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
+  const held = !!(slot.contains && slot.contains(document.activeElement));   // a clear must not drop focus to the page
+  if (!sk || sk.state !== 'mismatch' || onPlus || skNoteAway()) {
+    SK_NOTE.shown = false; slot.textContent = '';
+    if (held && typeof rebootFocusAway === 'function') rebootFocusAway();
+    return;
+  }
+  if (SK_NOTE.shown && slot.firstChild) return;   // unchanged: not rewritten, so it is not read out again
+  SK_NOTE.shown = true;
+  // role=status on the words, not the card, so the buttons are not read out with it (#3532's rule, as the certificate notice).
+  slot.innerHTML = '<div class="utoast cwnote sknote"><span class="udot" aria-hidden="true"></span>'
+    + '<div class="utxt" role="status"><b></b><small>Something may be posing as the Kosmos+ service.</small></div>'
+    + '<div class="uacts"><button type="button" class="uprime" data-sk="open" aria-label="Review: Kosmos+ service key warning">Review</button></div>'
+    + '<button type="button" class="ux" data-sk="dismiss" aria-label="Close: Kosmos+ service key warning">&times;</button></div>';
+  slot.querySelector('.utxt b').textContent = SK_NOTE_HEAD;
+  if (held) { const review = slot.querySelector('[data-sk="open"]'); if (review) review.focus(); }
+}
+{ const skSlot = document.getElementById('sknote-slot');
+  if (skSlot) skSlot.addEventListener('click', (e) => {
+    const b = e.target && e.target.closest ? e.target.closest('[data-sk]') : null;
+    if (!b) return;
+    const open = b.getAttribute('data-sk') === 'open';
+    skNoteDismiss(); SK_NOTE.shown = false; skSlot.textContent = '';
+    if (open) {
+      showTab('settings'); settingsGo('plus');
+      // The button it pressed is gone: keyboard focus goes to the pane's line when it says the warning, else the heading.
+      const land = () => {
+        const line = document.getElementById('plus-sk-line'), flow = document.getElementById('plus-flow');
+        // Not a line left from an earlier paint in a pane that did not paint now (#plus-flow hidden), as #6613 checks.
+        if (line && line.textContent && !(flow && flow.hidden)) { line.setAttribute('tabindex', '-1'); line.focus(); return; }
+        const h = document.querySelector('.apphead h1'); if (h && h.focus) h.focus();
+      };
+      Promise.resolve().then(() => paintPlus()).then(land, land);
+      return;
+    }
+    const next = ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+    if (next) next.focus();
+  }); }
 /* The words of the code box (#729). Pete sat at it for twelve minutes, three
    sends in, unable to tell from the screen whether anything had happened;
    the emails had all delivered. A wait a person is in must be able to say

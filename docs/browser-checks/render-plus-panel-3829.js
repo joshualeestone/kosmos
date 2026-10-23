@@ -1,4 +1,4 @@
-// Browser-check-surface: cwnote-slot plus-cw-ack plus-cw-line plus-sk-line plus-cw-row plus-cw-switch plus-cw-label plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
+// Browser-check-surface: cwnote-slot sknote-slot plus-cw-ack plus-cw-line plus-sk-line plus-cw-row plus-cw-switch plus-cw-label plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
 'use strict';
 /**
  * #3829 (Josh, 2026-09-25 16:54: the connected Kosmos+ panel and the device approval are "terribly
@@ -542,6 +542,26 @@ const STATES = {
       await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [], pending: [], self_device_id: 'd-self' })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+      /* kosmos#6587 slice 2b: away from Kosmos+, a mismatch is raised in the floating stack (after the certificate slot); a
+         listed key raises nothing. Review opens Kosmos+ and puts keyboard focus on the pane's line. */
+      await page.evaluate(() => typeof pollCwNote === 'function' && pollCwNote());
+      await page.waitForTimeout(400);
+      const note = await page.evaluate(() => { const c = document.querySelector('#sknote-slot .utoast'); const r = c && c.getBoundingClientRect();
+        const ids = [...document.getElementById('topnotes').children].map((n) => n.id);
+        return { shown: !!(c && r.height > 0), text: c ? c.innerText.replace(/\s+/g, ' ') : '', after: ids.indexOf('sknote-slot') === ids.indexOf('cwnote-slot') + 1 }; });
+      chk(note.after, `${t} 2b: the notice's slot follows the certificate slot in the floating stack`, JSON.stringify(note));
+      if (mode === 'listed') {
+        chk(!note.shown, `${t} 2b CONTROL: a listed key raises no notice`, JSON.stringify(note));
+      } else {
+        chk(note.shown && /^Warning: the key this computer trusts for the Kosmos\+ service is not on the signed list/.test(note.text),
+          `${t} 2b: away from Kosmos+, the mismatch is raised as a fixed warning`, JSON.stringify(note));
+        await page.click('#sknote-slot [data-sk="open"]');
+        await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+        await page.waitForTimeout(300);
+        const after = await page.evaluate(() => ({ gone: !document.querySelector('#sknote-slot .utoast'), focus: (document.activeElement || {}).id || '',
+          away: sessionStorage.getItem('kosmos.sknote.away') }));
+        chk(after.gone && after.focus === 'plus-sk-line' && after.away === '1', `${t} 2b: Review opens Kosmos+, puts the notice away, and focus is on the pane's line`, JSON.stringify(after));
+      }
       await page.evaluate(() => showTab('settings'));
       await page.click('#s-nav button[data-go="plus"]');
       await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
