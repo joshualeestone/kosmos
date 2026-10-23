@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: s7d-6587
-diff_hash: 77e143a21f071ac5435f48bd8854f395d0184c96e0515bd121365b2a5c12be1e
+diff_hash: f73c578a5c51fd16e56e2fc7bf246885add072cc67b72fe9e2388814c106c9dc
 validation: passed (on the rebased tree: engine/remote.test.js, engine.reachable, engine/remote-servicekeys-6587, engine/servicekeys-check-6587 and the standing guards 292 pass; every new guard's mutant measured red)
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-20T12:29:44Z
