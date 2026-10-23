@@ -14,7 +14,7 @@
     {
       "icon": "list",
       "title": "See which agent changed a file",
-      "line": "A project's Files page usually shows which Claude agent changed a file last.",
+      "line": "A project's Documents screen, opened with View All under Files, usually shows which Claude agent changed a file last.",
       "platforms": [
         "mac"
       ]
