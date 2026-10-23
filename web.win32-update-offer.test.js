@@ -206,8 +206,9 @@ test('win32-board-copy (W-25): the manual offer is numbered steps that name Wind
     'Click Open my Kosmos folder.',
     'Open the downloaded zip, select everything inside it (Ctrl+A), and drag it into your Kosmos folder.',
     'When Windows asks, choose Replace the files in the destination.',
-    'Double-click Kosmos.exe. Your agents keep running.',
+    'Open Kosmos from the Start menu. Your agents keep running.',   // #6985: the Start menu runs the installed copy
   ]);
+  assert.doesNotMatch(steps[4], /Kosmos\.exe/, '#6985: the last step sends a person to Kosmos.exe again');
   assert.doesNotMatch(card.line + card.steps, /unpack/i, 'Mac vocabulary is back in the Windows offer');
   /* The button is the same engine reveal as Settings' "Open the Kosmos folder". */
   assert.match(PAGE, /<button class="btn-quiet" type="button" id="upd-open-folder" data-remote-hide hidden data-win-copy="updateOpenFolder">Open my Kosmos folder<\/button>/);   // #6724: hidden over Kosmos+

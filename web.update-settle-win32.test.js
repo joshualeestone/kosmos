@@ -2,7 +2,7 @@
 
 /**
  * win32-update-arm (S4): the update overlay's Windows wording -- the "Downloading X" -> "Updating"
- * lead, the "Nothing else was changed." failure line, and the "double-click Kosmos.exe" slow remedy
+ * lead, the "Nothing else was changed." failure line, and the "open it from the Start menu" slow remedy (#6985)
  * -- lifted from web/index.html and driven on BOTH platforms. It runs on the macOS CI host (where
  * the win32 browser-check arm skips), so this is the coverage for the Windows overlay copy.
  *
@@ -73,10 +73,11 @@ test('win32 failure: a rollback (or refusal) says the box is unchanged; the same
   }
 });
 
-test('win32 slow: the remedy points at Kosmos.exe, never the Mac Applications', () => {
+test('win32 slow: the remedy points at the Start menu (#6985), never the Mac Applications', () => {
   const { updateSettleText } = lifted();
   const t = updateSettleText('deadline', '0.6.55', null, null, 'win32');
-  assert.match(t, /double-click Kosmos\.exe in your Kosmos folder/, 'the win32 slow remedy is missing');
+  assert.match(t, /If Kosmos does not come back on its own, open it from the Start menu\./, 'the win32 slow remedy is missing');
+  assert.doesNotMatch(t, /Kosmos folder|Kosmos\.exe/, '#6985: the slow remedy sends a person to the extracted zip');
   assert.doesNotMatch(t, /Applications/, 'the Mac Applications line showed on Windows');
 });
 

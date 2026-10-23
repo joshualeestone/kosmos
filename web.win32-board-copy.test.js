@@ -393,13 +393,14 @@ function boardEmpty(platform, failed) {
     { BOARD_SEEN: true, BOARD_LOOK_FAILED: failed || null, BOARD_NEEDS_SIGNIN: !failed, BOARD_SIGNED_OUT: false, BOARD_DEVICE_OFFLINE: false });
 }
 
-test('the not-signed-in panel on Windows points at Kosmos.exe, with no Mac path, no self-heal and no kosmos command', () => {
+test('the not-signed-in panel on Windows points at the Start menu (#6985), with no Mac path, no self-heal and no kosmos command', () => {
   const html = runPage('win32', ['boardSigninHtml'], 'boardSigninHtml()');
-  assert.match(html, /open Kosmos by double-clicking <b>Kosmos\.exe<\/b> in your Kosmos folder/);
+  assert.match(html, /open Kosmos from the <b>Start menu<\/b>\. It opens this page signed in\./);
+  assert.doesNotMatch(html, /Kosmos folder|Kosmos\.exe/, '#6985: the panel sends a person to the extracted zip');
   assert.match(html, /data-board-retry/, 'the panel lost its Reload');
   assert.doesNotMatch(html, /~\/\.local|kosmos open|fix(es)? itself|Terminal|terminal/);
   const sentence = runPage('win32', [], page.liftConst(SCRIPT, 'SIGNIN_SENTENCE').replace(/^const SIGNIN_SENTENCE = /, '').replace(/;$/, ''));
-  assert.equal(sentence, 'This board is not signed in, so it cannot read your agents or projects. To fix it, open Kosmos by double-clicking Kosmos.exe in your Kosmos folder.');
+  assert.equal(sentence, 'This board is not signed in, so it cannot read your agents or projects. To fix it, open Kosmos from the Start menu.');
   assert.doesNotMatch(boardEmpty('win32', 'tmux is not answering'), /kosmos agents|Already use Terminal/, 'the kosmos agents hatch shows on Windows');
 });
 
@@ -435,8 +436,8 @@ function offlineNote(platform) {
   return slot.innerHTML;
 }
 
-test('the recovery toasts on Windows say to restart Kosmos by double-clicking Kosmos.exe or signing out, never Quit', () => {
-  const restart = 'restart Kosmos by double-clicking Kosmos.exe in your Kosmos folder, or by signing out of Windows and signing back in.';
+test('the recovery toasts on Windows say to restart Kosmos from the Start menu or by signing out, never Quit', () => {
+  const restart = 'restart Kosmos by opening it from the Start menu, or by signing out of Windows and signing back in.';
   const abort = abortToast('win32');
   /* Review round 2: for a STUCK UPDATE, double-clicking Kosmos.exe only says "already
      running" (same build), so the abort toast names the one true remedy, a fresh sign-in. */
@@ -448,7 +449,8 @@ test('the recovery toasts on Windows say to restart Kosmos by double-clicking Ko
   assert.doesNotMatch(engine, /Kosmos\.exe/);
   assert.doesNotMatch(engine, /kosmos restart/);
   const offline = offlineNote('win32');
-  assert.match(offline, /Double-click Kosmos\.exe in your Kosmos folder and it will start again if it needs to\./);
+  assert.match(offline, /Open Kosmos from the Start menu and it will start again if it needs to\./);
+  assert.doesNotMatch(offline, /Kosmos folder|Kosmos\.exe/, '#6985');
   assert.doesNotMatch(offline, /Applications folder/);
   const sw = page.lift(SCRIPT, 'worldswSwitch');
   assert.match(sw, /\? windowsCopy\('worldSwitchRestart'\)\.replace\('%NAME%', \(\) => switchedName\)/);
@@ -633,7 +635,7 @@ test('Settings, Documents and the agent page on Windows: File Explorer, the Kosm
   assert.equal(table.terminalBoxTitle, table.terminalTab, 'the box and the section must carry one name');
   assert.doesNotMatch(table.terminalTab + table.terminalBoxTitle, /output/i);
   assert.equal(table.settingsRevealButton, 'Open the Kosmos folder');
-  assert.equal(table.settingsOpenKosmos, 'To open Kosmos later, double-click <b>Kosmos.exe</b> in your Kosmos folder. Tip: right-click Kosmos.exe and choose <b>Pin to Start</b>.');
+  assert.equal(table.settingsOpenKosmos, 'To open Kosmos later, find it in the Start menu. Tip: right-click it there and choose <b>Pin to Start</b>.');
   assert.equal(table.docsOpenFolder, 'Open in File Explorer');
   assert.equal(table.terminalTab, 'Start-up and restart');
   assert.equal(table.trustRestartHint, 'Approves this agent&rsquo;s folder so it can start without asking each time.');
