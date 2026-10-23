@@ -10,6 +10,8 @@
  *   - See who opens Settings at Kosmos+, the reviewers list is on screen, and the notice is gone;
  *   - a grant undone a minute later raises nothing; a family's notice says "your family"; a computer in no company gets
  *     none; a failed read keeps the notice;
+ *   - kosmos#6955: a reviewer made an admin raises nothing, and the Settings list says "now an admin since" for them and
+ *     "no longer a reviewer since" for one set back to member;
  *   - at 375 x 667 (both themes) the notice is on screen with See who and its x at least 44 px tall.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-reviewerptr-6817.js [shots-dir]
@@ -127,6 +129,18 @@ const WATCHDOG = setTimeout(() => { console.log('FAIL  render-reviewerptr-6817 d
     STEP = eng + ' removed grant';
     const removed = await read(page, company([{ ...g(DAY / 2), removedAt: now - DAY / 2 + 60 }]));
     chk(removed.count === 0, `${t} a grant undone a minute later raises nothing`, JSON.stringify(removed));
+    /* kosmos#6955: a reviewer made an admin is not a new reviewer (no notice), and the Settings list says what they are
+       now; set back to member reads as no longer a reviewer. */
+    STEP = eng + ' made an admin';
+    const promoted = { ...g(3 * DAY), removedAt: now - DAY, roleNow: 'admin', roleChangedAt: now - DAY };
+    const adminNote = await read(page, company([promoted]));
+    chk(adminNote.count === 0, `${t} a reviewer made an admin raises no notice`, JSON.stringify(adminNote));
+    const lines = await page.evaluate(([a, b]) => {
+      plusOrgReviewers({ enrolled: true, org: { kind: 'company' }, reviewerGrants: [a, b] });
+      return [...document.querySelectorAll('#plus-org-reviewers-list p')].map((x) => x.textContent);
+    }, [promoted, { ...g(2 * DAY), who: 'Lee Park', removedAt: now - DAY, roleNow: 'member', roleChangedAt: now - DAY }]);
+    chk(lines.length === 2 && /^Lee Park, no longer a reviewer since /.test(lines[0]) && /^Pat Lee, now an admin since .+ \(made a reviewer .+\)$/.test(lines[1]),
+      `${t} the Settings list says "now an admin" for one made an admin, and "no longer a reviewer" for one set back to member`, JSON.stringify(lines));
     // Its own grant: the x above marked g(DAY) seen in the page's memory, which clearing storage does not reset.
     const fam = await read(page, { enrolled: true, kind: 'family', reviewerGrants: [{ ...g(DAY), who: 'Sam Ortiz' }] });
     chk(fam.count === 1 && fam.words === 'Someone was made a reviewer for your family.', `${t} a family's notice says "your family"`, JSON.stringify(fam));
@@ -157,7 +171,7 @@ const WATCHDOG = setTimeout(() => { console.log('FAIL  render-reviewerptr-6817 d
     await browser.close();
   }
   if (engines.length === 0) chk(false, 'ENGINES named no engine, so nothing ran');
-  const EXPECTED_PER_ENGINE = 13;
+  const EXPECTED_PER_ENGINE = 15;
   if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
   clearTimeout(WATCHDOG);
   console.log(`render-reviewerptr-6817: ${RAN - fail.length} PASS, ${fail.length} FAIL`);

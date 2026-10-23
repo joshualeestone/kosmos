@@ -53162,6 +53162,9 @@ function plusOrgPaint() {
    from the coordinator: the record is up to an hour old. "No longer a reviewer", not "removed": the coordinator's time
    is set when an admin removes them and when they leave on their own (review 1). */
 function plusOrgReviewerLine(g, now, fmt) {
+  /* kosmos#6955: a reviewer made an admin is not someone who left: say what they are now (relay #565 roleNow; removedAt
+     is when the reviewer role ended). Set back to member reads as the plain "no longer a reviewer" below. */
+  if (g.removedAt && g.roleNow === 'admin') return ', now an admin since ' + fmt.day(g.removedAt) + ' (made a reviewer ' + fmt.day(g.grantedAt) + ')';
   if (g.removedAt && g.removedAt < g.effectiveAt) return ', removed before it took effect, ' + fmt.day(g.removedAt) + ' (made a reviewer ' + fmt.day(g.grantedAt) + ')';   // review 2
   if (g.removedAt) return ', no longer a reviewer since ' + fmt.day(g.removedAt) + ' (made a reviewer ' + fmt.day(g.grantedAt) + ')';
   if (g.effectiveAt > now) return ', becomes a reviewer ' + (g.effectiveAt - now <= 86400 ? fmt.soon(g.effectiveAt) : fmt.day(g.effectiveAt));

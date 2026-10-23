@@ -143,3 +143,23 @@ test('#6752: cleanReviewerGrants keeps only well-formed grants, strips control a
   assert.equal(kept[0].who, 'r5', 'the oldest were not the ones dropped');
   assert.equal(kept[kept.length - 1].who, 'r24');
 });
+
+test('#6955: cleanReviewerGrants keeps roleNow (reviewer, admin or member) and roleChangedAt, and drops anything else in them, not the grant', () => {
+  const c = org.cleanReviewerGrants;
+  const g = { who: 'pat', grantedAt: T, removedAt: T + 50 };
+  assert.deepStrictEqual(c([{ ...g, roleNow: 'admin', roleChangedAt: T + 50 }]),
+    [{ who: 'pat', grantedAt: T, effectiveAt: T, removedAt: T + 50, roleNow: 'admin', roleChangedAt: T + 50 }]);
+  for (const r of ['reviewer', 'admin', 'member']) assert.equal(c([{ ...g, roleNow: r }])[0].roleNow, r);
+  for (const bad of ['owner', 'Admin', '', 7, null, { r: 'admin' }]) {
+    const kept = c([{ ...g, roleNow: bad, roleChangedAt: T + 50 }]);
+    assert.equal(kept.length, 1, 'a bad roleNow dropped the grant: ' + JSON.stringify(bad));
+    assert.equal('roleNow' in kept[0], false, 'kept a bad roleNow: ' + JSON.stringify(bad));
+  }
+  for (const bad of [-1, 0, 1.5, '2026-10-22', null]) {
+    const kept = c([{ ...g, roleNow: 'admin', roleChangedAt: bad }]);
+    assert.equal(kept.length, 1);
+    assert.equal('roleChangedAt' in kept[0], false, 'kept a bad roleChangedAt: ' + JSON.stringify(bad));
+  }
+  // CONTROL: an older coordinator's grant (no roleNow) is unchanged from #6752.
+  assert.deepStrictEqual(c([g]), [{ who: 'pat', grantedAt: T, effectiveAt: T, removedAt: T + 50 }]);
+});
