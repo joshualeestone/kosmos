@@ -167,6 +167,13 @@ out="$(bash "$HERE/promote-channel.sh" "$S" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "If 9.9.10 was cut with setup-staging, copy setup-staging (+ .sha256) onto setup (+ .sha256) by hand and commit them with latest.json." \
   && pass "default: CONTROL the hand fix for a pointer naming no installer is the old sentence" || bad "default no-installer hand fix (rc=$rc, out=$out)"
 
+# A republish of a V cut with no installer is the chosen commit, beside a LATER cut's setup-staging: that installer is not
+# offered as V's.
+S="$(newsite)"; mkcut "$S" 9.9.10 "INSTALLER-9.9.10 KOSMOS_READONLY_APP" none; mkcut "$S" 9.9.11; republish "$S" 9.9.10
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.10 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$S/setup")" = "PROD-INSTALLER KOSMOS_READONLY_APP" ] && ! has "$out" "git show" && has "$out" "may belong to another cut" \
+  && pass "named: beside a republish, a later cut's setup-staging is not offered as V's installer" || bad "named republish hand fix (rc=$rc, out=$out)"
+
 # ---- the gates still decide: a cannot-tell experience gate HOLDS a named promote ----
 HOLD="$T/stub-hold-gate.sh"; printf '#!/usr/bin/env bash
 exit 2
