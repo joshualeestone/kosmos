@@ -21268,7 +21268,15 @@ const server = http.createServer(async (req, res) => {
                   if (!reactions.some((r) => messages.isClaimEmoji(r.emoji))) return {};
                   if (claimMembers === undefined) claimMembers = messages.claimMembers(roomRecord && roomRecord.agents);
                   const c = messages.claimOf(m.id, rec.rows, claimMembers);
-                  return c ? { claim: c } : {};
+                  if (!c) return {};
+                  // #6957: whether the person's live 🙋 was given after this claim began (agrees with THIS holder).
+                  let youAt = null;
+                  for (const x of rec.rows) {
+                    if (!x || x.kind !== 'reaction' || String(x.of) !== String(m.id) || x.operator !== true || !messages.isClaimEmoji(x.emoji)) continue;
+                    youAt = x.op === 'remove' ? null : x.at;
+                  }
+                  const agreed = typeof youAt === 'string' && typeof c.at === 'string' && Date.parse(youAt) >= Date.parse(c.at);
+                  return { claim: c, ...(agreed ? { claimAgreed: true } : {}) };
                 })()) };
             })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
@@ -21391,8 +21399,9 @@ const server = http.createServer(async (req, res) => {
                stays: it is not a claim, it says "yes, you do it" (review 1). Kept by the person's sentinel 'you',
                before it is renamed, so an agent's own name can never pass for it (review 3). */
             .map((r) => ({ emoji: messages.normalizeReactionEmoji(r.emoji),
-              // #6957: the person's 🙋 agrees with a claim, so with no claim live it is left out too (it would read as theirs).
-              who: (Array.isArray(r.who) ? r.who : []).filter((w) => !messages.isClaimEmoji(r.emoji) || (w === 'you' && m.claim))
+              // #6957: the person's 🙋 agrees with a claim, so it shows only beside the claim it was given to (newer than
+              // that claim); with no claim live, or a later holder, it would read as theirs or as approving someone new.
+              who: (Array.isArray(r.who) ? r.who : []).filter((w) => !messages.isClaimEmoji(r.emoji) || (w === 'you' && m.claim && m.claimAgreed))
                 .map((w) => (w === 'you' ? 'operator' : String(w).replace(/\s+/g, ' '))) }))
             .filter((r) => r.emoji && r.who.length);
           const reacted = shown.length

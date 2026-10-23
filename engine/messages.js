@@ -3689,15 +3689,16 @@ const CLAIM_ASKED_MINUTES = 30;   // #6952: how long a post's asked members have
 const CLAIM_LEAD = "(?:^|[.!?;:,]\\s*)(?:(?:now|so|and|but|ok|okay|also|then|great|thanks)[,!]?\\s+)?";   // the start of a clause
 const CLAIM_ROOM_ASK = new RegExp(
   CLAIM_LEAD + '(?:can|could|would|will|is there)\\s+(?:someone|somebody|anyone|anybody)\\b'          // "can someone review..."
-  + '|\\b(?:someone|somebody|anyone|anybody)\\s+(?:please|free|available|around|able|willing|up for|have time|has time)\\b'
+  + '|\\b(?:someone|somebody|anyone|anybody)\\s+(?:please|free|available|around to|able|willing|up for|have time|has time)\\b'
   // "who can write the notes?", "Who's free to take this?" (straight or curly apostrophe), "who has time for this?"
   + '|' + CLAIM_LEAD + "who(?:\\s+|'s\\s+|\u2019s\\s+)(?:can|could|wants|will|is free|free|is available|available|has time|is around|around)\\b[^.!?]*\\?"
   + '|\\bwhoever\\s+(?:can|is free|has time|wants|picks|takes|gets)\\b'
-  + '|\\b(?:any takers|any volunteers|need (?:a )?volunteers?|need (?:someone|somebody|anyone) to)\\b'
-  + '|\\b(?:anyone|anybody|someone|somebody)(?:\\s+else)?\\s*\\?', 'i');   // a bare "anyone?" or "anyone else?"
+  + '|\\b(?:any takers|any volunteers|need (?:a )?volunteers?)\\b'
+  // a bare "anyone?" or "anyone else?" as its own clause ("If you cannot, anyone else?"), not "broken for anyone else?"
+  + '|' + CLAIM_LEAD + '(?:anyone|anybody|someone|somebody)(?:\\s+else)?\\s*\\?', 'i');   // a bare "anyone?" or "anyone else?"
 /* "One of you" and the like put it to a group: on a post that @-names members that group is THEM ("@ann @bob can one of
    you review this?"), so it counts only on a post that names nobody. */
-const CLAIM_GROUP_ASK = /\b(?:(?:one|any|either|each) of you|all of you|the rest of you|you all|y'?all)\b/i;
+const CLAIM_GROUP_ASK = /\b(?:(?:one|any|either|each) of you|all of you|the rest of you|you all|y'?all|need (?:someone|somebody|anyone) to)\b/i;   // #6957: "need someone to" said to bob is bob's
 function logRoomRefusal({ from, project, because, at, doing, addable }) {
   if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway
   const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
@@ -3857,16 +3858,21 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   /* The asked members have first call, for CLAIM_ASKED_MINUTES from the post (review 7). After that, with none of them
      holding it, anyone may claim it: a request the pattern misread, or one its asked member never got to, is not held
      forever. */
-  // Capped at the window: a post dated ahead of this clock (a clock stepped back) never holds longer (#6957).
+  /* A post dated ahead of this clock (a clock stepped back) is open: its age cannot be read, and holding it until the
+     clock catches up could be hours (#6957 review 1). Fails open, as a post before #6952 did. */
   const windowMs = CLAIM_ASKED_MINUTES * 60000;
-  const leftMs = Math.min(windowMs, windowMs - (Date.now() - Date.parse(post.at)));
+  const age = Date.now() - Date.parse(post.at);
+  const leftMs = age < 0 ? 0 : windowMs - age;
   /* #6957: an asked member who claimed the post and then gave it back has let it go ("out of usage, someone else
      please"), so once every asked member still here has done that, the post is open. And a post's own author is never
      locked out of claiming it ("@bob I am taking the parser, FYI"). */
-  const gaveBack = (n) => !claimants.has(n) && rows.some((m) => m && m.kind === 'reaction' && String(m.of) === postId
-    && m.from === n && m.op === 'add' && m.claim === true);
+  // Gave back: claimed it (a marked add) and later removed it THEMSELVES (no takenBy: not ended by a newer claim).
+  const gaveBack = (n) => !claimants.has(n)
+    && rows.some((m) => m && m.kind === 'reaction' && String(m.of) === postId && m.from === n && m.op === 'add' && m.claim === true)
+    && rows.some((m) => m && m.kind === 'reaction' && String(m.of) === postId && m.from === n && m.op === 'remove' && !m.takenBy && isClaimEmoji(m.emoji));
   const released = asked.length > 0 && asked.every(gaveBack);
-  if (asked.length && !asked.includes(reactor) && reactor !== post.from && !released && leftMs > 0) {
+  const authorsOwn = named.length > 0 && reactor === post.from;   // the author of an @-named post, not of a reply (review 1)
+  if (asked.length && !asked.includes(reactor) && !authorsOwn && !released && leftMs > 0) {
     const who = asked.length === 1 ? asked[0] : asked.slice(0, -1).join(', ') + ' or ' + asked[asked.length - 1];
     const mins = Math.max(1, Math.ceil(leftMs / 60000));
     return { ok: false, askedOf: asked,
