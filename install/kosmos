@@ -4916,47 +4916,53 @@ cmd_claim() {
 # A subverb wins over a project id spelled the same (as room reopen): such a project is read from the board.
 cmd_records() {
   local usage="Usage: kosmos records <project-id> | kosmos records set <project-id> \"<name>\" [--status \"<status>\"] [--confirmed YYYY-MM-DD] [--source \"<link or file>\"] | kosmos records remove <project-id> \"<name>\" | kosmos records label <project-id> \"<what the rows are>\""
-  local sub="${1:-}"
+  local sub="${1:-}" project name
+  [ -n "$sub" ] || { say "$usage"; exit 2; }
+  # The words are checked before the board is asked anything, so a mistyped command says how to type it even when
+  # Kosmos is not running.
+  local status="" confirmed="" source="" have_status="" have_confirmed="" have_source=""
   case "$sub" in
-    '') say "$usage"; exit 2 ;;
+    set|remove|label)
+      shift
+      project="${1:-}"; name="${2:-}"
+      { [ -n "$project" ] && [ "$#" -ge 2 ]; } || { say "$usage"; exit 2; }
+      shift 2
+      if [ "$sub" = set ]; then
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            --status)    [ "$#" -ge 2 ] || { say "--status needs a value."; exit 2; }; status="$2"; have_status=1; shift 2 ;;
+            --confirmed) [ "$#" -ge 2 ] || { say "--confirmed needs a date, YYYY-MM-DD."; exit 2; }; confirmed="$2"; have_confirmed=1; shift 2 ;;
+            --source)    [ "$#" -ge 2 ] || { say "--source needs a link or a file."; exit 2; }; source="$2"; have_source=1; shift 2 ;;
+            *) say "Unknown: $1. $usage"; exit 2 ;;
+          esac
+        done
+      else
+        [ "$#" -eq 0 ] || { say "$usage"; exit 2; }
+      fi ;;
+    *)
+      project="$sub"
+      [ "$#" -eq 1 ] || { say "$usage"; exit 2; } ;;
   esac
+  # A project id is letters, digits, dot, dash and underscore (require_valid_project_id's rule): anything else cannot
+  # name one, so it is refused here, in the words the board's 404 gets, rather than encoded.
+  case "$project" in *[!A-Za-z0-9._-]*) say "There is no project called $project. kosmos project list shows them."; exit 1 ;; esac
   if ! healthy; then say_not_up "no records were read or changed"; exit 1; fi
   local _bt; _bt="$(agent_board_token || true)"
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
-  local body rc=0 esc_project
-  case "$sub" in
-    set|remove|label) ;;
-    *)
-      # The list. Nothing after the project id.
-      [ "$#" -eq 1 ] || { say "$usage"; exit 2; }
-      esc_project=$(printf '%s' "$sub" | sed 's/%/%25/g; s/ /%20/g; s/\//%2F/g; s/?/%3F/g; s/#/%23/g')
-      body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w '\n%{http_code}' "$URL/api/project/$esc_project/records?as=text" 2>/dev/null) || rc=$?
-      [ "$rc" -eq 0 ] || { say_unreached "read its records" "$rc"; exit 1; }
-      local code="${body##*$'\n'}"; body="${body%$'\n'*}"
-      case "$code" in
-        200) printf '%s\n' "$body" ;;
-        404) say "There is no project called $sub. kosmos project list shows them."; exit 1 ;;
-        *) say "Kosmos could not read its records: $(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')"; exit 1 ;;
-      esac
-      return ;;
-  esac
-  shift
-  local project="${1:-}" name="${2:-}"
-  [ -n "$project" ] && [ "$#" -ge 2 ] || { say "$usage"; exit 2; }
-  shift 2
-  local status="" confirmed="" source="" have_status="" have_confirmed="" have_source=""
-  if [ "$sub" = set ]; then
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        --status)    [ "$#" -ge 2 ] || { say "--status needs a value."; exit 2; }; status="$2"; have_status=1; shift 2 ;;
-        --confirmed) [ "$#" -ge 2 ] || { say "--confirmed needs a date, YYYY-MM-DD."; exit 2; }; confirmed="$2"; have_confirmed=1; shift 2 ;;
-        --source)    [ "$#" -ge 2 ] || { say "--source needs a link or a file."; exit 2; }; source="$2"; have_source=1; shift 2 ;;
-        *) say "Unknown: $1. $usage"; exit 2 ;;
-      esac
-    done
-  else
-    [ "$#" -eq 0 ] || { say "$usage"; exit 2; }
+  local body rc=0 code
+  if [ "$sub" != set ] && [ "$sub" != remove ] && [ "$sub" != label ]; then
+    body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w '\n%{http_code}' "$URL/api/project/$project/records?as=text" 2>/dev/null) || rc=$?
+    [ "$rc" -eq 0 ] || { say_unreached "read its records" "$rc"; exit 1; }
+    code="${body##*$'\n'}"; body="${body%$'\n'*}"
+    case "$code" in
+      # The board's text ends in its own newline, and -w's status line came after it, so $(...) left it on: take at
+      # most one off and print one, so the list never ends in a blank line.
+      200) printf '%s\n' "${body%$'\n'}" ;;
+      404) say "There is no project called $project. kosmos project list shows them."; exit 1 ;;
+      *) say "Kosmos could not read its records: $(_records_field error "$body")"; exit 1 ;;
+    esac
+    return
   fi
   local _node; _node="$(kosmos_engine_node)" || { say "Kosmos cannot find its own runtime, so no records were changed."; exit 1; }
   local payload
@@ -4974,25 +4980,35 @@ cmd_records() {
   ') || { say "We could not prepare that request, so no records were changed."; exit 1; }
   local route="records"
   [ "$sub" = set ] || route="records/$sub"
-  esc_project=$(printf '%s' "$project" | sed 's/%/%25/g; s/ /%20/g; s/\//%2F/g; s/?/%3F/g; s/#/%23/g')
-  body=$(printf '%s' "$payload" | kosmos_curl "$_bt" "$_tok" -sS -m 15 -w '\n%{http_code}' -X POST "$URL/api/project/$esc_project/$route" \
+  body=$(printf '%s' "$payload" | kosmos_curl "$_bt" "$_tok" -sS -m 15 -w '\n%{http_code}' -X POST "$URL/api/project/$project/$route" \
     -H 'content-type: application/json' --data-binary @- 2>/dev/null) || rc=$?
   # Setting a record says what it is, not what changed, so running it again after a timeout is safe.
   if [ "$rc" -eq 28 ]; then say "Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe."; exit 3; fi
   [ "$rc" -eq 0 ] || { say_unreached "change that record" "$rc" write; exit 1; }
-  local code="${body##*$'\n'}"; body="${body%$'\n'*}"
-  local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+  code="${body##*$'\n'}"; body="${body%$'\n'*}"
   case "$code" in
     201) say "Added $name to the records of $project." ;;
     200)
       case "$sub" in
         set) say "Updated $name in the records of $project." ;;
         remove) say "Removed $name from the records of $project." ;;
-        label) say "The records of $project are now called $(printf '%s' "$body" | sed -n 's/.*"label":"\([^"]*\)".*/\1/p')." ;;
+        label) say "The records of $project are now called $(_records_field label "$body")." ;;
       esac ;;
-    404) say "Not changed: ${because:-there is no project called $project}."; exit 1 ;;
-    *) say "Not changed: ${because:-Kosmos did not say why}."; exit 1 ;;
+    *)
+      local because; because="$(_records_field error "$body")"
+      if [ -z "$because" ] && [ "$code" = 404 ]; then because="there is no project called $project"; fi
+      say "Not changed: ${because:-Kosmos did not say why}."
+      token_refused_hint "$_tok" "$body"   # #5333, as the other writes
+      exit 1 ;;
   esac
+}
+# #6994: one field of the board's JSON answer, read by node so a quote or backslash inside it arrives whole (a sed
+# stops at the first escaped quote). Empty when there is no node or no such field.
+_records_field() {   # <field> <json>
+  local _node; _node="$(kosmos_engine_node)" || return 0
+  KR_FIELD="$1" KR_JSON="$2" "$_node" -e '
+    let v = ""; try { const j = JSON.parse(process.env.KR_JSON); v = j && typeof j[process.env.KR_FIELD] === "string" ? j[process.env.KR_FIELD] : ""; } catch {}
+    process.stdout.write(v.replace(/[\r\n\t]+/g, " "));' 2>/dev/null || true
 }
 
 # Read a project room's recent talk (#314): the tail, oldest first, shaped by

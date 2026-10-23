@@ -2396,9 +2396,13 @@ async function verbClaim(ctx, args) {
 
 /* #6994: install/kosmos cmd_records's twin. `kosmos records <project-id>` prints the board's own rendering
    (?as=text, engine/records.js renderList), so the two commands print the same list. */
+// install/kosmos cmd_records's rule (require_valid_project_id's): anything else cannot name a project, so it is refused
+// in the 404's words before any request.
+const RECORDS_PROJECT_RE = /^[A-Za-z0-9._-]+$/;
 async function verbRecords(ctx, args) {
   const [project] = args;
   if (!project || args.length !== 1) { ctx.err(USAGE.records); return 2; }
+  if (!RECORDS_PROJECT_RE.test(project)) { ctx.err('There is no project called ' + project + '. kosmos project list shows them.'); return 1; }
   const r = await ctx.call('GET', '/api/project/' + encodeURIComponent(project) + '/records?as=text');
   if (!r.reached) return ctx.unreachable('read its records');
   if (r.status === 404) { ctx.err('There is no project called ' + project + '. kosmos project list shows them.'); return 1; }
@@ -2420,6 +2424,7 @@ function recordsWrite(sub) {
         body[key] = value;
       }
     } else if (rest.length) { ctx.err(USAGE.records); return 2; }
+    if (!RECORDS_PROJECT_RE.test(project)) { ctx.err('There is no project called ' + project + '. kosmos project list shows them.'); return 1; }
     const r = await ctx.call('POST', '/api/project/' + encodeURIComponent(project) + '/' + (sub === 'set' ? 'records' : 'records/' + sub), body);
     // Setting a record says what it is, not what changed, so running it again after a timeout is safe.
     if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe.') : ctx.unreachable('change that record');
@@ -2432,6 +2437,7 @@ function recordsWrite(sub) {
       return 0;
     }
     ctx.err('Not changed: ' + (because || (r.status === 404 ? 'there is no project called ' + project : 'Kosmos did not say why')) + '.');
+    tokenRefusedHint(ctx, r);   // #5333, as the other writes
     return 1;
   };
 }

@@ -17213,10 +17213,11 @@ window.kosmosMeasureScrollbarWidth();
              grid since #3756 (message row 2, list row 3). -->
         <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
         <div id="pj-docs" class="pj-docs"></div>
-        <!-- #6994: the project's records (engine/records.js), the shared table agents keep with kosmos records.
-             Inside the Files card, under its list, so neither view's grid gains a cell; shown only when the
+        <!-- #6994: the project's records (engine/records.js), the shared table agents keep with kosmos records. A region with a tab stop,
+             since it scrolls inside a capped height in the consolidated view. Inside the Files card, under its
+             list, so neither view's grid gains a cell; shown only when the
              project has records. A stale row says "stale" in words, not by colour alone (WCAG 1.4.1). -->
-        <div class="pj-records" id="pj-records" hidden>
+        <div class="pj-records" id="pj-records" role="region" aria-labelledby="pj-records-h" tabindex="0" hidden>
           <h4 class="pj-records-h" id="pj-records-h">Records</h4>
           <table class="pj-rec" aria-labelledby="pj-records-h">
             <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col">Confirmed</th><th scope="col">Source</th></tr></thead>
@@ -71173,7 +71174,9 @@ async function pjLoadRecords(id) {
   } catch { body = null; }
   if (epoch !== PJ_REC_EPOCH || PJ_CURRENT !== id) return;
   const box = document.getElementById('pj-records');
-  if (!body || !Array.isArray(body.rows) || !body.rows.length) { box.hidden = true; PJ_REC_STAMP = null; return; }
+  // A read that failed changes nothing on screen: one bad poll does not blink the table out (the next one repaints).
+  if (!body || !Array.isArray(body.rows)) return;
+  if (!body.rows.length) { box.hidden = true; PJ_REC_STAMP = null; return; }
   const stamp = JSON.stringify(body);
   if (stamp === PJ_REC_STAMP && !box.hidden) return;
   PJ_REC_STAMP = stamp;

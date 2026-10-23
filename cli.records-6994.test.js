@@ -36,7 +36,9 @@ function makeHome() {
 }
 
 /* What the stub answers: the list's text, 201 for a new row, 200 for the rest; `missing` for the 404 arm. */
-function answer(method, route) {
+function answer(method, route, body) {
+  if (body && body.name === "Existing") return { status: 200, body: { row: { name: "Existing" }, created: false } };
+  if (body && body.name === "Quoted") return { status: 404, body: { error: "there is no record called \"Quoted\" \\ here" } };
   if (route === '/api/project/missing/records' || route.startsWith('/api/project/missing/')) return { status: 404, body: { error: 'there is no project by that name' } };
   if (method === 'GET') return { status: 200, text: LIST_TEXT + '\n' };
   if (route.endsWith('/label')) return { status: 200, body: { label: 'accounts' } };
@@ -53,7 +55,7 @@ function withStub(fn) {
       req.on('end', () => {
         let body; try { body = raw ? JSON.parse(raw) : undefined; } catch { body = { unparseable: raw }; }
         seen.push({ method: req.method, route, query: query || '', body, agent: req.headers['x-kosmos-agent-token'] });
-        const a = answer(req.method, route);
+        const a = answer(req.method, route, body);
         if (a.text !== undefined) { res.writeHead(a.status, { 'content-type': 'text/plain' }); res.end(a.text); return; }
         res.writeHead(a.status, { 'content-type': 'application/json' }); res.end(JSON.stringify(a.body));
       });
@@ -87,7 +89,7 @@ async function win(argv) {
     fetch: async (url, init) => {
       const [route, query] = url.replace('http://127.0.0.1:1', '').split('?');
       calls.push({ method: init.method, route, query: query || '', body: init.body ? JSON.parse(init.body) : undefined, agent: init.headers['x-kosmos-agent-token'] });
-      const a = answer(init.method, route);
+      const a = answer(init.method, route, init.body ? JSON.parse(init.body) : undefined);
       return { status: a.status, text: async () => (a.text !== undefined ? a.text : JSON.stringify(a.body)) };
     },
   });
@@ -100,6 +102,7 @@ const SENDS = [
     'POST', '/api/project/p6994/records',
     { name: 'Acme "Inc" \\ Ltd', status: 'active', confirmed: '2026-10-20', source: 'https://crm.example/a?b=c' }, /Added Acme "Inc" \\ Ltd to the records of p6994\./],
   [['records', 'set', 'p6994', 'Acme'], 'POST', '/api/project/p6994/records', { name: 'Acme' }, /Added Acme/],
+  [['records', 'set', 'p6994', 'Existing', '--status', 'renewed'], 'POST', '/api/project/p6994/records', { name: 'Existing', status: 'renewed' }, /Updated Existing in the records of p6994\./],
   [['records', 'set', 'p6994', 'Acme', '--status', ''], 'POST', '/api/project/p6994/records', { name: 'Acme', status: '' }, /Added Acme/],
   [['records', 'remove', 'p6994', 'Acme'], 'POST', '/api/project/p6994/records/remove', { name: 'Acme' }, /Removed Acme from the records of p6994\./],
   [['records', 'label', 'p6994', 'accounts'], 'POST', '/api/project/p6994/records/label', { label: 'accounts' }, /now called accounts\./],
@@ -117,11 +120,11 @@ test('#6994: `kosmos records <project>` prints the board\'s rendering, the same 
   const home = makeHome();
   const mac = await sh(port, home, ['records', 'p6994']);
   assert.equal(mac.code, 0, mac.out);
-  assert.equal(mac.out.trim(), LIST_TEXT);
+  assert.equal(mac.out, LIST_TEXT + '\n', 'exactly the board\'s list, with no blank line after it');
   assert.deepEqual(seen.map((s) => [s.method, s.route, s.query]), [['GET', '/api/project/p6994/records', 'as=text']]);
   const w = await win(['records', 'p6994']);
   assert.equal(w.code, 0, w.out);
-  assert.equal(w.out.trim(), LIST_TEXT);
+  assert.equal(w.out, LIST_TEXT + '\n');
   assert.deepEqual(w.calls.map((c) => [c.method, c.route, c.query]), [['GET', '/api/project/p6994/records', 'as=text']]);
 }));
 
@@ -162,4 +165,26 @@ test('#6994: an unknown project is said in plain words on both commands', () => 
   assert.match(w.out, /There is no project called missing\. kosmos project list shows them\./);
   const set = await sh(port, makeHome(), ['records', 'set', 'missing', 'Acme']);
   assert.match(set.out, /Not changed: there is no project by that name\./);
+}));
+
+test('#6994: a refusal that quotes a name arrives whole, quotes and backslash included, on both commands', () => withStub(async (port) => {
+  const mac = await sh(port, makeHome(), ['records', 'remove', 'p6994', 'Quoted']);
+  assert.equal(mac.code, 1, mac.out);
+  assert.match(mac.out, /Not changed: there is no record called "Quoted" \\ here\./);
+  const w = await win(['records', 'remove', 'p6994', 'Quoted']);
+  assert.equal(w.code, 1, w.out);
+  assert.match(w.out, /Not changed: there is no record called "Quoted" \\ here\./);
+}));
+
+test('#6994: a project id that cannot be one is refused before any request, in the 404\'s words, on both commands', () => withStub(async (port, seen) => {
+  for (const argv of [['records', 'p/../x'], ['records', 'set', 'a b', 'Acme']]) {
+    const mac = await sh(port, makeHome(), argv);
+    assert.equal(mac.code, 1, mac.out);
+    assert.match(mac.out, /There is no project called .*\. kosmos project list shows them\./);
+    const w = await win(argv);
+    assert.equal(w.code, 1, w.out);
+    assert.match(w.out, /There is no project called .*\. kosmos project list shows them\./);
+    assert.deepEqual(w.calls.filter((c) => c.route.startsWith('/api/project/')), []);
+  }
+  assert.deepEqual(seen, [], 'the Mac command sent a request for an id it should have refused');
 }));

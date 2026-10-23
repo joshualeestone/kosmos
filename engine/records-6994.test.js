@@ -88,7 +88,7 @@ test('#6994: refusals: no name, a multi-line field, a bad or future date, an ove
   assert.throws(() => records.set(p.id, 'A', { status: 'x\ty' }, { now: NOW }), /one line/);
   assert.throws(() => records.set(p.id, 'A', { confirmed: '23/10/2026' }, { now: NOW }), /YYYY-MM-DD/);
   assert.throws(() => records.set(p.id, 'A', { confirmed: '2026-02-30' }, { now: NOW }), /not a real date/);
-  assert.throws(() => records.set(p.id, 'A', { confirmed: '2026-10-24' }, { now: NOW }), /after today/);
+  assert.throws(() => records.set(p.id, 'A', { confirmed: '2026-10-25' }, { now: NOW }), /cannot be in the future \(today on this computer is 2026-10-23\)/);
   assert.throws(() => records.set(p.id, 'A', { status: 'x'.repeat(records.STATUS_MAX + 1) }, { now: NOW }), /at most/);
   assert.throws(() => records.set('no-such-project', 'A', {}, { now: NOW }), (e) => e.status === 404);
   assert.equal(records.list(p.id, { now: NOW }).rows.length, 0, 'a refused write stores nothing');
@@ -137,4 +137,44 @@ test('#6994: renderList, what both CLIs print: a heading with the stale count, o
     '  Globex | - | confirmed 2026-09-01 (52 days ago, stale) by the person | notes/globex.md',
     '  Initech | - | confirmed 2026-10-22 (yesterday) | -',
   ].join('\n'));
+});
+
+test('#6994: a date one day after this computer\'s today is accepted (an agent on UTC in the evening); two days is not', () => {
+  const p = project();
+  const r = records.set(p.id, 'Acme', { confirmed: '2026-10-24' }, { now: NOW }).row;
+  assert.deepEqual([r.confirmed, r.ageDays, r.stale], ['2026-10-24', -1, false]);
+  assert.throws(() => records.set(p.id, 'Acme', { confirmed: '2026-10-25' }, { now: NOW }), /in the future/);
+});
+
+test('#6994: a direction override, a line separator or a C1 control is refused; a name typed with a combining accent is the same row', () => {
+  const p = project();
+  const c = (n) => String.fromCharCode(n);   // code points, so this file holds no invisible characters
+  for (const bad of ['active' + c(0x202e) + 'evil', 'two' + c(0x2028) + 'lines', 'x' + c(0x85) + 'y']) {
+    assert.throws(() => records.set(p.id, 'Acme', { status: bad }, { now: NOW }), /one line/, JSON.stringify(bad));
+  }
+  assert.throws(() => records.set(p.id, 'Ac' + c(0x202e) + 'me', {}, { now: NOW }), /one line/);
+  records.set(p.id, 'Caf' + c(0xe9), { status: 'a' }, { now: NOW });
+  assert.equal(records.set(p.id, 'Cafe' + c(0x301), { status: 'b' }, { now: NOW }).created, false, 'the composed and combining spellings are one row');
+  assert.equal(records.list(p.id, { now: NOW }).rows.length, 1);
+});
+
+test('#6994: the project list the page polls leaves the records out (they are read through /records)', () => {
+  const p = project();
+  records.set(p.id, 'Acme', {}, { now: NOW });
+  const listed = projects.list([]).find((x) => x.id === p.id);
+  assert.ok(listed, 'CONTROL: the project is in the list');
+  assert.equal(JSON.parse(JSON.stringify(listed)).records, undefined);
+  assert.equal(projects.readAll().find((x) => x.id === p.id).records.length, 1, 'the stored rows are still there');
+});
+
+test('#6994: kosmos project show names the records and the verb: a count with the stale ones, or how to start; an older board says nothing', () => {
+  const pv = require('./projectview');
+  const base = { id: 'p1', name: 'Pipeline', folder: null, briefFound: false, members: [], tasks: { total: 0 } };
+  const lines = (records) => pv.renderShow({ project: { ...base, records } }).filter((l) => l.startsWith('Records:'));
+  assert.deepEqual(lines({ total: 3, stale: 1, label: 'accounts', staleDays: 30 }),
+    ['Records: 3 accounts, 1 stale (evidence more than 30 days old). Read them: kosmos records p1']);
+  assert.deepEqual(lines({ total: 2, stale: 0, label: 'records', staleDays: 30 }), ['Records: 2 records. Read them: kosmos records p1']);
+  assert.deepEqual(lines({ total: 0, stale: 0, label: 'records', staleDays: 30 }),
+    ['Records: none yet. A list this project keeps (accounts, leads) goes there: kosmos records set p1 "<name>" --status "<status>"']);
+  assert.deepEqual(lines(undefined), [], 'an older board, which sends no records, gets no line');
 });

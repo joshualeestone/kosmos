@@ -29,8 +29,15 @@ const LABEL_MAX = 40;
 const ROWS_MAX = 2000;
 const STALE_DAYS = 30;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-// Control characters (a newline would split a CLI line; a tab, a column), refused rather than stripped.
-const CONTROL_RE = /[\u0000-\u001f\u007f]/;
+/* Refused rather than stripped: control characters (a newline would split a CLI line; a tab, a column), the C1
+   controls, the line and paragraph separators, and the direction marks and overrides (U+202E would make a row read
+   backwards): the set taskMessageSummary keeps off a line, plus the bidi controls. */
+const CONTROL_RE = (() => {
+  // Built from code points: a separator or an override written literally in a regex literal breaks the parse.
+  const c = (n) => String.fromCharCode(n);
+  const set = [[0x00, 0x1f], [0x7f, 0x9f], [0x2028, 0x2029], [0x200e, 0x200f], [0x202a, 0x202e], [0x2066, 0x2069]];
+  return new RegExp('[' + set.map(([a, b]) => c(a) + '-' + c(b)).join('') + ']');
+})();
 
 function fail(message, status) {
   const err = new Error(message);
@@ -38,9 +45,10 @@ function fail(message, status) {
   return err;
 }
 
-/** The comparison key for a name: trimmed, inner spaces collapsed, case folded. */
+/** The comparison key for a name: Unicode-normalised (NFKC, so a name typed with a composed or a combining accent is
+ *  one row), trimmed, inner spaces collapsed, case folded. Spelling variants ("Acme Inc", "Acme") stay two rows. */
 function keyOf(name) {
-  return String(name).trim().replace(/\s+/g, ' ').toLowerCase();
+  return String(name).normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 /** Today's date on this computer, as YYYY-MM-DD (the person's own calendar day, not UTC's). */
@@ -79,7 +87,8 @@ function cleanText(v, what, max) {
   return s;
 }
 
-/** The confirmed date a write names, or today. A real calendar date, and not after today. */
+/** The confirmed date a write names, or today. A real calendar date, at most one day after today: "today" is this
+ *  computer's calendar day, and an agent that takes its date from `date -u` is a day ahead every evening west of UTC. */
 function cleanConfirmed(v, now) {
   if (v === undefined || v === null || v === '') return today(now);
   if (typeof v !== 'string') throw fail('the confirmed date has to be written YYYY-MM-DD');
@@ -89,7 +98,7 @@ function cleanConfirmed(v, now) {
   if (d.getUTCFullYear() !== +m[1] || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) {
     throw fail('the confirmed date ' + v.trim() + ' is not a real date');
   }
-  if (ageDays(v.trim(), now) < 0) throw fail('the confirmed date cannot be after today');
+  if (ageDays(v.trim(), now) < -1) throw fail('the confirmed date cannot be in the future (today on this computer is ' + today(now) + ')');
   return v.trim();
 }
 

@@ -22508,7 +22508,8 @@ const server = http.createServer(async (req, res) => {
       const msg = String((err && err.message) || '');
       sendJson(res, err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400, { error: msg || fallback });
     };
-    if (!recordsAt[2] && (req.method === 'GET' || req.method === 'HEAD')) {
+    // GET only: the agent-token gate admits GET, so a HEAD would answer differently for a token-only caller.
+    if (!recordsAt[2] && req.method === 'GET') {
       let out;
       try { out = recordsEngine.list(id); } catch (err) { failed(err, 'we could not read its records'); return; }
       // ?as=text: the list as both CLIs print it (records.renderList), so stock bash needs no JSON parser.

@@ -464,7 +464,17 @@ function overviewOf(p, roster, o) {
     briefFound: brief.found === true,
     members,
     tasks: openTasks(p.tasks),
+    records: recordsSummary(p.id),
   };
+}
+
+/* #6994: how many records the project keeps and how many are stale, for `project show` (the rows themselves are read
+   with `kosmos records`, and describe() leaves them out of every project read). null when they cannot be read. */
+function recordsSummary(id) {
+  try {
+    const l = require('./records').list(id);
+    return { total: l.rows.length, stale: l.stale, label: l.label, staleDays: l.staleDays };
+  } catch { return null; }
 }
 
 /** The payload for the list: one short row per project. */
@@ -626,6 +636,15 @@ function renderShow(payload) {
       : (p.doneSection === false ? 'BRIEF.md has no Done section (a "## Done looks like" heading) to read' : 'not filled in yet')));
   }
   out.push('Tasks: ' + taskLine(p.tasks) + (p.tasks && p.tasks.total ? '. List them: kosmos task list ' + one(p.id) : ''));
+  /* #6994: the records, and the verb, where an agent looks at a project (the boot file has no room to teach it,
+     kosmos#4021). An older board sends no `records`, and says nothing here. */
+  const rec = p.records;
+  if (rec && typeof rec.total === 'number') {
+    out.push(rec.total
+      ? 'Records: ' + rec.total + ' ' + one(rec.label || 'records') + (rec.stale ? ', ' + rec.stale + ' stale (evidence more than ' + rec.staleDays + ' days old)' : '')
+        + '. Read them: kosmos records ' + one(p.id)
+      : 'Records: none yet. A list this project keeps (accounts, leads) goes there: kosmos records set ' + one(p.id) + ' "<name>" --status "<status>"');
+  }
   const members = Array.isArray(p.members) ? p.members : [];
   out.push('Members (' + members.length + '):' + (payload.agentsUnreadable ? '  (we could not read the agents on this computer just now, so their state is unknown)' : ''));
   if (!members.length) out.push('  nobody yet');

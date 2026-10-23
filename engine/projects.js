@@ -1295,6 +1295,9 @@ function describe(project, roster, all) {
 
   return {
     ...project,
+    /* #6994: a project's records are read only through /api/project/<id>/records; up to 2000 rows of them do not
+       travel with every project list the page polls. (undefined, so JSON leaves the key out.) */
+    records: undefined,
     folder: project.folder,
     folderState: folderState(project.folder),
     // Normalized here rather than trusted from the record: a legacy project

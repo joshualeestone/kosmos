@@ -147,3 +147,28 @@ test('GET ?as=text answers the list as both CLIs print it (records.renderList), 
   const name = projects.readAll().find((x) => x.id === id).name;
   assert.match(await res.text(), new RegExp('^Records on ' + name + ': 1\\n  Acme \\| active \\| confirmed \\d{4}-\\d{2}-\\d{2} \\(today\\)'));
 });
+
+test('an agent that is not on the project cannot remove a row or rename the rows either (403), and nothing changes', async (t) => {
+  const id = project();
+  const tok = agents(t);
+  assert.equal((await post(at(id), { name: 'Acme' }, { 'x-kosmos-agent-token': tok.mara })).status, 201);
+  const gone = await post(at(id, '/remove'), { name: 'Acme' }, { 'x-kosmos-agent-token': tok.otto });
+  const named = await post(at(id, '/label'), { label: 'leads' }, { 'x-kosmos-agent-token': tok.otto });
+  assert.deepEqual([gone.status, named.status], [403, 403], JSON.stringify([gone.json, named.json]));
+  assert.deepEqual(stored(id).map((r) => r.name), ['Acme']);
+  assert.equal(require('./engine/records').list(id).label, 'records');
+});
+
+test('a HEAD to the list is a 405, as the agent-token gate admits GET only', async () => {
+  const id = project();
+  assert.equal((await fetch(base + at(id), { method: 'HEAD' })).status, 405);
+  assert.equal((await fetch(base + at(id))).status, 200, 'CONTROL: the GET answers');
+});
+
+test('the project overview (kosmos project show\'s read) carries the records count and the stale count', async () => {
+  const id = project();
+  assert.equal((await post(at(id), { name: 'Acme' })).status, 201);
+  assert.equal((await post(at(id), { name: 'Globex', confirmed: '2020-01-02' })).status, 201);
+  const body = await (await fetch(`${base}/api/project/${encodeURIComponent(id)}/overview`)).json();
+  assert.deepEqual(body.project && body.project.records, { total: 2, stale: 1, label: 'records', staleDays: 30 }, JSON.stringify(body).slice(0, 300));
+});

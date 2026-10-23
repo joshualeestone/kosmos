@@ -24,3 +24,14 @@ freshness to convention); the view comes with it.
 
 ## Weakest premise
 That four fixed fields cover what comes next. Next step if not: an optional `fields` map per row.
+
+## Decided in review
+- "Today" is this computer's calendar day; a confirmed date up to one day ahead is accepted (an agent on `date -u`
+  is a day ahead every evening west of UTC), two days is refused with this computer's date in the words.
+- Refused in a field: control and C1 characters, line and paragraph separators, direction marks and overrides.
+  Names are NFKC-normalised for the key, so the two accent spellings are one row.
+- describe() leaves `records` out, so the project list the page polls does not carry up to 2000 rows per project.
+- The verb is taught in `kosmos project show` (a Records line: the count and the read command, or how to start),
+  not in the operating block: the role boot file is at its size canary (65,651 bytes against 65,536 with even a
+  three-line paragraph; kosmos#4021 watches that growth). Follow-up card to teach it in the block once there is room.
+- The list's GET answers GET only (the agent-token gate admits GET; a HEAD would answer differently).
