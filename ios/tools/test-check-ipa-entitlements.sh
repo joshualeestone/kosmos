@@ -12,7 +12,8 @@ trap 'rm -rf "$work"' EXIT
 # kosmos#6487: every fixture carries the notification extension (PlugIns/KosmosNotice.appex, <appid>.notice) and the
 # keychain group the two share, as a store build does. EXT (unset = that) breaks one thing about it:
 # none (no extension), devsigned (get-task-allow true), otherid (another identifier), nogroup (no shared group),
-# nocomm (message-style notices without the app's Communication Notifications); style is that pair done right.
+# nocomm (message-style notices without the app's Communication Notifications); style is that pair done right;
+# strstyle sets the flag as the string "true", which the extension does not read as on.
 make_ipa() {
   local dir="$work/$1"
   mkdir -p "$dir/Payload/Kosmos.app"
@@ -37,7 +38,8 @@ make_ipa() {
     cp /usr/bin/true "$appex/KosmosNotice"
     [ "${EXT:-}" = otherid ] && xid="$4.other"
     /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string KosmosNotice' -c "Add :CFBundleIdentifier string ${xid#*.}" "$appex/Info.plist" >/dev/null
-    case "${EXT:-}" in style|nocomm) /usr/libexec/PlistBuddy -c 'Add :KosmosMessageStyle bool true' "$appex/Info.plist" >/dev/null ;; esac
+    case "${EXT:-}" in style|nocomm) /usr/libexec/PlistBuddy -c 'Add :KosmosMessageStyle bool true' "$appex/Info.plist" >/dev/null ;;
+      strstyle) /usr/libexec/PlistBuddy -c 'Add :KosmosMessageStyle string true' "$appex/Info.plist" >/dev/null ;; esac
     /usr/libexec/PlistBuddy -c 'Clear dict' "$xents" >/dev/null 2>&1 || true
     /usr/libexec/PlistBuddy -c "Add :application-identifier string $xid" "$xents" >/dev/null
     /usr/libexec/PlistBuddy -c "Add :get-task-allow bool $([ "${EXT:-}" = devsigned ] && echo true || echo false)" "$xents" >/dev/null
@@ -88,6 +90,10 @@ expect preview-other-team   1 production  false ZZZZZ99999.io.kosmos.app.preview
 EXT=style expect ext-style 0 production false $T.io.kosmos.app $T $T
 printf '%s\n' "$out" | grep -qF 'message-style notices, and the app holds Communication Notifications' \
   || { echo "FAIL  ext-style: the message-style check did not run"; fail=1; }
+# A string "true" is not the boolean the extension reads, so the build is attachment-style, not refused.
+EXT=strstyle expect ext-strstyle 0 production false $T.io.kosmos.app $T $T
+printf '%s\n' "$out" | grep -qF 'ok       attachment-style notices' \
+  || { echo "FAIL  ext-strstyle: a string \"true\" was read as message style"; fail=1; }
 for case in "none:no notification extension" "devsigned:extension get-task-allow: true" "otherid:extension application-identifier: $T.io.kosmos.app.other" "nogroup:do not both hold the keychain group" "nocomm:lacks com.apple.developer.usernotifications.communication"; do
   mode=${case%%:*}; why=${case#*:}
   EXT=$mode make_ipa "ext-$mode" production false $T.io.kosmos.app $T >/dev/null
