@@ -462,3 +462,12 @@ test('#6953: a return to the tab and the window gaining focus both run the same 
   assert.match(HTML, /document\.addEventListener\('visibilitychange', tkTabReturn\);/);
   assert.match(HTML, /window\.addEventListener\('focus', tkTabReturn\);/);
 });
+
+test('#6953: a tab switch (visibilitychange then focus) records the return once and does not redraw an unchanged conversation', async () => {
+  const p = page();
+  await p.paintTaskActivity(3); await p.settle();
+  p.acts.innerHTML = 'kept, with a selection in it';
+  await p.tabBack(); await p.tabBack(); await p.settle();   // the two events of one return
+  assert.equal(p.posts.length, 2, 'one return recorded ' + (p.posts.length - 1) + ' times');
+  assert.equal(p.acts.innerHTML, 'kept, with a selection in it', 'an unchanged conversation was redrawn on a return');
+});

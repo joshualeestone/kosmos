@@ -68556,7 +68556,7 @@ function openTaskPage(n) {
   /* A new task: clear the last one's activity before the fetch so a slow read
      cannot leave the previous task's events on screen. */
   const acts = document.getElementById('tk-activity');
-  if (acts) { acts.innerHTML = ''; acts.tkDrawn = null; acts.tkMarked = null; acts.tkMarking = null; acts.tkRecorded = null; acts.tkDrawnSeq = (acts.tkSeq || 0) + 1; acts.tkOpen = {}; }   // #6951: a new open: nothing drawn or marked for it yet, and no earlier read or record speaks for it
+  if (acts) { acts.innerHTML = ''; acts.tkDrawn = null; acts.tkMarked = null; acts.tkMarking = null; acts.tkRecorded = null; acts.tkReturnAt = 0; acts.tkDrawnSeq = (acts.tkSeq || 0) + 1; acts.tkOpen = {}; }   // #6951: a new open: nothing drawn or marked for it yet, and no earlier read or record speaks for it
   const receipt = document.getElementById('tk-receipt');
   if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
   const undoBox = document.getElementById('tk-undo');   // #5153 slice 4
@@ -68631,15 +68631,20 @@ function tkTabReturn() {
   // unchanged ("viewed at" would otherwise keep the first look of this open). Only a state the board recorded: one it
   // refused, or that failed twice, stays settled, so a refusing or broken board is not asked on every return. And only
   // with the window focused: a tab also turns visible when a window covering it closes, with nobody choosing to look.
-  // If not drawn (the read fails), nothing is recorded here and the next read of that conversation records it.
   const acts = document.getElementById('tk-activity');
   const focused = typeof document.hasFocus === 'function' && document.hasFocus();
-  if (acts && focused && acts.tkMarked && acts.tkRecorded === acts.tkMarked) acts.tkMarked = null;
-  paintTaskActivity(TK_OPEN);
+  // A tab switch fires visibilitychange and then focus: one return re-records once (tkReturnAt, two seconds).
+  const fresh = acts && acts.tkReturnAt && Date.now() - acts.tkReturnAt < 2000;
+  if (acts && focused && !fresh && acts.tkMarked && acts.tkRecorded === acts.tkMarked) { acts.tkMarked = null; acts.tkReturnAt = Date.now(); }
+  // Drawn the way the five-second read draws (onlyIfChanged): an unchanged conversation is not redrawn, so a selection
+  // or keyboard focus in it survives an app switch, and it is only re-recorded; a changed one is drawn quietly,
+  // keeping focus. If the read fails, nothing is recorded here and the next read of that conversation records it.
+  paintTaskActivity(TK_OPEN, { onlyIfChanged: true });
 }
 document.addEventListener('visibilitychange', tkTabReturn);
 // #6953: coming back from another app to a tab that was already visible fires no visibilitychange, and focus can settle
-// after it fires; the window gaining focus is the same look. A second call while the first's record is out sends nothing.
+// after it fires; the window gaining focus is the same look. Each call costs one activity read; the re-record happens
+// once per return (tkReturnAt).
 window.addEventListener('focus', tkTabReturn);
 function leaveTaskPage() {
   const was = TK_OPEN;
