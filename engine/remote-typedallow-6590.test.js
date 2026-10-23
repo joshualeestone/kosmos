@@ -20,13 +20,14 @@ process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
 const remote = require('./remote');
 
 const calls = [];
+const stdins = [];
 let answer = () => ({ out: '{}', code: 0 });
 function fakeSpawn(bin, args) {
   calls.push(args);
   const child = new EventEmitter();
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
-  child.stdin = null;
+  child.stdin = { on() {}, end(v) { stdins.push([args, String(v)]); } };
   child.kill = () => {};
   const { out = '', err = '', code = 0, wait = null } = answer(args);
   Promise.resolve(wait).then(() => setImmediate(() => {
@@ -257,3 +258,91 @@ test('c2: the ack is ok only when Kosmos+ took it; a pause is said as paused; an
   r = await remote.deviceAckSelfForTests('../evil');
   assert.equal(r.ok, false);
 });
+
+/* kosmos#6590 (c3): the automatic Allow on this computer's own address, matched by the tunnel. */
+function armVouch() {
+  setup();
+  fs.writeFileSync(path.join(STATE, 'address'), 'josh1023.kosmosplus.com');
+  fs.writeFileSync(path.join(STATE, 'pending.json'), JSON.stringify({ devices: [], signins: [{ device_id: 'dev-web', first_seen: Math.floor(Date.now() / 1000) }] }));
+  remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) });
+  remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
+  stdins.length = 0;
+  return remote.startVouchForTests();
+}
+const VROW = (id) => ({ knockId: id, firstSeen: 1, uaClass: 'Mac', net: '', vouched: true });
+
+test('c3: under the marker the browser opens on this computer\'s own address, and the window starts when it opens', async () => {
+  const S = armVouch();
+  assert.ok(S, 'premise: a secret');
+  const before = remote.vouchUntilForTests();
+  await new Promise((r) => setTimeout(r, 20));
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), 'https://josh1023.kosmosplus.com/#allow=' + S);
+  assert.ok(remote.vouchUntilForTests() > before, 'the window did not start again when the tab opened');
+  // CONTROL: without the marker it is the coordinator's page, and the window does not move.
+  remote.resetForTests();
+  setup({ marker: false });
+  fs.writeFileSync(path.join(STATE, 'pending.json'), JSON.stringify({ devices: [], signins: [{ device_id: 'dev-web', first_seen: Math.floor(Date.now() / 1000) }] }));
+  remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) });
+  remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
+  const S2 = remote.startVouchForTests();
+  const b2 = remote.vouchUntilForTests();
+  await new Promise((r) => setTimeout(r, 20));
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests().endsWith('/#allow=' + S2) && !remote.vouchOpenedUrlForTests().includes('josh1023'));
+  assert.equal(remote.vouchUntilForTests(), b2);
+});
+
+test('c3: a vouched waiting row is offered to the tunnel with S on stdin only; allowed ends S and notes the device', async () => {
+  const S = armVouch();
+  remote.vouchTickForTests();   // opens
+  answer = (args) => {
+    if (args[1] === 'waiting') return { out: JSON.stringify({ count: 1, waiting: [VROW(KNOCK)] }) };
+    if (args[1] === 'allow-vouched') return { out: JSON.stringify({ allowed: true, device_id: 'dvouched', acked: true }) };
+    return { out: '{}' };
+  };
+  remote.vouchTickForTests();
+  await settle();
+  const av = devicesCalls().filter((a) => a[1] === 'allow-vouched');
+  assert.equal(av.length, 1);
+  assert.ok(!av[0].some((x) => x.includes(S)), 'S was on argv');
+  assert.deepEqual(stdins.filter(([a]) => a[1] === 'allow-vouched').map(([, v]) => v), [S]);
+  assert.equal(remote.vouchSecretForTests(), null, 'S did not end after the allow');
+  assert.ok(remote.read().vouched && remote.read().vouched.dvouched, 'the device was not noted as on this computer');
+});
+
+test('c3: no match keeps S and never retries that row; two keys end S; a passing refusal is retried and not counted', async () => {
+  const S = armVouch();
+  remote.vouchTickForTests();
+  let verdict = { allowed: false, acked: false, reason: 'no_row', because: 'x' };
+  answer = (args) => {
+    if (args[1] === 'waiting') return { out: JSON.stringify({ count: 1, waiting: [VROW(KNOCK)] }) };
+    if (args[1] === 'allow-vouched') return { out: JSON.stringify(verdict) };
+    return { out: '{}' };
+  };
+  const runs = () => devicesCalls().filter((a) => a[1] === 'allow-vouched').length;
+  remote.vouchTickForTests(); await settle();
+  assert.equal(runs(), 1);
+  assert.equal(remote.vouchSecretForTests(), S, 'a row that did not match ended S');
+  remote.vouchTickForTests(); await settle();
+  assert.equal(runs(), 1, 'the same row was tried again');
+  // A passing refusal (the certificate alarm): not marked tried, so it is offered again once the wait is over.
+  answer = (args) => (args[1] === 'waiting' ? { out: JSON.stringify({ count: 1, waiting: [VROW(DASHED)] }) }
+    : args[1] === 'allow-vouched' ? { out: JSON.stringify({ allowed: false, acked: false, reason: 'ct_alarm', because: 'x' }) } : { out: '{}' });
+  await new Promise((r) => setTimeout(r, 2100));   // past the shared read of the waiting list (WAITING_FRESH_MS)
+  remote.vouchTickForTests(); await settle();
+  assert.equal(runs(), 2);
+  remote.vouchTickForTests(); await settle();
+  assert.equal(runs(), 2, 'retried before its wait');
+  remote.vouchPatchForTests({ retryAt: 0 });
+  remote.vouchTickForTests(); await settle();
+  assert.equal(runs(), 3, 'a passing refusal was marked tried');
+  assert.equal(remote.vouchSecretForTests(), S);
+  // Two keys reproduce S: it has leaked, so it ends.
+  answer = (args) => (args[1] === 'waiting' ? { out: JSON.stringify({ count: 1, waiting: [VROW('ZbCdEfGhIjKlMnOpQrStUx')] }) }
+    : args[1] === 'allow-vouched' ? { out: JSON.stringify({ allowed: false, acked: false, reason: 'ambiguous', because: 'x' }) } : { out: '{}' });
+  remote.vouchPatchForTests({ retryAt: 0 });
+  remote.vouchTickForTests(); await settle();
+  assert.equal(remote.vouchSecretForTests(), null, 'a leaked S was kept');
+});
+
