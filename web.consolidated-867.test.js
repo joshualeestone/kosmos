@@ -103,8 +103,6 @@ test('#6910: a view the person opens ends both arrival opens, so a late projects
   assert.match(SCRIPT, /if \(!PJ_AUTO_OPENED_ONCE && !WANT_PROJECT && !PJ_CURRENT\n/);
 });
 
-
-
 test('the agents and projects rail titles sit at the same height', () => {
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated #pj-list-view \{ grid-column: 1; padding-top: 0;/,
     'the projects rail lost the padding-top override that keeps it flush with the agents rail');

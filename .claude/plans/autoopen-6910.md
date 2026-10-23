@@ -17,7 +17,7 @@ auto-open fires and replaces it. Only a slow runner gets that order.
 - docs/browser-checks/render-snav-head-4979.js, consolidated arm: every projects GET is held until Settings has been
   clicked and the 300 ms sample taken, then released (a 30 s fallback, cleared on release; try/abort per #6022). Two
   control lines (no read had landed at the click; Settings opened before the release) and two assertions (the late
-  read had an active project to auto-open and no deep link; no project opened over Settings). The page makes three
+  read had an active project to auto-open, no deep link and the consolidated layout; no project opened over Settings). The page makes three
   reads at load: holding only the first did not reproduce, because the other two landed first.
 - web.consolidated-867.test.js: runs the real takeOverDisplayColumn and checks both marks; openAddProject calls
   pjOpensDone first; both opens still read the marks.
@@ -35,7 +35,8 @@ auto-open fires and replaces it. Only a slow runner gets that order.
 - The deep link ends the same way: the person's later click wins over the URL.
 - Weakest premise: that every caller of takeOverDisplayColumn and openAddProject is a person's choice. Checked each:
   the menu and rail Settings, a login notice, nav clicks, detail-back and create-back, tasks, New Agent, the Projects
-  page, tcGoToTeam (only after a create the person started), and the two New project buttons.
+  page, tcFinish -> tcGoToTeam(true) (TC is in memory only, null at boot, and made only by openTeamCreate from the
+  team-seeded-go click or an already-started team session), and the two New project buttons.
 
 ## Validation (this Mac, headless, queued-heavy.sh), final code
 - Arm A, the check on origin/main's index.html (12:05): rc 2. "the late read did not open a project over Settings"

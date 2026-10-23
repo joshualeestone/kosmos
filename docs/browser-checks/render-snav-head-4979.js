@@ -335,8 +335,9 @@ function chk(ok, label, extra) {
           await page.waitForTimeout(300);   // the read's own paint, auto-open included, has run
           /* The late read had a project to open (so the arm tests something), and none took the column. */
           const late = await page.evaluate(() => ({ active: PROJECTS.some((x) => !x.archived), want: WANT_PROJECT || null,
-            cur: PJ_CURRENT, oneShown: !document.getElementById('pj-one-view').hidden }));
-          chk(late.active && late.want === null, `${tag}: control: the late read had an active project the arrival auto-open could open`, JSON.stringify(late));
+            layout: document.documentElement.getAttribute('data-layout'), cur: PJ_CURRENT,
+            oneShown: !document.getElementById('pj-one-view').hidden }));
+          chk(late.active && late.want === null && late.layout === 'consolidated', `${tag}: control: the late read had an active project the arrival auto-open could open`, JSON.stringify(late));
           chk(late.cur === null && !late.oneShown, `${tag}: the late read did not open a project over Settings (#6910)`, JSON.stringify(late));
           await page.waitForSelector('#s-nav button[data-go="mac"]', { state: 'visible', timeout: 20000 })
             .catch(async (e) => {
