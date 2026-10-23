@@ -1,0 +1,44 @@
+# keepalive-7001: CI runners come back by themselves after a kill (kosmos#7001)
+
+## Why
+10-23 15:58 CDT: runner 1 (`kosmos-ci-agent1s`) was SIGKILLed mid-job and stayed offline 29 minutes. Its LaunchAgent,
+written by actions/runner's svc.sh, has RunAtLoad and no KeepAlive. launchd's log: "exited due to SIGKILL | sent by
+node[50709]" (a short-lived node process of the test suite; which test is not in any log we hold, see the card).
+
+## Change (tools/ci-runner-setup.sh)
+- register: right after `./svc.sh install`, add `KeepAlive = { SuccessfulExit = false }` and `ThrottleInterval = 10` to
+  the plist it wrote (written beside and renamed in), before `svc.sh start` loads it. No plist: fail before start.
+- New stage `keepalive`, as the CI user, over ssh or in its session: add it to an installed runner's plist and reload
+  (bootout, wait for it to go, bootstrap, wait for a new Listener), only while idle (no Runner.Worker). Refuses when the
+  GUI domain is absent (not logged in), when it cannot list processes, or with no plist. Its dry run says whether
+  KeepAlive is set, which is how to check a runner whose ~/Library the owner cannot read. It skips need_user's Aqua
+  check (ssh-ok): it names gui/<uid> and never uses svc.sh, and bootstrap over ssh was measured working on the old Mac.
+- verify: ok or problem when it can read the plist; a note (no exit-code change) when it cannot. Measured: as agent1,
+  /Users/kosmos-ci/Library is mode 700, so verify as the owner normally prints the note.
+
+## Why SuccessfulExit false, not KeepAlive true
+RunnerService.js relaunches the listener itself on an update (listener exit 3 or 4), so a self-update never ends the
+launchd job. The job exits 0 only when the service stops on purpose (SIGTERM/bootout, or listener exit 0, 1 or 5, the
+last a session conflict). So it restarts after a kill or crash and never fights a stop or an update. Measured with a
+probe agent on the old Mac: restarted after SIGKILL, left down after exit 0.
+
+## Measured on the real runner (before this PR, by hand, same steps as the stage)
+Runner 1 patched and reloaded 22:09Z; whole group SIGKILLed 22:09:48Z; launchd restarted it in under 1 s; GitHub read
+offline 22:10:36Z and online 22:12:33Z. The stage's dry run, run on the old Mac as kosmos-ci, reads the live plist as
+set and a copy of the original as missing.
+
+## Tests (tools/test-ci-runner-setup-4601.sh)
+The svc.sh stub's install writes actions/runner's template (no KeepAlive); launchctl's stub gains bootout, bootstrap and
+a per-service print. New cases: register adds KeepAlive and keeps the rest; register with no plist starts nothing; the
+keepalive dry run changes nothing; --apply over ssh (managername Background) adds it, boots out before bootstrapping,
+and sees a new Listener; refusals for a running job, an unlistable process table, no GUI domain, no plist, the wrong
+user; a failed bootstrap says the runner is stopped; verify's note, problem and ok. `bootout` now counts as a change.
+Mutants, each red: register without the add, no job check, keepalive_set always true, no ssh-ok, no bootout.
+
+## Not done here
+Runner 2 (kosmos-ci2): needs its password or sudo on the old Mac (parked on the card); then, as kosmos-ci2,
+`tools/ci-runner-setup.sh --apply keepalive`. Which test sent the SIGKILL: not in any log we hold.
+
+## Weakest premise
+That the GitHub runner keeps ending the launchd job with exit 0 on every deliberate stop. If a future runner version
+exits non-zero on, say, a session conflict, KeepAlive would restart it into the same conflict every 10 s.
