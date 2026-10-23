@@ -14,8 +14,8 @@ converged: true
 
 **Iterations:** 5
 **Converged:** Yes
-**Total findings:** 30 (0 BLOCKERs, 12 WARNINGs, 0 CONVENTIONs, 18 NITs)
-**Fixed:** 12 WARNINGs and 9 NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 33 (0 BLOCKERs, 10 WARNINGs, 0 CONVENTIONs, 23 NITs)
+**Fixed:** all 10 WARNINGs; NITs fixed or documented as listed per iteration | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 Validation for this branch is the lint itself under the Mac's /bin/bash 3.2.57 (exit 0, tree scan of every product
 shell file clean) plus tools.every-test-runs and tools.shell-shard-4317 (27/27), the same set the original #6808 PR
