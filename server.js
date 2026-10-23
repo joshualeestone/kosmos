@@ -179,6 +179,15 @@ function withReplyChannel(rows) {
     return ch ? { ...r, replyChannel: ch } : r;
   });
 }
+/* #7004 (the iPhone plan's slice 2, #6838): each card's word as the computer shows it (engine/cardlabel labelOf) and its
+   tone in the phone's list, ready-made, so the phone shows the computer's words instead of keeping its own copy. Run
+   last, over the finished rows: the word reads fields the route attaches late (reconnect, crashLoop, disruption). */
+function withCardWords(rows) {
+  return rows.map((r) => {
+    if (!r) return r;
+    try { return { ...r, cardWord: cardlabel.labelOf(r), cardTone: cardlabel.toneOf(r, needsPerson(r)) }; } catch { return r; }
+  });
+}
 function someAgentNeedsClaude(agentList) {
   // create.isNonClaudeRunner is the one list of runners that are not Claude (review round 5).
   return Array.isArray(agentList)
@@ -7274,7 +7283,7 @@ const server = http.createServer(async (req, res) => {
          false and the banner stays down. */
       // #3739: the guide is included on purpose: the bubble depends on Claude even though its row is hidden.
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
-      const rows = withReplyChannel(withTokenGuard(withAgentSortFields(agents.concat(offline))));
+      const rows = withCardWords(withReplyChannel(withTokenGuard(withAgentSortFields(agents.concat(offline)))));
       /* #3996: what is waiting on the person, in one number (the Dock badge reads it). The same
          rows the Messages tile sums, after the needs-you and projects counts above are final. */
       /* #4025: null when the person switched the icon count off in Settings; the apps clear the badge on null. */
@@ -26566,6 +26575,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   HOOK_RATE, // #1307: the webhook limits, so a test reads the number it asserts
   markGuide, // #3739: the guide row's mark and title, for its tests
+  withCardWords, // #7004: the card word and tone on the finished rows, for its tests
   guideCardFailing, resetGuideCardMemoForTests, // #3660: the fallback's reading of the guide card, for its tests
   keepAgentReply, guideMasked, guideMaskedRows, // #3769: the setup guide's words masked where they are stored, for its tests
   creatorRunsOn, // #3734: where an agent-made team member runs by default, for its tests

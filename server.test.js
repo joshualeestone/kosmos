@@ -662,6 +662,10 @@ test('#1938: /api/scan-agents caches the disk walk, and a mutating route invalid
  * why it is cheap enough to run every time.
  */
 const UNREAD_ON_PURPOSE = {
+  cardWord: '#7004: the card\'s word ready-made for the iPhone app (engine/cardlabel labelOf). The page draws its own '
+    + 'word from the same state through STATE_COPY, which cardlabel-5959 keeps equal',
+  cardTone: '#7004: the tone of that word in the iPhone app\'s Agents list (cardlabel toneOf); the page colours its '
+    + 'cards its own way',
   isAgentPane: 'a classification the board uses to decide what IS an agent; it '
     + 'is an input to the list, never a thing to draw',
   reportedAt: 'the commitments timestamp. The restart dialog shows the age '

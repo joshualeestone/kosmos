@@ -37,7 +37,13 @@ struct ContentView: View {
     // Not signed in yet (a first launch): open on Today, the board, where the sign-in is (the spec's "today's sign-in
     // flow"). Read once per launch (a static), not on every redraw. A launch before first unlock reads no session and
     // opens on Today, the safe side.
-    private static let startTab: Tab = SessionKeychain.live.load() == nil ? .today : .agents
+    private static let startTab: Tab = {
+        #if DEBUG
+        // The Agents tab's sample screenshots (KOSMOS_SAMPLE_AGENTS=1, a Debug build only) open on Agents, signed in or not.
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return .agents }
+        #endif
+        return SessionKeychain.live.load() == nil ? .today : .agents
+    }()
     @State private var tab = ContentView.startTab
     #endif
     typealias Tab = AppTabs.Tab
