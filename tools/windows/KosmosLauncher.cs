@@ -2673,7 +2673,7 @@ class KosmosLauncher
     // (#6464), or the window checked again before reusing its sign-in and the check failed (CheckBoardBeforeReuse).
     // "Could not confirm it was reaching" read as only the first of those; "could not sign you in" is true of all.
     // #6985: these three say "open Kosmos from the Start menu", as the zip's READ ME does since #6984, and never
-    // "Kosmos.exe", which after the install reads as the extracted folder, which the READ ME never sends them back to. Start menu
+    // "Kosmos.exe", which after the install reads as the extracted folder, which the READ ME never sends them back to once Kosmos is in the Start menu. Start menu
     // alone, with no "Kosmos.exe" fallback: only the window and its browser fallback show them, and only Main starts
     // the window (BoardWindowStartInfo), after a real build's installer duties (IsKosmosBuild) have pointed the Start
     // menu shortcut at the copy that runs (RefreshWindowsRegistration), so the shortcut is there whenever one of these
