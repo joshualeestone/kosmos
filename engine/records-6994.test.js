@@ -118,7 +118,7 @@ test('#6994: the rows survive the project\'s other writes (an edit, an agent joi
   const p = project();
   records.set(p.id, 'Acme', { status: 'active' }, { now: NOW });
   projects.edit(p.id, { name: 'Renamed ' + p.id });
-  projects.addAgent(p.id, 'some-agent', [{ sessionName: 'some-agent' }]);
+  projects.addAgent(p.id, 'some-agent', [require('../test-support/fleet').agent('some-agent', { state: 'idle' })]);
   const rows = records.list(p.id, { now: NOW }).rows;
   assert.deepEqual(rows.map((r) => [r.name, r.status]), [['Acme', 'active']]);
 });
@@ -149,13 +149,15 @@ test('#6994: a date one day after this computer\'s today is accepted (an agent o
 test('#6994: a direction override, a line separator or a C1 control is refused; a name typed with a combining accent is the same row', () => {
   const p = project();
   const c = (n) => String.fromCharCode(n);   // code points, so this file holds no invisible characters
-  for (const bad of ['active' + c(0x202e) + 'evil', 'two' + c(0x2028) + 'lines', 'x' + c(0x85) + 'y']) {
-    assert.throws(() => records.set(p.id, 'Acme', { status: bad }, { now: NOW }), /one line/, JSON.stringify(bad));
+  for (const [bad, why] of [['active' + c(0x202e) + 'evil', /hidden or direction-changing/], ['two' + c(0x2028) + 'lines', /one line/], ['x' + c(0x85) + 'y', /one line/], ['x' + String.fromCodePoint(0xe0041) + 'y', /hidden/]]) {
+    assert.throws(() => records.set(p.id, 'Acme', { status: bad }, { now: NOW }), why, JSON.stringify(bad));
   }
-  assert.throws(() => records.set(p.id, 'Ac' + c(0x202e) + 'me', {}, { now: NOW }), /one line/);
+  assert.throws(() => records.set(p.id, 'Ac' + c(0x202e) + 'me', {}, { now: NOW }), /hidden/);
+  // The joiners stay (Persian spelling, family emoji), as projectview.one keeps them.
+  assert.equal(records.set(p.id, 'Ka' + c(0x200c) + 'r', {}, { now: NOW }).created, true);
   records.set(p.id, 'Caf' + c(0xe9), { status: 'a' }, { now: NOW });
   assert.equal(records.set(p.id, 'Cafe' + c(0x301), { status: 'b' }, { now: NOW }).created, false, 'the composed and combining spellings are one row');
-  assert.equal(records.list(p.id, { now: NOW }).rows.length, 1);
+  assert.equal(records.list(p.id, { now: NOW }).rows.length, 2, "the joiner name and one Cafe row");
 });
 
 test('#6994: the project list the page polls leaves the records out (they are read through /records)', () => {
@@ -170,10 +172,10 @@ test('#6994: the project list the page polls leaves the records out (they are re
 test('#6994: kosmos project show names the records and the verb: a count with the stale ones, or how to start; an older board says nothing', () => {
   const pv = require('./projectview');
   const base = { id: 'p1', name: 'Pipeline', folder: null, briefFound: false, members: [], tasks: { total: 0 } };
-  const lines = (records) => pv.renderShow({ project: { ...base, records } }).filter((l) => l.startsWith('Records:'));
+  const lines = (records) => pv.renderShow({ project: { ...base, records } }).filter((l) => /^Records[ :]/.test(l));
   assert.deepEqual(lines({ total: 3, stale: 1, label: 'accounts', staleDays: 30 }),
-    ['Records: 3 accounts, 1 stale (evidence more than 30 days old). Read them: kosmos records p1']);
-  assert.deepEqual(lines({ total: 2, stale: 0, label: 'records', staleDays: 30 }), ['Records: 2 records. Read them: kosmos records p1']);
+    ['Records (accounts): 3, 1 stale (evidence more than 30 days old). Read them: kosmos records p1']);
+  assert.deepEqual(lines({ total: 2, stale: 0, label: 'records', staleDays: 30 }), ['Records: 2. Read them: kosmos records p1']);
   assert.deepEqual(lines({ total: 0, stale: 0, label: 'records', staleDays: 30 }),
     ['Records: none yet. A list this project keeps (accounts, leads) goes there: kosmos records set p1 "<name>" --status "<status>"']);
   assert.deepEqual(lines(undefined), [], 'an older board, which sends no records, gets no line');
@@ -184,7 +186,7 @@ test('#6994: a zero-width character is refused, so two rows that look the same c
   const c = (n) => String.fromCharCode(n);
   for (const z of [0x200b, 0x2060, 0xfeff]) {
     // Inside the name: at either end, trim() takes a U+FEFF off before the check, so it cannot make a second row.
-    assert.throws(() => records.set(p.id, 'Ac' + c(z) + 'me', {}, { now: NOW }), /one line/, z.toString(16));
+    assert.throws(() => records.set(p.id, 'Ac' + c(z) + 'me', {}, { now: NOW }), /hidden/, z.toString(16));
   }
   assert.equal(records.set(p.id, 'Acme', {}, { now: NOW }).created, true, 'CONTROL: the plain name is taken');
 });

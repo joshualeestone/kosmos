@@ -11,7 +11,7 @@ The gap is the DATA (a CSV in Project Files loses one of two agents' updates, dr
 freshness to convention); the view comes with it.
 - Stored inside the project record like tasks (`records: [...]`), written through `projects.mutate`, so two
   agents' writes through the board apply one after the other.
-- A row: `name` (canonical key, compared case- and space-insensitively), `status`, `confirmed` (YYYY-MM-DD,
+- A row: `name` (as first written, the canonical name; compared by its Unicode form, case and spacing), `status`, `confirmed` (YYYY-MM-DD,
   today when not given), `source` (a link or path), `by` (who last changed it), `updatedAt`.
 - A project may name what its rows are (`recordsLabel`, e.g. "accounts"); default "records".
 - Stale: `confirmed` older than 30 days.
@@ -35,3 +35,6 @@ That four fixed fields cover what comes next. Next step if not: an optional `fie
   not in the operating block: the role boot file is at its size canary (65,651 bytes against 65,536 with even a
   three-line paragraph; kosmos#4021 watches that growth). Follow-up card to teach it in the block once there is room.
 - The list's GET answers GET only (the agent-token gate admits GET; a HEAD would answer differently).
+- Caps: 500 rows a project, a source of at most 500 characters (the rows live in projects.json, which every board read
+  parses whole). A field may not hold a line break, nor the invisibles projectview.one takes off a line (direction
+  controls, zero-width space and BOM, the tag block); the joiners stay. `kosmos records label` names the rows.

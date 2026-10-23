@@ -71180,7 +71180,7 @@ async function pjLoadRecords(id) {
   if (!body || !Array.isArray(body.rows)) return;
   if (!body.rows.length) { box.hidden = true; PJ_REC_STAMP = null; return; }
   const stamp = JSON.stringify(body);
-  if (stamp === PJ_REC_STAMP && !box.hidden) return;
+  if (stamp === PJ_REC_STAMP && !box.hidden) { pjRecordsScrollStop(box); return; }
   PJ_REC_STAMP = stamp;
   const label = String(body.label || 'records');
   document.getElementById('pj-records-h').textContent = label.charAt(0).toUpperCase() + label.slice(1)
@@ -71202,13 +71202,13 @@ async function pjLoadRecords(id) {
     when.textContent = r.confirmed;
     const age = document.createElement('span');
     age.className = 'pj-rec-age';
-    age.textContent = pjRecordsAge(r.ageDays) + (r.byPerson ? ', by you' : r.by ? ', by ' + r.by : '');
+    age.textContent = [pjRecordsAge(r.ageDays), r.byPerson ? 'by you' : r.by ? 'by ' + r.by : ''].filter(Boolean).join(', ');
     when.appendChild(age);
     if (r.stale) {
       const mark = document.createElement('span');
       mark.className = 'pj-rec-stale';
       mark.textContent = 'stale';
-      age.appendChild(mark);
+      age.append(' ', mark);   // a space, so copied text and a screen reader do not run the name into "stale"
     }
     const source = document.createElement('td');
     if (/^https?:\/\//i.test(r.source || '')) {
@@ -71223,10 +71223,13 @@ async function pjLoadRecords(id) {
     rows.appendChild(tr);
   }
   box.hidden = false;
-  // A tab stop and a region only while the box scrolls (the consolidated view caps its height), so a keyboard can
-  // scroll it there and it is not a stop that does nothing elsewhere.
-  const scrolls = box.scrollHeight > box.clientHeight + 1;
-  if (scrolls) { box.tabIndex = 0; box.setAttribute('role', 'region'); box.setAttribute('aria-labelledby', 'pj-records-h'); }
+  pjRecordsScrollStop(box);
+}
+/* A tab stop and a region only while the box scrolls (the consolidated view caps its height), so a keyboard can
+   scroll it there and it is not a stop that does nothing elsewhere. Asked again on every load, the five-second poll
+   included, so a resize or a switch of view is caught within a poll. */
+function pjRecordsScrollStop(box) {
+  if (box.scrollHeight > box.clientHeight + 1) { box.tabIndex = 0; box.setAttribute('role', 'region'); box.setAttribute('aria-labelledby', 'pj-records-h'); }
   else { box.removeAttribute('tabindex'); box.removeAttribute('role'); box.removeAttribute('aria-labelledby'); }
 }
 async function pjLoadDocs(id) {

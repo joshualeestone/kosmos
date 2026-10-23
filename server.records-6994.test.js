@@ -92,8 +92,8 @@ test('two agents on the project add and update rows at the same moment, and ever
   ]);
   assert.deepEqual([c.status, d.status], [200, 200], JSON.stringify([c.json, d.json]));
   assert.deepEqual(stored(id).map((r) => [r.name, r.status, r.source, r.by]), [
-    ['acme', 'active', 'notes/acme.md', 'ana'],
-    ['GLOBEX', 'customer', 'https://crm.example/globex', 'mara'],
+    ['Acme', 'active', 'notes/acme.md', 'ana'],
+    ['Globex', 'customer', 'https://crm.example/globex', 'mara'],
   ]);
 });
 

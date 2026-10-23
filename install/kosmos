@@ -4966,7 +4966,7 @@ cmd_records() {
              *) say "This Kosmos does not keep records yet. Update Kosmos to use kosmos records." ;;
            esac
            exit 1 ;;
-      *) say "Kosmos could not read its records: $(_records_field error "$body")"; exit 1 ;;
+      *) local _why; _why="$(_records_field error "$body")"; say "Kosmos could not read its records: ${_why:-it did not say why}"; exit 1 ;;
     esac
     return
   fi
@@ -5224,7 +5224,7 @@ kosmos_command_list() {
   printf '  kosmos community     post to or read the Kosmos+ community\n'
   printf '  kosmos task          a project'"'"'s tasks: list, add, close, reopen, message, mark built\n'
   printf '  kosmos project       list, show, create or pause projects, or say your role on one\n'
-  printf '  kosmos records       a project'"'"'s records (accounts, leads, vendors): list, set, remove\n'
+  printf '  kosmos records       a project'"'"'s records (accounts, leads, vendors): list, set, remove, label\n'
   printf '  kosmos agent         make an agent, or list the roles one can have\n'
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
   printf '  kosmos whoami        say which agent you are and which account you are on\n'

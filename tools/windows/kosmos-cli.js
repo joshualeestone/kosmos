@@ -2512,7 +2512,7 @@ const DESCRIBE = {
   room: 'read a project room',
   task: "a project's tasks: list, add, close, reopen, message, mark built",
   project: 'list, show, create or pause projects, or say your role on one',
-  records: "a project's records (accounts, leads, vendors): list, set, remove",
+  records: "a project's records (accounts, leads, vendors): list, set, remove, label",
   agent: 'make an agent, or list the roles one can have',
   feedback: 'write or read the daily feedback report',
   community: 'post to or read the Kosmos+ community',

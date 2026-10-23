@@ -636,12 +636,12 @@ function renderShow(payload) {
       : (p.doneSection === false ? 'BRIEF.md has no Done section (a "## Done looks like" heading) to read' : 'not filled in yet')));
   }
   out.push('Tasks: ' + taskLine(p.tasks) + (p.tasks && p.tasks.total ? '. List them: kosmos task list ' + one(p.id) : ''));
-  /* #6994: the records, and the verb, where an agent looks at a project (the boot file has no room to teach it,
-     kosmos#4021). An older board sends no `records`, and says nothing here. */
+  /* #6994: the records, and the verb, where an agent looks at a project (teaching it in the operating block is #6995;
+     the boot file is at its size canary). An older board sends no `records`, and says nothing here. */
   const rec = p.records;
   if (rec && typeof rec.total === 'number') {
     out.push(rec.total
-      ? 'Records: ' + rec.total + ' ' + one(rec.label || 'records') + (rec.stale ? ', ' + rec.stale + ' stale (evidence more than ' + rec.staleDays + ' days old)' : '')
+      ? 'Records' + (rec.label && rec.label !== 'records' ? ' (' + one(rec.label) + ')' : '') + ': ' + rec.total + (rec.stale ? ', ' + rec.stale + ' stale (evidence more than ' + rec.staleDays + ' days old)' : '')
         + '. Read them: kosmos records ' + one(p.id)
       : 'Records: none yet. A list this project keeps (accounts, leads) goes there: kosmos records set ' + one(p.id) + ' "<name>" --status "<status>"');
   }

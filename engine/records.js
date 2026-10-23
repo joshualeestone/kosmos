@@ -12,7 +12,8 @@
  * projects.mutate in the one board process, so two agents' updates apply one after the other and both survive.
  *
  * A row: { name, key, status, confirmed, source, by, byPerson, createdAt, updatedAt }.
- *   - name: as last written; key: the name folded (case, runs of spaces), so one entity is one row.
+ *   - name: as first written (the canonical name); key: the name folded (Unicode form, case, runs of spaces), so one
+ *     entity is one row.
  *   - confirmed: YYYY-MM-DD, the date of the row's latest evidence. A write IS evidence, so it is today unless
  *     the writer says when the evidence is from.
  *   - status and source are optional; a write leaves a field alone unless it names it ('' clears it).
@@ -24,21 +25,32 @@ const projects = require('./projects');
 
 const NAME_MAX = 200;
 const STATUS_MAX = 80;
-const SOURCE_MAX = 1000;
+const SOURCE_MAX = 500;
 const LABEL_MAX = 40;
-const ROWS_MAX = 2000;
+/* The rows live inside projects.json, which every board read parses whole and every write rewrites: 500 rows of at
+   most about 800 characters is about 400 KB per project at the cap, rather than the 2.5 MB 2000 rows would allow. */
+const ROWS_MAX = 500;
 const STALE_DAYS = 30;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-/* Refused rather than stripped: control characters (a newline would split a CLI line; a tab, a column), the C1
-   controls, the line and paragraph separators, the direction marks and overrides (U+202E would make a row read
-   backwards), and the zero-width characters (one would make two rows that look the same): the set taskMessageSummary
-   keeps off a line, plus the bidi and zero-width ones. */
-const CONTROL_RE = (() => {
-  // Built from code points: a separator or an override written literally in a regex literal breaks the parse.
+/* A line break: control characters (a newline would split a CLI line; a tab, a column), the C1 controls, and the
+   line and paragraph separators. Built from code points: a separator written literally in a regex literal breaks
+   the parse. */
+const LINE_RE = (() => {
   const c = (n) => String.fromCharCode(n);
-  const set = [[0x00, 0x1f], [0x7f, 0x9f], [0x2028, 0x2029], [0x200b, 0x200f], [0x202a, 0x202e], [0x2060, 0x2060], [0x2066, 0x2069], [0xfeff, 0xfeff]];
-  return new RegExp('[' + set.map(([a, b]) => c(a) + '-' + c(b)).join('') + ']');
+  return new RegExp('[' + [[0x00, 0x1f], [0x7f, 0x9f], [0x2028, 0x2029]].map(([a, b]) => c(a) + '-' + c(b)).join('') + ']');
 })();
+/** Why a field cannot be stored, or null. Refused rather than stripped. Past a line break, the invisibles are the ones
+ *  the rest of the board takes off a line (projectview.one): direction overrides and marks, the zero-width space and
+ *  BOM, word joiners, the Unicode tag block (read by a model, invisible to a person: a channel between agents), and
+ *  runs of joiners. The zero-width joiner and non-joiner stay, one or two at a time, as there: family emoji and
+ *  Persian and Indic spellings need them. */
+function badText(s, what) {
+  if (LINE_RE.test(s)) return what + ' has to be on one line';
+  if (require('./projectview').one(s) !== s.replace(/\s+/g, ' ').trim()) {
+    return what + ' cannot hold hidden or direction-changing characters';
+  }
+  return null;
+}
 
 function fail(message, status) {
   const err = new Error(message);
@@ -71,7 +83,8 @@ function ageDays(date, now) {
 
 function cleanName(v) {
   if (typeof v !== 'string' || !v.trim()) throw fail('a record needs a name');
-  if (CONTROL_RE.test(v.trim())) throw fail('a record name has to be on one line');   // before the spaces fold
+  const bad = badText(v.trim(), 'a record name');   // before the spaces fold, so a newline is refused, not turned into one
+  if (bad) throw fail(bad);
   const name = v.trim().replace(/\s+/g, ' ');
   if (name.length > NAME_MAX) throw fail('a record name can be at most ' + NAME_MAX + ' characters');
   return name;
@@ -83,7 +96,8 @@ function cleanText(v, what, max) {
   if (v === null) return '';
   if (typeof v !== 'string') throw fail('the ' + what + ' has to be text');
   const s = v.trim();
-  if (CONTROL_RE.test(s)) throw fail('the ' + what + ' has to be on one line');
+  const bad = badText(s, 'the ' + what);
+  if (bad) throw fail(bad);
   if (s.length > max) throw fail('the ' + what + ' can be at most ' + max + ' characters');
   return s;
 }
@@ -146,7 +160,8 @@ function set(projectId, name, fields = {}, { by = null, person = false, now } = 
     if (i < 0 && rows.length >= ROWS_MAX) throw fail('a project can keep at most ' + ROWS_MAX + ' records', 409);
     const before = i < 0 ? { createdAt: at } : rows[i];
     const row = {
-      ...before, name: clean, key, confirmed,
+      // The name as first written stays the row's name: an update spelled "acme" does not rename the person's "Acme Inc".
+      ...before, name: i < 0 ? clean : before.name, key, confirmed,
       status: status === undefined ? (before.status || '') : status,
       source: source === undefined ? (before.source || '') : source,
       by: by || null, byPerson: person === true, updatedAt: at,
