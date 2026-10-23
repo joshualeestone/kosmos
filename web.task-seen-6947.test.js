@@ -36,7 +36,7 @@ function listenerSource() {
 /* A page with projects 'p one' and 'p two'; task `open` of project `pj` is showing. `read` is what the activity fetch
    does ('ok', 'empty' or 'fail'); `hold` delays it until release() so a test can change the page meanwhile. */
 function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', read = 'ok', hold = false } = {}) {
-  const posts = [];
+  const posts = []; const counts = { bodies: 0 };
   const acts = { innerHTML: '' };
   const doc = {
     visibilityState: visible,
@@ -46,7 +46,7 @@ function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', re
   let release = () => {};
   const gate = hold ? new Promise((r) => { release = r; }) : Promise.resolve();
   const fetch = async (url, opts) => {
-    if (opts && opts.method === 'POST') { posts.push(url); return {}; }
+    if (opts && opts.method === 'POST') { posts.push(url); return { status: 200, text: async () => { counts.bodies += 1; return ''; } }; }
     await gate;
     if (read === 'fail') return { ok: false, json: async () => ({}) };
     return { ok: true, json: async () => ({ events: read === 'empty' ? [] : [{ at: new Date().toISOString(), kind: 'said', text: 'hi' }] }) };
@@ -57,7 +57,7 @@ function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', re
     + '\n' + listenerSource() + '\nreturn { paintTaskActivity, set(pjId, n) { PJ_CURRENT = pjId; TK_OPEN = n; } };');
   const api = make(doc, fetch, (id) => (id ? { id } : null), () => '<rows>', { pj, open });
   const settle = () => new Promise((r) => setImmediate(r));
-  return { posts, acts, doc, ...api, release: () => release(), settle, tabBack: async () => { doc.listener(); await settle(); await settle(); } };
+  return { posts, counts, acts, doc, ...api, release: () => release(), settle, tabBack: async () => { doc.listener(); await settle(); await settle(); } };
 }
 const seenUrl = (pj, n) => '/api/project/' + encodeURIComponent(pj) + '/task/' + n + '/seen';
 
@@ -103,4 +103,13 @@ test('#6947: coming back to the tab redraws the conversation, which marks it; of
   await away.tabBack();
   assert.equal(away.acts.innerHTML, '', 'a task page not on screen is not redrawn');
   assert.deepEqual(away.posts, []);
+});
+
+
+test('#6947: the seen reply\'s body is read, so the request finishes (an unread reply keeps it open in Chromium)', async () => {
+  const p = page();
+  await p.paintTaskActivity(3);
+  await p.settle();
+  assert.equal(p.posts.length, 1);
+  assert.equal(p.counts.bodies, 1, 'the seen reply was left unread, which keeps the request open (render-url-state timed out on it)');
 });

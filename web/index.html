@@ -68513,7 +68513,11 @@ function openTaskPage(n) {
 function tkMarkSeen(n, projectId) {
   const back = document.getElementById('tk-back');
   if (TK_OPEN === null || n !== TK_OPEN || projectId !== PJ_CURRENT || document.visibilityState !== 'visible' || !back || !back.getClientRects().length) return;
-  fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' }).catch(() => {});
+  // The answer's body is read: in Chromium a reply left unread keeps its request open, so a page waiting for the
+  // network to go quiet would wait for good (the same trap the page's fetch wrapper drains for refusals, #6192).
+  fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' })
+    .then((res) => { if (res && typeof res.text === 'function') res.text().catch(() => {}); })
+    .catch(() => {});
 }
 /* #6947: coming back to the tab while a task's page is showing: draw the conversation again (it is not redrawn on the
    poll, so a message that came while the tab was away is not on screen yet); the draw marks it seen. */
