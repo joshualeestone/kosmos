@@ -6495,6 +6495,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      header; the empty-state message (non-empty) is unaffected. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > #pj-docs-msg:empty { min-height: 0; margin: 0; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .pj-docs { grid-column: 1 / -1; grid-row: 3; overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
+  /* #6994: the records sit under the list, in a row of their own. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .pj-records { grid-column: 1 / -1; grid-row: 4; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .pj-docs::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated #pj-remove-member { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj-minus { display: grid; place-items: center; margin-left: auto; width: 24px; height: 24px; flex: none; border: 1px solid var(--k-rule); border-radius: 6px; background: var(--k-surface); color: var(--k-ink-2); font: 600 14px/1 var(--font-ui); padding: 0; cursor: pointer; opacity: 0; }
@@ -8408,6 +8410,18 @@ html.has-speak .asp-speak { display: grid; }
    column's own rhythm. A row is a BUTTON because it acts — `open` launches a
    file — and a div with a click handler is not reachable from the keyboard. */
 .pj-docs { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--space-3); }
+/* #6994: the project's records, under the Files list. */
+.pj-records { margin-top: var(--space-4); }
+.pj-records-h { font: var(--text-callout) var(--font-ui); font-weight: 600; color: var(--label); margin: 0 0 var(--space-2); }
+.pj-rec { width: 100%; border-collapse: collapse; font: var(--text-callout) var(--font-ui); color: var(--label); }
+.pj-rec th { text-align: left; font-weight: 500; color: var(--label-2); padding: var(--space-2) var(--space-2) var(--space-2) 0;
+  border-bottom: 0.5px solid var(--separator); }
+.pj-rec td { padding: var(--space-2) var(--space-2) var(--space-2) 0; border-bottom: 0.5px solid var(--separator); vertical-align: top;
+  overflow-wrap: anywhere; }
+.pj-rec .pj-rec-age { display: block; color: var(--label-2); }
+.pj-rec tr.stale .pj-rec-age { color: var(--warn-ink); }
+.pj-rec-stale { display: inline-block; margin-left: var(--space-2); padding: 0 var(--space-2); border-radius: var(--radius-control);
+  background: var(--warn-bg); border: 0.5px solid var(--warn-border); color: var(--warn-ink); font-weight: 500; }
 .pj-doc { display: flex; align-items: baseline; gap: var(--space-4); width: 100%;
           text-align: left; background: none; border: 0; cursor: pointer;
           padding: var(--space-3) var(--space-3); border-radius: var(--radius-control);
@@ -17197,6 +17211,16 @@ window.kosmosMeasureScrollbarWidth();
              grid since #3756 (message row 2, list row 3). -->
         <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
         <div id="pj-docs" class="pj-docs"></div>
+        <!-- #6994: the project's records (engine/records.js), the shared table agents keep with kosmos records.
+             Inside the Files card, under its list, so neither view's grid gains a cell; shown only when the
+             project has records. A stale row says "stale" in words, not by colour alone (WCAG 1.4.1). -->
+        <div class="pj-records" id="pj-records" hidden>
+          <h4 class="pj-records-h" id="pj-records-h">Records</h4>
+          <table class="pj-rec" aria-labelledby="pj-records-h">
+            <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col">Confirmed</th><th scope="col">Source</th></tr></thead>
+            <tbody id="pj-records-rows"></tbody>
+          </table>
+        </div>
       </div>
     </aside>
 
@@ -25449,6 +25473,7 @@ async function tick() {
        repaint on -- a hidden card still costs nobody a fetch. pjLoadDocs
        itself now skips the repaint when the folder's stamp has not moved. */
     if (PJ_CURRENT && !document.getElementById('pj-one-view').hidden) pjLoadDocs(PJ_CURRENT);
+    if (PJ_CURRENT && !document.getElementById('pj-one-view').hidden) pjLoadRecords(PJ_CURRENT);   // #6994
     /* #743 (Josh, night walk of served 0.5.24): "Starting the connection."
        sat for minutes after the tunnel was already up, because the Plus
        section painted only on arrival and nothing repainted it while it
@@ -71119,6 +71144,76 @@ let PJ_DOCS_OK = false;
    response arriving after a PROJECT switch, not two in-flight reads of
    the SAME project settling out of order. */
 let PJ_DOCS_EPOCH = 0;
+/* #6994: the project's records, under the Files list (engine/records.js). Loaded with the files on opening a project
+   and on the same five-second poll, with the files' guards: an epoch so a slow read cannot paint over a newer one,
+   PJ_CURRENT so one project's rows never paint under another's name, and a stamp so an unchanged table is not
+   redrawn. Hidden while the project has none (and while they cannot be read: no rows is not a claim either way). */
+let PJ_REC_EPOCH = 0;
+let PJ_REC_STAMP = null;
+function pjRecordsReset() {
+  PJ_REC_STAMP = null;
+  PJ_REC_EPOCH += 1;
+  document.getElementById('pj-records').hidden = true;
+  document.getElementById('pj-records-rows').textContent = '';
+}
+function pjRecordsAge(days) {
+  if (days === null || days === undefined) return '';
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  return days + ' days ago';
+}
+async function pjLoadRecords(id) {
+  const epoch = (PJ_REC_EPOCH += 1);
+  let body;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(id) + '/records');
+    body = res.ok ? await res.json() : null;
+  } catch { body = null; }
+  if (epoch !== PJ_REC_EPOCH || PJ_CURRENT !== id) return;
+  const box = document.getElementById('pj-records');
+  if (!body || !Array.isArray(body.rows) || !body.rows.length) { box.hidden = true; PJ_REC_STAMP = null; return; }
+  const stamp = JSON.stringify(body);
+  if (stamp === PJ_REC_STAMP && !box.hidden) return;
+  PJ_REC_STAMP = stamp;
+  const label = String(body.label || 'records');
+  document.getElementById('pj-records-h').textContent = label.charAt(0).toUpperCase() + label.slice(1)
+    + ' (' + body.rows.length + (body.stale ? ', ' + body.stale + ' stale' : '') + ')';
+  const rows = document.getElementById('pj-records-rows');
+  rows.textContent = '';
+  for (const r of body.rows) {
+    const tr = document.createElement('tr');
+    if (r.stale) tr.className = 'stale';
+    const name = document.createElement('td');
+    name.textContent = r.name;
+    const status = document.createElement('td');
+    status.textContent = r.status || '';
+    const when = document.createElement('td');
+    when.textContent = r.confirmed;
+    const age = document.createElement('span');
+    age.className = 'pj-rec-age';
+    age.textContent = pjRecordsAge(r.ageDays) + (r.byPerson ? ', by you' : r.by ? ', by ' + r.by : '');
+    when.appendChild(age);
+    if (r.stale) {
+      const mark = document.createElement('span');
+      mark.className = 'pj-rec-stale';
+      mark.textContent = 'stale';
+      mark.title = 'The evidence for this row is more than ' + body.staleDays + ' days old';
+      age.appendChild(mark);
+    }
+    const source = document.createElement('td');
+    if (/^https?:\/\//i.test(r.source || '')) {
+      const a = document.createElement('a');
+      a.href = r.source;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = r.source;
+      source.appendChild(a);
+    } else source.textContent = r.source || '';
+    tr.append(name, status, when, source);
+    rows.appendChild(tr);
+  }
+  box.hidden = false;
+}
 async function pjLoadDocs(id) {
   const box = document.getElementById('pj-docs');
   const msg = document.getElementById('pj-docs-msg');
@@ -73221,6 +73316,8 @@ function openProject(id) {
     PJ_DOCS_STAMP = null;
     PJ_DOCS_OK = false;
     pjLoadDocs(id);
+    pjRecordsReset();   // #6994: the records belong to the project too
+    pjLoadRecords(id);
     const roomBox = document.getElementById('pj-room');
     roomBox.__lastRoom = undefined;
     roomBox.__lastBody = undefined;
