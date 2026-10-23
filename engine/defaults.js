@@ -590,6 +590,12 @@ const BLOCK = [
   'as the hourly cap on how many one agent makes. Once it exists you post to it',
   'and hand it work the same way as any other project.',
   '',
+  '**A project can keep one shared list of the things it tracks** (accounts, leads,',
+  'vendors): `kosmos records <project-id>` reads it, and `kosmos records set',
+  '<project-id> "<name>" --status "<status>" --confirmed YYYY-MM-DD --source "<link>"`',
+  'adds or updates a row. Keep such a list there, not in a file of your own, so two',
+  'of you never overwrite each other.',
+  '',
   '### What you hand a person',
   '',
   '**When you make something for a person, make it in the format they would',
@@ -1203,8 +1209,15 @@ function block() {
  *     claim` says the post asks someone else, and that a post handed to you is claimed where it
  *     is handed over. No new heading, so as in 32 an agent's EDITED copy of that section is not
  *     re-offered it.
+ *  40. kosmos#6995 (follow-up to #6994). "Making a project" now teaches `kosmos records`, the
+ *     project's one shared list of what it tracks, so agents stop keeping such lists in files of
+ *     their own that overwrite each other. To make room, the tasks section's fingerprint paragraph
+ *     says the same things in fewer words (every phrase a test pins is kept). No new heading, so as
+ *     in 32 an agent's EDITED copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that agents need the block to find the verb; `project show` already
+ *     names it. If they find it there unaided, this paragraph could go.
  */
-const DOCTRINE_VERSION = 39;
+const DOCTRINE_VERSION = 40;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

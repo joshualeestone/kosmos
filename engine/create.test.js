@@ -2835,8 +2835,14 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
      (52,428). #5309's new provider-block section (where a plugin the person installed may be, and how to tell) is 3,357
      of them, all intended new instructions; main without it is about 50,200. / 4 is 65,536, still 4x under the real
      cap (262,144), so the fits-check stays unreachable. The third raise in ten days: the growth is kosmos#4021's. */
+  /* Raised from / 4 to / 3 on 2026-10-23 (#6995): main measured 65,449 bytes of text, 87 under the / 4 line (65,536),
+     and teaching `kosmos records` (#6994) in "Making a project" adds about 360 after the fingerprint paragraph gave
+     back about 150: 65,654. / 3 is 87,381, still 3x under the real cap (262,144), so the fits-check stays unreachable.
+     THE GROWTH, WRITTEN DOWN this time (#4021, which tracked it, is closed): 32,935 (2026-09-26), 43,679 (10-01),
+     53,566 (10-05), 65,449 (10-23), about 1,000 bytes a day of intended instructions. At that rate / 3 holds for
+     about three weeks. The fourth raise in four weeks: before a fifth, shorten the blocks rather than move the line. */
   const measured = Buffer.byteLength(text, 'utf8');
-  assert.ok(measured < instructions.MAX_BYTES / 4,
+  assert.ok(measured < instructions.MAX_BYTES / 3,
     'a role-made boot file has grown toward the cap; the fits-check may now be reachable and testable ('
     + measured + ' bytes of text, ' + bytes + ' as written on this machine)');
 });
