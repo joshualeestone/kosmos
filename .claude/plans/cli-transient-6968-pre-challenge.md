@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: cli-transient-6968
-diff_hash: aa9828e314efdf0fe990d8a37a8feaa2be9cda5166862286f8f882b1b523ece7
+diff_hash: 1aed6fd45bd9e67212684e8435a78003a84aa7a87a4dc8af29a835ea99cbae34
 validation: passed (focused: 153 files that read install/kosmos plus the file-scanning guards, 3287 tests, one red: the #4796 data-root guard on this branch's new test, fixed in the test; after the replay onto main at dac107cb, the card's test, the 4466/2662/1970/4796 suites, fixture-discipline and main's 4 new CLI tests 205/205, and both browser-check gates; CI then found the #3628 exit-code guard on the new test (marker added) and a #4466 timing red unrelated to this diff (passed 3 of 3 here); all 64 test-scanning guards 1405 tests, 0 failed; the full suite is CI's)
 subdir_audit: passed (no CLAUDE.md changed)
 timestamp: 2026-10-23T05:16:34Z
