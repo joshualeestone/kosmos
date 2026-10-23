@@ -37,6 +37,13 @@ reacting (now at creation too, any case). doctrine-past.js sections re-sorted as
 sentence names the real project and post. Noted, not changed: a post that @-names bob and also asks the room for
 something else is bob's alone to claim; a claim made before this rule on a post naming bob still holds.
 
+## Review 2 (blind, 0 BLOCKER, 2 WARNING): fixed. "Asked" is now what the room's own delivery calls asked (asksIt):
+the @-named members plus the author of the post it answers (unless that is the person), so a quote-reply "yes, go
+ahead" to bob is bob's. And a post can be handed on: a later answer to it by the person or by someone it asks that
+@-names others asks them too (control: an agent that was not asked cannot hand it to itself). The refusal says so.
+Nits: the claim sentence prints the board's post id (m530 for a typed 530) and is pinned whole in both CLIs; a holder's
+🙋 toggle-off says the post was given back; create.js drops a no-op lowercase.
+
 ## Weakest premise
 That `mentioned` is how a request names its owner. A post that asks "can ann take this?" without an @-mention names
 nobody to the board, so anyone can still claim it. And doctrine-past.js carries the v38 rows by hand until #6946 is on

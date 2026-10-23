@@ -306,7 +306,7 @@ test('#6952: a post that @-names members can be claimed only by them; control: a
   const ann = claim('ann');
   assert.equal(ann.ok, false, 'ann claimed a post that asks bob');
   assert.deepEqual(ann.askedOf, ['bob']);
-  assert.equal(ann.because, 'that post asks bob, so it is theirs to take: read the room, and ask them if you can help');
+  assert.equal(ann.because, 'that post asks bob, so it is theirs to take: read the room, and ask them if you can help (if they hand it to you, their answer naming you lets you claim it)');
   assert.equal(messages.react({ project: 'p', of: 'm1', emoji: HAND, from: 'ann', members: MEMBERS }).ok, false, 'a plain 🙋 went around the rule');
   assert.equal(claim('bob').op, 'add', 'bob could not claim the post that asks him');
   // CONTROL: `to` is every member here too, but nobody is named, so ann can claim it.
@@ -336,4 +336,33 @@ test('#6952 review 1: the name operator is reserved when an agent is created, in
   assert.equal(typeof check, "function", "engine/create.js no longer exports nameProblem");
   for (const n of ['operator', 'Operator', 'OPERATOR']) assert.match(String(check(n)), /reserved/, n);
   assert.equal(check('operators'), null, 'a name that only starts with operator was refused');
+});
+
+test('#6952 review 2: a reply asks the author of the post it answers; control: a reply to the person\'s own post asks nobody', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = () => new Date().toISOString();
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'bob', to: MEMBERS, text: 'Shall I fix the login bug?', outcomes: {}, at: at() });
+  append({ kind: 'post', id: 'm2', project: 'p', from: 'you', operator: true, to: MEMBERS, replyTo: 'm1', text: 'yes please, go ahead', outcomes: {}, at: at() });
+  const ann = claim('ann', 'm2');
+  assert.equal(ann.ok, false, 'ann claimed the go-ahead meant for bob');
+  assert.deepEqual(ann.askedOf, ['bob']);
+  assert.equal(claim('bob', 'm2').op, 'add');
+  // CONTROL: the person answering their OWN post asks nobody new, so anyone can claim it.
+  append({ kind: 'post', id: 'm3', project: 'p', from: 'you', operator: true, to: MEMBERS, text: 'can someone do Y', outcomes: {}, at: at() });
+  append({ kind: 'post', id: 'm4', project: 'p', from: 'you', operator: true, to: MEMBERS, replyTo: 'm3', text: 'still open', outcomes: {}, at: at() });
+  assert.equal(claim('ann', 'm4').op, 'add');
+});
+
+test('#6952 review 2: a post can be handed on by the person or the asked member; control: nobody else can hand it on', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = () => new Date().toISOString();
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix the login bug', outcomes: {}, at: at() });
+  // CONTROL first: cy (not asked) answering "@cy I will take it" hands nothing to cy.
+  append({ kind: 'post', id: 'm2', project: 'p', from: 'cy', to: MEMBERS, replyTo: 'm1', mentioned: ['cy'], text: '@cy I will take it', outcomes: {}, at: at() });
+  assert.equal(claim('cy').ok, false, 'an agent that was not asked handed the post to itself');
+  // bob hands it to ann.
+  append({ kind: 'post', id: 'm3', project: 'p', from: 'bob', to: MEMBERS, replyTo: 'm1', mentioned: ['ann'], text: '@ann I am out of usage, please take m1', outcomes: {}, at: at() });
+  const ann = claim('ann');
+  assert.equal(ann.ok, true, 'bob handed the post to ann and the board still refused her');
+  assert.equal(ann.op, 'add');
 });

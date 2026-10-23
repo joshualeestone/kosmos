@@ -3774,15 +3774,29 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   // A plain 🙋 toggle by an agent with a pill that is not the claim takes that pill off, as any reaction would.
   if (claim !== 'claim' && pills) { dropPills(reactor); return { ok: true, op: 'remove', emoji: e, of: postId }; }
   if (holder && holder.by !== reactor) return refuse();
-  /* #6952: a post that @-names members asks THEM. Another agent's claim would tell the named one to stand down, so it
-     is refused, naming who was asked. `mentioned` is who the post addressed when it was sent (#185), not its delivery
-     list (`to`, which can be every member). */
-  // Only those still in the room: a post naming someone who has since left is open to the rest (review 1).
-  const asked = Array.isArray(post.mentioned)
-    ? post.mentioned.filter((n) => typeof n === 'string' && n && (!Array.isArray(roomNow) || roomNow.includes(n))) : [];
+  /* #6952: a post that ASKS members is theirs. Another agent's claim would tell the asked one to stand down, so it is
+     refused, naming who was asked. Asked is what the room's own delivery calls asked (asksIt): the members the post
+     @-named (`mentioned`, recorded when it was sent, #185; never `to`, the delivery list, which can be every member),
+     and the author of the post it answers, unless that is the person (review 2). A later answer to this post, by the
+     person or by someone it asks, that @-names others hands it to them too, so "@ann you take it" lets ann claim it
+     (review 2). Only those still in the room count, so a post asking only someone who has left is open (review 1). */
+  const postsHere = rows.filter((m) => m && m.kind === 'post' && m.project === projectId);
+  const askedSet = new Set(Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : []);
+  if (typeof post.replyTo === 'string') {
+    const answered = postsHere.find((m) => String(m.id) === post.replyTo);
+    if (answered && answered.operator !== true && typeof answered.from === 'string' && answered.from) askedSet.add(answered.from);
+  }
+  if (askedSet.size) {
+    for (const m of postsHere) {
+      if (m.replyTo !== postId || !(m.operator === true || askedSet.has(m.from)) || !Array.isArray(m.mentioned)) continue;
+      for (const n of m.mentioned) if (typeof n === 'string' && n) askedSet.add(n);
+    }
+  }
+  const asked = [...askedSet].filter((n) => !Array.isArray(roomNow) || roomNow.includes(n));
   if (asked.length && !asked.includes(reactor)) {
     return { ok: false, askedOf: asked,
-      because: 'that post asks ' + asked.join(', ') + ', so it is theirs to take: read the room, and ask them if you can help' };
+      because: 'that post asks ' + asked.join(', ') + ', so it is theirs to take: read the room, and ask them if you can help'
+        + ' (if they hand it to you, their answer naming you lets you claim it)' };
   }
   /* Round 2: a claimant who has left the room no longer holds anything, so a new claim ENDS theirs in the log too.
      Otherwise re-adding them to the project would bring their old claim back above this one. */

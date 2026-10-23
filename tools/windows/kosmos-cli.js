@@ -769,9 +769,10 @@ async function verbReact(ctx, args) {
   if (ctx.wrongWorld(r)) { ctx.err(ctx.outbox().WRONG_WORLD_SENTENCES.notOpen); return 1; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
   /* install/kosmos's sentences: the route TOGGLES, so the agent must hear which. */
+  if (r.json && r.json.ok && r.json.op === 'remove' && r.json.emoji === '\u{1F64B}') { ctx.out('Gave that post back: your raised hand is off it, so it is no longer claimed by you.'); return 0; }
   if (r.json && r.json.ok && r.json.op === 'remove') { ctx.out('Took your ' + emoji + ' back off that post.'); return 0; }
   // kosmos#6952: install/kosmos's sentence for a raised hand, which is a claim.
-  if (r.json && r.json.ok && r.json.op === 'add' && r.json.emoji === '\u{1F64B}') { ctx.out('Claimed: a raised hand is a claim, so that post is yours and the room shows it. Say in the room what you are doing with it; kosmos claim ' + project + ' ' + of + ' --release gives it back.'); return 0; }
+  if (r.json && r.json.ok && r.json.op === 'add' && r.json.emoji === '\u{1F64B}') { ctx.out('Claimed: a raised hand is a claim, so that post is yours and the room shows it. Say in the room what you are doing with it; kosmos claim ' + project + ' ' + (clause(r.json.of) || of) + ' --release gives it back.'); return 0; }
   if (r.json && r.json.ok) { ctx.out('Reacted ' + emoji + ' to that post.'); return 0; }
   ctx.err('Not reacted: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
   return 1;
