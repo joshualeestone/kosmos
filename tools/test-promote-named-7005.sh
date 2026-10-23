@@ -173,8 +173,19 @@ exit 2
 ' > "$HOLD"; chmod +x "$HOLD"
 S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 2 ] && untouched "$S" && pass "named: a cannot-tell experience gate holds (exit 2), nothing written" || bad "named hold (rc=$rc, out=$out)"
-S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --force 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && pass "named: CONTROL --force after a hand check promotes past cannot-tell" || bad "named hold --force (rc=$rc, out=$out)"
+S="$(newsite)"; s98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")"
+out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" 16999 --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && pass "named: CONTROL --force (with --sha) after a hand check promotes past cannot-tell" || bad "named hold --force (rc=$rc, out=$out)"
+has "$out" "run the check it could not on a board that runs 9.9.8: not the board the gate checked (:16999), which has moved on" && pass "named: after a forced cannot-tell it sends the check to a board on 9.9.8, not the moved one" || bad "named post-force advice (out=$out)"
+refused "--force without --sha" "$(newsite)" "--version with --force needs --sha" --version 9.9.8 --force
+# CONTROL: the default promote's post-force advice, with a port, names the port once (it used to print it twice).
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" 16999 --force 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "once the board the gate checked (:16999) reports 9.9.9, run the check it could not" && pass "default: CONTROL the post-force advice names the board's port once" || bad "default post-force advice (rc=$rc, out=$out)"
+# A re-cut of V while the gates run replaces its bytes in dist/: refused before anything is written.
+RECUT="$T/stub-recut-gate.sh"
+printf '#!/usr/bin/env bash\nprintf "RE-CUT-BYTES\\n" > "$RECUT_SITE/dist/kosmos-9.9.8-arm64.tar.gz"; ( cd "$RECUT_SITE/dist" && shasum -a 256 kosmos-9.9.8-arm64.tar.gz > kosmos-9.9.8-arm64.tar.gz.sha256 )\nexit 0\n' > "$RECUT"; chmod +x "$RECUT"
+S="$(newsite)"; out="$(RECUT_SITE="$S" KOSMOS_PROMOTE_GATE_CMD="bash $RECUT" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 1 ] && untouched "$S" && has "$out" "is no longer the bytes checked above" && pass "named: V re-cut while the gates ran is refused, nothing written" || bad "named re-cut during gates (rc=$rc, latest.json: $(cat "$S/dist/latest.json"), out=$out)"
 
 # ---- a version older than prod's is a rollback, and needs --allow-older ----
 S="$(newsite)"; bash "$HERE/promote-channel.sh" "$S" >/dev/null 2>&1   # prod now serves 9.9.9
