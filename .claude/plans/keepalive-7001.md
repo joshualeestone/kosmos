@@ -32,7 +32,8 @@ The svc.sh stub's install writes actions/runner's template (no KeepAlive); launc
 a per-service print. New cases: register adds KeepAlive and keeps the rest; register with no plist starts nothing; the
 keepalive dry run changes nothing; --apply over ssh (managername Background) adds it, boots out before bootstrapping,
 and sees a new Listener; refusals for a running job, an unlistable process table, no GUI domain, no plist, the wrong
-user; a failed bootstrap says the runner is stopped; verify's note, problem and ok. `bootout` now counts as a change.
+user; a failed bootstrap says the runner is stopped; verify's note, problem and ok. (`bootout` already counted as a
+change on main; the extra alternation I added is redundant and harmless.)
 Mutants, each red: register without the add, no job check, keepalive_set always true, no ssh-ok, no bootout.
 
 ## Not done here
@@ -67,6 +68,21 @@ Mutants red: glob lookup, path-based Worker match, no stopped check, no stuck ch
   at start. So only a crash or kill restarts it; a crash loop is throttled to 10 s and stopped with launchctl bootout.
 - The unload wait is validated before anything changes; plutil is in the reads list.
 Mutants red: done-on-file-only (rerun and old-job cases), no own-Listener check.
+
+## Review round 3
+- A runner that is not loaded is no longer "ok": the stage cannot tell a stop on purpose from a runner it left down
+  itself (a bootout that finished after the wait, a failed bootstrap), so --apply says DOWN, exits 1 and names the start
+  command; it still never starts it. The stuck-bootout message says it may still be unloading and how to tell.
+- After a reload, done needs a new Listener from THIS runner's dir (not any Listener of the user: the relay's can
+  respawn meanwhile). The Worker check stays a name match on purpose: a path match could miss a Worker started with a
+  relative path and cancel its job; refusing on the relay's job is the safe side, and the message says it may be either.
+- The pgrep stub now matches -f patterns against this runner's and the relay's real-shaped argv, so a pattern that
+  cannot tell them apart fails a test; a reload that loads no KeepAlive fails a test; loaded_keepalive captures
+  launchctl's output before grep (no SIGPIPE shape); the dry run checks the GUI domain; verify's note says which of
+  no .service, unreadable .service or closed ~/Library it is; register's recovery names ./svc.sh start too.
+- Documented, not changed: a killed Listener's session can outlast the restarted Listener's conflict retries; it then
+  exits 5 and stays down (KeepAlive true would instead loop every 10 s on a real stop). The liveness page covers it.
+Mutants red: a broadened own-Listener pattern (two sites), no post-reload check, the DOWN path back to ok.
 
 ## Weakest premise
 That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it
