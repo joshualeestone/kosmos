@@ -96,14 +96,9 @@ final class BoardClient: ObservableObject {
         // Screenshots only (a Debug build; Release has no such switch): KOSMOS_SAMPLE_AGENTS=1 shows invented agents
         // (the names in Mona Lisa's design) without connecting, so no real account is ever in a picture.
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" {
-            agents = Board.sorted([
-                Board.Agent(session: "cleo", name: "Cleo", role: "Project manager", state: "needs_you", task: nil, needsYou: true, reportedByAgent: true),
-                Board.Agent(session: "dana", name: "Dana", role: "Writer", state: "working", task: "Pages 9 to 12", needsYou: false),
-                Board.Agent(session: "eli", name: "Eli", role: "Researcher", state: "working", task: nil, needsYou: false),
-                Board.Agent(session: "farah", name: "Farah", role: "Bookkeeper", state: "idle", task: nil, needsYou: false),
-                Board.Agent(session: "hana", name: "Hana", role: "Support", state: "auth_failed", task: nil, needsYou: false),
-                Board.Agent(session: "gus", name: "Gus", role: "Social media", state: "stopped", task: nil, needsYou: false, running: false),
-            ])
+            // Through the real parser, as /api/status rows from a Mac that sends its words ready-made (#7004).
+            let sample = #"{"agents":[{"sessionName":"cleo","name":"Cleo","role":"Project manager","state":"needs_you","stateReportedBy":"agent","cardWord":"Question","cardTone":"asked"},{"sessionName":"dana","name":"Dana","role":"Writer","state":"working","task":"Pages 9 to 12","cardWord":"Working","cardTone":"working"},{"sessionName":"eli","name":"Eli","role":"Researcher","state":"working","cardWord":"Working","cardTone":"working"},{"sessionName":"farah","name":"Farah","role":"Bookkeeper","state":"idle","cardWord":"Idle","cardTone":"quiet"},{"sessionName":"hana","name":"Hana","role":"Support","state":"auth_failed","cardWord":"Sign-in Issue","cardTone":"needs_you"},{"sessionName":"ivy","name":"Ivy","role":"Editor","state":"restarting","cardWord":"Switching to Opus","cardTone":"quiet"},{"sessionName":"gus","name":"Gus","role":"Social media","state":"stopped","running":false,"cardWord":"Not running","cardTone":"needs_you"}]}"#
+            agents = Board.sorted(Board.parseAgents(Data(sample.utf8)) ?? [])
             updatedAt = Date()
             fresh = true
             phase = .live(mac: Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true))
