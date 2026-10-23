@@ -359,13 +359,11 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
  * stolen release key is a new list without it, seq + 1, signed with the recovery key (tools/lib/release-keys-sign.js),
  * and the next release raises MIN_KEY_LIST_SEQ to it. Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
 const RECOVERY_KEYS = Object.freeze([]);   // frozen: nothing in the process can turn the feature on by adding one
-/* 🛑 #6609: NOT filled in until the whole chain takes the list. Done: run-setup (2a), setup.sh's checks (2b), and the
-   .pkg installer's pinned path (kosmos-pkg-verify, #6576, takes the list; its recoveryKeys must match these; the whole
-   pinned path is itself off while install/pkg-verify/floor reads "off"). NOT done:
-   the Windows updater (engine/win32update.js, #6607), which checks its manifest with the built-in KEYS; and serving the
-   list from the site (2c). Filled in before the Windows updater takes the list, a revoked key still opens a Windows
-   update; filled in before the site serves a list, every update fails, and so does every .pkg install with its check
-   on (.claude/plans/recoverykey3-6609.md). */
+/* 🛑 #6609: NOT filled in until the whole chain takes the list. Done: run-setup (2a), setup.sh's checks (2b), the
+   Windows updater (engine/win32update.js releaseKeys, #6692), and the .pkg installer's pinned path (kosmos-pkg-verify,
+   #6576; its recoveryKeys must match these; that whole path is itself off while install/pkg-verify/floor reads "off").
+   NOT done: serving the list from the site (2c). Filled in before the site serves a list, every update fails, and so
+   does every .pkg install with its check on (.claude/plans/recoverykey3-6609.md). */
 const KEY_LIST_STATE = 'release-keys.state';   // a folder: one seq-<n>.json per list taken
 // The lowest list seq this build accepts, even with no state stored (a fresh install): raised in the release after a
 // revocation, so a copy without a record still refuses the list from before it.
@@ -375,6 +373,20 @@ const MAX_SEQ = 2147483647;
 const KEY_LIST_TYPE = 'kosmos-release-keys';
 const sameKeys = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
+// The Ed25519 points of small order (dividing 8), as their 32-byte encodings with the sign bit cleared, the
+// non-canonical spellings of 0 and 1 included (the list libsodium refuses). Some verifiers accept a forged signature
+// under such a key (Apple's CryptoKit does, for the identity point), so none is ever a key here; the same list is in
+// install/pkg-verify/main.swift (install.pkg-verify-keylist-6609.test.js checks both, and checks the points).
+const SMALL_ORDER = new Set([
+  '0000000000000000000000000000000000000000000000000000000000000000',
+  '0100000000000000000000000000000000000000000000000000000000000000',
+  '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05',
+  'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a',
+  'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+  'edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+  'eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+]);
+
 /** An Ed25519 public key from its SubjectPublicKeyInfo base64, or null for anything else. Only the canonical
  * spelling is a key (the bytes re-encoded must be the same string), so comparing strings compares keys. */
 function ed25519Key(b64) {
@@ -382,6 +394,8 @@ function ed25519Key(b64) {
   const der = Buffer.from(b64, 'base64');
   if (der.length !== 44 || der.toString('base64') !== b64) return null;
   if (!der.subarray(0, 12).equals(Buffer.from('302a300506032b6570032100', 'hex'))) return null;
+  const point = Buffer.from(der.subarray(12)); point[31] &= 0x7f;
+  if (SMALL_ORDER.has(point.toString('hex'))) return null;
   try { return crypto.createPublicKey({ key: der, format: 'der', type: 'spki' }); } catch { return null; }
 }
 

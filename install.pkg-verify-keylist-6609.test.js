@@ -313,3 +313,73 @@ test('#6609: the root step reads the existing install\'s record by name and refu
   // Control: the same seq-4 list with no record installs, so the refusal above came from the record.
   assert.equal(rootStep(h, site(h, LISTED, signList(listText({ seq: 4 })))).status, 0);
 });
+
+// ---- 5. small-order keys ----
+// Edwards25519 in BigInt, enough to check a point's order: decode, add, multiply by a small number.
+const P25519 = 2n ** 255n - 19n;
+const fmod = (a) => ((a % P25519) + P25519) % P25519;
+const fpow = (b, e) => { let r = 1n; b = fmod(b); while (e > 0n) { if (e & 1n) r = r * b % P25519; b = b * b % P25519; e >>= 1n; } return r; };
+const finv = (a) => fpow(a, P25519 - 2n);
+const ED_D = fmod(-121665n * finv(121666n));
+const SQRT_M1 = fpow(2n, (P25519 - 1n) / 4n);
+function decodePoint(bytes) {
+  const sign = bytes[31] >> 7;
+  const c = Buffer.from(bytes); c[31] &= 0x7f;
+  let y = 0n; for (let i = 31; i >= 0; i--) y = (y << 8n) | BigInt(c[i]);
+  y = fmod(y);
+  const w = fmod((y * y - 1n) * finv(ED_D * y * y + 1n));
+  let x = fpow(w, (P25519 + 3n) / 8n);
+  if (fmod(x * x - w) !== 0n) x = fmod(x * SQRT_M1);
+  if (fmod(x * x - w) !== 0n) return null;
+  if (Number(x & 1n) !== sign) x = fmod(-x);
+  return [x, y];
+}
+const padd = ([x1, y1], [x2, y2]) => { const t = fmod(ED_D * x1 * x2 * y1 * y2); return [fmod((x1 * y2 + y1 * x2) * finv(1n + t)), fmod((y1 * y2 + x1 * x2) * finv(1n - t))]; };
+const pmul = (P, k) => { let R = [0n, 1n]; for (let i = 0; i < k; i++) R = padd(R, P); return R; };
+const isIdentity = ([x, y]) => x === 0n && y === 1n;
+const encodePoint = ([x, y]) => { const b = Buffer.alloc(32); let v = y; for (let i = 0; i < 32; i++) { b[i] = Number(v & 0xffn); v >>= 8n; } if (x & 1n) b[31] |= 0x80; return b; };
+const listFrom = (src, open, close) => {
+  const at = src.indexOf(open);
+  assert.notEqual(at, -1, open + ' moved; re-anchor this test');
+  return [...src.slice(at, src.indexOf(close, at)).matchAll(/["']([0-9a-f]{64})["']/g)].map((m) => m[1]);
+};
+const SMALL_JS = listFrom(fs.readFileSync(path.join(REPO, 'engine', 'manifest-verify.js'), 'utf8'), 'const SMALL_ORDER = new Set([', ']);');
+const SMALL_SWIFT = listFrom(SWIFT, 'let smallOrder: Set<String> = [', ']');
+const withSign = (hex, s) => { const b = Buffer.from(hex, 'hex'); b[31] = (b[31] & 0x7f) | s; return b; };
+const spkiOfPoint = (b) => Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), b]).toString('base64');
+
+test('#6609: the small-order list is the same in both copies, every entry is small-order, and it holds all eight points', () => {
+  assert.equal(SMALL_JS.length, 7);
+  assert.deepEqual(SMALL_SWIFT, SMALL_JS, 'the Swift and JS lists differ');
+  for (const h of SMALL_JS) for (const s of [0, 0x80]) {
+    const P = decodePoint(withSign(h, s));
+    if (P) assert.ok(isIdentity(pmul(P, 8)), h + ' (sign ' + s + ') is not of small order');
+  }
+  const order8 = SMALL_JS.map((h) => decodePoint(Buffer.from(h, 'hex'))).find((P) => P && !isIdentity(pmul(P, 4)));
+  assert.ok(order8, 'no point of order 8 in the list');
+  const all = new Set();
+  for (let k = 1; k <= 8; k++) { const b = encodePoint(pmul(order8, k)); all.add(b.toString('hex')); b[31] &= 0x7f; assert.ok(SMALL_JS.includes(b.toString('hex')), 'missing ' + b.toString('hex')); }
+  assert.equal(all.size, 8, 'the eight points of order dividing 8');
+  // Control: a real key is not of small order, so the check above can tell the two apart.
+  const real = pair().publicKey.export({ format: 'der', type: 'spki' }).subarray(12);
+  assert.ok(!isIdentity(pmul(decodePoint(real), 8)));
+});
+
+test('#6609: ON, a list naming a small-order key is refused by both copies, and a forgery under one never installs', { skip: SKIP }, () => {
+  const h = onAtOne();
+  const listed = spkiOf(LISTED.publicKey);
+  for (const hex of SMALL_JS) for (const s of [0, 0x80]) {
+    const k = spkiOfPoint(withSign(hex, s));
+    assert.equal(mv.ed25519Key(k), null, hex + ' sign ' + s + ': the JS takes it as a key');
+    const list = signList(listText({ release_keys: [listed, k] }));
+    assert.equal(mv.verifyKeyList({ bytes: list.bytes, sig: list.sig, recoveryKeys: [spkiOf(RECOVERY.publicKey)] }).ok, false);
+    assert.equal(run(h, manifestBy(LISTED), list).status, 97, hex + ' sign ' + s + ': the helper took the list');
+  }
+  // The forgery itself: R = identity, S = 0 over a manifest nobody signed, against a list naming the identity point.
+  const identity = spkiOfPoint(Buffer.from(SMALL_JS[1], 'hex'));
+  const bytes = Buffer.from(JSON.stringify(Object.assign({ manifest: 1, version: '0.7.60', arch: 'arm64', files: {} }, SHAS)));
+  const forged = { bytes, sig: Buffer.concat([Buffer.from([1]), Buffer.alloc(63)]).toString('base64') };
+  const r = run(h, forged, signList(listText({ release_keys: [listed, identity] })));
+  assert.equal(r.status, 97, r.stderr);
+  assert.equal(r.stdout, '');
+});

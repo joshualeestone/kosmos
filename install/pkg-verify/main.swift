@@ -6,7 +6,7 @@
 // compiled in below (the same list as engine/manifest-verify.js KEYS; install.pkg-verify-6576.test.js fails if they
 // differ), then prints the sha256 values the install must match.
 //
-//   kosmos-pkg-verify <manifest> <sig> <version> <floor> [<key list> <key list sig>]
+//   kosmos-pkg-verify <manifest> <sig> <version> <floor> [<key list> <key list sig> [<list seq taken>]]
 //
 // kosmos#6609: with a recovery key built in (recoveryKeys below), the release keys come from the key list instead: a
 // list a recovery key signed, fetched beside the manifest, checked as engine/manifest-verify.js verifyKeyList checks
@@ -84,8 +84,23 @@ func ed25519Key(_ b64: String) -> Curve25519.Signing.PublicKey? {
           let der = Data(base64Encoded: b64), der.count == 44, der.base64EncodedString() == b64,
           der.prefix(12) == Data([0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00])
     else { return nil }
+    var point = Array(der.suffix(32))
+    point[31] &= 0x7f
+    guard !smallOrder.contains(point.map { String(format: "%02x", $0) }.joined()) else { return nil }
     return try? Curve25519.Signing.PublicKey(rawRepresentation: der.suffix(32))
 }
+
+// The Ed25519 points of small order, as engine/manifest-verify.js SMALL_ORDER lists them (sign bit cleared). CryptoKit
+// accepts a forged signature under the identity point, so none of these is ever a key here.
+let smallOrder: Set<String> = [
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    "0100000000000000000000000000000000000000000000000000000000000000",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+]
 
 /// Does one of `keys` sign `bytes` with the base64 signature `sigText`?
 func signedBy(_ keys: [String], _ sigText: String, _ bytes: Data) -> Bool {
