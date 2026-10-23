@@ -8,7 +8,8 @@ require('./test-support/tmpscope');
  *   2. the route, on a fake fleet classified by the real engine: every row carries the two fields, equal to labelOf and
  *      toneOf over that same row;
  *   3. the phone's fallback (ios/Kosmos/BoardLogic.swift, used only with a Mac older than this) has the engine's words
- *      and needs-you set, so an older Mac and a newer one say the same thing.
+ *      and needs-you set, so an older Mac and a newer one give the same words (tones can differ on a row with no state:
+ *      the engine reads it quiet, the phone's fallback as unknown).
  */
 const fs = require('node:fs');
 const os = require('node:os');
