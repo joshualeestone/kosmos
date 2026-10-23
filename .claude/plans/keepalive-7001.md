@@ -54,6 +54,20 @@ Runner 2 (kosmos-ci2): needs its password or sudo on the old Mac (parked on the 
 - register's failure message names the recovery (`--apply keepalive`); ThrottleInterval 10 is said to be the default.
 Mutants red: glob lookup, path-based Worker match, no stopped check, no stuck check, no "cannot read" note.
 
+## Review round 2
+- BLOCKER: a rerun after a refused or failed reload saw KeepAlive in the plist and stopped there, while the LOADED job
+  had none. The stage now reads the loaded job too: launchd prints KeepAlive {SuccessfulExit: false} as the semaphore
+  "successful exit => 0" (measured on runner 1; absent on a job without it). Done means in the plist AND loaded; a
+  plist with it under an old job is reloaded. After a reload the stage checks launchd shows it. Cases: the rerun after
+  a refused reload reloads; a dry run under an old job is not called done.
+- Not loaded, but THIS runner's Listener runs (matched by its own dir, so not the relay's): refused, no second copy.
+- verify, which as the owner cannot read the CI user's launchd domain, now says only that the plist has it.
+- Exit codes, measured: a runsvc.sh-shaped script exits with its child's status (0 -> 0, 1 -> 1) and 0 on SIGTERM.
+  RunnerService.js ends every deliberate stop by draining (exit 0); its only process.exit is the unsupported-platform 1
+  at start. So only a crash or kill restarts it; a crash loop is throttled to 10 s and stopped with launchctl bootout.
+- The unload wait is validated before anything changes; plutil is in the reads list.
+Mutants red: done-on-file-only (rerun and old-job cases), no own-Listener check.
+
 ## Weakest premise
 That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it
 stops, keepalive refuses rather than guessing). Second: that the runner keeps ending the launchd job with exit 0 on
