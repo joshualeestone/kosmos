@@ -6495,6 +6495,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      header; the empty-state message (non-empty) is unaffected. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > #pj-docs-msg:empty { min-height: 0; margin: 0; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .pj-docs { grid-column: 1 / -1; grid-row: 3; overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
+  /* #6994: the records sit under the list, in a row of their own. The card is a fixed half of the column with
+     overflow hidden, so the records scroll inside a capped height rather than squeezing the file list to nothing
+     and then being clipped. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .pj-records { grid-column: 1 / -1; grid-row: 4; max-height: 30vh; overflow-y: auto; min-height: 0; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .pj-docs::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated #pj-remove-member { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj-minus { display: grid; place-items: center; margin-left: auto; width: 24px; height: 24px; flex: none; border: 1px solid var(--k-rule); border-radius: 6px; background: var(--k-surface); color: var(--k-ink-2); font: 600 14px/1 var(--font-ui); padding: 0; cursor: pointer; opacity: 0; }
@@ -8408,6 +8412,26 @@ html.has-speak .asp-speak { display: grid; }
    column's own rhythm. A row is a BUTTON because it acts — `open` launches a
    file — and a div with a click handler is not reachable from the keyboard. */
 .pj-docs { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--space-3); }
+/* #6994: the project's records, under the Files list. */
+/* A rule and room above, so the records read as their own list, not more rows of the file list (Mona Lisa). */
+.pj-records { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 0.5px solid var(--separator); }
+.pj-records-h { font: var(--text-callout) var(--font-ui); font-weight: 600; color: var(--label); margin: 0 0 var(--space-2); }
+.pj-records-h::first-letter { text-transform: uppercase; }
+.pj-records-note { font: var(--text-caption) var(--font-ui); color: var(--label-3); margin: 0 0 var(--space-2); }
+.pj-rec { list-style: none; margin: 0; padding: 0; font: var(--text-callout) var(--font-ui); color: var(--label); }
+.pj-rec-row { padding: var(--space-3) 0; border-bottom: 0.5px solid var(--separator); min-width: 0; }
+.pj-rec-row:last-child { border-bottom: 0; }
+.pj-rec-name { font-weight: 600; overflow-wrap: break-word; }
+.pj-rec-status { color: var(--label-2); }
+.pj-rec-status::before { content: "\00b7\00a0"; }
+.pj-rec-age { color: var(--label-2); }
+.pj-rec-row.stale .pj-rec-age { color: var(--warn-ink); }
+/* The source on one line, an ellipsis when long (its whole text is the row's title). A link takes the text colour and
+   an underline, as the page's other inline links do, so it reads in dark as in light. */
+.pj-rec-src { color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pj-rec-src a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.pj-rec-stale { display: inline-block; margin-left: var(--space-2); padding: 0 var(--space-2); border-radius: var(--radius-control);
+  background: var(--warn-bg); border: 0.5px solid var(--warn-border); color: var(--warn-ink); font-weight: 500; }
 .pj-doc { display: flex; align-items: baseline; gap: var(--space-4); width: 100%;
           text-align: left; background: none; border: 0; cursor: pointer;
           padding: var(--space-3) var(--space-3); border-radius: var(--radius-control);
@@ -17197,6 +17221,17 @@ window.kosmosMeasureScrollbarWidth();
              grid since #3756 (message row 2, list row 3). -->
         <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
         <div id="pj-docs" class="pj-docs"></div>
+        <!-- #6994: the project's records (engine/records.js), the shared list agents keep with kosmos records. It takes a tab stop
+             (and a region role) only while it scrolls (pjLoadRecords), in the consolidated view. Inside the Files card, under its
+             list, so neither view's grid gains a cell; shown only when the
+             project has records. A stale row says "stale" in words, not by colour alone (WCAG 1.4.1). -->
+        <div class="pj-records" id="pj-records" hidden>
+          <h4 class="pj-records-h" id="pj-records-h">Records</h4>
+          <p class="pj-records-note" id="pj-records-note" hidden></p>
+          <!-- A list, not a table: the Files card is a narrow column (about 230px in the consolidated view), where four
+               columns broke every word. Each line says what it is, so no header is needed to read a row. -->
+          <ul class="pj-rec" id="pj-records-rows" aria-labelledby="pj-records-h"></ul>
+        </div>
       </div>
     </aside>
 
@@ -25449,6 +25484,7 @@ async function tick() {
        repaint on -- a hidden card still costs nobody a fetch. pjLoadDocs
        itself now skips the repaint when the folder's stamp has not moved. */
     if (PJ_CURRENT && !document.getElementById('pj-one-view').hidden) pjLoadDocs(PJ_CURRENT);
+    if (PJ_CURRENT && !document.getElementById('pj-one-view').hidden) pjLoadRecords(PJ_CURRENT);   // #6994
     /* #743 (Josh, night walk of served 0.5.24): "Starting the connection."
        sat for minutes after the tunnel was already up, because the Plus
        section painted only on arrival and nothing repainted it while it
@@ -71119,6 +71155,110 @@ let PJ_DOCS_OK = false;
    response arriving after a PROJECT switch, not two in-flight reads of
    the SAME project settling out of order. */
 let PJ_DOCS_EPOCH = 0;
+/* #6994: the project's records, under the Files list (engine/records.js). Loaded with the files on opening a project
+   and on the same five-second poll, with the files' guards: an epoch so a slow read cannot paint over a newer one,
+   PJ_CURRENT so one project's rows never paint under another's name, and a stamp so an unchanged table is not
+   redrawn. Hidden while the project has none (and while they cannot be read: no rows is not a claim either way). */
+let PJ_REC_EPOCH = 0;
+let PJ_REC_STAMP = null;
+function pjRecordsReset() {
+  PJ_REC_STAMP = null;
+  PJ_REC_EPOCH += 1;
+  document.getElementById('pj-records').hidden = true;
+  document.getElementById('pj-records-rows').textContent = '';
+}
+/* "Confirmed today" / "Confirmed yesterday" / "Confirmed Sep 13, 40 days ago": the date once, in the person's own
+   short form (Mona Lisa's review: the ISO date and "today" said it twice). The exact date stays in the row's title. */
+function pjRecordsWhen(r) {
+  const days = r.ageDays;
+  if (days === null || days === undefined) return 'Confirmed ' + r.confirmed;
+  if (days <= 0) return 'Confirmed today';
+  if (days === 1) return 'Confirmed yesterday';
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(r.confirmed || ''));
+  if (!m) return 'Confirmed ' + days + ' days ago';
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  const short = d.toLocaleDateString(undefined, d.getFullYear() === new Date().getFullYear()
+    ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
+  return 'Confirmed ' + short + ', ' + days + ' days ago';
+}
+async function pjLoadRecords(id) {
+  const epoch = (PJ_REC_EPOCH += 1);
+  let body;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(id) + '/records');
+    body = res.ok ? await res.json() : null;
+  } catch { body = null; }
+  if (epoch !== PJ_REC_EPOCH || PJ_CURRENT !== id) return;
+  const box = document.getElementById('pj-records');
+  // A read that failed changes nothing on screen: one bad poll does not blink the table out (the next one repaints).
+  if (!body || !Array.isArray(body.rows)) return;
+  if (!body.rows.length) { box.hidden = true; PJ_REC_STAMP = null; return; }
+  const stamp = JSON.stringify(body);
+  if (stamp === PJ_REC_STAMP && !box.hidden) { pjRecordsScrollStop(box); return; }
+  PJ_REC_STAMP = stamp;
+  const label = String(body.label || 'records');
+  // The first letter is raised by CSS (.pj-records-h::first-letter), not here: a heading takes no full stop, so not asSentence.
+  document.getElementById('pj-records-h').textContent = label
+    + ' (' + body.rows.length + (body.stale ? ', ' + body.stale + ' stale' : '') + ')';
+  const rows = document.getElementById('pj-records-rows');
+  rows.textContent = '';
+  // What "stale" means, on screen rather than only in a tooltip (keyboard and touch never see a title).
+  const note = document.getElementById('pj-records-note');
+  note.textContent = body.stale ? 'Stale: the evidence for that row is more than ' + body.staleDays + ' days old.' : '';
+  note.hidden = !body.stale;
+  for (const r of body.rows) {
+    // One row: the name and its status; when it was confirmed, how long ago, by whom, and stale; its source.
+    const li = document.createElement('li');
+    li.className = 'pj-rec-row' + (r.stale ? ' stale' : '');
+    const top = document.createElement('div');
+    top.className = 'pj-rec-top';
+    const name = document.createElement('span');
+    name.className = 'pj-rec-name';
+    name.textContent = r.name;
+    top.appendChild(name);
+    if (r.status) {
+      const status = document.createElement('span');
+      status.className = 'pj-rec-status';
+      status.textContent = r.status;
+      top.append(' ', status);
+    }
+    const age = document.createElement('div');
+    age.className = 'pj-rec-age';
+    age.textContent = [pjRecordsWhen(r), r.byPerson ? 'by you' : r.by ? 'by ' + r.by : ''].filter(Boolean).join(', ');
+    age.title = 'Confirmed ' + r.confirmed;
+    if (r.stale) {
+      const mark = document.createElement('span');
+      mark.className = 'pj-rec-stale';
+      mark.textContent = 'stale';
+      age.append(' ', mark);   // a space, so copied text and a screen reader do not run the words into "stale"
+    }
+    li.append(top, age);
+    if (r.source) {
+      const source = document.createElement('div');
+      source.className = 'pj-rec-src';
+      source.title = r.source;   // one line with an ellipsis, the whole of it on hover
+      if (/^https?:\/\//i.test(r.source)) {
+        const a = document.createElement('a');
+        a.href = r.source;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = r.source;
+        source.appendChild(a);
+      } else source.textContent = r.source;
+      li.appendChild(source);
+    }
+    rows.appendChild(li);
+  }
+  box.hidden = false;
+  pjRecordsScrollStop(box);
+}
+/* A tab stop and a region only while the box scrolls (the consolidated view caps its height), so a keyboard can
+   scroll it there and it is not a stop that does nothing elsewhere. Asked again on every load, the five-second poll
+   included, so a resize or a switch of view is caught within a poll. */
+function pjRecordsScrollStop(box) {
+  if (box.scrollHeight > box.clientHeight + 1) { box.tabIndex = 0; box.setAttribute('role', 'region'); box.setAttribute('aria-labelledby', 'pj-records-h'); }
+  else { box.removeAttribute('tabindex'); box.removeAttribute('role'); box.removeAttribute('aria-labelledby'); }
+}
 async function pjLoadDocs(id) {
   const box = document.getElementById('pj-docs');
   const msg = document.getElementById('pj-docs-msg');
@@ -73221,6 +73361,8 @@ function openProject(id) {
     PJ_DOCS_STAMP = null;
     PJ_DOCS_OK = false;
     pjLoadDocs(id);
+    pjRecordsReset();   // #6994: the records belong to the project too
+    pjLoadRecords(id);
     const roomBox = document.getElementById('pj-room');
     roomBox.__lastRoom = undefined;
     roomBox.__lastBody = undefined;

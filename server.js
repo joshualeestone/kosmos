@@ -5590,7 +5590,10 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    `?force`. Planning a removal (GET), restore, and every other agent route stay behind the board token. */
 /* #5874: `kosmos task activity` (GET .../task/<n>/activity) joins as a READ: its handler names a token-only caller and
    refuses one that is not on the project, as GET /api/tasks does. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^GET \/api\/project\/[^/]+\/task\/\d+\/activity$/, /^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|told|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
+/* #6994: `kosmos records` joins: the read (GET .../records) answers the same for every caller, as .../overview does;
+   the writes (POST .../records, .../records/remove, .../records/label) name the caller (processCaller) and refuse an
+   agent that is not on the project (notOnProjectRefusal). */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^GET \/api\/project\/[^/]+\/records$/, /^POST \/api\/project\/[^/]+\/records(?:\/(?:remove|label))?$/, /^GET \/api\/project\/[^/]+\/task\/\d+\/activity$/, /^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|told|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -22489,6 +22492,73 @@ const server = http.createServer(async (req, res) => {
         console.error('project receipts: could not be worked out:', (err && err.message) || err);
         sendJson(res, 500, { ok: false, because: 'we could not work out the project\'s cost just now' });
       });
+    return;
+  }
+
+  /* #6994: a project's records (engine/records.js). GET lists them with their age and the stale count; any caller
+     may read, as for the project itself. POST adds or updates one row (body { name, status?, confirmed?, source? }),
+     POST .../remove takes one away (body { name }), POST .../label names what the rows are (body { label }). The
+     writer is named as a task's is (token, else pane), and an identified agent changes only a project it is on. */
+  const recordsAt = pathname.match(/^\/api\/project\/([^/]+)\/records(?:\/(remove|label))?$/);
+  if (recordsAt) {
+    const id = decodeSegment(recordsAt[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    const recordsEngine = require('./engine/records');
+    // The engine's refusals carry a status (400, 404, 409); anything without one is ours, a 500 in our own words.
+    const failed = (err, fallback) => {
+      if (!err || !err.status || err.code === 'UNREADABLE') {
+        if (!err || err.code !== 'UNREADABLE') console.error('records:', (err && err.message) || err);
+        sendJson(res, 500, { error: err && err.code === 'UNREADABLE' ? String(err.message) : fallback });
+        return;
+      }
+      sendJson(res, err.status, { error: String(err.message || '') || fallback });
+    };
+    // GET only: the agent-token gate admits GET, so a HEAD would answer differently for a token-only caller.
+    if (!recordsAt[2] && req.method === 'GET') {
+      /* A caller on its agent token alone (`kosmos records`) reads the records only of a project it is on: the
+         GET .../task/<n>/activity rule and its refusals. The page and the person's terminal send no token. */
+      const tokenOnly = agentTokenOnlyCaller(req);
+      if (tokenOnly !== null) {
+        let stored = null;
+        try { stored = projects.readAll().filter((x) => x && x.id === id); } catch { stored = null; }
+        if (stored === null) { sendJson(res, 503, { error: 'we could not read the projects just now, so its records cannot be read' }); return; }
+        if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+        if (!tokenOnly) { sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read these records' }); return; }
+        if (!stored.every((x) => tokenOnlyOnProject(x, tokenOnly))) {
+          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot read its records' + NOT_ON_PROJECT_FIX });
+          return;
+        }
+      }
+      let out;
+      try { out = recordsEngine.list(id); } catch (err) { failed(err, 'we could not read its records'); return; }
+      // ?as=text: the list as both CLIs print it (records.renderList), so stock bash needs no JSON parser.
+      let asText = false;
+      try { asText = new URL(req.url, 'http://x').searchParams.get('as') === 'text'; } catch { asText = false; }
+      if (!asText) { sendJson(res, 200, out); return; }
+      let name = null;
+      try { const p = projects.readAll().find((x) => x.id === id); name = p ? p.name : null; } catch { name = null; }
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(recordsEngine.renderList(out, { projectId: id, projectName: name }) + '\n');
+      return;
+    }
+    if (req.method !== 'POST') { sendJson(res, 405, { error: recordsAt[2] ? 'use POST for that' : 'use GET to read them or POST to change one' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const viaScreen = isViaScreen(req, body);
+      const who = processCaller(req, body, safeRoster(), viaScreen, 'the records were not changed');
+      const refusal = who.refusal || notOnProjectRefusal(who, id, 'change its records', 'the records were not changed', 'change a record');
+      if (refusal) { sendJson(res, refusal[0], { error: refusal[1] }); return; }
+      const by = who.card ? who.card.sessionName : null;
+      try {
+        if (recordsAt[2] === 'remove') { sendJson(res, 200, recordsEngine.remove(id, body.name)); return; }
+        if (recordsAt[2] === 'label') { sendJson(res, 200, recordsEngine.setLabel(id, body.label)); return; }
+        const out = recordsEngine.set(id, body.name, { status: body.status, confirmed: body.confirmed, source: body.source },
+          { by, person: viaScreen });
+        sendJson(res, out.created ? 201 : 200, out);
+      } catch (err) { failed(err, 'we could not change that record'); }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
