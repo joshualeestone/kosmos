@@ -161,35 +161,51 @@ read_field() { read_pointer_field "$SNAP" "$1"; }
 SETUP_SRC="$SITE/setup-staging"
 SETUP_HAND="cp setup-staging setup && cp setup-staging.sha256 setup.sha256"
 SNAP_LABEL="$STAGING"
+SETUP_MISMATCH_HINT="(A later staging cut replaced it, or the checkout is stale.)"
+SETUP_HAND_HINT="setup-staging, copy setup-staging (+ .sha256) onto setup (+ .sha256) by hand"
 if [ -n "$NAMED_VERSION" ]; then
   NAMED_DIR="$(mktemp -d "${TMPDIR:-/tmp}/promote-channel-named.XXXXXX")" || { NAMED_DIR=""; echo "promote-channel: could not make a temp folder for the named installer" >&2; exit 1; }
   # Every commit on HEAD whose pointer names V. Usually one, the staging cut's (pointer and installer together); a
   # later hand republish of V is another, and it may name no installer, or sit beside a later cut's setup-staging.
   # -G narrows the walk to commits whose diff mentions V (it also finds the commit that replaced V, and its dots match
   # any character): every candidate is read and kept only if its pointer names V exactly.
-  NAMED_COMMIT=""; _paired=""; _shas=""
+  NAMED_COMMIT=""; _paired=""; _builds=""
   for _c in $(git -C "$SITE" log --format=%H -G "\"version\": *\"$NAMED_VERSION\"" HEAD -- "dist/$STAGING_NAME" 2>/dev/null); do
     git -C "$SITE" show "${_c}:dist/$STAGING_NAME" > "$NAMED_DIR/candidate.json" 2>/dev/null || continue
     [ "$(read_pointer_field "$NAMED_DIR/candidate.json" version)" = "$NAMED_VERSION" ] || continue
     _s="$(read_pointer_field "$NAMED_DIR/candidate.json" sha256)"
-    case " $_shas " in *" $_s "*) ;; *) _shas="${_shas:+$_shas }$_s" ;; esac
+    [ -n "$_s" ] || continue   # no bytes named: not a usable pointer for V, so not a candidate
+    # The build a commit names: its bytes, artifact and manifest. Every commit naming V must name the same one.
+    _b="$_s|$(read_pointer_field "$NAMED_DIR/candidate.json" "$ARTIFACT_FIELD")|$(read_pointer_field "$NAMED_DIR/candidate.json" manifest)"
+    case " $_builds " in *" $_b "*) ;; *) _builds="${_builds:+$_builds }$_b" ;; esac
     [ -n "$NAMED_COMMIT" ] || NAMED_COMMIT="$_c"
     _ps="$(read_pointer_field "$NAMED_DIR/candidate.json" setup_sha256)"
     if [ -z "$_paired" ] && [ -n "$_ps" ] \
        && [ "$(git -C "$SITE" show "${_c}:setup-staging" 2>/dev/null | shasum -a 256 | awk '{print $1}')" = "$_ps" ]; then _paired="$_c"; fi
   done
   [ -n "$NAMED_COMMIT" ] || { echo "promote-channel: no commit on $SITE's HEAD has a $STAGING_NAME naming $NAMED_VERSION - refusing; nothing was written. (Pull the site, or check the version.)" >&2; exit 1; }
-  case "$_shas" in *" "*) echo "promote-channel: commits naming $NAMED_VERSION disagree on its bytes (sha256 $_shas) - refusing; nothing was written. Which build is $NAMED_VERSION has to be settled by hand." >&2; exit 1 ;; esac
+  case "$_builds" in *" "*) echo "promote-channel: commits naming $NAMED_VERSION disagree on its build (sha256|artifact|manifest: $_builds) - refusing; nothing was written. Which build is $NAMED_VERSION has to be settled by hand." >&2; exit 1 ;; esac
   [ -z "$_paired" ] || NAMED_COMMIT="$_paired"
+  # Only a commit the site has published was ever served to staging: it must be on origin/main. A site with no origin
+  # (a local test site) cannot say, and the promote says so.
+  if git -C "$SITE" remote get-url origin >/dev/null 2>&1; then
+    git -C "$SITE" fetch -q origin main 2>/dev/null || { echo "promote-channel: could not fetch the site to check that ${NAMED_COMMIT:0:10} was published - refusing; nothing was written." >&2; exit 1; }
+    git -C "$SITE" merge-base --is-ancestor "$NAMED_COMMIT" origin/main \
+      || { echo "promote-channel: ${NAMED_COMMIT:0:10} (the commit naming $NAMED_VERSION) is not on the site's origin/main, so staging never served it - refusing; nothing was written." >&2; exit 1; }
+  else
+    echo "promote-channel: NOTE the site has no origin remote, so whether ${NAMED_COMMIT:0:10} was ever published cannot be checked" >&2
+  fi
   git -C "$SITE" show "${NAMED_COMMIT}:dist/$STAGING_NAME" > "$SNAP" || { echo "promote-channel: could not read $STAGING_NAME from $NAMED_COMMIT - refusing; nothing was written." >&2; exit 1; }
   rm -f "$NAMED_DIR/candidate.json"
   SNAP_LABEL="the $STAGING_NAME committed in ${NAMED_COMMIT:0:10}"
+  SETUP_MISMATCH_HINT="(The installer committed beside $SNAP_LABEL is not the one it names.)"
   SETUP_SRC="$NAMED_DIR/setup-staging"
   for _f in setup-staging setup-staging.sha256; do
     git -C "$SITE" cat-file -e "${NAMED_COMMIT}:$_f" 2>/dev/null || continue
     git -C "$SITE" show "${NAMED_COMMIT}:$_f" > "$NAMED_DIR/$_f" || { echo "promote-channel: could not read $_f from $NAMED_COMMIT - refusing; nothing was written." >&2; exit 1; }
   done
   SETUP_HAND="git show ${NAMED_COMMIT}:setup-staging > setup && git show ${NAMED_COMMIT}:setup-staging.sha256 > setup.sha256"
+  SETUP_HAND_HINT="the installer committed beside $SNAP_LABEL, run $SETUP_HAND (in $SITE)"
   echo "promote-channel: --version $NAMED_VERSION: the staging pointer and installer committed in $(git -C "$SITE" log -1 --format='%h (%s)' "$NAMED_COMMIT"), not what $STAGING_NAME names now"
 fi
 V="$(read_field version)"; SHA="$(read_field sha256)"; ARTIFACT="$(read_field "$ARTIFACT_FIELD")"
@@ -213,7 +229,7 @@ fi
 if [ -n "$NAMED_VERSION" ]; then
   _prodv="$(read_pointer_field "$SITE/dist/$PROD_NAME" version)"
   echo "promote-channel: --version $V; prod serves ${_prodv:-nothing} now"
-  if [ -n "$_prodv" ] && ! node -e 'const a=process.argv[1].split(".").map(Number),b=process.argv[2].split(".").map(Number);for(let i=0;i<Math.max(a.length,b.length);i++){const d=(a[i]||0)-(b[i]||0);if(d)process.exit(d>0?0:1)}process.exit(0)' "$V" "$_prodv" 2>/dev/null; then
+  if [ -n "$_prodv" ] && ! node -e 'const a=process.argv[1].split(".").map(Number),b=process.argv[2].split(".").map(Number);if(a.concat(b).some(Number.isNaN))process.exit(2);for(let i=0;i<Math.max(a.length,b.length);i++){const d=(a[i]||0)-(b[i]||0);if(d)process.exit(d>0?0:1)}process.exit(0)' "$V" "$_prodv" 2>/dev/null; then
     [ "$ALLOW_OLDER" = 1 ] || { echo "promote-channel: $V is older than $_prodv, which prod serves now - refusing; nothing was written. A rollback needs --allow-older as well." >&2; exit 1; }
     echo "promote-channel: --allow-older: rolling prod back from $_prodv to $V" >&2
   fi
@@ -256,7 +272,7 @@ if [ "$FAMILY" = mac ] && [ -n "$PTR_SETUP" ]; then
   _sg="$(shasum -a 256 < "$SETUP_SRC" | awk '{print $1}')"
   _sw="$(awk 'NR==1{print $1}' "$SETUP_SRC.sha256")"
   [ "$_sg" = "$PTR_SETUP" ] \
-    || { echo "promote-channel: setup-staging hashes to $_sg but the staging pointer names installer $PTR_SETUP - refusing; nothing was written. ${NAMED_VERSION:+(The installer committed beside $SNAP_LABEL is not the one it names.)}${NAMED_VERSION:-(A later staging cut replaced it, or the checkout is stale.)}" >&2; exit 1; }
+    || { echo "promote-channel: setup-staging hashes to $_sg but the staging pointer names installer $PTR_SETUP - refusing; nothing was written. $SETUP_MISMATCH_HINT" >&2; exit 1; }
   [ "$_sw" = "$_sg" ] \
     || { echo "promote-channel: setup-staging.sha256 names '${_sw:-nothing}', not the setup-staging bytes $_sg - refusing; nothing was written." >&2; exit 1; }
   SETUP_STAGING="$_sg"
@@ -611,7 +627,7 @@ elif [ "$FAMILY" = mac ]; then
   # build beside the OLDER installer, the pairing #5032 removes; copying is not safe either, because
   # nothing says the staging installer belongs to this build.
   if [ -f "$SETUP_SRC" ] && ! cmp -s "$SETUP_SRC" "$SITE/setup"; then
-    echo "promote-channel: WARNING setup-staging differs from /setup and the promoted pointer names no installer, so prod now serves $V beside the OLDER /setup. If $V was cut with ${NAMED_VERSION:+the installer committed beside $SNAP_LABEL, run $SETUP_HAND (in $SITE)}${NAMED_VERSION:-setup-staging, copy setup-staging (+ .sha256) onto setup (+ .sha256) by hand} and commit them with $PROD_NAME." >&2
+    echo "promote-channel: WARNING setup-staging differs from /setup and the promoted pointer names no installer, so prod now serves $V beside the OLDER /setup. If $V was cut with $SETUP_HAND_HINT and commit them with $PROD_NAME." >&2
   fi
 fi
 # Prove the promote landed: the prod pointer now names the same artifact + sha as the snapshot.

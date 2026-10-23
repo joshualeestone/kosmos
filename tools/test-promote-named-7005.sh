@@ -29,7 +29,7 @@ export KOSMOS_PROMOTE_GATE_CMD="bash $XGATE" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash
 export KOSMOS_PLUS_VERIFY_DIR="$T/plus-verify"
 WR="$HERE/lib/write-latest-pointer.js"
 
-cut() {   # <site> <version> [installer-text] [setup_sha256 to name instead of the installer's own, or "none"]: one committed staging cut
+mkcut() {   # <site> <version> [installer-text] [setup_sha256 to name instead of the installer's own, or "none"]: one committed staging cut
   local s="$1" v="$2" inst="${3:-INSTALLER-$2 KOSMOS_READONLY_APP}" art="kosmos-$2-arm64.tar.gz" sha named
   printf 'ARTIFACT-BYTES-%s\n' "$v" > "$s/dist/$art"; ( cd "$s/dist" && shasum -a 256 "$art" > "$art.sha256" )
   sha="$(awk '{print $1}' "$s/dist/$art.sha256")"
@@ -47,7 +47,7 @@ newsite() {   # prod serves 1.0.0 with the prod installer; staging cuts 9.9.8 th
   echo '{"version":"1.0.0"}' > "$d/dist/latest.json"
   printf 'PROD-INSTALLER KOSMOS_READONLY_APP\n' > "$d/setup"; ( cd "$d" && shasum -a 256 setup > setup.sha256 )
   git -C "$d" add dist/latest.json setup setup.sha256; git -C "$d" commit -qm init
-  cut "$d" 9.9.8; cut "$d" 9.9.9
+  mkcut "$d" 9.9.8; mkcut "$d" 9.9.9
   printf '%s' "$d"
 }
 field() { node -e 'try{process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]]||""))}catch{}' "$1" "$2"; }
@@ -108,9 +108,10 @@ S="$(newsite)"; rm -f "$S/dist/kosmos-9.9.8-arm64.tar.gz"
 refused "a named build whose artifact is not on disk" "$S" "which is not in" --version 9.9.8
 S="$(newsite)"; printf 'OTHER\n' > "$S/dist/kosmos-9.9.8-arm64.tar.gz"
 refused "a named build whose artifact does not verify" "$S" "does not verify" --version 9.9.8
-S="$(newsite)"; cut "$S" 9.9.6 "INSTALLER-9.9.6 KOSMOS_READONLY_APP" "$(printf 'ANOTHER-CUT\n' | shasum -a 256 | awk '{print $1}')"
-refused "a commit whose installer is not the one its pointer names" "$S" "but the staging pointer names installer" --version 9.9.6
-S="$(newsite)"; cut "$S" 9.9.5; git -C "$S" rm -q setup-staging setup-staging.sha256; git -C "$S" commit -q --amend -m "9.9.5 without its installer"
+S="$(newsite)"; mkcut "$S" 9.9.6 "INSTALLER-9.9.6 KOSMOS_READONLY_APP" "$(printf 'ANOTHER-CUT\n' | shasum -a 256 | awk '{print $1}')"
+refused "a commit whose installer is not the one its pointer names" "$S" "nothing was written. (The installer committed beside the latest-staging.json committed in" --version 9.9.6
+printf '%s\n' "$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.6 2>&1)" | grep -q 'is not the one it names\.)$' && pass "named: that refusal ends on its own hint, nothing after it" || bad "named installer-mismatch hint has a tail"
+S="$(newsite)"; mkcut "$S" 9.9.5; git -C "$S" rm -q setup-staging setup-staging.sha256; git -C "$S" commit -q --amend -m "9.9.5 without its installer"
 refused "a commit whose pointer names an installer it does not carry" "$S" "has no setup-staging pair" --version 9.9.5
 refused "a version that is not a version" "$(newsite)" "must be a version" --version ../9.9.8
 refused "--version for the Windows family" "$(newsite)" "for the Mac promote only" --version 9.9.8 --family win
@@ -135,15 +136,25 @@ out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$S/setup")" = "INSTALLER-9.9.8 KOSMOS_READONLY_APP" ] && pass "named: a later republish beside another cut's setup-staging does not refuse the cut's own pair" || bad "named after a paired-name republish (rc=$rc, out=$out)"
 # Commits that name V with different bytes: which build V is cannot be told, so it refuses.
 S="$(newsite)"; republish "$S" 9.9.8 "" "$(printf '%064d' 7)"
-refused "commits naming V with different bytes" "$S" "disagree on its bytes" --version 9.9.8
+refused "commits naming V with different bytes" "$S" "disagree on its build" --version 9.9.8
+S="$(newsite)"; KM_LJ_VERSION=9.9.8 KM_LJ_SHA="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")" KM_LJ_ARTIFACT=kosmos-9.9.8-arm64.tar.gz KM_LJ_MANIFEST=kosmos-9.9.8-arm64.other.json \
+  node "$WR" "$S/dist/latest-staging.json"; git -C "$S" commit -qm "9.9.8 republished naming another manifest" -- dist/latest-staging.json
+refused "commits naming V with the same bytes but another manifest" "$S" "disagree on its build" --version 9.9.8
 
 # ---- a named pointer that names no installer: /setup is left, and the hand fix names the commit ----
-S="$(newsite)"; cut "$S" 9.9.10 "INSTALLER-9.9.10 KOSMOS_READONLY_APP" none
-cut "$S" 9.9.11
+S="$(newsite)"; mkcut "$S" 9.9.10 "INSTALLER-9.9.10 KOSMOS_READONLY_APP" none
+mkcut "$S" 9.9.11
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.10 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.10 ] && [ "$(cat "$S/setup")" = "PROD-INSTALLER KOSMOS_READONLY_APP" ] \
   && pass "named: a pointer naming no installer promotes and leaves /setup as it is" || bad "named no-installer (rc=$rc, out=$out)"
-has "$out" "git show" && ! has "$out" "copy setup-staging (+ .sha256) onto setup" && pass "named: the hand fix it prints reads the named commit, not the working tree" || bad "named no-installer hand fix (out=$out)"
+c10="$(git -C "$S" log --format=%H -1 --grep='^9\.9\.10: the staging pointer')"   # the cut's own commit (a -G search would also find 9.9.11's, which removed the 9.9.10 line)
+want="If 9.9.10 was cut with the installer committed beside the latest-staging.json committed in ${c10:0:10}, run git show ${c10}:setup-staging > setup && git show ${c10}:setup-staging.sha256 > setup.sha256 (in $S) and commit them with latest.json."
+has "$out" "$want" && pass "named: the hand fix it prints reads the named commit, word for word" || bad "named no-installer hand fix (want: $want, out=$out)"
+# CONTROL: the default promote of the same kind of pointer prints the default hand fix, unchanged.
+S="$(newsite)"; mkcut "$S" 9.9.10 "INSTALLER-9.9.10 KOSMOS_READONLY_APP" none
+out="$(bash "$HERE/promote-channel.sh" "$S" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "If 9.9.10 was cut with setup-staging, copy setup-staging (+ .sha256) onto setup (+ .sha256) by hand and commit them with latest.json." \
+  && pass "default: CONTROL the hand fix for a pointer naming no installer is the old sentence" || bad "default no-installer hand fix (rc=$rc, out=$out)"
 
 # ---- the gates still decide: a cannot-tell experience gate HOLDS a named promote ----
 HOLD="$T/stub-hold-gate.sh"; printf '#!/usr/bin/env bash
@@ -162,11 +173,27 @@ out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --allow-older 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "rolling prod back" && pass "named: CONTROL --allow-older rolls prod back to it" || bad "named --allow-older (rc=$rc, out=$out)"
 # 9.9.10 against 9.9.9 compares as numbers, not as text (as text 9.9.10 < 9.9.9).
-S="$(newsite)"; bash "$HERE/promote-channel.sh" "$S" >/dev/null 2>&1; cut "$S" 9.9.10
+S="$(newsite)"; bash "$HERE/promote-channel.sh" "$S" >/dev/null 2>&1; mkcut "$S" 9.9.10
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.10 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.10 ] && pass "named: CONTROL 9.9.10 is newer than 9.9.9 (compared by number)" || bad "named 9.9.10 vs 9.9.9 (rc=$rc, out=$out)"
 out="$(bash "$HERE/promote-channel.sh" "$(newsite)" --allow-older 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "goes with --version" && pass "default: --allow-older alone is refused" || bad "--allow-older alone (rc=$rc, out=$out)"
+
+# A prod pointer whose version is not numbers cannot be compared: that counts as older, never as newer.
+S="$(newsite)"; echo '{"version":"abc"}' > "$S/dist/latest.json"; git -C "$S" commit -qm odd -- dist/latest.json
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "older than abc" && pass "named: a prod version that is not numbers refuses without --allow-older" || bad "named vs non-numeric prod (rc=$rc, out=$out)"
+
+# ---- only a published commit: with an origin, the named commit must be on origin/main ----
+O="$T/origin.git"; git init -q --bare "$O"
+S="$(newsite)"; git -C "$S" remote add origin "$O"; git -C "$S" push -q origin HEAD:main
+mkcut "$S" 9.9.12   # committed here, never pushed
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.12 2>&1)"; rc=$?
+[ "$rc" = 1 ] && untouched "$S" && has "$out" "is not on the site's origin/main" && pass "named: refuses a commit the site never published, nothing written" || bad "named unpublished (rc=$rc, out=$out)"
+git -C "$S" push -q origin HEAD:main
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.12 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.12 ] && ! has "$out" "no origin remote" && pass "named: CONTROL once pushed, the same commit promotes" || bad "named published (rc=$rc, out=$out)"
+has "$(bash "$HERE/promote-channel.sh" "$(newsite)" --version 9.9.8 2>&1)" "has no origin remote" && pass "named: a site with no origin says it cannot check publication" || bad "named no-origin note missing"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-promote-named-7005: ALL PASS"; else echo "test-promote-named-7005: FAILURES above"; exit 1; fi
