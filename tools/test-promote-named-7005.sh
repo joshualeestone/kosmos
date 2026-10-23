@@ -72,6 +72,9 @@ cmp -s "$S/dist/kosmos-arm64.tar.gz" "$S/dist/kosmos-9.9.8-arm64.tar.gz" && pass
 [ "$(cat "$EXPECT_LOG")" = 9.9.8 ] && pass "named: the experience gate was asked to expect 9.9.8" || bad "named: the gate expected '$(cat "$EXPECT_LOG")'"
 has "$out" "committed in" && pass "named: says which commit it read" || bad "named: does not name the commit (out=$out)"
 ls -d "$TMPDIR"/promote-channel-named.* >/dev/null 2>&1 && bad "named: left a temp folder behind" || pass "named: no temp folder left behind"
+mkdir "$TMPDIR/promote-channel-named.control"   # CONTROL: the same glob sees a folder that is there
+ls -d "$TMPDIR"/promote-channel-named.* >/dev/null 2>&1 && pass "named: CONTROL the leftover check sees a planted folder" || bad "named: the leftover check cannot see a folder"
+rmdir "$TMPDIR/promote-channel-named.control"
 
 # CONTROL: without --version the default path is unchanged, and promotes what staging names now.
 S="$(newsite)"
@@ -145,12 +148,22 @@ out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${real98:0:8}
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" sha256)" = "$real98" ] && [ "$(cat "$S/setup")" = "INSTALLER-9.9.8 KOSMOS_READONLY_APP" ] \
   && pass "named: --sha picks the approved build among commits that disagree" || bad "named --sha (rc=$rc, out=$out)"
 S="$(newsite)"; refused "--sha naming no build of V" "$S" "with a sha256 starting deadbeef" --version 9.9.8 --sha deadbeef
+# Two builds of V whose sha256 share the prefix given: it asks for more of the sha, not for --sha.
+S="$(newsite)"; real98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")"
+republish "$S" 9.9.8 "" "${real98:0:8}$(printf '%056d' 0)"
+refused "a --sha prefix two builds share" "$S" "More than one build's sha256 starts with ${real98:0:8}: give more of" --version 9.9.8 --sha "${real98:0:8}"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${real98:0:12}" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" sha256)" = "$real98" ] && pass "named: CONTROL more of the sha picks the build" || bad "named longer --sha (rc=$rc, out=$out)"
+# A site folder that is not a git checkout: said as such, not as "pull the site".
+N="$T/not-a-repo"; mkdir -p "$N/dist"; echo '{"version":"1.0.0"}' > "$N/dist/latest.json"
+out="$(bash "$HERE/promote-channel.sh" "$N" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "is not a git checkout with a HEAD" && pass "named: a site that is not a git checkout is refused as such" || bad "named not-a-repo (rc=$rc, out=$out)"
 refused "--sha shorter than 8 characters" "$(newsite)" "8 to 64 lowercase hex" --version 9.9.8 --sha abc
 out="$(bash "$HERE/promote-channel.sh" "$(newsite)" --sha "${real98:0:8}" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "--sha goes with --version" && pass "default: --sha alone is refused" || bad "--sha alone (rc=$rc, out=$out)"
 S="$(newsite)"; KM_LJ_VERSION=9.9.8 KM_LJ_SHA="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")" KM_LJ_ARTIFACT=kosmos-9.9.8-arm64.tar.gz KM_LJ_MANIFEST=kosmos-9.9.8-arm64.other.json \
   node "$WR" "$S/dist/latest-staging.json"; git -C "$S" commit -qm "9.9.8 republished naming another manifest" -- dist/latest-staging.json
-refused "commits naming V with the same bytes but another manifest" "$S" "disagree on its build" --version 9.9.8
+refused "commits naming V with the same bytes but another manifest" "$S" "which --sha cannot separate" --version 9.9.8
 
 # ---- a named pointer that names no installer: /setup is left, and the hand fix names the commit ----
 S="$(newsite)"; mkcut "$S" 9.9.10 "INSTALLER-9.9.10 KOSMOS_READONLY_APP" none
