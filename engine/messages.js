@@ -3680,7 +3680,7 @@ const CLOSING_POST_MIN = 400;
 const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|confirm|let (me|us) know|reply|respond|thumbs up)\b/i;
 /* #6952: a request put to the room, for the claim rule. A room word counts only where it is the one being asked to do
    the work: at the start of a clause ("can someone review...", "who can write the notes?"), as the subject offered
-   the work ("whoever can...", "any takers", a bare "anyone?", and "anyone free to..." where a clause, a conjunction or a
+   the work ("whoever can...", "any takers", a bare "anyone?", and "anyone free to..." where a clause, so/but/then or a
    question to the room leads it, #6974), or anywhere as "can/could someone
    ELSE <do it>" (#6957), since "else" excludes whoever was named. Not in passing ("@bob please fix
    the bug someone reported", "@bob ping the person who can approve it", "@bob does anyone still call this?" all ask
@@ -3692,24 +3692,25 @@ const CLAIM_ASKED_MINUTES = 30;   // #6952: how long a post's asked members have
 const CLAIM_LEAD = "(?:^|[.!?;:,(\\n\\u2013\\u2014-]\\s*)(?:(?:now|so|and|but|ok|okay|also|then|great|thanks)[,!]?\\s+)?";
 /* #6974: what follows a room word when the post asks for help FOR the named member ("who can help you?", "can someone
    help him?", "anyone around to help @bob?"): the helper invited is not who the work is for, so the post stays theirs. */
-const CLAIM_HELP_FOR = '(?!\\s+(?:(?:to|come|please|also|maybe|just)\\s+)*help\\s+(?:(?:you(?!\\s+(?:guys|all|folks)\\b)|him|her|them)\\b|@))';
+const CLAIM_HELP_FOR = '(?!\\s+(?:(?:to|come|please|pls|also|maybe|just|quickly|else|here)\\s+)*help\\s+(?:(?:you(?!\\s+(?:guys|all|folks)\\b)|him|her|them)\\b|@))';
 const CLAIM_ROOM_ASK = new RegExp(
   CLAIM_LEAD + '(?:can|could|would|will|is there)\\s+(?:someone|somebody|anyone|anybody)\\b' + CLAIM_HELP_FOR   // "can someone review..."
   // "someone please <do it>" is an imperative to the room wherever it sits ("@bob is swamped so somebody else please grab it")
   + '|\\b(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+please\\b' + CLAIM_HELP_FOR
   // ...but "free", "has time", "around to" and the like, with or without "else", only at a clause start or in a question to
-  // the room ("is anyone around to review it?", "If anyone else has time, please grab it", "@bob is out and anyone free can
+  // the room ("is anyone around to review it?", "If anyone else has time, please grab it", "@bob is out, and anyone free can
   // take it"), so a passing mention is bob's: "@bob ask
-  // anyone around to review it", "@bob let me know if anyone else has time" (#6974)
-  + '|(?:' + CLAIM_LEAD + '(?:if\\s+)?|\\b(?:so|and|or|but|then|can|could|is there|does|do|(?<!\\bthere\\s+)(?:is|are))\\s+)(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+(?:free|available|around to|able|willing|up for|have time|has time)\\b' + CLAIM_HELP_FOR
+  // anyone around to review it", "@bob let me know if anyone else has time", and after a bare and/or, "@bob ask Ann or
+  // anyone free to pair on it" (#6974 review 3; ", or anyone free" after a comma still asks the room)
+  + '|(?:' + CLAIM_LEAD + '(?:if\\s+)?|,\\s*or\\s+|\\b(?:so|but|then|can|could|is there|does|do|(?<!\\bthere\\s+)(?:is|are))\\s+)(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+(?:free|available|around to|able|willing|up for|have time|has time)\\b' + CLAIM_HELP_FOR
   // "someone ELSE" plainly excludes whoever was named, so "can someone else take it?" asks the room even right after the
   // names ("Thanks @bob! Can someone else take the login bug?"), wherever it sits (#6957 review 4)
   // ...and only before a hand-off verb, so "could someone else have changed this?" or "can anyone else reproduce this?" ask bob
   + '|\\b(?:can|could)\\s+(?:someone|somebody|anyone|anybody)\\s+else\\s+(?:take|grab|pick|handle|own|cover|do|look|jump|step)\\b'   // only before a hand-off verb (review 7); not help: "can someone else help you?" asks for help FOR bob (review 8)
   // "who can write the notes?", "Who's free to take this?" (straight or curly apostrophe), "who has time for this?"
   + '|' + CLAIM_LEAD + "who(?:\\s+|'s\\s+|\u2019s\\s+)(?:can|could|wants|will|is free|free|is available|available|has time|is around|around)\\b" + CLAIM_HELP_FOR + "[^.!?]*\\?"
-  + '|\\bwhoever\\s+(?:can|is free|has time|wants|picks|takes|gets)\\b'
-  + '|\\b(?:any takers|any volunteers|need (?:a )?volunteers?)\\b'
+  + '|\\bwhoever\\s+(?:can|is free|has time|wants|picks|takes|gets)\\b' + CLAIM_HELP_FOR
+  + '|\\b(?:any takers|any volunteers|need (?:a )?volunteers?)\\b' + CLAIM_HELP_FOR
   // a bare "anyone?" or "anyone else?" as its own clause ("If you cannot, anyone else?"), not "broken for anyone else?"
   + '|' + CLAIM_LEAD + '(?:anyone|anybody|someone|somebody)(?:\\s+else)?\\s*\\?', 'i');
 /* "One of you" and the like put it to a group: on a post that @-names members that group is THEM ("@ann @bob can one of

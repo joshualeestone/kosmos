@@ -8,10 +8,14 @@ Card: #6974. Base: origin/main 0bef7f948e (#6946, #6952, #6957 all merged).
    The card's suggested lookahead had no optional "to"; "is around to help him" needs it, so it is added. Review 1: the
    same lookahead (CLAIM_HELP_FOR) is applied to the sibling forms, "can someone help you?" and "anyone around to help
    him?", and allows "come/please/also help". Review 2: it ends on a word boundary (Herman, Youssef are not him/you)
-   and "you guys/you all/you folks" is the room.
+   and "you guys/you all/you folks" is the room. Review 3: "else", "here", "pls" and "quickly" may sit before help ("Can someone else help
+   you?" after a clause start), and the whoever and volunteers forms carry the same lookahead.
 2. "around to" and "someone (else) <free|available|has time|...>" count only at a clause start (CLAIM_LEAD, optionally
    followed by "if") or after so/and/or/but/then/can/could/is there/does/do/is/are (is/are not after "there", so
-   "let me know if there is anyone free" stays bob's). Review 1: the anchor covers the non-else form too, so
+   "let me know if there is anyone free" stays bob's). Review 3: bare and/or are dropped as lead-ins ("@bob ask Ann or anyone free
+   to pair on it" is bob's), and ", or" after a comma is kept for this rule only (not added to CLAIM_LEAD, where it
+   would open "broken for you, or anyone else?"). Accepted cost: "@bob is out and anyone free can take it" with no
+   comma now locks to bob for up to 30 minutes, the bounded direction. Review 1: the anchor covers the non-else form too, so
    adding "else" never moves a post toward the named member ("let me know if anyone has time" and "...anyone else has
    time" both stay bob's), and the question lead-ins ("is anyone around to...", "does anyone else have time...") still
    ask the room. Decided deviation from the card: "someone else PLEASE" stays unanchored, because it is an
@@ -26,7 +30,8 @@ Card: #6974. Base: origin/main 0bef7f948e (#6946, #6952, #6957 all merged).
   direction and is left for a follow-up if it shows up in real rooms.
 - "help him/her/them" is read as help for the named member; when it names a third party ("who can help them with
   their billing question?") the post now locks to bob for up to 30 minutes. Accepted: bounded, and with one member
-  named the pronoun is usually them.
+  named the pronoun is usually them. An @-named third party ("who can help @ann with the tests?") makes ann an
+  asked member too, so the post locks to bob and ann: also bounded.
 - Mid-sentence lead-ins other than the listed ones ("hopefully someone free will take it", "we need someone free") now lock to bob: bounded by the
   30-minute window, the direction the card prefers.
 (Stated on the card, unchanged:)
