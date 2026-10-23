@@ -482,8 +482,15 @@ install_runner() {
     old_listener="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"
     case "$sv" in *Started*) was_running=1; ./svc.sh stop >/dev/null 2>&1 || true ;; esac
     if [ "$was_running" = 1 ]; then
+      # kosmos#7001: with ExitTimeOut 35 a stop can take up to ~30 s (the Listener ends its GitHub session), so it is
+      # polled, not read once.
+      local sw=0 slim="${KOSMOS_CI_UNLOAD_WAIT_S:-45}"
+      case "$slim" in ''|*[!0-9]*) slim=45 ;; esac
+      while case "$(./svc.sh status 2>&1 || true)" in *Started*) true ;; *) false ;; esac && [ "$sw" -lt "$slim" ]; do
+        sleep 1; sw=$((sw + 1))
+      done
       case "$(./svc.sh status 2>&1 || true)" in
-        *Started*) rm -f "$newg"; echo "refused: the runner did not stop; nothing unpacked" >&2; exit 1 ;;
+        *Started*) rm -f "$newg"; echo "refused: the runner did not stop in ${sw}s; nothing unpacked" >&2; exit 1 ;;
       esac
       # A tar that fails partway leaves old and new files mixed; the runner is started on that, and says so. A failure
       # after the unpack but before the hooks and .env are rewritten starts the new release on the OLD .env and hooks,
@@ -646,6 +653,10 @@ keepalive() {
     # Exit 1 for a runner that is not running as it should (as --apply does), 0 for a change it would make.
     if [ "$own" = 1 ]; then echo "refused: its Listener runs but $label is not loaded in $dom: reload it there by hand" >&2; exit 1
     elif [ "$loaded" = 1 ]; then
+      # Loaded but not running (it exited 0, a stop or a session conflict): the reload's RunAtLoad starts it, which is
+      # the point here (KeepAlive would not), so this is a change to make (exit 0), unlike a runner that is not loaded.
+      local js; js="$(launchctl print "$dom/$label" 2>/dev/null | sed -n 's/^[[:space:]]state = //p' | head -n 1 || true)"
+      [ "$js" = running ] || echo "note:   $label is loaded but not running now (state = ${js:-unknown}): the reload below starts it"
       echo "WOULD: only while no job runs: stop $label with SIGTERM, then reload it"
       printf 'WOULD: launchctl kill SIGTERM %s\nWOULD: launchctl bootout %s\nWOULD: launchctl bootstrap %s %s\n' "$dom/$label" "$dom/$label" "$dom" "$plist"
     else echo "DOWN: $label is not loaded, so the runner is not running; --apply puts KeepAlive in the plist and does not start it" >&2; exit 1; fi
@@ -678,19 +689,23 @@ keepalive() {
   # timeout, and a bootout alone would SIGKILL the Listener before it ends its GitHub session (the reload would then
   # cause the very session conflict ExitTimeOut is there to prevent). The exit is 0 (a stop), which a loaded
   # KeepAlive {SuccessfulExit: false} does not restart; the bootout after it finds nothing left to kill.
-  # From here to the bootstrap the runner is being stopped: a dropped ssh session (SIGHUP) must not end the script in
-  # the middle, with the runner unloaded and nothing said.
-  trap '' HUP
+  # From here to the bootstrap the runner is being stopped: a dropped ssh session must not end the script in the middle.
+  # SIGHUP and SIGPIPE are ignored and the window's one message cannot fail it; the launchctl calls' own output to a
+  # gone terminal is the residual. For a session you may lose, run the stage under nohup.
+  trap '' HUP PIPE
+  local sent=0
   local jo2 opid w4=0; jo2="$(launchctl print "$dom/$label" 2>/dev/null || true)"
   opid="$(printf '%s\n' "$jo2" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)"
+  [ -n "$opid" ] || echo "note:   launchd shows no pid for $label, so no SIGTERM first; the bootout runs under the loaded exit timeout" || true
   if [ -n "$opid" ]; then
     launchctl kill SIGTERM "$dom/$label" \
       || { echo "refused: launchctl kill SIGTERM $dom/$label failed; nothing was stopped, KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
+    sent=1
     while kill -0 "$opid" 2>/dev/null && [ "$w4" -lt "$limit" ]; do sleep 1; w4=$((w4 + 1)); done
     # Still alive: it was told to stop, so going on is the lesser harm (refusing now would leave a runner that may yet
     # stop under its OLD definition, with nothing to restart it). Said, so an offline runner afterwards has a reason.
     if kill -0 "$opid" 2>/dev/null; then
-      echo "note:   the old runner (pid $opid) had not ended ${w4}s after SIGTERM; the bootout may cut its GitHub session short, and if it then reads offline (a session conflict), start it again with: launchctl kickstart $dom/$label"
+      echo "note:   the old runner (pid $opid) had not ended ${w4}s after SIGTERM; the bootout may cut its GitHub session short, and if it then reads offline (a session conflict), start it again with: launchctl kickstart $dom/$label" || true
     fi
   fi
   local bo=0; launchctl bootout "$dom/$label" || bo=$?
@@ -699,10 +714,17 @@ keepalive() {
   local waited=0
   while launchctl print "$dom/$label" >/dev/null 2>&1 && [ "$waited" -lt "$limit" ]; do sleep 1; waited=$((waited + 1)); done
   if launchctl print "$dom/$label" >/dev/null 2>&1; then
+    if [ "$sent" = 1 ]; then
+      echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; the runner is STOPPED (SIGTERM ended it; still loaded from the OLD definition, or unloading). Run this again: it boots out and bootstraps. If it is no longer listed: launchctl bootstrap $dom $plist" >&2; exit 1
+    fi
     echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; it may still be unloading. Check: launchctl print $dom/$label. Loaded: it runs the OLD definition, without KeepAlive (run this again). Not loaded: the runner is DOWN (launchctl bootstrap $dom $plist)" >&2; exit 1
   fi
-  launchctl bootstrap "$dom" "$plist" \
-    || { echo "FAILED: launchctl bootstrap $dom $plist; the runner is STOPPED (unloaded; log in as $CI_USER, then: launchctl bootstrap $dom $plist)" >&2; exit 1; }
+  if ! launchctl bootstrap "$dom" "$plist"; then
+    if launchctl print "$dom/$label" >/dev/null 2>&1; then
+      echo "FAILED: launchctl bootstrap $dom $plist reported an error, but $label is loaded; check it runs (launchctl print $dom/$label), then run this again" >&2; exit 1
+    fi
+    echo "FAILED: launchctl bootstrap $dom $plist; the runner is STOPPED (not loaded): launchctl bootstrap $dom $plist, or ./svc.sh start in $CI_USER's session" >&2; exit 1
+  fi
   # A new Listener of THIS runner (its own dir), not any Listener of the user: the relay's can respawn meanwhile. The
   # argv is RunnerService.js's spawn of an absolute path, measured with ps on the old Agent1s Mac (10-23):
   # /Users/kosmos-ci/actions-runner/bin/Runner.Listener run --startuptype service (it joins ../bin, so bin/ even after a

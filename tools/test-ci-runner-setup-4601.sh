@@ -416,7 +416,7 @@ run in-job "$R2" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R2" FX_WORKER=1 -- --apply in
 [ "$(rc in-job)" = 1 ] && has in-job "a job is running" && ! grep -q -E '^(svc.sh stop|tar )' "$T/in-job.calls" \
   && pass "install --apply refuses while a job runs, before stopping anything" || fail "install with a job: rc $(rc in-job): $(cat "$T/in-job.calls" | tail -3)"
 R3="$T/run3"; svc_home "$R3"
-run in-stuck "$R3" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R3" FX_SVC_STUCK=1 -- --apply install "$C" "$G"
+run in-stuck "$R3" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R3" FX_SVC_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply install "$C" "$G"
 [ "$(rc in-stuck)" = 1 ] && has in-stuck "did not stop" && ! grep -q '^tar ' "$T/in-stuck.calls" \
   && pass "install --apply refuses to unpack when the runner did not stop" || fail "install stuck stop: rc $(rc in-stuck)"
 R5="$T/run5"; svc_home "$R5"
@@ -646,6 +646,9 @@ ka_fresh; run ka-killfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="
   && pass "keepalive --apply: a failed SIGTERM refuses before the bootout" || fail "keepalive kill fail: rc $(rc ka-killfail): $(tail -1 "$T/ka-killfail.out")"
 ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-downdry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 -- keepalive
 [ "$(rc ka-downdry)" = 1 ] && has ka-downdry "DOWN:" && ! changed ka-downdry >/dev/null && pass "keepalive dry run on a runner that is not loaded: DOWN, exit 1, nothing changed" || fail "keepalive down dry: rc $(rc ka-downdry): $(cat "$T/ka-downdry.out")"
+ka_fresh; run ka-stucksent "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID=999999 FX_BOOTOUT_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
+[ "$(rc ka-stucksent)" = 1 ] && has ka-stucksent "the runner is STOPPED (SIGTERM ended it" && ! has ka-stucksent "it runs the OLD definition" \
+  && pass "keepalive --apply: a stuck bootout after SIGTERM says the runner is STOPPED, not running" || fail "keepalive stuck after sigterm: rc $(rc ka-stucksent): $(tail -1 "$T/ka-stucksent.out")"
 ka_fresh; run ka-noka "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
 [ "$(rc ka-noka)" = 1 ] && has ka-noka "shows no 'successful exit => 0' semaphore" \
   && pass "keepalive --apply: a reload that leaves no KeepAlive in the loaded job fails" || fail "keepalive no ka loaded: rc $(rc ka-noka): $(tail -1 "$T/ka-noka.out")"

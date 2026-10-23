@@ -151,6 +151,16 @@ Mutants red: a broadened own-Listener pattern (two sites), no post-reload check,
 - Comments: the Listener runs from bin/ even after a self-update (RunnerService.js joins ../bin; the Worker uses
   bin.<version>); the 5 s exit timeout is measured here (Apple documents 20 s).
 
+## Review round 11
+- After the SIGTERM step, a stuck bootout says the runner is STOPPED (SIGTERM ended it), not "runs the old definition".
+- SIGHUP and SIGPIPE are ignored in the reload window and its message cannot fail the script; the comment names the
+  residual (launchctl's own output to a gone terminal) and nohup for sessions that may drop.
+- install polls `svc.sh status` after `svc.sh stop` for up to the unload limit (45 s): with ExitTimeOut 35 a stop can
+  take up to ~30 s, and a single read would refuse a stop still in progress. (Regression risk this PR introduced.)
+- A bootstrap error re-reads launchd before saying STOPPED (it can report an error and still load the job).
+- Dry run: a loaded runner without KeepAlive that is not running is named, and the reload is said to start it.
+- No pid line for the loaded job: said (no SIGTERM first). Case added: stuck bootout after SIGTERM.
+
 ## Weakest premise
 That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it
 stops, keepalive refuses rather than guessing). Second: that the runner keeps ending the launchd job with exit 0 on
