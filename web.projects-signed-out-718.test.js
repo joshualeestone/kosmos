@@ -20,7 +20,6 @@ test('#718 loadProjects: the signed-out flag follows each read and never latches
   const document = {
     getElementById: (id) => (els[id] = els[id] || el()),
     documentElement: { getAttribute: () => null },
-    body: { classList: { contains: () => false } },   // #6910: loadProjects asks whether the layout is consolidated
   };
   let pjList = '';
   let fetchImpl;

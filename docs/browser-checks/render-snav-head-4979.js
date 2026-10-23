@@ -327,6 +327,8 @@ function chk(ok, label, extra) {
           const settingsEarly = page.waitForTimeout(300)
             .then(() => page.evaluate(() => { const ps = document.getElementById('panel-settings'); return ps ? ps.hidden : 'no #panel-settings'; }))
             .catch((x) => 'not read: ' + String(x.message).slice(0, 60));
+          // Released only after the early sample, so it shows whether Settings opened before any read could land.
+          chk((await settingsEarly) === false, `${tag}: control: Settings opened before the held projects read was let through`, JSON.stringify({ settingsHiddenAt300ms: await settingsEarly }));
           releaseProjects();
           await page.waitForFunction(() => PJ_LOADED_ONCE === true, null, { timeout: 20000 })
             .catch((e) => { throw new Error(`${tag}: the first projects read never landed: ${e.message}`); });

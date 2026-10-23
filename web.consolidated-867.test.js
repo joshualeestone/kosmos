@@ -79,22 +79,30 @@ test('a project auto-opens on the first consolidated load, once, and only when n
   assert.match(block, /sortProjects\(PROJECTS\.filter\(\(p\) => !p\.archived\), PJ_SORT\)/, 'the pick does not respect the person\'s own sort order, or considers archived projects');
   assert.match(block, /openProject\(first\.id\)/, 'nothing actually opens the picked project');
   // Comes after the deep-link block, so a real ?project= link still wins.
-  const wantAt = SCRIPT.indexOf('if (WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE');
+  const wantAt = SCRIPT.indexOf('if (WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE)');
   assert.ok(wantAt > -1 && wantAt < at, 'the deep-link check moved after the auto-open, so a deep link could lose the race');
 });
 
-test('#6910: a view the person opens into the display column stands; a late projects read neither replaces it nor opens later', () => {
-  // The person navigated: both opens are done, even if they close the view before the read lands (#867's own rule).
-  const tk = SCRIPT.indexOf('function takeOverDisplayColumn() {');
-  assert.ok(tk > -1, 'takeOverDisplayColumn is gone');
-  assert.match(SCRIPT.slice(tk, SCRIPT.indexOf('\n}\n', tk)), /PJ_AUTO_OPENED_ONCE = true; WANT_PROJECT_DONE = true;/,
-    'opening Settings, Agents, Tasks or New Agent before the first read lands lets the auto-open or a deep link replace it (#6910)');
-  // At read time too, for a view that does not go through the takeover (the New project form), consolidated only.
-  const want = SCRIPT.indexOf('if (WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE');
-  const before = SCRIPT.slice(want - 400, want);
-  assert.match(before, /if \(document\.body\.classList\.contains\('consolidated'\) && displayColumnOverlayOpen\(\)\) \{ PJ_AUTO_OPENED_ONCE = true; WANT_PROJECT_DONE = true; \}\n\s+$/,
-    'a view open in the column when the read lands is not marked done before the two opens run (#6910)');
+test('#6910: a view the person opens ends both arrival opens, so a late projects read cannot replace it', () => {
+  const page = require('./test-support/page');
+  // The real functions, run: takeOverDisplayColumn (Settings, Agents, Tasks, New Agent, the Projects page) marks both done.
+  const els = {};
+  const el = () => ({ hidden: false, parentElement: null });
+  const document = { getElementById: (id) => (els[id] = els[id] || el()) };
+  const run = new Function('document', 'boardApplyVisibility', 'onAgentsTab',
+    'let PJ_AUTO_OPENED_ONCE = false, WANT_PROJECT_DONE = false, CONS_PROJECTS_OPEN = true, CONS_AGENTS_OPEN = false;\n'
+    + page.lift(SCRIPT, 'pjOpensDone') + '\n' + page.lift(SCRIPT, 'takeOverDisplayColumn')
+    + '\ntakeOverDisplayColumn();\nreturn { PJ_AUTO_OPENED_ONCE, WANT_PROJECT_DONE };')(document, () => {}, () => false);
+  assert.deepEqual(run, { PJ_AUTO_OPENED_ONCE: true, WANT_PROJECT_DONE: true },
+    'opening a view into the column leaves the auto-open or a ?project= deep link free to replace it when the read lands late');
+  // The New project form opens without the takeover, so it marks them itself, first.
+  assert.match(page.lift(SCRIPT, 'openAddProject'), /^function openAddProject\(\) \{\n  pjOpensDone\(\);/,
+    'the New project form does not end the arrival opens');
+  // CONTROL: the marks are what both opens read.
+  assert.match(SCRIPT, /if \(WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE\) \{/);
+  assert.match(SCRIPT, /if \(!PJ_AUTO_OPENED_ONCE && !WANT_PROJECT && !PJ_CURRENT\n/);
 });
+
 
 
 test('the agents and projects rail titles sit at the same height', () => {
