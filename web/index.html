@@ -20523,7 +20523,8 @@ function linuxCopy(key) {
   return v;
 }
 function windowsCopyTable() {
-  const restartKosmos = 'restart Kosmos by double-clicking Kosmos.exe in your Kosmos folder, or by signing out of Windows and signing back in.';
+  /* #6985: the Start menu entry runs the installed Kosmos.exe; "Kosmos.exe in your Kosmos folder" read as the extracted zip. */
+  const restartKosmos = 'restart Kosmos by opening it from the Start menu, or by signing out of Windows and signing back in.';
   return {
     /* First run, S3 "Kosmos never sleeps" (W-11). Values used as innerHTML may carry
        markup; values used as textContent are plain. */
@@ -20560,7 +20561,7 @@ function windowsCopyTable() {
     claudeConfirmSentence: 'Connecting to Claude needs Claude Code on this computer. Kosmos cannot install it for you on Windows yet, so if it is not here already, the next screen shows you how to install it yourself.',
     /* Settings > Computer (W-16, W-22). */
     settingsRevealButton: 'Open the Kosmos folder',
-    settingsOpenKosmos: 'To open Kosmos later, double-click <b>Kosmos.exe</b> in your Kosmos folder. Tip: right-click Kosmos.exe and choose <b>Pin to Start</b>.',
+    settingsOpenKosmos: 'To open Kosmos later, find it in the Start menu. Tip: right-click it there and choose <b>Pin to Start</b>.',
     adminDetailsSummary: 'For IT admins',
     /* The switch on the autostart row (W-21a, win32-installer-native). */
     startAtSignInLabel: 'Start Kosmos when I sign in to Windows',
@@ -20575,19 +20576,19 @@ function windowsCopyTable() {
        closes for a few seconds while it swaps the old build back in. */
     updateRollbackConfirmBody: 'Kosmos closes for a few seconds while it puts the previous version back. <b>Your agents keep working the whole time.</b>',
     /* The overlay's outcome copy (S4). A win32 rollback leaves the box exactly as it was, so the
-       failure sentence says so; the slow remedy points at Kosmos.exe rather than the Mac's Applications. */
+       failure sentence says so; the slow remedy points at the Start menu rather than the Mac's Applications. */
     updateNothingChanged: 'Nothing else was changed.',
     /* win32-update-rollback (S5): the overlay's own failure sentence, so a failed roll back does not read
        as a failed update. A failed rollback leaves the box on the build it was already running. */
     updateRollbackDidNotTake: 'The roll back did not take.',
-    updateSlowRemedy: 'If Kosmos does not come back on its own, double-click Kosmos.exe in your Kosmos folder.',
+    updateSlowRemedy: 'If Kosmos does not come back on its own, open it from the Start menu.',
     /* Settings > Updates, the manual offer (W-25). */
     updateManualLead: 'To install it, follow these steps.',
     updateManualSteps: '<li>Click <b>Download</b>.</li>'
       + '<li>Click <b>Open my Kosmos folder</b>.</li>'
       + '<li>Open the downloaded zip, select everything inside it (Ctrl+A), and drag it into your Kosmos folder.</li>'
       + '<li>When Windows asks, choose <b>Replace the files in the destination</b>.</li>'
-      + '<li>Double-click <b>Kosmos.exe</b>. Your agents keep running.</li>',
+      + '<li>Open Kosmos from the <b>Start menu</b>. Your agents keep running.</li>',
     /* Documents (W-19) and the agent page (W-18). */
     docsOpenFolder: 'Open in File Explorer',
     /* #5239: was "Live output", but a Windows agent runs without a window, so the section never showed output.
@@ -20596,11 +20597,11 @@ function windowsCopyTable() {
     terminalBoxTitle: 'Start-up and restart',
     trustRestartHint: 'Approves this agent&rsquo;s folder so it can start without asking each time.',
     /* Not signed in (W-24) and the recovery toasts (W-26). Windows says "sign in" (W-23). */
-    signinSentence: 'This board is not signed in, so it cannot read your agents or projects. To fix it, open Kosmos by double-clicking Kosmos.exe in your Kosmos folder.',
+    signinSentence: 'This board is not signed in, so it cannot read your agents or projects. To fix it, open Kosmos from the Start menu.',
     signinPanel: '<p><b>This board is not signed in.</b><br>It cannot read your agents or projects yet. To fix it, '
-      + 'open Kosmos by double-clicking <b>Kosmos.exe</b> in your Kosmos folder. It opens this page signed in.</p>',
+      + 'open Kosmos from the <b>Start menu</b>. It opens this page signed in.</p>',
     restartKosmos,
-    /* NOT restartKosmos (review round 2): double-clicking Kosmos.exe while the same build is
+    /* NOT restartKosmos (review round 2): opening Kosmos (Kosmos.exe) while the same build is
        running only says "already running" (the launcher's hand-off), so for a stuck update
        the one remedy that is true is a fresh sign-in. */
     updateAbortRemedy: 'Kosmos was busy each time. To clear it, sign out of Windows and sign back in. That usually clears whatever '
@@ -20630,7 +20631,7 @@ function windowsCopyTable() {
     /* The manual update offer's folder button (W-25). */
     updateOpenFolder: 'Open my Kosmos folder',
     openKosmosFolderFailure: 'We could not open your Kosmos folder just now.',
-    offlineRemedy: 'Double-click Kosmos.exe in your Kosmos folder and it will start again if it needs to.',
+    offlineRemedy: 'Open Kosmos from the Start menu and it will start again if it needs to.',
     /* #4343, Homer's wording: the launcher installs to %LOCALAPPDATA%/Programs/Kosmos with a Start
        menu entry, so there is no "Kosmos folder" a Windows person would recognise. */
     restartHow: 'Close the Kosmos window, then open Kosmos again from the Start menu.',
