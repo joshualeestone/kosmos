@@ -306,6 +306,9 @@ test('#6985: the window and its browser fallback send a person to the Start menu
   // Start menu alone is right only because the shortcut is there before any of these can show: the window is
   // started in one place, Main, and only after RunInstallerDuties, whose every carry-on path refreshes the shortcut.
   assert.equal((SOURCE.match(/BoardWindowStartInfo\(here\)/g) || []).length, 1, 'the window is started somewhere new');
+  // Its flag: declared once, read by Main, passed by BoardWindowStartInfo, and nowhere else.
+  assert.equal((SOURCE.match(/\bWindowFlag\b/g) || []).length, 3, 'the window flag is used somewhere new');
+  assert.equal((SOURCE.match(/"--window"/g) || []).length, 1, 'the window flag is spelled out somewhere new');
   const main = SOURCE.slice(SOURCE.indexOf('static int Main(string[] args)'));
   assert.ok(main.indexOf('RunInstallerDuties(here, node, port)') !== -1, 'Main no longer runs the installer duties');
   assert.ok(main.indexOf('RunInstallerDuties(here, node, port)') < main.indexOf('BoardWindowStartInfo(here)'), 'the window starts before the Start menu shortcut is refreshed');
