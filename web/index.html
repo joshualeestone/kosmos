@@ -68442,7 +68442,7 @@ async function paintTaskActivity(n, opts) {
   };
   const mark = () => {
     if (holder.tkOpen !== openId || holder.tkMarked === drawn || holder.tkMarking === drawn) return;
-    if (tkMarkSeen(n, p.id, false, done)) holder.tkMarking = drawn;
+    if (tkMarkSeen(n, p.id, false, done, () => holder.tkOpen === openId)) holder.tkMarking = drawn;
   };
   if (onlyIfChanged && holder.tkDrawn === drawn) { mark(); return; }
   holder.tkDrawn = drawn;
@@ -68457,7 +68457,13 @@ async function paintTaskActivity(n, opts) {
      their place in the history and their first run's time (tkActRowsHtml's data-first). */
   const canQuery = typeof holder.querySelectorAll === 'function';
   const wasOpen = new Set(canQuery ? [...holder.querySelectorAll('details.tkact-roll[open]')].map((d) => d.dataset.first) : []);
+  /* #6951: #tk-activity is a polite live region. A redraw the person asked for (open, action, tab return) is read out
+     as before; the five-second read's redraw is not, or a screen reader would read the whole conversation, unasked,
+     each time something is recorded while the person is on the page. */
+  const quiet = onlyIfChanged && typeof holder.setAttribute === 'function';
+  if (quiet) holder.setAttribute('aria-live', 'off');
   holder.innerHTML = tkActRowsHtml(events, p, now);
+  if (quiet) setTimeout(() => holder.setAttribute('aria-live', 'polite'), 0);
   if (canQuery && wasOpen.size) for (const d of holder.querySelectorAll('details.tkact-roll')) if (wasOpen.has(d.dataset.first)) d.open = true;
   mark();   // #6947: drawn, so the person may have the conversation in front of them
 }
@@ -68549,14 +68555,15 @@ function openTaskPage(n) {
    #6951: a server error or a lost request is tried once more, 3 seconds later and only if the task is still on screen;
    then onDone(true) settles it (recorded, refused with a 4xx, or failed twice), so a refusing or broken board is not
    asked again until the conversation changes. A retry that finds the page gone calls onDone(false). */
-function tkMarkSeen(n, projectId, retried = false, onDone = null) {
+function tkMarkSeen(n, projectId, retried = false, onDone = null, current = null) {
   const back = document.getElementById('tk-back');
-  if (TK_OPEN === null || n !== TK_OPEN || projectId !== PJ_CURRENT || document.visibilityState !== 'visible' || !back || !back.getClientRects().length) {
+  // current(): still the open that drew it, so a retry from an earlier open of the same task does not post for this one
+  if (TK_OPEN === null || n !== TK_OPEN || projectId !== PJ_CURRENT || (current && !current()) || document.visibilityState !== 'visible' || !back || !back.getClientRects().length) {
     if (retried && onDone) onDone(false);
     return false;
   }
   const settle = () => { if (onDone) onDone(true); };
-  const failed = () => { if (retried) settle(); else setTimeout(() => tkMarkSeen(n, projectId, true, onDone), 3000); };
+  const failed = () => { if (retried) settle(); else setTimeout(() => tkMarkSeen(n, projectId, true, onDone, current), 3000); };
   fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' })
     .then((res) => { if (res && res.status >= 500) failed(); else settle(); }, failed);
   return true;
@@ -68566,7 +68573,9 @@ let TK_POLLING = false;
 function tkPollActivity() {
   if (TK_POLLING) return;
   TK_POLLING = true;
-  Promise.resolve(paintTaskActivity(TK_OPEN, { onlyIfChanged: true })).finally(() => { TK_POLLING = false; });
+  // A read that hangs (a board stalled mid-answer) lets the next one start after 15 seconds, rather than never.
+  const giveUp = setTimeout(() => { TK_POLLING = false; }, 15000);
+  Promise.resolve(paintTaskActivity(TK_OPEN, { onlyIfChanged: true })).finally(() => { clearTimeout(giveUp); TK_POLLING = false; });
 }
 /* #6951: is the person at the page? The window has focus and they clicked, typed, used the wheel or touched it in the
    last two minutes. Used only by the five-second read: opening a task, acting on it and coming back to the tab are the

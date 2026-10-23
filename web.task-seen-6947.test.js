@@ -270,9 +270,10 @@ test('#6951: a retry left over from an earlier open of the same task cannot stop
   assert.equal(p.timers.length, 1, 'the first open\'s record is waiting on its retry');
   p.st.post = 200;
   p.openTaskPage(3);   // the person leaves and opens the task again (the real openTaskPage)
-  p.timers.shift()[0](); await p.settle();   // the old retry lands first and is recorded
+  p.timers.shift()[0](); await p.settle();   // the old retry comes due after the reopen
   await p.settle();
-  assert.equal(p.posts.length, 3, 'the new open did not send its own record: ' + p.posts.length);
+  assert.equal(p.posts.length, 2, 'the first open\'s record, then the new open\'s own; the old retry must not post: ' + p.posts.length);
+  assert.equal(p.acts.tkMarked, p.acts.tkDrawn, 'the new open did not settle its own record');
 });
 
 test('#6951: a read still out when the task is opened again is dropped, and the new open records its view', async () => {
@@ -316,4 +317,32 @@ test('#6951: a read that fails while a record is on its way does not make the ne
   p.timers.shift()[0](); await p.settle();   // the retry is recorded while the panel's draw is cleared
   await p.paintTaskActivity(3, { onlyIfChanged: true }); await p.settle();
   assert.equal(p.posts.length, 2, 'the same conversation was recorded again after the failed read: ' + p.posts.length);
+});
+
+test('#6951: the five-second read redraws without announcing the conversation; a redraw the person asked for still announces', async () => {
+  const p = page();
+  const calls = [];
+  p.acts.setAttribute = (k, v) => calls.push([k, v]);
+  await p.paintTaskActivity(3);
+  assert.deepEqual(calls, [], 'a redraw the person asked for changed the live region');
+  p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-22T23:30:00.000Z', kind: 'said', text: 'new' }];
+  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  assert.deepEqual(calls, [['aria-live', 'off']], 'the poll redraw was not silenced before the swap');
+  const restore = p.timers.find(([, ms]) => ms === 0);
+  assert.ok(restore, 'the live region is never switched back on');
+  restore[0]();
+  assert.deepEqual(calls, [['aria-live', 'off'], ['aria-live', 'polite']]);
+});
+
+test('#6951: a read that hangs stops holding back the five-second read after 15 seconds', async () => {
+  const p = page();
+  p.st.queue = [];
+  p.tkPollActivity(); await p.settle();
+  const giveUp = p.timers.find(([, ms]) => ms === 15000);
+  assert.ok(giveUp, 'no limit on a hung read');
+  p.tkPollActivity(); await p.settle();
+  assert.equal(p.st.queue.length, 1, 'a second read started while the first was out');
+  giveUp[0]();
+  p.tkPollActivity(); await p.settle();
+  assert.equal(p.st.queue.length, 2, 'the five-second read stayed stuck behind the hung one');
 });
