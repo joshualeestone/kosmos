@@ -154,7 +154,8 @@ mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN
 # ThrottleInterval 10 is launchd's default, written down so the restart delay is in the file. Every deliberate stop ends
 # with node draining its event loop (exit 0; its only process.exit is the unsupported-platform 1 at start), and runsvc.sh
 # exits with node's status, so only a crash or a kill restarts it. A runner that keeps crashing restarts at most every
-# 10 s; `launchctl bootout gui/<uid>/<label>` stops it. NOT covered: a killed Listener leaves its session on GitHub's
+# 10 s; `launchctl bootout gui/<uid>/<label>` stops it. A crash loop of the Listener alone is RunnerService.js's to retry,
+# and after its own failure limit it stops the service (exit 0), so that too stays down. NOT covered: a killed Listener leaves its session on GitHub's
 # side; if that outlasts the restarted Listener's session-conflict retries, it exits 5, the service stops (exit 0) and
 # launchd leaves it down. The 10-23 restart came back in about 2 minutes; the liveness page is the backstop for the rest.
 #
@@ -580,7 +581,8 @@ keepalive() {
   fi
   label="$(plutil -extract Label raw -o - "$plist" 2>/dev/null)" && [ -n "$label" ] \
     || { echo "refused: cannot read the Label of $plist" >&2; exit 1; }
-  dom="gui/$(id -u)"
+  local ciuid; ciuid="$(id -u "$CI_USER" 2>/dev/null)" || { echo "refused: no user $CI_USER on this Mac" >&2; exit 1; }
+  dom="gui/$ciuid"   # the CI user's domain, whoever reads it (a dry run may be someone else's)
   cd "$RUNNER_DIR" || { echo "refused: no runner in $RUNNER_DIR" >&2; exit 1; }
   local limit="${KOSMOS_CI_UNLOAD_WAIT_S:-30}"
   case "$limit" in ''|*[!0-9]*) echo "refused: KOSMOS_CI_UNLOAD_WAIT_S is '$limit', not a number of seconds" >&2; exit 2 ;; esac
@@ -590,7 +592,14 @@ keepalive() {
   keepalive_set "$plist" && in_file=1
   launchctl print "$dom/$label" >/dev/null 2>&1 && loaded=1
   [ "$loaded" = 1 ] && loaded_keepalive "$dom/$label" && in_job=1
-  if [ "$in_file" = 1 ] && [ "$in_job" = 1 ]; then ok "$label restarts after a kill (KeepAlive SuccessfulExit false, in the plist and loaded)"; return 0; fi
+  if [ "$in_file" = 1 ] && [ "$in_job" = 1 ]; then
+    # Loaded is not running: a job that exited 0 (a stop of the service, a session conflict) stays loaded and down.
+    local jo; jo="$(launchctl print "$dom/$label" 2>/dev/null || true)"
+    if printf '%s\n' "$jo" | grep -x -E '[[:space:]]*state = running' >/dev/null; then
+      ok "$label restarts after a kill (KeepAlive SuccessfulExit false, in the plist and loaded), and is running"; return 0
+    fi
+    echo "DOWN: $label has KeepAlive loaded but is not running: it exited 0 (a stop of the service or a session conflict), which KeepAlive leaves down. To start it: launchctl kickstart $dom/$label" >&2; exit 1
+  fi
   # Not loaded, yet THIS runner's Listener runs (not the relay's: its dir is actions-runner-relay): it was loaded some
   # other way (svc.sh over ssh, by hand), and a bootstrap here would start a second copy.
   local own=0 prc=0
@@ -631,9 +640,8 @@ keepalive() {
   [ "$prc" = 1 ] || { echo "refused: a job is running under $CI_USER (Runner.Worker is up, on this runner or the relay's); KeepAlive is in the plist, not yet loaded: run this again when both are idle" >&2; exit 1; }
   local own_re="$RUNNER_DIR/bin[^/]*/Runner.Listener" before; before="$(pgrep -u "$(id -u)" -f "$own_re" || true)"
   local bo=0; launchctl bootout "$dom/$label" || bo=$?
-  if [ "$bo" != 0 ] && launchctl print "$dom/$label" >/dev/null 2>&1; then
-    echo "FAILED: launchctl bootout $dom/$label exited $bo and it is still loaded: the runner runs on, from the OLD definition, without KeepAlive (the plist on disk has it)" >&2; exit 1
-  fi
+  # A failed bootout still waits: launchd can report an error while the job is still shutting down (the Listener ends
+  # its GitHub session first), so "still loaded" cannot be told from "still unloading" at once.
   local waited=0
   while launchctl print "$dom/$label" >/dev/null 2>&1 && [ "$waited" -lt "$limit" ]; do sleep 1; waited=$((waited + 1)); done
   if launchctl print "$dom/$label" >/dev/null 2>&1; then

@@ -92,6 +92,18 @@ Mutants red: a broadened own-Listener pattern (two sites), no post-reload check,
 - Deferred, a duplicate of round 3's documented residual: the session-conflict gap after a fast restart. A larger
   ThrottleInterval would not help (it throttles only jobs that ran under 10 s).
 
+## Review round 5
+- My round-4 fail-fast was wrong: launchd can report a bootout error while the job is still shutting down (the Listener
+  ends its GitHub session first), so "exited non-zero and still listed" cannot be called "runs on". Reverted: a failed
+  bootout waits like any other, and the message carries its exit code and names both outcomes (still on the old
+  definition, or DOWN). Mutant: the fail-fast put back turns the case red.
+- Done also needs the job RUNNING: KeepAlive loaded on a job that exited 0 (a stop or a session conflict) is DOWN.
+- The GUI domain is the CI user's uid, whoever reads it; a missing CI user is a clean refusal.
+- Documented: a Listener crash loop is RunnerService.js's to retry, and after its limit it stops (exit 0), so it too
+  stays down. Removed my redundant `bootout` alternation from the test's change detector.
+- Deferred to the card: the kosmos-relay runners (~/actions-runner-relay on the CI mini, and the relay runner on the
+  new Agent1s Mac) also lack KeepAlive. They belong to the relay repo's setup; RUNNER_DIR here is fixed for every stage.
+
 ## Weakest premise
 That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it
 stops, keepalive refuses rather than guessing). Second: that the runner keeps ending the launchd job with exit 0 on
