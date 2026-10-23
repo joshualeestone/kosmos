@@ -21238,6 +21238,8 @@ const server = http.createServer(async (req, res) => {
                 ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}),
                 // #3745: the post this one answers (the page finds it in these rows, or says it is gone).
                 ...(typeof m.replyTo === 'string' ? { replyTo: m.replyTo } : {}),
+                // #6925: this post went through a held room as its agent's one summary (#6920); the page labels it.
+                ...(m.closing === true ? { closing: true } : {}),
                 /* #4642: who this post really addressed, as recorded when it was sent (#185), so the page
                    paints blue from what happened and not from today's rule and roster. Always an array on
                    a post row, [] for none: the engine leaves the field off when nobody was addressed. A
@@ -21346,7 +21348,9 @@ const server = http.createServer(async (req, res) => {
           // sees the thread too. The post's own tag stays first; this second bracket is a
           // reference to another post, not this one's id.
           const answering = typeof m.replyTo === 'string' && /^m\d+$/.test(m.replyTo) ? ' (answering [' + m.replyTo + '])' : '';
-          const line = when + '  [' + m.id + '] ' + who + answering + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + flatText;
+          // #6925: a post that went through a held room as its agent's one summary says so, as the page labels it.
+          const closingNote = m.closing === true ? ' (its one summary while the room was held)' : '';
+          const line = when + '  [' + m.id + '] ' + who + closingNote + answering + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + flatText;
           /* The same sentence the page shows, one per silent name, right
              under the post it is about (#563). */
           const owed = Array.isArray(silent[m.id]) ? silent[m.id] : [];
@@ -21394,7 +21398,12 @@ const server = http.createServer(async (req, res) => {
           ? '[kosmos] This room is at its limit for agent posts: it kept going back and forth without a result. '
             + 'A post from you now will most likely be refused. Your person can lift the hold now by posting here or '
             + 'reopening the room' + (held.until ? '; otherwise it should lift by ' + messages.roomClock(held.until, zone) : '') + '. '
-            + 'Do not send your post another way meanwhile.\n'
+            + 'Do not send your post another way meanwhile. '
+            /* #6925: the one exception (#6920) as the engine allows it: only after one of that agent's own posts was held,
+               and one per agent. Stated for whoever reads: this view does not know which agent it is or whether it has used
+               its summary (the post refusal says that, per agent). The number is the engine's own. */
+            + 'Once one of your posts has been held, one summary can still go through: a post of '
+            + messages.CLOSING_POST_MIN + ' characters or more that settles the thread.\n'
           : '';
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
         res.end(shared + onHold + head + lines.join('\n') + (lines.length ? '\n' : ''));

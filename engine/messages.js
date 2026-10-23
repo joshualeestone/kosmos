@@ -3999,6 +3999,7 @@ module.exports = {
   nudgeOwnComputerPost, ownPostNudges, OWN_POST_NUDGE_GAP_MS, reopenForOwnPost,   // #5902
   _resetOwnPostNudgesForTests: resetOwnPostNudgesForTests,   // #5732
   staleHeld, memberAfter, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS, ROOM_READ_ROWS, ROOM_READ_KINDS,
+  CLOSING_POST_MIN,   // #6925: the room's text view states it
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
   _sendWithDelivery: sendWithDelivery,
