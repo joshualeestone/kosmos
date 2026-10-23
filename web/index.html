@@ -73926,8 +73926,8 @@ document.addEventListener('click', (e) => {
 window.addEventListener('scroll', () => msgMenuClose(false), true);   // never the event as restoreFocus
 window.addEventListener('resize', () => msgMenuClose(false));
 /* #6949: the room post's 🙋 claim ({by, at}, from the room read or a room route's answer) as the page shows it: the
-   holder's name and how long ago, or null when there is no claim. Only a room post has one; a DM never passes it. */
-/* The age is worded by askAgo, the page's own ("yesterday"), not the engine's claimAge, which words it for agents. It
+   holder's name and how long ago, or null when there is no claim. Only a room post has one; a DM never passes it.
+   The age is worded by askAgo, the page's own ("yesterday"), not the engine's claimAge, which words it for agents. It
    is the age when the row was drawn; the room's next repaint of the row brings it up to date. */
 function rxnClaimShown(claim) {
   if (!claim || typeof claim.by !== 'string' || !claim.by) return null;
