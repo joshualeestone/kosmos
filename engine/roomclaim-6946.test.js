@@ -356,25 +356,41 @@ test('#6952 review 2: a reply asks the author of the post it answers; control: a
   assert.equal(claim('ann', 'm4').op, 'add');
 });
 
-test('#6952 review 4: only the person re-assigns a post; an agent hands work on in its own post, which is the one claimed', () => {
+test('#6952 review 4/5: a hand-off is a post of its own, by an agent or the person; a side question hands nothing over', () => {
   fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
   const at = () => new Date().toISOString();
   const post = (row) => append({ kind: 'post', project: 'p', to: MEMBERS, outcomes: {}, at: at(), ...row });
   post({ id: 'm1', from: 'you', operator: true, mentioned: ['bob'], text: '@bob please fix the login bug' });
-  // bob asks ann a side question on m1: it hands nothing over, so bob keeps m1 and ann cannot take it.
+  // bob asks ann a side question on m1: it hands nothing over, so bob keeps m1.
   post({ id: 'm2', from: 'bob', replyTo: 'm1', mentioned: ['ann'], text: '@ann can you check my approach first?' });
   assert.deepEqual(claim('ann').askedOf, ['bob'], 'an asked member\'s side question handed the request away');
   // bob hands it on in his own post: ann claims THAT post, which asks her.
   post({ id: 'm3', from: 'bob', replyTo: 'm1', mentioned: ['ann'], text: '@ann I am out of usage, please take this' });
   assert.equal(claim('ann', 'm3').op, 'add', 'ann could not claim the post that hands the work to her');
   assert.match(claim('cy', 'm1').because, /if they hand it to you, claim the post where they do/);
-  // The person re-assigns m1 itself: ann can now claim m1 too.
-  post({ id: 'm4', from: 'you', operator: true, replyTo: 'm1', mentioned: ['ann'], text: '@ann yes, you take it' });
-  assert.equal(claim('ann').op, 'add', 'the person handed m1 to ann and the board still refused her');
-  // The person's hand-off of an OPEN post makes it the named member's (control: before it, anyone could claim).
+  // The person's side question on an OPEN post does not lock it to the one they name (review 5).
   post({ id: 'm5', from: 'you', operator: true, text: 'can someone fix the signup page' });
-  post({ id: 'm6', from: 'you', operator: true, replyTo: 'm5', mentioned: ['ann'], text: '@ann you take this one' });
-  assert.deepEqual(claim('cy', 'm5').askedOf, ['ann'], 'the person\'s hand-off of an open post was ignored');
+  post({ id: 'm6', from: 'you', operator: true, replyTo: 'm5', mentioned: ['bob'], text: '@bob was this the page you touched last week?' });
+  assert.equal(claim('cy', 'm5').op, 'add', 'the person\'s side question locked an open post to bob');
+  // The person's hand-off is its own post: ann claims it.
+  post({ id: 'm7', from: 'you', operator: true, replyTo: 'm5', mentioned: ['ann'], text: '@ann you take the header' });
+  assert.equal(claim('ann', 'm7').op, 'add');
+});
+
+test('#6952 review 5: naming someone in a request to the room does not make it theirs; control: a request to them does', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = () => new Date().toISOString();
+  const post = (row) => append({ kind: 'post', project: 'p', to: MEMBERS, outcomes: {}, at: at(), ...row });
+  post({ id: 'm1', from: 'you', operator: true, mentioned: ['bob'], text: 'can someone review what @bob shipped yesterday?' });
+  assert.equal(claim('ann', 'm1').op, 'add', 'a reference to bob in a request to the room locked it to bob');
+  post({ id: 'm2', from: 'bob', to: MEMBERS, text: 'Deploy finished.' });
+  post({ id: 'm3', from: 'you', operator: true, replyTo: 'm2', text: 'great, now can someone write the release notes?' });
+  assert.equal(claim('ann', 'm3').op, 'add', 'a request to the room in a reply to bob was locked to bob');
+  // CONTROLS: "confirm" is not the room (it asks bob to confirm), and an ambiguous @-word leaves the post open.
+  post({ id: 'm4', from: 'you', operator: true, mentioned: ['bob'], text: '@bob please confirm the dates and send them out' });
+  assert.deepEqual(claim('ann', 'm4').askedOf, ['bob']);
+  post({ id: 'm5', from: 'you', operator: true, mentioned: ['bob'], ambiguousMentions: [{ word: 'b', members: ['bob', 'bo'] }], text: '@b please fix X' });
+  assert.equal(claim('ann', 'm5').op, 'add', 'an ambiguous @-word locked the post');
 });
 
 test('#6952 review 3: an agent answering its own post asks the room; control: the person answering it asks that agent', () => {

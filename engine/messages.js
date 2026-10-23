@@ -3640,6 +3640,10 @@ const CLOSING_POST_MIN = 400;
 // #6608 review 2: words that ask the whole room for an answer, so a hand-off that also says them is not left to its owner
 // alone. Deliberately wide (a missed ask drops an answer someone wanted; a false one only lets an acknowledgement through).
 const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|confirm|let (me|us) know|reply|respond|thumbs up)\b/i;
+/* #6952: a request put to the room, for the claim rule: words that offer the work to whoever takes it. Not ROOM_ASK, which
+   is about who must ANSWER ("confirm", "reply", "let me know" ask the named member too), and not "?": "@bob can you do
+   X?" asks bob. */
+const CLAIM_ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|anybody|someone|somebody|whoever|one of you|any of you)\b/i;
 function logRoomRefusal({ from, project, because, at, doing, addable }) {
   if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway
   const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
@@ -3774,25 +3778,26 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   // A plain 🙋 toggle by an agent with a pill that is not the claim takes that pill off, as any reaction would.
   if (claim !== 'claim' && pills) { dropPills(reactor); return { ok: true, op: 'remove', emoji: e, of: postId }; }
   if (holder && holder.by !== reactor) return refuse();
-  /* #6952: a post that ASKS members is theirs. Another agent's claim would tell the asked one to stand down, so it is
-     refused, naming who was asked. Asked is what the room's own delivery calls asked (asksIt): the members the post
-     @-named (`mentioned`, recorded when it was sent, #185; never `to`, the delivery list, which can be every member),
-     and the author of the post it answers, unless that is the person (review 2). The PERSON can re-assign it: their
-     later answer to this post that @-names members asks them too (review 4; an agent's answer does not, since a side
-     question or a "cc" would then hand the task away). An agent handing work on does it in its own post ("@ann please
-     take this"), and that post, which asks ann, is the one ann claims. Only those still in the room count, so a post
-     asking only someone who has left is open (review 1). */
-  const postsHere = rows.filter((m) => m && m.kind === 'post' && m.project === projectId);
-  const askedSet = new Set(Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : []);
-  if (typeof post.replyTo === 'string') {
-    const answered = postsHere.find((m) => String(m.id) === post.replyTo);
-    // Not the replier itself: an agent answering its own post ("found it, can someone take it?") asks the room, as
-    // delivery does (the sender is never a recipient). Review 3.
+  /* #6952: a post that ASKS particular members is theirs. Another agent's claim would tell the asked one to stand down,
+     so it is refused, naming who was asked. Asked is narrow on purpose (each wider version locked real requests to the
+     wrong agent in review):
+     - the members the post @-named (`mentioned`, recorded when it was sent, #185; never `to`, the delivery list, which
+       can be every member), unless an @-word was ambiguous (`ambiguousMentions`, as the #6608 owner rule) or the post
+       asks the room ("can someone review what @bob shipped?");
+     - for a post that names nobody and answers an agent's post (`replyTo`), that post's author ("yes, go ahead" to
+       bob), unless the replier is that author or the reply asks the room.
+     A hand-off, by an agent or by the person, is a post of its own ("@ann please take this"), which asks ann, and that is
+     the post ann claims. Only those still in the room count, so a post asking only someone who has left is open. */
+  const asksRoom = (text) => typeof text === 'string' && CLAIM_ROOM_ASK.test(text);
+  const askedSet = new Set();
+  const named = Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : [];
+  const unclear = Array.isArray(post.ambiguousMentions) && post.ambiguousMentions.length > 0;
+  if (named.length) {
+    if (!unclear && !asksRoom(post.text)) for (const n of named) askedSet.add(n);
+  } else if (typeof post.replyTo === 'string' && !asksRoom(post.text)) {
+    const answered = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === post.replyTo);
+    // The person's post has no session author ('you' is never a room member), so only an agent's post asks its author.
     if (answered && answered.operator !== true && typeof answered.from === 'string' && answered.from && answered.from !== post.from) askedSet.add(answered.from);
-  }
-  for (const m of postsHere) {
-    if (m.replyTo !== postId || m.operator !== true || !Array.isArray(m.mentioned)) continue;
-    for (const n of m.mentioned) if (typeof n === 'string' && n) askedSet.add(n);
   }
   const asked = [...askedSet].filter((n) => !Array.isArray(roomNow) || roomNow.includes(n));
   if (asked.length && !asked.includes(reactor)) {

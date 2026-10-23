@@ -63,6 +63,16 @@ some of those); it says to stand down when kosmos claim says the post asks someo
 only when a claim was released (`released: true`), not for an old pill that was never the claim.
 Not changed: the printed release command does not quote a project id with a space.
 
+## Review 5 (blind, 0 BLOCKER, 1 WARNING): fixed by narrowing "asked" again, to what is unambiguous. The lock had
+used every name a post mentions as an exclusive owner, which locked "can someone review what @bob shipped?" to bob,
+an open post to whoever the person's side question named, and "now can someone write the notes?" (a reply to bob's
+status) to bob. Now: the @-named members, unless an @-word was ambiguous or the post asks the room
+(CLAIM_ROOM_ASK: everyone, anyone, someone, whoever, one of you...; not ROOM_ASK, whose "confirm" and "reply" ask the
+named member too, and not "?"); or, for a post naming nobody that answers an agent's post, that author, unless the
+reply asks the room. The person's later replies no longer re-assign the original post: a hand-off, by the person or
+an agent, is its own post, and the one it asks claims that post. This supersedes the review-2 and review-4 hand-off
+rules. The v39 version-log entry now matches the shipped text.
+
 ## Weakest premise
 That `mentioned` is how a request names its owner. A post that asks "can ann take this?" without an @-mention names
 nobody to the board, so anyone can still claim it. And doctrine-past.js carries the v38 rows by hand until #6946 is on

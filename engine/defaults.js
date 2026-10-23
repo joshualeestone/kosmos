@@ -1200,10 +1200,10 @@ function block() {
  *     request in the same minute. The reactions section now says to claim a request with
  *     `kosmos claim` before saying so, and not to post it when the claim is someone else's.
  *     No new heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
- *  39. kosmos#6952 (review of #6946). The claim paragraph now says to claim only a post that asks
- *     the room or you by name, since a post that @-names someone else is theirs to take (the
- *     board refuses the claim). No new heading, so as in 32 an agent's EDITED copy of that
- *     section is not re-offered it.
+ *  39. kosmos#6952 (review of #6946). The claim paragraph now says to stand down when `kosmos
+ *     claim` says the post asks someone else, and that a post handed to you is claimed where it
+ *     is handed over. No new heading, so as in 32 an agent's EDITED copy of that section is not
+ *     re-offered it.
  */
 const DOCTRINE_VERSION = 39;
 
