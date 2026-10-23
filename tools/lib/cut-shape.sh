@@ -87,6 +87,7 @@ kosmos_cut_shape_run() {
   fi
   echo "cut-shape (#6977): running in a cut's shape: AGENT_WORKFORCE_HOME=${AGENT_WORKFORCE_HOME:-$dir/home}, stand-in cut pid $standin" >&2
   ( [ -n "${AGENT_WORKFORCE_HOME:-}" ] || export AGENT_WORKFORCE_HOME="$dir/home"; "$@" ) || rc=$?
+  # The stand-in takes TERM when its `sleep 1` returns, so this wait can take up to a second.
   kill "$standin" 2>/dev/null || true; wait "$standin" 2>/dev/null || true   # ended already, or 143: not this run's status
   rm -rf "$dir"
   return "$rc"
