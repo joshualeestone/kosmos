@@ -172,7 +172,12 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
   await b.close();
 
   if (CONTROL) {
-    if (fails.length) { console.log('\nCONTROL BEHAVED: the assertions go RED on the old 23rem value.'); process.exit(0); }
+    /* Each arm the revert aims at must go red on its own: the width arm and (#6967) the two-line arm. Any red alone is
+       not enough, because the width revert would make the run red whether or not the line count can fail. */
+    const red = (part) => fails.some((f) => f.includes(part));
+    if (red('same width as an agent card') && red('two lines before it is cut')) {
+      console.log('\nCONTROL BEHAVED: the width and the two-line assertions both go RED on the old rules.'); process.exit(0);
+    }
     console.log('\nCONTROL FAILED TO FAIL: these assertions cannot detect the old value. Do not trust the green run.');
     process.exit(1);
   }

@@ -4200,7 +4200,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    in the list view, where #860 already handles it. */
 .pj-list.asgrid .pj-row { align-items: center; text-align: center; padding: 24px 22px 20px; }
 .pj-list.asgrid .pj-row .pjcard-h { display: contents; }
-.pj-list.asgrid .pj-row .pjname { order: 1; justify-content: center; max-width: 100%; }
+.pj-list.asgrid .pj-row .pjname { order: 1; justify-content: center; max-width: 100%; align-items: baseline; }
 /* Truncate in the GRID too (#1310). This view was deliberately left alone
    because it "has room for the pack's own wrap/clamp behaviour" -- and
    narrowing the card to the agents' width is exactly what takes that room
@@ -4216,10 +4216,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    It was already there and is not changed here; the browser check now
    ASSERTS it, so removing it fails loudly rather than quietly (Mona Lisa
    found this by reading, #1310). */
-/* #6967: two lines, then the ellipsis (was one line). The unread count sits on the title's first line (baseline). */
+/* #6967: two lines, then the ellipsis (was one line). The title and the unread count align on the title's first
+   baseline, so the count stays on the first line however many lines the title takes. */
 .pj-list.asgrid .pj-row .pjname b { min-width: 0; overflow: hidden; overflow-wrap: anywhere;
                                     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
-.pj-list.asgrid .pj-row .pjname .pj-unread { align-self: baseline; }
 /* The same bubble recipe .astate draws on the agents grid, scoped here
    rather than sharing the class -- .astate carries a six-state agent
    vocabulary (working/attn/idle/paused/stopped/unknown) that does not
@@ -4753,13 +4753,13 @@ html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(
 .pjfaces > [aria-hidden] { display: flex; align-items: center; gap: 5px; }
 .pjfaces .lav { width: 22px; height: 22px; font-size: .625rem; }
 .pjcount { font-size: .8125rem; color: var(--k-ink-2); margin-left: 8px; }
-/* #6966: the provider tally beside the count, quiet: marks at 13px, a hairline before it. Its items wrap inside it
-   (min-width: 0), so many providers stay beside the count rather than spilling out of the card. On the GRID cards
+/* #6966: the provider tally beside the count, quiet: marks at 13px, a hairline before it. A zero flex-basis keeps
+   it on the count's line whatever its length; it grows to its own width (max-width) and its items wrap inside it. On the GRID cards
    only for now: the list row, the roadmap and the narrow side rail hide or squeeze the faces, and the tally there is
    a later step of the card. */
 .pjtally { display: none; }
 .pj-list.asgrid .pjtally { display: inline-flex; align-items: center; margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--k-rule);
-           font-size: .8125rem; color: var(--k-ink-2); min-width: 0; }
+           font-size: .8125rem; color: var(--k-ink-2); flex: 1 1 0%; min-width: 0; max-width: max-content; }
 .pjtally > [aria-hidden] { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
 .pjtally-i { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .pjtally-m { width: 13px; height: 13px; flex: none; color: var(--k-ink); }
