@@ -84,6 +84,8 @@ expect preview-other-team   1 production  false ZZZZZ99999.io.kosmos.app.preview
 
 # kosmos#6487: the notification extension inside the app, each refused for its own reason.
 EXT=style expect ext-style 0 production false $T.io.kosmos.app $T $T
+printf '%s\n' "$out" | grep -qF 'message-style notices, and the app holds Communication Notifications' \
+  || { echo "FAIL  ext-style: the message-style check did not run"; fail=1; }
 for case in "none:no notification extension" "devsigned:extension get-task-allow: true" "otherid:extension application-identifier: $T.io.kosmos.app.other" "nogroup:do not both hold the keychain group" "nocomm:lacks com.apple.developer.usernotifications.communication"; do
   mode=${case%%:*}; why=${case#*:}
   EXT=$mode make_ipa "ext-$mode" production false $T.io.kosmos.app $T >/dev/null

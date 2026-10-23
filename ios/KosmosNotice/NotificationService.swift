@@ -120,7 +120,7 @@ final class NotificationService: UNNotificationServiceExtension {
         }
 
         guard Bundle.main.object(forInfoDictionaryKey: PhoneNotice.messageStyleKey) as? Bool == true else {
-            // No Communication Notifications capability yet: the picture rides as the notice's attachment.
+            // Message style off: the picture rides as the notice's attachment.
             if let (bytes, ext) = shown {
                 let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + ext)
                 if (try? bytes.write(to: file)) != nil,

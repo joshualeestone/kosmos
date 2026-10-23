@@ -143,6 +143,8 @@ simulator running iOS 26.5 (the app targets iOS 16), loads the live Kosmos+ sign
     `io.kosmos.app` under Kosmos Agent Manager, Inc. for a person signed in to that team. A bundle id
     belongs to one team across all of Apple, so anyone else passes their own team AND their own id
     on the command line (`xcodebuild ... DEVELOPMENT_TEAM=<theirs> KOSMOS_BUNDLE_ID=<their own id>`).
+    Their App ID needs the Communication Notifications capability too (`Kosmos.entitlements` asks for it
+    in every signed build, so a profile without it fails signing).
     Never set either in Xcode's Signing or General pane: that writes them into `project.pbxproj`,
     which must not be committed (`tools/test-archive-config.sh` fails if the project's bundle id is
     anything but `$(KOSMOS_BUNDLE_ID)`). A device build registers for push as its bundle id, so a
