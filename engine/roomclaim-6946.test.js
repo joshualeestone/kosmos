@@ -320,3 +320,20 @@ test('#6952: an agent named operator cannot react (it would read as the person i
   assert.equal(r.ok, false);
   assert.match(r.because, /that name is reserved/);
 });
+
+test('#6952 review 1: a post naming only someone who has left the room is open to the rest; control: while they are in it, it is not', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please do X', outcomes: {}, at: new Date().toISOString() });
+  assert.equal(claim('ann', 'm1', 'claim', ['ann', 'bob', 'cy']).ok, false, 'CONTROL: with bob in the room, ann must be refused');
+  const after = claim('ann', 'm1', 'claim', ['ann', 'cy']);
+  assert.equal(after.ok, true, 'a post naming only a departed member could never be claimed');
+  assert.equal(after.op, 'add');
+});
+
+test('#6952 review 1: the name operator is reserved when an agent is created, in any case', () => {
+  const create = require('./create');
+  const check = create.nameProblem;
+  assert.equal(typeof check, "function", "engine/create.js no longer exports nameProblem");
+  for (const n of ['operator', 'Operator', 'OPERATOR']) assert.match(String(check(n)), /reserved/, n);
+  assert.equal(check('operators'), null, 'a name that only starts with operator was refused');
+});

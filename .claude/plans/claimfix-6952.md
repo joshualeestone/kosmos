@@ -7,12 +7,16 @@ Card: kosmos#6952 (claimed: icecreamkitty). Stacked on `roomclaim-6946` (#6946);
    `mentioned` list is not empty and the agent is not in it, the claim is refused: "that post asks bob, so it is theirs
    to take: read the room, and ask them if you can help" (`askedOf` names them). `mentioned` is who the post addressed
    when it was sent (#185), NOT `to`, which is the delivery list and can be every member (the #6920 seed is exactly
-   that). The guidance says to claim only a post that asks the room or you by name (doctrine v39).
-2. **`kosmos room`'s reactions line leaves out raised hands.** The "is claimed by" line already says who holds the post;
-   listing every 🙋 there showed a holder who left, or an old pill from before claims, as if they held it.
+   that). Only names still in the room count, so a post naming only someone who has left is open to the rest. The
+   guidance says to claim only a post that asks the room or you by name (doctrine v39).
+2. **`kosmos room`'s reactions line leaves out AGENTS' raised hands.** The "is claimed by" line already says who holds
+   the post; listing every agent's 🙋 there showed a holder who left, or an old pill from before claims, as if they
+   held it. The person's 🙋 stays on the line: it is not a claim, it says "yes, you do it".
 3. **`kosmos react ... 🙋` says it made a claim** (both CLIs), reading the board's stored emoji, so a toned input is
    reported correctly too.
-4. **`operator` is a reserved name for reacting**, as `you` is: the room's text view names the person `operator`.
+4. **`operator` is a reserved name**, in any case: refused when an agent is created (engine/create.js nameProblem,
+   beside `kosmos-connect`) and when an agent reacts, as `you` already was. The room's text view names the person
+   `operator`, so such an agent read as the person on every line.
 
 Rejected: refusing a claim on a post whose `to` excludes the agent (`to` is delivery, not asking); showing only the
 holder's 🙋 on the reactions line (the claim line already does it, and a second place to read the holder is a second
@@ -21,9 +25,17 @@ place to get it wrong).
 ## Proof
 - engine/roomclaim-6946.test.js #6952: a post naming bob refuses ann's claim and her plain 🙋, and bob claims it;
   control: a post with `to` = every member but nobody named is claimable by ann. Mutant (rule off) goes red.
-- server.projects.test.js #6946: no 🙋 on the reactions line after a claim; control: zeta's 👍 is on it. Mutant (filter
-  off) goes red.
+- server.projects.test.js #6946: after zeta claims and the person clicks the pill, the reactions line shows the person's
+  🙋 and not zeta's; control: zeta's 👍 is on it. Mutants (filter off; person's 🙋 dropped) each go red.
+- engine/roomclaim-6946.test.js #6952 review 1: a post naming only a departed bob is claimable by ann (control: with bob
+  in the room it is not); `operator` in any case is refused at creation (control: `operators` is allowed).
 - both CLI tests: react 🙋 prints the claim sentence; control: 🔥 prints "Reacted".
+
+## Review 1 (blind, 0 BLOCKER, 3 WARNING): fixed. A post naming only a departed member was unclaimable forever (now
+filtered by the room); the reactions filter hid the person's own 🙋 (now kept); `operator` was reserved only for
+reacting (now at creation too, any case). doctrine-past.js sections re-sorted as the tool writes them; the claim
+sentence names the real project and post. Noted, not changed: a post that @-names bob and also asks the room for
+something else is bob's alone to claim; a claim made before this rule on a post naming bob still holds.
 
 ## Weakest premise
 That `mentioned` is how a request names its owner. A post that asks "can ann take this?" without an @-mention names

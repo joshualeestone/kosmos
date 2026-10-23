@@ -667,6 +667,11 @@ function nameProblem(raw) {
   if (name === require('./connect').SESSION) {
     return 'that name is reserved: it is the window Kosmos signs Claude in through';
   }
+  /* kosmos#6952: the room's text view names the person `operator`, so an agent by that name (in any case) would read as
+     the person on every post, reaction and claim line. */
+  if (name.toLowerCase() === 'operator') {
+    return 'that name is reserved: the room calls the person operator';
+  }
   return null;
 }
 

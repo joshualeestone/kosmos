@@ -3692,7 +3692,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
      operator-vs-agent care sendPost takes with the `operator` flag. */
   /* #6952: 'operator' too. The room's text view names the person 'operator', so an agent with that name would read as
      the person on a reactions or claim line. */
-  if (operator !== true && (reactor === 'you' || reactor === 'operator')) {
+  if (operator !== true && (reactor === 'you' || reactor.toLowerCase() === 'operator')) {
     return { ok: false, because: 'that name is reserved, so this reaction could not be attributed' };
   }
   /* #2255: the room is its members. An AGENT reacting into a room it is not on
@@ -3777,7 +3777,9 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   /* #6952: a post that @-names members asks THEM. Another agent's claim would tell the named one to stand down, so it
      is refused, naming who was asked. `mentioned` is who the post addressed when it was sent (#185), not its delivery
      list (`to`, which can be every member). */
-  const asked = Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : [];
+  // Only those still in the room: a post naming someone who has since left is open to the rest (review 1).
+  const asked = Array.isArray(post.mentioned)
+    ? post.mentioned.filter((n) => typeof n === 'string' && n && (!Array.isArray(roomNow) || roomNow.includes(n))) : [];
   if (asked.length && !asked.includes(reactor)) {
     return { ok: false, askedOf: asked,
       because: 'that post asks ' + asked.join(', ') + ', so it is theirs to take: read the room, and ask them if you can help' };

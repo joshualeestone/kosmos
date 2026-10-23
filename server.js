@@ -21376,9 +21376,11 @@ const server = http.createServer(async (req, res) => {
           const shown = (Array.isArray(m.reactions) ? m.reactions : [])
             .map((r) => ({ emoji: messages.normalizeReactionEmoji(r.emoji),
               who: (Array.isArray(r.who) ? r.who : []).map((w) => (w === 'you' ? 'operator' : String(w).replace(/\s+/g, ' '))) }))
-            // #6952: no raised hands here. The claim line below says who holds the post; listing every 🙋 here would
-            // show a holder who left, or an old pill from before claims, as if they held it.
-            .filter((r) => r.emoji && r.who.length && !messages.isClaimEmoji(r.emoji));
+            // #6952: no AGENT raised hands here. The claim line below says who holds the post; listing every agent's
+            // 🙋 would show a holder who left, or an old pill from before claims, as if they held it. The person's 🙋
+            // stays: it is not a claim, it says "yes, you do it" (review 1).
+            .map((r) => (messages.isClaimEmoji(r.emoji) ? { ...r, who: r.who.filter((w) => w === 'operator') } : r))
+            .filter((r) => r.emoji && r.who.length);
           const reacted = shown.length
             ? [when + '  [kosmos] reactions on [' + m.id + ']: '
               + shown.map((r) => r.emoji + ' ' + r.who.join(', ')).join('; ')]
