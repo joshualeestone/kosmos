@@ -102,6 +102,7 @@ final class BoardClient: ObservableObject {
             updatedAt = Date()
             fresh = true
             phase = .live(mac: Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true))
+            loadSampleThreads()
             return
         }
         #endif
@@ -188,6 +189,90 @@ final class BoardClient: ObservableObject {
         guard let mac = shownMac else { return nil }
         return PushBridge.boardURL(fromNotification: ["address": mac.address, "session": agent.session], coordinator: coordinator)
     }
+
+    // MARK: - One agent's conversation (kosmos#7008)
+
+    // Through this client's own session to the Mac it is connected to; nil when not connected or no conversation was
+    // read (the chat keeps what it shows and says it is not updating).
+    func thread(for session: String) async -> Board.Thread? {
+        #if DEBUG
+        if let sample = sampleThreads[session] { return sample }
+        #endif
+        guard let held = admitted, let request = Board.threadRequest(mac: held.url, session: session),
+              let result = await env.send(request), (200...299).contains(result.1.statusCode)
+        else { return nil }
+        return Board.parseThread(result.0)
+    }
+
+    // Messages sent from a chat that its conversation does not hold yet, by agent. Kept while the app runs, so a message
+    // that was not sent is still there after leaving the chat (Mona Lisa's slice 3a spec).
+    @Published private(set) var pending: [String: [Board.PendingSend]] = [:]
+
+    func post(_ text: String, to agent: Board.Agent) async {
+        let item = Board.PendingSend(id: UUID().uuidString, text: text, at: env.now())
+        pending[agent.session, default: []].append(item)
+        await deliver(item.id, to: agent)
+    }
+
+    func retry(_ id: String, to agent: Board.Agent) async {
+        guard let i = pending[agent.session]?.firstIndex(where: { $0.id == id }),
+              let item = pending[agent.session]?[i], item.failed != nil, item.canRetry else { return }
+        pending[agent.session]?[i].failed = nil
+        await deliver(id, to: agent)
+    }
+
+    func discard(_ id: String, for session: String) {
+        pending[session]?.removeAll { $0.id == id }
+    }
+
+    // A read of the conversation: the accepted messages it now holds stop being shown as pending.
+    func settle(_ thread: Board.Thread, for session: String) {
+        guard let list = pending[session], !list.isEmpty else { return }
+        let left = Board.settled(list, with: thread)
+        if left != list { pending[session] = left }
+    }
+
+    private func deliver(_ id: String, to agent: Board.Agent) async {
+        guard let item = pending[agent.session]?.first(where: { $0.id == id }) else { return }
+        let outcome = await send(item.text, to: agent.session)
+        guard let i = pending[agent.session]?.firstIndex(where: { $0.id == id }) else { return }
+        switch outcome {
+        case .sent:
+            pending[agent.session]?[i].accepted = true
+        case .notSent:
+            let now = agents.first { $0.session == agent.session } ?? agent
+            let line = Board.notSentLine(agentRunning: now.running, name: now.name)
+            pending[agent.session]?[i].failed = line.text
+            pending[agent.session]?[i].canRetry = line.canRetry
+        }
+    }
+
+    func send(_ text: String, to session: String) async -> Board.SendOutcome {
+        #if DEBUG
+        if var sample = sampleThreads[session] {
+            let row = Board.ChatRow(id: "sample-\(sample.rows.count)", at: env.now(), text: text, who: .person)
+            sample = Board.Thread(rows: sample.rows + [row], olderCount: sample.olderCount, asking: sample.asking)
+            sampleThreads[session] = sample
+            return .sent
+        }
+        #endif
+        guard let held = admitted else { return .notSent("Not connected to your Mac, so it was not sent.") }
+        guard let request = Board.sendRequest(mac: held.url, session: session, text: text) else { return .notSent("Not sent.") }
+        let result = await env.send(request)
+        return Board.sendOutcome(status: result?.1.statusCode ?? 0, body: result?.0)
+    }
+
+    #if DEBUG
+    // The sample chats (KOSMOS_SAMPLE_AGENTS=1, a Debug build only): Mona Lisa's 19 October design conversation.
+    private var sampleThreads: [String: Board.Thread] = [:]
+    private func loadSampleThreads() {
+        let json = #"{"messages":[{"at":"2026-10-23T13:32:00Z","text":"Morning Dana. How is the catalogue copy coming along?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:33:00Z","text":"Pages 1 to 8 are written and checked against the price sheet.","from":"dana"},{"at":"2026-10-23T13:34:00Z","text":"Great. What is left?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:35:00Z","text":"Pages 9 to 12 need the new photos before I can caption them. The shoot is on Thursday, so I will have the full draft to you on Friday morning.","from":"dana"}],"olderCount":0,"question":null}"#
+        if let t = Board.parseThread(Data(json.utf8)) { sampleThreads["dana"] = t }
+        // Cleo's shows the way-through rows: older messages, a file, Kosmos's own line and a question.
+        let cleo = #"{"messages":[{"at":"2026-10-22T16:10:00Z","text":"Here is the launch checklist we agreed.","from":"cleo","attachment":{"id":"a1","name":"checklist.pdf"}},{"at":"2026-10-22T16:12:00Z","text":"Thanks, I will read it tonight.","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T14:00:00Z","text":"Cleo paused for today's limit. It picks up again at 4:00.","from":null,"kind":"kosmos"},{"at":"2026-10-23T14:05:00Z","text":"Should the launch email go out on Tuesday or Wednesday?","from":"cleo","kind":"question"}],"olderCount":12,"question":{"text":"Should the launch email go out on Tuesday or Wednesday?"}}"#
+        if let t = Board.parseThread(Data(cleo.utf8)) { sampleThreads["cleo"] = t }
+    }
+    #endif
 
     // Pictures for agents that have one and whose version changed, one at a time. A Mac that has no picture (404) is
     // not asked again until the version changes; the letter shows meanwhile.

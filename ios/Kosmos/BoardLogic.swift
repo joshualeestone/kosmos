@@ -349,4 +349,191 @@ enum Board {
 
     // The same agent-name characters a notification tap accepts.
     static func isAgentSession(_ s: String) -> Bool { PushBridge.isAgentSession(s) }
+
+    // MARK: - One agent's conversation (kosmos#7008, slice 3a)
+
+    // The conversation the board's own chat reads (GET /api/agent/<name>/thread).
+    static func threadRequest(mac: URL, session: String) -> URLRequest? {
+        guard isAgentSession(session) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+
+    // The board's own longest message (engine/chat.js MAX_MESSAGE); its composer stops there too.
+    static let maxMessage = 10000
+
+    // A plain message, as the board's own composer posts it ({text}). nil for a name the app does not accept, an
+    // empty message, or one longer than the board takes.
+    static func sendRequest(mac: URL, session: String, text: String) -> URLRequest? {
+        let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isAgentSession(session), !said.isEmpty, said.count <= maxMessage else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: ["text": said])
+        return r
+    }
+
+    struct ChatRow: Equatable, Identifiable {
+        enum Who: Equatable { case person, agent, kosmos }
+        // What this first part does not draw, so the chat shows Mona Lisa's way-through row in its place
+        // (slice 3a spec, "The way through").
+        enum WayThrough: Equatable { case question, permission, attachment }
+        let id: String
+        let at: Date?
+        let text: String
+        let who: Who
+        // Under a message of the person's: why it did not reach the agent, or nil when it did.
+        var notSent: String? = nil
+        var wayThrough: WayThrough? = nil
+    }
+
+    struct Thread: Equatable {
+        let rows: [ChatRow]
+        // Older messages kept on the Mac that this read did not bring (the chat says so and links to the board).
+        let olderCount: Int
+        // The agent is asking something on its screen right now (answered on the board in this first part).
+        let asking: Bool
+    }
+
+    static func isoDate(_ s: String?) -> Date? {
+        guard let s else { return nil }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: s) { return d }
+        f.formatOptions = [.withInternetDateTime]
+        return f.date(from: s)
+    }
+
+    // `{messages:[{at,text,from,kind,delivery,attachment(s),permission}], olderCount, question}`. A row with no
+    // `from` is the person's (engine/chat.js: absent means the operator), `kind: 'kosmos'` is Kosmos's own line,
+    // `kind: 'question'` the agent asking; anything else with a `from` is the agent's.
+    static func parseThread(_ data: Data) -> Thread? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rows = obj["messages"] as? [[String: Any]]
+        else { return nil }
+        var seen: [String: Int] = [:]
+        let parsed: [ChatRow] = rows.compactMap { row in
+            guard let text = row["text"] as? String else { return nil }
+            let at = row["at"] as? String
+            let kind = row["kind"] as? String
+            let from = (row["from"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let who: ChatRow.Who = kind == "kosmos" ? .kosmos : (kind == "question" || from != nil) ? .agent : .person
+            // Two rows can share a time; the id stays unique and stable across reads.
+            let base = (at ?? "") + "|" + (from ?? "") + "|" + (kind ?? "")
+            let n = seen[base, default: 0]
+            seen[base] = n + 1
+            var notSent: String? = nil
+            if who == .person, let d = row["delivery"] as? [String: Any], let state = d["state"] as? String,
+               state != "placed", state != "unconfirmed" {
+                notSent = state == "held" ? "Waiting to send" : "Not sent"
+            }
+            let way: ChatRow.WayThrough? = row["permission"] != nil ? .permission
+                : kind == "question" ? .question
+                : (row["attachment"] != nil || (row["attachments"] as? [Any])?.isEmpty == false) ? .attachment : nil
+            return ChatRow(id: base + "#\(n)", at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way)
+        }
+        let older = (obj["olderCount"] as? NSNumber)?.intValue ?? 0
+        let asking = obj["question"] is [String: Any]
+        return Thread(rows: parsed, olderCount: max(0, older), asking: asking)
+    }
+
+    // MARK: Laying the conversation out (Mona Lisa's slice 3a spec: runs, times, day lines)
+
+    struct ChatItem: Equatable, Identifiable {
+        enum Kind: Equatable {
+            case day(String)
+            // A bubble's time and tail go on the last of a run; the spacing above it is the run's.
+            case row(ChatRow, firstOfRun: Bool, lastOfRun: Bool)
+        }
+        let id: String
+        let kind: Kind
+    }
+
+    // A day line whenever the day changes between messages. A run is consecutive messages from the same side on the
+    // same day; Kosmos's lines and way-through rows stand alone.
+    static func chatItems(_ rows: [ChatRow], now: Date, calendar: Calendar) -> [ChatItem] {
+        func inRun(_ r: ChatRow) -> Bool { r.who != .kosmos && r.wayThrough == nil }
+        func together(_ a: ChatRow?, _ b: ChatRow) -> Bool {
+            guard let a, inRun(a), inRun(b), a.who == b.who else { return false }
+            if let x = a.at, let y = b.at { return calendar.isDate(x, inSameDayAs: y) }
+            return true
+        }
+        var out: [ChatItem] = []
+        var shownDay: Date?
+        for (i, r) in rows.enumerated() {
+            if let at = r.at, shownDay.map({ !calendar.isDate(at, inSameDayAs: $0) }) ?? true {
+                out.append(ChatItem(id: "day|" + r.id, kind: .day(dayLine(at, now: now, calendar: calendar))))
+                shownDay = at
+            }
+            let prev = i > 0 ? rows[i - 1] : nil
+            let next = i + 1 < rows.count ? rows[i + 1] : nil
+            out.append(ChatItem(id: r.id, kind: .row(r, firstOfRun: !together(prev, r), lastOfRun: next.map { !together(r, $0) } ?? true)))
+        }
+        return out
+    }
+
+    // "Today", "Yesterday", then "Monday 21 October" (with the year when it is not this year).
+    static func dayLine(_ day: Date, now: Date, calendar: Calendar) -> String {
+        if calendar.isDate(day, inSameDayAs: now) { return "Today" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(day, inSameDayAs: yesterday) { return "Yesterday" }
+        let f = DateFormatter()
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.locale = calendar.locale ?? Locale(identifier: "en_GB")
+        f.dateFormat = calendar.component(.year, from: day) == calendar.component(.year, from: now) ? "EEEE d MMMM" : "EEEE d MMMM yyyy"
+        return f.string(from: day)
+    }
+
+    // A message the person sent from this chat that the thread does not hold yet: sending, or not sent.
+    struct PendingSend: Equatable, Identifiable {
+        let id: String
+        let text: String
+        let at: Date
+        // nil while it sends; the line under the bubble once it was not accepted.
+        var failed: String? = nil
+        var canRetry = true
+        // The Mac took it; shown (full strength, with its time) until a read of the conversation holds it.
+        var accepted = false
+    }
+
+    // The pending messages still to show once a read of the conversation is in: an accepted one goes when the thread
+    // holds a message of the person's with the same words, written no earlier than a minute before it was sent (the
+    // Mac's clock and the phone's can differ). Each thread row stands for one pending message at most.
+    static func settled(_ pending: [PendingSend], with thread: Thread) -> [PendingSend] {
+        var unused = thread.rows.filter { $0.who == .person }
+        let trim = { (s: String) in s.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return pending.filter { p in
+            guard p.accepted else { return true }
+            if let i = unused.firstIndex(where: { trim($0.text) == trim(p.text) && ($0.at.map { $0 >= p.at.addingTimeInterval(-60) } ?? true) }) {
+                unused.remove(at: i)
+                return false
+            }
+            return true
+        }
+    }
+
+    // The line under a message that was not accepted (the spec's wording). An agent that is not running cannot take it,
+    // so there is nothing to retry until its status changes.
+    static func notSentLine(agentRunning: Bool, name: String) -> (text: String, canRetry: Bool) {
+        agentRunning ? ("Not sent. Tap to try again.", true) : ("Not sent. \(name) isn't running on your computer.", false)
+    }
+
+    enum SendOutcome: Equatable { case sent, notSent(String) }
+
+    // POST /api/agent/<name>/thread answers 200 with `delivery`; only `placed` (and `unconfirmed`, which the board
+    // shows as sent) reached the agent. A refusal answers 4xx with `{error}`, said as it is.
+    static func sendOutcome(status: Int, body: Data?) -> SendOutcome {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if (200...299).contains(status), let d = obj?["delivery"] as? [String: Any], let state = d["state"] as? String {
+            if state == "placed" || state == "unconfirmed" { return .sent }
+            if state == "held" { return .notSent("Waiting to send. It goes once the agent can take it.") }
+            return .notSent((d["because"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Not sent.")
+        }
+        if let error = obj?["error"] as? String, !error.isEmpty { return .notSent(error) }
+        return status == 0 ? .notSent("Your Mac isn't answering, so it was not sent.") : .notSent("Not sent.")
+    }
 }
