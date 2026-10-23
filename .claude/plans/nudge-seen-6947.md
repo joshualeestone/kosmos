@@ -16,7 +16,7 @@ Rejected:
 ## What it misses (said plainly, as the card asked)
 - A nudge read somewhere else: the project room, a phone or desktop notification, the task's card in a column, the Needs your decision list. Those count as not seen.
 - A page opened but not read: opening is not reading; the person may glance and leave. A tab can also report visible while another app's window covers it, or while a dialog inside Kosmos sits over the task's page (its back button keeps its layout box).
-- A message that arrives while the task's page is open and the person stays on it: the page draws the conversation when the task opens, after an action on the page, or when the tab comes back, not on its timer, so the new message is not on screen and reads as not seen until one of those happens. (Coming back to the tab draws it first, so a message that arrived while the tab was away is not counted as seen before it is drawn.)
+- A message that arrives while the task's page is open and the person stays on it: closed in #6951 (the 5-second read draws a changed conversation, which marks it).
 - The person answering from the task page's composer adds the latest message and redraws, so the line then reads "after the latest message", where the latest message is the person's own. The conversation above it shows that.
 - A message that lands between the page reading the conversation and the board receiving its seen post (one round trip to this computer's own board): counted as seen though not drawn. Closing it would mean the page sending the time of the newest event it drew; not done, as the window is one local request.
 - Only the latest view is kept, not each one. Tasks viewed before this version read as not viewed.
@@ -25,7 +25,7 @@ Rejected:
 - A task with no events at all prints "Nothing recorded" and no viewed line (every task records its creation, so this does not arise in practice).
 - Nothing removes a task's record when its project is deleted, so a project made again under the same id could inherit an old view time for a reused task number.
 - "The latest message" means the latest `said` event. Some messages carry no author (the composer's and `kosmos task message`'s), so it may be the person's own reply; the conversation above the line shows which. Other ways an agent reaches the person (a hold notice, a message kept while an agent was out of usage) are not compared.
-- A view that could not be recorded (the board failed to write it, or the page's post was refused or lost: the page ignores the answer) reads to the agent exactly like never viewed.
+- A view that could not be recorded (the board failed to write it, or the page's post was refused or lost) reads to the agent like never viewed. #6951 retries a server error or lost post once and logs a failed write; a refusal, or a second failure, still reads as never viewed.
 - A newer command against an older board, which sends no viewed field, prints no line at all, so the agent cannot tell anything either way.
 - Only the person's page can mark a task seen (server.js isViaScreen: no agent token, and the browser's own fetch headers or a local Origin). Those headers are advisory, so a local process that sends them deliberately can still forge it.
 

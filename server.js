@@ -22322,7 +22322,11 @@ const server = http.createServer(async (req, res) => {
     for (const proj of every.filter((x) => x && x.id === id)) { task = tasks.byNumber(proj, Number(taskSeen[2])) || task; }
     if (!task) { sendJson(res, 404, { error: 'no such task' }); return; }
     const seenAt = require('./engine/taskseen').markSeen(id, task.number);
-    if (!seenAt) { sendJson(res, 500, { error: 'we could not record that just now' }); return; }
+    if (!seenAt) {
+      // #6951: said in the board's log, so a view that could not be recorded is seen somewhere, not only as "not viewed".
+      try { console.error('task seen: could not record task ' + task.number + ' of ' + id); } catch { /* never mask */ }
+      sendJson(res, 500, { error: 'we could not record that just now' }); return;
+    }
     sendJson(res, 200, { seenAt });
     return;
   }

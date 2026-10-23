@@ -66540,6 +66540,10 @@ async function loadProjects() {
   if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden) paintTaskPage();
   // #5153: a task closed or put back elsewhere shows or hides its receipt on this read.
   if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden) tkReceiptSync();
+  /* #6951: a message that comes while the person is on the task's page is drawn on this read too (paintTaskActivity
+     marks it seen, #6947), so "seen" no longer waits for an action. Only when the conversation changed, so an unchanged
+     one is not redrawn (which would lose a selection in it) and the view is not re-recorded every poll. */
+  if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden && document.visibilityState === 'visible') paintTaskActivity(TK_OPEN, { onlyIfChanged: true });
   // The settings view holds the archive control now, so a poll that lands
   // while it is open must repaint IT from the truth too -- without this,
   // "Restore failed. Try again." outlives a restore whose write landed and
@@ -68386,7 +68390,8 @@ async function paintTaskReceipt(n) {
    a lifecycle event is rare, so a per-open + per-action read stays fresh without
    a request every tick. `n` is checked against TK_OPEN after the await so a fetch
    that lands after the person has left the task cannot paint the wrong page. */
-async function paintTaskActivity(n) {
+async function paintTaskActivity(n, opts) {
+  const onlyIfChanged = !!(opts && opts.onlyIfChanged);   // #6951: the poll's call (no braces in the signature: the page's tests lift this function by its first brace)
   const holder = document.getElementById('tk-activity');
   if (!holder) return;
   const p = pjById(PJ_CURRENT);
@@ -68411,6 +68416,12 @@ async function paintTaskActivity(n) {
      shared #tk-activity of the new one. Same check as after the fetch await -- a
      second await is a second chance for the page to have moved on. */
   if (n !== TK_OPEN || p.id !== PJ_CURRENT) return;
+  /* #6951: what was last drawn, kept on the holder (not a global, so the page's sliced tests need nothing new): the
+     poll passes onlyIfChanged and leaves an unchanged conversation as it is. */
+  const last = events[events.length - 1];
+  const drawn = p.id + '#' + n + '#' + events.length + '#' + (last ? last.at + '#' + last.kind : '');
+  if (onlyIfChanged && holder.tkDrawn === drawn) return;
+  holder.tkDrawn = drawn;
   if (!events.length) {
     holder.innerHTML = '<p class="dhint tkacts-empty">Nothing yet. As this task is worked on, what happens shows up here.</p>';
     tkMarkSeen(n, p.id);   // #6947
@@ -68510,10 +68521,14 @@ function openTaskPage(n) {
    has a layout box; getClientRects, which a hidden ancestor empties and fixed positioning does not): a task restored in
    a background tab, or left open behind another Kosmos tab, has not been seen.
    Best effort; a failure changes nothing on the page. */
-function tkMarkSeen(n, projectId) {
+function tkMarkSeen(n, projectId, retried = false) {
   const back = document.getElementById('tk-back');
   if (TK_OPEN === null || n !== TK_OPEN || projectId !== PJ_CURRENT || document.visibilityState !== 'visible' || !back || !back.getClientRects().length) return;
-  fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' }).catch(() => {});
+  /* #6951: a view that could not be recorded reads to the agent like never viewed, so a server error or a lost request
+     is tried once more, a few seconds later and only if the task is still on screen. A refusal (4xx) is not retried. */
+  const again = () => { if (!retried) setTimeout(() => tkMarkSeen(n, projectId, true), 3000); };
+  fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' })
+    .then((res) => { if (res && res.status >= 500) again(); }, again);
 }
 /* #6947: coming back to the tab while a task's page is showing: draw the conversation again (it is not redrawn on the
    poll, so a message that came while the tab was away is not on screen yet); the draw marks it seen. */
