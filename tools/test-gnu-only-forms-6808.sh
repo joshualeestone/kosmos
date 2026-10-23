@@ -24,13 +24,15 @@
 # a form inside a quoted string (B counts a quote as a command start, for `bash -c "sed -i ..."`), e.g. an echo of usage.
 #
 # Bash 4+ syntax, the other half of the same gap: the Linux shards run every script under bash 5, a Mac runs it under
-# bash 3.2. No counterpart, always flagged: mapfile / readarray, declare|local|typeset with -A -g -n -l or -u in its
-# flags, ${x,,} ${x^^} (single forms, ${!x,,} too), ${x@Q} and the other @ transforms, ${x:off:-N}, read -t with a
+# bash 3.2. No counterpart, always flagged: mapfile / readarray, declare|local|typeset|readonly with -A -g -n -l or -u in
+# its flags, ${x,,} ${x^^} (single forms, ${!x,,} too), ${x@Q} and the other @ transforms, ${x:off:-N}, read -t with a
 # fraction, coproc, shopt naming a bash 4+ option, $EPOCHSECONDS/EPOCHREALTIME: bash 3.2's `bash -n` accepts all of
 # these, so they fail only when the line runs. Also |& , &>> , ;;& and ;& in a case: those 3.2's `bash -n` does
 # reject, but only where something runs it on a Mac.
 # Also a floor: wait -n, read -N / -i, ${a[-1]}, {1..9..2}, $BASHPID and printf %(fmt)T are not on the list, and a
-# trailing comment that names a form (`... # no mapfile here`) is flagged like the quoted-string case above.
+# trailing comment that names a form (`... # no mapfile here`) is flagged like the quoted-string case above, and so
+# are a |& inside a quoted string and the probe `shopt -q globstar` (3.2 returns 1 with an error on stderr, which a
+# probe can live with).
 #
 # A line that is deliberately GNU-only (inside a Linux-only branch, say) says so on the line: `# gnu-ok: <why>`; a line
 # that deliberately needs bash 4+ says `# bash4-ok: <why>`. Each excuses only its own kind.
@@ -56,21 +58,24 @@ forms() {
         grep-P "${B}grep${O}[[:space:]]+(-[a-zA-Z]*P|--perl-regexp)" "" \
         find-printf "${B}find[[:space:]].*[[:space:]]-f?printf([[:space:]]|\$)" ""
     # Bash 4+ (kosmos#6808 scope addition). Single-quoted where they hold $ or `, so nothing expands.
-    V='([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*])(\[[^]]*\])?'
+    # Literal $ { } [ ] are written as bracket expressions, which every ERE reads the same way (no stray-backslash
+    # question between BSD and GNU grep).
+    V='([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*])([[][^]]*[]])?'
+    OFF='([^}:]|[$][{][^}]*[}])*'   # a substring offset, a nested ${...} included
     BK="(^|[;&|(\`{\"'[:space:]])"   # B without the slash: `local` in /usr/local is a path, not a builtin
     printf '%s\t%s\t%s\n' \
         bash4-mapfile "${B}(mapfile|readarray)([[:space:]]|\$)" "" \
-        bash4-declare "${BK}(declare|local|typeset)${O}[[:space:]]+-[a-zA-Z]*[Agnlu][a-zA-Z]*([[:space:]]|\$)" "" \
-        bash4-case-mod '\$\{!?'"$V"'(,|\^)' "" \
-        bash4-transform '\$\{'"$V"'@[QEPAaKkUuL]\}' "" \
+        bash4-declare "${BK}(declare|local|typeset|readonly)${O}[[:space:]]+-[a-zA-Z]*[Agnlu][a-zA-Z]*([[:space:]]|\$)" "" \
+        bash4-case-mod '[$][{]!?'"$V"'(,|\^)' "" \
+        bash4-transform '[$][{]'"$V"'@[QEPAaKkUuL][}]' "" \
         bash4-pipe-amp '(^|[^|])\|&([^#a-zA-Z]|$|[a-zA-Z]+([^a-zA-Z;]|$))' "" \
         bash4-append-both '&>>' "" \
         bash4-case-fall ';;&|(^|[^;]);&([[:space:]]|$)' "" \
         bash4-coproc "${B}coproc([[:space:]]|\$)" "" \
-        bash4-shopt "${B}shopt[[:space:]].*(globstar|lastpipe|inherit_errexit|globasciiranges|direxpand|checkjobs|autocd|dirspell|localvar_inherit|localvar_unset|assoc_expand_once|compat32|compat4[0-9])([[:space:]]|\$)" "" \
-        bash4-epoch '\$\{?EPOCH(SECONDS|REALTIME)' "" \
-        bash4-neg-length '\$\{'"$V"':([[:space:]]*[0-9$(][^}:]*|[[:space:]]+-[^}:]*):[[:space:]]*-' "" \
-        bash4-read-t "${B}read${O}[[:space:]]+-[a-zA-Z]*t[[:space:]]*[0-9]*\\.[0-9]" ""
+        bash4-shopt "${B}shopt[[:space:]].*(globstar|lastpipe|inherit_errexit|globasciiranges|direxpand|checkjobs|autocd|dirspell|localvar_inherit|localvar_unset|assoc_expand_once|compat32|compat4[0-9]|globskipdots|patsub_replacement|progcomp_alias|complete_fullquote|noexpand_translation|varredir_close)([[:space:]]|\$)" "" \
+        bash4-epoch '[$][{]?EPOCH(SECONDS|REALTIME)' "" \
+        bash4-neg-length '[$][{]'"$V"':([[:space:]]+-'"$OFF"'|[[:space:]]*([0-9(a-zA-Z_$]|[$][{][^}]*[}])'"$OFF"')?:[[:space:]]*-' "" \
+        bash4-read-t "${B}read[[:space:]][^;|&]*-[a-zA-Z]*t[[:space:]]*[\"']?[0-9]*[.][0-9]" ""
 }
 
 # scan_file <path> <label>: prints "<label>:<line>: <form>: <text>" for each unexcused hit.
@@ -201,7 +206,14 @@ for case_ in \
     "bash4-neg-length|y=\${x: -3:-1}" \
     "bash4-neg-length|y=\${x:\$i:-2}" \
     "bash4-read-t|read -t 0.5 r" \
-    "bash4-read-t|read -r -t .2 r"; do
+    "bash4-read-t|read -r -t .2 r" \
+    "bash4-read-t|read -t \"0.5\" r" \
+    "bash4-read-t|read -p \"q\" -t 0.5 r" \
+    "bash4-neg-length|echo \"\${x::-1}\"" \
+    "bash4-neg-length|echo \"\${x:i:-1}\"" \
+    "bash4-neg-length|echo \"\${x:\${#y}:-1}\"" \
+    "bash4-declare|readonly -A ro" \
+    "bash4-shopt|shopt -s globskipdots"; do
     form=${case_%%|*}; line=${case_#*|}
     out=$(plant "$line")
     case "$out" in *": $form: "*) ok "flags $form: $line" ;; *) bad "did not flag $form in: $line (got '$out')" ;; esac
@@ -249,6 +261,10 @@ for line in \
     "y=\${x:1:2}" \
     "y=\${x:-a:-b}" \
     "read -t 5 r" \
+    "read -r line; sleep 0.5" \
+    "readonly -a list" \
+    "y=\${x:\${#y}:1}" \
+    "y=\${x:=a:-1}" \
     "mapfile -t x < f   # bash4-ok: this script is run by the Linux service only"; do
     out=$(plant "$line")
     [ -z "$out" ] && ok "allows: $line" || bad "flagged an allowed form: $line -> $out"
