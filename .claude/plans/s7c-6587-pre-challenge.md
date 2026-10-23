@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: s7c-6587
-diff_hash: ef7d6a86a2658a0aa2a27fbf0350503add1bfca225dc9b070ff252b07a4f2814
+diff_hash: 34c2883327d9e343da9ace18c4eb1280ec3597f3156c905a1ae2e3653bbeca93
 validation: passed (render-plus-panel-3829 browser check, 11 service-keys arms PASS on e17624f24e (the shipped code), its control red; web.sk-notice-6587, web.cert-notice-6613, web.plus-service-keys-6587, web.plus-cert-watch-6602, engine.reachable and standing guards 89 pass on the rebased tree; both browser gates rc 0)
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-20T12:24:56Z
