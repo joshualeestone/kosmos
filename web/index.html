@@ -66141,7 +66141,7 @@ const PJ_TALLY = [
   ['Claude', 'claude', 'Claude'], ['OpenAI', 'openai', 'GPT'], ['Gemini', 'google', 'Gemini'],
   ['Gemini (Google subscription)', 'antigravity', 'Gemini'], ['Grok', 'xai', 'Grok'], ['Meta Muse', 'meta', 'Meta'], ['Qwen', 'alibaba', 'Qwen'],
 ];
-const PJ_TALLY_MARKS = new Map();   // pick -> the mark's HTML (cloned from #firstrun's marks, which stay in the page)
+const PJ_TALLY_MARKS = new Map();   // pick -> the mark's HTML (cloned from the first-run screen's marks, which stay in the page)
 function pjProviderTally(agents) {
   const counts = new Map();   // the word shown -> { pick, n }, in PJ_TALLY order, then any other provider as it comes
   for (const a of agents || []) {
