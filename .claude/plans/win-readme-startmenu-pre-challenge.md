@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: win-readme-startmenu
-diff_hash: b1b04b257a6f244e62b3ff6cd51b616af841aa32dff1f869c9a4a54ce7f2c060
+diff_hash: 3af9dfe67cb492c8eb3370304ed81be1436b4d1000ab47fe2c950329a020385b
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-23T11:52:17Z
