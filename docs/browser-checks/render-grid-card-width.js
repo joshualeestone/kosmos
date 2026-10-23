@@ -74,7 +74,7 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
       '.pj-list.asgrid{grid-template-columns:repeat(auto-fill,minmax(min(100%,23rem),1fr))!important}'
       + '.pj-list.asgrid .pj-row .pjname{max-width:none!important}'
       + '.pj-list.asgrid .pj-row .pjname b{overflow:visible!important;text-overflow:clip!important;'
-      + 'white-space:normal!important}';
+      + 'white-space:normal!important;display:block!important;-webkit-line-clamp:none!important}';
     document.head.appendChild(st);
   };
   if (CONTROL) await pg.evaluate(revert);
@@ -112,7 +112,9 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
     return {
       pjTrack: track,
       pjCard: pj ? Math.round(pj.getBoundingClientRect().width) : null,
-      clipped: nameB ? (nameB.scrollWidth > nameB.clientWidth + 1) : null,
+      /* #6967: the title clamps at two lines, so it is clipped DOWNWARD; across is still checked. */
+      clipped: nameB ? (nameB.scrollWidth > nameB.clientWidth + 1 || nameB.scrollHeight > nameB.clientHeight + 1) : null,
+      lines: nameB ? Math.round(nameB.getBoundingClientRect().height / parseFloat(getComputedStyle(nameB).lineHeight)) : null,
       overflows: (pj && nameB)
         ? (Math.round(nameB.getBoundingClientRect().right) > Math.round(pj.getBoundingClientRect().right) + 1)
         : null,
@@ -148,6 +150,7 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
       + ', agents ' + m.agTrack + ', difference ' + (Number.isFinite(gap) ? gap.toFixed(1) : '?') + 'px)');
   say(m.clipped === true, 'a long project title is clipped rather than widening the card');
   say(m.overflows === false, 'the title does not spill outside its card');
+  say(m.lines === 2, 'a long project title shows two lines before it is cut (#6967; ' + m.lines + ' lines)');
   if (m.badge === null) {
     console.log('  note: no unread badge on screen, so its width was not asserted this run');
   } else {
