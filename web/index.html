@@ -68420,14 +68420,16 @@ async function paintTaskActivity(n, opts) {
      poll passes onlyIfChanged and leaves an unchanged conversation as it is. */
   const last = events[events.length - 1];
   const drawn = p.id + '#' + n + '#' + events.length + '#' + (last ? last.at + '#' + last.kind : '');
-  /* The view is remembered apart from the draw (tkMarked): a mark that declined (the page behind another Kosmos tab)
-     or failed is tried again on the next read of the same conversation, which is on screen by then. */
+  /* The view is remembered apart from the draw (tkMarked: this conversation is settled, the board answered for it). A
+     mark that declined (the page behind another Kosmos tab, so nothing was sent) is tried on the next read of the same
+     conversation; a settled one is not sent again until the conversation changes. */
   const marked = () => { holder.tkMarked = drawn; };
-  if (onlyIfChanged && holder.tkDrawn === drawn) { if (holder.tkMarked !== drawn) tkMarkSeen(n, p.id, false, marked); return; }
+  const mark = () => { if (holder.tkMarked !== drawn) tkMarkSeen(n, p.id, false, marked); };
+  if (onlyIfChanged && holder.tkDrawn === drawn) { mark(); return; }
   holder.tkDrawn = drawn;
   if (!events.length) {
     holder.innerHTML = '<p class="dhint tkacts-empty">Nothing yet. As this task is worked on, what happens shows up here.</p>';
-    tkMarkSeen(n, p.id, false, marked);   // #6947
+    mark();   // #6947
     return;
   }
   const now = Date.now();
@@ -68437,7 +68439,7 @@ async function paintTaskActivity(n, opts) {
   const wasOpen = new Set(canQuery ? [...holder.querySelectorAll('details.tkact-roll[open]')].map((d) => d.dataset.first) : []);
   holder.innerHTML = tkActRowsHtml(events, p, now);
   if (canQuery && wasOpen.size) for (const d of holder.querySelectorAll('details.tkact-roll')) if (wasOpen.has(d.dataset.first)) d.open = true;
-  tkMarkSeen(n, p.id, false, marked);   // #6947: drawn, so the person may have the conversation in front of them
+  mark();   // #6947: drawn, so the person may have the conversation in front of them
 }
 /* kosmos#5643: the history's rows. Two or more runs in a row that found nothing new (not late: lateness is news) are
    ONE row, "N runs found nothing new" (or "repeated the same note" for runs the board only inferred, or both), which
@@ -68524,14 +68526,17 @@ function openTaskPage(n) {
    has a layout box; getClientRects, which a hidden ancestor empties and fixed positioning does not): a task restored in
    a background tab, or left open behind another Kosmos tab, has not been seen.
    Best effort; a failure changes nothing on the page. */
-function tkMarkSeen(n, projectId, retried = false, onMarked = null) {
+function tkMarkSeen(n, projectId, retried = false, onSettled = null) {
   const back = document.getElementById('tk-back');
   if (TK_OPEN === null || n !== TK_OPEN || projectId !== PJ_CURRENT || document.visibilityState !== 'visible' || !back || !back.getClientRects().length) return;
   /* #6951: a view that could not be recorded reads to the agent like never viewed, so a server error or a lost request
-     is tried once more, a few seconds later and only if the task is still on screen. A refusal (4xx) is not retried. */
-  const again = () => { if (!retried) setTimeout(() => tkMarkSeen(n, projectId, true, onMarked), 3000); };
+     is tried once more, a few seconds later and only if the task is still on screen. Then the attempt is settled
+     (onSettled): recorded, refused (4xx, not retried), or failed twice. A settled conversation is not sent again until
+     it changes, so a refusing or broken board is not asked every five seconds. */
+  const settle = () => { if (onSettled) onSettled(); };
+  const failed = () => { if (retried) settle(); else setTimeout(() => tkMarkSeen(n, projectId, true, onSettled), 3000); };
   fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' })
-    .then((res) => { if (res && res.status >= 500) again(); else if (res && res.status < 300 && onMarked) onMarked(); }, again);
+    .then((res) => { if (res && res.status >= 500) failed(); else settle(); }, failed);
 }
 /* #6947: coming back to the tab while a task's page is showing: draw the conversation again at once (the five-second
    read skips a hidden tab, so a message that came while it was away is not on screen yet); the draw marks it seen. */

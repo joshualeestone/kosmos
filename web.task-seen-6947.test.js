@@ -172,3 +172,31 @@ test('#6951: after a failed read the next read draws, even if the conversation i
   await p.paintTaskActivity(3, { onlyIfChanged: true });
   assert.equal(p.acts.innerHTML, '<rows>', 'the could-not-read line stayed although the read now works');
 });
+
+test('#6951: a refused or twice-failed view is settled: the five-second read does not send it again until the conversation changes', async () => {
+  for (const [post, sends] of [[403, 1], [404, 1], [500, 2], ['lost', 2]]) {
+    const p = page({ post });
+    await p.paintTaskActivity(3);
+    await p.settle();
+    while (p.timers.length) { p.timers.shift()[0](); await p.settle(); }
+    for (let i = 0; i < 3; i += 1) { await p.paintTaskActivity(3, { onlyIfChanged: true }); await p.settle(); }
+    assert.equal(p.posts.length, sends, 'post answered ' + post + ': sent ' + p.posts.length + ' times');
+    p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-22T23:09:00.000Z', kind: 'said', text: 'new' }];
+    await p.paintTaskActivity(3, { onlyIfChanged: true });
+    await p.settle();
+    assert.equal(p.posts.length, sends + 1, 'a new message is a new attempt (' + post + ')');
+  }
+});
+
+test('#6951: a failed read in between does not record a view already recorded for the same conversation', async () => {
+  const p = page();
+  await p.paintTaskActivity(3);
+  await p.settle();
+  p.st.read = 'fail';
+  await p.paintTaskActivity(3);
+  p.st.read = 'ok';
+  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  await p.settle();
+  assert.equal(p.acts.innerHTML, '<rows>', 'redrawn after the failed read');
+  assert.equal(p.posts.length, 1, 'the same conversation was recorded again');
+});
