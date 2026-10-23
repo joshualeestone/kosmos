@@ -1,13 +1,15 @@
 # roomfree-6949: the person frees a quiet agent's room claim from the board
 
-Card: kosmos#6949 (follow-up to #6946). Claimed: pigeonpete. Stacked on `roomclaim-6946` (9f7c66c1db, Ice Cream Kitty,
-in review); rebased onto main once #6946 merges, and the PR opens then.
+Card: kosmos#6949 (follow-up to #6946). Claimed: pigeonpete. Stacked on `roomclaim-6946` (Ice Cream Kitty, in review;
+rebased 18:58 onto e150de0128, where claim adds carry `claim: true` and removes are written per live 🙋 pill); rebased
+onto main once #6946 merges, and the PR opens then.
 
 ## Decision
 - Engine `freeClaim({project, of, by, members})` beside `claimantsOf` in engine/messages.js. It frees the claim of the
-  holder the room shows (members filtered as `roomClaimOf` does), writing one remove row per live 🙋 form with
-  `from: <holder>, takenBy: 'you'` (react()'s takeBack shape, so replay takes the pill off), then an agents-only room
-  note naming the post and the old holder. Already free is `op: 'none'` and writes nothing.
+  holder the room shows (members filtered as `roomClaimOf` does), writing one remove row per 🙋 pill the holder has,
+  marked as a claim or not (as react()'s dropPills does), with `from: <holder>, takenBy: 'you', because: 'freed'`, then
+  an agents-only room note naming the post, the old holder, and the next holder if another live claimant has it. Already
+  free is `op: 'none'` and writes nothing.
 - `by` is the holder the page drew. If the claim changed hands since, nothing is written and the answer names who holds
   it now (route: 409). A stale page cannot free the wrong agent.
 - Route `POST /api/project/:id/room/:postId/free-claim`, beside the person's react route: board-token gated (every

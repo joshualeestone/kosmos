@@ -3608,8 +3608,9 @@ function claimAge(at, now) {
    giving it back). Only the person's route calls this; react() never lets the person's 🙋 take a claim over (#6946
    round 3). `by` is the holder the page showed: if the claim has changed hands since (released, or someone else holds
    it now) nothing is written and the answer says who holds it, so a stale page cannot free the wrong agent.
-   Every live 🙋 form of the holder is removed with `takenBy: 'you'`, as react()'s takeBack writes them, and an
-   agents-only room note names the post and the old holder, so the holder's next `kosmos room` read says it was freed.
+   Every 🙋 pill the holder has, in any form and marked as a claim or not, is removed (react()'s dropPills does the
+   same), with `takenBy: 'you'` and `because: 'freed'`, and an agents-only room note names the post and the old holder,
+   so the holder's next `kosmos room` read says it was freed.
    `members` is the project's stored members (roomClaimOf's filter), so the holder freed is the one the room shows. */
 function freeClaim({ project, of, by, members }) {
   const projectId = String(project == null ? '' : project).trim();
@@ -3625,13 +3626,13 @@ function freeClaim({ project, of, by, members }) {
   const holder = claimOf(postId, rows, room);
   if (!holder) return { ok: true, op: 'none', of: postId };   // already free: what the person asked for is true
   if (holder.by !== shown) return { ok: false, claimedBy: holder.by, claimedAt: holder.at, of: postId,
-    because: shown + ' no longer holds that post; ' + holder.by + ' claimed it ' + claimAge(holder.at) + ', so nothing was freed' };
-  const c = claimantsOf(postId, rows, room).get(holder.by);
+    because: shown + ' no longer holds that post; ' + holder.by + ' does, so nothing was freed' };
   const at = new Date().toISOString();
-  for (const em of c.emojis) {
-    appendLog({ kind: 'reaction', project: projectId, of: postId, at, emoji: em, op: 'remove', from: holder.by, takenBy: 'you' });
+  for (const r of reactionsFor(postId, rows)) {
+    if (!isClaimEmoji(r.emoji) || !r.who.includes(holder.by)) continue;
+    appendLog({ kind: 'reaction', project: projectId, of: postId, at, emoji: r.emoji, op: 'remove', from: holder.by, takenBy: 'you', because: 'freed' });
   }
-  // Another live 🙋 (a row from before the claim rule, or an agent re-added to the project) holds the post next.
+  // claimantsOf can hold more than one live claimant; the next one holds the post now.
   const next = claimOf(postId, record().rows, room);
   roomNote(projectId, 'The person freed the claim ' + holder.by + ' held on [' + postId + '], so '
     + (next ? next.by + ' holds it now.' : 'another agent can claim it now.')

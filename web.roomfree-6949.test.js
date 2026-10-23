@@ -21,8 +21,8 @@ const RXN_CLAIM_FORM = new Function(page.liftConst(SCRIPT, 'RXN_CLAIM_FORM') + '
 const FORMS = [
   '\u{1F64B}',                          // plain
   '\u{1F64B}\u{1F3FB}', '\u{1F64B}\u{1F3FF}',   // skin tones, both ends of the range
-  '\u{1F64B}‍♀️', '\u{1F64B}\u{1F3FD}‍♂️',   // gendered, with and without a tone
-  '\u{1F64B}️', '\u{1F64B}︎',   // presentation selectors
+  '\u{1F64B}\u200D\u2640\uFE0F', '\u{1F64B}\u{1F3FD}\u200D\u2642\uFE0F',   // gendered, with and without a tone
+  '\u{1F64B}\uFE0F', '\u{1F64B}\uFE0E',   // presentation selectors
   // not claims
   '\u{1F64B}\u{1F525}', '\u{1F44D}', '\u{1F64C}', '', 'raise',
 ];

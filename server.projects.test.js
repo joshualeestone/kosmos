@@ -3081,6 +3081,8 @@ test('#6949: the person frees a quiet agent\'s claim through the real route; the
     const asAgent = await fetch(base + `/api/project/${project.id}/room/${id}/free-claim`, { method: 'POST',
       headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok }, body: JSON.stringify({ by: 'zeta' }) });
     assert.equal(asAgent.status, 403, 'an agent token was not refused by the person\'s route');
+    // The route's own refusal, not the board-token gate's (which answers 403 too on a board that enforces it).
+    assert.match((await asAgent.json()).because || '', /^only the person can free a claim/, 'the 403 is not the route\'s own refusal');
     res = await req(`/api/project/${project.id}/room?as=text`);
     assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'the agent-token call freed the claim:\n' + res.body);
   });

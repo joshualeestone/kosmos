@@ -53,6 +53,7 @@ test('the done-line: the person frees ann\'s claim, bob can claim, and the room 
   assert.equal(removed.length, 1);
   assert.equal(removed[0].from, 'ann', 'the remove row is not ann\'s, so replay would not take her 🙋 off');
   assert.equal(removed[0].takenBy, 'you', 'the log does not say the person took the claim');
+  assert.equal(removed[0].because, 'freed');
   assert.equal(removed[0].operator, undefined, 'the remove was written as the person\'s own reaction');
   assert.deepEqual(messages.reactionsFor('m1', rows()), [], 'ann\'s 🙋 pill is still on the post');
 
@@ -75,7 +76,7 @@ test('a claim that changed hands since the page drew it is refused, and nothing 
   const out = free('ann');   // the page still shows ann
   assert.equal(out.ok, false, 'a stale page freed the agent who holds it now');
   assert.equal(out.claimedBy, 'bob');
-  assert.match(out.because, /^ann no longer holds that post; bob claimed it just now, so nothing was freed$/);
+  assert.equal(out.because, 'ann no longer holds that post; bob does, so nothing was freed');
   assert.equal(rows().length, before, 'a refused free wrote to the log');
   assert.equal(holder(), 'bob');
   // CONTROL: naming the holder it now shows frees it.
@@ -95,10 +96,10 @@ test('an already-free post is op none and writes nothing; a missing post, projec
   assert.equal(messages.freeClaim({ project: '', of: 'm1', by: 'ann', members: MEMBERS }).ok, false);
 });
 
-test('every live 🙋 form of the holder is removed (rows from before react() stored them plain)', () => {
+test('every 🙋 pill of the holder is removed, the claim and an unmarked one from before the claim mark', () => {
   seedPost('m1', 'p');
   const at = new Date().toISOString();
-  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, op: 'add', from: 'ann', at });
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, op: 'add', claim: true, from: 'ann', at });
   append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND_TONE, op: 'add', from: 'ann', at });
   assert.equal(holder(), 'ann');
   assert.equal(free('ann').op, 'freed');
@@ -120,9 +121,9 @@ test('the person\'s own 🙋 and other agents\' reactions are left alone', () =>
 test('with a second live claimant, it holds the post next, and the note and the answer name it', () => {
   seedPost('m1', 'p');
   const at = new Date().toISOString();
-  // Two live 🙋 rows, as from before the claim rule: ann's is earlier, so ann holds it and bob is next.
-  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, op: 'add', from: 'ann', at });
-  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, op: 'add', from: 'bob', at });
+  // Two live claims written straight to the log (react() would refuse bob's): ann's is first, so bob is next.
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, op: 'add', claim: true, from: 'ann', at });
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, op: 'add', claim: true, from: 'bob', at });
   assert.equal(holder(), 'ann');
   const out = free('ann');
   assert.equal(out.op, 'freed');

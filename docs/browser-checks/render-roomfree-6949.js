@@ -4,8 +4,8 @@
  * real free-claim route, repaints the one row and says so in the room's live region.
  *
  * Driven against the SHIPPED page and the real routes: self-boots a sandboxed server, creates a project with an agent,
- * posts two messages, and writes the agent's reactions straight into the sandbox's message log (a 🙋 row from the agent
- * is a claim, as react() would have written it; no agent token is needed for that).
+ * posts two messages, and writes the agent's reactions straight into the sandbox's message log (a marked 🙋 row from the
+ * agent is a claim, as react() writes it; no agent token is needed for that).
  *
  * Arms, each with its control:
  *  - the claimed post's 🙋 pill is labelled and has Free beside it; CONTROL: the other post, where the same agent's
@@ -78,7 +78,7 @@ const check = (cond, n, why) => (cond ? ok(n) : bad(n, why));
         if (!r1.ok) return { error: 'project create ' + r1.status };
         const id = (await r1.json()).project.id;
         await fetch('/api/project/' + id + '/agent/roomer', { method: 'POST', headers: { 'content-type': 'application/json' } });
-        for (const text of ['can someone take the release notes', 'and the changelog']) {
+        for (const text of ['can someone take the release notes', 'and the changelog', 'and the docs']) {
           const r2 = await fetch('/api/project/' + id + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
           const j = await r2.json().catch(() => null);
           if (j && j.delivery && j.delivery.state === 'could_not') return { error: 'post refused: ' + j.delivery.because };
@@ -91,11 +91,14 @@ const check = (cond, n, why) => (cond ? ok(n) : bad(n, why));
         const member = typeof a === 'string' ? a : (a && (a.sessionName || a.name)) || null;
         return { id, posts, member };
       }, pjName);
-      if (made.error || !made.posts || made.posts.length < 2 || !made.member) { bad(t + ' fixture', JSON.stringify(made)); await p.close(); continue; }
-      const [claimed, other] = made.posts;
+      if (made.error || !made.posts || made.posts.length < 3 || !made.member) { bad(t + ' fixture', JSON.stringify(made)); await p.close(); continue; }
+      const [claimed, other, twoForms] = made.posts;
       const at = new Date(Date.now() - 3 * 3600 * 1000).toISOString();   // claimed three hours ago
-      fs.appendFileSync(LOG, JSON.stringify({ kind: 'reaction', project: made.id, of: claimed, emoji: HAND, op: 'add', from: made.member, at }) + '\n');
+      fs.appendFileSync(LOG, JSON.stringify({ kind: 'reaction', project: made.id, of: claimed, emoji: HAND, op: 'add', claim: true, from: made.member, at }) + '\n');
       fs.appendFileSync(LOG, JSON.stringify({ kind: 'reaction', project: made.id, of: other, emoji: THUMB, op: 'add', from: made.member, at }) + '\n');
+      // Two raised-hand pills on one post: an older skin-toned 🙋 from an agent no longer here, then the holder's claim.
+      fs.appendFileSync(LOG, JSON.stringify({ kind: 'reaction', project: made.id, of: twoForms, emoji: HAND + '\u{1F3FD}', op: 'add', from: 'gone-agent', at }) + '\n');
+      fs.appendFileSync(LOG, JSON.stringify({ kind: 'reaction', project: made.id, of: twoForms, emoji: HAND, op: 'add', claim: true, from: made.member, at }) + '\n');
 
       await p.click('[data-tab="projects"]');
       await p.locator('#pj-list').getByText(pjName, { exact: true }).first().click();
@@ -115,6 +118,10 @@ const check = (cond, n, why) => (cond ? ok(n) : bad(n, why));
       check(c1.claimPill && /^Claimed by .+, 3 hours ago/.test(String(c1.title)), t + ' the claimed post\'s 🙋 pill is labelled as a claim, with its age', JSON.stringify(c1));
       check(/Claimed by .+, 3 hours ago/.test(String(c1.aria)), t + ' and its accessible name says so', JSON.stringify(c1));
       check(c1.free && c1.freeShown && c1.freeBy === made.member && c1.freeText === 'Free for another agent', t + ' Free for another agent sits beside it, naming the holder', JSON.stringify(c1));
+      const two = await box(twoForms).evaluate((b) => ({ pills: [...b.querySelectorAll('.rxn')].map((x) => x.getAttribute('data-emoji') + (x.classList.contains('rxn-claim') ? ':claim' : '')),
+        frees: b.querySelectorAll('.rxn-free').length })).catch((e) => ({ error: String(e) }));
+      check(Array.isArray(two.pills) && two.pills.length === 2 && two.pills[1] === HAND + ':claim' && !String(two.pills[0]).endsWith(':claim') && two.frees === 1,
+        t + ' with two raised-hand pills, the claim is drawn on the one the holder is on, with one Free', JSON.stringify(two));
       const o1 = await read(other);
       check(o1.pills === 1 && !o1.free && !o1.claimPill && !/Claimed/.test(String(o1.title)),
         t + ' CONTROL: the same agent\'s 👍 on the other post has no claim label and no Free', JSON.stringify(o1));
@@ -172,7 +179,7 @@ const check = (cond, n, why) => (cond ? ok(n) : bad(n, why));
       check(/^Freed\. .+ no longer holds this post, and another agent can claim it\.$/.test(String(said)), t + ' the room\'s live region says it was freed', String(said));
       check(await focusIn(claimed) === '#pj-post', t + ' with the row empty, focus goes to the room\'s composer, not the page', String(await focusIn(claimed)));
       const text = await p.evaluate(async (id) => (await fetch('/api/project/' + id + '/room?as=text')).text(), made.id);
-      check(text.includes('The person freed the claim ' + made.member + ' held on [' + claimed + ']') && !/is claimed by/.test(text),
+      check(text.includes('The person freed the claim ' + made.member + ' held on [' + claimed + ']') && !text.includes('[' + claimed + '] is claimed by'),
         t + ' the agents\' room view prints the note and no claim line', text.slice(-600));
       const o2 = await read(other);
       check(o2.pills === 1 && !o2.free, t + ' the other post\'s 👍 is untouched', JSON.stringify(o2));

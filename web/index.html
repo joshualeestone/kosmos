@@ -72825,7 +72825,7 @@ function pjRxnTap(e) {
   if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   if (!e.target || !e.target.closest) return;
   const room = e.currentTarget;
-  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-ref, .rxn-copy')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
+  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-ref, .rxn-copy, .rxn-free')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) {
     // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar
     // (in the other thread too: pjRxnClose closes both, as the outside-tap closer already would).
@@ -73927,7 +73927,8 @@ window.addEventListener('scroll', () => msgMenuClose(false), true);   // never t
 window.addEventListener('resize', () => msgMenuClose(false));
 /* #6949: the room post's 🙋 claim ({by, at}, from the room read or a room route's answer) as the page shows it: the
    holder's name and how long ago, or null when there is no claim. Only a room post has one; a DM never passes it. */
-/* The age is worded by askAgo, the page's own ("yesterday"), not the engine's claimAge, which words it for agents. */
+/* The age is worded by askAgo, the page's own ("yesterday"), not the engine's claimAge, which words it for agents. It
+   is the age when the row was drawn; the room's next repaint of the row brings it up to date. */
 function rxnClaimShown(claim) {
   if (!claim || typeof claim.by !== 'string' || !claim.by) return null;
   const name = typeof tskAgentName === 'function' ? tskAgentName(claim.by) : claim.by;
@@ -73940,8 +73941,12 @@ function rxnClaimShown(claim) {
 const RXN_CLAIM_FORM = /^\u{1F64B}[\u{1F3FB}-\u{1F3FF}\u200D\u2640\u2642\uFE0E\uFE0F]*$/u;
 function rxnsInner(list, withReply, withSpeak, mid, claim) {
   const held = typeof rxnClaimShown === 'function' ? rxnClaimShown(claim) : null;   // guarded: tests lift rxnsInner alone
-  let claimDrawn = false;   // one claim label and one Free per post, on the first raised-hand pill
-  const pills = (Array.isArray(list) ? list : []).map((r) => {
+  /* One claim label and one Free per post, on the raised-hand pill the holder is on (another 🙋 form can sit beside
+     it: one from before the engine stored them plain, or a removed agent's), else on the first raised-hand pill. */
+  const rows = Array.isArray(list) ? list : [];
+  const claimPill = !held ? null : (rows.find((r) => r && RXN_CLAIM_FORM.test(String(r.emoji || '')) && Array.isArray(r.who) && r.who.includes(held.by))
+    || rows.find((r) => r && RXN_CLAIM_FORM.test(String(r.emoji || ''))) || null);
+  const pills = rows.map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
     if (!e) return '';
     /* #4423: the server lists reactors by SESSION name (and "you"); named here by their current card, the one
@@ -73950,8 +73955,7 @@ function rxnsInner(list, withReply, withSpeak, mid, claim) {
       ? r.who.map((w) => (w === 'you' || typeof tskAgentName !== 'function') ? w : tskAgentName(w)).join(', ') : '';
     /* #6949: the 🙋 pill on a claimed post is a claim, not only a reaction: its name says who holds it and since when,
        and beside it the person can free the post for another agent. Pressing the pill itself still agrees (#6946). */
-    const isClaim = !!held && !claimDrawn && RXN_CLAIM_FORM.test(e);
-    if (isClaim) claimDrawn = true;
+    const isClaim = !!claimPill && r === claimPill;
     const title = isClaim ? held.label + (who ? ' (' + who + ')' : '') : who;
     return '<button class="rxn' + (r.mine ? ' mine' : '') + (isClaim ? ' rxn-claim' : '') + '" type="button" data-emoji="' + esc(e) + '"'
       + ' aria-pressed="' + (r.mine ? 'true' : 'false') + '" title="' + esc(title) + '"'
