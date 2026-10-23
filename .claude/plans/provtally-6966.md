@@ -22,7 +22,7 @@ the point.
    `docs/browser-checks/render-grid-card-width.js`: clipping measured across and down, asserts two lines, control
    also undoes the clamp.
 5. `web.provider-tally-6966.test.js`: member rows from the real producer (tied rows carry their provider, an untied
-   one null; control: fails with the engine line removed), and the tally's order, merging and words.
+   one null; checked by hand to fail with the engine line removed), and the tally's order, merging and words.
 
 ## Decided
 

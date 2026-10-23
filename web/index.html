@@ -4220,6 +4220,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    baseline, so the count stays on the first line however many lines the title takes. */
 .pj-list.asgrid .pj-row .pjname b { min-width: 0; overflow: hidden; overflow-wrap: anywhere;
                                     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.pj-list.asgrid .pj-row .pjname .pj-unread { align-self: baseline; }   /* its own align-self: center would win over the row's */
 /* The same bubble recipe .astate draws on the agents grid, scoped here
    rather than sharing the class -- .astate carries a six-state agent
    vocabulary (working/attn/idle/paused/stopped/unknown) that does not
