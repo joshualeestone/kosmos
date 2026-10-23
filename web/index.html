@@ -51335,6 +51335,7 @@ function placeAppSettings(consolidated) {
 function takeOverDisplayColumn() {
   const projects = document.getElementById('panel-projects');
   if (!projects) return;
+  pjOpensDone();   // #6910: the person has chosen what the column shows
   projects.hidden = false;
   for (const v of ['one', 'add', 'settings', 'task', 'docs']) {
     const el = document.getElementById('pj-' + v + '-view');
@@ -64709,6 +64710,11 @@ function ringNewAgentMessages(agents) {
    Back to the list is not immediately shoved back into a project on the
    next poll. */
 let PJ_AUTO_OPENED_ONCE = false;
+/* #6910: a view the person opens (Settings, Agents, Tasks, New Agent, the Projects page, the New project form)
+   ends both of loadProjects' arrival opens, the #867 auto-open and the ?project= deep link. On a slow load the
+   first read can land after that click, and either open would then replace their choice, or (if they had already
+   closed it) shove them back into a project, which the one-shot above exists to prevent. */
+function pjOpensDone() { PJ_AUTO_OPENED_ONCE = true; WANT_PROJECT_DONE = true; }
 let PJ_AGENTS_UNREADABLE = false;
 // ⚠️ Whether the LAST projects read succeeded. PROJECTS is deliberately never
 // emptied on failure (see loadProjects), so the array alone cannot say "we
@@ -78438,6 +78444,7 @@ function pjPaintCreateParentSelect() {
 }
 
 function openAddProject() {
+  pjOpensDone();   // #6910: as for a view that takes the column
   PJ_PICKED = null;
   PJ_HERE = null;
   PJ_ADD_AGENTS = [];

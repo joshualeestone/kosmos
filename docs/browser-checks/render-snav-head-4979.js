@@ -296,6 +296,20 @@ function chk(ok, label, extra) {
           const errs = [];
           page.on('pageerror', (e) => { if (!/due to access control checks/.test(e.message)) errs.push(e.message); });   // as above
           const tag = `${engineName} consolidated view ${width}px mac`;
+          /* #6910: the page's projects reads are held until Settings has been clicked. On a slow runner they landed
+             after the click, and the first one's one-time auto-open (#867) took the display column back, hiding
+             Settings. Holding them makes that order certain on every run, instead of on a slow one only. The page
+             makes several reads at load, so every read waits, not only the first. Released 30 s after the click regardless. */
+          let releaseProjects, heldTimer;
+          const projectsHeld = new Promise((r) => { releaseProjects = () => { clearTimeout(heldTimer); r(); }; });
+          // The read is fetch('/api/projects'), no query. A read this pattern missed would land before the click, and
+          // the first control line below would then fail, so the arm cannot pass on an untested order.
+          await page.route(/\/api\/projects$/, async (r) => {
+            try {
+              if (r.request().method() === 'GET') await projectsHeld;
+              await r.continue();
+            } catch { await r.abort().catch(() => {}); }
+          });
           await page.goto(URL + '/?tab=projects');
           await page.waitForSelector('#userpop-settings', { state: 'attached', timeout: 20000 });
           /* #5018: the Settings link opens in place only once the layout is applied (userpopSettingsGo keys on
@@ -303,7 +317,10 @@ function chk(ok, label, extra) {
              never showed. Wait for the same class the handler reads, so the click always means the consolidated one. */
           await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 20000 })
             .catch((e) => { throw new Error(`${tag}: the page never became consolidated: ${e.message}`); });
+          const readBeforeClick = await page.evaluate(() => PJ_LOADED_ONCE);
+          chk(readBeforeClick === false, `${tag}: control: no projects read had landed when Settings was clicked (the late-read order)`, JSON.stringify({ readBeforeClick }));
           await page.evaluate(() => document.getElementById('userpop-settings').click());
+          heldTimer = setTimeout(releaseProjects, 30000);   // the fallback runs from the click, so a slow boot cannot spend it
           /* #6910: a timeout here said only "hidden", which cannot tell a Settings that never opened from one that opened
              and was hidden again, or from a nav that is there but has no size. Say which, with the state that decides it.
              Settings is read twice, 300 ms after the click and at the timeout, since one late read shows the same for the
@@ -311,6 +328,18 @@ function chk(ok, label, extra) {
           const settingsEarly = page.waitForTimeout(300)
             .then(() => page.evaluate(() => { const ps = document.getElementById('panel-settings'); return ps ? ps.hidden : 'no #panel-settings'; }))
             .catch((x) => 'not read: ' + String(x.message).slice(0, 60));
+          // Released only after the early sample, so it shows whether Settings opened before any read could land.
+          chk((await settingsEarly) === false, `${tag}: control: Settings opened before the held projects read was let through`, JSON.stringify({ settingsHiddenAt300ms: await settingsEarly }));
+          releaseProjects();
+          await page.waitForFunction(() => PJ_LOADED_ONCE === true, null, { timeout: 20000 })
+            .catch((e) => { throw new Error(`${tag}: the first projects read never landed: ${e.message}`); });
+          await page.waitForTimeout(300);   // the read's own paint, auto-open included, has run
+          /* The late read had a project to open (so the arm tests something), and none took the column. */
+          const late = await page.evaluate(() => ({ active: PROJECTS.some((x) => !x.archived), want: WANT_PROJECT || null,
+            layout: document.documentElement.getAttribute('data-layout'), cur: PJ_CURRENT,
+            oneShown: !document.getElementById('pj-one-view').hidden }));
+          chk(late.active && late.want === null && late.layout === 'consolidated', `${tag}: control: the late read had an active project the arrival auto-open could open`, JSON.stringify(late));
+          chk(late.cur === null && !late.oneShown, `${tag}: the late read did not open a project over Settings (#6910)`, JSON.stringify(late));
           await page.waitForSelector('#s-nav button[data-go="mac"]', { state: 'visible', timeout: 20000 })
             .catch(async (e) => {
               const snap = page.evaluate(() => {
