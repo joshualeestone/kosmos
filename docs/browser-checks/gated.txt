@@ -235,6 +235,7 @@ render-room-msgbox-2806
 render-room-reply-3745
 render-room-scroll
 render-room-send-shows-now-6168
+render-roomfree-6949
 render-runrollup-5643
 render-settings-agy-3874
 render-settings-fit-5510

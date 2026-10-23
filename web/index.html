@@ -7385,6 +7385,13 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .rxn .rxn-n { color: var(--k-ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
 .rxn.mine { border-color: var(--gold-deep, #b8860b); background: rgba(214,166,46,.14); }
 .rxn.mine .rxn-n { color: var(--k-ink); }
+/* #6949: Free for another agent, beside a claimed post's 🙋 pill. Drawn like Reply (a quiet outlined pill), always
+   visible rather than in the hover bar, because the claim it acts on is always shown. */
+.rxn-free { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2);
+            border-radius: 999px; padding: 1px 10px; cursor: pointer; min-height: 24px; }   /* WCAG 2.5.8 target size */
+.rxn-free:hover, .rxn-free:focus-visible { color: var(--k-ink); border-color: var(--k-ink-2); }
+.rxn-free:disabled { opacity: .6; cursor: default; }
+.rxn-claim-age { font-size: .75rem; color: var(--k-ink-2); }
 /* #2806 (Josh): the always-visible "+" is gone. The reaction affordance -- the three
    quick defaults plus the grey-smiley opener, then Reply last (#4358) -- lives in `.rxn-quick` and is hidden
    until the message is hovered OR the row takes keyboard focus, then fades in (the
@@ -7570,6 +7577,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
   #pj-room .rxn { min-height: var(--room-tap); padding: 2px 10px; }
+  #pj-room .rxn-free { min-height: var(--room-tap); }   /* #6949: as big as the claimed pill beside it, which agrees instead */
   /* #718 mobile: the agent DM's reactions (#3650) are the room's pills and bar, so on a touchscreen
      they open the same way: a tap on the agent's message (the room's tap handler serves both threads),
      never sticky hover. The rules above, for #d-dmthread. Only the agent's rows carry reactions there,
@@ -72307,8 +72315,52 @@ async function rxnToggle(forProject, box, emoji) {
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ emoji }) });
     if (PJ_CURRENT !== forProject || !res.ok) return;
     const body = await res.json();
-    repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : []);
+    repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : [], body.claim);
   } catch { /* a failed toggle leaves the row; the next poll reconciles */ }
+}
+/* #6949: Free for another agent, beside a claimed post's 🙋 pill. It frees the claim of the agent the pill names (the
+   route refuses if the claim changed hands since), repaints the one row from the answer, and says what happened: in
+   the room's live region on success, in a toast when it was refused or could not be sent. */
+async function rxnFreeClaim(forProject, box, btn) {
+  const postId = box && box.getAttribute('data-post');
+  const by = btn && btn.getAttribute('data-claim-by');
+  if (!postId || !by) return;
+  const hadFocus = document.activeElement === btn;   // WebKit does not focus a clicked button: then focus stays put
+  btn.disabled = true;
+  let res = null;
+  let body = null;
+  try {
+    res = await fetch('/api/project/' + encodeURIComponent(forProject) + '/room/' + encodeURIComponent(postId) + '/free-claim',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ by }) });
+    body = await res.json().catch(() => null);
+  } catch { res = null; }
+  if (PJ_CURRENT !== forProject) return;   // the next read of that room draws what happened there
+  /* A room poll may have repainted the room while this waited: act on the row as it is on screen now. */
+  let live = null;
+  document.querySelectorAll('#pj-room .rxns').forEach((r) => { if (r.getAttribute('data-post') === postId) live = r; });
+  box = live;
+  const nameOf = (s) => (typeof tskAgentName === 'function' ? tskAgentName(s) : s);
+  const now = body && body.claim && typeof body.claim.by === 'string' && body.claim.by ? nameOf(body.claim.by) : '';
+  /* The repaint replaces a focused button, so focus moves to what is left in the row (the claim's Free, a pill), or to
+     the room's composer, without scrolling to it, when the row is empty. */
+  const refocus = () => {
+    if (!hadFocus || !box) return;
+    const to = box.querySelector('.rxn-free') || box.querySelector('.rxn') || document.getElementById('pj-post');
+    if (to) to.focus({ preventScroll: true });
+  };
+  if (res && res.ok && body && body.ok) {
+    if (box) repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : [], body.claim);
+    refocus();
+    pjRoomAnnounce(body.op !== 'freed' ? 'Nobody holds this post now, so there was nothing to free.'
+      : 'Freed. ' + nameOf(by) + ' no longer holds this post' + (now ? ', and ' + now + ' holds it now.' : ', and another agent can claim it.'));
+    return;
+  }
+  if (box && body && Array.isArray(body.reactions)) { repaintReactions(box, body.reactions, body.claim); refocus(); }
+  else btn.disabled = false;
+  // A claim that changed hands is said with the names the page uses; any other refusal in the board's own words.
+  msgToast(body && body.claimedBy ? 'We could not free that post: ' + nameOf(by) + ' no longer holds it'
+    + (now ? ', ' + now + ' does.' : '.') : body && (body.because || body.error) ? 'We could not free that post: ' + (body.because || body.error) + '.'
+    : 'We could not free that post. Check that Kosmos is still running, then try again.', 9000);
 }
 
 /* #2255 reactions, hover-restyled in #2806. A SECOND delegated handler on #pj-room
@@ -72405,6 +72457,8 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   }
   if (e.target.closest('.rxn-ref')) { rxnCloseAllPickers(); msgRefCopy(box.closest('.msg')); return; }   // #4631
   if (e.target.closest('.rxn-copy')) { rxnCloseAllPickers(); msgCopyPressed(e.target.closest('.rxn-copy'), box.closest('.msg')); return; }   // #5312
+  const free = e.target.closest('.rxn-free');   // #6949: before the pill test, so freeing never toggles a reaction
+  if (free) { rxnCloseAllPickers(); if (PJ_CURRENT && !free.disabled) await rxnFreeClaim(PJ_CURRENT, box, free); return; }
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn || !PJ_CURRENT) return;
   await rxnToggle(PJ_CURRENT, box, btn.getAttribute('data-emoji'));
@@ -72779,7 +72833,7 @@ function pjRxnTap(e) {
   if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   if (!e.target || !e.target.closest) return;
   const room = e.currentTarget;
-  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-ref, .rxn-copy')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
+  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-ref, .rxn-copy, .rxn-free')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) {
     // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar
     // (in the other thread too: pjRxnClose closes both, as the outside-tap closer already would).
@@ -73879,18 +73933,52 @@ document.addEventListener('click', (e) => {
 });
 window.addEventListener('scroll', () => msgMenuClose(false), true);   // never the event as restoreFocus
 window.addEventListener('resize', () => msgMenuClose(false));
-function rxnsInner(list, withReply, withSpeak, mid) {
-  const pills = (Array.isArray(list) ? list : []).map((r) => {
+/* #6949: the room post's 🙋 claim ({by, at}, from the room read or a room route's answer) as the page shows it: the
+   holder's name and how long ago, or null when there is no claim. Only a room post has one; a DM never passes it.
+ */
+function rxnClaimShown(claim) {
+  if (!claim || typeof claim.by !== 'string' || !claim.by) return null;
+  const name = typeof tskAgentName === 'function' ? tskAgentName(claim.by) : claim.by;
+  const at = typeof claim.at === 'string' && Number.isFinite(Date.parse(claim.at)) ? claim.at : '';
+  return { by: claim.by, name, at, label: 'Claimed by ' + name };
+}
+/* The visible age beside a claim, "claimed 3 hours ago". Text only, never in an attribute: threadShape blanks this
+   span's text, so the age ticking over neither rebuilds the room nor loses its focus (#3966), and refreshWhens
+   brings it up to date in place, as it does a standing question's age (#5943). */
+function rxnClaimAgeWords(at) {
+  const age = typeof agoWords === 'function' ? agoWords(Date.now() - Date.parse(at)) : '';
+  return age ? 'claimed ' + age : '';
+}
+/* Every raised hand a pill can show (a skin tone, the gendered forms), the engine's isClaimEmoji: a holder whose only
+   live 🙋 is a row from before the engine stored them plain still shows as the claim. */
+const RXN_CLAIM_FORM = /^\u{1F64B}[\u{1F3FB}-\u{1F3FF}\u200D\u2640\u2642\uFE0E\uFE0F]*$/u;
+function rxnsInner(list, withReply, withSpeak, mid, claim) {
+  const held = typeof rxnClaimShown === 'function' ? rxnClaimShown(claim) : null;   // guarded: tests lift rxnsInner alone
+  /* One claim label and one Free per post, on the raised-hand pill the holder is on (another 🙋 form can sit beside
+     it: one from before the engine stored them plain, or a removed agent's), else on the first raised-hand pill. */
+  const rows = Array.isArray(list) ? list : [];
+  const claimPill = !held ? null : (rows.find((r) => r && RXN_CLAIM_FORM.test(String(r.emoji || '')) && Array.isArray(r.who) && r.who.includes(held.by))
+    || rows.find((r) => r && RXN_CLAIM_FORM.test(String(r.emoji || ''))) || null);
+  const pills = rows.map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
     if (!e) return '';
     /* #4423: the server lists reactors by SESSION name (and "you"); named here by their current card, the one
        derivation dmWho and pjNameOf use, and by the id only when there is no card. Guarded like dmWho's call. */
     const who = Array.isArray(r.who)
       ? r.who.map((w) => (w === 'you' || typeof tskAgentName !== 'function') ? w : tskAgentName(w)).join(', ') : '';
-    return '<button class="rxn' + (r.mine ? ' mine' : '') + '" type="button" data-emoji="' + esc(e) + '"'
-      + ' aria-pressed="' + (r.mine ? 'true' : 'false') + '" title="' + esc(who) + '">'
+    /* #6949: the 🙋 pill on a claimed post is a claim, not only a reaction: its name says who holds it and since when,
+       and beside it the person can free the post for another agent. Pressing the pill itself still agrees (#6946). */
+    const isClaim = !!claimPill && r === claimPill;
+    const title = isClaim ? held.label + (who && who !== held.name ? ' (' + who + ')' : '') : who;
+    return '<button class="rxn' + (r.mine ? ' mine' : '') + (isClaim ? ' rxn-claim' : '') + '" type="button" data-emoji="' + esc(e) + '"'
+      + ' aria-pressed="' + (r.mine ? 'true' : 'false') + '" title="' + esc(title) + '"'
+      + (isClaim ? ' aria-label="' + esc('\u{1F64B} ' + (Number(r.count) || 0) + '. ' + held.label + (who && who !== held.name ? '; ' + who : '')) + '"' : '') + '>'
       + '<span class="rxn-e" aria-hidden="true">' + esc(e) + '</span>'
-      + '<span class="rxn-n">' + esc(String(Number(r.count) || 0)) + '</span></button>';
+      + '<span class="rxn-n">' + esc(String(Number(r.count) || 0)) + '</span></button>'
+      + (isClaim && held.at ? '<span class="rxn-claim-age" data-at="' + esc(held.at) + '">' + esc(rxnClaimAgeWords(held.at)) + '</span>' : '')
+      + (isClaim ? '<button class="rxn-free" type="button" data-claim-by="' + esc(held.by) + '"'
+        + ' aria-label="' + esc('Free for another agent. ' + held.label) + '" title="' + esc(held.label) + '">'
+        + 'Free for another agent</button>' : '');
   }).join('');
   /* The three quick defaults, revealed on message hover (see the `.rxn-quick` CSS).
      They react through the SAME `.rxn-pick` path as the full picker. */
@@ -73926,16 +74014,16 @@ function pjReactions(m) {
   const id = String(m && m.id ? m.id : '');
   if (!id) return '';
   const agent = !!m && m.operator !== true;   // #4409: an agent's post can be read aloud; the person's own cannot
-  return '<div class="rxns" data-post="' + esc(id) + '"' + (agent ? ' data-speak' : '') + '>' + rxnsInner(m && m.reactions, true, agent, id) + '</div>';
+  return '<div class="rxns" data-post="' + esc(id) + '"' + (agent ? ' data-speak' : '') + '>' + rxnsInner(m && m.reactions, true, agent, id, m && m.claim) + '</div>';
 }
 /* Repaint one post's reaction row in place from a fresh list (the react route's
    response), so a toggle updates its own row without a full room re-fetch. */
-function repaintReactions(box, list) {
+function repaintReactions(box, list, claim) {   // #6949: `claim`, a room post's, from the route's answer
   /* #4631: the id the bar shows is the row's own (data-mid), as the first paint took it: a DM box is keyed by its
      time (data-at), so reading data-post alone dropped a DM message's number on the first reaction. */
   const row = box && box.closest ? box.closest('.msg') : null;
   if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post') || box.hasAttribute('data-at'), box.hasAttribute('data-speak'),   // #4409: and its read-aloud
-    (row && row.getAttribute('data-mid')) || box.getAttribute('data-post') || '');   // a room row and a DM row (#4256) keep their Reply
+    (row && row.getAttribute('data-mid')) || box.getAttribute('data-post') || '', claim);   // a room row and a DM row (#4256) keep their Reply
 }
 
 /* ===== #4409: voice. Talk to an agent (the mic in each composer) and hear an agent (read aloud). =====
@@ -76653,6 +76741,7 @@ function threadShape(html) {
   return String(html)
     .replace(/(<span class="mwhen" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')
     .replace(/(<span class="dmq-age" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')   // #5943
+    .replace(/(<span class="rxn-claim-age" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')   // #6949
     .replace(/<svg class="lring"[\s\S]*?<\/svg>/g, (ring) => ring.replace(/stroke-dasharray="[^"]*"/g, 'stroke-dasharray=""'));
 }
 /** #3991: bring every memory ring arc under `root` to the one in `html`, pairing each ring with the
@@ -76693,6 +76782,11 @@ function refreshWhens(root) {
   for (const el of root.querySelectorAll('.dmq-age[data-at]')) {
     const age = agoWords(Date.now() - Date.parse(el.getAttribute('data-at')));
     const said = age ? 'Asked ' + age : '';
+    if (said && el.textContent !== said) el.textContent = said;
+  }
+  // #6949: a room post's claim age, likewise.
+  for (const el of root.querySelectorAll('.rxn-claim-age[data-at]')) {
+    const said = typeof rxnClaimAgeWords === 'function' ? rxnClaimAgeWords(el.getAttribute('data-at')) : '';   // guarded: tests lift refreshWhens alone
     if (said && el.textContent !== said) el.textContent = said;
   }
 }

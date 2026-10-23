@@ -493,6 +493,7 @@ const SITE_COUNTS = {
   'render-room-reply-3745.js': [2, 1],
   'render-room-scroll.js': [1, 0],
   'render-room-send-shows-now-6168.js': [1, 1],
+  'render-roomfree-6949.js': [1, 0],
   'render-settings-403-2047.js': [1, 1],
   'render-settings-agy-3874.js': [3, 2],
   'render-settings-fit-5510.js': [2, 1],
