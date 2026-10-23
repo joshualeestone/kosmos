@@ -30,8 +30,9 @@ never ran). None of these three messages can be shown in that case:
   path (install, update, hand-off) starts the installed copy, which runs the same Main.
 So whenever one of these is on screen, the Start menu shortcut has just been written for the copy that is running.
 
-Rejected: keeping a "or Kosmos.exe in the extracted folder" fallback. It would point people back at a folder the READ
-ME tells them they can delete, for a case that cannot reach these messages.
+Rejected: keeping a "or Kosmos.exe in the extracted folder" fallback. It would point people back at the extracted folder,
+which the READ ME never sends them back to after the install (it says the zip can be deleted), for a case that
+cannot reach these messages.
 
 Weakest part: RefreshStartMenuShortcut can fail silently at a desktop (no box by design). Then the Start menu has no
 Kosmos entry and the message points at nothing. That is rare (IShellLink in the per-user Programs folder), and it is
