@@ -15,7 +15,8 @@
 # given address instead of Kosmos+ (check-no-shots-flag.sh).
 #
 # And (kosmos#6487) it checks the notification extension inside the app is signed as <bundle>.notice by the same team,
-# is not a development build, and shares the app's keychain group.
+# is not a development build, and shares the app's keychain group. When the extension asks for message-style notices
+# (KosmosMessageStyle), the app must hold Communication Notifications.
 #
 # Usage: ios/tools/check-ipa-entitlements.sh <Kosmos.ipa | Kosmos.app> [TEAM_ID] [BUNDLE_ID]
 # Ends with one VERDICT line; no verdict line means the check did not finish.

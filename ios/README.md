@@ -181,7 +181,7 @@ shows as it came.
   `Kosmos.entitlements` carries `com.apple.developer.usernotifications.communication` and `KosmosNotice-Info.plist`
   sets `KosmosMessageStyle` to true: a notice shows as a message from the agent, picture and name, as a chat app's do.
   Set `KosmosMessageStyle` to false and the picture rides as the notice's attachment instead. Any capability change
-  on the App ID invalidates the "Kosmos App Store" profile: make a fresh one. `check-ipa-entitlements.sh` refuses a
+  on the App ID invalidates every profile for it ("Kosmos App Store" included): make fresh ones. `check-ipa-entitlements.sh` refuses a
   store build whose extension asks for the message style while the app lacks the entitlement.
 - The UIKit-free part (`KosmosNotice/NoticeLogic.swift`) runs in `LogicTests/run.sh`;
   `tools/check-ipa-entitlements.sh` checks the extension in a store build.

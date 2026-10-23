@@ -21,6 +21,8 @@ ios/README.md named the one change to make once that was true.
 Outside the repo (done, not in the diff): the capability change invalidated the "Kosmos App Store" profile
 (96XK73W6X5, INVALID). Deleted it and made a fresh one with the same name (6AH9823R7P, ACTIVE, carries the
 communication entitlement), installed on this Mac; the invalid copy is set aside, not deleted from disk.
+The team's profile list (App Store Connect API, 2026-10-22 22:36) held no other profile for io.kosmos.app, so there
+was no development or ad hoc profile to remake.
 
 ## Decided
 
