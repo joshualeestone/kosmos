@@ -29,7 +29,7 @@ const SHIM_DIR = path.join(SCRATCH, 'bin');
 fs.mkdirSync(SHIM_DIR);
 fs.writeFileSync(path.join(SHIM_DIR, 'curl'), [
   '#!/bin/sh',
-  'for a in "$@"; do case "$a" in http://*) printf \'%s\\n\' "$a" >> "$KOSMOS_TEST_CURL_LOG" ;; esac; done',
+  'for a in "$@"; do case "$a" in http://*) printf \'%s\\n\' "$a" >> "$KOSMOS_TEST_CURL_LOG"; [ -n "$KOSMOS_TEST_CURL_REFUSE" ] && exit 7 ;; esac; done',
   'exec /usr/bin/curl "$@"',
   '',
 ].join('\n'), { mode: 0o755 });
@@ -148,16 +148,38 @@ test('#6968: a board that refuses the request once and then accepts: `task list`
   assertNoLeftovers(env);
 }));
 
-test('#6968 CONTROL: a board that never takes the connection again: the passing-problem words, never "is it running?"', () => withRefusingBoard(null, async (port, seen) => {
+test('#6968 CONTROL: a board that stopped listening and never came back: "nothing is listening", never "is it running?" or "start it"', () => withRefusingBoard(null, async (port, seen) => {
   const env = baseEnv(port);
   const out = await runCli(['task', 'list', 'proj'], env);
   assert.equal(out.code, 1, out.stdout + out.stderr);
-  assert.match(out.stdout, /Kosmos did not take the connection, so we did not list tasks and nothing was sent\. This is usually a passing connection problem \(Kosmos busy for a moment, or restarting\): try again in a moment\. It does not need a restart/);
-  assert.doesNotMatch(out.stdout, /Is it running|kosmos start/);
+  assert.match(out.stdout, /Kosmos did not take the connection and nothing is listening at http:\/\/127\.0\.0\.1:\d+ right now, so we did not list tasks and nothing was sent\. If Kosmos is restarting, try again in a moment; kosmos status says whether it is running\./);
+  assert.doesNotMatch(out.stdout, /Is it running|kosmos start|passing connection problem/);
   assert.equal(seen.length, 0);
   assert.equal(tries(env, /\/api\/tasks/), 2, 'the words come after a second try, not after one');
   assertNoLeftovers(env);
 }));
+
+test('#6968 CONTROL: a board still listening that refuses every try (too busy): the passing-problem words', async () => {
+  // The counting curl answers 7 for the request without connecting, and this board never stops listening, so lsof
+  // sees its listener the whole time (a refusal from a full accept queue cannot be made on demand).
+  const seen = [];
+  const board = http.createServer((req, res) => {
+    if (!req.url.startsWith('/api/health')) seen.push(req.url);
+    res.writeHead(200, { 'content-type': 'application/json', connection: 'close' });
+    res.end('{"app":"kosmos","ok":true}');
+  });
+  const port = await new Promise((r) => board.listen(0, '127.0.0.1', () => r(board.address().port)));
+  try {
+    const env = baseEnv(port, { KOSMOS_TEST_CURL_REFUSE: '1' });
+    const out = await runCli(['task', 'list', 'proj'], env);
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos did not take the connection, so we did not list tasks and nothing was sent\. This is usually a passing connection problem \(Kosmos busy for a moment, or restarting\): try again in a moment\. It does not need a restart/);
+    assert.doesNotMatch(out.stdout, /Is it running|kosmos start|nothing is listening/);
+    assert.deepEqual(seen, []);
+    assert.equal(tries(env, /\/api\/tasks/), 2);
+    assertNoLeftovers(env);
+  } finally { await new Promise((r) => board.close(r)); }
+});
 
 test('#6968: a refused write whose body is on stdin (`msg`) sends the whole body on the retry', () => withRefusingBoard(600, async (port, seen) => {
   const env = baseEnv(port, { TMUX_PANE: '%42' });
@@ -230,15 +252,22 @@ test('#6968: msg\'s second ask after a cut reply is one plain try: a board that 
 test('#6968: an interrupt during the pause leaves none of kosmos_curl\'s files behind (the body is the agent\'s words)', () => withRefusingBoard(null, async (port) => {
   const env = baseEnv(port, { TMUX_PANE: '%42', KOSMOS_REFUSED_RETRY_MS: '5000' });
   // Its own process group, so the interrupt reaches the whole command, as Ctrl-C at a terminal does.
-  const child = spawn(CLI, ['msg', 'mara', 'private', 'words'], { env, detached: true, stdio: 'ignore' });
-  const exited = new Promise((r) => child.on('exit', r));
+  const child = spawn(CLI, ['msg', 'mara', 'private', 'words'], { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let said = '';
+  child.stdout.on('data', (d) => { said += d; });
+  child.stderr.on('data', (d) => { said += d; });
+  const exited = new Promise((r) => child.on('exit', (code, signal) => r({ code, signal })));
   const t0 = Date.now();
   while (tries(env, /\/api\/msg/) < 1 && Date.now() - t0 < 10000) await new Promise((r) => setTimeout(r, 50));
   assert.equal(tries(env, /\/api\/msg/), 1, 'the first try was made and refused');
   await new Promise((r) => setTimeout(r, 300));   // into the five-second pause
   process.kill(-child.pid, 'SIGINT');
-  await exited;
-  // The main shell dies of the interrupt at once; the subshell's trap removes the files a moment later.
+  const end = await exited;
+  // The command ends as an interrupted command does (the trap re-raises the signal): it never carries on to say
+  // "stopped before anything was sent", which a send the board may hold must not hear.
+  assert.equal(end.signal, 'SIGINT', JSON.stringify(end) + ' ' + said);
+  assert.doesNotMatch(said, /Stopped before anything was sent|nothing was sent/);
+  // The subshell's trap removes the files a moment after the main shell has died.
   const t1 = Date.now();
   while (fs.readdirSync(env.TMPDIR).some((f) => /^kosmos-(body|answer)\./.test(f)) && Date.now() - t1 < 3000) await new Promise((r) => setTimeout(r, 50));
   assertNoLeftovers(env);
@@ -252,6 +281,6 @@ test('#6968: every call of kosmos_curl that can buffer runs in a subshell, so it
     /\$\((_KOSMOS_CURL_ONCE=\S+ )?kosmos_curl "/.test(l)   // $(...)
     || /\|\s*(_KOSMOS_CURL_ONCE=\S+ )?kosmos_curl "/.test(l)   // a pipe
     || /_KOSMOS_CURL_ONCE=1 kosmos_curl "/.test(l)   // one plain try, no trap
-    || /&\s*$/.test(l)));   // a background job (connect)
+    || /[^&]&\s*$/.test(l)));   // a background job (connect), not a trailing &&
   assert.deepEqual(bad.map(({ n, l }) => n + ': ' + l.trim().slice(0, 100)), []);
 });
