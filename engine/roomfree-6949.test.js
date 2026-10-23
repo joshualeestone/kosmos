@@ -7,6 +7,7 @@
  * says it was freed. Its control: without the person's action, bob is refused naming ann.
  */
 
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#4273)
 const os = require('node:os');
 const path = require('node:path');
 // Sandbox BEFORE the engine require, as roomclaim-6946.test.js does (freeClaim() appends to the real log otherwise).

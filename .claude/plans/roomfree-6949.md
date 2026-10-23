@@ -6,7 +6,7 @@ onto main once #6946 merges, and the PR opens then.
 
 ## Decision
 - Engine `freeClaim({project, of, by, members})` beside `claimantsOf` in engine/messages.js. It frees the claim of the
-  holder the room shows (members filtered as `roomClaimOf` does), writing one remove row per 🙋 pill the holder has,
+  holder the room shows (members filtered by `claimMembers`, as the room read does), writing one remove row per 🙋 pill the holder has,
   marked as a claim or not (as react()'s dropPills does), with `from: <holder>, takenBy: 'you', because: 'freed'`, then
   an agents-only room note naming the post, the old holder, and the next holder if another live claimant has it. Already
   free is `op: 'none'` and writes nothing.

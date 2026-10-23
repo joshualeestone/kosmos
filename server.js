@@ -2690,14 +2690,14 @@ function communityValveRelease(agentId, at) {
 const COMMUNITY_HUMAN_VALVE_KEY = Symbol('community-human-valve');
 
 /* #6949: the 🙋 claim on one room post ({by, at} or null) for the person's react and free-claim routes, so their
-   one-row repaint labels the pill as the full room read does. The engine's roomClaimOf, from the stored record's
-   members, as the room read uses (it caches claimMembers across a read's posts). Read only when a 🙋 is among the
+   one-row repaint labels the pill as the full room read does: claimOf over claimMembers of the stored record's
+   members, the room read's own derivation (which caches claimMembers across a read's posts). Read only when a 🙋 is among the
    post's reactions. Best-effort: null on any failure, and the next room read draws it right. */
 function roomPostClaim(projectId, postId, reactions) {
   try {
     if (!Array.isArray(reactions) || !reactions.some((r) => r && messages.isClaimEmoji(r.emoji))) return null;
     const stored = projects.readAll().find((p) => p && p.id === projectId) || null;
-    return messages.roomClaimOf(postId, messages.record().rows, stored && stored.agents);
+    return messages.claimOf(postId, messages.record().rows, messages.claimMembers(stored && stored.agents));
   } catch { return null; }
 }
 
