@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: pj-records pj-records-h pj-records-rows pj-rec pj-rec-age pj-rec-stale pjLoadRecords
+// Browser-check-surface: pj-records pj-records-h pj-records-note pj-records-rows pj-rec pj-rec-row pj-rec-name pj-rec-status pj-rec-age pj-rec-src pj-rec-stale pjLoadRecords
 /* #6994: a project's records, under the Files list. Measured in the real page against the SHIPPED function
  * (pjLoadRecords), with /api/project/<id>/records stubbed, so no board is needed.
  *
@@ -50,11 +50,11 @@ const ROWS = [
       PJ_CURRENT = 'p1';
       await pjLoadRecords('p1');
       const box = document.getElementById('pj-records');
-      const trs = [...document.querySelectorAll('#pj-records-rows tr')];
+      const trs = [...document.querySelectorAll('#pj-records-rows li')];
       return {
         hidden: box.hidden,
         heading: document.getElementById('pj-records-h').textContent,
-        cells: trs.map((tr) => [...tr.children].map((td) => td.textContent)),
+        cells: trs.map((li) => ['.pj-rec-name', '.pj-rec-status', '.pj-rec-age', '.pj-rec-src'].map((s) => (li.querySelector(s) || {}).textContent || '')),
         stale: trs.map((tr) => tr.classList.contains('stale')),
         marks: trs.map((tr) => (tr.querySelector('.pj-rec-stale') || {}).textContent || null),
         links: trs.map((tr) => { const a = tr.querySelector('a'); return a ? a.getAttribute('href') : null; }),
@@ -68,9 +68,9 @@ const ROWS = [
     } else {
       ok(`${t} the records are shown`, r.hidden === false);
       ok(`${t} the heading names the rows, the count and the stale count`, r.heading === 'Accounts (3, 1 stale)', JSON.stringify(r.heading));
-      ok(`${t} one table row per record`, r.cells.length === 3, JSON.stringify(r.cells));
-      ok(`${t} a row reads name, status, confirmed date with its age and writer, source`,
-        JSON.stringify(r.cells[0]) === JSON.stringify(['Acme', 'active', '2026-10-23today, by mara', 'https://crm.example/acme']), JSON.stringify(r.cells[0]));
+      ok(`${t} one list item per record`, r.cells.length === 3, JSON.stringify(r.cells));
+      ok(`${t} a row reads name, status, the confirmed line with its age and writer, source`,
+        JSON.stringify(r.cells[0]) === JSON.stringify(['Acme', 'active', 'Confirmed 2026-10-23, today, by mara', 'https://crm.example/acme']), JSON.stringify(r.cells[0]));
       ok(`${t} a stale row is marked, in words`, r.stale[1] === true && r.marks[1] === 'stale', JSON.stringify([r.stale, r.marks]));
       ok(`${t} CONTROL: a fresh row carries no stale mark`, r.stale[0] === false && r.marks[0] === null, JSON.stringify([r.stale, r.marks]));
       ok(`${t} a row the person wrote says so`, /by you/.test(r.cells[1][2]), JSON.stringify(r.cells[1]));
@@ -105,7 +105,7 @@ const ROWS = [
         if (body === null) p.rej(new Error('offline'));
         else p.res(enc(body));
       };
-      window.__names = () => [...document.querySelectorAll('#pj-records-rows tr')].map((tr) => tr.children[0].textContent);
+      window.__names = () => [...document.querySelectorAll('#pj-records-rows li')].map((li) => li.querySelector('.pj-rec-name').textContent);
     });
     await page.goto(PAGE);
     const g = await page.evaluate(async () => {
@@ -128,11 +128,11 @@ const ROWS = [
       await older;
       out.afterOrder = window.__names();
       // An unchanged answer leaves the very same rows in place (no redraw); a failed read keeps them.
-      const row = document.querySelector('#pj-records-rows tr');
+      const row = document.querySelector('#pj-records-rows li');
       const same = pjLoadRecords('p1');
       window.__answer(3, window.__body(['Newer']));
       await same;
-      out.sameNode = document.querySelector('#pj-records-rows tr') === row;
+      out.sameNode = document.querySelector('#pj-records-rows li') === row;
       const failed = pjLoadRecords('p1');
       window.__answer(4, null);
       await failed; await tick();
