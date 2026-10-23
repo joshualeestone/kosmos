@@ -387,7 +387,7 @@ run_case "a lost DELETE, then 'nothing of' it while the files are still here: de
 run_case "a 200 the gate cannot read: its files are left and said (0)" 0 --kept --expect "could not read what it did" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=garbage200
 run_case "no route and nothing at this machine's paths: a warning to check LaunchAgents, not 'gone' (0)" 0 --expect "found no files at" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=noroute MOCK_NO_FILES=1
 run_case "a refusal, then lost answers: the refusal still holds, files left (0)" 0 --kept --expect "before that the board refused" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=runlost
-run_case "a deleted answer without toTrash claims neither Trash nor gone for good (0)" 0 --expect "cleared 'verify2129-claude-1" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=notrashfield
+run_case "a deleted answer without toTrash claims neither Trash nor gone for good (0)" 0 --expect "', and the name is free." MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=notrashfield
 run_case "a plan refusal that passes in a moment (a pane closing) is asked once more and clears (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=transient
 run_case "after a refusal, the board's typed words from the plan read again (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=transient MOCK_LEFTOVER_TYPED=1 MOCK_SHOWN=Gate-Display
 run_case "a plan that answers ok:false, then a DELETE that clears, is cleared (0)" 0 --expect "cleared 'verify2129-openai-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=refused
