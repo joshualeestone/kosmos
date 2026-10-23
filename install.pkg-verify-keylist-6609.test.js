@@ -89,6 +89,8 @@ function run(h, man, list) {
 }
 const on = () => build('on', { builtIn: BUILTIN, recovery: RECOVERY, minSeq: 3 });
 const off = () => build('off', { builtIn: BUILTIN });
+// ON with the floor at 1, so a list is refused only by the list check itself, never by the floor.
+const onAtOne = () => build('on1', { builtIn: BUILTIN, recovery: RECOVERY });
 
 test('#6609: ON, a release signed by a key the signed list names installs; the built-in key no longer opens it', { skip: SKIP }, () => {
   const h = on();
@@ -125,7 +127,7 @@ test('#6609: ON, no list, an unreadable one, or one below the floor refuses (97)
 });
 
 test('#6609: ON, every list the JS verifyKeyList refuses, the helper refuses; every one it takes, the helper takes', { skip: SKIP }, () => {
-  const h = on();
+  const h = onAtOne();
   const man = manifestBy(LISTED);
   const listed = spkiOf(LISTED.publicKey);
   const lenient = listed.slice(0, 58) + String.fromCharCode(listed.charCodeAt(58) ^ 1) + '=';   // same bytes or not a key
@@ -160,7 +162,6 @@ test('#6609: ON, every list the JS verifyKeyList refuses, the helper refuses; ev
   for (const [label, list] of cases) {
     const js = mv.verifyKeyList({ bytes: list.bytes, sig: list.sig, recoveryKeys: [spkiOf(RECOVERY.publicKey)] });
     const r = run(h, man, list);
-    // Every case here is at or above the floor (3), so the only difference left is the list check itself.
     assert.equal(r.status, js.ok ? 0 : 97, label + ': JS says ' + (js.ok ? 'ok' : js.why) + ', helper: ' + r.status + ' ' + r.stderr);
     if (!js.ok) { refused += 1; assert.equal(r.stdout, '', label + ': a refusal prints no pins'); }
   }
