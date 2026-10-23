@@ -11,7 +11,7 @@ from beside the manifest; a missing or bad list refuses as a bad signature does.
 changes, and the site serving no list changes nothing.
 
 ## Change
-- install/pkg-verify/main.swift: recoveryKeys (empty), minKeyListSeq, maxSeq, keyListType mirroring
+- install/pkg-verify/main.swift: (the list must be in the signing tool's exact form) recoveryKeys (empty), minKeyListSeq, maxSeq, keyListType mirroring
   engine/manifest-verify.js; ed25519Key (canonical spelling only, as the JS one); keyListKeys (verifyKeyList's checks
   plus the floor); two optional arguments, the list and its signature. On, the manifest is checked under the list's
   keys only. The built-in release keys are now also read through ed25519Key (they are canonical; the #6576 parity
@@ -32,9 +32,13 @@ changes, and the site serving no list changes nothing.
   then reopen a revoked key, the hole phase 1 rejected.
 
 ## Weakest premise
-That JSONSerialization reads a signed list the way JSON.parse does for every list the recovery key would sign. The
-test compares verdicts on 25 lists, not every input; duplicate keys inside the JSON object and a byte-order mark are
-not covered. The bytes are signed by the recovery key, so only a list Kosmos itself wrote reaches the parser.
+That the signing tool stays the only writer of lists. The helper takes a list only in the exact form
+tools/lib/release-keys-sign.js writes (JSON.stringify, two-space indent, fixed field order, trailing newline), so it
+never reads a list differently from the installed copies (a field named twice, a byte-order mark, another encoding
+are all refused); a test signs a list with the real tool and the helper takes it. If the tool's output form changes,
+that test goes red. The helper decodes signatures more strictly than the JS (no missing padding, no inner spaces):
+that can only refuse, never accept.
 
 ## Validation
-- install.pkg-verify-keylist-6609.test.js and install.pkg-verify-6576.test.js: 23/23 on macOS with swiftc.
+- install.pkg-verify-keylist-6609.test.js and install.pkg-verify-6576.test.js pass on macOS with swiftc.
+- Mutants measured red: built-in keys kept beside the list, the floor removed, the form check removed.

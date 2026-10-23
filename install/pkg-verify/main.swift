@@ -103,9 +103,8 @@ func keyListKeys(_ bytes: Data, _ sigText: String) -> [String] {
     guard keys.count == raw.count, Set(keys).count == keys.count, keys.allSatisfy({ ed25519Key($0) != nil }) else {
         refuse("the signed release key list holds a key that is not one")
     }
-    // A JSON true arrives as a number too; only a number that is a whole number in range is a seq.
-    guard let n = list["seq"] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(),
-          let seq = Int(exactly: n.doubleValue), seq >= 1, seq <= maxSeq else {
+    // A JSON true also arrives as a number (1); the form check below refuses it, as the list must then read "seq": 1.
+    guard let n = list["seq"] as? NSNumber, let seq = Int(exactly: n.doubleValue), seq >= 1, seq <= maxSeq else {
         refuse("the signed release key list has no sequence number")
     }
     guard !keys.contains(where: { recoveryKeys.contains($0) }) else {
