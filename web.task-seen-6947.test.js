@@ -37,11 +37,11 @@ function listenerSource() {
    does ('ok', 'empty' or 'fail'); `hold` delays it until release() so a test can change the page meanwhile. */
 function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', read = 'ok', hold = false, post = 200 } = {}) {
   const posts = []; const timers = [];
-  const st = { events: null, post };
+  const st = { events: null, post, onScreen, read };
   const acts = { innerHTML: '' };
   const doc = {
     visibilityState: visible,
-    getElementById: (id) => (id === 'tk-back' ? { getClientRects: () => (onScreen ? [{}] : []) } : id === 'tk-activity' ? acts : null),
+    getElementById: (id) => (id === 'tk-back' ? { getClientRects: () => (st.onScreen ? [{}] : []) } : id === 'tk-activity' ? acts : null),
     addEventListener: (type, fn) => { if (type === 'visibilitychange') doc.listener = fn; },
   };
   let release = () => {};
@@ -49,8 +49,8 @@ function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', re
   const fetch = async (url, opts) => {
     if (opts && opts.method === 'POST') { posts.push(url); if (st.post === 'lost') throw new Error('lost'); return { status: st.post }; }
     await gate;
-    if (read === 'fail') return { ok: false, json: async () => ({}) };
-    const events = st.events || (read === 'empty' ? [] : [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }]);
+    if (st.read === 'fail') return { ok: false, json: async () => ({}) };
+    const events = st.events || (st.read === 'empty' ? [] : [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }]);
     return { ok: true, json: async () => ({ events }) };
   };
   // eslint-disable-next-line no-new-func
@@ -143,4 +143,32 @@ test('#6951: a seen post that failed on the server or was lost is tried once mor
       assert.equal(p.timers.length, 0, 'retried more than once (' + post + ')');
     }
   }
+});
+
+test('#6951: a draw whose view could not be marked (page behind another Kosmos tab) is marked on the next read once on screen', async () => {
+  const p = page({ onScreen: false });
+  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  assert.equal(p.acts.innerHTML, '<rows>', 'the poll drew the new message into the page');
+  assert.deepEqual(p.posts, [], 'not on screen, so not marked');
+  p.st.onScreen = true;   // the person switches back to the task's page (no visibilitychange)
+  p.acts.innerHTML = 'kept';
+  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  await p.settle();
+  assert.equal(p.acts.innerHTML, 'kept', 'unchanged, so not redrawn');
+  assert.deepEqual(p.posts, [seenUrl('p one', 3)], 'the unchanged but unmarked conversation must be marked now');
+  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  await p.settle();
+  assert.equal(p.posts.length, 1, 'marked once, not again on every read');
+});
+
+test('#6951: after a failed read the next read draws, even if the conversation is the one drawn before', async () => {
+  const p = page();
+  await p.paintTaskActivity(3);
+  p.st.read = 'fail';
+  p.acts.innerHTML = '';
+  await p.paintTaskActivity(3);
+  assert.match(p.acts.innerHTML, /could not read/);
+  p.st.read = 'ok';
+  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  assert.equal(p.acts.innerHTML, '<rows>', 'the could-not-read line stayed although the read now works');
 });

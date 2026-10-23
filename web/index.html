@@ -68385,10 +68385,9 @@ async function paintTaskReceipt(n) {
   paintTaskUndo(n);   // #5153 slice 4: offered only while Settings' undo switch is on
 }
 /* Draw the task's activity, oldest first (the way the record is written and the
-   way a conversation reads top-to-bottom). Fetched on open and re-fetched after
-   an in-app change (tkPartPost / the done button), NOT on the five-second poll:
-   a lifecycle event is rare, so a per-open + per-action read stays fresh without
-   a request every tick. `n` is checked against TK_OPEN after the await so a fetch
+   way a conversation reads top-to-bottom). Fetched on open, re-fetched after an
+   in-app change (tkPartPost / the done button), and on the five-second read while
+   the task's page is up and visible (#6951: drawn only when it changed). `n` is checked against TK_OPEN after the await so a fetch
    that lands after the person has left the task cannot paint the wrong page. */
 async function paintTaskActivity(n, opts) {
   const onlyIfChanged = !!(opts && opts.onlyIfChanged);   // #6951: the poll's call (no braces in the signature: the page's tests lift this function by its first brace)
@@ -68409,6 +68408,7 @@ async function paintTaskActivity(n, opts) {
        happened". Keep whatever is already shown; only when the list is empty put
        a quiet could-not-read line, never a false empty state. */
     if (!holder.innerHTML) holder.innerHTML = '<p class="dhint tkacts-empty">We could not read the activity just now.</p>';
+    holder.tkDrawn = null;   // #6951: the next read draws, whatever it finds
     return;
   }
   /* The guard again, AFTER the body-parse await: opening a different task while
@@ -68420,11 +68420,14 @@ async function paintTaskActivity(n, opts) {
      poll passes onlyIfChanged and leaves an unchanged conversation as it is. */
   const last = events[events.length - 1];
   const drawn = p.id + '#' + n + '#' + events.length + '#' + (last ? last.at + '#' + last.kind : '');
-  if (onlyIfChanged && holder.tkDrawn === drawn) return;
+  /* The view is remembered apart from the draw (tkMarked): a mark that declined (the page behind another Kosmos tab)
+     or failed is tried again on the next read of the same conversation, which is on screen by then. */
+  const marked = () => { holder.tkMarked = drawn; };
+  if (onlyIfChanged && holder.tkDrawn === drawn) { if (holder.tkMarked !== drawn) tkMarkSeen(n, p.id, false, marked); return; }
   holder.tkDrawn = drawn;
   if (!events.length) {
     holder.innerHTML = '<p class="dhint tkacts-empty">Nothing yet. As this task is worked on, what happens shows up here.</p>';
-    tkMarkSeen(n, p.id);   // #6947
+    tkMarkSeen(n, p.id, false, marked);   // #6947
     return;
   }
   const now = Date.now();
@@ -68434,7 +68437,7 @@ async function paintTaskActivity(n, opts) {
   const wasOpen = new Set(canQuery ? [...holder.querySelectorAll('details.tkact-roll[open]')].map((d) => d.dataset.first) : []);
   holder.innerHTML = tkActRowsHtml(events, p, now);
   if (canQuery && wasOpen.size) for (const d of holder.querySelectorAll('details.tkact-roll')) if (wasOpen.has(d.dataset.first)) d.open = true;
-  tkMarkSeen(n, p.id);   // #6947: drawn, so the person may have the conversation in front of them
+  tkMarkSeen(n, p.id, false, marked);   // #6947: drawn, so the person may have the conversation in front of them
 }
 /* kosmos#5643: the history's rows. Two or more runs in a row that found nothing new (not late: lateness is news) are
    ONE row, "N runs found nothing new" (or "repeated the same note" for runs the board only inferred, or both), which
@@ -68503,7 +68506,7 @@ function openTaskPage(n) {
   /* A new task: clear the last one's activity before the fetch so a slow read
      cannot leave the previous task's events on screen. */
   const acts = document.getElementById('tk-activity');
-  if (acts) acts.innerHTML = '';
+  if (acts) { acts.innerHTML = ''; acts.tkDrawn = null; acts.tkMarked = null; }   // #6951: nothing drawn or marked yet for this open
   const receipt = document.getElementById('tk-receipt');
   if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
   const undoBox = document.getElementById('tk-undo');   // #5153 slice 4
@@ -68521,17 +68524,17 @@ function openTaskPage(n) {
    has a layout box; getClientRects, which a hidden ancestor empties and fixed positioning does not): a task restored in
    a background tab, or left open behind another Kosmos tab, has not been seen.
    Best effort; a failure changes nothing on the page. */
-function tkMarkSeen(n, projectId, retried = false) {
+function tkMarkSeen(n, projectId, retried = false, onMarked = null) {
   const back = document.getElementById('tk-back');
   if (TK_OPEN === null || n !== TK_OPEN || projectId !== PJ_CURRENT || document.visibilityState !== 'visible' || !back || !back.getClientRects().length) return;
   /* #6951: a view that could not be recorded reads to the agent like never viewed, so a server error or a lost request
      is tried once more, a few seconds later and only if the task is still on screen. A refusal (4xx) is not retried. */
-  const again = () => { if (!retried) setTimeout(() => tkMarkSeen(n, projectId, true), 3000); };
+  const again = () => { if (!retried) setTimeout(() => tkMarkSeen(n, projectId, true, onMarked), 3000); };
   fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' })
-    .then((res) => { if (res && res.status >= 500) again(); }, again);
+    .then((res) => { if (res && res.status >= 500) again(); else if (res && res.status < 300 && onMarked) onMarked(); }, again);
 }
-/* #6947: coming back to the tab while a task's page is showing: draw the conversation again (it is not redrawn on the
-   poll, so a message that came while the tab was away is not on screen yet); the draw marks it seen. */
+/* #6947: coming back to the tab while a task's page is showing: draw the conversation again at once (the five-second
+   read skips a hidden tab, so a message that came while it was away is not on screen yet); the draw marks it seen. */
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible' || TK_OPEN === null) return;
   const back = document.getElementById('tk-back');
