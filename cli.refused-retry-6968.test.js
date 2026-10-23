@@ -255,6 +255,7 @@ test('#6968: msg\'s second ask after a cut reply is one plain try: a board that 
 test('#6968: an interrupt during the pause leaves none of kosmos_curl\'s files behind (the body is the agent\'s words)', () => withRefusingBoard(null, async (port) => {
   const env = baseEnv(port, { TMUX_PANE: '%42', KOSMOS_REFUSED_RETRY_MS: '5000' });
   // Its own process group, so the interrupt reaches the whole command, as Ctrl-C at a terminal does.
+  // exit code not read (#3628): this arm asserts the signal the command died of, never a code.
   const child = spawn(CLI, ['msg', 'mara', 'private', 'words'], { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '';
   child.stdout.on('data', (d) => { said += d; });
