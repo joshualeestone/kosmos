@@ -21391,7 +21391,8 @@ const server = http.createServer(async (req, res) => {
                stays: it is not a claim, it says "yes, you do it" (review 1). Kept by the person's sentinel 'you',
                before it is renamed, so an agent's own name can never pass for it (review 3). */
             .map((r) => ({ emoji: messages.normalizeReactionEmoji(r.emoji),
-              who: (Array.isArray(r.who) ? r.who : []).filter((w) => !messages.isClaimEmoji(r.emoji) || w === 'you')
+              // #6957: the person's 🙋 agrees with a claim, so with no claim live it is left out too (it would read as theirs).
+              who: (Array.isArray(r.who) ? r.who : []).filter((w) => !messages.isClaimEmoji(r.emoji) || (w === 'you' && m.claim))
                 .map((w) => (w === 'you' ? 'operator' : String(w).replace(/\s+/g, ' '))) }))
             .filter((r) => r.emoji && r.who.length);
           const reacted = shown.length

@@ -3689,11 +3689,12 @@ const CLAIM_ASKED_MINUTES = 30;   // #6952: how long a post's asked members have
 const CLAIM_LEAD = "(?:^|[.!?;:,]\\s*)(?:(?:now|so|and|but|ok|okay|also|then|great|thanks)[,!]?\\s+)?";   // the start of a clause
 const CLAIM_ROOM_ASK = new RegExp(
   CLAIM_LEAD + '(?:can|could|would|will|is there)\\s+(?:someone|somebody|anyone|anybody)\\b'          // "can someone review..."
-  + '|\\b(?:someone|somebody|anyone|anybody)\\s+(?:please|free|available|able|willing|up for|have time|has time)\\b'
-  + '|' + CLAIM_LEAD + 'who\\s+(?:can|could|wants|will|is free|is available)\\b[^.!?]*\\?'          // "who can write the notes?"
+  + '|\\b(?:someone|somebody|anyone|anybody)\\s+(?:please|free|available|around|able|willing|up for|have time|has time)\\b'
+  // "who can write the notes?", "Who's free to take this?" (straight or curly apostrophe), "who has time for this?"
+  + '|' + CLAIM_LEAD + "who(?:\\s+|'s\\s+|\u2019s\\s+)(?:can|could|wants|will|is free|free|is available|available|has time|is around|around)\\b[^.!?]*\\?"
   + '|\\bwhoever\\s+(?:can|is free|has time|wants|picks|takes|gets)\\b'
-  + '|\\b(?:any takers|any volunteers|need (?:a )?volunteers?)\\b'
-  + '|\\b(?:anyone|anybody|someone|somebody)\\s*\\?', 'i');
+  + '|\\b(?:any takers|any volunteers|need (?:a )?volunteers?|need (?:someone|somebody|anyone) to)\\b'
+  + '|\\b(?:anyone|anybody|someone|somebody)(?:\\s+else)?\\s*\\?', 'i');   // a bare "anyone?" or "anyone else?"
 /* "One of you" and the like put it to a group: on a post that @-names members that group is THEM ("@ann @bob can one of
    you review this?"), so it counts only on a post that names nobody. */
 const CLAIM_GROUP_ASK = /\b(?:(?:one|any|either|each) of you|all of you|the rest of you|you all|y'?all)\b/i;
@@ -3750,7 +3751,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   /* #6952: 'operator' too. The room's text view names the person 'operator', so an agent with that name would read as
      the person on a reactions or claim line. */
   if (operator !== true && (reactor === 'you' || reactor.toLowerCase() === 'operator')) {
-    return { ok: false, because: 'that name is reserved, so this reaction could not be attributed' };
+    return { ok: false, because: 'that name is reserved, so this reaction could not be attributed; rename this agent to react or claim' };
   }
   /* #2255: the room is its members. An AGENT reacting into a room it is not on
      is the same cross-room write the post model refuses (sendPost's membership
@@ -3856,8 +3857,16 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   /* The asked members have first call, for CLAIM_ASKED_MINUTES from the post (review 7). After that, with none of them
      holding it, anyone may claim it: a request the pattern misread, or one its asked member never got to, is not held
      forever. */
-  const leftMs = CLAIM_ASKED_MINUTES * 60000 - (Date.now() - Date.parse(post.at));
-  if (asked.length && !asked.includes(reactor) && leftMs > 0) {
+  // Capped at the window: a post dated ahead of this clock (a clock stepped back) never holds longer (#6957).
+  const windowMs = CLAIM_ASKED_MINUTES * 60000;
+  const leftMs = Math.min(windowMs, windowMs - (Date.now() - Date.parse(post.at)));
+  /* #6957: an asked member who claimed the post and then gave it back has let it go ("out of usage, someone else
+     please"), so once every asked member still here has done that, the post is open. And a post's own author is never
+     locked out of claiming it ("@bob I am taking the parser, FYI"). */
+  const gaveBack = (n) => !claimants.has(n) && rows.some((m) => m && m.kind === 'reaction' && String(m.of) === postId
+    && m.from === n && m.op === 'add' && m.claim === true);
+  const released = asked.length > 0 && asked.every(gaveBack);
+  if (asked.length && !asked.includes(reactor) && reactor !== post.from && !released && leftMs > 0) {
     const who = asked.length === 1 ? asked[0] : asked.slice(0, -1).join(', ') + ' or ' + asked[asked.length - 1];
     const mins = Math.max(1, Math.ceil(leftMs / 60000));
     return { ok: false, askedOf: asked,

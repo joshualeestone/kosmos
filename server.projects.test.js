@@ -3040,6 +3040,8 @@ test('#6946: kosmos claim through the real /api/react route, and `kosmos room` s
     assert.equal((await asZeta({ claim: 'release' })).op, 'remove');
     res = await req(`/api/project/${project.id}/room?as=text`);
     assert.doesNotMatch(res.body, /is claimed by/, 'a given-back claim still printed');
+    // #6957: with no claim live, the person's lone raised hand is left out too (it would read as theirs).
+    assert.doesNotMatch(res.body, /reactions on \[[^\]]+\]:[^\n]*\u{1F64B} operator/u, 'the person\'s lone raised hand is on the line with no claim:\n' + res.body);
     assert.equal((await asZeta({ claim: 'release' })).op, 'none');
   });
 });
