@@ -6,8 +6,8 @@
 # 🛑 DRY RUN IS THE DEFAULT. Nothing changes unless --apply is given: a change either goes through act(), which
 # otherwise prints "WOULD: <command>", or sits after a stage's own dry-run return (install, register, keepalive).
 # Reads always run, dry or not: launchctl print, crontab -l, pgrep, ps, id, df, stat, shasum, fdesetup, pmset,
-# xcode-select, plutil -extract, gh api GETs, and install's unauthenticated compare GET to api.github.com (with --apply, also
-# launchctl managername and manageruid). A temp file for gh's stderr comes and goes in TMPDIR.
+# xcode-select, plutil -extract, gh api GETs, and install's unauthenticated compare GET to api.github.com (with
+# --apply, also launchctl managername and manageruid). A temp file for gh's stderr comes and goes in TMPDIR.
 #
 # Usage: tools/ci-runner-setup.sh [--apply] <stage> [args]
 #   preflight                 as the machine owner. Reads only. Refuses while the agents' launchd jobs, crontab
@@ -187,7 +187,8 @@ keepalive_missing() {
   printf '%s' "${m:-nothing}"
 }
 # loaded_keepalive <domain/label>: the LOADED job has it (launchd prints KeepAlive {SuccessfulExit: false} as the
-# semaphore "successful exit => 0"; measured on the old Agent1s Mac). The plist on disk can have it while the loaded job
+# semaphore "successful exit => 0", and ExitTimeOut as "exit timeout = N"; measured on macOS 27.0.1, the old Agent1s
+# Mac's). The plist on disk can have it while the loaded job
 # does not, after a reload that was refused or failed.
 loaded_keepalive() {
   local out t; out="$(launchctl print "$1" 2>/dev/null)" || return 1
@@ -640,11 +641,12 @@ keepalive() {
     [ "$in_file" = 1 ] || echo "note:   $plist lacks $(keepalive_missing "$plist"): a killed runner may stay offline"
     [ "$in_file" = 1 ] && [ "$loaded" = 1 ] && echo "note:   $plist has KeepAlive but the LOADED $label does not: it needs a reload"
     [ "$in_file" = 1 ] || echo "WOULD: add KeepAlive {SuccessfulExit: false}, ThrottleInterval 10 and ExitTimeOut 35 to $plist"
-    if [ "$own" = 1 ]; then echo "note:   its Listener runs but $label is not in $dom: reload it there by hand"
+    # Exit 1 for a runner that is not running as it should (as --apply does), 0 for a change it would make.
+    if [ "$own" = 1 ]; then echo "refused: its Listener runs but $label is not loaded in $dom: reload it there by hand" >&2; exit 1
     elif [ "$loaded" = 1 ]; then
-      echo "WOULD: only while no job runs: reload $label"
-      printf 'WOULD: launchctl bootout %s\nWOULD: launchctl bootstrap %s %s\n' "$dom/$label" "$dom" "$plist"
-    else echo "note:   $label is not loaded: the runner is DOWN; --apply puts KeepAlive in the plist and does not start it"; fi
+      echo "WOULD: only while no job runs: stop $label with SIGTERM, then reload it"
+      printf 'WOULD: launchctl kill SIGTERM %s\nWOULD: launchctl bootout %s\nWOULD: launchctl bootstrap %s %s\n' "$dom/$label" "$dom/$label" "$dom" "$plist"
+    else echo "DOWN: $label is not loaded, so the runner is not running; --apply puts KeepAlive in the plist and does not start it" >&2; exit 1; fi
     return 0
   fi
   if [ "$in_file" = 0 ]; then
@@ -670,6 +672,16 @@ keepalive() {
   [ "$prc" = 1 ] || { echo "refused: a job is running under $CI_USER (Runner.Worker is up, on this runner or the relay's); KeepAlive is in the plist, not yet loaded: run this again when both are idle" >&2; exit 1; }
   local own_re="$RUNNER_DIR/bin[^/]*/Runner.Listener" before; prc=0; before="$(pgrep -u "$(id -u)" -f "$own_re")" || prc=$?
   [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc) to note the running Listener; KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
+  # Stop it with SIGTERM first and wait for it to end by itself: the LOADED job may still carry launchd's default 5 s exit
+  # timeout, and a bootout alone would SIGKILL the Listener before it ends its GitHub session (the reload would then
+  # cause the very session conflict ExitTimeOut is there to prevent). The exit is 0 (a stop), which a loaded
+  # KeepAlive {SuccessfulExit: false} does not restart; the bootout after it finds nothing left to kill.
+  local jo2 opid w4=0; jo2="$(launchctl print "$dom/$label" 2>/dev/null || true)"
+  opid="$(printf '%s\n' "$jo2" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)"
+  if [ -n "$opid" ]; then
+    launchctl kill SIGTERM "$dom/$label" 2>/dev/null || true
+    while kill -0 "$opid" 2>/dev/null && [ "$w4" -lt "$limit" ]; do sleep 1; w4=$((w4 + 1)); done
+  fi
   local bo=0; launchctl bootout "$dom/$label" || bo=$?
   # A failed bootout still waits: launchd can report an error while the job is still shutting down (the Listener ends
   # its GitHub session first), so "still loaded" cannot be told from "still unloading" at once.
