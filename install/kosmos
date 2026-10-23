@@ -1271,30 +1271,35 @@ kosmos_board_proven() {   # <token> <the caller's curl arguments>
 #     no second try when less than a second would be left.
 #   - A body on stdin (`@-`) is read once into a mode-600 file so both tries send it, and each try's stdout and
 #     stderr are held in two more and only the last try's are printed (curl prints -w even on a refusal, and whoami
-#     reads stderr). All three sit in TMPDIR for the call, like the auth header file, and an interrupt can leave
-#     them behind, the body included (no trap here: one would replace the caller's, as connect's).
+#     reads stderr). All three sit in TMPDIR for the call, like the auth header file. An interrupt or a TERM
+#     removes them (the trap below); only a kill that cannot be trapped (KILL) leaves them.
 #   - _KOSMOS_CURL_ONCE=1 before the call skips the retry and all of the above (one try, straight through): hooks
-#     that promise a short wait, and task ran's loop, which already asks again on 7. KOSMOS_REFUSED_RETRY_MS
+#     that promise a short wait, task ran's loop (it already asks again on 7), and msg's and post's second ask
+#     after a cut reply (a refusal there means a restarted board that forgot the first copy). KOSMOS_REFUSED_RETRY_MS
 #     (digits; 1000 by default) sets the pause.
 kosmos_curl() {
   local _bt="$1" _tok="$2"; shift 2
   if [ -n "${_KOSMOS_CURL_ONCE:-}" ]; then _kosmos_curl_once "$_bt" "$_tok" "$@" && return 0 || return $?; fi
-  local _bodyf="" _outf _errf _rc _try=1 _x _p="" _m="" _t0="$SECONDS" _left _pause_ms=1000 _args=() _next=() _a
+  local _bodyf="" _outf="" _errf="" _rc _try=1 _x _p="" _m="" _t0="$SECONDS" _left _pause_ms=1000 _args=() _next=() _a
+  # Ctrl-C or a TERM from here on removes the three files (the body is the agent's words). Every caller of this path
+  # runs it in a subshell ($(...), a pipe, connect's &), so this trap is that subshell's own and replaces no caller's.
+  # A caller in the main shell must pass _KOSMOS_CURL_ONCE=1 (cli.refused-retry-6968.test.js checks every call).
+  trap 'rm -f ${_outf:+"$_outf"} ${_errf:+"$_errf"} ${_bodyf:+"$_bodyf"}; trap - INT TERM HUP; exit 130' INT TERM HUP
   case "${KOSMOS_REFUSED_RETRY_MS:-}" in ''|*[!0-9]*) ;; *) _pause_ms=$((10#${KOSMOS_REFUSED_RETRY_MS:0:6})) ;; esac
   for _x in "$@"; do
     if [ "$_x" = "@-" ]; then
       if [ -z "$_bodyf" ]; then
-        _bodyf="$(mktemp "${TMPDIR:-/tmp}/kosmos-body.XXXXXX")" || return 99
-        chmod 600 "$_bodyf" && cat > "$_bodyf" || { rm -f "$_bodyf"; return 99; }
+        _bodyf="$(mktemp "${TMPDIR:-/tmp}/kosmos-body.XXXXXX")" || { trap - INT TERM HUP; return 99; }
+        chmod 600 "$_bodyf" && cat > "$_bodyf" || { rm -f "$_bodyf"; trap - INT TERM HUP; return 99; }
       fi
       _args+=("@$_bodyf")
     else _args+=("$_x"); fi
     [ "$_p" = "-m" ] && [ -z "$_m" ] && _kosmos_is_secs "$_x" && _m="$_x"
     _p="$_x"
   done
-  _outf="$(mktemp "${TMPDIR:-/tmp}/kosmos-answer.XXXXXX")" || { [ -z "$_bodyf" ] || rm -f "$_bodyf"; return 99; }
-  _errf="$(mktemp "${TMPDIR:-/tmp}/kosmos-answer.XXXXXX")" || { rm -f "$_outf"; [ -z "$_bodyf" ] || rm -f "$_bodyf"; return 99; }
-  chmod 600 "$_outf" "$_errf" || { rm -f "$_outf" "$_errf"; [ -z "$_bodyf" ] || rm -f "$_bodyf"; return 99; }
+  _outf="$(mktemp "${TMPDIR:-/tmp}/kosmos-answer.XXXXXX")" || { [ -z "$_bodyf" ] || rm -f "$_bodyf"; trap - INT TERM HUP; return 99; }
+  _errf="$(mktemp "${TMPDIR:-/tmp}/kosmos-answer.XXXXXX")" || { rm -f "$_outf"; [ -z "$_bodyf" ] || rm -f "$_bodyf"; trap - INT TERM HUP; return 99; }
+  chmod 600 "$_outf" "$_errf" || { rm -f "$_outf" "$_errf"; [ -z "$_bodyf" ] || rm -f "$_bodyf"; trap - INT TERM HUP; return 99; }
   while :; do
     _kosmos_curl_once "$_bt" "$_tok" ${_args[@]+"${_args[@]}"} > "$_outf" 2> "$_errf" && _rc=0 || _rc=$?
     [ "$_rc" -eq 7 ] && [ "$_try" -eq 1 ] && ! _kosmos_stopped || break
@@ -1310,6 +1315,7 @@ kosmos_curl() {
     # `|| true`: an interrupt that kills the sleep (connect's stop) must not end a set -e subshell before the cleanup.
     sleep "$(LC_ALL=C awk -v p="$_pause_ms" 'BEGIN { printf "%.3f", p / 1000 }')" || true
   done
+  trap - INT TERM HUP
   cat "$_outf"; cat "$_errf" >&2
   rm -f "$_outf" "$_errf"; [ -z "$_bodyf" ] || rm -f "$_bodyf"
   return "$_rc"
@@ -2744,7 +2750,8 @@ cmd_msg() {
       printf '%sKosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
       sleep 1   # not straight back into the same busy moment
       rc=0
-      # #6968: one plain try. The first send may be on a board that restarted; kosmos_curl asking again into it could deliver twice.
+      # #6968: one plain try. A refused second ask means the board restarted, and a restarted board no longer
+      # remembers the first copy (its repeat check is in memory), so asking yet again could deliver it twice.
       body=$(printf '%s' "$_data" | _KOSMOS_CURL_ONCE=1 kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/msg" \
         -H 'content-type: application/json' \
         --data-binary @- 2>/dev/null) || rc=$?
@@ -3262,7 +3269,7 @@ cmd_post() {
       sleep 1   # not straight back into the same busy moment
       rc=0
       _retried=1   # #4934: the first try may have landed, so a refusal of this one cannot say "nothing was sent"
-      # #6968: one plain try, as in msg: kosmos_curl asking again into a restarted board could deliver it twice.
+      # #6968: one plain try, as in msg: a refused second ask means a restarted board that forgot the first copy.
       body=$(printf '%s' "$_data" | _KOSMOS_CURL_ONCE=1 kosmos_curl "$_bt" "$_tok" -sS -m "$_post_budget" -X POST "$URL/api/post" \
         -H 'content-type: application/json' \
         --data-binary @- 2>/dev/null) || rc=$?
