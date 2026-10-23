@@ -290,10 +290,26 @@ test('#6882: the refusal page and the browser box say "could not sign you in", w
     assert.match(text, /Kosmos could not sign you in to your own Kosmos/, name);
     assert.doesNotMatch(text, /could not confirm it was reaching/, name + ' still reads as only the opener\'s refusal');
     assert.doesNotMatch(text, /\u2014|\\u2014/, name + ' has an em dash');
-    assert.match(text, /open Kosmos\.exe again in a minute/, name + ' no longer says what to do');
+    assert.match(text, /open Kosmos from the Start menu again in a minute/, name + ' no longer says what to do');
   }
   assert.match(page, /so this window is not showing it\./);
   assert.match(box, /so it did not open your browser\./);
+});
+
+test('#6985: the window and its browser fallback send a person to the Start menu, never to Kosmos.exe', () => {
+  for (const name of ['NotConfirmedPage', 'BrowserUnknownMessage', 'BrowserNotConfirmedMessage']) {
+    const text = constText(name);
+    assert.match(text, /open Kosmos from the Start menu again in a minute\./, name + ' does not say the Start menu, as the READ ME does');
+    assert.doesNotMatch(text, /Kosmos\.exe/, name + ' still names Kosmos.exe, which after the install reads as the extracted folder');
+    assert.doesNotMatch(text, /\u2014|\\u2014/, name + ' has an em dash');
+  }
+  // Start menu alone is right only because the shortcut is there before any of these can show: the window is
+  // started in one place, Main, and only after RunInstallerDuties, whose every carry-on path refreshes the shortcut.
+  assert.equal((SOURCE.match(/BoardWindowStartInfo\(here\)/g) || []).length, 1, 'the window is started somewhere new');
+  const main = SOURCE.slice(SOURCE.indexOf('static int Main(string[] args)'));
+  assert.ok(main.indexOf('RunInstallerDuties(here, node, port)') !== -1, 'Main no longer runs the installer duties');
+  assert.ok(main.indexOf('RunInstallerDuties(here, node, port)') < main.indexOf('BoardWindowStartInfo(here)'), 'the window starts before the Start menu shortcut is refreshed');
+  assert.match(SOURCE, /refreshWindowsRegistration\(here\);\s*return null;/, 'the installer duties carry on without refreshing the shortcut');
 });
 
 /* ---- the probe ------------------------------------------------------------- */
