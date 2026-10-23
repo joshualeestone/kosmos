@@ -1475,6 +1475,7 @@ async function forget({ anyway = false } = {}) {
 let forgetInFlight = null;
 
 async function forgetNow(anyway) {
+  flushWaiting();   // kosmos#6590 branch c: a Forget clears the state folder, so nothing read before it is served after
   const was = { enrolled: enrolled(), address: address() };
   // A register killed mid-certificate (or any partial one) has registered the Mac
   // at the coordinator and left its key and id here, without the certificate
@@ -2573,13 +2574,15 @@ function listedAsComputer(id) {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return false; }
   const list = raw && Array.isArray(raw.devices) ? raw.devices : [];
-  return list.some((d) => d && String(d.device_id || '') === String(id) && isComputerRow(d));
+  // The page's own rules for a computer's name (pendingDevices), so the route and the page agree on what is a computer.
+  return list.some((d) => d && String(d.device_id || '') === String(id) && REQUEST_ID.test(String(id))
+    && isComputerRow({ ...d, joining_computer: typeof d.joining_computer === 'string' && NAME_RULE.test(d.joining_computer.trim().toLowerCase()) ? d.joining_computer : null, code_wait: CODE_WAITS.has(d.code_wait) ? d.code_wait : null }));
 }
 /* One read of `devices waiting` serves every open board for a moment, and concurrent asks share the one spawn (an open
    board polls every few seconds). Flushed after anything that changes the rows. */
 const WAITING_FRESH_MS = 2000;
 let waitingCache = null;   // { at, gen, value }
-let waitingInFlight = null;
+let waitingInFlight = null;   // { gen, p }
 let waitingGen = 0;
 function flushWaiting() { waitingCache = null; waitingGen += 1; }
 const NO_WAITING = Object.freeze({ count: 0, waiting: Object.freeze([]), ctAlarm: false, ctFinding: null });
@@ -2608,22 +2611,28 @@ async function devicesWaiting() {
   if (!boardV2()) return { ok: true, because: null, data: { v2: false, ...NO_WAITING } };
   if (!read().on || !enrolled()) return { ok: true, because: null, data: { v2: true, ...NO_WAITING } };
   if (waitingCache && waitingCache.gen === waitingGen && Date.now() - waitingCache.at < WAITING_FRESH_MS) return waitingCache.value;
-  if (waitingInFlight) return waitingInFlight;
+  /* Only a read started since the last flush is shared (review 1): one started before an Allow would show the allowed
+     row again. */
+  if (waitingInFlight && waitingInFlight.gen === waitingGen) return waitingInFlight.p;
   const gen = waitingGen;
-  waitingInFlight = setupRun(['devices', 'waiting', '--state-dir', STATE_DIR()], null, retireTimeoutMs())
+  const mine = { gen, p: null };
+  mine.p = setupRun(['devices', 'waiting', '--state-dir', STATE_DIR()], null, retireTimeoutMs())
     .then((r) => {
       const got = parseSaid(r);
       const value = got.ok ? { ok: true, because: null, data: { v2: true, ...waitingFrom(got.data) } } : { ok: false, because: got.because };
       if (got.ok && gen === waitingGen) waitingCache = { at: Date.now(), gen, value };
       return value;
     })
-    .finally(() => { waitingInFlight = null; });
-  return waitingInFlight;
+    .finally(() => { if (waitingInFlight === mine) waitingInFlight = null; });
+  waitingInFlight = mine;
+  return mine.p;
 }
-/* The tunnel's own sentence for a refused typed code (a fixed set it words), never anything that could carry the code. */
-function tunnelWordsWithout(because, code) {
+/* A failure's words (stderr, or a line the tunnel did not mean as an answer), never passed on when they hold the typed
+   code in any case. The answer's own `because` is from the tunnel's fixed set of sentences and is passed as is (review
+   1: scrubbing those hid the minute-long lockout behind a one-character code). */
+function failureWordsWithout(because, code) {
   const said = typeof because === 'string' ? because.trim().slice(0, 300) : '';
-  if (!said || (code && said.includes(code))) return '';
+  if (!said || (code && said.toLowerCase().includes(code.toLowerCase()))) return '';
   return said;
 }
 /** Allow the waiting browser `knockId` by the code it shows, typed by the person. */
@@ -2631,6 +2640,7 @@ async function deviceAllowCode(knockId, code) {
   { const b = busy(); if (b) return b; }
   if (!boardV2()) return { ok: false, because: 'this computer does not take typed codes yet' };
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  if (!read().on) return { ok: false, because: 'switch Kosmos+ on first' };
   if (typeof knockId !== 'string' || !KNOCK_ID.test(knockId)) return { ok: false, because: 'that browser is no longer waiting' };
   /* Refused here, not counted as a wrong try by the tunnel: an empty code, and any control character (a NUL would fail
      the spawn with the value in its error). No length cap: the tunnel caps it. */
@@ -2640,7 +2650,7 @@ async function deviceAllowCode(knockId, code) {
      could take one for a flag and echo it back in its error. */
   const r = parseSaid(await tracked(setupRun(['devices', 'allow-code', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(), '--', knockId, typed], null, retireTimeoutMs())));
   flushWaiting();
-  if (!r.ok) return { ok: false, because: tunnelWordsWithout(r.because, typed) || 'the code could not be checked; try again' };
+  if (!r.ok) return { ok: false, because: failureWordsWithout(r.because, typed) || 'the code could not be checked; try again' };
   const d = r.data || {};
   if (d.paused === true) return { ok: false, because: PAUSED_ALLOW_WORDS, paused: true };
   if (d.allowed === true) {
@@ -2648,7 +2658,8 @@ async function deviceAllowCode(knockId, code) {
     return { ok: true, because: null, data: { allowed: true, device_id: typeof d.device_id === 'string' ? d.device_id : null, acked: d.acked === true } };
   }
   const left = Number.isInteger(d.tries_left) && d.tries_left >= 0 ? d.tries_left : null;
-  return { ok: false, because: tunnelWordsWithout(d.because, typed) || 'that code did not let the browser in', triesLeft: left };
+  const said = typeof d.because === 'string' ? d.because.trim().slice(0, 300) : '';
+  return { ok: false, because: said || 'that code did not let the browser in', triesLeft: left };
 }
 /** "Not me" on one waiting browser: the tunnel turns that browser's key away on this computer for a day and drops every
     row of it. Kosmos+ is not told. `allowed`: the browser was already let in (remove it under Devices). */

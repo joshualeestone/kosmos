@@ -28,13 +28,13 @@ function fakeSpawn(bin, args) {
   child.stderr = new EventEmitter();
   child.stdin = null;
   child.kill = () => {};
-  const { out = '', err = '', code = 0 } = answer(args);
-  setImmediate(() => {
+  const { out = '', err = '', code = 0, wait = null } = answer(args);
+  Promise.resolve(wait).then(() => setImmediate(() => {
     if (out) child.stdout.emit('data', out);
     if (err) child.stderr.emit('data', err);
     child.emit('exit', code);
     child.emit('close', code);
-  });
+  }));
   return child;
 }
 const KNOCK = 'AbCdEfGhIjKlMnOpQrStUv';   // 22 base64url characters, the tunnel's KnockId shape
@@ -126,14 +126,46 @@ test('the tunnel\'s answers: wrong with tries left, paused, Kosmos+ never asked,
   answer = () => ({ out: JSON.stringify({ allowed: true, device_id: 'd1', acked: false, account_ack: 'unknown_device' }) });
   r = await remote.deviceAllowCode(KNOCK, 'ZZZ-ZZZ');
   assert.deepEqual([r.ok, r.listed], [false, true]);
-  // A failure whose words carry the typed code is never passed on, from either stream.
+  // A failure whose words carry the typed code, in any case, is never passed on.
   answer = () => ({ err: "error: unexpected argument 'QQQ-QQQ' found", code: 2 });
-  r = await remote.deviceAllowCode(KNOCK, 'QQQ-QQQ');
+  r = await remote.deviceAllowCode(KNOCK, 'qqq-qqq');
   assert.equal(r.ok, false);
-  assert.ok(!r.because.includes('QQQ-QQQ'), r.because);
-  answer = () => ({ out: JSON.stringify({ allowed: false, acked: false, because: 'you typed QQQ-QQQ' }) });
-  r = await remote.deviceAllowCode(KNOCK, 'QQQ-QQQ');
-  assert.ok(!r.because.includes('QQQ-QQQ'), r.because);
+  assert.ok(!/qqq-qqq/i.test(r.because), r.because);
+  // The answer's own sentence is the tunnel's and is kept, even when a short code happens to appear in it (review 1).
+  answer = () => ({ out: JSON.stringify({ allowed: false, acked: false, because: 'Too many wrong codes in the last minute. Wait a minute and try again.' }) });
+  r = await remote.deviceAllowCode(KNOCK, 'a');
+  assert.match(r.because, /Too many wrong codes/);
+});
+
+test('a read started before an Allow is never handed out after it (review 1)', async () => {
+  setup();
+  let rows = 1;
+  let release;
+  const held = new Promise((res) => { release = res; });
+  let firstWaiting = true;
+  answer = (args) => {
+    if (args[1] === 'waiting') {
+      const out = JSON.stringify({ count: rows, waiting: rows ? [{ knockId: KNOCK, firstSeen: 1, uaClass: '', net: '', vouched: false }] : [] });
+      if (firstWaiting) { firstWaiting = false; return { out, wait: held }; }
+      return { out };
+    }
+    if (args[1] === 'allow-code') { rows = 0; return { out: JSON.stringify({ allowed: true, device_id: 'd1', acked: true }) }; }
+    return { out: '{}' };
+  };
+  const before = remote.devicesWaiting();   // in flight, holding the one row
+  assert.equal((await remote.deviceAllowCode(KNOCK, 'ABC-DEF')).ok, true);
+  const after = remote.devicesWaiting();
+  release();
+  assert.equal((await before).data.count, 1, 'control: the early read did see the row');
+  assert.equal((await after).data.count, 0, 'the allowed row was shown again');
+  assert.equal((await remote.devicesWaiting()).data.count, 0, 'and the early read was not kept');
+});
+
+test('switched off: a typed code spawns nothing', async () => {
+  setup({ on: false });
+  const r = await remote.deviceAllowCode(KNOCK, 'ABC-DEF');
+  assert.equal(r.ok, false);
+  assert.deepEqual(devicesCalls(), []);
 });
 
 test('Not me and clear-waiting: argv, answers, and the shared read is flushed after each', async () => {
@@ -164,6 +196,8 @@ test('under the marker the coordinator\'s phone and browser rows leave the pendi
     { device_id: 'computer:0123456789abcdef0123456789abcdef', name: 'mac', first_seen: 1, code: '' },
     { device_id: 'dev-wait', name: 'pc2', first_seen: 1, code: '', code_wait: 'attempts_used' },
     { device_id: 'dev-check', name: 'pc3', first_seen: 1, code: '123 456', recheck: true },
+    { device_id: 'dev-oddname', name: 'odd', first_seen: 1, code: 'Q1-Z9', joining_computer: '<b>x</b>' },
+    { device_id: 'dev-oddwait', name: 'odd', first_seen: 1, code: 'Q1-Z9', code_wait: 'made-up' },
   ] };
   setup({ marker: false });
   fs.writeFileSync(path.join(STATE, 'pending.json'), JSON.stringify(rows));
@@ -176,4 +210,7 @@ test('under the marker the coordinator\'s phone and browser rows leave the pendi
   assert.equal(remote.listedAsComputer('dev-check'), true);
   assert.equal(remote.listedAsComputer('dev-phone'), false);
   assert.equal(remote.listedAsComputer('not-listed'), false);
+  // The page's own rules: a computer name it would not show, or a wait reason it does not know, is no computer (review 1).
+  assert.equal(remote.listedAsComputer('dev-oddname'), false);
+  assert.equal(remote.listedAsComputer('dev-oddwait'), false);
 });

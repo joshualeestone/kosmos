@@ -24,7 +24,7 @@ process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, REMOTE_NOT_ALLOWED } = require('./server');
+const { start, server, REMOTE_NOT_ALLOWED, boardAuthState } = require('./server');
 const remote = require('./engine/remote');
 
 let base;
@@ -129,3 +129,45 @@ test('under the marker, Allow and Not me by id are refused for anything but a li
   assert.deepEqual(calls, ['allow dev-phone']);
   v2 = true;
 });
+
+/* Review 1: the two gates the first build's tests could not fail. With the board's own sign-in enforced, the token in a
+   header gets past the board-wide gate but is not this board's own session, so every route here refuses it; the
+   session cookie from the bootstrap is accepted. And a request that presents an agent token is an agent, whatever
+   browser headers it also sends. */
+test('with board sign-in enforced: a header token alone is refused, this board\'s own session is accepted', async () => {
+  const TOK = 'BOARDTOKEN_typedallow_0123456789abcdef';
+  boardAuthState.on = true;
+  boardAuthState.token = TOK;
+  try {
+    const boot = await fetch(base + '/?token=' + TOK, { redirect: 'manual' });
+    const cookie = String(boot.headers.get('set-cookie') || '').split(';')[0];
+    assert.ok(cookie.includes('='), 'control: the bootstrap set a session cookie: ' + cookie);
+    const headerOnly = { 'x-kosmos-board-token': TOK };
+    calls.length = 0;
+    let r = await get('/api/remote/waiting', headerOnly);
+    assert.equal(r.status, 403, 'GET with the header token only');
+    r = await post('/api/remote/waiting/clear', { ...SCREEN, origin, ...headerOnly }, {});
+    assert.equal(r.status, 403, 'POST with the header token only');
+    assert.deepEqual(calls, [], 'a request without this board\'s session reached the engine');
+    r = await get('/api/remote/waiting', { cookie });
+    assert.equal(r.status, 200, 'GET with the session cookie: ' + JSON.stringify(r.body));
+    r = await post('/api/remote/waiting/clear', { ...SCREEN, origin, cookie }, {});
+    assert.equal(r.status, 200, 'POST with the session cookie: ' + JSON.stringify(r.body));
+    assert.deepEqual(calls, ['waiting', 'clear']);
+  } finally {
+    boardAuthState.on = false;
+    boardAuthState.token = null;
+  }
+});
+
+test('a request that presents an agent token is refused, with the screen\'s headers and this computer\'s Origin', async () => {
+  for (const [route, body] of [['/api/remote/waiting/allow', { knockId: KNOCK, code: 'ABC-DEF' }], ['/api/remote/waiting/clear', {}]]) {
+    calls.length = 0;
+    let r = await post(route, { ...SCREEN, origin, 'x-kosmos-agent-token': 'a'.repeat(64) }, body);
+    assert.equal(r.status, 403, route + ' with an agent token header');
+    r = await post(route, { ...SCREEN, origin }, { ...body, token: 'a'.repeat(64) });
+    assert.equal(r.status, 403, route + ' with an agent token in the body');
+    assert.deepEqual(calls, [], route);
+  }
+});
+

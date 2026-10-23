@@ -11835,7 +11835,7 @@ const server = http.createServer(async (req, res) => {
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         /* Made on this computer (loopback Host and Origin, no forwarder), with its own board session, by a person at the
            screen: a POST carries Origin, so all three can be asked. */
-        if (!madeOnThisComputer(req.headers) || !boardCookieHere(req) || !isViaScreen(req, body)) {
+        if (!isLoopbackPeer(req) || !madeOnThisComputer(req.headers) || !boardCookieHere(req) || !isViaScreen(req, body)) {
           sendJson(res, 403, { error: 'Only a person at this computer can do this, in Kosmos.' });
           return;
         }
@@ -11873,7 +11873,7 @@ const server = http.createServer(async (req, res) => {
            snapshot lists (it pairs by its own code). A phone or a browser is let in only by the code its page shows, and
            is turned away by key, never by telling Kosmos+ to end its sign-in. Remove is unchanged. */
         if ((verb === 'allow' || verb === 'deny') && remote.boardV2() && !remote.listedAsComputer(id)) {
-          sendJson(res, 403, { code: 'typed_code_only', error: 'A phone or a browser is let in by typing the code its page shows, under the browsers waiting to connect.' });
+          sendJson(res, 403, { code: 'typed_code_only', error: 'That is not a computer asking to join right now. A phone or a browser is let in by typing the code its page shows, under the browsers waiting to connect.' });
           return;
         }
         const got = verb === 'allow' ? await remote.deviceAllow(id, body.name, body.code)
