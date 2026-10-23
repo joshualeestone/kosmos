@@ -67,6 +67,8 @@ expect() {
 
 T=ABCDE12345
 expect store-build          0 production  false $T.io.kosmos.app     $T         $T
+printf '%s\n' "$out" | grep -qF 'ok       attachment-style notices' \
+  || { echo "FAIL  store-build: the build did not say its notices are attachment-style"; fail=1; }
 expect store-build-no-team  0 production  false $T.io.kosmos.app     $T         ""
 expect development-aps      1 development false $T.io.kosmos.app     $T         $T
 expect no-aps               1 ""          false $T.io.kosmos.app     $T         $T

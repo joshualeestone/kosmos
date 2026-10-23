@@ -116,6 +116,8 @@ else
     else
       echo "WRONG    the extension asks for message-style notices but the app lacks com.apple.developer.usernotifications.communication"; fail=1
     fi
+  else
+    echo "ok       attachment-style notices (KosmosMessageStyle is not true)"
   fi
 fi
 
