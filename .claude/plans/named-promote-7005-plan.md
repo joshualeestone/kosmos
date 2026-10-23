@@ -87,3 +87,11 @@ fresh cut box would not have it; the promote then refuses (artifact missing), as
 - Docs: the origin/main requirement applies when the site has an origin.
 - Not changed (NITs): -G follows HEAD's path history and skips merges (measured 0 merges, above); the new test
   is wired without a separate bash -n line (promote-channel.sh already has one); the merge hold is process.
+
+## Iteration 6 (challenge) changes
+- The disagreement refusal's advice fits the shape: different bytes (use --sha), a --sha prefix two builds
+  share (give more of it), or the same bytes under another artifact or manifest (fix the history by hand).
+- Commit dates use %cd --date=short, not %cs (git 2.21+; Mortals has 2.54, but nothing pinned it).
+- A site that is not a git checkout is refused as such, not as "pull the site".
+- The header says exactly what differs in named mode (it said "every check runs unchanged").
+- The test's leftover-folder check has a control that plants a folder and sees it.

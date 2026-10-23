@@ -60,12 +60,13 @@
 # sha256> names which build Josh approved: needed when V was cut more than once (a re-cut after an abort),
 # and with --force, so a forced promote is tied to the approved bytes, not only to a version that could be
 # mistyped. A V older than the build prod serves now is refused unless --allow-older is given (a rollback
-# is a decision, not a typo). Every
-# check below runs unchanged on what that commit holds: the artifact and its sidecar, the manifest and
-# its signature, the installer's sha and floor, and the gates (the experience gate expects V, so a board
-# on a later staging build answers cannot-tell and the promote HOLDS). The artifact itself is not in
-# git: it must still be in the checkout's dist/, as for any promote. The live staging pointer is not
-# read, and the moved-during-the-gates check, which guards it, does not apply.
+# is a decision, not a typo). The checks below run on what that commit holds: the artifact and its
+# sidecar, the manifest and its signature, the installer's sha and floor, and the gates (the experience
+# gate expects V, so a board on a later staging build answers cannot-tell and the promote HOLDS). The
+# artifact itself is not in git: it must still be in the checkout's dist/, as for any promote. What
+# differs: the installer pair is read from the commit (the working tree's setup-staging is not checked or
+# used), the live staging pointer is not read, so the moved-during-the-gates check does not apply, and
+# instead the artifact is re-verified right before the first write.
 #
 # Usage:
 #   tools/promote-channel.sh <site-checkout> [port] [--force]
@@ -181,6 +182,7 @@ if [ -n "$NAMED_VERSION" ]; then
   # any character): every candidate is read and kept only if its pointer names V exactly. It finds every commit that
   # changed V's pointer because the pointer is ONE line (tools/lib/write-latest-pointer.js), so any change to it
   # removes and adds the line holding the version; a hand-edited multi-line pointer would break that.
+  git -C "$SITE" rev-parse --verify -q HEAD >/dev/null || { echo "promote-channel: $SITE is not a git checkout with a HEAD, so --version cannot read the commit that published $NAMED_VERSION - refusing; nothing was written." >&2; exit 1; }
   NAMED_COMMIT=""; _paired=""; _builds=""; _seen=""
   for _c in $(git -C "$SITE" log --format=%H -G "\"version\": *\"$NAMED_VERSION\"" HEAD -- "dist/$STAGING_NAME" 2>/dev/null); do
     git -C "$SITE" show "${_c}:dist/$STAGING_NAME" > "$NAMED_DIR/candidate.json" 2>/dev/null || continue
@@ -188,7 +190,7 @@ if [ -n "$NAMED_VERSION" ]; then
     _s="$(read_pointer_field "$NAMED_DIR/candidate.json" sha256)"
     [ -n "$_s" ] || continue   # no bytes named: not a usable pointer for V, so not a candidate
     case "$_s" in "$NAMED_SHA"*) ;; *) continue ;; esac   # --sha: only the build it names (empty: every build)
-    _seen="${_seen:+$_seen; }sha256 ${_s:0:12} in ${_c:0:10} ($(git -C "$SITE" log -1 --format=%cs "$_c"))"
+    _seen="${_seen:+$_seen; }sha256 ${_s:0:12} in ${_c:0:10} ($(git -C "$SITE" log -1 --date=short --format=%cd "$_c"))"
     # The build a commit names: its bytes, artifact and manifest. Every commit naming V must name the same one.
     _b="$_s|$(read_pointer_field "$NAMED_DIR/candidate.json" "$ARTIFACT_FIELD")|$(read_pointer_field "$NAMED_DIR/candidate.json" manifest)"
     # A space-separated list: pointer fields are bare filenames and hex, never with spaces (a space would read as a
@@ -200,7 +202,15 @@ if [ -n "$NAMED_VERSION" ]; then
        && [ "$(git -C "$SITE" show "${_c}:setup-staging" 2>/dev/null | shasum -a 256 | awk '{print $1}')" = "$_ps" ]; then _paired="$_c"; fi
   done
   [ -n "$NAMED_COMMIT" ] || { echo "promote-channel: no commit on $SITE's HEAD has a $STAGING_NAME naming $NAMED_VERSION${NAMED_SHA:+ with a sha256 starting $NAMED_SHA} - refusing; nothing was written. (Pull the site, or check the version.)" >&2; exit 1; }
-  case "$_builds" in *" "*) echo "promote-channel: commits naming $NAMED_VERSION disagree on its build ($_seen) - refusing; nothing was written. $NAMED_VERSION was cut more than once: name the build that was approved with --sha <its sha256, 8 or more characters>." >&2; exit 1 ;; esac
+  case "$_builds" in *" "*)
+    # What the operator can do depends on how they disagree: on the bytes (--sha picks one, or more of it does), or
+    # only on the artifact or manifest name (--sha cannot separate them: the pointer history needs fixing by hand).
+    _nshas="$(printf '%s\n' $_builds | cut -d'|' -f1 | sort -u | wc -l | tr -d ' ')"
+    if [ "$_nshas" = 1 ]; then _way="They name the same bytes but a different artifact or manifest, which --sha cannot separate: fix the pointer history by hand."
+    elif [ -n "$NAMED_SHA" ]; then _way="More than one build's sha256 starts with $NAMED_SHA: give more of the approved build's sha256."
+    else _way="$NAMED_VERSION was cut more than once: name the build that was approved with --sha <its sha256, 8 or more characters>."; fi
+    echo "promote-channel: commits naming $NAMED_VERSION disagree on its build ($_seen) - refusing; nothing was written. $_way" >&2; exit 1 ;;
+  esac
   [ -z "$_paired" ] || NAMED_COMMIT="$_paired"
   # Only a commit the site has published was ever served to staging: it must be on origin/main. A site with no origin
   # (a local test site) cannot say, and the promote says so.
