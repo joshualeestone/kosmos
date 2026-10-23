@@ -123,6 +123,13 @@ const read = (page) => page.evaluate(() => {
       const o = await off.evaluate(() => ({ card: !document.getElementById('askcard').hidden, dot: !!document.querySelector('#s-nav button[data-go="plus"][data-dot]'),
         keys: (ASK.noteKeys || []).filter((k) => String(k).startsWith('knock:')).length }));
       chk(!o.card && !o.dot && o.keys === 0, `T1 ${label}: no notice, no nav dot, no notice keys away from Kosmos+`, JSON.stringify(o));
+      // Inert means no extra repaint either: polls that change nothing never call paintAsk (CI's render-snav-head-4979).
+      const paints = await off.evaluate(async () => {
+        let n = 0; const real = window.paintAsk; window.paintAsk = (...a) => { n += 1; return real(...a); };
+        try { await pollWaiting(); await pollWaiting(); } finally { window.paintAsk = real; }
+        return n;
+      });
+      chk(paints === 0, `T1 ${label}: polls that change nothing repaint nothing`, 'paintAsk calls: ' + paints);
       allErrs.push(...e2);
       await off.close();
     }
