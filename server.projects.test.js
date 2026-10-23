@@ -3047,6 +3047,12 @@ test('#6946: kosmos claim through the real /api/react route, and `kosmos room` s
     res = await req(`/api/project/${project.id}/room?as=text`);
     assert.ok(res.body.includes('is claimed by zeta'), res.body);
     assert.doesNotMatch(res.body, /reactions on \[[^\]]+\]:[^\n]*\u{1F64B} operator/u, 'the person\'s old raised hand attached to a newer claim:\n' + res.body);
+    // #6974: the person takes the old hand off and raises it again: their LATEST 🙋 is the one read, so it agrees with this claim
+    // (the one-pass map in the room read keeps the last row per post; one keeping the first would read the earlier hand).
+    assert.equal(json(await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' })).op, 'remove');
+    assert.equal(json(await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' })).op, 'add');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.match(res.body, /reactions on \[[^\]]+\]:[^\n]*\u{1F64B} operator/u, 'the person\'s new raised hand is not shown beside the claim it agrees with:\n' + res.body);
     assert.equal((await asZeta({ claim: 'release' })).op, 'remove');
     assert.equal((await asZeta({ claim: 'release' })).op, 'none');
   });

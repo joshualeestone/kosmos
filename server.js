@@ -21206,6 +21206,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const rec = messages.record();
       let claimMembers;   // #6946: the room's members for claims, read once per request and only if a post has a 🙋
+      let youClaimAt;     // #6974: post id -> when the person's live 🙋 on it was given (null once taken off), one pass per request
       const noteNames = new Map();   // #4423: one read's names for recommender notes (noteTextNow)
       /* #4649 slice 3: the owner's labels by stamped account, read ONCE per request (review round 3: a read per row
          stalled a busy room). The text view never shows them, so it does not read them. */
@@ -21270,11 +21271,14 @@ const server = http.createServer(async (req, res) => {
                   const c = messages.claimOf(m.id, rec.rows, claimMembers);
                   if (!c) return {};
                   // #6957: whether the person's live 🙋 was given after this claim began (agrees with THIS holder).
-                  let youAt = null;
-                  for (const x of rec.rows) {
-                    if (!x || x.kind !== 'reaction' || String(x.of) !== String(m.id) || x.operator !== true || !messages.isClaimEmoji(x.emoji)) continue;
-                    youAt = x.op === 'remove' ? null : x.at;
+                  if (youClaimAt === undefined) {
+                    youClaimAt = new Map();
+                    for (const x of rec.rows) {
+                      if (!x || x.kind !== 'reaction' || x.operator !== true || !messages.isClaimEmoji(x.emoji)) continue;
+                      youClaimAt.set(String(x.of), x.op === 'remove' ? null : x.at);
+                    }
                   }
+                  const youAt = youClaimAt.get(String(m.id)) || null;
                   const agreed = typeof youAt === 'string' && typeof c.at === 'string' && Date.parse(youAt) >= Date.parse(c.at);
                   return { claim: c, ...(agreed ? { claimAgreed: true } : {}) };
                 })()) };
