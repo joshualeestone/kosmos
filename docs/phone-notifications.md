@@ -112,8 +112,8 @@ within 15 seconds, the notification shows them as a message from the agent:
 | An agent needs you (its report) | `<Agent>` | `<Agent> needs you, in <Project>`, or `<Agent> needs you` | the report's reason, shortened to about 400 characters: what the agent wrote (`kosmos report needs_you "..."`), or, when it stopped to ask permission, `asking permission to use <tool>`, with `: <command>` when there is one | the agent's picture, when it has one |
 | An agent answered you | `<Agent>` | `<Agent> replied` | the reply, shortened to about 400 characters | the agent's picture, when it has one |
 
-The words still travel only between the person's computer and their phone; the coordinator and Apple still carry only
-who and what. If the computer does not answer (asleep, offline, an older Kosmos, or a phone not signed in to that
+The words are never in the push: the coordinator's notification and Apple still carry only who and what, and the
+phone fetches the words from the computer over Kosmos+ remote. If the computer does not answer (asleep, offline, an older Kosmos, or a phone not signed in to that
 computer), the notification shows as in Sent today. Every other row of Sent today (crash, stuck, helper, posts, work
 ready) is not asked about and always shows as there. Android and the browser do not ask yet: they show Sent today's words.
 

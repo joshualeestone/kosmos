@@ -12,7 +12,10 @@
  * What it cannot reach: the coordinator's own wording (kosmos-relay coordinator/src/push.rs notice_text) lives in
  * another repo, so a change there is not seen here; the iPhone subtitle is built from this page's Wording table, which
  * is what that code is documented to send. The Swift is read as text (no Swift runs on this suite's runner), so the
- * iPhone side is pinned to its whole isAskable body and to the exact, ordered assignments in messageContent.
+ * iPhone side is pinned to its whole isAskable body and to the exact, ordered assignments in messageContent. Those are
+ * text matches on purpose: a reformat that splits one of those lines fails here, and the fix is to update the
+ * pattern, which is cheaper than a guard that a real change slips past. Who a reply counts as (phonenotice replyText) is
+ * left to engine/phonenotice's own tests; this one guards the page's words, not that lookup.
  *
  *   node --test web.phone-notify-catalog-6487.test.js
  */
@@ -128,7 +131,22 @@ test('#6487: the iPhone shows the agent as the title, the original line as the s
   for (const r of rows) assert.equal(r[4], 'the agent\'s picture, when it has one', r[0] + ': picture');
   assert.match(read('server.js'), /picture = store\.avatarPath\(got\.session\) \? '\/api\/agent\/' \+ encodeURIComponent\(got\.session\) \+ '\/avatar' : null;/,
     'the board names a picture differently now; update the page');
-  // "within 15 seconds": how long the iPhone waits for the words.
+  // The board answers at the route the page names, and its answer carries the picture it computed.
+  const server = read('server.js');
+  assert.match(server, /if \(pathname === '\/api\/phone\/notice' && req\.method === 'GET'\)/, 'the route moved; update the page');
+  assert.match(server, /sendJson\(res, 200, \{ kind: got\.kind, session: got\.session, agent: [^}]*text: got\.text, picture \}\);/,
+    'the answer no longer carries the picture; update the page');
+  // "within 15 seconds" for the words, "its own 8 seconds" for the picture.
   assert.match(DOC, /within 15 seconds, the notification shows them/);
   assert.match(svc, /await fetch\(ask, within: 15,/);
+  assert.match(DOC, /picture is fetched after the words with its own 8 seconds/);
+  assert.match(svc, /await fetch\(r, within: 8,/);
+});
+
+test('#6487: a permission request puts the tool and up to 200 characters of the command on the lock screen, as the page warns', () => {
+  assert.match(DOC, /`asking permission to use <tool>`, with `: <command>` when there is one/);
+  assert.match(DOC, /names the tool and the command \(up to 200 characters of it\)/);
+  const hook = read('engine/kosmos-report-hook.js');
+  assert.match(hook, /const cmd = field\(evt, 'tool_input\.command'\)\.slice\(0, 200\);/, 'the command cap moved; update the page');
+  assert.match(hook, /text: 'asking permission to use ' \+ tool \+ \(cmd \? ': ' \+ cmd : ''\)/, 'the permission text changed; update the page');
 });
