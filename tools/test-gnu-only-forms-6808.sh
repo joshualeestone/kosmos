@@ -24,11 +24,11 @@
 # a form inside a quoted string (B counts a quote as a command start, for `bash -c "sed -i ..."`), e.g. an echo of usage.
 #
 # Bash 4+ syntax, the other half of the same gap: the Linux shards run every script under bash 5, a Mac runs it under
-# bash 3.2. No counterpart, always flagged: mapfile / readarray, declare|local|typeset|readonly with -A -g -n -l or -u in
-# its flags, ${x,,} ${x^^} (single forms, ${!x,,} too), ${x@Q} and the other @ transforms, ${x:off:-N}, read -t with a
-# fraction, coproc, shopt naming a bash 4+ option, $EPOCHSECONDS/EPOCHREALTIME: bash 3.2's `bash -n` accepts all of
-# these, so they fail only when the line runs. Also |& , &>> , ;;& and ;& in a case: those 3.2's `bash -n` does
-# reject, but only where something runs it on a Mac.
+# bash 3.2. No counterpart, always flagged: mapfile / readarray, declare|local|typeset|readonly with -A -g -n -l
+# or -u in its flags (and unset -n), ${x,,} ${x^^} (single forms, ${!x,,} too), ${x@Q} and the other @ transforms,
+# ${x:off:-N}, read -t with a fraction, coproc, shopt naming a bash 4+ option, EPOCHSECONDS/EPOCHREALTIME ($-less
+# in arithmetic too): bash 3.2's `bash -n` accepts all of these, so they fail only when the line runs.
+# Also |& , &>> , ;;& and ;& in a case: those 3.2's `bash -n` does reject, but only where something runs it on a Mac.
 # Also a floor: wait -n, read -N / -i, ${a[-1]}, {1..9..2}, $BASHPID and printf %(fmt)T are not on the list, and a
 # trailing comment that names a form (`... # no mapfile here`) is flagged like the quoted-string case above, and so
 # are a |& inside a quoted string and the probe `shopt -q globstar` (3.2 returns 1 with an error on stderr, which a
@@ -64,16 +64,16 @@ forms() {
     OFF='([^}:]|[$][{][^}]*[}])*'   # a substring offset, a nested ${...} included
     BK="(^|[;&|(\`{\"'[:space:]])"   # B without the slash: `local` in /usr/local is a path, not a builtin
     printf '%s\t%s\t%s\n' \
-        bash4-mapfile "${B}(mapfile|readarray)([[:space:]]|\$)" "" \
-        bash4-declare "${BK}(declare|local|typeset|readonly)${O}[[:space:]]+-[a-zA-Z]*[Agnlu][a-zA-Z]*([[:space:]]|\$)" "" \
+        bash4-mapfile "${BK}(mapfile|readarray)([[:space:]]|\$)" "" \
+        bash4-declare "${BK}(declare|local|typeset|readonly|unset)${O}[[:space:]]+-[a-zA-Z]*[Agnlu][a-zA-Z]*([^a-zA-Z0-9_-]|\$)" "" \
         bash4-case-mod '[$][{]!?'"$V"'(,|\^)' "" \
         bash4-transform '[$][{]'"$V"'@[QEPAaKkUuL][}]' "" \
         bash4-pipe-amp '(^|[^|])\|&([^#a-zA-Z]|$|[a-zA-Z]+([^a-zA-Z;]|$))' "" \
         bash4-append-both '&>>' "" \
         bash4-case-fall ';;&|(^|[^;]);&([[:space:]]|$)' "" \
-        bash4-coproc "${B}coproc([[:space:]]|\$)" "" \
-        bash4-shopt "${B}shopt[[:space:]].*(globstar|lastpipe|inherit_errexit|globasciiranges|direxpand|checkjobs|autocd|dirspell|localvar_inherit|localvar_unset|assoc_expand_once|compat32|compat4[0-9]|globskipdots|patsub_replacement|progcomp_alias|complete_fullquote|noexpand_translation|varredir_close)([[:space:]]|\$)" "" \
-        bash4-epoch '[$][{]?EPOCH(SECONDS|REALTIME)' "" \
+        bash4-coproc "${BK}coproc([[:space:]]|\$)" "" \
+        bash4-shopt "${B}shopt[[:space:]].*(globstar|lastpipe|inherit_errexit|globasciiranges|direxpand|checkjobs|autocd|dirspell|localvar_inherit|localvar_unset|assoc_expand_once|compat32|compat4[0-9]|globskipdots|patsub_replacement|progcomp_alias|complete_fullquote|noexpand_translation|varredir_close)([^a-zA-Z0-9_]|\$)" "" \
+        bash4-epoch '(^|[^A-Za-z0-9_])EPOCH(SECONDS|REALTIME)([^A-Za-z0-9_]|$)' "" \
         bash4-neg-length '[$][{]'"$V"':([[:space:]]+-'"$OFF"'|[[:space:]]*([0-9(a-zA-Z_$]|[$][{][^}]*[}])'"$OFF"')?:[[:space:]]*-' "" \
         bash4-read-t "${B}read[[:space:]][^;|&]*-[a-zA-Z]*t[[:space:]]*[\"']?[0-9]*[.][0-9]" ""
 }
@@ -213,7 +213,14 @@ for case_ in \
     "bash4-neg-length|echo \"\${x:i:-1}\"" \
     "bash4-neg-length|echo \"\${x:\${#y}:-1}\"" \
     "bash4-declare|readonly -A ro" \
-    "bash4-shopt|shopt -s globskipdots"; do
+    "bash4-shopt|shopt -s globskipdots" \
+    "bash4-shopt|shopt -s globstar; ls x" \
+    "bash4-shopt|(shopt -s lastpipe)" \
+    "bash4-shopt|if shopt -q globstar; then x; fi" \
+    "bash4-epoch|x=\$(( EPOCHSECONDS - s ))" \
+    "bash4-epoch|(( t = EPOCHREALTIME ))" \
+    "bash4-declare|declare -A; x" \
+    "bash4-declare|unset -n r"; do
     form=${case_%%|*}; line=${case_#*|}
     out=$(plant "$line")
     case "$out" in *": $form: "*) ok "flags $form: $line" ;; *) bad "did not flag $form in: $line (got '$out')" ;; esac
@@ -263,6 +270,10 @@ for line in \
     "read -t 5 r" \
     "read -r line; sleep 0.5" \
     "readonly -a list" \
+    "cat /var/mapfile x" \
+    "unset -f fn" \
+    "shopt -s globstarx" \
+    "MY_EPOCHSECONDS=1" \
     "y=\${x:\${#y}:1}" \
     "y=\${x:=a:-1}" \
     "mapfile -t x < f   # bash4-ok: this script is run by the Linux service only"; do
