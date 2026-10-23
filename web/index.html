@@ -8415,6 +8415,7 @@ html.has-speak .asp-speak { display: grid; }
 /* #6994: the project's records, under the Files list. */
 .pj-records { margin-top: var(--space-4); }
 .pj-records-h { font: var(--text-callout) var(--font-ui); font-weight: 600; color: var(--label); margin: 0 0 var(--space-2); }
+.pj-records-h::first-letter { text-transform: uppercase; }
 .pj-records-note { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin: 0 0 var(--space-2); }
 .pj-rec { list-style: none; margin: 0; padding: 0; font: var(--text-callout) var(--font-ui); color: var(--label); }
 .pj-rec-row { padding: var(--space-3) 0; border-bottom: 0.5px solid var(--separator); min-width: 0; }
@@ -71186,7 +71187,8 @@ async function pjLoadRecords(id) {
   if (stamp === PJ_REC_STAMP && !box.hidden) { pjRecordsScrollStop(box); return; }
   PJ_REC_STAMP = stamp;
   const label = String(body.label || 'records');
-  document.getElementById('pj-records-h').textContent = label.charAt(0).toUpperCase() + label.slice(1)
+  // The first letter is raised by CSS (.pj-records-h::first-letter), not here: a heading takes no full stop, so not asSentence.
+  document.getElementById('pj-records-h').textContent = label
     + ' (' + body.rows.length + (body.stale ? ', ' + body.stale + ' stale' : '') + ')';
   const rows = document.getElementById('pj-records-rows');
   rows.textContent = '';

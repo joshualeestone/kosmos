@@ -67,7 +67,7 @@ const ROWS = [
       ok(`${t} CONTROL: a project with no records shows no table`, r.hidden === true, JSON.stringify(r));
     } else {
       ok(`${t} the records are shown`, r.hidden === false);
-      ok(`${t} the heading names the rows, the count and the stale count`, r.heading === 'Accounts (3, 1 stale)', JSON.stringify(r.heading));
+      ok(`${t} the heading names the rows (CSS raises its first letter), the count and the stale count`, r.heading === 'accounts (3, 1 stale)', JSON.stringify(r.heading));
       ok(`${t} one list item per record`, r.cells.length === 3, JSON.stringify(r.cells));
       ok(`${t} a row reads name, status, the confirmed line with its age and writer, source`,
         JSON.stringify(r.cells[0]) === JSON.stringify(['Acme', 'active', 'Confirmed 2026-10-23, today, by mara', 'https://crm.example/acme']), JSON.stringify(r.cells[0]));
