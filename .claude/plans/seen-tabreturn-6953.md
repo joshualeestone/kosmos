@@ -15,4 +15,4 @@ Card: kosmos#6953.
 - A return while a record for the same state is still on its way sends nothing; that record's time stands (seconds off).
 
 ## Weakest premise
-That a focused return to the tab, or the window gaining focus (every app switch back, an undocked devtools window closing), means a look. The screen waking or unlocking with the browser in front also gives a focused visible page with nobody necessarily there, and a person passing through a tab on the way elsewhere counts too; all count as a view, as opening the task does.
+That a focused return to the tab, or the window gaining focus (every app switch back, a return from the browser's own address bar or find bar, an undocked devtools window closing), means a look. The screen waking or unlocking with the browser in front also gives a focused visible page with nobody necessarily there, and a person passing through a tab on the way elsewhere counts too; all count as a view, as opening the task does.

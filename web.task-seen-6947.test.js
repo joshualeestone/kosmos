@@ -37,7 +37,6 @@ function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', re
     visibilityState: visible,
     hasFocus: () => st.focused !== false,
     getElementById: (id) => (id === 'tk-back' ? { getClientRects: () => (st.onScreen ? [{}] : []), focus() {} } : id === 'tk-activity' ? acts : (els[id] || (els[id] = { textContent: '', value: '', innerHTML: '', hidden: false }))),
-    addEventListener: (type, fn) => { if (type === 'visibilitychange') doc.listener = fn; },
   };
   let release = () => {};
   const gate = hold ? new Promise((r) => { release = r; }) : Promise.resolve();
@@ -483,4 +482,17 @@ test('#6953: the five-second read asks for a quiet redraw; a return after a chan
   await p.tabBack(); await p.settle();
   assert.equal(p.acts.innerHTML, '<rows>', 'a return after a change did not draw the new conversation');
   assert.deepEqual(calls, [], 'a return the person chose was drawn with the live region switched off');
+});
+
+test('#6953: a return that draws a changed conversation puts keyboard focus back on the row the person had focused', async () => {
+  const p = page();
+  await p.paintTaskActivity(3); await p.settle();
+  let focused = 0;
+  const row = { dataset: { first: '0@2026-10-22T23:00:00.000Z' }, querySelector: () => ({ focus: () => { focused += 1; } }) };
+  p.acts.contains = () => true;
+  p.acts.querySelectorAll = (sel) => (sel === '[data-first]' ? [row] : []);
+  p.doc.activeElement = { closest: () => row };
+  p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-23T00:20:00.000Z', kind: 'said', text: 'while away' }];
+  await p.tabBack(); await p.settle();
+  assert.equal(focused, 1, 'focus was not put back after a return drew the changed conversation');
 });

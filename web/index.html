@@ -68474,7 +68474,7 @@ async function paintTaskActivity(n, opts) {
      each time something is recorded while the person is on the page. */
   // #6953: quiet is the five-second read's alone (opts.quiet); a tab return draws a change with the live region on.
   const quiet = !!(opts && opts.quiet) && typeof holder.setAttribute === 'function';
-  /* The poll's redraw also keeps keyboard focus: a history row's summary the person had focused is focused again after
+  /* A redraw drawn only if changed (the five-second read, a tab return) also keeps keyboard focus: a history row's summary the person had focused is focused again after
      the swap (by its rollup's data-first), so focus does not fall to the page body unannounced. */
   const had = onlyIfChanged && typeof holder.contains === 'function' && document.activeElement && holder.contains(document.activeElement)
     ? document.activeElement.closest && document.activeElement.closest('[data-first]') : null;
