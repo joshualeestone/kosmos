@@ -10,12 +10,13 @@
 #      when the shell that started it is killed.
 #   F  the arms above put the scratch folder in a kt<pid> sandbox, so the cut guard counts the stand-in as a test
 #      fixture: running this test never reads as a cut to another agent on the same computer.
-#   G  CI only (GITHUB_ACTIONS=true): with the scratch folder outside any sandbox, the cut guard counts THIS stand-in (by
+#   G  GitHub-hosted CI only (GITHUB_ACTIONS=true, RUNNER_ENVIRONMENT not self-hosted): with the scratch folder outside any sandbox, the cut guard counts THIS stand-in (by
 #      its pid) as a cut and refuses; CONTROL: after the shape it no longer lists that pid. (On CI the test itself runs
 #      inside run-tests.sh's shape, whose own stand-in makes the guard refuse either way, so G keys on the pid.)
-#   W  the wiring: run-tests.sh runs the shell part through kosmos_cut_shape_run when KOSMOS_SHELL_CUT_ENV=1 (not on a
-#      self-hosted runner), refuses the flag outside CI (its flag check, lifted and run alone), and test.yml sets it for
-#      the shell jobs only.
+#   W  the wiring: run-tests.sh refuses the flag outside CI (its flag check, lifted and run alone: behavioural). That the
+#      shell part goes through kosmos_cut_shape_run when the flag is set, not on a self-hosted runner, and that test.yml
+#      sets it for the shell jobs only, is checked in the source text (structural: running it here would start a
+#      stand-in on this computer).
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -66,6 +67,9 @@ NK=$(mktemp -d "${TMPDIR:-/tmp}/cutshape-nokt.XXXXXX")
 out=$(env -u GITHUB_ACTIONS bash -c ". '$LIB'; kosmos_cut_shape_run --base '$NK' sh -c 'echo RAN'" 2>&1); rc=$?
 [ "$rc" -eq 2 ] && ! printf '%s' "$out" | grep -q RAN && [ -z "$(ls -A "$NK")" ] \
   && pass "R: outside CI a base outside a kt sandbox is refused (2), nothing run, nothing made" || bad "R: a non-kt base outside CI gave rc=$rc: $out"
+out=$(GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=self-hosted bash -c ". '$LIB'; kosmos_cut_shape_run --base '$NK' sh -c 'echo RAN'" 2>&1); rc=$?
+[ "$rc" -eq 2 ] && ! printf '%s' "$out" | grep -q RAN && [ -z "$(ls -A "$NK")" ] \
+  && pass "R: on a self-hosted runner (a shared computer) a base outside a kt sandbox is refused too" || bad "R: a self-hosted runner let a non-kt base through (rc=$rc): $out"
 rmdir "$NK" 2>/dev/null
 out=$(env -u GITHUB_ACTIONS bash -c ". '$LIB'; kosmos_cut_shape_run --base '$T' sh -c 'echo RAN'" 2>/dev/null); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = RAN ] && pass "R CONTROL: the same call with a kt base runs" || bad "R CONTROL: a kt base outside CI did not run (rc=$rc, '$out')"
@@ -98,6 +102,14 @@ for _ in 1 2 3 4 5 6; do [ "$(leftovers)" = 0 ] && break; sleep 0.3; done
 [ "$(leftovers)" = 0 ] && pass "S: and it removes the scratch folder as it goes" || bad "S: a killed run left its scratch folder ($(leftovers))"
 rm -rf "$T"/kosmos-cut-shape.* 2>/dev/null   # the killed run could not remove its own (its `sleep 8` ends by itself)
 
+# A signal that reaches the stand-in while the command runs ends it but must not take the command's home with it.
+SIG="$T/signal-probe.sh"
+printf '%s\n' "sp=\$(pgrep -f '^bash tools/release\\.sh [0-9]+ ' | while read -r p; do lsof -a -p \"\$p\" -d cwd -Fn 2>/dev/null | grep -q '/kt$$/kosmos-cut-shape\\.' && echo \"\$p\"; done | head -1)" \
+  'kill -TERM "$sp" 2>/dev/null; sleep 1.5; [ -d "$AGENT_WORKFORCE_HOME" ] && echo kept || echo gone' > "$SIG"
+sig=$(kosmos_cut_shape_run --base "$T" bash "$SIG" 2>/dev/null)
+[ "$sig" = kept ] && pass "S: a signal to the stand-in mid-run leaves the command's AGENT_WORKFORCE_HOME in place" || bad "S: a signal to the stand-in took the command's home ($sig)"
+[ "$(leftovers)" = 0 ] && pass "S: and the folder is still removed when the command ends" || bad "S: after a signalled stand-in the folder was left ($(leftovers))"
+
 # --- F ---------------------------------------------------------------------------------------------------------------
 # Both halves, or the second could pass because the guard never saw the stand-in at all: the guard's process match
 # lists it, and the fixture filter then drops it. The stand-in's pid is the one working in this test's scratch folder.
@@ -115,7 +127,7 @@ read -r fsp fraw fkept <<< "$(kosmos_cut_shape_run --base "$T" bash "$FIX" 2>/de
 # On CI this test itself runs inside run-tests.sh's cut shape, so the guard already sees that outer stand-in and refuses
 # either way. So G asks about THIS stand-in by its pid: the cut guard counts it as a cut inside (not dropped as a
 # fixture, since its folder is outside any sandbox), and it is gone from the guard's list after.
-if [ "${GITHUB_ACTIONS:-}" = true ]; then
+if [ "${GITHUB_ACTIONS:-}" = true ] && [ "${RUNNER_ENVIRONMENT:-}" != self-hosted ]; then
   B=$(mktemp -d "/tmp/cutshape6977.XXXXXX")
   GP="$B/guard-probe.sh"
   printf '%s\n' ". '$GUARD'" \
@@ -130,7 +142,7 @@ if [ "${GITHUB_ACTIONS:-}" = true ]; then
   [ -n "$gsp" ] && [ "$after" = 0 ] && pass "G CONTROL: after the shape the guard no longer lists it" || bad "G CONTROL: the guard still lists pid ${gsp:-none} after the shape ($after)"
   rm -rf "${B:?}"
 else
-  echo "SKIP  G: CI only. Outside a sandbox the stand-in reads as a cut to every agent on this computer."
+  echo "SKIP  G: GitHub-hosted CI only. Outside a sandbox the stand-in reads as a cut to every agent on this computer."
 fi
 
 # --- W ---------------------------------------------------------------------------------------------------------------

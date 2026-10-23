@@ -27,7 +27,12 @@ pigeonpete.
   self-hosted runner (`RUNNER_ENVIRONMENT=self-hosted`) the shape is not used and the part runs plain, saying so:
   test.yml can route shell shards to the shared kosmos-ci Mac (#4601, `KOSMOS_CI_SHELL_SHARDS`, unset today), and a
   stand-in there would read as a cut to every agent on it (review 2). Not a refusal, so such a job still runs.
-- The stand-in removes its scratch folder when the shell that started it dies, so a cancelled run leaves nothing.
+- The stand-in removes its scratch folder when the shell that started it dies. A signal to the stand-in removes
+  nothing (review 4 reversed review 3 here): the folder holds the AGENT_WORKFORCE_HOME the remaining tests are using,
+  so a test that swept release.sh-shaped processes would otherwise delete it mid-run. Cost: a kill that reaches the
+  caller and the stand-in at once (a cancelled CI run) leaves the folder, which goes with the runner.
+- Outside a GitHub-hosted runner the library itself refuses a scratch base outside a kt<digits> sandbox, before
+  anything starts, so neither a hand call nor a self-hosted runner can make a visible stand-in (not only run-tests.sh).
 - `.github/workflows/test.yml`: `KOSMOS_SHELL_CUT_ENV` is 1 for the shell jobs only.
 
 Rejected:
@@ -37,6 +42,9 @@ Rejected:
   needed catching.
 - Writing a cut marker for the stand-in: not needed to reproduce either failure class, and the marker folder is
   machine-wide.
+- The node part: a cut exports AGENT_WORKFORCE_HOME before `yarn test`, so node tests see it too, but the node suite
+  ran with the cut home in both 0.7.64 cuts and passed (0 fail); the card is about the shell tests. A follow-up if a
+  node test ever reds only in a cut.
 - Running the shell part twice (plain and cut-shaped): doubles ~17 minutes of CI for coverage the local run already
   gives (local validation stays plain, so the non-cut environment is still tested on every validation).
 
@@ -49,6 +57,10 @@ Rejected:
   run-tests.sh and test.yml wiring.
 - Real reproduction, the #6922 class: `tools/test-staging-agent-online-check.sh` on current main (its fix #6976 not
   yet merged) passes plain (rc=0) and fails under `kosmos_cut_shape_run` (rc=1, its launchctl arm).
+
+## Not reproduced by the shape (a test depending on one is not covered)
+The cut's marker and KOSMOS_RUN_COOKIE_CUT; its machine claim (claim file, KOSMOS_MACHINE_CLAIM_COOKIE); release.sh as
+an ancestor of the suite. None caused tonight's two aborts.
 
 ## Weakest premise
 That the renewer is what the 22:58 sandboxed release.sh saw. It is the one non-ancestor `bash tools/release.sh` a
