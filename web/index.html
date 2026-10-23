@@ -68411,7 +68411,7 @@ async function paintTaskActivity(n, opts) {
     const out = await res.json();
     events = Array.isArray(out.events) ? out.events : [];
   } catch {
-    if (n !== TK_OPEN || p.id !== PJ_CURRENT) return;
+    if (n !== TK_OPEN || p.id !== PJ_CURRENT || seq < (holder.tkDrawnSeq || 0)) return;   // #6951: a stale read's failure is not news either
     /* A failed read says nothing about the task, so it must not read as "nothing
        happened". Keep whatever is already shown; only when the list is empty put
        a quiet could-not-read line, never a false empty state. */
@@ -68424,20 +68424,21 @@ async function paintTaskActivity(n, opts) {
      shared #tk-activity of the new one. Same check as after the fetch await -- a
      second await is a second chance for the page to have moved on. */
   if (n !== TK_OPEN || p.id !== PJ_CURRENT) return;
-  /* #6951: what was last drawn, kept on the holder (not a global, so the page's sliced tests need nothing new): the
-     poll passes onlyIfChanged and leaves an unchanged conversation as it is. */
   if (seq < (holder.tkDrawnSeq || 0)) return;
   const last = events[events.length - 1];
   const drawn = p.id + '#' + n + '#' + events.length + '#' + (last ? last.at + '#' + last.kind : '');
-  /* The view is remembered apart from the draw (tkMarked: this conversation is settled, the board answered for it). A
-     mark that declined (the page behind another Kosmos tab, so nothing was sent) is tried on the next read of the same
-     conversation; a settled one is not sent again until the conversation changes. */
-  /* tkMarking: a record for this conversation is on its way (or waiting on its retry), so another read does not send a
-     second one. done(true) settles it; done(false) (the retry found the page gone) leaves it for the next read. */
+  /* #6951: kept on the holder, not in globals, so the page's sliced tests need nothing new. tkDrawn: the conversation
+     last drawn (the poll's onlyIfChanged leaves an unchanged one as it is). tkMarking: a record for it is on its way or
+     waiting on its retry, so another read does not send a second. tkMarked: the board answered for it (recorded,
+     refused, or failed twice), so it is not sent again until the conversation changes. A mark that declined (nothing
+     sent: the page behind another Kosmos tab) is tried on the next read; done(false) (the retry found the page gone)
+     leaves it for the next read too. */
   const done = (settled) => {
     if (holder.tkOpen !== openId) return;   // a record from an earlier open of this task: the page has started again
     if (holder.tkMarking === drawn) holder.tkMarking = null;
-    if (settled && holder.tkDrawn === drawn) holder.tkMarked = drawn;   // an older state settling late does not undo a newer one
+    // An older state settling late does not undo a newer one; a read that failed meanwhile (tkDrawn cleared) does not
+    // stop this conversation's record from counting.
+    if (settled && (holder.tkDrawn === drawn || holder.tkDrawn === null)) holder.tkMarked = drawn;
   };
   const mark = () => {
     if (holder.tkOpen !== openId || holder.tkMarked === drawn || holder.tkMarking === drawn) return;

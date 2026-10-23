@@ -288,8 +288,11 @@ test('#6951: a read still out when the task is opened again is dropped, and the 
   releaseStale(); await stale; await p.settle();
   releaseNew(); await p.settle(); await p.settle();
   while (p.timers.length) { p.timers.shift()[0](); await p.settle(); }
+  assert.ok(p.acts.tkDrawn, 'nothing was drawn for the new open');
+  assert.equal(p.acts.innerHTML, '<rows>');
   assert.equal(p.acts.tkMarking, null, 'a record was left marked as on its way, so this open can never record its view');
   assert.equal(p.acts.tkMarked, p.acts.tkDrawn, 'the new open did not settle its own record');
+  assert.equal(p.posts.length, 3, 'the first open\'s record, the new open\'s, and its one retry: ' + p.posts.length);
 });
 
 test('#6951: the five-second read does not start another read while its last one is still out', async () => {
@@ -301,4 +304,16 @@ test('#6951: the five-second read does not start another read while its last one
   p.st.queue.shift()(); await p.settle(); await p.settle();
   p.tkPollActivity(); await p.settle();
   assert.equal(p.st.queue.length, 1, 'the next read did not start after the last one returned');
+});
+
+test('#6951: a read that fails while a record is on its way does not make the next read record the same conversation again', async () => {
+  const p = page({ post: 500 });
+  await p.paintTaskActivity(3); await p.settle();
+  assert.equal(p.timers.length, 1, 'waiting on its retry');
+  p.st.read = 'fail';
+  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  p.st.read = 'ok'; p.st.post = 200;
+  p.timers.shift()[0](); await p.settle();   // the retry is recorded while the panel's draw is cleared
+  await p.paintTaskActivity(3, { onlyIfChanged: true }); await p.settle();
+  assert.equal(p.posts.length, 2, 'the same conversation was recorded again after the failed read: ' + p.posts.length);
 });
