@@ -15,7 +15,8 @@
 # given address instead of Kosmos+ (check-no-shots-flag.sh).
 #
 # And (kosmos#6487) it checks the notification extension inside the app is signed as <bundle>.notice by the same team,
-# is not a development build, and shares the app's keychain group.
+# is not a development build, and shares the app's keychain group. When the extension asks for message-style notices
+# (KosmosMessageStyle), the app must hold Communication Notifications.
 #
 # Usage: ios/tools/check-ipa-entitlements.sh <Kosmos.ipa | Kosmos.app> [TEAM_ID] [BUNDLE_ID]
 # Ends with one VERDICT line; no verdict line means the check did not finish.
@@ -107,6 +108,18 @@ else
     echo "ok       keychain group shared by the app and the extension: $want_group"
   else
     echo "WRONG    the app and the extension do not both hold the keychain group $want_group"; fail=1
+  fi
+  # A notice shown as a message from the agent (KosmosMessageStyle) needs the app to hold Communication Notifications;
+  # without it the phone drops the message style, so a build asking for one without the other is refused.
+  # A boolean true only, as NotificationService reads it (`as? Bool == true`): a string "true" turns the style off there.
+  if [ "$(plutil -extract KosmosMessageStyle xml1 -o - "$appex/Info.plist" 2>/dev/null | grep -c '<true/>')" = 1 ]; then
+    if [ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.usernotifications.communication' "$ents" 2>/dev/null)" = "true" ]; then
+      echo "ok       message-style notices, and the app holds Communication Notifications"
+    else
+      echo "WRONG    the extension asks for message-style notices but the app lacks com.apple.developer.usernotifications.communication"; fail=1
+    fi
+  else
+    echo "ok       attachment-style notices (KosmosMessageStyle is not true)"
   fi
 fi
 

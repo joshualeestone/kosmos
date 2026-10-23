@@ -112,9 +112,8 @@ enum PhoneNotice {
         return r
     }
 
-    // kosmos#6487: true only once io.kosmos.app holds the Communication Notifications capability AND Kosmos.entitlements
-    // asks for it (the App Store Connect API cannot turn it on, so it waits on the developer portal). Until then the
-    // picture rides as the notice's attachment: a message-style notice with no capability would show no picture at all.
+    // kosmos#6487: true needs Kosmos.entitlements to ask for Communication Notifications. False sends the picture as
+    // the notice's attachment.
     static let messageStyleKey = "KosmosMessageStyle"
 
     // The file name ending iOS needs to show a picture as an attachment, from the picture's content type; nil for a
