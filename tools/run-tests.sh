@@ -798,8 +798,12 @@ if [ "$KOSMOS_ONLY" = 1 ]; then
 elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
   # #6977: in a cut's shape when KOSMOS_SHELL_CUT_ENV=1 (CI only, refused above). The scratch folder goes beside the kt
   # sandbox, not in it: a stand-in working there would be a test fixture to the cut guard and not count as a cut.
+  # Not on a self-hosted runner: that is a shared Mac (test.yml can route shell shards to it, #4601), where the
+  # stand-in would read as a cut to every agent on it. The part runs plain there, and says so.
   _rt_shell_wrap=()
-  if [ "${KOSMOS_SHELL_CUT_ENV:-0}" = 1 ]; then
+  if [ "${KOSMOS_SHELL_CUT_ENV:-0}" = 1 ] && [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+    echo "run-tests: KOSMOS_SHELL_CUT_ENV=1 is not used on a self-hosted runner (a shared computer); the shell part runs without the cut's shape (#6977)" >&2
+  elif [ "${KOSMOS_SHELL_CUT_ENV:-0}" = 1 ]; then
     . "$REPO/tools/lib/cut-shape.sh"
     _rt_shell_wrap=(kosmos_cut_shape_run --base "$(dirname "$KOSMOS_RUN_TMPDIR")")
   fi

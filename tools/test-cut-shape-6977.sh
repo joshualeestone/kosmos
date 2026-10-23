@@ -13,8 +13,9 @@
 #   G  CI only (GITHUB_ACTIONS=true): with the scratch folder outside any sandbox, the cut guard counts THIS stand-in (by
 #      its pid) as a cut and refuses; CONTROL: after the shape it no longer lists that pid. (On CI the test itself runs
 #      inside run-tests.sh's shape, whose own stand-in makes the guard refuse either way, so G keys on the pid.)
-#   W  the wiring: run-tests.sh runs the shell part through kosmos_cut_shape_run when KOSMOS_SHELL_CUT_ENV=1, refuses the
-#      flag outside CI, and test.yml sets it for the shell jobs only.
+#   W  the wiring: run-tests.sh runs the shell part through kosmos_cut_shape_run when KOSMOS_SHELL_CUT_ENV=1 (not on a
+#      self-hosted runner), refuses the flag outside CI (its flag check, lifted and run alone), and test.yml sets it for
+#      the shell jobs only.
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -38,7 +39,7 @@ leftovers() { ls -d "$T"/kosmos-cut-shape.* 2>/dev/null | wc -l | tr -d ' '; }
 # How many stand-ins from THIS test are live: a `bash tools/release.sh <pid>` working in one of its scratch folders. A
 # script, so the same count runs inside the shape (as its command) and outside it.
 COUNT="$T/count-standins.sh"
-printf '%s\n' 'pgrep -f "^bash tools/release\.sh [0-9]+$" 2>/dev/null | while read -r p; do' \
+printf '%s\n' 'pgrep -f "^bash tools/release\.sh [0-9]+ " 2>/dev/null | while read -r p; do' \
   "  lsof -a -p \"\$p\" -d cwd -Fn 2>/dev/null | grep -q '/kt$$/kosmos-cut-shape\\.' && echo \"\$p\"" \
   'done | wc -l | tr -d " "' > "$COUNT"
 standins() { bash "$COUNT"; }
@@ -82,13 +83,15 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do [ "$(standins)" = 1 ] && break; sleep 0.3; don
 kill -9 "$runner" 2>/dev/null; wait "$runner" 2>/dev/null
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do [ "$(standins)" = 0 ] && break; sleep 0.3; done
 [ "$(standins)" = 0 ] && pass "S: when the run is killed outright, the stand-in ends by itself" || bad "S: the stand-in outlived a killed run"
+for _ in 1 2 3 4 5 6; do [ "$(leftovers)" = 0 ] && break; sleep 0.3; done
+[ "$(leftovers)" = 0 ] && pass "S: and it removes the scratch folder as it goes" || bad "S: a killed run left its scratch folder ($(leftovers))"
 rm -rf "$T"/kosmos-cut-shape.* 2>/dev/null   # the killed run could not remove its own (its `sleep 8` ends by itself)
 
 # --- F ---------------------------------------------------------------------------------------------------------------
 # Both halves, or the second could pass because the guard never saw the stand-in at all: the guard's process match
 # lists it, and the fixture filter then drops it. The stand-in's pid is the one working in this test's scratch folder.
 FIX="$T/fixture-probe.sh"
-printf '%s\n' ". '$GUARD'" "sp=\$(bash '$COUNT' >/dev/null; pgrep -f '^bash tools/release\\.sh [0-9]+\$' | while read -r p; do lsof -a -p \"\$p\" -d cwd -Fn 2>/dev/null | grep -q '/kt$$/kosmos-cut-shape\\.' && echo \"\$p\"; done | head -1)" \
+printf '%s\n' ". '$GUARD'" "sp=\$(bash '$COUNT' >/dev/null; pgrep -f '^bash tools/release\\.sh [0-9]+ ' | while read -r p; do lsof -a -p \"\$p\" -d cwd -Fn 2>/dev/null | grep -q '/kt$$/kosmos-cut-shape\\.' && echo \"\$p\"; done | head -1)" \
   'raw=$(kosmos_running_lines tools/release.sh | grep -c "^$sp ")' \
   'kept=$(kosmos_running_lines tools/release.sh | _kosmos_drop_test_fixtures | grep -c "^$sp ")' \
   'echo "$sp $raw $kept"' > "$FIX"
@@ -105,7 +108,7 @@ if [ "${GITHUB_ACTIONS:-}" = true ]; then
   B=$(mktemp -d "/tmp/cutshape6977.XXXXXX")
   GP="$B/guard-probe.sh"
   printf '%s\n' ". '$GUARD'" \
-    "sp=\$(pgrep -f '^bash tools/release\\.sh [0-9]+\$' | while read -r p; do lsof -a -p \"\$p\" -d cwd -Fn 2>/dev/null | grep -q '$B/kosmos-cut-shape\\.' && echo \"\$p\"; done | head -1)" \
+    "sp=\$(pgrep -f '^bash tools/release\\.sh [0-9]+ ' | while read -r p; do lsof -a -p \"\$p\" -d cwd -Fn 2>/dev/null | grep -q '$B/kosmos-cut-shape\\.' && echo \"\$p\"; done | head -1)" \
     'n=$(kosmos_running_lines tools/release.sh | _kosmos_drop_test_fixtures | grep -c "^$sp ")' \
     'KOSMOS_RUN_MARKER_DIR="'"$B"'/markers" kosmos_refuse_if_cut_live "this probe" >/dev/null 2>&1; echo "$sp $n $?"' > "$GP"
   read -r gsp gn grc <<< "$(kosmos_cut_shape_run --base "$B" bash "$GP" 2>/dev/null)"
@@ -124,10 +127,20 @@ n=$(grep -c '\${_rt_shell_wrap\[@\]+"\${_rt_shell_wrap\[@\]}"} node "\$REPO/tool
 [ "$n" = 2 ] && pass "W: both of run-tests.sh's shell-part calls go through the wrap" || bad "W: $n of run-tests.sh's shell-shard calls go through the wrap (want 2)"
 grep -q '_rt_shell_wrap=(kosmos_cut_shape_run --base' "$RT" && grep -q 'KOSMOS_SHELL_CUT_ENV:-0}" = 1' "$RT" \
   && pass "W: the wrap is kosmos_cut_shape_run, set when KOSMOS_SHELL_CUT_ENV=1" || bad "W: run-tests.sh does not set the wrap from KOSMOS_SHELL_CUT_ENV"
-out=$(cd "$HERE/.." && env -u GITHUB_ACTIONS KOSMOS_SHELL_CUT_ENV=1 bash tools/run-tests.sh 2>&1 | head -3); rc=$?
-printf '%s' "$out" | grep -q 'KOSMOS_SHELL_CUT_ENV=1 is for CI only' && pass "W: run-tests.sh refuses KOSMOS_SHELL_CUT_ENV=1 outside CI" || bad "W: outside CI the flag was not refused: $out"
-out=$(cd "$HERE/.." && KOSMOS_SHELL_CUT_ENV=yes bash tools/run-tests.sh 2>&1 | head -3)
-printf '%s' "$out" | grep -q 'KOSMOS_SHELL_CUT_ENV must be 0 or 1' && pass "W: a value other than 0 or 1 is refused" || bad "W: KOSMOS_SHELL_CUT_ENV=yes was not refused: $out"
+# The flag check, lifted from run-tests.sh and run alone, so a regression here can never start the suite (or a stand-in
+# on this computer): from its comment line to the first `esac` after it.
+FC="$T/flag-check.sh"
+awk '/^# #6977: KOSMOS_SHELL_CUT_ENV=1 runs the shell part/{f=1} f{print} f&&/^esac$/{exit}' "$RT" > "$FC"
+grep -q 'KOSMOS_SHELL_CUT_ENV must be 0 or 1' "$FC" && pass "W: (the flag check was lifted from run-tests.sh)" || bad "W: could not lift the flag check from run-tests.sh"
+out=$(env -u GITHUB_ACTIONS KOSMOS_SHELL_CUT_ENV=1 bash "$FC" 2>&1); rc=$?
+[ "$rc" = 2 ] && printf '%s' "$out" | grep -q 'KOSMOS_SHELL_CUT_ENV=1 is for CI only' && pass "W: run-tests.sh refuses KOSMOS_SHELL_CUT_ENV=1 outside CI (2)" || bad "W: outside CI the flag was not refused (rc=$rc): $out"
+out=$(GITHUB_ACTIONS=true KOSMOS_SHELL_CUT_ENV=1 bash "$FC" 2>&1); rc=$?
+[ "$rc" = 0 ] && pass "W CONTROL: on CI the flag is let through" || bad "W CONTROL: on CI the flag was refused too (rc=$rc), so the refusal above proves nothing: $out"
+out=$(KOSMOS_SHELL_CUT_ENV=yes bash "$FC" 2>&1); rc=$?
+[ "$rc" = 2 ] && printf '%s' "$out" | grep -q 'KOSMOS_SHELL_CUT_ENV must be 0 or 1' && pass "W: a value other than 0 or 1 is refused" || bad "W: KOSMOS_SHELL_CUT_ENV=yes was not refused (rc=$rc): $out"
+grep -q 'KOSMOS_SHELL_CUT_ENV:-0}" = 1 \] && \[ "\${RUNNER_ENVIRONMENT:-}" = self-hosted \]' "$RT" \
+  && grep -q 'is not used on a self-hosted runner' "$RT" \
+  && pass "W: on a self-hosted runner (a shared computer) run-tests.sh does not use the shape, and says so" || bad "W: run-tests.sh would use the shape on a self-hosted runner"
 grep -q "KOSMOS_SHELL_CUT_ENV: \${{ matrix.part == 'shell' && '1' || '0' }}" "$Y" \
   && pass "W: test.yml turns it on for the shell jobs only" || bad "W: test.yml does not set KOSMOS_SHELL_CUT_ENV for the shell jobs"
 

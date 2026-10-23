@@ -13,18 +13,20 @@
 #
 # ⚠️ THE STAND-IN IS VISIBLE TO THE WHOLE MACHINE. Every cut guard on the computer that runs it reads it as a cut,
 # so another agent's suite or cut waits or refuses while it lives. That is why tools/run-tests.sh uses this only on
-# CI (one job per runner), and refuses it on a shared Mac.
+# GitHub's own runners (one job per runner): it refuses it outside CI and does not use it on a self-hosted runner.
 #
 # The scratch folder is made under BASE (default: TMPDIR), which must NOT be run-tests.sh's kt<pid> sandbox: a
 # process whose working folder is there is a test fixture to the cut guard (process-fixture.sh) and is not counted.
-# The stand-in watches the shell that started it and ends within a second of that shell going, so a killed run leaves
-# no cut behind. When the command ends, red or green, kosmos_cut_shape_run stops the stand-in and removes the folder; a
-# run killed part way leaves the folder (beside run-tests.sh's sandbox, which its own exit removes only inside).
+# The stand-in watches the shell that started it and ends within a second of that shell going, removing the scratch
+# folder as it goes, so a killed run leaves neither a cut nor a folder behind. When the command ends, red or green,
+# kosmos_cut_shape_run stops the stand-in and removes the folder itself.
 
 # kosmos_cut_shape_run [--base DIR] <command...>: run the command in a cut's shape; its exit status is the command's.
 # 2 when the shape could not be set up (nothing was run).
 kosmos_cut_shape_run() {
-  local base="${TMPDIR:-/tmp}" dir standin rc=0 n=0 caller="${BASHPID:-$$}"   # the calling shell, read here: inside ( ) it is the subshell
+  # caller: the calling shell, read here (inside the ( ) below it would be the stand-in itself). bash 3.2 has no BASHPID,
+  # so there it is $$, the top-level script, even when this is called from a subshell.
+  local base="${TMPDIR:-/tmp}" dir standin rc=0 n=0 caller="${BASHPID:-$$}"
   if [ "${1:-}" = --base ]; then base="${2:-}"; shift 2; fi
   [ "$#" -gt 0 ] || { echo "cut-shape: no command to run" >&2; return 2; }
   base="${base%/}"
@@ -32,11 +34,13 @@ kosmos_cut_shape_run() {
   dir="$(mktemp -d "$base/kosmos-cut-shape.XXXXXX")" || { echo "cut-shape: could not make a scratch folder under $base" >&2; return 2; }
   mkdir -p "$dir/home" "$dir/standin/tools" || { rm -rf "$dir"; echo "cut-shape: could not fill $dir" >&2; return 2; }
   # The stand-in: `bash tools/release.sh`, as a cut's command line starts. It ends when the shell that started it
-  # does (its parent pid, passed in), so it cannot outlive a killed run.
+  # does (that shell's pid, passed in), and then removes the scratch folder (passed in too, and checked by its name).
+  # Stopped on purpose (TERM), it leaves the folder to kosmos_cut_shape_run.
   printf '%s\n' '# #6977: a stand-in for a live cut (tools/lib/cut-shape.sh). It does nothing but wait.' \
     'trap "exit 0" TERM INT HUP' \
-    'while kill -0 "$1" 2>/dev/null; do sleep 1; done' > "$dir/standin/tools/release.sh"
-  ( cd "$dir/standin" && exec bash tools/release.sh "$caller" ) </dev/null >/dev/null 2>&1 &
+    'while kill -0 "$1" 2>/dev/null; do sleep 1; done' \
+    'cd / && case "$2" in */kosmos-cut-shape.?*) rm -rf "$2" ;; esac' > "$dir/standin/tools/release.sh"
+  ( cd "$dir/standin" && exec bash tools/release.sh "$caller" "$dir" ) </dev/null >/dev/null 2>&1 &
   standin=$!
   # Wait (up to 5 s) until the process table shows it as the stand-in, so the command never starts before the cut does.
   while [ "$n" -lt 50 ]; do

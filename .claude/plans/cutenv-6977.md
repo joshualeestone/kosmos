@@ -23,7 +23,11 @@ pigeonpete.
   red or green; returns the command's status (2 when the shape could not be set up).
 - `tools/run-tests.sh`: with `KOSMOS_SHELL_CUT_ENV=1` the shell part (both shard arms) runs through it, with the
   scratch folder beside the kt<pid> sandbox, never in it (a process working there is a test fixture to the guard and
-  would not count). The flag is refused outside CI (`GITHUB_ACTIONS`), and any value but 0/1 is refused.
+  would not count). The flag is refused outside CI (`GITHUB_ACTIONS`), and any value but 0/1 is refused. On a
+  self-hosted runner (`RUNNER_ENVIRONMENT=self-hosted`) the shape is not used and the part runs plain, saying so:
+  test.yml can route shell shards to the shared kosmos-ci Mac (#4601, `KOSMOS_CI_SHELL_SHARDS`, unset today), and a
+  stand-in there would read as a cut to every agent on it (review 2). Not a refusal, so such a job still runs.
+- The stand-in removes its scratch folder when the shell that started it dies, so a cancelled run leaves nothing.
 - `.github/workflows/test.yml`: `KOSMOS_SHELL_CUT_ENV` is 1 for the shell jobs only.
 
 Rejected:
