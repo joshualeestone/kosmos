@@ -736,6 +736,25 @@ do {
     check(!Board.sessionEnded(status: 502, contentType: "text/html") && !Board.sessionEnded(status: 302, contentType: nil), "a 5xx or a redirect is a missed refresh, not a sign-out")
 }
 
+section("native board: the Mac's own word and tone (kosmos#7004)")
+do {
+    // A newer Mac sends cardWord and cardTone; they win over the phone's own table, including words the table cannot
+    // make (a restart's cause) and a tone the phone's rule would not give.
+    let json = #"{"agents":[{"sessionName":"a","name":"A","state":"restarting","cardWord":"Switching to Opus","cardTone":"quiet"},{"sessionName":"b","name":"B","state":"idle","cardWord":"Idle","cardTone":"needs_you"},{"sessionName":"c","name":"C","state":"auth_failed","cardWord":"","cardTone":"sparkly"},{"sessionName":"d","name":"D","state":"auth_failed"}]}"#
+    let agents = Board.parseAgents(Data(json.utf8)) ?? []
+    let one = { (s: String) in agents.first { $0.session == s }! }
+    check(Board.statusWord(one("a")) == "Switching to Opus", "the Mac's word wins, one the phone's table cannot make")
+    check(Board.tone(one("b")) == .needsYou, "the Mac's tone wins over the phone's own rule")
+    check(Board.statusWord(one("c")) == "Sign-in Issue" && Board.tone(one("c")) == .needsYou,
+          "an empty word and a tone name the phone does not know fall back to the phone's own table")
+    check(Board.statusWord(one("d")) == "Sign-in Issue", "an older Mac (no cardWord): the phone's table, now in the Mac's current word")
+    check(one("d").macWord == nil && one("d").macTone == nil, "nothing ready-made from an older Mac")
+    check(Board.tone(named: "asked") == .asked && Board.tone(named: "working") == .working && Board.tone(named: nil) == nil,
+          "each tone name the Mac sends, and none")
+    // The order follows the Mac's tone too.
+    check(Board.sorted(agents).first?.session == "b", "a needs-you tone from the Mac sorts first")
+}
+
 section("native board: the Mac's session kept between launches")
 do {
     let rec = Board.SavedMacSession(name: "Studio", address: "studio.kosmosplus.com", cookie: "c1", owner: Board.owner(of: "kst1"))

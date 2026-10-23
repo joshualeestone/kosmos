@@ -56,6 +56,28 @@ function labelOf(a) {
   return STATE_COPY[s];
 }
 
+/* #7004 (the iPhone plan's slice 2, #6838): the tone a card's word has in the phone's Agents list, Mona Lisa's slice 1
+   table. It sets the dot and the word's colour there, and the list's order. Built from STATE_COPY's own values, so a
+   word changed above changes here too. */
+const NEEDS_YOU_WORDS = new Set([STATE_COPY.approval, STATE_COPY.needs_you, STATE_COPY.rate_limited, STATE_COPY.auth_failed,
+  STATE_COPY.connection_lost, STATE_COPY.blocked, 'Not running', STATE_COPY.unknown]);
+
+/** 'asked' (a question), 'needs_you', 'working' or 'quiet' for board card `a`. `needsPerson` is the board's own answer
+ * for the card (engine/status.js needsPerson), passed in: an agent the board counts as needing the person is needs_you
+ * whatever its word (a crash loop reads "Keeps stopping"). A state this copy has no word for (one added later) is
+ * quiet, never red at the top, unless the board counts it as needing the person. */
+function toneOf(a, needsPerson) {
+  const known = Boolean(a) && typeof a.state === 'string' && Object.prototype.hasOwnProperty.call(STATE_COPY, a.state);
+  const offline = Boolean(a) && a.running === false;
+  const looping = Boolean(a && a.crashLoop && a.crashLoop.looping === true);
+  if (!offline && !looping && !needsPerson && !known) return 'quiet';
+  const word = labelOf(a);
+  if (word === STATE_COPY.question) return 'asked';
+  if (NEEDS_YOU_WORDS.has(word) || needsPerson) return 'needs_you';
+  if (word === STATE_COPY.working) return 'working';
+  return 'quiet';
+}
+
 /** The sentence `kosmos report show` leads with; a label that already ends in punctuation gets no second. */
 function cardLine(label) {
   return 'Your card on the board shows: ' + label + (/[.…]$/.test(label) ? '' : '.');
@@ -70,4 +92,4 @@ function standingFor(ageMs) {
   return days >= 2 ? days + ' days' : 'over a day';
 }
 
-module.exports = { labelOf, cardLine, standingFor, STATE_COPY };
+module.exports = { labelOf, toneOf, cardLine, standingFor, STATE_COPY, NEEDS_YOU_WORDS };

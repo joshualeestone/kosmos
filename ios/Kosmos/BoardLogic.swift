@@ -209,6 +209,10 @@ enum Board {
         var restartTimedOut = false
         var hasAvatar = false
         var avatarVer = ""
+        // #7004: the card's word and tone as the Mac sends them ready-made (cardWord, cardTone). nil from a Mac that
+        // predates them, and then the phone's own table below decides.
+        var macWord: String? = nil
+        var macTone: Tone? = nil
         var id: String { session }
     }
 
@@ -238,26 +242,27 @@ enum Board {
                          jobRunningUnseen: (row["jobRunningUnseen"] as? Bool) == true,
                          restartTimedOut: ((row["disruption"] as? [String: Any])?["timedOut"] as? Bool) == true,
                          hasAvatar: (row["hasAvatar"] as? Bool) == true,
-                         avatarVer: (row["avatarVer"] as? NSNumber)?.stringValue ?? (row["avatarVer"] as? String) ?? "")
+                         avatarVer: (row["avatarVer"] as? NSNumber)?.stringValue ?? (row["avatarVer"] as? String) ?? "",
+                         macWord: (row["cardWord"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                         macTone: Board.tone(named: row["cardTone"] as? String))
         }
     }
 
     // The card's words, from engine/cardlabel.js labelOf and its STATE_COPY (the board page's own copy). The checks
     // follow labelOf's order except that restarting comes after the question, permission and reconnecting checks; those
     // states cannot coincide, so the answers are the same.
-    // A third copy, kept equal by hand and by the cases in ios/LogicTests; nothing compares it with cardlabel.js
-    // automatically. It goes away when the Mac sends its words ready-made (the native plan's step 1, item 2).
-    // Not copied: restartingLabel's causes ("Switching model" and the like), which read "Restarting agent" here
-    // until the Mac sends its words ready-made (the plan's item 2). Its ", not back yet" for a restart that timed
-    // out is copied.
+    // Used only for a Mac that predates #7004: a newer Mac sends its word ready-made (cardWord), which wins. Kept equal
+    // to engine/cardlabel.js STATE_COPY by statusword-7004.test.js. Not copied: restartingLabel's causes ("Switching
+    // model" and the like), which read "Restarting agent" from an older Mac. Its ", not back yet" is copied.
     static let stateCopy: [String: String] = [
         "working": "Working", "needs_you": "Issue", "rate_limited": "Rate Limit",
-        "auth_failed": "Sign-in isn't working", "connection_lost": "Connection lost", "blocked": "Waiting",
+        "auth_failed": "Sign-in Issue", "connection_lost": "Connection lost", "blocked": "Waiting",
         "idle": "Idle", "restarting": "Restarting agent", "stopped": "Not running", "unknown": "Can't tell",
         "needs_trust": "Waiting on a trust prompt", "question": "Question", "approval": "Needs permission",
     ]
 
     static func statusWord(_ agent: Agent) -> String {
+        if let word = agent.macWord { return word }
         if !agent.running && agent.state != "restarting" {
             if agent.needsTrust { return "Waiting on a trust prompt" }
             return agent.jobRunningUnseen ? "Can't tell" : "Not running"
@@ -285,14 +290,28 @@ enum Board {
     // Mona Lisa's slice 1 spec (kosmos#6838): each status word has a tone, which sets the dot and the word's colour.
     enum Tone: Equatable { case needsYou, asked, working, quiet }
 
-    // The board's words that mean "needs you" (the spec's table).
-    static let needsYouWords: Set<String> = ["Needs permission", "Issue", "Rate Limit", "Sign-in isn't working",
+    // The Mac's cardTone (engine/cardlabel.js toneOf). A name the phone does not know is nil, and the phone's own rule
+    // decides, so a tone the Mac adds later never shows as something it is not.
+    static func tone(named name: String?) -> Tone? {
+        switch name {
+        case "needs_you": return .needsYou
+        case "asked": return .asked
+        case "working": return .working
+        case "quiet": return .quiet
+        default: return nil
+        }
+    }
+
+    // The board's words that mean "needs you" (the spec's table), engine/cardlabel.js NEEDS_YOU_WORDS (kept equal by
+    // statusword-7004.test.js).
+    static let needsYouWords: Set<String> = ["Needs permission", "Issue", "Rate Limit", "Sign-in Issue",
                                              "Connection lost", "Waiting", "Not running", "Can't tell"]
 
     // Question is asked; the needs-you words, or any agent the board itself counts as needing the person
     // (needsPerson: a crash loop and the like, whose words the table does not list), are needs you; Working is
     // working; anything else, including a word the phone does not know, is quiet.
     static func tone(_ agent: Agent) -> Tone {
+        if let tone = agent.macTone { return tone }
         // A state the phone does not know yet (one the Mac adds later) is quiet, never red at the top, unless the
         // board itself counts the agent as needing the person. A real "unknown" state is in the table.
         if agent.running && !agent.crashLooping && !agent.needsYou && stateCopy[agent.state] == nil { return .quiet }
