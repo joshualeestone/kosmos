@@ -32,5 +32,25 @@ converged: false
 
 Each rule added in review has a mutant that its test catches (recorded per round in the plan).
 
+#### Iteration 1: 2 BLOCKER, 6 WARNING
+- [BLOCKER] a removed agent's claim locked the post forever, and the person had no way out --> FIXED (membership filter)
+- [BLOCKER] a skin-toned 🙋 could not be released --> FIXED (every 🙋 form stored plain)
+- [WARNING] already said to a non-holder; a retried release read as failure; untested route and Windows verb; a dateless age; the holder told off its own post --> FIXED
+#### Iteration 2: 0 BLOCKER, 3 WARNING
+- [WARNING] silent takeover; a returning member's claim came back; roomClaimOf untested --> FIXED (takeover later removed in round 3)
+#### Iteration 3: 0 BLOCKER, 2 WARNING
+- [WARNING] the person's pill click took the post over; the takeover named departed agents --> FIXED (the person's 🙋 is an ordinary reaction)
+#### Iteration 4: 0 BLOCKER, 3 WARNING
+- [WARNING] the room route's member filter untested; card comment stale; a no-op release did not name the holder --> FIXED
+#### Iteration 5: 0 BLOCKER, 1 WARNING
+- [WARNING] guidance said release "when you stop", which also covers finished --> FIXED
+#### Iteration 6: 0 BLOCKER, 1 WARNING
+- [WARNING] a 🙋 from before this rule counted as a claim --> FIXED (`claim: true` mark)
+#### Iteration 7: 0 BLOCKER, 1 WARNING
+- [WARNING] an old unmarked pill could never be taken off --> FIXED (every take-off removes all 🙋 forms)
+#### Iteration 8: 0 BLOCKER, 2 WARNING (the cap)
+- [WARNING] a post addressed to one agent could be claimed by another --> DEFERRED to #6952
+- [WARNING] the reactions line could name a non-holder --> DEFERRED to #6952
+
 ### Weakest premise
 That agents run `kosmos claim` before posting. The rule only binds an agent that claims. The doctrine (v38) and the "is claimed by" line in `kosmos room` are the levers.
