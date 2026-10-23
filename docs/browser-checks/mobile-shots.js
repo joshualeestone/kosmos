@@ -2048,19 +2048,24 @@ const SCREENS = [
      So after centring, the PAGE is scrolled to the end of the room column (.pjmid), the way a person scrolls: on a phone,
      scrolling over the room at its end carries on into the page, which brings the newest post clear of the sticky
      composer. Measured by Mona Lisa on #6960 at 393x852: the newest post then ends at 585 with the composer at 606. The
-     first fix scrolled the room's own scroller (or used scrollIntoView, which stops under the composer), so the label
-     stayed covered and #6960 was filed as a layout defect; it was this screen's scroll, not the page. */
+     centring stays: the summary is the newest post, so centring it puts the room's own scroller at its end, which the
+     page scroll needs. scrollIntoView alone is not enough (with block 'nearest' it stops at the window's bottom edge,
+     under the sticky composer). The first fix lifted the room's own scroller, or the window by the overlap, so the
+     label stayed covered and #6960 was filed as a layout defect; it was this screen's scroll, not a layout defect. */
   { name: 'project-room-held-summary-6925', owner: 'Ice Cream Kitty', go: async (page, data) => {
     const held = SCREENS.find((s) => s.name === 'project-room-held-5800');
     await held.go(page, data);
-    await page.evaluate(() => {
+    const scrolled = await page.evaluate(() => {
       const e = document.querySelector('#pj-room .msg-closing');
-      if (!e) return;
+      if (!e) return 'no label on the page';
       e.closest('[data-mid]').scrollIntoView({ block: 'center' });
-      // Then the page, to the room column's end (a no-op at desktop, where the page does not scroll).
+      // Then the page, to the room column's end (in today's desktop layout the page does not scroll, so it clamps).
       const mid = e.closest('.pjmid');
-      if (mid) window.scrollTo(0, window.scrollY + mid.getBoundingClientRect().bottom - window.innerHeight);
+      if (!mid) return 'no .pjmid around the room';
+      window.scrollTo(0, window.scrollY + mid.getBoundingClientRect().bottom - window.innerHeight);
+      return null;
     });
+    if (scrolled) throw new Error('#6925: the summary screen could not scroll to the label: ' + scrolled);
     let miss = await page.evaluate(summaryLabelAt);
     for (const until = Date.now() + 3000; miss && Date.now() < until; miss = await page.evaluate(summaryLabelAt)) await page.waitForTimeout(200);
     if (miss) throw new Error('#6925: the summary label is not seen: ' + miss);

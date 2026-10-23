@@ -18,8 +18,13 @@ Rejected: desktop-only (hides a working phone path); keeping the old scroll-on a
 which never worked).
 
 ## Proof
-A shot run of that screen at desktop and iPhone 15 through the machine queue: all shots taken, the label check
-(`summaryLabelAt`, before and after the shot) passing at both sizes, and no ERROR line. The tool's own tests pass.
+A shot run of that screen through the machine queue (10-22 21:54 CDT, throwaway board with the sample data set,
+chromium): desktop 1280x800 and iPhone 15 393x852, light and dark, 4 of 4 shots taken, the label check
+(`summaryLabelAt`, before and after each shot) passing, no ERROR line; the phone shot shows the label above the held
+strip. The tool's own tests pass (27/27). Full validation on Mortals passed at e16b5514de (23388, 0 failed); a first run
+failed one release.sh shell test during the 0.7.64 cut, and that test passes alone on this branch.
 
 ## Weakest premise
-That the page scroll is what a person does on every phone engine; measured in chromium only (as the first failure was).
+That the page scroll is what a person does on every phone engine. Mona Lisa measured chromium and webkit on #6960; this
+screen's run was chromium. And it relies on the summary being the room's newest post (true of the seed): a seed with a
+later post would leave the label off screen, which the label check reports loudly rather than passing.
