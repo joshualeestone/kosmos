@@ -46,7 +46,8 @@ its old copy of the coordinator's worker, which wrote `on <Project>` or `in Kosm
 update (within about a day). This repo's own `web/sw.js` matches it from the release after 0.7.57 (kosmos#6502). As of
 2026-10-18 nobody has seen the new words on a real phone. The test notice (`Kosmos has something for you`, body `in Kosmos`) is a
 deliberate exception that keeps its body; the email keeps its own sentence (`<Agent> needs you on <Project>.`), since it is
-not a notification. No test reads this page yet.
+not a notification. `web.phone-notify-catalog-6487.test.js` reads this page: it fails when the kinds or the words in
+the Wording table, or the iPhone message rows below, stop matching what this repo's code shows (see Where the code lives).
 
 ## Sent today
 
@@ -93,6 +94,27 @@ An event of any other kind from a computer cannot reach a phone: the computer an
 
 Sound: the default sound on iPhone; on Android and the browser, whatever the device does. Grouping: none yet; each notification stands alone.
 
+## On an iPhone: the message itself
+
+Built and merged 2026-10-22 and 10-23 (kosmos#6942 the iPhone's notification extension, #6943 the computer's answer,
+#6972 message style, kosmos-relay #564 live on the coordinator). It reaches a person with Kosmos 0.7.64 on their computer
+and an iPhone app build that carries the extension (TestFlight build 2, valid 2026-10-23). As of 2026-10-23 nobody has
+seen it on a real phone.
+
+When an iPhone notification for one of the two events below arrives, the iPhone asks the person's own computer, through
+Kosmos+ remote and the sign-in the app already keeps for that computer, for the words behind it. If the computer answers
+within 15 seconds, the notification shows them as a message from the agent:
+
+| Event | Title | Subtitle | Text | Picture |
+|---|---|---|---|---|
+| An agent needs you (its report) | `<Agent>` | `<Agent> needs you, in <Project>`, or `<Agent> needs you` | what the agent wrote when it asked (`kosmos report needs_you "..."`), shortened to about 400 characters | the agent's picture |
+| An agent answered you | `<Agent>` | `<Agent> replied` | the reply, shortened to about 400 characters | the agent's picture |
+
+The words still travel only between the person's computer and their phone; the coordinator and Apple still carry only
+who and what. If the computer does not answer (asleep, offline, an older Kosmos, or a phone not signed in to that
+computer), the notification shows as in Sent today. Every other row of Sent today (crash, stuck, helper, posts, work
+ready) is not asked about and always shows as there. Android and the browser do not ask yet: they show Sent today's words.
+
 ## Built, not on
 
 | Event | When it would fire | Wording | Status |
@@ -116,7 +138,7 @@ On a phone these fall into the notification's two lines, the bold title and the 
 
 | Event | Title | Body | Status |
 |---|---|---|---|
-| Direct message from an agent | `<Agent> said` | `<message>`, shortened | proposed |
+| Direct message from an agent | `<Agent> said` | `<message>`, shortened | built on iPhone in a different shape: see On an iPhone (the agent's name as the title, `<Agent> replied` under it, then the message) |
 | Project post | `<Agent> commented in <Project>` | `<message>`, shortened | proposed |
 
 **This puts the words of a message on the lock screen.** Today those words never leave the computer, so it needs a
@@ -137,3 +159,6 @@ web push, which `coordinator/src/sw.js` shows as it arrives; it also words the t
 `operator_test_with` sends). This repo's `web/sw.js` shows the same words from
 the release after 0.7.57 (#6502), though no phone push reaches it today (phones subscribe on the coordinator's address, #3510). The email: kosmos-relay `coordinator/src/delivery.rs`
 (`agent_needs_you_words`), sent by the `notify.rs` sweep.
+The iPhone message rows: the computer's answer is `engine/phonenotice.js` (which events it answers, and the shortening),
+served by `server.js` at `GET /api/phone/notice`; the iPhone side is `ios/KosmosNotice/NotificationService.swift` (title,
+subtitle, text) and `ios/KosmosNotice/NoticeLogic.swift` (which notices it asks about).
