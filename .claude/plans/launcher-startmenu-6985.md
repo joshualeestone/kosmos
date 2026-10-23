@@ -52,3 +52,10 @@ candidates for a follow-up card.
 - Launcher test files (13 files, preload on): branch 256 tests, 254 pass, 0 fail, 2 skip; origin/main 255 tests, 253
   pass, 0 fail, the same 2 skips by reason (#4495 absolute claim dir, #5645 no 8.3 names). The branch's test file run
   against origin/main's source: the #6882 pin and the new #6985 test both fail on the old strings.
+- Mutation checks: an early `return null` before the refresh in RunInstallerDutiesUnderLock, and a call to
+  OpenInBrowserInstead from Main, each turn the #6985 test red.
+- Final Kosmos.exe sha256 c8f9dfd1de536fd4e4fc47e59cd6c524dc891c0411797e7747dfd497cd3882af, signature Valid
+  (Kosmos Agent Manager, Inc., timestamped), verify-launcher.ps1 OK.
+- tools/windows-tests.js (every win32/windows file, preload on), branch and clean origin/main: 194 files passed on
+  both, and the same 5 non-passing entries on both (setupsettings.fsync-5434 red on this box; 4 ALL_SKIP_OK entries
+  stale because this box has agy and codex installed), as recorded for #6882.
