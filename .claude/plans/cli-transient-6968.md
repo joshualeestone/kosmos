@@ -52,8 +52,9 @@ on their machine.
   board proof's own refused connection (passes 7 through, so it is retried; the arms run without a proof).
 - Reasoned, not measured here: the re-raise. On this Mac's bash 3.2 the main shell dies of the interrupt with or
   without it (measured both arms), so the interrupt arm cannot tell them apart here; on bash 4+ a subshell that
-  exits normally after an INT lets its parent carry on, which the re-raise prevents. CI's Linux shell job runs the
-  arm on bash 5. Also unexercised: the trap removing the auth header file (an interrupt during a request, not the
+  exits normally after an INT lets its parent carry on, which the re-raise prevents. No PR check runs the arm on
+  bash 4+: the node suite runs on macOS (bash 3.2), and the Linux suite (linux.yml) runs on demand or on a
+  linux-ci-* branch only. Also unexercised: the trap removing the auth header file (an interrupt during a request, not the
   pause).
 - The trap runs once the running curl or pause ends (bash defers traps behind a foreground child), so a TERM sent
   to the subshell alone waits up to the call's -m; Ctrl-C reaches the whole group and ends curl at once.
