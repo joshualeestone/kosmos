@@ -2675,8 +2675,9 @@ class KosmosLauncher
     // #6985: these three say "open Kosmos from the Start menu", as the zip's READ ME does since #6984, and never
     // "Kosmos.exe", which after the install reads as the extracted folder the READ ME says can be deleted. Start menu
     // alone, with no "Kosmos.exe" fallback: only the window and its browser fallback show them, and only Main starts
-    // the window (BoardWindowStartInfo), after the installer duties have pointed the Start menu shortcut at the copy that
-    // runs (RefreshWindowsRegistration), so the shortcut is there whenever one of these is on screen.
+    // the window (BoardWindowStartInfo), after a real build's installer duties (IsKosmosBuild) have pointed the Start
+    // menu shortcut at the copy that runs (RefreshWindowsRegistration), so the shortcut is there whenever one of these
+    // is on screen. A folder that is not a real build writes no shortcut, but no person runs one.
     internal const string NotConfirmedPage =
         "<!doctype html><html><head><meta charset=\"utf-8\"><title>Kosmos</title><style>"
         + "html,body{height:100%;margin:0}body{display:flex;align-items:center;justify-content:center;text-align:center;"
@@ -3902,7 +3903,7 @@ class BoardWindowForm : System.Windows.Forms.Form
     }
 
     // #6882: a check before reusing the sign-in failed. The window shows why (NotConfirmedPage, as when the opener
-    // refuses) and forgets the board's address, so nothing reloads it; opening Kosmos.exe again starts over from the
+    // refuses) and forgets the board's address, so nothing reloads it; opening Kosmos again from the Start menu starts over from the
     // opener (SignInAgain's not-confirmed branch), which proves the board before it signs in.
     void ShowNotConfirmed()
     {
