@@ -154,7 +154,8 @@ mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN
 # ThrottleInterval 10 is launchd's default, written down so the restart delay is in the file. Every deliberate stop ends
 # with node draining its event loop (exit 0; its only process.exit is the unsupported-platform 1 at start), and runsvc.sh
 # exits with node's status, so only a crash or a kill restarts it. A runner that keeps crashing restarts at most every
-# 10 s; `launchctl bootout gui/<uid>/<label>` stops it. A crash loop of the Listener alone is RunnerService.js's to retry,
+# 10 s; `launchctl bootout gui/<uid>/<label>` stops it. (Exit 0 measured for a SIGTERM stop, 10-23; for the listener's
+# 0/1/5 exits it is read from RunnerService.js, not measured.) A crash loop of the Listener alone is RunnerService.js's to retry,
 # and after its own failure limit it stops the service (exit 0), so that too stays down. NOT covered: a killed Listener leaves its session on GitHub's
 # side; if that outlasts the restarted Listener's session-conflict retries, it exits 5, the service stops (exit 0) and
 # launchd leaves it down. The 10-23 restart came back in about 2 minutes; the liveness page is the backstop for the rest.
@@ -165,6 +166,7 @@ mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN
 runner_plist() {
   local f=""
   [ -r "$RUNNER_DIR/.service" ] && f="$(head -n 1 "$RUNNER_DIR/.service" 2>/dev/null || true)"
+  case "${f#"$CI_HOME"/Library/LaunchAgents/}" in */*) return 0 ;; esac   # directly in that dir, no further path
   case "$f" in "$CI_HOME"/Library/LaunchAgents/actions.runner.*.plist) [ -e "$f" ] && printf '%s\n' "$f" ;; esac
   return 0
 }
@@ -594,11 +596,17 @@ keepalive() {
   [ "$loaded" = 1 ] && loaded_keepalive "$dom/$label" && in_job=1
   if [ "$in_file" = 1 ] && [ "$in_job" = 1 ]; then
     # Loaded is not running: a job that exited 0 (a stop of the service, a session conflict) stays loaded and down.
-    local jo; jo="$(launchctl print "$dom/$label" 2>/dev/null || true)"
-    if printf '%s\n' "$jo" | grep -x -E '[[:space:]]*state = running' >/dev/null; then
-      ok "$label restarts after a kill (KeepAlive SuccessfulExit false, in the plist and loaded), and is running"; return 0
-    fi
-    echo "DOWN: $label has KeepAlive loaded but is not running: it exited 0 (a stop of the service or a session conflict), which KeepAlive leaves down. To start it: launchctl kickstart $dom/$label" >&2; exit 1
+    # Re-read for a while first: between a crash and launchd's restart (its throttle, up to 10 s) a job is not running.
+    local jo st w3=0 lim3="${KOSMOS_CI_STATE_WAIT_S:-12}"
+    case "$lim3" in ''|*[!0-9]*) lim3=12 ;; esac
+    while :; do
+      jo="$(launchctl print "$dom/$label" 2>/dev/null || true)"
+      st="$(printf '%s\n' "$jo" | sed -n 's/^[[:space:]]state = //p' | head -n 1)"
+      [ "$st" = running ] && { ok "$label restarts after a kill (KeepAlive SuccessfulExit false, in the plist and loaded), and is running"; return 0; }
+      [ "$w3" -lt "$lim3" ] || break
+      sleep 1; w3=$((w3 + 1))
+    done
+    echo "DOWN: $label has KeepAlive loaded but has not been running for ${w3}s (state = ${st:-unknown}): if it exited 0 (a stop of the service, a session conflict), KeepAlive leaves it down. To start it: launchctl kickstart $dom/$label" >&2; exit 1
   fi
   # Not loaded, yet THIS runner's Listener runs (not the relay's: its dir is actions-runner-relay): it was loaded some
   # other way (svc.sh over ssh, by hand), and a bootstrap here would start a second copy.
@@ -626,7 +634,8 @@ keepalive() {
     if [ "$own" = 1 ]; then
       echo "refused: this runner's Listener runs but $label is not loaded in $dom (started another way?); KeepAlive is in the plist; stop it, then: launchctl bootstrap $dom $plist" >&2; exit 1
     fi
-    # Not started here: a stop on purpose (svc.sh stop unloads it) must stay a stop. But this cannot be told from a
+    # Not started here: a stop on purpose (svc.sh stop unloads it, without -w, so no disabled override blocks the
+    # bootstrap this message suggests) must stay a stop. But this cannot be told from a
     # runner this stage left down (a bootout that finished late, a failed bootstrap), so it is said loudly and is not ok.
     echo "DOWN: $label is not loaded, so the runner is not running; KeepAlive is in its plist. To start it: launchctl bootstrap $dom $plist (or ./svc.sh start in $CI_USER's session)" >&2; exit 1
   fi
@@ -638,7 +647,8 @@ keepalive() {
   # Any Worker of this user, this runner's or the relay's (#6245): a name match cannot tell them apart, and a path match
   # could miss a Worker started with a relative path, whose job the reload would then cancel. Refusing is the safe side.
   [ "$prc" = 1 ] || { echo "refused: a job is running under $CI_USER (Runner.Worker is up, on this runner or the relay's); KeepAlive is in the plist, not yet loaded: run this again when both are idle" >&2; exit 1; }
-  local own_re="$RUNNER_DIR/bin[^/]*/Runner.Listener" before; before="$(pgrep -u "$(id -u)" -f "$own_re" || true)"
+  local own_re="$RUNNER_DIR/bin[^/]*/Runner.Listener" before; prc=0; before="$(pgrep -u "$(id -u)" -f "$own_re")" || prc=$?
+  [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc) to note the running Listener; KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
   local bo=0; launchctl bootout "$dom/$label" || bo=$?
   # A failed bootout still waits: launchd can report an error while the job is still shutting down (the Listener ends
   # its GitHub session first), so "still loaded" cannot be told from "still unloading" at once.

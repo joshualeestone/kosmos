@@ -104,6 +104,16 @@ Mutants red: a broadened own-Listener pattern (two sites), no post-reload check,
 - Deferred to the card: the kosmos-relay runners (~/actions-runner-relay on the CI mini, and the relay runner on the
   new Agent1s Mac) also lack KeepAlive. They belong to the relay repo's setup; RUNNER_DIR here is fixed for every stage.
 
+## Review round 6
+- Loaded with KeepAlive but not running: re-read for up to KOSMOS_CI_STATE_WAIT_S (12 s, over launchd's 10 s throttle)
+  before DOWN, and the message prints the state launchd reports.
+- A pgrep failure while noting the running Listener refuses before the bootout (an empty baseline would let any
+  Listener count as new).
+- The comment says which exit-0 paths were measured (SIGTERM) and which were read from RunnerService.js (0/1/5).
+- Not taken, measured false: "svc.sh stop is unload -w, so bootstrap of a stopped runner fails as disabled". svc.sh
+  stop is a plain `launchctl unload` (no -w; only start uses load -w), read in the installed svc.sh; noted in a comment.
+- .service must name a plist directly in LaunchAgents (no further path).
+
 ## Weakest premise
 That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it
 stops, keepalive refuses rather than guessing). Second: that the runner keeps ending the launchd job with exit 0 on
