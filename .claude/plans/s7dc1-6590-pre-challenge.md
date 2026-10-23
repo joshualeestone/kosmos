@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: s7dc1-6590
-diff_hash: 00f4f1a52327436d70d61fd094bf35a1cf1b2c21201f8cbac6080209078423e5
+diff_hash: 7e59cd1c8f74e8611b6fc3cfb6428ef6cd0755d2593627e87f9fe3e058228f28
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-23T15:26:22Z
+timestamp: 2026-10-23T22:06:25Z
 iterations: 3
 converged: false
 ---
@@ -15,8 +15,8 @@ converged: false
 **Iterations:** 3 (c1a review 1, c1b review 1, a delta review of both fixes), plus a design review of the page.
 **Converged:** No, only because the delta round's NITs (no BLOCKER, no WARNING) were fixed and not re-reviewed; the two
 it did not take are decided in s7dc1-6590.md.
-**Validation:** the Mortals full suite on head c049f741bb (rebased onto main after #6986's REMOTE_NOT_ALLOWED entries
-met these; a union): **23538 tests, 0 failed** (hash 00f4f1a52327, the diff this proof hashes). Before the rebase,
+**Validation:** the Mortals full suite on head 0f0a91b488 (the waitSig repaint fix for the CI webkit red): **23538 tests, 0 failed** (hash 7e59cd1c8f74, the diff this proof hashes). Its first run at that head failed one test outside this diff, engine/remove.test.js #4964 (kosmos#7000), and passed on the re-run. Before that, the full suite on head c049f741bb (rebased onto main after #6986's REMOTE_NOT_ALLOWED entries
+met these; a union): **23538 tests, 0 failed** (hash 00f4f1a52327, an earlier diff). Before the rebase,
 6a2ab4aa65 passed 23537/0. An earlier run at 06ee38b5a3 failed only two source-pattern tests in web.allow-card.test.js, fixed in
 6a2ab4aa65.
 **Inert:** nothing here changes behaviour until the board-v2 marker exists (a later part writes it); every engine call
