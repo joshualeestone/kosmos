@@ -23,7 +23,19 @@
 # `# gnu-ok:` settles: `git grep -P` is flagged (it works only where git was built with PCRE), and so is the word
 # a form inside a quoted string (B counts a quote as a command start, for `bash -c "sed -i ..."`), e.g. an echo of usage.
 #
-# A line that is deliberately GNU-only (inside a Linux-only branch, say) says so on the line: `# gnu-ok: <why>`.
+# Bash 4+ syntax, the other half of the same gap: the Linux shards run every script under bash 5, a Mac runs it under
+# bash 3.2. No counterpart, always flagged: mapfile / readarray, declare|local|typeset|readonly with -A -g -n -l
+# or -u in its flags (and unset -n), ${x,,} ${x^^} (single forms, ${!x,,} too), ${x@Q} and the other @ transforms,
+# ${x:off:-N}, read -t with a fraction, coproc, shopt naming a bash 4+ option, EPOCHSECONDS/EPOCHREALTIME ($-less
+# in arithmetic too): bash 3.2's `bash -n` accepts all of these, so they fail only when the line runs.
+# Also |& , &>> , ;;& and ;& in a case: those 3.2's `bash -n` does reject, but only where something runs it on a Mac.
+# Also a floor: wait -n, read -N / -i, ${a[-1]}, {1..9..2}, $BASHPID and printf %(fmt)T are not on the list, and a
+# trailing comment that names a form (`... # no mapfile here`) is flagged like the quoted-string case above, and so
+# are a |& inside a quoted string and the probe `shopt -q globstar` (3.2 returns 1 with an error on stderr, which a
+# probe can live with).
+#
+# A line that is deliberately GNU-only (inside a Linux-only branch, say) says so on the line: `# gnu-ok: <why>`; a line
+# that deliberately needs bash 4+ says `# bash4-ok: <why>`. Each excuses only its own kind.
 # Comment lines are not read. Test files (tools/test-*.sh, */test-*.sh, test/) are not product code: a GNU form in one
 # goes red on the macOS full suite at the cut, and many are Linux-only on purpose.
 set -u
@@ -45,6 +57,25 @@ forms() {
         timeout "${B}timeout[[:space:]]+(-|\"?\\\$|[0-9])" "command[[:space:]]+-v[[:space:]]+timeout" \
         grep-P "${B}grep${O}[[:space:]]+(-[a-zA-Z]*P|--perl-regexp)" "" \
         find-printf "${B}find[[:space:]].*[[:space:]]-f?printf([[:space:]]|\$)" ""
+    # Bash 4+ (kosmos#6808 scope addition). Single-quoted where they hold $ or `, so nothing expands.
+    # Literal $ { } [ ] are written as bracket expressions, which every ERE reads the same way (no stray-backslash
+    # question between BSD and GNU grep).
+    V='([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*])([[][^]]*[]])?'
+    OFF='([^}:]|[$][{][^}]*[}])*'   # a substring offset, a nested ${...} included
+    BK="(^|[;&|(\`{\"'[:space:]])"   # B without the slash: `local` in /usr/local is a path, not a builtin
+    printf '%s\t%s\t%s\n' \
+        bash4-mapfile "${BK}(mapfile|readarray)([[:space:]]|\$)" "" \
+        bash4-declare "${BK}(declare|local|typeset|readonly|unset)${O}[[:space:]]+-[a-zA-Z]*[Agnlu][a-zA-Z]*([^a-zA-Z0-9_-]|\$)" "" \
+        bash4-case-mod '[$][{]!?'"$V"'(,|\^)' "" \
+        bash4-transform '[$][{]'"$V"'@[QEPAaKkUuL][}]' "" \
+        bash4-pipe-amp '(^|[^|])\|&([^#a-zA-Z]|$|[a-zA-Z]+([^a-zA-Z;]|$))' "" \
+        bash4-append-both '&>>' "" \
+        bash4-case-fall ';;&|(^|[^;]);&([[:space:]]|$)' "" \
+        bash4-coproc "${BK}coproc([[:space:]]|\$)" "" \
+        bash4-shopt "${B}shopt[[:space:]].*(globstar|lastpipe|inherit_errexit|globasciiranges|direxpand|checkjobs|autocd|dirspell|localvar_inherit|localvar_unset|assoc_expand_once|compat32|compat4[0-9]|globskipdots|patsub_replacement|progcomp_alias|complete_fullquote|noexpand_translation|varredir_close)([^a-zA-Z0-9_]|\$)" "" \
+        bash4-epoch '(^|[^A-Za-z0-9_])EPOCH(SECONDS|REALTIME)([^A-Za-z0-9_]|$)' "" \
+        bash4-neg-length '[$][{]'"$V"':([[:space:]]+-'"$OFF"'|[[:space:]]*([0-9(a-zA-Z_$]|[$][{][^}]*[}])'"$OFF"')?:[[:space:]]*-' "" \
+        bash4-read-t "${B}read[[:space:]][^;|&]*-[a-zA-Z]*t[[:space:]]*[\"']?[0-9]*[.][0-9]" ""
 }
 
 # scan_file <path> <label>: prints "<label>:<line>: <form>: <text>" for each unexcused hit.
@@ -85,7 +116,10 @@ scan_file() {
         [ -n "$name" ] || continue
         grep -nE "$pat" "$f" 2>/dev/null | while IFS= read -r hit; do
             n=${hit%%:*}; text=${hit#*:}
-            case "$text" in *"gnu-ok:"*) continue ;; esac
+            case "$name" in
+                bash4-*) case "$text" in *"bash4-ok:"*) continue ;; esac ;;
+                *) case "$text" in *"gnu-ok:"*) continue ;; esac ;;
+            esac
             # A comment line, whatever its indent.
             case "$(printf '%s' "$text" | sed 's/^[[:space:]]*//')" in '#'*) continue ;; esac
             if [ -n "$cpat" ]; then
@@ -137,7 +171,56 @@ for case_ in \
     "base64-w|base64 --wrap=0 f" \
     "timeout|timeout \"\$T\" curl x" \
     "grep-P|grep -m1 -oP 'x' f" \
-    "grep-P|grep --perl-regexp x f"; do
+    "grep-P|grep --perl-regexp x f" \
+    "bash4-mapfile|mapfile -t lines < f" \
+    "bash4-mapfile|readarray arr < <(ls)" \
+    "bash4-declare|declare -A seen" \
+    "bash4-declare|local -gA map=()" \
+    "bash4-declare|local -n ref=\$1" \
+    "bash4-declare|typeset -r -A k" \
+    "bash4-declare|declare -Ag map" \
+    "bash4-declare|local -nr ref=\$1" \
+    "bash4-case-mod|x=\${!ref,,}" \
+    "bash4-pipe-amp|make|&tee log" \
+    "bash4-case-fall|  a) echo x;&" \
+    "bash4-shopt|shopt -s inherit_errexit" \
+    "bash4-shopt|shopt -qs globstar" \
+    "bash4-case-mod|x=\${name,,}" \
+    "bash4-case-mod|echo \"\${1^^}\"" \
+    "bash4-case-mod|y=\${arr[0]^}" \
+    "bash4-transform|printf '%s' \"\${v@Q}\"" \
+    "bash4-pipe-amp|make |& tee log" \
+    "bash4-append-both|cmd &>> log" \
+    "bash4-case-fall|  a) x ;;&" \
+    "bash4-case-fall|  a) x ;&" \
+    "bash4-coproc|coproc nc -l 1" \
+    "bash4-shopt|shopt -s globstar" \
+    "bash4-shopt|shopt -s nullglob lastpipe" \
+    "bash4-epoch|now=\$EPOCHSECONDS" \
+    "bash4-epoch|t=\${EPOCHREALTIME}" \
+    "bash4-declare|declare -g z=1" \
+    "bash4-declare|declare -l v" \
+    "bash4-declare|local -u v=\$1" \
+    "bash4-shopt|shopt -s compat32" \
+    "bash4-neg-length|y=\${x:0:-1}" \
+    "bash4-neg-length|y=\${x: -3:-1}" \
+    "bash4-neg-length|y=\${x:\$i:-2}" \
+    "bash4-read-t|read -t 0.5 r" \
+    "bash4-read-t|read -r -t .2 r" \
+    "bash4-read-t|read -t \"0.5\" r" \
+    "bash4-read-t|read -p \"q\" -t 0.5 r" \
+    "bash4-neg-length|echo \"\${x::-1}\"" \
+    "bash4-neg-length|echo \"\${x:i:-1}\"" \
+    "bash4-neg-length|echo \"\${x:\${#y}:-1}\"" \
+    "bash4-declare|readonly -A ro" \
+    "bash4-shopt|shopt -s globskipdots" \
+    "bash4-shopt|shopt -s globstar; ls x" \
+    "bash4-shopt|(shopt -s lastpipe)" \
+    "bash4-shopt|if shopt -q globstar; then x; fi" \
+    "bash4-epoch|x=\$(( EPOCHSECONDS - s ))" \
+    "bash4-epoch|(( t = EPOCHREALTIME ))" \
+    "bash4-declare|declare -A; x" \
+    "bash4-declare|unset -n r"; do
     form=${case_%%|*}; line=${case_#*|}
     out=$(plant "$line")
     case "$out" in *": $form: "*) ok "flags $form: $line" ;; *) bad "did not flag $form in: $line (got '$out')" ;; esac
@@ -158,10 +241,48 @@ for line in \
     "find . -name x -print" \
     "  # sed -i 's/a/b/' f in a comment" \
     "grep -P x f   # gnu-ok: this branch runs on Linux only" \
-    "readlink -f x"; do
+    "readlink -f x" \
+    "declare -a list" \
+    "local -r x=1" \
+    "x=\${name:-a,b}" \
+    "n=\${#arr[@]}" \
+    "keys=\${!arr[@]}" \
+    "y=\${x//a/b}" \
+    "a || b" \
+    "cmd >> log 2>&1" \
+    "cmd > log 2>&1 &" \
+    "  a) x ;;" \
+    "shopt -s nullglob" \
+    "echo '|&#8217;'" \
+    "now=\$SECONDS" \
+    "mapfile=1" \
+    "[ -d /usr/local -o -n \"\$x\" ]" \
+    "cmd &> log" \
+    "y=\${x:0:1}" \
+    "echo 'a&lt;&gt;b'" \
+    "s=s.replace(/&#39;|&apos;|&rsquo;/g, x)" \
+    "shopt -s extglob nullglob" \
+    "shopt -s compat31" \
+    "declare -rx K=1" \
+    "y=\${x: -1}" \
+    "y=\${x:1:2}" \
+    "y=\${x:-a:-b}" \
+    "read -t 5 r" \
+    "read -r line; sleep 0.5" \
+    "readonly -a list" \
+    "cat /var/mapfile x" \
+    "unset -f fn" \
+    "shopt -s globstarx" \
+    "MY_EPOCHSECONDS=1" \
+    "y=\${x:\${#y}:1}" \
+    "y=\${x:=a:-1}" \
+    "mapfile -t x < f   # bash4-ok: this script is run by the Linux service only"; do
     out=$(plant "$line")
     [ -z "$out" ] && ok "allows: $line" || bad "flagged an allowed form: $line -> $out"
 done
+# Each excuse clears only its own kind: a bash4-ok line still has its GNU form flagged, and the other way round.
+out=$(plant "grep -P x f   # bash4-ok: wrong excuse"); case "$out" in *": grep-P: "*) ok "CONTROL: bash4-ok does not excuse a GNU form" ;; *) bad "bash4-ok excused grep -P: '$out'" ;; esac
+out=$(plant "declare -A m   # gnu-ok: wrong excuse"); case "$out" in *": bash4-declare: "*) ok "CONTROL: gnu-ok does not excuse a bash 4 form" ;; *) bad "gnu-ok excused declare -A: '$out'" ;; esac
 # The BSD-first-then-GNU idiom across lines, as the tree writes it (tools/build-kosmos-bundle.sh).
 printf '#!/bin/sh\nsed -i %s "s/x/y/" f 2>/dev/null \\\n  || sed -i "s/x/y/" f\n' "''" > "$T/p.sh"
 out=$(scan_file "$T/p.sh" p); [ -z "$out" ] && ok "allows sed -i '' then sed -i on the next line" || bad "flagged the two-line sed idiom: $out"
@@ -194,9 +315,9 @@ count=$(printf '%s\n' "$files" | grep -c .)
 printf '%s\n' "$files" | grep -qx 'install/setup.sh' && ok "install/setup.sh is among them" || bad "install/setup.sh was not scanned"
 hits=$(printf '%s\n' "$files" | while IFS= read -r f; do [ -n "$f" ] && scan_file "$ROOT/$f" "$f"; done)
 if [ -z "$hits" ]; then
-    ok "no product shell file has an unexcused GNU-only form"
+    ok "no product shell file has an unexcused GNU-only form or bash 4+ syntax"
 else
-    bad "GNU-only forms in product shell code (a Mac has no such option; add the BSD counterpart beside it, or '# gnu-ok: <why>' on a Linux-only line):"
+    bad "GNU-only forms or bash 4+ syntax in product shell code (a Mac has neither: add the BSD counterpart beside a GNU form, write bash 3.2 instead of bash 4, or put '# gnu-ok: <why>' / '# bash4-ok: <why>' on a Linux-only line):"
     printf '%s\n' "$hits" | sed 's/^/      /'
 fi
 
