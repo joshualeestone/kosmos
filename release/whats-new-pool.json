@@ -352,7 +352,7 @@
     },
     {
       "title": "Subprojects are named with their project",
-      "line": "Task lists name a subproject with its project, as in \"Book A \u203a Launch\", and project pickers as in \"Launch (3), in Book A\".",
+      "line": "Task lists name a subproject with its project, as in \"Book A › Launch\", and project pickers as in \"Launch (3), in Book A\".",
       "icon": "tasks",
       "rank": 8.8,
       "since": "0.7.46",
@@ -801,8 +801,8 @@
       "shownIn": "0.7.63"
     },
     {
-      "title": "Close a task as replaced by another",
-      "line": "A task that a later task replaced can be closed as replaced by it: its page links to the new task, and the Tasks list says so.",
+      "title": "A task can be closed as replaced",
+      "line": "An agent can close a task as replaced by a later one: its page links to the new task, and the Tasks list says so.",
       "icon": "tasks",
       "rank": 5,
       "since": "0.7.64",
@@ -810,7 +810,7 @@
     },
     {
       "title": "Close a task and its subtasks at once",
-      "line": "When every subtask of a task is built, one press on that task's page closes each subtask and then the task itself.",
+      "line": "When a task's subtasks are all built or closed, one press on its page closes the built ones and then the task itself.",
       "icon": "tasks",
       "rank": 5.5,
       "since": "0.7.64",

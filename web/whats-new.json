@@ -3,13 +3,13 @@
   "highlights": [
     {
       "icon": "tasks",
-      "title": "Close a task as replaced by another",
-      "line": "A task that a later task replaced can be closed as replaced by it: its page links to the new task, and the Tasks list says so."
+      "title": "A task can be closed as replaced",
+      "line": "An agent can close a task as replaced by a later one: its page links to the new task, and the Tasks list says so."
     },
     {
       "icon": "tasks",
       "title": "Close a task and its subtasks at once",
-      "line": "When every subtask of a task is built, one press on that task's page closes each subtask and then the task itself."
+      "line": "When a task's subtasks are all built or closed, one press on its page closes the built ones and then the task itself."
     },
     {
       "icon": "list",
