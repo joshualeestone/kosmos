@@ -33,10 +33,18 @@ bob (now anchored or group-only); the person's old 🙋 attached to the next hol
 with); the author exemption covered replies; a claim ended for bob by a newer one counted as bob giving it back.
 Accepted, bounded by the 30-minute window: "Need someone to take the login bug, @bob is out" now reads as bob's.
 
+## Review 2 (blind, 0 BLOCKER, 3 WARNING): fixed. "Need someone to" opened a go-ahead reply to bob (now top-level posts
+naming nobody only); the clause start missed a new line, a dash and a bracket ("@bob is out\nAnyone?"); "@bob, who has
+time...?" read the vocative comma as a clause start (leading @-names are now replaced by a word before testing). Also:
+"gave back" replays bob's rows in order, and the reserved-name refusal tells the agent to ask the person to rename it.
+Noted: `claimAgreed` is used by the text view only; the person's own page still shows their 🙋 pill.
+
 ## Proof
 engine/roomclaim-6946.test.js #6957 (each with a control that can return the dangerous answer) and
-server.projects.test.js #6946 (the lone 🙋 after the release, through the real route). Mutants, each red: the release
-rule, the author rule, the cap, the "who's" form, the lone-🙋 filter.
+server.projects.test.js #6946 (the person's 🙋 after a release and beside a newer claim, through the real route).
+Mutants, each red: the release rule and its order, the author rule (and its @-named-only scope), the future-dated rule,
+the "who's" form, "around to", the clause-led bare ask, the new clause starts, the @-name strip, "need someone to" on
+replies, and the person's-🙋 filter.
 
 ## Weakest premise
 That a give-back means the asked member is done with it. A member who releases to hand it to a specific colleague

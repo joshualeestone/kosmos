@@ -3686,7 +3686,8 @@ const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|y
    "@bob can you do X?" asks bob. A pattern always misses some phrasings, which is why the asked members hold a post only
    for CLAIM_ASKED_MINUTES (react): a wrong lock costs at most that long. */
 const CLAIM_ASKED_MINUTES = 30;   // #6952: how long a post's asked members have first call on it
-const CLAIM_LEAD = "(?:^|[.!?;:,]\\s*)(?:(?:now|so|and|but|ok|okay|also|then|great|thanks)[,!]?\\s+)?";   // the start of a clause
+// The start of a clause: the text's start, or after . ! ? ; : , a new line, a dash or an opening parenthesis (#6957 review 2).
+const CLAIM_LEAD = "(?:^|[.!?;:,(\\n\\u2013\\u2014-]\\s*)(?:(?:now|so|and|but|ok|okay|also|then|great|thanks)[,!]?\\s+)?";
 const CLAIM_ROOM_ASK = new RegExp(
   CLAIM_LEAD + '(?:can|could|would|will|is there)\\s+(?:someone|somebody|anyone|anybody)\\b'          // "can someone review..."
   + '|\\b(?:someone|somebody|anyone|anybody)\\s+(?:please|free|available|around to|able|willing|up for|have time|has time)\\b'
@@ -3698,7 +3699,10 @@ const CLAIM_ROOM_ASK = new RegExp(
   + '|' + CLAIM_LEAD + '(?:anyone|anybody|someone|somebody)(?:\\s+else)?\\s*\\?', 'i');   // a bare "anyone?" or "anyone else?"
 /* "One of you" and the like put it to a group: on a post that @-names members that group is THEM ("@ann @bob can one of
    you review this?"), so it counts only on a post that names nobody. */
-const CLAIM_GROUP_ASK = /\b(?:(?:one|any|either|each) of you|all of you|the rest of you|you all|y'?all|need (?:someone|somebody|anyone) to)\b/i;   // #6957: "need someone to" said to bob is bob's
+const CLAIM_GROUP_ASK = /\b(?:(?:one|any|either|each) of you|all of you|the rest of you|you all|y'?all)\b/i;
+/* #6957: "need someone to..." asks the room only in a top-level post that names nobody: said to bob, or in a reply to
+   bob's post ("yes, we need someone to take it, go ahead"), it is bob's. */
+const CLAIM_NEED_ASK = /\bneed (?:someone|somebody|anyone) to\b/i;
 function logRoomRefusal({ from, project, because, at, doing, addable }) {
   if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway
   const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
@@ -3752,7 +3756,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   /* #6952: 'operator' too. The room's text view names the person 'operator', so an agent with that name would read as
      the person on a reactions or claim line. */
   if (operator !== true && (reactor === 'you' || reactor.toLowerCase() === 'operator')) {
-    return { ok: false, because: 'that name is reserved, so this reaction could not be attributed; rename this agent to react or claim' };
+    return { ok: false, because: 'that name is reserved, so this reaction could not be attributed; ask the person to rename this agent to react or claim' };
   }
   /* #2255: the room is its members. An AGENT reacting into a room it is not on
      is the same cross-room write the post model refuses (sendPost's membership
@@ -3843,13 +3847,19 @@ function react({ project, of, emoji, from, operator, members, claim }) {
        bob), unless the replier is that author or the reply asks the room.
      A hand-off, by an agent or by the person, is a post of its own ("@ann please take this"), which asks ann, and that is
      the post ann claims. Only those still in the room count, so a post asking only someone who has left is open. */
-  const asksRoom = (text, names) => typeof text === 'string' && (CLAIM_ROOM_ASK.test(text) || (!names && CLAIM_GROUP_ASK.test(text)));
+  /* A leading run of @-names ("@bob, who has time...?") addresses them: its comma is not a clause start (review 2). */
+  const asksRoom = (text, names, reply) => {
+    if (typeof text !== 'string') return false;
+    // Replaced by a word, not removed: the text after the names must not read as the start of the text (a clause start).
+    const t = text.replace(/^\s*(?:@[\w.-]+[\s,:]*)+/, 'NAMED ');
+    return CLAIM_ROOM_ASK.test(t) || (!names && CLAIM_GROUP_ASK.test(t)) || (!names && !reply && CLAIM_NEED_ASK.test(t));
+  };
   const askedSet = new Set();
   const named = Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : [];
   const unclear = Array.isArray(post.ambiguousMentions) && post.ambiguousMentions.length > 0;
   if (named.length) {
-    if (!unclear && !asksRoom(post.text, true)) for (const n of named) askedSet.add(n);
-  } else if (typeof post.replyTo === 'string' && !asksRoom(post.text, false)) {
+    if (!unclear && !asksRoom(post.text, true, false)) for (const n of named) askedSet.add(n);
+  } else if (typeof post.replyTo === 'string' && !asksRoom(post.text, false, true)) {
     const answered = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === post.replyTo);
     // The person's post has no session author ('you' is never a room member), so only an agent's post asks its author.
     if (answered && answered.operator !== true && typeof answered.from === 'string' && answered.from && answered.from !== post.from) askedSet.add(answered.from);
@@ -3866,10 +3876,19 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   /* #6957: an asked member who claimed the post and then gave it back has let it go ("out of usage, someone else
      please"), so once every asked member still here has done that, the post is open. And a post's own author is never
      locked out of claiming it ("@bob I am taking the parser, FYI"). */
-  // Gave back: claimed it (a marked add) and later removed it THEMSELVES (no takenBy: not ended by a newer claim).
-  const gaveBack = (n) => !claimants.has(n)
-    && rows.some((m) => m && m.kind === 'reaction' && String(m.of) === postId && m.from === n && m.op === 'add' && m.claim === true)
-    && rows.some((m) => m && m.kind === 'reaction' && String(m.of) === postId && m.from === n && m.op === 'remove' && !m.takenBy && isClaimEmoji(m.emoji));
+  /* Gave back: n's 🙋 rows replayed in log order end in a remove n made THEMSELVES (no takenBy) after a marked claim.
+     Order matters (review 2): react() itself removes an old unmarked pill just before a claim, and a claim later ended
+     for n by a newer one is not n letting go. */
+  const gaveBack = (n) => {
+    if (claimants.has(n)) return false;
+    let claimed = false; let released = false;
+    for (const m of rows) {
+      if (!m || m.kind !== 'reaction' || String(m.of) !== postId || m.from !== n || !isClaimEmoji(m.emoji)) continue;
+      if (m.op === 'add') { if (m.claim === true) { claimed = true; released = false; } continue; }
+      released = claimed && !m.takenBy;
+    }
+    return released;
+  };
   const released = asked.length > 0 && asked.every(gaveBack);
   const authorsOwn = named.length > 0 && reactor === post.from;   // the author of an @-named post, not of a reply (review 1)
   if (asked.length && !asked.includes(reactor) && !authorsOwn && !released && leftMs > 0) {

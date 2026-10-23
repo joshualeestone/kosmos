@@ -514,7 +514,7 @@ test('#6957: a post dated ahead of the clock is open, and a post\'s author can a
 
 test('#6957: the reserved-name refusal says what to do', () => {
   seedPost('m1', 'p');
-  assert.match(messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'operator', members: ['operator'] }).because, /rename this agent/);
+  assert.match(messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'operator', members: ['operator'] }).because, /ask the person to rename this agent/);
 });
 
 test('#6957 review 1: a reply naming nobody asks the answered author even when its writer replies (only an @-named post exempts its author)', () => {
@@ -531,4 +531,36 @@ test('#6957 review 1: gave back means bob removed his own claim; a claim ended f
   append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'add', claim: true, at: at() });
   append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'remove', takenBy: 'cy', because: 'left-the-room', at: at() });
   assert.deepEqual(claim('ann').askedOf, ['bob'], 'a claim ended FOR bob counted as bob giving it back');
+});
+
+test('#6957 review 2: need someone to in a go-ahead reply is the answered author\'s; control: in a top-level post naming nobody, the room\'s', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = () => new Date().toISOString();
+  append({ kind: 'post', id: 'r1', project: 'p', from: 'bob', to: MEMBERS, text: 'Shall I take the parser?', outcomes: {}, at: at() });
+  append({ kind: 'post', id: 'r2', project: 'p', from: 'ann', to: MEMBERS, replyTo: 'r1', text: 'Yes, we need someone to take it, go ahead', outcomes: {}, at: at() });
+  assert.deepEqual(claim('cy', 'r2').askedOf, ['bob'], 'a go-ahead reply to bob opened to anyone');
+  append({ kind: 'post', id: 'r3', project: 'p', from: 'you', operator: true, to: MEMBERS, text: 'We need someone to take the login bug', outcomes: {}, at: at() });
+  assert.equal(claim('cy', 'r3').op, 'add');
+});
+
+test('#6957 review 2: a bare anyone? after a new line, a dash or in brackets asks the room; @bob, who... asks bob', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  let n = 0;
+  const ask = (text) => { n += 1; append({ kind: 'post', id: 'v' + n, project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text, outcomes: {}, at: new Date().toISOString() }); return 'v' + n; };
+  for (const text of ['@bob is out today\nAnyone?', '@bob is out today - anyone?', '@bob is out today \u2014 anyone?', '@bob is out (anyone?)', '@bob fix X\nCan someone review after?']) {
+    assert.equal(claim('cy', ask(text)).op, 'add', JSON.stringify(text));
+  }
+  for (const text of ['@bob, who has time to pair with me tomorrow?', '@bob, who is around this weekend?', "@bob, who's around for on-call Friday?", '@bob: who can approve this?']) {
+    assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
+  }
+});
+
+test('#6957 review 2: gave back replays bob\'s rows in order; an old pill removed before his claim, then a claim ended for him, is not a give-back', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = () => new Date().toISOString();
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix X', outcomes: {}, at: at() });
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'remove', at: at() });               // react() clearing an old pill
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'add', claim: true, at: at() });
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'remove', takenBy: 'cy', because: 'left-the-room', at: at() });
+  assert.deepEqual(claim('ann').askedOf, ['bob'], 'the remove before bob\'s claim counted as bob giving it back');
 });
