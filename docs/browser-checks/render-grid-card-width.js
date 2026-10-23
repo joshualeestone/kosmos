@@ -110,8 +110,9 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
 
   // Seed an unread count on the long-titled project, so the badge is present
   // to compete with the name for the row's width.
-  const m = await pg.evaluate(() => {
-    const pj = document.querySelector('#pj-list.asgrid .pj-row');
+  const m = await pg.evaluate((long) => {
+    // The long-titled card by its title, not the first by position: another project can sort ahead of it.
+    const pj = [...document.querySelectorAll('#pj-list.asgrid .pj-row')].find((r) => (r.textContent || '').includes(long.slice(0, 30))) || null;
     const list = document.querySelector('#pj-list.asgrid');
     const track = list ? getComputedStyle(list).gridTemplateColumns.split(' ')[0] : null;
     const nameB = pj ? pj.querySelector('.pjname b') : null;
@@ -146,7 +147,7 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
         return { w: Math.round(r.width), shrink: getComputedStyle(bd).flexShrink };
       })(),
     };
-  });
+  }, LONG);
   m.agTrack = agTrack;
   console.log('  measured: ' + JSON.stringify(m));
 

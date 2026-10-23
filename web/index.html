@@ -66133,14 +66133,15 @@ function pjSortByChain(list) {
   return list.slice().sort((a, b) => pjChainCompare(chain.get(a), chain.get(b)));
 }
 /* #6966 (Josh, 10-22): which AI each agent in the project runs on, as one tally beside the count ("2 [Claude]
-   1 [Gemini]"), never on the faces. `provider` is the engine's name for it (accountproblem.providerOf), null when the
-   member is not tied to its agent; those are left out. The marks are the provider picker's (providerMarkNode, keyed by
+   1 [Gemini]"), never on the faces. `provider` is the engine's family name (projectview.familyOf), null when the
+   member is not tied to its agent or has no runner recorded (stopped); those are left out, so the tally can count
+   fewer than "N agents". The marks are the provider picker's (providerMarkNode, keyed by
    the picker's own values; any other provider by its lowercased name), built once per provider and kept. */
 const PJ_TALLY = [
-  ['Claude', 'claude', 'Claude'], ['OpenAI', 'openai', 'GPT'], ['Gemini', 'google', 'Gemini'], ['Google', 'antigravity', 'Gemini'],
-  ['Grok', 'xai', 'Grok'], ['Meta', 'meta', 'Meta'], ['Qwen', 'alibaba', 'Qwen'],
+  ['Claude', 'claude', 'Claude'], ['OpenAI', 'openai', 'GPT'], ['Gemini', 'google', 'Gemini'],
+  ['Gemini (Google subscription)', 'antigravity', 'Gemini'], ['Grok', 'xai', 'Grok'], ['Meta Muse', 'meta', 'Meta'], ['Qwen', 'alibaba', 'Qwen'],
 ];
-const PJ_TALLY_MARKS = new Map();   // pick -> the mark's HTML
+const PJ_TALLY_MARKS = new Map();   // pick -> the mark's HTML (cloned from #firstrun's marks, which stay in the page)
 function pjProviderTally(agents) {
   const counts = new Map();   // the word shown -> { pick, n }, in PJ_TALLY order, then any other provider as it comes
   for (const a of agents || []) {

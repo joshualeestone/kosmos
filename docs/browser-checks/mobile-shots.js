@@ -822,7 +822,10 @@ const SCREENS = [
           const mix = ['Claude', 'Gemini', 'Grok', 'Claude'];
           first.agents.forEach((a, i) => { if (a && typeof a === 'object') a.provider = mix[i % mix.length]; });
           const extra = (sessionName, name, provider) => ({ ...first.agents[0], sessionName, name, provider, hasAvatar: false });
-          if (first.agents[0]) first.agents.push(extra('gus', 'Gus', 'OpenAI'), extra('juno', 'Juno', 'Meta'));
+          if (first.agents[0]) {
+            first.agents.push(extra('gus', 'Gus', 'OpenAI'), extra('juno', 'Juno', 'Meta Muse'));
+            if (first.summary && Number.isFinite(first.summary.total)) first.summary.total += 2;   // the count says five too
+          }
         }
         if (second) {
           second.name = 'Quarterly investor update and board deck for the October meeting';

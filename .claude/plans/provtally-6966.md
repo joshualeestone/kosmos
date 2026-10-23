@@ -11,8 +11,9 @@ the point.
 
 ## Change
 
-1. `engine/projects.js` describe(): each member row gains `provider` = accountproblem.providerOf(card) ('Claude',
-   'OpenAI', 'Qwen', 'Gemini', 'Google', 'Grok', 'Meta'), behind the same `isNamedOurs` gate as `runner` and the face.
+1. `engine/projects.js` describe(): each member row gains `provider` = projectview.familyOf(runner, sessionName), the
+   family `kosmos project show` reads ('Claude', 'OpenAI', 'Qwen', 'Gemini', 'Gemini (Google subscription)', 'Grok',
+   'Meta Muse'; null with no runner recorded), behind the same `isNamedOurs` gate as `runner` and the face.
 2. `web/index.html`: `pjProviderTally(agents)` builds the tally from the provider picker's marks (providerMarkNode),
    fixed order Claude, GPT, Gemini (Google counts as Gemini), Grok, Meta, Qwen, then any other provider (initial-letter
    chip). Words in a `.vh` span for screen readers. Appended inside `.pjfaces` after the count.
@@ -26,6 +27,8 @@ the point.
 
 ## Decided
 
+- Stopped (no runner recorded) and untied members are left out of the tally, so it can count fewer than "N agents";
+  guessing a stopped agent's provider would be the default-as-claim the paneless card refuses.
 - Grid cards only in this change. Room member lists and the list row are the card's second step.
 - Weakest premise: people know the marks without names. Hover title and screen-reader words name them; if not
   enough, names instead of marks on wide cards.

@@ -34,18 +34,21 @@ test.before(() => {
   ]);
   try {
     const made = projects.create({ name: 'Provider Tally' });
-    for (const sn of ['ada', 'ben', 'cleo', 'dev']) projects.addAgent(made.id, sn);
-    const d = projects.describe(projects.readAll().find((x) => x.id === made.id), board.agents);
+    for (const sn of ['ada', 'ben', 'cleo', 'dev', 'zed']) projects.addAgent(made.id, sn);
+    /* zed: a stopped agent of ours has no pane, so its card is status.js panelessCard's shape: tied, no runner. */
+    const stopped = { sessionName: 'zed', name: 'Zed', isNamedOurs: true, runner: null, state: 'stopped' };
+    const d = projects.describe(projects.readAll().find((x) => x.id === made.id), [...board.agents, stopped]);
     for (const row of d.agents) ROWS.set(row.sessionName, row);
-    assert.equal(ROWS.size, 4, 'PRE-CONTROL: the producer did not give a row for each member');
+    assert.equal(ROWS.size, 5, 'PRE-CONTROL: the producer did not give a row for each member');
   } finally { board.restore(); }
 });
 
-test('#6966: a tied member row carries its provider; an untied one carries none', () => {
+test('#6966: a tied member row carries its provider; an untied or stopped one carries none', () => {
   assert.equal(ROWS.get('ada').provider, 'Claude');
   assert.equal(ROWS.get('ben').provider, 'Gemini');
   assert.equal(ROWS.get('cleo').provider, 'Grok');
   assert.equal(ROWS.get('dev').provider, null, 'a pane borrowing the name must not lend the card its provider');
+  assert.equal(ROWS.get('zed').provider, null, 'a stopped agent has no runner recorded; it must not read as Claude');
 });
 
 /* The tally, run for real with the two page helpers it calls stubbed: a mark is a span naming its picker key. */
@@ -62,12 +65,12 @@ test('#6966: the tally counts providers in the fixed order and says them in word
 });
 
 test('#6966: Gemini on a Google subscription counts as Gemini; OpenAI reads GPT', () => {
-  const html = tally([{ provider: 'Google' }, { provider: 'Gemini' }, { provider: 'OpenAI' }]);
+  const html = tally([{ provider: 'Gemini (Google subscription)' }, { provider: 'Gemini' }, { provider: 'OpenAI' }]);
   assert.equal(said(html), ', 1 GPT, 2 Gemini');
 });
 
 test('#6966: a provider outside the list still counts, after the known ones; untied members and no members give no tally', () => {
-  assert.equal(said(tally([{ provider: 'Acme' }, { provider: 'Meta' }])), ', 1 Meta, 1 Acme');
+  assert.equal(said(tally([{ provider: 'Acme' }, { provider: 'Meta Muse' }])), ', 1 Meta, 1 Acme');
   assert.equal(tally([{ provider: null }, {}, null]), '');
   assert.equal(tally([]), '');
   assert.equal(tally(undefined), '');

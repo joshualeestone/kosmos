@@ -1070,10 +1070,10 @@ function describe(project, roster, all) {
       /* #4034: which program runs it, so the project thread can find a Gemini question box (chat.questionIn). Same
          tied gate as `state`: a pane we cannot tie to this name is not known to be this agent's program. */
       runner: (card && card.isNamedOurs && typeof card.runner === 'string' && card.runner) ? card.runner : null,
-      /* #6966: the provider's name ('Claude', 'OpenAI', 'Qwen', ...) for the project card's tally. Same tied gate as
-         `runner`; accountproblem.providerOf tells Qwen from OpenAI on the shared codex runner, and names a runner it does
-         not know 'Claude'. */
-      provider: (card && card.isNamedOurs) ? require('./accountproblem').providerOf(card) : null,
+      /* #6966: the model family for the project card's tally, from projectview.familyOf, the one `kosmos project show`
+         reads ('Claude', 'OpenAI', 'Qwen', ...). Same tied gate as `runner`. Null when no runner is recorded (a stopped
+         agent's card), which the tally leaves out rather than guessing. */
+      provider: (card && card.isNamedOurs) ? require('./projectview').familyOf(card.runner, sessionName) : null,
       /* #763/#2837: the project the member's state is about, when it said -- a
          needs_you question (#763) or a working state (#2837). */
       stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject && (knownIds === null || knownIds.has(card.stateProject))) ? card.stateProject : null,
