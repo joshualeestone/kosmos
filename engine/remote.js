@@ -2300,6 +2300,7 @@ function pendingDevices() {
      stays pending for good. It is never a request: the app's window loads the board on this computer, not through
      Kosmos+. Its id is remote.json's device_id (the page used it only to relabel the row). Not listed, not counted. */
   const selves = ownDeviceIds(settings);
+  const v2 = boardV2();
   const devices = list
     .filter((d) => d && REQUEST_ID.test(String(d.device_id || '')))
     .filter((d) => !selves.includes(String(d.device_id)))
@@ -2326,7 +2327,11 @@ function pendingDevices() {
     /* #6315: a minted computer: id is a computer whatever else the row says. Without a usable joining_computer name
        (the coordinator stops naming it once its lineage is no longer waiting, or the name fails NAME_RULE) it would be
        drawn as a phone whose Allow can never work, so it is shown the way a former computer is: Allow off, Not me. */
-    .map((d) => (d.device_id.startsWith('computer:') && !d.joining_computer ? { ...d, code: '', code_wait: d.code_wait || 'was_a_computer' } : d));
+    .map((d) => (d.device_id.startsWith('computer:') && !d.joining_computer ? { ...d, code: '', code_wait: d.code_wait || 'was_a_computer' } : d))
+    /* kosmos#6590 (S-7d branch c): under the board-v2 marker a phone or a browser is let in only by the typed code its own
+       page shows (devicesWaiting), so the coordinator's rows for them are not offered: an Allow by their id admits
+       nobody there, and a Not me by id would tell Kosmos+ to end that sign-in everywhere. Computers keep their rows. */
+    .filter((d) => !v2 || isComputerRow(d));
   // kosmos#5786 (b): the device just allowed automatically is not also shown as waiting while the tunnel's snapshot
   // still lists it (until its next poll).
   const here = recentlyVouched(settings);
@@ -2542,6 +2547,130 @@ function removeAnswer(r) {
 /* A computer name as the coordinator gives it, by the same rule as pendingDevices' joining_computer. */
 const computerName = (v) => (typeof v === 'string' && NAME_RULE.test(v.trim().toLowerCase()) ? v.trim().toLowerCase() : null);
 /* A tunnel from before slice 1 has no `join` verb: clap refuses it with exit 2 before doing anything. */
+/* kosmos#6590 (S-7d branch c): the typed-code Allow. A browser that proved its own key on this computer's address waits
+   as a row the tunnel lists (`devices waiting`: never its code); the person types the code that browser shows. All of
+   it is INERT until the board-v2 marker is in the state folder, which only a later step writes: until then nothing
+   here spawns, no route answers more than "not yet", and every existing screen behaves as before. */
+const BOARD_V2_FILE = 'board-v2';
+/* Read from the file every time (never "I wrote it"): a Forget clears the folder, and the page must not offer typed
+   codes while the tunnel answers the old code. */
+function boardV2() {
+  try { return fs.existsSync(path.join(STATE_DIR(), BOARD_V2_FILE)); } catch { return false; }
+}
+/* A knock id as the tunnel writes it (KnockId: 128 random bits, unpadded base64url). Checked before it reaches argv. */
+const KNOCK_ID = /^[A-Za-z0-9_-]{22}$/;
+/* The finding the certificate alarm is about (a SHA-256 in hex), passed back unchanged when the person acknowledges. */
+const CT_FINDING = /^[0-9a-f]{64}$/;
+/* A row the coordinator lists as another of the person's computers (joining, waiting for its code, or a code check).
+   These keep today's Allow with the typed pairing code whatever the marker says. */
+function isComputerRow(d) {
+  return !!d && (String(d.device_id || '').startsWith('computer:') || !!d.joining_computer || !!d.code_wait || d.recheck === true);
+}
+/* Under the marker, an Allow or Not me by device id is only for a row the CURRENT snapshot lists as a computer; any other
+   id (a phone, a browser, or one not listed at all) is refused at the route, so no phone is let in by its sign-in alone.
+   The raw snapshot, not pendingDevices(): that one already drops phone rows under the marker. */
+function listedAsComputer(id) {
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return false; }
+  const list = raw && Array.isArray(raw.devices) ? raw.devices : [];
+  return list.some((d) => d && String(d.device_id || '') === String(id) && isComputerRow(d));
+}
+/* One read of `devices waiting` serves every open board for a moment, and concurrent asks share the one spawn (an open
+   board polls every few seconds). Flushed after anything that changes the rows. */
+const WAITING_FRESH_MS = 2000;
+let waitingCache = null;   // { at, gen, value }
+let waitingInFlight = null;
+let waitingGen = 0;
+function flushWaiting() { waitingCache = null; waitingGen += 1; }
+const NO_WAITING = Object.freeze({ count: 0, waiting: Object.freeze([]), ctAlarm: false, ctFinding: null });
+function waitingFrom(data) {
+  const rows = data && Array.isArray(data.waiting) ? data.waiting : [];
+  const waiting = rows
+    .filter((w) => w && KNOCK_ID.test(String(w.knockId || '')))
+    .map((w) => ({
+      knockId: String(w.knockId),
+      firstSeen: Number(w.firstSeen) || 0,
+      // What the browser said it is (a coarse class the tunnel picks) and the network the relay reported.
+      uaClass: typeof w.uaClass === 'string' ? w.uaClass.slice(0, 40) : '',
+      net: typeof w.net === 'string' ? w.net.slice(0, 64) : '',
+      vouched: w.vouched === true,
+    }));
+  return {
+    count: waiting.length,
+    waiting,
+    ctAlarm: !!data && data.ctAlarm === true,
+    ctFinding: data && typeof data.ctFinding === 'string' && CT_FINDING.test(data.ctFinding) ? data.ctFinding : null,
+  };
+}
+/** The browsers waiting for a typed code, and the tunnel's certificate alarm. `v2` false: the marker is not here, so
+    nothing was asked. Off or not enrolled: nothing is spawned. */
+async function devicesWaiting() {
+  if (!boardV2()) return { ok: true, because: null, data: { v2: false, ...NO_WAITING } };
+  if (!read().on || !enrolled()) return { ok: true, because: null, data: { v2: true, ...NO_WAITING } };
+  if (waitingCache && waitingCache.gen === waitingGen && Date.now() - waitingCache.at < WAITING_FRESH_MS) return waitingCache.value;
+  if (waitingInFlight) return waitingInFlight;
+  const gen = waitingGen;
+  waitingInFlight = setupRun(['devices', 'waiting', '--state-dir', STATE_DIR()], null, retireTimeoutMs())
+    .then((r) => {
+      const got = parseSaid(r);
+      const value = got.ok ? { ok: true, because: null, data: { v2: true, ...waitingFrom(got.data) } } : { ok: false, because: got.because };
+      if (got.ok && gen === waitingGen) waitingCache = { at: Date.now(), gen, value };
+      return value;
+    })
+    .finally(() => { waitingInFlight = null; });
+  return waitingInFlight;
+}
+/* The tunnel's own sentence for a refused typed code (a fixed set it words), never anything that could carry the code. */
+function tunnelWordsWithout(because, code) {
+  const said = typeof because === 'string' ? because.trim().slice(0, 300) : '';
+  if (!said || (code && said.includes(code))) return '';
+  return said;
+}
+/** Allow the waiting browser `knockId` by the code it shows, typed by the person. */
+async function deviceAllowCode(knockId, code) {
+  { const b = busy(); if (b) return b; }
+  if (!boardV2()) return { ok: false, because: 'this computer does not take typed codes yet' };
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  if (typeof knockId !== 'string' || !KNOCK_ID.test(knockId)) return { ok: false, because: 'that browser is no longer waiting' };
+  /* Refused here, not counted as a wrong try by the tunnel: an empty code, and any control character (a NUL would fail
+     the spawn with the value in its error). No length cap: the tunnel caps it. */
+  const typed = typeof code === 'string' ? code.trim() : '';
+  if (!typed || /[\u0000-\u001f\u007f]/.test(typed)) return { ok: false, because: 'type the code that browser shows' };
+  /* `--` before the two values: a knock id or a code can start with "-", and without it the tunnel's argument parser
+     could take one for a flag and echo it back in its error. */
+  const r = parseSaid(await tracked(setupRun(['devices', 'allow-code', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(), '--', knockId, typed], null, retireTimeoutMs())));
+  flushWaiting();
+  if (!r.ok) return { ok: false, because: tunnelWordsWithout(r.because, typed) || 'the code could not be checked; try again' };
+  const d = r.data || {};
+  if (d.paused === true) return { ok: false, because: PAUSED_ALLOW_WORDS, paused: true };
+  if (d.allowed === true) {
+    if (d.account_ack === UNKNOWN_DEVICE) return { ok: false, because: UNKNOWN_WORDS, listed: true };
+    return { ok: true, because: null, data: { allowed: true, device_id: typeof d.device_id === 'string' ? d.device_id : null, acked: d.acked === true } };
+  }
+  const left = Number.isInteger(d.tries_left) && d.tries_left >= 0 ? d.tries_left : null;
+  return { ok: false, because: tunnelWordsWithout(d.because, typed) || 'that code did not let the browser in', triesLeft: left };
+}
+/** "Not me" on one waiting browser: the tunnel turns that browser's key away on this computer for a day and drops every
+    row of it. Kosmos+ is not told. `allowed`: the browser was already let in (remove it under Devices). */
+async function deviceDropWaiting(knockId) {
+  { const b = busy(); if (b) return b; }
+  if (!boardV2()) return { ok: false, because: 'this computer does not take typed codes yet' };
+  if (typeof knockId !== 'string' || !KNOCK_ID.test(knockId)) return { ok: false, because: 'that browser is no longer waiting' };
+  const r = parseSaid(await tracked(setupRun(['devices', 'drop-waiting', '--state-dir', STATE_DIR(), '--', knockId], null, retireTimeoutMs())));
+  flushWaiting();
+  if (!r.ok) return r;
+  const d = r.data || {};
+  return { ok: true, because: null, data: { dropped: Number(d.dropped) || 0, allowed: d.allowed === true, device_id: typeof d.device_id === 'string' ? d.device_id : null } };
+}
+/** Drop every waiting browser, and forget the browsers turned away today (the undo for a mistaken Not me). */
+async function devicesClearWaiting() {
+  { const b = busy(); if (b) return b; }
+  if (!boardV2()) return { ok: false, because: 'this computer does not take typed codes yet' };
+  const r = parseSaid(await tracked(setupRun(['devices', 'clear-waiting', '--state-dir', STATE_DIR()], null, retireTimeoutMs())));
+  flushWaiting();
+  if (!r.ok) return r;
+  return { ok: true, because: null, data: { cleared: Number(r.data && r.data.cleared) || 0 } };
+}
 function joinUnsupported(r) {
   const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
   return !r.ok && r.code === 2 && /unrecognized subcommand '?(join|retry)'?/.test(said);   // #6353: retry is newer than join
@@ -3883,7 +4012,7 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   bumpSelfEpochForTests: () => { selfEpoch += 1; },
-  resetForTests: () => { tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
+  resetForTests: () => { tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; flushWaiting(); waitingInFlight = null; stopChild(); },
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
@@ -3892,6 +4021,7 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   recentlyVouchedForTests: (settings) => recentlyVouched(settings),
   vouchPatchForTests: (patch) => { if (vouchState && patch) Object.assign(vouchState, patch); },   // kosmos#6599
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
+  boardV2, listedAsComputer, devicesWaiting, deviceAllowCode, deviceDropWaiting, devicesClearWaiting,   // kosmos#6590 branch c
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
   setCompanyOpenCommandForTests: (argv) => { companyOpenCommandForTests = argv || null; },
   setCompanyOpenSourceForTests: (src) => { companyOpenSourceForTests = src || null; },
