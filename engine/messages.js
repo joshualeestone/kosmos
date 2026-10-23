@@ -3610,7 +3610,7 @@ function claimAge(at, now) {
    it now) nothing is written and the answer says who holds it, so a stale page cannot free the wrong agent.
    Every 🙋 pill the holder has, in any form and marked as a claim or not, is removed (react()'s dropPills does the
    same), with `takenBy: 'you'` and `because: 'freed'`, and an agents-only room note names the post and the old holder,
-   so the holder's next `kosmos room` read says it was freed.
+   so the holder's next `kosmos room` read says it was freed (while the note is within the rows that read shows).
    `members` is the project's stored members (roomClaimOf's filter), so the holder freed is the one the room shows. */
 function freeClaim({ project, of, by, members }) {
   const projectId = String(project == null ? '' : project).trim();

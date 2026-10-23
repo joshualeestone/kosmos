@@ -17,8 +17,10 @@ onto main once #6946 merges, and the PR opens then.
   the post's reactions and claim, the react route's shape.
 - The person's react route now also answers with `claim` (shared `roomPostClaim`), so the one-row repaint after the
   person agrees with a claim keeps the pill labelled.
-- Page: on a room post with `claim`, the 🙋 pill gets `.rxn-claim`, a title and accessible name "Claimed by <name>,
-  <age>", and a "Free for another agent" button beside it (always visible, like the pill). Success repaints the row and
+- Page: on a room post with `claim`, the 🙋 pill the holder is on gets `.rxn-claim` and a title and accessible name
+  "Claimed by <name>"; the age ("claimed 3 hours ago") is visible text beside it, never in an attribute, so it ticks in
+  place (refreshWhens) without changing the room's shape (threadShape); then a "Free for another agent" button (always
+  visible, like the pill). Success is said in the room's live region only: the pill going is what a sighted person sees. Success repaints the row and
   speaks in the room's live region; a refusal or a failed send says why in a toast and leaves the button pressable.
 
 Rejected:

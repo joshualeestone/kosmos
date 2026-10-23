@@ -185,12 +185,32 @@ const check = (cond, n, why) => (cond ? ok(n) : bad(n, why));
       const t2 = await toastSays(/newhand no longer holds it, .+ does\.$/);
       check(/^We could not free that post: newhand no longer holds it, .+ does\.$/.test(String(t2)), t + ' and its toast names the real holder', String(t2));
 
-      // Free frees it, through the real route, from the keyboard.
+      // Free frees it, through the real route, from the keyboard; while the request is out the row is rebuilt (as a
+      // repaint can), so the answer must land on the row now on screen, not the one the press came from.
+      let repaintedMidFlight = false;
+      await p.route('**/free-claim', async (route) => {
+        repaintedMidFlight = await p.evaluate(() => {
+          // A repaint that rebuilt the row (a full repaint over the same content keeps it, measured): put a copy of it in
+          // its place, so the row the press came from is no longer the one on screen.
+          const old = document.querySelector('#pj-room .rxns[data-bc-tag="pressed"]');
+          if (!old) return false;
+          const copy = old.cloneNode(true);
+          delete copy.dataset.bcTag;
+          old.replaceWith(copy);
+          return !document.querySelector('#pj-room .rxns[data-bc-tag="pressed"]') && !!copy.querySelector('.rxn-free');
+        }).catch(() => false);
+        await route.continue();
+      });
+      await box(claimed).evaluate((b) => { b.dataset.bcTag = 'pressed'; });
       await box(claimed).locator('.rxn-free').focus();
+      const answered = p.waitForResponse((r) => r.url().endsWith('/free-claim'), { timeout: 5000 }).catch(() => null);
       await p.keyboard.press('Enter');
-      await p.waitForFunction((id) => !document.querySelector('#pj-room .rxns[data-post="' + id + '"] .rxn-free'), claimed, { timeout: 5000 }).catch(() => {});
+      await answered;
+      await p.waitForTimeout(150);   // the page's own repaint of the answer, well inside a room poll, so a poll cannot mend it
       const c4 = await read(claimed);
-      check(c4.pills === 0 && !c4.free && !c4.claimPill, t + ' after Free the agent\'s 🙋 and the Free control are gone', JSON.stringify(c4));
+      await p.unroute('**/free-claim');
+      check(repaintedMidFlight, t + ' precondition: the row was rebuilt while the free was out', String(repaintedMidFlight));
+      check(c4.pills === 0 && !c4.free && !c4.claimPill, t + ' after Free the agent\'s 🙋 and the Free control are gone from the row on screen', JSON.stringify(c4));
       const said = await p.evaluate(() => { const el = document.getElementById('pj-room-say'); return el ? el.textContent : null; });
       check(/^Freed\. .+ no longer holds this post, and another agent can claim it\.$/.test(String(said)), t + ' the room\'s live region says it was freed', String(said));
       check(await focusIn(claimed) === '#pj-post', t + ' with the row empty, focus goes to the room\'s composer, not the page', String(await focusIn(claimed)));

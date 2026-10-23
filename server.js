@@ -21610,7 +21610,12 @@ const server = http.createServer(async (req, res) => {
         }
         if (!stored) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
         // The members the room read filters claims by (the stored record's names), so the holder freed is the one shown.
-        const out = messages.freeClaim({ project: stored.id, of: postId, by: body.by, members: stored.agents });
+        let out;
+        try { out = messages.freeClaim({ project: stored.id, of: postId, by: body.by, members: stored.agents }); } catch {
+          // A write that failed part way: said in plain words, never the system's (a path, an errno) on the person's screen.
+          sendJson(res, 500, { ok: false, because: 'we could not write that to the room just now; look at the room again before you retry' });
+          return;
+        }
         const fresh = () => {
           let reactions = [];
           try { reactions = messages.reactionsFor(out.of, messages.record().rows, 'you'); } catch { reactions = []; }

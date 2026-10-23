@@ -3083,6 +3083,17 @@ test('#6949: the person frees a quiet agent\'s claim through the real route; the
     assert.equal(asAgent.status, 403, 'an agent token was not refused by the person\'s route');
     // The route's own refusal, not the board-token gate's (which answers 403 too on a board that enforces it).
     assert.match((await asAgent.json()).because || '', /^only the person can free a claim/, 'the 403 is not the route\'s own refusal');
+
+    // The route's other answers: no such project (404), no holder named (400), a body that is not JSON (400).
+    assert.equal((await post(`/api/project/no-such-project/room/${id}/free-claim`, { by: 'zeta' })).status, 404);
+    const noBy = await post(`/api/project/${project.id}/room/${id}/free-claim`, {});
+    assert.equal(noBy.status, 400, noBy.body);
+    assert.equal(JSON.parse(noBy.body).because, 'we could not tell whose claim to free');
+    const garbled = await fetch(base + `/api/project/${project.id}/room/${id}/free-claim`, { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: '{not json' });
+    assert.equal(garbled.status, 400);
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'a refused request freed the claim:\n' + res.body);
     res = await req(`/api/project/${project.id}/room?as=text`);
     assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'the agent-token call freed the claim:\n' + res.body);
   });
