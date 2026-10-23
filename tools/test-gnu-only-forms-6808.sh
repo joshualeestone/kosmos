@@ -23,7 +23,15 @@
 # `# gnu-ok:` settles: `git grep -P` is flagged (it works only where git was built with PCRE), and so is the word
 # a form inside a quoted string (B counts a quote as a command start, for `bash -c "sed -i ..."`), e.g. an echo of usage.
 #
-# A line that is deliberately GNU-only (inside a Linux-only branch, say) says so on the line: `# gnu-ok: <why>`.
+#
+# Bash 4+ syntax, the other half of the same gap: the Linux shards run every script under bash 5, a Mac runs it under
+# bash 3.2, and `bash -n` on 3.2 accepts most of these (they fail only when the line runs). No counterpart, always
+# flagged: mapfile / readarray, declare|local|typeset -A or -n, ${x,,} ${x^^} (and the single forms), ${x@Q} and the
+# other @ transforms, |& , &>> , ;;& and ;& in a case, coproc, shopt -s globstar|lastpipe, $EPOCHSECONDS/EPOCHREALTIME.
+# Also a floor: wait -n, read -N / -i, ${a[-1]}, {1..9..2}, $BASHPID and printf %(fmt)T are not on the list.
+#
+# A line that is deliberately GNU-only (inside a Linux-only branch, say) says so on the line: `# gnu-ok: <why>`; a line
+# that deliberately needs bash 4+ says `# bash4-ok: <why>`. Each excuses only its own kind.
 # Comment lines are not read. Test files (tools/test-*.sh, */test-*.sh, test/) are not product code: a GNU form in one
 # goes red on the macOS full suite at the cut, and many are Linux-only on purpose.
 set -u
@@ -45,6 +53,19 @@ forms() {
         timeout "${B}timeout[[:space:]]+(-|\"?\\\$|[0-9])" "command[[:space:]]+-v[[:space:]]+timeout" \
         grep-P "${B}grep${O}[[:space:]]+(-[a-zA-Z]*P|--perl-regexp)" "" \
         find-printf "${B}find[[:space:]].*[[:space:]]-f?printf([[:space:]]|\$)" ""
+    # Bash 4+ (kosmos#6808 scope addition). Single-quoted where they hold $ or `, so nothing expands.
+    V='([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*])(\[[^]]*\])?'
+    printf '%s\t%s\t%s\n' \
+        bash4-mapfile "${B}(mapfile|readarray)([[:space:]]|\$)" "" \
+        bash4-declare "${B}(declare|local|typeset)${O}[[:space:]]+-[a-zA-Z]*[An]([[:space:]]|\$)" "" \
+        bash4-case-mod '\$\{'"$V"'(,|\^)' "" \
+        bash4-transform '\$\{'"$V"'@[QEPAaKkUuL]\}' "" \
+        bash4-pipe-amp '(^|[^|])\|&([[:space:]]|$)' "" \
+        bash4-append-both '&>>' "" \
+        bash4-case-fall ';;&|(^|[[:space:]]);&([[:space:]]|$)' "" \
+        bash4-coproc "${B}coproc([[:space:]]|\$)" "" \
+        bash4-shopt "${B}shopt[[:space:]]+-s[[:space:]].*(globstar|lastpipe)" "" \
+        bash4-epoch '\$\{?EPOCH(SECONDS|REALTIME)' ""
 }
 
 # scan_file <path> <label>: prints "<label>:<line>: <form>: <text>" for each unexcused hit.
@@ -85,7 +106,10 @@ scan_file() {
         [ -n "$name" ] || continue
         grep -nE "$pat" "$f" 2>/dev/null | while IFS= read -r hit; do
             n=${hit%%:*}; text=${hit#*:}
-            case "$text" in *"gnu-ok:"*) continue ;; esac
+            case "$name" in
+                bash4-*) case "$text" in *"bash4-ok:"*) continue ;; esac ;;
+                *) case "$text" in *"gnu-ok:"*) continue ;; esac ;;
+            esac
             # A comment line, whatever its indent.
             case "$(printf '%s' "$text" | sed 's/^[[:space:]]*//')" in '#'*) continue ;; esac
             if [ -n "$cpat" ]; then
@@ -137,7 +161,26 @@ for case_ in \
     "base64-w|base64 --wrap=0 f" \
     "timeout|timeout \"\$T\" curl x" \
     "grep-P|grep -m1 -oP 'x' f" \
-    "grep-P|grep --perl-regexp x f"; do
+    "grep-P|grep --perl-regexp x f" \
+    "bash4-mapfile|mapfile -t lines < f" \
+    "bash4-mapfile|readarray arr < <(ls)" \
+    "bash4-declare|declare -A seen" \
+    "bash4-declare|local -gA map=()" \
+    "bash4-declare|local -n ref=\$1" \
+    "bash4-declare|typeset -r -A k" \
+    "bash4-case-mod|x=\${name,,}" \
+    "bash4-case-mod|echo \"\${1^^}\"" \
+    "bash4-case-mod|y=\${arr[0]^}" \
+    "bash4-transform|printf '%s' \"\${v@Q}\"" \
+    "bash4-pipe-amp|make |& tee log" \
+    "bash4-append-both|cmd &>> log" \
+    "bash4-case-fall|  a) x ;;&" \
+    "bash4-case-fall|  a) x ;&" \
+    "bash4-coproc|coproc nc -l 1" \
+    "bash4-shopt|shopt -s globstar" \
+    "bash4-shopt|shopt -s nullglob lastpipe" \
+    "bash4-epoch|now=\$EPOCHSECONDS" \
+    "bash4-epoch|t=\${EPOCHREALTIME}"; do
     form=${case_%%|*}; line=${case_#*|}
     out=$(plant "$line")
     case "$out" in *": $form: "*) ok "flags $form: $line" ;; *) bad "did not flag $form in: $line (got '$out')" ;; esac
@@ -158,10 +201,28 @@ for line in \
     "find . -name x -print" \
     "  # sed -i 's/a/b/' f in a comment" \
     "grep -P x f   # gnu-ok: this branch runs on Linux only" \
-    "readlink -f x"; do
+    "readlink -f x" \
+    "declare -a list" \
+    "local -r x=1" \
+    "x=\${name:-a,b}" \
+    "n=\${#arr[@]}" \
+    "keys=\${!arr[@]}" \
+    "y=\${x//a/b}" \
+    "a || b" \
+    "cmd >> log 2>&1" \
+    "cmd > log 2>&1 &" \
+    "  a) x ;;" \
+    "shopt -s nullglob" \
+    "echo '|&#8217;'" \
+    "now=\$SECONDS" \
+    "mapfile=1" \
+    "mapfile -t x < f   # bash4-ok: this script is run by the Linux service only"; do
     out=$(plant "$line")
     [ -z "$out" ] && ok "allows: $line" || bad "flagged an allowed form: $line -> $out"
 done
+# Each excuse clears only its own kind: a bash4-ok line still has its GNU form flagged, and the other way round.
+out=$(plant "grep -P x f   # bash4-ok: wrong excuse"); case "$out" in *": grep-P: "*) ok "CONTROL: bash4-ok does not excuse a GNU form" ;; *) bad "bash4-ok excused grep -P: '$out'" ;; esac
+out=$(plant "declare -A m   # gnu-ok: wrong excuse"); case "$out" in *": bash4-declare: "*) ok "CONTROL: gnu-ok does not excuse a bash 4 form" ;; *) bad "gnu-ok excused declare -A: '$out'" ;; esac
 # The BSD-first-then-GNU idiom across lines, as the tree writes it (tools/build-kosmos-bundle.sh).
 printf '#!/bin/sh\nsed -i %s "s/x/y/" f 2>/dev/null \\\n  || sed -i "s/x/y/" f\n' "''" > "$T/p.sh"
 out=$(scan_file "$T/p.sh" p); [ -z "$out" ] && ok "allows sed -i '' then sed -i on the next line" || bad "flagged the two-line sed idiom: $out"
@@ -194,9 +255,9 @@ count=$(printf '%s\n' "$files" | grep -c .)
 printf '%s\n' "$files" | grep -qx 'install/setup.sh' && ok "install/setup.sh is among them" || bad "install/setup.sh was not scanned"
 hits=$(printf '%s\n' "$files" | while IFS= read -r f; do [ -n "$f" ] && scan_file "$ROOT/$f" "$f"; done)
 if [ -z "$hits" ]; then
-    ok "no product shell file has an unexcused GNU-only form"
+    ok "no product shell file has an unexcused GNU-only form or bash 4+ syntax"
 else
-    bad "GNU-only forms in product shell code (a Mac has no such option; add the BSD counterpart beside it, or '# gnu-ok: <why>' on a Linux-only line):"
+    bad "GNU-only forms or bash 4+ syntax in product shell code (a Mac has neither: add the BSD counterpart beside a GNU form, write bash 3.2 instead of bash 4, or put '# gnu-ok: <why>' / '# bash4-ok: <why>' on a Linux-only line):"
     printf '%s\n' "$hits" | sed 's/^/      /'
 fi
 
