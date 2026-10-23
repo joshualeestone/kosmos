@@ -563,8 +563,8 @@ else fail "keepalive --apply: rc $(rc ka-apply): $(tail -2 "$T/ka-apply.out") ca
 run ka-again "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
 [ "$(rc ka-again)" = 0 ] && has ka-again "restarts after a kill" && has ka-again "and is running" && ! has ka-again "WOULD" && pass "keepalive dry run on a runner that has it: says so, would do nothing" || fail "keepalive again: $(cat "$T/ka-again.out")"
 # Loaded with KeepAlive but not running (it exited 0): DOWN, not "done".
-run ka-loadeddown "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE=waiting -- keepalive
-[ "$(rc ka-loadeddown)" = 1 ] && has ka-loadeddown "has KeepAlive loaded but is not running" && ! has ka-loadeddown "restarts after a kill" \
+run ka-loadeddown "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE=waiting KOSMOS_CI_STATE_WAIT_S=1 -- keepalive
+[ "$(rc ka-loadeddown)" = 1 ] && has ka-loadeddown "has KeepAlive loaded but has not been running" && has ka-loadeddown "(state = waiting)" && ! has ka-loadeddown "restarts after a kill" \
   && pass "keepalive: KeepAlive loaded on a job that is not running is DOWN, not done" || fail "keepalive loaded down: rc $(rc ka-loadeddown): $(cat "$T/ka-loadeddown.out")"
 ka_fresh; run ka-job "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER=1 -- --apply keepalive
 [ "$(rc ka-job)" = 1 ] && has ka-job "a job is running" && [ "$(ka_of "$KA")" = false ] && ! grep -q '^launchctl boot' "$T/ka-job.calls" \
