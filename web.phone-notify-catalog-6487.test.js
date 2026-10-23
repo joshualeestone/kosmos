@@ -10,8 +10,9 @@
  *     name, the original line and the message go) and engine/phonenotice.js (which events the computer answers).
  *
  * What it cannot reach: the coordinator's own wording (kosmos-relay coordinator/src/push.rs notice_text) lives in
- * another repo, so a change there is not seen here. The Swift is read as text (no Swift runs on this suite's runner),
- * so the iPhone rows are pinned to the exact assignment lines, not run.
+ * another repo, so a change there is not seen here; the iPhone subtitle is built from this page's Wording table, which
+ * is what that code is documented to send. The Swift is read as text (no Swift runs on this suite's runner), so the
+ * iPhone side is pinned to its whole isAskable body and to the exact, ordered assignments in messageContent.
  *
  *   node --test web.phone-notify-catalog-6487.test.js
  */
@@ -82,25 +83,51 @@ test('#6487: the iPhone rows ask about exactly the two events the computer answe
   const { head, body } = tableUnder('## On an iPhone: the message itself');
   assert.deepEqual(head, ['Event', 'Title', 'Subtitle', 'Text', 'Picture']);
   assert.deepEqual(body.map((r) => r[0]), ['An agent needs you (its report)', 'An agent answered you']);
-  // The iPhone asks only about report:/reply: ids, and the computer answers only those two kinds.
+  // The iPhone asks only about report:/reply: ids: the WHOLE isAskable body, so a third prefix or a dropped one fails.
   const logic = read('ios/KosmosNotice/NoticeLogic.swift');
-  assert.match(logic, /id\.hasPrefix\("report:"\) \|\| id\.hasPrefix\("reply:"\)/, 'the iPhone asks about other notices now; update the page');
-  assert.match(read('engine/phonenotice.js'), /if \(kind !== 'report' && kind !== 'reply'\) return null;/, 'the computer answers other events now; update the page');
+  const askable = logic.match(/static func isAskable\(id: String\) -> Bool \{([\s\S]*?)\n    \}/);
+  assert.ok(askable, 'NoticeLogic.isAskable is gone; update the page');
+  assert.equal(askable[1].trim(), 'id.count <= 300 && (id.hasPrefix("report:") || id.hasPrefix("reply:"))',
+    'the iPhone asks about other notices now; update the page');
+  // The computer answers only those two, by behaviour: every other kind the board sends an id for is refused.
+  const { parseId } = require('./engine/phonenotice');
+  const at = '2026-10-23T12:00:00.000Z';
+  assert.ok(parseId('report:' + at + ':ada'), 'report: is answered');
+  assert.ok(parseId('reply:' + at + ':ada'), 'reply: is answered');
+  for (const kind of ['posted', 'ready', 'built', 'crashloop', 'stuckterminal', 'ownbounds', 'post']) {
+    assert.equal(parseId(kind + ':' + at + ':ada'), null, kind + ': answered now; update the page');
+  }
 });
 
 test('#6487: the iPhone shows the agent as the title, the original line as the subtitle and the message as the text', () => {
   const rows = tableUnder('## On an iPhone: the message itself').body;
   for (const r of rows) assert.equal(r[1], '`<Agent>`', r[0] + ': title');
-  assert.equal(rows[0][2], '`<Agent> needs you, in <Project>`, or `<Agent> needs you`');
-  assert.equal(rows[1][2], '`<Agent> replied`');
+  // The subtitle is the plain notice's own title and body joined by ", " (NotificationService.swift), so it is built
+  // from the Wording table here rather than written out twice.
+  const wording = Object.fromEntries(tableUnder('## Wording').body.map(([k, t, b]) => [k, { t, b: (b.match(/`[^`]*`/) || [''])[0] }]));
+  const joined = (k) => '`' + wording[k].t.replace(/`/g, '') + ', ' + wording[k].b.replace(/`/g, '') + '`';
+  assert.equal(rows[0][2], joined('needs_you') + ', or ' + wording.needs_you.t, 'needs-you subtitle');
+  assert.equal(rows[1][2], wording.replied.t, 'a reply carries no project, so its subtitle is the title alone');
+  // Each of the three is set exactly once in messageContent, in that order, before the words are handed back.
   const svc = read('ios/KosmosNotice/NotificationService.swift');
-  assert.ok(svc.includes('content.subtitle = original.body.isEmpty ? original.title : "\\(original.title), \\(original.body)"'),
-    'the iPhone subtitle is no longer "<title>, <body>"; update the page');
-  assert.ok(svc.includes('content.title = words.agent'), 'the iPhone title is no longer the agent; update the page');
-  assert.ok(svc.includes('content.body = words.text'), 'the iPhone text is no longer the message; update the page');
-  // "shortened to about 400 characters": the computer's lock-screen cap.
+  const mc = svc.slice(svc.indexOf('static func messageContent('), svc.indexOf('wordsReady(ready)'));
+  assert.ok(mc.length > 0, 'NotificationService.messageContent is gone; update the page');
+  const sets = [...mc.matchAll(/content\.(title|subtitle|body) = ([^\n]*)/g)].map((m) => m[1] + ' = ' + m[2].trim());
+  assert.deepEqual(sets, [
+    'subtitle = original.body.isEmpty ? original.title : "\\(original.title), \\(original.body)"',
+    'title = words.agent',
+    'body = words.text',
+  ], 'the iPhone words are set differently now; update the page');
+  // "shortened to about 400 characters", by behaviour: the words the computer answers with.
   for (const r of rows) assert.match(r[3], /shortened to about 400 characters/, r[0] + ': text');
-  assert.match(read('engine/phonenotice.js'), /const TEXT_MAX = 400;/);
+  const { shorten } = require('./engine/phonenotice');
+  const long = shorten('word '.repeat(400));
+  assert.ok(long.length <= 400 && long.length > 300 && long.endsWith('…'), 'the lock-screen cap moved: ' + long.length);
+  assert.match(read('engine/phonenotice.js'), /text: shorten\(raw\) \}/, 'wordsFor no longer uses the default cap');
+  // "the agent's picture, when it has one": the board names a picture only when the agent has one.
+  for (const r of rows) assert.equal(r[4], 'the agent\'s picture, when it has one', r[0] + ': picture');
+  assert.match(read('server.js'), /picture = store\.avatarPath\(got\.session\) \? '\/api\/agent\/' \+ encodeURIComponent\(got\.session\) \+ '\/avatar' : null;/,
+    'the board names a picture differently now; update the page');
   // "within 15 seconds": how long the iPhone waits for the words.
   assert.match(DOC, /within 15 seconds, the notification shows them/);
   assert.match(svc, /await fetch\(ask, within: 15,/);

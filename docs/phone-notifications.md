@@ -1,7 +1,8 @@
 # Phone notifications: every message type and its wording
 
 kosmos#6487 (Josh, 2026-10-18: "We should configure a list of all of the message types we could send and document").
-Read from the code on 2026-10-18 and checked against the push path owner's table on that card.
+Read from the code on 2026-10-18 and checked against the push path owner's table on that card; the iPhone message
+section was added from the code on 2026-10-23.
 
 ## Words used here
 - **The coordinator**: the Kosmos+ service on the internet that passes a notification from this computer to a phone.
@@ -17,7 +18,8 @@ A computer running Kosmos notices that something happened and sends the coordina
 agent, the project when there is one, and an id. The coordinator turns that into the words on the phone, through Apple
 for an iPhone and through web push for Android and the browser.
 
-**The words of a message are never sent.** A notification says who did what, and a tap usually opens that agent's page (exceptions below).
+**The words of a message are never sent in the notification itself.** (An iPhone fetches them from the person's own
+computer for two kinds of notice: see On an iPhone.) A notification says who did what, and a tap usually opens that agent's page (exceptions below).
 
 **The master switch**: Settings, "Buzz my phone about my agents". Up to Kosmos 0.7.57 it is off until the person presses
 Turn on. From the release after 0.7.57 (kosmos#6488) it turns itself on once this computer is connected to Kosmos+ (see Words used here), unless the person has
@@ -107,13 +109,18 @@ within 15 seconds, the notification shows them as a message from the agent:
 
 | Event | Title | Subtitle | Text | Picture |
 |---|---|---|---|---|
-| An agent needs you (its report) | `<Agent>` | `<Agent> needs you, in <Project>`, or `<Agent> needs you` | what the agent wrote when it asked (`kosmos report needs_you "..."`), shortened to about 400 characters | the agent's picture |
-| An agent answered you | `<Agent>` | `<Agent> replied` | the reply, shortened to about 400 characters | the agent's picture |
+| An agent needs you (its report) | `<Agent>` | `<Agent> needs you, in <Project>`, or `<Agent> needs you` | the report's reason, shortened to about 400 characters: what the agent wrote (`kosmos report needs_you "..."`), or, when it stopped to ask permission, `asking permission to use <tool>`, with `: <command>` when there is one | the agent's picture, when it has one |
+| An agent answered you | `<Agent>` | `<Agent> replied` | the reply, shortened to about 400 characters | the agent's picture, when it has one |
 
 The words still travel only between the person's computer and their phone; the coordinator and Apple still carry only
 who and what. If the computer does not answer (asleep, offline, an older Kosmos, or a phone not signed in to that
 computer), the notification shows as in Sent today. Every other row of Sent today (crash, stuck, helper, posts, work
 ready) is not asked about and always shows as there. Android and the browser do not ask yet: they show Sent today's words.
+
+**A permission request puts the command on the lock screen.** When an agent stops to ask permission, its report's
+reason names the tool and the command (up to 200 characters of it), and that is the text an iPhone shows. The
+picture is fetched after the words with its own 8 seconds; a notice whose picture is late shows without one. Whether
+iOS keeps the subtitle on a message-style notice is not yet seen on a real phone.
 
 ## Built, not on
 
@@ -141,8 +148,7 @@ On a phone these fall into the notification's two lines, the bold title and the 
 | Direct message from an agent | `<Agent> said` | `<message>`, shortened | built on iPhone in a different shape: see On an iPhone (the agent's name as the title, `<Agent> replied` under it, then the message) |
 | Project post | `<Agent> commented in <Project>` | `<message>`, shortened | proposed |
 
-**This puts the words of a message on the lock screen.** Today those words never leave the computer, so it needs a
-decision before it is built. Three ways:
+**This puts the words of a message on the lock screen.** Three ways were weighed on 2026-10-18:
 1. The computer sends the text with the event. Simplest, but the words then pass through the coordinator and Apple.
 2. The phone fetches the text from the computer itself when the notification arrives, so the coordinator and Apple
    still carry only "something happened". On an iPhone that is a notification service extension; on Android and the
@@ -150,7 +156,8 @@ decision before it is built. Three ways:
    plain notification above shows instead. More to build.
 3. Keep the no-words notifications as they are now.
 
-Recommended: option 2. The call is Josh's.
+Josh chose option 2 on 2026-10-22 (13:28: "use the agent avatar and put the actual text, like discord does"). It is
+built for the iPhone (On an iPhone); the Android and browser half, and the project post, are not built yet.
 
 ## Where the code lives
 The computer side: `engine/phonenotify.js` (kinds, switches, how often, and from the release after 0.7.57 the default turn-on), called from `server.js`. The words:
