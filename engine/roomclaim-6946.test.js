@@ -649,3 +649,11 @@ test('#6957 review 7: @bob, who...? after a context sentence or a greeting is bo
     assert.equal(claim('cy', ask(text)).op, 'add', text);
   }
 });
+
+test('#6957 review 8: can someone else HELP you...? asks for help for bob, so the post stays bob\'s; control: can someone else take it? asks the room', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  append({ kind: 'post', id: 'h1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob can someone else help you with this?', outcomes: {}, at: new Date().toISOString() });
+  assert.deepEqual(claim('cy', 'h1').askedOf, ['bob'], 'the helper being invited took the post from bob');
+  append({ kind: 'post', id: 'h2', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob is out, can someone else take it?', outcomes: {}, at: new Date().toISOString() });
+  assert.equal(claim('cy', 'h2').op, 'add');
+});

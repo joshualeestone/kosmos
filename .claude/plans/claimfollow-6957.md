@@ -72,6 +72,12 @@ start with a wider greeting list. "Can/could someone else" kept a growing skip l
 it is inverted to a short allowlist of hand-off verbs (take, grab, pick, handle, own, cover, do, look, jump, help, step),
 so "can anyone else reproduce this?" is bob's. Two unreachable lines in the release replay are removed.
 
+## Review 8 (blind, the cap; 0 BLOCKER, 1 WARNING): the loop ends here by the usage rule. One narrowing after it, NOT
+re-reviewed, because it only takes back an opening this branch added: `help` is removed from the "can/could someone
+else" hand-off verbs, so "@bob can someone else help you with this?" stays bob's (a helper's claim there locked bob out
+with no time limit). The rest is follow-up #6974: "who can help you?" after a clause start, "around to" and the
+"else" subject form without a clause anchor, a single-pass person's-🙋 scan, and the legacy pill edge.
+
 ## Proof
 engine/roomclaim-6946.test.js #6957 (each with a control that can return the dangerous answer) and
 server.projects.test.js #6946 (the person's 🙋 after a release and beside a newer claim, through the real route).

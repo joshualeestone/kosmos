@@ -3695,7 +3695,7 @@ const CLAIM_ROOM_ASK = new RegExp(
   // "someone ELSE" plainly excludes whoever was named, so "can someone else take it?" asks the room even right after the
   // names ("Thanks @bob! Can someone else take the login bug?"), wherever it sits (#6957 review 4)
   // ...and only before a hand-off verb, so "could someone else have changed this?" or "can anyone else reproduce this?" ask bob
-  + '|\\b(?:can|could)\\s+(?:someone|somebody|anyone|anybody)\\s+else\\s+(?:take|grab|pick|handle|own|cover|do|look|jump|help|step)\\b'   // only before a hand-off verb (review 7)
+  + '|\\b(?:can|could)\\s+(?:someone|somebody|anyone|anybody)\\s+else\\s+(?:take|grab|pick|handle|own|cover|do|look|jump|step)\\b'   // only before a hand-off verb (review 7); not help: "can someone else help you?" asks for help FOR bob (review 8)
   // "who can write the notes?", "Who's free to take this?" (straight or curly apostrophe), "who has time for this?"
   + '|' + CLAIM_LEAD + "who(?:\\s+|'s\\s+|\u2019s\\s+)(?:can|could|wants|will|is free|free|is available|available|has time|is around|around)\\b[^.!?]*\\?"
   + '|\\bwhoever\\s+(?:can|is free|has time|wants|picks|takes|gets)\\b'
