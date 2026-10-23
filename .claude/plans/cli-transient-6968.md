@@ -19,8 +19,10 @@ control that never takes the connection again (the new words).
 - The second try gets only what is left of the caller's `-m`; under 1 s left, there is no second try.
 - A body on stdin (`@-`) is read once into a mode-600 file and both tries send it; each try's stdout and stderr
   are held in two more and only the last try's are printed (curl prints `-w` even on a refusal; whoami reads
-  stderr). An INT, TERM or HUP removes the three (a trap; every buffering caller runs kosmos_curl in a subshell,
-  so the trap is that subshell's own, and a test checks every call site). Only a KILL leaves them.
+  stderr). An INT, TERM or HUP removes them and the auth header file, then re-raises the signal on the subshell, so
+  the command ends as an interrupted one does (a plain `exit` would let the caller carry on and say "stopped before
+  anything was sent" after a send the board may hold). Every buffering caller runs kosmos_curl in a subshell, so the
+  trap is that subshell's own; a test checks every call site. Only a KILL leaves the files.
 - `_KOSMOS_CURL_ONCE=1`: one plain try, no buffering. Used by keep-copy and tool-failed (hooks with a 3 s promise),
   task ran (its own loop already retries 7; told and repeat keep the retry), and msg's and post's second ask
   after a cut reply (asking again into a board that restarted could deliver twice).
@@ -29,6 +31,10 @@ control that never takes the connection again (the new words).
   comment verb and task ran route 7 there; told and repeat reach it through their existing `say_unreached` call.
   task ran, refused after an earlier 503 (it reached the board): "Kosmos was busy and then did not take the
   connection, so that run was not recorded."
+- After a refusal, `say_unreached` 7 asks lsof whether anything listens on the port: a listener (busy) gets the
+  passing-problem words; nothing listening gets "nothing is listening at URL right now ... if Kosmos is restarting,
+  try again; kosmos status says whether it is running" (reply-channel has no health check, so a stopped board
+  reaches it). No lsof, or lsof refused: the busy words. Neither says to start or restart.
 
 ## Rejected
 - Retrying timeouts or cut replies: a write may have landed.
@@ -44,3 +50,8 @@ on their machine.
   follow-up card.
 - Untested, reasoned: community comment's 7 routing (same `say_unreached` call the tested verbs use), and the
   board proof's own refused connection (passes 7 through, so it is retried; the arms run without a proof).
+- Reasoned, not measured here: the re-raise. On this Mac's bash 3.2 the main shell dies of the interrupt with or
+  without it (measured both arms), so the interrupt arm cannot tell them apart here; on bash 4+ a subshell that
+  exits normally after an INT lets its parent carry on, which the re-raise prevents. CI's Linux shell job runs the
+  arm on bash 5. Also unexercised: the trap removing the auth header file (an interrupt during a request, not the
+  pause).
