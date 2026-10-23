@@ -1183,7 +1183,7 @@ async function taskActivity(ctx, args) {
     // One line, with control and format characters taken out (review 4: an escape sequence must not reach the terminal).
     ctx.out(when(e.at) + '  ' + w.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').trim());
   }
-  /* #6947, as install/kosmos: when the person last viewed the task, against the latest message, so an agent
+  /* #6947, as install/kosmos: when the person viewed the task (as its conversation now stands), against the latest message, so an agent
      can tell an unseen nudge from one seen and not yet acted on. An older board sends no field and nothing is said. */
   if ('seenByPerson' in r.json) {
     const s = r.json.seenByPerson;

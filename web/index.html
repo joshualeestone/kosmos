@@ -68392,11 +68392,17 @@ async function paintTaskReceipt(n) {
    the task's page is up and visible (#6951: drawn only when it changed). `n` is checked against TK_OPEN after the await so a fetch
    that lands after the person has left the task cannot paint the wrong page. */
 async function paintTaskActivity(n, opts) {
-  const onlyIfChanged = !!(opts && opts.onlyIfChanged);   // #6951: the poll's call (no braces in the signature: the page's tests lift this function by its first brace)
+  // #6951: the poll's call. No braces in the signature: the page's tests lift this function by its first brace.
+  const onlyIfChanged = !!(opts && opts.onlyIfChanged);
   const holder = document.getElementById('tk-activity');
   if (!holder) return;
   const p = pjById(PJ_CURRENT);
   if (!p || n == null) return;
+  /* #6951: reads overlap (the five-second read beside an open or an action). Each takes a number before it fetches, and
+     one that lands after a newer read was drawn is dropped, so an older conversation never replaces a newer one. The
+     open it belongs to (tkOpen, renewed by openTaskPage) is kept for the record callbacks below. */
+  const seq = holder.tkSeq = (holder.tkSeq || 0) + 1;
+  const openId = holder.tkOpen;
   let events = [];
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/activity', { cache: 'no-store' });
@@ -68420,6 +68426,7 @@ async function paintTaskActivity(n, opts) {
   if (n !== TK_OPEN || p.id !== PJ_CURRENT) return;
   /* #6951: what was last drawn, kept on the holder (not a global, so the page's sliced tests need nothing new): the
      poll passes onlyIfChanged and leaves an unchanged conversation as it is. */
+  if (seq < (holder.tkDrawnSeq || 0)) return;
   const last = events[events.length - 1];
   const drawn = p.id + '#' + n + '#' + events.length + '#' + (last ? last.at + '#' + last.kind : '');
   /* The view is remembered apart from the draw (tkMarked: this conversation is settled, the board answered for it). A
@@ -68427,10 +68434,15 @@ async function paintTaskActivity(n, opts) {
      conversation; a settled one is not sent again until the conversation changes. */
   /* tkMarking: a record for this conversation is on its way (or waiting on its retry), so another read does not send a
      second one. done(true) settles it; done(false) (the retry found the page gone) leaves it for the next read. */
-  const done = (settled) => { if (holder.tkMarking === drawn) holder.tkMarking = null; if (settled) holder.tkMarked = drawn; };
+  const done = (settled) => {
+    if (holder.tkOpen !== openId) return;   // a record from an earlier open of this task: the page has started again
+    if (holder.tkMarking === drawn) holder.tkMarking = null;
+    if (settled) holder.tkMarked = drawn;
+  };
   const mark = () => { if (holder.tkMarked !== drawn && holder.tkMarking !== drawn && tkMarkSeen(n, p.id, false, done)) holder.tkMarking = drawn; };
   if (onlyIfChanged && holder.tkDrawn === drawn) { mark(); return; }
   holder.tkDrawn = drawn;
+  holder.tkDrawnSeq = seq;
   if (!events.length) {
     holder.innerHTML = '<p class="dhint tkacts-empty">Nothing yet. As this task is worked on, what happens shows up here.</p>';
     mark();   // #6947
@@ -68512,7 +68524,7 @@ function openTaskPage(n) {
   /* A new task: clear the last one's activity before the fetch so a slow read
      cannot leave the previous task's events on screen. */
   const acts = document.getElementById('tk-activity');
-  if (acts) { acts.innerHTML = ''; acts.tkDrawn = null; acts.tkMarked = null; acts.tkMarking = null; }   // #6951: nothing drawn or marked yet for this open
+  if (acts) { acts.innerHTML = ''; acts.tkDrawn = null; acts.tkMarked = null; acts.tkMarking = null; acts.tkDrawnSeq = acts.tkSeq || 0; acts.tkOpen = {}; }   // #6951: a new open: nothing drawn or marked for it yet, and no earlier read or record speaks for it
   const receipt = document.getElementById('tk-receipt');
   if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
   const undoBox = document.getElementById('tk-undo');   // #5153 slice 4
@@ -68549,7 +68561,7 @@ function tkMarkSeen(n, projectId, retried = false, onDone = null) {
    two minutes. Used only by the five-second read: opening a task, acting on it and coming back to the tab are the
    person's own doing. */
 let TK_LAST_INPUT = 0;
-for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) document.addEventListener(ev, () => { TK_LAST_INPUT = Date.now(); }, { passive: true, capture: true });
+for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'touchmove', 'scroll']) document.addEventListener(ev, () => { TK_LAST_INPUT = Date.now(); }, { passive: true, capture: true });
 function tkPresent() {
   return typeof document.hasFocus === 'function' && document.hasFocus() && Date.now() - TK_LAST_INPUT < 120000;
 }

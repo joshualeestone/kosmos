@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * #6947 (agent feedback 10-22): when the person last viewed a task's conversation, so an agent that left a nudge on the task
+ * #6947 (agent feedback 10-22): when the person viewed a task's conversation, so an agent that left a nudge on the task
  * can tell "not seen yet" from "seen, not acted on".
  *
  * WHAT "SEEN" MEANS HERE: the task's conversation was drawn on the person's screen in Kosmos (the board's web page),

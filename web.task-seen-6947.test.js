@@ -49,9 +49,11 @@ function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', re
   const gate = hold ? new Promise((r) => { release = r; }) : Promise.resolve();
   const fetch = async (url, opts) => {
     if (opts && opts.method === 'POST') { posts.push(url); if (st.post === 'lost') throw new Error('lost'); return { status: st.post }; }
+    const asked = st.events;   // what the board held when this read was asked
     await gate;
+    if (st.queue) await new Promise((r) => st.queue.push(r));
     if (st.read === 'fail') return { ok: false, json: async () => ({}) };
-    const events = st.events || (st.read === 'empty' ? [] : [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }]);
+    const events = asked || (st.read === 'empty' ? [] : [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }]);
     return { ok: true, json: async () => ({ events }) };
   };
   // eslint-disable-next-line no-new-func
@@ -239,5 +241,36 @@ test('#6951: the person counts as there only with the window focused and input i
   assert.equal(run(true, 119000), true);
   assert.equal(run(true, 121000), false, 'two minutes without input is not there');
   assert.equal(run(false, 5000), false, 'an unfocused window is not there');
-  assert.match(HTML, /for \(const ev of \['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'\]\) document\.addEventListener\(ev, \(\) => \{ TK_LAST_INPUT = Date\.now\(\); \}/);
+  assert.match(HTML, /for \(const ev of \['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'touchmove', 'scroll'\]\) document\.addEventListener\(ev, \(\) => \{ TK_LAST_INPUT = Date\.now\(\); \}/);
+});
+
+test('#6951: an older read that lands after a newer one was drawn is dropped, and sends no record', async () => {
+  const p = page();
+  p.st.queue = [];
+  p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'old' }];
+  const older = p.paintTaskActivity(3, { onlyIfChanged: true });
+  await p.settle();
+  p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'old' }, { at: '2026-10-22T23:10:00.000Z', kind: 'said', text: 'new' }];
+  const newer = p.paintTaskActivity(3, { onlyIfChanged: true });
+  await p.settle();
+  const [releaseOlder, releaseNewer] = p.st.queue;
+  releaseNewer(); await newer; await p.settle();
+  assert.equal(p.posts.length, 1, 'the newer read drew and marked');
+  const drawnNewer = p.acts.tkDrawn;
+  releaseOlder(); await older; await p.settle();
+  assert.equal(p.acts.tkDrawn, drawnNewer, 'the older read replaced the newer conversation');
+  assert.equal(p.posts.length, 1, 'the older read sent a record');
+});
+
+test('#6951: a retry left over from an earlier open of the same task cannot stop the new open from recording', async () => {
+  const p = page({ post: 500 });
+  await p.paintTaskActivity(3);
+  await p.settle();
+  assert.equal(p.timers.length, 1, 'the first open\'s record is waiting on its retry');
+  // The person leaves and opens the task again (what openTaskPage does to the holder).
+  Object.assign(p.acts, { innerHTML: '', tkDrawn: null, tkMarked: null, tkMarking: null, tkDrawnSeq: p.acts.tkSeq || 0, tkOpen: {} });
+  p.st.post = 200;
+  p.timers.shift()[0](); await p.settle();   // the old retry lands first and is recorded
+  await p.paintTaskActivity(3); await p.settle();
+  assert.equal(p.posts.length, 3, 'the new open did not send its own record: ' + p.posts.length);
 });

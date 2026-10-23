@@ -3,7 +3,7 @@
 Card: kosmos#6947 (agent feedback, 2026-10-22). Routed to Angel by Splinter 18:20 CDT.
 
 ## Finished looks like
-An agent that left a message on a task runs `kosmos task activity <project> <n>` (Mac or Windows) and its last line says either that the person has not viewed the task yet, or when they last viewed it and whether that was after or before the latest message. Tested on both CLIs, the board route and the page.
+An agent that left a message on a task runs `kosmos task activity <project> <n>` (Mac or Windows) and its last line says either that the person has not viewed the task yet, or when they viewed it and whether that was after or before the latest message. Tested on both CLIs, the board route and the page.
 
 ## What "seen" means (the card asked the builder to decide)
 **The task's conversation was drawn on the person's screen**: any draw of it that succeeded while the tab was visible and the task's page on screen. That is opening the task, a redraw after an action on its page (a reply from its composer, a close, a due date), or coming back to the tab while it was showing, which draws it again first. paintTaskActivity marks it after such a draw, for the project and task it drew; with #6951, once per state of the conversation, so the stored time is when the person first saw it as it now stands. The page posts `POST /api/project/<id>/task/<n>/seen`; the board keeps the latest time per task in `<data>/task-seen/` (engine/taskseen.js); `GET .../activity?words=1` (what both CLIs read) answers `seenByPerson`.
