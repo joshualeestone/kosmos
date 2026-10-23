@@ -22293,7 +22293,7 @@ const server = http.createServer(async (req, res) => {
         return (card && card.name) || sn;   // the card's name is its display name (engine/status.js)
       };
       const { phrase } = require('./engine/taskactphrase');
-      /* #6947: when the person viewed this task's conversation (first saw it as it now stands), so the agent can tell an unseen nudge from one seen and
+      /* #6947: when the page last recorded the person viewing this task's conversation, so the agent can tell an unseen nudge from one seen and
          not yet acted on (null: not since this was recorded). */
       const seenByPerson = require('./engine/taskseen').seenAt(id, Number(taskActivity[2]));
       sendJson(res, 200, { events: events.map((ev) => Object.assign({}, ev, { words: phrase(ev, nameOf, { forAgent: true }) })), count: events.length, seenByPerson });

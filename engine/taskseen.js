@@ -7,7 +7,8 @@
  * WHAT "SEEN" MEANS HERE: the task's conversation was drawn on the person's screen in Kosmos (the board's web page),
  * with the tab visible and the task's page showing: opening the task, a redraw after an action on its page, coming
  * back to the tab, or (#6951) the five-second read while the person is at the page. The page says so (POST
- * .../task/<n>/seen) once per state of the conversation, so the time kept is when they first saw it as it now stands.
+ * .../task/<n>/seen) once per state of the conversation in each open of the task's page (a reopen or a reload records
+ * again), and the board keeps the time of the latest record.
  * What it misses is in the plan (.claude/plans/nudge-seen-6947.md): a nudge read somewhere else (the project room, a
  * notification, the task's card in a column), and a page opened but not read.
  *
@@ -51,7 +52,7 @@ function markSeen(projectId, number, at = new Date()) {
   }
 }
 
-/** When the person last viewed the task, as an ISO string, or null (never viewed, or unreadable). */
+/** When the page last recorded a view of the task, as an ISO string, or null (none recorded, or unreadable). */
 function seenAt(projectId, number) {
   const file = seenFile(projectId, number);
   if (!file) return null;

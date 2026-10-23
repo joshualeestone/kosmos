@@ -37,12 +37,12 @@ function listenerSource() {
 /* A page with projects 'p one' and 'p two'; task `open` of project `pj` is showing. `read` is what the activity fetch
    does ('ok', 'empty' or 'fail'); `hold` delays it until release() so a test can change the page meanwhile. */
 function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', read = 'ok', hold = false, post = 200 } = {}) {
-  const posts = []; const timers = [];
+  const posts = []; const timers = []; const els = {};
   const st = { events: null, post, onScreen, read };
   const acts = { innerHTML: '' };
   const doc = {
     visibilityState: visible,
-    getElementById: (id) => (id === 'tk-back' ? { getClientRects: () => (st.onScreen ? [{}] : []) } : id === 'tk-activity' ? acts : null),
+    getElementById: (id) => (id === 'tk-back' ? { getClientRects: () => (st.onScreen ? [{}] : []), focus() {} } : id === 'tk-activity' ? acts : (els[id] || (els[id] = { textContent: '', value: '', innerHTML: '', hidden: false }))),
     addEventListener: (type, fn) => { if (type === 'visibilitychange') doc.listener = fn; },
   };
   let release = () => {};
@@ -57,10 +57,12 @@ function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', re
     return { ok: true, json: async () => ({ events }) };
   };
   // eslint-disable-next-line no-new-func
-  const make = new Function('document', 'fetch', 'pjById', 'tkActRowsHtml', 'setTimeout', 'init',
-    'let PJ_CURRENT = init.pj; let TK_OPEN = init.open;\n' + fnSource('paintTaskActivity') + '\n' + fnSource('tkMarkSeen')
-    + '\n' + listenerSource() + '\nreturn { paintTaskActivity, set(pjId, n) { PJ_CURRENT = pjId; TK_OPEN = n; } };');
-  const api = make(doc, fetch, (id) => (id ? { id } : null), () => '<rows>', (fn, ms) => timers.push([fn, ms]), { pj, open });
+  const make = new Function('document', 'fetch', 'pjById', 'tkActRowsHtml', 'setTimeout', 'paintTaskPage', 'tkReceiptSync', 'pjView', 'init',
+    'let PJ_CURRENT = init.pj; let TK_OPEN = init.open; let TKR_SHOWN = null; let TK_POLLING = false;\n' + fnSource('paintTaskActivity') + '\n' + fnSource('tkMarkSeen')
+    + '\n' + fnSource('openTaskPage') + '\n' + fnSource('tkPollActivity') + '\n' + listenerSource()
+    + '\nreturn { paintTaskActivity, openTaskPage, tkPollActivity, set(pjId, n) { PJ_CURRENT = pjId; TK_OPEN = n; } };');
+  const api = make(doc, fetch, (id) => (id ? { id, tasks: [{ number: 3 }, { number: 4 }] } : null), () => '<rows>', (fn, ms) => timers.push([fn, ms]),
+    () => {}, () => {}, () => {}, { pj, open });
   const settle = () => new Promise((r) => setImmediate(r));
   return { posts, acts, doc, timers, st, ...api, release: () => release(), settle, tabBack: async () => { doc.listener(); await settle(); await settle(); } };
 }
@@ -129,7 +131,7 @@ test('#6951: the poll redraws, and marks seen, only when the conversation change
 });
 
 test('#6951: the poll asks for a changed-only redraw while the task page is up in a visible tab and the person is there', () => {
-  assert.match(HTML, /if \(TK_OPEN !== null && !document\.getElementById\('pj-task-view'\)\.hidden && document\.visibilityState === 'visible' && tkPresent\(\)\) paintTaskActivity\(TK_OPEN, \{ onlyIfChanged: true \}\);/);
+  assert.match(HTML, /if \(TK_OPEN !== null && !document\.getElementById\('pj-task-view'\)\.hidden && document\.visibilityState === 'visible' && tkPresent\(\)\) tkPollActivity\(\);/);
 });
 
 test('#6951: a seen post that failed on the server or was lost is tried once more; a refusal is not', async () => {
@@ -241,7 +243,7 @@ test('#6951: the person counts as there only with the window focused and input i
   assert.equal(run(true, 119000), true);
   assert.equal(run(true, 121000), false, 'two minutes without input is not there');
   assert.equal(run(false, 5000), false, 'an unfocused window is not there');
-  assert.match(HTML, /for \(const ev of \['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'touchmove', 'scroll'\]\) document\.addEventListener\(ev, \(\) => \{ TK_LAST_INPUT = Date\.now\(\); \}/);
+  assert.match(HTML, /for \(const ev of \['pointerdown', 'keydown', 'wheel', 'touchstart', 'touchmove'\]\) document\.addEventListener\(ev, \(\) => \{ TK_LAST_INPUT = Date\.now\(\); \}/);
 });
 
 test('#6951: an older read that lands after a newer one was drawn is dropped, and sends no record', async () => {
@@ -264,13 +266,39 @@ test('#6951: an older read that lands after a newer one was drawn is dropped, an
 
 test('#6951: a retry left over from an earlier open of the same task cannot stop the new open from recording', async () => {
   const p = page({ post: 500 });
-  await p.paintTaskActivity(3);
-  await p.settle();
+  p.openTaskPage(3); await p.settle();
   assert.equal(p.timers.length, 1, 'the first open\'s record is waiting on its retry');
-  // The person leaves and opens the task again (what openTaskPage does to the holder).
-  Object.assign(p.acts, { innerHTML: '', tkDrawn: null, tkMarked: null, tkMarking: null, tkDrawnSeq: p.acts.tkSeq || 0, tkOpen: {} });
   p.st.post = 200;
+  p.openTaskPage(3);   // the person leaves and opens the task again (the real openTaskPage)
   p.timers.shift()[0](); await p.settle();   // the old retry lands first and is recorded
-  await p.paintTaskActivity(3); await p.settle();
+  await p.settle();
   assert.equal(p.posts.length, 3, 'the new open did not send its own record: ' + p.posts.length);
+});
+
+test('#6951: a read still out when the task is opened again is dropped, and the new open records its view', async () => {
+  const p = page();
+  p.openTaskPage(3); await p.settle();
+  assert.equal(p.posts.length, 1);
+  p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-22T23:20:00.000Z', kind: 'said', text: 'new' }];
+  p.st.queue = [];
+  const stale = p.paintTaskActivity(3, { onlyIfChanged: true }); await p.settle();   // the earlier open's read, still out
+  p.openTaskPage(3); await p.settle();   // the new open's read, also out
+  p.st.post = 500;
+  const [releaseStale, releaseNew] = p.st.queue;
+  releaseStale(); await stale; await p.settle();
+  releaseNew(); await p.settle(); await p.settle();
+  while (p.timers.length) { p.timers.shift()[0](); await p.settle(); }
+  assert.equal(p.acts.tkMarking, null, 'a record was left marked as on its way, so this open can never record its view');
+  assert.equal(p.acts.tkMarked, p.acts.tkDrawn, 'the new open did not settle its own record');
+});
+
+test('#6951: the five-second read does not start another read while its last one is still out', async () => {
+  const p = page();
+  p.st.queue = [];
+  p.tkPollActivity(); p.tkPollActivity(); p.tkPollActivity();
+  await p.settle();
+  assert.equal(p.st.queue.length, 1, 'reads stacked up: ' + p.st.queue.length);
+  p.st.queue.shift()(); await p.settle(); await p.settle();
+  p.tkPollActivity(); await p.settle();
+  assert.equal(p.st.queue.length, 1, 'the next read did not start after the last one returned');
 });
