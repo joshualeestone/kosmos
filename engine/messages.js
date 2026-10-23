@@ -3700,9 +3700,6 @@ const CLAIM_ROOM_ASK = new RegExp(
 /* "One of you" and the like put it to a group: on a post that @-names members that group is THEM ("@ann @bob can one of
    you review this?"), so it counts only on a post that names nobody. */
 const CLAIM_GROUP_ASK = /\b(?:(?:one|any|either|each) of you|all of you|the rest of you|you all|y'?all)\b/i;
-/* #6957: "need someone to..." asks the room only in a top-level post that names nobody: said to bob, or in a reply to
-   bob's post ("yes, we need someone to take it, go ahead"), it is bob's. */
-const CLAIM_NEED_ASK = /\bneed (?:someone|somebody|anyone) to\b/i;
 function logRoomRefusal({ from, project, because, at, doing, addable }) {
   if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway
   const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
@@ -3847,19 +3844,22 @@ function react({ project, of, emoji, from, operator, members, claim }) {
        bob), unless the replier is that author or the reply asks the room.
      A hand-off, by an agent or by the person, is a post of its own ("@ann please take this"), which asks ann, and that is
      the post ann claims. Only those still in the room count, so a post asking only someone who has left is open. */
-  /* A leading run of @-names ("@bob, who has time...?") addresses them: its comma is not a clause start (review 2). */
-  const asksRoom = (text, names, reply) => {
+  /* A leading run of @-names, after an optional greeting ("@bob, who has time...?", "@bob - who can...?", "Hey @bob, who
+     can...?"), addresses them: the comma, dash or "!" after the names is not a clause start (reviews 2 and 3). The run is
+     replaced by a word, not removed, so the text after it does not read as the start of the text either. "Need someone
+     to..." is no room ask at all: said to bob, or in a reply to his post, it is bob's (review 2), and a post naming
+     nobody is open anyway. */
+  const asksRoom = (text, names) => {
     if (typeof text !== 'string') return false;
-    // Replaced by a word, not removed: the text after the names must not read as the start of the text (a clause start).
-    const t = text.replace(/^\s*(?:@[\w.-]+[\s,:]*)+/, 'NAMED ');
-    return CLAIM_ROOM_ASK.test(t) || (!names && CLAIM_GROUP_ASK.test(t)) || (!names && !reply && CLAIM_NEED_ASK.test(t));
+    const t = text.replace(/^\s*(?:(?:hey|hi|hello|thanks|thank you|ok|okay|so)[,!]?\s+)?(?:@[\w.-]+[\s,:!\u2013\u2014-]*)+/i, 'NAMED ');
+    return CLAIM_ROOM_ASK.test(t) || (!names && CLAIM_GROUP_ASK.test(t));
   };
   const askedSet = new Set();
   const named = Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : [];
   const unclear = Array.isArray(post.ambiguousMentions) && post.ambiguousMentions.length > 0;
   if (named.length) {
-    if (!unclear && !asksRoom(post.text, true, false)) for (const n of named) askedSet.add(n);
-  } else if (typeof post.replyTo === 'string' && !asksRoom(post.text, false, true)) {
+    if (!unclear && !asksRoom(post.text, true)) for (const n of named) askedSet.add(n);
+  } else if (typeof post.replyTo === 'string' && !asksRoom(post.text, false)) {
     const answered = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === post.replyTo);
     // The person's post has no session author ('you' is never a room member), so only an agent's post asks its author.
     if (answered && answered.operator !== true && typeof answered.from === 'string' && answered.from && answered.from !== post.from) askedSet.add(answered.from);
@@ -3871,8 +3871,9 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   /* A post dated ahead of this clock (a clock stepped back) is open: its age cannot be read, and holding it until the
      clock catches up could be hours (#6957 review 1). Fails open, as a post before #6952 did. */
   const windowMs = CLAIM_ASKED_MINUTES * 60000;
-  const age = Date.now() - Date.parse(post.at);
-  const leftMs = age < 0 ? 0 : windowMs - age;
+  // Up to a minute ahead is a small clock adjustment, read as just posted; more than that cannot be read (review 3).
+  const age = Date.now() - Date.parse(post.at);   // NaN for an unreadable time, which then fails open below
+  const leftMs = age < -60000 ? 0 : windowMs - Math.max(0, age);
   /* #6957: an asked member who claimed the post and then gave it back has let it go ("out of usage, someone else
      please"), so once every asked member still here has done that, the post is open. And a post's own author is never
      locked out of claiming it ("@bob I am taking the parser, FYI"). */
@@ -3890,7 +3891,9 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     return released;
   };
   const released = asked.length > 0 && asked.every(gaveBack);
-  const authorsOwn = named.length > 0 && reactor === post.from;   // the author of an @-named post, not of a reply (review 1)
+  // The author of an @-named post, not of a reply (review 1). It also lets an author take back a hand-off it made
+  // ("@bob can you take the login bug?") inside bob's window; bob sees the claim in the room.
+  const authorsOwn = named.length > 0 && reactor === post.from;
   if (asked.length && !asked.includes(reactor) && !authorsOwn && !released && leftMs > 0) {
     const who = asked.length === 1 ? asked[0] : asked.slice(0, -1).join(', ') + ' or ' + asked[asked.length - 1];
     const mins = Math.max(1, Math.ceil(leftMs / 60000));

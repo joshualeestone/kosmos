@@ -533,14 +533,15 @@ test('#6957 review 1: gave back means bob removed his own claim; a claim ended f
   assert.deepEqual(claim('ann').askedOf, ['bob'], 'a claim ended FOR bob counted as bob giving it back');
 });
 
-test('#6957 review 2: need someone to in a go-ahead reply is the answered author\'s; control: in a top-level post naming nobody, the room\'s', () => {
+test('#6957 review 2: need someone to in a go-ahead reply is the answered author\'s', () => {
   fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
   const at = () => new Date().toISOString();
   append({ kind: 'post', id: 'r1', project: 'p', from: 'bob', to: MEMBERS, text: 'Shall I take the parser?', outcomes: {}, at: at() });
   append({ kind: 'post', id: 'r2', project: 'p', from: 'ann', to: MEMBERS, replyTo: 'r1', text: 'Yes, we need someone to take it, go ahead', outcomes: {}, at: at() });
   assert.deepEqual(claim('cy', 'r2').askedOf, ['bob'], 'a go-ahead reply to bob opened to anyone');
-  append({ kind: 'post', id: 'r3', project: 'p', from: 'you', operator: true, to: MEMBERS, text: 'We need someone to take the login bug', outcomes: {}, at: at() });
-  assert.equal(claim('cy', 'r3').op, 'add');
+  // CONTROL: the same reply without "need someone to" is bob's too; this is the reply path, not the pattern.
+  append({ kind: 'post', id: 'r4', project: 'p', from: 'ann', to: MEMBERS, replyTo: 'r1', text: 'Yes, go ahead', outcomes: {}, at: at() });
+  assert.deepEqual(claim('cy', 'r4').askedOf, ['bob']);
 });
 
 test('#6957 review 2: a bare anyone? after a new line, a dash or in brackets asks the room; @bob, who... asks bob', () => {
@@ -550,7 +551,10 @@ test('#6957 review 2: a bare anyone? after a new line, a dash or in brackets ask
   for (const text of ['@bob is out today\nAnyone?', '@bob is out today - anyone?', '@bob is out today \u2014 anyone?', '@bob is out (anyone?)', '@bob fix X\nCan someone review after?']) {
     assert.equal(claim('cy', ask(text)).op, 'add', JSON.stringify(text));
   }
-  for (const text of ['@bob, who has time to pair with me tomorrow?', '@bob, who is around this weekend?', "@bob, who's around for on-call Friday?", '@bob: who can approve this?']) {
+  for (const text of ['@bob, who has time to pair with me tomorrow?', '@bob, who is around this weekend?', "@bob, who's around for on-call Friday?", '@bob: who can approve this?',
+    // review 3: a dash or "!" after the name, and a greeting before it, address bob too
+    '@bob - who has time to pair with me tomorrow?', '@bob \u2014 who can approve this?', '@bob! who can approve this?',
+    'Hey @bob, who has time to pair with me tomorrow?', 'Thanks @bob, who can review this next?']) {
     assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
   }
 });
@@ -563,4 +567,12 @@ test('#6957 review 2: gave back replays bob\'s rows in order; an old pill remove
   append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'add', claim: true, at: at() });
   append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'remove', takenBy: 'cy', because: 'left-the-room', at: at() });
   assert.deepEqual(claim('ann').askedOf, ['bob'], 'the remove before bob\'s claim counted as bob giving it back');
+});
+
+test('#6957 review 3: a post a few seconds ahead of the clock is still held (a small clock adjustment), more than a minute ahead is open', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix X', outcomes: {}, at: new Date(Date.now() + 30000).toISOString() });
+  assert.deepEqual(claim('cy').askedOf, ['bob'], 'a post 30 s ahead of the clock lost its hold');
+  append({ kind: 'post', id: 'm2', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix Y', outcomes: {}, at: new Date(Date.now() + 120000).toISOString() });
+  assert.equal(claim('cy', 'm2').op, 'add');
 });

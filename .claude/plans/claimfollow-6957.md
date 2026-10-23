@@ -10,11 +10,14 @@ opens after #6952 merges.
    releasing "because I am out of usage" left cy sent to ask bob for up to 30 minutes.
 2. **More room phrasings count** (CLAIM_ROOM_ASK): "Who's free..." (straight or curly apostrophe), "who has time...",
    "anyone around TO...", and a bare "anyone?" or "anyone else?" standing as its own clause ("If you cannot, anyone
-   else?"). "Need someone to..." counts only on a post naming nobody (CLAIM_GROUP_ASK). Passing mentions still do not:
+   else?"). "Need someone to..." is not a room ask at all: said to bob or in a reply to his post it is bob's, and a post
+   naming nobody is open anyway. Leading @-names (after an optional greeting, and before a comma, colon, dash or "!")
+   address them, so "@bob, who has time...?" is bob's. Passing mentions still do not:
    "@bob ping anyone around in billing", "@bob I need someone to review this, can you do it?", "@bob is the build
    broken for anyone else?", "the bug someone else reported".
-3. **A post dated ahead of this clock is open** (a clock stepped back): its age cannot be read, and holding it until
-   the clock catches up could be hours. Fails open, as before #6952.
+3. **A post dated more than a minute ahead of this clock is open** (a clock stepped back): its age cannot be read, and
+   holding it until the clock catches up could be hours. Fails open, as before #6952. Up to a minute ahead is read as
+   just posted, so a small clock adjustment keeps the hold.
 4. **The author of an @-named post can always claim it** ("@bob I am taking the parser, FYI"). Not the writer of a
    reply, whose reply asks the answered author.
 5. **The reserved-name refusal says what to do** ("rename this agent to react or claim"), for an agent named
@@ -38,6 +41,11 @@ naming nobody only); the clause start missed a new line, a dash and a bracket ("
 time...?" read the vocative comma as a clause start (leading @-names are now replaced by a word before testing). Also:
 "gave back" replays bob's rows in order, and the reserved-name refusal tells the agent to ask the person to rename it.
 Noted: `claimAgreed` is used by the text view only; the person's own page still shows their 🙋 pill.
+
+## Review 3 (blind, 0 BLOCKER, 2 WARNING): fixed. A dash after the leading name ("@bob - who has time...?") opened
+bob's post, a regression from review 2's clause starts; a greeting before the name ("Hey @bob, who...?") defeated the
+strip. Both are now part of the strip, as is "!". The never-reached CLAIM_NEED_ASK and its test arm that could not fail
+are removed. A post up to a minute ahead of the clock keeps its hold.
 
 ## Proof
 engine/roomclaim-6946.test.js #6957 (each with a control that can return the dangerous answer) and
