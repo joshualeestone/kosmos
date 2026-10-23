@@ -307,7 +307,7 @@ test('#6952: a post that @-names members can be claimed only by them; control: a
   assert.equal(ann.ok, false, 'ann claimed a post that asks bob');
   assert.deepEqual(ann.askedOf, ['bob']);
   assert.equal(ann.because, 'that post asks bob, so it is theirs to take: read the room, and ask them if you can help (if they hand it to you, their answer naming you lets you claim it)');
-  assert.equal(messages.react({ project: 'p', of: 'm1', emoji: HAND, from: 'ann', members: MEMBERS }).ok, false, 'a plain 🙋 went around the rule');
+  assert.deepEqual(messages.react({ project: 'p', of: 'm1', emoji: HAND, from: 'ann', members: MEMBERS }).askedOf, ['bob'], 'a plain 🙋 went around the rule');
   assert.equal(claim('bob').op, 'add', 'bob could not claim the post that asks him');
   // CONTROL: `to` is every member here too, but nobody is named, so ann can claim it.
   append({ kind: 'post', id: 'm2', project: 'p', from: 'you', operator: true, to: MEMBERS, text: 'can someone do Y', outcomes: {}, at: new Date().toISOString() });
@@ -319,6 +319,9 @@ test('#6952: an agent named operator cannot react (it would read as the person i
   const r = messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'operator', members: ['operator'] });
   assert.equal(r.ok, false);
   assert.match(r.because, /that name is reserved/);
+  assert.match(messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'Operator', members: ['Operator'] }).because, /that name is reserved/);
+  // CONTROL: the same reaction from an ordinary member lands.
+  assert.equal(messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'ann', members: MEMBERS }).op, 'add');
 });
 
 test('#6952 review 1: a post naming only someone who has left the room is open to the rest; control: while they are in it, it is not', () => {
@@ -357,12 +360,24 @@ test('#6952 review 2: a post can be handed on by the person or the asked member;
   fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
   const at = () => new Date().toISOString();
   append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix the login bug', outcomes: {}, at: at() });
-  // CONTROL first: cy (not asked) answering "@cy I will take it" hands nothing to cy.
-  append({ kind: 'post', id: 'm2', project: 'p', from: 'cy', to: MEMBERS, replyTo: 'm1', mentioned: ['cy'], text: '@cy I will take it', outcomes: {}, at: at() });
-  assert.equal(claim('cy').ok, false, 'an agent that was not asked handed the post to itself');
+  // CONTROL first: cy (not asked) answering "@ann take it" hands nothing to ann (a real send never names its sender).
+  append({ kind: 'post', id: 'm2', project: 'p', from: 'cy', to: MEMBERS, replyTo: 'm1', mentioned: ['ann'], text: '@ann take it', outcomes: {}, at: at() });
+  assert.deepEqual(claim('ann').askedOf, ['bob'], 'an agent that was not asked handed the post on');
   // bob hands it to ann.
   append({ kind: 'post', id: 'm3', project: 'p', from: 'bob', to: MEMBERS, replyTo: 'm1', mentioned: ['ann'], text: '@ann I am out of usage, please take m1', outcomes: {}, at: at() });
   const ann = claim('ann');
   assert.equal(ann.ok, true, 'bob handed the post to ann and the board still refused her');
   assert.equal(ann.op, 'add');
+});
+
+test('#6952 review 3: an agent answering its own post asks the room; control: the person answering it asks that agent', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = () => new Date().toISOString();
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'bob', to: MEMBERS, text: 'Investigating the login bug', outcomes: {}, at: at() });
+  append({ kind: 'post', id: 'm2', project: 'p', from: 'bob', to: MEMBERS, replyTo: 'm1', text: 'Found it but I am out of usage, can someone take it?', outcomes: {}, at: at() });
+  const ann = claim('ann', 'm2');
+  assert.equal(ann.ok, true, 'bob\'s answer to his own post was locked to bob: ' + JSON.stringify(ann));
+  // CONTROL: the person answering bob's post asks bob.
+  append({ kind: 'post', id: 'm3', project: 'p', from: 'you', operator: true, to: MEMBERS, replyTo: 'm1', text: 'yes, finish it', outcomes: {}, at: at() });
+  assert.deepEqual(claim('cy', 'm3').askedOf, ['bob']);
 });

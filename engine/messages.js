@@ -3784,7 +3784,9 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   const askedSet = new Set(Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : []);
   if (typeof post.replyTo === 'string') {
     const answered = postsHere.find((m) => String(m.id) === post.replyTo);
-    if (answered && answered.operator !== true && typeof answered.from === 'string' && answered.from) askedSet.add(answered.from);
+    // Not the replier itself: an agent answering its own post ("found it, can someone take it?") asks the room, as
+    // delivery does (the sender is never a recipient). Review 3.
+    if (answered && answered.operator !== true && typeof answered.from === 'string' && answered.from && answered.from !== post.from) askedSet.add(answered.from);
   }
   if (askedSet.size) {
     for (const m of postsHere) {

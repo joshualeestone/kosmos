@@ -44,6 +44,15 @@ ahead" to bob is bob's. And a post can be handed on: a later answer to it by the
 Nits: the claim sentence prints the board's post id (m530 for a typed 530) and is pinned whole in both CLIs; a holder's
 🙋 toggle-off says the post was given back; create.js drops a no-op lowercase.
 
+## Review 3 (blind, 0 BLOCKER, 1 WARNING): fixed. An agent answering its own post ("found it, can someone take it?")
+became asked by itself and locked the request to the one agent that could not do it; the author of the answered post
+is now asked only when it is not the replier, as delivery does (control: the person's answer still asks the author).
+Doctrine v39 says not to claim an answer to someone else's post. The reactions line keeps the person by the 'you'
+sentinel before renaming. Test controls use posts the product can make, and refusals assert their reason.
+Noted, not changed: a person's answer naming ann on bob's question leaves bob able to claim too (matches asksIt).
+**Rebasing after #6946 squash-merges:** `git rebase --onto origin/main origin/roomclaim-6946`, then rerun
+`node tools/doctrine-past.js` (it will then keep v38 itself).
+
 ## Weakest premise
 That `mentioned` is how a request names its owner. A post that asks "can ann take this?" without an @-mention names
 nobody to the board, so anyone can still claim it. And doctrine-past.js carries the v38 rows by hand until #6946 is on
