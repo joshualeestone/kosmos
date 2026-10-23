@@ -19,7 +19,7 @@ const { chromium } = require('playwright');
 
 const URL = process.env.KOSMOS_URL || 'http://127.0.0.1:17401';
 const OUT = process.argv[2] || '/tmp/gridwidth';
-const CONTROL = process.argv.includes('--control');
+const CONTROL = process.argv.includes('--control') || process.env.GW_CONTROL === '1';   // env: the harness passes no arguments
 /* ⚠️ 60 CHARACTERS, WHICH IS THE CAP, NOT AN ARBITRARY LONG STRING.
    Measured against the live route: 67 characters is refused with "that name is
    too long to make a folder out of; keep it to 60 characters", and my first
