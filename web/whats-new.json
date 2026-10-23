@@ -1,30 +1,33 @@
 {
-  "version": "0.7.63",
+  "version": "0.7.64",
   "highlights": [
     {
-      "icon": "list",
-      "title": "Browse an agent's files",
-      "line": "An agent's Files screen lists its folders and files, previews images and text, and downloads a folder as one zip."
-    },
-    {
-      "icon": "spark",
-      "title": "Crop a picture before saving it",
-      "line": "Choosing a still picture for an agent or for yourself opens an editor to move and zoom it inside the circle before it is saved."
-    },
-    {
-      "icon": "swarm",
-      "title": "A team map for each project",
-      "line": "A project's Team map, on its Members card or above its Agents list, shows who reports to whom, what each holds and who handed work on."
-    },
-    {
-      "icon": "shield",
-      "title": "Files show a fingerprint",
-      "line": "An agent's Files screen and a project's Documents screen show a fingerprint beside the files in their folders, to tell copies apart."
+      "icon": "tasks",
+      "title": "Close a task as replaced by another",
+      "line": "A task that a later task replaced can be closed as replaced by it: its page links to the new task, and the Tasks list says so."
     },
     {
       "icon": "tasks",
-      "title": "Agents are told how to finish a task",
-      "line": "An agent that reports on a task it holds, with kosmos task message, is now told how to mark that task done."
+      "title": "Close a task and its subtasks at once",
+      "line": "When every subtask of a task is built, one press on that task's page closes each subtask and then the task itself."
+    },
+    {
+      "icon": "list",
+      "title": "See which agent changed a file",
+      "line": "A project's Files page usually shows which Claude agent changed a file last.",
+      "platforms": [
+        "mac"
+      ]
+    },
+    {
+      "icon": "swarm",
+      "title": "A paused room says why",
+      "line": "When Kosmos pauses a room whose agents kept going back and forth, a note above the message box says why and offers Reopen."
+    },
+    {
+      "icon": "list",
+      "title": "A project shows each member's role",
+      "line": "A project's member list now shows the role each member set for that project."
     }
   ]
 }
