@@ -492,14 +492,13 @@ const BLOCK = [
   '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
   '',
   'If the work is a file, add `--file <path>`: the next agents are sent its fingerprint',
-  'to check their copy with `kosmos fingerprint <file>`. It leaves out the dates and ID a',
-  'PDF records about itself, so the same source rendered twice gives the same fingerprint;',
-  'for a PDF it is not a byte-for-byte proof (and a PDF over 64 MB is hashed as plain',
-  'bytes). For any other file it is the plain sha256: `shasum -a 256 <file>` on a Mac,',
-  '`(Get-FileHash <file>).Hash` on Windows, which prints capitals: the case does not matter.',
-  'A PDF marked before this may carry its plain sha256 instead: if `kosmos fingerprint` does',
-  'not match one, check it with `shasum` or `Get-FileHash` as above. If you change the file,',
-  'mark it again with `--file`: your own mark without it drops the fingerprint.',
+  'to check their copy with `kosmos fingerprint <file>`. For a PDF it leaves out the',
+  "PDF's own dates and ID, so two renders of one source match, but it is no byte-for-byte",
+  'proof (and a PDF over 64 MB is hashed as plain bytes). Any other file gets the plain',
+  'sha256: `shasum -a 256 <file>` on a Mac, `(Get-FileHash <file>).Hash` on Windows (case',
+  'does not matter). A PDF marked before this may carry a plain sha256: if `kosmos',
+  'fingerprint` does not match it, check it as above. If you change the file, mark it',
+  'again with `--file`: your own mark without it drops the fingerprint.',
   '',
   '**Work that comes back on a schedule is one task that repeats,** not a new task',
   'each time: a report every morning, a check every hour. Add it as above (or use',
@@ -590,6 +589,12 @@ const BLOCK = [
   'It prints the new project id when it works, or the reason it could not, such',
   'as the hourly cap on how many one agent makes. Once it exists you post to it',
   'and hand it work the same way as any other project.',
+  '',
+  '**A project can keep one shared list of the things it tracks** (accounts, leads,',
+  'vendors): `kosmos records <project-id>` reads it, and `kosmos records set',
+  '<project-id> "<name>"` adds or updates a row, with `--status`, `--source` and',
+  '`--confirmed YYYY-MM-DD` (the date of your latest evidence; left out, it is today) as',
+  'you have them. Keep such a list there, not in a file of your own, so no row is lost.',
   '',
   '### What you hand a person',
   '',
@@ -1204,8 +1209,15 @@ function block() {
  *     claim` says the post asks someone else, and that a post handed to you is claimed where it
  *     is handed over. No new heading, so as in 32 an agent's EDITED copy of that section is not
  *     re-offered it.
+ *  40. kosmos#6995 (follow-up to #6994). "Making a project" now teaches `kosmos records`, the
+ *     project's one shared list of what it tracks, so agents stop keeping such lists in files of
+ *     their own that overwrite each other. To make room, the tasks section's fingerprint paragraph
+ *     says the same things in fewer words (every phrase a test pins is kept). No new heading, so as
+ *     in 32 an agent's EDITED copy of those sections is not re-offered them.
+ *     WEAKEST PREMISE, NAMED: that agents need the block to find the verb; `project show` already
+ *     names it. If they find it there unaided, this paragraph could go.
  */
-const DOCTRINE_VERSION = 39;
+const DOCTRINE_VERSION = 40;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
