@@ -8,8 +8,7 @@ require('./test-support/tmpscope');
  *   2. the route, on a fake fleet classified by the real engine: every row carries the two fields, equal to labelOf and
  *      toneOf over that same row;
  *   3. the phone's fallback (ios/Kosmos/BoardLogic.swift, used only with a Mac older than this) has the engine's words
- *      and needs-you set, so an older Mac and a newer one give the same words (tones can differ on a row with no state:
- *      the engine reads it quiet, the phone's fallback as unknown).
+ *      and needs-you set, so an older Mac and a newer one give the same words.
  */
 const fs = require('node:fs');
 const os = require('node:os');
@@ -123,6 +122,16 @@ test('#7004 withCardWords passes the board\'s own needs-the-person into the tone
   assert.equal(odd[0], null);
   assert.equal(odd[1], bad);
   assert.equal(odd[2].cardTone, 'working');
+});
+
+test('#7004 the status route runs withCardWords last, over rows that already carry the late fields', () => {
+  // The fake fleet cannot make a row with a restart cause or a crash loop, so the order is pinned in the source: the
+  // word reads reconnect, crashLoop and disruption, which the other wrappers and the route attach before this line.
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const lines = src.split('\n').filter((l) => /^\s*const rows = .*agents\.concat\(offline\)/.test(l));
+  assert.equal(lines.length, 1, 'the status route\'s rows line moved; re-anchor this test');
+  assert.match(lines[0], /^\s*const rows = withCardWords\(withReplyChannel\(withTokenGuard\(withAgentSortFields\(agents\.concat\(offline\)\)\)\)\);$/,
+    'withCardWords is not the outermost wrapper of the finished rows');
 });
 
 // ---- 3. the phone's fallback is the engine's words ----
