@@ -22515,6 +22515,20 @@ const server = http.createServer(async (req, res) => {
     };
     // GET only: the agent-token gate admits GET, so a HEAD would answer differently for a token-only caller.
     if (!recordsAt[2] && req.method === 'GET') {
+      /* A caller on its agent token alone (`kosmos records`) reads the records only of a project it is on: the
+         GET .../task/<n>/activity rule and its refusals. The page and the person's terminal send no token. */
+      const tokenOnly = agentTokenOnlyCaller(req);
+      if (tokenOnly !== null) {
+        let stored = null;
+        try { stored = projects.readAll().filter((x) => x && x.id === id); } catch { stored = null; }
+        if (stored === null) { sendJson(res, 503, { error: 'we could not read the projects just now, so its records cannot be read' }); return; }
+        if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+        if (!tokenOnly) { sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read these records' }); return; }
+        if (!stored.every((x) => tokenOnlyOnProject(x, tokenOnly))) {
+          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot read its records' + NOT_ON_PROJECT_FIX });
+          return;
+        }
+      }
       let out;
       try { out = recordsEngine.list(id); } catch (err) { failed(err, 'we could not read its records'); return; }
       // ?as=text: the list as both CLIs print it (records.renderList), so stock bash needs no JSON parser.

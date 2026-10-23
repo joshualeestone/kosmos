@@ -183,3 +183,14 @@ test('an agent reads the list with its own token alone, as text (kosmos records 
   const none = await fetch(base + at(id) + '?as=text');
   assert.notEqual(none.status, 200, 'CONTROL: with enforcement on, a caller with no token at all is not let in');
 });
+
+test('an agent on its token alone reads the records only of a project it is on (403 otherwise), as task activity', async (t) => {
+  const id = project();
+  const tok = agents(t);
+  assert.equal((await post(at(id), { name: 'Acme' }, { 'x-kosmos-agent-token': tok.mara })).status, 201);
+  const theirs = await fetch(base + at(id) + '?as=text', { headers: { 'x-kosmos-agent-token': tok.otto } });
+  assert.equal(theirs.status, 403, await theirs.clone().text());
+  assert.match((await theirs.json()).error, /not on this project, so it cannot read its records/);
+  const ours = await fetch(base + at(id) + '?as=text', { headers: { 'x-kosmos-agent-token': tok.mara } });
+  assert.equal(ours.status, 200, 'CONTROL: a member reads them');
+});
