@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.61",
+  "lastProd": "0.7.63",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -352,7 +352,7 @@
     },
     {
       "title": "Subprojects are named with their project",
-      "line": "Task lists name a subproject with its project, as in \"Book A › Launch\", and project pickers as in \"Launch (3), in Book A\".",
+      "line": "Task lists name a subproject with its project, as in \"Book A \u203a Launch\", and project pickers as in \"Launch (3), in Book A\".",
       "icon": "tasks",
       "rank": 8.8,
       "since": "0.7.46",
@@ -450,7 +450,8 @@
       "icon": "tasks",
       "rank": 11.5,
       "since": "0.7.48",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.63"
     },
     {
       "title": "Agents see the posts they follow",
@@ -718,7 +719,8 @@
       "icon": "swarm",
       "rank": 4,
       "since": "0.7.55",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.63"
     },
     {
       "title": "A way back to this computer",
@@ -777,7 +779,8 @@
       "icon": "list",
       "rank": 3,
       "since": "0.7.62",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.63"
     },
     {
       "title": "Crop a picture before saving it",
@@ -785,7 +788,8 @@
       "icon": "spark",
       "rank": 3.5,
       "since": "0.7.63",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.63"
     },
     {
       "title": "Files show a fingerprint",
@@ -793,6 +797,23 @@
       "icon": "shield",
       "rank": 6,
       "since": "0.7.63",
+      "status": "shown",
+      "shownIn": "0.7.63"
+    },
+    {
+      "title": "Close a task as replaced by another",
+      "line": "A task that a later task replaced can be closed as replaced by it: its page links to the new task, and the Tasks list says so.",
+      "icon": "tasks",
+      "rank": 5,
+      "since": "0.7.64",
+      "status": "pending"
+    },
+    {
+      "title": "Close a task and its subtasks at once",
+      "line": "When every subtask of a task is built, one press on that task's page closes each subtask and then the task itself.",
+      "icon": "tasks",
+      "rank": 5.5,
+      "since": "0.7.64",
       "status": "pending"
     }
   ]
