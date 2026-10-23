@@ -60,3 +60,13 @@ fresh cut box would not have it; the promote then refuses (artifact missing), as
 - The version compare fails closed on a non-numeric version.
 - Not changed: `-G` does not look into merge commits. Measured 10-23: 0 merges among the site's 133
   latest-staging.json commits on origin/main; the real lookup for 0.7.64 returns 65d9aa8 (its cut) in 18 ms.
+
+## Iteration 3 (challenge) changes
+- A version cut more than once (a re-cut after an abort) left commits disagreeing on V's build with no way
+  forward: `--sha <8+ hex of the approved build's sha256>` now names it (Josh's GO names version and sha),
+  and the refusal lists each build's sha, commit and date.
+- A version that cannot be compared with prod's no longer reads "older than"; it says it cannot be compared
+  (still refused without --allow-older).
+- docs/staging-channel.md step 4 documents --version / --sha / --allow-older and the hold on a moved board.
+- The -G comment states why it finds every commit: the pointer is one line.
+- Not changed: in named mode with the key-list check on, origin main is fetched twice (harmless).
