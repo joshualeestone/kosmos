@@ -24,7 +24,8 @@
 #   keepalive                 as kosmos-ci, over ssh or in its session (kosmos#7001; for another runner user, set
 #                             KOSMOS_CI_USER, e.g. kosmos-ci2). Adds KeepAlive, ThrottleInterval and ExitTimeOut to an
 #                             installed runner's LaunchAgent and reloads it while idle; a dry run says whether it is
-#                             set and loaded (exit 1 when the runner is not running as it should)
+#                             set and loaded (exit 1 when the runner is not running as it should). This repo's runner
+#                             only ($CI_HOME/actions-runner); a kosmos-relay runner under the same user is not touched
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
 #                             Give KOSMOS_CI_GUARD_SHA (the install pin), or the guard counts as unchecked.
 #                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail)
@@ -71,6 +72,9 @@ jq_row() { printf '.runners[] | select(.name == "%s") | "\(.status) \(.busy) \([
 NAME="${KOSMOS_CI_RUNNER_NAME:-kosmos-ci-agent1s}"
 # NAME goes into a jq string literal (jq_busy, jq_row): only characters that need no escaping there.
 case "$NAME" in ''|*[!A-Za-z0-9._-]*) echo "refused: KOSMOS_CI_RUNNER_NAME '$NAME' may hold only letters, digits, '.', '_' and '-'" >&2; exit 2 ;; esac
+# CI_HOME goes into pgrep patterns (keepalive): only characters that need no escaping there.
+case "${KOSMOS_CI_HOME:-/Users/${KOSMOS_CI_USER:-kosmos-ci}}" in ''|*[!A-Za-z0-9/._-]*) echo "refused: the CI home may hold only letters, digits, '/', '.', '_' and '-'" >&2; exit 2 ;; esac
+case "${KOSMOS_CI_UNLOAD_WAIT_S:-45}" in ''|*[!0-9]*) echo "refused: KOSMOS_CI_UNLOAD_WAIT_S is '${KOSMOS_CI_UNLOAD_WAIT_S:-}', not a number of seconds" >&2; exit 2 ;; esac
 LABELS="self-hosted,macOS,arm64,kosmos-ci"
 BREW="${KOSMOS_CI_BREW:-/opt/homebrew}"            # the engine's fixed tmux fallback is /opt/homebrew/bin/tmux
 MIN_FREE_GIB="${KOSMOS_CI_MIN_FREE_GIB:-20}"       # the fleet's disk floor
@@ -158,7 +162,7 @@ mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN
 #   listener's own 0/1/5 exits it is read from RunnerService.js, not measured.
 # - ThrottleInterval 10: launchd's default, written down. A runner that keeps crashing restarts at most every 10 s;
 #   `launchctl bootout gui/<uid>/<label>` stops it.
-# - ExitTimeOut 35: launchd SIGKILLs a stopping job after 5 s here (measured on these Macs: `exit timeout = 5`), but
+# - ExitTimeOut 35: launchd SIGKILLs a stopping job after its exit timeout, shown here as `exit timeout = 5`, but
 #   RunnerService.js gives the Listener 30 s to end its GitHub session; a stop cut short leaves that session behind.
 # What still stays down: a Listener that crashes is RunnerService.js's to retry (every 5 s, forever, unless
 # GITHUB_ACTIONS_SERVICE_EXIT_AFTER_N_FAILURES is set); 10 consecutive retryable exits (2, 3, 4) stop the service
@@ -484,8 +488,7 @@ install_runner() {
     if [ "$was_running" = 1 ]; then
       # kosmos#7001: with ExitTimeOut 35 a stop can take up to ~30 s (the Listener ends its GitHub session), so it is
       # polled, not read once.
-      local sw=0 slim="${KOSMOS_CI_UNLOAD_WAIT_S:-45}"
-      case "$slim" in ''|*[!0-9]*) slim=45 ;; esac
+      local sw=0 slim="${KOSMOS_CI_UNLOAD_WAIT_S:-45}"   # a number: checked at the top
       while case "$(./svc.sh status 2>&1 || true)" in *Started*) true ;; *) false ;; esac && [ "$sw" -lt "$slim" ]; do
         sleep 1; sw=$((sw + 1))
       done
@@ -617,8 +620,7 @@ keepalive() {
   local ciuid; ciuid="$(id -u "$CI_USER" 2>/dev/null)" || { echo "refused: no user $CI_USER on this Mac" >&2; exit 1; }
   dom="gui/$ciuid"   # the CI user's domain, whoever reads it (a dry run may be someone else's)
   cd "$RUNNER_DIR" || { echo "refused: no runner in $RUNNER_DIR" >&2; exit 1; }
-  local limit="${KOSMOS_CI_UNLOAD_WAIT_S:-45}"   # over the old job's own exit timeout
-  case "$limit" in ''|*[!0-9]*) echo "refused: KOSMOS_CI_UNLOAD_WAIT_S is '$limit', not a number of seconds" >&2; exit 2 ;; esac
+  local limit="${KOSMOS_CI_UNLOAD_WAIT_S:-45}"   # over the old job's own exit timeout; a number: checked at the top
   launchctl print "$dom" >/dev/null 2>&1 || { echo "refused: no $dom domain ($CI_USER is not logged in, so its runner cannot run); log in, then run this again" >&2; exit 1; }
   # Three facts: the plist has it, the job is loaded, the LOADED job has it. Only all three mean a kill is survived.
   local in_file=0 loaded=0 in_job=0
@@ -696,7 +698,12 @@ keepalive() {
   local sent=0
   local jo2 opid w4=0; jo2="$(launchctl print "$dom/$label" 2>/dev/null || true)"
   opid="$(printf '%s\n' "$jo2" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)"
-  [ -n "$opid" ] || echo "note:   launchd shows no pid for $label, so no SIGTERM first; the bootout runs under the loaded exit timeout" || true
+  # No pid in launchd's print while this runner's Listener runs: the print format may have changed. Booting out then
+  # would run under the old exit timeout, the cut this step prevents: refuse before anything is stopped.
+  if [ -z "$opid" ] && [ -n "$before" ]; then
+    echo "refused: launchctl print shows no pid for $label, though its Listener runs; nothing was stopped, KeepAlive is in the plist, not yet loaded" >&2; exit 1
+  fi
+  [ -n "$opid" ] || echo "note:   $label has no process, so no SIGTERM first" || true
   if [ -n "$opid" ]; then
     launchctl kill SIGTERM "$dom/$label" \
       || { echo "refused: launchctl kill SIGTERM $dom/$label failed; nothing was stopped, KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
