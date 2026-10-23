@@ -51335,6 +51335,9 @@ function placeAppSettings(consolidated) {
 function takeOverDisplayColumn() {
   const projects = document.getElementById('panel-projects');
   if (!projects) return;
+  /* #6910: the person has chosen what the column shows, so a projects read that lands later must not open a project
+     over it, nor after they close it (#867's own rule: going back to the list is not undone by the next poll). */
+  PJ_AUTO_OPENED_ONCE = true; WANT_PROJECT_DONE = true;
   projects.hidden = false;
   for (const v of ['one', 'add', 'settings', 'task', 'docs']) {
     const el = document.getElementById('pj-' + v + '-view');
@@ -51736,14 +51739,15 @@ try {
 } catch { /* no media queries: the board's setting stands */ }
 /* #774: the consolidated centre with nothing open says what to press. */
 /* #6910: one answer to "does a view the person opened hold the display column?" (Settings, New Agent, Tasks, Agents
-   or the Projects page, each relocated into #panel-projects or shown beside it). paintPjNone keeps the "No projects
-   yet" hint off it, and loadProjects keeps its arrival and deep-link opens from replacing it. */
+   or the Projects page, each relocated into #panel-projects or shown beside it, and the New project form).
+   paintPjNone keeps the "No projects yet" hint off it, and loadProjects keeps its arrival and deep-link opens from
+   replacing it. */
 function displayColumnOverlayOpen() {
   const pp = document.getElementById('panel-projects');
   const inColumn = (id) => { const el = document.getElementById(id); return !!(el && pp && el.parentElement === pp && !el.hidden); };
   const shown = (id) => { const el = document.getElementById(id); return !!(el && !el.hidden); };
   return inColumn('panel-settings') || inColumn('panel-create') || inColumn('panel-tasks')
-    || shown('panel-cons-agents') || shown('panel-cons-projects');
+    || shown('panel-cons-agents') || shown('panel-cons-projects') || shown('pj-add-view');
 }
 function paintPjNone(which) {
   const el = document.getElementById('pj-none');
@@ -64698,7 +64702,9 @@ function ringNewAgentMessages(agents) {
    nothingness." Same one-shot shape as WANT_PROJECT below (the first
    load that can act, acts, once) so a person who deliberately presses
    Back to the list is not immediately shoved back into a project on the
-   next poll. */
+   next poll. #6910: a view the person opens into the column before that
+   load lands sets it too (takeOverDisplayColumn, and loadProjects itself),
+   so a late read never replaces their choice. */
 let PJ_AUTO_OPENED_ONCE = false;
 let PJ_AGENTS_UNREADABLE = false;
 // ⚠️ Whether the LAST projects read succeeded. PROJECTS is deliberately never
@@ -66490,9 +66496,10 @@ async function loadProjects() {
     /* The project deep link (#374), once: the first load that can see the
        project opens it, the way the first poll opens WANT_AGENT. A project
        that is not there lands on the list, which says so. */
-    /* #6910: neither open below replaces a view the person has opened into the column since arriving (a read that
-       lands late, on a slow load). Neither is marked done then, so a later read opens it once the column is free. */
-    if (WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE && !displayColumnOverlayOpen()) {
+    /* #6910: on a slow load the person may already have opened a view into the column (the New project form, which
+       does not go through takeOverDisplayColumn, included). That choice stands: both opens below are then done. */
+    if (document.body.classList.contains('consolidated') && displayColumnOverlayOpen()) { PJ_AUTO_OPENED_ONCE = true; WANT_PROJECT_DONE = true; }
+    if (WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE) {
       WANT_PROJECT_DONE = true;
       if (pjById(WANT_PROJECT)) {
         openProject(WANT_PROJECT);
@@ -66506,7 +66513,7 @@ async function loadProjects() {
        PJ_SORT's own order (the person's own chosen sort, defaulting to
        newest first) picks the first active project, the same ordering
        the list itself renders in. */
-    if (!PJ_AUTO_OPENED_ONCE && !WANT_PROJECT && !PJ_CURRENT && !displayColumnOverlayOpen()
+    if (!PJ_AUTO_OPENED_ONCE && !WANT_PROJECT && !PJ_CURRENT
       && document.documentElement.getAttribute('data-layout') === 'consolidated') {
       PJ_AUTO_OPENED_ONCE = true;
       const first = sortProjects(PROJECTS.filter((p) => !p.archived), PJ_SORT)[0];

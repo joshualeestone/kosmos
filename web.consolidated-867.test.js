@@ -83,16 +83,19 @@ test('a project auto-opens on the first consolidated load, once, and only when n
   assert.ok(wantAt > -1 && wantAt < at, 'the deep-link check moved after the auto-open, so a deep link could lose the race');
 });
 
-test('#6910: a late projects read does not replace a view the person opened into the display column', () => {
-  const at = SCRIPT.indexOf('if (!PJ_AUTO_OPENED_ONCE');
-  assert.match(SCRIPT.slice(at, at + 200), /!displayColumnOverlayOpen\(\)/,
-    'the arrival auto-open can replace Settings, Agents, Tasks or New Agent when the first read lands late (#6910)');
+test('#6910: a view the person opens into the display column stands; a late projects read neither replaces it nor opens later', () => {
+  // The person navigated: both opens are done, even if they close the view before the read lands (#867's own rule).
+  const tk = SCRIPT.indexOf('function takeOverDisplayColumn() {');
+  assert.ok(tk > -1, 'takeOverDisplayColumn is gone');
+  assert.match(SCRIPT.slice(tk, SCRIPT.indexOf('\n}\n', tk)), /PJ_AUTO_OPENED_ONCE = true; WANT_PROJECT_DONE = true;/,
+    'opening Settings, Agents, Tasks or New Agent before the first read lands lets the auto-open or a deep link replace it (#6910)');
+  // At read time too, for a view that does not go through the takeover (the New project form), consolidated only.
   const want = SCRIPT.indexOf('if (WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE');
-  assert.match(SCRIPT.slice(want, want + 200), /!displayColumnOverlayOpen\(\)/,
-    'a ?project= deep link can replace a view the person opened before the read landed (#6910)');
-  // Waiting, not done: neither flag may be set before the column check passes, or a later read could not open it.
-  assert.match(SCRIPT.slice(at, at + 260), /\{\n\s+PJ_AUTO_OPENED_ONCE = true;/, 'the auto-open flag is set outside its guarded branch');
+  const before = SCRIPT.slice(want - 400, want);
+  assert.match(before, /if \(document\.body\.classList\.contains\('consolidated'\) && displayColumnOverlayOpen\(\)\) \{ PJ_AUTO_OPENED_ONCE = true; WANT_PROJECT_DONE = true; \}\n\s+$/,
+    'a view open in the column when the read lands is not marked done before the two opens run (#6910)');
 });
+
 
 test('the agents and projects rail titles sit at the same height', () => {
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated #pj-list-view \{ grid-column: 1; padding-top: 0;/,

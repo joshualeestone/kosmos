@@ -10,31 +10,38 @@ reads land after the person has opened something into the display column, PJ_CUR
 auto-open fires and replaces it. Only a slow runner gets that order.
 
 ## Change
-- web/index.html: one helper, displayColumnOverlayOpen(), answers "does a view the person opened hold the display
-  column?" (Settings, New Agent, Tasks in the column; the Agents view; the Projects page). paintPjNone uses it in place
-  of its five inline checks, and loadProjects' two opens (the ?project= deep link and the #867 arrival auto-open)
-  both wait while it is true. Neither is marked done then, so a later read (the 5 s poll) opens it once the column is
-  free: a person who opens and closes Settings before the read lands still gets a project, not an empty centre.
+- web/index.html:
+  - one helper, displayColumnOverlayOpen(), answers "does a view the person opened hold the display column?"
+    (Settings, New Agent, Tasks in the column; the Agents view; the Projects page; the New project form).
+    paintPjNone uses it in place of its five inline checks.
+  - takeOverDisplayColumn() marks both of loadProjects' opens done (PJ_AUTO_OPENED_ONCE, WANT_PROJECT_DONE):
+    the person has chosen the column.
+  - loadProjects, in the consolidated layout, marks both done too when such a view (the New project form, which
+    does not take over the column, included) is open as the read lands.
 - docs/browser-checks/render-snav-head-4979.js, consolidated arm: every projects GET is held until Settings has been
-  clicked (released after 30 s regardless; try/abort per #6022). Three control lines: no read had landed at the
-  click; the late read had an active project to auto-open and no deep link; and no project opened over Settings.
-  The page makes three reads at load: holding only the first did not reproduce, because the other two landed first.
-- web.consolidated-867.test.js: both opens check the helper, and the auto-open flag stays inside its guard.
-  web.consolidated-774.test.js: the hint's line names the helper, the helper names all five views, and the
-  lifted paintPjNone lifts the helper with it.
+  clicked (released after 30 s regardless, cleared on release; try/abort per #6022). Three control lines: no read had
+  landed at the click; the late read had an active project to auto-open and no deep link; and no project opened over
+  Settings. The page makes three reads at load: holding only the first did not reproduce, because the other two
+  landed first.
+- Unit tests: web.consolidated-867 pins both marks; web.consolidated-774 pins the hint's line, the helper's six
+  views and lifts the helper with paintPjNone; web.projects-signed-out-718 and web.noise2-6533 give their lifted
+  loadProjects a non-consolidated document.body.
 
 ## Decisions
 - Fix the product, not the check: a person who opens Settings on a slow load had it taken away. Rejected: waiting in
   the check for the read before clicking (it would hide the bug).
-- Decide at read time, not by setting PJ_AUTO_OPENED_ONCE when a view takes the column (review round 1). That first
-  version switched the auto-open off for good, so opening and closing Settings early left the empty centre #867
-  exists to prevent.
-- The deep link waits the same way: the person's later click wins over the URL until the column is free.
-- Weakest premise: that opening the project after the person closes their view (on the next read) is wanted. It is
-  what #867 asks for on arrival; it could surprise someone who closed Settings expecting the board.
+- Mark the opens done, never defer them. #867's flag exists "so a person who deliberately presses Back to the list is
+  not immediately shoved back into a project on the next poll". Review round 1 proposed deferring until the column
+  is free, and round 2 found that does exactly that: open Settings, close it, and a poll later opens a project. So a
+  person who opens and closes Settings before the first read lands sees the list's own "Open or create a project to
+  get started.", which is #867's own exception.
+- The deep link is done the same way: the person's later click wins over the URL.
+- Weakest premise: that every takeOverDisplayColumn caller is a person's choice. Checked each caller (the menu and
+  rail Settings, a login notice, Agents from the nav, detail-back and create-back, tasks, New Agent, the Projects
+  page, and tcGoToTeam, which runs only after a create the person started).
 
 ## Validation (this Mac, headless, queued-heavy.sh)
-- Arm A, the check on origin/main's index.html: rc 2. "the late read did not open a project over Settings" is
+- Arm A, the check on origin/main's index.html (re-run on the final code, 11:58): rc 2. "the late read did not open a project over Settings" is
   FAIL with cur "gettingstarted" and pj-one-view shown, the CI signature.
 - Arm B, the check on the fix: rc 0, 0 FAIL, no SKIPPED. All three controls and "no page errors" pass in all 4 arms
   (2 engines x 2 widths).

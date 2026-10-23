@@ -141,6 +141,7 @@ async function projectsNoteRun(paintFirst, answer, offline = false) {
     getElementById: (id) => (id === 'uoffline-slot' ? slot : (els[id] = els[id] || { hidden: true, textContent: '' })),
     querySelector: () => ({ getAttribute: () => '0.7.57' }),
     documentElement: { getAttribute: () => null },
+    body: { classList: { contains: () => false } },   // #6910: loadProjects asks whether the layout is consolidated
   };
   // eslint-disable-next-line no-new-func
   const paintOfflineNote = new Function('document', 'esc', 'location', 'ENGINE_RESTARTING',

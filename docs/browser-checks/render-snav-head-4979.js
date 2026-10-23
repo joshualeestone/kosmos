@@ -300,8 +300,10 @@ function chk(ok, label, extra) {
              after the click, and the first one's one-time auto-open (#867) took the display column back, hiding
              Settings. Holding them makes that order certain on every run, instead of on a slow one only. The page
              makes several reads at load, so every read waits, not only the first. Released after 30 s regardless. */
-          let releaseProjects;
-          const projectsHeld = new Promise((r) => { releaseProjects = r; setTimeout(r, 30000); });
+          let releaseProjects, heldTimer;
+          const projectsHeld = new Promise((r) => { heldTimer = setTimeout(r, 30000); releaseProjects = () => { clearTimeout(heldTimer); r(); }; });
+          // The read is fetch('/api/projects'), no query. A read this pattern missed would land before the click, and
+          // the first control line below would then fail, so the arm cannot pass on an untested order.
           await page.route(/\/api\/projects$/, async (r) => {
             try {
               if (r.request().method() === 'GET') await projectsHeld;

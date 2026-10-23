@@ -35,9 +35,9 @@ test('an empty consolidated centre says what to press (the projects column is no
   // OR the New Agent create panel is open (each takes over the display column), so #pj-none does
   // not render over them. It still keys on the record (view === 'list'), never the DOM.
   assert.match(PAGE, /const show = document\.body\.classList\.contains\('consolidated'\) && view === 'list' && !displayColumnOverlayOpen\(\);/, 'the hint must stay off while any overlay, including the #4345 Agents view, holds the column');
-  // #6910: the overlay test lives in one helper, shared with loadProjects' opens; it must still name all five.
+  // #6910: the overlay test lives in one helper, shared with loadProjects; it must still name the five overlays (and the New project form).
   const ov = PAGE.slice(PAGE.indexOf('function displayColumnOverlayOpen() {'), PAGE.indexOf('function paintPjNone(which) {'));
-  for (const id of ["inColumn('panel-settings')", "inColumn('panel-create')", "inColumn('panel-tasks')", "shown('panel-cons-agents')", "shown('panel-cons-projects')"]) {
+  for (const id of ["inColumn('panel-settings')", "inColumn('panel-create')", "inColumn('panel-tasks')", "shown('panel-cons-agents')", "shown('panel-cons-projects')", "shown('pj-add-view')"]) {
     assert.ok(ov.includes(id), `displayColumnOverlayOpen no longer covers ${id}`);
   }
   assert.match(PAGE, /PJ_READ_FAILED = true;\n    paintPjNone\(\);/, 'the failure branch repaints the sentence');
