@@ -2672,20 +2672,25 @@ class KosmosLauncher
     // account's board, it proved but the sign-in could not be made (#6464), board.token is there but cannot be read
     // (#6464), or the window checked again before reusing its sign-in and the check failed (CheckBoardBeforeReuse).
     // "Could not confirm it was reaching" read as only the first of those; "could not sign you in" is true of all.
+    // #6985: these three say "open Kosmos from the Start menu", as the zip's READ ME does since #6984, and never
+    // "Kosmos.exe", which after the install reads as the extracted folder the READ ME says can be deleted. Start menu
+    // alone, with no "Kosmos.exe" fallback: only the window and its browser fallback show them, and only Main starts
+    // the window (BoardWindowStartInfo), after the installer duties have pointed the Start menu shortcut at the copy that
+    // runs (RefreshWindowsRegistration), so the shortcut is there whenever one of these is on screen.
     internal const string NotConfirmedPage =
         "<!doctype html><html><head><meta charset=\"utf-8\"><title>Kosmos</title><style>"
         + "html,body{height:100%;margin:0}body{display:flex;align-items:center;justify-content:center;text-align:center;"
         + "font:15px 'Segoe UI',sans-serif;color:#555;background:#fafafa;padding:0 2em}"
         + "@media (prefers-color-scheme:dark){body{color:#bbb;background:#1e1e1e}}"
         + "</style></head><body>Kosmos could not sign you in to your own Kosmos, so this window is not showing it.<br>"
-        + "If Kosmos is starting or restarting, open Kosmos.exe again in a minute.</body></html>";
+        + "If Kosmos is starting or restarting, open Kosmos from the Start menu again in a minute.</body></html>";
 
     const string BrowserUnknownMessage =
-        "Kosmos took too long to confirm it was reaching your own Kosmos. If no Kosmos page opened in your browser, open Kosmos.exe again in a minute.";
+        "Kosmos took too long to confirm it was reaching your own Kosmos. If no Kosmos page opened in your browser, open Kosmos from the Start menu again in a minute.";
 
     // #6882: the browser fallback's twin of NotConfirmedPage, for the same three opener outcomes.
     const string BrowserNotConfirmedMessage =
-        "Kosmos could not sign you in to your own Kosmos, so it did not open your browser. If Kosmos is starting or restarting, open Kosmos.exe again in a minute.";
+        "Kosmos could not sign you in to your own Kosmos, so it did not open your browser. If Kosmos is starting or restarting, open Kosmos from the Start menu again in a minute.";
 
 
     // ---- #6882: the window proves the board again before it reuses its sign-in ----------------------------
@@ -2701,14 +2706,14 @@ class KosmosLauncher
     //     a quick check in OnNavigationStarting, then MayNavigateSignedIn on a full check when the quick one could not
     //     tell. WebView2 has already sent the request by then (measured), so this decides what is SHOWN, not what is
     //     sent (see OnNavigationStarting);
-    //   - "open Kosmos.exe again", or the page's own sign-in, when the opener names no signed-in address, which
+    //   - "open Kosmos from the Start menu again", or the page's own sign-in, when the opener names no signed-in address, which
     //     leaves the open page talking to whatever answers: MayKeepPageOpen;
     //   - the page's own polling, which the window cannot stop per request: WatchShowsNotConfirmed, on the badge's
     //     10 s timer. Not before each request, after: the most a squatter gets is a few ticks of polls (the session
     //     cookie in them is already dead: a board restart ends every session, #6449, and a squatter can only take
     //     the port once the board has let go of it).
-    // Whenever the answer is no, the window shows NotConfirmedPage and loads nothing more until Kosmos.exe is opened
-    // again, or, after a check of its own, until RecoverBoard signs it back in once the board proves again.
+    // Whenever the answer is no, the window shows NotConfirmedPage and loads nothing more until Kosmos is opened
+    // again (from the Start menu), or, after a check of its own, until RecoverBoard signs it back in once the board proves again.
     internal enum ReuseCheck { Proved, NotEnforcing, NoListener, NoAnswer, NotProven, TokenUnreadable }
 
     // The quick check, on the window's own thread (OnNavigationStarting has no deferral, so the navigation waits on
@@ -2827,9 +2832,9 @@ class KosmosLauncher
     //   - When the page itself asked for the sign-in (#6512, nobody at the keyboard asked for anything), only a
     //     listener that answered without proving ends it, as the watch: a board restarting or busy, or board.token
     //     held for a moment, must not throw a working window off its board, and the paced sign-in tries again.
-    //   - When the person opened Kosmos.exe again, it stays only for this account's board or for nothing listening
+    //   - When the person opened Kosmos again, it stays only for this account's board or for nothing listening
     //     (a board restarting has let go of the port); no answer in time, or a token that cannot be read, shows why,
-    //     and opening Kosmos.exe again in a minute starts over.
+    //     and opening Kosmos from the Start menu again in a minute starts over.
     internal static bool MayKeepPageOpen(ReuseCheck check, bool pageAsked)
     {
         if (pageAsked) return check != ReuseCheck.NotProven;
