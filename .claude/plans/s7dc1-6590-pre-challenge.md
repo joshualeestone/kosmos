@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: s7dc1-6590
-diff_hash: 5ac1bbb189da0fe1f6e2123ee184f23d827f0c19ba469e23588a14fdcde02738
+diff_hash: 00f4f1a52327436d70d61fd094bf35a1cf1b2c21201f8cbac6080209078423e5
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-23T15:26:22Z
@@ -15,8 +15,9 @@ converged: false
 **Iterations:** 3 (c1a review 1, c1b review 1, a delta review of both fixes), plus a design review of the page.
 **Converged:** No, only because the delta round's NITs (no BLOCKER, no WARNING) were fixed and not re-reviewed; the two
 it did not take are decided in s7dc1-6590.md.
-**Validation:** the Mortals full suite on head 6a2ab4aa65: **23537 tests, 0 failed** (hash 5ac1bbb189da, the diff this
-proof hashes). An earlier run at 06ee38b5a3 failed only two source-pattern tests in web.allow-card.test.js, fixed in
+**Validation:** the Mortals full suite on head c049f741bb (rebased onto main after #6986's REMOTE_NOT_ALLOWED entries
+met these; a union): **23538 tests, 0 failed** (hash 00f4f1a52327, the diff this proof hashes). Before the rebase,
+6a2ab4aa65 passed 23537/0. An earlier run at 06ee38b5a3 failed only two source-pattern tests in web.allow-card.test.js, fixed in
 6a2ab4aa65.
 **Inert:** nothing here changes behaviour until the board-v2 marker exists (a later part writes it); every engine call
 and route pins its no-marker path.
