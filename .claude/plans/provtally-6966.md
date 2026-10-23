@@ -30,9 +30,13 @@ the point.
 - Weakest premise: people know the marks without names. Hover title and screen-reader words name them; if not
   enough, names instead of marks on wide cards.
 
-## Validation still owed
+## Validation (23:10)
 
-- The browser check and design-shots (light/dark, desktop/phone) wait for the 0.7.64 cut to clear the machine.
+- render-grid-card-width.js through the harness (KOSMOS_BC_CI_ALLOWLIST): passes (2 lines, clipped, card width
+  matches). Controls: GW_CONTROL=1 (#1310's before) turns width + clipping red; GW_CONTROL=6967 (one-line title)
+  turns the two-line arm red.
+- design-shots `projects-grid-6966`, light/dark, desktop/iphone15: 4 shots, 0 overflow, 0 errors. The screen waits for a
+  visible `.pjtally` in the grid, so it fails if the tally does not render.
 
 ## Done means
 
