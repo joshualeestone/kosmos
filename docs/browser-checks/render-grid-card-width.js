@@ -114,7 +114,16 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
       pjCard: pj ? Math.round(pj.getBoundingClientRect().width) : null,
       /* #6967: the title clamps at two lines, so it is clipped DOWNWARD; across is still checked. */
       clipped: nameB ? (nameB.scrollWidth > nameB.clientWidth + 1 || nameB.scrollHeight > nameB.clientHeight + 1) : null,
-      lines: nameB ? Math.round(nameB.getBoundingClientRect().height / parseFloat(getComputedStyle(nameB).lineHeight)) : null,
+      /* Lines from the line box, not computed line-height (which can be 'normal'): a one-word probe in the same
+         element style gives one line's height. */
+      lines: nameB ? (() => {
+        const probe = nameB.cloneNode(false);
+        probe.textContent = 'x';
+        nameB.parentNode.appendChild(probe);
+        const one = probe.getBoundingClientRect().height;
+        probe.remove();
+        return one > 0 ? Math.round(nameB.getBoundingClientRect().height / one) : null;
+      })() : null,
       overflows: (pj && nameB)
         ? (Math.round(nameB.getBoundingClientRect().right) > Math.round(pj.getBoundingClientRect().right) + 1)
         : null,

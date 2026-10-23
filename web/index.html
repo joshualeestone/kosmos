@@ -4230,11 +4230,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pj-list.asgrid .pj-row .pjpill.attn { border-color: rgba(179,38,30,.55); }
 .pj-list.asgrid .pj-row .pc-t { display: none; }
 /* "The icons... underneath that, the number" -- stacked, not the list
-   row's single inline line, so .pjfaces becomes a column here: the
-   avatar row, then the count as its own caption line beneath it. */
+   row's single inline line, so .pjfaces wraps here: the avatar row takes a
+   whole line, then the count (and #6966's provider tally beside it) is the
+   caption line beneath it. Do not turn it back into a column: the tally would
+   drop below the count. */
 .pj-list.asgrid .pj-row .pjfaces { order: 3; flex-flow: row wrap; justify-content: center; gap: 6px 0; margin-top: 14px; }
 /* #6966: the faces take a whole line, so the count (and the provider tally beside it) is the caption line beneath. */
 .pj-list.asgrid .pj-row .pjfaces > [aria-hidden] { justify-content: center; flex-basis: 100%; }
+.pj-list.asgrid .pj-row .pjfaces > [aria-hidden]:empty { display: none; }   /* no faces: no empty line above the count */
 .pj-list.asgrid .pj-row .pjcount { margin-left: 0; }
 .pj-list.asgrid .pj-row .pj-who, .pj-list.asgrid .pj-row .pj-warn { order: 4; }
 /* The empty state and the read-failure card span the grid: the failure
