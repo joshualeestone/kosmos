@@ -1,21 +1,25 @@
-# shotsdesk-6960: the scrolled summary shot runs at desktop only until #6960 is fixed
+# shotsdesk-6960: the scrolled summary shot scrolls the page, as a person does, so it works at phone sizes
 
-Card: kosmos#6960 (the newest post in a held room sits under the composer's held strip on a phone). This branch does
-NOT fix #6960; it stops the design-shots screen that found it from failing every phone-size run.
+Card: kosmos#6960, closed by Mona Lisa 10-22 with measurements: there is no layout defect. A person CAN scroll the newest
+post in a held room clear of the composer, because scrolling over the room at its end carries on into the page. The
+failure was this design-shots screen's own scroll.
 
 ## Decision
-`project-room-held-summary-6925` (docs/browser-checks/mobile-shots.js, added by #6925 item 3, PR #6959) gets
-`desktopOnly: true`, the flag the tool already has (`sizeSkipWhy`: phone sizes and tablets under 960px skip it, and
-the report lists it under Skipped). A comment beside it says why, with the measured failure, and to drop the flag
-when #6960 is done.
+`project-room-held-summary-6925` (docs/browser-checks/mobile-shots.js, from #6925 item 3, PR #6959) scrolls the summary
+post into view and then scrolls the PAGE to the end of the room column (`.pjmid`):
+`window.scrollTo(0, scrollY + pjmid.bottom - innerHeight)`, which is Mona Lisa's measured recipe (at 393x852 the newest
+post then ends at 585, the composer starts at 606). At desktop the page does not scroll, so it is a no-op there. The
+earlier scroll-on code (lifting the room's own scroller past whatever covered the label) is removed.
 
-Rejected: deleting the screen (it is the check that will prove #6960 fixed); weakening its label check (the check is
-right, the layout is wrong).
+An earlier version of this branch made the screen desktop-only; that was the wrong fix, since the screen was wrong,
+not the layout.
+
+Rejected: desktop-only (hides a working phone path); keeping the old scroll-on as well (two scroll paths, one of
+which never worked).
 
 ## Proof
-A shot run of that screen at desktop and iPhone 15 through the machine queue: the desktop shots are taken and the
-phone ones are listed as skipped (desktop-only screen), with no ERROR line. The tool's own tests pass.
+A shot run of that screen at desktop and iPhone 15 through the machine queue: all shots taken, the label check
+(`summaryLabelAt`, before and after the shot) passing at both sizes, and no ERROR line. The tool's own tests pass.
 
 ## Weakest premise
-That nothing else runs this screen at a phone size by another route; `sizeSkipWhy` is the tool's one gate, and the
-design-shots skill names its screens.
+That the page scroll is what a person does on every phone engine; measured in chromium only (as the first failure was).

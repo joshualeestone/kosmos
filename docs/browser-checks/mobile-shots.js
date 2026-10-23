@@ -2045,31 +2045,21 @@ const SCREENS = [
      (one read), as the Reopen button's is on that screen (summaryLabelAt).
      MEASURED failing arm, 10-22 19:45: the first version only centred the post, and on an iPhone 15 the held strip in
      the composer covered the label; both phone shots failed "something is drawn over the label: SPAN#.pj-held-why".
-     So after centring, the room is scrolled on until the label clears whatever covers it (at desktop; at a phone it
-     does not, see #6960 below). */
-  /* desktopOnly (#6960): at phone sizes the newest post in a held room sits under the composer's held strip and cannot be
-     scrolled clear (measured 10-22 at iPhone 15, chromium, light and dark: "something is drawn over the label:
-     SPAN#.pj-held-why", before and after the scroll-on fix). That is a layout defect, filed as #6960, not this screen's.
-     Until it is fixed the screen skips the phone sizes and the tablets under 960px. It still runs at tablets of 960px
-     and wider (tab8land, ipadminiland, ipad11land, ipad13), which nobody has measured; a short landscape tablet may hit
-     the same overlap. Drop desktopOnly when #6960 is done. */
-  { name: 'project-room-held-summary-6925', owner: 'Ice Cream Kitty', desktopOnly: true, go: async (page, data) => {
+     So after centring, the PAGE is scrolled to the end of the room column (.pjmid), the way a person scrolls: on a phone,
+     scrolling over the room at its end carries on into the page, which brings the newest post clear of the sticky
+     composer. Measured by Mona Lisa on #6960 at 393x852: the newest post then ends at 585 with the composer at 606. The
+     first fix scrolled the room's own scroller (or used scrollIntoView, which stops under the composer), so the label
+     stayed covered and #6960 was filed as a layout defect; it was this screen's scroll, not the page. */
+  { name: 'project-room-held-summary-6925', owner: 'Ice Cream Kitty', go: async (page, data) => {
     const held = SCREENS.find((s) => s.name === 'project-room-held-5800');
     await held.go(page, data);
     await page.evaluate(() => {
       const e = document.querySelector('#pj-room .msg-closing');
       if (!e) return;
       e.closest('[data-mid]').scrollIntoView({ block: 'center' });
-      // Something drawn over the label (the sticky composer on a phone): scroll the room on until it is clear of it.
-      const r = e.getBoundingClientRect();
-      const over = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      if (!over || over === e || e.contains(over)) return;
-      const cover = over.closest('#pj-held, .pj-composer, form') || over;
-      const lift = r.bottom - cover.getBoundingClientRect().top + 16;
-      if (lift <= 0) return;
-      let box = e.parentElement;
-      while (box && box !== document.body && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
-      if (box && box !== document.body) box.scrollTop += lift; else window.scrollBy(0, lift);
+      // Then the page, to the room column's end (a no-op at desktop, where the page does not scroll).
+      const mid = e.closest('.pjmid');
+      if (mid) window.scrollTo(0, window.scrollY + mid.getBoundingClientRect().bottom - window.innerHeight);
     });
     let miss = await page.evaluate(summaryLabelAt);
     for (const until = Date.now() + 3000; miss && Date.now() < until; miss = await page.evaluate(summaryLabelAt)) await page.waitForTimeout(200);
