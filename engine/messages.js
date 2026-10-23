@@ -3694,9 +3694,8 @@ const CLAIM_ROOM_ASK = new RegExp(
   + '|\\b(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+(?:please|free|available|around to|able|willing|up for|have time|has time)\\b'
   // "someone ELSE" plainly excludes whoever was named, so "can someone else take it?" asks the room even right after the
   // names ("Thanks @bob! Can someone else take the login bug?"), wherever it sits (#6957 review 4)
-  // ...but not a question about other people: "could someone else have changed this?", "can anyone else see the logs?",
-  // "can someone else's PR have broken this?" ask bob (review 6)
-  + '|\\b(?:can|could)\\s+(?:someone|somebody|anyone|anybody)\\s+else\\b(?![\\x27\u2019]s|\\s+(?:have|has|had|be|been|see|seen|know|knows|think|use|uses|access)\\b)'   // not will/would: "@bob will anyone else need access?" asks bob (review 5)
+  // ...and only before a hand-off verb, so "could someone else have changed this?" or "can anyone else reproduce this?" ask bob
+  + '|\\b(?:can|could)\\s+(?:someone|somebody|anyone|anybody)\\s+else\\s+(?:take|grab|pick|handle|own|cover|do|look|jump|help|step)\\b'   // only before a hand-off verb (review 7)
   // "who can write the notes?", "Who's free to take this?" (straight or curly apostrophe), "who has time for this?"
   + '|' + CLAIM_LEAD + "who(?:\\s+|'s\\s+|\u2019s\\s+)(?:can|could|wants|will|is free|free|is available|available|has time|is around|around)\\b[^.!?]*\\?"
   + '|\\bwhoever\\s+(?:can|is free|has time|wants|picks|takes|gets)\\b'
@@ -3850,14 +3849,15 @@ function react({ project, of, emoji, from, operator, members, claim }) {
        bob), unless the replier is that author or the reply asks the room.
      A hand-off, by an agent or by the person, is a post of its own ("@ann please take this"), which asks ann, and that is
      the post ann claims. Only those still in the room count, so a post asking only someone who has left is open. */
-  /* A leading run of @-names, after an optional greeting ("@bob, who has time...?", "@bob - who can...?", "Hey @bob, who
-     can...?"), addresses them: the comma, dash or "!" after the names is not a clause start (reviews 2 and 3). The run is
-     replaced by a word, not removed, so the text after it does not read as the start of the text either. "Need someone
+  /* A run of @-names at the start of any clause, after an optional greeting ("@bob, who has time...?", "Morning @bob, who
+     can...?", "The deploy failed. @bob - who can look?"), addresses them: the comma, colon, dash or "!" after the names is
+     not a clause start (reviews 2, 3 and 7). Each run is replaced by a word, not removed, so the text after it does not
+     read as the start of a clause either. "Need someone
      to..." is no room ask at all: said to bob, or in a reply to his post, it is bob's (review 2), and a post naming
      nobody is open anyway. */
   const asksRoom = (text, names) => {
     if (typeof text !== 'string') return false;
-    const t = text.replace(/^\s*(?:(?:hey|hi|hello|thanks|thank you|ok|okay|so)[,!]?\s+)?(?:@[\w-]+(?:\.[\w-]+)*[\s,:!\u2013\u2014-]*)+/i, 'NAMED ');   // a name never ends in a dot
+    const t = text.replace(/(^|[.!?;:\n]\s*)(?:(?:hey|hi there|hi|hello|thanks so much|thanks|thank you|ok|okay|so|now|and|but|also|then|great|good morning|morning|yo)[,!]?\s+)?(?:@[\w-]+(?:\.[\w-]+)*[\s,:!\u2013\u2014-]*)+/gi, '$1NAMED ');
     return CLAIM_ROOM_ASK.test(t) || (!names && CLAIM_GROUP_ASK.test(t));
   };
   const askedSet = new Set();
@@ -3886,11 +3886,10 @@ function react({ project, of, emoji, from, operator, members, claim }) {
      Order matters (review 2): react() itself removes an old unmarked pill just before a claim, and a claim later ended
      for n by a newer one is not n letting go. */
   const gaveBack = (n) => {
-    if (claimants.has(n)) return false;   // belt-and-braces: a live claimant is already the holder, refused above
     let claimed = false; let released = false;
     for (const m of rows) {
       if (!m || m.kind !== 'reaction' || String(m.of) !== postId || m.from !== n || !isClaimEmoji(m.emoji)) continue;
-      if (m.op === 'add') { if (m.claim === true) { claimed = true; released = false; } continue; }
+      if (m.op === 'add') { if (m.claim === true) claimed = true; continue; }
       released = claimed && !m.takenBy;
     }
     return released;

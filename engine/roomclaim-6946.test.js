@@ -573,7 +573,9 @@ test('#6957 review 2: gave back replays bob\'s rows in order; an old pill remove
 test('#6957 review 3: a post a few seconds ahead of the clock is still held (a small clock adjustment), more than a minute ahead is open', () => {
   fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
   append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix X', outcomes: {}, at: new Date(Date.now() + 30000).toISOString() });
-  assert.deepEqual(claim('cy').askedOf, ['bob'], 'a post 30 s ahead of the clock lost its hold');
+  const held = claim('cy');
+  assert.deepEqual(held.askedOf, ['bob'], 'a post 30 s ahead of the clock lost its hold');
+  assert.match(held.because, /for 30 more minutes/, 'a post ahead of the clock was held for longer than the window');
   append({ kind: 'post', id: 'm2', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix Y', outcomes: {}, at: new Date(Date.now() + 120000).toISOString() });
   assert.equal(claim('cy', 'm2').op, 'add');
 });
@@ -631,4 +633,19 @@ test('#6957 review 6: only a marked claim given back counts; an unmarked old han
   append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'add', at: at() });
   append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'remove', at: at() });
   assert.deepEqual(claim('cy').askedOf, ['bob'], 'bob taking off an unmarked hand counted as giving the post back');
+});
+
+test('#6957 review 7: @bob, who...? after a context sentence or a greeting is bob\'s; can anyone else reproduce...? is a question to bob', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  let n = 0;
+  const ask = (text) => { n += 1; append({ kind: 'post', id: 'x' + n, project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text, outcomes: {}, at: new Date().toISOString() }); return 'x' + n; };
+  for (const text of ['The deploy failed again. @bob, who can look at it?', 'Login bug is back. @bob - who can take it?', 'Morning @bob, who can approve my PR?',
+    'Great @bob, who can review this next?', 'Thanks so much @bob, who can review this next?', 'Hi there @bob, who has time to pair?',
+    '@bob can anyone else reproduce this, or is it just your machine? If just yours, please fix it', '@bob can anyone else log in to staging?']) {
+    assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
+  }
+  // CONTROLS: a hand-off verb after "else" still asks the room.
+  for (const text of ['@bob is out, could someone else grab the login bug?', '@bob is busy. Can anyone else pick this up?', 'Can someone else handle this? @bob is out']) {
+    assert.equal(claim('cy', ask(text)).op, 'add', text);
+  }
 });

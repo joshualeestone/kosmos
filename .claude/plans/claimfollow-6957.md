@@ -66,12 +66,21 @@ test (a name cannot end in a dot; only a marked claim given back counts), and tw
 Noted, bounded by the window: "@bob, quick question: who can approve deploys?" opens the post (a "who" question after
 a clause start).
 
+## Review 7 (blind, 0 BLOCKER, 2 WARNING): fixed. The @-name strip worked only at the start of the post, so "The deploy
+failed again. @bob, who can look at it?" and "Morning @bob, who...?" opened bob's post; it now runs at every clause
+start with a wider greeting list. "Can/could someone else" kept a growing skip list of question verbs, mostly untested;
+it is inverted to a short allowlist of hand-off verbs (take, grab, pick, handle, own, cover, do, look, jump, help, step),
+so "can anyone else reproduce this?" is bob's. Two unreachable lines in the release replay are removed.
+
 ## Proof
 engine/roomclaim-6946.test.js #6957 (each with a control that can return the dangerous answer) and
 server.projects.test.js #6946 (the person's 🙋 after a release and beside a newer claim, through the real route).
-Mutants, each red: the release rule and its order, the future-dated rule,
-the "who's" form, "around to", the clause-led bare ask, the new clause starts, the @-name strip, "need someone to" on
-replies, and the person's-🙋 filter.
+Mutants checked red (each confirmed to change the file): the release rule, its order, its every-member half and its
+claim mark; the future-dated rule, its one-minute threshold and the window clamp; the "who's" form and "has time";
+"around to"; the clause-led bare ask; the new line, bracket, em dash and comma clause starts; the @-name strip (its
+clause-start reach, the greeting, the dash, the "!", the word replacement, the no-trailing-dot name); "can/could
+someone else" and its hand-off-verb allowlist; "need someone to" on replies; the reserved-name sentence; and the
+person's-🙋 filter. NOT individually pinned: the en dash, each greeting word, each "who" verb, each hand-off verb.
 
 ## Weakest premise
 That a give-back means the asked member is done with it. A member who releases to hand it to a specific colleague
