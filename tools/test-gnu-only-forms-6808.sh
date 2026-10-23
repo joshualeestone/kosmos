@@ -24,10 +24,11 @@
 # a form inside a quoted string (B counts a quote as a command start, for `bash -c "sed -i ..."`), e.g. an echo of usage.
 #
 # Bash 4+ syntax, the other half of the same gap: the Linux shards run every script under bash 5, a Mac runs it under
-# bash 3.2. No counterpart, always flagged: mapfile / readarray, declare|local|typeset with -A or -n in its flags,
-# ${x,,} ${x^^} (single forms, ${!x,,} too), ${x@Q} and the other @ transforms, coproc, shopt naming a bash 4+ option,
-# $EPOCHSECONDS/EPOCHREALTIME: bash 3.2's `bash -n` accepts all of these, so they fail only when the line runs. Also
-# |& , &>> , ;;& and ;& in a case: those 3.2's `bash -n` does reject, but only where something runs it on a Mac.
+# bash 3.2. No counterpart, always flagged: mapfile / readarray, declare|local|typeset with -A -g -n -l or -u in its
+# flags, ${x,,} ${x^^} (single forms, ${!x,,} too), ${x@Q} and the other @ transforms, ${x:off:-N}, read -t with a
+# fraction, coproc, shopt naming a bash 4+ option, $EPOCHSECONDS/EPOCHREALTIME: bash 3.2's `bash -n` accepts all of
+# these, so they fail only when the line runs. Also |& , &>> , ;;& and ;& in a case: those 3.2's `bash -n` does
+# reject, but only where something runs it on a Mac.
 # Also a floor: wait -n, read -N / -i, ${a[-1]}, {1..9..2}, $BASHPID and printf %(fmt)T are not on the list, and a
 # trailing comment that names a form (`... # no mapfile here`) is flagged like the quoted-string case above.
 #
@@ -59,15 +60,17 @@ forms() {
     BK="(^|[;&|(\`{\"'[:space:]])"   # B without the slash: `local` in /usr/local is a path, not a builtin
     printf '%s\t%s\t%s\n' \
         bash4-mapfile "${B}(mapfile|readarray)([[:space:]]|\$)" "" \
-        bash4-declare "${BK}(declare|local|typeset)${O}[[:space:]]+-[a-zA-Z]*[An][a-zA-Z]*([[:space:]]|\$)" "" \
+        bash4-declare "${BK}(declare|local|typeset)${O}[[:space:]]+-[a-zA-Z]*[Agnlu][a-zA-Z]*([[:space:]]|\$)" "" \
         bash4-case-mod '\$\{!?'"$V"'(,|\^)' "" \
         bash4-transform '\$\{'"$V"'@[QEPAaKkUuL]\}' "" \
         bash4-pipe-amp '(^|[^|])\|&([^#a-zA-Z]|$|[a-zA-Z]+([^a-zA-Z;]|$))' "" \
         bash4-append-both '&>>' "" \
         bash4-case-fall ';;&|(^|[^;]);&([[:space:]]|$)' "" \
         bash4-coproc "${B}coproc([[:space:]]|\$)" "" \
-        bash4-shopt "${B}shopt[[:space:]].*(globstar|lastpipe|inherit_errexit|globasciiranges|direxpand|checkjobs|autocd|dirspell|localvar_inherit|localvar_unset|assoc_expand_once|compat3[0-9]|compat4[0-9])([[:space:]]|\$)" "" \
-        bash4-epoch '\$\{?EPOCH(SECONDS|REALTIME)' ""
+        bash4-shopt "${B}shopt[[:space:]].*(globstar|lastpipe|inherit_errexit|globasciiranges|direxpand|checkjobs|autocd|dirspell|localvar_inherit|localvar_unset|assoc_expand_once|compat32|compat4[0-9])([[:space:]]|\$)" "" \
+        bash4-epoch '\$\{?EPOCH(SECONDS|REALTIME)' "" \
+        bash4-neg-length '\$\{'"$V"':([[:space:]]*[0-9$(][^}:]*|[[:space:]]+-[^}:]*):[[:space:]]*-' "" \
+        bash4-read-t "${B}read${O}[[:space:]]+-[a-zA-Z]*t[[:space:]]*[0-9]*\\.[0-9]" ""
 }
 
 # scan_file <path> <label>: prints "<label>:<line>: <form>: <text>" for each unexcused hit.
@@ -189,7 +192,16 @@ for case_ in \
     "bash4-shopt|shopt -s globstar" \
     "bash4-shopt|shopt -s nullglob lastpipe" \
     "bash4-epoch|now=\$EPOCHSECONDS" \
-    "bash4-epoch|t=\${EPOCHREALTIME}"; do
+    "bash4-epoch|t=\${EPOCHREALTIME}" \
+    "bash4-declare|declare -g z=1" \
+    "bash4-declare|declare -l v" \
+    "bash4-declare|local -u v=\$1" \
+    "bash4-shopt|shopt -s compat32" \
+    "bash4-neg-length|y=\${x:0:-1}" \
+    "bash4-neg-length|y=\${x: -3:-1}" \
+    "bash4-neg-length|y=\${x:\$i:-2}" \
+    "bash4-read-t|read -t 0.5 r" \
+    "bash4-read-t|read -r -t .2 r"; do
     form=${case_%%|*}; line=${case_#*|}
     out=$(plant "$line")
     case "$out" in *": $form: "*) ok "flags $form: $line" ;; *) bad "did not flag $form in: $line (got '$out')" ;; esac
@@ -231,6 +243,12 @@ for line in \
     "echo 'a&lt;&gt;b'" \
     "s=s.replace(/&#39;|&apos;|&rsquo;/g, x)" \
     "shopt -s extglob nullglob" \
+    "shopt -s compat31" \
+    "declare -rx K=1" \
+    "y=\${x: -1}" \
+    "y=\${x:1:2}" \
+    "y=\${x:-a:-b}" \
+    "read -t 5 r" \
     "mapfile -t x < f   # bash4-ok: this script is run by the Linux service only"; do
     out=$(plant "$line")
     [ -z "$out" ] && ok "allows: $line" || bad "flagged an allowed form: $line -> $out"

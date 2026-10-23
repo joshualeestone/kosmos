@@ -8,12 +8,10 @@ GNU-only half; this is the bash 4+ half, which was named on the card and never b
 stays green on the current tree and on bash 3.2 lookalikes, and runs under the Mac's bash 3.2.
 
 ## Change
-- tools/test-gnu-only-forms-6808.sh: ten bash4-* forms in forms(), no counterpart (always flagged): mapfile/readarray,
-  declare|local|typeset -A/-n, ${x,,} ${x^^} (single forms too, names, positionals, @ and *, subscripts), ${x@Q} and
-  the other @ transforms, |&, &>>, ;;& and ;&, coproc, shopt -s globstar|lastpipe, $EPOCHSECONDS/EPOCHREALTIME.
+- tools/test-gnu-only-forms-6808.sh: bash4-* forms in forms(), no counterpart (always flagged); the header lists them and
+  which ones bash 3.2 `bash -n` already rejects (measured on 3.2.57).
 - `# bash4-ok: <why>` excuses a bash4 hit; `# gnu-ok:` excuses only GNU hits and the reverse (two controls).
-- 19 planted flags, 15 planted lookalikes allowed (${x:-a,b}, ${#a[@]}, ${!a[@]}, ${x//a/b}, ||, >>, ;;, nullglob,
-  an HTML entity after a pipe, $SECONDS, mapfile=1, ...).
+- Planted flags for every form and bash 3.2 lookalikes that must stay green (the less obvious ones, such as ${x: -1}, compat31 and declare -rx, run on 3.2.57 first).
 
 ## Decided
 - Same script, not a second one: the same file list, comment skip and per-line excuse apply, and test:shell needs no
@@ -26,5 +24,5 @@ That these are the common forms. It is a floor: wait -n, read -N/-i, ${a[-1]}, b
 printf %(fmt)T are named in the header as not covered. Bash 5 was not available locally; the Linux shards run it.
 
 ## Validation
-- /bin/bash 3.2.57: 86 ok, exit 0; scanned 123 product shell files, clean.
+- /bin/bash 3.2.57: the script exits 0 and the tree scan (every product shell file) is clean.
 - Control: mapfile appended to install/kosmos-report-hook.sh -> exit 1 naming that line; file restored.
