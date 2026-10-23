@@ -213,8 +213,15 @@ else
        && /usr/bin/curl -fsSL --connect-timeout 20 -m 60 -o "$_pin_dir/manifest.json" "$_pin_base/kosmos-$_pin_v-arm64.manifest.json$_pin_bust" \
        && /usr/bin/curl -fsSL --connect-timeout 20 -m 60 -o "$_pin_dir/manifest.sig" "$_pin_base/kosmos-$_pin_v-arm64.manifest.json.sig$_pin_bust" \
        && /usr/bin/curl -fsSL --connect-timeout 20 -m 300 -o "$_pin_dir/setup" "$SETUP_URL$_pin_bust"; then
+      # #6609: the release key list, from beside the manifest. Never required here: the helper decides. With no
+      # recovery key built in it does not read the list; with one, a list that is missing refuses (97), rechecked below.
+      if ! /usr/bin/curl -fsSL --connect-timeout 20 -m 60 -o "$_pin_dir/release-keys.json" "$_pin_base/release-keys.json$_pin_bust" 2>/dev/null \
+         || ! /usr/bin/curl -fsSL --connect-timeout 20 -m 60 -o "$_pin_dir/release-keys.json.sig" "$_pin_base/release-keys.json.sig$_pin_bust" 2>/dev/null; then
+        /bin/rm -f "$_pin_dir/release-keys.json" "$_pin_dir/release-keys.json.sig"
+      fi
       _pin_rc=0
-      _pin_out="$("$_pin_helper" "$_pin_dir/manifest.json" "$_pin_dir/manifest.sig" "$_pin_v" "$_pin_floor")" || _pin_rc=$?
+      _pin_out="$("$_pin_helper" "$_pin_dir/manifest.json" "$_pin_dir/manifest.sig" "$_pin_v" "$_pin_floor" \
+        "$_pin_dir/release-keys.json" "$_pin_dir/release-keys.json.sig")" || _pin_rc=$?
       # 97 is the helper refusing the release, rechecked below; any other failure (a bad argument, a crash, a refused
       # launch) means the check itself could not run, and ends the install now.
       if [ "$_pin_rc" -ne 0 ] && [ "$_pin_rc" -ne 97 ]; then
