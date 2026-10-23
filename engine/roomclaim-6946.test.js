@@ -665,11 +665,14 @@ test('#6974: who can help YOU / is around to help HIM asks for help for bob, so 
   for (const text of ['@bob take the parser - who can help you?', '@bob please take the login bug. Who is around to help him if he gets stuck?',
     '@bob owns this. Who wants to help @bob with the tests?', '@bob take the parser - who can come help you?',
     // the same help-for-bob in the sibling forms
-    '@bob take the parser - can someone help you?', '@bob take the parser. Anyone around to help him?']) {
+    '@bob take the parser - can someone help you?', '@bob take the parser. Anyone around to help him?',
+    '@bob take it. Can someone please help you?', '@bob take it. Who can also help you?']) {
     assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
   }
   // CONTROLS: the same clause asking for the work, or for help with it, opens the post.
-  for (const text of ['@bob is out - who can take the parser?', '@bob is out. Who is around to help with the login bug?']) {
+  for (const text of ['@bob is out - who can take the parser?', '@bob is out. Who is around to help with the login bug?',
+    // review 2: a name that starts with you/him/her/them, and "you guys", are not bob
+    '@bob is out. Who can help Herman with the deploy?', '@bob is out. Who can help Youssef?', '@bob is out. Who can help you guys out?']) {
     assert.equal(claim('cy', ask(text)).op, 'add', text);
   }
 });
@@ -679,12 +682,14 @@ test('#6974: "around to" and "someone else has time" in passing are bob\'s; cont
   let n = 0;
   const ask = (text) => { n += 1; append({ kind: 'post', id: 'z' + n, project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text, outcomes: {}, at: new Date().toISOString() }); return 'z' + n; };
   for (const text of ['@bob ask anyone around to review it', '@bob let me know if anyone else has time', '@bob let me know if anyone has time',
-    '@bob ask whether anyone free can pair']) {
+    '@bob ask whether anyone free can pair', '@bob let me know if there is anyone free', '@bob check whether there is anyone around to review']) {
     assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
   }
   for (const text of ['@bob is out. Anyone around to review it?', '@bob is out, is there anyone around to review it?', '@bob is busy. Someone else free to take this?',
     '@bob is busy, could anyone else please take this?', '@bob is out, is anyone around to review it?', '@bob is out, does anyone else have time to take this?',
-    '@bob is out so someone please take this', '@bob is out. If anyone else has time, please grab the login bug.']) {
+    '@bob is out so someone please take this', '@bob is out. If anyone else has time, please grab the login bug.',
+    // review 2: a conjunction leads it, with no punctuation before it
+    '@bob is out and anyone free can take the login bug', '@bob is out so someone free please take it', '@bob is out, or anyone free']) {
     assert.equal(claim('cy', ask(text)).op, 'add', text);
   }
 });

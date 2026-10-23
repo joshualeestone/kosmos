@@ -3680,7 +3680,8 @@ const CLOSING_POST_MIN = 400;
 const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|confirm|let (me|us) know|reply|respond|thumbs up)\b/i;
 /* #6952: a request put to the room, for the claim rule. A room word counts only where it is the one being asked to do
    the work: at the start of a clause ("can someone review...", "who can write the notes?"), as the subject offered
-   the work ("anyone free to...", "whoever can...", "any takers", a bare "anyone?"), or anywhere as "can/could someone
+   the work ("whoever can...", "any takers", a bare "anyone?", and "anyone free to..." where a clause, a conjunction or a
+   question to the room leads it, #6974), or anywhere as "can/could someone
    ELSE <do it>" (#6957), since "else" excludes whoever was named. Not in passing ("@bob please fix
    the bug someone reported", "@bob ping the person who can approve it", "@bob does anyone still call this?" all ask
    bob). Not ROOM_ASK, which is about who must ANSWER ("confirm", "reply" ask the named member too), and not "?":
@@ -3691,15 +3692,16 @@ const CLAIM_ASKED_MINUTES = 30;   // #6952: how long a post's asked members have
 const CLAIM_LEAD = "(?:^|[.!?;:,(\\n\\u2013\\u2014-]\\s*)(?:(?:now|so|and|but|ok|okay|also|then|great|thanks)[,!]?\\s+)?";
 /* #6974: what follows a room word when the post asks for help FOR the named member ("who can help you?", "can someone
    help him?", "anyone around to help @bob?"): the helper invited is not who the work is for, so the post stays theirs. */
-const CLAIM_HELP_FOR = '(?!\\s+(?:to\\s+)?(?:come\\s+)?help\\s+(?:you|him|her|them|@))';
+const CLAIM_HELP_FOR = '(?!\\s+(?:(?:to|come|please|also|maybe|just)\\s+)*help\\s+(?:(?:you(?!\\s+(?:guys|all|folks)\\b)|him|her|them)\\b|@))';
 const CLAIM_ROOM_ASK = new RegExp(
   CLAIM_LEAD + '(?:can|could|would|will|is there)\\s+(?:someone|somebody|anyone|anybody)\\b' + CLAIM_HELP_FOR   // "can someone review..."
   // "someone please <do it>" is an imperative to the room wherever it sits ("@bob is swamped so somebody else please grab it")
-  + '|\\b(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+please\\b'
+  + '|\\b(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+please\\b' + CLAIM_HELP_FOR
   // ...but "free", "has time", "around to" and the like, with or without "else", only at a clause start or in a question to
-  // the room ("is anyone around to review it?", "If anyone else has time, please grab it"), so a passing mention is bob's: "@bob ask
+  // the room ("is anyone around to review it?", "If anyone else has time, please grab it", "@bob is out and anyone free can
+  // take it"), so a passing mention is bob's: "@bob ask
   // anyone around to review it", "@bob let me know if anyone else has time" (#6974)
-  + '|(?:' + CLAIM_LEAD + '(?:if\\s+)?|\\b(?:can|could|is there|is|are|does|do)\\s+)(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+(?:free|available|around to|able|willing|up for|have time|has time)\\b' + CLAIM_HELP_FOR
+  + '|(?:' + CLAIM_LEAD + '(?:if\\s+)?|\\b(?:so|and|or|but|then|can|could|is there|does|do|(?<!\\bthere\\s+)(?:is|are))\\s+)(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+(?:free|available|around to|able|willing|up for|have time|has time)\\b' + CLAIM_HELP_FOR
   // "someone ELSE" plainly excludes whoever was named, so "can someone else take it?" asks the room even right after the
   // names ("Thanks @bob! Can someone else take the login bug?"), wherever it sits (#6957 review 4)
   // ...and only before a hand-off verb, so "could someone else have changed this?" or "can anyone else reproduce this?" ask bob
