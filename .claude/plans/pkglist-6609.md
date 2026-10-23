@@ -28,7 +28,10 @@ changes, and the site serving no list changes nothing.
   Kosmos has taken: the postinstall runs for every install, existing or not, and reads that copy's record
   (release-keys.state at the default home) by file name, as storedKeyList does. Reading a user-owned record can only
   raise the floor. Left uncovered, stated in the helper's header: a Mac with no Kosmos at the default home (a first
-  install, or one under another home) has only the built-in floor, so an old .pkg takes an old list there.
+  install, or one under another home) has only the built-in floor, so an old .pkg takes an old list there. So does a
+  home path with a space in it: the root step's USER_HOME (read with dscl and awk, before this change) stops at the
+  space and the record is not found. And the record gives the helper a seq, not keys, so a second list with the same
+  seq is not refused here as trustedKeys refuses it (the recovery key never signs two lists with one seq).
 - Not changed: the list fetch reuses the root step's one cache-buster across retries, as the manifest fetch already
   does; and an OFF helper still has the list fetched (it cannot be asked first). Both cost time, never trust.
 - The postinstall never requires the list: it cannot know whether the helper is on, and requiring it while off would

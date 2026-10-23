@@ -13,9 +13,11 @@
 // it and not below minKeyListSeq. Then releaseKeys are not used at all, and a list that is missing or does not check
 // out refuses (97) as a bad signature does. With no recovery key (as shipped) the list is not read.
 // This helper keeps no record of lists. Its floor is minKeyListSeq, built in, raised to the highest list this Mac's
-// existing Kosmos has taken when the postinstall passes it (an eighth argument). So on a Mac with no Kosmos (or with
+// existing Kosmos has taken when the postinstall passes it (the last argument). So on a Mac with no Kosmos (or with
 // none at the default home) a revocation reaches .pkg installs only through a .pkg built after minKeyListSeq was
 // raised to the revoking list: a .pkg built before that takes any recovery-signed list at or above its own floor.
+// It has the record's seq only, not its keys, so a second list with the same seq would be taken here where
+// trustedKeys refuses it; the recovery key never signs two lists with one seq.
 //
 // Exit 0: trusted; prints `setup_sha256=`, `sha256=` and `tmux_sha256=` lines (64 lowercase hex each).
 // Exit 97: refused, with one line on stderr saying why (bad signature, another version, older than the floor, a field
