@@ -19467,6 +19467,8 @@ window.kosmosMeasureScrollbarWidth();
       <!-- kosmos#6590 (S-7d branch c): browsers waiting for the code they show to be typed here. Empty until this
            computer's board-v2 marker exists (paintWaiting). -->
       <div id="plus-waiting"></div>
+      <!-- One node that is never rewritten, so what a press came to is announced (a role=status made fresh is not). -->
+      <p class="vh" id="plus-waiting-live" role="status" aria-live="polite"></p>
     </div>
 
     <!-- #1615, design/plus-flow.html section 5: this pane is THREE states, not one.
@@ -52123,7 +52125,7 @@ async function pollAsk() {
    This computer never shows the code: typing what the browser in your hand shows is what binds it. The list comes
    from /api/remote/waiting, which answers only this board on this computer; it is empty (v2 false) until the board-v2
    marker exists, so nothing here shows before then. */
-const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, busy: '', ctAlarm: false };
+const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, wrong: {}, busy: '', ctAlarm: false };
 function waitShown() { return WAIT.v2 && (WAIT.rows.length > 0 || !!WAIT.error || !!WAIT.note); }
 /* Started here, beside its state, not with pollAsk's timer: web.plus-stale.test.js runs the panel script after this block
    on its own. Answers v2 false, and nothing shows, until the board-v2 marker exists. */
@@ -52136,9 +52138,10 @@ async function pollWaiting() {
   if (res.status === 403) { WAIT.v2 = false; WAIT.rows = []; WAIT.error = ''; paintAsk(); return; }
   const r = await res.json().catch(() => null);
   if (!res.ok) {
-    // Only a board with the marker reads the list, so an error means the list could not be read: say so, with Clear,
-    // which is the way out of a damaged list.
-    WAIT.v2 = true; WAIT.rows = []; WAIT.error = (r && r.error) || 'The browsers waiting to connect could not be read.';
+    /* Only an error the board says it met under the marker (v2 true) is shown, with Clear, the way out of a damaged list.
+       Anything else (a board older than this page, which has no such route, review 1) draws nothing, as before. */
+    if (r && r.v2 === true) { WAIT.v2 = true; WAIT.rows = []; WAIT.error = plusWords(r.error || 'The browsers waiting to connect could not be read.'); }
+    else { WAIT.v2 = false; WAIT.rows = []; WAIT.error = ''; }
     paintAsk();
     return;
   }
@@ -52149,37 +52152,45 @@ async function pollWaiting() {
   // What was typed or said for a row the tunnel no longer lists is forgotten.
   for (const id of Object.keys(WAIT.typed)) if (!WAIT.rows.some((w) => w.knockId === id)) delete WAIT.typed[id];
   for (const id of Object.keys(WAIT.said)) if (!WAIT.rows.some((w) => w.knockId === id)) delete WAIT.said[id];
+  for (const id of Object.keys(WAIT.wrong)) if (!WAIT.rows.some((w) => w.knockId === id)) delete WAIT.wrong[id];
   if (WAIT.note && Date.now() - WAIT.noteAt > REMOVE_SAID_MS) WAIT.note = '';
   paintAsk();
 }
 /* The code a browser shows: six letters and digits, usually with a dash. Allow wakes at six of them. */
 function waitCodeChars(v) { return String(v || '').replace(/[^A-Za-z0-9]/g, ''); }
-function waitRowHtml(w) {
+function waitRowHtml(w, n) {
   const id = askEsc(w.knockId);
-  const kind = w.uaClass ? askEsc(w.uaClass) : 'A browser';
+  // What the browser says it is, labelled as its own claim (design review 2), never stated as fact.
+  const says = w.uaClass ? askEsc(w.uaClass) : '';
+  const name = 'browser ' + n + (says ? ' (says ' + says + ')' : '');
   const said = WAIT.said[w.knockId] || '';
   const busy = WAIT.busy === w.knockId;
   const short = waitCodeChars(WAIT.typed[w.knockId]).length < 6;
+  // Where the code shows: this computer's own address, so the person can check that the browser in their hand is on it.
+  const at = typeof PLUS_ADDRESS === 'string' && PLUS_ADDRESS ? ' at <b>' + askEsc(PLUS_ADDRESS) + '</b>' : '';
   return '<div class="askreq waitreq"><div class="askdev">' + askIcon(w.uaClass) + '</div>' +
-    '<div class="askwho"><b id="waithead-' + id + '">' + kind + ' wants to connect to your Kosmos</b>' + askAgoSpan(w.firstSeen) + '</div>' +
-    '<p class="asksay" id="waitsay-' + id + '">Type the code this browser shows on its own screen.</p>' +
-    (w.net || said ? '<div class="waitmeta">' + (w.net ? '<p>Network, as reported to this computer: ' + askEsc(w.net) + '</p>' : '') +
-      (said ? '<p class="waitsaid" role="status">' + askEsc(said) + '</p>' : '') + '</div>' : '') +
+    '<div class="askwho"><b id="waithead-' + id + '">A browser wants to connect to your Kosmos</b>' + askAgoSpan(w.firstSeen) + '</div>' +
+    '<p class="asksay" id="waitsay-' + id + '">Type the code the browser in your hand shows' + at + '.</p>' +
+    '<div class="waitmeta">' + (says ? '<p>It says it is: ' + says + '</p>' : '') +
+      (w.net ? '<p>Network, as reported to this computer: ' + askEsc(w.net) + '</p>' : '') +
+      (said ? '<p class="waitsaid" id="waitsaid-' + id + '">' + askEsc(said) + '</p>' : '') + '</div>' +
     '<p class="askcodetype"><label for="waitcode-' + id + '">Code</label>' +
     '<input class="waitcodein" id="waitcode-' + id + '" data-waitcode="' + id + '" type="text" autocapitalize="characters"' +
-    ' autocomplete="off" spellcheck="false" maxlength="16" placeholder="ABC-DEF" aria-describedby="waithead-' + id + ' waitsay-' + id + '"></p>' +
-    '<div class="acts"><button class="btn uprime" type="button" data-wait="allow" data-id="' + id + '" aria-label="Allow ' + kind + '"' +
-    (busy ? ' disabled' : short ? ' aria-disabled="true"' : '') + '>' + (busy ? 'Checking' : 'Allow') + '</button>' +
-    '<button class="btn quiet" type="button" data-wait="drop" data-id="' + id + '" aria-label="Not me: turn away ' + kind + '"' + (busy ? ' disabled' : '') + '>Not me</button></div></div>';
+    ' autocomplete="off" autocorrect="off" spellcheck="false" maxlength="16" placeholder="ABC-DEF"' +
+    ' aria-describedby="waithead-' + id + ' waitsay-' + id + (said ? ' waitsaid-' + id : '') + '"' + (WAIT.wrong[w.knockId] ? ' aria-invalid="true"' : '') + '></p>' +
+    '<div class="acts"><button class="btn uprime" type="button" data-wait="allow" data-id="' + id + '" aria-label="Allow ' + name + '"' +
+    (WAIT.busy ? ' disabled' : short ? ' aria-disabled="true"' : '') + '>' + (busy ? 'Checking' : 'Allow') + '</button>' +
+    '<button class="btn quiet" type="button" data-wait="drop" data-id="' + id + '" aria-label="Not me: turn away ' + name + '"' + (WAIT.busy ? ' disabled' : '') + '>Not me</button></div></div>';
 }
 function paintWaiting(inPanel) {
   const el = document.getElementById('plus-waiting');
   if (!el) return;
   if (!inPanel || !waitShown()) { waitWrite(el, ''); return; }
-  const out = ['<p class="setname" id="plus-waiting-title">Browsers waiting to connect</p>'];
+  const n = WAIT.rows.length;
+  const out = ['<p class="setname" id="plus-waiting-title">Browsers waiting to connect' + (n ? ' (' + n + ')' : '') + '</p>'];
   if (WAIT.error) out.push('<p class="askwait" role="alert">' + askEsc(WAIT.error) + '</p>');
-  for (const w of WAIT.rows) out.push(waitRowHtml(w));
-  if (WAIT.note) out.push('<p class="askwait" role="status">' + askEsc(WAIT.note) + '</p>');
+  WAIT.rows.forEach((w, i) => out.push(waitRowHtml(w, i + 1)));
+  if (WAIT.note) out.push('<p class="askwait" id="plus-waiting-note" tabindex="-1">' + askEsc(WAIT.note) + '</p>');
   if (WAIT.rows.length || WAIT.error) {
     out.push('<div class="acts"><button class="btn quiet" type="button" data-wait="clear"' + (WAIT.busy ? ' disabled' : '') + '>Clear waiting browsers</button></div>');
   }
@@ -52228,11 +52239,14 @@ async function waitAct(act, id) {
   const said = res ? await res.json().catch(() => null) : null;
   WAIT.busy = '';
   const note = (t) => { WAIT.note = t; WAIT.noteAt = Date.now(); };
-  if (res && res.ok) {
+  // A 200 counts only with the board's own answer in it (a body that does not read is not "Connected").
+  const ok = !!(res && res.ok && said && said.ok === true);
+  if (ok) {
     delete WAIT.typed[id];
     delete WAIT.said[id];
+    delete WAIT.wrong[id];
     if (act === 'allow') note('Connected. You can remove it any time under Devices.');
-    else if (act === 'drop' && said && said.allowed) note('That browser was already let in a moment ago. If it is not yours, remove it under Devices.');
+    else if (act === 'drop' && said.allowed) note('That browser was already let in a moment ago. If it is not yours, remove it under Devices.');
     else if (act === 'drop') note('Turned away for today. If that was your own browser, press Clear waiting browsers, then reload the page on it for a new code.');
     else note('Cleared. A browser that still wants in gets a new code when its page is reloaded.');
     if (act === 'allow') paintDevices();   // the device it let in shows in the list now
@@ -52240,10 +52254,26 @@ async function waitAct(act, id) {
     note(plusWords((said && said.error) || 'We could not clear the waiting browsers. Try again.'));
   } else {
     WAIT.said[id] = plusWords((said && said.error) || 'We could not save that. Try again.');
+    if (act === 'allow' && said && Number.isInteger(said.triesLeft)) WAIT.wrong[id] = true;
   }
   for (const rid of ['plus-waiting']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
+  paintAsk();   // never leave "Checking" up if the poll below blips
   await pollWaiting();
-  if (act === 'allow' && !(res && res.ok)) { const f = document.getElementById('waitcode-' + id); if (f) { f.focus(); f.select(); } }
+  /* A row the tunnel dropped meanwhile (five wrong codes, no longer waiting) takes its sentence with it: say it in the
+     note instead (review 1), and move focus there, or to the next row's field. */
+  if (id && WAIT.said[id] === undefined && !ok && act !== 'clear' && !WAIT.rows.some((w) => w.knockId === id)) {
+    note(plusWords((said && said.error) || 'That browser is no longer waiting.'));
+    paintAsk();
+  }
+  const live = document.getElementById('plus-waiting-live');
+  if (live) live.textContent = '';
+  const said2 = WAIT.said[id];
+  if (live) setTimeout(() => { live.textContent = said2 || WAIT.note || ''; }, 50);
+  const row = WAIT.rows.find((w) => w.knockId === id);
+  if (row && !ok) { const f = document.getElementById('waitcode-' + id); if (f) { f.focus(); f.select(); } return; }
+  const next = WAIT.rows[0] ? document.getElementById('waitcode-' + WAIT.rows[0].knockId) : null;
+  const target = WAIT.note ? document.getElementById('plus-waiting-note') : next;
+  if (target) target.focus();
 }
 /* #4794 (Mona Lisa, 2026-10-03): what a joining computer's empty code means on the computer already in, one line per
    reason the tunnel gives (code_wait). <name> is the joining computer. Anything else keeps the default line. */
@@ -52287,7 +52317,8 @@ function paintAsk() {
   /* #4637 (Mona Lisa's review W1): "Waiting for you" only while something waits; a success line stands alone. A request
      whose Allow or Not me failed still waits (its sheet shows again, with the reason). */
   const answered = (id) => !!ASK.done[id] && (ASK.done[id].state === 'allowed' || ASK.done[id].state === 'denied');
-  { const t = document.getElementById('plus-asks-title'); if (t) t.hidden = !rows.some((d) => !answered(d.device_id)); }   // waiting browsers have their own title   // the rows the sheets are drawn from
+  // The rows the sheets are drawn from; waiting browsers have their own title.
+  { const t = document.getElementById('plus-asks-title'); if (t) t.hidden = !rows.some((d) => !answered(d.device_id)); }
   const hide = !anything || inPanel || (!onPlus && !live.length && !here && !waitN);
   card.hidden = hide;
   /* The Plus tab's needs-you dot marks a request waiting, in the nav's own grammar. */
@@ -52467,7 +52498,8 @@ function paintAsk() {
   /* kosmos#6314 (Josh 11:30, landed scrolled down at the devices list: "on the laptop it doesnt say anything about it"):
      on Kosmos+ the requests stay in this section (#4610), so a NEW one is scrolled into view, once per set of requests;
      the same set repainting every few seconds never moves the page again. */
-  const waiting = inPanel ? rows.filter((d) => !answered(d.device_id)).map((d) => String(d.device_id)) : [];
+  const waiting = inPanel ? rows.filter((d) => !answered(d.device_id)).map((d) => String(d.device_id))
+    .concat(WAIT.v2 ? WAIT.rows.map((w) => 'knock:' + w.knockId) : []) : [];   // kosmos#6590: a new waiting browser too
   const before = ASK.shownKey ? ASK.shownKey.split(',') : [];
   if (waiting.some((id) => before.indexOf(id) === -1) && panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'start', behavior: window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   ASK.shownKey = waiting.join(',');

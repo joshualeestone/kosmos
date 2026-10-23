@@ -11819,10 +11819,12 @@ const server = http.createServer(async (req, res) => {
     if (!isLoopbackPeer(req) || isRemoteRequest(req) || !boardCookieHere(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.waiting); return; }
     remote.devicesWaiting()
       .then((r) => {
-        if (!r.ok) { sendJson(res, 500, { error: r.because }); return; }
+        /* v2 true: the engine reads the list only under the marker, so a failure here is one the page should show (with
+           Clear, the way out of a damaged list); an older board's 404 carries no v2 and the page draws nothing. */
+        if (!r.ok) { sendJson(res, 500, { error: r.because, v2: true }); return; }
         sendJson(res, 200, r.data);
       })
-      .catch(() => sendJson(res, 500, { error: 'we could not read the waiting browsers' }));
+      .catch(() => sendJson(res, 500, { error: 'we could not read the waiting browsers', v2: true }));
     return;
   }
   const waitingVerb = /^\/api\/remote\/waiting\/(allow|drop|clear)$/.exec(pathname);

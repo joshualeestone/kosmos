@@ -14,6 +14,9 @@
  *   T6  Not me sends drop with only the knockId, and says how to undo it; Clear waiting browsers sends clear;
  *   T7  the list could not be read: the sentence and Clear, and no rows;
  *   T8  away from Kosmos+, the compact notice names the waiting browsers;
+ *   T6b a row the tunnel drops (five wrong codes) keeps its sentence as the note, with focus on it;
+ *   T6c a 200 whose body does not read is never said as Connected;
+ *   T10 away from Kosmos+, x puts away the waiting browsers it named and a new one brings the notice back;
  *   T9  no page errors.
  *
  *   HEADED=0 NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-typed-allow-6590.js [shotsDir]
@@ -105,13 +108,30 @@ const read = (page) => page.evaluate(() => {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
   const allErrs = [];
   try {
-    // T1: no marker, and a remote session's refusal, draw nothing.
-    for (const [label, answer] of [['no marker', () => ({ body: { v2: false, count: 0, waiting: [], ctAlarm: false, ctFinding: null } })],
-      ['remote session (403)', () => ({ status: 403, body: { code: 'remote_not_allowed', error: 'x' } })]]) {
+    // T1: no marker (even with rows in the answer), a remote session's refusal, and a board older than this page (404:
+    // no such route, review 1) draw nothing: no section, no notice away from Kosmos+, no nav dot, no notice keys.
+    for (const [label, answer] of [['no marker, rows in the answer', () => ({ body: { ...TWO, v2: false } })],
+      ['remote session (403)', () => ({ status: 403, body: { code: 'remote_not_allowed', error: 'x' } })],
+      ['an older board (404)', () => ({ status: 404, body: { error: 'no such endpoint' } })]]) {
       const { page, errs } = await open(browser, answer, { base });
       const v = await read(page);
-      chk(!v.shown && v.rows.length === 0, `T1 ${label}: nothing is drawn`, JSON.stringify({ shown: v.shown, rows: v.rows.length }));
+      chk(!v.shown && v.rows.length === 0 && !/Browsers waiting/.test(v.pageText), `T1 ${label}: nothing is drawn on Kosmos+`, JSON.stringify({ shown: v.shown, rows: v.rows.length }));
       allErrs.push(...errs);
+      await page.close();
+      const { page: off, errs: e2 } = await open(browser, answer, { base, stayOff: true });
+      await off.evaluate(() => paintAsk());
+      const o = await off.evaluate(() => ({ card: !document.getElementById('askcard').hidden, dot: !!document.querySelector('#s-nav button[data-go="plus"][data-dot]'),
+        keys: (ASK.noteKeys || []).filter((k) => String(k).startsWith('knock:')).length }));
+      chk(!o.card && !o.dot && o.keys === 0, `T1 ${label}: no notice, no nav dot, no notice keys away from Kosmos+`, JSON.stringify(o));
+      allErrs.push(...e2);
+      await off.close();
+    }
+    // T1b: the real route, unstubbed, answers this page (a same-origin GET carries no Origin) and says v2 false here.
+    {
+      const page = await browser.newPage();
+      await page.goto(base, { waitUntil: 'networkidle' });
+      const real = await page.evaluate(async () => { const r = await fetch('/api/remote/waiting', { cache: 'no-store' }); return { status: r.status, body: await r.json().catch(() => null) }; });
+      chk(real.status === 200 && real.body && real.body.v2 === false, 'T1b the real route answers the page itself, v2 false with no marker', JSON.stringify(real));
       await page.close();
     }
 
@@ -127,9 +147,10 @@ const read = (page) => page.evaluate(() => {
     };
     const { page, errs, posts } = await open(browser, () => ({ body: TWO }), { base, post });
     let v = await read(page);
-    chk(v.shown && /Browsers waiting to connect/.test(v.title), 'T2 the section and its title are shown', JSON.stringify({ shown: v.shown, title: v.title }));
+    chk(v.shown && /Browsers waiting to connect \(2\)/.test(v.title), 'T2 the section and its title, with the count', JSON.stringify({ shown: v.shown, title: v.title }));
     chk(v.rows.length === 2 && v.fields === 2, 'T2 one row and one code field per waiting browser', JSON.stringify(v.rows));
-    chk(/iPhone or iPad/.test(v.rows[0]) && /203\.0\.113\.0/.test(v.rows[0]) && /Windows/.test(v.rows[1]), 'T2 each row says what the tunnel saw', JSON.stringify(v.rows));
+    chk(/It says it is: iPhone or iPad/.test(v.rows[0]) && /203\.0\.113\.0/.test(v.rows[0]) && /It says it is: Windows/.test(v.rows[1]), 'T2 each row says what the tunnel saw, the browser class as its own claim', JSON.stringify(v.rows));
+    chk(v.rows.every((r) => /^A browser wants to connect/.test(r)) && v.rows.every((r) => r.includes(ADDR)), 'T2 the heading claims nothing, and the line names this computer\'s address', JSON.stringify(v.rows));
     chk(v.codeBig === 0 && !/[A-Z0-9]{3}-[A-Z0-9]{3}/.test(v.text.replace('ABC-DEF', '')), 'T2 no code is shown on this computer', v.text);
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, '6590-waiting-two.png'), fullPage: false }); }
 
@@ -157,6 +178,8 @@ const read = (page) => page.evaluate(() => {
     await page.waitForTimeout(300);
     const kept = await page.evaluate((k) => ({ v: document.getElementById('waitcode-' + k).value, focus: document.activeElement && document.activeElement.id }), K1);
     chk(kept.v === 'ZZZ-ZZ' && kept.focus === 'waitcode-' + K1, 'T4 what was typed survives a poll, with focus kept', JSON.stringify(kept));
+    const aria = await page.evaluate((k) => { const f = document.getElementById('waitcode-' + k); return { inv: f.getAttribute('aria-invalid'), desc: (f.getAttribute('aria-describedby') || '').split(' ').map((x) => (document.getElementById(x) || {}).textContent || '').join(' | ') }; }, K1);
+    chk(aria.inv === 'true' && /4 more tries/.test(aria.desc), 'T4 the field is marked invalid and described by the answer', JSON.stringify(aria));
 
     // T5: Enter, the right code.
     await page.fill(`#waitcode-${K1}`, 'GOOD-22');
@@ -178,9 +201,54 @@ const read = (page) => page.evaluate(() => {
     allErrs.push(...errs);
     await page.close();
 
+    // T6b: the fifth wrong code deletes the row in the tunnel; its sentence moves to the note and focus goes there (review 1).
+    {
+      let gone = false;
+      const answer = () => ({ body: gone ? { ...TWO, count: 1, waiting: [TWO.waiting[1]] } : TWO });
+      const post = () => { gone = true; return { status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'That is not the code, and that browser has had too many tries. Ask it to sign in again for a new code.', triesLeft: 0 }) }; };
+      const { page: p6, errs: e6 } = await open(browser, answer, { base, post });
+      await p6.fill(`#waitcode-${K1}`, 'ZZZ-ZZZ');
+      await p6.click(`#plus-waiting [data-wait="allow"][data-id="${K1}"]`);
+      await p6.waitForTimeout(500);
+      const r6 = await p6.evaluate(() => ({ text: (document.getElementById('plus-waiting').innerText || '').replace(/\s+/g, ' '), focus: document.activeElement && document.activeElement.id, rows: document.querySelectorAll('#plus-waiting .askreq').length }));
+      chk(r6.rows === 1 && /too many tries/.test(r6.text) && r6.focus === 'plus-waiting-note', 'T6b a row dropped by the tunnel keeps its sentence, as the note, with focus on it', JSON.stringify(r6));
+      allErrs.push(...e6);
+      await p6.close();
+    }
+
+    // T6c: a 200 whose body is not the board's answer is not "Connected" (review 1).
+    {
+      const post = () => ({ status: 200, contentType: 'text/html', body: '<html>proxy page</html>' });
+      const { page: pc, errs: ec } = await open(browser, () => ({ body: TWO }), { base, post });
+      await pc.fill(`#waitcode-${K1}`, 'GOOD-22');
+      await pc.click(`#plus-waiting [data-wait="allow"][data-id="${K1}"]`);
+      await pc.waitForTimeout(500);
+      const tc = await pc.evaluate(() => (document.getElementById('plus-waiting').innerText || '').replace(/\s+/g, ' '));
+      chk(!/Connected/.test(tc) && /could not save that/i.test(tc), 'T6c an answer that does not read is never said as Connected', tc);
+      allErrs.push(...ec);
+      await pc.close();
+    }
+
+    // T10: away from Kosmos+, x puts away exactly the waiting browsers it named; a new one brings the notice back.
+    {
+      let rows = TWO;
+      const { page: p10, errs: e10 } = await open(browser, () => ({ body: rows }), { base, stayOff: true });
+      await p10.evaluate(() => paintAsk());
+      await p10.click('#askcard [data-ask="note-dismiss"]');
+      await p10.waitForTimeout(200);
+      const hid = await p10.evaluate(() => document.getElementById('askcard').hidden);
+      rows = { ...TWO, count: 3, waiting: TWO.waiting.concat([{ knockId: 'ZbCdEfGhIjKlMnOpQrStUx', firstSeen: now(), uaClass: 'Android', net: '198.51.100.0', vouched: false }]) };
+      await p10.evaluate(() => pollWaiting());
+      await p10.waitForTimeout(300);
+      const back = await p10.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: (document.getElementById('askcard').innerText || '').replace(/\s+/g, ' ') }));
+      chk(hid && back.shown && /A browser wants to connect/.test(back.text), 'T10 dismissed, then a new waiting browser brings the notice back naming only it', JSON.stringify({ hid, back }));
+      allErrs.push(...e10);
+      await p10.close();
+    }
+
     // T7: the list could not be read.
     {
-      const { page: p7, errs: e7 } = await open(browser, () => ({ status: 500, body: { error: 'the waiting browsers could not be read' } }), { base });
+      const { page: p7, errs: e7 } = await open(browser, () => ({ status: 500, body: { error: 'the waiting browsers could not be read', v2: true } }), { base });
       const v7 = await read(p7);
       chk(v7.shown && /could not be read/.test(v7.text) && v7.clear && v7.rows.length === 0, 'T7 an unreadable list says so, with Clear and no rows', JSON.stringify({ shown: v7.shown, text: v7.text }));
       allErrs.push(...e7);

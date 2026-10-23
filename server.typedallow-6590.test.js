@@ -171,3 +171,13 @@ test('a request that presents an agent token is refused, with the screen\'s head
   }
 });
 
+test('a waiting list the engine could not read says so with v2 true, so the page shows it (an older board\'s 404 has none)', async () => {
+  const keep = remote.devicesWaiting;
+  remote.devicesWaiting = async () => ({ ok: false, because: 'the waiting browsers could not be read' });
+  try {
+    const r = await get('/api/remote/waiting');
+    assert.equal(r.status, 500);
+    assert.deepEqual(r.body, { error: 'the waiting browsers could not be read', v2: true });
+  } finally { remote.devicesWaiting = keep; }
+});
+
