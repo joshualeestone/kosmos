@@ -3679,21 +3679,29 @@ const CLOSING_POST_MIN = 400;
 // alone. Deliberately wide (a missed ask drops an answer someone wanted; a false one only lets an acknowledgement through).
 const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|confirm|let (me|us) know|reply|respond|thumbs up)\b/i;
 /* #6952: a request put to the room, for the claim rule. A room word counts only where it is the one being asked to do
-   the work: at the start of a clause ("can someone review...", "who can write the notes?"), or as the subject offered
-   the work ("anyone free to...", "whoever can...", "any takers", a bare "anyone?"). Not in passing ("@bob please fix
+   the work: at the start of a clause ("can someone review...", "who can write the notes?"), as the subject offered
+   the work ("anyone free to...", "whoever can...", "any takers", a bare "anyone?"), or anywhere as "can/could someone
+   ELSE <do it>" (#6957), since "else" excludes whoever was named. Not in passing ("@bob please fix
    the bug someone reported", "@bob ping the person who can approve it", "@bob does anyone still call this?" all ask
    bob). Not ROOM_ASK, which is about who must ANSWER ("confirm", "reply" ask the named member too), and not "?":
    "@bob can you do X?" asks bob. A pattern always misses some phrasings, which is why the asked members hold a post only
    for CLAIM_ASKED_MINUTES (react): a wrong lock costs at most that long. */
 const CLAIM_ASKED_MINUTES = 30;   // #6952: how long a post's asked members have first call on it
-const CLAIM_LEAD = "(?:^|[.!?;:,]\\s*)(?:(?:now|so|and|but|ok|okay|also|then|great|thanks)[,!]?\\s+)?";   // the start of a clause
+// The start of a clause: the text's start, or after . ! ? ; : , a new line, a dash or an opening parenthesis (#6957 review 2).
+const CLAIM_LEAD = "(?:^|[.!?;:,(\\n\\u2013\\u2014-]\\s*)(?:(?:now|so|and|but|ok|okay|also|then|great|thanks)[,!]?\\s+)?";
 const CLAIM_ROOM_ASK = new RegExp(
   CLAIM_LEAD + '(?:can|could|would|will|is there)\\s+(?:someone|somebody|anyone|anybody)\\b'          // "can someone review..."
-  + '|\\b(?:someone|somebody|anyone|anybody)\\s+(?:please|free|available|able|willing|up for|have time|has time)\\b'
-  + '|' + CLAIM_LEAD + 'who\\s+(?:can|could|wants|will|is free|is available)\\b[^.!?]*\\?'          // "who can write the notes?"
+  + '|\\b(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+(?:please|free|available|around to|able|willing|up for|have time|has time)\\b'
+  // "someone ELSE" plainly excludes whoever was named, so "can someone else take it?" asks the room even right after the
+  // names ("Thanks @bob! Can someone else take the login bug?"), wherever it sits (#6957 review 4)
+  // ...and only before a hand-off verb, so "could someone else have changed this?" or "can anyone else reproduce this?" ask bob
+  + '|\\b(?:can|could)\\s+(?:someone|somebody|anyone|anybody)\\s+else\\s+(?:take|grab|pick|handle|own|cover|do|look|jump|step)\\b'   // only before a hand-off verb (review 7); not help: "can someone else help you?" asks for help FOR bob (review 8)
+  // "who can write the notes?", "Who's free to take this?" (straight or curly apostrophe), "who has time for this?"
+  + '|' + CLAIM_LEAD + "who(?:\\s+|'s\\s+|\u2019s\\s+)(?:can|could|wants|will|is free|free|is available|available|has time|is around|around)\\b[^.!?]*\\?"
   + '|\\bwhoever\\s+(?:can|is free|has time|wants|picks|takes|gets)\\b'
   + '|\\b(?:any takers|any volunteers|need (?:a )?volunteers?)\\b'
-  + '|\\b(?:anyone|anybody|someone|somebody)\\s*\\?', 'i');
+  // a bare "anyone?" or "anyone else?" as its own clause ("If you cannot, anyone else?"), not "broken for anyone else?"
+  + '|' + CLAIM_LEAD + '(?:anyone|anybody|someone|somebody)(?:\\s+else)?\\s*\\?', 'i');
 /* "One of you" and the like put it to a group: on a post that @-names members that group is THEM ("@ann @bob can one of
    you review this?"), so it counts only on a post that names nobody. */
 const CLAIM_GROUP_ASK = /\b(?:(?:one|any|either|each) of you|all of you|the rest of you|you all|y'?all)\b/i;
@@ -3750,7 +3758,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   /* #6952: 'operator' too. The room's text view names the person 'operator', so an agent with that name would read as
      the person on a reactions or claim line. */
   if (operator !== true && (reactor === 'you' || reactor.toLowerCase() === 'operator')) {
-    return { ok: false, because: 'that name is reserved, so this reaction could not be attributed' };
+    return { ok: false, because: 'that name is reserved, so this reaction could not be attributed; an agent cannot be renamed, so ask the person to make a new agent under another name' };
   }
   /* #2255: the room is its members. An AGENT reacting into a room it is not on
      is the same cross-room write the post model refuses (sendPost's membership
@@ -3841,7 +3849,17 @@ function react({ project, of, emoji, from, operator, members, claim }) {
        bob), unless the replier is that author or the reply asks the room.
      A hand-off, by an agent or by the person, is a post of its own ("@ann please take this"), which asks ann, and that is
      the post ann claims. Only those still in the room count, so a post asking only someone who has left is open. */
-  const asksRoom = (text, names) => typeof text === 'string' && (CLAIM_ROOM_ASK.test(text) || (!names && CLAIM_GROUP_ASK.test(text)));
+  /* A run of @-names at the start of any clause, after an optional greeting ("@bob, who has time...?", "Morning @bob, who
+     can...?", "The deploy failed. @bob - who can look?"), addresses them: the comma, colon, dash or "!" after the names is
+     not a clause start (reviews 2, 3 and 7). Each run is replaced by a word, not removed, so the text after it does not
+     read as the start of a clause either. "Need someone
+     to..." is no room ask at all: said to bob, or in a reply to his post, it is bob's (review 2), and a post naming
+     nobody is open anyway. */
+  const asksRoom = (text, names) => {
+    if (typeof text !== 'string') return false;
+    const t = text.replace(/(^|[.!?;:\n]\s*)(?:(?:hey|hi there|hi|hello|thanks so much|thanks|thank you|ok|okay|so|now|and|but|also|then|great|good morning|morning|yo)[,!]?\s+)?(?:@[\w-]+(?:\.[\w-]+)*[\s,:!\u2013\u2014-]*)+/gi, '$1NAMED ');
+    return CLAIM_ROOM_ASK.test(t) || (!names && CLAIM_GROUP_ASK.test(t));
+  };
   const askedSet = new Set();
   const named = Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : [];
   const unclear = Array.isArray(post.ambiguousMentions) && post.ambiguousMentions.length > 0;
@@ -3856,8 +3874,31 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   /* The asked members have first call, for CLAIM_ASKED_MINUTES from the post (review 7). After that, with none of them
      holding it, anyone may claim it: a request the pattern misread, or one its asked member never got to, is not held
      forever. */
-  const leftMs = CLAIM_ASKED_MINUTES * 60000 - (Date.now() - Date.parse(post.at));
-  if (asked.length && !asked.includes(reactor) && leftMs > 0) {
+  /* A post dated ahead of this clock (a clock stepped back) is open: its age cannot be read, and holding it until the
+     clock catches up could be hours (#6957 review 1). Fails open, as a post before #6952 did. */
+  const windowMs = CLAIM_ASKED_MINUTES * 60000;
+  // Up to a minute ahead is a small clock adjustment, read as just posted; more than that cannot be read (review 3).
+  const age = Date.now() - Date.parse(post.at);   // NaN for an unreadable time, which then fails open below
+  const leftMs = age < -60000 ? 0 : windowMs - Math.max(0, age);
+  /* #6957: an asked member who claimed the post and then gave it back has let it go ("out of usage, someone else
+     please"), so once every asked member still here has done that, the post is open. */
+  /* Gave back: n's 🙋 rows replayed in log order end in a remove n made THEMSELVES (no takenBy) after a marked claim.
+     Order matters (review 2): react() itself removes an old unmarked pill just before a claim, and a claim later ended
+     for n by a newer one is not n letting go. */
+  const gaveBack = (n) => {
+    let claimed = false; let released = false;
+    for (const m of rows) {
+      if (!m || m.kind !== 'reaction' || String(m.of) !== postId || m.from !== n || !isClaimEmoji(m.emoji)) continue;
+      if (m.op === 'add') { if (m.claim === true) claimed = true; continue; }
+      released = claimed && !m.takenBy;
+    }
+    return released;
+  };
+  const released = asked.length > 0 && asked.every(gaveBack);
+  /* No author exemption (#6957 review 4): an author holding its own request ("@bob can you take the login bug?") would
+     lock bob out of it with no time limit, since a claim, unlike the asked window, does not end on its own. An author
+     who means to do the work says so in its post, and the window lets it claim after 30 minutes at most. */
+  if (asked.length && !asked.includes(reactor) && !released && leftMs > 0) {
     const who = asked.length === 1 ? asked[0] : asked.slice(0, -1).join(', ') + ' or ' + asked[asked.length - 1];
     const mins = Math.max(1, Math.ceil(leftMs / 60000));
     return { ok: false, askedOf: asked,

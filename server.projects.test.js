@@ -3040,6 +3040,14 @@ test('#6946: kosmos claim through the real /api/react route, and `kosmos room` s
     assert.equal((await asZeta({ claim: 'release' })).op, 'remove');
     res = await req(`/api/project/${project.id}/room?as=text`);
     assert.doesNotMatch(res.body, /is claimed by/, 'a given-back claim still printed');
+    // #6957: with no claim live, the person's lone raised hand is left out too (it would read as theirs).
+    assert.doesNotMatch(res.body, /reactions on \[[^\]]+\]:[^\n]*\u{1F64B} operator/u, 'the person\'s lone raised hand is on the line with no claim:\n' + res.body);
+    // #6957 review 1: zeta claims again; the person's raised hand agreed with the EARLIER claim, so it is not shown beside this one.
+    assert.equal((await asZeta({ claim: 'claim' })).op, 'add');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('is claimed by zeta'), res.body);
+    assert.doesNotMatch(res.body, /reactions on \[[^\]]+\]:[^\n]*\u{1F64B} operator/u, 'the person\'s old raised hand attached to a newer claim:\n' + res.body);
+    assert.equal((await asZeta({ claim: 'release' })).op, 'remove');
     assert.equal((await asZeta({ claim: 'release' })).op, 'none');
   });
 });
