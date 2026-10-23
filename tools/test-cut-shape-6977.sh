@@ -63,7 +63,10 @@ kosmos_cut_shape_run --base 2>/dev/null; rc=$?
 [ "$rc" -eq 2 ] && pass "R: --base with no folder is refused (2)" || bad "R: --base with no folder gave $rc"
 # Outside CI a base that is not a kt<digits> sandbox is refused BEFORE any stand-in starts (it would read as a cut to
 # every agent here); CONTROL: the same call with the kt base above runs.
-NK=$(mktemp -d "${TMPDIR:-/tmp}/cutshape-nokt.XXXXXX")
+# Under run-tests.sh TMPDIR is itself a kt sandbox, so the base comes from /tmp, and is checked to be outside one first.
+NK=$(mktemp -d "/tmp/cutshape-nokt.XXXXXX")
+_kosmos_path_in_kt_sandbox "$NK" && bad "R: (the outside-a-sandbox base $NK reads as a sandbox, so the next two arms prove nothing)" \
+  || pass "R: (the base for the next two arms is outside any kt sandbox: $NK)"
 out=$(env -u GITHUB_ACTIONS bash -c ". '$LIB'; kosmos_cut_shape_run --base '$NK' sh -c 'echo RAN'" 2>&1); rc=$?
 [ "$rc" -eq 2 ] && ! printf '%s' "$out" | grep -q RAN && [ -z "$(ls -A "$NK")" ] \
   && pass "R: outside CI a base outside a kt sandbox is refused (2), nothing run, nothing made" || bad "R: a non-kt base outside CI gave rc=$rc: $out"
@@ -100,7 +103,6 @@ for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do [ "$(standins)" = 0 ] && break;
 [ "$(standins)" = 0 ] && pass "S: when the run is killed outright, the stand-in ends by itself" || bad "S: the stand-in outlived a killed run"
 for _ in 1 2 3 4 5 6; do [ "$(leftovers)" = 0 ] && break; sleep 0.3; done
 [ "$(leftovers)" = 0 ] && pass "S: and it removes the scratch folder as it goes" || bad "S: a killed run left its scratch folder ($(leftovers))"
-rm -rf "$T"/kosmos-cut-shape.* 2>/dev/null   # the killed run could not remove its own (its `sleep 8` ends by itself)
 
 # A signal that reaches the stand-in while the command runs ends it but must not take the command's home with it.
 SIG="$T/signal-probe.sh"

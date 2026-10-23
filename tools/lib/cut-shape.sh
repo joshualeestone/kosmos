@@ -53,6 +53,11 @@ kosmos_cut_shape_run() {
     echo "cut-shape: except on a GitHub-hosted runner the scratch base must be inside a kt<digits> folder (got '$base'): a stand-in anywhere else reads as a live cut to every agent on this computer" >&2
     return 2
   fi
+  # On a hosted runner the base is meant to sit OUTSIDE a sandbox; inside one the stand-in is a fixture to every guard,
+  # so the shape would test nothing the guard sees. Said, not refused: this file's own test runs its arms there on CI.
+  if [ "${GITHUB_ACTIONS:-}" = true ] && [ "${RUNNER_ENVIRONMENT:-}" != self-hosted ] && _kosmos_path_in_kt_sandbox "$base"; then
+    echo "cut-shape: the scratch base is inside a kt<digits> sandbox, so the cut guard will not count the stand-in (only AGENT_WORKFORCE_HOME is in effect)" >&2
+  fi
   dir="$(mktemp -d "$base/kosmos-cut-shape.XXXXXX")" || { echo "cut-shape: could not make a scratch folder under $base" >&2; return 2; }
   mkdir -p "$dir/home" "$dir/standin/tools" || { rm -rf "$dir"; echo "cut-shape: could not fill $dir" >&2; return 2; }
   # The stand-in: `bash tools/release.sh`, as a cut's command line starts. It ends when the shell that started it
