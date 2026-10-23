@@ -71,10 +71,10 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
      ⇒ The pre-change state is the PROJECTS grid at a literal 23rem while the
      agents board stays on the token, plus the grid title NOT truncating.
      Both are reverted here so both assertions have to go red. */
-  const revert = () => {
+  const revert = (only6967) => {   // runs in the page: the mode comes in as an argument
     const st = document.createElement('style');
     st.id = 'ctl-revert';
-    st.textContent = CONTROL_6967
+    st.textContent = only6967
       ? '.pj-list.asgrid .pj-row .pjname b{display:block!important;-webkit-line-clamp:none!important;'
         + 'white-space:nowrap!important;text-overflow:ellipsis!important}'
       : '.pj-list.asgrid{grid-template-columns:repeat(auto-fill,minmax(min(100%,23rem),1fr))!important}'
@@ -83,11 +83,11 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
         + 'white-space:normal!important;display:block!important;-webkit-line-clamp:none!important}';
     document.head.appendChild(st);
   };
-  if (CONTROL) await pg.evaluate(revert);
+  if (CONTROL) await pg.evaluate(revert, CONTROL_6967);
 
   await pg.reload({ waitUntil: 'networkidle' });
   await pg.waitForTimeout(500);
-  if (CONTROL) await pg.evaluate(revert);   // the reload dropped the injected style
+  if (CONTROL) await pg.evaluate(revert, CONTROL_6967);   // the reload dropped the injected style
 
   /* 🛑 THE AGENTS GRID IS READ WHILE IT IS ON SCREEN, AND THAT ORDERING IS THE
      CHECK. A hidden grid does not resolve its tracks: an earlier version of
