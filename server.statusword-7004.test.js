@@ -104,22 +104,22 @@ test('#7004 /api/status: every row carries cardWord and cardTone, equal to label
 test('#7004 withCardWords passes the board\'s own needs-the-person into the tone, on rows whose word alone would be quiet', () => {
   const { withCardWords } = require('./server');
   // Each of these needs the person while its word is not a needs-you word, so a route that passed false for the second
-  // argument would show them quiet; the four fleet agents above cannot tell the two apart.
-  const rows = withCardWords([
-    { sessionName: 'loop', state: 'idle', crashLoop: { looping: true } },
-    { sessionName: 'gave', state: 'idle', ownBound: { raised: true } },
-    { sessionName: 'gone', state: 'connection_lost', reconnect: { phase: 'gave_up' } },
-    { sessionName: 'calm', state: 'idle' },
+  // argument would show them quiet; the four fleet agents above cannot tell the two apart. Only the fields the word and
+  // tone read, and no name: these are inputs to one function, not stand-ins for board cards (fixture-discipline).
+  const [loop, gave, gone, calm] = withCardWords([
+    { state: 'idle', crashLoop: { looping: true } },
+    { state: 'idle', ownBound: { raised: true } },
+    { state: 'connection_lost', reconnect: { phase: 'gave_up' } },
+    { state: 'idle' },
   ]);
-  const by = (n) => rows.find((r) => r.sessionName === n);
-  assert.deepEqual([by('loop').cardWord, by('loop').cardTone], ['Keeps stopping', 'needs_you']);
-  assert.deepEqual([by('gave').cardWord, by('gave').cardTone], ['Idle', 'needs_you']);
-  assert.equal(by('gone').cardTone, 'needs_you');
-  assert.deepEqual([by('calm').cardWord, by('calm').cardTone], ['Idle', 'quiet'], 'CONTROL: the same word without the flag is quiet');
+  assert.deepEqual([loop.cardWord, loop.cardTone], ['Keeps stopping', 'needs_you']);
+  assert.deepEqual([gave.cardWord, gave.cardTone], ['Idle', 'needs_you']);
+  assert.equal(gone.cardTone, 'needs_you');
+  assert.deepEqual([calm.cardWord, calm.cardTone], ['Idle', 'quiet'], 'CONTROL: the same word without the flag is quiet');
   // A row whose word cannot be worked out (here a field that throws when read) is passed on without the two, and the
   // rows after it still get theirs: one bad row never fails the whole read.
-  const bad = { sessionName: 'bad', get state() { throw new Error('unreadable'); } };
-  const odd = withCardWords([null, bad, { sessionName: 'ok', state: 'working' }]);
+  const bad = { get state() { throw new Error('unreadable'); } };
+  const odd = withCardWords([null, bad, { state: 'working' }]);
   assert.equal(odd[0], null);
   assert.equal(odd[1], bad);
   assert.equal(odd[2].cardTone, 'working');
