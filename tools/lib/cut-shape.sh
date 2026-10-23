@@ -31,6 +31,11 @@
 # removes nothing: the folder holds the AGENT_WORKFORCE_HOME the command may still be using. So a kill that reaches
 # the caller and the stand-in at once (a cancelled run) can leave the folder; on a CI runner it goes with the runner.
 
+# The sandbox test is the cut guard's own (process-fixture.sh), so what this calls a sandbox is what the guard drops.
+_kosmos_cut_shape_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$_kosmos_cut_shape_lib_dir/process-fixture.sh" || _kosmos_path_in_kt_sandbox() { return 1; }   # unreadable: no base passes, outside CI
+unset _kosmos_cut_shape_lib_dir
+
 # kosmos_cut_shape_run [--base DIR] <command...>: run the command in a cut's shape; its exit status is the command's.
 # 2 when the shape could not be set up (nothing was run).
 kosmos_cut_shape_run() {
@@ -44,7 +49,7 @@ kosmos_cut_shape_run() {
   [ "$#" -gt 0 ] || { echo "cut-shape: no command to run" >&2; return 2; }
   base="${base%/}"
   case "$base" in /*) ;; *) echo "cut-shape: the scratch base must be an absolute path (got '$base')" >&2; return 2 ;; esac
-  if { [ "${GITHUB_ACTIONS:-}" != true ] || [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; } && ! [[ "$base" =~ (^|/)(T|tmp)/kt[0-9]+(/|$) ]]; then
+  if { [ "${GITHUB_ACTIONS:-}" != true ] || [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; } && ! _kosmos_path_in_kt_sandbox "$base"; then
     echo "cut-shape: except on a GitHub-hosted runner the scratch base must be inside a kt<digits> folder (got '$base'): a stand-in anywhere else reads as a live cut to every agent on this computer" >&2
     return 2
   fi
