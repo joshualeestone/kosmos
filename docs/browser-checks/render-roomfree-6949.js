@@ -108,15 +108,29 @@ const check = (cond, n, why) => (cond ? ok(n) : bad(n, why));
       const read = (id) => box(id).evaluate((b) => {
         const pill = b.querySelector('.rxn[data-emoji="\u{1F64B}"]');
         const free = b.querySelector('.rxn-free');
+        const age = b.querySelector('.rxn-claim-age');
         return { pills: b.querySelectorAll('.rxn').length, claimPill: !!b.querySelector('.rxn.rxn-claim'),
+          age: age ? age.textContent : null, ageAt: age ? age.getAttribute('data-at') : null,
+          freeAria: free ? free.getAttribute('aria-label') : null,
           title: pill ? pill.getAttribute('title') : null, aria: pill ? pill.getAttribute('aria-label') : null,
           free: !!free, freeBy: free ? free.getAttribute('data-claim-by') : null, freeText: free ? free.textContent : null,
           freeDisabled: free ? free.disabled : null, freeShown: free ? free.getBoundingClientRect().width > 0 : false };
       }).catch((e) => ({ error: String(e) }));
 
       const c1 = await read(claimed);
-      check(c1.claimPill && /^Claimed by .+, 3 hours ago/.test(String(c1.title)), t + ' the claimed post\'s 🙋 pill is labelled as a claim, with its age', JSON.stringify(c1));
-      check(/Claimed by .+, 3 hours ago/.test(String(c1.aria)), t + ' and its accessible name says so', JSON.stringify(c1));
+      check(c1.claimPill && /^Claimed by [^,()]+$/.test(String(c1.title)), t + ' the claimed post\'s 🙋 pill is labelled as a claim, naming only the holder once', JSON.stringify(c1));
+      check(/Claimed by /.test(String(c1.aria)) && !/ago/.test(String(c1.aria) + c1.title + c1.freeAria), t + ' and its accessible name says so, with no age in any attribute', JSON.stringify(c1));
+      check(c1.age === 'claimed 3 hours ago' && !!c1.ageAt, t + ' the age shows as text beside it', JSON.stringify(c1));
+      check(/^Free for another agent\. Claimed by /.test(String(c1.freeAria)), t + ' Free\'s accessible name starts with its visible words', String(c1.freeAria));
+      // The age ticking over is not a new room shape (it would rebuild the room every minute); a changed label is.
+      const shape = await box(claimed).evaluate((b) => {
+        const html = b.outerHTML;
+        const aged = html.replace('claimed 3 hours ago', 'claimed 4 hours ago');
+        const renamed = html.replace(/title="Claimed by /, 'title="Claimed by someone else, ');
+        return { ageSame: aged !== html && threadShape(aged) === threadShape(html), labelDiffers: renamed !== html && threadShape(renamed) !== threadShape(html) };
+      }).catch((e) => ({ error: String(e) }));
+      check(shape.ageSame === true, t + ' the age ticking over leaves the room\'s shape alone', JSON.stringify(shape));
+      check(shape.labelDiffers === true, t + ' CONTROL: a changed claim label is a new shape', JSON.stringify(shape));
       check(c1.free && c1.freeShown && c1.freeBy === made.member && c1.freeText === 'Free for another agent', t + ' Free for another agent sits beside it, naming the holder', JSON.stringify(c1));
       const two = await box(twoForms).evaluate((b) => ({ pills: [...b.querySelectorAll('.rxn')].map((x) => x.getAttribute('data-emoji') + (x.classList.contains('rxn-claim') ? ':claim' : '')),
         frees: b.querySelectorAll('.rxn-free').length })).catch((e) => ({ error: String(e) }));
@@ -154,7 +168,8 @@ const check = (cond, n, why) => (cond ? ok(n) : bad(n, why));
       await p.route('**/free-claim', (route) => route.fulfill({ status: 409, contentType: 'application/json',
         body: JSON.stringify({ ok: false, claimedBy: 'newhand', because: 'x', reactions: [{ emoji: HAND, count: 1, who: ['newhand'], mine: false }],
           claim: { by: 'newhand', at: new Date().toISOString() } }) }));
-      await box(claimed).locator('.rxn-free').click();
+      await box(claimed).locator('.rxn-free').focus();
+      await p.keyboard.press('Enter');   // from the keyboard, so focus is the page's to keep
       const t1 = await toastSays(/no longer holds it, newhand does\.$/);
       check(/^We could not free that post: .+ no longer holds it, newhand does\.$/.test(String(t1)), t + ' a refused free names who holds it now', String(t1));
       const c5 = await read(claimed);
@@ -170,8 +185,9 @@ const check = (cond, n, why) => (cond ? ok(n) : bad(n, why));
       const t2 = await toastSays(/newhand no longer holds it, .+ does\.$/);
       check(/^We could not free that post: newhand no longer holds it, .+ does\.$/.test(String(t2)), t + ' and its toast names the real holder', String(t2));
 
-      // Free frees it, through the real route.
-      await box(claimed).locator('.rxn-free').click();
+      // Free frees it, through the real route, from the keyboard.
+      await box(claimed).locator('.rxn-free').focus();
+      await p.keyboard.press('Enter');
       await p.waitForFunction((id) => !document.querySelector('#pj-room .rxns[data-post="' + id + '"] .rxn-free'), claimed, { timeout: 5000 }).catch(() => {});
       const c4 = await read(claimed);
       check(c4.pills === 0 && !c4.free && !c4.claimPill, t + ' after Free the agent\'s 🙋 and the Free control are gone', JSON.stringify(c4));

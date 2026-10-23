@@ -7391,6 +7391,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
             border-radius: 999px; padding: 1px 10px; cursor: pointer; min-height: 24px; }   /* WCAG 2.5.8 target size */
 .rxn-free:hover, .rxn-free:focus-visible { color: var(--k-ink); border-color: var(--k-ink-2); }
 .rxn-free:disabled { opacity: .6; cursor: default; }
+.rxn-claim-age { font-size: .75rem; color: var(--k-ink-2); }
 /* #2806 (Josh): the always-visible "+" is gone. The reaction affordance -- the three
    quick defaults plus the grey-smiley opener, then Reply last (#4358) -- lives in `.rxn-quick` and is hidden
    until the message is hovered OR the row takes keyboard focus, then fades in (the
@@ -72323,6 +72324,7 @@ async function rxnFreeClaim(forProject, box, btn) {
   const postId = box && box.getAttribute('data-post');
   const by = btn && btn.getAttribute('data-claim-by');
   if (!postId || !by) return;
+  const hadFocus = document.activeElement === btn;   // WebKit does not focus a clicked button: then focus stays put
   btn.disabled = true;
   let res = null;
   let body = null;
@@ -72334,11 +72336,12 @@ async function rxnFreeClaim(forProject, box, btn) {
   if (PJ_CURRENT !== forProject) return;   // the next read of that room draws what happened there
   const nameOf = (s) => (typeof tskAgentName === 'function' ? tskAgentName(s) : s);
   const now = body && body.claim && typeof body.claim.by === 'string' && body.claim.by ? nameOf(body.claim.by) : '';
-  /* The repaint replaces the focused button, so focus moves to what is left in the row (the claim's Free, a pill), or to
-     the room's composer when the row is empty. */
+  /* The repaint replaces a focused button, so focus moves to what is left in the row (the claim's Free, a pill), or to
+     the room's composer, without scrolling to it, when the row is empty. */
   const refocus = () => {
+    if (!hadFocus) return;
     const to = box.querySelector('.rxn-free') || box.querySelector('.rxn') || document.getElementById('pj-post');
-    if (to) to.focus();
+    if (to) to.focus({ preventScroll: true });
   };
   if (res && res.ok && body && body.ok) {
     repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : [], body.claim);
@@ -72351,7 +72354,7 @@ async function rxnFreeClaim(forProject, box, btn) {
   else btn.disabled = false;
   // A claim that changed hands is said with the names the page uses; any other refusal in the board's own words.
   msgToast(body && body.claimedBy ? 'We could not free that post: ' + nameOf(by) + ' no longer holds it'
-    + (now ? ', ' + now + ' does.' : '.') : body && body.because ? 'We could not free that post: ' + body.because + '.'
+    + (now ? ', ' + now + ' does.' : '.') : body && (body.because || body.error) ? 'We could not free that post: ' + (body.because || body.error) + '.'
     : 'We could not free that post. Check that Kosmos is still running, then try again.', 9000);
 }
 
@@ -73927,14 +73930,19 @@ window.addEventListener('scroll', () => msgMenuClose(false), true);   // never t
 window.addEventListener('resize', () => msgMenuClose(false));
 /* #6949: the room post's 🙋 claim ({by, at}, from the room read or a room route's answer) as the page shows it: the
    holder's name and how long ago, or null when there is no claim. Only a room post has one; a DM never passes it.
-   The age is worded by askAgo, the page's own ("yesterday"), not the engine's claimAge, which words it for agents. It
-   is the age when the row was drawn; the room's next repaint of the row brings it up to date. */
+ */
 function rxnClaimShown(claim) {
   if (!claim || typeof claim.by !== 'string' || !claim.by) return null;
   const name = typeof tskAgentName === 'function' ? tskAgentName(claim.by) : claim.by;
-  const t = Date.parse(claim.at);
-  const ago = Number.isFinite(t) && typeof askAgo === 'function' ? askAgo(Math.floor(t / 1000)) : '';
-  return { by: claim.by, label: 'Claimed by ' + name + (ago ? ', ' + ago : '') };
+  const at = typeof claim.at === 'string' && Number.isFinite(Date.parse(claim.at)) ? claim.at : '';
+  return { by: claim.by, name, at, label: 'Claimed by ' + name };
+}
+/* The visible age beside a claim, "claimed 3 hours ago". Text only, never in an attribute: threadShape blanks this
+   span's text, so the age ticking over neither rebuilds the room nor loses its focus (#3966), and refreshWhens
+   brings it up to date in place, as it does a standing question's age (#5943). */
+function rxnClaimAgeWords(at) {
+  const age = typeof agoWords === 'function' ? agoWords(Date.now() - Date.parse(at)) : '';
+  return age ? 'claimed ' + age : '';
 }
 /* Every raised hand a pill can show (a skin tone, the gendered forms), the engine's isClaimEmoji: a holder whose only
    live 🙋 is a row from before the engine stored them plain still shows as the claim. */
@@ -73956,14 +73964,15 @@ function rxnsInner(list, withReply, withSpeak, mid, claim) {
     /* #6949: the 🙋 pill on a claimed post is a claim, not only a reaction: its name says who holds it and since when,
        and beside it the person can free the post for another agent. Pressing the pill itself still agrees (#6946). */
     const isClaim = !!claimPill && r === claimPill;
-    const title = isClaim ? held.label + (who ? ' (' + who + ')' : '') : who;
+    const title = isClaim ? held.label + (who && who !== held.name ? ' (' + who + ')' : '') : who;
     return '<button class="rxn' + (r.mine ? ' mine' : '') + (isClaim ? ' rxn-claim' : '') + '" type="button" data-emoji="' + esc(e) + '"'
       + ' aria-pressed="' + (r.mine ? 'true' : 'false') + '" title="' + esc(title) + '"'
       + (isClaim ? ' aria-label="' + esc('\u{1F64B} ' + (Number(r.count) || 0) + '. ' + held.label) + '"' : '') + '>'
       + '<span class="rxn-e" aria-hidden="true">' + esc(e) + '</span>'
       + '<span class="rxn-n">' + esc(String(Number(r.count) || 0)) + '</span></button>'
+      + (isClaim && held.at ? '<span class="rxn-claim-age" data-at="' + esc(held.at) + '">' + esc(rxnClaimAgeWords(held.at)) + '</span>' : '')
       + (isClaim ? '<button class="rxn-free" type="button" data-claim-by="' + esc(held.by) + '"'
-        + ' aria-label="' + esc('Free this post for another agent. ' + held.label) + '" title="' + esc(held.label) + '">'
+        + ' aria-label="' + esc('Free for another agent. ' + held.label) + '" title="' + esc(held.label) + '">'
         + 'Free for another agent</button>' : '');
   }).join('');
   /* The three quick defaults, revealed on message hover (see the `.rxn-quick` CSS).
@@ -76727,6 +76736,7 @@ function threadShape(html) {
   return String(html)
     .replace(/(<span class="mwhen" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')
     .replace(/(<span class="dmq-age" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')   // #5943
+    .replace(/(<span class="rxn-claim-age" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')   // #6949
     .replace(/<svg class="lring"[\s\S]*?<\/svg>/g, (ring) => ring.replace(/stroke-dasharray="[^"]*"/g, 'stroke-dasharray=""'));
 }
 /** #3991: bring every memory ring arc under `root` to the one in `html`, pairing each ring with the
@@ -76767,6 +76777,11 @@ function refreshWhens(root) {
   for (const el of root.querySelectorAll('.dmq-age[data-at]')) {
     const age = agoWords(Date.now() - Date.parse(el.getAttribute('data-at')));
     const said = age ? 'Asked ' + age : '';
+    if (said && el.textContent !== said) el.textContent = said;
+  }
+  // #6949: a room post's claim age, likewise.
+  for (const el of root.querySelectorAll('.rxn-claim-age[data-at]')) {
+    const said = rxnClaimAgeWords(el.getAttribute('data-at'));
     if (said && el.textContent !== said) el.textContent = said;
   }
 }
