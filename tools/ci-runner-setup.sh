@@ -21,6 +21,8 @@
 #                             from THAT main commit
 #   register                  as kosmos-ci, in its Screen Sharing session, for the same reason. Reads the
 #                             registration token from stdin, so it is never in any argv
+#   keepalive                 as kosmos-ci, over ssh or in its session (kosmos#7001). Adds KeepAlive to an installed
+#                             runner's LaunchAgent and reloads it while idle; a dry run says whether it is set
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
 #                             Give KOSMOS_CI_GUARD_SHA (the install pin), or the guard counts as unchecked.
 #                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail)
@@ -145,6 +147,27 @@ HOOK
   esac
 }
 mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN of $STAGE (nothing changes; --apply to do it)"; fi; }
+# kosmos#7001: svc.sh writes the runner's LaunchAgent with RunAtLoad and no KeepAlive, so a runner that is killed stays
+# offline until someone logs in (10-23: SIGKILLed mid-job, offline 29 minutes). KeepAlive with SuccessfulExit false
+# restarts it after a kill or a crash and never after exit 0, which is how the service ends on purpose (a stop, a removed
+# registration, a session conflict). A self-update never ends the job: RunnerService.js relaunches the listener itself.
+# The first actions.runner LaunchAgent, or nothing; never fails (set -e and pipefail are on).
+runner_plist() {
+  local f
+  for f in "$CI_HOME"/Library/LaunchAgents/actions.runner.*.plist; do [ -e "$f" ] && { printf '%s\n' "$f"; return 0; }; done
+  return 0
+}
+keepalive_set() { [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$1" 2>/dev/null)" = false ]; }
+# add_keepalive <plist>: written beside it and renamed in, as put does, so a failure leaves the old file whole.
+add_keepalive() {
+  cp -p "$1" "$1.new" || return 1
+  plutil -remove KeepAlive "$1.new" >/dev/null 2>&1 || true
+  if plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$1.new" \
+     && plutil -replace ThrottleInterval -integer 10 "$1.new" && plutil -lint "$1.new" >/dev/null && mv -f "$1.new" "$1"; then
+    return 0
+  fi
+  rm -f "$1.new"; return 1
+}
 need_user() {
   if [ "$(id -un)" = "$1" ]; then
     # sudo keeps HOME on macOS, so `sudo -u kosmos-ci` would aim RUNNER_DIR at the caller's home.
@@ -153,7 +176,7 @@ need_user() {
     fi
     # svc.sh reads and drives the CALLER's launchd session: over ssh it reads a running runner as stopped, and under
     # sudo -iu or su from the owner's GUI it acts on the OWNER's session (Aqua, but managed for another uid).
-    if [ "$APPLY" = 1 ] && [ "$1" = "$CI_USER" ]; then
+    if [ "$APPLY" = 1 ] && [ "$1" = "$CI_USER" ] && [ "${2:-}" != ssh-ok ]; then
       if [ "$(launchctl managername 2>/dev/null || true)" != Aqua ]; then
         echo "refused: run this in $CI_USER's Screen Sharing session (launchctl managername is not Aqua here; a tmux pane reads Background)" >&2; exit 2
       fi
@@ -464,7 +487,9 @@ register() {
     echo "WOULD: write $RUNNER_DIR/.path as $RUNNER_PATH after config.sh (config.sh writes its own shell's PATH there)"
     echo "WOULD: read a registration token from stdin (mint it as $OWNER: gh api -X POST repos/$REPO/actions/runners/registration-token --jq .token)"
     printf 'WOULD: ACTIONS_RUNNER_INPUT_TOKEN=<token>'; printf ' %q' ./config.sh --unattended --url "$REPO_URL" --name "$NAME" --labels "$LABELS" --work _work --replace; printf '\n'
-    printf 'WOULD: %q install\nWOULD: %q start\n' ./svc.sh ./svc.sh
+    printf 'WOULD: %q install\n' ./svc.sh
+    echo "WOULD: add KeepAlive {SuccessfulExit: false} and ThrottleInterval 10 to the LaunchAgent svc.sh writes (kosmos#7001)"
+    printf 'WOULD: %q start\n' ./svc.sh
     return 0
   fi
   [ -x "$RUNNER_DIR/config.sh" ] || { echo "refused: no runner in $RUNNER_DIR; run install first" >&2; exit 1; }
@@ -495,6 +520,9 @@ register() {
   ACTIONS_RUNNER_INPUT_TOKEN="$token" ./config.sh --unattended --url "$REPO_URL" --name "$NAME" --labels "$LABELS" --work _work --replace
   printf '%s\n' "$RUNNER_PATH" > .path
   ./svc.sh install   # a LaunchAgent for this user (starts at login)
+  local plist; plist="$(runner_plist)"
+  [ -n "$plist" ] || { echo "FAILED: svc.sh install wrote no actions.runner LaunchAgent under $CI_HOME/Library/LaunchAgents" >&2; exit 1; }
+  add_keepalive "$plist" || { echo "FAILED: could not add KeepAlive to $plist (a killed runner would stay offline); the runner is installed but not started" >&2; exit 1; }
   # A Listener already running (a runner started by hand with ./run.sh) must not count as the service's.
   local before_start; before_start="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"
   ./svc.sh start
@@ -520,6 +548,42 @@ wait_for_listener() {
 # runner_busy: prints true or false; fails when the API could not say.
 runner_busy() {
   gh api --paginate "repos/$REPO/actions/runners" --jq "$(jq_busy)" 2>/dev/null
+}
+
+# keepalive: as the CI user, over ssh or in its session. Adds KeepAlive to an installed runner's LaunchAgent and reloads
+# it while the runner is idle (the reload stops it, and a job in flight would fail). It names the GUI domain, gui/<uid>,
+# so unlike svc.sh it works over ssh (measured on the old Agent1s Mac, 2026-10-23); the user must be logged in. A dry
+# run says whether KeepAlive is already set, which is how to check a runner whose home the owner cannot read.
+keepalive() {
+  need_user "$CI_USER" ssh-ok
+  mode_line
+  local plist label dom; plist="$(runner_plist)"
+  [ -n "$plist" ] || { echo "refused: no actions.runner LaunchAgent under $CI_HOME/Library/LaunchAgents; register first" >&2; exit 1; }
+  if keepalive_set "$plist"; then ok "$plist restarts after a kill (KeepAlive SuccessfulExit false)"; return 0; fi
+  label="$(plutil -extract Label raw -o - "$plist" 2>/dev/null)" && [ -n "$label" ] \
+    || { echo "refused: cannot read the Label of $plist" >&2; exit 1; }
+  dom="gui/$(id -u)"
+  if [ "$APPLY" != 1 ]; then
+    echo "note:   $plist has no KeepAlive {SuccessfulExit: false}: a killed runner stays offline"
+    echo "WOULD: add KeepAlive {SuccessfulExit: false} and ThrottleInterval 10 to $plist"
+    printf 'WOULD: launchctl bootout %s\nWOULD: launchctl bootstrap %s %s\n' "$dom/$label" "$dom" "$plist"
+    return 0
+  fi
+  launchctl print "$dom" >/dev/null 2>&1 || { echo "refused: no $dom domain ($CI_USER is not logged in); log in, then run this again" >&2; exit 1; }
+  cd "$RUNNER_DIR" || { echo "refused: no runner in $RUNNER_DIR" >&2; exit 1; }
+  local prc=0; pgrep -u "$(id -u)" -f 'bin/Runner.Worker' >/dev/null || prc=$?
+  [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc) to rule out a running job" >&2; exit 1; }
+  [ "$prc" = 1 ] || { echo "refused: a job is running (Runner.Worker is up); run this again when the runner is idle" >&2; exit 1; }
+  add_keepalive "$plist" || { echo "FAILED: could not add KeepAlive to $plist; nothing reloaded" >&2; exit 1; }
+  ok "KeepAlive added to $plist"
+  local before; before="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"
+  launchctl bootout "$dom/$label" 2>/dev/null || true   # not loaded is fine: bootstrap below loads it
+  local waited=0
+  while launchctl print "$dom/$label" >/dev/null 2>&1 && [ "$waited" -lt 30 ]; do sleep 1; waited=$((waited + 1)); done
+  launchctl bootstrap "$dom" "$plist" \
+    || { echo "FAILED: launchctl bootstrap $dom $plist; the runner is STOPPED (log in as $CI_USER, then: launchctl bootstrap $dom $plist)" >&2; exit 1; }
+  wait_for_listener "$before"
+  ok "the runner is running again with KeepAlive"
 }
 
 verify() {
@@ -601,6 +665,14 @@ EOF
      && [ -n "$(ls -A "$RUNNER_DIR/_work/_temp" 2>/dev/null)" ]; then
     echo "note:   $RUNNER_DIR/_work/_temp is not empty while idle: the job-completed sweep may not be running"
   fi
+  say "the runner's LaunchAgent (a killed runner must come back by itself: kosmos#7001)"
+  local plist; plist="$(runner_plist)"
+  if [ -n "$plist" ] && [ -r "$plist" ]; then
+    if keepalive_set "$plist"; then ok "$plist restarts after a kill (KeepAlive SuccessfulExit false)"
+    else problem "$plist has no KeepAlive {SuccessfulExit: false}: a killed runner stays offline; as $CI_USER: tools/ci-runner-setup.sh --apply keepalive"; fi
+  else
+    echo "note:   cannot read $CI_USER's LaunchAgent as $(id -un) (its ~/Library is closed); as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether KeepAlive is set"
+  fi
   say "what a job left behind (between jobs, $CI_USER should run no tmux or node but the runner's own)"
   local left busy2
   # ps reads THIS Mac only, and an unknown user makes it fail with no lines, which must not read as "nothing left".
@@ -654,7 +726,8 @@ case "$STAGE" in
   install) install_runner "$@" ;;
   register) register ;;
   verify) verify ;;
+  keepalive) keepalive ;;
   machine-settings) machine_settings ;;
   jq-programs) printf '%s\n' "$JQ_VAR" "$(jq_busy)" "$(jq_row)" ;;   # changes nothing; for the test
-  *) echo "usage: tools/ci-runner-setup.sh [--apply] preflight | create-user | install <commit> <sha256> | register | verify | machine-settings | jq-programs" >&2; exit 2 ;;
+  *) echo "usage: tools/ci-runner-setup.sh [--apply] preflight | create-user | install <commit> <sha256> | register | keepalive | verify | machine-settings | jq-programs" >&2; exit 2 ;;
 esac
