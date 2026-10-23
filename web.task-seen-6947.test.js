@@ -48,7 +48,7 @@ function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', re
   let release = () => {};
   const gate = hold ? new Promise((r) => { release = r; }) : Promise.resolve();
   const fetch = async (url, opts) => {
-    if (opts && opts.method === 'POST') { posts.push(url); if (st.post === 'lost') throw new Error('lost'); return { status: st.post, text: async () => { st.bodies = (st.bodies || 0) + 1; return ''; } }; }
+    if (opts && opts.method === 'POST') { posts.push(url); if (st.post === 'lost') throw new Error('lost'); const status = st.post; if (st.postHold) await new Promise((r) => st.postHold.push(r)); return { status, text: async () => { st.bodies = (st.bodies || 0) + 1; return ''; } }; }
     const asked = st.events;   // what the board held when this read was asked
     await gate;
     if (st.queue) await new Promise((r) => st.queue.push(r));
@@ -421,4 +421,34 @@ test('#6953: a return to the tab does not re-ask a board that refused, or that f
     await p.tabBack(); await p.settle();
     assert.equal(p.posts.length, sends, 'a return to the tab asked again after ' + post);
   }
+});
+
+test('#6953: a return while the view record is still on its way sends nothing more; a return after the conversation changed records it', async () => {
+  const p = page({ post: 500 });
+  await p.paintTaskActivity(3); await p.settle();
+  assert.equal(p.timers.length, 1, 'the record is waiting on its retry');
+  await p.tabBack(); await p.settle();
+  assert.equal(p.posts.length, 1, 'a return during the retry window sent a second record');
+  p.st.post = 200;
+  while (p.timers.length) { p.timers.shift()[0](); await p.settle(); }
+  assert.equal(p.posts.length, 2, 'the retry went');
+  p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-22T23:50:00.000Z', kind: 'said', text: 'while away' }];
+  await p.tabBack(); await p.settle();
+  assert.equal(p.posts.length, 3, 'a return after a new message did not record it');
+});
+
+test('#6953: an older state settling late does not stop a tab return from re-recording the newer one', async () => {
+  const p = page({ post: 403 });
+  p.st.postHold = [];
+  await p.paintTaskActivity(3); await p.settle();   // state A: its record is out, and will be refused
+  p.st.post = 200;
+  p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-22T23:55:00.000Z', kind: 'said', text: 'B' }];
+  await p.paintTaskActivity(3, { onlyIfChanged: true }); await p.settle();   // state B: its record is out too
+  const [answerA, answerB] = p.st.postHold;
+  p.st.postHold = null;
+  answerB(); await p.settle(); await p.settle();   // B recorded first
+  answerA(); await p.settle(); await p.settle();   // then A's refusal lands
+  assert.equal(p.posts.length, 2);
+  await p.tabBack(); await p.settle();
+  assert.equal(p.posts.length, 3, 'the late refusal of the older state stopped the return from re-recording the newer one');
 });

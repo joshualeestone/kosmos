@@ -12,7 +12,6 @@ Card: kosmos#6953.
 
 ## Decided
 - Re-record on a tab return only. Rejected: on every redraw (the poll would record every five seconds while the page is up, the volume #6951 settled), and a timer-based refresh (records views nobody made).
-
 - A return while a record for the same state is still on its way sends nothing; that record's time stands (seconds off).
 
 ## Weakest premise

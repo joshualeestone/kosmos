@@ -68435,16 +68435,21 @@ async function paintTaskActivity(n, opts) {
   /* #6951: kept on the holder, not in globals, so the page's sliced tests need nothing new. tkDrawn: the conversation
      last drawn (the poll's onlyIfChanged leaves an unchanged one as it is). tkMarking: a record for it is on its way or
      waiting on its retry, so another read does not send a second. tkMarked: the board answered for it (recorded,
-     refused, or failed twice), so it is not sent again until the conversation changes (or, for one the board recorded, the person comes back to the tab: tkRecorded, #6953). A mark that declined (nothing
+     refused, or failed twice), so it is not sent again until the conversation changes or, for one the board
+     recorded (tkRecorded, below), the person comes back to the tab (#6953). A mark that declined (nothing
      sent: the page behind another Kosmos tab) is tried on the next read; done(false) (the retry found the page gone)
      leaves it for the next read too. */
   const done = (settled, recorded) => {
     if (holder.tkOpen !== openId) return;   // a record from an earlier open of this task: the page has started again
     if (holder.tkMarking === drawn) holder.tkMarking = null;
-    if (settled) holder.tkRecorded = recorded ? drawn : null;   // #6953: a tab return re-records only a state the board recorded
     // An older state settling late does not undo a newer one; a read that failed meanwhile (tkDrawn cleared) does not
     // stop this conversation's record from counting.
-    if (settled && (holder.tkDrawn === drawn || holder.tkDrawn === null)) holder.tkMarked = drawn;
+    if (settled && (holder.tkDrawn === drawn || holder.tkDrawn === null)) {
+      holder.tkMarked = drawn;
+      // #6953 tkRecorded: the state the board answered 2xx for (a refusal or a twice-failed record leaves null). A tab
+      // return re-records only that one; same guard as tkMarked, so an older state settling late does not undo it.
+      holder.tkRecorded = recorded ? drawn : null;
+    }
   };
   const mark = () => {
     if (holder.tkOpen !== openId || holder.tkMarked === drawn || holder.tkMarking === drawn) return;
