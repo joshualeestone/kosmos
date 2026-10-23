@@ -66550,7 +66550,7 @@ async function loadProjects() {
      window has focus and they clicked, typed, used the wheel or touched it in the last two minutes), so a page left open on an
      empty desk does not mark every new nudge seen. Only when the conversation changed, so an unchanged one is not
      redrawn (which would lose a selection in it). */
-  if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden && document.visibilityState === 'visible' && tkPresent()) tkPollActivity();
+  if (TK_OPEN !== null) tkPollIfThere();   // TK_OPEN first: loadProjects is lifted by tests with no task open, where tkPollIfThere is absent
   // The settings view holds the archive control now, so a poll that lands
   // while it is open must repaint IT from the truth too -- without this,
   // "Restore failed. Try again." outlives a restore whose write landed and
@@ -68435,15 +68435,22 @@ async function paintTaskActivity(n, opts) {
   /* #6951: kept on the holder, not in globals, so the page's sliced tests need nothing new. tkDrawn: the conversation
      last drawn (the poll's onlyIfChanged leaves an unchanged one as it is). tkMarking: a record for it is on its way or
      waiting on its retry, so another read does not send a second. tkMarked: the board answered for it (recorded,
-     refused, or failed twice), so it is not sent again until the conversation changes. A mark that declined (nothing
+     refused, or failed twice), so it is not sent again until the conversation changes or, for one the board
+     recorded (tkRecorded, below), the person comes back to the tab (#6953). A mark that declined (nothing
      sent: the page behind another Kosmos tab) is tried on the next read; done(false) (the retry found the page gone)
      leaves it for the next read too. */
-  const done = (settled) => {
+  const done = (settled, recorded) => {
     if (holder.tkOpen !== openId) return;   // a record from an earlier open of this task: the page has started again
     if (holder.tkMarking === drawn) holder.tkMarking = null;
     // An older state settling late does not undo a newer one; a read that failed meanwhile (tkDrawn cleared) does not
     // stop this conversation's record from counting.
-    if (settled && (holder.tkDrawn === drawn || holder.tkDrawn === null)) holder.tkMarked = drawn;
+    if (settled && (holder.tkDrawn === drawn || holder.tkDrawn === null)) {
+      holder.tkMarked = drawn;
+      // #6953 tkRecorded: the state the board answered 2xx for (a refusal or a twice-failed record leaves null). A tab
+      // return re-records only that one. Same guard as tkMarked: an older state settling late does not undo a drawn newer
+      // one (after a failed read, with nothing drawn, it can; that costs one extra record).
+      holder.tkRecorded = recorded ? drawn : null;
+    }
   };
   const mark = () => {
     if (holder.tkOpen !== openId || holder.tkMarked === drawn || holder.tkMarking === drawn) return;
@@ -68465,10 +68472,11 @@ async function paintTaskActivity(n, opts) {
   /* #6951: #tk-activity is a polite live region. A redraw the person asked for (open, action, tab return) is read out
      as before; the five-second read's redraw is not, or a screen reader would read the whole conversation, unasked,
      each time something is recorded while the person is on the page. */
-  const quiet = onlyIfChanged && typeof holder.setAttribute === 'function';
-  /* The poll's redraw also keeps keyboard focus: a history row's summary the person had focused is focused again after
+  // #6953: quiet is the five-second read's alone (opts.quiet); a tab return draws a change with the live region on.
+  const quiet = !!(opts && opts.quiet) && typeof holder.setAttribute === 'function';
+  /* A redraw drawn only if changed (the five-second read, a tab return) also keeps keyboard focus: a history row's summary the person had focused is focused again after
      the swap (by its rollup's data-first), so focus does not fall to the page body unannounced. */
-  const had = quiet && typeof holder.contains === 'function' && document.activeElement && holder.contains(document.activeElement)
+  const had = onlyIfChanged && typeof holder.contains === 'function' && document.activeElement && holder.contains(document.activeElement)
     ? document.activeElement.closest && document.activeElement.closest('[data-first]') : null;
   const hadKey = had && had.dataset ? had.dataset.first : null;
   if (quiet) holder.setAttribute('aria-live', 'off');
@@ -68549,7 +68557,7 @@ function openTaskPage(n) {
   /* A new task: clear the last one's activity before the fetch so a slow read
      cannot leave the previous task's events on screen. */
   const acts = document.getElementById('tk-activity');
-  if (acts) { acts.innerHTML = ''; acts.tkDrawn = null; acts.tkMarked = null; acts.tkMarking = null; acts.tkDrawnSeq = (acts.tkSeq || 0) + 1; acts.tkOpen = {}; }   // #6951: a new open: nothing drawn or marked for it yet, and no earlier read or record speaks for it
+  if (acts) { acts.innerHTML = ''; acts.tkDrawn = null; acts.tkMarked = null; acts.tkMarking = null; acts.tkRecorded = null; acts.tkReturnAt = 0; acts.tkDrawnSeq = (acts.tkSeq || 0) + 1; acts.tkOpen = {}; }   // #6951: a new open: nothing drawn or marked for it yet, and no earlier read or record speaks for it
   const receipt = document.getElementById('tk-receipt');
   if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
   const undoBox = document.getElementById('tk-undo');   // #5153 slice 4
@@ -68569,7 +68577,7 @@ function openTaskPage(n) {
    has not been seen. Returns whether it sent. Best effort; a failure changes nothing on the page.
    #6951: a server error or a lost request is tried once more, 3 seconds later and only if the task is still on screen;
    then onDone(true) settles it (recorded, refused with a 4xx, or failed twice), so a refusing or broken board is not
-   asked again until the conversation changes. A retry that finds the page gone calls onDone(false). */
+   asked again until the conversation changes. onDone's second argument says whether the board recorded it. A retry that finds the page gone calls onDone(false). */
 function tkMarkSeen(n, projectId, retried = false, onDone = null, current = null) {
   const back = document.getElementById('tk-back');
   // current(): still the open that drew it, so a retry from an earlier open of the same task does not post for this one
@@ -68577,16 +68585,22 @@ function tkMarkSeen(n, projectId, retried = false, onDone = null, current = null
     if (retried && onDone) onDone(false);
     return false;
   }
-  const settle = () => { if (onDone) onDone(true); };
-  const failed = () => { if (retried) settle(); else setTimeout(() => tkMarkSeen(n, projectId, true, onDone, current), 3000); };
+  const settle = (recorded) => { if (onDone) onDone(true, recorded === true); };
+  const failed = () => { if (retried) settle(false); else setTimeout(() => tkMarkSeen(n, projectId, true, onDone, current), 3000); };
   // The answer's body is read: in Chromium a reply left unread keeps its request open, so a page waiting for the
   // network to go quiet would wait for good (the same trap the page's fetch wrapper drains for refusals, #6192).
   fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' })
     .then((res) => {
       if (res && typeof res.text === 'function') res.text().catch(() => {});
-      if (res && res.status >= 500) failed(); else settle();
+      if (res && res.status >= 500) failed(); else settle(!!res && res.ok === true);
     }, failed);
   return true;
+}
+/* #6953: the five-second read's gate, as a function so a test can run it: the task's page is up, the tab is visible
+   and the person is there. */
+function tkPollIfThere() {
+  const view = document.getElementById('pj-task-view');
+  if (TK_OPEN !== null && view && !view.hidden && document.visibilityState === 'visible' && tkPresent()) tkPollActivity();
 }
 /* #6951: the five-second read's call, one at a time: a read slower than five seconds is not joined by another. */
 let TK_POLLING = false;
@@ -68597,7 +68611,7 @@ function tkPollActivity() {
   // A read that hangs (a board stalled mid-answer) lets the next one start after 15 seconds, rather than never; only
   // the run that holds the flag releases it, so a late hung read does not free a newer one's.
   const giveUp = setTimeout(() => { if (TK_POLLING === run) TK_POLLING = false; }, 15000);
-  Promise.resolve(paintTaskActivity(TK_OPEN, { onlyIfChanged: true })).finally(() => { clearTimeout(giveUp); if (TK_POLLING === run) TK_POLLING = false; });
+  Promise.resolve(paintTaskActivity(TK_OPEN, { onlyIfChanged: true, quiet: true })).finally(() => { clearTimeout(giveUp); if (TK_POLLING === run) TK_POLLING = false; });
 }
 /* #6951: is the person at the page? The window has focus and they clicked, typed, used the wheel or touched it in the
    last two minutes. Used only by the five-second read: opening a task, acting on it and coming back to the tab are the
@@ -68608,13 +68622,32 @@ for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart', 'touchmove'])
 function tkPresent() {
   return typeof document.hasFocus === 'function' && document.hasFocus() && Date.now() - TK_LAST_INPUT < 120000;
 }
-/* #6947: coming back to the tab while a task's page is showing: draw the conversation again at once (the five-second
+/* #6947: coming back to the tab while a task's page is showing: draw the conversation if it changed (the five-second
    read skips a hidden tab, so a message that came while it was away is not on screen yet); the draw marks it seen. */
-document.addEventListener('visibilitychange', () => {
+function tkTabReturn() {
   if (document.visibilityState !== 'visible' || TK_OPEN === null) return;
   const back = document.getElementById('tk-back');
-  if (back && back.getClientRects().length) paintTaskActivity(TK_OPEN);
-});
+  if (!back || !back.getClientRects().length) return;
+  // #6953: a return to the tab is a look the person chose, so it records the view again even when the conversation is
+  // unchanged ("viewed at" would otherwise keep the first look of this open). Only a state the board recorded: one it
+  // refused, or that failed twice, stays settled, so a refusing or broken board is not asked on every return. And only
+  // with the window focused: a tab also turns visible when a window covering it closes, with nobody choosing to look.
+  const acts = document.getElementById('tk-activity');
+  const focused = typeof document.hasFocus === 'function' && document.hasFocus();
+  // A tab switch fires visibilitychange and then focus: one return re-records once (tkReturnAt, two seconds).
+  const fresh = acts && acts.tkReturnAt && Date.now() - acts.tkReturnAt < 2000;
+  if (acts && focused && !fresh && acts.tkMarked && acts.tkRecorded === acts.tkMarked) { acts.tkMarked = null; acts.tkReturnAt = Date.now(); }
+  // Drawn only if changed (onlyIfChanged): an unchanged conversation is not redrawn, so a selection or keyboard focus
+  // in it survives an app switch, and it is only re-recorded; a changed one is drawn, read out by the live region (the
+  // person came back to look) and keeping focus. If the read fails, nothing is recorded here and the next read of that
+  // conversation records it.
+  paintTaskActivity(TK_OPEN, { onlyIfChanged: true });
+}
+document.addEventListener('visibilitychange', tkTabReturn);
+// #6953: coming back from another app to a tab that was already visible fires no visibilitychange, and focus can settle
+// after it fires; the window gaining focus is the same look. Each call costs one activity read; the re-record happens
+// once per return (tkReturnAt).
+window.addEventListener('focus', tkTabReturn);
 function leaveTaskPage() {
   const was = TK_OPEN;
   TK_OPEN = null;

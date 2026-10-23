@@ -2,8 +2,8 @@
 /**
  * #6947: the task page tells the board the person has a task's conversation in front of them (POST .../task/<n>/seen).
  * paintTaskActivity marks it once per state of the conversation it drew (opening the task, a redraw after an action,
- * coming back to the tab, the five-second read); tkMarkSeen posts only for the project and task still open, with the
- * tab visible and the page on screen.
+ * the five-second read), and coming back to the tab with the window focused records a recorded state again (#6953);
+ * tkMarkSeen posts only for the project and task still open, with the tab visible and the page on screen.
  * The real paintTaskActivity, tkMarkSeen and tab-return listener are taken out of web/index.html and run against
  * stand-ins for the page, so the rule is driven, not just read.
  */
@@ -26,13 +26,6 @@ function fnSource(name) {
   assert.ok(at >= 0, name + ' not found in web/index.html');
   return balanced(at);
 }
-const LISTENER = "document.addEventListener('visibilitychange', () => {";
-function listenerSource() {
-  // The #6947 listener, not the page's other visibilitychange listeners: the first one after its own comment.
-  const at = HTML.indexOf(LISTENER, HTML.indexOf('/* #6947: coming back to the tab while a task'));
-  assert.ok(at > 0, 'the tab-return listener is missing');
-  return balanced(at) + ');';
-}
 
 /* A page with projects 'p one' and 'p two'; task `open` of project `pj` is showing. `read` is what the activity fetch
    does ('ok', 'empty' or 'fail'); `hold` delays it until release() so a test can change the page meanwhile. */
@@ -42,13 +35,13 @@ function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', re
   const acts = { innerHTML: '' };
   const doc = {
     visibilityState: visible,
+    hasFocus: () => st.focused !== false,
     getElementById: (id) => (id === 'tk-back' ? { getClientRects: () => (st.onScreen ? [{}] : []), focus() {} } : id === 'tk-activity' ? acts : (els[id] || (els[id] = { textContent: '', value: '', innerHTML: '', hidden: false }))),
-    addEventListener: (type, fn) => { if (type === 'visibilitychange') doc.listener = fn; },
   };
   let release = () => {};
   const gate = hold ? new Promise((r) => { release = r; }) : Promise.resolve();
   const fetch = async (url, opts) => {
-    if (opts && opts.method === 'POST') { posts.push(url); if (st.post === 'lost') throw new Error('lost'); return { status: st.post, text: async () => { st.bodies = (st.bodies || 0) + 1; return ''; } }; }
+    if (opts && opts.method === 'POST') { posts.push(url); if (st.post === 'lost') throw new Error('lost'); const status = st.post; if (st.postHold) await new Promise((r) => st.postHold.push(r)); return { status, ok: typeof status === 'number' && status >= 200 && status < 300, text: async () => { st.bodies = (st.bodies || 0) + 1; return ''; } }; }
     const asked = st.events;   // what the board held when this read was asked
     await gate;
     if (st.queue) await new Promise((r) => st.queue.push(r));
@@ -59,12 +52,12 @@ function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', re
   // eslint-disable-next-line no-new-func
   const make = new Function('document', 'fetch', 'pjById', 'tkActRowsHtml', 'setTimeout', 'paintTaskPage', 'tkReceiptSync', 'pjView', 'init',
     'let PJ_CURRENT = init.pj; let TK_OPEN = init.open; let TKR_SHOWN = null; let TK_POLLING = false;\n' + fnSource('paintTaskActivity') + '\n' + fnSource('tkMarkSeen')
-    + '\n' + fnSource('openTaskPage') + '\n' + fnSource('tkPollActivity') + '\n' + listenerSource()
-    + '\nreturn { paintTaskActivity, openTaskPage, tkPollActivity, set(pjId, n) { PJ_CURRENT = pjId; TK_OPEN = n; } };');
+    + '\n' + fnSource('openTaskPage') + '\n' + fnSource('tkPollActivity') + '\n' + fnSource('tkTabReturn')
+    + '\nreturn { paintTaskActivity, openTaskPage, tkPollActivity, tkTabReturn, set(pjId, n) { PJ_CURRENT = pjId; TK_OPEN = n; } };');
   const api = make(doc, fetch, (id) => (id ? { id, tasks: [{ number: 3 }, { number: 4 }] } : null), () => '<rows>', (fn, ms) => timers.push([fn, ms]),
     () => {}, () => {}, () => {}, { pj, open });
   const settle = () => new Promise((r) => setImmediate(r));
-  return { posts, acts, doc, timers, st, ...api, release: () => release(), settle, tabBack: async () => { doc.listener(); await settle(); await settle(); } };
+  return { posts, acts, doc, timers, st, ...api, release: () => release(), settle, tabBack: async () => { api.tkTabReturn(); await settle(); await settle(); } };
 }
 const seenUrl = (pj, n) => '/api/project/' + encodeURIComponent(pj) + '/task/' + n + '/seen';
 
@@ -130,8 +123,22 @@ test('#6951: the poll redraws, and marks seen, only when the conversation change
   assert.equal(p.acts.innerHTML, '<rows>');
 });
 
-test('#6951: the poll asks for a changed-only redraw while the task page is up in a visible tab and the person is there', () => {
-  assert.match(HTML, /if \(TK_OPEN !== null && !document\.getElementById\('pj-task-view'\)\.hidden && document\.visibilityState === 'visible' && tkPresent\(\)\) tkPollActivity\(\);/);
+test('#6951/#6953: the five-second read asks for a redraw only with the task page up, the tab visible and the person there', () => {
+  const run = ({ open = 3, hidden = false, visible = 'visible', present = true, view = true } = {}) => {
+    let polls = 0;
+    // eslint-disable-next-line no-new-func
+    new Function('document', 'TK_OPEN', 'tkPresent', 'tkPollActivity', fnSource('tkPollIfThere') + '\ntkPollIfThere();')(
+      { visibilityState: visible, getElementById: (id) => (id === 'pj-task-view' && view ? { hidden } : null) },
+      open, () => present, () => { polls += 1; });
+    return polls;
+  };
+  assert.equal(run(), 1, 'the CONTROL arm: everything true asks for the read');
+  assert.equal(run({ open: null }), 0, 'no task open');
+  assert.equal(run({ hidden: true }), 0, 'the task page is not shown');
+  assert.equal(run({ visible: 'hidden' }), 0, 'the tab is hidden');
+  assert.equal(run({ present: false }), 0, 'the person is not there');
+  assert.equal(run({ view: false }), 0, 'no task view at all');
+  assert.match(fnSource('loadProjects'), /if \(TK_OPEN !== null\) tkPollIfThere\(\);/, 'loadProjects no longer calls the gate');
 });
 
 test('#6951: a seen post that failed on the server or was lost is tried once more; a refusal is not', async () => {
@@ -326,7 +333,7 @@ test('#6951: the five-second read redraws without announcing the conversation; a
   await p.paintTaskActivity(3);
   assert.deepEqual(calls, [], 'a redraw the person asked for changed the live region');
   p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-22T23:30:00.000Z', kind: 'said', text: 'new' }];
-  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  await p.paintTaskActivity(3, { onlyIfChanged: true, quiet: true });
   assert.deepEqual(calls, [['aria-live', 'off']], 'the poll redraw was not silenced before the swap');
   const restore = p.timers.find(([, ms]) => ms === 0);
   assert.ok(restore, 'the live region is never switched back on');
@@ -358,7 +365,7 @@ test('#6951: the five-second read redraw puts keyboard focus back on the history
   p.acts.querySelectorAll = (sel) => (sel === '[data-first]' ? [row] : []);
   p.doc.activeElement = { closest: () => row };
   p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-22T23:40:00.000Z', kind: 'said', text: 'new' }];
-  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  await p.paintTaskActivity(3, { onlyIfChanged: true, quiet: true });
   assert.equal(focused, 1, 'focus was not put back after the poll redraw');
   // CONTROL: with focus outside the conversation, nothing is focused.
   p.acts.contains = () => false;
@@ -386,4 +393,106 @@ test('#6947: the seen reply\'s body is read, so the request finishes (an unread 
     await p.settle();
     assert.equal(p.st.bodies, 1, 'the seen reply was left unread (' + post + '), which keeps the request open');
   }
+});
+
+test('#6953: coming back to the tab records the view again, even when the conversation is unchanged', async () => {
+  const p = page();
+  await p.paintTaskActivity(3); await p.settle();
+  assert.equal(p.posts.length, 1);
+  await p.paintTaskActivity(3); await p.settle();
+  assert.equal(p.posts.length, 1, 'CONTROL: an ordinary redraw of the same conversation records nothing new');
+  await p.tabBack(); await p.settle();
+  assert.equal(p.posts.length, 2, 'a return to the tab did not record the view again');
+});
+
+test('#6953: a return to the tab does not re-ask a board that refused, or that failed twice', async () => {
+  for (const [post, sends] of [[403, 1], [500, 2]]) {
+    const p = page({ post });
+    await p.paintTaskActivity(3); await p.settle();
+    while (p.timers.length) { p.timers.shift()[0](); await p.settle(); }
+    assert.equal(p.posts.length, sends, 'setup (' + post + ')');
+    await p.tabBack(); await p.settle();
+    assert.equal(p.posts.length, sends, 'a return to the tab asked again after ' + post);
+  }
+});
+
+test('#6953: a return while the view record is still on its way sends nothing more; a return after the conversation changed records it', async () => {
+  const p = page({ post: 500 });
+  await p.paintTaskActivity(3); await p.settle();
+  assert.equal(p.timers.length, 1, 'the record is waiting on its retry');
+  await p.tabBack(); await p.settle();
+  assert.equal(p.posts.length, 1, 'a return during the retry window sent a second record');
+  p.st.post = 200;
+  while (p.timers.length) { p.timers.shift()[0](); await p.settle(); }
+  assert.equal(p.posts.length, 2, 'the retry went');
+  p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-22T23:50:00.000Z', kind: 'said', text: 'while away' }];
+  await p.tabBack(); await p.settle();
+  assert.equal(p.posts.length, 3, 'a return after a new message did not record it');
+});
+
+test('#6953: an older state settling late does not stop a tab return from re-recording the newer one', async () => {
+  const p = page({ post: 403 });
+  p.st.postHold = [];
+  await p.paintTaskActivity(3); await p.settle();   // state A: its record is out, and will be refused
+  p.st.post = 200;
+  p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-22T23:55:00.000Z', kind: 'said', text: 'B' }];
+  await p.paintTaskActivity(3, { onlyIfChanged: true }); await p.settle();   // state B: its record is out too
+  const [answerA, answerB] = p.st.postHold;
+  p.st.postHold = null;
+  answerB(); await p.settle(); await p.settle();   // B recorded first
+  answerA(); await p.settle(); await p.settle();   // then A's refusal lands
+  assert.equal(p.posts.length, 2);
+  await p.tabBack(); await p.settle();
+  assert.equal(p.posts.length, 3, 'the late refusal of the older state stopped the return from re-recording the newer one');
+});
+
+test('#6953: a tab that turns visible without the window focused (a covering window closed) does not record again', async () => {
+  const p = page();
+  await p.paintTaskActivity(3); await p.settle();
+  p.st.focused = false;
+  await p.tabBack(); await p.settle();
+  assert.equal(p.posts.length, 1, 'an unfocused window recorded a view nobody chose');
+  p.st.focused = true;
+  await p.tabBack(); await p.settle();
+  assert.equal(p.posts.length, 2, 'CONTROL: a focused return records again');
+});
+
+test('#6953: a return to the tab and the window gaining focus both run the same return', () => {
+  assert.match(HTML, /document\.addEventListener\('visibilitychange', tkTabReturn\);/);
+  assert.match(HTML, /window\.addEventListener\('focus', tkTabReturn\);/);
+});
+
+test('#6953: a tab switch (visibilitychange then focus) records the return once and does not redraw an unchanged conversation', async () => {
+  const p = page();
+  await p.paintTaskActivity(3); await p.settle();
+  p.acts.innerHTML = 'kept, with a selection in it';
+  await p.tabBack(); await p.tabBack(); await p.settle();   // the two events of one return
+  assert.equal(p.posts.length, 2, 'one return recorded ' + (p.posts.length - 1) + ' times');
+  assert.equal(p.acts.innerHTML, 'kept, with a selection in it', 'an unchanged conversation was redrawn on a return');
+});
+
+test('#6953: the five-second read asks for a quiet redraw; a return after a change redraws, read out by the live region', async () => {
+  assert.match(fnSource('tkPollActivity'), /paintTaskActivity\(TK_OPEN, \{ onlyIfChanged: true, quiet: true \}\)/);
+  const p = page();
+  const calls = [];
+  p.acts.setAttribute = (k, v) => calls.push([k, v]);
+  await p.paintTaskActivity(3); await p.settle();
+  p.acts.innerHTML = 'the old conversation';
+  p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-23T00:10:00.000Z', kind: 'said', text: 'while away' }];
+  await p.tabBack(); await p.settle();
+  assert.equal(p.acts.innerHTML, '<rows>', 'a return after a change did not draw the new conversation');
+  assert.deepEqual(calls, [], 'a return the person chose was drawn with the live region switched off');
+});
+
+test('#6953: a return that draws a changed conversation puts keyboard focus back on the row the person had focused', async () => {
+  const p = page();
+  await p.paintTaskActivity(3); await p.settle();
+  let focused = 0;
+  const row = { dataset: { first: '0@2026-10-22T23:00:00.000Z' }, querySelector: () => ({ focus: () => { focused += 1; } }) };
+  p.acts.contains = () => true;
+  p.acts.querySelectorAll = (sel) => (sel === '[data-first]' ? [row] : []);
+  p.doc.activeElement = { closest: () => row };
+  p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-23T00:20:00.000Z', kind: 'said', text: 'while away' }];
+  await p.tabBack(); await p.settle();
+  assert.equal(focused, 1, 'focus was not put back after a return drew the changed conversation');
 });
