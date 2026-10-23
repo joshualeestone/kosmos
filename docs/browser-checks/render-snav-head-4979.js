@@ -299,9 +299,9 @@ function chk(ok, label, extra) {
           /* #6910: the page's projects reads are held until Settings has been clicked. On a slow runner they landed
              after the click, and the first one's one-time auto-open (#867) took the display column back, hiding
              Settings. Holding them makes that order certain on every run, instead of on a slow one only. The page
-             makes several reads at load, so every read waits, not only the first. Released after 30 s regardless. */
+             makes several reads at load, so every read waits, not only the first. Released 30 s after the click regardless. */
           let releaseProjects, heldTimer;
-          const projectsHeld = new Promise((r) => { heldTimer = setTimeout(r, 30000); releaseProjects = () => { clearTimeout(heldTimer); r(); }; });
+          const projectsHeld = new Promise((r) => { releaseProjects = () => { clearTimeout(heldTimer); r(); }; });
           // The read is fetch('/api/projects'), no query. A read this pattern missed would land before the click, and
           // the first control line below would then fail, so the arm cannot pass on an untested order.
           await page.route(/\/api\/projects$/, async (r) => {
@@ -320,6 +320,7 @@ function chk(ok, label, extra) {
           const readBeforeClick = await page.evaluate(() => PJ_LOADED_ONCE);
           chk(readBeforeClick === false, `${tag}: control: no projects read had landed when Settings was clicked (the late-read order)`, JSON.stringify({ readBeforeClick }));
           await page.evaluate(() => document.getElementById('userpop-settings').click());
+          heldTimer = setTimeout(releaseProjects, 30000);   // the fallback runs from the click, so a slow boot cannot spend it
           /* #6910: a timeout here said only "hidden", which cannot tell a Settings that never opened from one that opened
              and was hidden again, or from a nav that is there but has no size. Say which, with the state that decides it.
              Settings is read twice, 300 ms after the click and at the timeout, since one late read shows the same for the

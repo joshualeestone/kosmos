@@ -98,7 +98,7 @@ test('#6910: a view the person opens ends both arrival opens, so a late projects
   // The New project form opens without the takeover, so it marks them itself, first.
   assert.match(page.lift(SCRIPT, 'openAddProject'), /^function openAddProject\(\) \{\n  pjOpensDone\(\);/,
     'the New project form does not end the arrival opens');
-  // CONTROL: the marks are what both opens read.
+  // PINS: the marks are what both opens read.
   assert.match(SCRIPT, /if \(WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE\) \{/);
   assert.match(SCRIPT, /if \(!PJ_AUTO_OPENED_ONCE && !WANT_PROJECT && !PJ_CURRENT\n/);
 });

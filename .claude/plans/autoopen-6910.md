@@ -15,9 +15,10 @@ auto-open fires and replaces it. Only a slow runner gets that order.
   takeOverDisplayColumn (Settings, Agents, Tasks, New Agent, the Projects page) and in openAddProject (the New project
   form, which does not take over the column). loadProjects itself is unchanged: its existing guards read the marks.
 - docs/browser-checks/render-snav-head-4979.js, consolidated arm: every projects GET is held until Settings has been
-  clicked and the 300 ms sample taken, then released (a 30 s fallback, cleared on release; try/abort per #6022). Two
-  control lines (no read had landed at the click; Settings opened before the release) and two assertions (the late
-  read had an active project to auto-open, no deep link and the consolidated layout; no project opened over Settings). The page makes three
+  clicked and the 300 ms sample taken, then released (a 30 s fallback from the click, cleared on release; try/abort per
+  #6022). Three control lines (no read had landed at the click; Settings opened before the release; the late read had
+  an active project to auto-open, no deep link and the consolidated layout) and one assertion (no project opened over
+  Settings). The page makes three
   reads at load: holding only the first did not reproduce, because the other two landed first.
 - web.consolidated-867.test.js: runs the real takeOverDisplayColumn and checks both marks; openAddProject calls
   pjOpensDone first; both opens still read the marks.
@@ -33,7 +34,12 @@ auto-open fires and replaces it. Only a slow runner gets that order.
 - Mark at the opener, not at read time (review round 3): one rule for every view, and loadProjects untouched, so the
   two layout signals and the "view is the record" rule of paintPjNone are not in play.
 - The deep link ends the same way: the person's later click wins over the URL.
-- Weakest premise: that every caller of takeOverDisplayColumn and openAddProject is a person's choice. Checked each:
+- The window is "until the first read that succeeds", not only a slow one (review round 5). While reads fail (offline,
+  signed out, a 500), both opens stay armed, and a view opened then ends them too: a ?project= link opened offline is
+  lost if the person browses to Settings and back before coming online, and lands on the list. Rejected: not marking
+  after a failed read, which brings this card's own bug back on recovery (a read that finally lands replaces the view
+  the person has open). Losing the link costs a click on that project in the list; the other costs their place.
+- Weakest premise: that losing an unopened deep link after the person browses is acceptable (above); and that every caller of takeOverDisplayColumn and openAddProject is a person's choice. Checked each:
   the menu and rail Settings, a login notice, nav clicks, detail-back and create-back, tasks, New Agent, the Projects
   page, tcFinish -> tcGoToTeam(true) (TC is in memory only, null at boot, and made only by openTeamCreate from the
   team-seeded-go click or an already-started team session), and the two New project buttons.
@@ -42,7 +48,7 @@ auto-open fires and replaces it. Only a slow runner gets that order.
 - Arm A, the check on origin/main's index.html (12:05): rc 2. "the late read did not open a project over Settings"
   FAILs with cur "gettingstarted" and pj-one-view shown, the CI signature; both controls pass, and the diagnostic
   reads settingsHiddenAt300ms false and settingsHidden true (opened, then hidden).
-- Arm B, the check on the fix (12:06): rc 0, 0 FAIL, no SKIPPED; both controls, both assertions and "no page
+- Arm B, the check on the fix (12:06): rc 0, 0 FAIL, no SKIPPED; all three controls, the assertion and "no page
   errors" pass in all 4 arms (2 engines x 2 widths).
 - Untouched arrival (no click, reads not held) on the final fix: all 4 arms auto-open gettingstarted, pj-one-view
   shown, the "No projects yet" hint hidden.
