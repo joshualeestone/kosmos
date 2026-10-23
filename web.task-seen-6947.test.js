@@ -1,8 +1,9 @@
 'use strict';
 /**
  * #6947: the task page tells the board the person has a task's conversation in front of them (POST .../task/<n>/seen).
- * paintTaskActivity marks it after every draw that succeeded (opening the task, a redraw after an action, coming back
- * to the tab); tkMarkSeen posts only for the project and task still open, with the tab visible and the page on screen.
+ * paintTaskActivity marks it once per state of the conversation it drew (opening the task, a redraw after an action,
+ * coming back to the tab, the five-second read); tkMarkSeen posts only for the project and task still open, with the
+ * tab visible and the page on screen.
  * The real paintTaskActivity, tkMarkSeen and tab-return listener are taken out of web/index.html and run against
  * stand-ins for the page, so the rule is driven, not just read.
  */
@@ -125,8 +126,8 @@ test('#6951: the poll redraws, and marks seen, only when the conversation change
   assert.equal(p.acts.innerHTML, '<rows>');
 });
 
-test('#6951: the poll asks for a changed-only redraw while the task page is up in a visible tab', () => {
-  assert.match(HTML, /if \(TK_OPEN !== null && !document\.getElementById\('pj-task-view'\)\.hidden && document\.visibilityState === 'visible'\) paintTaskActivity\(TK_OPEN, \{ onlyIfChanged: true \}\);/);
+test('#6951: the poll asks for a changed-only redraw while the task page is up in a visible tab and the person is there', () => {
+  assert.match(HTML, /if \(TK_OPEN !== null && !document\.getElementById\('pj-task-view'\)\.hidden && document\.visibilityState === 'visible' && tkPresent\(\)\) paintTaskActivity\(TK_OPEN, \{ onlyIfChanged: true \}\);/);
 });
 
 test('#6951: a seen post that failed on the server or was lost is tried once more; a refusal is not', async () => {
@@ -199,4 +200,44 @@ test('#6951: a failed read in between does not record a view already recorded fo
   await p.settle();
   assert.equal(p.acts.innerHTML, '<rows>', 'redrawn after the failed read');
   assert.equal(p.posts.length, 1, 'the same conversation was recorded again');
+});
+
+test('#6951: a read during the retry window does not send a second record for the same conversation', async () => {
+  const p = page({ post: 500 });
+  await p.paintTaskActivity(3);
+  await p.settle();
+  assert.equal(p.timers.length, 1, 'the failure scheduled its retry');
+  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  await p.settle();
+  assert.equal(p.posts.length, 1, 'a read inside the retry window sent another record');
+  p.timers.shift()[0](); await p.settle();
+  assert.equal(p.posts.length, 2, 'the retry itself still went');
+  await p.paintTaskActivity(3, { onlyIfChanged: true }); await p.settle();
+  assert.equal(p.posts.length, 2, 'settled after the failed retry');
+});
+
+test('#6951: a retry that finds the page gone leaves the conversation for the next read, which sends it', async () => {
+  const p = page({ post: 500 });
+  await p.paintTaskActivity(3);
+  await p.settle();
+  p.st.onScreen = false;
+  p.timers.shift()[0](); await p.settle();
+  assert.equal(p.posts.length, 1, 'the retry sent though the page was gone');
+  p.st.onScreen = true; p.st.post = 200;
+  await p.paintTaskActivity(3, { onlyIfChanged: true }); await p.settle();
+  assert.equal(p.posts.length, 2, 'the next read did not try again');
+});
+
+test('#6951: the person counts as there only with the window focused and input in the last two minutes', () => {
+  const src = HTML.slice(HTML.indexOf('function tkPresent('), HTML.indexOf('}', HTML.indexOf('function tkPresent(')) + 1);
+  const run = (focused, lastInputAgoMs) => {
+    // eslint-disable-next-line no-new-func
+    return new Function('document', 'Date', 'TK_LAST_INPUT', src + '\nreturn tkPresent();')(
+      { hasFocus: () => focused }, { now: () => 1000000 }, 1000000 - lastInputAgoMs);
+  };
+  assert.equal(run(true, 5000), true);
+  assert.equal(run(true, 119000), true);
+  assert.equal(run(true, 121000), false, 'two minutes without input is not there');
+  assert.equal(run(false, 5000), false, 'an unfocused window is not there');
+  assert.match(HTML, /for \(const ev of \['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'\]\) document\.addEventListener\(ev, \(\) => \{ TK_LAST_INPUT = Date\.now\(\); \}/);
 });

@@ -66541,9 +66541,11 @@ async function loadProjects() {
   // #5153: a task closed or put back elsewhere shows or hides its receipt on this read.
   if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden) tkReceiptSync();
   /* #6951: a message that comes while the person is on the task's page is drawn on this read too (paintTaskActivity
-     marks it seen, #6947), so "seen" no longer waits for an action. Only when the conversation changed, so an unchanged
-     one is not redrawn (which would lose a selection in it) and the view is not re-recorded every poll. */
-  if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden && document.visibilityState === 'visible') paintTaskActivity(TK_OPEN, { onlyIfChanged: true });
+     marks it seen, #6947), so "seen" no longer waits for an action. Only while the person is there (tkPresent: the
+     window has focus and they moved, clicked, typed or scrolled in the last two minutes), so a page left open on an
+     empty desk does not mark every new nudge seen. Only when the conversation changed, so an unchanged one is not
+     redrawn (which would lose a selection in it). */
+  if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden && document.visibilityState === 'visible' && tkPresent()) paintTaskActivity(TK_OPEN, { onlyIfChanged: true });
   // The settings view holds the archive control now, so a poll that lands
   // while it is open must repaint IT from the truth too -- without this,
   // "Restore failed. Try again." outlives a restore whose write landed and
@@ -68423,8 +68425,10 @@ async function paintTaskActivity(n, opts) {
   /* The view is remembered apart from the draw (tkMarked: this conversation is settled, the board answered for it). A
      mark that declined (the page behind another Kosmos tab, so nothing was sent) is tried on the next read of the same
      conversation; a settled one is not sent again until the conversation changes. */
-  const marked = () => { holder.tkMarked = drawn; };
-  const mark = () => { if (holder.tkMarked !== drawn) tkMarkSeen(n, p.id, false, marked); };
+  /* tkMarking: a record for this conversation is on its way (or waiting on its retry), so another read does not send a
+     second one. done(true) settles it; done(false) (the retry found the page gone) leaves it for the next read. */
+  const done = (settled) => { if (holder.tkMarking === drawn) holder.tkMarking = null; if (settled) holder.tkMarked = drawn; };
+  const mark = () => { if (holder.tkMarked !== drawn && holder.tkMarking !== drawn && tkMarkSeen(n, p.id, false, done)) holder.tkMarking = drawn; };
   if (onlyIfChanged && holder.tkDrawn === drawn) { mark(); return; }
   holder.tkDrawn = drawn;
   if (!events.length) {
@@ -68508,7 +68512,7 @@ function openTaskPage(n) {
   /* A new task: clear the last one's activity before the fetch so a slow read
      cannot leave the previous task's events on screen. */
   const acts = document.getElementById('tk-activity');
-  if (acts) { acts.innerHTML = ''; acts.tkDrawn = null; acts.tkMarked = null; }   // #6951: nothing drawn or marked yet for this open
+  if (acts) { acts.innerHTML = ''; acts.tkDrawn = null; acts.tkMarked = null; acts.tkMarking = null; }   // #6951: nothing drawn or marked yet for this open
   const receipt = document.getElementById('tk-receipt');
   if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
   const undoBox = document.getElementById('tk-undo');   // #5153 slice 4
@@ -68520,23 +68524,34 @@ function openTaskPage(n) {
   document.getElementById('tk-back').focus();   // the top of the new page
 }
 /* #6947: tell the board the person has this task's conversation in front of them, so an agent that left a nudge on it
-   can tell "not seen" from "seen, not acted on" (engine/taskseen.js). paintTaskActivity calls it after every draw that
-   succeeded (opening the task, a redraw after an action, coming back to the tab), with the project and task it drew;
-   it posts only if that is still the task open, and the tab is visible with the task's page on screen (its back button
-   has a layout box; getClientRects, which a hidden ancestor empties and fixed positioning does not): a task restored in
-   a background tab, or left open behind another Kosmos tab, has not been seen.
-   Best effort; a failure changes nothing on the page. */
-function tkMarkSeen(n, projectId, retried = false, onSettled = null) {
+   can tell "not seen" from "seen, not acted on" (engine/taskseen.js). paintTaskActivity calls it, through its mark(),
+   once for each state of the conversation it drew (opening the task, a redraw after an action, coming back to the tab,
+   the five-second read), with the project and task it drew. It sends only if that is still the task open, and the tab
+   is visible with the task's page on screen (its back button has a layout box; getClientRects, which a hidden ancestor
+   empties and fixed positioning does not): a task restored in a background tab, or left open behind another Kosmos tab,
+   has not been seen. Returns whether it sent. Best effort; a failure changes nothing on the page.
+   #6951: a server error or a lost request is tried once more, 3 seconds later and only if the task is still on screen;
+   then onDone(true) settles it (recorded, refused with a 4xx, or failed twice), so a refusing or broken board is not
+   asked again until the conversation changes. A retry that finds the page gone calls onDone(false). */
+function tkMarkSeen(n, projectId, retried = false, onDone = null) {
   const back = document.getElementById('tk-back');
-  if (TK_OPEN === null || n !== TK_OPEN || projectId !== PJ_CURRENT || document.visibilityState !== 'visible' || !back || !back.getClientRects().length) return;
-  /* #6951: a view that could not be recorded reads to the agent like never viewed, so a server error or a lost request
-     is tried once more, a few seconds later and only if the task is still on screen. Then the attempt is settled
-     (onSettled): recorded, refused (4xx, not retried), or failed twice. A settled conversation is not sent again until
-     it changes, so a refusing or broken board is not asked every five seconds. */
-  const settle = () => { if (onSettled) onSettled(); };
-  const failed = () => { if (retried) settle(); else setTimeout(() => tkMarkSeen(n, projectId, true, onSettled), 3000); };
+  if (TK_OPEN === null || n !== TK_OPEN || projectId !== PJ_CURRENT || document.visibilityState !== 'visible' || !back || !back.getClientRects().length) {
+    if (retried && onDone) onDone(false);
+    return false;
+  }
+  const settle = () => { if (onDone) onDone(true); };
+  const failed = () => { if (retried) settle(); else setTimeout(() => tkMarkSeen(n, projectId, true, onDone), 3000); };
   fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' })
     .then((res) => { if (res && res.status >= 500) failed(); else settle(); }, failed);
+  return true;
+}
+/* #6951: is the person at the page? The window has focus and they moved, clicked, typed or scrolled in it in the last
+   two minutes. Used only by the five-second read: opening a task, acting on it and coming back to the tab are the
+   person's own doing. */
+let TK_LAST_INPUT = 0;
+for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) document.addEventListener(ev, () => { TK_LAST_INPUT = Date.now(); }, { passive: true, capture: true });
+function tkPresent() {
+  return typeof document.hasFocus === 'function' && document.hasFocus() && Date.now() - TK_LAST_INPUT < 120000;
 }
 /* #6947: coming back to the tab while a task's page is showing: draw the conversation again at once (the five-second
    read skips a hidden tab, so a message that came while it was away is not on screen yet); the draw marks it seen. */
