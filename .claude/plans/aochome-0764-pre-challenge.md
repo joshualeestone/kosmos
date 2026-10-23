@@ -31,5 +31,5 @@ converged: true
   AGENT_WORKFORCE_* reference.
 
 ### NITs (not done: they do not change what runs)
-- run_case's -u list could add AGENT_WORKFORCE_HOME for explicit isolation (LAUNCH/WORKERS/DATA already override it).
-- The new comment could also say the sandboxed arm's explicit paths still win over the home variable.
+- [NIT] run_case's -u list could add AGENT_WORKFORCE_HOME for explicit isolation (LAUNCH/WORKERS/DATA already override it).
+- [NIT] The new comment could also say the sandboxed arm's explicit paths still win over the home variable.
