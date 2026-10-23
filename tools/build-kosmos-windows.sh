@@ -475,6 +475,10 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 # why the README's first instruction is where to extract it. The example is
 # %LOCALAPPDATA%\Programs\Kosmos, the per-user program folder, and NOT
 # C:\Users\<name>\Kosmos, which is where Kosmos keeps the person's Projects.
+# After the first run the README sends people to the Start menu, never back to
+# Kosmos.exe: it has just told them they can delete the zip (and so the folder
+# they extracted), and the Start menu shortcut runs the installed Kosmos.exe, the
+# same program, so it also signs an open window in again (tools/windows/README.md).
 {
   printf 'Kosmos for Windows\r\n'
   printf '\r\n'
@@ -506,7 +510,7 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'Kosmos opens in its own window. Closing that window does not stop\r\n'
   printf 'Kosmos: it keeps running in the background and starts by itself when\r\n'
   printf 'you sign in to Windows. Your agents do too. To open Kosmos again\r\n'
-  printf 'later, double-click Kosmos.exe again.\r\n'
+  printf 'later, open it from the Start menu.\r\n'
   printf '\r\n'
   printf 'Agents need Claude Code on this computer, signed in. If it is\r\n'
   printf 'missing, the board shows you the command that installs it. If it is\r\n'
@@ -521,8 +525,8 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'Task Scheduler Library, then the Kosmos folder.\r\n'
   printf '\r\n'
   printf 'If Kosmos does not open, or the board says it is not signed in,\r\n'
-  printf 'double-click Kosmos.exe again. Bookmarks to Kosmos don\047t stay\r\n'
-  printf 'signed in. Always open Kosmos from Kosmos.exe.\r\n'
+  printf 'open Kosmos from the Start menu again. Bookmarks to Kosmos don\047t\r\n'
+  printf 'stay signed in. Always open Kosmos from the Start menu.\r\n'
 } > "$STAGE/! READ ME FIRST - Windows will warn you.txt"
 
 # ---- the manifest ----------------------------------------------------------
