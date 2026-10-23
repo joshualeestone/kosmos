@@ -657,3 +657,30 @@ test('#6957 review 8: can someone else HELP you...? asks for help for bob, so th
   append({ kind: 'post', id: 'h2', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob is out, can someone else take it?', outcomes: {}, at: new Date().toISOString() });
   assert.equal(claim('cy', 'h2').op, 'add');
 });
+
+test('#6974: who can help YOU / is around to help HIM asks for help for bob, so the post stays bob\'s; control: who can take it? asks the room', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  let n = 0;
+  const ask = (text) => { n += 1; append({ kind: 'post', id: 'y' + n, project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text, outcomes: {}, at: new Date().toISOString() }); return 'y' + n; };
+  for (const text of ['@bob take the parser - who can help you?', '@bob please take the login bug. Who is around to help him if he gets stuck?',
+    '@bob owns this. Who wants to help @bob with the tests?']) {
+    assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
+  }
+  // CONTROLS: the same clause asking for the work, or for help with it, opens the post.
+  for (const text of ['@bob is out - who can take the parser?', '@bob is out. Who is around to help with the login bug?']) {
+    assert.equal(claim('cy', ask(text)).op, 'add', text);
+  }
+});
+
+test('#6974: "around to" and "someone else has time" in passing are bob\'s; control: the same words starting a clause or after can/is there ask the room', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  let n = 0;
+  const ask = (text) => { n += 1; append({ kind: 'post', id: 'z' + n, project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text, outcomes: {}, at: new Date().toISOString() }); return 'z' + n; };
+  for (const text of ['@bob ask anyone around to review it', '@bob let me know if anyone else has time', '@bob tell me if somebody else is free... I mean free later']) {
+    assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
+  }
+  for (const text of ['@bob is out. Anyone around to review it?', '@bob is out, is there anyone around to review it?', '@bob is busy. Someone else free to take this?',
+    '@bob is busy, could anyone else please take this?']) {
+    assert.equal(claim('cy', ask(text)).op, 'add', text);
+  }
+});

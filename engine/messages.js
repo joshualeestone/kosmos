@@ -3691,13 +3691,18 @@ const CLAIM_ASKED_MINUTES = 30;   // #6952: how long a post's asked members have
 const CLAIM_LEAD = "(?:^|[.!?;:,(\\n\\u2013\\u2014-]\\s*)(?:(?:now|so|and|but|ok|okay|also|then|great|thanks)[,!]?\\s+)?";
 const CLAIM_ROOM_ASK = new RegExp(
   CLAIM_LEAD + '(?:can|could|would|will|is there)\\s+(?:someone|somebody|anyone|anybody)\\b'          // "can someone review..."
-  + '|\\b(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+(?:please|free|available|around to|able|willing|up for|have time|has time)\\b'
+  + '|\\b(?:someone|somebody|anyone|anybody)\\s+(?:please|free|available|able|willing|up for|have time|has time)\\b'
+  + '|\\b(?:someone|somebody|anyone|anybody)\\s+else\\s+please\\b'   // an imperative to the room wherever it sits ("@bob is swamped so somebody else please grab it")
+  // "around to" and "someone ELSE <free>" read as the room only at a clause start or after can/could/is there: "@bob ask
+  // anyone around to review it" and "@bob let me know if anyone else has time" are bob's (#6974)
+  + '|(?:' + CLAIM_LEAD + '|\\b(?:can|could|is there)\\s+)(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+(?:please|free|available|around to|able|willing|up for|have time|has time)\\b'
   // "someone ELSE" plainly excludes whoever was named, so "can someone else take it?" asks the room even right after the
   // names ("Thanks @bob! Can someone else take the login bug?"), wherever it sits (#6957 review 4)
   // ...and only before a hand-off verb, so "could someone else have changed this?" or "can anyone else reproduce this?" ask bob
   + '|\\b(?:can|could)\\s+(?:someone|somebody|anyone|anybody)\\s+else\\s+(?:take|grab|pick|handle|own|cover|do|look|jump|step)\\b'   // only before a hand-off verb (review 7); not help: "can someone else help you?" asks for help FOR bob (review 8)
   // "who can write the notes?", "Who's free to take this?" (straight or curly apostrophe), "who has time for this?"
-  + '|' + CLAIM_LEAD + "who(?:\\s+|'s\\s+|\u2019s\\s+)(?:can|could|wants|will|is free|free|is available|available|has time|is around|around)\\b[^.!?]*\\?"
+  + '|' + CLAIM_LEAD + "who(?:\\s+|'s\\s+|\u2019s\\s+)(?:can|could|wants|will|is free|free|is available|available|has time|is around|around)\\b(?!\\s+(?:to\\s+)?help\\s+(?:you|him|her|them|@))[^.!?]*\\?"
+  // ...but not "who can help you?" or "who is around to help him?": the helper invited is not who the work is for (#6974)
   + '|\\bwhoever\\s+(?:can|is free|has time|wants|picks|takes|gets)\\b'
   + '|\\b(?:any takers|any volunteers|need (?:a )?volunteers?)\\b'
   // a bare "anyone?" or "anyone else?" as its own clause ("If you cannot, anyone else?"), not "broken for anyone else?"
