@@ -201,6 +201,16 @@ else
   # and a query there names a missing file).
   _pin_bust=""
   case "$_pin_base" in http://*|https://*) _pin_bust="?nocache=$$" ;; esac
+  # #6609: the highest release key list this user's existing Kosmos (default home) has taken, read from its record by
+  # file name only, as engine/manifest-verify.js storedKeyList reads it (a damaged top file still holds its seq). The
+  # helper never takes an older list than that; with no record it is 0 and the helper's own floor stands.
+  _pin_seen=0
+  for _pin_rec in "$USER_HOME/.local/share/kosmos/release-keys.state"/seq-*.json; do
+    _pin_s="${_pin_rec##*/seq-}"; _pin_s="${_pin_s%.json}"
+    case "$_pin_s" in ""|0*|*[!0-9]*) continue ;; esac
+    [ "${#_pin_s}" -le 10 ] || continue
+    if [ "$_pin_s" -le 2147483647 ] && [ "$_pin_s" -gt "$_pin_seen" ]; then _pin_seen="$_pin_s"; fi
+  done
   _pin_n=0; _pin_out=""; _pin_why=""
   while :; do
     _pin_n=$((_pin_n + 1))
@@ -221,7 +231,7 @@ else
       fi
       _pin_rc=0
       _pin_out="$("$_pin_helper" "$_pin_dir/manifest.json" "$_pin_dir/manifest.sig" "$_pin_v" "$_pin_floor" \
-        "$_pin_dir/release-keys.json" "$_pin_dir/release-keys.json.sig")" || _pin_rc=$?
+        "$_pin_dir/release-keys.json" "$_pin_dir/release-keys.json.sig" "$_pin_seen")" || _pin_rc=$?
       # 97 is the helper refusing the release, rechecked below; any other failure (a bad argument, a crash, a refused
       # launch) means the check itself could not run, and ends the install now.
       if [ "$_pin_rc" -ne 0 ] && [ "$_pin_rc" -ne 97 ]; then

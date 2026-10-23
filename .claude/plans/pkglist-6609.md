@@ -24,8 +24,13 @@ changes, and the site serving no list changes nothing.
   root step lifted verbatim against a file:// site with and without a list.
 
 ## Decided
-- The helper keeps no record of lists (a first install has none to keep); the floor is minKeyListSeq, the same floor
-  a fresh install's runSetup uses. The installed copy records the list on its first update.
+- The helper keeps no record of its own. Its floor is minKeyListSeq, raised to the highest list this Mac's existing
+  Kosmos has taken: the postinstall runs for every install, existing or not, and reads that copy's record
+  (release-keys.state at the default home) by file name, as storedKeyList does. Reading a user-owned record can only
+  raise the floor. Left uncovered, stated in the helper's header: a Mac with no Kosmos at the default home (a first
+  install, or one under another home) has only the built-in floor, so an old .pkg takes an old list there.
+- Not changed: the list fetch reuses the root step's one cache-buster across retries, as the manifest fetch already
+  does; and an OFF helper still has the list fetched (it cannot be asked first). Both cost time, never trust.
 - The postinstall never requires the list: it cannot know whether the helper is on, and requiring it while off would
   break every .pkg install until 2c serves one.
 - Rejected: falling back to the built-in keys when on and the list is missing. A site that withholds the list would

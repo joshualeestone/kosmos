@@ -77,7 +77,7 @@ const manifestBy = (key, fields) => {
 const listText = (o) => JSON.stringify(Object.assign({ type: 'kosmos-release-keys', release_keys: [spkiOf(LISTED.publicKey)], seq: 3, issued: '2026-10-23' }, o), null, 2) + '\n';
 const signList = (text, key) => { const bytes = Buffer.from(text); return { bytes, sig: crypto.sign(null, bytes, (key || RECOVERY).privateKey).toString('base64') }; };
 
-function run(h, man, list) {
+function run(h, man, list, taken) {
   const d = fs.mkdtempSync(path.join(h.dir, 'run-'));
   fs.writeFileSync(path.join(d, 'm.json'), man.bytes);
   fs.writeFileSync(path.join(d, 'm.sig'), man.sig);
@@ -85,6 +85,7 @@ function run(h, man, list) {
   if (list !== undefined) {
     if (list) { fs.writeFileSync(path.join(d, 'l.json'), list.bytes); fs.writeFileSync(path.join(d, 'l.sig'), list.sig); }
     args.push(path.join(d, 'l.json'), path.join(d, 'l.sig'));
+    if (taken !== undefined) args.push(taken);
   }
   return spawnSync(h.bin, args, { encoding: 'utf8' });
 }
@@ -114,7 +115,7 @@ test('#6609: ON, no list, an unreadable one, or one below the floor refuses (97)
   for (const [label, list, why] of [
     ['no list arguments', undefined, /release key list could not be read/],
     ['list files missing', null, /release key list could not be read/],
-    ['a list one below the floor', signList(listText({ seq: 2 })), /release key list offered \(2\) is older than this installer accepts/],
+    ['a list one below the floor', signList(listText({ seq: 2 })), /release key list offered \(2\) is older than this installer or this Mac's Kosmos accepts/],
   ]) {
     const r = run(h, man, list);
     assert.equal(r.status, 97, label + ': ' + r.stderr);
@@ -245,12 +246,18 @@ function site(h, signer, list) {
   }
   return root;
 }
-function rootStep(h, root) {
+function rootStep(h, root, record) {
   const scripts = fs.mkdtempSync(path.join(h.dir, 'scripts-'));
   fs.copyFileSync(h.bin, path.join(scripts, 'kosmos-pkg-verify'));
   fs.chmodSync(path.join(scripts, 'kosmos-pkg-verify'), 0o755);
   fs.writeFileSync(path.join(scripts, 'kosmos-pkg-floor'), '0.7.57\n');
   const home = fs.mkdtempSync(path.join(h.dir, 'home-'));
+  // The existing install's record of lists taken, at the default home, as file names.
+  if (record) {
+    const rec = path.join(home, '.local', 'share', 'kosmos', 'release-keys.state');
+    fs.mkdirSync(rec, { recursive: true });
+    for (const n of record) fs.writeFileSync(path.join(rec, n), '{}');
+  }
   const body = 'set -u\nUSER_HOME="$1"\nSETUP_URL="$2"\n' + liftRootStep() + '\nprintf "PIN_TARBALL=%s\\n" "$PIN_TARBALL"\n';
   const script = path.join(scripts, 'postinstall');
   fs.writeFileSync(script, body);
@@ -275,4 +282,34 @@ test('#6609: the root step OFF (as shipped) installs exactly as before when the 
   const r = rootStep(h, site(h, BUILTIN));
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, new RegExp('PIN_TARBALL=' + 'b'.repeat(64) + '\n'));
+});
+
+test('#6609: ON, the list seq this Mac already took raises the floor; it never lowers it', { skip: SKIP }, () => {
+  const h = on();   // built-in floor 3
+  const man = manifestBy(LISTED);
+  const below = run(h, man, signList(listText({ seq: 4 })), '5');
+  assert.equal(below.status, 97, below.stderr);
+  assert.match(below.stderr, /release key list offered \(4\) is older than this installer or this Mac's Kosmos accepts/);
+  assert.equal(below.stdout, '');
+  assert.equal(run(h, man, signList(listText({ seq: 5 })), '5').status, 0, 'the list already taken is taken again');
+  assert.equal(run(h, man, signList(listText({ seq: 3 })), '0').status, 0, 'no record: the built-in floor stands');
+  assert.equal(run(h, man, signList(listText({ seq: 2 })), '1').status, 97, 'a lower record never lowers the built-in floor');
+  for (const bad of ['', 'x', '-1', '5 ', '12345678901', String(mv.MAX_SEQ + 1)]) {
+    assert.equal(run(h, man, signList(listText()), bad).status, 2, JSON.stringify(bad) + ' is a wrong call, not a floor');
+  }
+  // OFF, the eighth argument is not read either.
+  assert.equal(run(off(), manifestBy(BUILTIN), null, 'x').status, 0);
+});
+
+test('#6609: the root step reads the existing install\'s record by name and refuses a list older than it', { skip: SKIP }, () => {
+  const h = on();   // built-in floor 3
+  // seq-5 is the top real name; the others are not names storedKeyList reads, so they must not raise the floor.
+  const record = ['seq-5.json', 'seq-07.json', 'seq-9x.json', 'seq-99999999999.json', 'seq-0.json', 'notes.json'];
+  const older = rootStep(h, site(h, LISTED, signList(listText({ seq: 4 }))), record);
+  assert.equal(older.status, 97, older.stderr);
+  assert.match(older.stderr, /release key list offered \(4\) is older/);
+  const same = rootStep(h, site(h, LISTED, signList(listText({ seq: 5 }))), record);
+  assert.equal(same.status, 0, 'the record names 5, not 7 or 9 or 11 digits: ' + same.stderr);
+  // Control: the same seq-4 list with no record installs, so the refusal above came from the record.
+  assert.equal(rootStep(h, site(h, LISTED, signList(listText({ seq: 4 })))).status, 0);
 });

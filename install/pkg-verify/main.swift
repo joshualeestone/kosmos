@@ -12,9 +12,10 @@
 // list a recovery key signed, fetched beside the manifest, checked as engine/manifest-verify.js verifyKeyList checks
 // it and not below minKeyListSeq. Then releaseKeys are not used at all, and a list that is missing or does not check
 // out refuses (97) as a bad signature does. With no recovery key (as shipped) the list is not read.
-// This helper keeps no record of lists, so its only floor is minKeyListSeq, built in: a revocation reaches .pkg
-// installs through a .pkg built after minKeyListSeq was raised to the revoking list. A .pkg built before that takes
-// any recovery-signed list at or above its own floor, an older one included.
+// This helper keeps no record of lists. Its floor is minKeyListSeq, built in, raised to the highest list this Mac's
+// existing Kosmos has taken when the postinstall passes it (an eighth argument). So on a Mac with no Kosmos (or with
+// none at the default home) a revocation reaches .pkg installs only through a .pkg built after minKeyListSeq was
+// raised to the revoking list: a .pkg built before that takes any recovery-signed list at or above its own floor.
 //
 // Exit 0: trusted; prints `setup_sha256=`, `sha256=` and `tmux_sha256=` lines (64 lowercase hex each).
 // Exit 97: refused, with one line on stderr saying why (bad signature, another version, older than the floor, a field
@@ -91,8 +92,8 @@ func signedBy(_ keys: [String], _ sigText: String, _ bytes: Data) -> Bool {
 }
 
 /// The release keys a key list names, checked as engine/manifest-verify.js verifyKeyList checks it, and not below
-/// minKeyListSeq. Refuses (97) otherwise.
-func keyListKeys(_ bytes: Data, _ sigText: String) -> [String] {
+/// `floor`. Refuses (97) otherwise.
+func keyListKeys(_ bytes: Data, _ sigText: String, floor: Int) -> [String] {
     guard signedBy(recoveryKeys, sigText, bytes) else { refuse("the release key list is not signed by the Kosmos recovery key") }
     guard let obj = try? JSONSerialization.jsonObject(with: bytes), let list = obj as? [String: Any] else {
         refuse("the signed release key list is not readable")
@@ -121,7 +122,7 @@ func keyListKeys(_ bytes: Data, _ sigText: String) -> [String] {
         + keys.map { "    \"\($0)\"" }.joined(separator: ",\n")
         + "\n  ],\n  \"seq\": \(seq),\n  \"issued\": \"\(issued)\"\n}\n"
     guard Data(canonical.utf8) == bytes else { refuse("the signed release key list is not in the form Kosmos writes") }
-    guard seq >= minKeyListSeq else { refuse("the release key list offered (\(seq)) is older than this installer accepts, so nothing was installed") }
+    guard seq >= floor else { refuse("the release key list offered (\(seq)) is older than this installer or this Mac's Kosmos accepts, so nothing was installed") }
     return keys
 }
 
@@ -131,8 +132,8 @@ func isSha256(_ s: String) -> Bool {
 }
 
 let args = CommandLine.arguments
-guard args.count == 5 || args.count == 7 else {
-    usage("usage: kosmos-pkg-verify <manifest> <sig> <version> <floor> [<key list> <key list sig>]")
+guard args.count == 5 || args.count == 7 || args.count == 8 else {
+    usage("usage: kosmos-pkg-verify <manifest> <sig> <version> <floor> [<key list> <key list sig> [<list seq taken>]]")
 }
 guard let manifest = FileManager.default.contents(atPath: args[1]) else { usage("cannot read the manifest") }
 guard let sigText = try? String(contentsOfFile: args[2], encoding: .utf8) else { usage("cannot read the signature") }
@@ -142,10 +143,21 @@ guard let floor = parseVersion(args[4]) else { usage("the floor is not a.b.c") }
 // The release keys: the built-in ones, or with a recovery key built in, the ones a checked key list names.
 var trusted = releaseKeys
 if !recoveryKeys.isEmpty {
-    guard args.count == 7, let listBytes = FileManager.default.contents(atPath: args[5]),
+    guard args.count >= 7, let listBytes = FileManager.default.contents(atPath: args[5]),
           let listSig = try? String(contentsOfFile: args[6], encoding: .utf8)
     else { refuse("the release key list could not be read, so the release could not be checked") }
-    trusted = keyListKeys(listBytes, listSig)
+    // The highest list this Mac's existing Kosmos has taken (the postinstall reads its record), when there is one: the
+    // floor is never below it, so an older list than that copy already has is refused here too. It can only raise
+    // the floor.
+    var listFloor = minKeyListSeq
+    if args.count == 8 {
+        let s = args[7]
+        guard !s.isEmpty, s.utf8.count <= 10, s.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }), let taken = Int(s), taken <= maxSeq else {
+            usage("the list seq taken is not a whole number up to \(maxSeq)")
+        }
+        listFloor = max(listFloor, taken)
+    }
+    trusted = keyListKeys(listBytes, listSig, floor: listFloor)
 }
 
 // The signature is checked over the manifest's exact bytes before anything in it is read.
