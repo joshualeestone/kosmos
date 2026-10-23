@@ -161,6 +161,14 @@ Mutants red: a broadened own-Listener pattern (two sites), no post-reload check,
 - Dry run: a loaded runner without KeepAlive that is not running is named, and the reload is said to start it.
 - No pid line for the loaded job: said (no SIGTERM first). Case added: stuck bootout after SIGTERM.
 
+## Review round 12
+- No pid in launchd's print while this runner's Listener runs (a print-format change): refuse before stopping
+  anything, instead of a bootout under the old exit timeout. Mutant red. The stub prints a pid by default now.
+- The CI home is validated to safe characters at the top (it goes into pgrep patterns), and KOSMOS_CI_UNLOAD_WAIT_S
+  is validated once there for every stage (install and keepalive agreed on nothing before).
+- A source-order test: the HUP/PIPE trap sits after the job check and before the SIGTERM.
+- The header says the stage touches this repo's runner only, not a relay runner under the same user.
+
 ## Weakest premise
 That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it
 stops, keepalive refuses rather than guessing). Second: that the runner keeps ending the launchd job with exit 0 on

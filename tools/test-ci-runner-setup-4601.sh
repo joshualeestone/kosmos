@@ -47,7 +47,8 @@ case "$me" in
     esac
     case "$1 $2" in "print gui/"*/*) { [ -f "$out" ] || [ "${FX_NOT_LOADED:-0}" = 1 ]; } && exit 113
         printf '%s = {\n\tstate = %s\n' "$2" "${FX_JOB_STATE:-running}"
-        [ -z "${FX_JOB_PID:-}" ] || printf '\tpid = %s\n' "$FX_JOB_PID"
+        # A running job shows its pid (999999 by default: a pid that cannot exist, so a wait on it ends at once).
+        [ "${FX_NO_PID:-0}" = 1 ] || printf '\tpid = %s\n' "${FX_JOB_PID:-999999}"
         lk="$(dirname "$CALL_LOG")/loaded-ka"
         [ -f "$lk" ] && printf '\tsemaphores = {\n\t\tsuccessful exit => 0\n\t}\n'
         printf '\texit timeout = %s\n' "$( [ -s "$lk" ] && cat "$lk" || echo 5)"
@@ -602,7 +603,7 @@ ka_fresh; run ka-relayrespawn "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HO
 [ "$(rc ka-relayrespawn)" = 1 ] && has ka-relayrespawn "no new Listener of $KH/actions-runner" \
   && pass "keepalive --apply: a relay Listener respawning during the reload is not taken for this runner coming back" || fail "keepalive relay respawn: rc $(rc ka-relayrespawn): $(tail -1 "$T/ka-relayrespawn.out")"
 # A bootout that reports failure while the job is still listed may still be unloading: it waits, and says both outcomes.
-ka_fresh; run ka-bootoutfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_FAIL=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
+ka_fresh; run ka-bootoutfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_FAIL=1 FX_NO_PID=1 FX_LISTENER=0 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 [ "$(rc ka-bootoutfail)" = 1 ] && has ka-bootoutfail "(exit 5) had not unloaded it" && has ka-bootoutfail "may still be unloading" && has ka-bootoutfail "the runner is DOWN" \
   && ! has ka-bootoutfail "runs on" && ! grep -q '^launchctl bootstrap' "$T/ka-bootoutfail.calls" \
   && pass "keepalive --apply: a failed bootout with the job still listed is not called running: it may be unloading, both outcomes named" || fail "keepalive bootout fail: rc $(rc ka-bootoutfail): $(tail -1 "$T/ka-bootoutfail.out")"
@@ -649,10 +650,19 @@ ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-downdry "$KH" F
 ka_fresh; run ka-stucksent "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID=999999 FX_BOOTOUT_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 [ "$(rc ka-stucksent)" = 1 ] && has ka-stucksent "the runner is STOPPED (SIGTERM ended it" && ! has ka-stucksent "it runs the OLD definition" \
   && pass "keepalive --apply: a stuck bootout after SIGTERM says the runner is STOPPED, not running" || fail "keepalive stuck after sigterm: rc $(rc ka-stucksent): $(tail -1 "$T/ka-stucksent.out")"
+ka_fresh; run ka-nopid "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_PID=1 -- --apply keepalive
+[ "$(rc ka-nopid)" = 1 ] && has ka-nopid "shows no pid" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-nopid.calls" \
+  && pass "keepalive --apply: no pid in launchd's print while its Listener runs refuses before stopping anything" || fail "keepalive no pid: rc $(rc ka-nopid): $(tail -1 "$T/ka-nopid.out")"
+# The HUP/PIPE trap is in place for the whole stop: after the job check, before the SIGTERM (a source-order check; a
+# hang-up cannot be staged here).
+tl="$(grep -n "^  trap '' HUP PIPE\$" "$S" | cut -d: -f1)"; wl="$(grep -n -- '-x Runner.Worker >/dev/null || prc' "$S" | tail -n 1 | cut -d: -f1)"
+kl="$(grep -n 'launchctl kill SIGTERM "\$dom/\$label"' "$S" | head -n 1 | cut -d: -f1)"
+[ -n "$tl" ] && [ -n "$wl" ] && [ -n "$kl" ] && [ "$wl" -lt "$tl" ] && [ "$tl" -lt "$kl" ] \
+  && pass "keepalive: SIGHUP and SIGPIPE are ignored from after the job check to before the SIGTERM" || fail "keepalive trap order: job $wl, trap $tl, kill $kl"
 ka_fresh; run ka-noka "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
 [ "$(rc ka-noka)" = 1 ] && has ka-noka "shows no 'successful exit => 0' semaphore" \
   && pass "keepalive --apply: a reload that leaves no KeepAlive in the loaded job fails" || fail "keepalive no ka loaded: rc $(rc ka-noka): $(tail -1 "$T/ka-noka.out")"
-ka_fresh; run ka-stuck "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
+ka_fresh; run ka-stuck "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_STUCK=1 FX_NO_PID=1 FX_LISTENER=0 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 [ "$(rc ka-stuck)" = 1 ] && has ka-stuck "had not unloaded it" && has ka-stuck "may still be unloading" && ! grep -q '^launchctl bootstrap' "$T/ka-stuck.calls" \
   && pass "keepalive --apply: a bootout that does not unload says so and does not bootstrap" || fail "keepalive stuck: rc $(rc ka-stuck): $(tail -1 "$T/ka-stuck.out")"
 ka_fresh; chmod 000 "$KH/actions-runner/.service"; run ka-other "$KH" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$KH" -- keepalive; chmod 644 "$KH/actions-runner/.service"
