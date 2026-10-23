@@ -157,6 +157,7 @@ mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN
 # 10 s; `launchctl bootout gui/<uid>/<label>` stops it. NOT covered: a killed Listener leaves its session on GitHub's
 # side; if that outlasts the restarted Listener's session-conflict retries, it exits 5, the service stops (exit 0) and
 # launchd leaves it down. The 10-23 restart came back in about 2 minutes; the liveness page is the backstop for the rest.
+#
 # This runner's LaunchAgent, as svc.sh install recorded it in $RUNNER_DIR/.service, or nothing; never fails (set -e and
 # pipefail are on). Not a glob: the kosmos-relay runner (#6245) can live under the same user, and its
 # actions.runner.joshualeestone-kosmos-relay.* plist sorts before this repo's.
@@ -630,6 +631,9 @@ keepalive() {
   [ "$prc" = 1 ] || { echo "refused: a job is running under $CI_USER (Runner.Worker is up, on this runner or the relay's); KeepAlive is in the plist, not yet loaded: run this again when both are idle" >&2; exit 1; }
   local own_re="$RUNNER_DIR/bin[^/]*/Runner.Listener" before; before="$(pgrep -u "$(id -u)" -f "$own_re" || true)"
   local bo=0; launchctl bootout "$dom/$label" || bo=$?
+  if [ "$bo" != 0 ] && launchctl print "$dom/$label" >/dev/null 2>&1; then
+    echo "FAILED: launchctl bootout $dom/$label exited $bo and it is still loaded: the runner runs on, from the OLD definition, without KeepAlive (the plist on disk has it)" >&2; exit 1
+  fi
   local waited=0
   while launchctl print "$dom/$label" >/dev/null 2>&1 && [ "$waited" -lt "$limit" ]; do sleep 1; waited=$((waited + 1)); done
   if launchctl print "$dom/$label" >/dev/null 2>&1; then
@@ -637,14 +641,16 @@ keepalive() {
   fi
   launchctl bootstrap "$dom" "$plist" \
     || { echo "FAILED: launchctl bootstrap $dom $plist; the runner is STOPPED (unloaded; log in as $CI_USER, then: launchctl bootstrap $dom $plist)" >&2; exit 1; }
-  # A new Listener of THIS runner (its own dir), not any Listener of the user: the relay's can respawn meanwhile.
+  # A new Listener of THIS runner (its own dir), not any Listener of the user: the relay's can respawn meanwhile. The
+  # argv is RunnerService.js's spawn of an absolute path, measured with ps on the old Agent1s Mac (10-23):
+  # /Users/kosmos-ci/actions-runner/bin/Runner.Listener run --startuptype service (bin.<version> after a self-update).
   local now w2=0 lim2="${KOSMOS_CI_START_WAIT_S:-30}"
   case "$lim2" in ''|*[!0-9]*) lim2=30 ;; esac
   while now="$(pgrep -u "$(id -u)" -f "$own_re" || true)"; [ -z "$(printf '%s\n' "$now" | grep -v -x -F -e "${before:-none}" | grep . || true)" ]; do
     [ "$w2" -lt "$lim2" ] || { echo "FAILED: $label was loaded but no new Listener of $RUNNER_DIR is running after ${w2}s; see ~/Library/Logs/$label/stderr.log" >&2; exit 1; }
     sleep 1; w2=$((w2 + 1))
   done
-  loaded_keepalive "$dom/$label" || { echo "FAILED: $label was reloaded but launchd does not show KeepAlive on it" >&2; exit 1; }
+  loaded_keepalive "$dom/$label" || { echo "FAILED: $label was reloaded and runs, but launchctl print shows no 'successful exit => 0' semaphore, the wording this check keys on (measured on macOS 2026-10). If launchctl print $dom/$label shows KeepAlive some other way, the check is what is wrong, not the runner" >&2; exit 1; }
   ok "the runner is running again, with KeepAlive loaded"
 }
 

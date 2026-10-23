@@ -33,7 +33,7 @@ case "$me" in
     # svc.sh start does (cwd is the runner dir), so wait_for_listener sees a new Listener.
     out="$(dirname "$CALL_LOG")/booted-out"
     case "$1" in
-      bootout) [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
+      bootout) [ "${FX_BOOTOUT_FAIL:-0}" = 1 ] && exit 5; [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
       bootstrap) [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; rm -f "$out"; touch "$(dirname "$CALL_LOG")/bootstrapped"
         [ "${FX_LISTENER:-1}" = 1 ] && echo started > .svc-state
         # The loaded job has KeepAlive exactly when the plist it was loaded from does (state kept across runs).
@@ -588,8 +588,12 @@ ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-relayonly "$KH"
 ka_fresh; run ka-relayrespawn "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_RELAY_LISTENER=1 FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply keepalive
 [ "$(rc ka-relayrespawn)" = 1 ] && has ka-relayrespawn "no new Listener of $KH/actions-runner" \
   && pass "keepalive --apply: a relay Listener respawning during the reload is not taken for this runner coming back" || fail "keepalive relay respawn: rc $(rc ka-relayrespawn): $(tail -1 "$T/ka-relayrespawn.out")"
+ka_fresh; run ka-bootoutfail "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_FAIL=1 KOSMOS_CI_UNLOAD_WAIT_S=20 -- --apply keepalive
+[ "$(rc ka-bootoutfail)" = 1 ] && has ka-bootoutfail "exited 5 and it is still loaded" && ! grep -q '^launchctl bootstrap' "$T/ka-bootoutfail.calls" \
+  && [ "$(grep -c '^launchctl print gui/777/' "$T/ka-bootoutfail.calls")" -le 3 ] \
+  && pass "keepalive --apply: a bootout that fails outright says so at once (no unload wait) and does not bootstrap" || fail "keepalive bootout fail: rc $(rc ka-bootoutfail): $(tail -1 "$T/ka-bootoutfail.out")"
 ka_fresh; run ka-noka "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
-[ "$(rc ka-noka)" = 1 ] && has ka-noka "launchd does not show KeepAlive on it" \
+[ "$(rc ka-noka)" = 1 ] && has ka-noka "shows no 'successful exit => 0' semaphore" \
   && pass "keepalive --apply: a reload that leaves no KeepAlive in the loaded job fails" || fail "keepalive no ka loaded: rc $(rc ka-noka): $(tail -1 "$T/ka-noka.out")"
 ka_fresh; run ka-stuck "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 [ "$(rc ka-stuck)" = 1 ] && has ka-stuck "had not unloaded it" && has ka-stuck "may still be unloading" && ! grep -q '^launchctl bootstrap' "$T/ka-stuck.calls" \
