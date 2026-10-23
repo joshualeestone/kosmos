@@ -309,7 +309,14 @@ test('#6985: the window and its browser fallback send a person to the Start menu
   const main = SOURCE.slice(SOURCE.indexOf('static int Main(string[] args)'));
   assert.ok(main.indexOf('RunInstallerDuties(here, node, port)') !== -1, 'Main no longer runs the installer duties');
   assert.ok(main.indexOf('RunInstallerDuties(here, node, port)') < main.indexOf('BoardWindowStartInfo(here)'), 'the window starts before the Start menu shortcut is refreshed');
-  assert.match(SOURCE, /refreshWindowsRegistration\(here\);\s*return null;/, 'the installer duties carry on without refreshing the shortcut');
+  // A real build carries on (null) from one place only, and only right after the shortcut is refreshed.
+  const duties = method('internal static int? RunInstallerDuties(string here, string node, int port)');
+  assert.equal((duties.match(/return null;/g) || []).length, 1, 'the installer duties carry on from somewhere new');
+  assert.match(duties, /if \(!IsKosmosBuild\(here\)\) return null;/, 'a real build no longer goes through the duties');
+  assert.match(duties, /return RunInstallerDutiesUnderLock\(here, node, port\);/);
+  const underLock = method('static int? RunInstallerDutiesUnderLock(string here, string node, int port)');
+  assert.equal((underLock.match(/return null;/g) || []).length, 1, 'a real build carries on from somewhere new');
+  assert.match(underLock, /refreshWindowsRegistration\(here\);\s*return null;\s*$/, 'a real build carries on without refreshing the Start menu shortcut');
 });
 
 /* ---- the probe ------------------------------------------------------------- */

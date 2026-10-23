@@ -25,8 +25,8 @@ never ran). None of these three messages can be shown in that case:
 - they are shown only by the window process (RunBoardWindow: NotConfirmedPage in the window, the two boxes in its
   browser fallback);
 - the window is started in exactly one place, Main, through BoardWindowStartInfo(here);
-- Main reaches that only after RunInstallerDuties returned null, and every path that returns null calls
-  refreshWindowsRegistration(here), which writes the Start menu shortcut pointing at the copy that runs; every other
+- Main reaches that only after RunInstallerDuties returned null, and for a real build (IsKosmosBuild) the one path
+  that returns null (the end of RunInstallerDutiesUnderLock) calls refreshWindowsRegistration(here), which writes the Start menu shortcut pointing at the copy that runs; every other
   path (install, update, hand-off) starts the installed copy, which runs the same Main.
 So whenever one of these is on screen, the Start menu shortcut has just been written for the copy that is running.
 
