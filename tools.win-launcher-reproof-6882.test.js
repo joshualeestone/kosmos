@@ -303,6 +303,26 @@ test('#6985: the window and its browser fallback send a person to the Start menu
     assert.doesNotMatch(text, /Kosmos\.exe/, name + ' still names Kosmos.exe, which after the install reads as the extracted folder');
     assert.doesNotMatch(text, /\u2014|\\u2014/, name + ' has an em dash');
   }
+  // Only the window process shows them: the two boxes from its browser fallback, the page in its form, and both of
+  // those only from RunBoardWindow.
+  const runWindow = method('static int RunBoardWindow(string here, string node, string opener, string app, int port)');
+  const fallback = method('static int OpenInBrowserInstead(string here, string node, string opener, string app, int port, string why, bool noRuntime)');
+  for (const name of ['BrowserUnknownMessage', 'BrowserNotConfirmedMessage']) {
+    assert.equal((SOURCE.match(new RegExp('\\b' + name + '\\b', 'g')) || []).length, 2, name + ' is used somewhere new');
+    assert.match(fallback, new RegExp('\\b' + name + '\\b'), name + ' is no longer shown by the browser fallback');
+  }
+  assert.equal((SOURCE.match(/\bOpenInBrowserInstead\(/g) || []).length, 2, 'the browser fallback is called from somewhere new');
+  assert.match(runWindow, /\breturn OpenInBrowserInstead\(/, 'the browser fallback is no longer called from the window process');
+  assert.equal((SOURCE.match(/\bnew BoardWindowForm\(/g) || []).length, 1, 'the window form is made somewhere new');
+  assert.match(method('static BoardWindowForm ShowBoardWindow('), /\bnew BoardWindowForm\(/, 'the window form is no longer made by ShowBoardWindow');
+  assert.equal((SOURCE.match(/\bShowBoardWindow\(/g) || []).length, 2, 'the window is shown from somewhere new');
+  assert.match(runWindow, /\bShowBoardWindow\(here, node, opener, app, port, loader\)/, 'the window is no longer shown by the window process');
+  const form = SOURCE.slice(SOURCE.indexOf('class BoardWindowForm : System.Windows.Forms.Form'), SOURCE.indexOf('public class EnvironmentCreated'));
+  const pageUses = (SOURCE.match(/KosmosLauncher\.NotConfirmedPage\b/g) || []).length;
+  assert.ok(pageUses > 0, 'NotConfirmedPage is no longer shown');
+  assert.equal((form.match(/KosmosLauncher\.NotConfirmedPage\b/g) || []).length, pageUses, 'NotConfirmedPage is shown outside the window form');
+  const pageCode = SOURCE.split('\n').filter((l) => !/^\s*\/\//.test(l) && /\bNotConfirmedPage\b/.test(l));
+  assert.equal(pageCode.length, pageUses + 1, 'NotConfirmedPage is used somewhere new: ' + pageCode.join(' | '));
   // Start menu alone is right only because the shortcut is there before any of these can show: the window is
   // started in one place, Main, and only after RunInstallerDuties, whose every carry-on path refreshes the shortcut.
   assert.equal((SOURCE.match(/BoardWindowStartInfo\(here\)/g) || []).length, 1, 'the window is started somewhere new');
