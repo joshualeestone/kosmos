@@ -39,7 +39,7 @@ the same assumption the READ ME's "Always open Kosmos from the Start menu" makes
 manifest.json: dev or test folders) also never writes the shortcut, but no person runs one. Would change my mind: a
 report of a missing shortcut on a real install, or a second caller that starts --window.
 
-Not changed (outside this card's ask): WindowStoppedWorkingMessage ("Double-click Kosmos.exe, or choose Kosmos in the
+Not changed (outside this card's ask): WindowStoppedMessage ("Double-click Kosmos.exe, or choose Kosmos in the
 Start menu") and the "Double-click Kosmos.exe in that folder" notes in the installer duties, which name a specific
 folder on purpose.
 
