@@ -762,6 +762,108 @@ do {
     check(Board.sorted(agents).first?.session == "b", "a needs-you tone from the Mac sorts first")
 }
 
+section("native chat: requests (kosmos#7008)")
+do {
+    let mac = URL(string: "https://studio.kosmosplus.com/")!
+    let get = Board.threadRequest(mac: mac, session: "dana")
+    check(get?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/dana/thread" && get?.httpMethod == "GET",
+          "the conversation is the board chat's own route")
+    check(Board.threadRequest(mac: mac, session: "../status") == nil, "a name the app does not accept builds no request")
+    let post = Board.sendRequest(mac: mac, session: "dana", text: "  Hello there \n")
+    let body = post?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(post?.httpMethod == "POST" && post?.url?.path == "/api/agent/dana/thread" && body?["text"] as? String == "Hello there",
+          "a send posts {text}, trimmed, to the same route")
+    check(body?.count == 1, "nothing else rides with a plain message")
+    check(Board.sendRequest(mac: mac, session: "dana", text: "   ") == nil, "a blank message is not sent")
+    check(Board.sendRequest(mac: mac, session: "dana", text: String(repeating: "a", count: Board.maxMessage + 1)) == nil
+          && Board.sendRequest(mac: mac, session: "dana", text: String(repeating: "a", count: Board.maxMessage)) != nil,
+          "the board's own longest message, and not one character more")
+}
+
+section("native chat: reading the conversation")
+do {
+    let json = #"{"messages":[{"at":"2026-10-23T13:32:00Z","text":"Morning","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:33:00Z","text":"Hi","from":"dana"},{"at":"2026-10-23T13:33:00Z","text":"And again","from":"dana"},{"at":"2026-10-23T13:40:00Z","text":"Paused","from":null,"kind":"kosmos"},{"at":"2026-10-23T13:41:00Z","text":"Tue or Wed?","from":"dana","kind":"question"},{"at":"2026-10-23T13:42:00Z","text":"May I run it?","from":"dana","kind":"question","permission":{"title":"x"}},{"at":"2026-10-23T13:43:00Z","text":"File","from":"dana","attachments":[{"id":"a"}]},{"at":"2026-10-23T13:44:00Z","text":"Lost","from":null,"delivery":{"state":"could_not"}},{"at":"2026-10-23T13:45:00Z","text":"Later","from":null,"delivery":{"state":"held"}},{"at":"2026-10-23T13:46:00Z","text":"Maybe","from":null,"delivery":{"state":"unconfirmed"}},{"from":"dana"}],"olderCount":12,"question":{"text":"Tue or Wed?"}}"#
+    let t = Board.parseThread(Data(json.utf8))
+    let rows = t?.rows ?? []
+    check(rows.count == 10, "a row with no text is dropped")
+    check(rows[0].who == .person && rows[1].who == .agent && rows[3].who == .kosmos, "no from is the person's, a from is the agent's, kind kosmos is Kosmos's own")
+    check(rows[1].id != rows[2].id && Set(rows.map(\.id)).count == rows.count, "two rows at the same time keep different ids")
+    check(rows[4].wayThrough == .question && rows[5].wayThrough == .permission && rows[6].wayThrough == .attachment && rows[1].wayThrough == nil,
+          "a question, a permission card and a file each get their way-through row")
+    check(rows[0].notSent == nil && rows[7].notSent == "Not sent" && rows[8].notSent == "Waiting to send" && rows[9].notSent == nil,
+          "placed and unconfirmed reached the agent; could_not and held did not")
+    check(t?.olderCount == 12 && t?.asking == true, "older messages and a live question are read")
+    check(Board.parseThread(Data("{}".utf8)) == nil && Board.parseThread(Data("not json".utf8)) == nil, "an answer that is not a conversation is nil")
+    let empty = Board.parseThread(Data(#"{"messages":[],"question":null}"#.utf8))
+    check(empty?.rows.isEmpty == true && empty?.asking == false && empty?.olderCount == 0, "an empty conversation is one, not a failure")
+}
+
+section("native chat: runs, times and day lines (Mona Lisa's slice 3a spec)")
+do {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "America/Chicago")!
+    cal.locale = Locale(identifier: "en_GB")
+    let at = { (s: String) in Board.isoDate(s)! }
+    let now = at("2026-10-23T20:00:00Z")   // Friday 23 October, 3 pm in Chicago
+    let row = { (id: String, when: String, who: Board.ChatRow.Who, way: Board.ChatRow.WayThrough?) in
+        Board.ChatRow(id: id, at: at(when), text: id, who: who, wayThrough: way)
+    }
+    let rows = [
+        row("old", "2026-10-21T15:00:00Z", .agent, nil),
+        row("y1", "2026-10-22T15:00:00Z", .person, nil),
+        row("y2", "2026-10-22T15:01:00Z", .person, nil),
+        row("t1", "2026-10-23T15:00:00Z", .person, nil),
+        row("t2", "2026-10-23T15:01:00Z", .agent, nil),
+        row("t3", "2026-10-23T15:02:00Z", .agent, nil),
+        row("k", "2026-10-23T15:03:00Z", .kosmos, nil),
+        row("t4", "2026-10-23T15:04:00Z", .agent, nil),
+        row("q", "2026-10-23T15:05:00Z", .agent, .question),
+        row("t5", "2026-10-23T15:06:00Z", .agent, nil),
+    ]
+    let items = Board.chatItems(rows, now: now, calendar: cal)
+    let days = items.compactMap { if case .day(let s) = $0.kind { return s } else { return nil } }
+    check(days == ["Wednesday 21 October", "Yesterday", "Today"], "a day line whenever the day changes: a date, Yesterday, Today")
+    let runs = Dictionary(uniqueKeysWithValues: items.compactMap { item -> (String, (Bool, Bool))? in
+        if case .row(let r, let first, let last) = item.kind { return (r.id, (first, last)) } else { return nil }
+    })
+    check(runs["y1"]! == (true, false) && runs["y2"]! == (false, true), "two from the same side are one run: the time goes on the last")
+    check(runs["t1"]! == (true, true), "a new day starts a new run, even from the same side")
+    check(runs["t2"]! == (true, false) && runs["t3"]! == (false, true), "the side changing ends a run")
+    check(runs["t4"]! == (true, true) && runs["t5"]! == (true, true), "Kosmos's line and a way-through row stand alone and end the runs around them")
+    check(Board.dayLine(at("2025-12-31T18:00:00Z"), now: now, calendar: cal) == "Wednesday 31 December 2025", "another year says the year")
+    check(Set(items.map(\.id)).count == items.count, "every item has its own id")
+}
+
+section("native chat: sending")
+do {
+    let ok = #"{"delivery":{"state":"placed"},"recorded":true}"#
+    let shown = #"{"delivery":{"state":"unconfirmed"},"recorded":true}"#
+    let couldNot = #"{"delivery":{"state":"could_not","because":"Dana is not running"},"recorded":true}"#
+    let held = #"{"delivery":{"state":"held"},"recorded":false}"#
+    let refused = #"{"error":"that message is empty"}"#
+    let out = { (s: Int, b: String?) in Board.sendOutcome(status: s, body: b.map { Data($0.utf8) }) }
+    check(out(200, ok) == .sent && out(200, shown) == .sent, "placed and unconfirmed are sent, as the board shows them")
+    check(out(200, couldNot) == .notSent("Dana is not running"), "could_not says the board's reason")
+    if case .notSent = out(200, held) { check(true, "held is not sent yet") } else { check(false, "held is not sent yet") }
+    check(out(400, refused) == .notSent("that message is empty") && out(0, nil) == .notSent("Your Mac isn't answering, so it was not sent."),
+          "a refusal says the board's words; no answer says the Mac is not answering")
+    check(Board.notSentLine(agentRunning: true, name: "Dana") == ("Not sent. Tap to try again.", true)
+          && Board.notSentLine(agentRunning: false, name: "Dana") == ("Not sent. Dana isn't running on your computer.", false),
+          "the spec's not-sent line, with no retry while the agent is not running")
+
+    // An accepted message stays until a read holds it; one Mac row stands for one pending message.
+    let t0 = Board.isoDate("2026-10-23T15:00:00Z")!
+    var a = Board.PendingSend(id: "a", text: "Hello", at: t0); a.accepted = true
+    var b = Board.PendingSend(id: "b", text: "Hello", at: t0); b.accepted = true
+    let sending = Board.PendingSend(id: "c", text: "Hello", at: t0)
+    let row = { (s: String, text: String) in Board.ChatRow(id: s, at: Board.isoDate(s), text: text, who: .person) }
+    let thread = Board.Thread(rows: [row("2026-10-23T15:00:01Z", " Hello\n"), row("2026-10-23T14:00:00Z", "Hello")], olderCount: 0, asking: false)
+    check(Board.settled([a, b, sending], with: thread).map(\.id) == ["b", "c"],
+          "one matching row clears one accepted message; an hour-old one with the same words does not; one still sending stays")
+    let agentSaid = Board.Thread(rows: [Board.ChatRow(id: "x", at: t0, text: "Hello", who: .agent)], olderCount: 0, asking: false)
+    check(Board.settled([a], with: agentSaid).map(\.id) == ["a"], "the agent saying the same words does not clear the person's message")
+}
+
 section("native board: the Mac's session kept between launches")
 do {
     let rec = Board.SavedMacSession(name: "Studio", address: "studio.kosmosplus.com", cookie: "c1", owner: Board.owner(of: "kst1"))

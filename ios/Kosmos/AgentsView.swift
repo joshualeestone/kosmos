@@ -13,6 +13,8 @@ struct AgentsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
     @State private var wasBackground = false
+    // The agent whose chat is open (kosmos#7008).
+    @State private var openSession: String?
 
     var body: some View {
         NavigationView {
@@ -21,7 +23,14 @@ struct AgentsView: View {
                 .background(Palette.ground.ignoresSafeArea())
         }
         .navigationViewStyle(.stack)
-        .onAppear { visible = true; client.start() }
+        .onAppear {
+            visible = true
+            client.start()
+            #if DEBUG
+            // The sample chat's screenshots (a Debug build only): KOSMOS_SAMPLE_OPEN=<agent> opens that chat.
+            if let open = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OPEN"], !open.isEmpty { openSession = open }
+            #endif
+        }
         .onDisappear { visible = false; wasBackground = false; client.stop() }
         // No polling in the background: stop when the app leaves the screen, resume when it comes back.
         .onChange(of: scenePhase) { phase in
@@ -134,8 +143,11 @@ struct AgentsView: View {
             }
             Section(footer: footer) {
                 ForEach(client.agents) { agent in
-                    Button {
-                        if let url = client.chatURL(for: agent) { openChat(url) }
+                    // kosmos#7008: the agent's chat, native; anything it does not draw opens the board's (openChat).
+                    NavigationLink(tag: agent.session, selection: $openSession) {
+                        ChatView(client: client, agent: agent, openOnBoard: {
+                            if let url = client.chatURL(for: agent) { openChat(url) }
+                        })
                     } label: {
                         // A picture the agent no longer has is not shown, whatever was fetched before.
                         AgentRow(agent: agent, picture: agent.hasAvatar ? client.pictures[agent.session].flatMap(UIImage.init(data:)) : nil, stale: stale)
