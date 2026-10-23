@@ -1,0 +1,69 @@
+# pastechip-6717: our own long paste, folded into Claude Code's paste chip, is pressed and confirmed
+
+Card: #6717 (cause confirmed 2026-10-20 22:31Z; Splinter: top card for 0.7.62). Liu Kang approved the work and set the
+design rules (m6341). Reviewer: Raiden.
+
+## Finished means
+
+1. A long message that lands in an idle Claude Code agent's box as a paste chip is pressed and confirmed sent, and the
+   agent takes the next message.
+2. A person's paste chip (one line or several) is never pressed: not before a delivery, not in the gap before our
+   Enter, not when it replaces ours.
+3. A test with both, and mutants run by hand each way (recorded in the review proof, not in the test file).
+
+## Measured (Claude Code 2.1.305, private tmux, 80x24, Enter never pressed)
+
+- A bracketed paste of one 1,540-character line shows as `[Pasted text #1]`; a 12-line paste as `[Pasted text #2 +12
+  lines]`; the next one-line paste `[Pasted text #3]`: N rises through the session and is not reused after clearing.
+- Fold threshold: a bracketed paste of 800 characters stays as text, 1,000 folds (#2), 1,200 folds (#3).
+- Chip numbers start again at #1 after Claude Code restarts in the pane (respawn). They do NOT start again after
+  `/clear` in the same process (#3, then `/clear`, then #4). `/compact` and `/resume` were not measured (`/compact` sends
+  the conversation to the model); the counter behaved as process-wide under `/clear`.
+- Typing, or a short paste, right after a paste that folded shows NEXT TO the chip (`[Pasted text #1]typed right
+  after`), never inside it, so a box like that is not a lone chip and is never read as ours.
+- The 800 / 1,000 fold threshold was measured with a bracketed paste; Kosmos's own unbracketed chunks did not fold here
+  at all. Where they fold, the point may differ: a line under 800 characters that folds there is not tied to us and
+  still jams, safely (nothing pressed), as before.
+- Kosmos's own way (256-byte unbracketed chunks), sent slowly or chained back to back, landed as full text here; the
+  install that reported the jam got chips. Each chunk is far under the fold threshold, so a single chunk cannot fold on
+  its own: a fold covers the whole paste, which is the one-chip shape this handles. Not reproduced here, stated, not
+  assumed: if some install showed several chips, or a chip and text, the box reads as someone else's and stays jammed
+  (safely, nothing pressed), as before this change.
+
+## Decisions
+
+1. **A chip counts as ours only when tied to our paste**, and only in its one-line form (a Kosmos message is always one
+   line, cleanMessage). The ties:
+   - right after our paste (the check before our Enter, and the confirm after it): only when the box was READ and
+     EMPTY just before pasting (a failed read ties nothing), our line is at least 800 characters (shorter never folds),
+     the pane's delivery lock is held (no other delivery pastes), and the chip is seen BEFORE our Enter (our fold
+     happens while we paste; the Enter submits what is there). That chip is pinned, number and all, for the watch after
+     the Enter and its retry. A chip seen for the first time after our Enter is never ours (review 2).
+     Weakest point, named: a person pasting exactly one long line in that same second looks the same.
+   - a line left unsent: the exact chip seen then, its number included, and the pane's process id are kept with the
+     line (and on disk); a later delivery or retry presses it only if the box shows that same chip in that same process.
+     A person's later paste gets a higher number; a restarted Claude Code (numbers from #1 again) is another process.
+   Rejected: "any chip is ours" (presses a person's paste); comparing the chip's number with the box before our paste
+   (an empty box shows no number to compare).
+2. **A chip not tied to us is someone else's text**: never pressed, and never read as "ours went" (the confirm used to
+   read other text without our ending as sent; a chip hides its words).
+3. **Item 2 of the card (board signal, re-queue) goes to a follow-up.** Today a refused direct message shows its
+   could-not-deliver notice, a room post is held and retried when the box empties (#6256), `kosmos msg` prints "Not
+   delivered" to its sender, and the tile says the box is stuck (#6249): nothing is dropped silently. Automatic re-send
+   is the new part, filed as #6774. The cause the card confirmed (our own long message folded into one chip) is pressed
+   now whenever it is seen before our Enter on a line of 800 characters or more (see Residuals for the rest).
+
+## Residuals
+
+- Our own chip is tied only if it is seen at the check right before our Enter. If that read fails, or the fold is drawn
+  only after the Enter, the chip reads as someone else's: nothing is pressed and the agent stays jammed as before this
+  change, in a smaller window.
+
+- The process tie uses the pane's pid. A Kosmos agent's pane runs Claude Code as its own process (bin/agent-supervisor.sh
+  starts the pane with an entry that ends in `exec "$@"`, which keeps the pid), so a restart means a new pane and a new
+  pid. Someone who starts `claude` by hand from a shell in a pane would share the shell's pid across restarts.
+
+- A person who pastes a single long line into the box in the second between our paste and our Enter would have it read
+  as ours (decision 1, weakest point).
+- A person's own paste chip left in the box still holds the agent; #6728's sweep leaves a folded paste in place and
+  logs it, by design (its words are not on screen to save).

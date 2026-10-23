@@ -237,7 +237,8 @@ function loadUnsent() {
     /* A seq names a message row of the process that wrote it, so a loaded line carries none. */
     if (e && typeof e.wire === 'string' && e.wire && Date.now() - (Number(e.at) || 0) <= UNSENT_KEEP_MS) {
       unsentIdNext += 1;
-      unsentWires.set(target, { id: unsentIdNext, wire: e.wire, at: Number(e.at) || 0, seq: null, seen: typeof e.seen === 'string' ? e.seen : '' });
+      unsentWires.set(target, { id: unsentIdNext, wire: e.wire, at: Number(e.at) || 0, seq: null, seen: typeof e.seen === 'string' ? e.seen : '',
+        target, ...(typeof e.chip === 'string' && e.chip ? { chip: e.chip, chipPid: typeof e.chipPid === 'string' ? e.chipPid : '' } : {}) });
     }
   }
 }
@@ -250,7 +251,7 @@ function saveUnsent() {
     for (const [target] of oldest) unsentWires.delete(target);
   }
   const out = {};
-  for (const [target, e] of unsentWires) if (!e.light) out[target] = { wire: e.wire, at: e.at, seen: e.seen || '' };
+  for (const [target, e] of unsentWires) if (!e.light) out[target] = { wire: e.wire, at: e.at, seen: e.seen || '', ...(e.chip ? { chip: e.chip, chipPid: e.chipPid || '' } : {}) };
   try {
     const file = UNSENT_FILE();
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -273,6 +274,7 @@ function recallUnsent(target) {
 }
 function rememberUnsent(target, entry) {
   loadUnsent();
+  if (entry && entry.target !== target) entry = { ...entry, target };   // kosmos#6717: a kept chip is checked against this pane
   if (!entry.id) { unsentIdNext += 1; entry = { ...entry, id: unsentIdNext }; }
   unsentWires.set(target, entry);
   saveUnsent();
@@ -913,10 +915,35 @@ function pasteWire(target, wire) {
 const composerText = (ansi) => status.composerText(ansi);   // the reader lives in status.js (the card reads it too)
 /* Whitespace is not compared: wrapping puts a row break where the message had a space, or in the middle of a long word. */
 const squash = (s) => String(s == null ? '' : s).replace(/[\s ]+/g, '');
-/* 'empty', 'ours' (what is there is a piece of what we pasted, and nothing else), or 'other'. */
-function composerHolds(text, wire) {
+/* kosmos#6717: Claude Code folds a long paste into a chip: "[Pasted text #N]" for one line, "[Pasted text #N +K lines]"
+   for several (measured on 2.1.305; N rises through the session and is not reused after the box is cleared). The words
+   are then not on screen, so a box showing only a chip cannot be compared with what was pasted. A message from Kosmos
+   is always one line (cleanMessage), so only the one-line form, alone in the box (squashed: "[Pastedtext#N]"), can be
+   ours. A chip counts as ours only when something ties it to our own paste (`chip` below); otherwise it is someone
+   else's text, never pressed, never read as "ours went". */
+const ONE_LINE_CHIP = /^\[Pastedtext#\d+\]$/;
+/* Measured on 2.1.305: a paste of 800 characters stays as text, one of 1,000 folds. A line shorter than this can never
+   come back as a chip, so a chip after it is never ours. */
+const CHIP_MIN_CHARS = 800;
+/* Chip numbers start again at #1 when Claude Code restarts in the pane (measured), so a chip kept with a line is tied
+   to the pane's process as well: the pid tmux reports for the pane, read when the line was left and again before it is
+   pressed. '' when it cannot be read, which never matches. */
+function panePidOf(target) {
+  const got = tmux(['display-message', '-p', '-t', target, '#{pane_pid}']);
+  const pid = got && got.ran && got.status === 0 ? String(got.out || '').trim() : '';
+  return /^\d+$/.test(pid) ? pid : '';
+}
+const isChipBox = (text) => /^\[Pastedtext#\d+(?:\+\d+lines)?\]$/.test(squash(text));
+/* 'empty', 'ours' (what is there is a piece of what we pasted, and nothing else), or 'other'. `chip` ties a chip to our
+   paste: true for a box read right after we pasted into it while it was empty (the delivery holds the pane, so no
+   other delivery pastes meanwhile, and the before-paste read found nothing), where any one-line chip is ours; or the
+   exact squashed chip recorded when our line was left there (a retry), where only that chip, same number, is ours.
+   Anything else that is a chip is 'other'. */
+function composerHolds(text, wire, chip = null) {
   const t = squash(text);
   if (!t) return 'empty';
+  if (ONE_LINE_CHIP.test(t) && (chip === true || (typeof chip === 'string' && chip && t === chip))) return 'ours';
+  if (isChipBox(text)) return 'other';
   const w = squash(wire);
   if (w.startsWith(t)) return 'ours';   // round 4: Claude still drawing our start, however little of it shows yet
   /* A short piece ("ok", ".") could be anyone's: ours only when enough of it shows, or all of a short message. */
@@ -947,6 +974,12 @@ const SCROLLED_ROWS = 4;
    composerHolds asks of a piece of ours. */
 function rememberedShows(text, kept, exact = false, rows = 0) {
   if (!kept) return false;
+  /* kosmos#6717: a box showing a chip is decided only by the chip kept with our line: exactly that chip (its number), in
+     that same process; never by comparing the chip's text with the line (a line could read like a chip). */
+  if (isChipBox(text)) {
+    return typeof kept.chip === 'string' && !!kept.chip && squash(text) === kept.chip
+      && !!kept.chipPid && !!kept.target && panePidOf(kept.target) === kept.chipPid;
+  }
   if (composerIsAll(text, kept.wire)) return true;
   const t = squash(text);
   if (!t || !squash(kept.wire).endsWith(t)) return false;
@@ -993,17 +1026,24 @@ const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then he
  * the person's typing or another sender's text, so Enter is NEVER pressed on it).
  * The one retry (async only) is pressed only on a box that holds nothing but ours, on a pane still an agent's.
  */
-function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SETTLE_MS) {
+function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SETTLE_MS, chip = null) {   // chip: composerHolds'
   let waited = 0;
   let retried = false;
+  /* kosmos#6717: after an Enter only an exact chip ties a chip to our paste (one seen before our Enter, or the one kept
+     with a line); a bare `true` is never accepted here, since a chip first seen after our Enter is not ours. */
+  const pin = typeof chip === 'string' && chip ? chip : null;
   for (;;) {
     /* Read first, wait only while ours is still there: a pane with no box to read pays nothing over today. */
     const box = readComposer(target);
     if (!box.ok) return { outcome: 'unread', retried };
-    const holds = composerHolds(box.text, wire);
+    const holds = composerHolds(box.text, wire, pin);
     if (holds === 'empty') return { outcome: 'sent', retried };
-    /* Round 9: other text, but none of our ending in it: ours went and someone has started typing since. */
-    if (holds === 'other') return { outcome: stillHoldsOurEnd(box.text, wire) ? 'other' : 'sent', retried };
+    /* Round 9: other text, but none of our ending in it: ours went and someone has started typing since. kosmos#6717:
+       not for a chip, whose words are hidden: one that is not tied to our paste is someone else's, said as 'other'. */
+    if (holds === 'other') {
+      if (isChipBox(box.text)) return { outcome: 'other', retried };   // kosmos#6717: its words are hidden; never "ours went"
+      return { outcome: stillHoldsOurEnd(box.text, wire) ? 'other' : 'sent', retried };
+    }
     if (waited < settleMs) {
       yield { wait: SUBMIT_LOOK_MS };
       waited += SUBMIT_LOOK_MS;
@@ -1013,7 +1053,7 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
     if (!verifyAtSend(card).ok) return { outcome: 'unsent', retried, text: box.text };   // never an Enter into what it became
     const now = readComposer(target);   // round 4: read again right before it, so nothing typed meanwhile goes with ours
     if (!now.ok) return { outcome: 'unread', retried };   // round 6: a box that cannot be read is not someone's text
-    if (composerHolds(now.text, wire) !== 'ours') return { outcome: now.text ? 'other' : 'sent', retried };
+    if (composerHolds(now.text, wire, pin) !== 'ours') return { outcome: now.text ? 'other' : 'sent', retried };
     const again = tmux(['send-keys', '-t', target, 'Enter']);
     if (!again.ran || again.status !== 0) return { outcome: 'unsent', retried, text: now.text };
     retried = true;
@@ -1091,7 +1131,7 @@ async function pressRememberedNow(target, card) {
     if (!pressed.ran || pressed.status !== 0) return 'unsent';
     /* The full watch (the box can take about a second to empty); the waits between looks do not hold the board (#4468).
        While it runs (about 1.5 s) a person's line to this pane is refused as busy, nothing typed. */
-    const steps = submitConfirmSteps(card, target, kept.wire, false, SUBMIT_SETTLE_MS);
+    const steps = submitConfirmSteps(card, target, kept.wire, false, SUBMIT_SETTLE_MS, kept.chip || null);
     let step = steps.next();
     while (!step.done) {
       if (pauser) await pauser(step.value.wait);
@@ -2422,6 +2462,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
      left there at 09:14 and a ruling pasted after it at 09:49). Nothing is typed, so this is COULD_NOT; `inputHeld`
      says why. A box that cannot be read (a menu, a dialog) is left to the gates above, as before. */
   let earlierSubmitted = false;
+  let emptyBefore = false;   // kosmos#6717: the box was read, and empty, just before our paste
   if (composerReadable(allowed.card)) {
     let box = readComposer(target);
     if (box.ok && box.text) {
@@ -2442,7 +2483,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
         if (pressed.ran && pressed.status === 0) {
           /* Round 8: a short watch (measured: the box empties 25 to 93 ms after an Enter), so even the async path is
              held at most EARLIER_SETTLE_MS here; a box slower than that is refused below, truthfully. */
-          const steps = submitConfirmSteps(allowed.card, target, earlier, false, EARLIER_SETTLE_MS);
+          const steps = submitConfirmSteps(allowed.card, target, earlier, false, EARLIER_SETTLE_MS, kept.chip || null);
           let step = steps.next();
           while (!step.done) { submitGap(step.value.wait); step = steps.next(); }
           if (step.value && step.value.outcome === 'sent') { earlierSubmitted = true; if (kept.seq != null) tellEarlierSubmitted(kept.seq); }
@@ -2464,7 +2505,14 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
         return { state: DELIVERY.COULD_NOT, because: NOT_OURS_BECAUSE, inputHeld: true, busy: true, at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT) };
       }
     }
+    emptyBefore = box.ok && !box.text;
   }
+  /* kosmos#6717: what may count as our own paste chip: only when the box was read empty just before our paste and our
+     line is long enough to fold, and only a chip seen BEFORE our Enter (our fold happens while we paste; the Enter then
+     submits what is there). That chip is pinned (ourChip) for the watch after the Enter and its retry. A chip seen for
+     the first time after our Enter is never ours: nothing ties it to our paste. */
+  const chipTie = emptyBefore && String(wire).length >= CHIP_MIN_CHARS ? true : null;
+  let ourChip = null;
 
   // ⚠️ TWO STEPS, in this order, never one: put the text in, THEN a SEPARATE
   // Enter submits it. Folding them would submit each chunk, and an Enter sent
@@ -2576,7 +2624,11 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
      now (the person started typing), the Enter would send it with ours. Never pressed then. */
   if (composerReadable(allowed.card)) {
     const before = readComposer(target);
-    if (before.ok && composerHolds(before.text, wire) === 'other') {
+    /* kosmos#6717: a one-line chip here is our own paste, folded: the box was read empty before it, under this pane's
+       delivery lock, within the gap (chip: true). A person's paste in that same second is the one case it cannot
+       tell from ours; a multi-line chip never is ours (our line is one line). */
+    if (before.ok && chipTie && ONE_LINE_CHIP.test(squash(before.text))) ourChip = squash(before.text);
+    if (before.ok && composerHolds(before.text, wire, ourChip || chipTie) === 'other') {
       return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, because: UNSENT_NOT_PRESSED_BECAUSE, at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };
     }
   }
@@ -2618,7 +2670,10 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
     if (result && result.outcome === 'unsent') {   // only ours is there: the next line, or a retry, may send it
       unsentSeq += 1;
       seq = unsentSeq;
-      rememberUnsent(target, { wire, at: Date.now(), seq, seen: endSeen(result.text) });
+      /* kosmos#6717: left there as a chip: its exact text (the number) is what a later look must find to press it. */
+      const chipSeen = ONE_LINE_CHIP.test(squash(result.text)) ? squash(result.text) : '';
+      rememberUnsent(target, { wire, at: Date.now(), seq, seen: chipSeen ? '' : endSeen(result.text),
+        ...(chipSeen ? { chip: chipSeen, chipPid: panePidOf(target) } : {}) });
       scheduleUnsentRetries(target, allowed.card);
     } else if (result && result.outcome === 'unread') {
       /* kosmos#6436: no box to read after the Enter (the turn's screen, or a dialog drawn over it). Usually the line
@@ -2634,14 +2689,14 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   };
   const confirmSync = (v) => {
     if (!needsConfirm(v)) return v;
-    const steps = submitConfirmSteps(allowed.card, target, wire, false);
+    const steps = submitConfirmSteps(allowed.card, target, wire, false, SUBMIT_SETTLE_MS, ourChip);   // kosmos#6717: only a chip pinned before our Enter
     let step = steps.next();
     while (!step.done) { submitGap(step.value.wait); step = steps.next(); }
     return settle(v, step.value);
   };
   const confirmAsync = async (v) => {
     if (!needsConfirm(v)) return v;
-    const steps = submitConfirmSteps(allowed.card, target, wire, true);
+    const steps = submitConfirmSteps(allowed.card, target, wire, true, SUBMIT_SETTLE_MS, ourChip);   // kosmos#6717: only a chip pinned before our Enter
     let step = steps.next();
     while (!step.done) {
       const ms = step.value.wait;
