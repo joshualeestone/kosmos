@@ -334,7 +334,7 @@ test('#6951: the five-second read redraws without announcing the conversation; a
   await p.paintTaskActivity(3);
   assert.deepEqual(calls, [], 'a redraw the person asked for changed the live region');
   p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-22T23:30:00.000Z', kind: 'said', text: 'new' }];
-  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  await p.paintTaskActivity(3, { onlyIfChanged: true, quiet: true });
   assert.deepEqual(calls, [['aria-live', 'off']], 'the poll redraw was not silenced before the swap');
   const restore = p.timers.find(([, ms]) => ms === 0);
   assert.ok(restore, 'the live region is never switched back on');
@@ -366,7 +366,7 @@ test('#6951: the five-second read redraw puts keyboard focus back on the history
   p.acts.querySelectorAll = (sel) => (sel === '[data-first]' ? [row] : []);
   p.doc.activeElement = { closest: () => row };
   p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-22T23:40:00.000Z', kind: 'said', text: 'new' }];
-  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  await p.paintTaskActivity(3, { onlyIfChanged: true, quiet: true });
   assert.equal(focused, 1, 'focus was not put back after the poll redraw');
   // CONTROL: with focus outside the conversation, nothing is focused.
   p.acts.contains = () => false;
@@ -470,4 +470,17 @@ test('#6953: a tab switch (visibilitychange then focus) records the return once 
   await p.tabBack(); await p.tabBack(); await p.settle();   // the two events of one return
   assert.equal(p.posts.length, 2, 'one return recorded ' + (p.posts.length - 1) + ' times');
   assert.equal(p.acts.innerHTML, 'kept, with a selection in it', 'an unchanged conversation was redrawn on a return');
+});
+
+test('#6953: the five-second read asks for a quiet redraw; a return after a change redraws, read out by the live region', async () => {
+  assert.match(fnSource('tkPollActivity'), /paintTaskActivity\(TK_OPEN, \{ onlyIfChanged: true, quiet: true \}\)/);
+  const p = page();
+  const calls = [];
+  p.acts.setAttribute = (k, v) => calls.push([k, v]);
+  await p.paintTaskActivity(3); await p.settle();
+  p.acts.innerHTML = 'the old conversation';
+  p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-23T00:10:00.000Z', kind: 'said', text: 'while away' }];
+  await p.tabBack(); await p.settle();
+  assert.equal(p.acts.innerHTML, '<rows>', 'a return after a change did not draw the new conversation');
+  assert.deepEqual(calls, [], 'a return the person chose was drawn with the live region switched off');
 });
