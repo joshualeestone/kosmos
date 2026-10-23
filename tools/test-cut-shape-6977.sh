@@ -58,6 +58,17 @@ kosmos_cut_shape_run --base relative sh -c 'exit 0' 2>/dev/null; rc=$?
 [ "$rc" -eq 2 ] && pass "R: a relative base is refused (2), nothing run" || bad "R: a relative base gave $rc"
 kosmos_cut_shape_run --base "$T" 2>/dev/null; rc=$?
 [ "$rc" -eq 2 ] && pass "R: no command is refused (2)" || bad "R: no command gave $rc"
+kosmos_cut_shape_run --base 2>/dev/null; rc=$?
+[ "$rc" -eq 2 ] && pass "R: --base with no folder is refused (2)" || bad "R: --base with no folder gave $rc"
+# Outside CI a base that is not a kt<digits> sandbox is refused BEFORE any stand-in starts (it would read as a cut to
+# every agent here); CONTROL: the same call with the kt base above runs.
+NK=$(mktemp -d "${TMPDIR:-/tmp}/cutshape-nokt.XXXXXX")
+out=$(env -u GITHUB_ACTIONS bash -c ". '$LIB'; kosmos_cut_shape_run --base '$NK' sh -c 'echo RAN'" 2>&1); rc=$?
+[ "$rc" -eq 2 ] && ! printf '%s' "$out" | grep -q RAN && [ -z "$(ls -A "$NK")" ] \
+  && pass "R: outside CI a base outside a kt sandbox is refused (2), nothing run, nothing made" || bad "R: a non-kt base outside CI gave rc=$rc: $out"
+rmdir "$NK" 2>/dev/null
+out=$(env -u GITHUB_ACTIONS bash -c ". '$LIB'; kosmos_cut_shape_run --base '$T' sh -c 'echo RAN'" 2>/dev/null); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = RAN ] && pass "R CONTROL: the same call with a kt base runs" || bad "R CONTROL: a kt base outside CI did not run (rc=$rc, '$out')"
 
 # --- H ---------------------------------------------------------------------------------------------------------------
 inside=$(kosmos_cut_shape_run --base "$T" sh -c 'h="${AGENT_WORKFORCE_HOME:-}"; [ -d "$h" ] && n=$(ls -A "$h" | wc -l | tr -d " ") || n=missing; echo "$h $n"' 2>/dev/null)
@@ -91,7 +102,7 @@ rm -rf "$T"/kosmos-cut-shape.* 2>/dev/null   # the killed run could not remove i
 # Both halves, or the second could pass because the guard never saw the stand-in at all: the guard's process match
 # lists it, and the fixture filter then drops it. The stand-in's pid is the one working in this test's scratch folder.
 FIX="$T/fixture-probe.sh"
-printf '%s\n' ". '$GUARD'" "sp=\$(bash '$COUNT' >/dev/null; pgrep -f '^bash tools/release\\.sh [0-9]+ ' | while read -r p; do lsof -a -p \"\$p\" -d cwd -Fn 2>/dev/null | grep -q '/kt$$/kosmos-cut-shape\\.' && echo \"\$p\"; done | head -1)" \
+printf '%s\n' ". '$GUARD'" "sp=\$(pgrep -f '^bash tools/release\\.sh [0-9]+ ' | while read -r p; do lsof -a -p \"\$p\" -d cwd -Fn 2>/dev/null | grep -q '/kt$$/kosmos-cut-shape\\.' && echo \"\$p\"; done | head -1)" \
   'raw=$(kosmos_running_lines tools/release.sh | grep -c "^$sp ")' \
   'kept=$(kosmos_running_lines tools/release.sh | _kosmos_drop_test_fixtures | grep -c "^$sp ")' \
   'echo "$sp $raw $kept"' > "$FIX"
@@ -113,7 +124,8 @@ if [ "${GITHUB_ACTIONS:-}" = true ]; then
     'KOSMOS_RUN_MARKER_DIR="'"$B"'/markers" kosmos_refuse_if_cut_live "this probe" >/dev/null 2>&1; echo "$sp $n $?"' > "$GP"
   read -r gsp gn grc <<< "$(kosmos_cut_shape_run --base "$B" bash "$GP" 2>/dev/null)"
   [ -n "$gsp" ] && [ "$gn" = 1 ] && pass "G: the cut guard counts this stand-in (pid $gsp) as a cut" || bad "G: the cut guard did not count this stand-in (pid '${gsp:-none}', counted $gn)"
-  [ "$grc" != 0 ] && pass "G: and release.sh's cut guard refuses inside the shape" || bad "G: the cut guard did not refuse inside the shape"
+  # Not a discriminating check on CI (the outer stand-in makes it refuse either way): a sanity line, the pid one above counts.
+  [ "$grc" != 0 ] && pass "G (sanity, not coverage): release.sh's cut guard refuses inside the shape" || bad "G: the cut guard did not refuse inside the shape"
   after=$(bash -c ". '$GUARD'; kosmos_running_lines tools/release.sh | _kosmos_drop_test_fixtures" | grep -c "^${gsp:-none} ")
   [ -n "$gsp" ] && [ "$after" = 0 ] && pass "G CONTROL: after the shape the guard no longer lists it" || bad "G CONTROL: the guard still lists pid ${gsp:-none} after the shape ($after)"
   rm -rf "${B:?}"

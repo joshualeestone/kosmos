@@ -156,7 +156,7 @@ fi
 case "${KOSMOS_SHELL_CUT_ENV:-0}" in
   0) ;;
   1) if [ "${GITHUB_ACTIONS:-}" != true ]; then
-       echo "run-tests: KOSMOS_SHELL_CUT_ENV=1 is for CI only: its stand-in cut would read as a real cut to every other agent's suite and cut on this computer. To check one test by hand, see tools/lib/cut-shape.sh." >&2
+       echo "run-tests: KOSMOS_SHELL_CUT_ENV=1 is for CI only: its stand-in cut would read as a real cut to every other agent's suite and cut on this computer. To check one test by hand, use tools/lib/cut-shape.sh with a --base inside a kt<digits> folder." >&2
        exit 2
      fi ;;
   *) echo "run-tests: KOSMOS_SHELL_CUT_ENV must be 0 or 1 (got '$KOSMOS_SHELL_CUT_ENV')" >&2; exit 2 ;;

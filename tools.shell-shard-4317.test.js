@@ -356,8 +356,9 @@ test('run-tests.sh: the default part is all, so `yarn test` still runs the node 
   const src = fs.readFileSync(path.join(ROOT, 'tools', 'run-tests.sh'), 'utf8');
   assert.match(src, /KOSMOS_TEST_PART="\$\{KOSMOS_TEST_PART:-all\}"/);
   assert.match(src, /echo "run-tests: running ONLY the \$KOSMOS_TEST_PART part of the suite/, 'a part says so in the log');
-  // #6977: the cut-shape wrap's setup (a few lines, none of which can skip what follows) sits between the two.
-  assert.match(src, /if \[ "\$NODE_STATUS" -eq 0 \] && \[ "\$KOSMOS_TEST_PART" != node \]; then\n(?:[ \t]+(?!if \[ -n "\$\{KOSMOS_SHELL_SHARD)[^\n]*\n){0,20}[ \t]+if \[ -n "\$\{KOSMOS_SHELL_SHARD:-\}" \]/, 'the shell half runs for every part but node, so the default all runs it');
+  // #6977: the cut-shape wrap's setup sits between the two: at most 20 lines, none of which exits, returns, sets
+  // NODE_STATUS or runs a shard, so none of them can end or stand in for the shell part.
+  assert.match(src, /if \[ "\$NODE_STATUS" -eq 0 \] && \[ "\$KOSMOS_TEST_PART" != node \]; then\n(?:[ \t]+(?!if \[ -n "\$\{KOSMOS_SHELL_SHARD)(?![^\n]*\b(?:exit|return|NODE_STATUS=|shell-shard\.js)\b)[^\n]*\n){0,20}[ \t]+if \[ -n "\$\{KOSMOS_SHELL_SHARD:-\}" \]/, 'the shell half runs for every part but node, so the default all runs it');
   assert.match(src, /\*\) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell/);
   assert.match(src, /if \[ "\$KOSMOS_TEST_PART" != shell \]; then\nnode --test --require/, 'the node --test line must stay flush left (three guards find it by ^node --test)');
   // #5907: an unsharded run is the whole list as shard 1 of 1, through the runner that times each command.
