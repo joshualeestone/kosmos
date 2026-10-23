@@ -2193,6 +2193,27 @@ const SCREENS = [
       if (!t.includes(want)) throw new Error('the other computers section does not say "' + want + '"');
     }
   } },
+  /* kosmos#6590 (S-7d branch c): the browsers waiting to connect on Settings > Kosmos+, where the person types the
+     code each browser shows. The section shows only under the board-v2 marker, which a throwaway board does not have,
+     so the waiting list is answered here (two browsers); the rest of the page is the real one. */
+  { name: 'plus-waiting-6590', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page) => {
+    const now = Math.floor(Date.now() / 1000);
+    const waiting = { v2: true, count: 2, ctAlarm: false, ctFinding: null, waiting: [
+      { knockId: 'AbCdEfGhIjKlMnOpQrStUv', firstSeen: now - 90, uaClass: 'iPhone or iPad', net: '203.0.113.0', vouched: false },
+      { knockId: 'ZbCdEfGhIjKlMnOpQrStUw', firstSeen: now - 30, uaClass: 'Windows', net: '2001:db8:1::', vouched: false }] };
+    await page.route('**/api/remote/waiting', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(waiting) }));
+    await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-waiting .waitreq', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => { const el = document.getElementById('plus-waiting'); if (el) el.scrollIntoView({ block: 'start' }); });
+  } },
+  /* kosmos#6590 (c4): the same section while the tunnel pauses new browsers for a certificate warning. */
+  { name: 'plus-waiting-paused-6590', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page) => {
+    const waiting = { v2: true, count: 0, waiting: [], ctAlarm: true, ctFinding: 'a'.repeat(64) };
+    await page.route('**/api/remote/waiting', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(waiting) }));
+    await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-waiting [data-wait="ctack"]', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => { const el = document.getElementById('plus-waiting'); if (el) el.scrollIntoView({ block: 'start' }); });
+  } },
 ];
 
 /* ------------------------------------------------------------------ args */
