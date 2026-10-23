@@ -95,9 +95,14 @@ engine.reachable and tmpscope fixes).
 room ("@bob is out today, anyone?", "someone needs to...") locked to bob with no way out, and relative clauses or
 questions for information ("ping the person who can approve it", "does anyone still call this?") opened requests
 meant for bob. Patterns now need clause start or the subject offered the work, and the lock ends on its own after 30
-minutes, so a misread lock is bounded. Two asked members read "ann or bob". Follow-up #(filed with the PR): an
+minutes, so a misread lock is bounded. Two asked members read "ann or bob". Follow-up #6957: an
 end-to-end test through sendPost (the engine tests write `mentioned` by hand), the refusal for a legacy agent already
 named operator, and the person's lone 🙋 left after a claim ends.
+
+## Review 8 (blind, the cap; 0 BLOCKER, 2 WARNING): the loop ends here by the usage rule. Leftovers are #6957: an
+asked member who gave the post back still holds first call; some common room phrasings ("who's free", "anyone else?")
+still lock for up to 30 minutes; an uncapped window for a post dated ahead of the clock; an author cannot claim a post
+of their own that names someone; plus the items deferred in review 7.
 
 ## Weakest premise
 That `mentioned` is how a request names its owner. A post that asks "can ann take this?" without an @-mention names
