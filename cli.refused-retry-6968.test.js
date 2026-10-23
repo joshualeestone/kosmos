@@ -39,15 +39,25 @@ function runCli(args, env) {
 function baseEnv(port, extra = {}) {
   const env = { ...process.env };
   delete env.KOSMOS_AGENT_TOKEN; delete env.KOSMOS_AGENT_SESSION; delete env.TMUX_PANE;
-  // A throwaway KOSMOS_HOME and store roots, so no arm reads this machine's pidfile or board token.
+  // A throwaway KOSMOS_HOME and store roots, so no arm reads this machine's pidfile or board token, and a TMPDIR of
+  // its own, so assertNoLeftovers can see every file kosmos_curl made.
   const home = fs.mkdtempSync(path.join(SCRATCH, 'home-'));
+  const tmp = path.join(home, 'tmp');
+  fs.mkdirSync(tmp);
   return {
     ...env,
+    TMPDIR: tmp,
     KOSMOS_PORT: String(port), KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_HOME: home,
     AGENT_WORKFORCE_DATA: path.join(home, 'data'), AGENT_WORKFORCE_WORKERS: path.join(home, 'workers'),
     AGENT_WORKFORCE_LAUNCH: path.join(home, 'launch'), AGENT_WORKFORCE_PROJECTS: path.join(home, 'projects'),
     ...extra,
   };
+}
+
+/** The body, answer and header files kosmos_curl makes are gone once the CLI exits. */
+function assertNoLeftovers(env) {
+  const left = fs.readdirSync(env.TMPDIR).filter((f) => /^kosmos-(body|answer|auth)\./.test(f));
+  assert.deepEqual(left, [], 'kosmos_curl left its temp files behind');
 }
 
 /** A board that answers its first health check, then stops listening; `back` ms later (null: never) it listens on
@@ -84,6 +94,7 @@ async function withRefusingBoard(back, fn) {
       res.writeHead(200, { 'content-type': 'application/json', connection: 'close' });
       if (req.url.startsWith('/api/tasks')) return res.end('{"tasks":[],"count":0,"project":"proj"}');
       if (req.url.startsWith('/api/msg')) return res.end('{"delivery":{"state":"placed","because":null,"id":"m1"}}');
+      if (req.url.startsWith('/api/community/follow')) return res.end('{"ok":true,"text":"Now following Echo."}');
       return res.end('{}');
     });
   };
@@ -105,17 +116,44 @@ test('#6968: a board that refuses the request once and then accepts: `task list`
 }));
 
 test('#6968 CONTROL: a board that never takes the connection again: the passing-problem words, never "is it running?"', () => withRefusingBoard(null, async (port, seen) => {
-  const out = await runCli(['task', 'list', 'proj'], baseEnv(port));
+  const env = baseEnv(port);
+  const out = await runCli(['task', 'list', 'proj'], env);
   assert.equal(out.code, 1, out.stdout + out.stderr);
-  assert.match(out.stdout, /Kosmos did not take the connection, twice in a row, so we did not list tasks and nothing was sent\. This is usually a passing connection problem \(Kosmos busy for a moment, or restarting\): try again in a moment\. It does not need a restart/);
+  assert.match(out.stdout, /Kosmos did not take the connection, even when asked again a moment later, so we did not list tasks and nothing was sent\. This is usually a passing connection problem \(Kosmos busy for a moment, or restarting\): try again in a moment\. It does not need a restart/);
   assert.doesNotMatch(out.stdout, /Is it running|kosmos start/);
   assert.equal(seen.length, 0);
+  // The words are said after a second try, not after one: the pause is in the time it took.
+  assert.ok(out.ms >= 900, `it asked again a second later before saying so (took ${out.ms} ms)`);
+  assertNoLeftovers(env);
 }));
 
 test('#6968: a refused write whose body is on stdin (`msg`) sends the whole body on the retry', () => withRefusingBoard(300, async (port, seen) => {
-  const out = await runCli(['msg', 'mara', 'the', 'whole', 'body'], baseEnv(port, { TMUX_PANE: '%42' }));
+  const env = baseEnv(port, { TMUX_PANE: '%42' });
+  const out = await runCli(['msg', 'mara', 'the', 'whole', 'body'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   const sends = seen.filter((s) => s.method === 'POST' && s.url.startsWith('/api/msg'));
   assert.equal(sends.length, 1, JSON.stringify(seen));
   assert.match(sends[0].body, /the whole body/, 'the retry carried the body read from stdin: ' + sends[0].body);
+  assertNoLeftovers(env);
 }));
+
+test('#6968: a refused call that reads its status code (-w) sees only the second try\'s (`community follow`)', () => withRefusingBoard(300, async (port, seen) => {
+  // curl prints -w even on a refusal ("000"); were the first try's printed too, the answer would not parse.
+  const env = baseEnv(port);
+  const out = await runCli(['community', 'follow', 'Echo'], env);
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.match(out.stdout, /Now following Echo\./);
+  assert.equal(seen.filter((s) => s.url.startsWith('/api/community/follow')).length, 1);
+  assertNoLeftovers(env);
+}));
+
+test('#6968: the edit hook\'s keep-copy is not asked again (it promises a short wait), on a port nothing holds', async () => {
+  const probe = http.createServer();
+  const port = await new Promise((r) => probe.listen(0, '127.0.0.1', () => r(probe.address().port)));
+  await new Promise((r) => probe.close(r));
+  const env = baseEnv(port);
+  const out = await runCli(['keep-copy', path.join(SCRATCH, 'some-file.txt')], env);
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.ok(out.ms < 800, `keep-copy did not pause for a second try (took ${out.ms} ms)`);
+  assertNoLeftovers(env);
+});
