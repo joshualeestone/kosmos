@@ -158,7 +158,7 @@ mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN
 #   listener's own 0/1/5 exits it is read from RunnerService.js, not measured.
 # - ThrottleInterval 10: launchd's default, written down. A runner that keeps crashing restarts at most every 10 s;
 #   `launchctl bootout gui/<uid>/<label>` stops it.
-# - ExitTimeOut 35: launchd SIGKILLs a stopping job after 5 s by default (measured: `exit timeout = 5`), but
+# - ExitTimeOut 35: launchd SIGKILLs a stopping job after 5 s here (measured on these Macs: `exit timeout = 5`), but
 #   RunnerService.js gives the Listener 30 s to end its GitHub session; a stop cut short leaves that session behind.
 # What still stays down: a Listener that crashes is RunnerService.js's to retry (every 5 s, forever, unless
 # GITHUB_ACTIONS_SERVICE_EXIT_AFTER_N_FAILURES is set); 10 consecutive retryable exits (2, 3, 4) stop the service
@@ -641,7 +641,7 @@ keepalive() {
   fi
   if [ "$APPLY" != 1 ]; then
     [ "$in_file" = 1 ] || echo "note:   $plist lacks $(keepalive_missing "$plist"): a killed runner may stay offline"
-    [ "$in_file" = 1 ] && [ "$loaded" = 1 ] && echo "note:   $plist has KeepAlive but the LOADED $label does not: it needs a reload"
+    [ "$in_file" = 1 ] && [ "$loaded" = 1 ] && echo "note:   $plist has KeepAlive but the LOADED $label does not show it (this reads launchctl print's 'successful exit => 0' and 'exit timeout' lines): it needs a reload"
     [ "$in_file" = 1 ] || echo "WOULD: add KeepAlive {SuccessfulExit: false}, ThrottleInterval 10 and ExitTimeOut 35 to $plist"
     # Exit 1 for a runner that is not running as it should (as --apply does), 0 for a change it would make.
     if [ "$own" = 1 ]; then echo "refused: its Listener runs but $label is not loaded in $dom: reload it there by hand" >&2; exit 1
@@ -678,6 +678,9 @@ keepalive() {
   # timeout, and a bootout alone would SIGKILL the Listener before it ends its GitHub session (the reload would then
   # cause the very session conflict ExitTimeOut is there to prevent). The exit is 0 (a stop), which a loaded
   # KeepAlive {SuccessfulExit: false} does not restart; the bootout after it finds nothing left to kill.
+  # From here to the bootstrap the runner is being stopped: a dropped ssh session (SIGHUP) must not end the script in
+  # the middle, with the runner unloaded and nothing said.
+  trap '' HUP
   local jo2 opid w4=0; jo2="$(launchctl print "$dom/$label" 2>/dev/null || true)"
   opid="$(printf '%s\n' "$jo2" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)"
   if [ -n "$opid" ]; then
@@ -702,13 +705,14 @@ keepalive() {
     || { echo "FAILED: launchctl bootstrap $dom $plist; the runner is STOPPED (unloaded; log in as $CI_USER, then: launchctl bootstrap $dom $plist)" >&2; exit 1; }
   # A new Listener of THIS runner (its own dir), not any Listener of the user: the relay's can respawn meanwhile. The
   # argv is RunnerService.js's spawn of an absolute path, measured with ps on the old Agent1s Mac (10-23):
-  # /Users/kosmos-ci/actions-runner/bin/Runner.Listener run --startuptype service (bin.<version> after a self-update).
+  # /Users/kosmos-ci/actions-runner/bin/Runner.Listener run --startuptype service (it joins ../bin, so bin/ even after a
+  # self-update; bin[^/]* is only broader than needed and still excludes actions-runner-relay).
   local now w2=0 lim2="${KOSMOS_CI_START_WAIT_S:-30}"
   case "$lim2" in ''|*[!0-9]*) lim2=30 ;; esac
   while prc=0; now="$(pgrep -u "$(id -u)" -f "$own_re")" || prc=$?
         [ "$prc" -lt 2 ] || { echo "FAILED: could not list processes (pgrep exit $prc) to see whether the runner started; $label was loaded" >&2; exit 1; }
         [ -z "$(printf '%s\n' "$now" | grep -v -x -F -e "${before:-none}" | grep . || true)" ]; do
-    [ "$w2" -lt "$lim2" ] || { echo "FAILED: $label was loaded but no new Listener of $RUNNER_DIR is running after ${w2}s; see ~/Library/Logs/$label/stdout.log" >&2; exit 1; }
+    [ "$w2" -lt "$lim2" ] || { echo "FAILED: $label was loaded but no new Listener of $RUNNER_DIR is running after ${w2}s; see ~/Library/Logs/$label/stdout.log. If it crashed, launchd restarts it (KeepAlive is loaded); if it exited 0: launchctl kickstart $dom/$label" >&2; exit 1; }
     sleep 1; w2=$((w2 + 1))
   done
   loaded_keepalive "$dom/$label" || { echo "FAILED: $label was reloaded and runs, but launchctl print shows no 'successful exit => 0' semaphore, the wording this check keys on (measured on macOS 2026-10). If launchctl print $dom/$label shows KeepAlive some other way, the check is what is wrong, not the runner" >&2; exit 1; }

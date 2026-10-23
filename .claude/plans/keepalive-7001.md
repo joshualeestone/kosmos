@@ -5,16 +5,15 @@
 written by actions/runner's svc.sh, has RunAtLoad and no KeepAlive. launchd's log: "exited due to SIGKILL | sent by
 node[50709]" (a short-lived node process of the test suite; which test is not in any log we hold, see the card).
 
-## Change (tools/ci-runner-setup.sh)
-- register: right after `./svc.sh install`, add `KeepAlive = { SuccessfulExit = false }` and `ThrottleInterval = 10` to
-  the plist it wrote (written beside and renamed in), before `svc.sh start` loads it. No plist: fail before start.
-- New stage `keepalive`, as the CI user, over ssh or in its session: add it to an installed runner's plist and reload
-  (bootout, wait for it to go, bootstrap, wait for a new Listener), only while idle (no Runner.Worker). Refuses when the
-  GUI domain is absent (not logged in), when it cannot list processes, or with no plist. Its dry run says whether
-  KeepAlive is set, which is how to check a runner whose ~/Library the owner cannot read. It skips need_user's Aqua
-  check (ssh-ok): it names gui/<uid> and never uses svc.sh, and bootstrap over ssh was measured working on the old Mac.
-- verify: ok or problem when it can read the plist; a note (no exit-code change) when it cannot. Measured: as agent1,
-  /Users/kosmos-ci/Library is mode 700, so verify as the owner normally prints the note.
+## Change (tools/ci-runner-setup.sh), as it stands after the review rounds below
+- register: right after `./svc.sh install`, add KeepAlive {SuccessfulExit: false}, ThrottleInterval 10 and ExitTimeOut 35
+  to the plist .service names (written beside and renamed in), before `svc.sh start` loads it. No plist: fail first.
+- New stage `keepalive` (KOSMOS_CI_USER for another runner user), over ssh or in the session. Done = the keys in the
+  plist AND in the loaded job (launchctl print) AND the job running. Otherwise --apply adds the keys and, only while no
+  Worker of the user runs, reloads: SIGTERM, wait for the old pid (45 s), bootout, wait for unload, bootstrap, wait for
+  a new Listener of this runner's own dir, check launchd shows the keys. A runner not loaded is never started (DOWN,
+  exit 1). Every failure says whether the runner is on the old definition, DOWN or STOPPED.
+- verify: ok/problem when it can read the plist; a note otherwise (it cannot read the CI user's launchd domain).
 
 ## Why SuccessfulExit false, not KeepAlive true
 RunnerService.js relaunches the listener itself on an update (listener exit 3 or 4), so a self-update never ends the
@@ -145,6 +144,12 @@ Mutants red: a broadened own-Listener pattern (two sites), no post-reload check,
 - The wait is tested with a real process the test owns: the stub's bootout records whether that pid was alive. Mutant
   (the wait loop removed) red; before this, the reviewer measured that mutant green.
 - Runner 2's command needs KOSMOS_CI_USER=kosmos-ci2 (corrected here, in the usage text and on the card).
+
+## Review round 10
+- SIGHUP ignored across the reload (a dropped ssh session must not stop it half way, silently).
+- The no-new-Listener failure names kickstart; the dry run's reload note names the launchctl wording it reads.
+- Comments: the Listener runs from bin/ even after a self-update (RunnerService.js joins ../bin; the Worker uses
+  bin.<version>); the 5 s exit timeout is measured here (Apple documents 20 s).
 
 ## Weakest premise
 That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it
