@@ -70,7 +70,7 @@ const ROWS = [
       ok(`${t} the heading names the rows (CSS raises its first letter), the count and the stale count`, r.heading === 'accounts (3, 1 stale)', JSON.stringify(r.heading));
       ok(`${t} one list item per record`, r.cells.length === 3, JSON.stringify(r.cells));
       ok(`${t} a row reads name, status, the confirmed line with its age and writer, source`,
-        JSON.stringify(r.cells[0]) === JSON.stringify(['Acme', 'active', 'Confirmed 2026-10-23, today, by mara', 'https://crm.example/acme']), JSON.stringify(r.cells[0]));
+        JSON.stringify(r.cells[0]) === JSON.stringify(['Acme', 'active', 'Confirmed today, by mara', 'https://crm.example/acme']), JSON.stringify(r.cells[0]));
       ok(`${t} a stale row is marked, in words`, r.stale[1] === true && r.marks[1] === 'stale', JSON.stringify([r.stale, r.marks]));
       ok(`${t} CONTROL: a fresh row carries no stale mark`, r.stale[0] === false && r.marks[0] === null, JSON.stringify([r.stale, r.marks]));
       ok(`${t} a row the person wrote says so`, /by you/.test(r.cells[1][2]), JSON.stringify(r.cells[1]));

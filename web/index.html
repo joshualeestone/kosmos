@@ -8413,12 +8413,14 @@ html.has-speak .asp-speak { display: grid; }
    file — and a div with a click handler is not reachable from the keyboard. */
 .pj-docs { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--space-3); }
 /* #6994: the project's records, under the Files list. */
-.pj-records { margin-top: var(--space-4); }
+/* A rule and room above, so the records read as their own list, not more rows of the file list (Mona Lisa). */
+.pj-records { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 0.5px solid var(--separator); }
 .pj-records-h { font: var(--text-callout) var(--font-ui); font-weight: 600; color: var(--label); margin: 0 0 var(--space-2); }
 .pj-records-h::first-letter { text-transform: uppercase; }
-.pj-records-note { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin: 0 0 var(--space-2); }
+.pj-records-note { font: var(--text-caption) var(--font-ui); color: var(--label-3); margin: 0 0 var(--space-2); }
 .pj-rec { list-style: none; margin: 0; padding: 0; font: var(--text-callout) var(--font-ui); color: var(--label); }
 .pj-rec-row { padding: var(--space-3) 0; border-bottom: 0.5px solid var(--separator); min-width: 0; }
+.pj-rec-row:last-child { border-bottom: 0; }
 .pj-rec-name { font-weight: 600; overflow-wrap: break-word; }
 .pj-rec-status { color: var(--label-2); }
 .pj-rec-status::before { content: "\00b7\00a0"; }
@@ -71165,11 +71167,19 @@ function pjRecordsReset() {
   document.getElementById('pj-records').hidden = true;
   document.getElementById('pj-records-rows').textContent = '';
 }
-function pjRecordsAge(days) {
-  if (days === null || days === undefined) return '';
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  return days + ' days ago';
+/* "Confirmed today" / "Confirmed yesterday" / "Confirmed Sep 13, 40 days ago": the date once, in the person's own
+   short form (Mona Lisa's review: the ISO date and "today" said it twice). The exact date stays in the row's title. */
+function pjRecordsWhen(r) {
+  const days = r.ageDays;
+  if (days === null || days === undefined) return 'Confirmed ' + r.confirmed;
+  if (days <= 0) return 'Confirmed today';
+  if (days === 1) return 'Confirmed yesterday';
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(r.confirmed || ''));
+  if (!m) return 'Confirmed ' + days + ' days ago';
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  const short = d.toLocaleDateString(undefined, d.getFullYear() === new Date().getFullYear()
+    ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
+  return 'Confirmed ' + short + ', ' + days + ' days ago';
 }
 async function pjLoadRecords(id) {
   const epoch = (PJ_REC_EPOCH += 1);
@@ -71214,7 +71224,8 @@ async function pjLoadRecords(id) {
     }
     const age = document.createElement('div');
     age.className = 'pj-rec-age';
-    age.textContent = ['Confirmed ' + r.confirmed, pjRecordsAge(r.ageDays), r.byPerson ? 'by you' : r.by ? 'by ' + r.by : ''].filter(Boolean).join(', ');
+    age.textContent = [pjRecordsWhen(r), r.byPerson ? 'by you' : r.by ? 'by ' + r.by : ''].filter(Boolean).join(', ');
+    age.title = 'Confirmed ' + r.confirmed;
     if (r.stale) {
       const mark = document.createElement('span');
       mark.className = 'pj-rec-stale';
