@@ -904,6 +904,37 @@ const SCREENS = [
   }, after: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/built', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }), data.projectId);
   } },
+  /* kosmos#6994: the project's records under the Files list: three accounts, one with evidence 40 days old (stale).
+     Written through the real routes and taken away after the shot, so no other screen sees them. */
+  { name: 'project-records-6994', owner: 'Angel', go: async (page, data) => {
+    const bad = await page.evaluate(async (id) => {
+      const at = (rest) => '/api/project/' + encodeURIComponent(id) + '/records' + rest;
+      const post = (rest, body) => fetch(at(rest), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.status);
+      const d = new Date(Date.now() - 40 * 86400000);
+      const old = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      const codes = [
+        await post('/label', { label: 'accounts' }),
+        await post('', { name: 'Acme Inc', status: 'active', source: 'https://crm.example.com/accounts/acme' }),
+        await post('', { name: 'Globex', status: 'renewal due', confirmed: old, source: 'notes/globex.md' }),
+        await post('', { name: 'Initech', status: 'prospect' }),
+      ];
+      return codes.filter((c) => c !== 200 && c !== 201);
+    }, data.projectId);
+    if (bad.length) throw new Error('project-records-6994: could not write the records (' + bad.join(', ') + ')');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-records', { state: 'visible', timeout: 15000 });
+    await page.evaluate(() => document.getElementById('pj-records').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(300);
+  }, after: async (page, data) => {
+    await page.evaluate(async (id) => {
+      const at = (rest) => '/api/project/' + encodeURIComponent(id) + '/records' + rest;
+      for (const name of ['Acme Inc', 'Globex', 'Initech']) {
+        await fetch(at('/remove'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      }
+      await fetch(at('/label'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label: '' }) });
+    }, data.projectId);
+  } },
   /* kosmos#6895: a throwaway project (offProject6895) whose tasks the chat agent holds after leaving it, so the cards and
      the task page name the holder "(not on this project)" and the page counts them. The project is deleted after the
      shot, so no other screen sees it. */
