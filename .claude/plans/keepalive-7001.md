@@ -84,6 +84,14 @@ Mutants red: done-on-file-only (rerun and old-job cases), no own-Listener check.
   exits 5 and stays down (KeepAlive true would instead loop every 10 s on a real stop). The liveness page covers it.
 Mutants red: a broadened own-Listener pattern (two sites), no post-reload check, the DOWN path back to ok.
 
+## Review round 4
+- A bootout that fails outright, with the job still loaded, now fails at once and says the runner runs on the old
+  definition (no 30 s wait blamed on slow unloading). Case and mutant added.
+- The post-reload KeepAlive check names the launchd wording it keys on, so a print-format change reads as the check's
+  fault, not the runner's; the comment states the measured Listener argv.
+- Deferred, a duplicate of round 3's documented residual: the session-conflict gap after a fast restart. A larger
+  ThrottleInterval would not help (it throttles only jobs that ran under 10 s).
+
 ## Weakest premise
 That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it
 stops, keepalive refuses rather than guessing). Second: that the runner keeps ending the launchd job with exit 0 on
