@@ -835,6 +835,9 @@ say_unreached() {   # <what could not happen, e.g. "record that"> <curl exit> [w
       else
         say "Kosmos is running but did not answer in time, so we could not $1. Wait a minute and try again; it does not need a restart."
       fi ;;
+    # #6968: refused twice, a second apart (kosmos_curl tries once more). Nothing was sent. Not "is it running?":
+    # that question made agents conclude a busy or restarting board was down.
+    7) say "Kosmos did not take the connection, twice in a row, so we did not $1 and nothing was sent. This is usually a passing connection problem (Kosmos busy for a moment, or restarting): try again in a moment. It does not need a restart; if it keeps happening, kosmos status says what it sees." ;;
     # #1765: kosmos_curl's refusals before anything was sent (see kosmos_board_proven).
     97) say "Kosmos did not finish answering, so we did not $1 and nothing was sent. Try again in a minute; it does not need a restart." ;;
     98) if _invoked_by_agent; then
@@ -1255,7 +1258,39 @@ kosmos_board_proven() {   # <token> <the caller's curl arguments>
 # WORLD_HEADER_CHARSET (a newline must never start a second header), `default`
 # when nothing is left: the same rule as its worldIdForHeader, and a test pins
 # the character set here equal to that one.
+#
+# #6968: a refused connection (curl 7) is tried once more, a second later. It happens to a board that is
+# listening: one too busy to take new connections refuses some outright (its accept queue is full; measured on
+# macOS 2026-10-22, 3 of 40 at once refused, 36 timed out, 1 reset), and one restarting refuses until it listens
+# again. Only 7 is tried again: the connection never opened, so nothing reached the board, which makes it safe for
+# a write too. A timeout or a cut reply (18/28/52/56) may have landed and is never tried again. A body on stdin
+# (`@-`) is read once into a mode-600 file so both tries send it; the first try's output (curl prints -w even on a
+# refusal) is held in another and only the last try's is printed. KOSMOS_REFUSED_RETRY_S sets the pause (tests).
 kosmos_curl() {
+  local _bt="$1" _tok="$2"; shift 2
+  local _bodyf="" _outf _rc _try=1 _x _args=()
+  for _x in "$@"; do
+    if [ "$_x" = "@-" ]; then
+      if [ -z "$_bodyf" ]; then
+        _bodyf="$(mktemp "${TMPDIR:-/tmp}/kosmos-body.XXXXXX")" || return 99
+        chmod 600 "$_bodyf" && cat > "$_bodyf" || { rm -f "$_bodyf"; return 99; }
+      fi
+      _args+=("@$_bodyf")
+    else _args+=("$_x"); fi
+  done
+  _outf="$(mktemp "${TMPDIR:-/tmp}/kosmos-answer.XXXXXX")" || { [ -z "$_bodyf" ] || rm -f "$_bodyf"; return 99; }
+  chmod 600 "$_outf" || { rm -f "$_outf"; [ -z "$_bodyf" ] || rm -f "$_bodyf"; return 99; }
+  while :; do
+    _kosmos_curl_once "$_bt" "$_tok" "${_args[@]}" > "$_outf" && _rc=0 || _rc=$?
+    [ "$_rc" -eq 7 ] && [ "$_try" -eq 1 ] && ! _kosmos_stopped || break
+    _try=2
+    sleep "${KOSMOS_REFUSED_RETRY_S:-1}"
+  done
+  cat "$_outf"
+  rm -f "$_outf"; [ -z "$_bodyf" ] || rm -f "$_bodyf"
+  return "$_rc"
+}
+_kosmos_curl_once() {
   local _bt="$1" _tok="$2"; shift 2
   local _hf _rc _world
   kosmos_board_proven "${_bt:-$_tok}" "$@" || return $?
@@ -4175,10 +4210,10 @@ cmd_community_comment() {
   # resolve, 7 cannot connect, 99 kosmos_curl's own setup failed. The same rule as the Windows verb.
   case "$_rc" in
     0) ;;
-    5|6|7|99)
+    5|6|99)
       say "We could not reach Kosmos to send that comment. Is it running at $URL?"
       exit 1 ;;
-    96|97|98|130)   # #1765: refused or stopped before anything was sent (kosmos_board_proven)
+    7|96|97|98|130)   # #6968: refused twice (kosmos_curl tried once more); #1765: refused or stopped before anything was sent
       say_unreached "send that comment" "$_rc"
       exit 1 ;;
     *)
