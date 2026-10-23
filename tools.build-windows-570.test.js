@@ -193,8 +193,16 @@ test('the package tells the truth about itself', () => {
   /* #1118: Kosmos opens in its own window now, and closing it is not stopping Kosmos. */
   assert.match(WIN, /Kosmos opens in its own window\. Closing that window does not stop\\r\\n'\n\s*printf 'Kosmos: it keeps running in the background/, 'the README does not say closing the window leaves Kosmos running');
   assert.doesNotMatch(WIN, /A browser opens on the Kosmos board/, 'the README still says the board opens in a browser');
-  assert.match(WIN, /double-click Kosmos\.exe again\. Bookmarks to Kosmos don\\047t stay/, 'the README does not say how to get back in signed in');
-  assert.match(WIN, /signed in\. Always open Kosmos from Kosmos\.exe\./, 'the README does not say a bookmark is not the way in');
+  assert.match(WIN, /printf 'open Kosmos from the Start menu again\. Bookmarks to Kosmos don\\047t\\r\\n'/, 'the README does not say how to get back in signed in');
+  assert.match(WIN, /printf 'stay signed in\. Always open Kosmos from the Start menu\.\\r\\n'/, 'the README does not say a bookmark is not the way in');
+  /* Site PR #245: the install paragraph says to open Kosmos from the Start menu and that the zip can be
+     deleted, so no later line may send people back to the extracted Kosmos.exe. The installed copy is the
+     same program and the Start menu shortcut runs it. The update-by-hand paragraph is about the NEW zip's
+     Kosmos.exe and stays. */
+  assert.match(WIN, /printf 'later, open it from the Start menu\.\\r\\n'/, 'the README does not say how to open Kosmos again later');
+  assert.doesNotMatch(WIN, /double-click Kosmos\.exe again/, 'the README still sends people back to the Kosmos.exe in a folder it said they could delete');
+  assert.doesNotMatch(WIN, /Always open Kosmos from Kosmos\.exe/, 'the README still says to always open Kosmos from Kosmos.exe after saying to use the Start menu');
+  assert.match(WIN, /printf 'To update by hand: download the new zip, extract it, and double-click\\r\\n'\n\s*printf 'Kosmos\.exe in it\./, 'the README lost how to update by hand from a new zip');
   /* The README names the Task Scheduler folder; it must be the one the tasks
      are actually registered in (win32board.TASK_NAME, win32job.TASK_PREFIX). */
   const folder = require('./engine/win32board').TASK_NAME.split('\\')[0];
