@@ -13,7 +13,7 @@
  *   - every board navigation is held in OnNavigationStarting until a check says its page may be shown. Measured on
  *     the Windows box: WebView2 has already sent the request by then, so this guards what is shown, not what is sent;
  *   - a board load that failed is checked, and shows why instead of WebView2's error page when the board does not prove;
- *   - "open Kosmos.exe again" with no signed-in address checks before the open page is left talking to the port;
+ *   - "open Kosmos again" with no signed-in address checks before the open page is left talking to the port;
  *   - the page's own polling is watched on the badge's timer;
  * and a failed check shows NotConfirmedPage, whose words (and the browser fallback's) now fit every way there.
  *
@@ -202,7 +202,7 @@ test('#6882: a board load that failed is checked, and a cancelled one is not tak
     'if (visit == boardVisit && navigatedToBoard && !mayStay(check)) ShowNotConfirmed();'], 'the failed load\'s check');
 });
 
-test('#6882: "open Kosmos.exe again" with no signed-in address checks before it leaves the open page talking to the port', () => {
+test('#6882: "open Kosmos again" with no signed-in address checks before it leaves the open page talking to the port', () => {
   const again = method('internal void SignInAgain(string keepPage = null)');
   inOrder(again, ['int visit = boardVisit;', 'fresh = resolveBoardAddress();',
     'if (fresh == null || !fresh.Contains("?boot=")) check = KosmosLauncher.CheckBoardBeforeReuse(port, KosmosLauncher.ReuseProofTimeoutMs);',

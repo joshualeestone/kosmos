@@ -3773,7 +3773,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         webView.Navigate(KosmosLauncher.KosmosPlusSignIn);
     }
 
-    // Opening Kosmos.exe again is how a person signs back in (the zip's READ ME says so), so it has
+    // Opening Kosmos again (from the Start menu, as the zip's READ ME says) is how a person signs back in, so it has
     // to work on an open window too, as the Mac app's Reload does (loadBoard mints a fresh signed-in
     // address every time). A window that came up signed out -- the opener gave up on a slow first
     // run, the nonce could not be minted, or the cookie is for another Kosmos -- is otherwise stuck:
