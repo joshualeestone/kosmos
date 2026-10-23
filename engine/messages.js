@@ -3679,8 +3679,9 @@ const CLOSING_POST_MIN = 400;
 // alone. Deliberately wide (a missed ask drops an answer someone wanted; a false one only lets an acknowledgement through).
 const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|confirm|let (me|us) know|reply|respond|thumbs up)\b/i;
 /* #6952: a request put to the room, for the claim rule. A room word counts only where it is the one being asked to do
-   the work: at the start of a clause ("can someone review...", "who can write the notes?"), or as the subject offered
-   the work ("anyone free to...", "whoever can...", "any takers", a bare "anyone?"). Not in passing ("@bob please fix
+   the work: at the start of a clause ("can someone review...", "who can write the notes?"), as the subject offered
+   the work ("anyone free to...", "whoever can...", "any takers", a bare "anyone?"), or anywhere as "can/could someone
+   ELSE <do it>" (#6957), since "else" excludes whoever was named. Not in passing ("@bob please fix
    the bug someone reported", "@bob ping the person who can approve it", "@bob does anyone still call this?" all ask
    bob). Not ROOM_ASK, which is about who must ANSWER ("confirm", "reply" ask the named member too), and not "?":
    "@bob can you do X?" asks bob. A pattern always misses some phrasings, which is why the asked members hold a post only
@@ -3693,13 +3694,15 @@ const CLAIM_ROOM_ASK = new RegExp(
   + '|\\b(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+(?:please|free|available|around to|able|willing|up for|have time|has time)\\b'
   // "someone ELSE" plainly excludes whoever was named, so "can someone else take it?" asks the room even right after the
   // names ("Thanks @bob! Can someone else take the login bug?"), wherever it sits (#6957 review 4)
-  + '|\\b(?:can|could)\\s+(?:someone|somebody|anyone|anybody)\\s+else\\b'   // not will/would: "@bob will anyone else need access?" asks bob (review 5)
+  // ...but not a question about other people: "could someone else have changed this?", "can anyone else see the logs?",
+  // "can someone else's PR have broken this?" ask bob (review 6)
+  + '|\\b(?:can|could)\\s+(?:someone|somebody|anyone|anybody)\\s+else\\b(?![\\x27\u2019]s|\\s+(?:have|has|had|be|been|see|seen|know|knows|think|use|uses|access)\\b)'   // not will/would: "@bob will anyone else need access?" asks bob (review 5)
   // "who can write the notes?", "Who's free to take this?" (straight or curly apostrophe), "who has time for this?"
   + '|' + CLAIM_LEAD + "who(?:\\s+|'s\\s+|\u2019s\\s+)(?:can|could|wants|will|is free|free|is available|available|has time|is around|around)\\b[^.!?]*\\?"
   + '|\\bwhoever\\s+(?:can|is free|has time|wants|picks|takes|gets)\\b'
   + '|\\b(?:any takers|any volunteers|need (?:a )?volunteers?)\\b'
   // a bare "anyone?" or "anyone else?" as its own clause ("If you cannot, anyone else?"), not "broken for anyone else?"
-  + '|' + CLAIM_LEAD + '(?:anyone|anybody|someone|somebody)(?:\\s+else)?\\s*\\?', 'i');   // a bare "anyone?" or "anyone else?"
+  + '|' + CLAIM_LEAD + '(?:anyone|anybody|someone|somebody)(?:\\s+else)?\\s*\\?', 'i');
 /* "One of you" and the like put it to a group: on a post that @-names members that group is THEM ("@ann @bob can one of
    you review this?"), so it counts only on a post that names nobody. */
 const CLAIM_GROUP_ASK = /\b(?:(?:one|any|either|each) of you|all of you|the rest of you|you all|y'?all)\b/i;
@@ -3756,7 +3759,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   /* #6952: 'operator' too. The room's text view names the person 'operator', so an agent with that name would read as
      the person on a reactions or claim line. */
   if (operator !== true && (reactor === 'you' || reactor.toLowerCase() === 'operator')) {
-    return { ok: false, because: 'that name is reserved, so this reaction could not be attributed; ask the person to rename this agent to react or claim' };
+    return { ok: false, because: 'that name is reserved, so this reaction could not be attributed; an agent cannot be renamed, so ask the person to make a new agent under another name' };
   }
   /* #2255: the room is its members. An AGENT reacting into a room it is not on
      is the same cross-room write the post model refuses (sendPost's membership
@@ -3883,7 +3886,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
      Order matters (review 2): react() itself removes an old unmarked pill just before a claim, and a claim later ended
      for n by a newer one is not n letting go. */
   const gaveBack = (n) => {
-    if (claimants.has(n)) return false;
+    if (claimants.has(n)) return false;   // belt-and-braces: a live claimant is already the holder, refused above
     let claimed = false; let released = false;
     for (const m of rows) {
       if (!m || m.kind !== 'reaction' || String(m.of) !== postId || m.from !== n || !isClaimEmoji(m.emoji)) continue;

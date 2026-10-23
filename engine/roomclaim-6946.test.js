@@ -515,7 +515,7 @@ test('#6957: a post dated ahead of the clock is open; the author of a request to
 
 test('#6957: the reserved-name refusal says what to do', () => {
   seedPost('m1', 'p');
-  assert.match(messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'operator', members: ['operator'] }).because, /ask the person to rename this agent/);
+  assert.match(messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'operator', members: ['operator'] }).because, /make a new agent under another name/);
 });
 
 test('#6957 review 1: a reply naming nobody asks the answered author, even against the reply\'s own writer', () => {
@@ -609,4 +609,26 @@ test('#6957 review 5: will/would anyone else is a question to bob, not a request
   for (const text of ['@bob will anyone else need access? Please set it up', '@bob would anyone else object if you took this?', '@bob can you take it, or would someone else be better?']) {
     assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
   }
+});
+
+test('#6957 review 6: could someone else HAVE... and can anyone else SEE... are questions to bob; control: can someone else take it? asks the room', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  let n = 0;
+  const ask = (text) => { n += 1; append({ kind: 'post', id: 'y' + n, project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text, outcomes: {}, at: new Date().toISOString() }); return 'y' + n; };
+  for (const text of ['@bob could someone else have changed this file?', '@bob can anyone else see the logs, or only you?',
+    '@bob could anybody else be affected by this?', "@bob can someone else's PR have broken this?"]) {
+    assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
+  }
+  assert.equal(claim('cy', ask('@bob is out, can someone else take the login bug?')).op, 'add');
+  // Review 6 N2: a name cannot end in a dot, so "@bob. Who can take this?" starts a clause after the dot.
+  assert.equal(claim('cy', ask('@bob. Who can take this?')).op, 'add', 'the dot after @bob was eaten as part of the name');
+});
+
+test('#6957 review 6: only a marked claim given back counts; an unmarked old hand taken off is not a give-back', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = () => new Date().toISOString();
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix X', outcomes: {}, at: at() });
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'add', at: at() });
+  append({ kind: 'reaction', project: 'p', of: 'm1', emoji: HAND, from: 'bob', op: 'remove', at: at() });
+  assert.deepEqual(claim('cy').askedOf, ['bob'], 'bob taking off an unmarked hand counted as giving the post back');
 });

@@ -21,8 +21,9 @@ opens after #6952 merges.
 4. **No author exemption** (added in the first version, removed in review 4). An author holding its own request
    ("@bob can you take the login bug?") would lock bob out of it with no time limit, since a claim, unlike the asked
    window, does not end on its own. An author who means to do the work waits out the window (30 minutes at most).
-5. **The reserved-name refusal says what to do** ("rename this agent to react or claim"), for an agent named
-   `operator` from before #6952.
+5. **The reserved-name refusal says what to do** for an agent named `operator` from before #6952. An agent's session
+   name cannot be changed (the profile changes only its display name), so it says to ask the person to make a new
+   agent under another name.
 6. **The person's 🙋 shows only beside the claim it agreed with** (the room row's `claimAgreed`: their latest 🙋 add is
    newer than the live claim). With no claim live it would read as theirs; beside a later holder's claim, as approving
    someone they never did.
@@ -57,6 +58,13 @@ Noted: the person's page still shows their 🙋 pill beside a newer claim while 
 the "someone else" rule is "can/could" only; the every-asked-member half of the release rule had no test (a mutant to
 "some" passed) and now has one. A name in the @-strip cannot end in a dot. Accepted, bounded by the window: "@bob does
 this reproduce for you? Anyone else?" opens the post.
+
+## Review 6 (blind, 0 BLOCKER, 2 WARNING): fixed. The refusal sent agents to ask for a rename that changes nothing;
+"could someone else have changed this?" and "can anyone else see the logs?" are questions to bob, so "can/could
+someone else" no longer counts before a possessive or have/be/see/know/think/use/access. Two rules got their first
+test (a name cannot end in a dot; only a marked claim given back counts), and two comments were brought up to date.
+Noted, bounded by the window: "@bob, quick question: who can approve deploys?" opens the post (a "who" question after
+a clause start).
 
 ## Proof
 engine/roomclaim-6946.test.js #6957 (each with a control that can return the dangerous answer) and
