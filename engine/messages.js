@@ -3605,8 +3605,8 @@ function claimAge(at, now) {
 }
 
 /* #6949: the PERSON frees the claim on post `of`, for a holder that went quiet (stopped, stuck, or moved on without
-   giving it back). Only the person's route calls this; react() never lets the person's 🙋 take a claim over (#6946
-   round 3). `by` is the holder the page showed: if the claim has changed hands since (released, or someone else holds
+   giving it back). Its caller must be the person's route: nothing here checks who is asking. react() never lets
+   the person's 🙋 take a claim over (#6946 round 3). `by` is the holder the page showed: if the claim has changed hands since (released, or someone else holds
    it now) nothing is written and the answer says who holds it, so a stale page cannot free the wrong agent.
    Every 🙋 pill the holder has, in any form and marked as a claim or not, is removed (react()'s dropPills does the
    same), with `takenBy: 'you'` and `because: 'freed'`, and an agents-only room note names the post and the old holder,

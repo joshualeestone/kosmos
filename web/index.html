@@ -73972,7 +73972,7 @@ function rxnsInner(list, withReply, withSpeak, mid, claim) {
     const title = isClaim ? held.label + (who && who !== held.name ? ' (' + who + ')' : '') : who;
     return '<button class="rxn' + (r.mine ? ' mine' : '') + (isClaim ? ' rxn-claim' : '') + '" type="button" data-emoji="' + esc(e) + '"'
       + ' aria-pressed="' + (r.mine ? 'true' : 'false') + '" title="' + esc(title) + '"'
-      + (isClaim ? ' aria-label="' + esc('\u{1F64B} ' + (Number(r.count) || 0) + '. ' + held.label) + '"' : '') + '>'
+      + (isClaim ? ' aria-label="' + esc('\u{1F64B} ' + (Number(r.count) || 0) + '. ' + held.label + (who && who !== held.name ? '; ' + who : '')) + '"' : '') + '>'
       + '<span class="rxn-e" aria-hidden="true">' + esc(e) + '</span>'
       + '<span class="rxn-n">' + esc(String(Number(r.count) || 0)) + '</span></button>'
       + (isClaim && held.at ? '<span class="rxn-claim-age" data-at="' + esc(held.at) + '">' + esc(rxnClaimAgeWords(held.at)) + '</span>' : '')
