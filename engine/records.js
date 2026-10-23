@@ -178,4 +178,34 @@ function setLabel(projectId, label) {
   return { label: clean || 'records' };
 }
 
-module.exports = { list, set, remove, setLabel, keyOf, today, ageDays, STALE_DAYS, NAME_MAX, STATUS_MAX, SOURCE_MAX, ROWS_MAX };
+/** How old a row's evidence reads: "today", "yesterday", "N days ago". */
+function ageWords(days) {
+  if (days === null || days === undefined) return 'date unknown';
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  return days + ' days ago';
+}
+
+/**
+ * The list as both CLIs print it (one module, so the Mac and Windows words cannot drift): a heading with the
+ * count and the stale count, then one line per row, "name | status | confirmed DATE (AGE[, stale]) by WHO | source".
+ */
+function renderList(out, { projectId, projectName } = {}) {
+  const label = out.label || 'records';
+  const where = projectName ? ' on ' + projectName : '';
+  if (!out.rows.length) {
+    return 'No ' + label + where + ' yet. Add one with: kosmos records set ' + (projectId || '<project-id>')
+      + ' "<name>" --status "<status>" --source "<link or file>"';
+  }
+  // The count after the label ("Accounts on Pipeline: 3"), so a custom label never reads "1 accounts".
+  const head = label.charAt(0).toUpperCase() + label.slice(1) + where + ': ' + out.rows.length
+    + (out.stale ? ', ' + out.stale + ' stale (evidence more than ' + out.staleDays + ' days old)' : '');
+  const lines = out.rows.map((r) => {
+    const who = r.byPerson ? ' by the person' : r.by ? ' by ' + r.by : '';
+    return '  ' + r.name + ' | ' + (r.status || '-') + ' | confirmed ' + r.confirmed + ' (' + ageWords(r.ageDays)
+      + (r.stale ? ', stale' : '') + ')' + who + ' | ' + (r.source || '-');
+  });
+  return [head, ...lines].join('\n');
+}
+
+module.exports = { list, set, remove, setLabel, renderList, ageWords, keyOf, today, ageDays, STALE_DAYS, NAME_MAX, STATUS_MAX, SOURCE_MAX, ROWS_MAX };

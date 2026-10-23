@@ -137,3 +137,13 @@ test('the screen writes a row as the person\'s; a GET to remove is a 405', async
   assert.equal(w.json.row.byPerson, true);
   assert.equal((await fetch(base + at(id, '/remove'))).status, 405);
 });
+
+test('GET ?as=text answers the list as both CLIs print it (records.renderList), with the project\'s name', async () => {
+  const id = project();
+  assert.equal((await post(at(id), { name: 'Acme', status: 'active' })).status, 201);
+  const res = await fetch(base + at(id) + '?as=text');
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /^text\/plain/);
+  const name = projects.readAll().find((x) => x.id === id).name;
+  assert.match(await res.text(), new RegExp('^Records on ' + name + ': 1\\n  Acme \\| active \\| confirmed \\d{4}-\\d{2}-\\d{2} \\(today\\)'));
+});

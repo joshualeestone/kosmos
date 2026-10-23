@@ -122,3 +122,19 @@ test('#6994: the rows survive the project\'s other writes (an edit, an agent joi
   const rows = records.list(p.id, { now: NOW }).rows;
   assert.deepEqual(rows.map((r) => [r.name, r.status]), [['Acme', 'active']]);
 });
+
+test('#6994: renderList, what both CLIs print: a heading with the stale count, one line per row, and an empty list that says how to add one', () => {
+  const p = project();
+  assert.match(records.renderList(records.list(p.id, { now: NOW }), { projectId: p.id, projectName: 'Pipeline' }),
+    new RegExp('^No records on Pipeline yet\\. Add one with: kosmos records set ' + p.id + ' "<name>"'));
+  records.setLabel(p.id, 'accounts');
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'mara', now: NOW });
+  records.set(p.id, 'Globex', { confirmed: '2026-09-01', source: 'notes/globex.md' }, { person: true, now: NOW });
+  records.set(p.id, 'Initech', { confirmed: '2026-10-22' }, { now: NOW });
+  assert.equal(records.renderList(records.list(p.id, { now: NOW }), { projectId: p.id, projectName: 'Pipeline' }), [
+    'Accounts on Pipeline: 3, 1 stale (evidence more than 30 days old)',
+    '  Acme | active | confirmed 2026-10-23 (today) by mara | -',
+    '  Globex | - | confirmed 2026-09-01 (52 days ago, stale) by the person | notes/globex.md',
+    '  Initech | - | confirmed 2026-10-22 (yesterday) | -',
+  ].join('\n'));
+});

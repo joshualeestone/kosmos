@@ -95,6 +95,7 @@ const USAGE = {
   post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624).',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   claim: 'Usage: kosmos claim <project-id> <post-id> [--release]   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
+  records: 'Usage: kosmos records <project-id> | kosmos records set <project-id> "<name>" [--status "<status>"] [--confirmed YYYY-MM-DD] [--source "<link or file>"] | kosmos records remove <project-id> "<name>" | kosmos records label <project-id> "<what the rows are>"',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
   fingerprint: 'Usage: kosmos fingerprint <file>   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: the sha256 of the file, with the creation and change dates and document ID inside a PDF left out, so the same source rendered twice matches; a PDF over 64 MB is hashed as plain bytes)',
@@ -2393,6 +2394,48 @@ async function verbClaim(ctx, args) {
   return 1;
 }
 
+/* #6994: install/kosmos cmd_records's twin. `kosmos records <project-id>` prints the board's own rendering
+   (?as=text, engine/records.js renderList), so the two commands print the same list. */
+async function verbRecords(ctx, args) {
+  const [project] = args;
+  if (!project || args.length !== 1) { ctx.err(USAGE.records); return 2; }
+  const r = await ctx.call('GET', '/api/project/' + encodeURIComponent(project) + '/records?as=text');
+  if (!r.reached) return ctx.unreachable('read its records');
+  if (r.status === 404) { ctx.err('There is no project called ' + project + '. kosmos project list shows them.'); return 1; }
+  if (r.status !== 200) { ctx.err('Kosmos could not read its records: ' + (ctx.refusedBy(r) || 'it did not say why')); return 1; }
+  ctx.out(String(r.text || '').replace(/\n$/, ''));
+  return 0;
+}
+function recordsWrite(sub) {
+  return async (ctx, args) => {
+    const [project, name, ...rest] = args;
+    if (!project || name === undefined) { ctx.err(USAGE.records); return 2; }
+    const body = sub === 'label' ? { label: name } : { name };
+    if (sub === 'set') {
+      for (let i = 0; i < rest.length; i += 2) {
+        const flag = rest[i], value = rest[i + 1];
+        const key = { '--status': 'status', '--confirmed': 'confirmed', '--source': 'source' }[flag];
+        if (!key) { ctx.err('Unknown: ' + flag + '. ' + USAGE.records); return 2; }
+        if (value === undefined) { ctx.err(flag + (key === 'confirmed' ? ' needs a date, YYYY-MM-DD.' : key === 'source' ? ' needs a link or a file.' : ' needs a value.')); return 2; }
+        body[key] = value;
+      }
+    } else if (rest.length) { ctx.err(USAGE.records); return 2; }
+    const r = await ctx.call('POST', '/api/project/' + encodeURIComponent(project) + '/' + (sub === 'set' ? 'records' : 'records/' + sub), body);
+    // Setting a record says what it is, not what changed, so running it again after a timeout is safe.
+    if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe.') : ctx.unreachable('change that record');
+    const because = ctx.refusedBy(r);
+    if (r.status === 201) { ctx.out('Added ' + name + ' to the records of ' + project + '.'); return 0; }
+    if (r.status === 200) {
+      if (sub === 'set') ctx.out('Updated ' + name + ' in the records of ' + project + '.');
+      else if (sub === 'remove') ctx.out('Removed ' + name + ' from the records of ' + project + '.');
+      else ctx.out('The records of ' + project + ' are now called ' + ((r.json && r.json.label) || 'records') + '.');
+      return 0;
+    }
+    ctx.err('Not changed: ' + (because || (r.status === 404 ? 'there is no project called ' + project : 'Kosmos did not say why')) + '.');
+    return 1;
+  };
+}
+
 /* 🔑 THE DISPATCH, AND THE ONLY LIST OF WHAT THIS COMMAND DOES. A subcommand
    handler wins when the first argument names one; otherwise the verb's handler
    runs with every argument (a project id, a state, a message). */
@@ -2403,6 +2446,7 @@ const VERB_HANDLERS = {
   post: verbPost,
   react: verbReact,
   claim: verbClaim,
+  records: verbRecords,
   report: verbReport,
   whoami: verbWhoami,
   handoff: verbHandoff,
@@ -2427,6 +2471,7 @@ const SUBCOMMAND_HANDLERS = {
     clear: (ctx, args) => verbReport(ctx, ['working', ...args], { clear: true }),
   },
   room: { reopen: roomReopen },
+  records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole },
   agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd },
@@ -2459,6 +2504,7 @@ const DESCRIBE = {
   room: 'read a project room',
   task: "a project's tasks: list, add, close, reopen, message, mark built",
   project: 'list, show, create or pause projects, or say your role on one',
+  records: "a project's records (accounts, leads, vendors): list, set, remove",
   agent: 'make an agent, or list the roles one can have',
   feedback: 'write or read the daily feedback report',
   community: 'post to or read the Kosmos+ community',

@@ -22509,7 +22509,16 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400, { error: msg || fallback });
     };
     if (!recordsAt[2] && (req.method === 'GET' || req.method === 'HEAD')) {
-      try { sendJson(res, 200, recordsEngine.list(id)); } catch (err) { failed(err, 'we could not read its records'); }
+      let out;
+      try { out = recordsEngine.list(id); } catch (err) { failed(err, 'we could not read its records'); return; }
+      // ?as=text: the list as both CLIs print it (records.renderList), so stock bash needs no JSON parser.
+      let asText = false;
+      try { asText = new URL(req.url, 'http://x').searchParams.get('as') === 'text'; } catch { asText = false; }
+      if (!asText) { sendJson(res, 200, out); return; }
+      let name = null;
+      try { const p = projects.readAll().find((x) => x.id === id); name = p ? p.name : null; } catch { name = null; }
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(recordsEngine.renderList(out, { projectId: id, projectName: name }) + '\n');
       return;
     }
     if (req.method !== 'POST') { sendJson(res, 405, { error: recordsAt[2] ? 'use POST for that' : 'use GET to read them or POST to change one' }); return; }
