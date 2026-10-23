@@ -4,7 +4,7 @@
 # b, kept outside the repo, history only), with the same install plus the checks and the user the runbook adds.
 #
 # 🛑 DRY RUN IS THE DEFAULT. Nothing changes unless --apply is given: a change either goes through act(), which
-# otherwise prints "WOULD: <command>", or sits after a stage's own dry-run return (install, register).
+# otherwise prints "WOULD: <command>", or sits after a stage's own dry-run return (install, register, keepalive).
 # Reads always run, dry or not: launchctl print, crontab -l, pgrep, ps, id, df, stat, shasum, fdesetup, pmset,
 # xcode-select, plutil -extract, gh api GETs, and install's unauthenticated compare GET to api.github.com (with --apply, also
 # launchctl managername and manageruid). A temp file for gh's stderr comes and goes in TMPDIR.
@@ -148,17 +148,21 @@ HOOK
 }
 mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN of $STAGE (nothing changes; --apply to do it)"; fi; }
 # kosmos#7001: svc.sh writes the runner's LaunchAgent with RunAtLoad and no KeepAlive, so a runner that is killed stays
-# offline until someone logs in (10-23: SIGKILLed mid-job, offline 29 minutes). KeepAlive with SuccessfulExit false
-# restarts it after a kill or a crash and never after exit 0, which is how the service ends on purpose (a stop, a removed
-# registration, a session conflict). A self-update never ends the job: RunnerService.js relaunches the listener itself.
-# ThrottleInterval 10 is launchd's default, written down so the restart delay is in the file. Every deliberate stop ends
-# with node draining its event loop (exit 0; its only process.exit is the unsupported-platform 1 at start), and runsvc.sh
-# exits with node's status, so only a crash or a kill restarts it. A runner that keeps crashing restarts at most every
-# 10 s; `launchctl bootout gui/<uid>/<label>` stops it. (Exit 0 measured for a SIGTERM stop, 10-23; for the listener's
-# 0/1/5 exits it is read from RunnerService.js, not measured.) A crash loop of the Listener alone is RunnerService.js's to retry,
-# and after its own failure limit it stops the service (exit 0), so that too stays down. NOT covered: a killed Listener leaves its session on GitHub's
-# side; if that outlasts the restarted Listener's session-conflict retries, it exits 5, the service stops (exit 0) and
-# launchd leaves it down. The 10-23 restart came back in about 2 minutes; the liveness page is the backstop for the rest.
+# offline until someone logs in (10-23: SIGKILLed mid-job, offline 29 minutes). add_keepalive adds three keys:
+# - KeepAlive {SuccessfulExit: false}: restart after a kill or a crash, never after exit 0, which is how the service ends
+#   on purpose (a stop, a removed registration, a session conflict: node drains its event loop and exits 0; its only
+#   process.exit is the unsupported-platform 1 at start; runsvc.sh exits with node's status). A self-update never ends
+#   the job: RunnerService.js relaunches the listener itself. Exit 0 measured for a SIGTERM stop (10-23); for the
+#   listener's own 0/1/5 exits it is read from RunnerService.js, not measured.
+# - ThrottleInterval 10: launchd's default, written down. A runner that keeps crashing restarts at most every 10 s;
+#   `launchctl bootout gui/<uid>/<label>` stops it.
+# - ExitTimeOut 35: launchd SIGKILLs a stopping job after 5 s by default (measured: `exit timeout = 5`), but
+#   RunnerService.js gives the Listener 30 s to end its GitHub session; a stop cut short leaves that session behind.
+# What still stays down: a Listener that crashes is RunnerService.js's to retry (every 5 s, forever, unless
+# GITHUB_ACTIONS_SERVICE_EXIT_AFTER_N_FAILURES is set); 10 consecutive retryable exits (2, 3, 4) stop the service
+# (exit 0); and a killed Listener leaves its session on GitHub's side, which, if it outlasts the restarted Listener's
+# session-conflict retries, ends in exit 5 and a stop. The 10-23 restart came back in about 2 minutes; the liveness
+# page is the backstop.
 #
 # This runner's LaunchAgent, as svc.sh install recorded it in $RUNNER_DIR/.service, or nothing; never fails (set -e and
 # pipefail are on). Not a glob: the kosmos-relay runner (#6245) can live under the same user, and its
@@ -170,17 +174,34 @@ runner_plist() {
   case "$f" in "$CI_HOME"/Library/LaunchAgents/actions.runner.*.plist) [ -e "$f" ] && printf '%s\n' "$f" ;; esac
   return 0
 }
-keepalive_set() { [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$1" 2>/dev/null)" = false ]; }
+keepalive_set() {
+  [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$1" 2>/dev/null)" = false ] || return 1
+  local t; t="$(plutil -extract ExitTimeOut raw -o - "$1" 2>/dev/null || true)"
+  case "$t" in ''|*[!0-9]*) return 1 ;; esac; [ "$t" -ge 35 ]
+}
+# keepalive_missing <plist>: what keepalive_set found missing, in words.
+keepalive_missing() {
+  local m=""
+  [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$1" 2>/dev/null)" = false ] || m="KeepAlive {SuccessfulExit: false}"
+  keepalive_set "$1" || [ -n "$m" ] || m="ExitTimeOut 35 (it has KeepAlive)"
+  printf '%s' "${m:-nothing}"
+}
 # loaded_keepalive <domain/label>: the LOADED job has it (launchd prints KeepAlive {SuccessfulExit: false} as the
 # semaphore "successful exit => 0"; measured on the old Agent1s Mac). The plist on disk can have it while the loaded job
 # does not, after a reload that was refused or failed.
-loaded_keepalive() { local out; out="$(launchctl print "$1" 2>/dev/null)" || return 1; printf '%s\n' "$out" | grep -x -E '[[:space:]]*successful exit => 0' >/dev/null; }
+loaded_keepalive() {
+  local out t; out="$(launchctl print "$1" 2>/dev/null)" || return 1
+  printf '%s\n' "$out" | grep -x -E '[[:space:]]*successful exit => 0' >/dev/null || return 1
+  t="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*exit timeout = \([0-9][0-9]*\)$/\1/p' | head -n 1)"
+  [ -n "$t" ] && [ "$t" -ge 35 ]
+}
 # add_keepalive <plist>: written beside it and renamed in, as put does, so a failure leaves the old file whole.
 add_keepalive() {
   cp -p "$1" "$1.new" || return 1
   plutil -remove KeepAlive "$1.new" >/dev/null 2>&1 || true
   if plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$1.new" \
-     && plutil -replace ThrottleInterval -integer 10 "$1.new" && plutil -lint "$1.new" >/dev/null && mv -f "$1.new" "$1"; then
+     && plutil -replace ThrottleInterval -integer 10 "$1.new" && plutil -replace ExitTimeOut -integer 35 "$1.new" \
+     && plutil -lint "$1.new" >/dev/null && mv -f "$1.new" "$1"; then
     return 0
   fi
   rm -f "$1.new"; return 1
@@ -505,7 +526,7 @@ register() {
     echo "WOULD: read a registration token from stdin (mint it as $OWNER: gh api -X POST repos/$REPO/actions/runners/registration-token --jq .token)"
     printf 'WOULD: ACTIONS_RUNNER_INPUT_TOKEN=<token>'; printf ' %q' ./config.sh --unattended --url "$REPO_URL" --name "$NAME" --labels "$LABELS" --work _work --replace; printf '\n'
     printf 'WOULD: %q install\n' ./svc.sh
-    echo "WOULD: add KeepAlive {SuccessfulExit: false} and ThrottleInterval 10 to the LaunchAgent svc.sh writes (kosmos#7001)"
+    echo "WOULD: add KeepAlive {SuccessfulExit: false}, ThrottleInterval 10 and ExitTimeOut 35 to the LaunchAgent svc.sh writes (kosmos#7001)"
     printf 'WOULD: %q start\n' ./svc.sh
     return 0
   fi
@@ -586,7 +607,7 @@ keepalive() {
   local ciuid; ciuid="$(id -u "$CI_USER" 2>/dev/null)" || { echo "refused: no user $CI_USER on this Mac" >&2; exit 1; }
   dom="gui/$ciuid"   # the CI user's domain, whoever reads it (a dry run may be someone else's)
   cd "$RUNNER_DIR" || { echo "refused: no runner in $RUNNER_DIR" >&2; exit 1; }
-  local limit="${KOSMOS_CI_UNLOAD_WAIT_S:-30}"
+  local limit="${KOSMOS_CI_UNLOAD_WAIT_S:-45}"   # over the old job's own exit timeout
   case "$limit" in ''|*[!0-9]*) echo "refused: KOSMOS_CI_UNLOAD_WAIT_S is '$limit', not a number of seconds" >&2; exit 2 ;; esac
   launchctl print "$dom" >/dev/null 2>&1 || { echo "refused: no $dom domain ($CI_USER is not logged in, so its runner cannot run); log in, then run this again" >&2; exit 1; }
   # Three facts: the plist has it, the job is loaded, the LOADED job has it. Only all three mean a kill is survived.
@@ -616,9 +637,9 @@ keepalive() {
     [ "$prc" = 0 ] && own=1
   fi
   if [ "$APPLY" != 1 ]; then
-    [ "$in_file" = 1 ] || echo "note:   $plist has no KeepAlive {SuccessfulExit: false}: a killed runner stays offline"
+    [ "$in_file" = 1 ] || echo "note:   $plist lacks $(keepalive_missing "$plist"): a killed runner may stay offline"
     [ "$in_file" = 1 ] && [ "$loaded" = 1 ] && echo "note:   $plist has KeepAlive but the LOADED $label does not: it needs a reload"
-    [ "$in_file" = 1 ] || echo "WOULD: add KeepAlive {SuccessfulExit: false} and ThrottleInterval 10 to $plist"
+    [ "$in_file" = 1 ] || echo "WOULD: add KeepAlive {SuccessfulExit: false}, ThrottleInterval 10 and ExitTimeOut 35 to $plist"
     if [ "$own" = 1 ]; then echo "note:   its Listener runs but $label is not in $dom: reload it there by hand"
     elif [ "$loaded" = 1 ]; then
       echo "WOULD: only while no job runs: reload $label"
@@ -664,12 +685,14 @@ keepalive() {
   # /Users/kosmos-ci/actions-runner/bin/Runner.Listener run --startuptype service (bin.<version> after a self-update).
   local now w2=0 lim2="${KOSMOS_CI_START_WAIT_S:-30}"
   case "$lim2" in ''|*[!0-9]*) lim2=30 ;; esac
-  while now="$(pgrep -u "$(id -u)" -f "$own_re" || true)"; [ -z "$(printf '%s\n' "$now" | grep -v -x -F -e "${before:-none}" | grep . || true)" ]; do
-    [ "$w2" -lt "$lim2" ] || { echo "FAILED: $label was loaded but no new Listener of $RUNNER_DIR is running after ${w2}s; see ~/Library/Logs/$label/stderr.log" >&2; exit 1; }
+  while prc=0; now="$(pgrep -u "$(id -u)" -f "$own_re")" || prc=$?
+        [ "$prc" -lt 2 ] || { echo "FAILED: could not list processes (pgrep exit $prc) to see whether the runner started; $label was loaded" >&2; exit 1; }
+        [ -z "$(printf '%s\n' "$now" | grep -v -x -F -e "${before:-none}" | grep . || true)" ]; do
+    [ "$w2" -lt "$lim2" ] || { echo "FAILED: $label was loaded but no new Listener of $RUNNER_DIR is running after ${w2}s; see ~/Library/Logs/$label/stdout.log" >&2; exit 1; }
     sleep 1; w2=$((w2 + 1))
   done
   loaded_keepalive "$dom/$label" || { echo "FAILED: $label was reloaded and runs, but launchctl print shows no 'successful exit => 0' semaphore, the wording this check keys on (measured on macOS 2026-10). If launchctl print $dom/$label shows KeepAlive some other way, the check is what is wrong, not the runner" >&2; exit 1; }
-  ok "the runner is running again, with KeepAlive loaded"
+  ok "the runner is running again, with KeepAlive loaded; it reads online on GitHub within a few minutes (verify, as $OWNER, checks)"
 }
 
 verify() {
@@ -755,7 +778,7 @@ EOF
   local plist; plist="$(runner_plist)"
   if [ -n "$plist" ] && [ -r "$plist" ]; then
     if keepalive_set "$plist"; then ok "$plist has KeepAlive SuccessfulExit false (whether the LOADED runner has it: as $CI_USER, tools/ci-runner-setup.sh keepalive)"
-    else problem "$plist has no KeepAlive {SuccessfulExit: false}: a killed runner stays offline; as $CI_USER: tools/ci-runner-setup.sh --apply keepalive"; fi
+    else problem "$plist lacks $(keepalive_missing "$plist"): a killed runner may stay offline; as $CI_USER: tools/ci-runner-setup.sh --apply keepalive"; fi
   elif [ -r "$RUNNER_DIR/.service" ] && [ -z "$plist" ]; then
     echo "note:   $RUNNER_DIR/.service names no LaunchAgent under $CI_HOME/Library/LaunchAgents that $(id -un) can see (its ~/Library is closed to other users); as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether KeepAlive is set and loaded"
   elif [ -e "$RUNNER_DIR/.service" ]; then
