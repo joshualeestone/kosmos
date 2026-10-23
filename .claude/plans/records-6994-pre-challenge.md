@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: records-6994
-diff_hash: e208ba2ee24b84943205ab557a97fac1b6fdfe3e2dd024fa9063873391447965
-validation: passed (focused: 864 files, 12,137 tests, one red (an inline capitalizer, web.open-sentence-1199) fixed; the page tests re-run after an edit during that run, 479 files, 5,843 tests, 0 failed; 163 test-scanning guard files from the worktree, 4,384 tests, 0 failed; after the replay onto main at e50559fc, the records tests, the style and fixture guards 68/68, main's new page test and check, render-records-6994 16/16, both browser-check gates; the full suite is CI's)
+diff_hash: 3fe6ed754785a36195c2f947b878c3c713533945aeaf4f5dfabdb3e0f3a05d06
+validation: passed (focused: 864 files, 12,137 tests, one red (an inline capitalizer, web.open-sentence-1199) fixed; the page tests re-run after an edit during that run, 479 files, 5,843 tests, 0 failed; 163 test-scanning guard files from the worktree, 4,384 tests, 0 failed; after the replay onto main at e50559fc, the records tests, the style and fixture guards 68/68, main's new page test and check, render-records-6994 16/16, both browser-check gates; CI then found the agent-token route pin (server.agent-token-sender-570): the records read now narrows a token-only caller to its own projects, as task activity; 185 server-source test files 4,295 pass; the full suite is CI's)
 subdir_audit: passed (no CLAUDE.md changed)
 timestamp: 2026-10-23T18:46:56Z
 iterations: 4
