@@ -87,6 +87,16 @@ test('#7004 /api/status: every row carries cardWord and cardTone, equal to label
     assert.deepEqual([by('ivo').cardWord, by('ivo').cardTone], ['Idle', 'quiet']);
     assert.deepEqual([by('sol').cardWord, by('sol').cardTone], ['Sign-in Issue', 'needs_you'], 'the word the phone used to get wrong');
     assert.deepEqual([by('rae').cardWord, by('rae').cardTone], ['Rate Limit', 'needs_you']);
+    // server.test.js's "no field the board sends is unknown to the page" sees these only when its board has a row,
+    // which it may not; so here, where rows exist: the page does not read them, and that list names them.
+    const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+    const guard = fs.readFileSync(path.join(__dirname, 'server.test.js'), 'utf8');
+    const list = guard.slice(guard.indexOf('const UNREAD_ON_PURPOSE = {'), guard.indexOf('\n};', guard.indexOf('const UNREAD_ON_PURPOSE = {')));
+    assert.ok(list.length > 100, 'UNREAD_ON_PURPOSE moved; re-anchor this test');
+    for (const k of ['cardWord', 'cardTone']) {
+      assert.ok(k in rows[0], 'CONTROL: the row carries ' + k);
+      if (!page.includes(k)) assert.match(list, new RegExp('^  ' + k + ':', 'm'), k + ' is sent, unread by the page and not in UNREAD_ON_PURPOSE');
+    }
   } finally { board.restore(); }
 });
 
