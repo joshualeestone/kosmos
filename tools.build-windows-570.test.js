@@ -193,8 +193,10 @@ test('the package tells the truth about itself', () => {
   /* #1118: Kosmos opens in its own window now, and closing it is not stopping Kosmos. */
   assert.match(WIN, /Kosmos opens in its own window\. Closing that window does not stop\\r\\n'\n\s*printf 'Kosmos: it keeps running in the background/, 'the README does not say closing the window leaves Kosmos running');
   assert.doesNotMatch(WIN, /A browser opens on the Kosmos board/, 'the README still says the board opens in a browser');
-  assert.match(WIN, /printf 'open Kosmos from the Start menu again\. Bookmarks to Kosmos don\\047t\\r\\n'/, 'the README does not say how to get back in signed in');
-  assert.match(WIN, /printf 'stay signed in\. Always open Kosmos from the Start menu\.\\r\\n'/, 'the README does not say a bookmark is not the way in');
+  assert.match(WIN, /printf 'open Kosmos from the Start menu again\. If Kosmos is not in the\\r\\n'/, 'the README does not say how to get back in signed in');
+  /* A first run stopped before it installed (the person pressed "Don't run") has no Start menu entry yet. */
+  assert.match(WIN, /printf 'Start menu yet, double-click Kosmos\.exe in the extracted folder once\\r\\n'/, 'the README sends a first run that never installed to a Start menu entry that is not there');
+  assert.match(WIN, /Bookmarks to Kosmos don\\047t stay signed in\. Always open\\r\\n'\n\s*printf 'Kosmos from the Start menu\.\\r\\n'/, 'the README does not say a bookmark is not the way in');
   /* Site PR #245: the install paragraph says to open Kosmos from the Start menu and that the zip can be
      deleted, so no later line may send people back to the extracted Kosmos.exe. The installed copy is the
      same program and the Start menu shortcut runs it. The update-by-hand paragraph is about the NEW zip's

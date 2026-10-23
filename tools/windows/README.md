@@ -91,8 +91,9 @@ WebView2 Runtime, pointed at the same local board.
 - **One window per board.** A second double-click brings the open window forward (restoring it if
   minimised) instead of opening another, and signs it in again with a fresh address from the same
   `--print-url` path, so opening Kosmos again also rescues a window that came up signed out. The
-  zip's READ ME says to do that from the Start menu: its shortcut runs the installed Kosmos.exe, and
-  the window lock is per board, not per copy of the program, so it is the same second launch.
+  zip's READ ME says to do that from the Start menu: its shortcut runs the Kosmos.exe that last
+  refreshed it (the installed one, once Kosmos has installed itself), and the window lock is per
+  board, not per copy of the program, so it is the same second launch.
   Like the Mac app's Reload, that returns the page to the board's front.
 - **Boxes come after the window lets go.** Every box the window process shows, and the browser
   fallback, happen after its single-instance lock is released, so a double-click while one is up
