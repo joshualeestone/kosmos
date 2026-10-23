@@ -740,7 +740,7 @@ section("native board: the Mac's own word and tone (kosmos#7004)")
 do {
     // A newer Mac sends cardWord and cardTone; they win over the phone's own table, including words the table cannot
     // make (a restart's cause) and a tone the phone's rule would not give.
-    let json = #"{"agents":[{"sessionName":"a","name":"A","state":"restarting","cardWord":"Switching to Opus","cardTone":"quiet"},{"sessionName":"b","name":"B","state":"idle","cardWord":"Idle","cardTone":"needs_you"},{"sessionName":"c","name":"C","state":"auth_failed","cardWord":"","cardTone":"sparkly"},{"sessionName":"d","name":"D","state":"auth_failed"}]}"#
+    let json = #"{"agents":[{"sessionName":"a","name":"A","state":"restarting","cardWord":"Switching to Opus","cardTone":"quiet"},{"sessionName":"b","name":"B","state":"idle","cardWord":"Idle","cardTone":"needs_you"},{"sessionName":"c","name":"C","state":"auth_failed","cardWord":"","cardTone":"sparkly"},{"sessionName":"d","name":"D","state":"auth_failed"},{"sessionName":"e","name":"E","state":"idle","cardWord":"A word added later","cardTone":"future"},{"sessionName":"f","name":"F","state":"idle","crashLoop":{"looping":true},"cardWord":"Keeps stopping","cardTone":"future"}]}"#
     let agents = Board.parseAgents(Data(json.utf8)) ?? []
     let one = { (s: String) in agents.first { $0.session == s }! }
     check(Board.statusWord(one("a")) == "Switching to Opus", "the Mac's word wins, one the phone's table cannot make")
@@ -751,6 +751,11 @@ do {
     check(one("d").macWord == nil && one("d").macTone == nil, "nothing ready-made from an older Mac")
     check(Board.tone(named: "asked") == .asked && Board.tone(named: "working") == .working && Board.tone(named: nil) == nil,
           "each tone name the Mac sends, and none")
+    // The Mac's word with a tone name the phone does not know: the word is shown, the phone's own rule picks the tone.
+    check(Board.statusWord(one("e")) == "A word added later" && Board.tone(one("e")) == .quiet,
+          "a new word with an unknown tone is shown, quiet, never red at the top")
+    check(Board.statusWord(one("f")) == "Keeps stopping" && Board.tone(one("f")) == .needsYou,
+          "an unknown tone on an agent the board counts as needing the person is still needs you")
     // The order follows the Mac's tone too.
     check(Board.sorted(agents).first?.session == "b", "a needs-you tone from the Mac sorts first")
 }

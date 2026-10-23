@@ -26575,6 +26575,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   HOOK_RATE, // #1307: the webhook limits, so a test reads the number it asserts
   markGuide, // #3739: the guide row's mark and title, for its tests
+  withCardWords, // #7004: the card word and tone on the finished rows, for its tests
   guideCardFailing, resetGuideCardMemoForTests, // #3660: the fallback's reading of the guide card, for its tests
   keepAgentReply, guideMasked, guideMaskedRows, // #3769: the setup guide's words masked where they are stored, for its tests
   creatorRunsOn, // #3734: where an agent-made team member runs by default, for its tests

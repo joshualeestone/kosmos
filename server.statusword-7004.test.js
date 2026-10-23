@@ -90,6 +90,27 @@ test('#7004 /api/status: every row carries cardWord and cardTone, equal to label
   } finally { board.restore(); }
 });
 
+test('#7004 withCardWords passes the board\'s own needs-the-person into the tone, on rows whose word alone would be quiet', () => {
+  const { withCardWords } = require('./server');
+  // Each of these needs the person while its word is not a needs-you word, so a route that passed false for the second
+  // argument would show them quiet; the four fleet agents above cannot tell the two apart.
+  const rows = withCardWords([
+    { sessionName: 'loop', state: 'idle', crashLoop: { looping: true } },
+    { sessionName: 'gave', state: 'idle', ownBound: { raised: true } },
+    { sessionName: 'gone', state: 'connection_lost', reconnect: { phase: 'gave_up' } },
+    { sessionName: 'calm', state: 'idle' },
+  ]);
+  const by = (n) => rows.find((r) => r.sessionName === n);
+  assert.deepEqual([by('loop').cardWord, by('loop').cardTone], ['Keeps stopping', 'needs_you']);
+  assert.deepEqual([by('gave').cardWord, by('gave').cardTone], ['Idle', 'needs_you']);
+  assert.equal(by('gone').cardTone, 'needs_you');
+  assert.deepEqual([by('calm').cardWord, by('calm').cardTone], ['Idle', 'quiet'], 'CONTROL: the same word without the flag is quiet');
+  // A row that throws keeps its other fields and is left without the two, rather than failing the whole read.
+  const odd = withCardWords([null, { sessionName: 'ok', state: 'working' }]);
+  assert.equal(odd[0], null);
+  assert.equal(odd[1].cardTone, 'working');
+});
+
 // ---- 3. the phone's fallback is the engine's words ----
 const SWIFT = fs.readFileSync(path.join(__dirname, 'ios', 'Kosmos', 'BoardLogic.swift'), 'utf8');
 const between = (open, close) => {

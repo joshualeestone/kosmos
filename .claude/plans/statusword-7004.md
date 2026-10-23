@@ -6,7 +6,7 @@ Card: kosmos#7004, slice 2 of the native iPhone plan (#6838, plan comment 2026-1
 ## Finished looks like
 `/api/status` rows carry `cardWord` (the computer's own word, engine/cardlabel labelOf) and `cardTone` (asked,
 needs_you, working or quiet, Mona Lisa's slice 1 table); the iPhone app shows them, and falls back to its own table
-for an older Mac. The fallback table is kept equal to the engine's by a test. The app builds and shows the list on
+for an older Mac. The fallback words and needs-you set are kept equal to the engine's by a test (the phone's ordering rules are not compared). The app builds and shows the list on
 the simulator. The real-iPhone check waits with #6838's device list.
 
 ## Why (measured)

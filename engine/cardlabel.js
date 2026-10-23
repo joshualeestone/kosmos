@@ -58,7 +58,7 @@ function labelOf(a) {
 
 /* #7004 (the iPhone plan's slice 2, #6838): the tone a card's word has in the phone's Agents list, Mona Lisa's slice 1
    table. It sets the dot and the word's colour there, and the list's order. Built from STATE_COPY's own values, so a
-   word changed above changes here too. */
+   word changed above changes here too, except 'Not running', which labelOf's offline branch also writes as a literal. */
 const NEEDS_YOU_WORDS = new Set([STATE_COPY.approval, STATE_COPY.needs_you, STATE_COPY.rate_limited, STATE_COPY.auth_failed,
   STATE_COPY.connection_lost, STATE_COPY.blocked, 'Not running', STATE_COPY.unknown]);
 
