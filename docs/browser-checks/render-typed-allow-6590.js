@@ -11,7 +11,7 @@
  *   T4  a wrong code: the tunnel's sentence (tries left) under that row, and what was typed survives the next poll with
  *       focus kept in the field;
  *   T5  Enter presses Allow; the right code sends knockId and code and says Connected;
- *   T6  Not me sends drop with only the knockId, and says how to undo it; Clear waiting browsers sends clear;
+ *   T6  Not me sends drop with only the knockId, and says how to undo it; Turn all of these away sends clear;
  *   T7  the list could not be read: the sentence and Clear, and no rows;
  *   T8  away from Kosmos+, the compact notice names the waiting browsers;
  *   T6b a row the tunnel drops (five wrong codes) keeps its sentence as the note, with focus on it;
@@ -160,9 +160,11 @@ const read = (page) => page.evaluate(() => {
     let v = await read(page);
     chk(v.shown && /Browsers waiting to connect \(2\)/.test(v.title), 'T2 the section and its title, with the count', JSON.stringify({ shown: v.shown, title: v.title }));
     chk(v.rows.length === 2 && v.fields === 2, 'T2 one row and one code field per waiting browser', JSON.stringify(v.rows));
-    chk(/It says it is: iPhone or iPad/.test(v.rows[0]) && /203\.0\.113\.0/.test(v.rows[0]) && /It says it is: Windows/.test(v.rows[1]), 'T2 each row says what the tunnel saw, the browser class as its own claim', JSON.stringify(v.rows));
+    chk(/It says it is an iPhone or iPad/.test(v.rows[0]) && /203\.0\.113\.0/.test(v.rows[0]) && /It says it is on a Windows computer/.test(v.rows[1]), 'T2 each row says what the tunnel saw, the browser class as its own claim', JSON.stringify(v.rows));
+    // Design review: no sample code in the field (it read as a code already typed).
+    chk(await page.evaluate(() => [...document.querySelectorAll('#plus-waiting .waitcodein')].every((f) => !f.placeholder)), 'T2 the code field carries no sample code');
     chk(v.rows.every((r) => /^A browser wants to connect/.test(r)) && v.rows.every((r) => r.includes(ADDR)), 'T2 the heading claims nothing, and the line names this computer\'s address', JSON.stringify(v.rows));
-    chk(v.codeBig === 0 && !/[A-Z0-9]{3}-[A-Z0-9]{3}/.test(v.text.replace('ABC-DEF', '')), 'T2 no code is shown on this computer', v.text);
+    chk(v.codeBig === 0 && !/[A-Z0-9]{3}-[A-Z0-9]{3}/.test(v.text), 'T2 no code is shown on this computer', v.text);
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, '6590-waiting-two.png'), fullPage: false }); }
 
     // T3: short of six characters.
@@ -205,10 +207,10 @@ const read = (page) => page.evaluate(() => {
     await page.waitForTimeout(400);
     v = await read(page);
     chk(posts[2] && posts[2].verb === 'drop' && JSON.stringify(posts[2].body) === JSON.stringify({ knockId: K2 }), 'T6 Not me sends only the knock id', JSON.stringify(posts[2]));
-    chk(/Turned away for today/.test(v.text) && /Clear waiting browsers/.test(v.text), 'T6 Not me says how to undo it', v.text);
+    chk(/Turned away for today/.test(v.text) && /Turn all of these away/.test(v.text), 'T6 Not me says how to undo it', v.text);
     await page.click('#plus-waiting [data-wait="clear"]');
     await page.waitForTimeout(400);
-    chk(posts[3] && posts[3].verb === 'clear', 'T6 Clear waiting browsers sends clear', JSON.stringify(posts[3]));
+    chk(posts[3] && posts[3].verb === 'clear', 'T6 Turn all of these away sends clear', JSON.stringify(posts[3]));
     allErrs.push(...errs);
     await page.close();
 
@@ -303,7 +305,7 @@ const read = (page) => page.evaluate(() => {
       await pa.click('#plus-waiting [data-wait="ctack"]');
       await pa.waitForTimeout(500);
       const after = await read(pa);
-      chk(pp.length === 1 && pp[0].verb === 'ct-ack' && pp[0].body.finding === F, 'T11 I have seen it sends the finding shown', JSON.stringify(pp));
+      chk(pp.length === 1 && pp[0].verb === 'ct-ack' && pp[0].body.finding === F, 'T11 Let new browsers ask again sends the finding shown', JSON.stringify(pp));
       chk(!/New browsers are paused/.test(after.text) && /can ask to connect again/.test(after.text), 'T11 afterwards it says new browsers can ask again', after.text);
       allErrs.push(...ea);
       await pa.close();

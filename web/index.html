@@ -52166,7 +52166,7 @@ async function pollAsk() {
    This computer never shows the code: typing what the browser in your hand shows is what binds it. The list comes
    from /api/remote/waiting, which answers only this board on this computer; it is empty (v2 false) until the board-v2
    marker exists, so nothing here shows before then. */
-const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, wrong: {}, busy: '', ctAlarm: false, ctFinding: null, paintedSig: '' };
+const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, wrong: {}, busy: '', ctAlarm: false, ctFinding: null, cw: null, paintedSig: '' };
 function waitShown() { return WAIT.v2 && (WAIT.rows.length > 0 || !!WAIT.error || !!WAIT.note || WAIT.ctAlarm); }
 /* What was typed, said or marked wrong for a row the tunnel no longer lists is forgotten, so a row that comes back starts clean. */
 function waitForgetRows() {
@@ -52181,7 +52181,8 @@ setTimeout(() => { pollWaiting(); setInterval(pollWaiting, 5000); }, 0);
    marker this poll ran paintAsk every 5 s for nothing, doubling the repaints of a board that should be unchanged). */
 function waitSig() {
   // The address too: a row's line names it, and it is learned after the first paint.
-  return JSON.stringify([WAIT.v2, WAIT.error, WAIT.note, WAIT.ctAlarm, WAIT.ctFinding, typeof PLUS_ADDRESS === 'string' ? PLUS_ADDRESS : '',
+  return JSON.stringify([WAIT.v2, WAIT.error, WAIT.note, WAIT.ctAlarm, WAIT.ctFinding,
+    WAIT.cw ? [WAIT.cw.lost, WAIT.cw.foreign, WAIT.cw.state] : null, typeof PLUS_ADDRESS === 'string' ? PLUS_ADDRESS : '',
     WAIT.rows.map((w) => [w.knockId, w.firstSeen, w.uaClass, w.net, w.vouched])]);
 }
 async function pollWaiting() {
@@ -52211,6 +52212,14 @@ async function pollWaiting() {
   if (WAIT.note && Date.now() - WAIT.noteAt > REMOVE_SAID_MS) WAIT.note = '';
   repaint();
 }
+/* What the browser says it is, in a sentence (design review: a plain sentence, not a form label), from the tunnel's
+   coarse classes (gatev2.rs ua_class). Anything else is quoted as it came, escaped. */
+function waitSays(ua) {
+  const words = { 'iPhone or iPad': 'It says it is an iPhone or iPad.', Android: 'It says it is an Android phone or tablet.',
+    Mac: 'It says it is on a Mac.', Windows: 'It says it is on a Windows computer.', Linux: 'It says it is on a Linux computer.',
+    'another browser': 'It does not say what it is.' };
+  return Object.prototype.hasOwnProperty.call(words, ua) ? words[ua] : 'It says it is: ' + askEsc(String(ua || '')) + '.';
+}
 /* The code a browser shows: six letters and digits, usually with a dash. Allow wakes at six of them. */
 function waitCodeChars(v) { return String(v || '').replace(/[^A-Za-z0-9]/g, ''); }
 function waitRowHtml(w, n) {
@@ -52225,13 +52234,13 @@ function waitRowHtml(w, n) {
   const at = typeof PLUS_ADDRESS === 'string' && PLUS_ADDRESS ? ' at <b>' + askEsc(PLUS_ADDRESS) + '</b>' : '';
   return '<div class="askreq waitreq"><div class="askdev">' + askIcon(w.uaClass) + '</div>' +
     '<div class="askwho"><b id="waithead-' + id + '">A browser wants to connect to your Kosmos</b>' + askAgoSpan(w.firstSeen) + '</div>' +
-    '<p class="asksay" id="waitsay-' + id + '">Type the code the browser in your hand shows' + at + '.</p>' +
-    '<div class="waitmeta">' + (says ? '<p>It says it is: ' + says + '</p>' : '') +
+    '<p class="asksay" id="waitsay-' + id + '">Type the code that browser shows' + at + '.</p>' +
+    '<div class="waitmeta">' + (says ? '<p>' + waitSays(w.uaClass) + '</p>' : '') +
       (w.net ? '<p>Network, as reported to this computer: ' + askEsc(w.net) + '</p>' : '') +
       (said ? '<p class="waitsaid" id="waitsaid-' + id + '">' + askEsc(said) + '</p>' : '') + '</div>' +
     '<p class="askcodetype"><label for="waitcode-' + id + '">Code</label>' +
     '<input class="waitcodein" id="waitcode-' + id + '" data-waitcode="' + id + '" type="text" autocapitalize="characters"' +
-    ' autocomplete="off" autocorrect="off" spellcheck="false" maxlength="16" placeholder="ABC-DEF"' +
+    ' autocomplete="off" autocorrect="off" spellcheck="false" maxlength="16"' +
     ' aria-describedby="waithead-' + id + ' waitsay-' + id + (said ? ' waitsaid-' + id : '') + '"' + (WAIT.wrong[w.knockId] ? ' aria-invalid="true"' : '') + '></p>' +
     '<div class="acts"><button class="btn uprime" type="button" data-wait="allow" data-id="' + id + '" aria-label="Allow ' + name + '"' +
     (WAIT.busy ? ' disabled' : short ? ' aria-disabled="true"' : '') + '>' + (busy ? 'Checking' : 'Allow') + '</button>' +
@@ -52248,16 +52257,20 @@ function paintWaiting(inPanel) {
   /* kosmos#6590 (c4): the tunnel is pausing new browsers until the person has seen its certificate warning (a
      certificate for this computer's address that this computer did not ask for, or a check report it lost). */
   if (WAIT.ctAlarm) {
+    // The real reason, from the certificate check's own state (design review: say the could-not-read case only when it is it).
+    const lostOnly = !!(WAIT.cw && WAIT.cw.lost === true && !(Number(WAIT.cw.foreign) > 0) && WAIT.cw.state !== 'foreign');
+    const why = lostOnly ? 'Kosmos+ could not read its last check of the certificates for this computer\'s address, so it cannot rule out one this computer did not ask for.'
+      : 'Kosmos+ found a certificate for this computer\'s address that this computer did not ask for.';
     out.push('<div class="askreq waitreq"><div class="askdev"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg></div>' +
       '<div class="askwho"><b id="waitct-head">New browsers are paused</b></div>' +
-      '<p class="asksay" id="waitct-say">Kosmos+ found a certificate for this computer\'s address that this computer did not ask for, or could not read its last check. ' +
-      'The details are in the certificate line in this section. Until you say you have seen this, no new browser can ask to connect. Browsers already connected keep working.</p>' +
-      '<div class="acts"><button class="btn uprime" type="button" data-wait="ctack" aria-describedby="waitct-head waitct-say"' + (WAIT.busy || !WAIT.ctFinding ? ' disabled' : '') + '>I have seen it</button></div></div>');
+      '<p class="asksay" id="waitct-say">' + why + ' New browsers cannot ask to connect until you look at it. Browsers already connected keep working.</p>' +
+      '<div class="acts"><button class="btn uprime" type="button" data-wait="ctack" aria-describedby="waitct-head waitct-say"' + (WAIT.busy || !WAIT.ctFinding ? ' disabled' : '') + '>Let new browsers ask again</button>' +
+      '<button class="btn quiet" type="button" data-wait="ctshow">Show the certificate line</button></div></div>');
   }
   WAIT.rows.forEach((w, i) => out.push(waitRowHtml(w, i + 1)));
   if (WAIT.note) out.push('<p class="askwait" id="plus-waiting-note" tabindex="-1">' + askEsc(WAIT.note) + '</p>');
   if (WAIT.rows.length || WAIT.error) {
-    out.push('<div class="acts"><button class="btn quiet" type="button" data-wait="clear"' + (WAIT.busy ? ' disabled' : '') + '>Clear waiting browsers</button></div>');
+    out.push('<div class="acts"><button class="btn quiet" type="button" data-wait="clear"' + (WAIT.busy ? ' disabled' : '') + '>Turn all of these away</button></div>');
   }
   waitWrite(el, out.join(''));
 }
@@ -52285,6 +52298,12 @@ function waitWrite(el, html) {
   }
 }
 async function waitAct(act, id) {
+  // Design review: point at the certificate line rather than send the reader hunting for it.
+  if (act === 'ctshow') {
+    const line = document.getElementById('plus-cw-line');
+    if (line) { line.scrollIntoView({ block: 'center' }); line.setAttribute('tabindex', '-1'); line.focus(); }
+    return;
+  }
   if (WAIT.busy) return;
   if (act === 'allow' && waitCodeChars(WAIT.typed[id]).length < 6) {
     WAIT.said[id] = 'Type all six letters and digits of the code this browser shows, then press Allow.';
@@ -52313,7 +52332,7 @@ async function waitAct(act, id) {
     if (act === 'allow') note('Connected. You can remove it any time under Devices.');
     else if (act === 'drop' && said.allowed && said.takenBack) note('That browser had been let in a moment before you pressed Not me. It has been taken back out.');
     else if (act === 'drop' && said.allowed) note('That browser was already let in a moment ago. If it is not yours, remove it under Devices.');
-    else if (act === 'drop') note('Turned away for today. If that was your own browser, press Clear waiting browsers, then reload the page on it for a new code.');
+    else if (act === 'drop') note('Turned away for today. If that was your own browser, press Turn all of these away to start over, then reload the page on it for a new code.');
     else if (act === 'ctack') note('New browsers can ask to connect again. If a phone was waiting, reload the page on it.');
     else note('Cleared. A browser that still wants in gets a new code when its page is reloaded.');
     if (act === 'allow') paintDevices();   // the device it let in shows in the list now
@@ -54215,6 +54234,7 @@ function paintPlusCertWatch(cw, plusOn) {
     return;
   }
   const say = plusCwSay(cw, plusOn);
+  if (typeof WAIT !== 'undefined') WAIT.cw = cw;   // kosmos#6590: the paused card says the real reason (WAIT is not in every test slice)
   /* Rewritten only on a change, so a screen reader does not re-read it every poll. */
   if (line.textContent !== say) line.textContent = say;
   /* kosmos#6613: Got it, with the lost-report sentence only (its marker is what an acknowledgement names). */
