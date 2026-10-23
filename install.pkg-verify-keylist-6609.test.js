@@ -161,7 +161,8 @@ test('#6609: ON, the helper takes a list only when the JS verifyKeyList takes it
     ['seq -1', signList(listText({ seq: -1 })), false],
     ['seq above the cap', signList(listText({ seq: mv.MAX_SEQ + 1 })), false],
     ['no seq', signList(JSON.stringify({ type: 'kosmos-release-keys', release_keys: [listed], issued: '2026-10-23' }, null, 2) + '\n'), false],
-    // Lists the JS takes and the tool never writes: the helper refuses each, so it never reads one differently.
+    // Lists the tool never writes. The JS takes most of them (JS_TAKES below, asserted); the helper refuses each, so it
+    // never reads one differently.
     ['release_keys named twice', signList(good.replace('"release_keys"', '"release_keys": ["' + spkiOf(BUILTIN.publicKey) + '"],\n  "release_keys"')), false],
     ['seq named twice', signList(good.replace('"seq": 3', '"seq": 0,\n  "seq": 3')), false],
     ['a byte-order mark first', signList(String.fromCharCode(0xfeff) + good), false],
@@ -174,6 +175,7 @@ test('#6609: ON, the helper takes a list only when the JS verifyKeyList takes it
     ['issued not a date', signList(listText({ issued: '2026-10-2x' })), false],
   ];
   assert.ok(good.includes('"seq": 3') && good.includes('"release_keys"'), 'the fixture form changed; the replace() cases above would no-op');
+  const JS_TAKES = new Set(['release_keys named twice', 'seq named twice', 'compact JSON', 'no trailing newline', 'seq written 3.0', 'an extra field', 'no issued', 'issued not a date']);
   for (const [label, list, takes] of cases) {
     const js = mv.verifyKeyList({ bytes: list.bytes, sig: list.sig, recoveryKeys: [spkiOf(RECOVERY.publicKey)] });
     const r = run(h, man, list);
@@ -183,6 +185,7 @@ test('#6609: ON, the helper takes a list only when the JS verifyKeyList takes it
       assert.deepEqual(js.keys, JSON.parse(list.bytes).release_keys, label);
     } else {
       assert.equal(r.stdout, '', label + ': a refusal prints no pins');
+      if (JS_TAKES.has(label)) assert.ok(js.ok, label + ': listed as one the JS takes, but it refuses: ' + js.why);
     }
   }
 });
