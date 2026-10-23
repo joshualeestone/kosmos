@@ -25,6 +25,24 @@ test('#6752: a grant leads with what is true now, by its times; a time only when
   assert.equal(line({ ...g, removedAt: T + DAY + 5 }, T + DAY + 9, fmt), ', no longer a reviewer since D' + (T + DAY + 5) + ' (made a reviewer D' + T + ')');
   // Review 2: removed (or left) while still pending: it never took effect, so the line does not say it was held.
   assert.equal(line({ ...g, removedAt: T + 5 }, T + DAY + 1, fmt), ', removed before it took effect, D' + (T + 5) + ' (made a reviewer D' + T + ')');
+  // kosmos#6955: made an admin says so, with the day the reviewer role ended; set back to member reads as no longer one.
+  assert.equal(line({ ...g, removedAt: T + DAY + 5, roleNow: 'admin', roleChangedAt: T + DAY + 5, leftAt: null }, T + DAY + 9, fmt),
+    ', now an admin since D' + (T + DAY + 5) + ' (made a reviewer D' + T + ')');
+  assert.equal(line({ ...g, removedAt: T + 5, roleNow: 'admin', leftAt: null }, T + DAY + 1, fmt), ', now an admin since D' + (T + 5) + ' (made a reviewer D' + T + ')',
+    'made an admin while still pending is still now an admin');
+  // Review 1: made an admin, set back, made an admin again: the day of the latest change, not the first.
+  assert.equal(line({ ...g, removedAt: T + DAY + 5, roleNow: 'admin', roleChangedAt: T + 9 * DAY, leftAt: null }, T + 10 * DAY, fmt),
+    ', now an admin since D' + (T + 9 * DAY) + ' (made a reviewer D' + T + ')');
+  // Review 1: leaving does not change the role, so an admin who left, or an older coordinator's grant with no leftAt, is
+  // never said to be an admin now.
+  assert.equal(line({ ...g, removedAt: T + DAY + 5, roleNow: 'admin', roleChangedAt: T + DAY + 5, leftAt: T + 4 * DAY }, T + 5 * DAY, fmt),
+    ', no longer a reviewer since D' + (T + DAY + 5) + ' (made a reviewer D' + T + ')', 'an admin who left read as an admin now');
+  assert.equal(line({ ...g, removedAt: T + DAY + 5, roleNow: 'admin', roleChangedAt: T + DAY + 5 }, T + 5 * DAY, fmt),
+    ', no longer a reviewer since D' + (T + DAY + 5) + ' (made a reviewer D' + T + ')', 'no leftAt read as still in the company');
+  assert.equal(line({ ...g, removedAt: T + DAY + 5, roleNow: 'member', roleChangedAt: T + DAY + 5 }, T + DAY + 9, fmt),
+    ', no longer a reviewer since D' + (T + DAY + 5) + ' (made a reviewer D' + T + ')');
+  // CONTROL: roleNow on a grant that has not ended changes nothing (only an ended grant says why).
+  assert.equal(line({ ...g, roleNow: 'admin' }, T + DAY + 1, fmt), ', a reviewer since D' + (T + DAY));
 });
 
 /* A document with just the block's elements, enough for plusOrgReviewers. Nothing may be written as markup. */
