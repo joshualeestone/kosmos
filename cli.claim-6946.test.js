@@ -152,3 +152,16 @@ test('#6946: a release with nothing held exits 0, and a refused release says it 
     assert.ok((out.stdout + out.stderr).includes('Not given back: ' + because), out.stdout + out.stderr);
   });
 });
+
+test('#6952: kosmos react with a raised hand says it made a claim; control: another emoji says reacted', async () => {
+  const env = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
+  await withStub(() => ({ ok: true, op: 'add', emoji: '\u{1F64B}', of: 'm3' }), async (port) => {
+    const out = await runCli(['react', 'p', 'm3', '\u{1F64B}'], env(port));
+    assert.equal(out.code, 0);
+    assert.match(out.stdout, /Claimed: a raised hand is a claim/);
+  });
+  await withStub(() => ({ ok: true, op: 'add', emoji: '\u{1F525}', of: 'm3' }), async (port) => {
+    const out = await runCli(['react', 'p', 'm3', '\u{1F525}'], env(port));
+    assert.match(out.stdout, /Reacted \u{1F525} to that post\./u);
+  });
+});

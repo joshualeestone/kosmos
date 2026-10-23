@@ -3690,7 +3690,9 @@ function react({ project, of, emoji, from, operator, members, claim }) {
      named 'you' (a legal tmux session name) would otherwise have its reactions
      replay as the operator's own and render `mine`. Reserve the name, the same
      operator-vs-agent care sendPost takes with the `operator` flag. */
-  if (operator !== true && reactor === 'you') {
+  /* #6952: 'operator' too. The room's text view names the person 'operator', so an agent with that name would read as
+     the person on a reactions or claim line. */
+  if (operator !== true && (reactor === 'you' || reactor === 'operator')) {
     return { ok: false, because: 'that name is reserved, so this reaction could not be attributed' };
   }
   /* #2255: the room is its members. An AGENT reacting into a room it is not on
@@ -3772,6 +3774,14 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   // A plain 🙋 toggle by an agent with a pill that is not the claim takes that pill off, as any reaction would.
   if (claim !== 'claim' && pills) { dropPills(reactor); return { ok: true, op: 'remove', emoji: e, of: postId }; }
   if (holder && holder.by !== reactor) return refuse();
+  /* #6952: a post that @-names members asks THEM. Another agent's claim would tell the named one to stand down, so it
+     is refused, naming who was asked. `mentioned` is who the post addressed when it was sent (#185), not its delivery
+     list (`to`, which can be every member). */
+  const asked = Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : [];
+  if (asked.length && !asked.includes(reactor)) {
+    return { ok: false, askedOf: asked,
+      because: 'that post asks ' + asked.join(', ') + ', so it is theirs to take: read the room, and ask them if you can help' };
+  }
   /* Round 2: a claimant who has left the room no longer holds anything, so a new claim ENDS theirs in the log too.
      Otherwise re-adding them to the project would bring their old claim back above this one. */
   if (Array.isArray(roomNow)) {

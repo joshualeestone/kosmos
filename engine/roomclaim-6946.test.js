@@ -299,3 +299,24 @@ test('round 7: an old unmarked 🙋 pill can be taken off, by an agent or the pe
   assert.equal(messages.react({ project: 'p', of: 'm5', emoji: HAND_TONE, operator: true }).op, 'remove');
   assert.deepEqual(pills('m5'), [], 'the person\'s old toned pill could not be taken off');
 });
+
+test('#6952: a post that @-names members can be claimed only by them; control: a post that names nobody, by anyone', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please do X', outcomes: {}, at: new Date().toISOString() });
+  const ann = claim('ann');
+  assert.equal(ann.ok, false, 'ann claimed a post that asks bob');
+  assert.deepEqual(ann.askedOf, ['bob']);
+  assert.equal(ann.because, 'that post asks bob, so it is theirs to take: read the room, and ask them if you can help');
+  assert.equal(messages.react({ project: 'p', of: 'm1', emoji: HAND, from: 'ann', members: MEMBERS }).ok, false, 'a plain 🙋 went around the rule');
+  assert.equal(claim('bob').op, 'add', 'bob could not claim the post that asks him');
+  // CONTROL: `to` is every member here too, but nobody is named, so ann can claim it.
+  append({ kind: 'post', id: 'm2', project: 'p', from: 'you', operator: true, to: MEMBERS, text: 'can someone do Y', outcomes: {}, at: new Date().toISOString() });
+  assert.equal(claim('ann', 'm2').op, 'add');
+});
+
+test('#6952: an agent named operator cannot react (it would read as the person in the room view)', () => {
+  seedPost('m1', 'p');
+  const r = messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'operator', members: ['operator'] });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /that name is reserved/);
+});

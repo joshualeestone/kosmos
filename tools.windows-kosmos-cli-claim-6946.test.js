@@ -94,3 +94,11 @@ test('claim: a timeout says running it again is safe (a claim never toggles) and
   assert.equal(slow.code, 3);
   assert.equal(slow.err, 'Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe, and it says whether the claim is yours.');
 });
+
+test('#6952: kosmos react with a raised hand says it made a claim; control: another emoji says reacted', async () => {
+  const hand = await run(['react', 'proj-1', 'm3', '\u{1F64B}\u{1F3FD}'], () => ({ body: { ok: true, op: 'add', emoji: '\u{1F64B}', of: 'm3' } }));
+  assert.equal(hand.code, 0);
+  assert.match(hand.out, /^Claimed: a raised hand is a claim/);
+  const fire = await run(['react', 'proj-1', 'm3', '\u{1F525}'], () => ({ body: { ok: true, op: 'add', emoji: '\u{1F525}', of: 'm3' } }));
+  assert.equal(fire.out, 'Reacted \u{1F525} to that post.');
+});
