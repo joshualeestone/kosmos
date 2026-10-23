@@ -105,10 +105,13 @@ test('#7004 withCardWords passes the board\'s own needs-the-person into the tone
   assert.deepEqual([by('gave').cardWord, by('gave').cardTone], ['Idle', 'needs_you']);
   assert.equal(by('gone').cardTone, 'needs_you');
   assert.deepEqual([by('calm').cardWord, by('calm').cardTone], ['Idle', 'quiet'], 'CONTROL: the same word without the flag is quiet');
-  // A row that throws keeps its other fields and is left without the two, rather than failing the whole read.
-  const odd = withCardWords([null, { sessionName: 'ok', state: 'working' }]);
+  // A row whose word cannot be worked out (here a field that throws when read) is passed on without the two, and the
+  // rows after it still get theirs: one bad row never fails the whole read.
+  const bad = { sessionName: 'bad', get state() { throw new Error('unreadable'); } };
+  const odd = withCardWords([null, bad, { sessionName: 'ok', state: 'working' }]);
   assert.equal(odd[0], null);
-  assert.equal(odd[1].cardTone, 'working');
+  assert.equal(odd[1], bad);
+  assert.equal(odd[2].cardTone, 'working');
 });
 
 // ---- 3. the phone's fallback is the engine's words ----

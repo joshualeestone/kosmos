@@ -41,8 +41,8 @@ That a needs-you tone set chosen for the phone belongs in the engine. It is Mona
 not the board's own colouring; if the board's page ever wants a different set, the two would need separate names.
 
 ## Validation
-- server.statusword-7004.test.js 4/4; ios/LogicTests 519/519; every test reading cardlabel, BoardLogic, the
-  status route's row helpers or /api/status, with the standing guards: 1089 tests, 0 failed.
+- server.statusword-7004.test.js and ios/LogicTests pass; so does every test reading cardlabel, BoardLogic, the status
+  route's row helpers or /api/status, with the standing guards (no failures).
 - Simulator (iPhone 18 Pro, iOS 27): Debug build, sample agents, light and dark: Sign-in Issue in red, Switching to
   Opus in grey, Question in gold first. Shots: ~/work/design-shots/kosmos-7004/.
 - Release simulator build: the sample switch is absent (0 matches), the Debug build carries it (1, the control).

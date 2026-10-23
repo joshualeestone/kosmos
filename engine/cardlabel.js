@@ -8,6 +8,8 @@
  * answers on every state and special case, and pins the offline branch (a template) by its text. A special case the
  * page gains later is compared only once the test lists a card for it. A state named like an Object member reads
  * "Can't tell" here, where the page has no word.
+ * #7004: toneOf and NEEDS_YOU_WORDS below are the phone's tone for each word; server.statusword-7004.test.js keeps the
+ * iPhone app's fallback copy (ios/Kosmos/BoardLogic.swift) equal to these words and this set.
  */
 
 const STATE_COPY = Object.freeze({
@@ -58,9 +60,9 @@ function labelOf(a) {
 
 /* #7004 (the iPhone plan's slice 2, #6838): the tone a card's word has in the phone's Agents list, Mona Lisa's slice 1
    table. It sets the dot and the word's colour there, and the list's order. Built from STATE_COPY's own values, so a
-   word changed above changes here too, except 'Not running', which labelOf's offline branch also writes as a literal. */
+   word changed above changes here too ('Not running' twice: labelOf's offline branch writes it as a literal). */
 const NEEDS_YOU_WORDS = new Set([STATE_COPY.approval, STATE_COPY.needs_you, STATE_COPY.rate_limited, STATE_COPY.auth_failed,
-  STATE_COPY.connection_lost, STATE_COPY.blocked, 'Not running', STATE_COPY.unknown]);
+  STATE_COPY.connection_lost, STATE_COPY.blocked, STATE_COPY.stopped, 'Not running', STATE_COPY.unknown]);
 
 /** 'asked' (a question), 'needs_you', 'working' or 'quiet' for board card `a`. `needsPerson` is the board's own answer
  * for the card (engine/status.js needsPerson), passed in: an agent the board counts as needing the person is needs_you
