@@ -1,12 +1,14 @@
 'use strict';
 
 /**
- * #6947 (agent feedback 10-22): when the person last viewed a task's conversation, so an agent that left a nudge on the task
+ * #6947 (agent feedback 10-22): when the person viewed a task's conversation, so an agent that left a nudge on the task
  * can tell "not seen yet" from "seen, not acted on".
  *
  * WHAT "SEEN" MEANS HERE: the task's conversation was drawn on the person's screen in Kosmos (the board's web page),
- * with the tab visible and the task's page showing: opening the task, a redraw after an action on its page, or coming
- * back to the tab, which draws it again first. The page says so (POST .../task/<n>/seen) after the draw.
+ * with the tab visible and the task's page showing: opening the task, a redraw after an action on its page, coming
+ * back to the tab, or (#6951) the five-second read while the person is at the page. The page says so (POST
+ * .../task/<n>/seen) once per state of the conversation in each open of the task's page (a reopen or a reload records
+ * again), and the board keeps the time of the latest record.
  * What it misses is in the plan (.claude/plans/nudge-seen-6947.md): a nudge read somewhere else (the project room, a
  * notification, the task's card in a column), and a page opened but not read.
  *
@@ -50,7 +52,7 @@ function markSeen(projectId, number, at = new Date()) {
   }
 }
 
-/** When the person last viewed the task, as an ISO string, or null (never viewed, or unreadable). */
+/** When the page last recorded a view of the task, as an ISO string, or null (none recorded, or unreadable). */
 function seenAt(projectId, number) {
   const file = seenFile(projectId, number);
   if (!file) return null;

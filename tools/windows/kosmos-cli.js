@@ -1183,14 +1183,14 @@ async function taskActivity(ctx, args) {
     // One line, with control and format characters taken out (review 4: an escape sequence must not reach the terminal).
     ctx.out(when(e.at) + '  ' + w.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').trim());
   }
-  /* #6947, as install/kosmos: when the person last viewed the task, against the latest message, so an agent
+  /* #6947, as install/kosmos: when the person viewed the task (as its conversation now stands), against the latest message, so an agent
      can tell an unseen nudge from one seen and not yet acted on. An older board sends no field and nothing is said. */
   if ('seenByPerson' in r.json) {
     const s = r.json.seenByPerson;
     const said = r.json.events.filter((e) => e.kind === 'said').map((e) => Date.parse(e.at)).filter(Number.isFinite);
     const last = said.length ? said.reduce((a, b) => Math.max(a, b)) : null;
     if (typeof s !== 'string' || !Number.isFinite(Date.parse(s))) ctx.out('The person has not viewed this task in Kosmos yet.');
-    else ctx.out('The person last viewed this task at ' + when(s) + (last === null ? '.' : Date.parse(s) >= last ? ', after the latest message.' : ', before the latest message.'));
+    else ctx.out('The person viewed this task at ' + when(s) + (last === null ? '.' : Date.parse(s) >= last ? ', after the latest message.' : ', before the latest message.'));
   }
   return 0;
 }
