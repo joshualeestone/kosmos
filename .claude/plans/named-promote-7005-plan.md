@@ -36,7 +36,17 @@ cut box's board, the gate says cannot-tell and the promote HOLDS (forceable afte
 Do not merge before the 0.7.64 prod promote lands (Splinter 17:59): Baron's prepped promote scripts call
 promote-channel.sh.
 
+## Commit selection (revised after challenge iteration 1)
+My first version took the newest commit naming V and claimed a hand republish "carries the same pointer
+fields". That was wrong: publish-staging-pointer.sh keeps setup_sha256 only for the same build, so a staging
+rollback to V after a later cut commits V's pointer with NO installer, beside the later cut's setup-staging.
+Now: every commit on HEAD naming V must name the same sha256 (else refuse); the one used is the newest whose
+committed setup-staging hashes to its pointer's setup_sha256, else the newest naming V.
+
+## Rollback guard (added after challenge iteration 1)
+A named V older than prod's current version refuses unless --allow-older: with the gates holding on a moved
+board, --force is this mode's usual path, and a mistyped version must not downgrade prod.
+
 ## Weakest premise
-That the newest commit naming V is the cut's commit. A hand republish of V's pointer would also be a
-commit naming V; it carries the same pointer fields, and the installer sha check refuses a pair that
-does not match the pointer.
+That the cut box's dist/ still holds V's tarball when the promote runs. True for every past cut, but a
+fresh cut box would not have it; the promote then refuses (artifact missing), as the default path does.

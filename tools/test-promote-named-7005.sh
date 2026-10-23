@@ -29,13 +29,13 @@ export KOSMOS_PROMOTE_GATE_CMD="bash $XGATE" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash
 export KOSMOS_PLUS_VERIFY_DIR="$T/plus-verify"
 WR="$HERE/lib/write-latest-pointer.js"
 
-cut() {   # <site> <version> [installer-text] [setup_sha256 to name instead of the installer's own]: one committed staging cut
+cut() {   # <site> <version> [installer-text] [setup_sha256 to name instead of the installer's own, or "none"]: one committed staging cut
   local s="$1" v="$2" inst="${3:-INSTALLER-$2 KOSMOS_READONLY_APP}" art="kosmos-$2-arm64.tar.gz" sha named
   printf 'ARTIFACT-BYTES-%s\n' "$v" > "$s/dist/$art"; ( cd "$s/dist" && shasum -a 256 "$art" > "$art.sha256" )
   sha="$(awk '{print $1}' "$s/dist/$art.sha256")"
   printf '{"files":[]}\n' > "$s/dist/kosmos-$v-arm64.manifest.json"
   printf '%s\n' "$inst" > "$s/setup-staging"; ( cd "$s" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
-  named="${4:-$(shasum -a 256 < "$s/setup-staging" | awk '{print $1}')}"
+  named="${4:-$(shasum -a 256 < "$s/setup-staging" | awk '{print $1}')}"; [ "$named" = none ] && named=""
   KM_LJ_VERSION="$v" KM_LJ_SHA="$sha" KM_LJ_ARTIFACT="$art" KM_LJ_MANIFEST="kosmos-$v-arm64.manifest.json" KM_LJ_SETUP_SHA="$named" \
     node "$WR" "$s/dist/latest-staging.json"
   git -C "$s" add dist/latest-staging.json "dist/kosmos-$v-arm64.manifest.json" setup-staging setup-staging.sha256
@@ -117,6 +117,56 @@ refused "--version for the Windows family" "$(newsite)" "for the Mac promote onl
 # CONTROL for the version check: the = form parses as the spaced one.
 S="$(newsite)"; out="$(bash "$HERE/promote-channel.sh" "$S" --version=9.9.8 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && pass "named: CONTROL --version=9.9.8 promotes as --version 9.9.8 does" || bad "named --version= form (rc=$rc, out=$out)"
+
+# ---- several commits name V: the staging cut's own commit is the one used ----
+republish() {   # <site> <version> [setup_sha256 or ""] [sha256 override]: a hand republish of V's pointer, committed, setup-staging untouched
+  local s="$1" v="$2" art="kosmos-$2-arm64.tar.gz"
+  KM_LJ_VERSION="$v" KM_LJ_SHA="${4:-$(awk '{print $1}' "$s/dist/$art.sha256")}" KM_LJ_ARTIFACT="$art" KM_LJ_MANIFEST="kosmos-$v-arm64.manifest.json" KM_LJ_SETUP_SHA="${3:-}" \
+    node "$WR" "$s/dist/latest-staging.json"
+  git -C "$s" commit -qm "$v: staging pointer republished by hand" -- dist/latest-staging.json
+}
+# A staging rollback to 9.9.8 after 9.9.9: its commit names 9.9.8 and NO installer, and sits beside 9.9.9's setup-staging.
+S="$(newsite)"; republish "$S" 9.9.8
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$S/setup")" = "INSTALLER-9.9.8 KOSMOS_READONLY_APP" ] && pass "named: a later republish naming no installer does not hide the cut's own installer" || bad "named after an installer-less republish (rc=$rc, setup: $(cat "$S/setup"), out=$out)"
+# The same republish keeping 9.9.8's installer name, but committed beside 9.9.9's setup-staging: the cut's commit still wins.
+S="$(newsite)"; republish "$S" 9.9.8 "$(printf 'INSTALLER-9.9.8 KOSMOS_READONLY_APP\n' | shasum -a 256 | awk '{print $1}')"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$S/setup")" = "INSTALLER-9.9.8 KOSMOS_READONLY_APP" ] && pass "named: a later republish beside another cut's setup-staging does not refuse the cut's own pair" || bad "named after a paired-name republish (rc=$rc, out=$out)"
+# Commits that name V with different bytes: which build V is cannot be told, so it refuses.
+S="$(newsite)"; republish "$S" 9.9.8 "" "$(printf '%064d' 7)"
+refused "commits naming V with different bytes" "$S" "disagree on its bytes" --version 9.9.8
+
+# ---- a named pointer that names no installer: /setup is left, and the hand fix names the commit ----
+S="$(newsite)"; cut "$S" 9.9.10 "INSTALLER-9.9.10 KOSMOS_READONLY_APP" none
+cut "$S" 9.9.11
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.10 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.10 ] && [ "$(cat "$S/setup")" = "PROD-INSTALLER KOSMOS_READONLY_APP" ] \
+  && pass "named: a pointer naming no installer promotes and leaves /setup as it is" || bad "named no-installer (rc=$rc, out=$out)"
+has "$out" "git show" && ! has "$out" "copy setup-staging (+ .sha256) onto setup" && pass "named: the hand fix it prints reads the named commit, not the working tree" || bad "named no-installer hand fix (out=$out)"
+
+# ---- the gates still decide: a cannot-tell experience gate HOLDS a named promote ----
+HOLD="$T/stub-hold-gate.sh"; printf '#!/usr/bin/env bash
+exit 2
+' > "$HOLD"; chmod +x "$HOLD"
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 2 ] && untouched "$S" && pass "named: a cannot-tell experience gate holds (exit 2), nothing written" || bad "named hold (rc=$rc, out=$out)"
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --force 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && pass "named: CONTROL --force after a hand check promotes past cannot-tell" || bad "named hold --force (rc=$rc, out=$out)"
+
+# ---- a version older than prod's is a rollback, and needs --allow-older ----
+S="$(newsite)"; bash "$HERE/promote-channel.sh" "$S" >/dev/null 2>&1   # prod now serves 9.9.9
+[ "$(field "$S/dist/latest.json" version)" = 9.9.9 ] && pass "rollback fixture: prod serves 9.9.9" || bad "rollback fixture: prod is $(cat "$S/dist/latest.json")"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.9 ] && has "$out" "older than 9.9.9" && pass "named: an older version is refused without --allow-older, nothing written" || bad "named older (rc=$rc, out=$out)"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --allow-older 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "rolling prod back" && pass "named: CONTROL --allow-older rolls prod back to it" || bad "named --allow-older (rc=$rc, out=$out)"
+# 9.9.10 against 9.9.9 compares as numbers, not as text (as text 9.9.10 < 9.9.9).
+S="$(newsite)"; bash "$HERE/promote-channel.sh" "$S" >/dev/null 2>&1; cut "$S" 9.9.10
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.10 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.10 ] && pass "named: CONTROL 9.9.10 is newer than 9.9.9 (compared by number)" || bad "named 9.9.10 vs 9.9.9 (rc=$rc, out=$out)"
+out="$(bash "$HERE/promote-channel.sh" "$(newsite)" --allow-older 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "goes with --version" && pass "default: --allow-older alone is refused" || bad "--allow-older alone (rc=$rc, out=$out)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-promote-named-7005: ALL PASS"; else echo "test-promote-named-7005: FAILURES above"; exit 1; fi

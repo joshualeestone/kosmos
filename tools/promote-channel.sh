@@ -24,6 +24,7 @@
 # field, the gate, and the promoted copy come from that snapshot. A staging publish that lands
 # while a gate runs therefore cannot put an unapproved, unverified pointer onto prod; if the
 # staging pointer changed during the promote, the promote refuses with nothing written.
+# (Not with --version, below: there the snapshot comes from a commit, which cannot change.)
 #
 # THE WINDOWS FAMILY (--family win). The same pointer copy for Windows:
 # `dist/latest-win-staging.json` (written by publish-kosmos-windows.sh, whose default channel
@@ -52,8 +53,11 @@
 #
 # A NAMED VERSION (--version <V>, Mac only, kosmos#7005). By default the build promoted is whatever
 # latest-staging.json names NOW, so a pending prod GO froze staging: a staging cut would replace the
-# approved build. With --version, the pointer and installer come from the newest site commit (on HEAD)
-# whose latest-staging.json names V, i.e. the staging cut's own commit, so staging can move on. Every
+# approved build. With --version, the pointer and installer come from a site commit (on HEAD) whose
+# latest-staging.json names V, so staging can move on. Every commit naming V must name the same bytes;
+# the one used is the newest whose committed setup-staging hashes to its pointer's setup_sha256 (the
+# staging cut's own commit, which carries both), else the newest naming V. A V older than the build prod
+# serves now is refused unless --allow-older is given (a rollback is a decision, not a typo). Every
 # check below runs unchanged on what that commit holds: the artifact and its sidecar, the manifest and
 # its signature, the installer's sha and floor, and the gates (the experience gate expects V, so a board
 # on a later staging build answers cannot-tell and the promote HOLDS). The artifact itself is not in
@@ -66,7 +70,7 @@
 #             which is per-account and usually NOT 16180). Also settable via KOSMOS_PORT.
 #             Give the port so a wrong-port HOLD does not push you toward --force, which
 #             bypasses the gate entirely.
-#   tools/promote-channel.sh <site-checkout> [port] --version <V> [--force]
+#   tools/promote-channel.sh <site-checkout> [port] --version <V> [--allow-older] [--force]
 #             promote V from its own staging commit, whatever staging names now (see above)
 #   tools/promote-channel.sh <site-checkout> --family win --approved-version <V> \
 #       --approved-sha <sha256> --approval-ref <Slack message ts or permalink>
@@ -76,11 +80,12 @@
 #   (the Windows gate has no command override: it is always tools/win-staging-verified.sh)
 set -uo pipefail
 
-SITE=""; FORCE=0; PORT=""; FAMILY="mac"; APPROVED_VERSION=""; APPROVED_SHA=""; APPROVAL_REF=""; NAMED_VERSION=""
+SITE=""; FORCE=0; PORT=""; FAMILY="mac"; APPROVED_VERSION=""; APPROVED_SHA=""; APPROVAL_REF=""; NAMED_VERSION=""; ALLOW_OLDER=0
 while [ $# -gt 0 ]; do
   a="$1"; shift
   case "$a" in
     --force) FORCE=1 ;;
+    --allow-older) ALLOW_OLDER=1 ;;
     --family|--approved-version|--approved-sha|--approval-ref|--version)
       [ $# -gt 0 ] || { echo "promote-channel: $a needs a value" >&2; exit 1; }
       case "$a" in
@@ -117,8 +122,8 @@ case "$FAMILY" in
   *) echo "promote-channel: --family must be 'mac' or 'win' (got '$FAMILY')" >&2; exit 1 ;;
 esac
 SITE="${SITE:-${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}}"
-case "$NAMED_VERSION" in ""|[0-9]*.[0-9]*.[0-9]*) ;; *) echo "promote-channel: --version must be a version such as 0.7.64 (got '$NAMED_VERSION')" >&2; exit 1 ;; esac
-case "$NAMED_VERSION" in *[!0-9.]*) echo "promote-channel: --version must be a version such as 0.7.64 (got '$NAMED_VERSION')" >&2; exit 1 ;; esac
+[ -z "$NAMED_VERSION" ] || [[ "$NAMED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "promote-channel: --version must be a version such as 0.7.64 (got '$NAMED_VERSION')" >&2; exit 1; }
+[ "$ALLOW_OLDER" = 0 ] || [ -n "$NAMED_VERSION" ] || { echo "promote-channel: --allow-older goes with --version" >&2; exit 1; }
 [ -d "$SITE/dist" ] || { echo "promote-channel: no $SITE/dist" >&2; exit 1; }
 # kosmos#6620: no release pointer moves while the site is frozen (tools/pointer-freeze.sh, the incident pin).
 . "$(cd "$(dirname "$0")" && pwd)/lib/pointer-freeze.sh" || { echo "promote-channel: cannot load tools/lib/pointer-freeze.sh" >&2; exit 1; }
@@ -155,14 +160,30 @@ read_field() { read_pointer_field "$SNAP" "$1"; }
 # kosmos#7005: the installer the promote checks and copies; with --version, the pair from the named commit.
 SETUP_SRC="$SITE/setup-staging"
 SETUP_HAND="cp setup-staging setup && cp setup-staging.sha256 setup.sha256"
+SNAP_LABEL="$STAGING"
 if [ -n "$NAMED_VERSION" ]; then
-  NAMED_COMMIT=""
-  for _c in $(git -C "$SITE" log --format=%H HEAD -- "dist/$STAGING_NAME" 2>/dev/null); do
-    git -C "$SITE" show "${_c}:dist/$STAGING_NAME" > "$SNAP" 2>/dev/null || continue
-    [ "$(read_pointer_field "$SNAP" version)" = "$NAMED_VERSION" ] && { NAMED_COMMIT="$_c"; break; }
+  NAMED_DIR="$(mktemp -d "${TMPDIR:-/tmp}/promote-channel-named.XXXXXX")" || { NAMED_DIR=""; echo "promote-channel: could not make a temp folder for the named installer" >&2; exit 1; }
+  # Every commit on HEAD whose pointer names V. Usually one, the staging cut's (pointer and installer together); a
+  # later hand republish of V is another, and it may name no installer, or sit beside a later cut's setup-staging.
+  # -G narrows the walk to commits whose diff mentions V (it also finds the commit that replaced V, and its dots match
+  # any character): every candidate is read and kept only if its pointer names V exactly.
+  NAMED_COMMIT=""; _paired=""; _shas=""
+  for _c in $(git -C "$SITE" log --format=%H -G "\"version\": *\"$NAMED_VERSION\"" HEAD -- "dist/$STAGING_NAME" 2>/dev/null); do
+    git -C "$SITE" show "${_c}:dist/$STAGING_NAME" > "$NAMED_DIR/candidate.json" 2>/dev/null || continue
+    [ "$(read_pointer_field "$NAMED_DIR/candidate.json" version)" = "$NAMED_VERSION" ] || continue
+    _s="$(read_pointer_field "$NAMED_DIR/candidate.json" sha256)"
+    case " $_shas " in *" $_s "*) ;; *) _shas="${_shas:+$_shas }$_s" ;; esac
+    [ -n "$NAMED_COMMIT" ] || NAMED_COMMIT="$_c"
+    _ps="$(read_pointer_field "$NAMED_DIR/candidate.json" setup_sha256)"
+    if [ -z "$_paired" ] && [ -n "$_ps" ] \
+       && [ "$(git -C "$SITE" show "${_c}:setup-staging" 2>/dev/null | shasum -a 256 | awk '{print $1}')" = "$_ps" ]; then _paired="$_c"; fi
   done
   [ -n "$NAMED_COMMIT" ] || { echo "promote-channel: no commit on $SITE's HEAD has a $STAGING_NAME naming $NAMED_VERSION - refusing; nothing was written. (Pull the site, or check the version.)" >&2; exit 1; }
-  NAMED_DIR="$(mktemp -d "${TMPDIR:-/tmp}/promote-channel-named.XXXXXX")" || { NAMED_DIR=""; echo "promote-channel: could not make a temp folder for the named installer" >&2; exit 1; }
+  case "$_shas" in *" "*) echo "promote-channel: commits naming $NAMED_VERSION disagree on its bytes (sha256 $_shas) - refusing; nothing was written. Which build is $NAMED_VERSION has to be settled by hand." >&2; exit 1 ;; esac
+  [ -z "$_paired" ] || NAMED_COMMIT="$_paired"
+  git -C "$SITE" show "${NAMED_COMMIT}:dist/$STAGING_NAME" > "$SNAP" || { echo "promote-channel: could not read $STAGING_NAME from $NAMED_COMMIT - refusing; nothing was written." >&2; exit 1; }
+  rm -f "$NAMED_DIR/candidate.json"
+  SNAP_LABEL="the $STAGING_NAME committed in ${NAMED_COMMIT:0:10}"
   SETUP_SRC="$NAMED_DIR/setup-staging"
   for _f in setup-staging setup-staging.sha256; do
     git -C "$SITE" cat-file -e "${NAMED_COMMIT}:$_f" 2>/dev/null || continue
@@ -186,7 +207,17 @@ if [ "$FAMILY" = mac ]; then
   # disagree about which build it names.
   kosmos_setup_floor_pointer_ok "the staging pointer being promoted" "$(cat "$SNAP")" || exit 1
 fi
-[ -n "$V" ] && [ -n "$SHA" ] && [ -n "$ARTIFACT" ] || { echo "promote-channel: $STAGING is missing version/sha256/$ARTIFACT_FIELD - not a usable pointer" >&2; exit 1; }
+[ -n "$V" ] && [ -n "$SHA" ] && [ -n "$ARTIFACT" ] || { echo "promote-channel: $SNAP_LABEL is missing version/sha256/$ARTIFACT_FIELD - not a usable pointer" >&2; exit 1; }
+# kosmos#7005: a named V older than what prod serves is a rollback, and needs saying so (--allow-older): with the gates
+# holding on a board that has moved on, --force is this mode's usual path, and a mistyped version must not ride it.
+if [ -n "$NAMED_VERSION" ]; then
+  _prodv="$(read_pointer_field "$SITE/dist/$PROD_NAME" version)"
+  echo "promote-channel: --version $V; prod serves ${_prodv:-nothing} now"
+  if [ -n "$_prodv" ] && ! node -e 'const a=process.argv[1].split(".").map(Number),b=process.argv[2].split(".").map(Number);for(let i=0;i<Math.max(a.length,b.length);i++){const d=(a[i]||0)-(b[i]||0);if(d)process.exit(d>0?0:1)}process.exit(0)' "$V" "$_prodv" 2>/dev/null; then
+    [ "$ALLOW_OLDER" = 1 ] || { echo "promote-channel: $V is older than $_prodv, which prod serves now - refusing; nothing was written. A rollback needs --allow-older as well." >&2; exit 1; }
+    echo "promote-channel: --allow-older: rolling prod back from $_prodv to $V" >&2
+  fi
+fi
 
 # THE SAME-BYTES INVARIANT, checked before the gate and before any promote: the artifact
 # the staging pointer names must EXIST and its served sha must verify in place AND equal the
@@ -225,7 +256,7 @@ if [ "$FAMILY" = mac ] && [ -n "$PTR_SETUP" ]; then
   _sg="$(shasum -a 256 < "$SETUP_SRC" | awk '{print $1}')"
   _sw="$(awk 'NR==1{print $1}' "$SETUP_SRC.sha256")"
   [ "$_sg" = "$PTR_SETUP" ] \
-    || { echo "promote-channel: setup-staging hashes to $_sg but the staging pointer names installer $PTR_SETUP - refusing; nothing was written. (A later staging cut replaced it, or the checkout is stale.)" >&2; exit 1; }
+    || { echo "promote-channel: setup-staging hashes to $_sg but the staging pointer names installer $PTR_SETUP - refusing; nothing was written. ${NAMED_VERSION:+(The installer committed beside $SNAP_LABEL is not the one it names.)}${NAMED_VERSION:-(A later staging cut replaced it, or the checkout is stale.)}" >&2; exit 1; }
   [ "$_sw" = "$_sg" ] \
     || { echo "promote-channel: setup-staging.sha256 names '${_sw:-nothing}', not the setup-staging bytes $_sg - refusing; nothing was written." >&2; exit 1; }
   SETUP_STAGING="$_sg"
@@ -580,7 +611,7 @@ elif [ "$FAMILY" = mac ]; then
   # build beside the OLDER installer, the pairing #5032 removes; copying is not safe either, because
   # nothing says the staging installer belongs to this build.
   if [ -f "$SETUP_SRC" ] && ! cmp -s "$SETUP_SRC" "$SITE/setup"; then
-    echo "promote-channel: WARNING setup-staging differs from /setup and the promoted pointer names no installer, so prod now serves $V beside the OLDER /setup. If $V was cut with setup-staging, copy setup-staging (+ .sha256) onto setup (+ .sha256) by hand and commit them with $PROD_NAME." >&2
+    echo "promote-channel: WARNING setup-staging differs from /setup and the promoted pointer names no installer, so prod now serves $V beside the OLDER /setup. If $V was cut with ${NAMED_VERSION:+the installer committed beside $SNAP_LABEL, run $SETUP_HAND (in $SITE)}${NAMED_VERSION:-setup-staging, copy setup-staging (+ .sha256) onto setup (+ .sha256) by hand} and commit them with $PROD_NAME." >&2
   fi
 fi
 # Prove the promote landed: the prod pointer now names the same artifact + sha as the snapshot.
