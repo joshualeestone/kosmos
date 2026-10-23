@@ -4749,13 +4749,16 @@ html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(
 .pjfaces > [aria-hidden] { display: flex; align-items: center; gap: 5px; }
 .pjfaces .lav { width: 22px; height: 22px; font-size: .625rem; }
 .pjcount { font-size: .8125rem; color: var(--k-ink-2); margin-left: 8px; }
-/* #6966: the provider tally beside the count, quiet: one-colour marks at 13px, a hairline before it. */
-.pjtally { display: inline-flex; align-items: center; margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--k-rule);
+/* #6966: the provider tally beside the count, quiet: one-colour marks at 13px, a hairline before it. On the GRID cards
+   only for now: the list row, the roadmap and the consolidated rail hide or squeeze the faces, and the tally there is
+   a later step of the card. */
+.pjtally { display: none; }
+.pj-list.asgrid .pjtally { display: inline-flex; align-items: center; margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--k-rule);
            font-size: .8125rem; color: var(--k-ink-2); white-space: nowrap; }
 .pjtally > [aria-hidden] { display: inline-flex; align-items: center; gap: 8px; }
 .pjtally-i { display: inline-flex; align-items: center; gap: 3px; }
 .pjtally-m { width: 13px; height: 13px; flex: none; color: var(--k-ink); }
-.pjtally-m[data-pmark="openai"] svg { transform: scale(1.5); }   /* as #firstrun and .pcombo do: the glyph fills ~51% of its viewBox */
+.pjtally-m[data-pmark="openai"] svg { transform: scale(1.5); }   /* as the provider picker does: the glyph fills ~51% of its viewBox */
 .pjtally-m.pcombo-chip { width: 13px; height: 13px; line-height: 13px; font-size: .5rem; border-radius: 3px; }
 /* The grid stacks faces over the count; the count and the tally share the line under the faces. */
 .pj-list.asgrid .pj-row .pjfaces { flex-flow: row wrap; column-gap: 0; }
