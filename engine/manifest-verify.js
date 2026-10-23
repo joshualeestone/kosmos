@@ -360,10 +360,11 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
  * and the next release raises MIN_KEY_LIST_SEQ to it. Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
 const RECOVERY_KEYS = Object.freeze([]);   // frozen: nothing in the process can turn the feature on by adding one
 /* 🛑 #6609: NOT filled in until the whole chain takes the list. Done: run-setup (2a), setup.sh's checks (2b), and the
-   .pkg installer's pinned path (kosmos-pkg-verify, #6576, takes the list; its recoveryKeys must match these). NOT done:
+   .pkg installer's pinned path (kosmos-pkg-verify, #6576, takes the list; its recoveryKeys must match these; the whole
+   pinned path is itself off while install/pkg-verify/floor reads "off"). NOT done:
    the Windows updater (engine/win32update.js, #6607), which checks its manifest with the built-in KEYS; and serving the
    list from the site (2c). Filled in before both, a revoked key still opens a Windows update, and
-   every update fails for want of a list (.claude/plans/recoverykey3-6609.md). */
+   every update, and every .pkg install with its check on, fails for want of a list (.claude/plans/recoverykey3-6609.md). */
 const KEY_LIST_STATE = 'release-keys.state';   // a folder: one seq-<n>.json per list taken
 // The lowest list seq this build accepts, even with no state stored (a fresh install): raised in the release after a
 // revocation, so a copy without a record still refuses the list from before it.

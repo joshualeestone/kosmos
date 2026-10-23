@@ -12,14 +12,18 @@
 // list a recovery key signed, fetched beside the manifest, checked as engine/manifest-verify.js verifyKeyList checks
 // it and not below minKeyListSeq. Then releaseKeys are not used at all, and a list that is missing or does not check
 // out refuses (97) as a bad signature does. With no recovery key (as shipped) the list is not read.
+// This helper keeps no record of lists, so its only floor is minKeyListSeq, built in: a revocation reaches .pkg
+// installs through a .pkg built after minKeyListSeq was raised to the revoking list. A .pkg built before that takes
+// any recovery-signed list at or above its own floor, an older one included.
 //
 // Exit 0: trusted; prints `setup_sha256=`, `sha256=` and `tmux_sha256=` lines (64 lowercase hex each).
 // Exit 97: refused, with one line on stderr saying why (bad signature, another version, older than the floor, a field
 //          missing). The caller runs nothing.
 // Exit 2: called wrongly or a file could not be read; the caller runs nothing either.
 //
-// The keys and the floor are built into each .pkg: after a release-key rotation, a .pkg downloaded before it refuses
-// every release (97) and a fresh download of the .pkg is the way on.
+// The keys and the floor are built into each .pkg. With no recovery key, after a release-key rotation a .pkg
+// downloaded before it refuses every release (97) and a fresh download of the .pkg is the way on; with one, the list
+// names the keys instead (see above).
 //
 // What it does not tell apart: a manifest names no channel, so a genuinely signed STAGING release at or above the
 // floor passes as well as a production one. It is still a release Kosmos signed, not someone else's code.
@@ -107,6 +111,17 @@ func keyListKeys(_ bytes: Data, _ sigText: String) -> [String] {
     guard !keys.contains(where: { recoveryKeys.contains($0) }) else {
         refuse("the signed release key list names a recovery key as a release key")
     }
+    // The list must be byte for byte what tools/lib/release-keys-sign.js writes for these fields (JSON.stringify with
+    // two-space indent, this field order, one trailing newline). JSONSerialization and JSON.parse differ on inputs
+    // that form never holds (a field named twice, a byte-order mark, another encoding), so a list in any other form is
+    // refused rather than read in a way the installed copies might not read it.
+    guard let issued = list["issued"] as? String, issued.utf8.count == 10,
+          issued.utf8.enumerated().allSatisfy({ $0.offset == 4 || $0.offset == 7 ? $0.element == 45 : ($0.element >= 48 && $0.element <= 57) })
+    else { refuse("the signed release key list is not in the form Kosmos writes") }
+    let canonical = "{\n  \"type\": \"\(keyListType)\",\n  \"release_keys\": [\n"
+        + keys.map { "    \"\($0)\"" }.joined(separator: ",\n")
+        + "\n  ],\n  \"seq\": \(seq),\n  \"issued\": \"\(issued)\"\n}\n"
+    guard Data(canonical.utf8) == bytes else { refuse("the signed release key list is not in the form Kosmos writes") }
     guard seq >= minKeyListSeq else { refuse("the release key list offered (\(seq)) is older than this installer accepts, so nothing was installed") }
     return keys
 }

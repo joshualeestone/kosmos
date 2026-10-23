@@ -73,7 +73,8 @@ const manifestBy = (key, fields) => {
   const bytes = Buffer.from(JSON.stringify(Object.assign({ manifest: 1, version: '0.7.60', arch: 'arm64', files: {} }, SHAS, fields)));
   return { bytes, sig: crypto.sign(null, bytes, key.privateKey).toString('base64') };
 };
-const listText = (o) => JSON.stringify(Object.assign({ type: 'kosmos-release-keys', release_keys: [spkiOf(LISTED.publicKey)], seq: 3, issued: '2026-10-23' }, o));
+// The form tools/lib/release-keys-sign.js writes: two-space indent, this field order, one trailing newline.
+const listText = (o) => JSON.stringify(Object.assign({ type: 'kosmos-release-keys', release_keys: [spkiOf(LISTED.publicKey)], seq: 3, issued: '2026-10-23' }, o), null, 2) + '\n';
 const signList = (text, key) => { const bytes = Buffer.from(text); return { bytes, sig: crypto.sign(null, bytes, (key || RECOVERY).privateKey).toString('base64') }; };
 
 function run(h, man, list) {
@@ -105,8 +106,6 @@ test('#6609: ON, a release signed by a key the signed list names installs; the b
   // A list naming both keys opens either: the list decides, not the build.
   const both = signList(listText({ release_keys: [spkiOf(LISTED.publicKey), spkiOf(BUILTIN.publicKey)] }));
   assert.equal(run(h, manifestBy(BUILTIN), both).status, 0);
-  // A whole-number seq written as 3.0 is the integer 3, as JSON.parse reads it.
-  assert.equal(run(h, manifestBy(LISTED), signList(listText().replace('"seq":3', '"seq":3.0'))).status, 0);
 });
 
 test('#6609: ON, no list, an unreadable one, or one below the floor refuses (97) and prints no pins', { skip: SKIP }, () => {
@@ -126,47 +125,83 @@ test('#6609: ON, no list, an unreadable one, or one below the floor refuses (97)
   assert.equal(run(h, man, signList(listText({ seq: 3 }))).status, 0);
 });
 
-test('#6609: ON, every list the JS verifyKeyList refuses, the helper refuses; every one it takes, the helper takes', { skip: SKIP }, () => {
+test('#6609: ON, the helper takes a list only when the JS verifyKeyList takes it with the same keys, and only in the form the signing tool writes', { skip: SKIP }, () => {
   const h = onAtOne();
   const man = manifestBy(LISTED);
   const listed = spkiOf(LISTED.publicKey);
   const lenient = listed.slice(0, 58) + String.fromCharCode(listed.charCodeAt(58) ^ 1) + '=';   // same bytes or not a key
+  const good = listText();
+  const compact = JSON.stringify(JSON.parse(good));
+  const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(good, 'utf16le')]);
+  // [label, list, does the helper take it]. The helper is stricter than the JS (it takes only the tool's form); it is
+  // never more lenient, and where both take a list they name the same keys.
   const cases = [
-    ['a good list', signList(listText())],
-    ['signed by a release key, not the recovery key', signList(listText(), LISTED)],
-    ['signed by a stranger', signList(listText(), STRANGER)],
-    ['changed after signing', (() => { const l = signList(listText()); return { bytes: Buffer.from(listText({ seq: 4 })), sig: l.sig }; })()],
-    ['a signature that is not 64 bytes', { bytes: Buffer.from(listText()), sig: 'AAAA' }],
-    ['not JSON', signList('not json')],
-    ['JSON but not an object', signList('[1,2,3]')],
-    ['another type', signList(listText({ type: 'kosmos-release' }))],
-    ['no type', signList(JSON.stringify({ release_keys: [listed], seq: 3 }))],
-    ['no release keys', signList(listText({ release_keys: [] }))],
-    ['release keys not a list', signList(listText({ release_keys: listed }))],
-    ['a key twice', signList(listText({ release_keys: [listed, listed] }))],
-    ['a key that is not one', signList(listText({ release_keys: [listed, 'MCowBQYDK2VwAyEA'] }))],
-    ['a non-canonical spelling', signList(listText({ release_keys: [lenient] }))],
-    ['a number for a key', signList(listText({ release_keys: [listed, 7] }))],
-    ['the recovery key as a release key', signList(listText({ release_keys: [listed, spkiOf(RECOVERY.publicKey)] }))],
-    ['seq true', signList(listText({ seq: true }))],
-    ['seq as a string', signList(listText({ seq: '3' }))],
-    ['seq 3.5', signList(listText({ seq: 3.5 }))],
-    ['seq 0', signList(listText({ seq: 0 }))],
-    ['seq -1', signList(listText({ seq: -1 }))],
-    ['seq above the cap', signList(listText({ seq: mv.MAX_SEQ + 1 }))],
-    ['no seq', signList(JSON.stringify({ type: 'kosmos-release-keys', release_keys: [listed] }))],
-    ['seq 3.0', signList(listText().replace('"seq":3', '"seq":3.0'))],
-    ['seq at the cap', signList(listText({ seq: mv.MAX_SEQ }))],
+    ['a good list', signList(good), true],
+    ['seq at the cap', signList(listText({ seq: mv.MAX_SEQ })), true],
+    ['two keys', signList(listText({ release_keys: [listed, spkiOf(BUILTIN.publicKey)] })), true],
+    ['signed by a release key, not the recovery key', signList(good, LISTED), false],
+    ['signed by a stranger', signList(good, STRANGER), false],
+    ['changed after signing', { bytes: Buffer.from(listText({ seq: 4 })), sig: signList(good).sig }, false],
+    ['a signature that is not 64 bytes', { bytes: Buffer.from(good), sig: 'AAAA' }, false],
+    ['not JSON', signList('not json'), false],
+    ['JSON but not an object', signList('[1,2,3]\n'), false],
+    ['another type', signList(listText({ type: 'kosmos-release' })), false],
+    ['no type', signList(JSON.stringify({ release_keys: [listed], seq: 3, issued: '2026-10-23' }, null, 2) + '\n'), false],
+    ['no release keys', signList(listText({ release_keys: [] })), false],
+    ['release keys not a list', signList(listText({ release_keys: listed })), false],
+    ['a key twice', signList(listText({ release_keys: [listed, listed] })), false],
+    ['a key that is not one', signList(listText({ release_keys: [listed, 'MCowBQYDK2VwAyEA'] })), false],
+    ['a non-canonical spelling', signList(listText({ release_keys: [lenient] })), false],
+    ['a number for a key', signList(listText({ release_keys: [listed, 7] })), false],
+    ['the recovery key as a release key', signList(listText({ release_keys: [listed, spkiOf(RECOVERY.publicKey)] })), false],
+    ['seq true', signList(listText({ seq: true })), false],
+    ['seq as a string', signList(listText({ seq: '3' })), false],
+    ['seq 3.5', signList(listText({ seq: 3.5 })), false],
+    ['seq 0', signList(listText({ seq: 0 })), false],
+    ['seq -1', signList(listText({ seq: -1 })), false],
+    ['seq above the cap', signList(listText({ seq: mv.MAX_SEQ + 1 })), false],
+    ['no seq', signList(JSON.stringify({ type: 'kosmos-release-keys', release_keys: [listed], issued: '2026-10-23' }, null, 2) + '\n'), false],
+    // Lists the JS takes and the tool never writes: the helper refuses each, so it never reads one differently.
+    ['release_keys named twice', signList(good.replace('"release_keys"', '"release_keys": ["' + spkiOf(BUILTIN.publicKey) + '"],\n  "release_keys"')), false],
+    ['seq named twice', signList(good.replace('"seq": 3', '"seq": 0,\n  "seq": 3')), false],
+    ['a byte-order mark first', signList(String.fromCharCode(0xfeff) + good), false],
+    ['UTF-16 with a byte-order mark', { bytes: utf16, sig: crypto.sign(null, utf16, RECOVERY.privateKey).toString('base64') }, false],
+    ['compact JSON', signList(compact), false],
+    ['no trailing newline', signList(good.slice(0, -1)), false],
+    ['seq written 3.0', signList(good.replace('"seq": 3', '"seq": 3.0')), false],
+    ['an extra field', signList(listText({ note: 'x' })), false],
+    ['no issued', signList(JSON.stringify({ type: 'kosmos-release-keys', release_keys: [listed], seq: 3 }, null, 2) + '\n'), false],
+    ['issued not a date', signList(listText({ issued: '2026-10-2x' })), false],
   ];
-  let refused = 0;
-  for (const [label, list] of cases) {
+  assert.ok(good.includes('"seq": 3') && good.includes('"release_keys"'), 'the fixture form changed; the replace() cases above would no-op');
+  for (const [label, list, takes] of cases) {
     const js = mv.verifyKeyList({ bytes: list.bytes, sig: list.sig, recoveryKeys: [spkiOf(RECOVERY.publicKey)] });
     const r = run(h, man, list);
-    assert.equal(r.status, js.ok ? 0 : 97, label + ': JS says ' + (js.ok ? 'ok' : js.why) + ', helper: ' + r.status + ' ' + r.stderr);
-    if (!js.ok) { refused += 1; assert.equal(r.stdout, '', label + ': a refusal prints no pins'); }
+    assert.equal(r.status, takes ? 0 : 97, label + ': helper ' + r.status + ' ' + r.stderr);
+    if (takes) {
+      assert.ok(js.ok, label + ': the helper took a list the JS refuses (' + js.why + ')');
+      assert.deepEqual(js.keys, JSON.parse(list.bytes).release_keys, label);
+    } else {
+      assert.equal(r.stdout, '', label + ': a refusal prints no pins');
+    }
   }
-  assert.equal(refused, cases.length - 3, 'the three good lists are the only ones taken');
 });
+
+test('#6609: ON, a list written and signed by tools/lib/release-keys-sign.js is taken by the helper', { skip: SKIP }, () => {
+  const h = onAtOne();
+  const { main } = require('./tools/lib/release-keys-sign.js');
+  const out = fs.mkdtempSync(path.join(h.dir, 'signed-'));
+  const pem = RECOVERY.privateKey.export({ format: 'pem', type: 'pkcs8' });
+  const quiet = [console.log, console.error];
+  console.log = () => {}; console.error = () => {};
+  let rc;
+  try { rc = main(['3', out, spkiOf(LISTED.publicKey)], pem); } finally { [console.log, console.error] = quiet; }
+  assert.equal(rc, 0, 'the signing tool refused');
+  const list = { bytes: fs.readFileSync(path.join(out, 'release-keys.json')), sig: fs.readFileSync(path.join(out, 'release-keys.json.sig'), 'utf8') };
+  const r = run(h, manifestBy(LISTED), list);
+  assert.equal(r.status, 0, 'the helper refused what the signing tool writes: ' + r.stderr);
+});
+
 
 test('#6609: OFF (as shipped), the list is not read: the built-in key decides, whatever is passed', { skip: SKIP }, () => {
   const h = off();
