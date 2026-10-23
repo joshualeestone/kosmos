@@ -1292,6 +1292,12 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    and so is consolidated, where the header is not sticky and the stack scrolls away (the padding then over-shoots). */
 @media (max-width: 720px) { html { scroll-padding-top: calc(165px + var(--topnotes-h, 0px)); } }
 @media (max-width: 440px) { html { scroll-padding-top: calc(187px + var(--topnotes-h, 0px)); } }
+/* kosmos#6960: the room's composer sticks to the window's bottom (#761) and, with the held strip inside it (#5800), is
+   238px tall on a phone. A post brought into view by a jump, a reply or a search stopped at the window's bottom edge,
+   under it, so its last lines (and #6925's summary label) could not be read. The same answer #5018 gives the top: the
+   composer's height (--pj-composer-h, kept by pjComposerTrack) as scroll-padding-bottom while a room is open. Not in
+   the consolidated layout, where the room scrolls inside its own pane and the page does not. */
+html:not([data-layout="consolidated"]):has(> body > #panel-projects:not([hidden])) { scroll-padding-bottom: var(--pj-composer-h, 0px); }
 /* ⚠️ THE UPDATE NOTICE, ported from the frozen pack. The decisions it
    carries are the pack's, recorded there and not re-opened here: RED
    (Josh's call, twice, wanting it unmissable), and #b3261e specifically
@@ -23704,6 +23710,18 @@ function acctLand() {
        header plus 8px of air, and 0 when nothing shows, so no notice means no shift (Mona Lisa, #conn, 2026-10-03). */
     document.documentElement.style.setProperty('--topnotes-clear', (h ? h + 16 : 0) + 'px');
   }).observe(stack);
+})();
+/* kosmos#6960: the room composer's height, as --pj-composer-h on <html>, for scroll-padding-bottom (see the rule beside
+   scroll-padding-top). It changes with the held strip, a reply being written and the post box growing, so it is
+   observed, not read once. */
+(function pjComposerTrack() {
+  if (typeof document === 'undefined' || typeof ResizeObserver !== 'function') return;
+  const post = document.getElementById('pj-post');
+  const comp = post && post.closest('.composer');
+  if (!comp) return;
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty('--pj-composer-h', Math.ceil(comp.getBoundingClientRect().height) + 'px');
+  }).observe(comp);
 })();
 function loginAdvDismissed() {
   try { const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]'); if (Array.isArray(v)) return v.concat(loginAdvHiddenMem); } catch { /* refused */ }
