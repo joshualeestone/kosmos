@@ -326,11 +326,15 @@ jobs:
       # a missing one exits 127 and reds here honestly, which is the correct direction.
       # #4317: this job's part of it (KOSMOS_TEST_PART, and KOSMOS_SHELL_SHARD for a shell shard, with
       # KOSMOS_SHELL_PLATFORM for its platform's share, #6791).
+      # #6977: a shell job runs its tests in a cut's shape (tools/lib/cut-shape.sh), so a test that fails only inside
+      # a cut fails on its pull request, not at a cut's step 3. CI only: on a shared Mac the stand-in cut would read as a
+      # real one to every other agent.
       - name: this job's part of the suite (run-tests.sh, gated on the exit code)
         env:
           KOSMOS_TEST_PART: ${{ matrix.part }}
           KOSMOS_SHELL_SHARD: ${{ matrix.shard }}
           KOSMOS_SHELL_PLATFORM: ${{ matrix.platform }}
+          KOSMOS_SHELL_CUT_ENV: ${{ matrix.part == 'shell' && '1' || '0' }}
         run: bash tools/run-tests.sh
       # #4317: say how close this job came to its limit, and WARN past 70%, so a job that is growing
       # toward a cancel is seen on a green run, not discovered as a cancel that reads like a flake.
