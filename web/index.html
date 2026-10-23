@@ -68447,7 +68447,8 @@ async function paintTaskActivity(n, opts) {
     if (settled && (holder.tkDrawn === drawn || holder.tkDrawn === null)) {
       holder.tkMarked = drawn;
       // #6953 tkRecorded: the state the board answered 2xx for (a refusal or a twice-failed record leaves null). A tab
-      // return re-records only that one; same guard as tkMarked, so an older state settling late does not undo it.
+      // return re-records only that one. Same guard as tkMarked: an older state settling late does not undo a drawn newer
+      // one (after a failed read, with nothing drawn, it can; that costs one extra record).
       holder.tkRecorded = recorded ? drawn : null;
     }
   };
@@ -68590,7 +68591,7 @@ function tkMarkSeen(n, projectId, retried = false, onDone = null, current = null
   fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' })
     .then((res) => {
       if (res && typeof res.text === 'function') res.text().catch(() => {});
-      if (res && res.status >= 500) failed(); else settle(!!res && res.status < 300);
+      if (res && res.status >= 500) failed(); else settle(!!res && res.ok === true);
     }, failed);
   return true;
 }
@@ -68628,9 +68629,11 @@ document.addEventListener('visibilitychange', () => {
   if (!back || !back.getClientRects().length) return;
   // #6953: a return to the tab is a look the person chose, so it records the view again even when the conversation is
   // unchanged ("viewed at" would otherwise keep the first look of this open). Only a state the board recorded: one it
-  // refused, or that failed twice, stays settled, so a refusing or broken board is not asked on every return.
+  // refused, or that failed twice, stays settled, so a refusing or broken board is not asked on every return. And only
+  // with the window focused: a tab also turns visible when a window covering it closes, with nobody choosing to look.
   const acts = document.getElementById('tk-activity');
-  if (acts && acts.tkMarked && acts.tkRecorded === acts.tkMarked) acts.tkMarked = null;
+  const focused = typeof document.hasFocus === 'function' && document.hasFocus();
+  if (acts && focused && acts.tkMarked && acts.tkRecorded === acts.tkMarked) acts.tkMarked = null;
   paintTaskActivity(TK_OPEN);
 });
 function leaveTaskPage() {

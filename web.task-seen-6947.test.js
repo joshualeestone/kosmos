@@ -2,8 +2,8 @@
 /**
  * #6947: the task page tells the board the person has a task's conversation in front of them (POST .../task/<n>/seen).
  * paintTaskActivity marks it once per state of the conversation it drew (opening the task, a redraw after an action,
- * coming back to the tab, the five-second read); tkMarkSeen posts only for the project and task still open, with the
- * tab visible and the page on screen.
+ * the five-second read), and coming back to the tab with the window focused records a recorded state again (#6953);
+ * tkMarkSeen posts only for the project and task still open, with the tab visible and the page on screen.
  * The real paintTaskActivity, tkMarkSeen and tab-return listener are taken out of web/index.html and run against
  * stand-ins for the page, so the rule is driven, not just read.
  */
@@ -42,13 +42,14 @@ function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', re
   const acts = { innerHTML: '' };
   const doc = {
     visibilityState: visible,
+    hasFocus: () => st.focused !== false,
     getElementById: (id) => (id === 'tk-back' ? { getClientRects: () => (st.onScreen ? [{}] : []), focus() {} } : id === 'tk-activity' ? acts : (els[id] || (els[id] = { textContent: '', value: '', innerHTML: '', hidden: false }))),
     addEventListener: (type, fn) => { if (type === 'visibilitychange') doc.listener = fn; },
   };
   let release = () => {};
   const gate = hold ? new Promise((r) => { release = r; }) : Promise.resolve();
   const fetch = async (url, opts) => {
-    if (opts && opts.method === 'POST') { posts.push(url); if (st.post === 'lost') throw new Error('lost'); const status = st.post; if (st.postHold) await new Promise((r) => st.postHold.push(r)); return { status, text: async () => { st.bodies = (st.bodies || 0) + 1; return ''; } }; }
+    if (opts && opts.method === 'POST') { posts.push(url); if (st.post === 'lost') throw new Error('lost'); const status = st.post; if (st.postHold) await new Promise((r) => st.postHold.push(r)); return { status, ok: typeof status === 'number' && status >= 200 && status < 300, text: async () => { st.bodies = (st.bodies || 0) + 1; return ''; } }; }
     const asked = st.events;   // what the board held when this read was asked
     await gate;
     if (st.queue) await new Promise((r) => st.queue.push(r));
@@ -451,4 +452,15 @@ test('#6953: an older state settling late does not stop a tab return from re-rec
   assert.equal(p.posts.length, 2);
   await p.tabBack(); await p.settle();
   assert.equal(p.posts.length, 3, 'the late refusal of the older state stopped the return from re-recording the newer one');
+});
+
+test('#6953: a tab that turns visible without the window focused (a covering window closed) does not record again', async () => {
+  const p = page();
+  await p.paintTaskActivity(3); await p.settle();
+  p.st.focused = false;
+  await p.tabBack(); await p.settle();
+  assert.equal(p.posts.length, 1, 'an unfocused window recorded a view nobody chose');
+  p.st.focused = true;
+  await p.tabBack(); await p.settle();
+  assert.equal(p.posts.length, 2, 'CONTROL: a focused return records again');
 });
