@@ -172,3 +172,14 @@ test('the project overview (kosmos project show\'s read) carries the records cou
   const body = await (await fetch(`${base}/api/project/${encodeURIComponent(id)}/overview`)).json();
   assert.deepEqual(body.project && body.project.records, { total: 2, stale: 1, label: 'records', staleDays: 30 }, JSON.stringify(body).slice(0, 300));
 });
+
+test('an agent reads the list with its own token alone, as text (kosmos records with enforcement on)', async (t) => {
+  const id = project();
+  const tok = agents(t);
+  assert.equal((await post(at(id), { name: 'Acme' }, { 'x-kosmos-agent-token': tok.mara })).status, 201);
+  const res = await fetch(base + at(id) + '?as=text', { headers: { 'x-kosmos-agent-token': tok.ana } });
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.match(await res.text(), /^Records on .*: 1\n  Acme \|/);
+  const none = await fetch(base + at(id) + '?as=text');
+  assert.notEqual(none.status, 200, 'CONTROL: with enforcement on, a caller with no token at all is not let in');
+});

@@ -2405,7 +2405,8 @@ async function verbRecords(ctx, args) {
   if (!RECORDS_PROJECT_RE.test(project)) { ctx.err('There is no project called ' + project + '. kosmos project list shows them.'); return 1; }
   const r = await ctx.call('GET', '/api/project/' + encodeURIComponent(project) + '/records?as=text');
   if (!r.reached) return ctx.unreachable('read its records');
-  if (r.status === 404) { ctx.err('There is no project called ' + project + '. kosmos project list shows them.'); return 1; }
+  // As install/kosmos: the board's 404 for a missing project says so; any other 404 is a board from before records.
+  if (r.status === 404) { ctx.err(/no project by that name/.test(String(r.text || '')) ? 'There is no project called ' + project + '. kosmos project list shows them.' : 'This Kosmos does not keep records yet. Update Kosmos to use kosmos records.'); return 1; }
   if (r.status !== 200) { ctx.err('Kosmos could not read its records: ' + (ctx.refusedBy(r) || 'it did not say why')); return 1; }
   ctx.out(String(r.text || '').replace(/\n$/, ''));
   return 0;
@@ -2432,11 +2433,12 @@ function recordsWrite(sub) {
     if (r.status === 201) { ctx.out('Added ' + name + ' to the records of ' + project + '.'); return 0; }
     if (r.status === 200) {
       if (sub === 'set') ctx.out('Updated ' + name + ' in the records of ' + project + '.');
-      else if (sub === 'remove') ctx.out('Removed ' + name + ' from the records of ' + project + '.');
+      else if (sub === 'remove') ctx.out('Removed ' + ((r.json && r.json.name) || name) + ' from the records of ' + project + '.');
       else ctx.out('The records of ' + project + ' are now called ' + ((r.json && r.json.label) || 'records') + '.');
       return 0;
     }
-    ctx.err('Not changed: ' + (because || (r.status === 404 ? 'there is no project called ' + project : 'Kosmos did not say why')) + '.');
+    const older = r.status === 404 && (!because || because === 'no such endpoint');
+    ctx.err('Not changed: ' + (older ? 'this Kosmos does not keep records yet; update Kosmos to use kosmos records' : because || 'Kosmos did not say why') + '.');
     tokenRefusedHint(ctx, r);   // #5333, as the other writes
     return 1;
   };

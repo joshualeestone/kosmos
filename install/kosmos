@@ -4913,7 +4913,8 @@ cmd_claim() {
 #   kosmos records set <project-id> "<name>" [--status S] [--confirmed YYYY-MM-DD] [--source S]   add or update one
 #   kosmos records remove <project-id> "<name>"              take one away
 #   kosmos records label <project-id> "<what the rows are>"  e.g. accounts ('' goes back to records)
-# A subverb wins over a project id spelled the same (as room reopen): such a project is read from the board.
+# A subverb wins over a project id spelled the same (as room reopen): a project named set, remove or label cannot be
+# listed from here; the project page shows its records.
 cmd_records() {
   local usage="Usage: kosmos records <project-id> | kosmos records set <project-id> \"<name>\" [--status \"<status>\"] [--confirmed YYYY-MM-DD] [--source \"<link or file>\"] | kosmos records remove <project-id> \"<name>\" | kosmos records label <project-id> \"<what the rows are>\""
   local sub="${1:-}" project name
@@ -4959,7 +4960,12 @@ cmd_records() {
       # The board's text ends in its own newline, and -w's status line came after it, so $(...) left it on: take at
       # most one off and print one, so the list never ends in a blank line.
       200) printf '%s\n' "${body%$'\n'}" ;;
-      404) say "There is no project called $project. kosmos project list shows them."; exit 1 ;;
+      # The board's 404 for a missing project says so; any other 404 is a board from before records (#6994).
+      404) case "$body" in
+             *"no project by that name"*) say "There is no project called $project. kosmos project list shows them." ;;
+             *) say "This Kosmos does not keep records yet. Update Kosmos to use kosmos records." ;;
+           esac
+           exit 1 ;;
       *) say "Kosmos could not read its records: $(_records_field error "$body")"; exit 1 ;;
     esac
     return
@@ -4991,12 +4997,13 @@ cmd_records() {
     200)
       case "$sub" in
         set) say "Updated $name in the records of $project." ;;
-        remove) say "Removed $name from the records of $project." ;;
+        remove) local _gone; _gone="$(_records_field name "$body")"; say "Removed ${_gone:-$name} from the records of $project." ;;
         label) say "The records of $project are now called $(_records_field label "$body")." ;;
       esac ;;
     *)
       local because; because="$(_records_field error "$body")"
-      if [ -z "$because" ] && [ "$code" = 404 ]; then because="there is no project called $project"; fi
+      # As the list: a 404 for the route itself ("no such endpoint") is a board from before records.
+      if [ "$code" = 404 ] && { [ -z "$because" ] || [ "$because" = "no such endpoint" ]; }; then because="this Kosmos does not keep records yet; update Kosmos to use kosmos records"; fi
       say "Not changed: ${because:-Kosmos did not say why}."
       token_refused_hint "$_tok" "$body"   # #5333, as the other writes
       exit 1 ;;

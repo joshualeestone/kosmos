@@ -8415,6 +8415,7 @@ html.has-speak .asp-speak { display: grid; }
 /* #6994: the project's records, under the Files list. */
 .pj-records { margin-top: var(--space-4); }
 .pj-records-h { font: var(--text-callout) var(--font-ui); font-weight: 600; color: var(--label); margin: 0 0 var(--space-2); }
+.pj-records-note { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin: 0 0 var(--space-2); }
 .pj-rec { width: 100%; border-collapse: collapse; font: var(--text-callout) var(--font-ui); color: var(--label); }
 .pj-rec th { text-align: left; font-weight: 500; color: var(--label-2); padding: var(--space-2) var(--space-2) var(--space-2) 0;
   border-bottom: 0.5px solid var(--separator); }
@@ -17213,12 +17214,13 @@ window.kosmosMeasureScrollbarWidth();
              grid since #3756 (message row 2, list row 3). -->
         <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
         <div id="pj-docs" class="pj-docs"></div>
-        <!-- #6994: the project's records (engine/records.js), the shared table agents keep with kosmos records. A region with a tab stop,
-             since it scrolls inside a capped height in the consolidated view. Inside the Files card, under its
+        <!-- #6994: the project's records (engine/records.js), the shared table agents keep with kosmos records. It takes a tab stop
+             (and a region role) only while it scrolls (pjLoadRecords), in the consolidated view. Inside the Files card, under its
              list, so neither view's grid gains a cell; shown only when the
              project has records. A stale row says "stale" in words, not by colour alone (WCAG 1.4.1). -->
-        <div class="pj-records" id="pj-records" role="region" aria-labelledby="pj-records-h" tabindex="0" hidden>
+        <div class="pj-records" id="pj-records" hidden>
           <h4 class="pj-records-h" id="pj-records-h">Records</h4>
+          <p class="pj-records-note" id="pj-records-note" hidden></p>
           <table class="pj-rec" aria-labelledby="pj-records-h">
             <thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col">Confirmed</th><th scope="col">Source</th></tr></thead>
             <tbody id="pj-records-rows"></tbody>
@@ -71185,6 +71187,10 @@ async function pjLoadRecords(id) {
     + ' (' + body.rows.length + (body.stale ? ', ' + body.stale + ' stale' : '') + ')';
   const rows = document.getElementById('pj-records-rows');
   rows.textContent = '';
+  // What "stale" means, on screen rather than only in a tooltip (keyboard and touch never see a title).
+  const note = document.getElementById('pj-records-note');
+  note.textContent = body.stale ? 'Stale: the evidence for that row is more than ' + body.staleDays + ' days old.' : '';
+  note.hidden = !body.stale;
   for (const r of body.rows) {
     const tr = document.createElement('tr');
     if (r.stale) tr.className = 'stale';
@@ -71202,7 +71208,6 @@ async function pjLoadRecords(id) {
       const mark = document.createElement('span');
       mark.className = 'pj-rec-stale';
       mark.textContent = 'stale';
-      mark.title = 'The evidence for this row is more than ' + body.staleDays + ' days old';
       age.appendChild(mark);
     }
     const source = document.createElement('td');
@@ -71218,6 +71223,11 @@ async function pjLoadRecords(id) {
     rows.appendChild(tr);
   }
   box.hidden = false;
+  // A tab stop and a region only while the box scrolls (the consolidated view caps its height), so a keyboard can
+  // scroll it there and it is not a stop that does nothing elsewhere.
+  const scrolls = box.scrollHeight > box.clientHeight + 1;
+  if (scrolls) { box.tabIndex = 0; box.setAttribute('role', 'region'); box.setAttribute('aria-labelledby', 'pj-records-h'); }
+  else { box.removeAttribute('tabindex'); box.removeAttribute('role'); box.removeAttribute('aria-labelledby'); }
 }
 async function pjLoadDocs(id) {
   const box = document.getElementById('pj-docs');

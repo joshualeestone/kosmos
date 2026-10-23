@@ -178,3 +178,13 @@ test('#6994: kosmos project show names the records and the verb: a count with th
     ['Records: none yet. A list this project keeps (accounts, leads) goes there: kosmos records set p1 "<name>" --status "<status>"']);
   assert.deepEqual(lines(undefined), [], 'an older board, which sends no records, gets no line');
 });
+
+test('#6994: a zero-width character is refused, so two rows that look the same cannot both exist', () => {
+  const p = project();
+  const c = (n) => String.fromCharCode(n);
+  for (const z of [0x200b, 0x2060, 0xfeff]) {
+    // Inside the name: at either end, trim() takes a U+FEFF off before the check, so it cannot make a second row.
+    assert.throws(() => records.set(p.id, 'Ac' + c(z) + 'me', {}, { now: NOW }), /one line/, z.toString(16));
+  }
+  assert.equal(records.set(p.id, 'Acme', {}, { now: NOW }).created, true, 'CONTROL: the plain name is taken');
+});

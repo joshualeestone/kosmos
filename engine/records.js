@@ -30,12 +30,13 @@ const ROWS_MAX = 2000;
 const STALE_DAYS = 30;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 /* Refused rather than stripped: control characters (a newline would split a CLI line; a tab, a column), the C1
-   controls, the line and paragraph separators, and the direction marks and overrides (U+202E would make a row read
-   backwards): the set taskMessageSummary keeps off a line, plus the bidi controls. */
+   controls, the line and paragraph separators, the direction marks and overrides (U+202E would make a row read
+   backwards), and the zero-width characters (one would make two rows that look the same): the set taskMessageSummary
+   keeps off a line, plus the bidi and zero-width ones. */
 const CONTROL_RE = (() => {
   // Built from code points: a separator or an override written literally in a regex literal breaks the parse.
   const c = (n) => String.fromCharCode(n);
-  const set = [[0x00, 0x1f], [0x7f, 0x9f], [0x2028, 0x2029], [0x200e, 0x200f], [0x202a, 0x202e], [0x2066, 0x2069]];
+  const set = [[0x00, 0x1f], [0x7f, 0x9f], [0x2028, 0x2029], [0x200b, 0x200f], [0x202a, 0x202e], [0x2060, 0x2060], [0x2066, 0x2069], [0xfeff, 0xfeff]];
   return new RegExp('[' + set.map(([a, b]) => c(a) + '-' + c(b)).join('') + ']');
 })();
 

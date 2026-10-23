@@ -37,6 +37,8 @@ function makeHome() {
 
 /* What the stub answers: the list's text, 201 for a new row, 200 for the rest; `missing` for the 404 arm. */
 function answer(method, route, body) {
+  if (route.startsWith("/api/project/older/")) return { status: 404, body: { error: "no such endpoint" } };
+  if (body && body.name === "acme-lower") return { status: 200, body: { name: "Acme" } };
   if (body && body.name === "Existing") return { status: 200, body: { row: { name: "Existing" }, created: false } };
   if (body && body.name === "Quoted") return { status: 404, body: { error: "there is no record called \"Quoted\" \\ here" } };
   if (route === '/api/project/missing/records' || route.startsWith('/api/project/missing/')) return { status: 404, body: { error: 'there is no project by that name' } };
@@ -187,4 +189,23 @@ test('#6994: a project id that cannot be one is refused before any request, in t
     assert.deepEqual(w.calls.filter((c) => c.route.startsWith('/api/project/')), []);
   }
   assert.deepEqual(seen, [], 'the Mac command sent a request for an id it should have refused');
+}));
+
+test('#6994: a board from before records says so in plain words, on the list and on a write, on both commands', () => withStub(async (port) => {
+  for (const argv of [['records', 'older'], ['records', 'set', 'older', 'Acme']]) {
+    const mac = await sh(port, makeHome(), argv);
+    assert.equal(mac.code, 1, mac.out);
+    assert.match(mac.out, /[Tt]his Kosmos does not keep records yet[.;] [Uu]pdate Kosmos to use kosmos records\./);
+    assert.doesNotMatch(mac.out, /no project called/);
+    const w = await win(argv);
+    assert.equal(w.code, 1, w.out);
+    assert.match(w.out, /[Tt]his Kosmos does not keep records yet[.;] [Uu]pdate Kosmos to use kosmos records\./);
+  }
+}));
+
+test('#6994: remove names the row as the board stored it, on both commands', () => withStub(async (port) => {
+  const mac = await sh(port, makeHome(), ['records', 'remove', 'p6994', 'acme-lower']);
+  assert.match(mac.out, /Removed Acme from the records of p6994\./);
+  const w = await win(['records', 'remove', 'p6994', 'acme-lower']);
+  assert.match(w.out, /Removed Acme from the records of p6994\./);
 }));

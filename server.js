@@ -22504,9 +22504,14 @@ const server = http.createServer(async (req, res) => {
     const id = decodeSegment(recordsAt[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     const recordsEngine = require('./engine/records');
+    // The engine's refusals carry a status (400, 404, 409); anything without one is ours, a 500 in our own words.
     const failed = (err, fallback) => {
-      const msg = String((err && err.message) || '');
-      sendJson(res, err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400, { error: msg || fallback });
+      if (!err || !err.status || err.code === 'UNREADABLE') {
+        if (!err || err.code !== 'UNREADABLE') console.error('records:', (err && err.message) || err);
+        sendJson(res, 500, { error: err && err.code === 'UNREADABLE' ? String(err.message) : fallback });
+        return;
+      }
+      sendJson(res, err.status, { error: String(err.message || '') || fallback });
     };
     // GET only: the agent-token gate admits GET, so a HEAD would answer differently for a token-only caller.
     if (!recordsAt[2] && req.method === 'GET') {
