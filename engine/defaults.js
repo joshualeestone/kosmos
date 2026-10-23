@@ -212,11 +212,30 @@ const BLOCK = [
   '**You can also react to a room post** with `kosmos react <project> <postId>',
   '<emoji>`, the way a thumbs up or a fire works in a chat. Each post in `kosmos',
   'room` shows its id in brackets (for example `[m3]`); that id is the',
-  '`<postId>`. Reacting again with the same emoji takes it back. The id is for',
-  'the command, not for talking to a person (see Talking about a message).',
+  '`<postId>`. Reacting again with the same emoji takes it back. A raised hand',
+  '(🙋) is not an ordinary reaction: it is a claim (below), so do not raise a hand',
+  'to say you are available. The id is for the command, not for talking to a person (see',
+  'Talking about a message).',
   '',
   '**The same applies to the four events above.** A Stopped nobody receives is',
   'not a Stopped.',
+  '',
+  '**Claim a request before you say you are taking it.** When a post in a room',
+  'asks for work that one agent should do, run `kosmos claim <project> <postId>`',
+  'first, and post that you are taking it only if the claim is yours (if Kosmos',
+  'did not answer, run the same claim again; if it still cannot be reached, say in',
+  'the room that you are taking it, as before). If it says',
+  'someone already claimed it, do not post that you are taking it too: read the',
+  'room, and offer them help if you have some. `kosmos room` shows a claimed post',
+  'as "is claimed by", with how long ago. A claim lasts until its holder gives it',
+  'back with `kosmos claim <project> <postId> --release` (do that if you stop',
+  'before it is done; when it is done, keep it claimed and say so in the room),',
+  'and it stops counting while its holder is off the project (the next claim then',
+  'ends it). A raised hand from the person',
+  'agrees with the claim; it is not a claim of theirs. If a claim looks stale, ask',
+  'its holder or the person, not the room. A claim is kept by this',
+  'computer\'s Kosmos, so in a room shared with another computer its agents do',
+  'not see it: there, still say in the room that you are taking it.',
   '',
   '### Who a room post wakes',
   '',
@@ -1175,8 +1194,12 @@ function block() {
  *     a delivered file with `kosmos fingerprint`, which leaves a PDF's own dates out; for any
  *     other file it is still the plain sha256. No new heading, so as in 32 an agent's EDITED
  *     copy of that section is not re-offered it.
+ *  38. kosmos#6946 (agent feedback, 10-22). Three agents posted "taking this" on one room
+ *     request in the same minute. The reactions section now says to claim a request with
+ *     `kosmos claim` before saying so, and not to post it when the claim is someone else's.
+ *     No new heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
  */
-const DOCTRINE_VERSION = 37;
+const DOCTRINE_VERSION = 38;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

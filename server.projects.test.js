@@ -2974,6 +2974,61 @@ test('#3570: `kosmos room` shows a post\'s reactions under it, and drops the lin
   });
 });
 
+test('#6946: kosmos claim through the real /api/react route, and `kosmos room` saying who holds it until it is given back', async () => {
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    const posted = await post(`/api/project/${project.id}/room`, { text: 'can someone take the release notes' });
+    assert.equal(posted.status, 200, posted.body);
+    const jrows = JSON.parse((await req(`/api/project/${project.id}/room`)).body);
+    const id = jrows.rows.filter((r) => r.kind === 'post').slice(-1)[0].id;
+    // Control: nobody has claimed it, so no claim line and no claim field.
+    let res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.doesNotMatch(res.body, /is claimed by/, 'an unclaimed post printed a claim line');
+    assert.equal(jrows.rows.find((r) => r.id === id).claim, undefined);
+
+    // The agent's own surface, as `kosmos claim` sends it: its token, no emoji, `claim`.
+    const tok = require('./engine/sendertoken').mint('zeta').token;
+    const asZeta = (body) => fetch(base + '/api/react', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+      body: JSON.stringify({ project: project.id, of: id, from_pane: '', ...body }) }).then((r) => r.json());
+    const c = await asZeta({ claim: 'claim' });
+    assert.equal(c.ok, true, 'the route did not pass `claim` through: ' + JSON.stringify(c));
+    assert.equal(c.op, 'add');
+    assert.equal(c.emoji, '\u{1F64B}');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta (just now); unless you are zeta, do not post that you are taking it.\n'),
+      'the claim line is missing or worded differently:\n' + res.body);
+    const row = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.find((r) => r.id === id);
+    assert.equal(row.claim && row.claim.by, 'zeta', 'the page row does not carry the claim');
+
+    // The person clicks zeta's 🙋 pill on the board: that agrees, it does not take the post from zeta.
+    const agreed = await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' });
+    assert.equal(agreed.status, 200, agreed.body);
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'the person\'s click changed who holds the post:\n' + res.body);
+
+    // Round 4: the room's own member filter. zeta removed from the project: the line goes (control: it was there above).
+    const remove = require('./engine/remove');
+    fs.mkdirSync(path.dirname(remove.REMOVED_FILE), { recursive: true });
+    fs.writeFileSync(remove.REMOVED_FILE, JSON.stringify([{ name: 'zeta', stopped: true }]));
+    try {
+      res = await req(`/api/project/${project.id}/room?as=text`);
+      assert.doesNotMatch(res.body, /is claimed by/, 'kosmos room still says a removed agent holds the post:\n' + res.body);
+      assert.equal(JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.find((r) => r.id === id).claim, undefined);
+    } finally {
+      fs.rmSync(remove.REMOVED_FILE, { force: true });
+    }
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('is claimed by zeta'), 'CONTROL: zeta back on the project does not hold the post again');
+
+    // zeta gives it back: the line goes, and a second release is a no-op.
+    assert.equal((await asZeta({ claim: 'release' })).op, 'remove');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.doesNotMatch(res.body, /is claimed by/, 'a given-back claim still printed');
+    assert.equal((await asZeta({ claim: 'release' })).op, 'none');
+  });
+});
+
 test('#2702: the room rejects an UNKNOWN project id (404) but still serves a real empty project (200)', async () => {
   /* Before this, `room` rendered ANY id as an empty room, so a typo or a
      hyphenated-name guess was indistinguishable from silence -- while `post`
