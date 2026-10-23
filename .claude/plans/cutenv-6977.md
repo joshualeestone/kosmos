@@ -5,11 +5,16 @@ pigeonpete.
 
 ## What a cut's step 3 has that a validation does not (measured from release.sh and tools/lib/cut-guard.sh)
 - `AGENT_WORKFORCE_HOME` exported: release.sh's cut-only home, an empty folder at `$TMPDIR/kosmos-cut-home`.
-- A live `bash tools/release.sh` that is NOT an ancestor of the tests: the subshell release.sh backgrounds to run step
-  3b's page checks beside the node suite (#2760) carries the cut's command line. The guard's name arm
-  (`kosmos_running_lines`) drops the caller's ancestors, so this subshell, not the cut itself, is what the
-  pointer-freeze test's sandboxed release.sh saw. Its marker arm could not have: that test sandboxed HOME, and the
-  cut's marker lives in the real `$HOME/.cache/kosmos-run-markers`.
+- A live `bash tools/release.sh` that is NOT an ancestor of the tests: the machine-claim renewer release.sh starts at
+  every step (#5134, `_cut_renew_start`, release.sh:125-164) is a `( ... ) &` subshell, so it carries the cut's
+  command line, in a serial step 3 and a parallel one alike (its own comment says the cut-live guard reads it). The
+  guard's name arm (`kosmos_running_lines`) drops the caller's ancestors, the cut among them, so the renewer is what
+  the pointer-freeze test's sandboxed release.sh could see. Its marker arm could not have: that test sandboxed HOME,
+  and the cut's marker lives in the real `$HOME/.cache/kosmos-run-markers`.
+  - Correction (review 1, then Baron Draxum's logs): I first named step 3b's page-layer subshell. That exists only on
+    the parallel path, and the 22:58 abort ran step 3 SERIAL (its log: "== 3. the whole suite"). The renewer is the
+    one present in both. The suite log on Mortals does not show which guard stopped the sandboxed release.sh (the test
+    hides its output), so this is reasoned from source, not measured.
 
 ## Decision
 - `tools/lib/cut-shape.sh` `kosmos_cut_shape_run [--base DIR] <cmd...>`: a fresh empty `AGENT_WORKFORCE_HOME` (a
@@ -42,11 +47,18 @@ Rejected:
   yet merged) passes plain (rc=0) and fails under `kosmos_cut_shape_run` (rc=1, its launchctl arm).
 
 ## Weakest premise
-That step 3b's backgrounded subshell is live when the shell tests run. It is the measured mechanism of the
-pointer-freeze abort, but 3b can finish first; the stand-in is live for the whole shell part, so the shape is at least
-as strict as a cut. A test that the stand-in reds but a real cut would not (3b already done) would be a false red, and
-the fix there is still to make the test cut-proof (KOSMOS_HARNESS_IGNORE_CUT=1 on its sandboxed call), as #6969 did.
+That the renewer is what the 22:58 sandboxed release.sh saw. It is the one non-ancestor `bash tools/release.sh` a
+serial step 3 has, and it lives for every step, so the stand-in matches a real cut for the whole shell part; but the
+failing run's own output never said which guard stopped it. If another guard did (the harness guard, the light-side
+wait), the stand-in still reproduces the cut guard's class, and a test red for another cause would need its own seam.
 
-## Consequence for every pull request after this lands
-Every cut-only red still on main reds the shell shards: today test-staging-agent-online-check until #6976 merges, and
-whatever Baron Draxum's sweep of tests 222-284 finds. The shard stops at its first red, so they surface one at a time.
+## Consequence for every pull request after this lands, and the order to merge in
+Every cut-only red still on main reds the shell shards. Tonight's two real cuts measured the blast radius: every shell
+test before each abort point passed in a real cut's environment (the 01:30 re-cut ran through test 221), and Baron
+Draxum is sweeping 222-284 in a cut-like environment. So this merges AFTER #6976 (test-staging-agent-online-check) and
+after each test on his list is fixed or carded; its own CI run on the pull request is the check that the list is
+complete. The shard stops at its first red, so anything missed surfaces one at a time.
+
+## Known test limit
+The killed-run arm can tell a stand-in that watches its caller from one that watches itself only on bash 4+ (CI's
+Linux runners): macOS's /bin/bash 3.2 has no BASHPID, so both read `$$` there.

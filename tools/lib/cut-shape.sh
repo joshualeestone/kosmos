@@ -4,10 +4,10 @@
 #
 # What a cut's step 3 has that an ordinary run does not:
 #   - AGENT_WORKFORCE_HOME exported (release.sh: the cut-only home, an empty folder under TMPDIR);
-#   - a live `bash tools/release.sh` that is NOT an ancestor of the tests: the subshell release.sh backgrounds to run
-#     step 3b's page checks beside the node suite (#2760) carries the cut's own command line. The cut guard's name arm
-#     (kosmos_running_lines) leaves out the caller's ancestors, so it is this one, not the cut itself, that a test's
-#     sandboxed release.sh saw on 10-22.
+#   - a live `bash tools/release.sh` that is NOT an ancestor of the tests: the machine-claim renewer release.sh starts
+#     at every step (#5134, `_cut_renew_start`) is a backgrounded subshell, so it carries the cut's own command line.
+#     It runs in a serial step 3 as in a parallel one. The cut guard's name arm (kosmos_running_lines) leaves out the
+#     caller's ancestors, the cut among them, so the renewer is the cut a test's sandboxed release.sh can see.
 # kosmos_cut_shape_run gives the command both: a fresh empty AGENT_WORKFORCE_HOME (a cut's own, if one is already
 # exported, is kept), and a stand-in `bash tools/release.sh` that sleeps, started from a scratch folder.
 #
@@ -17,13 +17,14 @@
 #
 # The scratch folder is made under BASE (default: TMPDIR), which must NOT be run-tests.sh's kt<pid> sandbox: a
 # process whose working folder is there is a test fixture to the cut guard (process-fixture.sh) and is not counted.
-# The stand-in watches the shell that started it and ends when that shell is gone, so a killed run leaves no cut
-# behind; kosmos_cut_shape_run also stops it and removes the folder when the command ends, red or green.
+# The stand-in watches the shell that started it and ends within a second of that shell going, so a killed run leaves
+# no cut behind. When the command ends, red or green, kosmos_cut_shape_run stops the stand-in and removes the folder; a
+# run killed part way leaves the folder (beside run-tests.sh's sandbox, which its own exit removes only inside).
 
 # kosmos_cut_shape_run [--base DIR] <command...>: run the command in a cut's shape; its exit status is the command's.
 # 2 when the shape could not be set up (nothing was run).
 kosmos_cut_shape_run() {
-  local base="${TMPDIR:-/tmp}" dir standin rc=0 n=0
+  local base="${TMPDIR:-/tmp}" dir standin rc=0 n=0 caller="${BASHPID:-$$}"   # the calling shell, read here: inside ( ) it is the subshell
   if [ "${1:-}" = --base ]; then base="${2:-}"; shift 2; fi
   [ "$#" -gt 0 ] || { echo "cut-shape: no command to run" >&2; return 2; }
   base="${base%/}"
@@ -35,7 +36,7 @@ kosmos_cut_shape_run() {
   printf '%s\n' '# #6977: a stand-in for a live cut (tools/lib/cut-shape.sh). It does nothing but wait.' \
     'trap "exit 0" TERM INT HUP' \
     'while kill -0 "$1" 2>/dev/null; do sleep 1; done' > "$dir/standin/tools/release.sh"
-  ( cd "$dir/standin" && exec bash tools/release.sh "$$" ) </dev/null >/dev/null 2>&1 &
+  ( cd "$dir/standin" && exec bash tools/release.sh "$caller" ) </dev/null >/dev/null 2>&1 &
   standin=$!
   # Wait (up to 5 s) until the process table shows it as the stand-in, so the command never starts before the cut does.
   while [ "$n" -lt 50 ]; do

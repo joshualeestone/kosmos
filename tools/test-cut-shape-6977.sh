@@ -8,10 +8,11 @@
 #      the scratch folder is gone, after a red run too.
 #   S  inside: the stand-in `bash tools/release.sh` is live; afterwards it is gone (green and red); and it ends by itself
 #      when the shell that started it is killed.
-#   F  locally the scratch folder is put in a kt<pid> sandbox, so the cut guard counts the stand-in as a test fixture:
-#      running this test never reads as a cut to another agent on the same computer.
-#   G  CI only (GITHUB_ACTIONS=true): with the scratch folder outside any sandbox, release.sh's cut guard
-#      (kosmos_refuse_if_cut_live) REFUSES inside the shape, naming the stand-in; CONTROL: it does not refuse after.
+#   F  the arms above put the scratch folder in a kt<pid> sandbox, so the cut guard counts the stand-in as a test
+#      fixture: running this test never reads as a cut to another agent on the same computer.
+#   G  CI only (GITHUB_ACTIONS=true): with the scratch folder outside any sandbox, the cut guard counts THIS stand-in (by
+#      its pid) as a cut and refuses; CONTROL: after the shape it no longer lists that pid. (On CI the test itself runs
+#      inside run-tests.sh's shape, whose own stand-in makes the guard refuse either way, so G keys on the pid.)
 #   W  the wiring: run-tests.sh runs the shell part through kosmos_cut_shape_run when KOSMOS_SHELL_CUT_ENV=1, refuses the
 #      flag outside CI, and test.yml sets it for the shell jobs only.
 set -uo pipefail
@@ -75,13 +76,13 @@ seen=$(kosmos_cut_shape_run --base "$T" bash "$COUNT" 2>/dev/null)
 kosmos_cut_shape_run --base "$T" sh -c 'exit 5' 2>/dev/null
 [ "$(standins)" = 0 ] && pass "S: and gone after a red run" || bad "S: a red run left $(standins) stand-in(s)"
 # A run killed outright (no chance to clean up): the stand-in watches the shell that started it, and ends.
-bash -c ". '$LIB'; kosmos_cut_shape_run --base '$T' sleep 30" 2>/dev/null & runner=$!
+bash -c ". '$LIB'; kosmos_cut_shape_run --base '$T' sleep 8" 2>/dev/null & runner=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ "$(standins)" = 1 ] && break; sleep 0.3; done
 [ "$(standins)" = 1 ] && pass "S: (the killed-run case started its stand-in)" || bad "S: the killed-run case's stand-in never started"
 kill -9 "$runner" 2>/dev/null; wait "$runner" 2>/dev/null
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do [ "$(standins)" = 0 ] && break; sleep 0.3; done
 [ "$(standins)" = 0 ] && pass "S: when the run is killed outright, the stand-in ends by itself" || bad "S: the stand-in outlived a killed run"
-rm -rf "$T"/kosmos-cut-shape.* 2>/dev/null   # the killed run could not remove its own (its `sleep 30` ends by itself)
+rm -rf "$T"/kosmos-cut-shape.* 2>/dev/null   # the killed run could not remove its own (its `sleep 8` ends by itself)
 
 # --- F ---------------------------------------------------------------------------------------------------------------
 # Both halves, or the second could pass because the guard never saw the stand-in at all: the guard's process match
@@ -97,15 +98,22 @@ read -r fsp fraw fkept <<< "$(kosmos_cut_shape_run --base "$T" bash "$FIX" 2>/de
   || bad "F: the cut guard kept this test's stand-in as a cut ($fkept): other agents on this computer would see one"
 
 # --- G (CI only) -----------------------------------------------------------------------------------------------------
+# On CI this test itself runs inside run-tests.sh's cut shape, so the guard already sees that outer stand-in and refuses
+# either way. So G asks about THIS stand-in by its pid: the cut guard counts it as a cut inside (not dropped as a
+# fixture, since its folder is outside any sandbox), and it is gone from the guard's list after.
 if [ "${GITHUB_ACTIONS:-}" = true ]; then
   B=$(mktemp -d "/tmp/cutshape6977.XXXXXX")
-  probe=". '$GUARD'; KOSMOS_RUN_MARKER_DIR='$B/markers' kosmos_refuse_if_cut_live 'this probe'"
-  out=$(kosmos_cut_shape_run --base "$B" bash -c "$probe" 2>&1); rc=$?
-  [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'a cut is running on this Mac' \
-    && pass "G: release.sh's cut guard refuses inside the shape (it sees the stand-in as a cut)" || bad "G: the cut guard did not refuse inside the shape (rc=$rc): $out"
-  out=$(bash -c "$probe" 2>&1); rc=$?
-  [ "$rc" -eq 0 ] && pass "G CONTROL: the same guard does not refuse outside it" || bad "G CONTROL: it refused outside the shape too (rc=$rc), so G proves nothing: $out"
-  rm -rf "$B"
+  GP="$B/guard-probe.sh"
+  printf '%s\n' ". '$GUARD'" \
+    "sp=\$(pgrep -f '^bash tools/release\\.sh [0-9]+\$' | while read -r p; do lsof -a -p \"\$p\" -d cwd -Fn 2>/dev/null | grep -q '$B/kosmos-cut-shape\\.' && echo \"\$p\"; done | head -1)" \
+    'n=$(kosmos_running_lines tools/release.sh | _kosmos_drop_test_fixtures | grep -c "^$sp ")' \
+    'KOSMOS_RUN_MARKER_DIR="'"$B"'/markers" kosmos_refuse_if_cut_live "this probe" >/dev/null 2>&1; echo "$sp $n $?"' > "$GP"
+  read -r gsp gn grc <<< "$(kosmos_cut_shape_run --base "$B" bash "$GP" 2>/dev/null)"
+  [ -n "$gsp" ] && [ "$gn" = 1 ] && pass "G: the cut guard counts this stand-in (pid $gsp) as a cut" || bad "G: the cut guard did not count this stand-in (pid '${gsp:-none}', counted $gn)"
+  [ "$grc" != 0 ] && pass "G: and release.sh's cut guard refuses inside the shape" || bad "G: the cut guard did not refuse inside the shape"
+  after=$(bash -c ". '$GUARD'; kosmos_running_lines tools/release.sh | _kosmos_drop_test_fixtures" | grep -c "^${gsp:-none} ")
+  [ -n "$gsp" ] && [ "$after" = 0 ] && pass "G CONTROL: after the shape the guard no longer lists it" || bad "G CONTROL: the guard still lists pid ${gsp:-none} after the shape ($after)"
+  rm -rf "${B:?}"
 else
   echo "SKIP  G: CI only. Outside a sandbox the stand-in reads as a cut to every agent on this computer."
 fi
