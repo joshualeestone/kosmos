@@ -151,10 +151,14 @@ mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN
 # offline until someone logs in (10-23: SIGKILLed mid-job, offline 29 minutes). KeepAlive with SuccessfulExit false
 # restarts it after a kill or a crash and never after exit 0, which is how the service ends on purpose (a stop, a removed
 # registration, a session conflict). A self-update never ends the job: RunnerService.js relaunches the listener itself.
-# The first actions.runner LaunchAgent, or nothing; never fails (set -e and pipefail are on).
+# ThrottleInterval 10 is launchd's default, written down so the restart delay is in the file.
+# This runner's LaunchAgent, as svc.sh install recorded it in $RUNNER_DIR/.service, or nothing; never fails (set -e and
+# pipefail are on). Not a glob: the kosmos-relay runner (#6245) can live under the same user, and its
+# actions.runner.joshualeestone-kosmos-relay.* plist sorts before this repo's.
 runner_plist() {
-  local f
-  for f in "$CI_HOME"/Library/LaunchAgents/actions.runner.*.plist; do [ -e "$f" ] && { printf '%s\n' "$f"; return 0; }; done
+  local f=""
+  [ -r "$RUNNER_DIR/.service" ] && f="$(head -n 1 "$RUNNER_DIR/.service" 2>/dev/null || true)"
+  case "$f" in "$CI_HOME"/Library/LaunchAgents/actions.runner.*.plist) [ -e "$f" ] && printf '%s\n' "$f" ;; esac
   return 0
 }
 keepalive_set() { [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$1" 2>/dev/null)" = false ]; }
@@ -522,7 +526,7 @@ register() {
   ./svc.sh install   # a LaunchAgent for this user (starts at login)
   local plist; plist="$(runner_plist)"
   [ -n "$plist" ] || { echo "FAILED: svc.sh install wrote no actions.runner LaunchAgent under $CI_HOME/Library/LaunchAgents" >&2; exit 1; }
-  add_keepalive "$plist" || { echo "FAILED: could not add KeepAlive to $plist (a killed runner would stay offline); the runner is installed but not started" >&2; exit 1; }
+  add_keepalive "$plist" || { echo "FAILED: could not add KeepAlive to $plist (a killed runner would stay offline); the runner is registered but not started: as $CI_USER, tools/ci-runner-setup.sh --apply keepalive" >&2; exit 1; }
   # A Listener already running (a runner started by hand with ./run.sh) must not count as the service's.
   local before_start; before_start="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"
   ./svc.sh start
@@ -558,7 +562,10 @@ keepalive() {
   need_user "$CI_USER" ssh-ok
   mode_line
   local plist label dom; plist="$(runner_plist)"
-  [ -n "$plist" ] || { echo "refused: no actions.runner LaunchAgent under $CI_HOME/Library/LaunchAgents; register first" >&2; exit 1; }
+  if [ -z "$plist" ]; then
+    if [ "$(id -un)" != "$CI_USER" ]; then echo "note:   cannot read $CI_USER's runner as $(id -un); run this as $CI_USER"; return 0; fi
+    echo "refused: $RUNNER_DIR/.service names no LaunchAgent under $CI_HOME/Library/LaunchAgents; register first" >&2; exit 1
+  fi
   if keepalive_set "$plist"; then ok "$plist restarts after a kill (KeepAlive SuccessfulExit false)"; return 0; fi
   label="$(plutil -extract Label raw -o - "$plist" 2>/dev/null)" && [ -n "$label" ] \
     || { echo "refused: cannot read the Label of $plist" >&2; exit 1; }
@@ -566,22 +573,34 @@ keepalive() {
   if [ "$APPLY" != 1 ]; then
     echo "note:   $plist has no KeepAlive {SuccessfulExit: false}: a killed runner stays offline"
     echo "WOULD: add KeepAlive {SuccessfulExit: false} and ThrottleInterval 10 to $plist"
+    echo "WOULD: if $label is loaded (running), and only while no job runs: reload it (a stopped runner stays stopped)"
     printf 'WOULD: launchctl bootout %s\nWOULD: launchctl bootstrap %s %s\n' "$dom/$label" "$dom" "$plist"
     return 0
   fi
   launchctl print "$dom" >/dev/null 2>&1 || { echo "refused: no $dom domain ($CI_USER is not logged in); log in, then run this again" >&2; exit 1; }
   cd "$RUNNER_DIR" || { echo "refused: no runner in $RUNNER_DIR" >&2; exit 1; }
-  local prc=0; pgrep -u "$(id -u)" -f 'bin/Runner.Worker' >/dev/null || prc=$?
-  [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc) to rule out a running job" >&2; exit 1; }
-  [ "$prc" = 1 ] || { echo "refused: a job is running (Runner.Worker is up); run this again when the runner is idle" >&2; exit 1; }
   add_keepalive "$plist" || { echo "FAILED: could not add KeepAlive to $plist; nothing reloaded" >&2; exit 1; }
   ok "KeepAlive added to $plist"
+  # A runner that is not loaded was stopped on purpose (svc.sh stop unloads it): the plist is enough, and it is not started.
+  if ! launchctl print "$dom/$label" >/dev/null 2>&1; then
+    ok "$label is not loaded (stopped); KeepAlive applies when it is next started (./svc.sh start)"; return 0
+  fi
+  # Checked last, just before the bootout, to keep the window short: a job the Listener accepted but has not yet handed
+  # to a Worker is not seen and would be cancelled by the reload (as install's stop accepts too). -x, as install's check:
+  # after a self-update the Worker runs from bin.<version>, so a path match on bin/Runner.Worker would miss it.
+  local prc=0; pgrep -u "$(id -u)" -x Runner.Worker >/dev/null || prc=$?
+  [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc) to rule out a running job; KeepAlive is in the plist and applies at the next start" >&2; exit 1; }
+  [ "$prc" = 1 ] || { echo "refused: a job is running (Runner.Worker is up); KeepAlive is in the plist; run this again when the runner is idle to load it now" >&2; exit 1; }
   local before; before="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"
-  launchctl bootout "$dom/$label" 2>/dev/null || true   # not loaded is fine: bootstrap below loads it
-  local waited=0
-  while launchctl print "$dom/$label" >/dev/null 2>&1 && [ "$waited" -lt 30 ]; do sleep 1; waited=$((waited + 1)); done
+  local bo=0; launchctl bootout "$dom/$label" || bo=$?
+  local waited=0 limit="${KOSMOS_CI_UNLOAD_WAIT_S:-30}"
+  case "$limit" in ''|*[!0-9]*) echo "FAILED: KOSMOS_CI_UNLOAD_WAIT_S is '$limit', not a number of seconds" >&2; exit 1 ;; esac
+  while launchctl print "$dom/$label" >/dev/null 2>&1 && [ "$waited" -lt "$limit" ]; do sleep 1; waited=$((waited + 1)); done
+  if launchctl print "$dom/$label" >/dev/null 2>&1; then
+    echo "FAILED: launchctl bootout $dom/$label (exit $bo) did not unload it in ${waited}s; the runner is still loaded from the OLD definition, without KeepAlive; the plist on disk has it" >&2; exit 1
+  fi
   launchctl bootstrap "$dom" "$plist" \
-    || { echo "FAILED: launchctl bootstrap $dom $plist; the runner is STOPPED (log in as $CI_USER, then: launchctl bootstrap $dom $plist)" >&2; exit 1; }
+    || { echo "FAILED: launchctl bootstrap $dom $plist; the runner is STOPPED (unloaded; log in as $CI_USER, then: launchctl bootstrap $dom $plist)" >&2; exit 1; }
   wait_for_listener "$before"
   ok "the runner is running again with KeepAlive"
 }
