@@ -12,23 +12,29 @@ converged: true
 
 # Pre-challenge: win-readme-startmenu
 
-- Round 1 (fresh blind subagent): 1 actionable. A first run stopped before it installed (the
-  person pressed "Don't run") has no Start menu entry, so "open Kosmos from the Start menu again"
-  pointed nowhere. Fixed: the not-signed-in paragraph names the extracted Kosmos.exe as the fallback
-  when Kosmos is not in the Start menu yet. Also reworded tools/windows/README.md: the shortcut runs
-  the Kosmos.exe that last refreshed it (the installed one once installed), not always "the installed".
-- Round 2 (fresh blind subagent): NO ACTIONABLE FINDINGS. One non-actionable nit ("Always" right
-  after the fallback line), left as is.
-- Validation: tools.build-windows-570 + tools.win-launcher-native 44/44 pass; 20 related Windows test
-  files 530 pass, 0 fail, 2 skipped. Negative control: the origin/main build script fails 2 tests
-  under the new pins. Zip built from the worktree; READ ME printed from it, CRLF, no em dashes.
+#### Iteration 1 (fresh blind subagent)
 
-## Round detail
+- [WARNING] tools/build-kosmos-windows.sh not-signed-in paragraph: a first run stopped before it
+  installed (the person pressed "Don't run") has no Start menu entry, so "open Kosmos from the
+  Start menu again" pointed nowhere. FIXED: the paragraph names the extracted Kosmos.exe as the
+  fallback when Kosmos is not in the Start menu yet; tests pin that line.
+- [NIT] tools/windows/README.md: "its shortcut runs the installed Kosmos.exe" is inexact when a
+  copy runs in place. FIXED: "the Kosmos.exe that last refreshed it (the installed one, once
+  Kosmos has installed itself)".
+- [STRENGTH] Claim verified in KosmosLauncher.cs: RefreshStartMenuShortcut SetPath(exe); window
+  mutex and .Show message named by BoardWindowName(port), so a Start menu launch reaches SignInAgain.
+- [STRENGTH] No other test or doc pins the old read-me words (others use only the file name).
 
-- Round 1 non-actionable confirmations: the shortcut is refreshed to the running copy
-  (RefreshStartMenuShortcut, SetPath(exe)); the window mutex and .Show message are named by
-  BoardWindowName(port); no other test or doc pins the old read-me words (other tests use only
-  the file name); KosmosLauncher.cs:3771 comment left alone as an out-of-scope surface.
-- Round 2 checked the read-me as one piece for a non-technical reader, line lengths (61 to 70
-  columns, as the rest), the \047 escape, the regexes against new and old text, and a repo-wide
-  search for the old sentences outside .claude/plans (only the new negative assertions remain).
+#### Iteration 2 (fresh blind subagent)
+
+- No issues found (reviewer: NO ACTIONABLE FINDINGS). Read-me reads consistently as one piece,
+  line lengths 61 to 70 columns, \047 kept, regexes match new text and fail on old text.
+- [NIT] "Always open Kosmos from the Start menu." right after the fallback line; reviewer judged it
+  fine in context (contrasts with bookmarks). Not changed.
+
+### Final Ledger
+
+- Converged after 2 iterations. 1 warning and 1 nit fixed, 1 nit declined with reason.
+- Validation: tools.build-windows-570 + tools.win-launcher-native 44/44 pass; 20 related Windows
+  test files 530 pass, 0 fail, 2 skipped. Negative control: the origin/main build script fails 2
+  tests under the new pins. Zip built from the worktree; READ ME printed from it, CRLF, no em dashes.
