@@ -4216,10 +4216,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    It was already there and is not changed here; the browser check now
    ASSERTS it, so removing it fails loudly rather than quietly (Mona Lisa
    found this by reading, #1310). */
-/* #6967: two lines, then the ellipsis (was one line). The unread count stays at the top of the first line. */
+/* #6967: two lines, then the ellipsis (was one line). The unread count sits on the title's first line (baseline). */
 .pj-list.asgrid .pj-row .pjname b { min-width: 0; overflow: hidden; overflow-wrap: anywhere;
                                     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
-.pj-list.asgrid .pj-row .pjname .pj-unread { align-self: flex-start; }
+.pj-list.asgrid .pj-row .pjname .pj-unread { align-self: baseline; }
 /* The same bubble recipe .astate draws on the agents grid, scoped here
    rather than sharing the class -- .astate carries a six-state agent
    vocabulary (working/attn/idle/paused/stopped/unknown) that does not
@@ -4232,8 +4232,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* "The icons... underneath that, the number" -- stacked, not the list
    row's single inline line, so .pjfaces becomes a column here: the
    avatar row, then the count as its own caption line beneath it. */
-.pj-list.asgrid .pj-row .pjfaces { order: 3; flex-direction: column; justify-content: center; gap: 6px; margin-top: 14px; }
-.pj-list.asgrid .pj-row .pjfaces > [aria-hidden] { justify-content: center; }
+.pj-list.asgrid .pj-row .pjfaces { order: 3; flex-flow: row wrap; justify-content: center; gap: 6px 0; margin-top: 14px; }
+/* #6966: the faces take a whole line, so the count (and the provider tally beside it) is the caption line beneath. */
+.pj-list.asgrid .pj-row .pjfaces > [aria-hidden] { justify-content: center; flex-basis: 100%; }
 .pj-list.asgrid .pj-row .pjcount { margin-left: 0; }
 .pj-list.asgrid .pj-row .pj-who, .pj-list.asgrid .pj-row .pj-warn { order: 4; }
 /* The empty state and the read-failure card span the grid: the failure
@@ -4749,20 +4750,18 @@ html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(
 .pjfaces > [aria-hidden] { display: flex; align-items: center; gap: 5px; }
 .pjfaces .lav { width: 22px; height: 22px; font-size: .625rem; }
 .pjcount { font-size: .8125rem; color: var(--k-ink-2); margin-left: 8px; }
-/* #6966: the provider tally beside the count, quiet: one-colour marks at 13px, a hairline before it. On the GRID cards
+/* #6966: the provider tally beside the count, quiet: marks at 13px, a hairline before it. Its items wrap inside it
+   (min-width: 0), so many providers stay beside the count rather than spilling out of the card. On the GRID cards
    only for now: the list row, the roadmap and the narrow side rail hide or squeeze the faces, and the tally there is
    a later step of the card. */
 .pjtally { display: none; }
 .pj-list.asgrid .pjtally { display: inline-flex; align-items: center; margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--k-rule);
-           font-size: .8125rem; color: var(--k-ink-2); white-space: nowrap; }
-.pjtally > [aria-hidden] { display: inline-flex; align-items: center; gap: 8px; }
-.pjtally-i { display: inline-flex; align-items: center; gap: 3px; }
+           font-size: .8125rem; color: var(--k-ink-2); min-width: 0; }
+.pjtally > [aria-hidden] { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+.pjtally-i { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .pjtally-m { width: 13px; height: 13px; flex: none; color: var(--k-ink); }
 .pjtally-m[data-pmark="openai"] svg { transform: scale(1.5); }   /* as the provider picker does: the glyph fills ~51% of its viewBox */
 .pjtally-m.pcombo-chip { width: 13px; height: 13px; line-height: 13px; font-size: .5rem; border-radius: 3px; }
-/* The grid stacks faces over the count; the count and the tally share the line under the faces. */
-.pj-list.asgrid .pj-row .pjfaces { flex-flow: row wrap; column-gap: 0; }
-.pj-list.asgrid .pj-row .pjfaces > [aria-hidden] { flex-basis: 100%; }
 /* #1994 sub-projects. Two ways the same relationship is shown, one per view:
    an INDENT in the wide Projects-tab list (the only place with room for a
    tree), and an ANCESTRY LINE everywhere the row is narrow or tiled (the asgrid
@@ -66132,11 +66131,12 @@ function pjSortByChain(list) {
 /* #6966 (Josh, 10-22): which AI each agent in the project runs on, as one tally beside the count ("2 [Claude]
    1 [Gemini]"), never on the faces. `provider` is the engine's name for it (accountproblem.providerOf), null when the
    member is not tied to its agent; those are left out. The marks are the provider picker's (providerMarkNode, keyed by
-   the picker's own values); a provider without a mark gets the picker's initial-letter chip. */
+   the picker's own values; any other provider by its lowercased name), built once per provider and kept. */
 const PJ_TALLY = [
   ['Claude', 'claude', 'Claude'], ['OpenAI', 'openai', 'GPT'], ['Gemini', 'google', 'Gemini'], ['Google', 'antigravity', 'Gemini'],
   ['Grok', 'xai', 'Grok'], ['Meta', 'meta', 'Meta'], ['Qwen', 'alibaba', 'Qwen'],
 ];
+const PJ_TALLY_MARKS = new Map();   // pick -> the mark's HTML
 function pjProviderTally(agents) {
   const counts = new Map();   // the word shown -> { pick, n }, in PJ_TALLY order, then any other provider as it comes
   for (const a of agents || []) {
@@ -66149,9 +66149,14 @@ function pjProviderTally(agents) {
   if (!counts.size) return '';
   const rows = [...counts].sort((x, y) => x[1].at - y[1].at);
   const shown = rows.map(([word, c]) => {
-    const mark = providerMarkNode(c.pick, word);
-    mark.classList.add('pjtally-m');
-    return '<span class="pjtally-i" title="' + esc(c.n + ' ' + word) + '">' + mark.outerHTML + c.n + '</span>';
+    let mark = PJ_TALLY_MARKS.get(c.pick);
+    if (mark === undefined) {
+      const node = providerMarkNode(c.pick, word);
+      node.classList.add('pjtally-m');
+      mark = node.outerHTML;
+      PJ_TALLY_MARKS.set(c.pick, mark);
+    }
+    return '<span class="pjtally-i" title="' + esc(c.n + ' ' + word) + '">' + mark + c.n + '</span>';
   }).join('');
   return '<span class="pjtally"><span aria-hidden="true">' + shown + '</span><span class="vh">'
     + esc(', ' + rows.map(([word, c]) => c.n + ' ' + word).join(', ')) + '</span></span>';

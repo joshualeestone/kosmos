@@ -49,7 +49,7 @@ test('#6966: a tied member row carries its provider; an untied one carries none'
 });
 
 /* The tally, run for real with the two page helpers it calls stubbed: a mark is a span naming its picker key. */
-const tally = new Function('providerMarkNode', 'esc', page.liftConst(SCRIPT, 'PJ_TALLY') + '\n' + page.lift(SCRIPT, 'pjProviderTally') + '\nreturn pjProviderTally;')(
+const tally = new Function('providerMarkNode', 'esc', page.liftConst(SCRIPT, 'PJ_TALLY') + '\n' + page.liftConst(SCRIPT, 'PJ_TALLY_MARKS') + '\n' + page.lift(SCRIPT, 'pjProviderTally') + '\nreturn pjProviderTally;')(
   (pick) => ({ classList: { add() {} }, outerHTML: '<i data-k="' + pick + '"></i>' }),
   (s) => String(s),
 );
@@ -66,9 +66,23 @@ test('#6966: Gemini on a Google subscription counts as Gemini; OpenAI reads GPT'
   assert.equal(said(html), ', 1 GPT, 2 Gemini');
 });
 
-test('#6966: a provider with no mark still counts, after the known ones; untied members and no members give no tally', () => {
-  assert.equal(said(tally([{ provider: 'Mistral' }, { provider: 'Meta' }])), ', 1 Meta, 1 Mistral');
+test('#6966: a provider outside the list still counts, after the known ones; untied members and no members give no tally', () => {
+  assert.equal(said(tally([{ provider: 'Acme' }, { provider: 'Meta' }])), ', 1 Meta, 1 Acme');
   assert.equal(tally([{ provider: null }, {}, null]), '');
   assert.equal(tally([]), '');
   assert.equal(tally(undefined), '');
+});
+
+test('#6966: every pick the tally uses is a key the provider picker has a mark for', () => {
+  // The object up to its own closing line: liftConst stops at the first ';', and this one has one inside a comment.
+  const at = SCRIPT.indexOf('const PROVIDER_MARK_KEY = {');
+  assert.ok(at > -1, 'PROVIDER_MARK_KEY vanished from the page');
+  const keys = new Function(SCRIPT.slice(at, SCRIPT.indexOf('\n};', at) + 3) + '\nreturn PROVIDER_MARK_KEY;')();
+  const picks = new Function(page.liftConst(SCRIPT, 'PJ_TALLY') + '\nreturn PJ_TALLY;')().map((r) => r[1]);
+  assert.ok(picks.length >= 7, 'PRE-CONTROL: the tally list was read');
+  for (const k of picks) assert.ok(Object.prototype.hasOwnProperty.call(keys, k), k + ' has no mark in PROVIDER_MARK_KEY');
+});
+
+test('#6966: the project card appends the tally after its count', () => {
+  assert.match(page.lift(SCRIPT, 'projectCard'), /\+ count \+ pjProviderTally\(p\.agents\) \+/);
 });
