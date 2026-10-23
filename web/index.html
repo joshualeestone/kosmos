@@ -52250,7 +52250,7 @@ function paintWaiting(inPanel) {
   if (WAIT.ctAlarm) {
     out.push('<div class="askreq waitreq"><div class="askwho"><b id="waitct-head">New browsers are paused</b></div>' +
       '<p class="asksay" id="waitct-say">Kosmos+ found a certificate for this computer\'s address that this computer did not ask for, or could not read its last check. ' +
-      'Until you say you have seen this, no new browser can ask to connect. Browsers already connected keep working.</p>' +
+      'The details are in the certificate line in this section. Until you say you have seen this, no new browser can ask to connect. Browsers already connected keep working.</p>' +
       '<div class="acts"><button class="btn uprime" type="button" data-wait="ctack" aria-describedby="waitct-head waitct-say"' + (WAIT.busy || !WAIT.ctFinding ? ' disabled' : '') + '>I have seen it</button></div></div>');
   }
   WAIT.rows.forEach((w, i) => out.push(waitRowHtml(w, i + 1)));
@@ -54373,7 +54373,15 @@ async function pollCwNote() {
   if (ackBtn) ackBtn.addEventListener('click', async () => {
     /* kosmos#6590 (c4): while the tunnel pauses new browsers for this finding, Got it acknowledges it there first (and
        the board's own note after), so the two never disagree. */
-    if (typeof WAIT !== 'undefined' && WAIT.v2 && WAIT.ctAlarm) { await waitAct('ctack'); if (typeof paintPlus === 'function') paintPlus(); return; }
+    if (typeof WAIT !== 'undefined' && WAIT.v2 && WAIT.ctAlarm) {
+      if (WAIT.busy || ackBusy) { plusSay('One moment: Kosmos is still saving the last thing you pressed.', 'switch'); return; }
+      ackBusy = true; ackBtn.setAttribute('aria-busy', 'true'); plusSay('');
+      try { await waitAct('ctack'); } finally { ackBusy = false; ackBtn.removeAttribute('aria-busy'); }
+      if (typeof paintPlus === 'function') await paintPlus();
+      // Still standing (refused, or a new finding): focus back on Got it, whose line says what to do.
+      if (WAIT.ctAlarm && ackBtn.getClientRects().length) ackBtn.focus();
+      return;
+    }
     const at = Number(ackBtn.dataset && ackBtn.dataset.at);
     if (!Number.isInteger(at) || at <= 0 || ackBusy) return;
     ackBusy = true; ackBtn.setAttribute('aria-busy', 'true');

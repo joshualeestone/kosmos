@@ -2822,15 +2822,17 @@ async function deviceCtAck(finding) {
   if (!boardV2()) return { ok: false, because: 'this computer does not take typed codes yet' };
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   if (typeof finding !== 'string' || !CT_FINDING.test(finding)) return { ok: false, because: 'The warning changed. Look at it again.' };
+  // The lost report as it stands now, read BEFORE the tunnel call, so the board notes only the report that was shown;
+  // ackLostIn refuses a different one (review 1).
+  const shown = certWatch();
   const r = parseSaid(await tracked(setupRun(['devices', 'ct-ack', '--state-dir', STATE_DIR(), '--finding', finding], null, retireTimeoutMs())));
   flushWaiting();
   if (!r.ok) return r;
   const d = r.data || {};
   if (d.changed === true) return { ok: false, because: 'A new certificate finding came in since this was shown. Look at the warning again.', changed: true };
   if (d.acknowledged !== true) return { ok: false, because: 'There is no certificate warning to acknowledge now.' };
-  const cw = certWatch();
-  if (cw.lost && cw.lostAt) {
-    const a = certWatchFiles.ackLostIn(STATE_DIR(), cw.lostAt);
+  if (shown.lost && shown.lostAt) {
+    const a = certWatchFiles.ackLostIn(STATE_DIR(), shown.lostAt);
     if (!a.ok) process.stderr.write('kosmos+: the certificate warning is acknowledged, but this computer could not note the lost report: ' + a.because + '\n');
   }
   return { ok: true, because: null, data: { acknowledged: true } };

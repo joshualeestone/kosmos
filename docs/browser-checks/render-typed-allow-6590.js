@@ -19,6 +19,7 @@
  *   T6d (c3) a Not me that met the automatic Allow says it was taken back out (and, as the control, one that was not);
  *   T10 away from Kosmos+, x puts away the waiting browsers it named and a new one brings the notice back;
  *   T11 (c4) the certificate pause: said with nothing waiting, one button that sends the finding shown, then cleared;
+ *   T11b the lost-report Got it, while the pause stands, goes through ct-ack and never straight to ack-lost;
  *   T9  no page errors.
  *
  *   HEADED=0 NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-typed-allow-6590.js [shotsDir]
@@ -65,7 +66,8 @@ async function open(browser, waitingAnswer, opts = {}) {
   const posts = [];
   const json = (o, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(o) });
   const state = { answer: waitingAnswer, post: opts.post || (() => json({ ok: true })) };
-  await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? REMOTE : { ok: true })));
+  await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? (opts.remote || REMOTE) : { ok: true })));
+  await page.route('**/api/remote/cert-watch/ack-lost', (route) => { posts.push({ verb: 'ack-lost', body: null }); route.fulfill(json({ certWatch: { on: true, state: 'clear', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, lostAt: null, key: null, checkedAt: now(), failing: false } })); });
   await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com' })));
   await page.route('**/api/remote/devices', (route) => route.fulfill(json({ on: true, allowed: [], pending: [] })));
   await page.route('**/api/remote/waiting', (route) => { const a = state.answer(); route.fulfill(json(a.body, a.status || 200)); });
@@ -310,6 +312,27 @@ const read = (page) => page.evaluate(() => {
       chk(off, 'T11 with no finding to name, the button is off');
       allErrs.push(...eb);
       await pb.close();
+    }
+
+    // T11b (c4 review 1): the lost-report Got it, pressed while the tunnel pauses new browsers, goes through ct-ack (the
+    // tunnel first) and never straight to the board's own ack-lost.
+    {
+      const F = 'c'.repeat(64);
+      let alarm = true;
+      const cw = { on: true, state: 'unknown', foreign: 0, earlier: 0, beforeRecord: 0, lost: true, lostAt: 1700000000, key: null, checkedAt: now(), failing: false };
+      const remote = { ...REMOTE, certWatch: cw };
+      const post = (verb) => { if (verb === 'ct-ack') alarm = false; return { status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, acknowledged: true }) }; };
+      const { page: pg, errs: eg, posts: pg2 } = await open(browser, () => ({ body: { v2: true, count: 0, waiting: [], ctAlarm: alarm, ctFinding: alarm ? F : null } }), { base, post, remote });
+      const shown = await pg.evaluate(() => { const b = document.getElementById('plus-cw-ack'); return !!(b && !b.hidden && b.getClientRects().length); });
+      chk(shown, 'T11b premise: the lost-report Got it is on screen');
+      if (shown) {
+        await pg.click('#plus-cw-ack');
+        await pg.waitForTimeout(600);
+      }
+      chk(pg2.filter((x) => x.verb === 'ct-ack').length === 1 && pg2[0].body && pg2[0].body.finding === F && !pg2.some((x) => x.verb === 'ack-lost'),
+        'T11b Got it sends one ct-ack with the finding shown, and no ack-lost of its own', JSON.stringify(pg2));
+      allErrs.push(...eg);
+      await pg.close();
     }
 
     // Shots for design review: light and dark, desktop and phone.

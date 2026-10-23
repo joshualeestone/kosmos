@@ -444,3 +444,11 @@ test('c4: ct-ack sends only the finding shown, refuses a changed one, and writes
   answer = () => ({ out: JSON.stringify({ acknowledged: false }) });
   assert.equal((await remote.deviceCtAck(FINDING)).ok, false, 'nothing to acknowledge');
 });
+
+test('c4 review 1: a foreign-certificate finding (no lost report) writes no board note when acknowledged', async () => {
+  setup();
+  fs.writeFileSync(path.join(STATE, 'ct-watch.json'), JSON.stringify({ state: 'foreign', checked_at: Math.floor(Date.now() / 1000), foreign: [{ id: '1' }] }));
+  answer = () => ({ out: JSON.stringify({ acknowledged: true }) });
+  assert.equal((await remote.deviceCtAck(FINDING)).ok, true);
+  assert.ok(!fs.existsSync(path.join(STATE, 'ct-watch-lost-ack')), 'a lost-report note for a report nobody lost');
+});
