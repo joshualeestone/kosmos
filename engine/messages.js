@@ -3640,10 +3640,16 @@ const CLOSING_POST_MIN = 400;
 // #6608 review 2: words that ask the whole room for an answer, so a hand-off that also says them is not left to its owner
 // alone. Deliberately wide (a missed ask drops an answer someone wanted; a false one only lets an acknowledgement through).
 const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|confirm|let (me|us) know|reply|respond|thumbs up)\b/i;
-/* #6952: a request put to the room, for the claim rule: words that offer the work to whoever takes it. Not ROOM_ASK, which
-   is about who must ANSWER ("confirm", "reply", "let me know" ask the named member too), and not "?": "@bob can you do
-   X?" asks bob. */
-const CLAIM_ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|anybody|someone|somebody|whoever|one of you|any of you)\b/i;
+/* #6952: a request put to the room, for the claim rule. A room word counts only where it is the one being asked to do
+   the work ("can someone review...", "anyone free to...", "whoever can...", "who wants...", "any takers"), not in
+   passing ("@bob please fix the bug someone reported" asks bob). Not ROOM_ASK, which is about who must ANSWER
+   ("confirm", "reply", "let me know" ask the named member too), and not "?": "@bob can you do X?" asks bob. */
+const CLAIM_ROOM_ASK = new RegExp('\\b(?:(?:can|could|would|will|does|is there)\\s+(?:someone|somebody|anyone|anybody)'
+  + '|(?:someone|somebody|anyone|anybody)\\s+(?:please|free|available|able|willing|want|wants|up for|have time|has time|take|pick|grab)'
+  + '|whoever\\s+(?:can|is|has|wants|picks|takes|gets)|who\\s+(?:can|could|wants|will|has time)|any takers|volunteers?)\\b', 'i');
+/* "One of you" and the like put it to a group: on a post that @-names members that group is THEM ("@ann @bob can one of
+   you review this?"), so it counts only on a post that names nobody. */
+const CLAIM_GROUP_ASK = /\b(?:(?:one|any|either|each) of you|all of you|the rest of you|you all|y'?all)\b/i;
 function logRoomRefusal({ from, project, because, at, doing, addable }) {
   if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway
   const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
@@ -3788,13 +3794,13 @@ function react({ project, of, emoji, from, operator, members, claim }) {
        bob), unless the replier is that author or the reply asks the room.
      A hand-off, by an agent or by the person, is a post of its own ("@ann please take this"), which asks ann, and that is
      the post ann claims. Only those still in the room count, so a post asking only someone who has left is open. */
-  const asksRoom = (text) => typeof text === 'string' && CLAIM_ROOM_ASK.test(text);
+  const asksRoom = (text, names) => typeof text === 'string' && (CLAIM_ROOM_ASK.test(text) || (!names && CLAIM_GROUP_ASK.test(text)));
   const askedSet = new Set();
   const named = Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : [];
   const unclear = Array.isArray(post.ambiguousMentions) && post.ambiguousMentions.length > 0;
   if (named.length) {
-    if (!unclear && !asksRoom(post.text)) for (const n of named) askedSet.add(n);
-  } else if (typeof post.replyTo === 'string' && !asksRoom(post.text)) {
+    if (!unclear && !asksRoom(post.text, true)) for (const n of named) askedSet.add(n);
+  } else if (typeof post.replyTo === 'string' && !asksRoom(post.text, false)) {
     const answered = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === post.replyTo);
     // The person's post has no session author ('you' is never a room member), so only an agent's post asks its author.
     if (answered && answered.operator !== true && typeof answered.from === 'string' && answered.from && answered.from !== post.from) askedSet.add(answered.from);

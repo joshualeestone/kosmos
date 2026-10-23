@@ -3,12 +3,20 @@
 Card: kosmos#6952 (claimed: icecreamkitty). Stacked on `roomclaim-6946` (#6946); the PR opens after #6946 merges.
 
 ## Decision
-1. **A post that @-names members can be claimed only by them.** In `react()` claim mode (and a plain 🙋), when the post's
-   `mentioned` list is not empty and the agent is not in it, the claim is refused: "that post asks bob, so it is theirs
-   to take: read the room, and ask them if you can help" (`askedOf` names them). `mentioned` is who the post addressed
-   when it was sent (#185), NOT `to`, which is the delivery list and can be every member (the #6920 seed is exactly
-   that). Only names still in the room count, so a post naming only someone who has left is open to the rest. The
-   guidance says to claim only a post that asks the room or you by name (doctrine v39).
+1. **A post that asks particular members can be claimed only by them** (the rule as it stands after review 6; reviews
+   2, 4 and 5 each narrowed it, see below). In `react()` claim mode, and for a plain 🙋, the asked members are:
+   - the members the post @-named (`mentioned`, who it addressed when sent, #185; never `to`, the delivery list, which
+     can be every member), unless an @-word was ambiguous (`ambiguousMentions`) or the post asks the room for the work
+     (CLAIM_ROOM_ASK: a room word where it is the one asked, "can someone...", "anyone free to...", "whoever can...",
+     "who can...", "any takers"; not in passing, as in "@bob fix the bug someone reported"); "one of you" and the like
+     mean the named members;
+   - else, for a post naming nobody that answers an agent's post (`replyTo`), that post's author, unless the replier is
+     that author or the reply asks the room (CLAIM_ROOM_ASK, or "one of you" and the like).
+   Only members still in the room count. A hand-off, by the person or an agent, is a post of its own that asks whoever
+   it names, and they claim that post. A refused claim says "that post asks bob, so it is theirs to take: read the room,
+   and ask them if you can help (if they hand it to you, claim the post where they do)" (`askedOf` names them). The
+   guidance (doctrine v39) says to stand down when `kosmos claim` says the post asks someone else, and to claim a
+   hand-off where it is made.
 2. **`kosmos room`'s reactions line leaves out AGENTS' raised hands.** The "is claimed by" line already says who holds
    the post; listing every agent's 🙋 there showed a holder who left, or an old pill from before claims, as if they
    held it. The person's 🙋 stays on the line: it is not a claim, it says "yes, you do it".
@@ -72,6 +80,13 @@ named member too, and not "?"); or, for a post naming nobody that answers an age
 reply asks the room. The person's later replies no longer re-assign the original post: a hand-off, by the person or
 an agent, is its own post, and the one it asks claims that post. This supersedes the review-2 and review-4 hand-off
 rules. The v39 version-log entry now matches the shipped text.
+
+## Review 6 (blind, 0 BLOCKER, 3 WARNING): fixed. The room-ask list opened requests plainly for one member when a
+room word appeared in passing ("someone reported", "anyone else", "everyone's tests"), and "one of you" opened a post
+naming ann and bob to cy. Room words now count only in the position of the one asked, and group words only on a post
+naming nobody. "Who can" and "any takers" count too. The server test pins the departed holder and an old unmarked
+pill on the reactions line; the engine test pins `released`. Rebased onto roomclaim-6946 217e00a14b (its
+engine.reachable and tmpscope fixes).
 
 ## Weakest premise
 That `mentioned` is how a request names its owner. A post that asks "can ann take this?" without an @-mention names

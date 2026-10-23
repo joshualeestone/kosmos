@@ -389,7 +389,7 @@ test('#6952 review 5: naming someone in a request to the room does not make it t
   // CONTROLS: "confirm" is not the room (it asks bob to confirm), and an ambiguous @-word leaves the post open.
   post({ id: 'm4', from: 'you', operator: true, mentioned: ['bob'], text: '@bob please confirm the dates and send them out' });
   assert.deepEqual(claim('ann', 'm4').askedOf, ['bob']);
-  post({ id: 'm5', from: 'you', operator: true, mentioned: ['bob'], ambiguousMentions: [{ word: 'b', members: ['bob', 'bo'] }], text: '@b please fix X' });
+  post({ id: 'm5', from: 'you', operator: true, mentioned: ['bob'], ambiguousMentions: ['b'], text: '@b please fix X' });
   assert.equal(claim('ann', 'm5').op, 'add', 'an ambiguous @-word locked the post');
 });
 
@@ -403,4 +403,38 @@ test('#6952 review 3: an agent answering its own post asks the room; control: th
   // CONTROL: the person answering bob's post asks bob.
   append({ kind: 'post', id: 'm3', project: 'p', from: 'you', operator: true, to: MEMBERS, replyTo: 'm1', text: 'yes, finish it', outcomes: {}, at: at() });
   assert.deepEqual(claim('cy', 'm3').askedOf, ['bob']);
+});
+
+test('#6952 review 6: a room word counts only where it asks for the work; "one of you" on a named post means them', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = () => new Date().toISOString();
+  let n = 0;
+  const ask = (row) => { n += 1; append({ kind: 'post', id: 'r' + n, project: 'p', from: 'you', operator: true, to: MEMBERS, outcomes: {}, at: at(), ...row }); return 'r' + n; };
+  // Requests to bob that mention the room in passing: still bob's.
+  for (const text of ['@bob please fix the bug someone reported in signup', '@bob please fix X, and do not let anyone else touch the migration',
+    '@bob please make sure everyone\'s tests pass after the bump', '@bob ask whoever owns billing']) {
+    assert.deepEqual(claim('cy', ask({ mentioned: ['bob'], text })).askedOf, ['bob'], text);
+  }
+  // "one of you" on a post naming ann and bob means ann or bob, not cy.
+  assert.deepEqual(claim('cy', ask({ mentioned: ['ann', 'bob'], text: '@ann @bob can one of you review this?' })).askedOf, ['ann', 'bob']);
+  // CONTROLS: the room asked for the work.
+  assert.equal(claim('cy', ask({ mentioned: ['bob'], text: 'anyone free to review what @bob shipped?' })).op, 'add');
+  append({ kind: 'post', id: 'd1', project: 'p', from: 'bob', to: MEMBERS, text: 'Deploy finished.', outcomes: {}, at: at() });
+  assert.equal(claim('cy', ask({ replyTo: 'd1', text: 'great. who can write the release notes?' })).op, 'add', 'who can in a reply to bob was locked to bob');
+  assert.equal(claim('cy', ask({ replyTo: 'd1', text: 'can one of you write the notes?' })).op, 'add', 'one of you in a reply naming nobody was locked to bob');
+});
+
+test('#6952 review 6: released is said only when a claim was given back', () => {
+  seedPost('m1', 'p');
+  assert.equal(claim('ann').op, 'add');
+  const toggled = messages.react({ project: 'p', of: 'm1', emoji: HAND, from: 'ann', members: MEMBERS });
+  assert.equal(toggled.released, true, 'the holder\'s own toggle-off did not say it released the claim');
+  assert.equal(claim('ann').op, 'add');
+  assert.equal(claim('ann', 'm1', 'release').released, true);
+  // An old unmarked pill that was never the claim: taken off, but nothing was released.
+  seedPost('m2', 'p');
+  append({ kind: 'reaction', project: 'p', of: 'm2', emoji: HAND, from: 'bob', op: 'add', at: '2026-10-21T00:00:00.000Z' });
+  const stray = messages.react({ project: 'p', of: 'm2', emoji: HAND, from: 'bob', members: MEMBERS });
+  assert.equal(stray.op, 'remove');
+  assert.equal(stray.released, undefined, 'taking off a pill that was never the claim said it released one');
 });
