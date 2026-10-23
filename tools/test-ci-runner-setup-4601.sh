@@ -33,11 +33,11 @@ case "$me" in
     # svc.sh start does (cwd is the runner dir), so wait_for_listener sees a new Listener.
     out="$(dirname "$CALL_LOG")/booted-out"
     case "$1" in
-      bootout) touch "$out"; exit 0 ;;
+      bootout) [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
       bootstrap) [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; rm -f "$out"; echo started > .svc-state
         echo $(( $(cat .svc-pid 2>/dev/null || echo 4343) + 1 )) > .svc-pid; exit 0 ;;
     esac
-    case "$1 $2" in "print gui/"*/*) [ -f "$out" ] && exit 113; exit 0 ;; esac
+    case "$1 $2" in "print gui/"*/*) { [ -f "$out" ] || [ "${FX_NOT_LOADED:-0}" = 1 ]; } && exit 113; exit 0 ;; esac
     [ "$1 ${2%%/*}" = "print gui" ] || exit 1
     [ "${FX_NO_SERVICES:-0}" = 1 ] && { printf 'gui/501 = {\n\ttype = login\n\tservices = {\n\t}\n}\n'; exit 0; }
     printf 'gui/501 = {\n\ttype = login\n\tservices = {\n'
@@ -53,7 +53,8 @@ case "$me" in
     case "$*" in *Runner.Listener*) [ "${FX_LISTENER_PGREP_FAIL:-0}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] && [ -e .svc-pid ] && exit 3; # FX_OLD_TOO: another Listener (an old one, or one started by hand) listed first whatever the service's state.
       if [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ]; then [ -z "${FX_OLD_TOO:-}" ] || echo "$FX_OLD_TOO"; cat .svc-pid 2>/dev/null || echo 4343; exit 0; fi
       [ -n "${FX_OLD_TOO:-}" ] && { echo "$FX_OLD_TOO"; exit 0; }; exit 1 ;; esac
-    case "$*" in *Runner.Worker*) [ "${FX_WORKER:-0}" = 1 ] || exit 1; echo 4242; exit 0 ;; esac
+    # A self-updated runner's Worker runs from bin.<version>/Runner.Worker: a name match (-x) sees it, bin/Runner.Worker does not.
+    case "$*" in *Runner.Worker*) [ "${FX_WORKER:-0}" = 1 ] || exit 1; case "$*" in *"-x Runner.Worker"*) echo 4242; exit 0 ;; esac; exit 1 ;; esac
     [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
   df) [ "${FX_DF_NOROW:-0}" = 1 ] && { echo "Filesystem 1024-blocks Used Available Capacity Mounted"; exit 0; }
     printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/disk3s1 239362496 1 %s 50%% /\n' "${FX_FREE_KIB-31457280}" ;;
@@ -118,7 +119,8 @@ case "$me" in
           '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
           '<plist version="1.0"><dict><key>Label</key><string>actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s</string>' \
           '<key>ProgramArguments</key><array><string>runsvc.sh</string></array><key>RunAtLoad</key><true/></dict></plist>' \
-          > "$HOME/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist" ;;
+          > "$HOME/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
+        echo "$HOME/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist" > "$(dirname "$0")/.service" ;;
       status) if [ "${FX_SVC_STUCK:-0}" = 1 ] || [ "$(cat "$st" 2>/dev/null)" = started ]; then echo "Started"; else echo "Stopped"; fi ;;
       stop) echo stopped > "$st" ;;
       start) [ "${FX_SVC_START_FAIL:-0}" = 1 ] && exit 1; echo started > "$st"
@@ -488,7 +490,7 @@ ka_of() { plutil -extract KeepAlive.SuccessfulExit raw -o - "$1" 2>/dev/null; }
   || fail "register KeepAlive: $(plutil -p "$KP" 2>&1 | tr '\n' ' ')"
 has rg-dry "WOULD: add KeepAlive {SuccessfulExit: false}" && pass "register dry run says it would add KeepAlive" || fail "register dry run: no KeepAlive line"
 echo stopped > "$CH/actions-runner/.svc-state"
-rm -f "$CH/actions-runner/.runner"   # rg-apply configured it; this case is about the Listener
+rm -f "$CH/actions-runner/.runner" "$CH/actions-runner/.service"   # rg-apply configured and registered it; this case is about the Listener
 STDIN_FILE="$T/token" run rg-nolistener "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply register
 [ "$(rc rg-nolistener)" = 1 ] && has rg-nolistener "no new Runner.Listener is running" && pass "register --apply fails when no Listener comes up" || fail "register no listener: rc $(rc rg-nolistener): $(tail -1 "$T/rg-nolistener.out")"
 RS="$T/rg-service"; svc_home "$RS"; cp "$BIN/_stub" "$RS/actions-runner/config.sh"; chmod +x "$RS/actions-runner/config.sh"
@@ -503,11 +505,11 @@ rm -f "$CH/actions-runner/.service" "$CH/actions-runner/.runner"   # rg-apply re
 echo stopped > "$CH/actions-runner/.svc-state"
 STDIN_FILE="$T/token" run rg-handrun "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_OLD_TOO=3333 FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply register
 [ "$(rc rg-handrun)" = 1 ] && has rg-handrun "no new Runner.Listener" && pass "register --apply does not take a hand-started Listener for the service's" || fail "register hand-run listener: rc $(rc rg-handrun): $(tail -1 "$T/rg-handrun.out")"
-echo '{}' > "$CH/actions-runner/.runner"
+rm -f "$CH/actions-runner/.service"; echo '{}' > "$CH/actions-runner/.runner"
 STDIN_FILE="$T/token" run rg-configured "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 [ "$(rc rg-configured)" = 1 ] && has rg-configured "configured already" && ! grep -q '^config\.sh' "$T/rg-configured.calls" \
   && pass "register --apply refuses a runner configured already, before config.sh" || fail "register configured: rc $(rc rg-configured): $(tail -1 "$T/rg-configured.out")"
-rm -f "$CH/actions-runner/.runner"
+rm -f "$CH/actions-runner/.runner" "$CH/actions-runner/.service"
 run rg-none "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 [ "$(rc rg-none)" = 1 ] && has rg-none "no registration token" && ! grep -q '^config\.sh' "$T/rg-none.calls" && pass "register --apply refuses with no token" || fail "register no token: rc $(rc rg-none)"
 # svc.sh install that writes no plist: register fails before svc.sh start rather than starting a runner without KeepAlive.
@@ -518,15 +520,18 @@ STDIN_FILE="$T/token" run rg-noplist "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH"
 
 # --- keepalive (kosmos#7001) ------------------------------------------------------------------------------------
 KH="$T/ka-home"; KA="$KH/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
+KR="$KH/Library/LaunchAgents/actions.runner.joshualeestone-kosmos-relay.agent1s-relay.plist"
 ka_fresh() {   # an installed runner as svc.sh leaves it: started, its plist without KeepAlive
   rm -rf "$KH"; mkdir -p "$KH/actions-runner" "$KH/Library/LaunchAgents"
-  (cd "$KH/actions-runner" && HOME="$KH" CALL_LOG=/dev/null "$BIN/_stub" install) 2>/dev/null
   cp "$BIN/_stub" "$KH/actions-runner/svc.sh"; chmod +x "$KH/actions-runner/svc.sh"
   (cd "$KH/actions-runner" && HOME="$KH" CALL_LOG=/dev/null ./svc.sh install && echo started > .svc-state && echo 4343 > .svc-pid)
-  cp "$KA" "$T/ka.before"
+  # The kosmos-relay runner under the same user (#6245): its plist sorts BEFORE this repo's ('-' before '.').
+  sed 's/joshualeestone-kosmos\.kosmos-ci-agent1s/joshualeestone-kosmos-relay.agent1s-relay/' "$KA" > "$KR"
+  cp "$KA" "$T/ka.before"; cp "$KR" "$T/kr.before"
 }
 ka_fresh
-[ -f "$KA" ] && [ -z "$(ka_of "$KA")" ] && pass "control: the keepalive fixture starts with no KeepAlive" || fail "keepalive fixture: $(ls -la "$KH/Library/LaunchAgents" 2>&1)"
+[ -f "$KA" ] && [ -z "$(ka_of "$KA")" ] && [ "$(ls "$KH"/Library/LaunchAgents/actions.runner.*.plist | head -n 1)" = "$KR" ] \
+  && pass "control: the keepalive fixture starts with no KeepAlive, and the relay's plist sorts first" || fail "keepalive fixture: $(ls -la "$KH/Library/LaunchAgents" 2>&1)"
 run ka-dry "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
 [ "$(rc ka-dry)" = 0 ] && has ka-dry "has no KeepAlive" && has ka-dry "WOULD: launchctl bootout gui/777/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" \
   && ! changed ka-dry >/dev/null && cmp -s "$KA" "$T/ka.before" \
@@ -536,22 +541,32 @@ run ka-apply "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_MANAGER=Background -
 if [ "$(rc ka-apply)" = 0 ] && [ "$(ka_of "$KA")" = false ] && [ "$(plutil -extract ThrottleInterval raw -o - "$KA")" = 10 ] \
    && grep -n '^launchctl bootout gui/777/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s$' "$T/ka-apply.calls" | head -1 | cut -d: -f1 > "$T/ka.o" \
    && [ "$(grep -n "^launchctl bootstrap gui/777 $KA\$" "$T/ka-apply.calls" | head -1 | cut -d: -f1)" -gt "$(cat "$T/ka.o")" ] \
-   && has ka-apply "the runner is running again"; then pass "keepalive --apply over ssh: KeepAlive added, then bootout before bootstrap, and a new Listener"; cp "$KA" "$T/ka.after"
+   && has ka-apply "the runner is running again" && cmp -s "$KR" "$T/kr.before" && ! grep -q 'kosmos-relay' "$T/ka-apply.calls"; then
+  pass "keepalive --apply over ssh: THIS runner's plist (from .service, not the relay's) gains KeepAlive, bootout before bootstrap, a new Listener"; cp "$KA" "$T/ka.after"
 else fail "keepalive --apply: rc $(rc ka-apply): $(tail -2 "$T/ka-apply.out") calls: $(grep '^launchctl' "$T/ka-apply.calls" | tr '\n' ';')"; fi
 run ka-again "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
 [ "$(rc ka-again)" = 0 ] && has ka-again "restarts after a kill" && ! has ka-again "WOULD" && pass "keepalive dry run on a runner that has it: says so, would do nothing" || fail "keepalive again: $(cat "$T/ka-again.out")"
 ka_fresh; run ka-job "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER=1 -- --apply keepalive
-[ "$(rc ka-job)" = 1 ] && has ka-job "a job is running" && cmp -s "$KA" "$T/ka.before" && ! grep -q '^launchctl boot' "$T/ka-job.calls" \
-  && pass "keepalive --apply refuses while a job runs, before touching the plist" || fail "keepalive job: rc $(rc ka-job): $(tail -1 "$T/ka-job.out")"
+[ "$(rc ka-job)" = 1 ] && has ka-job "a job is running" && [ "$(ka_of "$KA")" = false ] && ! grep -q '^launchctl boot' "$T/ka-job.calls" \
+  && pass "keepalive --apply does not reload while a job runs (seen by name, as after a self-update); the plist keeps KeepAlive for the next start" || fail "keepalive job: rc $(rc ka-job): $(tail -1 "$T/ka-job.out")"
+ka_fresh; run ka-stopped "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 -- --apply keepalive
+[ "$(rc ka-stopped)" = 0 ] && [ "$(ka_of "$KA")" = false ] && has ka-stopped "is not loaded (stopped)" && ! grep -q '^launchctl boot' "$T/ka-stopped.calls" \
+  && pass "keepalive --apply on a stopped runner: KeepAlive in the plist, and the runner is NOT started" || fail "keepalive stopped: rc $(rc ka-stopped): $(tail -1 "$T/ka-stopped.out")"
+ka_fresh; run ka-stuck "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
+[ "$(rc ka-stuck)" = 1 ] && has ka-stuck "still loaded from the OLD definition" && ! grep -q '^launchctl bootstrap' "$T/ka-stuck.calls" \
+  && pass "keepalive --apply: a bootout that does not unload says so and does not bootstrap" || fail "keepalive stuck: rc $(rc ka-stuck): $(tail -1 "$T/ka-stuck.out")"
+ka_fresh; chmod 000 "$KH/actions-runner/.service"; run ka-other "$KH" KOSMOS_CI_HOME="$KH" -- keepalive; chmod 644 "$KH/actions-runner/.service"
+[ "$(rc ka-other)" = 0 ] && has ka-other "cannot read kosmos-ci's runner" && ! has ka-other "register first" \
+  && pass "keepalive dry run as another user that cannot read the runner: says so, not \"register first\"" || fail "keepalive as other: rc $(rc ka-other): $(cat "$T/ka-other.out")"
 ka_fresh; run ka-pgrepfail "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_PGREP_FAIL=1 -- --apply keepalive
-[ "$(rc ka-pgrepfail)" = 1 ] && has ka-pgrepfail "could not list processes" && cmp -s "$KA" "$T/ka.before" \
+[ "$(rc ka-pgrepfail)" = 1 ] && has ka-pgrepfail "could not list processes" && ! grep -q '^launchctl boot' "$T/ka-pgrepfail.calls" \
   && pass "keepalive --apply refuses when it cannot rule out a job" || fail "keepalive pgrep fail: rc $(rc ka-pgrepfail): $(tail -1 "$T/ka-pgrepfail.out")"
 ka_fresh; run ka-loggedout "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LAUNCHCTL_FAIL=1 -- --apply keepalive
 [ "$(rc ka-loggedout)" = 1 ] && has ka-loggedout "is not logged in" && cmp -s "$KA" "$T/ka.before" \
   && pass "keepalive --apply refuses when the user's GUI domain does not exist" || fail "keepalive logged out: rc $(rc ka-loggedout): $(tail -1 "$T/ka-loggedout.out")"
 ka_fresh; run ka-bootfail "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_FAIL=1 -- --apply keepalive
 [ "$(rc ka-bootfail)" = 1 ] && has ka-bootfail "the runner is STOPPED" && pass "keepalive --apply says the runner is stopped when bootstrap fails" || fail "keepalive bootstrap fail: rc $(rc ka-bootfail): $(tail -1 "$T/ka-bootfail.out")"
-ka_fresh; rm -f "$KA"; run ka-none "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+ka_fresh; rm -f "$KA" "$KH/actions-runner/.service"; run ka-none "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
 [ "$(rc ka-none)" = 1 ] && has ka-none "register first" && ! grep -q '^launchctl boot' "$T/ka-none.calls" && pass "keepalive --apply refuses with no LaunchAgent" || fail "keepalive none: rc $(rc ka-none)"
 ka_fresh; run ka-owner "$KH" KOSMOS_CI_HOME="$KH" -- --apply keepalive
 [ "$(rc ka-owner)" = 2 ] && has ka-owner "runs as kosmos-ci" && cmp -s "$KA" "$T/ka.before" && pass "keepalive --apply refuses as anyone but kosmos-ci" || fail "keepalive as owner: rc $(rc ka-owner)"
@@ -598,10 +613,11 @@ vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
 # kosmos#7001: the LaunchAgent, when verify can read it (as the owner it usually cannot: ~/Library is mode 700).
 grep -q "cannot read kosmos-ci's LaunchAgent" "$T/v-clear.out" && pass "verify: an unreadable LaunchAgent is a note, and leaves verify clear" || fail "verify LaunchAgent note: $(grep -i launchagent "$T/v-clear.out")"
 mkdir -p "$VCI/Library/LaunchAgents"; cp "$T/ka.before" "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
+echo "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist" > "$VCI/actions-runner/.service"
 vcase no-keepalive 1 "has no KeepAlive {SuccessfulExit: false}"
 cp "$T/ka.after" "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 vcase keepalive 0 "restarts after a kill (KeepAlive SuccessfulExit false)"
-rm -rf "$VCI/Library"
+rm -rf "$VCI/Library" "$VCI/actions-runner/.service"
 grep -q 'no tmux or node left' "$T/v-clear.out" && pass "verify: an idle runner's own node (RunnerService.js) is not a leftover" || fail "verify idle runner: $(grep -E 'REFUSE|ok' "$T/v-clear.out" | tail -2)"
 cp "$VCI/actions-runner/.env" "$T/vci.env"
 grep -v HOOK_JOB_STARTED "$T/vci.env" > "$VCI/actions-runner/.env"

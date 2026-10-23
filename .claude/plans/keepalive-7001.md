@@ -39,6 +39,23 @@ Mutants, each red: register without the add, no job check, keepalive_set always 
 Runner 2 (kosmos-ci2): needs its password or sudo on the old Mac (parked on the card); then, as kosmos-ci2,
 `tools/ci-runner-setup.sh --apply keepalive`. Which test sent the SIGKILL: not in any log we hold.
 
+## Review round 1 (BLOCKER and WARNINGs, all fixed)
+- BLOCKER: the plist was the first actions.runner.*.plist in the user's LaunchAgents. The kosmos-relay runner lives under
+  the same user on the CI mini (#6245) and its plist sorts first, so keepalive would have patched, reloaded and verified
+  the RELAY runner and reported success. The path now comes from the runner's own .service, where svc.sh install
+  records it (measured on both boxes). Test fixture: a relay plist that sorts first stays byte-identical.
+- The job check is `pgrep -x Runner.Worker`, as install's: after a self-update the Worker runs from bin.<version>, so
+  bin/Runner.Worker would miss it (the stub now models that). The check runs last, just before the bootout, after the
+  plist edit (which alone harms nothing); the window for a job accepted but not yet in a Worker is written down.
+- A runner that is not loaded (stopped on purpose) gets the plist edit and is NOT started.
+- A bootout that does not unload in KOSMOS_CI_UNLOAD_WAIT_S (default 30) says the runner is still on the OLD definition
+  and does not bootstrap; "STOPPED" is printed only after an unload was seen.
+- A dry run as a user who cannot read the runner says so instead of "register first".
+- register's failure message names the recovery (`--apply keepalive`); ThrottleInterval 10 is said to be the default.
+Mutants red: glob lookup, path-based Worker match, no stopped check, no stuck check, no "cannot read" note.
+
 ## Weakest premise
-That the GitHub runner keeps ending the launchd job with exit 0 on every deliberate stop. If a future runner version
+That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it
+stops, keepalive refuses rather than guessing). Second: that the runner keeps ending the launchd job with exit 0 on
+every deliberate stop. If a future runner version
 exits non-zero on, say, a session conflict, KeepAlive would restart it into the same conflict every 10 s.
