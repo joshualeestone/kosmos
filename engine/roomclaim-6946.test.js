@@ -8,6 +8,7 @@
  * first's claim; with no claim to see, the same second call is the one that lands.
  */
 
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#4273)
 const os = require('node:os');
 const path = require('node:path');
 // Sandbox BEFORE the engine require, as reactions-2255.test.js does (react() appends to the real log otherwise).
@@ -231,12 +232,12 @@ test('round 2 W3: the room\'s view of a claim drops a holder who was removed; co
     fs.writeFileSync(remove.REMOVED_FILE, JSON.stringify(names.map((n) => ({ name: n, stopped: true })))); };
   try {
     setRemoved([]);
-    assert.deepEqual(messages.roomClaimOf('m1', messages.record().rows, MEMBERS) && messages.roomClaimOf('m1', messages.record().rows, MEMBERS).by, 'ann',
+    assert.deepEqual(messages.claimOf('m1', messages.record().rows, messages.claimMembers(MEMBERS)) && messages.claimOf('m1', messages.record().rows, messages.claimMembers(MEMBERS)).by, 'ann',
       'CONTROL: a holder who was not removed is not shown as holding the post');
     setRemoved(['ann']);
-    assert.equal(messages.roomClaimOf('m1', messages.record().rows, MEMBERS), null, 'a removed holder still shows as holding the post');
+    assert.equal(messages.claimOf('m1', messages.record().rows, messages.claimMembers(MEMBERS)), null, 'a removed holder still shows as holding the post');
     // Round 2 N1: with no member list at all (the registry could not be read), the post is never shown as free.
-    assert.equal(messages.roomClaimOf('m1', messages.record().rows, null).by, 'ann');
+    assert.equal(messages.claimOf('m1', messages.record().rows, messages.claimMembers(null)).by, 'ann');
   } finally {
     try { fs.rmSync(remove.REMOVED_FILE, { force: true }); } catch { /* best effort */ }
   }

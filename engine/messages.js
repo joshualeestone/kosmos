@@ -3578,13 +3578,11 @@ function claimOf(of, rows, members) {
   return null;
 }
 
-/* The claim on post `of` as a ROOM shows it: `names` is the project's stored members, less any removed agent (the
-   same filter react() uses), so the room and the refusal agree on who holds it. If the removed list cannot be read the
-   stored members are used as they are, and with no member list at all (the registry could not be read) nobody is
-   filtered, since showing a held post as free is the worse mistake. */
-function roomClaimOf(of, rows, names) { return claimOf(of, rows, claimMembers(names)); }
-/* The member list roomClaimOf filters by, worked out ONCE so a room read with many claimed posts reads the removed list
-   once (round 3). null (filter nobody) when there is no list. */
+/* The members a room's claims are read against (the room route passes them to claimOf): `names` is the project's
+   stored members, less any removed agent (the same filter react() uses), so the room and the refusal agree on who
+   holds a post. Worked out ONCE per room read, so many claimed posts read the removed list once. If the removed list
+   cannot be read the stored members are used as they are, and with no member list at all (the registry could not be
+   read) it is null and nobody is filtered, since showing a held post as free is the worse mistake. */
 function claimMembers(names) {
   if (!Array.isArray(names)) return null;   // registry unreadable: never show a held post as free
   const listed = names.filter((n) => typeof n === 'string' && n);
@@ -4138,7 +4136,7 @@ module.exports = {
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
-  react, reactionsFor, normalizeReactionEmoji, claimOf, roomClaimOf, claimMembers, claimAge, isClaimEmoji,
+  react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji,
   messageIdOf, // #4631
   operatorDirect, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,

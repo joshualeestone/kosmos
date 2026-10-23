@@ -85,6 +85,15 @@ marked or not: an agent's plain toggle on a pill that is not the claim un-reacts
 the claimant's with the one marked pill, and the person's click removes whatever 🙋 form they have. Guidance: on a
 timeout run the claim again first, and only if Kosmos still cannot be reached say it in the room.
 
+## Review 8 (blind, the cap; 0 BLOCKER, 2 WARNING): the loop ends here by the usage rule; the leftovers are #6952 (a post
+addressed to one agent can be claimed by another; the reactions line in `kosmos room` replays every 🙋 pill, so a
+departed holder or an old unmarked pill can read as the holder; two nits).
+
+## Full validation (Mortals, 10-22 19:59): 23419 tests, 1 fail, fixed. engine.reachable: `roomClaimOf` was exported and
+reached only from tests (the room route calls claimMembers + claimOf itself), so it is gone and the tests call those
+two; and the suite flagged the engine test's temp sandbox as left behind, so the test now requires
+test-support/tmpscope.
+
 ## Weakest premise
 That agents run `kosmos claim` before posting. The rule only binds an agent that claims; one that skips it and posts
 "taking this" is not stopped. The guidance is the lever, and the claim line in `kosmos room` is the second chance.
