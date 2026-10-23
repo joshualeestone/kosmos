@@ -496,7 +496,7 @@ test('#6957: common requests to the room open the post; passing mentions still d
   }
 });
 
-test('#6957: a post dated ahead of the clock is open, and a post\'s author can always claim it', () => {
+test('#6957: a post dated ahead of the clock is open; the author of a request to bob cannot take it from him', () => {
   fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
   const ahead = new Date(Date.now() + 5 * 3600000).toISOString();   // a clock stepped back
   append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix X', outcomes: {}, at: ahead });
@@ -507,9 +507,10 @@ test('#6957: a post dated ahead of the clock is open, and a post\'s author can a
   const realNow = Date.now;
   try { Date.now = () => realNow() + 31 * 60000; assert.equal(claim('cy', 'm3').op, 'add', 'the window did not end after 30 minutes'); }
   finally { Date.now = realNow; }
-  append({ kind: 'post', id: 'm2', project: 'p', from: 'ann', to: MEMBERS, mentioned: ['bob'], text: '@bob I am taking the parser, FYI', outcomes: {}, at: new Date().toISOString() });
-  assert.equal(claim('ann', 'm2').op, 'add', 'the post\'s own author could not claim it');
-  assert.deepEqual(claim('cy', 'm2').claimedBy, 'ann');
+  // Review 4: no author exemption. ann asked bob to take it; holding it herself would lock bob out with no time limit.
+  append({ kind: 'post', id: 'm2', project: 'p', from: 'ann', to: MEMBERS, mentioned: ['bob'], text: '@bob can you take the login bug?', outcomes: {}, at: new Date().toISOString() });
+  assert.deepEqual(claim('ann', 'm2').askedOf, ['bob'], 'the author claimed the request she put to bob');
+  assert.equal(claim('bob', 'm2').op, 'add');
 });
 
 test('#6957: the reserved-name refusal says what to do', () => {
@@ -575,4 +576,17 @@ test('#6957 review 3: a post a few seconds ahead of the clock is still held (a s
   assert.deepEqual(claim('cy').askedOf, ['bob'], 'a post 30 s ahead of the clock lost its hold');
   append({ kind: 'post', id: 'm2', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix Y', outcomes: {}, at: new Date(Date.now() + 120000).toISOString() });
   assert.equal(claim('cy', 'm2').op, 'add');
+});
+
+test('#6957 review 4: someone ELSE asks the room, even right after the names; control: the bug someone else reported is still bob\'s', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  let n = 0;
+  const ask = (text) => { n += 1; append({ kind: 'post', id: 'e' + n, project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text, outcomes: {}, at: new Date().toISOString() }); return 'e' + n; };
+  for (const text of ['Thanks @bob! Can someone else take the login bug?', '@bob! Can anyone else take this?', '@bob. Can anyone else take this?',
+    '@bob is out, someone else please take this', '@bob is out, anyone else free to take it?', '@bob is swamped so somebody else please grab the login bug']) {
+    assert.equal(claim('cy', ask(text)).op, 'add', text);
+  }
+  for (const text of ['@bob please fix the bug someone else reported', '@bob! who can approve this?', '@bob, did anyone else see this?']) {
+    assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
+  }
 });

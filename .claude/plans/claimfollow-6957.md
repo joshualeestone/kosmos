@@ -18,8 +18,9 @@ opens after #6952 merges.
 3. **A post dated more than a minute ahead of this clock is open** (a clock stepped back): its age cannot be read, and
    holding it until the clock catches up could be hours. Fails open, as before #6952. Up to a minute ahead is read as
    just posted, so a small clock adjustment keeps the hold.
-4. **The author of an @-named post can always claim it** ("@bob I am taking the parser, FYI"). Not the writer of a
-   reply, whose reply asks the answered author.
+4. **No author exemption** (added in the first version, removed in review 4). An author holding its own request
+   ("@bob can you take the login bug?") would lock bob out of it with no time limit, since a claim, unlike the asked
+   window, does not end on its own. An author who means to do the work waits out the window (30 minutes at most).
 5. **The reserved-name refusal says what to do** ("rename this agent to react or claim"), for an agent named
    `operator` from before #6952.
 6. **The person's 🙋 shows only beside the claim it agreed with** (the room row's `claimAgreed`: their latest 🙋 add is
@@ -46,6 +47,11 @@ Noted: `claimAgreed` is used by the text view only; the person's own page still 
 bob's post, a regression from review 2's clause starts; a greeting before the name ("Hey @bob, who...?") defeated the
 strip. Both are now part of the strip, as is "!". The never-reached CLAIM_NEED_ASK and its test arm that could not fail
 are removed. A post up to a minute ahead of the clock keeps its hold.
+
+## Review 4 (blind, 0 BLOCKER, 2 WARNING + 1 low): fixed. "Someone ELSE" plainly excludes the named member, but
+"Thanks @bob! Can someone else take...?" and "someone else please take this" read as bob's; "can someone else" now
+asks the room wherever it sits, and the subject form allows "else". The author exemption is removed (above).
+Noted: the person's page still shows their 🙋 pill beside a newer claim while the text view hides it.
 
 ## Proof
 engine/roomclaim-6946.test.js #6957 (each with a control that can return the dangerous answer) and

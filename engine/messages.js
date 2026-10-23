@@ -3690,7 +3690,10 @@ const CLAIM_ASKED_MINUTES = 30;   // #6952: how long a post's asked members have
 const CLAIM_LEAD = "(?:^|[.!?;:,(\\n\\u2013\\u2014-]\\s*)(?:(?:now|so|and|but|ok|okay|also|then|great|thanks)[,!]?\\s+)?";
 const CLAIM_ROOM_ASK = new RegExp(
   CLAIM_LEAD + '(?:can|could|would|will|is there)\\s+(?:someone|somebody|anyone|anybody)\\b'          // "can someone review..."
-  + '|\\b(?:someone|somebody|anyone|anybody)\\s+(?:please|free|available|around to|able|willing|up for|have time|has time)\\b'
+  + '|\\b(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+(?:please|free|available|around to|able|willing|up for|have time|has time)\\b'
+  // "someone ELSE" plainly excludes whoever was named, so "can someone else take it?" asks the room even right after the
+  // names ("Thanks @bob! Can someone else take the login bug?"), wherever it sits (#6957 review 4)
+  + '|\\b(?:can|could|would|will)\\s+(?:someone|somebody|anyone|anybody)\\s+else\\b'
   // "who can write the notes?", "Who's free to take this?" (straight or curly apostrophe), "who has time for this?"
   + '|' + CLAIM_LEAD + "who(?:\\s+|'s\\s+|\u2019s\\s+)(?:can|could|wants|will|is free|free|is available|available|has time|is around|around)\\b[^.!?]*\\?"
   + '|\\bwhoever\\s+(?:can|is free|has time|wants|picks|takes|gets)\\b'
@@ -3891,10 +3894,10 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     return released;
   };
   const released = asked.length > 0 && asked.every(gaveBack);
-  // The author of an @-named post, not of a reply (review 1). It also lets an author take back a hand-off it made
-  // ("@bob can you take the login bug?") inside bob's window; bob sees the claim in the room.
-  const authorsOwn = named.length > 0 && reactor === post.from;
-  if (asked.length && !asked.includes(reactor) && !authorsOwn && !released && leftMs > 0) {
+  /* No author exemption (#6957 review 4): an author holding its own request ("@bob can you take the login bug?") would
+     lock bob out of it with no time limit, since a claim, unlike the asked window, does not end on its own. An author
+     who means to do the work says so in its post, and the window lets it claim after 30 minutes at most. */
+  if (asked.length && !asked.includes(reactor) && !released && leftMs > 0) {
     const who = asked.length === 1 ? asked[0] : asked.slice(0, -1).join(', ') + ' or ' + asked[asked.length - 1];
     const mins = Math.max(1, Math.ceil(leftMs / 60000));
     return { ok: false, askedOf: asked,
