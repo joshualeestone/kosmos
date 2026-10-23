@@ -34,9 +34,10 @@ case "$me" in
     out="$(dirname "$CALL_LOG")/booted-out"
     case "$1" in
       bootout) [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
-      bootstrap) [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; rm -f "$out"; echo started > .svc-state
+      bootstrap) [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; rm -f "$out"; touch "$(dirname "$CALL_LOG")/bootstrapped"
+        [ "${FX_LISTENER:-1}" = 1 ] && echo started > .svc-state
         # The loaded job has KeepAlive exactly when the plist it was loaded from does (state kept across runs).
-        if [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$3" 2>/dev/null)" = false ]; then touch "$(dirname "$CALL_LOG")/loaded-ka"
+        if [ "${FX_BOOTSTRAP_NO_KA:-0}" != 1 ] && [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$3" 2>/dev/null)" = false ]; then touch "$(dirname "$CALL_LOG")/loaded-ka"
         else rm -f "$(dirname "$CALL_LOG")/loaded-ka"; fi
         echo $(( $(cat .svc-pid 2>/dev/null || echo 4343) + 1 )) > .svc-pid; exit 0 ;;
     esac
@@ -56,6 +57,15 @@ case "$me" in
   pgrep)
     [ "${FX_PGREP_FAIL:-0}" = 1 ] && exit 3
     # A Listener runs while this runner dir's svc state is "started" (cwd is the runner dir), with the pid start gave it.
+    # kosmos#7001: a -f pattern is matched (ERE) against this runner's Listener argv and the relay's (#6245), so a pattern
+    # that cannot tell the two apart is seen. The relay's pid changes once anything was bootstrapped (a respawn).
+    case "$*" in *"-f "*Runner.Listener*)
+      pat="${*: -1}"; own="${KOSMOS_CI_HOME:-/Users/kosmos-ci}/actions-runner/bin/Runner.Listener run --startuptype service"
+      rel="${KOSMOS_CI_HOME:-/Users/kosmos-ci}/actions-runner-relay/bin/Runner.Listener run --startuptype service"; hit=1
+      if [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] && printf '%s\n' "$own" | grep -q -E -e "$pat"; then cat .svc-pid 2>/dev/null || echo 4343; hit=0; fi
+      if [ "${FX_RELAY_LISTENER:-0}" = 1 ] && printf '%s\n' "$rel" | grep -q -E -e "$pat"; then
+        [ -f "$(dirname "$CALL_LOG")/bootstrapped" ] && echo 5556 || echo 5555; hit=0; fi
+      exit "$hit" ;; esac
     case "$*" in *Runner.Listener*) [ "${FX_LISTENER_PGREP_FAIL:-0}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] && [ -e .svc-pid ] && exit 3; # FX_OLD_TOO: another Listener (an old one, or one started by hand) listed first whatever the service's state.
       if [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ]; then [ -z "${FX_OLD_TOO:-}" ] || echo "$FX_OLD_TOO"; cat .svc-pid 2>/dev/null || echo 4343; exit 0; fi
       [ -n "${FX_OLD_TOO:-}" ] && { echo "$FX_OLD_TOO"; exit 0; }; exit 1 ;; esac
@@ -148,7 +158,7 @@ run() {
   local name="$1" home="$2"; shift 2
   local envs=()
   while [ "$1" != -- ]; do envs+=("$1"); shift; done; shift
-  : > "$LOG"; rm -f "$T/user-created" "$T/booted-out"
+  : > "$LOG"; rm -f "$T/user-created" "$T/booted-out" "$T/bootstrapped"
   env -i PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$home" CALL_LOG="$LOG" KOSMOS_CI_BREW="$BREWD" KOSMOS_CI_SYSTEM_AGENTS="$T/sysagents" KOSMOS_CI_OWNER_HOME="$T/ownerhome" \
     ${envs[@]+"${envs[@]}"} bash "$S" "$@" > "$T/$name.out" 2>&1 < "${STDIN_FILE:-/dev/null}"
   echo $? > "$T/$name.rc"
@@ -568,10 +578,21 @@ ka_fresh; run ka-elsewhere "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LO
 [ "$(rc ka-elsewhere)" = 1 ] && has ka-elsewhere "Listener runs but" && [ "$(ka_of "$KA")" = false ] && ! grep -q '^launchctl boot' "$T/ka-elsewhere.calls" \
   && pass "keepalive --apply: its Listener runs but the job is not in gui/<uid> (started another way): refuses, starts no second copy" || fail "keepalive elsewhere: rc $(rc ka-elsewhere): $(tail -1 "$T/ka-elsewhere.out")"
 ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-stopped "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 -- --apply keepalive
-[ "$(rc ka-stopped)" = 0 ] && [ "$(ka_of "$KA")" = false ] && has ka-stopped "is not loaded (stopped)" && ! grep -q '^launchctl boot' "$T/ka-stopped.calls" \
-  && pass "keepalive --apply on a stopped runner: KeepAlive in the plist, and the runner is NOT started" || fail "keepalive stopped: rc $(rc ka-stopped): $(tail -1 "$T/ka-stopped.out")"
+[ "$(rc ka-stopped)" = 1 ] && [ "$(ka_of "$KA")" = false ] && has ka-stopped "DOWN: actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s is not loaded" && ! grep -q '^launchctl boot' "$T/ka-stopped.calls" \
+  && pass "keepalive --apply on a runner that is not loaded: KeepAlive in the plist, NOT started, and said loudly as DOWN (exit 1, not ok)" || fail "keepalive stopped: rc $(rc ka-stopped): $(tail -1 "$T/ka-stopped.out")"
+# The relay's Listener (its own dir, #6245) is not this runner's: it neither counts as "running elsewhere" ...
+ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-relayonly "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 FX_RELAY_LISTENER=1 -- --apply keepalive
+[ "$(rc ka-relayonly)" = 1 ] && has ka-relayonly "DOWN:" && ! has ka-relayonly "Listener runs but" \
+  && pass "keepalive --apply: the relay's Listener is not taken for this runner's (DOWN, not 'loaded elsewhere')" || fail "keepalive relay only: rc $(rc ka-relayonly): $(tail -1 "$T/ka-relayonly.out")"
+# ... nor, respawning during the reload, as this runner having come back.
+ka_fresh; run ka-relayrespawn "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_RELAY_LISTENER=1 FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply keepalive
+[ "$(rc ka-relayrespawn)" = 1 ] && has ka-relayrespawn "no new Listener of $KH/actions-runner" \
+  && pass "keepalive --apply: a relay Listener respawning during the reload is not taken for this runner coming back" || fail "keepalive relay respawn: rc $(rc ka-relayrespawn): $(tail -1 "$T/ka-relayrespawn.out")"
+ka_fresh; run ka-noka "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
+[ "$(rc ka-noka)" = 1 ] && has ka-noka "launchd does not show KeepAlive on it" \
+  && pass "keepalive --apply: a reload that leaves no KeepAlive in the loaded job fails" || fail "keepalive no ka loaded: rc $(rc ka-noka): $(tail -1 "$T/ka-noka.out")"
 ka_fresh; run ka-stuck "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
-[ "$(rc ka-stuck)" = 1 ] && has ka-stuck "still loaded from the OLD definition" && ! grep -q '^launchctl bootstrap' "$T/ka-stuck.calls" \
+[ "$(rc ka-stuck)" = 1 ] && has ka-stuck "had not unloaded it" && has ka-stuck "may still be unloading" && ! grep -q '^launchctl bootstrap' "$T/ka-stuck.calls" \
   && pass "keepalive --apply: a bootout that does not unload says so and does not bootstrap" || fail "keepalive stuck: rc $(rc ka-stuck): $(tail -1 "$T/ka-stuck.out")"
 ka_fresh; chmod 000 "$KH/actions-runner/.service"; run ka-other "$KH" KOSMOS_CI_HOME="$KH" -- keepalive; chmod 644 "$KH/actions-runner/.service"
 [ "$(rc ka-other)" = 0 ] && has ka-other "cannot read kosmos-ci's runner" && ! has ka-other "register first" \
@@ -629,7 +650,7 @@ vcase guard-pin 0 "job guard sha256 is the install pin" KOSMOS_CI_GUARD_SHA="$GS
 vcase guard-drift 1 "something rewrote it" KOSMOS_CI_GUARD_SHA=0000000000000000000000000000000000000000000000000000000000000000
 vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
 # kosmos#7001: the LaunchAgent, when verify can read it (as the owner it usually cannot: ~/Library is mode 700).
-grep -q "cannot read kosmos-ci's LaunchAgent" "$T/v-clear.out" && pass "verify: an unreadable LaunchAgent is a note, and leaves verify clear" || fail "verify LaunchAgent note: $(grep -i launchagent "$T/v-clear.out")"
+grep -q "no $VCI/actions-runner/.service: the runner is not registered as a service" "$T/v-clear.out" && pass "verify: no .service is a note naming that, and leaves verify clear" || fail "verify LaunchAgent note: $(grep -i -E 'launchagent|service' "$T/v-clear.out")"
 mkdir -p "$VCI/Library/LaunchAgents"; cp "$T/ka.before" "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 echo "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist" > "$VCI/actions-runner/.service"
 vcase no-keepalive 1 "has no KeepAlive {SuccessfulExit: false}"
