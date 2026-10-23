@@ -2045,11 +2045,14 @@ const SCREENS = [
      (one read), as the Reopen button's is on that screen (summaryLabelAt).
      MEASURED failing arm, 10-22 19:45: the first version only centred the post, and on an iPhone 15 the held strip in
      the composer covered the label; both phone shots failed "something is drawn over the label: SPAN#.pj-held-why".
-     So after centring, the room is scrolled on until the label clears whatever covers it. */
+     So after centring, the room is scrolled on until the label clears whatever covers it (at desktop; at a phone it
+     does not, see #6960 below). */
   /* desktopOnly (#6960): at phone sizes the newest post in a held room sits under the composer's held strip and cannot be
-     scrolled clear (measured 10-22: both iPhone 15 shots failed "something is drawn over the label: SPAN#.pj-held-why",
-     before and after the scroll-on fix). That is a layout defect, filed as #6960, not this screen's. Until it is fixed the
-     screen runs at desktop only, so a shot run does not fail on it; drop desktopOnly when #6960 is done. */
+     scrolled clear (measured 10-22 at iPhone 15, chromium, light and dark: "something is drawn over the label:
+     SPAN#.pj-held-why", before and after the scroll-on fix). That is a layout defect, filed as #6960, not this screen's.
+     Until it is fixed the screen skips the phone sizes and the tablets under 960px. It still runs at tablets of 960px
+     and wider (tab8land, ipadminiland, ipad11land, ipad13), which nobody has measured; a short landscape tablet may hit
+     the same overlap. Drop desktopOnly when #6960 is done. */
   { name: 'project-room-held-summary-6925', owner: 'Ice Cream Kitty', desktopOnly: true, go: async (page, data) => {
     const held = SCREENS.find((s) => s.name === 'project-room-held-5800');
     await held.go(page, data);
