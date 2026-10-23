@@ -130,8 +130,22 @@ test('#6951: the poll redraws, and marks seen, only when the conversation change
   assert.equal(p.acts.innerHTML, '<rows>');
 });
 
-test('#6951: the poll asks for a changed-only redraw while the task page is up in a visible tab and the person is there', () => {
-  assert.match(HTML, /if \(TK_OPEN !== null && !document\.getElementById\('pj-task-view'\)\.hidden && document\.visibilityState === 'visible' && tkPresent\(\)\) tkPollActivity\(\);/);
+test('#6951/#6953: the five-second read asks for a redraw only with the task page up, the tab visible and the person there', () => {
+  const run = ({ open = 3, hidden = false, visible = 'visible', present = true, view = true } = {}) => {
+    let polls = 0;
+    // eslint-disable-next-line no-new-func
+    new Function('document', 'TK_OPEN', 'tkPresent', 'tkPollActivity', fnSource('tkPollIfThere') + '\ntkPollIfThere();')(
+      { visibilityState: visible, getElementById: (id) => (id === 'pj-task-view' && view ? { hidden } : null) },
+      open, () => present, () => { polls += 1; });
+    return polls;
+  };
+  assert.equal(run(), 1, 'the CONTROL arm: everything true asks for the read');
+  assert.equal(run({ open: null }), 0, 'no task open');
+  assert.equal(run({ hidden: true }), 0, 'the task page is not shown');
+  assert.equal(run({ visible: 'hidden' }), 0, 'the tab is hidden');
+  assert.equal(run({ present: false }), 0, 'the person is not there');
+  assert.equal(run({ view: false }), 0, 'no task view at all');
+  assert.match(HTML, /if \(TK_OPEN !== null\) tkPollIfThere\(\);/, 'loadProjects no longer calls the gate');
 });
 
 test('#6951: a seen post that failed on the server or was lost is tried once more; a refusal is not', async () => {
@@ -386,4 +400,14 @@ test('#6947: the seen reply\'s body is read, so the request finishes (an unread 
     await p.settle();
     assert.equal(p.st.bodies, 1, 'the seen reply was left unread (' + post + '), which keeps the request open');
   }
+});
+
+test('#6953: coming back to the tab records the view again, even when the conversation is unchanged', async () => {
+  const p = page();
+  await p.paintTaskActivity(3); await p.settle();
+  assert.equal(p.posts.length, 1);
+  await p.paintTaskActivity(3); await p.settle();
+  assert.equal(p.posts.length, 1, 'CONTROL: an ordinary redraw of the same conversation records nothing new');
+  await p.tabBack(); await p.settle();
+  assert.equal(p.posts.length, 2, 'a return to the tab did not record the view again');
 });

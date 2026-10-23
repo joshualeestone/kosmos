@@ -66550,7 +66550,7 @@ async function loadProjects() {
      window has focus and they clicked, typed, used the wheel or touched it in the last two minutes), so a page left open on an
      empty desk does not mark every new nudge seen. Only when the conversation changed, so an unchanged one is not
      redrawn (which would lose a selection in it). */
-  if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden && document.visibilityState === 'visible' && tkPresent()) tkPollActivity();
+  if (TK_OPEN !== null) tkPollIfThere();   // TK_OPEN first: loadProjects is lifted by tests with no task open, where tkPollIfThere is absent
   // The settings view holds the archive control now, so a poll that lands
   // while it is open must repaint IT from the truth too -- without this,
   // "Restore failed. Try again." outlives a restore whose write landed and
@@ -68588,6 +68588,12 @@ function tkMarkSeen(n, projectId, retried = false, onDone = null, current = null
     }, failed);
   return true;
 }
+/* #6953: the five-second read's gate, as a function so a test can run it: the task's page is up, the tab is visible
+   and the person is there. */
+function tkPollIfThere() {
+  const view = document.getElementById('pj-task-view');
+  if (TK_OPEN !== null && view && !view.hidden && document.visibilityState === 'visible' && tkPresent()) tkPollActivity();
+}
 /* #6951: the five-second read's call, one at a time: a read slower than five seconds is not joined by another. */
 let TK_POLLING = false;
 function tkPollActivity() {
@@ -68613,7 +68619,12 @@ function tkPresent() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible' || TK_OPEN === null) return;
   const back = document.getElementById('tk-back');
-  if (back && back.getClientRects().length) paintTaskActivity(TK_OPEN);
+  if (!back || !back.getClientRects().length) return;
+  // #6953: a return to the tab is a look the person chose, so it records the view again even when the conversation is
+  // unchanged ("viewed at" would otherwise keep the first look of this open).
+  const acts = document.getElementById('tk-activity');
+  if (acts) acts.tkMarked = null;
+  paintTaskActivity(TK_OPEN);
 });
 function leaveTaskPage() {
   const was = TK_OPEN;
