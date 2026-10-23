@@ -11804,9 +11804,29 @@ test('the Plus state route carries the certificate check, and its switch writes 
     r = await req('/api/remote/cert-watch', { method: 'PUT', body: JSON.stringify({ on: false }) });
     assert.equal(r.status, 403, 'a switch change that did not come from the screen is refused');
     assert.ok(!fsx.existsSync(px.join(dir, 'ct-watch-off')));
+    /* kosmos#6986: through Kosmos+ the switch is never turned off, even with the screen's header (the 'not on' value too). */
+    const remoteScreen = { ...screen, 'x-forwarded-host': 'laptop.kosmosplus.com', 'x-forwarded-for': '203.0.113.9' };
+    for (const on of [false, 'no']) {
+      r = await req('/api/remote/cert-watch', { method: 'PUT', headers: remoteScreen, body: JSON.stringify({ on }) });
+      assert.equal(r.status, 403, 'a remote session cannot switch the check off: ' + JSON.stringify(on));
+      assert.equal(JSON.parse(r.body).code, 'remote_not_allowed');
+      assert.ok(!fsx.existsSync(px.join(dir, 'ct-watch-off')));
+    }
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: { ...screen, 'x-forwarded-for': '203.0.113.9' }, body: JSON.stringify({ on: false }) });
+    assert.equal(r.status, 403, 'nor through the webhook-shaped forwarder (x-forwarded-for only)');
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: { ...screen, forwarded: 'for=203.0.113.9' }, body: JSON.stringify({ on: false }) });
+    assert.equal(r.status, 403, 'nor through a standard Forwarded header');
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: remoteScreen, body: '{not json' });
+    assert.equal(r.status, 403, 'an unreadable remote change gets the remote sentence, not "could not read"');
+    assert.equal(JSON.parse(r.body).code, 'remote_not_allowed');
     r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: false }) });
     assert.equal(r.status, 200, r.body);
     assert.equal(JSON.parse(r.body).certWatch.on, false);
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: remoteScreen, body: JSON.stringify({ on: true }) });
+    assert.equal(r.status, 200, 'switching it ON from a remote session is allowed: ' + r.body);
+    assert.ok(!fsx.existsSync(px.join(dir, 'ct-watch-off')));
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: false }) });
+    assert.equal(r.status, 200, r.body);
     assert.ok(fsx.existsSync(px.join(dir, 'ct-watch-off')));
     r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: 'no' }) });
     assert.equal(r.status, 400, 'a switch that is not on or off is refused');
@@ -11821,6 +11841,10 @@ test('the Plus state route carries the certificate check, and its switch writes 
     assert.equal(r.status, 403, 'Got it that did not come from the screen is refused');
     r = await req('/api/remote/cert-watch/ack-lost', { method: 'POST', headers: screen, body: JSON.stringify({ at: at + 1 }) });
     assert.equal(r.status, 400, 'a marker that is not the report\'s is refused');
+    r = await req('/api/remote/cert-watch/ack-lost', { method: 'POST', headers: { ...screen, 'x-forwarded-host': 'laptop.kosmosplus.com', 'x-forwarded-for': '203.0.113.9' }, body: JSON.stringify({ at }) });
+    assert.equal(r.status, 403, 'kosmos#6986: Got it from a remote session is refused, even with the screen\'s header');
+    assert.equal(JSON.parse(r.body).code, 'remote_not_allowed');
+    assert.equal(JSON.parse((await req('/api/remote')).body).certWatch.lost, true, 'and the loss is still said');
     r = await req('/api/remote/cert-watch/ack-lost', { method: 'POST', headers: screen, body: JSON.stringify({ at }) });
     assert.equal(r.status, 200, r.body);
     assert.equal(JSON.parse(r.body).certWatch.lost, false);

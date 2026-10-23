@@ -4448,6 +4448,9 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
   allow: Object.freeze({ code: 'remote_not_allowed', error: 'Allowing another device is done at the computer itself, not from a remote session.' }),
   joinConfirm: Object.freeze({ code: 'remote_not_allowed', error: "Finishing this computer's join is done at the computer itself, not from a remote session." }),
   agentToken: Object.freeze({ code: 'remote_not_allowed', error: 'Agent tokens are made at the computer itself, not from a remote session.' }),
+  /* kosmos#6986: a security check's off switch and its acknowledgement. Switching it ON stays open remotely. */
+  certWatchOff: Object.freeze({ code: 'remote_not_allowed', error: 'The certificate check is switched off at the computer itself, not from a remote session.' }),
+  certWatchAck: Object.freeze({ code: 'remote_not_allowed', error: 'A lost certificate report is acknowledged at the computer itself, not from a remote session.' }),
 });
 /* kosmos#6595 (R01, the step-up half; Splinter's ruling 09:44 2026-10-19): from a remote session, entering a key or
    token, updating Kosmos, and making an agent (every agent here runs with an unsandboxed shell) need a FRESH sign-in
@@ -11116,7 +11119,10 @@ const server = http.createServer(async (req, res) => {
       .then((buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
-        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* kosmos#6986: never switched off from a remote session (switching it on only adds protection); an unreadable
+           remote change gets the same answer. */
+        catch { if (isRemoteRequest(req)) sendJson(res, 403, REMOTE_NOT_ALLOWED.certWatchOff); else sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (body.on !== true && isRemoteRequest(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.certWatchOff); return; }
         /* A security check's off switch is a person's setting: not an agent's (the isViaScreen class). */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
         const saved = remote.setCertWatch(body.on);
@@ -11128,6 +11134,7 @@ const server = http.createServer(async (req, res) => {
   }
   /* kosmos#6613: a person has seen the lost-report sentence (person-only, like the switch). */
   if (pathname === '/api/remote/cert-watch/ack-lost' && req.method === 'POST') {
+    if (isRemoteRequest(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.certWatchAck); return; }   // kosmos#6986
     readBody(req)
       .then((buf) => {
         let body;
