@@ -99,8 +99,11 @@ test('#6952: kosmos react with a raised hand says it made a claim; control: anot
   const hand = await run(['react', 'proj-1', '530', '\u{1F64B}\u{1F3FD}'], () => ({ body: { ok: true, op: 'add', emoji: '\u{1F64B}', of: 'm530' } }));
   assert.equal(hand.code, 0);
   assert.equal(hand.out, 'Claimed: a raised hand is a claim, so that post is yours and the room shows it. Say in the room what you are doing with it; kosmos claim proj-1 m530 --release gives it back.', 'the claim sentence drifted, or names the post as typed rather than the board\'s id');
-  const off = await run(['react', 'proj-1', 'm530', '\u{1F64B}'], () => ({ body: { ok: true, op: 'remove', emoji: '\u{1F64B}', of: 'm530' } }));
+  const off = await run(['react', 'proj-1', 'm530', '\u{1F64B}'], () => ({ body: { ok: true, op: 'remove', emoji: '\u{1F64B}', of: 'm530', released: true } }));
   assert.equal(off.out, 'Gave that post back: your raised hand is off it, so it is no longer claimed by you.');
+  // An old pill that was never the claim: no give-back sentence.
+  const stray = await run(['react', 'proj-1', 'm530', '\u{1F64B}'], () => ({ body: { ok: true, op: 'remove', emoji: '\u{1F64B}', of: 'm530' } }));
+  assert.equal(stray.out, 'Took your \u{1F64B} back off that post.');
   const fire = await run(['react', 'proj-1', 'm3', '\u{1F525}'], () => ({ body: { ok: true, op: 'add', emoji: '\u{1F525}', of: 'm3' } }));
   assert.equal(fire.out, 'Reacted \u{1F525} to that post.');
 });

@@ -3759,7 +3759,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     because: holder.by + ' claimed that post ' + claimAge(holder.at)
       + ', so do not post that you are taking it: read the room, and ask ' + holder.by + ' if you can help' });
   if (claim === 'release') {
-    if (holds) { dropPills(reactor); return { ok: true, op: 'remove', emoji: e, of: postId }; }
+    if (holds) { dropPills(reactor); return { ok: true, op: 'remove', emoji: e, of: postId, released: true }; }
     // Nothing of yours is held: a retried release, or a 🙋 of yours that was never the claim (taken off, so no pill
     // of yours is left). What you asked for is already true, so it is not a failure; who holds the post, if anyone,
     // is said with it.
@@ -3769,7 +3769,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   if (holds) {
     if (claim === 'claim') return { ok: true, op: 'already', emoji: e, of: postId };
     dropPills(reactor);   // the holder's own toggle off
-    return { ok: true, op: 'remove', emoji: e, of: postId };
+    return { ok: true, op: 'remove', emoji: e, of: postId, released: true };
   }
   // A plain 🙋 toggle by an agent with a pill that is not the claim takes that pill off, as any reaction would.
   if (claim !== 'claim' && pills) { dropPills(reactor); return { ok: true, op: 'remove', emoji: e, of: postId }; }
@@ -3777,9 +3777,11 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   /* #6952: a post that ASKS members is theirs. Another agent's claim would tell the asked one to stand down, so it is
      refused, naming who was asked. Asked is what the room's own delivery calls asked (asksIt): the members the post
      @-named (`mentioned`, recorded when it was sent, #185; never `to`, the delivery list, which can be every member),
-     and the author of the post it answers, unless that is the person (review 2). A later answer to this post, by the
-     person or by someone it asks, that @-names others hands it to them too, so "@ann you take it" lets ann claim it
-     (review 2). Only those still in the room count, so a post asking only someone who has left is open (review 1). */
+     and the author of the post it answers, unless that is the person (review 2). The PERSON can re-assign it: their
+     later answer to this post that @-names members asks them too (review 4; an agent's answer does not, since a side
+     question or a "cc" would then hand the task away). An agent handing work on does it in its own post ("@ann please
+     take this"), and that post, which asks ann, is the one ann claims. Only those still in the room count, so a post
+     asking only someone who has left is open (review 1). */
   const postsHere = rows.filter((m) => m && m.kind === 'post' && m.project === projectId);
   const askedSet = new Set(Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : []);
   if (typeof post.replyTo === 'string') {
@@ -3788,17 +3790,15 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     // delivery does (the sender is never a recipient). Review 3.
     if (answered && answered.operator !== true && typeof answered.from === 'string' && answered.from && answered.from !== post.from) askedSet.add(answered.from);
   }
-  if (askedSet.size) {
-    for (const m of postsHere) {
-      if (m.replyTo !== postId || !(m.operator === true || askedSet.has(m.from)) || !Array.isArray(m.mentioned)) continue;
-      for (const n of m.mentioned) if (typeof n === 'string' && n) askedSet.add(n);
-    }
+  for (const m of postsHere) {
+    if (m.replyTo !== postId || m.operator !== true || !Array.isArray(m.mentioned)) continue;
+    for (const n of m.mentioned) if (typeof n === 'string' && n) askedSet.add(n);
   }
   const asked = [...askedSet].filter((n) => !Array.isArray(roomNow) || roomNow.includes(n));
   if (asked.length && !asked.includes(reactor)) {
     return { ok: false, askedOf: asked,
       because: 'that post asks ' + asked.join(', ') + ', so it is theirs to take: read the room, and ask them if you can help'
-        + ' (if they hand it to you, their answer naming you lets you claim it)' };
+        + ' (if they hand it to you, claim the post where they do)' };
   }
   /* Round 2: a claimant who has left the room no longer holds anything, so a new claim ENDS theirs in the log too.
      Otherwise re-adding them to the project would bring their old claim back above this one. */

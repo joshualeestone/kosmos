@@ -53,6 +53,16 @@ Noted, not changed: a person's answer naming ann on bob's question leaves bob ab
 **Rebasing after #6946 squash-merges:** `git rebase --onto origin/main origin/roomclaim-6946`, then rerun
 `node tools/doctrine-past.js` (it will then keep v38 itself).
 
+## Review 4 (blind, 0 BLOCKER, 4 WARNING): fixed by simplifying hand-offs. Three warnings were corners of "a later
+answer by an asked member hands it on" (a side question handed the task away; the request's author could not redirect
+it; the person's hand-off of an open post was ignored). Now ONLY the person's later answer that @-names members
+re-assigns the post, whether or not it asked anyone before. An agent handing work on does it in its own post ("@ann
+please take this"), which asks ann, and ann claims that post; the refusal and the doctrine say so. This supersedes the
+review-2 hand-off rule. Doctrine v39 no longer forbids claiming "an answer to someone else's post" (the board allows
+some of those); it says to stand down when kosmos claim says the post asks someone else. The give-back sentence prints
+only when a claim was released (`released: true`), not for an old pill that was never the claim.
+Not changed: the printed release command does not quote a project id with a space.
+
 ## Weakest premise
 That `mentioned` is how a request names its owner. A post that asks "can ann take this?" without an @-mention names
 nobody to the board, so anyone can still claim it. And doctrine-past.js carries the v38 rows by hand until #6946 is on

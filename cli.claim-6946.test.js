@@ -160,9 +160,13 @@ test('#6952: kosmos react with a raised hand says it made a claim; control: anot
     assert.equal(out.code, 0);
     assert.ok(out.stdout.includes('Claimed: a raised hand is a claim, so that post is yours and the room shows it. Say in the room what you are doing with it; kosmos claim proj-1 m530 --release gives it back.'), 'the claim sentence drifted, or names the post as typed: ' + out.stdout);
   });
-  await withStub(() => ({ ok: true, op: 'remove', emoji: '\u{1F64B}', of: 'm530' }), async (port) => {
+  await withStub(() => ({ ok: true, op: 'remove', emoji: '\u{1F64B}', of: 'm530', released: true }), async (port) => {
     const out = await runCli(['react', 'proj-1', 'm530', '\u{1F64B}'], env(port));
     assert.match(out.stdout, /Gave that post back: your raised hand is off it, so it is no longer claimed by you\./);
+  });
+  await withStub(() => ({ ok: true, op: 'remove', emoji: '\u{1F64B}', of: 'm530' }), async (port) => {
+    const out = await runCli(['react', 'proj-1', 'm530', '\u{1F64B}'], env(port));
+    assert.match(out.stdout, /Took your .* back off that post\./, 'an old pill that was never the claim was reported as a give-back');
   });
   await withStub(() => ({ ok: true, op: 'add', emoji: '\u{1F525}', of: 'm3' }), async (port) => {
     const out = await runCli(['react', 'p', 'm3', '\u{1F525}'], env(port));
