@@ -24966,8 +24966,8 @@ function statusFetchWithin(ms = STATUS_POLL_TIMEOUT_MS) {
    Not on every poll: again only after SIGNED_OUT_RETELL_MS, a little over the app's own once-a-minute limit, so a
    sign-out the app set aside (a second restart within the minute) is told again. A browser tab has no such bridge,
    and its signed-out panel stands. The Windows app is told the same way ({ kosmosSignin: true }), and its window
-   signs itself in again too since #6512 (an older Kosmos.exe window does not: its panel says to open Kosmos.exe
-   again, which still works). */
+   signs itself in again too since #6512 (an older Kosmos.exe window does not: its panel says to open Kosmos again
+   from the Start menu, #6985, which still works). */
 let SIGNED_OUT_TOLD_AT = 0;
 // When this page first told the app in this sign-out (0: not signed out). Past SIGNED_OUT_STUCK_MS the in-app panel
 // stops saying "this takes a moment": the app has not signed the window in (it gave up, or it never will here).
