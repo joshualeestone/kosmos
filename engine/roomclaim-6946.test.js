@@ -518,7 +518,7 @@ test('#6957: the reserved-name refusal says what to do', () => {
   assert.match(messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'operator', members: ['operator'] }).because, /ask the person to rename this agent/);
 });
 
-test('#6957 review 1: a reply naming nobody asks the answered author even when its writer replies (only an @-named post exempts its author)', () => {
+test('#6957 review 1: a reply naming nobody asks the answered author, even against the reply\'s own writer', () => {
   fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
   append({ kind: 'post', id: 'm1', project: 'p', from: 'bob', to: MEMBERS, text: 'Shall I take the parser?', outcomes: {}, at: new Date().toISOString() });
   append({ kind: 'post', id: 'm2', project: 'p', from: 'cy', to: MEMBERS, replyTo: 'm1', text: 'yes, go ahead', outcomes: {}, at: new Date().toISOString() });
@@ -587,6 +587,26 @@ test('#6957 review 4: someone ELSE asks the room, even right after the names; co
     assert.equal(claim('cy', ask(text)).op, 'add', text);
   }
   for (const text of ['@bob please fix the bug someone else reported', '@bob! who can approve this?', '@bob, did anyone else see this?']) {
+    assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
+  }
+});
+
+test('#6957 review 5: with two asked members, one giving it back is not enough; control: once both have, it is open', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['ann', 'bob'], text: '@ann @bob please fix X', outcomes: {}, at: new Date().toISOString() });
+  assert.equal(claim('ann').op, 'add');
+  assert.equal(claim('ann', 'm1', 'release').op, 'remove');
+  assert.deepEqual(claim('cy').askedOf, ['ann', 'bob'], 'ann giving it back opened a post that also asks bob');
+  assert.equal(claim('bob').op, 'add');
+  assert.equal(claim('bob', 'm1', 'release').op, 'remove');
+  assert.equal(claim('cy').op, 'add', 'both asked members gave it back and it was still held');
+});
+
+test('#6957 review 5: will/would anyone else is a question to bob, not a request to the room', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  let n = 0;
+  const ask = (text) => { n += 1; append({ kind: 'post', id: 'z' + n, project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text, outcomes: {}, at: new Date().toISOString() }); return 'z' + n; };
+  for (const text of ['@bob will anyone else need access? Please set it up', '@bob would anyone else object if you took this?', '@bob can you take it, or would someone else be better?']) {
     assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
   }
 });

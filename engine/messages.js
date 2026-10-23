@@ -3693,7 +3693,7 @@ const CLAIM_ROOM_ASK = new RegExp(
   + '|\\b(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+(?:please|free|available|around to|able|willing|up for|have time|has time)\\b'
   // "someone ELSE" plainly excludes whoever was named, so "can someone else take it?" asks the room even right after the
   // names ("Thanks @bob! Can someone else take the login bug?"), wherever it sits (#6957 review 4)
-  + '|\\b(?:can|could|would|will)\\s+(?:someone|somebody|anyone|anybody)\\s+else\\b'
+  + '|\\b(?:can|could)\\s+(?:someone|somebody|anyone|anybody)\\s+else\\b'   // not will/would: "@bob will anyone else need access?" asks bob (review 5)
   // "who can write the notes?", "Who's free to take this?" (straight or curly apostrophe), "who has time for this?"
   + '|' + CLAIM_LEAD + "who(?:\\s+|'s\\s+|\u2019s\\s+)(?:can|could|wants|will|is free|free|is available|available|has time|is around|around)\\b[^.!?]*\\?"
   + '|\\bwhoever\\s+(?:can|is free|has time|wants|picks|takes|gets)\\b'
@@ -3854,7 +3854,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
      nobody is open anyway. */
   const asksRoom = (text, names) => {
     if (typeof text !== 'string') return false;
-    const t = text.replace(/^\s*(?:(?:hey|hi|hello|thanks|thank you|ok|okay|so)[,!]?\s+)?(?:@[\w.-]+[\s,:!\u2013\u2014-]*)+/i, 'NAMED ');
+    const t = text.replace(/^\s*(?:(?:hey|hi|hello|thanks|thank you|ok|okay|so)[,!]?\s+)?(?:@[\w-]+(?:\.[\w-]+)*[\s,:!\u2013\u2014-]*)+/i, 'NAMED ');   // a name never ends in a dot
     return CLAIM_ROOM_ASK.test(t) || (!names && CLAIM_GROUP_ASK.test(t));
   };
   const askedSet = new Set();
@@ -3878,8 +3878,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   const age = Date.now() - Date.parse(post.at);   // NaN for an unreadable time, which then fails open below
   const leftMs = age < -60000 ? 0 : windowMs - Math.max(0, age);
   /* #6957: an asked member who claimed the post and then gave it back has let it go ("out of usage, someone else
-     please"), so once every asked member still here has done that, the post is open. And a post's own author is never
-     locked out of claiming it ("@bob I am taking the parser, FYI"). */
+     please"), so once every asked member still here has done that, the post is open. */
   /* Gave back: n's 🙋 rows replayed in log order end in a remove n made THEMSELVES (no takenBy) after a marked claim.
      Order matters (review 2): react() itself removes an old unmarked pill just before a claim, and a claim later ended
      for n by a newer one is not n letting go. */

@@ -53,10 +53,15 @@ are removed. A post up to a minute ahead of the clock keeps its hold.
 asks the room wherever it sits, and the subject form allows "else". The author exemption is removed (above).
 Noted: the person's page still shows their 🙋 pill beside a newer claim while the text view hides it.
 
+## Review 5 (blind, 0 BLOCKER, 2 WARNING): fixed. "Will/would anyone else...?" is a question to bob, not a request, so
+the "someone else" rule is "can/could" only; the every-asked-member half of the release rule had no test (a mutant to
+"some" passed) and now has one. A name in the @-strip cannot end in a dot. Accepted, bounded by the window: "@bob does
+this reproduce for you? Anyone else?" opens the post.
+
 ## Proof
 engine/roomclaim-6946.test.js #6957 (each with a control that can return the dangerous answer) and
 server.projects.test.js #6946 (the person's 🙋 after a release and beside a newer claim, through the real route).
-Mutants, each red: the release rule and its order, the author rule (and its @-named-only scope), the future-dated rule,
+Mutants, each red: the release rule and its order, the future-dated rule,
 the "who's" form, "around to", the clause-led bare ask, the new clause starts, the @-name strip, "need someone to" on
 replies, and the person's-🙋 filter.
 
