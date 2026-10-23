@@ -835,9 +835,9 @@ say_unreached() {   # <what could not happen, e.g. "record that"> <curl exit> [w
       else
         say "Kosmos is running but did not answer in time, so we could not $1. Wait a minute and try again; it does not need a restart."
       fi ;;
-    # #6968: refused twice, a second apart (kosmos_curl tries once more). Nothing was sent. Not "is it running?":
+    # #6968: refused (kosmos_curl asks once more a second later when the budget allows). Nothing was sent. Not "is it running?":
     # that question made agents conclude a busy or restarting board was down.
-    7) say "Kosmos did not take the connection, even when asked again a moment later, so we did not $1 and nothing was sent. This is usually a passing connection problem (Kosmos busy for a moment, or restarting): try again in a moment. It does not need a restart; if it keeps happening, kosmos status says what it sees." ;;
+    7) say "Kosmos did not take the connection, so we did not $1 and nothing was sent. This is usually a passing connection problem (Kosmos busy for a moment, or restarting): try again in a moment. It does not need a restart; if it keeps happening, kosmos status says what it sees." ;;
     # #1765: kosmos_curl's refusals before anything was sent (see kosmos_board_proven).
     97) say "Kosmos did not finish answering, so we did not $1 and nothing was sent. Try again in a minute; it does not need a restart." ;;
     98) if _invoked_by_agent; then
@@ -1267,15 +1267,16 @@ kosmos_board_proven() {   # <token> <the caller's curl arguments>
 # and post have their own rules for those).
 #   - The second try gets only what is left of the caller's -m, so the call stays inside its budget, and there is
 #     no second try when less than a second would be left.
-#   - A body on stdin (`@-`) is read once into a mode-600 file so both tries send it. It sits in TMPDIR for the
-#     call, like the auth header file, and an interrupt can leave both behind (no trap here: one would replace the
-#     caller's, as connect's).
-#   - Each try's stdout and stderr are held in mode-600 files and only the last try's are printed (curl prints -w
-#     even on a refusal, and whoami reads stderr).
-#   - _KOSMOS_CURL_ONCE=1 before the call skips the retry: hooks that promise a short wait, and loops that already
-#     ask again on 7 (task ran/done). KOSMOS_REFUSED_RETRY_MS (digits; 1000 by default) sets the pause.
+#   - A body on stdin (`@-`) is read once into a mode-600 file so both tries send it, and each try's stdout and
+#     stderr are held in two more and only the last try's are printed (curl prints -w even on a refusal, and whoami
+#     reads stderr). All three sit in TMPDIR for the call, like the auth header file, and an interrupt can leave
+#     them behind, the body included (no trap here: one would replace the caller's, as connect's).
+#   - _KOSMOS_CURL_ONCE=1 before the call skips the retry and all of the above (one try, straight through): hooks
+#     that promise a short wait, and task ran's loop, which already asks again on 7. KOSMOS_REFUSED_RETRY_MS
+#     (digits; 1000 by default) sets the pause.
 kosmos_curl() {
   local _bt="$1" _tok="$2"; shift 2
+  if [ -n "${_KOSMOS_CURL_ONCE:-}" ]; then _kosmos_curl_once "$_bt" "$_tok" "$@" && return 0 || return $?; fi
   local _bodyf="" _outf _errf _rc _try=1 _x _p="" _m="" _t0="$SECONDS" _left _pause_ms=1000 _args=() _next=() _a
   case "${KOSMOS_REFUSED_RETRY_MS:-}" in ''|*[!0-9]*) ;; *) _pause_ms=$((10#${KOSMOS_REFUSED_RETRY_MS:0:6})) ;; esac
   for _x in "$@"; do
@@ -1294,7 +1295,7 @@ kosmos_curl() {
   chmod 600 "$_outf" "$_errf" || { rm -f "$_outf" "$_errf"; [ -z "$_bodyf" ] || rm -f "$_bodyf"; return 99; }
   while :; do
     _kosmos_curl_once "$_bt" "$_tok" ${_args[@]+"${_args[@]}"} > "$_outf" 2> "$_errf" && _rc=0 || _rc=$?
-    [ "$_rc" -eq 7 ] && [ "$_try" -eq 1 ] && [ -z "${_KOSMOS_CURL_ONCE:-}" ] && ! _kosmos_stopped || break
+    [ "$_rc" -eq 7 ] && [ "$_try" -eq 1 ] && ! _kosmos_stopped || break
     # What is left of -m after this try and the pause (SECONDS is whole seconds, so one more is counted).
     if [ -n "$_m" ] && ! LC_ALL=C awk -v m="$_m" 'BEGIN { exit !(m + 0 == 0) }'; then
       _left="$(LC_ALL=C awk -v m="$_m" -v e="$(( SECONDS - _t0 + 1 ))" -v p="$_pause_ms" 'BEGIN { l = m - e - p / 1000; printf "%.3f", l }')"
@@ -5972,7 +5973,9 @@ cmd_task() {
         local _vfield=""; if [ "$_hasval" = true ]; then _vfield="\"value\":\"$(_jesc "$value")\","; fi   # kosmos#5836
         data="{\"note\":\"$(_jesc "$note")\",\"unchanged\":$unchanged,\"run_id\":\"${_runid}\",$_vfield\"from_pane\":\"$esc_pane\"}"
       fi
-      local rc=0 body _code _try=0 _maybe=0 _pause
+      local rc=0 body _code _try=0 _maybe=0 _pause _reached=0 _once=""
+      # #6968: ran asks again on 7 itself (below), so its kosmos_curl does not; told and repeat keep kosmos_curl's retry.
+      [ "$sub" = ran ] && _once=1
       # kosmos#5643: a run the board did not take is asked again, twice, before the agent hears it failed. A run whose
       # check succeeded was lost when one busy moment (a timeout, a restart, a 503 while the board could not check who
       # is running) ended the only attempt. Safe to repeat: the board takes a repeat from the same agent inside a
@@ -5985,10 +5988,10 @@ cmd_task() {
       [ "$_mt" -gt 0 ] || _mt=15   # 0 would be curl's "no limit"
       while :; do
         rc=0
-        body=$(_KOSMOS_CURL_ONCE=1 kosmos_curl "$_bt" "$_tok" -sS -m "$_mt" -w '\n%{http_code}' -X POST "$URL/api/project/$esc_project/task/$num/$sub" \
+        body=$(_KOSMOS_CURL_ONCE="$_once" kosmos_curl "$_bt" "$_tok" -sS -m "$_mt" -w '\n%{http_code}' -X POST "$URL/api/project/$esc_project/task/$num/$sub" \
           -H 'content-type: application/json' --data "$data" 2>/dev/null) || rc=$?
         _code=$(printf '%s' "$body" | tail -n 1); body=$(printf '%s' "$body" | sed '$d')
-        case "$rc" in 18|28|52|56) _maybe=1 ;; esac
+        case "$rc" in 18|28|52|56) _maybe=1 ;; 0) _reached=1 ;; esac   # #6968: _reached, an answer (a 503) came back
         [ "$sub" = ran ] && [ "$_try" -lt 2 ] || break
         if [ "$rc" -eq 0 ] && [ "$_code" != 503 ]; then break; fi
         case "$rc" in 0|7|18|28|52|56|97) ;; *) break ;; esac   # 97: the #1765 proof timed out, nothing was sent
@@ -6000,7 +6003,11 @@ cmd_task() {
       if [ "$rc" -ne 0 ]; then
         # A timeout on any attempt may have recorded it, so that says check first; otherwise it was not recorded.
         if [ "$_maybe" -eq 0 ]; then
-          # #1765: refused before sending; #6968: every try refused, the passing-problem words (nothing was sent).
+          # #1765: refused before sending; #6968: every try refused, the passing-problem words (nothing was sent). A last
+          # refusal after an earlier answer (a 503: it reached the board, which did not record it) says so instead.
+          if [ "$rc" -eq 7 ] && [ "$_reached" -eq 1 ]; then
+            say "Kosmos was busy and then did not take the connection, so that run was not recorded. Try again in a moment; it does not need a restart."; exit 1
+          fi
           case "$rc" in 7|96|97|98) say_unreached "record that run" "$rc"; exit 1 ;; esac
           say "We could not reach Kosmos to record that run, so it was not recorded. Run the same command again once Kosmos is running at $URL."; exit 1
         fi

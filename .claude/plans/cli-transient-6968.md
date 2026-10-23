@@ -14,7 +14,7 @@ control that never takes the connection again (the new words).
   "We could not reach Kosmos to X. Is it running at URL?".
 
 ## Decided
-- `kosmos_curl` retries curl 7 once, after 1 s (`KOSMOS_REFUSED_RETRY_S`). Only 7: nothing reached the board,
+- `kosmos_curl` retries curl 7 once, after 1 s (`KOSMOS_REFUSED_RETRY_MS`). Only 7: nothing reached the board,
   so a write is safe too. 18/28/52/56 may have landed and keep their words.
 - A body on stdin (`@-`) is read once into a mode-600 file and both tries send it; the first try's output is
   held in a mode-600 file and only the last try's is printed (curl prints `-w` even on a refusal).
