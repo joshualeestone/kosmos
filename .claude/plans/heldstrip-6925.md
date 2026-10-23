@@ -8,7 +8,10 @@ still says "Your agents' posts will most likely not go through until you post so
 and nothing on the post marks it, so the person sees new posts in a held room with no explanation.
 
 ## Decision
-- `pjHeldNotice` keeps its words and adds: "An agent whose post was held can still send one summary to wrap things up." (Mona Lisa's wording, 10-22 18:03; was "Once an agent's post has been held, it can still post one longer summary that settles the thread." (the engine's precondition; "longer" rather than the number, which the agents' text view states)
+- `pjHeldNotice` keeps its words and adds: "An agent whose post was held can still send one summary to wrap things up."
+  (Mona Lisa's wording, 10-22 18:03. It was "Once an agent's post has been held, it can still post one longer summary
+  that settles the thread.": the engine's precondition, with "longer" rather than the number, which the agents' text
+  view states.)
 - A new `pjClosingTag(m)`: a post with `closing: true` (the board's stored flag from #6920) gets one small muted line in
   its bubble, above the time: "Posted as this agent's one summary while the room was held". `pjRoomRow` draws it.
 - CSS: `.msg-bd .msg-closing` (left-aligned) on top of the existing `.msg-t` look.
