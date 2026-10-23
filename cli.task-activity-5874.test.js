@@ -170,7 +170,7 @@ test('#6947: both commands say whether the person has viewed the task, and wheth
   assert.equal(await lastLine(win), 'The person has not viewed this task in Kosmos yet.');
   const said = Date.parse(taskchat.read(projectId, t.number).filter((e) => e.kind === 'said').pop().at);
   taskseen.markSeen(projectId, t.number, new Date(said + 60000));
-  assert.match(await lastLine(win), /^The person last viewed this task at \d{4}-\d{2}-\d{2} \d{2}:\d{2}, after the latest message\.$/);
+  assert.match(await lastLine(win), /^The person viewed this task at \d{4}-\d{2}-\d{2} \d{2}:\d{2}, after the latest message\.$/);
   assert.equal(await lastLine(mac), await lastLine(win), 'the two commands said it differently');
   taskseen.markSeen(projectId, t.number, new Date(said - 60000));
   assert.match(await lastLine(win), /, before the latest message\.$/);
@@ -196,11 +196,11 @@ test('#6947: against an older board that sends no seenByPerson field, neither co
   try {
     const w = await win(['task', 'activity', projectId, String(num)], oldBase);
     assert.equal(w.code, 0, w.err);
-    assert.doesNotMatch(w.out, /The person (has not viewed|last viewed)/, 'Windows claimed a view state an older board did not give');
+    assert.doesNotMatch(w.out, /The person (has not viewed|viewed this task at)/, 'Windows claimed a view state an older board did not give');
     assert.deepEqual(WORDS(w.out), WANT, 'CONTROL: the conversation itself still printed');
     const m = await mac(['task', 'activity', projectId, String(num)], old.address().port);
     assert.equal(m.code, 0, m.out);
-    assert.doesNotMatch(m.out, /The person (has not viewed|last viewed)/, 'Mac claimed a view state an older board did not give');
+    assert.doesNotMatch(m.out, /The person (has not viewed|viewed this task at)/, 'Mac claimed a view state an older board did not give');
     assert.deepEqual(WORDS(m.out), WANT, 'CONTROL: the conversation itself still printed (Mac)');
   } finally {
     old.close();
