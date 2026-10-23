@@ -64,13 +64,14 @@ function assertNoLeftovers(env) {
  *  the same port again. `seen` records each request after the health check, with its body. With `after503` it
  *  stays up through the health check, answers the first request 503 (it reached the board, nothing recorded) and
  *  only then stops listening. */
-async function withRefusingBoard(back, fn, { after503 = false } = {}) {
+async function withRefusingBoard(back, fn, { after503 = false, cutFirstPost = false } = {}) {
   const seen = [];
   let closedOnce = false;
   let current = null;
   // An arm that fails fast ends before the re-listen; teardown cancels it, or a listener nobody closes keeps node up.
   let ended = false;
   let backTimer = null;
+  let relistenError = null;
   // Stop listening at once: the next connect to this port is refused by the kernel.
   const stopListening = () => {
     if (closedOnce) return;
@@ -80,7 +81,9 @@ async function withRefusingBoard(back, fn, { after503 = false } = {}) {
     if (back !== null) {
       backTimer = setTimeout(() => {
         if (ended) return;
-        current = http.createServer(handler); current.listen(port, '127.0.0.1');
+        current = http.createServer(handler);
+        current.on('error', (e) => { relistenError = e; });   // the port taken meanwhile: the arm fails on it, the process does not crash
+        current.listen(port, '127.0.0.1');
       }, back);
     }
   };
@@ -91,10 +94,11 @@ async function withRefusingBoard(back, fn, { after503 = false } = {}) {
       if (req.url.startsWith('/api/health')) {
         res.writeHead(200, { 'content-type': 'application/json', connection: 'close' });
         res.end('{"app":"kosmos","ok":true}');
-        if (!after503) stopListening();
+        if (!after503 && !cutFirstPost) stopListening();
         return;
       }
       seen.push({ method: req.method, url: req.url, body });
+      if (cutFirstPost && !closedOnce) { req.socket.destroy(); stopListening(); return; }   // the send's reply is cut, then the board restarts
       if (after503) { res.writeHead(503, { connection: 'close' }); res.end('busy'); stopListening(); return; }
       res.writeHead(200, { 'content-type': 'application/json', connection: 'close' });
       if (req.url.startsWith('/api/tasks')) return res.end('{"tasks":[],"count":0,"project":"proj"}');
@@ -106,7 +110,7 @@ async function withRefusingBoard(back, fn, { after503 = false } = {}) {
   };
   current = http.createServer(handler);
   const port = await new Promise((r) => current.listen(0, '127.0.0.1', () => r(current.address().port)));
-  try { return await fn(port, seen); } finally {
+  try { const r = await fn(port, seen); if (relistenError) throw relistenError; return r; } finally {
     ended = true;
     clearTimeout(backTimer);
     await new Promise((r) => { if (current.listening) current.close(r); else r(); });
@@ -114,11 +118,13 @@ async function withRefusingBoard(back, fn, { after503 = false } = {}) {
 }
 
 test('#6968: a board that refuses the request once and then accepts: `task list` succeeds, asked once more', () => withRefusingBoard(300, async (port, seen) => {
-  const out = await runCli(['task', 'list', 'proj'], baseEnv(port));
+  const env = baseEnv(port);
+  const out = await runCli(['task', 'list', 'proj'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.doesNotMatch(out.stdout + out.stderr, /could not reach|did not take the connection|Is it running|kosmos start/);
   assert.equal(seen.filter((s) => s.url.startsWith('/api/tasks')).length, 1, 'the refused try sent nothing; the retry sent it once');
   assert.ok(out.ms >= 900, `it waited about a second before trying again (took ${out.ms} ms)`);
+  assertNoLeftovers(env);
 }));
 
 test('#6968 CONTROL: a board that never takes the connection again: the passing-problem words, never "is it running?"', () => withRefusingBoard(null, async (port, seen) => {
@@ -157,11 +163,11 @@ test('#6968: the edit hook\'s keep-copy is not asked again (it promises a short 
   const probe = http.createServer();
   const port = await new Promise((r) => probe.listen(0, '127.0.0.1', () => r(probe.address().port)));
   await new Promise((r) => probe.close(r));
-  // A five-second pause, so "no pause" and "paused" are far apart even on a loaded machine.
-  const env = baseEnv(port, { KOSMOS_REFUSED_RETRY_MS: '5000' });
+  // The default pause: with -m 3 it leaves a second, so without _KOSMOS_CURL_ONCE this call WOULD retry (over 1 s).
+  const env = baseEnv(port);
   const out = await runCli(['keep-copy', path.join(SCRATCH, 'some-file.txt')], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
-  assert.ok(out.ms < 4000, `keep-copy did not pause for a second try (took ${out.ms} ms)`);
+  assert.ok(out.ms < 900, `keep-copy did not pause for a second try (took ${out.ms} ms)`);
   assertNoLeftovers(env);
 });
 
@@ -171,6 +177,7 @@ test('#6968: `task told` keeps kosmos_curl\'s retry (only `ran` asks again on it
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.match(out.stdout, /Recorded what the person was told about task 1/);
   assert.equal(seen.filter((s) => /\/task\/1\/told/.test(s.url)).length, 1);
+  assertNoLeftovers(env);
 }));
 
 test('#6968: `task ran` answered 503 and then refused: not recorded, and never "nothing was sent"', () => withRefusingBoard(null, async (port, seen) => {
@@ -181,3 +188,14 @@ test('#6968: `task ran` answered 503 and then refused: not recorded, and never "
   assert.match(out.stdout, /Kosmos was busy and then did not take the connection, so that run was not recorded\. Try again in a moment; it does not need a restart\./);
   assert.doesNotMatch(out.stdout, /nothing was sent|Is it running|kosmos start/);
 }, { after503: true }));
+
+test('#6968: msg\'s second ask after a cut reply is one plain try: a board that restarts meanwhile gets the message once', () => withRefusingBoard(1500, async (port, seen) => {
+  // The first send's reply is cut (it may have landed), then the board restarts and is back 1.5 s later. msg asks once
+  // more after 1 s, which is refused; kosmos_curl must not ask again into the restarted board (it would deliver twice).
+  const env = baseEnv(port, { TMUX_PANE: '%42' });
+  const out = await runCli(['msg', 'mara', 'only', 'once'], env);
+  assert.notEqual(out.code, 0, out.stdout + out.stderr);
+  assert.match(out.stdout, /It may still have happened: check before doing it again/);
+  await new Promise((r) => setTimeout(r, 1500));   // past when a retry into the restarted board would have landed
+  assert.equal(seen.filter((s) => s.method === 'POST' && s.url.startsWith('/api/msg')).length, 1, JSON.stringify(seen));
+}, { cutFirstPost: true }));

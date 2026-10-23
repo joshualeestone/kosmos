@@ -1259,6 +1259,8 @@ kosmos_board_proven() {   # <token> <the caller's curl arguments>
 # when nothing is left: the same rule as its worldIdForHeader, and a test pins
 # the character set here equal to that one.
 #
+# The contract above (#1970, #1765, #1704: token off argv, the world header, the codes, the header file always
+# removed) is _kosmos_curl_once's, one try. kosmos_curl wraps it:
 # #6968: a refused connection (curl 7) is tried once more, a second later. It happens to a board that is
 # listening: one too busy to take new connections refuses some outright (its accept queue is full; measured on
 # macOS 2026-10-22, 3 of 40 at once refused, 36 timed out, 1 reset), and one restarting refuses until it listens
@@ -2742,7 +2744,8 @@ cmd_msg() {
       printf '%sKosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
       sleep 1   # not straight back into the same busy moment
       rc=0
-      body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/msg" \
+      # #6968: one plain try. The first send may be on a board that restarted; kosmos_curl asking again into it could deliver twice.
+      body=$(printf '%s' "$_data" | _KOSMOS_CURL_ONCE=1 kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/msg" \
         -H 'content-type: application/json' \
         --data-binary @- 2>/dev/null) || rc=$?
       # The first attempt may have landed: a retry that proves nothing (refused: the board restarted in between)
@@ -3259,7 +3262,8 @@ cmd_post() {
       sleep 1   # not straight back into the same busy moment
       rc=0
       _retried=1   # #4934: the first try may have landed, so a refusal of this one cannot say "nothing was sent"
-      body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m "$_post_budget" -X POST "$URL/api/post" \
+      # #6968: one plain try, as in msg: kosmos_curl asking again into a restarted board could deliver it twice.
+      body=$(printf '%s' "$_data" | _KOSMOS_CURL_ONCE=1 kosmos_curl "$_bt" "$_tok" -sS -m "$_post_budget" -X POST "$URL/api/post" \
         -H 'content-type: application/json' \
         --data-binary @- 2>/dev/null) || rc=$?
       # As in msg: a retry that proves nothing keeps the first attempt's "maybe".
