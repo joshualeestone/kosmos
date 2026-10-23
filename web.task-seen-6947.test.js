@@ -26,13 +26,6 @@ function fnSource(name) {
   assert.ok(at >= 0, name + ' not found in web/index.html');
   return balanced(at);
 }
-const LISTENER = "document.addEventListener('visibilitychange', () => {";
-function listenerSource() {
-  // The #6947 listener, not the page's other visibilitychange listeners: the first one after its own comment.
-  const at = HTML.indexOf(LISTENER, HTML.indexOf('/* #6947: coming back to the tab while a task'));
-  assert.ok(at > 0, 'the tab-return listener is missing');
-  return balanced(at) + ');';
-}
 
 /* A page with projects 'p one' and 'p two'; task `open` of project `pj` is showing. `read` is what the activity fetch
    does ('ok', 'empty' or 'fail'); `hold` delays it until release() so a test can change the page meanwhile. */
@@ -60,12 +53,12 @@ function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', re
   // eslint-disable-next-line no-new-func
   const make = new Function('document', 'fetch', 'pjById', 'tkActRowsHtml', 'setTimeout', 'paintTaskPage', 'tkReceiptSync', 'pjView', 'init',
     'let PJ_CURRENT = init.pj; let TK_OPEN = init.open; let TKR_SHOWN = null; let TK_POLLING = false;\n' + fnSource('paintTaskActivity') + '\n' + fnSource('tkMarkSeen')
-    + '\n' + fnSource('openTaskPage') + '\n' + fnSource('tkPollActivity') + '\n' + listenerSource()
-    + '\nreturn { paintTaskActivity, openTaskPage, tkPollActivity, set(pjId, n) { PJ_CURRENT = pjId; TK_OPEN = n; } };');
+    + '\n' + fnSource('openTaskPage') + '\n' + fnSource('tkPollActivity') + '\n' + fnSource('tkTabReturn')
+    + '\nreturn { paintTaskActivity, openTaskPage, tkPollActivity, tkTabReturn, set(pjId, n) { PJ_CURRENT = pjId; TK_OPEN = n; } };');
   const api = make(doc, fetch, (id) => (id ? { id, tasks: [{ number: 3 }, { number: 4 }] } : null), () => '<rows>', (fn, ms) => timers.push([fn, ms]),
     () => {}, () => {}, () => {}, { pj, open });
   const settle = () => new Promise((r) => setImmediate(r));
-  return { posts, acts, doc, timers, st, ...api, release: () => release(), settle, tabBack: async () => { doc.listener(); await settle(); await settle(); } };
+  return { posts, acts, doc, timers, st, ...api, release: () => release(), settle, tabBack: async () => { api.tkTabReturn(); await settle(); await settle(); } };
 }
 const seenUrl = (pj, n) => '/api/project/' + encodeURIComponent(pj) + '/task/' + n + '/seen';
 
@@ -463,4 +456,9 @@ test('#6953: a tab that turns visible without the window focused (a covering win
   p.st.focused = true;
   await p.tabBack(); await p.settle();
   assert.equal(p.posts.length, 2, 'CONTROL: a focused return records again');
+});
+
+test('#6953: a return to the tab and the window gaining focus both run the same return', () => {
+  assert.match(HTML, /document\.addEventListener\('visibilitychange', tkTabReturn\);/);
+  assert.match(HTML, /window\.addEventListener\('focus', tkTabReturn\);/);
 });

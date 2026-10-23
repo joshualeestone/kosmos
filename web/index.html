@@ -68623,7 +68623,7 @@ function tkPresent() {
 }
 /* #6947: coming back to the tab while a task's page is showing: draw the conversation again at once (the five-second
    read skips a hidden tab, so a message that came while it was away is not on screen yet); the draw marks it seen. */
-document.addEventListener('visibilitychange', () => {
+function tkTabReturn() {
   if (document.visibilityState !== 'visible' || TK_OPEN === null) return;
   const back = document.getElementById('tk-back');
   if (!back || !back.getClientRects().length) return;
@@ -68631,11 +68631,16 @@ document.addEventListener('visibilitychange', () => {
   // unchanged ("viewed at" would otherwise keep the first look of this open). Only a state the board recorded: one it
   // refused, or that failed twice, stays settled, so a refusing or broken board is not asked on every return. And only
   // with the window focused: a tab also turns visible when a window covering it closes, with nobody choosing to look.
+  // If not drawn (the read fails), nothing is recorded here and the next read of that conversation records it.
   const acts = document.getElementById('tk-activity');
   const focused = typeof document.hasFocus === 'function' && document.hasFocus();
   if (acts && focused && acts.tkMarked && acts.tkRecorded === acts.tkMarked) acts.tkMarked = null;
   paintTaskActivity(TK_OPEN);
-});
+}
+document.addEventListener('visibilitychange', tkTabReturn);
+// #6953: coming back from another app to a tab that was already visible fires no visibilitychange, and focus can settle
+// after it fires; the window gaining focus is the same look. A second call while the first's record is out sends nothing.
+window.addEventListener('focus', tkTabReturn);
 function leaveTaskPage() {
   const was = TK_OPEN;
   TK_OPEN = null;
