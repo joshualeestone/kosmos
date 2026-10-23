@@ -50,3 +50,13 @@ board, --force is this mode's usual path, and a mistyped version must not downgr
 ## Weakest premise
 That the cut box's dist/ still holds V's tarball when the promote runs. True for every past cut, but a
 fresh cut box would not have it; the promote then refuses (artifact missing), as the default path does.
+
+## Iteration 2 (challenge) changes
+- The two named-mode messages used `${X:+A}${X:-B}` as an if/else; `:-` yields X itself when set, so both
+  ended in a stray version. Now precomputed hints; tests assert the whole sentence, and the default
+  sentence is asserted unchanged.
+- Agreement is on the whole build (sha256, artifact, manifest), not the sha alone.
+- With an origin remote, the chosen commit must be on origin/main (a commit never pushed was never served).
+- The version compare fails closed on a non-numeric version.
+- Not changed: `-G` does not look into merge commits. Measured 10-23: 0 merges among the site's 133
+  latest-staging.json commits on origin/main; the real lookup for 0.7.64 returns 65d9aa8 (its cut) in 18 ms.
