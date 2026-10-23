@@ -22,3 +22,13 @@ converged: true
 - Validation: tools.build-windows-570 + tools.win-launcher-native 44/44 pass; 20 related Windows test
   files 530 pass, 0 fail, 2 skipped. Negative control: the origin/main build script fails 2 tests
   under the new pins. Zip built from the worktree; READ ME printed from it, CRLF, no em dashes.
+
+## Round detail
+
+- Round 1 non-actionable confirmations: the shortcut is refreshed to the running copy
+  (RefreshStartMenuShortcut, SetPath(exe)); the window mutex and .Show message are named by
+  BoardWindowName(port); no other test or doc pins the old read-me words (other tests use only
+  the file name); KosmosLauncher.cs:3771 comment left alone as an out-of-scope surface.
+- Round 2 checked the read-me as one piece for a non-technical reader, line lengths (61 to 70
+  columns, as the rest), the \047 escape, the regexes against new and old text, and a repo-wide
+  search for the old sentences outside .claude/plans (only the new negative assertions remain).
