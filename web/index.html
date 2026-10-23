@@ -68395,12 +68395,12 @@ async function paintTaskActivity(n) {
   let events = [];
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/activity', { cache: 'no-store' });
-    if (n !== TK_OPEN) return;
+    if (n !== TK_OPEN || p.id !== PJ_CURRENT) return;
     if (!res.ok) throw new Error('not ok');
     const out = await res.json();
     events = Array.isArray(out.events) ? out.events : [];
   } catch {
-    if (n !== TK_OPEN) return;
+    if (n !== TK_OPEN || p.id !== PJ_CURRENT) return;
     /* A failed read says nothing about the task, so it must not read as "nothing
        happened". Keep whatever is already shown; only when the list is empty put
        a quiet could-not-read line, never a false empty state. */
@@ -68411,9 +68411,10 @@ async function paintTaskActivity(n) {
      res.json() was resolving would otherwise paint this task's events into the
      shared #tk-activity of the new one. Same check as after the fetch await -- a
      second await is a second chance for the page to have moved on. */
-  if (n !== TK_OPEN) return;
+  if (n !== TK_OPEN || p.id !== PJ_CURRENT) return;
   if (!events.length) {
     holder.innerHTML = '<p class="dhint tkacts-empty">Nothing yet. As this task is worked on, what happens shows up here.</p>';
+    tkMarkSeen(n, p.id);   // #6947
     return;
   }
   const now = Date.now();
@@ -68423,6 +68424,7 @@ async function paintTaskActivity(n) {
   const wasOpen = new Set(canQuery ? [...holder.querySelectorAll('details.tkact-roll[open]')].map((d) => d.dataset.first) : []);
   holder.innerHTML = tkActRowsHtml(events, p, now);
   if (canQuery && wasOpen.size) for (const d of holder.querySelectorAll('details.tkact-roll')) if (wasOpen.has(d.dataset.first)) d.open = true;
+  tkMarkSeen(n, p.id);   // #6947: drawn, so the person may have the conversation in front of them
 }
 /* kosmos#5643: the history's rows. Two or more runs in a row that found nothing new (not late: lateness is news) are
    ONE row, "N runs found nothing new" (or "repeated the same note" for runs the board only inferred, or both), which
@@ -68496,12 +68498,35 @@ function openTaskPage(n) {
   if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
   const undoBox = document.getElementById('tk-undo');   // #5153 slice 4
   if (undoBox) { undoBox.hidden = true; undoBox.innerHTML = ''; }
-  paintTaskActivity(n);
+  paintTaskActivity(n);   // #6947: its draw lands after pjView below, and marks the task seen
   TKR_SHOWN = null;   // #5153: a task opened again is painted again
   tkReceiptSync();
   pjView('task');
   document.getElementById('tk-back').focus();   // the top of the new page
 }
+/* #6947: tell the board the person has this task's conversation in front of them, so an agent that left a nudge on it
+   can tell "not seen" from "seen, not acted on" (engine/taskseen.js). paintTaskActivity calls it after every draw that
+   succeeded (opening the task, a redraw after an action, coming back to the tab), with the project and task it drew;
+   it posts only if that is still the task open, and the tab is visible with the task's page on screen (its back button
+   has a layout box; getClientRects, which a hidden ancestor empties and fixed positioning does not): a task restored in
+   a background tab, or left open behind another Kosmos tab, has not been seen.
+   Best effort; a failure changes nothing on the page. */
+function tkMarkSeen(n, projectId) {
+  const back = document.getElementById('tk-back');
+  if (TK_OPEN === null || n !== TK_OPEN || projectId !== PJ_CURRENT || document.visibilityState !== 'visible' || !back || !back.getClientRects().length) return;
+  // The answer's body is read: in Chromium a reply left unread keeps its request open, so a page waiting for the
+  // network to go quiet would wait for good (the same trap the page's fetch wrapper drains for refusals, #6192).
+  fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' })
+    .then((res) => { if (res && typeof res.text === 'function') res.text().catch(() => {}); })
+    .catch(() => {});
+}
+/* #6947: coming back to the tab while a task's page is showing: draw the conversation again (it is not redrawn on the
+   poll, so a message that came while the tab was away is not on screen yet); the draw marks it seen. */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || TK_OPEN === null) return;
+  const back = document.getElementById('tk-back');
+  if (back && back.getClientRects().length) paintTaskActivity(TK_OPEN);
+});
 function leaveTaskPage() {
   const was = TK_OPEN;
   TK_OPEN = null;

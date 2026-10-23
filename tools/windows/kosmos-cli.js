@@ -113,7 +113,7 @@ const USAGE = {
     '      --replaced-by <task-number>                              a later task replaced it: closed, but not done',
     '  kosmos task reopen <project-id> <task-number> ["why"]        put a done one back; it keeps its number and history',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
-    '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time',
+    '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time, and whether the person has viewed it',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
     '      --file <path>                                            send the delivered file\'s fingerprint (its sha256; for a PDF, with its own dates and ID left out) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
@@ -1182,6 +1182,15 @@ async function taskActivity(ctx, args) {
     const w = typeof e.words === 'string' ? e.words : String(e.kind || 'event');
     // One line, with control and format characters taken out (review 4: an escape sequence must not reach the terminal).
     ctx.out(when(e.at) + '  ' + w.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '').trim());
+  }
+  /* #6947, as install/kosmos: when the person last viewed the task, against the latest message, so an agent
+     can tell an unseen nudge from one seen and not yet acted on. An older board sends no field and nothing is said. */
+  if ('seenByPerson' in r.json) {
+    const s = r.json.seenByPerson;
+    const said = r.json.events.filter((e) => e.kind === 'said').map((e) => Date.parse(e.at)).filter(Number.isFinite);
+    const last = said.length ? said.reduce((a, b) => Math.max(a, b)) : null;
+    if (typeof s !== 'string' || !Number.isFinite(Date.parse(s))) ctx.out('The person has not viewed this task in Kosmos yet.');
+    else ctx.out('The person last viewed this task at ' + when(s) + (last === null ? '.' : Date.parse(s) >= last ? ', after the latest message.' : ', before the latest message.'));
   }
   return 0;
 }
