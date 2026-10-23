@@ -54224,7 +54224,7 @@ function paintSkNote(sk) {
       Promise.resolve().then(() => paintPlus()).then(land, land);
       return;
     }
-    const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+    const next = ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   }); }
 /* The words of the code box (#729). Pete sat at it for twelve minutes, three

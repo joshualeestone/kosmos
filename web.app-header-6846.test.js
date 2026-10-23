@@ -184,7 +184,7 @@ test('#6846: choosing an item in the menu gives focus back to its opener, not to
   assert.equal((m[0].match(/pnavReturnFocus\(opener\);/g) || []).length, 2, 'an item handler does not give focus back to the opener');
   assert.ok(!/getElementById\('kplus-menu'\)\.focus/.test(m[0]), 'an item handler still focuses the two lines, hidden in the app');
   // The page's other focus fallbacks know the face as well.
-  assert.equal((SCRIPT.match(/'\.kplus-bar-menu', '#kapp-me', '\.apphead h1'\]/g) || []).length, 4);
+  assert.equal((SCRIPT.match(/'\.kplus-bar-menu', '#kapp-me', '\.apphead h1'\]/g) || []).length, 5); // 5 with #6587's service key notice
   assert.ok(!SCRIPT.includes("'.kplus-bar-menu', '.apphead h1']"), 'a focus fallback skips the face');
 });
 
