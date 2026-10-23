@@ -47,11 +47,12 @@ function runCli(args, env, input) {
   });
 }
 function baseEnv(port, extra = {}) {
-  const env = { ...process.env };
-  delete env.KOSMOS_AGENT_TOKEN; delete env.KOSMOS_AGENT_SESSION; delete env.TMUX_PANE;
-  // A throwaway KOSMOS_HOME and store roots, so no arm reads this machine's pidfile or board token, and a TMPDIR of
-  // its own, so assertNoLeftovers can see every file kosmos_curl made.
+  // A throwaway KOSMOS_HOME and store roots, so no arm reads this machine's pidfile or board token (#4796: named in
+  // the same environment that copies the parent's), and a TMPDIR of its own, so assertNoLeftovers can see every
+  // file kosmos_curl made.
   const home = fs.mkdtempSync(path.join(SCRATCH, 'home-'));
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(home, 'data') };
+  delete env.KOSMOS_AGENT_TOKEN; delete env.KOSMOS_AGENT_SESSION; delete env.TMUX_PANE;
   const tmp = path.join(home, 'tmp');
   fs.mkdirSync(tmp);
   return {
