@@ -56,6 +56,9 @@ async function withRefusingBoard(back, fn) {
   const seen = [];
   let closedOnce = false;
   let current = null;
+  // An arm that fails fast ends before the re-listen; teardown cancels it, or a listener nobody closes keeps node up.
+  let ended = false;
+  let backTimer = null;
   const handler = (req, res) => {
     let body = '';
     req.on('data', (d) => { body += d; });
@@ -68,7 +71,12 @@ async function withRefusingBoard(back, fn) {
           const port = current.address().port;
           // Stop listening at once: the next connect to this port is refused by the kernel.
           current.close();
-          if (back !== null) setTimeout(() => { current = http.createServer(handler); current.listen(port, '127.0.0.1'); }, back);
+          if (back !== null) {
+            backTimer = setTimeout(() => {
+              if (ended) return;
+              current = http.createServer(handler); current.listen(port, '127.0.0.1');
+            }, back);
+          }
         }
         return;
       }
@@ -82,6 +90,8 @@ async function withRefusingBoard(back, fn) {
   current = http.createServer(handler);
   const port = await new Promise((r) => current.listen(0, '127.0.0.1', () => r(current.address().port)));
   try { return await fn(port, seen); } finally {
+    ended = true;
+    clearTimeout(backTimer);
     await new Promise((r) => { if (current.listening) current.close(r); else r(); });
   }
 }
