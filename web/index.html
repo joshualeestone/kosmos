@@ -52308,7 +52308,7 @@ function paintAsk() {
   const here = ASK.here && askHereKey(ASK.here) !== ASK.hereGone ? ASK.here : null;
   // kosmos#6590 (S-7d branch c): browsers waiting for a typed code count as waiting too.
   const waitN = WAIT.v2 ? WAIT.rows.length : 0;
-  const anything = live.length || doneIds.length || here || ASK.hereSaid || ASK.paused || waitShown();
+  const anything = live.length || doneIds.length || here || ASK.hereSaid || waitShown() || ASK.paused;
   { const p = document.getElementById('plus-paused'); if (p) p.hidden = !ASK.paused; }   // kosmos#6666
   /* #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the full cards render ABOVE the panel; on any
      other view the top card is one compact line linking there. */
