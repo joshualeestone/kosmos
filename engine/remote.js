@@ -2162,6 +2162,7 @@ function startVouch() {
   const outAndRefused = vouchAllowingId && notMeDuringVouch.has(vouchAllowingId) ? vouchAllowingId : '';
   notMeDuringVouch.clear();
   if (outAndRefused) notMeDuringVouch.add(outAndRefused);
+  notMeTakenBack.clear();   // kosmos#6590 (c3)
   // A computer still waiting for another computer's Allow (held, #4737) cannot allow anyone: no secret.
   if (inState(HELD_FILE)) return;
   vouchState = { secret: crypto.randomBytes(32).toString('base64url'), until: Date.now() + VOUCH_WINDOW_MS, epoch: selfEpoch, ident: macIdHere(), opened: false, matched: '', allowing: false, tries: 0, matchedOk: false };
@@ -2325,7 +2326,13 @@ function vouchTick() {
    A Not me racing it is settled by the tunnel's one lock: pressed first, the row is gone and this finds nothing; second,
    drop-waiting answers that the browser was already let in, and the page says to remove it under Devices. */
 const VOUCH_V2_RETRY_MS = 6000;
+// Devices a Not me took back out because an Allow had just won the race (deviceDropWaiting), so a vouch answer arriving
+// after it never notes them as connected. Cleared when the next secret starts.
+const notMeTakenBack = new Set();
 async function deviceAllowVouched(secret) {
+  // As every device verb (c3 review 1): never while a register or a Forget is rewriting the folder.
+  { const b = busy(); if (b) return { kind: 'retry' }; }
+  if (!enrolled()) return { kind: 'retry' };
   const r = await tracked(setupRun(['devices', 'allow-vouched', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], secret, retireTimeoutMs()));
   flushWaiting();
   if (!r.ok) return { kind: 'retry' };
@@ -2333,8 +2340,9 @@ async function deviceAllowVouched(secret) {
   if (!got.ok) return { kind: 'retry' };
   const d = got.data || {};
   if (d.paused === true) return { kind: 'retry' };
-  if (d.allowed === true && typeof d.device_id === 'string' && DEVICE_ID.test(d.device_id)) {
-    return { kind: 'allowed', device_id: d.device_id, unknown: d.account_ack === UNKNOWN_DEVICE };
+  // Any allow ends S; only a device id of the right shape is noted (review 1).
+  if (d.allowed === true) {
+    return { kind: 'allowed', device_id: typeof d.device_id === 'string' && DEVICE_ID.test(d.device_id) ? d.device_id : '', unknown: d.account_ack === UNKNOWN_DEVICE };
   }
   if (d.reason === 'ambiguous') return { kind: 'ambiguous' };
   if (d.reason === 'no_row') return { kind: 'no_row' };
@@ -2351,6 +2359,9 @@ function vouchStepV2(v) {
       if (!w || !w.ok || !w.data) { later(); return; }
       const row = (w.data.waiting || []).find((x) => x.vouched && !v.tried.has(x.knockId));
       if (!row) return;
+      /* The read above awaited: everything vouchTick checked before it is checked again, so a secret retired meanwhile
+         (sign-out, Forget, switch-off, a hold, the window's end) is never used (review 1, P1). */
+      if (vouchState !== v || v.epoch !== selfEpoch || !enrolled() || !read().on || inState(HELD_FILE) || busy() || Date.now() > v.until) return;
       const r = await deviceAllowVouched(v.secret);
       if (r.kind === 'retry') { later(); return; }
       v.tried.add(row.knockId);
@@ -2363,6 +2374,9 @@ function vouchStepV2(v) {
       v.matchedOk = true;
       if (vouchState === v) stopVouch();
       const id = r.device_id;
+      if (!id) return;
+      // The person pressed Not me on this browser while the allow ran: their answer wins (review 1; the drop did the Remove).
+      if (notMeTakenBack.has(id)) return;
       if (r.unknown) {
         // As the coordinator-origin path (kosmos#6286): Kosmos+ holds no sign-in with that id, so take it back out.
         const rr = await deviceRemove(id);
@@ -2790,7 +2804,15 @@ async function deviceDropWaiting(knockId) {
   flushWaiting();
   if (!r.ok) return r;
   const d = r.data || {};
-  return { ok: true, because: null, data: { dropped: Number(d.dropped) || 0, allowed: d.allowed === true, device_id: typeof d.device_id === 'string' ? d.device_id : null } };
+  const device = typeof d.device_id === 'string' && DEVICE_ID.test(d.device_id) ? d.device_id : null;
+  /* kosmos#6590 (c3 review 1): an Allow (typed or automatic) won the race with this Not me. The person's answer wins: the
+     browser is taken back out here, and an automatic Allow's answer that lands after this never notes it. */
+  if (d.allowed === true && device) {
+    notMeTakenBack.add(device);
+    const rr = await deviceRemove(device);
+    return { ok: true, because: null, data: { dropped: Number(d.dropped) || 0, allowed: true, device_id: device, takenBack: !!(rr && rr.ok) } };
+  }
+  return { ok: true, because: null, data: { dropped: Number(d.dropped) || 0, allowed: d.allowed === true, device_id: device } };
 }
 /** Drop every waiting browser, and forget the browsers turned away today (the undo for a mistaken Not me). */
 async function devicesClearWaiting() {

@@ -188,7 +188,9 @@ test('Not me and clear-waiting: argv, answers, and the shared read is flushed af
   assert.deepEqual(devicesCalls().at(-1), ['devices', 'drop-waiting', '--state-dir', STATE, '--', DASHED]);
   assert.equal((await remote.devicesWaiting()).data.count, 0, 'a stale row was served after Not me');
   answer = (args) => (args[1] === 'drop-waiting' ? { out: JSON.stringify({ dropped: 1, allowed: true, device_id: 'd2' }) } : { out: JSON.stringify({ cleared: 4 }) });
-  assert.deepEqual((await remote.deviceDropWaiting(KNOCK)).data, { dropped: 1, allowed: true, device_id: 'd2' });
+  // c3: the browser had just been let in, so this Not me takes it back out (a Remove follows).
+  assert.deepEqual((await remote.deviceDropWaiting(KNOCK)).data, { dropped: 1, allowed: true, device_id: 'd2', takenBack: true });
+  assert.ok(devicesCalls().some((a) => a[1] === 'remove' && a.includes('d2')), 'not taken back');
   const c = await remote.devicesClearWaiting();
   assert.deepEqual(c.data, { cleared: 4 });
   assert.deepEqual(devicesCalls().at(-1), ['devices', 'clear-waiting', '--state-dir', STATE]);
@@ -346,3 +348,75 @@ test('c3: no match keeps S and never retries that row; two keys end S; a passing
   assert.equal(remote.vouchSecretForTests(), null, 'a leaked S was kept');
 });
 
+
+/* c3 review 1: a secret retired while the waiting list was being read is never used; only vouched rows are offered; a
+   device Kosmos+ does not know is taken back; each link mints its own S; a Not me that loses the race takes it back. */
+function heldWaiting(rowsJson) {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  let first = true;
+  return { release, answer: (args) => {
+    if (args[1] === 'waiting') { const out = JSON.stringify(rowsJson); if (first) { first = false; return { out, wait: held }; } return { out }; }
+    if (args[1] === 'allow-vouched') return { out: JSON.stringify({ allowed: true, device_id: 'dstale', acked: true }) };
+    return { out: '{}' };
+  } };
+}
+const avRuns = () => devicesCalls().filter((a) => a[1] === 'allow-vouched').length;
+
+test('c3 review 1: switched off, or the epoch moved, while the list was read: the old S is never used', async () => {
+  for (const interrupt of [() => remote.setOn(false), () => remote.bumpSelfEpochForTests()]) {
+    armVouch();
+    remote.vouchTickForTests();   // opens
+    const h = heldWaiting({ count: 1, waiting: [VROW(KNOCK)] });
+    answer = h.answer;
+    remote.vouchTickForTests();
+    await new Promise((r) => setTimeout(r, 10));
+    interrupt();
+    h.release();
+    await settle();
+    assert.equal(avRuns(), 0, 'a retired secret was used: ' + interrupt.toString());
+    assert.ok(!(remote.read().vouched || {}).dstale, 'a device was noted on a retired secret');
+  }
+});
+
+test('c3 review 1: a waiting row without a vouch is never offered', async () => {
+  armVouch();
+  remote.vouchTickForTests();
+  answer = (args) => (args[1] === 'waiting' ? { out: JSON.stringify({ count: 1, waiting: [{ ...VROW(KNOCK), vouched: false }] }) } : { out: '{}' });
+  remote.vouchTickForTests(); await settle();
+  assert.equal(avRuns(), 0);
+});
+
+test('c3 review 1: a device Kosmos+ does not know is taken back out, and not noted', async () => {
+  armVouch();
+  remote.vouchTickForTests();
+  answer = (args) => (args[1] === 'waiting' ? { out: JSON.stringify({ count: 1, waiting: [VROW(KNOCK)] }) }
+    : args[1] === 'allow-vouched' ? { out: JSON.stringify({ allowed: true, device_id: 'dunknown', acked: false, account_ack: 'unknown_device' }) }
+      : args[1] === 'remove' ? { out: JSON.stringify({ device_id: 'dunknown', removed: true }) } : { out: '{}' });
+  remote.vouchTickForTests(); await settle();
+  assert.ok(devicesCalls().some((a) => a[1] === 'remove' && a.includes('dunknown')), 'not taken back');
+  assert.ok(!(remote.read().vouched || {}).dunknown, 'noted though Kosmos+ does not know it');
+});
+
+test('c3 review 1: each link mints its own secret', () => {
+  armVouch();
+  const a = remote.startVouchForTests();
+  const b = remote.startVouchForTests();
+  assert.ok(a && b && a !== b, 'a secret was reused across links');
+});
+
+test('c3 review 1: Not me that loses the race to an Allow takes the browser back out; a later vouch answer does not note it', async () => {
+  armVouch();
+  answer = (args) => (args[1] === 'drop-waiting' ? { out: JSON.stringify({ dropped: 1, allowed: true, device_id: 'draced' }) }
+    : args[1] === 'remove' ? { out: JSON.stringify({ device_id: 'draced', removed: true }) } : { out: '{}' });
+  const d = await remote.deviceDropWaiting(KNOCK);
+  assert.deepEqual([d.data.allowed, d.data.takenBack], [true, true]);
+  assert.ok(devicesCalls().some((a) => a[1] === 'remove' && a.includes('draced')), 'the browser was not taken back');
+  remote.vouchTickForTests();   // opens
+  answer = (args) => (args[1] === 'waiting' ? { out: JSON.stringify({ count: 1, waiting: [VROW(DASHED)] }) }
+    : args[1] === 'allow-vouched' ? { out: JSON.stringify({ allowed: true, device_id: 'draced', acked: true }) } : { out: '{}' });
+  await new Promise((r) => setTimeout(r, 2100));
+  remote.vouchTickForTests(); await settle();
+  assert.equal(avRuns(), 1, 'premise: the vouch answer arrived');
+  assert.ok(!(remote.read().vouched || {}).draced, 'a browser the person said Not me to was noted as connected');
+});
