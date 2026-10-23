@@ -129,6 +129,15 @@ Mutants red: a broadened own-Listener pattern (two sites), no post-reload check,
 - Deferred to a card: register and install wait for "any new Runner.Listener" by name, so the relay's could stand in;
   keepalive matches its own dir. Pre-existing.
 
+## Review round 8
+- The reload that installs ExitTimeOut used to run under the OLD job's 5 s timeout (runner 1 reads `exit timeout = 5`
+  now), so the bootout could cut the session close short itself. The stage now sends SIGTERM (`launchctl kill`) and
+  waits up to the unload limit for the old process (its `pid =` line) to end by itself, then boots it out. A clean exit
+  0 is not restarted, even by a job that already has KeepAlive. Case and mutant added.
+- A dry run that finds the runner not running as it should (not loaded, or its Listener running outside gui/<uid>)
+  exits 1, like --apply; a change it would make still exits 0 with WOULD lines.
+- The launchctl wording is recorded as measured on macOS 27.0.1 (the old Agent1s Mac, the CI box, and this Mac).
+
 ## Weakest premise
 That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it
 stops, keepalive refuses rather than guessing). Second: that the runner keeps ending the launchd job with exit 0 on

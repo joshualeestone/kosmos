@@ -33,6 +33,7 @@ case "$me" in
     # svc.sh start does (cwd is the runner dir), so wait_for_listener sees a new Listener.
     out="$(dirname "$CALL_LOG")/booted-out"
     case "$1" in
+      kill) exit 0 ;;
       bootout) [ "${FX_BOOTOUT_FAIL:-0}" = 1 ] && exit 5; [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
       bootstrap) [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; rm -f "$out"; touch "$(dirname "$CALL_LOG")/bootstrapped"
         [ "${FX_LISTENER:-1}" = 1 ] && echo started > .svc-state
@@ -44,6 +45,7 @@ case "$me" in
     esac
     case "$1 $2" in "print gui/"*/*) { [ -f "$out" ] || [ "${FX_NOT_LOADED:-0}" = 1 ]; } && exit 113
         printf '%s = {\n\tstate = %s\n' "$2" "${FX_JOB_STATE:-running}"
+        [ -z "${FX_JOB_PID:-}" ] || printf '\tpid = %s\n' "$FX_JOB_PID"
         lk="$(dirname "$CALL_LOG")/loaded-ka"
         [ -f "$lk" ] && printf '\tsemaphores = {\n\t\tsuccessful exit => 0\n\t}\n'
         printf '\texit timeout = %s\n' "$( [ -s "$lk" ] && cat "$lk" || echo 5)"
@@ -617,6 +619,15 @@ ka_fresh; cp "$T/ka.after" "$KA"; echo 5 > "$T/loaded-ka"
 run ka-oldtimeout "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
 [ "$(rc ka-oldtimeout)" = 0 ] && ! has ka-oldtimeout "restarts after a kill" && has ka-oldtimeout "WOULD: launchctl bootout" \
   && pass "keepalive dry run: a loaded job with KeepAlive but launchd's 5 s exit timeout is not done" || fail "keepalive old timeout: $(cat "$T/ka-oldtimeout.out")"
+# The old job is stopped with SIGTERM before the bootout (it may still have launchd's 5 s exit timeout). 999999 is a pid
+# that does not exist, so the wait for it ends at once and touches no real process.
+ka_fresh; run ka-sigterm "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID=999999 -- --apply keepalive
+k="$(grep -n '^launchctl kill SIGTERM gui/777/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s$' "$T/ka-sigterm.calls" | head -n 1 | cut -d: -f1)"
+b="$(grep -n '^launchctl bootout ' "$T/ka-sigterm.calls" | head -n 1 | cut -d: -f1)"
+[ "$(rc ka-sigterm)" = 0 ] && [ -n "$k" ] && [ -n "$b" ] && [ "$k" -lt "$b" ] \
+  && pass "keepalive --apply stops the old job with SIGTERM, then boots it out (a bootout alone runs under the old 5 s exit timeout)" || fail "keepalive sigterm: rc $(rc ka-sigterm): kill at ${k:-none}, bootout at ${b:-none}"
+ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-downdry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 -- keepalive
+[ "$(rc ka-downdry)" = 1 ] && has ka-downdry "DOWN:" && ! changed ka-downdry >/dev/null && pass "keepalive dry run on a runner that is not loaded: DOWN, exit 1, nothing changed" || fail "keepalive down dry: rc $(rc ka-downdry): $(cat "$T/ka-downdry.out")"
 ka_fresh; run ka-noka "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
 [ "$(rc ka-noka)" = 1 ] && has ka-noka "shows no 'successful exit => 0' semaphore" \
   && pass "keepalive --apply: a reload that leaves no KeepAlive in the loaded job fails" || fail "keepalive no ka loaded: rc $(rc ka-noka): $(tail -1 "$T/ka-noka.out")"
