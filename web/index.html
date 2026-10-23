@@ -68435,12 +68435,13 @@ async function paintTaskActivity(n, opts) {
   /* #6951: kept on the holder, not in globals, so the page's sliced tests need nothing new. tkDrawn: the conversation
      last drawn (the poll's onlyIfChanged leaves an unchanged one as it is). tkMarking: a record for it is on its way or
      waiting on its retry, so another read does not send a second. tkMarked: the board answered for it (recorded,
-     refused, or failed twice), so it is not sent again until the conversation changes. A mark that declined (nothing
+     refused, or failed twice), so it is not sent again until the conversation changes (or, for one the board recorded, the person comes back to the tab: tkRecorded, #6953). A mark that declined (nothing
      sent: the page behind another Kosmos tab) is tried on the next read; done(false) (the retry found the page gone)
      leaves it for the next read too. */
-  const done = (settled) => {
+  const done = (settled, recorded) => {
     if (holder.tkOpen !== openId) return;   // a record from an earlier open of this task: the page has started again
     if (holder.tkMarking === drawn) holder.tkMarking = null;
+    if (settled) holder.tkRecorded = recorded ? drawn : null;   // #6953: a tab return re-records only a state the board recorded
     // An older state settling late does not undo a newer one; a read that failed meanwhile (tkDrawn cleared) does not
     // stop this conversation's record from counting.
     if (settled && (holder.tkDrawn === drawn || holder.tkDrawn === null)) holder.tkMarked = drawn;
@@ -68549,7 +68550,7 @@ function openTaskPage(n) {
   /* A new task: clear the last one's activity before the fetch so a slow read
      cannot leave the previous task's events on screen. */
   const acts = document.getElementById('tk-activity');
-  if (acts) { acts.innerHTML = ''; acts.tkDrawn = null; acts.tkMarked = null; acts.tkMarking = null; acts.tkDrawnSeq = (acts.tkSeq || 0) + 1; acts.tkOpen = {}; }   // #6951: a new open: nothing drawn or marked for it yet, and no earlier read or record speaks for it
+  if (acts) { acts.innerHTML = ''; acts.tkDrawn = null; acts.tkMarked = null; acts.tkMarking = null; acts.tkRecorded = null; acts.tkDrawnSeq = (acts.tkSeq || 0) + 1; acts.tkOpen = {}; }   // #6951: a new open: nothing drawn or marked for it yet, and no earlier read or record speaks for it
   const receipt = document.getElementById('tk-receipt');
   if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
   const undoBox = document.getElementById('tk-undo');   // #5153 slice 4
@@ -68569,7 +68570,7 @@ function openTaskPage(n) {
    has not been seen. Returns whether it sent. Best effort; a failure changes nothing on the page.
    #6951: a server error or a lost request is tried once more, 3 seconds later and only if the task is still on screen;
    then onDone(true) settles it (recorded, refused with a 4xx, or failed twice), so a refusing or broken board is not
-   asked again until the conversation changes. A retry that finds the page gone calls onDone(false). */
+   asked again until the conversation changes. onDone's second argument says whether the board recorded it. A retry that finds the page gone calls onDone(false). */
 function tkMarkSeen(n, projectId, retried = false, onDone = null, current = null) {
   const back = document.getElementById('tk-back');
   // current(): still the open that drew it, so a retry from an earlier open of the same task does not post for this one
@@ -68577,14 +68578,14 @@ function tkMarkSeen(n, projectId, retried = false, onDone = null, current = null
     if (retried && onDone) onDone(false);
     return false;
   }
-  const settle = () => { if (onDone) onDone(true); };
-  const failed = () => { if (retried) settle(); else setTimeout(() => tkMarkSeen(n, projectId, true, onDone, current), 3000); };
+  const settle = (recorded) => { if (onDone) onDone(true, recorded === true); };
+  const failed = () => { if (retried) settle(false); else setTimeout(() => tkMarkSeen(n, projectId, true, onDone, current), 3000); };
   // The answer's body is read: in Chromium a reply left unread keeps its request open, so a page waiting for the
   // network to go quiet would wait for good (the same trap the page's fetch wrapper drains for refusals, #6192).
   fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' })
     .then((res) => {
       if (res && typeof res.text === 'function') res.text().catch(() => {});
-      if (res && res.status >= 500) failed(); else settle();
+      if (res && res.status >= 500) failed(); else settle(!!res && res.status < 300);
     }, failed);
   return true;
 }
@@ -68621,9 +68622,10 @@ document.addEventListener('visibilitychange', () => {
   const back = document.getElementById('tk-back');
   if (!back || !back.getClientRects().length) return;
   // #6953: a return to the tab is a look the person chose, so it records the view again even when the conversation is
-  // unchanged ("viewed at" would otherwise keep the first look of this open).
+  // unchanged ("viewed at" would otherwise keep the first look of this open). Only a state the board recorded: one it
+  // refused, or that failed twice, stays settled, so a refusing or broken board is not asked on every return.
   const acts = document.getElementById('tk-activity');
-  if (acts) acts.tkMarked = null;
+  if (acts && acts.tkMarked && acts.tkRecorded === acts.tkMarked) acts.tkMarked = null;
   paintTaskActivity(TK_OPEN);
 });
 function leaveTaskPage() {

@@ -145,7 +145,7 @@ test('#6951/#6953: the five-second read asks for a redraw only with the task pag
   assert.equal(run({ visible: 'hidden' }), 0, 'the tab is hidden');
   assert.equal(run({ present: false }), 0, 'the person is not there');
   assert.equal(run({ view: false }), 0, 'no task view at all');
-  assert.match(HTML, /if \(TK_OPEN !== null\) tkPollIfThere\(\);/, 'loadProjects no longer calls the gate');
+  assert.match(fnSource('loadProjects'), /if \(TK_OPEN !== null\) tkPollIfThere\(\);/, 'loadProjects no longer calls the gate');
 });
 
 test('#6951: a seen post that failed on the server or was lost is tried once more; a refusal is not', async () => {
@@ -410,4 +410,15 @@ test('#6953: coming back to the tab records the view again, even when the conver
   assert.equal(p.posts.length, 1, 'CONTROL: an ordinary redraw of the same conversation records nothing new');
   await p.tabBack(); await p.settle();
   assert.equal(p.posts.length, 2, 'a return to the tab did not record the view again');
+});
+
+test('#6953: a return to the tab does not re-ask a board that refused, or that failed twice', async () => {
+  for (const [post, sends] of [[403, 1], [500, 2]]) {
+    const p = page({ post });
+    await p.paintTaskActivity(3); await p.settle();
+    while (p.timers.length) { p.timers.shift()[0](); await p.settle(); }
+    assert.equal(p.posts.length, sends, 'setup (' + post + ')');
+    await p.tabBack(); await p.settle();
+    assert.equal(p.posts.length, sends, 'a return to the tab asked again after ' + post);
+  }
 });
