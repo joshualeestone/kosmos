@@ -137,6 +137,17 @@ out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 # Commits that name V with different bytes: which build V is cannot be told, so it refuses.
 S="$(newsite)"; republish "$S" 9.9.8 "" "$(printf '%064d' 7)"
 refused "commits naming V with different bytes" "$S" "disagree on its build" --version 9.9.8
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"
+has "$out" "sha256 000000000000 in" && has "$out" "name the build that was approved with --sha" && pass "named: that refusal lists the builds and names the way out (--sha)" || bad "named disagreement message (out=$out)"
+# --sha names the approved build: the cut's 9.9.8 promotes, and the other build cannot be picked by a wrong prefix.
+real98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${real98:0:8}" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" sha256)" = "$real98" ] && [ "$(cat "$S/setup")" = "INSTALLER-9.9.8 KOSMOS_READONLY_APP" ] \
+  && pass "named: --sha picks the approved build among commits that disagree" || bad "named --sha (rc=$rc, out=$out)"
+S="$(newsite)"; refused "--sha naming no build of V" "$S" "with a sha256 starting deadbeef" --version 9.9.8 --sha deadbeef
+refused "--sha shorter than 8 characters" "$(newsite)" "8 to 64 lowercase hex" --version 9.9.8 --sha abc
+out="$(bash "$HERE/promote-channel.sh" "$(newsite)" --sha "${real98:0:8}" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "--sha goes with --version" && pass "default: --sha alone is refused" || bad "--sha alone (rc=$rc, out=$out)"
 S="$(newsite)"; KM_LJ_VERSION=9.9.8 KM_LJ_SHA="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")" KM_LJ_ARTIFACT=kosmos-9.9.8-arm64.tar.gz KM_LJ_MANIFEST=kosmos-9.9.8-arm64.other.json \
   node "$WR" "$S/dist/latest-staging.json"; git -C "$S" commit -qm "9.9.8 republished naming another manifest" -- dist/latest-staging.json
 refused "commits naming V with the same bytes but another manifest" "$S" "disagree on its build" --version 9.9.8
@@ -182,7 +193,9 @@ out="$(bash "$HERE/promote-channel.sh" "$(newsite)" --allow-older 2>&1)"; rc=$?
 # A prod pointer whose version is not numbers cannot be compared: that counts as older, never as newer.
 S="$(newsite)"; echo '{"version":"abc"}' > "$S/dist/latest.json"; git -C "$S" commit -qm odd -- dist/latest.json
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
-[ "$rc" = 1 ] && has "$out" "older than abc" && pass "named: a prod version that is not numbers refuses without --allow-older" || bad "named vs non-numeric prod (rc=$rc, out=$out)"
+[ "$rc" = 1 ] && has "$out" "9.9.8 cannot be compared with 'abc'" && ! has "$out" "older than" && pass "named: a prod version that is not numbers refuses, saying it cannot be compared (not that it is older)" || bad "named vs non-numeric prod (rc=$rc, out=$out)"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --allow-older 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && pass "named: CONTROL --allow-older replaces a version that cannot be compared" || bad "named non-numeric --allow-older (rc=$rc, out=$out)"
 
 # ---- only a published commit: with an origin, the named commit must be on origin/main ----
 O="$T/origin.git"; git init -q --bare "$O"
@@ -194,6 +207,11 @@ git -C "$S" push -q origin HEAD:main
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.12 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.12 ] && ! has "$out" "no origin remote" && pass "named: CONTROL once pushed, the same commit promotes" || bad "named published (rc=$rc, out=$out)"
 has "$(bash "$HERE/promote-channel.sh" "$(newsite)" --version 9.9.8 2>&1)" "has no origin remote" && pass "named: a site with no origin says it cannot check publication" || bad "named no-origin note missing"
+
+# ---- the port the usage line advertises reaches the gate in named mode ----
+PGATE="$T/stub-port-gate.sh"; printf '#!/usr/bin/env bash\nprintf "%%s %%s\\n" "$KOSMOS_GATE_EXPECT_VERSION" "$1" > "%s"\nexit 0\n' "$T/port.log" > "$PGATE"; chmod +x "$PGATE"
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $PGATE" bash "$HERE/promote-channel.sh" "$S" 16999 --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$T/port.log")" = "9.9.8 16999" ] && pass "named: <site> <port> --version: the gate gets the port and expects V" || bad "named with a port (rc=$rc, gate saw '$(cat "$T/port.log" 2>/dev/null)', out=$out)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-promote-named-7005: ALL PASS"; else echo "test-promote-named-7005: FAILURES above"; exit 1; fi

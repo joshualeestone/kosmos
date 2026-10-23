@@ -88,6 +88,16 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    **Check the first #5032 promote by hand**: staging boxes still on a build before #5032 updated with
    `/setup` (prod's installer) during that staging round, so only fresh installs from `/setup-staging`
    exercised the installer the promote puts on `/setup`.
+   **A build other than the one staging serves now: `--version <V>` (kosmos#7005).** By default the
+   promote takes whatever `latest-staging.json` names, so a prod GO pending on one build used to freeze
+   staging. `tools/promote-channel.sh <site-checkout> <port> --version <V>` reads V's pointer and
+   installer from the site commit that published them (on the checkout's HEAD, which must be on origin's
+   main), so staging can take later cuts while the GO waits. Every check above runs unchanged; V's tarball
+   must still be in the checkout's `dist/`. If V was cut more than once, the promote refuses and lists
+   the builds: add `--sha <8+ characters of the approved build's sha256>`. A V older than prod's is
+   refused unless `--allow-older` is given. The board gates still need a board on V: once the cut box's
+   board has moved to a later staging build they answer cannot-tell, and the promote HOLDS (exit 2),
+   forceable only after a hand check of V, as above.
 5. **Deploy the promoted pointer to prod.** `promote-channel.sh` only rewrites `latest.json` in the
    LOCAL site checkout ("the next site deploy publishes the prod pointer. No rebuild happened.");
    prod keeps SERVING the old version until a deploy. **`deploy-site.sh --publish` does NOT do this**

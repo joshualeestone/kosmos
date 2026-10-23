@@ -56,7 +56,8 @@
 # approved build. With --version, the pointer and installer come from a site commit (on HEAD) whose
 # latest-staging.json names V, so staging can move on. Every commit naming V must name the same bytes;
 # the one used is the newest whose committed setup-staging hashes to its pointer's setup_sha256 (the
-# staging cut's own commit, which carries both), else the newest naming V. A V older than the build prod
+# staging cut's own commit, which carries both), else the newest naming V. If V was cut more than once (a
+# re-cut after an abort), --sha <its sha256, 8+ characters> names which build Josh approved. A V older than the build prod
 # serves now is refused unless --allow-older is given (a rollback is a decision, not a typo). Every
 # check below runs unchanged on what that commit holds: the artifact and its sidecar, the manifest and
 # its signature, the installer's sha and floor, and the gates (the experience gate expects V, so a board
@@ -70,7 +71,7 @@
 #             which is per-account and usually NOT 16180). Also settable via KOSMOS_PORT.
 #             Give the port so a wrong-port HOLD does not push you toward --force, which
 #             bypasses the gate entirely.
-#   tools/promote-channel.sh <site-checkout> [port] --version <V> [--allow-older] [--force]
+#   tools/promote-channel.sh <site-checkout> [port] --version <V> [--sha <sha256 prefix>] [--allow-older] [--force]
 #             promote V from its own staging commit, whatever staging names now (see above)
 #   tools/promote-channel.sh <site-checkout> --family win --approved-version <V> \
 #       --approved-sha <sha256> --approval-ref <Slack message ts or permalink>
@@ -80,13 +81,13 @@
 #   (the Windows gate has no command override: it is always tools/win-staging-verified.sh)
 set -uo pipefail
 
-SITE=""; FORCE=0; PORT=""; FAMILY="mac"; APPROVED_VERSION=""; APPROVED_SHA=""; APPROVAL_REF=""; NAMED_VERSION=""; ALLOW_OLDER=0
+SITE=""; FORCE=0; PORT=""; FAMILY="mac"; APPROVED_VERSION=""; APPROVED_SHA=""; APPROVAL_REF=""; NAMED_VERSION=""; NAMED_SHA=""; ALLOW_OLDER=0
 while [ $# -gt 0 ]; do
   a="$1"; shift
   case "$a" in
     --force) FORCE=1 ;;
     --allow-older) ALLOW_OLDER=1 ;;
-    --family|--approved-version|--approved-sha|--approval-ref|--version)
+    --family|--approved-version|--approved-sha|--approval-ref|--version|--sha)
       [ $# -gt 0 ] || { echo "promote-channel: $a needs a value" >&2; exit 1; }
       case "$a" in
         --family) FAMILY="$1" ;;
@@ -94,6 +95,7 @@ while [ $# -gt 0 ]; do
         --approved-sha) APPROVED_SHA="$1" ;;
         --approval-ref) APPROVAL_REF="$1" ;;
         --version) NAMED_VERSION="$1" ;;
+        --sha) NAMED_SHA="$1" ;;
       esac
       shift ;;
     --family=*) FAMILY="${a#--family=}" ;;
@@ -101,6 +103,7 @@ while [ $# -gt 0 ]; do
     --approved-sha=*) APPROVED_SHA="${a#--approved-sha=}" ;;
     --approval-ref=*) APPROVAL_REF="${a#--approval-ref=}" ;;
     --version=*) NAMED_VERSION="${a#--version=}" ;;
+    --sha=*) NAMED_SHA="${a#--sha=}" ;;
     -*) echo "promote-channel: unknown option $a" >&2; exit 1 ;;
     *)
       if [ -z "$SITE" ]; then SITE="$a"
@@ -124,6 +127,8 @@ esac
 SITE="${SITE:-${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}}"
 [ -z "$NAMED_VERSION" ] || [[ "$NAMED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "promote-channel: --version must be a version such as 0.7.64 (got '$NAMED_VERSION')" >&2; exit 1; }
 [ "$ALLOW_OLDER" = 0 ] || [ -n "$NAMED_VERSION" ] || { echo "promote-channel: --allow-older goes with --version" >&2; exit 1; }
+[ -z "$NAMED_SHA" ] || [ -n "$NAMED_VERSION" ] || { echo "promote-channel: --sha goes with --version" >&2; exit 1; }
+[ -z "$NAMED_SHA" ] || [[ "$NAMED_SHA" =~ ^[0-9a-f]{8,64}$ ]] || { echo "promote-channel: --sha must be 8 to 64 lowercase hex characters of the build's sha256 (got '$NAMED_SHA')" >&2; exit 1; }
 [ -d "$SITE/dist" ] || { echo "promote-channel: no $SITE/dist" >&2; exit 1; }
 # kosmos#6620: no release pointer moves while the site is frozen (tools/pointer-freeze.sh, the incident pin).
 . "$(cd "$(dirname "$0")" && pwd)/lib/pointer-freeze.sh" || { echo "promote-channel: cannot load tools/lib/pointer-freeze.sh" >&2; exit 1; }
@@ -168,13 +173,17 @@ if [ -n "$NAMED_VERSION" ]; then
   # Every commit on HEAD whose pointer names V. Usually one, the staging cut's (pointer and installer together); a
   # later hand republish of V is another, and it may name no installer, or sit beside a later cut's setup-staging.
   # -G narrows the walk to commits whose diff mentions V (it also finds the commit that replaced V, and its dots match
-  # any character): every candidate is read and kept only if its pointer names V exactly.
-  NAMED_COMMIT=""; _paired=""; _builds=""
+  # any character): every candidate is read and kept only if its pointer names V exactly. It finds every commit that
+  # changed V's pointer because the pointer is ONE line (tools/lib/write-latest-pointer.js), so any change to it
+  # removes and adds the line holding the version; a hand-edited multi-line pointer would break that.
+  NAMED_COMMIT=""; _paired=""; _builds=""; _seen=""
   for _c in $(git -C "$SITE" log --format=%H -G "\"version\": *\"$NAMED_VERSION\"" HEAD -- "dist/$STAGING_NAME" 2>/dev/null); do
     git -C "$SITE" show "${_c}:dist/$STAGING_NAME" > "$NAMED_DIR/candidate.json" 2>/dev/null || continue
     [ "$(read_pointer_field "$NAMED_DIR/candidate.json" version)" = "$NAMED_VERSION" ] || continue
     _s="$(read_pointer_field "$NAMED_DIR/candidate.json" sha256)"
     [ -n "$_s" ] || continue   # no bytes named: not a usable pointer for V, so not a candidate
+    case "$_s" in "$NAMED_SHA"*) ;; *) continue ;; esac   # --sha: only the build it names (empty: every build)
+    _seen="${_seen:+$_seen; }sha256 ${_s:0:12} in ${_c:0:10} ($(git -C "$SITE" log -1 --format=%cs "$_c"))"
     # The build a commit names: its bytes, artifact and manifest. Every commit naming V must name the same one.
     _b="$_s|$(read_pointer_field "$NAMED_DIR/candidate.json" "$ARTIFACT_FIELD")|$(read_pointer_field "$NAMED_DIR/candidate.json" manifest)"
     case " $_builds " in *" $_b "*) ;; *) _builds="${_builds:+$_builds }$_b" ;; esac
@@ -183,8 +192,8 @@ if [ -n "$NAMED_VERSION" ]; then
     if [ -z "$_paired" ] && [ -n "$_ps" ] \
        && [ "$(git -C "$SITE" show "${_c}:setup-staging" 2>/dev/null | shasum -a 256 | awk '{print $1}')" = "$_ps" ]; then _paired="$_c"; fi
   done
-  [ -n "$NAMED_COMMIT" ] || { echo "promote-channel: no commit on $SITE's HEAD has a $STAGING_NAME naming $NAMED_VERSION - refusing; nothing was written. (Pull the site, or check the version.)" >&2; exit 1; }
-  case "$_builds" in *" "*) echo "promote-channel: commits naming $NAMED_VERSION disagree on its build (sha256|artifact|manifest: $_builds) - refusing; nothing was written. Which build is $NAMED_VERSION has to be settled by hand." >&2; exit 1 ;; esac
+  [ -n "$NAMED_COMMIT" ] || { echo "promote-channel: no commit on $SITE's HEAD has a $STAGING_NAME naming $NAMED_VERSION${NAMED_SHA:+ with a sha256 starting $NAMED_SHA} - refusing; nothing was written. (Pull the site, or check the version.)" >&2; exit 1; }
+  case "$_builds" in *" "*) echo "promote-channel: commits naming $NAMED_VERSION disagree on its build ($_seen) - refusing; nothing was written. $NAMED_VERSION was cut more than once: name the build that was approved with --sha <its sha256, 8 or more characters>." >&2; exit 1 ;; esac
   [ -z "$_paired" ] || NAMED_COMMIT="$_paired"
   # Only a commit the site has published was ever served to staging: it must be on origin/main. A site with no origin
   # (a local test site) cannot say, and the promote says so.
@@ -229,10 +238,16 @@ fi
 if [ -n "$NAMED_VERSION" ]; then
   _prodv="$(read_pointer_field "$SITE/dist/$PROD_NAME" version)"
   echo "promote-channel: --version $V; prod serves ${_prodv:-nothing} now"
-  if [ -n "$_prodv" ] && ! node -e 'const a=process.argv[1].split(".").map(Number),b=process.argv[2].split(".").map(Number);if(a.concat(b).some(Number.isNaN))process.exit(2);for(let i=0;i<Math.max(a.length,b.length);i++){const d=(a[i]||0)-(b[i]||0);if(d)process.exit(d>0?0:1)}process.exit(0)' "$V" "$_prodv" 2>/dev/null; then
-    [ "$ALLOW_OLDER" = 1 ] || { echo "promote-channel: $V is older than $_prodv, which prod serves now - refusing; nothing was written. A rollback needs --allow-older as well." >&2; exit 1; }
-    echo "promote-channel: --allow-older: rolling prod back from $_prodv to $V" >&2
-  fi
+  # 0 V is not older, 1 V is older, anything else (2: a version that is not numbers; node failing) cannot tell.
+  _cmp=0
+  [ -z "$_prodv" ] || node -e 'const a=process.argv[1].split(".").map(Number),b=process.argv[2].split(".").map(Number);if(a.concat(b).some(Number.isNaN))process.exit(2);for(let i=0;i<Math.max(a.length,b.length);i++){const d=(a[i]||0)-(b[i]||0);if(d)process.exit(d>0?0:1)}process.exit(0)' "$V" "$_prodv" 2>/dev/null || _cmp=$?
+  case "$_cmp" in
+    0) : ;;
+    1) [ "$ALLOW_OLDER" = 1 ] || { echo "promote-channel: $V is older than $_prodv, which prod serves now - refusing; nothing was written. A rollback needs --allow-older as well." >&2; exit 1; }
+       echo "promote-channel: --allow-older: rolling prod back from $_prodv to $V" >&2 ;;
+    *) [ "$ALLOW_OLDER" = 1 ] || { echo "promote-channel: $V cannot be compared with '$_prodv', which prod serves now, so it may be a rollback - refusing; nothing was written. Pass --allow-older to replace it anyway." >&2; exit 1; }
+       echo "promote-channel: --allow-older: replacing '$_prodv' with $V without knowing which is newer" >&2 ;;
+  esac
 fi
 
 # THE SAME-BYTES INVARIANT, checked before the gate and before any promote: the artifact
