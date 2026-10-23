@@ -19,7 +19,11 @@ const { chromium } = require('playwright');
 
 const URL = process.env.KOSMOS_URL || 'http://127.0.0.1:17401';
 const OUT = process.argv[2] || '/tmp/gridwidth';
-const CONTROL = process.argv.includes('--control') || process.env.GW_CONTROL === '1';   // env: the harness passes no arguments
+/* Two controls, one per "before" (env too: the harness passes no arguments). --control / GW_CONTROL=1 is #1310's
+   before (a 23rem card, the title never truncating); --control-6967 / GW_CONTROL=6967 is #6967's (one line, then the
+   ellipsis), which must turn the two-line arm red. They cannot be one revert: at 23rem the long title fits in two. */
+const CONTROL_6967 = process.argv.includes('--control-6967') || process.env.GW_CONTROL === '6967';
+const CONTROL = CONTROL_6967 || process.argv.includes('--control') || process.env.GW_CONTROL === '1';
 /* ⚠️ 60 CHARACTERS, WHICH IS THE CAP, NOT AN ARBITRARY LONG STRING.
    Measured against the live route: 67 characters is refused with "that name is
    too long to make a folder out of; keep it to 60 characters", and my first
@@ -70,11 +74,13 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
   const revert = () => {
     const st = document.createElement('style');
     st.id = 'ctl-revert';
-    st.textContent =
-      '.pj-list.asgrid{grid-template-columns:repeat(auto-fill,minmax(min(100%,23rem),1fr))!important}'
-      + '.pj-list.asgrid .pj-row .pjname{max-width:none!important}'
-      + '.pj-list.asgrid .pj-row .pjname b{overflow:visible!important;text-overflow:clip!important;'
-      + 'white-space:normal!important;display:block!important;-webkit-line-clamp:none!important}';
+    st.textContent = CONTROL_6967
+      ? '.pj-list.asgrid .pj-row .pjname b{display:block!important;-webkit-line-clamp:none!important;'
+        + 'white-space:nowrap!important;text-overflow:ellipsis!important}'
+      : '.pj-list.asgrid{grid-template-columns:repeat(auto-fill,minmax(min(100%,23rem),1fr))!important}'
+        + '.pj-list.asgrid .pj-row .pjname{max-width:none!important}'
+        + '.pj-list.asgrid .pj-row .pjname b{overflow:visible!important;text-overflow:clip!important;'
+        + 'white-space:normal!important;display:block!important;-webkit-line-clamp:none!important}';
     document.head.appendChild(st);
   };
   if (CONTROL) await pg.evaluate(revert);
@@ -172,11 +178,11 @@ const say = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); if
   await b.close();
 
   if (CONTROL) {
-    /* Each arm the revert aims at must go red on its own: the width arm and (#6967) the two-line arm. Any red alone is
-       not enough, because the width revert would make the run red whether or not the line count can fail. */
+    /* Each arm the revert aims at must go red on its own; any red alone is not enough. */
     const red = (part) => fails.some((f) => f.includes(part));
-    if (red('same width as an agent card') && red('two lines before it is cut')) {
-      console.log('\nCONTROL BEHAVED: the width and the two-line assertions both go RED on the old rules.'); process.exit(0);
+    const aimed = CONTROL_6967 ? ['two lines before it is cut'] : ['same width as an agent card', 'clipped rather than widening'];
+    if (aimed.every(red)) {
+      console.log('\nCONTROL BEHAVED: ' + aimed.join(' + ') + ' went RED on the old rules.'); process.exit(0);
     }
     console.log('\nCONTROL FAILED TO FAIL: these assertions cannot detect the old value. Do not trust the green run.');
     process.exit(1);
