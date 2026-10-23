@@ -24,20 +24,26 @@ const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.
 /* Member rows from the real producer (projects.describe), never hand-built (fixture-discipline.test.js). */
 const fleet = require('./test-support/fleet');
 const projects = require('./engine/projects');
+const status = require('./engine/status');
 const ROWS = new Map();
 test.before(() => {
   const board = fleet.install([
     fleet.agent('ada'),                                   // Claude (no runner recorded)
-    fleet.agent('ben', { runner: 'gemini' }),
+    fleet.agent('roo', { runner: 'gemini' }),
     fleet.agent('cleo', { runner: 'grok', state: 'stopped' }),   // its state does not matter here
     fleet.agent('dev', { runner: 'gemini', ours: false }),   // a pane we cannot tie to this name
   ]);
   try {
     const made = projects.create({ name: 'Provider Tally' });
-    for (const sn of ['ada', 'ben', 'cleo', 'dev', 'zed']) projects.addAgent(made.id, sn);
-    /* zed: a stopped agent of ours has no pane, so its card is status.js panelessCard's shape: tied, no runner. */
-    const stopped = { sessionName: 'zed', name: 'Zed', isNamedOurs: true, runner: null, state: 'stopped' };
-    const d = projects.describe(projects.readAll().find((x) => x.id === made.id), [...board.agents, stopped]);
+    for (const sn of ['ada', 'roo', 'cleo', 'dev', 'pixel']) projects.addAgent(made.id, sn);
+    /* pixel: an agent created here and not running, so the board gives it a paneless card (status.panelessCard):
+       tied, no runner recorded. Asked of the real producer, as engine/status.created-roster-1078.test.js does. */
+    let cards;
+    status.setCreatedSource(() => ['pixel']);
+    try { cards = status.snapshot().agents; } finally { status.setCreatedSource(null); }
+    const pixel = cards.find((c) => c.sessionName === 'pixel');
+    assert.ok(pixel && pixel.paneless === true && pixel.isNamedOurs === true, 'PRE-CONTROL: the board gave pixel no paneless card');
+    const d = projects.describe(projects.readAll().find((x) => x.id === made.id), cards);
     for (const row of d.agents) ROWS.set(row.sessionName, row);
     assert.equal(ROWS.size, 5, 'PRE-CONTROL: the producer did not give a row for each member');
   } finally { board.restore(); }
@@ -45,10 +51,10 @@ test.before(() => {
 
 test('#6966: a tied member row carries its provider; an untied or stopped one carries none', () => {
   assert.equal(ROWS.get('ada').provider, 'Claude');
-  assert.equal(ROWS.get('ben').provider, 'Gemini');
+  assert.equal(ROWS.get('roo').provider, 'Gemini');
   assert.equal(ROWS.get('cleo').provider, 'Grok');
   assert.equal(ROWS.get('dev').provider, null, 'a pane borrowing the name must not lend the card its provider');
-  assert.equal(ROWS.get('zed').provider, null, 'a stopped agent has no runner recorded; it must not read as Claude');
+  assert.equal(ROWS.get('pixel').provider, null, 'a stopped agent has no runner recorded; it must not read as Claude');
 });
 
 /* The tally, run for real with the two page helpers it calls stubbed: a mark is a span naming its picker key. */
