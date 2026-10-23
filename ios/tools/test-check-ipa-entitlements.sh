@@ -11,7 +11,8 @@ trap 'rm -rf "$work"' EXIT
 # $5 team-identifier ("" = absent), $6 "shots" to make the executable carry the screenshot switch (#6262).
 # kosmos#6487: every fixture carries the notification extension (PlugIns/KosmosNotice.appex, <appid>.notice) and the
 # keychain group the two share, as a store build does. EXT (unset = that) breaks one thing about it:
-# none (no extension), devsigned (get-task-allow true), otherid (another identifier), nogroup (no shared group).
+# none (no extension), devsigned (get-task-allow true), otherid (another identifier), nogroup (no shared group),
+# nocomm (message-style notices without the app's Communication Notifications); style is that pair done right.
 make_ipa() {
   local dir="$work/$1"
   mkdir -p "$dir/Payload/Kosmos.app"
@@ -27,6 +28,7 @@ make_ipa() {
   /usr/libexec/PlistBuddy -c "Add :get-task-allow bool $3" "$ents" >/dev/null
   /usr/libexec/PlistBuddy -c "Add :application-identifier string $4" "$ents" >/dev/null
   [ -n "${5:-}" ] && /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string $5" "$ents" >/dev/null
+  [ "${EXT:-}" = style ] && /usr/libexec/PlistBuddy -c 'Add :com.apple.developer.usernotifications.communication bool true' "$ents" >/dev/null
   local group="$4.shared"
   /usr/libexec/PlistBuddy -c 'Add :keychain-access-groups array' -c "Add :keychain-access-groups:0 string $group" "$ents" >/dev/null
   if [ "${EXT:-}" != none ]; then
@@ -35,6 +37,7 @@ make_ipa() {
     cp /usr/bin/true "$appex/KosmosNotice"
     [ "${EXT:-}" = otherid ] && xid="$4.other"
     /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string KosmosNotice' -c "Add :CFBundleIdentifier string ${xid#*.}" "$appex/Info.plist" >/dev/null
+    case "${EXT:-}" in style|nocomm) /usr/libexec/PlistBuddy -c 'Add :KosmosMessageStyle bool true' "$appex/Info.plist" >/dev/null ;; esac
     /usr/libexec/PlistBuddy -c 'Clear dict' "$xents" >/dev/null 2>&1 || true
     /usr/libexec/PlistBuddy -c "Add :application-identifier string $xid" "$xents" >/dev/null
     /usr/libexec/PlistBuddy -c "Add :get-task-allow bool $([ "${EXT:-}" = devsigned ] && echo true || echo false)" "$xents" >/dev/null
@@ -80,7 +83,8 @@ expect real-as-preview      1 production  false $T.io.kosmos.app     $T         
 expect preview-other-team   1 production  false ZZZZZ99999.io.kosmos.app.preview ZZZZZ99999 $T io.kosmos.app.preview
 
 # kosmos#6487: the notification extension inside the app, each refused for its own reason.
-for case in "none:no notification extension" "devsigned:extension get-task-allow: true" "otherid:extension application-identifier: $T.io.kosmos.app.other" "nogroup:do not both hold the keychain group"; do
+EXT=style expect ext-style 0 production false $T.io.kosmos.app $T $T
+for case in "none:no notification extension" "devsigned:extension get-task-allow: true" "otherid:extension application-identifier: $T.io.kosmos.app.other" "nogroup:do not both hold the keychain group" "nocomm:lacks com.apple.developer.usernotifications.communication"; do
   mode=${case%%:*}; why=${case#*:}
   EXT=$mode make_ipa "ext-$mode" production false $T.io.kosmos.app $T >/dev/null
   out=$("$here/check-ipa-entitlements.sh" "$work/ext-$mode.ipa" "$T"); rc=$?

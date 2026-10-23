@@ -108,6 +108,15 @@ else
   else
     echo "WRONG    the app and the extension do not both hold the keychain group $want_group"; fail=1
   fi
+  # A notice shown as a message from the agent (KosmosMessageStyle) needs the app to hold Communication Notifications;
+  # without it the phone drops the message style, so a build asking for one without the other is refused.
+  if [ "$(plutil -extract KosmosMessageStyle raw -o - "$appex/Info.plist" 2>/dev/null)" = "true" ]; then
+    if [ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.usernotifications.communication' "$ents" 2>/dev/null)" = "true" ]; then
+      echo "ok       message-style notices, and the app holds Communication Notifications"
+    else
+      echo "WRONG    the extension asks for message-style notices but the app lacks com.apple.developer.usernotifications.communication"; fail=1
+    fi
+  fi
 fi
 
 shots="$("$(dirname "$0")/check-no-shots-flag.sh" "$app")"
