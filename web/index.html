@@ -68461,10 +68461,20 @@ async function paintTaskActivity(n, opts) {
      as before; the five-second read's redraw is not, or a screen reader would read the whole conversation, unasked,
      each time something is recorded while the person is on the page. */
   const quiet = onlyIfChanged && typeof holder.setAttribute === 'function';
+  /* The poll's redraw also keeps keyboard focus: a history row's summary the person had focused is focused again after
+     the swap (by its rollup's data-first), so focus does not fall to the page body unannounced. */
+  const had = quiet && typeof holder.contains === 'function' && document.activeElement && holder.contains(document.activeElement)
+    ? document.activeElement.closest && document.activeElement.closest('[data-first]') : null;
+  const hadKey = had && had.dataset ? had.dataset.first : null;
   if (quiet) holder.setAttribute('aria-live', 'off');
   holder.innerHTML = tkActRowsHtml(events, p, now);
   if (quiet) setTimeout(() => holder.setAttribute('aria-live', 'polite'), 0);
   if (canQuery && wasOpen.size) for (const d of holder.querySelectorAll('details.tkact-roll')) if (wasOpen.has(d.dataset.first)) d.open = true;
+  if (hadKey && canQuery) {
+    const back = [...holder.querySelectorAll('[data-first]')].find((x) => x.dataset.first === hadKey);
+    const target = back && (back.querySelector('summary') || back);
+    if (target && typeof target.focus === 'function') target.focus();
+  }
   mark();   // #6947: drawn, so the person may have the conversation in front of them
 }
 /* kosmos#5643: the history's rows. Two or more runs in a row that found nothing new (not late: lateness is news) are
@@ -68572,10 +68582,12 @@ function tkMarkSeen(n, projectId, retried = false, onDone = null, current = null
 let TK_POLLING = false;
 function tkPollActivity() {
   if (TK_POLLING) return;
-  TK_POLLING = true;
-  // A read that hangs (a board stalled mid-answer) lets the next one start after 15 seconds, rather than never.
-  const giveUp = setTimeout(() => { TK_POLLING = false; }, 15000);
-  Promise.resolve(paintTaskActivity(TK_OPEN, { onlyIfChanged: true })).finally(() => { clearTimeout(giveUp); TK_POLLING = false; });
+  const run = {};
+  TK_POLLING = run;
+  // A read that hangs (a board stalled mid-answer) lets the next one start after 15 seconds, rather than never; only
+  // the run that holds the flag releases it, so a late hung read does not free a newer one's.
+  const giveUp = setTimeout(() => { if (TK_POLLING === run) TK_POLLING = false; }, 15000);
+  Promise.resolve(paintTaskActivity(TK_OPEN, { onlyIfChanged: true })).finally(() => { clearTimeout(giveUp); if (TK_POLLING === run) TK_POLLING = false; });
 }
 /* #6951: is the person at the page? The window has focus and they clicked, typed, used the wheel or touched it in the
    last two minutes. Used only by the five-second read: opening a task, acting on it and coming back to the tab are the

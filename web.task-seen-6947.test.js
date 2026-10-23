@@ -346,3 +346,35 @@ test('#6951: a read that hangs stops holding back the five-second read after 15 
   p.tkPollActivity(); await p.settle();
   assert.equal(p.st.queue.length, 2, 'the five-second read stayed stuck behind the hung one');
 });
+
+test('#6951: the five-second read redraw puts keyboard focus back on the history row the person had focused', async () => {
+  const p = page();
+  await p.paintTaskActivity(3);
+  let focused = 0;
+  const summary = { focus: () => { focused += 1; } };
+  const row = { dataset: { first: '0@2026-10-22T23:00:00.000Z' }, querySelector: () => summary };
+  p.acts.contains = () => true;
+  p.acts.setAttribute = () => {};
+  p.acts.querySelectorAll = (sel) => (sel === '[data-first]' ? [row] : []);
+  p.doc.activeElement = { closest: () => row };
+  p.st.events = [{ at: '2026-10-22T23:00:00.000Z', kind: 'said', text: 'hi' }, { at: '2026-10-22T23:40:00.000Z', kind: 'said', text: 'new' }];
+  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  assert.equal(focused, 1, 'focus was not put back after the poll redraw');
+  // CONTROL: with focus outside the conversation, nothing is focused.
+  p.acts.contains = () => false;
+  p.st.events = p.st.events.concat([{ at: '2026-10-22T23:45:00.000Z', kind: 'said', text: 'more' }]);
+  await p.paintTaskActivity(3, { onlyIfChanged: true });
+  assert.equal(focused, 1, 'focus was moved although it was not in the conversation');
+});
+
+test('#6951: a hung read that finishes late does not release the flag held by the read that replaced it', async () => {
+  const p = page();
+  p.st.queue = [];
+  p.tkPollActivity(); await p.settle();
+  p.timers.find(([, ms]) => ms === 15000)[0]();   // the first read is given up on
+  p.tkPollActivity(); await p.settle();
+  assert.equal(p.st.queue.length, 2, 'the replacement read did not start');
+  p.st.queue[0](); await p.settle(); await p.settle();   // the hung read finally lands
+  p.tkPollActivity(); await p.settle();
+  assert.equal(p.st.queue.length, 2, 'the late hung read freed the replacement read\'s flag, so a third started');
+});
