@@ -22,7 +22,7 @@ control that never takes the connection again (the new words).
   stderr). An INT, TERM or HUP removes them and the auth header file, then re-raises the signal on the subshell, so
   the command ends as an interrupted one does (a plain `exit` would let the caller carry on and say "stopped before
   anything was sent" after a send the board may hold). Every buffering caller runs kosmos_curl in a subshell, so the
-  trap is that subshell's own; a test checks every call site. Only a KILL leaves the files.
+  trap is that subshell's own; a test checks every call site. A signal it does not trap (KILL, QUIT) leaves them.
 - `_KOSMOS_CURL_ONCE=1`: one plain try, no buffering. Used by keep-copy and tool-failed (hooks with a 3 s promise),
   task ran (its own loop already retries 7; told and repeat keep the retry), and msg's and post's second ask
   after a cut reply (asking again into a board that restarted could deliver twice).
