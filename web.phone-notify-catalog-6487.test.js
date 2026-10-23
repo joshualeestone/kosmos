@@ -27,6 +27,9 @@ const path = require('node:path');
 
 const read = (p) => fs.readFileSync(path.join(__dirname, p), 'utf8');
 const DOC = read('docs/phone-notifications.md');
+// The page's prose, with every run of whitespace one space, so a sentence is found however the paragraph is wrapped
+// (tables are read from DOC itself, line by line).
+const PROSE = DOC.replace(/\s+/g, ' ');
 
 /** The rows of the first markdown table under `heading`, as arrays of cell text (backticks kept). */
 function tableUnder(heading) {
@@ -78,7 +81,7 @@ test('#6487: web/sw.js shows each kind with the title and body the Wording table
 });
 
 test('#6487: an agent with no name is "An agent", as the Wording section says', () => {
-  assert.match(DOC, /An agent with no name is called "An agent"\./);
+  assert.match(PROSE, /An agent with no name is called "An agent"\./);
   assert.equal(notificationFor({ kind: 'needs_you', agent: '' }).title, 'An agent needs you');
 });
 
@@ -137,15 +140,15 @@ test('#6487: the iPhone shows the agent as the title, the original line as the s
   assert.match(server, /sendJson\(res, 200, \{ kind: got\.kind, session: got\.session, agent: [^}]*text: got\.text, picture \}\);/,
     'the answer no longer carries the picture; update the page');
   // "within 15 seconds" for the words, "its own 8 seconds" for the picture.
-  assert.match(DOC, /within 15 seconds, the notification shows them/);
+  assert.match(PROSE, /within 15 seconds, the notification shows them/);
   assert.match(svc, /await fetch\(ask, within: 15,/);
-  assert.match(DOC, /picture is fetched after the words with its own 8 seconds/);
+  assert.match(PROSE, /picture is fetched after the words with its own 8 seconds/);
   assert.match(svc, /await fetch\(r, within: 8,/);
 });
 
 test('#6487: a permission request puts the tool and up to 200 characters of the command on the lock screen, as the page warns', () => {
-  assert.match(DOC, /`asking permission to use <tool>`, with `: <command>` when there is one/);
-  assert.match(DOC, /names the tool and the command \(up to 200 characters of it\)/);
+  assert.match(PROSE, /`asking permission to use <tool>`, with `: <command>` when there is one/);
+  assert.match(PROSE, /names the tool and the command \(up to 200 characters of it\)/);
   const hook = read('engine/kosmos-report-hook.js');
   assert.match(hook, /const cmd = field\(evt, 'tool_input\.command'\)\.slice\(0, 200\);/, 'the command cap moved; update the page');
   assert.match(hook, /text: 'asking permission to use ' \+ tool \+ \(cmd \? ': ' \+ cmd : ''\)/, 'the permission text changed; update the page');
