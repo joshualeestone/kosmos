@@ -33,7 +33,9 @@ Card: #6974. Base: origin/main 0bef7f948e (#6946, #6952, #6957 all merged).
   named the pronoun is usually them. An @-named third party ("who can help @ann with the tests?") makes ann an
   asked member too, so the post locks to bob and ann: also bounded.
 - Mid-sentence lead-ins other than the listed ones ("hopefully someone free will take it", "we need someone free") now lock to bob: bounded by the
-  30-minute window, the direction the card prefers.
+  30-minute window, the direction the card prefers. So does "else" with no clause start once asksRoom folds the names
+  ("Thanks @bob! Anyone else free to take it?", "@bob, anyone else free to take it?"): bounded; "Can someone else
+  take it?" still opens there (review 4).
 (Stated on the card, unchanged:)
 - The legacy unmarked-pill edge (needs pre-claim data).
 - claimAgreed on the person's own page and an end-to-end sendPost test.

@@ -669,7 +669,10 @@ test('#6974: who can help YOU / is around to help HIM asks for help for bob, so 
     '@bob take it. Can someone please help you?', '@bob take it. Who can also help you?',
     // review 3: "else"/"here" before help, and the whoever and volunteers forms
     '@bob take it. Can someone else help you?', '@bob take the parser. Can anyone here help you?',
-    '@bob take the parser. Whoever is free to help you, shout.', '@bob take the parser. Any volunteers to help him?']) {
+    '@bob take the parser. Whoever is free to help you, shout.', '@bob take the parser. Any volunteers to help him?',
+    // review 4: every word the lookahead lets sit before help is pinned
+    '@bob take it. Who can quickly help you?', '@bob take it. Can someone pls help you?', '@bob take it. Who can maybe help him?',
+    '@bob take it. Who can just help you?']) {
     assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
   }
   // CONTROLS: the same clause asking for the work, or for help with it, opens the post.
