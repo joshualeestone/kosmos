@@ -41,8 +41,10 @@ report of a missing shortcut on a real install, or a second caller that starts -
 
 Not changed (outside this card's ask): WindowStoppedMessage ("Double-click Kosmos.exe, or choose Kosmos in the
 Start menu"), the window's "Kosmos could not start on this computer (...). Double-click Kosmos.exe to try again."
-(connect-mode restart), and the "Double-click Kosmos.exe in <folder>" notes (installer duties, RelaunchFailedMessage),
-which name a specific folder on purpose. The first two are candidates for a follow-up card.
+(connect-mode restart), Main's "Kosmos stopped unexpectedly (exit code N). Double-click Kosmos.exe to try again."
+(which goes on to send the person to that folder to run it with --console), and the "Double-click Kosmos.exe in
+<folder>" notes (installer duties, RelaunchFailedMessage), which name a specific folder on purpose. The first three are
+candidates for a follow-up card.
 
 ## Verified on the Windows box
 - csc (README flags) exit 0; sign.ps1: status Valid, signer Kosmos Agent Manager, Inc.; verify-launcher.ps1 OK.
