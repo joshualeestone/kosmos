@@ -52248,7 +52248,8 @@ function paintWaiting(inPanel) {
   /* kosmos#6590 (c4): the tunnel is pausing new browsers until the person has seen its certificate warning (a
      certificate for this computer's address that this computer did not ask for, or a check report it lost). */
   if (WAIT.ctAlarm) {
-    out.push('<div class="askreq waitreq"><div class="askwho"><b id="waitct-head">New browsers are paused</b></div>' +
+    out.push('<div class="askreq waitreq"><div class="askdev"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg></div>' +
+      '<div class="askwho"><b id="waitct-head">New browsers are paused</b></div>' +
       '<p class="asksay" id="waitct-say">Kosmos+ found a certificate for this computer\'s address that this computer did not ask for, or could not read its last check. ' +
       'The details are in the certificate line in this section. Until you say you have seen this, no new browser can ask to connect. Browsers already connected keep working.</p>' +
       '<div class="acts"><button class="btn uprime" type="button" data-wait="ctack" aria-describedby="waitct-head waitct-say"' + (WAIT.busy || !WAIT.ctFinding ? ' disabled' : '') + '>I have seen it</button></div></div>');
