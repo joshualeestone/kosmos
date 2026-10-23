@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-waiting plus-waiting-title waitcodein plus-asks askcard
+// Browser-check-surface: plus-waiting plus-waiting-title waitcodein plus-asks askcard waitct-head
 'use strict';
 /**
  * kosmos#6590 (S-7d branch c, c1b): the browsers waiting to connect, on Settings > Kosmos+. A browser that opened this
@@ -18,6 +18,7 @@
  *   T6c a 200 whose body does not read is never said as Connected;
  *   T6d (c3) a Not me that met the automatic Allow says it was taken back out (and, as the control, one that was not);
  *   T10 away from Kosmos+, x puts away the waiting browsers it named and a new one brings the notice back;
+ *   T11 (c4) the certificate pause: said with nothing waiting, one button that sends the finding shown, then cleared;
  *   T9  no page errors.
  *
  *   HEADED=0 NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-typed-allow-6590.js [shotsDir]
@@ -286,6 +287,29 @@ const read = (page) => page.evaluate(() => {
       chk(note.shown && /2 browsers want to connect/.test(note.text), 'T8 the compact notice names the waiting browsers', JSON.stringify(note));
       allErrs.push(...e8);
       await p8.close();
+    }
+
+    // T11 (c4): while the tunnel pauses new browsers for a certificate finding, the section says so with one button that
+    // sends exactly the finding shown; afterwards it says new browsers can ask again. No finding: the button is off.
+    {
+      const F = 'b'.repeat(64);
+      let alarm = true;
+      const post = (verb, body) => { if (verb === 'ct-ack') alarm = false; return { status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, acknowledged: true }) }; };
+      const { page: pa, errs: ea, posts: pp } = await open(browser, () => ({ body: { v2: true, count: 0, waiting: [], ctAlarm: alarm, ctFinding: alarm ? F : null } }), { base, post });
+      const before = await read(pa);
+      chk(before.shown && /New browsers are paused/.test(before.text), 'T11 the pause is said, with nothing waiting', before.text);
+      await pa.click('#plus-waiting [data-wait="ctack"]');
+      await pa.waitForTimeout(500);
+      const after = await read(pa);
+      chk(pp.length === 1 && pp[0].verb === 'ct-ack' && pp[0].body.finding === F, 'T11 I have seen it sends the finding shown', JSON.stringify(pp));
+      chk(!/New browsers are paused/.test(after.text) && /can ask to connect again/.test(after.text), 'T11 afterwards it says new browsers can ask again', after.text);
+      allErrs.push(...ea);
+      await pa.close();
+      const { page: pb, errs: eb } = await open(browser, () => ({ body: { v2: true, count: 0, waiting: [], ctAlarm: true, ctFinding: null } }), { base });
+      const off = await pb.evaluate(() => { const b = document.querySelector('#plus-waiting [data-wait="ctack"]'); return !!(b && b.disabled); });
+      chk(off, 'T11 with no finding to name, the button is off');
+      allErrs.push(...eb);
+      await pb.close();
     }
 
     // Shots for design review: light and dark, desktop and phone.

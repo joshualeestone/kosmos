@@ -52166,8 +52166,8 @@ async function pollAsk() {
    This computer never shows the code: typing what the browser in your hand shows is what binds it. The list comes
    from /api/remote/waiting, which answers only this board on this computer; it is empty (v2 false) until the board-v2
    marker exists, so nothing here shows before then. */
-const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, wrong: {}, busy: '', ctAlarm: false, paintedSig: '' };
-function waitShown() { return WAIT.v2 && (WAIT.rows.length > 0 || !!WAIT.error || !!WAIT.note); }
+const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, wrong: {}, busy: '', ctAlarm: false, ctFinding: null, paintedSig: '' };
+function waitShown() { return WAIT.v2 && (WAIT.rows.length > 0 || !!WAIT.error || !!WAIT.note || WAIT.ctAlarm); }
 /* What was typed, said or marked wrong for a row the tunnel no longer lists is forgotten, so a row that comes back starts clean. */
 function waitForgetRows() {
   for (const bag of [WAIT.typed, WAIT.said, WAIT.wrong]) {
@@ -52181,7 +52181,7 @@ setTimeout(() => { pollWaiting(); setInterval(pollWaiting, 5000); }, 0);
    marker this poll ran paintAsk every 5 s for nothing, doubling the repaints of a board that should be unchanged). */
 function waitSig() {
   // The address too: a row's line names it, and it is learned after the first paint.
-  return JSON.stringify([WAIT.v2, WAIT.error, WAIT.note, WAIT.ctAlarm, typeof PLUS_ADDRESS === 'string' ? PLUS_ADDRESS : '',
+  return JSON.stringify([WAIT.v2, WAIT.error, WAIT.note, WAIT.ctAlarm, WAIT.ctFinding, typeof PLUS_ADDRESS === 'string' ? PLUS_ADDRESS : '',
     WAIT.rows.map((w) => [w.knockId, w.firstSeen, w.uaClass, w.net, w.vouched])]);
 }
 async function pollWaiting() {
@@ -52205,6 +52205,7 @@ async function pollWaiting() {
   WAIT.v2 = !!r && r.v2 === true;
   WAIT.rows = WAIT.v2 && Array.isArray(r.waiting) ? r.waiting.filter((w) => w && typeof w.knockId === 'string') : [];
   WAIT.ctAlarm = !!r && r.ctAlarm === true;
+  WAIT.ctFinding = WAIT.ctAlarm && typeof r.ctFinding === 'string' ? r.ctFinding : null;
   WAIT.error = '';
   waitForgetRows();
   if (WAIT.note && Date.now() - WAIT.noteAt > REMOVE_SAID_MS) WAIT.note = '';
@@ -52244,6 +52245,14 @@ function paintWaiting(inPanel) {
   const n = WAIT.rows.length;
   const out = ['<p class="setname" id="plus-waiting-title">Browsers waiting to connect' + (n ? ' (' + n + ')' : '') + '</p>'];
   if (WAIT.error) out.push('<p class="askwait" role="alert">' + askEsc(WAIT.error) + '</p>');
+  /* kosmos#6590 (c4): the tunnel is pausing new browsers until the person has seen its certificate warning (a
+     certificate for this computer's address that this computer did not ask for, or a check report it lost). */
+  if (WAIT.ctAlarm) {
+    out.push('<div class="askreq waitreq"><div class="askwho"><b id="waitct-head">New browsers are paused</b></div>' +
+      '<p class="asksay" id="waitct-say">Kosmos+ found a certificate for this computer\'s address that this computer did not ask for, or could not read its last check. ' +
+      'Until you say you have seen this, no new browser can ask to connect. Browsers already connected keep working.</p>' +
+      '<div class="acts"><button class="btn uprime" type="button" data-wait="ctack" aria-describedby="waitct-head waitct-say"' + (WAIT.busy || !WAIT.ctFinding ? ' disabled' : '') + '>I have seen it</button></div></div>');
+  }
   WAIT.rows.forEach((w, i) => out.push(waitRowHtml(w, i + 1)));
   if (WAIT.note) out.push('<p class="askwait" id="plus-waiting-note" tabindex="-1">' + askEsc(WAIT.note) + '</p>');
   if (WAIT.rows.length || WAIT.error) {
@@ -52285,11 +52294,11 @@ async function waitAct(act, id) {
   }
   WAIT.busy = id || 'clear';
   paintAsk();
-  const route = act === 'allow' ? 'allow' : act === 'drop' ? 'drop' : 'clear';
+  const route = act === 'allow' ? 'allow' : act === 'drop' ? 'drop' : act === 'ctack' ? 'ct-ack' : 'clear';
   let res = null;
   try {
     res = await fetch('/api/remote/waiting/' + route, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(act === 'clear' ? {} : act === 'allow' ? { knockId: id, code: WAIT.typed[id] || '' } : { knockId: id }) });
+      body: JSON.stringify(act === 'clear' ? {} : act === 'ctack' ? { finding: WAIT.ctFinding } : act === 'allow' ? { knockId: id, code: WAIT.typed[id] || '' } : { knockId: id }) });
   } catch { res = null; }
   const said = res ? await res.json().catch(() => null) : null;
   WAIT.busy = '';
@@ -52304,10 +52313,11 @@ async function waitAct(act, id) {
     else if (act === 'drop' && said.allowed && said.takenBack) note('That browser had been let in a moment before you pressed Not me. It has been taken back out.');
     else if (act === 'drop' && said.allowed) note('That browser was already let in a moment ago. If it is not yours, remove it under Devices.');
     else if (act === 'drop') note('Turned away for today. If that was your own browser, press Clear waiting browsers, then reload the page on it for a new code.');
+    else if (act === 'ctack') note('New browsers can ask to connect again. If a phone was waiting, reload the page on it.');
     else note('Cleared. A browser that still wants in gets a new code when its page is reloaded.');
     if (act === 'allow') paintDevices();   // the device it let in shows in the list now
-  } else if (act === 'clear') {
-    note(plusWords((said && said.error) || 'We could not clear the waiting browsers. Try again.'));
+  } else if (act === 'clear' || act === 'ctack') {
+    note(plusWords((said && said.error) || (act === 'ctack' ? 'We could not save that. Try again.' : 'We could not clear the waiting browsers. Try again.')));
   } else {
     WAIT.said[id] = plusWords((said && said.error) || 'We could not save that. Try again.');
     if (act === 'allow' && said && Number.isInteger(said.triesLeft)) WAIT.wrong[id] = true;
@@ -52317,7 +52327,7 @@ async function waitAct(act, id) {
   await pollWaiting();
   /* A row the tunnel dropped meanwhile (five wrong codes, no longer waiting) takes its sentence with it: say it in the
      note instead (review 1), and move focus there, or to the next row's field. */
-  if (id && WAIT.said[id] === undefined && !ok && act !== 'clear' && !WAIT.rows.some((w) => w.knockId === id)) {
+  if (id && WAIT.said[id] === undefined && !ok && act !== 'clear' && act !== 'ctack' && !WAIT.rows.some((w) => w.knockId === id)) {
     note(plusWords((said && said.error) || 'That browser is no longer waiting.'));
     paintAsk();
   }
@@ -54361,6 +54371,9 @@ async function pollCwNote() {
   const ackBtn = document.getElementById('plus-cw-ack');
   let ackBusy = false;   // a busy flag and aria-busy, not disabled: a disabled button drops keyboard focus (the switch's way)
   if (ackBtn) ackBtn.addEventListener('click', async () => {
+    /* kosmos#6590 (c4): while the tunnel pauses new browsers for this finding, Got it acknowledges it there first (and
+       the board's own note after), so the two never disagree. */
+    if (typeof WAIT !== 'undefined' && WAIT.v2 && WAIT.ctAlarm) { await waitAct('ctack'); if (typeof paintPlus === 'function') paintPlus(); return; }
     const at = Number(ackBtn.dataset && ackBtn.dataset.at);
     if (!Number.isInteger(at) || at <= 0 || ackBusy) return;
     ackBusy = true; ackBtn.setAttribute('aria-busy', 'true');

@@ -420,3 +420,27 @@ test('c3 review 1: Not me that loses the race to an Allow takes the browser back
   assert.equal(avRuns(), 1, 'premise: the vouch answer arrived');
   assert.ok(!(remote.read().vouched || {}).draced, 'a browser the person said Not me to was noted as connected');
 });
+
+/* kosmos#6590 (c4): acknowledging the certificate warning the tunnel pauses new browsers for. */
+const FINDING = 'a'.repeat(64);
+test('c4: ct-ack sends only the finding shown, refuses a changed one, and writes the board\'s lost-ack only after the tunnel\'s', async () => {
+  setup({ marker: false });
+  assert.equal((await remote.deviceCtAck(FINDING)).ok, false, 'without the marker');
+  assert.deepEqual(devicesCalls(), []);
+  setup();
+  for (const bad of ['', 'nothex', 'A'.repeat(64), null]) assert.equal((await remote.deviceCtAck(bad)).ok, false, String(bad));
+  assert.deepEqual(devicesCalls(), [], 'a malformed finding reached the tunnel');
+  // A lost report the board would also note.
+  fs.writeFileSync(path.join(STATE, 'ct-watch.json'), JSON.stringify({ state: 'unknown', checked_at: Math.floor(Date.now() / 1000), damaged_report_at: 1700000000 }));
+  answer = () => ({ out: JSON.stringify({ acknowledged: false, changed: true }) });
+  let r = await remote.deviceCtAck(FINDING);
+  assert.deepEqual([r.ok, r.changed], [false, true]);
+  assert.ok(!fs.existsSync(path.join(STATE, 'ct-watch-lost-ack')), 'the board noted a finding the tunnel refused');
+  answer = () => ({ out: JSON.stringify({ acknowledged: true }) });
+  r = await remote.deviceCtAck(FINDING);
+  assert.equal(r.ok, true);
+  assert.deepEqual(devicesCalls().at(-1), ['devices', 'ct-ack', '--state-dir', STATE, '--finding', FINDING]);
+  assert.equal(fs.readFileSync(path.join(STATE, 'ct-watch-lost-ack'), 'utf8').trim(), '1700000000', 'the board\'s own lost-ack was not written after the tunnel\'s');
+  answer = () => ({ out: JSON.stringify({ acknowledged: false }) });
+  assert.equal((await remote.deviceCtAck(FINDING)).ok, false, 'nothing to acknowledge');
+});
