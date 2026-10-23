@@ -189,17 +189,19 @@ const check = (cond, n, why) => (cond ? ok(n) : bad(n, why));
       // repaint can), so the answer must land on the row now on screen, not the one the press came from.
       let repaintedMidFlight = false;
       await p.route('**/free-claim', async (route) => {
-        repaintedMidFlight = await p.evaluate(() => {
-          // A repaint that rebuilt the row (a full repaint over the same content keeps it, measured): put a copy of it in
-          // its place, so the row the press came from is no longer the one on screen.
-          const old = document.querySelector('#pj-room .rxns[data-bc-tag="pressed"]');
-          if (!old) return false;
-          const copy = old.cloneNode(true);
-          delete copy.dataset.bcTag;
-          old.replaceWith(copy);
-          return !document.querySelector('#pj-room .rxns[data-bc-tag="pressed"]') && !!copy.querySelector('.rxn-free');
-        }).catch(() => false);
-        await route.continue();
+        try {   // #6022: a handler that throws at teardown must not crash the check
+          repaintedMidFlight = await p.evaluate(() => {
+            // A repaint that rebuilt the row (a full repaint over the same content keeps it, measured): put a copy of it in
+            // its place, so the row the press came from is no longer the one on screen.
+            const old = document.querySelector('#pj-room .rxns[data-bc-tag="pressed"]');
+            if (!old) return false;
+            const copy = old.cloneNode(true);
+            delete copy.dataset.bcTag;
+            old.replaceWith(copy);
+            return !document.querySelector('#pj-room .rxns[data-bc-tag="pressed"]') && !!copy.querySelector('.rxn-free');
+          }).catch(() => false);
+          await route.continue();
+        } catch { /* the page closed under it */ }
       });
       await box(claimed).evaluate((b) => { b.dataset.bcTag = 'pressed'; });
       await box(claimed).locator('.rxn-free').focus();
