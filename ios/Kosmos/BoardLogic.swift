@@ -252,7 +252,7 @@ enum Board {
     // follow labelOf's order except that restarting comes after the question, permission and reconnecting checks; those
     // states cannot coincide, so the answers are the same.
     // Used only for a Mac that predates #7004: a newer Mac sends its word ready-made (cardWord), which wins. Kept equal
-    // to engine/cardlabel.js STATE_COPY by statusword-7004.test.js. Not copied: restartingLabel's causes ("Switching
+    // to engine/cardlabel.js STATE_COPY by server.statusword-7004.test.js. Not copied: restartingLabel's causes ("Switching
     // model" and the like), which read "Restarting agent" from an older Mac. Its ", not back yet" is copied.
     static let stateCopy: [String: String] = [
         "working": "Working", "needs_you": "Issue", "rate_limited": "Rate Limit",
@@ -303,7 +303,7 @@ enum Board {
     }
 
     // The board's words that mean "needs you" (the spec's table), engine/cardlabel.js NEEDS_YOU_WORDS (kept equal by
-    // statusword-7004.test.js).
+    // server.statusword-7004.test.js).
     static let needsYouWords: Set<String> = ["Needs permission", "Issue", "Rate Limit", "Sign-in Issue",
                                              "Connection lost", "Waiting", "Not running", "Can't tell"]
 

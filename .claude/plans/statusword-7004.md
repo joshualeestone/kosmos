@@ -29,8 +29,10 @@ restart's cause ("Switching to Opus"), only "Restarting agent".
 
 ## Decided
 - Field names `cardWord` / `cardTone`, not `label` / `tone`: new names cannot collide with an existing reader.
-- The count of agents needing the person is not added: `counts.needsYou` already carries it (countAgents, with the
-  route's offline rows added). Slice 4's Today badge reads that.
+- No count is added in this slice. `counts.needsYou` is the board's own Issue count (status.needsPerson), and it is
+  NOT the number of red rows on the phone: toneOf is wider (a Sign-in Issue, Rate Limit, Waiting or a stopped agent is
+  red on the phone and not in that count) and a question is gold, not red. Slice 4 (Today) decides what its badge
+  counts; counting the rows by cardTone is the way to match the list.
 - The tone rule lives with the words on the Mac (one place, for Android too); the phone keeps its rule only as the
   fallback.
 - A tone name the phone does not know is nil and the phone's own rule decides, so a tone the Mac adds later never
