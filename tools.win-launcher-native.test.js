@@ -591,7 +591,7 @@ test('the zip README speaks Windows: Extract, sign in, the real prompts, a folde
   assert.doesNotMatch(readme, /paste that path into the box|Make a new folder named Kosmos/, 'the README still has people make the install folder by hand');
   assert.doesNotMatch(readme, /AppData\\\\Local\\\\Programs/, 'the README spells out a profile path the person has to guess');
   assert.doesNotMatch(readme, /<your name>\\\\Kosmos\)/, 'the README suggests C:\\Users\\<name>\\Kosmos, where the Projects live (W-09)');
-  assert.match(readme, /Bookmarks to Kosmos don\\047t\\r\\n'\n\s*printf 'stay signed in\. Always open Kosmos from the Start menu\./);
+  assert.match(readme, /Bookmarks to Kosmos don\\047t stay signed in\. Always open\\r\\n'\n\s*printf 'Kosmos from the Start menu\./);
   assert.doesNotMatch(readme, /Always open Kosmos from Kosmos\.exe|double-click Kosmos\.exe again/, 'the README sends people back to the extracted Kosmos.exe after telling them they can delete the zip');
   /* win32-installer-native creates the Start menu entry, so the README may name it (#3286). */
   assert.match(readme, /open Start, type Task Scheduler, press Enter, and open\\r\\n'\n\s*printf 'Task Scheduler Library, then the Kosmos folder\./);

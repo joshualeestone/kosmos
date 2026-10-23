@@ -479,6 +479,8 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 # Kosmos.exe: it has just told them they can delete the zip (and so the folder
 # they extracted), and the Start menu shortcut runs the installed Kosmos.exe, the
 # same program, so it also signs an open window in again (tools/windows/README.md).
+# The one exception it names is a first run that never got as far as the Start
+# menu (the person pressed "Don't run"): then the extracted Kosmos.exe is the way.
 {
   printf 'Kosmos for Windows\r\n'
   printf '\r\n'
@@ -525,8 +527,10 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'Task Scheduler Library, then the Kosmos folder.\r\n'
   printf '\r\n'
   printf 'If Kosmos does not open, or the board says it is not signed in,\r\n'
-  printf 'open Kosmos from the Start menu again. Bookmarks to Kosmos don\047t\r\n'
-  printf 'stay signed in. Always open Kosmos from the Start menu.\r\n'
+  printf 'open Kosmos from the Start menu again. If Kosmos is not in the\r\n'
+  printf 'Start menu yet, double-click Kosmos.exe in the extracted folder once\r\n'
+  printf 'more. Bookmarks to Kosmos don\047t stay signed in. Always open\r\n'
+  printf 'Kosmos from the Start menu.\r\n'
 } > "$STAGE/! READ ME FIRST - Windows will warn you.txt"
 
 # ---- the manifest ----------------------------------------------------------
