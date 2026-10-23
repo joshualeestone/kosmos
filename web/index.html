@@ -68574,8 +68574,13 @@ function tkMarkSeen(n, projectId, retried = false, onDone = null, current = null
   }
   const settle = () => { if (onDone) onDone(true); };
   const failed = () => { if (retried) settle(); else setTimeout(() => tkMarkSeen(n, projectId, true, onDone, current), 3000); };
+  // The answer's body is read: in Chromium a reply left unread keeps its request open, so a page waiting for the
+  // network to go quiet would wait for good (the same trap the page's fetch wrapper drains for refusals, #6192).
   fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + n + '/seen', { method: 'POST' })
-    .then((res) => { if (res && res.status >= 500) failed(); else settle(); }, failed);
+    .then((res) => {
+      if (res && typeof res.text === 'function') res.text().catch(() => {});
+      if (res && res.status >= 500) failed(); else settle();
+    }, failed);
   return true;
 }
 /* #6951: the five-second read's call, one at a time: a read slower than five seconds is not joined by another. */

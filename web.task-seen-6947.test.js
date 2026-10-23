@@ -48,7 +48,7 @@ function page({ visible = 'visible', onScreen = true, open = 3, pj = 'p one', re
   let release = () => {};
   const gate = hold ? new Promise((r) => { release = r; }) : Promise.resolve();
   const fetch = async (url, opts) => {
-    if (opts && opts.method === 'POST') { posts.push(url); if (st.post === 'lost') throw new Error('lost'); return { status: st.post }; }
+    if (opts && opts.method === 'POST') { posts.push(url); if (st.post === 'lost') throw new Error('lost'); return { status: st.post, text: async () => { st.bodies = (st.bodies || 0) + 1; return ''; } }; }
     const asked = st.events;   // what the board held when this read was asked
     await gate;
     if (st.queue) await new Promise((r) => st.queue.push(r));
@@ -377,4 +377,13 @@ test('#6951: a hung read that finishes late does not release the flag held by th
   p.st.queue[0](); await p.settle(); await p.settle();   // the hung read finally lands
   p.tkPollActivity(); await p.settle();
   assert.equal(p.st.queue.length, 2, 'the late hung read freed the replacement read\'s flag, so a third started');
+});
+
+test('#6947: the seen reply\'s body is read, so the request finishes (an unread reply keeps it open in Chromium)', async () => {
+  for (const post of [200, 403, 500]) {
+    const p = page({ post });
+    await p.paintTaskActivity(3);
+    await p.settle();
+    assert.equal(p.st.bodies, 1, 'the seen reply was left unread (' + post + '), which keeps the request open');
+  }
 });
