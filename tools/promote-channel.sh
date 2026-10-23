@@ -56,9 +56,11 @@
 # approved build. With --version, the pointer and installer come from a site commit (on HEAD) whose
 # latest-staging.json names V, so staging can move on. Every commit naming V must name the same bytes;
 # the one used is the newest whose committed setup-staging hashes to its pointer's setup_sha256 (the
-# staging cut's own commit, which carries both), else the newest naming V. If V was cut more than once (a
-# re-cut after an abort), --sha <its sha256, 8+ characters> names which build Josh approved. A V older than the build prod
-# serves now is refused unless --allow-older is given (a rollback is a decision, not a typo). Every
+# staging cut's own commit, which carries both), else the newest naming V. --sha <8+ characters of its
+# sha256> names which build Josh approved: needed when V was cut more than once (a re-cut after an abort),
+# and with --force, so a forced promote is tied to the approved bytes, not only to a version that could be
+# mistyped. A V older than the build prod serves now is refused unless --allow-older is given (a rollback
+# is a decision, not a typo). Every
 # check below runs unchanged on what that commit holds: the artifact and its sidecar, the manifest and
 # its signature, the installer's sha and floor, and the gates (the experience gate expects V, so a board
 # on a later staging build answers cannot-tell and the promote HOLDS). The artifact itself is not in
@@ -128,6 +130,9 @@ SITE="${SITE:-${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}}"
 [ -z "$NAMED_VERSION" ] || [[ "$NAMED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "promote-channel: --version must be a version such as 0.7.64 (got '$NAMED_VERSION')" >&2; exit 1; }
 [ "$ALLOW_OLDER" = 0 ] || [ -n "$NAMED_VERSION" ] || { echo "promote-channel: --allow-older goes with --version" >&2; exit 1; }
 [ -z "$NAMED_SHA" ] || [ -n "$NAMED_VERSION" ] || { echo "promote-channel: --sha goes with --version" >&2; exit 1; }
+# A named promote's gates usually hold (the cut box's board has moved past V), so --force is its common path: tie it
+# to the approved build's bytes, not only to a version number.
+[ -z "$NAMED_VERSION" ] || [ "$FORCE" = 0 ] || [ -n "$NAMED_SHA" ] || { echo "promote-channel: --version with --force needs --sha <8+ characters of the approved build's sha256>, so a forced promote names the bytes Josh approved, not only a version" >&2; exit 1; }
 [ -z "$NAMED_SHA" ] || [[ "$NAMED_SHA" =~ ^[0-9a-f]{8,64}$ ]] || { echo "promote-channel: --sha must be 8 to 64 lowercase hex characters of the build's sha256 (got '$NAMED_SHA')" >&2; exit 1; }
 [ -d "$SITE/dist" ] || { echo "promote-channel: no $SITE/dist" >&2; exit 1; }
 # kosmos#6620: no release pointer moves while the site is frozen (tools/pointer-freeze.sh, the incident pin).
@@ -186,6 +191,8 @@ if [ -n "$NAMED_VERSION" ]; then
     _seen="${_seen:+$_seen; }sha256 ${_s:0:12} in ${_c:0:10} ($(git -C "$SITE" log -1 --format=%cs "$_c"))"
     # The build a commit names: its bytes, artifact and manifest. Every commit naming V must name the same one.
     _b="$_s|$(read_pointer_field "$NAMED_DIR/candidate.json" "$ARTIFACT_FIELD")|$(read_pointer_field "$NAMED_DIR/candidate.json" manifest)"
+    # A space-separated list: pointer fields are bare filenames and hex, never with spaces (a space would read as a
+    # disagreement, which refuses).
     case " $_builds " in *" $_b "*) ;; *) _builds="${_builds:+$_builds }$_b" ;; esac
     [ -n "$NAMED_COMMIT" ] || NAMED_COMMIT="$_c"
     _ps="$(read_pointer_field "$NAMED_DIR/candidate.json" setup_sha256)"
@@ -378,7 +385,14 @@ if [ "$FAMILY" = mac ]; then
         echo "promote-channel: gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: the experience was NOT automatically verified." >&2
         # #5084 (Baron's review): on a fleet board the gate HOLDS for every promote, so the #2023 check runs only if
         # someone runs it after the deploy. Say exactly how.
-        echo "promote-channel: AFTER the deploy, once the board the gate checked${PORT:+ (:$PORT)}${PORT:- (KOSMOS_PORT, else :16180)} reports $V, run the check it could not: KOSMOS_GATE_EXPECT_VERSION=$V bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-experience-check.sh${PORT:+ $PORT}" >&2
+        # (${X:+a}${X:-b} is not an if/else: with X set, :- adds X itself. The port words are chosen first.)
+        _gate_board="(KOSMOS_PORT, else :16180)"; [ -z "$PORT" ] || _gate_board="(:$PORT)"
+        if [ -n "$NAMED_VERSION" ]; then
+          # kosmos#7005: the board here has moved on to a later staging build and will never report $V again.
+          echo "promote-channel: AFTER the deploy, run the check it could not on a board that runs $V: not the board the gate checked $_gate_board, which has moved on to a later staging build, but a Mac on the prod channel once it has updated to $V, or a fresh install from /setup. KOSMOS_GATE_EXPECT_VERSION=$V bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-experience-check.sh <that board's port>" >&2
+        else
+          echo "promote-channel: AFTER the deploy, once the board the gate checked $_gate_board reports $V, run the check it could not: KOSMOS_GATE_EXPECT_VERSION=$V bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-experience-check.sh${PORT:+ $PORT}" >&2
+        fi
       else
         echo "promote-channel: gate could not tell (exit 2) - its cannot-tell line above says why: no fresh enforcing board here, or a board that is not running $V (#5084). HOLDING. Run this on/against a fresh staging board on $V, or pass --force after verifying $V by hand." >&2
         exit 2
@@ -591,6 +605,12 @@ fi
 if [ -n "$SETUP_STAGING" ] && { [ "$(shasum -a 256 < "$SETUP_SRC" | awk '{print $1}')" != "$SETUP_STAGING" ] \
      || [ "$(awk 'NR==1{print $1}' "$SETUP_SRC.sha256")" != "$SETUP_STAGING" ]; }; then
   echo "promote-channel: setup-staging changed while the gates ran - refusing; nothing was written." >&2; exit 1
+fi
+# kosmos#7005: a named promote does not have the staging-pointer re-check above to catch V being re-cut while the gates
+# ran (a re-cut replaces V's tarball and sidecar in dist/), so it re-verifies the bytes here, before the first write.
+if [ -n "$NAMED_VERSION" ]; then
+  ( cd "$SITE/dist" && shasum -a 256 --status -c "$ARTIFACT.sha256" ) && [ "$(awk '{print $1}' "$SITE/dist/$ARTIFACT.sha256")" = "$SHA" ] \
+    || { echo "promote-channel: $ARTIFACT is no longer the bytes checked above (sha256 $SHA; was $V re-cut while the gates ran?) - refusing; nothing was written." >&2; exit 1; }
 fi
 
 # Promote: copy the staging SNAPSHOT to prod. A pointer copy - the artifact bytes are already

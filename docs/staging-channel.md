@@ -91,13 +91,17 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    **A build other than the one staging serves now: `--version <V>` (kosmos#7005).** By default the
    promote takes whatever `latest-staging.json` names, so a prod GO pending on one build used to freeze
    staging. `tools/promote-channel.sh <site-checkout> <port> --version <V>` reads V's pointer and
-   installer from the site commit that published them (on the checkout's HEAD, which must be on origin's
-   main), so staging can take later cuts while the GO waits. Every check above runs unchanged; V's tarball
+   installer from the site commit that published them (a commit on the checkout's HEAD that must also be
+   on origin's main), so staging can take later cuts while the GO waits. The same checks run on what that
+   commit holds, with two differences: the installer pair is read from the commit (so the working tree's
+   `setup-staging` is neither checked nor used), and the staging-moved-during-the-gates refusal does not
+   apply (a commit cannot move); instead the artifact is re-verified right before the write. V's tarball
    must still be in the checkout's `dist/`. If V was cut more than once, the promote refuses and lists
-   the builds: add `--sha <8+ characters of the approved build's sha256>`. A V older than prod's is
-   refused unless `--allow-older` is given. The board gates still need a board on V: once the cut box's
-   board has moved to a later staging build they answer cannot-tell, and the promote HOLDS (exit 2),
-   forceable only after a hand check of V, as above.
+   the builds: add `--sha <8+ characters of the approved build's sha256>`. `--force` with `--version`
+   needs `--sha` too. A V older than prod's is refused unless `--allow-older` is given. The board gates
+   still need a board on V: once the cut box's board has moved to a later staging build they answer
+   cannot-tell, and the promote HOLDS (exit 2), forceable only after a hand check of V; the board check it
+   could not run is then made after the deploy on a Mac that has updated to V.
 5. **Deploy the promoted pointer to prod.** `promote-channel.sh` only rewrites `latest.json` in the
    LOCAL site checkout ("the next site deploy publishes the prod pointer. No rebuild happened.");
    prod keeps SERVING the old version until a deploy. **`deploy-site.sh --publish` does NOT do this**

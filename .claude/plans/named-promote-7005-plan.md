@@ -70,3 +70,13 @@ fresh cut box would not have it; the promote then refuses (artifact missing), as
 - docs/staging-channel.md step 4 documents --version / --sha / --allow-older and the hold on a moved board.
 - The -G comment states why it finds every commit: the pointer is one line.
 - Not changed: in named mode with the key-list check on, origin main is fetched twice (harmless).
+
+## Iteration 4 (challenge) changes
+- After a forced cannot-tell, named mode sends the post-deploy experience check to a board on V (a Mac
+  updated to it, or a fresh /setup install), not to the cut box's board, which has moved on.
+- Named mode re-verifies the artifact against its sidecar and the pointer sha right before the first write
+  (a re-cut of V during the gates replaced the bytes; before, latest.json was written first).
+- `--force` with `--version` needs `--sha`: a forced named promote names the approved bytes.
+- Pre-existing bug fixed in passing, in the DEFAULT path's post-force advice: `${PORT:+ (:$PORT)}${PORT:- ...}`
+  printed the port twice ("(:16999)16999"). This is the one default-path output change on this branch.
+- Docs say precisely what differs in named mode.
