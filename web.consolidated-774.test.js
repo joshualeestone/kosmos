@@ -34,7 +34,12 @@ test('an empty consolidated centre says what to press (the projects column is no
   // #2842 / #3053: the show also suppresses the hint while the consolidated user-settings view
   // OR the New Agent create panel is open (each takes over the display column), so #pj-none does
   // not render over them. It still keys on the record (view === 'list'), never the DOM.
-  assert.match(PAGE, /const show = document\.body\.classList\.contains\('consolidated'\) && view === 'list' && !appSettingsOpen && !appCreateOpen && !appTasksOpen && !appAgentsOpen && !appProjectsOpen;/, 'the hint must stay off while any overlay, including the #4345 Agents view, holds the column');
+  assert.match(PAGE, /const show = document\.body\.classList\.contains\('consolidated'\) && view === 'list' && !displayColumnOverlayOpen\(\);/, 'the hint must stay off while any overlay, including the #4345 Agents view, holds the column');
+  // #6910: the overlay test lives in one helper, shared with loadProjects' opens; it must still name all five.
+  const ov = PAGE.slice(PAGE.indexOf('function displayColumnOverlayOpen() {'), PAGE.indexOf('function paintPjNone(which) {'));
+  for (const id of ["inColumn('panel-settings')", "inColumn('panel-create')", "inColumn('panel-tasks')", "shown('panel-cons-agents')", "shown('panel-cons-projects')"]) {
+    assert.ok(ov.includes(id), `displayColumnOverlayOpen no longer covers ${id}`);
+  }
   assert.match(PAGE, /PJ_READ_FAILED = true;\n    paintPjNone\(\);/, 'the failure branch repaints the sentence');
   // painted after the read's outcome is recorded (PJ_READ_FAILED = false), never between the two
   assert.match(PAGE, /PJ_READ_FAILED = false;\n(?:[^\n]*\n){0,4}    paintPjNone\(\);\n  \} catch \{/);
@@ -55,7 +60,8 @@ test('an empty consolidated centre says what to press (the projects column is no
 /* The sentence's whole table, run through the real function with a small
    document shim, so a wording or a branch can only change here on purpose. */
 function paintWith(state) {
-  const src = PAGE.match(/function paintPjNone\(which\) \{[\s\S]*?\n\}\n/)[0];
+  // #6910: paintPjNone asks displayColumnOverlayOpen, so it is lifted too (no overlay exists in this shim).
+  const src = PAGE.match(/function displayColumnOverlayOpen\(\) \{[\s\S]*?\n\}\n/)[0] + PAGE.match(/function paintPjNone\(which\) \{[\s\S]*?\n\}\n/)[0];
   const el = { hidden: true, textContent: '' };
   const classes = new Set(state.classes || []);
   const document = { getElementById: (id) => (id === 'pj-none' ? el : null), body: { classList: { contains: (c) => classes.has(c) } } };

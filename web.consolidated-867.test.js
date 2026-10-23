@@ -79,17 +79,19 @@ test('a project auto-opens on the first consolidated load, once, and only when n
   assert.match(block, /sortProjects\(PROJECTS\.filter\(\(p\) => !p\.archived\), PJ_SORT\)/, 'the pick does not respect the person\'s own sort order, or considers archived projects');
   assert.match(block, /openProject\(first\.id\)/, 'nothing actually opens the picked project');
   // Comes after the deep-link block, so a real ?project= link still wins.
-  const wantAt = SCRIPT.indexOf('if (WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE)');
+  const wantAt = SCRIPT.indexOf('if (WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE');
   assert.ok(wantAt > -1 && wantAt < at, 'the deep-link check moved after the auto-open, so a deep link could lose the race');
 });
 
-test('#6910: a view the person opens into the display column stops a late auto-open from replacing it', () => {
-  const at = SCRIPT.indexOf('function takeOverDisplayColumn() {');
-  assert.ok(at > -1, 'takeOverDisplayColumn is gone');
-  const end = SCRIPT.indexOf('\n}\n', at);
-  const body = SCRIPT.slice(at, end);
-  assert.match(body, /PJ_AUTO_OPENED_ONCE = true;/,
-    'opening Settings, Agents, Tasks or New Agent before the first projects read lands lets the auto-open hide it (#6910)');
+test('#6910: a late projects read does not replace a view the person opened into the display column', () => {
+  const at = SCRIPT.indexOf('if (!PJ_AUTO_OPENED_ONCE');
+  assert.match(SCRIPT.slice(at, at + 200), /!displayColumnOverlayOpen\(\)/,
+    'the arrival auto-open can replace Settings, Agents, Tasks or New Agent when the first read lands late (#6910)');
+  const want = SCRIPT.indexOf('if (WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE');
+  assert.match(SCRIPT.slice(want, want + 200), /!displayColumnOverlayOpen\(\)/,
+    'a ?project= deep link can replace a view the person opened before the read landed (#6910)');
+  // Waiting, not done: neither flag may be set before the column check passes, or a later read could not open it.
+  assert.match(SCRIPT.slice(at, at + 260), /\{\n\s+PJ_AUTO_OPENED_ONCE = true;/, 'the auto-open flag is set outside its guarded branch');
 });
 
 test('the agents and projects rail titles sit at the same height', () => {

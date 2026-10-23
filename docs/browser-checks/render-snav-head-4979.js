@@ -299,9 +299,9 @@ function chk(ok, label, extra) {
           /* #6910: the page's projects reads are held until Settings has been clicked. On a slow runner they landed
              after the click, and the first one's one-time auto-open (#867) took the display column back, hiding
              Settings. Holding them makes that order certain on every run, instead of on a slow one only. The page
-             makes several reads at load, so every read waits, not only the first. Released after 10 s regardless. */
+             makes several reads at load, so every read waits, not only the first. Released after 30 s regardless. */
           let releaseProjects;
-          const projectsHeld = new Promise((r) => { releaseProjects = r; setTimeout(r, 10000); });
+          const projectsHeld = new Promise((r) => { releaseProjects = r; setTimeout(r, 30000); });
           await page.route(/\/api\/projects$/, async (r) => {
             try {
               if (r.request().method() === 'GET') await projectsHeld;
@@ -329,6 +329,11 @@ function chk(ok, label, extra) {
           await page.waitForFunction(() => PJ_LOADED_ONCE === true, null, { timeout: 20000 })
             .catch((e) => { throw new Error(`${tag}: the first projects read never landed: ${e.message}`); });
           await page.waitForTimeout(300);   // the read's own paint, auto-open included, has run
+          /* The late read had a project to open (so the arm tests something), and none took the column. */
+          const late = await page.evaluate(() => ({ active: PROJECTS.some((x) => !x.archived), want: WANT_PROJECT || null,
+            cur: PJ_CURRENT, oneShown: !document.getElementById('pj-one-view').hidden }));
+          chk(late.active && late.want === null, `${tag}: control: the late read had an active project the arrival auto-open could open`, JSON.stringify(late));
+          chk(late.cur === null && !late.oneShown, `${tag}: the late read did not open a project over Settings (#6910)`, JSON.stringify(late));
           await page.waitForSelector('#s-nav button[data-go="mac"]', { state: 'visible', timeout: 20000 })
             .catch(async (e) => {
               const snap = page.evaluate(() => {

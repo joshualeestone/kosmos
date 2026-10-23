@@ -51335,9 +51335,6 @@ function placeAppSettings(consolidated) {
 function takeOverDisplayColumn() {
   const projects = document.getElementById('panel-projects');
   if (!projects) return;
-  /* #6910: the column is now the person's choice, so the arrival auto-open (#867, in loadProjects) must not
-     replace it when the first projects read lands late. Every caller here is a person's action. */
-  PJ_AUTO_OPENED_ONCE = true;
   projects.hidden = false;
   for (const v of ['one', 'add', 'settings', 'task', 'docs']) {
     const el = document.getElementById('pj-' + v + '-view');
@@ -51738,6 +51735,16 @@ try {
   if (tlq && tlq.addEventListener) tlq.addEventListener('change', () => { if (STYLE_TRIED) applyLayout(deviceLayout(STYLE_LAYOUT || 'tabs'), true); });   // not before paintStyles has run; a failed read counts as tabs
 } catch { /* no media queries: the board's setting stands */ }
 /* #774: the consolidated centre with nothing open says what to press. */
+/* #6910: one answer to "does a view the person opened hold the display column?" (Settings, New Agent, Tasks, Agents
+   or the Projects page, each relocated into #panel-projects or shown beside it). paintPjNone keeps the "No projects
+   yet" hint off it, and loadProjects keeps its arrival and deep-link opens from replacing it. */
+function displayColumnOverlayOpen() {
+  const pp = document.getElementById('panel-projects');
+  const inColumn = (id) => { const el = document.getElementById(id); return !!(el && pp && el.parentElement === pp && !el.hidden); };
+  const shown = (id) => { const el = document.getElementById(id); return !!(el && !el.hidden); };
+  return inColumn('panel-settings') || inColumn('panel-create') || inColumn('panel-tasks')
+    || shown('panel-cons-agents') || shown('panel-cons-projects');
+}
 function paintPjNone(which) {
   const el = document.getElementById('pj-none');
   if (!el) return;
@@ -51752,28 +51759,9 @@ function paintPjNone(which) {
      poll re-invokes paintPjNone, so hiding it once in openConsolidatedSettings is not enough;
      the settings panel being open (relocated into #panel-projects and visible) is what
      suppresses the hint, checked here so every caller (the poll included) agrees. */
-  const appSettingsOpen = (() => {
-    const ps = document.getElementById('panel-settings');
-    const pp = document.getElementById('panel-projects');
-    return !!(ps && pp && ps.parentElement === pp && !ps.hidden);
-  })();
-  /* #3053: the relocated New Agent create panel takes over the display column the same way, so
-     suppress the "No projects yet" hint while it is open too (the 5s poll re-invokes this). */
-  const appCreateOpen = (() => {
-    const pc = document.getElementById('panel-create');
-    const pp = document.getElementById('panel-projects');
-    return !!(pc && pp && pc.parentElement === pp && !pc.hidden);
-  })();
-  /* #3559: the relocated Tasks view takes over the column the same way. */
-  const appTasksOpen = (() => {
-    const pt = document.getElementById('panel-tasks');
-    const pp = document.getElementById('panel-projects');
-    return !!(pt && pp && pt.parentElement === pp && !pt.hidden);
-  })();
-  // #4345: the Agents view in the column is an overlay like the three above.
-  const appAgentsOpen = (() => { const pa = document.getElementById('panel-cons-agents'); return !!(pa && !pa.hidden); })();
-  const appProjectsOpen = (() => { const pf = document.getElementById('panel-cons-projects'); return !!(pf && !pf.hidden); })();   // #4377
-  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen && !appTasksOpen && !appAgentsOpen && !appProjectsOpen;
+  /* #2842, #3053, #3559, #4345, #4377: Settings, New Agent, Tasks, Agents and the Projects page each take over the
+     display column; the hint stays off while one does (the 5s poll re-invokes this). */
+  const show = document.body.classList.contains('consolidated') && view === 'list' && !displayColumnOverlayOpen();
   el.hidden = !show;
   if (!show) return;
   /* A failed read leaves the rail saying it cannot look, and this sentence
@@ -66502,7 +66490,9 @@ async function loadProjects() {
     /* The project deep link (#374), once: the first load that can see the
        project opens it, the way the first poll opens WANT_AGENT. A project
        that is not there lands on the list, which says so. */
-    if (WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE) {
+    /* #6910: neither open below replaces a view the person has opened into the column since arriving (a read that
+       lands late, on a slow load). Neither is marked done then, so a later read opens it once the column is free. */
+    if (WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE && !displayColumnOverlayOpen()) {
       WANT_PROJECT_DONE = true;
       if (pjById(WANT_PROJECT)) {
         openProject(WANT_PROJECT);
@@ -66516,7 +66506,7 @@ async function loadProjects() {
        PJ_SORT's own order (the person's own chosen sort, defaulting to
        newest first) picks the first active project, the same ordering
        the list itself renders in. */
-    if (!PJ_AUTO_OPENED_ONCE && !WANT_PROJECT && !PJ_CURRENT
+    if (!PJ_AUTO_OPENED_ONCE && !WANT_PROJECT && !PJ_CURRENT && !displayColumnOverlayOpen()
       && document.documentElement.getAttribute('data-layout') === 'consolidated') {
       PJ_AUTO_OPENED_ONCE = true;
       const first = sortProjects(PROJECTS.filter((p) => !p.archived), PJ_SORT)[0];
