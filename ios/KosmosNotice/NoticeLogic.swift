@@ -112,8 +112,8 @@ enum PhoneNotice {
         return r
     }
 
-    // kosmos#6487: true needs Kosmos.entitlements to ask for Communication Notifications (check-ipa-entitlements.sh
-    // refuses a store build that has one without the other). False sends the picture as the notice's attachment.
+    // kosmos#6487: true needs Kosmos.entitlements to ask for Communication Notifications. False sends the picture as
+    // the notice's attachment.
     static let messageStyleKey = "KosmosMessageStyle"
 
     // The file name ending iOS needs to show a picture as an attachment, from the picture's content type; nil for a

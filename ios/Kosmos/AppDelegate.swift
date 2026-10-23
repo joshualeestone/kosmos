@@ -10,7 +10,7 @@ import UIKit
 // unlock), not a repackaged web page. The pieces here are wired and buildable;
 // the parts that need external unblocks are marked and stubbed:
 //   - The APNs auth key (.p8) lives on the coordinator, not in the app (#718).
-//     The app needs only the aps-environment entitlement (ios/Kosmos.entitlements)
+//     For push the app needs the aps-environment entitlement (ios/Kosmos.entitlements)
 //     and a signing identity with push enabled. Without that identity (an
 //     unsigned build, or no provisioning yet) registerForRemoteNotifications()
 //     ends in didFailToRegisterForRemoteNotificationsWithError; expected.
