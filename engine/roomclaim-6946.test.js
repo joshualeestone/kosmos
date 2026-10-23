@@ -299,3 +299,169 @@ test('round 7: an old unmarked 🙋 pill can be taken off, by an agent or the pe
   assert.equal(messages.react({ project: 'p', of: 'm5', emoji: HAND_TONE, operator: true }).op, 'remove');
   assert.deepEqual(pills('m5'), [], 'the person\'s old toned pill could not be taken off');
 });
+
+test('#6952: a post that @-names members can be claimed only by them; control: a post that names nobody, by anyone', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please do X', outcomes: {}, at: new Date().toISOString() });
+  const ann = claim('ann');
+  assert.equal(ann.ok, false, 'ann claimed a post that asks bob');
+  assert.deepEqual(ann.askedOf, ['bob']);
+  assert.equal(ann.because, 'that post asks bob, so it is theirs to take for 30 more minutes: read the room, and ask them if you can help (if they hand it to you, claim the post where they do)');
+  assert.deepEqual(messages.react({ project: 'p', of: 'm1', emoji: HAND, from: 'ann', members: MEMBERS }).askedOf, ['bob'], 'a plain 🙋 went around the rule');
+  assert.equal(claim('bob').op, 'add', 'bob could not claim the post that asks him');
+  // CONTROL: `to` is every member here too, but nobody is named, so ann can claim it.
+  append({ kind: 'post', id: 'm2', project: 'p', from: 'you', operator: true, to: MEMBERS, text: 'can someone do Y', outcomes: {}, at: new Date().toISOString() });
+  assert.equal(claim('ann', 'm2').op, 'add');
+});
+
+test('#6952: an agent named operator cannot react (it would read as the person in the room view)', () => {
+  seedPost('m1', 'p');
+  const r = messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'operator', members: ['operator'] });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /that name is reserved/);
+  assert.match(messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'Operator', members: ['Operator'] }).because, /that name is reserved/);
+  // CONTROL: the same reaction from an ordinary member lands.
+  assert.equal(messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'ann', members: MEMBERS }).op, 'add');
+});
+
+test('#6952 review 1: a post naming only someone who has left the room is open to the rest; control: while they are in it, it is not', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please do X', outcomes: {}, at: new Date().toISOString() });
+  assert.equal(claim('ann', 'm1', 'claim', ['ann', 'bob', 'cy']).ok, false, 'CONTROL: with bob in the room, ann must be refused');
+  const after = claim('ann', 'm1', 'claim', ['ann', 'cy']);
+  assert.equal(after.ok, true, 'a post naming only a departed member could never be claimed');
+  assert.equal(after.op, 'add');
+});
+
+test('#6952 review 1: the name operator is reserved when an agent is created, in any case', () => {
+  const create = require('./create');
+  const check = create.nameProblem;
+  assert.equal(typeof check, "function", "engine/create.js no longer exports nameProblem");
+  for (const n of ['operator', 'Operator', 'OPERATOR']) assert.match(String(check(n)), /reserved/, n);
+  assert.equal(check('operators'), null, 'a name that only starts with operator was refused');
+});
+
+test('#6952 review 2: a reply asks the author of the post it answers; control: a reply to the person\'s own post asks nobody', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = () => new Date().toISOString();
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'bob', to: MEMBERS, text: 'Shall I fix the login bug?', outcomes: {}, at: at() });
+  append({ kind: 'post', id: 'm2', project: 'p', from: 'you', operator: true, to: MEMBERS, replyTo: 'm1', text: 'yes please, go ahead', outcomes: {}, at: at() });
+  const ann = claim('ann', 'm2');
+  assert.equal(ann.ok, false, 'ann claimed the go-ahead meant for bob');
+  assert.deepEqual(ann.askedOf, ['bob']);
+  assert.equal(claim('bob', 'm2').op, 'add');
+  // CONTROL: the person answering their OWN post asks nobody new, so anyone can claim it.
+  append({ kind: 'post', id: 'm3', project: 'p', from: 'you', operator: true, to: MEMBERS, text: 'can someone do Y', outcomes: {}, at: at() });
+  append({ kind: 'post', id: 'm4', project: 'p', from: 'you', operator: true, to: MEMBERS, replyTo: 'm3', text: 'still open', outcomes: {}, at: at() });
+  assert.equal(claim('ann', 'm4').op, 'add');
+});
+
+test('#6952 review 4/5: a hand-off is a post of its own, by an agent or the person; a side question hands nothing over', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = () => new Date().toISOString();
+  const post = (row) => append({ kind: 'post', project: 'p', to: MEMBERS, outcomes: {}, at: at(), ...row });
+  post({ id: 'm1', from: 'you', operator: true, mentioned: ['bob'], text: '@bob please fix the login bug' });
+  // bob asks ann a side question on m1: it hands nothing over, so bob keeps m1.
+  post({ id: 'm2', from: 'bob', replyTo: 'm1', mentioned: ['ann'], text: '@ann can you check my approach first?' });
+  assert.deepEqual(claim('ann').askedOf, ['bob'], 'an asked member\'s side question handed the request away');
+  // bob hands it on in his own post: ann claims THAT post, which asks her.
+  post({ id: 'm3', from: 'bob', replyTo: 'm1', mentioned: ['ann'], text: '@ann I am out of usage, please take this' });
+  assert.equal(claim('ann', 'm3').op, 'add', 'ann could not claim the post that hands the work to her');
+  assert.match(claim('cy', 'm1').because, /if they hand it to you, claim the post where they do/);
+  // The person's side question on an OPEN post does not lock it to the one they name (review 5).
+  post({ id: 'm5', from: 'you', operator: true, text: 'can someone fix the signup page' });
+  post({ id: 'm6', from: 'you', operator: true, replyTo: 'm5', mentioned: ['bob'], text: '@bob was this the page you touched last week?' });
+  assert.equal(claim('cy', 'm5').op, 'add', 'the person\'s side question locked an open post to bob');
+  // The person's hand-off is its own post: ann claims it.
+  post({ id: 'm7', from: 'you', operator: true, replyTo: 'm5', mentioned: ['ann'], text: '@ann you take the header' });
+  assert.equal(claim('ann', 'm7').op, 'add');
+});
+
+test('#6952 review 5: naming someone in a request to the room does not make it theirs; control: a request to them does', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = () => new Date().toISOString();
+  const post = (row) => append({ kind: 'post', project: 'p', to: MEMBERS, outcomes: {}, at: at(), ...row });
+  post({ id: 'm1', from: 'you', operator: true, mentioned: ['bob'], text: 'can someone review what @bob shipped yesterday?' });
+  assert.equal(claim('ann', 'm1').op, 'add', 'a reference to bob in a request to the room locked it to bob');
+  post({ id: 'm2', from: 'bob', to: MEMBERS, text: 'Deploy finished.' });
+  post({ id: 'm3', from: 'you', operator: true, replyTo: 'm2', text: 'great, now can someone write the release notes?' });
+  assert.equal(claim('ann', 'm3').op, 'add', 'a request to the room in a reply to bob was locked to bob');
+  // CONTROLS: "confirm" is not the room (it asks bob to confirm), and an ambiguous @-word leaves the post open.
+  post({ id: 'm4', from: 'you', operator: true, mentioned: ['bob'], text: '@bob please confirm the dates and send them out' });
+  assert.deepEqual(claim('ann', 'm4').askedOf, ['bob']);
+  post({ id: 'm5', from: 'you', operator: true, mentioned: ['bob'], ambiguousMentions: ['b'], text: '@b please fix X' });
+  assert.equal(claim('ann', 'm5').op, 'add', 'an ambiguous @-word locked the post');
+});
+
+test('#6952 review 3: an agent answering its own post asks the room; control: the person answering it asks that agent', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = () => new Date().toISOString();
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'bob', to: MEMBERS, text: 'Investigating the login bug', outcomes: {}, at: at() });
+  append({ kind: 'post', id: 'm2', project: 'p', from: 'bob', to: MEMBERS, replyTo: 'm1', text: 'Found it but I am out of usage, can someone take it?', outcomes: {}, at: at() });
+  const ann = claim('ann', 'm2');
+  assert.equal(ann.ok, true, 'bob\'s answer to his own post was locked to bob: ' + JSON.stringify(ann));
+  // CONTROL: the person answering bob's post asks bob.
+  append({ kind: 'post', id: 'm3', project: 'p', from: 'you', operator: true, to: MEMBERS, replyTo: 'm1', text: 'yes, finish it', outcomes: {}, at: at() });
+  assert.deepEqual(claim('cy', 'm3').askedOf, ['bob']);
+});
+
+test('#6952 review 6: a room word counts only where it asks for the work; "one of you" on a named post means them', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = () => new Date().toISOString();
+  let n = 0;
+  const ask = (row) => { n += 1; append({ kind: 'post', id: 'r' + n, project: 'p', from: 'you', operator: true, to: MEMBERS, outcomes: {}, at: at(), ...row }); return 'r' + n; };
+  // Requests to bob that mention the room in passing: still bob's.
+  for (const text of ['@bob please fix the bug someone reported in signup', '@bob please fix X, and do not let anyone else touch the migration',
+    '@bob please make sure everyone\'s tests pass after the bump', '@bob ask whoever owns billing']) {
+    assert.deepEqual(claim('cy', ask({ mentioned: ['bob'], text })).askedOf, ['bob'], text);
+  }
+  // "one of you" on a post naming ann and bob means ann or bob, not cy.
+  assert.deepEqual(claim('cy', ask({ mentioned: ['ann', 'bob'], text: '@ann @bob can one of you review this?' })).askedOf, ['ann', 'bob']);
+  // CONTROLS: the room asked for the work.
+  assert.equal(claim('cy', ask({ mentioned: ['bob'], text: 'anyone free to review what @bob shipped?' })).op, 'add');
+  append({ kind: 'post', id: 'd1', project: 'p', from: 'bob', to: MEMBERS, text: 'Deploy finished.', outcomes: {}, at: at() });
+  assert.equal(claim('cy', ask({ replyTo: 'd1', text: 'great. who can write the release notes?' })).op, 'add', 'who can in a reply to bob was locked to bob');
+  assert.equal(claim('cy', ask({ replyTo: 'd1', text: 'can one of you write the notes?' })).op, 'add', 'one of you in a reply naming nobody was locked to bob');
+});
+
+test('#6952 review 6: released is said only when a claim was given back', () => {
+  seedPost('m1', 'p');
+  assert.equal(claim('ann').op, 'add');
+  const toggled = messages.react({ project: 'p', of: 'm1', emoji: HAND, from: 'ann', members: MEMBERS });
+  assert.equal(toggled.released, true, 'the holder\'s own toggle-off did not say it released the claim');
+  assert.equal(claim('ann').op, 'add');
+  assert.equal(claim('ann', 'm1', 'release').released, true);
+  // An old unmarked pill that was never the claim: taken off, but nothing was released.
+  seedPost('m2', 'p');
+  append({ kind: 'reaction', project: 'p', of: 'm2', emoji: HAND, from: 'bob', op: 'add', at: '2026-10-21T00:00:00.000Z' });
+  const stray = messages.react({ project: 'p', of: 'm2', emoji: HAND, from: 'bob', members: MEMBERS });
+  assert.equal(stray.op, 'remove');
+  assert.equal(stray.released, undefined, 'taking off a pill that was never the claim said it released one');
+});
+
+test('#6952 review 7: the asked members have first call for 30 minutes, then anyone may claim; control: inside the window, refused', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix X', outcomes: {}, at: ago(29) });
+  const inside = claim('ann', 'm1');
+  assert.deepEqual(inside.askedOf, ['bob'], 'CONTROL: inside the window ann must be refused');
+  assert.match(inside.because, /for 1 more minute:/);
+  append({ kind: 'post', id: 'm2', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix Y', outcomes: {}, at: ago(31) });
+  assert.equal(claim('ann', 'm2').op, 'add', 'a post nobody it asked took up was held past the window');
+  // Two asked members read as "ann or bob".
+  append({ kind: 'post', id: 'm3', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['ann', 'bob'], text: '@ann @bob please fix Z', outcomes: {}, at: ago(1) });
+  assert.match(claim('cy', 'm3').because, /^that post asks ann or bob, so it is theirs to take for 29 more minutes/);
+});
+
+test('#6952 review 7: a room word inside a request to bob, a relative clause or a question for information, is still bob\'s', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  let n = 0;
+  const ask = (text, row) => { n += 1; append({ kind: 'post', id: 'q' + n, project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], outcomes: {}, at: new Date().toISOString(), text, ...(row || {}) }); return 'q' + n; };
+  for (const text of ['@bob please ping the person who can approve the DNS change, then ship it', '@bob does anyone still call this endpoint? if not, please delete it',
+    '@bob check who will be on call this weekend and update the pager config', '@bob why would anyone use the old flag? please remove it',
+    '@bob please email the volunteers the new schedule']) {
+    assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
+  }
+  // CONTROL: a bare "anyone?" asks the room.
+  assert.equal(claim('cy', ask('@bob is out today, anyone?')).op, 'add');
+});

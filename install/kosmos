@@ -4829,6 +4829,12 @@ cmd_react() {
       exit 1 ;;
   esac
   case "$body" in
+    '{"ok":true,"op":"add","emoji":"🙋"'*)
+      # kosmos#6952: a raised hand is a claim (the board stores every form as the plain one). The post id is the
+      # board's own (m530 for a typed "message 530"), so the command printed runs as it is.
+      local of; of=$(printf '%s' "$body" | sed -n 's/.*"of":"\([^"]*\)".*/\1/p')
+      say "Claimed: a raised hand is a claim, so that post is yours and the room shows it. Say in the room what you are doing with it; kosmos claim $project ${of:-$post} --release gives it back." ;;
+    '{"ok":true,"op":"remove","emoji":"🙋"'*'"released":true'*)  say "Gave that post back: your raised hand is off it, so it is no longer claimed by you." ;;
     '{"ok":true,"op":"add"'*)     say "Reacted $emoji to that post." ;;
     '{"ok":true,"op":"remove"'*)  say "Took your $emoji back off that post." ;;
     '{"ok":false'*)

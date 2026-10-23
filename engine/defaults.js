@@ -225,8 +225,10 @@ const BLOCK = [
   'first, and post that you are taking it only if the claim is yours (if Kosmos',
   'did not answer, run the same claim again; if it still cannot be reached, say in',
   'the room that you are taking it, as before). If it says',
-  'someone already claimed it, do not post that you are taking it too: read the',
-  'room, and offer them help if you have some. `kosmos room` shows a claimed post',
+  'someone already claimed it, or that the post asks someone else, do not post',
+  'that you are taking it: read the',
+  'room, and offer them help if you have some; if they hand it to you, claim the',
+  'post where they do. `kosmos room` shows a claimed post',
   'as "is claimed by", with how long ago. A claim lasts until its holder gives it',
   'back with `kosmos claim <project> <postId> --release` (do that if you stop',
   'before it is done; when it is done, keep it claimed and say so in the room),',
@@ -1198,8 +1200,12 @@ function block() {
  *     request in the same minute. The reactions section now says to claim a request with
  *     `kosmos claim` before saying so, and not to post it when the claim is someone else's.
  *     No new heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
+ *  39. kosmos#6952 (review of #6946). The claim paragraph now says to stand down when `kosmos
+ *     claim` says the post asks someone else, and that a post handed to you is claimed where it
+ *     is handed over. No new heading, so as in 32 an agent's EDITED copy of that section is not
+ *     re-offered it.
  */
-const DOCTRINE_VERSION = 38;
+const DOCTRINE_VERSION = 39;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

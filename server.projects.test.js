@@ -3007,6 +3007,19 @@ test('#6946: kosmos claim through the real /api/react route, and `kosmos room` s
     res = await req(`/api/project/${project.id}/room?as=text`);
     assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'the person\'s click changed who holds the post:\n' + res.body);
 
+    // #6952: an old unmarked raised hand from another agent (written before claims) is not listed either.
+    fs.appendFileSync(require('./engine/messages').LOG, JSON.stringify({ kind: 'reaction', project: project.id, of: id, emoji: '\u{1F64B}', op: 'add', from: 'olda', at: '2026-10-21T00:00:00.000Z' }) + '\n');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.doesNotMatch(res.body, /reactions on \[[^\]]+\]:[^\n]*olda/u, 'an old unmarked raised hand is on the reactions line:\n' + res.body);
+    // #6952: no 🙋 on the reactions line; the claim line says who holds it. Control: an ordinary reaction still shows.
+    // The person's 🙋 (their click above) stays: it says "yes, you do it". zeta's 🙋 is the claim, said on the claim
+    // line, so it is not listed here.
+    assert.ok(res.body.includes('[kosmos] reactions on [' + id + ']: \u{1F64B} operator\n'), 'the person\'s raised hand is not on the line:\n' + res.body);
+    assert.doesNotMatch(res.body, /reactions on \[[^\]]+\]:[^\n]*\u{1F64B}[^\n;]*zeta/u, 'an agent\'s raised hand is on the reactions line:\n' + res.body);
+    assert.equal((await asZeta({ emoji: '\u{1F44D}' })).op, 'add');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('[kosmos] reactions on [' + id + ']: \u{1F64B} operator; \u{1F44D} zeta\n'), 'CONTROL: an ordinary reaction is not on the line:\n' + res.body);
+
     // Round 4: the room's own member filter. zeta removed from the project: the line goes (control: it was there above).
     const remove = require('./engine/remove');
     fs.mkdirSync(path.dirname(remove.REMOVED_FILE), { recursive: true });
@@ -3014,6 +3027,8 @@ test('#6946: kosmos claim through the real /api/react route, and `kosmos room` s
     try {
       res = await req(`/api/project/${project.id}/room?as=text`);
       assert.doesNotMatch(res.body, /is claimed by/, 'kosmos room still says a removed agent holds the post:\n' + res.body);
+      // #6952: and the reactions line does not list the departed holder's raised hand either.
+      assert.doesNotMatch(res.body, /reactions on \[[^\]]+\]:[^\n]*\u{1F64B}[^\n;]*zeta/u, 'a departed holder\'s raised hand is on the reactions line:\n' + res.body);
       assert.equal(JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.find((r) => r.id === id).claim, undefined);
     } finally {
       fs.rmSync(remove.REMOVED_FILE, { force: true });

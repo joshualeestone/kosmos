@@ -3678,6 +3678,25 @@ const CLOSING_POST_MIN = 400;
 // #6608 review 2: words that ask the whole room for an answer, so a hand-off that also says them is not left to its owner
 // alone. Deliberately wide (a missed ask drops an answer someone wanted; a false one only lets an acknowledgement through).
 const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|confirm|let (me|us) know|reply|respond|thumbs up)\b/i;
+/* #6952: a request put to the room, for the claim rule. A room word counts only where it is the one being asked to do
+   the work: at the start of a clause ("can someone review...", "who can write the notes?"), or as the subject offered
+   the work ("anyone free to...", "whoever can...", "any takers", a bare "anyone?"). Not in passing ("@bob please fix
+   the bug someone reported", "@bob ping the person who can approve it", "@bob does anyone still call this?" all ask
+   bob). Not ROOM_ASK, which is about who must ANSWER ("confirm", "reply" ask the named member too), and not "?":
+   "@bob can you do X?" asks bob. A pattern always misses some phrasings, which is why the asked members hold a post only
+   for CLAIM_ASKED_MINUTES (react): a wrong lock costs at most that long. */
+const CLAIM_ASKED_MINUTES = 30;   // #6952: how long a post's asked members have first call on it
+const CLAIM_LEAD = "(?:^|[.!?;:,]\\s*)(?:(?:now|so|and|but|ok|okay|also|then|great|thanks)[,!]?\\s+)?";   // the start of a clause
+const CLAIM_ROOM_ASK = new RegExp(
+  CLAIM_LEAD + '(?:can|could|would|will|is there)\\s+(?:someone|somebody|anyone|anybody)\\b'          // "can someone review..."
+  + '|\\b(?:someone|somebody|anyone|anybody)\\s+(?:please|free|available|able|willing|up for|have time|has time)\\b'
+  + '|' + CLAIM_LEAD + 'who\\s+(?:can|could|wants|will|is free|is available)\\b[^.!?]*\\?'          // "who can write the notes?"
+  + '|\\bwhoever\\s+(?:can|is free|has time|wants|picks|takes|gets)\\b'
+  + '|\\b(?:any takers|any volunteers|need (?:a )?volunteers?)\\b'
+  + '|\\b(?:anyone|anybody|someone|somebody)\\s*\\?', 'i');
+/* "One of you" and the like put it to a group: on a post that @-names members that group is THEM ("@ann @bob can one of
+   you review this?"), so it counts only on a post that names nobody. */
+const CLAIM_GROUP_ASK = /\b(?:(?:one|any|either|each) of you|all of you|the rest of you|you all|y'?all)\b/i;
 function logRoomRefusal({ from, project, because, at, doing, addable }) {
   if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway
   const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
@@ -3728,7 +3747,9 @@ function react({ project, of, emoji, from, operator, members, claim }) {
      named 'you' (a legal tmux session name) would otherwise have its reactions
      replay as the operator's own and render `mine`. Reserve the name, the same
      operator-vs-agent care sendPost takes with the `operator` flag. */
-  if (operator !== true && reactor === 'you') {
+  /* #6952: 'operator' too. The room's text view names the person 'operator', so an agent with that name would read as
+     the person on a reactions or claim line. */
+  if (operator !== true && (reactor === 'you' || reactor.toLowerCase() === 'operator')) {
     return { ok: false, because: 'that name is reserved, so this reaction could not be attributed' };
   }
   /* #2255: the room is its members. An AGENT reacting into a room it is not on
@@ -3795,7 +3816,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     because: holder.by + ' claimed that post ' + claimAge(holder.at)
       + ', so do not post that you are taking it: read the room, and ask ' + holder.by + ' if you can help' });
   if (claim === 'release') {
-    if (holds) { dropPills(reactor); return { ok: true, op: 'remove', emoji: e, of: postId }; }
+    if (holds) { dropPills(reactor); return { ok: true, op: 'remove', emoji: e, of: postId, released: true }; }
     // Nothing of yours is held: a retried release, or a 🙋 of yours that was never the claim (taken off, so no pill
     // of yours is left). What you asked for is already true, so it is not a failure; who holds the post, if anyone,
     // is said with it.
@@ -3805,11 +3826,44 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   if (holds) {
     if (claim === 'claim') return { ok: true, op: 'already', emoji: e, of: postId };
     dropPills(reactor);   // the holder's own toggle off
-    return { ok: true, op: 'remove', emoji: e, of: postId };
+    return { ok: true, op: 'remove', emoji: e, of: postId, released: true };
   }
   // A plain 🙋 toggle by an agent with a pill that is not the claim takes that pill off, as any reaction would.
   if (claim !== 'claim' && pills) { dropPills(reactor); return { ok: true, op: 'remove', emoji: e, of: postId }; }
   if (holder && holder.by !== reactor) return refuse();
+  /* #6952: a post that ASKS particular members is theirs. Another agent's claim would tell the asked one to stand down,
+     so it is refused, naming who was asked. Asked is narrow on purpose (each wider version locked real requests to the
+     wrong agent in review):
+     - the members the post @-named (`mentioned`, recorded when it was sent, #185; never `to`, the delivery list, which
+       can be every member), unless an @-word was ambiguous (`ambiguousMentions`, as the #6608 owner rule) or the post
+       asks the room ("can someone review what @bob shipped?");
+     - for a post that names nobody and answers an agent's post (`replyTo`), that post's author ("yes, go ahead" to
+       bob), unless the replier is that author or the reply asks the room.
+     A hand-off, by an agent or by the person, is a post of its own ("@ann please take this"), which asks ann, and that is
+     the post ann claims. Only those still in the room count, so a post asking only someone who has left is open. */
+  const asksRoom = (text, names) => typeof text === 'string' && (CLAIM_ROOM_ASK.test(text) || (!names && CLAIM_GROUP_ASK.test(text)));
+  const askedSet = new Set();
+  const named = Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : [];
+  const unclear = Array.isArray(post.ambiguousMentions) && post.ambiguousMentions.length > 0;
+  if (named.length) {
+    if (!unclear && !asksRoom(post.text, true)) for (const n of named) askedSet.add(n);
+  } else if (typeof post.replyTo === 'string' && !asksRoom(post.text, false)) {
+    const answered = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === post.replyTo);
+    // The person's post has no session author ('you' is never a room member), so only an agent's post asks its author.
+    if (answered && answered.operator !== true && typeof answered.from === 'string' && answered.from && answered.from !== post.from) askedSet.add(answered.from);
+  }
+  const asked = [...askedSet].filter((n) => !Array.isArray(roomNow) || roomNow.includes(n));
+  /* The asked members have first call, for CLAIM_ASKED_MINUTES from the post (review 7). After that, with none of them
+     holding it, anyone may claim it: a request the pattern misread, or one its asked member never got to, is not held
+     forever. */
+  const leftMs = CLAIM_ASKED_MINUTES * 60000 - (Date.now() - Date.parse(post.at));
+  if (asked.length && !asked.includes(reactor) && leftMs > 0) {
+    const who = asked.length === 1 ? asked[0] : asked.slice(0, -1).join(', ') + ' or ' + asked[asked.length - 1];
+    const mins = Math.max(1, Math.ceil(leftMs / 60000));
+    return { ok: false, askedOf: asked,
+      because: 'that post asks ' + who + ', so it is theirs to take for ' + mins + ' more minute' + (mins === 1 ? '' : 's')
+        + ': read the room, and ask them if you can help (if they hand it to you, claim the post where they do)' };
+  }
   /* Round 2: a claimant who has left the room no longer holds anything, so a new claim ENDS theirs in the log too.
      Otherwise re-adding them to the project would bring their old claim back above this one. */
   if (Array.isArray(roomNow)) {
