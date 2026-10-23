@@ -33,6 +33,10 @@ pigeonpete.
   caller and the stand-in at once (a cancelled CI run) leaves the folder, which goes with the runner.
 - Outside a GitHub-hosted runner the library itself refuses a scratch base outside a kt<digits> sandbox, before
   anything starts, so neither a hand call nor a self-hosted runner can make a visible stand-in (not only run-tests.sh).
+  "A sandbox" is the machine-wide pattern alone (`(T|tmp)/kt<digits>`): process-fixture.sh's second branch is relative
+  to the caller's own TMPDIR, so a folder it accepts can still be a live cut to another agent (review 7, reversing
+  review 5's suggestion to reuse the whole function). "GitHub-hosted" means RUNNER_ENVIRONMENT=github-hosted; a runner
+  that does not say counts as shared.
 - `.github/workflows/test.yml`: `KOSMOS_SHELL_CUT_ENV` is 1 for the shell jobs only.
 
 Rejected:

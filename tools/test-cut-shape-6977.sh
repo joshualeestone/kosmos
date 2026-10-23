@@ -10,7 +10,7 @@
 #      when the shell that started it is killed.
 #   F  the arms above put the scratch folder in a kt<pid> sandbox, so the cut guard counts the stand-in as a test
 #      fixture: running this test never reads as a cut to another agent on the same computer.
-#   G  GitHub-hosted CI only (GITHUB_ACTIONS=true, RUNNER_ENVIRONMENT not self-hosted): with the scratch folder outside any sandbox, the cut guard counts THIS stand-in (by
+#   G  GitHub-hosted CI only (GITHUB_ACTIONS=true, RUNNER_ENVIRONMENT=github-hosted): with the scratch folder outside any sandbox, the cut guard counts THIS stand-in (by
 #      its pid) as a cut and refuses; CONTROL: after the shape it no longer lists that pid. (On CI the test itself runs
 #      inside run-tests.sh's shape, whose own stand-in makes the guard refuse either way, so G keys on the pid.)
 #   W  the wiring: run-tests.sh refuses the flag outside CI (its flag check, lifted and run alone: behavioural). That the
@@ -32,6 +32,9 @@ bad()  { printf 'FAIL  %s\n' "$*"; fails=$((fails + 1)); }
 # The base: a kt<pid> folder under TMPDIR, the run-tests.sh sandbox shape (process-fixture.sh), so the stand-in is a
 # fixture to every cut guard on this computer (arm F checks that).
 T="${TMPDIR:-/tmp}"; T="${T%/}/kt$$"
+# Every agent's guard drops a fixture by the machine-wide pattern alone; under a TMPDIR that does not give one (its
+# folder not named T or tmp) this test's own stand-ins would read as a cut to the other agents here, so it stops.
+[[ "$T" =~ ${_KOSMOS_KT_RE:-(^|/)(T|tmp)/kt[0-9]+(/|$)} ]] || { echo "SKIP  all: TMPDIR '${TMPDIR:-}' gives no kt<digits> sandbox every agent's guard recognises (its folder is not named T or tmp); run with a standard TMPDIR"; exit 0; }
 mkdir -p "$T" || { echo "FAIL: could not make $T"; exit 1; }
 trap 'rm -rf "$T"' EXIT
 unset AGENT_WORKFORCE_HOME
@@ -73,7 +76,16 @@ out=$(env -u GITHUB_ACTIONS bash -c ". '$LIB'; kosmos_cut_shape_run --base '$NK'
 out=$(GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=self-hosted bash -c ". '$LIB'; kosmos_cut_shape_run --base '$NK' sh -c 'echo RAN'" 2>&1); rc=$?
 [ "$rc" -eq 2 ] && ! printf '%s' "$out" | grep -q RAN && [ -z "$(ls -A "$NK")" ] \
   && pass "R: on a self-hosted runner (a shared computer) a base outside a kt sandbox is refused too" || bad "R: a self-hosted runner let a non-kt base through (rc=$rc): $out"
-rmdir "$NK" 2>/dev/null
+out=$(GITHUB_ACTIONS=true bash -c "unset RUNNER_ENVIRONMENT; . '$LIB'; kosmos_cut_shape_run --base '$NK' sh -c 'echo RAN'" 2>&1); rc=$?
+[ "$rc" -eq 2 ] && ! printf '%s' "$out" | grep -q RAN \
+  && pass "R: on CI with no runner environment named (an older self-hosted runner) it is refused too" || bad "R: CI with RUNNER_ENVIRONMENT unset let a non-kt base through (rc=$rc): $out"
+# A kt<digits> folder that is a sandbox only RELATIVE TO THE CALLER'S TMPDIR (process-fixture.sh's second branch) is not
+# one to another agent, whose guard has its own TMPDIR: refused.
+mkdir -p "$NK/kt9"
+out=$(env -u GITHUB_ACTIONS TMPDIR="$NK" bash -c ". '$LIB'; kosmos_cut_shape_run --base '$NK/kt9' sh -c 'echo RAN'" 2>&1); rc=$?
+[ "$rc" -eq 2 ] && ! printf '%s' "$out" | grep -q RAN && [ -z "$(ls -A "$NK/kt9")" ] \
+  && pass "R: a kt folder that is a sandbox only to the caller's own TMPDIR is refused (another agent's guard would count it)" || bad "R: a caller-relative kt folder was let through (rc=$rc): $out"
+rmdir "$NK/kt9" "$NK" 2>/dev/null
 out=$(env -u GITHUB_ACTIONS bash -c ". '$LIB'; kosmos_cut_shape_run --base '$T' sh -c 'echo RAN'" 2>/dev/null); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = RAN ] && pass "R CONTROL: the same call with a kt base runs" || bad "R CONTROL: a kt base outside CI did not run (rc=$rc, '$out')"
 
@@ -114,11 +126,12 @@ sig=$(kosmos_cut_shape_run --base "$T" bash "$SIG" 2>/dev/null)
 
 # --- F ---------------------------------------------------------------------------------------------------------------
 # Both halves, or the second could pass because the guard never saw the stand-in at all: the guard's process match
-# lists it, and the fixture filter then drops it. The stand-in's pid is the one working in this test's scratch folder.
+# lists it, and the fixture filter then drops it, as ANOTHER agent's guard runs it (TMPDIR unset, so only the
+# machine-wide pattern decides). The stand-in's pid is the one working in this test's scratch folder.
 FIX="$T/fixture-probe.sh"
 printf '%s\n' ". '$GUARD'" "sp=\$(pgrep -f '^bash tools/release\\.sh [0-9]+ ' | while read -r p; do lsof -a -p \"\$p\" -d cwd -Fn 2>/dev/null | grep -q '/kt$$/kosmos-cut-shape\\.' && echo \"\$p\"; done | head -1)" \
   'raw=$(kosmos_running_lines tools/release.sh | grep -c "^$sp ")' \
-  'kept=$(kosmos_running_lines tools/release.sh | _kosmos_drop_test_fixtures | grep -c "^$sp ")' \
+  'kept=$(unset TMPDIR; kosmos_running_lines tools/release.sh | _kosmos_drop_test_fixtures | grep -c "^$sp ")' \
   'echo "$sp $raw $kept"' > "$FIX"
 read -r fsp fraw fkept <<< "$(kosmos_cut_shape_run --base "$T" bash "$FIX" 2>/dev/null)"
 [ -n "$fsp" ] && [ "$fraw" = 1 ] && pass "F: the cut guard's process match lists the stand-in (pid $fsp)" || bad "F: the guard's process match did not list the stand-in (pid '${fsp:-none}', raw $fraw), so the next line proves nothing"
@@ -129,7 +142,7 @@ read -r fsp fraw fkept <<< "$(kosmos_cut_shape_run --base "$T" bash "$FIX" 2>/de
 # On CI this test itself runs inside run-tests.sh's cut shape, so the guard already sees that outer stand-in and refuses
 # either way. So G asks about THIS stand-in by its pid: the cut guard counts it as a cut inside (not dropped as a
 # fixture, since its folder is outside any sandbox), and it is gone from the guard's list after.
-if [ "${GITHUB_ACTIONS:-}" = true ] && [ "${RUNNER_ENVIRONMENT:-}" != self-hosted ]; then
+if [ "${GITHUB_ACTIONS:-}" = true ] && [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ]; then
   B=$(mktemp -d "/tmp/cutshape6977.XXXXXX")
   GP="$B/guard-probe.sh"
   printf '%s\n' ". '$GUARD'" \
@@ -164,8 +177,8 @@ out=$(GITHUB_ACTIONS=true KOSMOS_SHELL_CUT_ENV=1 bash "$FC" 2>&1); rc=$?
 [ "$rc" = 0 ] && pass "W CONTROL: on CI the flag is let through" || bad "W CONTROL: on CI the flag was refused too (rc=$rc), so the refusal above proves nothing: $out"
 out=$(KOSMOS_SHELL_CUT_ENV=yes bash "$FC" 2>&1); rc=$?
 [ "$rc" = 2 ] && printf '%s' "$out" | grep -q 'KOSMOS_SHELL_CUT_ENV must be 0 or 1' && pass "W: a value other than 0 or 1 is refused" || bad "W: KOSMOS_SHELL_CUT_ENV=yes was not refused (rc=$rc): $out"
-grep -q 'KOSMOS_SHELL_CUT_ENV:-0}" = 1 \] && \[ "\${RUNNER_ENVIRONMENT:-}" = self-hosted \]' "$RT" \
-  && grep -q 'is not used on a self-hosted runner' "$RT" \
+grep -q 'KOSMOS_SHELL_CUT_ENV:-0}" = 1 \] && \[ "\${RUNNER_ENVIRONMENT:-}" != github-hosted \]' "$RT" \
+  && grep -q 'is used only on a GitHub-hosted runner' "$RT" \
   && pass "W: on a self-hosted runner (a shared computer) run-tests.sh does not use the shape, and says so" || bad "W: run-tests.sh would use the shape on a self-hosted runner"
 grep -q "KOSMOS_SHELL_CUT_ENV: \${{ matrix.part == 'shell' && '1' || '0' }}" "$Y" \
   && pass "W: test.yml turns it on for the shell jobs only" || bad "W: test.yml does not set KOSMOS_SHELL_CUT_ENV for the shell jobs"

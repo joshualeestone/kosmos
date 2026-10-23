@@ -21,17 +21,22 @@
 # GitHub's own runners (one job per runner): it refuses it outside CI and does not use it on a self-hosted runner.
 #
 # The scratch folder is made under BASE (default: TMPDIR). Except on a GitHub-hosted CI runner (GITHUB_ACTIONS=true and
-# RUNNER_ENVIRONMENT not self-hosted), the base MUST be inside a kt<digits> folder, run-tests.sh's sandbox shape: a
-# process working there is a test fixture to every cut guard (process-fixture.sh), so the stand-in reads as a cut to
-# nobody, and a base anywhere else is refused. On a hosted runner it must be OUTSIDE one (run-tests.sh puts it beside
+# RUNNER_ENVIRONMENT=github-hosted; a runner that does not say, an older self-hosted one, counts as shared), the base
+# MUST be inside a kt<digits> folder as EVERY agent's cut guard sees it: the machine-wide pattern `(T|tmp)/kt<digits>`
+# (process-fixture.sh's _KOSMOS_KT_RE), not its second branch, which is relative to the caller's own TMPDIR and so
+# invisible to another agent. A process working there is a test fixture to every guard, so the stand-in reads as a cut
+# to nobody; a base anywhere else is refused. On a hosted runner it must be OUTSIDE one (run-tests.sh puts it beside
 # the sandbox), or the guard would not count it either.
+# The scratch AGENT_WORKFORCE_HOME is beside run-tests.sh's sandbox, as a cut's own is, so the suite's after-run leak
+# checks (which look inside the sandbox) do not see what tests leave in it; it is removed when the command ends.
 # The stand-in watches the shell that started it and ends within a second of that shell going, removing the scratch
 # folder as it goes, so a killed run leaves neither a cut nor a folder behind. When the command ends, red or green,
 # kosmos_cut_shape_run stops the stand-in and removes the folder itself. A signal to the stand-in alone ends it and
 # removes nothing: the folder holds the AGENT_WORKFORCE_HOME the command may still be using. So a kill that reaches
 # the caller and the stand-in at once (a cancelled run) can leave the folder; on a CI runner it goes with the runner.
 
-# The sandbox test is the cut guard's own (process-fixture.sh), so what this calls a sandbox is what the guard drops.
+# The sandbox pattern is the cut guard's own (process-fixture.sh's _KOSMOS_KT_RE), so a base this calls a sandbox is
+# one every agent's guard drops.
 _kosmos_cut_shape_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_kosmos_cut_shape_lib_dir/process-fixture.sh" || _kosmos_path_in_kt_sandbox() { return 1; }   # unreadable: no base passes, outside CI
 unset _kosmos_cut_shape_lib_dir
@@ -49,13 +54,15 @@ kosmos_cut_shape_run() {
   [ "$#" -gt 0 ] || { echo "cut-shape: no command to run" >&2; return 2; }
   base="${base%/}"
   case "$base" in /*) ;; *) echo "cut-shape: the scratch base must be an absolute path (got '$base')" >&2; return 2 ;; esac
-  if { [ "${GITHUB_ACTIONS:-}" != true ] || [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; } && ! _kosmos_path_in_kt_sandbox "$base"; then
+  local hosted=0 re="${_KOSMOS_KT_RE:-(^|/)(T|tmp)/kt[0-9]+(/|$)}"
+  { [ "${GITHUB_ACTIONS:-}" = true ] && [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ]; } && hosted=1
+  if [ "$hosted" = 0 ] && ! [[ "$base" =~ $re ]]; then
     echo "cut-shape: except on a GitHub-hosted runner the scratch base must be inside a kt<digits> folder (got '$base'): a stand-in anywhere else reads as a live cut to every agent on this computer" >&2
     return 2
   fi
   # On a hosted runner the base is meant to sit OUTSIDE a sandbox; inside one the stand-in is a fixture to every guard,
   # so the shape would test nothing the guard sees. Said, not refused: this file's own test runs its arms there on CI.
-  if [ "${GITHUB_ACTIONS:-}" = true ] && [ "${RUNNER_ENVIRONMENT:-}" != self-hosted ] && _kosmos_path_in_kt_sandbox "$base"; then
+  if [ "$hosted" = 1 ] && [[ "$base" =~ $re ]]; then
     echo "cut-shape: the scratch base is inside a kt<digits> sandbox, so the cut guard will not count the stand-in (only AGENT_WORKFORCE_HOME is in effect)" >&2
   fi
   dir="$(mktemp -d "$base/kosmos-cut-shape.XXXXXX")" || { echo "cut-shape: could not make a scratch folder under $base" >&2; return 2; }
