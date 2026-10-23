@@ -38,7 +38,7 @@ Mutants, each red: register without the add, no job check, keepalive_set always 
 
 ## Not done here
 Runner 2 (kosmos-ci2): needs its password or sudo on the old Mac (parked on the card); then, as kosmos-ci2,
-`tools/ci-runner-setup.sh --apply keepalive`. Which test sent the SIGKILL: not in any log we hold.
+`KOSMOS_CI_USER=kosmos-ci2 tools/ci-runner-setup.sh --apply keepalive` (without KOSMOS_CI_USER it refuses: the stage runs as kosmos-ci by default). Which test sent the SIGKILL: not in any log we hold.
 
 ## Review round 1 (BLOCKER and WARNINGs, all fixed)
 - BLOCKER: the plist was the first actions.runner.*.plist in the user's LaunchAgents. The kosmos-relay runner lives under
@@ -137,6 +137,14 @@ Mutants red: a broadened own-Listener pattern (two sites), no post-reload check,
 - A dry run that finds the runner not running as it should (not loaded, or its Listener running outside gui/<uid>)
   exits 1, like --apply; a change it would make still exits 0 with WOULD lines.
 - The launchctl wording is recorded as measured on macOS 27.0.1 (the old Agent1s Mac, the CI box, and this Mac).
+
+## Review round 9
+- `launchctl kill SIGTERM` failing now refuses before anything is stopped. An old runner that outlives the wait is still
+  booted out (refusing would leave a SIGTERMed runner under its OLD definition, with nothing to restart it), with a note
+  naming the risk and the kickstart to use if it reads offline.
+- The wait is tested with a real process the test owns: the stub's bootout records whether that pid was alive. Mutant
+  (the wait loop removed) red; before this, the reviewer measured that mutant green.
+- Runner 2's command needs KOSMOS_CI_USER=kosmos-ci2 (corrected here, in the usage text and on the card).
 
 ## Weakest premise
 That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it

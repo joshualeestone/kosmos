@@ -21,8 +21,10 @@
 #                             from THAT main commit
 #   register                  as kosmos-ci, in its Screen Sharing session, for the same reason. Reads the
 #                             registration token from stdin, so it is never in any argv
-#   keepalive                 as kosmos-ci, over ssh or in its session (kosmos#7001). Adds KeepAlive to an installed
-#                             runner's LaunchAgent and reloads it while idle; a dry run says whether it is set
+#   keepalive                 as kosmos-ci, over ssh or in its session (kosmos#7001; for another runner user, set
+#                             KOSMOS_CI_USER, e.g. kosmos-ci2). Adds KeepAlive, ThrottleInterval and ExitTimeOut to an
+#                             installed runner's LaunchAgent and reloads it while idle; a dry run says whether it is
+#                             set and loaded (exit 1 when the runner is not running as it should)
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
 #                             Give KOSMOS_CI_GUARD_SHA (the install pin), or the guard counts as unchecked.
 #                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail)
@@ -679,8 +681,14 @@ keepalive() {
   local jo2 opid w4=0; jo2="$(launchctl print "$dom/$label" 2>/dev/null || true)"
   opid="$(printf '%s\n' "$jo2" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)"
   if [ -n "$opid" ]; then
-    launchctl kill SIGTERM "$dom/$label" 2>/dev/null || true
+    launchctl kill SIGTERM "$dom/$label" \
+      || { echo "refused: launchctl kill SIGTERM $dom/$label failed; nothing was stopped, KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
     while kill -0 "$opid" 2>/dev/null && [ "$w4" -lt "$limit" ]; do sleep 1; w4=$((w4 + 1)); done
+    # Still alive: it was told to stop, so going on is the lesser harm (refusing now would leave a runner that may yet
+    # stop under its OLD definition, with nothing to restart it). Said, so an offline runner afterwards has a reason.
+    if kill -0 "$opid" 2>/dev/null; then
+      echo "note:   the old runner (pid $opid) had not ended ${w4}s after SIGTERM; the bootout may cut its GitHub session short, and if it then reads offline (a session conflict), start it again with: launchctl kickstart $dom/$label"
+    fi
   fi
   local bo=0; launchctl bootout "$dom/$label" || bo=$?
   # A failed bootout still waits: launchd can report an error while the job is still shutting down (the Listener ends

@@ -33,8 +33,10 @@ case "$me" in
     # svc.sh start does (cwd is the runner dir), so wait_for_listener sees a new Listener.
     out="$(dirname "$CALL_LOG")/booted-out"
     case "$1" in
-      kill) exit 0 ;;
-      bootout) [ "${FX_BOOTOUT_FAIL:-0}" = 1 ] && exit 5; [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
+      kill) [ "${FX_KILL_FAIL:-0}" = 1 ] && exit 3; exit 0 ;;
+      bootout) # Whether the old job's process (FX_JOB_PID) was still alive when the bootout came: the test asserts it.
+        [ -z "${FX_JOB_PID:-}" ] || { kill -0 "$FX_JOB_PID" 2>/dev/null && echo "bootout-while-alive" >> "$CALL_LOG" || echo "bootout-after-exit" >> "$CALL_LOG"; }
+        [ "${FX_BOOTOUT_FAIL:-0}" = 1 ] && exit 5; [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
       bootstrap) [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; rm -f "$out"; touch "$(dirname "$CALL_LOG")/bootstrapped"
         [ "${FX_LISTENER:-1}" = 1 ] && echo started > .svc-state
         # The loaded job has KeepAlive exactly when the plist it was loaded from does (state kept across runs).
@@ -626,6 +628,22 @@ k="$(grep -n '^launchctl kill SIGTERM gui/777/actions.runner.joshualeestone-kosm
 b="$(grep -n '^launchctl bootout ' "$T/ka-sigterm.calls" | head -n 1 | cut -d: -f1)"
 [ "$(rc ka-sigterm)" = 0 ] && [ -n "$k" ] && [ -n "$b" ] && [ "$k" -lt "$b" ] \
   && pass "keepalive --apply stops the old job with SIGTERM, then boots it out (a bootout alone runs under the old 5 s exit timeout)" || fail "keepalive sigterm: rc $(rc ka-sigterm): kill at ${k:-none}, bootout at ${b:-none}"
+# The wait itself: a real process the test owns stands in for the old runsvc.sh. It ends by itself in 2 s, and the
+# bootout must come after that, not at once (under the old 5 s exit timeout an early bootout would SIGKILL the Listener).
+sleep 2 & sp=$!
+ka_fresh; run ka-waits "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" -- --apply keepalive
+wait "$sp" 2>/dev/null
+[ "$(rc ka-waits)" = 0 ] && grep -qx 'bootout-after-exit' "$T/ka-waits.calls" && ! has ka-waits "had not ended" \
+  && pass "keepalive --apply waits for the old runner to end after SIGTERM before booting it out" || fail "keepalive waits: rc $(rc ka-waits): $(grep bootout- "$T/ka-waits.calls")"
+# Outlives the wait: it goes on (refusing would leave a SIGTERMed runner under its old definition) and says so.
+sleep 30 & sp=$!
+ka_fresh; run ka-outlives "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
+kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null
+[ "$(rc ka-outlives)" = 0 ] && has ka-outlives "had not ended 1s after SIGTERM" && grep -qx 'bootout-while-alive' "$T/ka-outlives.calls" \
+  && pass "keepalive --apply: an old runner that outlives the wait is booted out with a note naming the risk" || fail "keepalive outlives: rc $(rc ka-outlives): $(tail -2 "$T/ka-outlives.out")"
+ka_fresh; run ka-killfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID=999999 FX_KILL_FAIL=1 -- --apply keepalive
+[ "$(rc ka-killfail)" = 1 ] && has ka-killfail "launchctl kill SIGTERM" && ! grep -q '^launchctl boot' "$T/ka-killfail.calls" \
+  && pass "keepalive --apply: a failed SIGTERM refuses before the bootout" || fail "keepalive kill fail: rc $(rc ka-killfail): $(tail -1 "$T/ka-killfail.out")"
 ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-downdry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 -- keepalive
 [ "$(rc ka-downdry)" = 1 ] && has ka-downdry "DOWN:" && ! changed ka-downdry >/dev/null && pass "keepalive dry run on a runner that is not loaded: DOWN, exit 1, nothing changed" || fail "keepalive down dry: rc $(rc ka-downdry): $(cat "$T/ka-downdry.out")"
 ka_fresh; run ka-noka "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
