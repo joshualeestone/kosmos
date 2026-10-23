@@ -80,3 +80,10 @@ fresh cut box would not have it; the promote then refuses (artifact missing), as
 - Pre-existing bug fixed in passing, in the DEFAULT path's post-force advice: `${PORT:+ (:$PORT)}${PORT:- ...}`
   printed the port twice ("(:16999)16999"). This is the one default-path output change on this branch.
 - Docs say precisely what differs in named mode.
+
+## Iteration 5 (challenge) changes
+- The no-installer hand fix offers the named commit's setup-staging only when that commit itself changed it
+  (V's own cut); beside a republish it says the installer may belong to another cut.
+- Docs: the origin/main requirement applies when the site has an origin.
+- Not changed (NITs): -G follows HEAD's path history and skips merges (measured 0 merges, above); the new test
+  is wired without a separate bash -n line (promote-channel.sh already has one); the merge hold is process.

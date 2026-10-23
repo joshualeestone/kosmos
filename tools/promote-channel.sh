@@ -221,7 +221,13 @@ if [ -n "$NAMED_VERSION" ]; then
     git -C "$SITE" show "${NAMED_COMMIT}:$_f" > "$NAMED_DIR/$_f" || { echo "promote-channel: could not read $_f from $NAMED_COMMIT - refusing; nothing was written." >&2; exit 1; }
   done
   SETUP_HAND="git show ${NAMED_COMMIT}:setup-staging > setup && git show ${NAMED_COMMIT}:setup-staging.sha256 > setup.sha256"
-  SETUP_HAND_HINT="the installer committed beside $SNAP_LABEL, run $SETUP_HAND (in $SITE)"
+  # Only V's own cut commit changes setup-staging; beside any other commit naming V (a republish) setup-staging is
+  # whatever an earlier commit left, maybe a LATER cut's, so it is not offered as V's installer.
+  if git -C "$SITE" diff-tree --no-commit-id --name-only -r "$NAMED_COMMIT" -- setup-staging | grep -qx setup-staging; then
+    SETUP_HAND_HINT="the installer committed beside $SNAP_LABEL, run $SETUP_HAND (in $SITE)"
+  else
+    SETUP_HAND_HINT="an installer, find it by hand: ${NAMED_COMMIT:0:10} did not commit one, so the setup-staging beside it may belong to another cut. Copy that cut's setup-staging (+ .sha256) onto setup (+ .sha256)"
+  fi
   echo "promote-channel: --version $NAMED_VERSION: the staging pointer and installer committed in $(git -C "$SITE" log -1 --format='%h (%s)' "$NAMED_COMMIT"), not what $STAGING_NAME names now"
 fi
 V="$(read_field version)"; SHA="$(read_field sha256)"; ARTIFACT="$(read_field "$ARTIFACT_FIELD")"
