@@ -37,13 +37,16 @@ case "$me" in
       bootstrap) [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; rm -f "$out"; touch "$(dirname "$CALL_LOG")/bootstrapped"
         [ "${FX_LISTENER:-1}" = 1 ] && echo started > .svc-state
         # The loaded job has KeepAlive exactly when the plist it was loaded from does (state kept across runs).
-        if [ "${FX_BOOTSTRAP_NO_KA:-0}" != 1 ] && [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$3" 2>/dev/null)" = false ]; then touch "$(dirname "$CALL_LOG")/loaded-ka"
+        if [ "${FX_BOOTSTRAP_NO_KA:-0}" != 1 ] && [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$3" 2>/dev/null)" = false ]; then
+          plutil -extract ExitTimeOut raw -o - "$3" 2>/dev/null > "$(dirname "$CALL_LOG")/loaded-ka" || echo 5 > "$(dirname "$CALL_LOG")/loaded-ka"
         else rm -f "$(dirname "$CALL_LOG")/loaded-ka"; fi
         echo $(( $(cat .svc-pid 2>/dev/null || echo 4343) + 1 )) > .svc-pid; exit 0 ;;
     esac
     case "$1 $2" in "print gui/"*/*) { [ -f "$out" ] || [ "${FX_NOT_LOADED:-0}" = 1 ]; } && exit 113
         printf '%s = {\n\tstate = %s\n' "$2" "${FX_JOB_STATE:-running}"
-        [ -f "$(dirname "$CALL_LOG")/loaded-ka" ] && printf '\tsemaphores = {\n\t\tsuccessful exit => 0\n\t}\n'
+        lk="$(dirname "$CALL_LOG")/loaded-ka"
+        [ -f "$lk" ] && printf '\tsemaphores = {\n\t\tsuccessful exit => 0\n\t}\n'
+        printf '\texit timeout = %s\n' "$( [ -s "$lk" ] && cat "$lk" || echo 5)"
         printf '}\n'; exit 0 ;; esac
     [ "$1 ${2%%/*}" = "print gui" ] || exit 1
     [ "${FX_NO_SERVICES:-0}" = 1 ] && { printf 'gui/501 = {\n\ttype = login\n\tservices = {\n\t}\n}\n'; exit 0; }
@@ -60,6 +63,7 @@ case "$me" in
     # kosmos#7001: a -f pattern is matched (ERE) against this runner's Listener argv and the relay's (#6245), so a pattern
     # that cannot tell the two apart is seen. The relay's pid changes once anything was bootstrapped (a respawn).
     case "$*" in *"-f "*Runner.Listener*)
+      [ "${FX_LISTENER_PGREP_FAIL:-0}" = 1 ] && exit 3
       pat="${*: -1}"; own="${KOSMOS_CI_HOME:-/Users/kosmos-ci}/actions-runner/bin/Runner.Listener run --startuptype service"
       rel="${KOSMOS_CI_HOME:-/Users/kosmos-ci}/actions-runner-relay/bin/Runner.Listener run --startuptype service"; hit=1
       if [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] && printf '%s\n' "$own" | grep -q -E -e "$pat"; then cat .svc-pid 2>/dev/null || echo 4343; hit=0; fi
@@ -501,6 +505,7 @@ else fail "register --apply: rc $(rc rg-apply), calls: $(cat "$T/rg-apply.calls"
 KP="$CH/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 ka_of() { plutil -extract KeepAlive.SuccessfulExit raw -o - "$1" 2>/dev/null; }
 [ "$(ka_of "$KP")" = false ] && [ "$(plutil -extract ThrottleInterval raw -o - "$KP" 2>/dev/null)" = 10 ] \
+  && [ "$(plutil -extract ExitTimeOut raw -o - "$KP" 2>/dev/null)" = 35 ] \
   && [ "$(plutil -extract RunAtLoad raw -o - "$KP" 2>/dev/null)" = true ] && [ ! -e "$KP.new" ] \
   && pass "register --apply adds KeepAlive {SuccessfulExit: false} to the LaunchAgent svc.sh wrote, and keeps the rest (kosmos#7001)" \
   || fail "register KeepAlive: $(plutil -p "$KP" 2>&1 | tr '\n' ' ')"
@@ -549,7 +554,7 @@ ka_fresh
 [ -f "$KA" ] && [ -z "$(ka_of "$KA")" ] && [ "$(ls "$KH"/Library/LaunchAgents/actions.runner.*.plist | head -n 1)" = "$KR" ] \
   && pass "control: the keepalive fixture starts with no KeepAlive, and the relay's plist sorts first" || fail "keepalive fixture: $(ls -la "$KH/Library/LaunchAgents" 2>&1)"
 run ka-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
-[ "$(rc ka-dry)" = 0 ] && has ka-dry "has no KeepAlive" && has ka-dry "WOULD: launchctl bootout gui/777/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" \
+[ "$(rc ka-dry)" = 0 ] && has ka-dry "lacks KeepAlive {SuccessfulExit: false}" && has ka-dry "WOULD: launchctl bootout gui/777/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" \
   && ! changed ka-dry >/dev/null && cmp -s "$KA" "$T/ka.before" \
   && pass "keepalive dry run: says KeepAlive is missing and what it would do, changes nothing" || fail "keepalive dry run: rc $(rc ka-dry): $(cat "$T/ka-dry.out")"
 # Over ssh (launchctl managername reads Background there): allowed, as it names gui/<uid> and does not use svc.sh.
@@ -597,6 +602,21 @@ ka_fresh; run ka-bootoutfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOM
 [ "$(rc ka-bootoutfail)" = 1 ] && has ka-bootoutfail "(exit 5) had not unloaded it" && has ka-bootoutfail "may still be unloading" && has ka-bootoutfail "the runner is DOWN" \
   && ! has ka-bootoutfail "runs on" && ! grep -q '^launchctl bootstrap' "$T/ka-bootoutfail.calls" \
   && pass "keepalive --apply: a failed bootout with the job still listed is not called running: it may be unloading, both outcomes named" || fail "keepalive bootout fail: rc $(rc ka-bootoutfail): $(tail -1 "$T/ka-bootoutfail.out")"
+ka_fresh; run ka-baselinefail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LISTENER_PGREP_FAIL=1 -- --apply keepalive
+[ "$(rc ka-baselinefail)" = 1 ] && has ka-baselinefail "to note the running Listener" && ! grep -q '^launchctl boot' "$T/ka-baselinefail.calls" \
+  && pass "keepalive --apply refuses before the bootout when it cannot note the running Listener" || fail "keepalive baseline pgrep fail: rc $(rc ka-baselinefail): $(tail -1 "$T/ka-baselinefail.out")"
+# A runner patched by hand with KeepAlive only (no ExitTimeOut), loaded that way: not done; --apply completes it and reloads.
+ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$KA"; echo 5 > "$T/loaded-ka"
+run ka-partial "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
+run ka-partial-apply "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+[ "$(rc ka-partial)" = 0 ] && ! has ka-partial "restarts after a kill" && has ka-partial "lacks ExitTimeOut 35 (it has KeepAlive)" && has ka-partial "WOULD: add KeepAlive" \
+  && [ "$(rc ka-partial-apply)" = 0 ] && [ "$(plutil -extract ExitTimeOut raw -o - "$KA")" = 35 ] && grep -q '^launchctl bootstrap' "$T/ka-partial-apply.calls" \
+  && pass "keepalive: KeepAlive without ExitTimeOut is not done; --apply adds ExitTimeOut 35 and reloads" || fail "keepalive partial: rc $(rc ka-partial)/$(rc ka-partial-apply): $(tail -2 "$T/ka-partial.out") / $(tail -1 "$T/ka-partial-apply.out")"
+# The plist has all three keys but the LOADED job still has the old 5 s exit timeout: not done, it needs a reload.
+ka_fresh; cp "$T/ka.after" "$KA"; echo 5 > "$T/loaded-ka"
+run ka-oldtimeout "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
+[ "$(rc ka-oldtimeout)" = 0 ] && ! has ka-oldtimeout "restarts after a kill" && has ka-oldtimeout "WOULD: launchctl bootout" \
+  && pass "keepalive dry run: a loaded job with KeepAlive but launchd's 5 s exit timeout is not done" || fail "keepalive old timeout: $(cat "$T/ka-oldtimeout.out")"
 ka_fresh; run ka-noka "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
 [ "$(rc ka-noka)" = 1 ] && has ka-noka "shows no 'successful exit => 0' semaphore" \
   && pass "keepalive --apply: a reload that leaves no KeepAlive in the loaded job fails" || fail "keepalive no ka loaded: rc $(rc ka-noka): $(tail -1 "$T/ka-noka.out")"
@@ -662,7 +682,7 @@ vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
 grep -q "no $VCI/actions-runner/.service: the runner is not registered as a service" "$T/v-clear.out" && pass "verify: no .service is a note naming that, and leaves verify clear" || fail "verify LaunchAgent note: $(grep -i -E 'launchagent|service' "$T/v-clear.out")"
 mkdir -p "$VCI/Library/LaunchAgents"; cp "$T/ka.before" "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 echo "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist" > "$VCI/actions-runner/.service"
-vcase no-keepalive 1 "has no KeepAlive {SuccessfulExit: false}"
+vcase no-keepalive 1 "lacks KeepAlive {SuccessfulExit: false}"
 cp "$T/ka.after" "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 vcase keepalive 0 "has KeepAlive SuccessfulExit false"
 rm -rf "$VCI/Library" "$VCI/actions-runner/.service"

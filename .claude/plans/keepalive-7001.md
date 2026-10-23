@@ -114,6 +114,21 @@ Mutants red: a broadened own-Listener pattern (two sites), no post-reload check,
   stop is a plain `launchctl unload` (no -w; only start uses load -w), read in the installed svc.sh; noted in a comment.
 - .service must name a plist directly in LaunchAgents (no further path).
 
+## Review round 7
+- ExitTimeOut 35, added with KeepAlive and required in the plist AND the loaded job (launchctl prints
+  `exit timeout = N`). Measured: the installed runner job's exit timeout is 5 s, so launchd SIGKILLs a stopping runner
+  5 s after SIGTERM, while RunnerService.js gives the Listener 30 s to end its GitHub session. A stop cut short (a
+  reload, any svc.sh stop) leaves the session behind, and the next start meets it: the session-conflict hole. The
+  unload wait defaults to 45 s, over the new timeout. Runner 1 was patched by hand before this and lacks it: the
+  stage's dry run on it now says "lacks ExitTimeOut 35 (it has KeepAlive)" and would reload it.
+- Corrected, read in the installed RunnerService.js: a crashing Listener is retried every 5 s forever (the env limit is
+  unset); it is 10 consecutive RETRYABLE exits (2, 3, 4) that stop the service. My round-5 comment had it backwards.
+- Tests: the baseline-pgrep refusal, ExitTimeOut written by register, KeepAlive without ExitTimeOut not done and
+  completed by --apply, and a loaded job with the old 5 s timeout not done. Mutants red: the plist-side and the
+  loaded-side ExitTimeOut requirement.
+- Deferred to a card: register and install wait for "any new Runner.Listener" by name, so the relay's could stand in;
+  keepalive matches its own dir. Pre-existing.
+
 ## Weakest premise
 That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it
 stops, keepalive refuses rather than guessing). Second: that the runner keeps ending the launchd job with exit 0 on
