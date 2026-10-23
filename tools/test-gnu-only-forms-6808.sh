@@ -23,12 +23,13 @@
 # `# gnu-ok:` settles: `git grep -P` is flagged (it works only where git was built with PCRE), and so is the word
 # a form inside a quoted string (B counts a quote as a command start, for `bash -c "sed -i ..."`), e.g. an echo of usage.
 #
-#
 # Bash 4+ syntax, the other half of the same gap: the Linux shards run every script under bash 5, a Mac runs it under
-# bash 3.2, and `bash -n` on 3.2 accepts most of these (they fail only when the line runs). No counterpart, always
-# flagged: mapfile / readarray, declare|local|typeset -A or -n, ${x,,} ${x^^} (and the single forms), ${x@Q} and the
-# other @ transforms, |& , &>> , ;;& and ;& in a case, coproc, shopt -s globstar|lastpipe, $EPOCHSECONDS/EPOCHREALTIME.
-# Also a floor: wait -n, read -N / -i, ${a[-1]}, {1..9..2}, $BASHPID and printf %(fmt)T are not on the list.
+# bash 3.2. No counterpart, always flagged: mapfile / readarray, declare|local|typeset with -A or -n in its flags,
+# ${x,,} ${x^^} (single forms, ${!x,,} too), ${x@Q} and the other @ transforms, coproc, shopt naming a bash 4+ option,
+# $EPOCHSECONDS/EPOCHREALTIME: bash 3.2's `bash -n` accepts all of these, so they fail only when the line runs. Also
+# |& , &>> , ;;& and ;& in a case: those 3.2's `bash -n` does reject, but only where something runs it on a Mac.
+# Also a floor: wait -n, read -N / -i, ${a[-1]}, {1..9..2}, $BASHPID and printf %(fmt)T are not on the list, and a
+# trailing comment that names a form (`... # no mapfile here`) is flagged like the quoted-string case above.
 #
 # A line that is deliberately GNU-only (inside a Linux-only branch, say) says so on the line: `# gnu-ok: <why>`; a line
 # that deliberately needs bash 4+ says `# bash4-ok: <why>`. Each excuses only its own kind.
@@ -55,16 +56,17 @@ forms() {
         find-printf "${B}find[[:space:]].*[[:space:]]-f?printf([[:space:]]|\$)" ""
     # Bash 4+ (kosmos#6808 scope addition). Single-quoted where they hold $ or `, so nothing expands.
     V='([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*])(\[[^]]*\])?'
+    BK="(^|[;&|(\`{\"'[:space:]])"   # B without the slash: `local` in /usr/local is a path, not a builtin
     printf '%s\t%s\t%s\n' \
         bash4-mapfile "${B}(mapfile|readarray)([[:space:]]|\$)" "" \
-        bash4-declare "${B}(declare|local|typeset)${O}[[:space:]]+-[a-zA-Z]*[An]([[:space:]]|\$)" "" \
-        bash4-case-mod '\$\{'"$V"'(,|\^)' "" \
+        bash4-declare "${BK}(declare|local|typeset)${O}[[:space:]]+-[a-zA-Z]*[An][a-zA-Z]*([[:space:]]|\$)" "" \
+        bash4-case-mod '\$\{!?'"$V"'(,|\^)' "" \
         bash4-transform '\$\{'"$V"'@[QEPAaKkUuL]\}' "" \
-        bash4-pipe-amp '(^|[^|])\|&([[:space:]]|$)' "" \
+        bash4-pipe-amp '(^|[^|])\|&([^#a-zA-Z]|$|[a-zA-Z]+([^a-zA-Z;]|$))' "" \
         bash4-append-both '&>>' "" \
-        bash4-case-fall ';;&|(^|[[:space:]]);&([[:space:]]|$)' "" \
+        bash4-case-fall ';;&|(^|[^;]);&([[:space:]]|$)' "" \
         bash4-coproc "${B}coproc([[:space:]]|\$)" "" \
-        bash4-shopt "${B}shopt[[:space:]]+-s[[:space:]].*(globstar|lastpipe)" "" \
+        bash4-shopt "${B}shopt[[:space:]].*(globstar|lastpipe|inherit_errexit|globasciiranges|direxpand|checkjobs|autocd|dirspell|localvar_inherit|localvar_unset|assoc_expand_once|compat3[0-9]|compat4[0-9])([[:space:]]|\$)" "" \
         bash4-epoch '\$\{?EPOCH(SECONDS|REALTIME)' ""
 }
 
@@ -168,6 +170,13 @@ for case_ in \
     "bash4-declare|local -gA map=()" \
     "bash4-declare|local -n ref=\$1" \
     "bash4-declare|typeset -r -A k" \
+    "bash4-declare|declare -Ag map" \
+    "bash4-declare|local -nr ref=\$1" \
+    "bash4-case-mod|x=\${!ref,,}" \
+    "bash4-pipe-amp|make|&tee log" \
+    "bash4-case-fall|  a) echo x;&" \
+    "bash4-shopt|shopt -s inherit_errexit" \
+    "bash4-shopt|shopt -qs globstar" \
     "bash4-case-mod|x=\${name,,}" \
     "bash4-case-mod|echo \"\${1^^}\"" \
     "bash4-case-mod|y=\${arr[0]^}" \
@@ -216,6 +225,12 @@ for line in \
     "echo '|&#8217;'" \
     "now=\$SECONDS" \
     "mapfile=1" \
+    "[ -d /usr/local -o -n \"\$x\" ]" \
+    "cmd &> log" \
+    "y=\${x:0:1}" \
+    "echo 'a&lt;&gt;b'" \
+    "s=s.replace(/&#39;|&apos;|&rsquo;/g, x)" \
+    "shopt -s extglob nullglob" \
     "mapfile -t x < f   # bash4-ok: this script is run by the Linux service only"; do
     out=$(plant "$line")
     [ -z "$out" ] && ok "allows: $line" || bad "flagged an allowed form: $line -> $out"
