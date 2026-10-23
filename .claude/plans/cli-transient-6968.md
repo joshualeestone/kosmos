@@ -19,7 +19,8 @@ control that never takes the connection again (the new words).
 - The second try gets only what is left of the caller's `-m`; under 1 s left, there is no second try.
 - A body on stdin (`@-`) is read once into a mode-600 file and both tries send it; each try's stdout and stderr
   are held in two more and only the last try's are printed (curl prints `-w` even on a refusal; whoami reads
-  stderr). An interrupt can leave the three behind (no trap: it would replace the caller's).
+  stderr). An INT, TERM or HUP removes the three (a trap; every buffering caller runs kosmos_curl in a subshell,
+  so the trap is that subshell's own, and a test checks every call site). Only a KILL leaves them.
 - `_KOSMOS_CURL_ONCE=1`: one plain try, no buffering. Used by keep-copy and tool-failed (hooks with a 3 s promise),
   task ran (its own loop already retries 7; told and repeat keep the retry), and msg's and post's second ask
   after a cut reply (asking again into a board that restarted could deliver twice).
