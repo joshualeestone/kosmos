@@ -470,7 +470,9 @@ for arm in live sandboxed noroute noplan transient landed partial-tokens; do
   elif [ "$arm" = noplan ]; then sb=(-u AGENT_WORKFORCE_LAUNCH -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_DATA MOCK_PLAN=fail)
   elif [ "$arm" = noroute ]; then sb=(-u AGENT_WORKFORCE_LAUNCH -u AGENT_WORKFORCE_WORKERS -u AGENT_WORKFORCE_DATA MOCK_LEFTOVER=noroute MOCK_WRITE_HOME=1)
   else sb=(AGENT_WORKFORCE_LAUNCH="$R/LaunchAgents" AGENT_WORKFORCE_WORKERS="$R/workers" AGENT_WORKFORCE_DATA="$R/data"); fi
-  out="$(env -u KOSMOS_HOME -u KOSMOS_WORLD "${sb[@]}" HOME="$R/home" PATH="$R/stub:$PATH" \
+  # AGENT_WORKFORCE_HOME too, not only HOME: the engine roots its paths there first, and a real cut exports it (its
+  # cut-only home), so inside a cut the gate looked in the cut's home while the fake wrote under HOME (0.7.64, 10-23).
+  out="$(env -u KOSMOS_HOME -u KOSMOS_WORLD "${sb[@]}" HOME="$R/home" AGENT_WORKFORCE_HOME="$R/home" PATH="$R/stub:$PATH" \
     MOCK_STATE="$ST" KOSMOS_AOC_CURL="$FIXDIR/fakeboard" KOSMOS_STORE_ROOT="$R" KOSMOS_PORT=19999 \
     KOSMOS_AGENT_ONLINE_POLL_INT=1 KOSMOS_AGENT_ONLINE_TIMEOUT=4 KOSMOS_AGENT_REPLY_TIMEOUT=3 MOCK_ACCOUNTS=both MOCK_LABEL_SUFFIX=+w1 \
     bash "$CHECK" 2>&1)"; rc=$?
