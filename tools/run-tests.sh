@@ -150,6 +150,17 @@ if [ -n "${KOSMOS_SHELL_PLATFORM:-}" ]; then
     exit 2
   fi
 fi
+# #6977: KOSMOS_SHELL_CUT_ENV=1 runs the shell part in a cut's shape (tools/lib/cut-shape.sh: AGENT_WORKFORCE_HOME
+# exported, and a stand-in live cut), so a shell test that fails only in a cut fails here instead of at step 3. CI only:
+# the stand-in reads as a cut to every cut guard on the computer, so on a shared Mac it would hold up other agents.
+case "${KOSMOS_SHELL_CUT_ENV:-0}" in
+  0) ;;
+  1) if [ "${GITHUB_ACTIONS:-}" != true ]; then
+       echo "run-tests: KOSMOS_SHELL_CUT_ENV=1 is for CI only: its stand-in cut would read as a real cut to every other agent's suite and cut on this computer. To check one test by hand, see tools/lib/cut-shape.sh." >&2
+       exit 2
+     fi ;;
+  *) echo "run-tests: KOSMOS_SHELL_CUT_ENV must be 0 or 1 (got '$KOSMOS_SHELL_CUT_ENV')" >&2; exit 2 ;;
+esac
 
 # --- #6668: a wall-clock limit per test FILE, outside node ---------------------
 # A test blocked in a sync call (spawnSync, execSync, execFileSync with no timeout) blocks its own event loop, so
@@ -785,12 +796,19 @@ _rt_node_status="$NODE_STATUS"   # #6668: the node part's own verdict, before th
 if [ "$KOSMOS_ONLY" = 1 ]; then
   :   # #4929: --only runs named node files; the shell part is the whole suite's
 elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
+  # #6977: in a cut's shape when KOSMOS_SHELL_CUT_ENV=1 (CI only, refused above). The scratch folder goes beside the kt
+  # sandbox, not in it: a stand-in working there would be a test fixture to the cut guard and not count as a cut.
+  _rt_shell_wrap=()
+  if [ "${KOSMOS_SHELL_CUT_ENV:-0}" = 1 ]; then
+    . "$REPO/tools/lib/cut-shape.sh"
+    _rt_shell_wrap=(kosmos_cut_shape_run --base "$(dirname "$KOSMOS_RUN_TMPDIR")")
+  fi
   if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
-    node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}" ${KOSMOS_SHELL_PLATFORM:+"$KOSMOS_SHELL_PLATFORM"}
+    ${_rt_shell_wrap[@]+"${_rt_shell_wrap[@]}"} node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}" ${KOSMOS_SHELL_PLATFORM:+"$KOSMOS_SHELL_PLATFORM"}
   else
     # #5907: the whole of test:shell as shard 1 of 1 (the same commands in the same order, stopping at the first
     # red, as the && chain did), so the log names each command's time and the slowest ones.
-    node "$REPO/tools/shell-shard.js" run 1 1
+    ${_rt_shell_wrap[@]+"${_rt_shell_wrap[@]}"} node "$REPO/tools/shell-shard.js" run 1 1
   fi
   NODE_STATUS=$?
 fi
