@@ -42,7 +42,7 @@ case "$me" in
         echo $(( $(cat .svc-pid 2>/dev/null || echo 4343) + 1 )) > .svc-pid; exit 0 ;;
     esac
     case "$1 $2" in "print gui/"*/*) { [ -f "$out" ] || [ "${FX_NOT_LOADED:-0}" = 1 ]; } && exit 113
-        printf '%s = {\n\tstate = running\n' "$2"
+        printf '%s = {\n\tstate = %s\n' "$2" "${FX_JOB_STATE:-running}"
         [ -f "$(dirname "$CALL_LOG")/loaded-ka" ] && printf '\tsemaphores = {\n\t\tsuccessful exit => 0\n\t}\n'
         printf '}\n'; exit 0 ;; esac
     [ "$1 ${2%%/*}" = "print gui" ] || exit 1
@@ -167,7 +167,7 @@ run() {
 rc() { cat "$T/$1.rc"; }
 has() { grep -q -F -- "$2" "$T/$1.out"; }
 # A changing call: anything but a read. curl counts only with -o or -O (a download); gh only with -X.
-changed() { grep -E '^(sudo|sysadminctl|tar|config\.sh|svc\.sh|pkill|defaults) |^crontab -r|^pmset -[ac]|^launchctl (bootstrap|bootout|kickstart|setenv|kill|enable)|^curl .*(-o |-[a-zA-Z]*O|--output|--remote-name| -X | -T | -d |--data)|^gh .*-X|^launchctl (bootout|disable|load|unload)' "$T/$1.calls"; }
+changed() { grep -E '^(sudo|sysadminctl|tar|config\.sh|svc\.sh|pkill|defaults) |^crontab -r|^pmset -[ac]|^launchctl (bootstrap|kickstart|setenv|kill|enable)|^curl .*(-o |-[a-zA-Z]*O|--output|--remote-name| -X | -T | -d |--data)|^gh .*-X|^launchctl (bootout|disable|load|unload)' "$T/$1.calls"; }
 
 H="$T/home"; mkdir -p "$H"
 
@@ -548,70 +548,75 @@ ka_fresh() {   # an installed runner as svc.sh leaves it: started, its plist wit
 ka_fresh
 [ -f "$KA" ] && [ -z "$(ka_of "$KA")" ] && [ "$(ls "$KH"/Library/LaunchAgents/actions.runner.*.plist | head -n 1)" = "$KR" ] \
   && pass "control: the keepalive fixture starts with no KeepAlive, and the relay's plist sorts first" || fail "keepalive fixture: $(ls -la "$KH/Library/LaunchAgents" 2>&1)"
-run ka-dry "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
+run ka-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
 [ "$(rc ka-dry)" = 0 ] && has ka-dry "has no KeepAlive" && has ka-dry "WOULD: launchctl bootout gui/777/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" \
   && ! changed ka-dry >/dev/null && cmp -s "$KA" "$T/ka.before" \
   && pass "keepalive dry run: says KeepAlive is missing and what it would do, changes nothing" || fail "keepalive dry run: rc $(rc ka-dry): $(cat "$T/ka-dry.out")"
 # Over ssh (launchctl managername reads Background there): allowed, as it names gui/<uid> and does not use svc.sh.
-run ka-apply "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_MANAGER=Background -- --apply keepalive
+run ka-apply "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_MANAGER=Background -- --apply keepalive
 if [ "$(rc ka-apply)" = 0 ] && [ "$(ka_of "$KA")" = false ] && [ "$(plutil -extract ThrottleInterval raw -o - "$KA")" = 10 ] \
    && grep -n '^launchctl bootout gui/777/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s$' "$T/ka-apply.calls" | head -1 | cut -d: -f1 > "$T/ka.o" \
    && [ "$(grep -n "^launchctl bootstrap gui/777 $KA\$" "$T/ka-apply.calls" | head -1 | cut -d: -f1)" -gt "$(cat "$T/ka.o")" ] \
    && has ka-apply "the runner is running again" && cmp -s "$KR" "$T/kr.before" && ! grep -q 'kosmos-relay' "$T/ka-apply.calls"; then
   pass "keepalive --apply over ssh: THIS runner's plist (from .service, not the relay's) gains KeepAlive, bootout before bootstrap, a new Listener"; cp "$KA" "$T/ka.after"
 else fail "keepalive --apply: rc $(rc ka-apply): $(tail -2 "$T/ka-apply.out") calls: $(grep '^launchctl' "$T/ka-apply.calls" | tr '\n' ';')"; fi
-run ka-again "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
-[ "$(rc ka-again)" = 0 ] && has ka-again "restarts after a kill" && ! has ka-again "WOULD" && pass "keepalive dry run on a runner that has it: says so, would do nothing" || fail "keepalive again: $(cat "$T/ka-again.out")"
-ka_fresh; run ka-job "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER=1 -- --apply keepalive
+run ka-again "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
+[ "$(rc ka-again)" = 0 ] && has ka-again "restarts after a kill" && has ka-again "and is running" && ! has ka-again "WOULD" && pass "keepalive dry run on a runner that has it: says so, would do nothing" || fail "keepalive again: $(cat "$T/ka-again.out")"
+# Loaded with KeepAlive but not running (it exited 0): DOWN, not "done".
+run ka-loadeddown "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE=waiting -- keepalive
+[ "$(rc ka-loadeddown)" = 1 ] && has ka-loadeddown "has KeepAlive loaded but is not running" && ! has ka-loadeddown "restarts after a kill" \
+  && pass "keepalive: KeepAlive loaded on a job that is not running is DOWN, not done" || fail "keepalive loaded down: rc $(rc ka-loadeddown): $(cat "$T/ka-loadeddown.out")"
+ka_fresh; run ka-job "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER=1 -- --apply keepalive
 [ "$(rc ka-job)" = 1 ] && has ka-job "a job is running" && [ "$(ka_of "$KA")" = false ] && ! grep -q '^launchctl boot' "$T/ka-job.calls" \
   && pass "keepalive --apply does not reload while a job runs (seen by name, as after a self-update); the plist keeps KeepAlive for the next start" || fail "keepalive job: rc $(rc ka-job): $(tail -1 "$T/ka-job.out")"
 # The rerun its refusal asks for: the plist has KeepAlive now, the loaded job does not, so it must reload, not stop at
 # the file (the plist alone does not make a killed runner come back).
-run ka-rerun "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+run ka-rerun "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
 [ "$(rc ka-rerun)" = 0 ] && grep -q '^launchctl bootout gui/777/' "$T/ka-rerun.calls" && grep -q '^launchctl bootstrap gui/777 ' "$T/ka-rerun.calls" \
   && has ka-rerun "with KeepAlive loaded" && ! has ka-rerun "KeepAlive added" \
   && pass "keepalive --apply, rerun after a refused reload: the plist already has it, the loaded job does not, so it reloads" || fail "keepalive rerun: rc $(rc ka-rerun): $(tail -2 "$T/ka-rerun.out")"
-ka_fresh; cp "$T/ka.after" "$KA"; run ka-oldjob "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
+ka_fresh; cp "$T/ka.after" "$KA"; run ka-oldjob "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
 [ "$(rc ka-oldjob)" = 0 ] && has ka-oldjob "the LOADED actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s does not" && has ka-oldjob "WOULD: launchctl bootout" \
   && ! has ka-oldjob "restarts after a kill" && pass "keepalive dry run: a plist with KeepAlive under a loaded job without it is not called done" || fail "keepalive old job: $(cat "$T/ka-oldjob.out")"
-ka_fresh; run ka-elsewhere "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 -- --apply keepalive
+ka_fresh; run ka-elsewhere "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 -- --apply keepalive
 [ "$(rc ka-elsewhere)" = 1 ] && has ka-elsewhere "Listener runs but" && [ "$(ka_of "$KA")" = false ] && ! grep -q '^launchctl boot' "$T/ka-elsewhere.calls" \
   && pass "keepalive --apply: its Listener runs but the job is not in gui/<uid> (started another way): refuses, starts no second copy" || fail "keepalive elsewhere: rc $(rc ka-elsewhere): $(tail -1 "$T/ka-elsewhere.out")"
-ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-stopped "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 -- --apply keepalive
+ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-stopped "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 -- --apply keepalive
 [ "$(rc ka-stopped)" = 1 ] && [ "$(ka_of "$KA")" = false ] && has ka-stopped "DOWN: actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s is not loaded" && ! grep -q '^launchctl boot' "$T/ka-stopped.calls" \
   && pass "keepalive --apply on a runner that is not loaded: KeepAlive in the plist, NOT started, and said loudly as DOWN (exit 1, not ok)" || fail "keepalive stopped: rc $(rc ka-stopped): $(tail -1 "$T/ka-stopped.out")"
 # The relay's Listener (its own dir, #6245) is not this runner's: it neither counts as "running elsewhere" ...
-ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-relayonly "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 FX_RELAY_LISTENER=1 -- --apply keepalive
+ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-relayonly "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 FX_RELAY_LISTENER=1 -- --apply keepalive
 [ "$(rc ka-relayonly)" = 1 ] && has ka-relayonly "DOWN:" && ! has ka-relayonly "Listener runs but" \
   && pass "keepalive --apply: the relay's Listener is not taken for this runner's (DOWN, not 'loaded elsewhere')" || fail "keepalive relay only: rc $(rc ka-relayonly): $(tail -1 "$T/ka-relayonly.out")"
 # ... nor, respawning during the reload, as this runner having come back.
-ka_fresh; run ka-relayrespawn "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_RELAY_LISTENER=1 FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply keepalive
+ka_fresh; run ka-relayrespawn "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_RELAY_LISTENER=1 FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply keepalive
 [ "$(rc ka-relayrespawn)" = 1 ] && has ka-relayrespawn "no new Listener of $KH/actions-runner" \
   && pass "keepalive --apply: a relay Listener respawning during the reload is not taken for this runner coming back" || fail "keepalive relay respawn: rc $(rc ka-relayrespawn): $(tail -1 "$T/ka-relayrespawn.out")"
-ka_fresh; run ka-bootoutfail "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_FAIL=1 KOSMOS_CI_UNLOAD_WAIT_S=20 -- --apply keepalive
-[ "$(rc ka-bootoutfail)" = 1 ] && has ka-bootoutfail "exited 5 and it is still loaded" && ! grep -q '^launchctl bootstrap' "$T/ka-bootoutfail.calls" \
-  && [ "$(grep -c '^launchctl print gui/777/' "$T/ka-bootoutfail.calls")" -le 3 ] \
-  && pass "keepalive --apply: a bootout that fails outright says so at once (no unload wait) and does not bootstrap" || fail "keepalive bootout fail: rc $(rc ka-bootoutfail): $(tail -1 "$T/ka-bootoutfail.out")"
-ka_fresh; run ka-noka "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
+# A bootout that reports failure while the job is still listed may still be unloading: it waits, and says both outcomes.
+ka_fresh; run ka-bootoutfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_FAIL=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
+[ "$(rc ka-bootoutfail)" = 1 ] && has ka-bootoutfail "(exit 5) had not unloaded it" && has ka-bootoutfail "may still be unloading" && has ka-bootoutfail "the runner is DOWN" \
+  && ! has ka-bootoutfail "runs on" && ! grep -q '^launchctl bootstrap' "$T/ka-bootoutfail.calls" \
+  && pass "keepalive --apply: a failed bootout with the job still listed is not called running: it may be unloading, both outcomes named" || fail "keepalive bootout fail: rc $(rc ka-bootoutfail): $(tail -1 "$T/ka-bootoutfail.out")"
+ka_fresh; run ka-noka "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
 [ "$(rc ka-noka)" = 1 ] && has ka-noka "shows no 'successful exit => 0' semaphore" \
   && pass "keepalive --apply: a reload that leaves no KeepAlive in the loaded job fails" || fail "keepalive no ka loaded: rc $(rc ka-noka): $(tail -1 "$T/ka-noka.out")"
-ka_fresh; run ka-stuck "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
+ka_fresh; run ka-stuck "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 [ "$(rc ka-stuck)" = 1 ] && has ka-stuck "had not unloaded it" && has ka-stuck "may still be unloading" && ! grep -q '^launchctl bootstrap' "$T/ka-stuck.calls" \
   && pass "keepalive --apply: a bootout that does not unload says so and does not bootstrap" || fail "keepalive stuck: rc $(rc ka-stuck): $(tail -1 "$T/ka-stuck.out")"
-ka_fresh; chmod 000 "$KH/actions-runner/.service"; run ka-other "$KH" KOSMOS_CI_HOME="$KH" -- keepalive; chmod 644 "$KH/actions-runner/.service"
+ka_fresh; chmod 000 "$KH/actions-runner/.service"; run ka-other "$KH" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$KH" -- keepalive; chmod 644 "$KH/actions-runner/.service"
 [ "$(rc ka-other)" = 0 ] && has ka-other "cannot read kosmos-ci's runner" && ! has ka-other "register first" \
   && pass "keepalive dry run as another user that cannot read the runner: says so, not \"register first\"" || fail "keepalive as other: rc $(rc ka-other): $(cat "$T/ka-other.out")"
-ka_fresh; run ka-pgrepfail "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_PGREP_FAIL=1 -- --apply keepalive
+ka_fresh; run ka-pgrepfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_PGREP_FAIL=1 -- --apply keepalive
 [ "$(rc ka-pgrepfail)" = 1 ] && has ka-pgrepfail "could not list processes" && ! grep -q '^launchctl boot' "$T/ka-pgrepfail.calls" \
   && pass "keepalive --apply refuses when it cannot rule out a job" || fail "keepalive pgrep fail: rc $(rc ka-pgrepfail): $(tail -1 "$T/ka-pgrepfail.out")"
-ka_fresh; run ka-loggedout "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LAUNCHCTL_FAIL=1 -- --apply keepalive
+ka_fresh; run ka-loggedout "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LAUNCHCTL_FAIL=1 -- --apply keepalive
 [ "$(rc ka-loggedout)" = 1 ] && has ka-loggedout "is not logged in" && cmp -s "$KA" "$T/ka.before" \
   && pass "keepalive --apply refuses when the user's GUI domain does not exist" || fail "keepalive logged out: rc $(rc ka-loggedout): $(tail -1 "$T/ka-loggedout.out")"
-ka_fresh; run ka-bootfail "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_FAIL=1 -- --apply keepalive
+ka_fresh; run ka-bootfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_FAIL=1 -- --apply keepalive
 [ "$(rc ka-bootfail)" = 1 ] && has ka-bootfail "the runner is STOPPED" && pass "keepalive --apply says the runner is stopped when bootstrap fails" || fail "keepalive bootstrap fail: rc $(rc ka-bootfail): $(tail -1 "$T/ka-bootfail.out")"
-ka_fresh; rm -f "$KA" "$KH/actions-runner/.service"; run ka-none "$KH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+ka_fresh; rm -f "$KA" "$KH/actions-runner/.service"; run ka-none "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
 [ "$(rc ka-none)" = 1 ] && has ka-none "register first" && ! grep -q '^launchctl boot' "$T/ka-none.calls" && pass "keepalive --apply refuses with no LaunchAgent" || fail "keepalive none: rc $(rc ka-none)"
-ka_fresh; run ka-owner "$KH" KOSMOS_CI_HOME="$KH" -- --apply keepalive
+ka_fresh; run ka-owner "$KH" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$KH" -- --apply keepalive
 [ "$(rc ka-owner)" = 2 ] && has ka-owner "runs as kosmos-ci" && cmp -s "$KA" "$T/ka.before" && pass "keepalive --apply refuses as anyone but kosmos-ci" || fail "keepalive as owner: rc $(rc ka-owner)"
 
 # --- verify -----------------------------------------------------------------------------------------------------
