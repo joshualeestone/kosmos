@@ -2058,7 +2058,10 @@ function selfPendingInSnapshot() {
     lists. Ok only when Kosmos+ took it (`acked` true: an `acked` false exits 0 and is retried like any failure); a pause
     arrives as the tunnel's error and is said as paused, not as a refusal. */
 async function deviceAckSelf(id) {
+  // As deviceAllow (c2 review 1): never while a register or a Forget is rewriting the identity; the grant retries.
+  { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   // `--device-id=<id>`: an id can start with "-", which the separate-argument form would read as a flag.
   const r = await tracked(setupRun(['devices', 'ack', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(), '--device-id=' + id], null, retireTimeoutMs()));
   if (!r.ok) {
@@ -2068,6 +2071,8 @@ async function deviceAckSelf(id) {
   const got = parseSaid(r);
   if (!got.ok) return got;
   if (got.data && got.data.acked === true) return { ok: true, because: null, data: got.data };
+  // Kosmos+ holds no sign-in with this id (its ack answered 404): said as deviceAllow says it, for the log.
+  if (got.data && got.data.account_ack === UNKNOWN_DEVICE) return { ok: false, because: UNKNOWN_WORDS };
   return { ok: false, because: 'Kosmos+ was not told yet' };
 }
 function allowSelfQuietly() {
