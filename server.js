@@ -4451,6 +4451,10 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
   /* kosmos#6986: a security check's off switch and its acknowledgement. Switching it ON stays open remotely. */
   certWatchOff: Object.freeze({ code: 'remote_not_allowed', error: 'The certificate check is switched off at the computer itself, not from a remote session.' }),
   certWatchAck: Object.freeze({ code: 'remote_not_allowed', error: 'A lost certificate report is acknowledged at the computer itself, not from a remote session.' }),
+  /* kosmos#6590 (S-7d branch c): the browsers waiting for a typed code, and what is done to them, are for the person at
+     the computer only (the list carries each browser's network). */
+  waiting: Object.freeze({ code: 'remote_not_allowed', error: 'The browsers waiting to connect are shown at the computer itself, not in a remote session.' }),
+  typedAllow: Object.freeze({ code: 'remote_not_allowed', error: 'Letting in a waiting browser is done at the computer itself, not from a remote session.' }),
 });
 /* kosmos#6595 (R01, the step-up half; Splinter's ruling 09:44 2026-10-19): from a remote session, entering a key or
    token, updating Kosmos, and making an agent (every agent here runs with an unsandboxed shell) need a FRESH sign-in
@@ -11811,6 +11815,49 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
     return;
   }
+  /* kosmos#6590 (S-7d branch c): the typed-code Allow. Inert until the board-v2 marker exists (the engine answers "not
+     yet" and the list is empty). Reading the list needs this computer's own board session on a loopback connection that
+     no forwarder touched: a same-origin GET carries no Origin, so madeOnThisComputer cannot be asked here. */
+  if (pathname === '/api/remote/waiting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (!isLoopbackPeer(req) || isRemoteRequest(req) || !boardCookieHere(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.waiting); return; }
+    remote.devicesWaiting()
+      .then((r) => {
+        /* v2 true: the engine reads the list only under the marker, so a failure here is one the page should show (with
+           Clear, the way out of a damaged list); an older board's 404 carries no v2 and the page draws nothing. */
+        if (!r.ok) { sendJson(res, 500, { error: r.because, v2: true }); return; }
+        sendJson(res, 200, r.data);
+      })
+      .catch(() => sendJson(res, 500, { error: 'we could not read the waiting browsers', v2: true }));
+    return;
+  }
+  const waitingVerb = /^\/api\/remote\/waiting\/(allow|drop|clear)$/.exec(pathname);
+  if (waitingVerb && req.method === 'POST') {
+    if (isRemoteRequest(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.typedAllow); return; }
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* Made on this computer (loopback Host and Origin, no forwarder), with its own board session, by a person at the
+           screen: a POST carries Origin, so all three can be asked. */
+        if (!isLoopbackPeer(req) || !madeOnThisComputer(req.headers) || !boardCookieHere(req) || !isViaScreen(req, body)) {
+          sendJson(res, 403, { error: 'Only a person at this computer can do this, in Kosmos.' });
+          return;
+        }
+        const knockId = typeof body.knockId === 'string' ? body.knockId : '';
+        const verb = waitingVerb[1];
+        const got = verb === 'allow' ? await remote.deviceAllowCode(knockId, body.code)
+          : verb === 'drop' ? await remote.deviceDropWaiting(knockId)
+            : await remote.devicesClearWaiting();
+        if (!got.ok) {
+          sendJson(res, 400, { error: got.because, ...(got.paused ? { paused: true } : {}), ...(Number.isInteger(got.triesLeft) ? { triesLeft: got.triesLeft } : {}) });
+          return;
+        }
+        sendJson(res, 200, { ok: true, ...(got.data || {}) });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not change that' }));
+    return;
+  }
   const deviceVerb = /^\/api\/remote\/devices\/(allow|deny|remove)$/.exec(pathname);
   if (deviceVerb && req.method === 'POST') {
     /* kosmos#6595: Allow lets a device in, so never from a remote session. Deny and Remove take access away and stay
@@ -11827,6 +11874,13 @@ const server = http.createServer(async (req, res) => {
            away, so a local agent may still use them. ADVISORY (#3595), as above. */
         if (verb === 'allow' && !isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can allow a device.' }); return; }
         const id = typeof body.device_id === 'string' ? body.device_id : '';
+        /* kosmos#6590 (S-7d branch c): under the board-v2 marker, Allow and Not me by id are for a computer the current
+           snapshot lists (it pairs by its own code). A phone or a browser is let in only by the code its page shows, and
+           is turned away by key, never by telling Kosmos+ to end its sign-in. Remove is unchanged. */
+        if ((verb === 'allow' || verb === 'deny') && remote.boardV2() && !remote.listedAsComputer(id)) {
+          sendJson(res, 403, { code: 'typed_code_only', error: 'That is not a computer asking to join right now. A phone or a browser is let in by typing the code its page shows, under the browsers waiting to connect.' });
+          return;
+        }
         const got = verb === 'allow' ? await remote.deviceAllow(id, body.name, body.code)
           : verb === 'deny' ? await remote.deviceDeny(id)
             : await remote.deviceRemove(id);

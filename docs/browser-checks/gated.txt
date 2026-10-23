@@ -275,6 +275,7 @@ render-tophead-consolidated-2282
 render-tophead-stable-2624
 render-trust-restart-0644
 render-type-to-focus-3283
+render-typed-allow-6590
 render-unread-edge-3743
 render-unsent-draft-6717
 render-unsent-input-6249

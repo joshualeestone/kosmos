@@ -82,7 +82,9 @@ test('Remove confirms inline with the sentence the tunnel makes true; Allow / No
   assert.match(JS, /Remove this ' \+ askEsc\(name\) \+ '\? It stops right away\. It can ask again by signing in\./);
   assert.equal((JS.match(/data-ask="later"/g) || []).length, 0, 'a Not now dismiss is back');
   assert.doesNotMatch(JS, />Deny</, 'a Deny button is back beside Not me: two ways to say no');
-  assert.equal((JS.match(/>Not me</g) || []).length, 1, 'expected exactly one Not me button');
+  // One Not me on the request card (kosmos#6590 adds its own, data-wait="drop", on each waiting browser's row).
+  assert.equal((JS.match(/data-ask="deny"[^\n]*>Not me</g) || []).length, 1, 'expected exactly one Not me button on the request card');
+  assert.equal((JS.match(/>Not me</g) || []).length, 2, 'a third Not me appeared: the request card\'s and the waiting browsers\' are the only two');
   assert.doesNotMatch(JS, /devrow pending/, 'pending requests are painted in the devices list too');
   // Stronger than the class name: the devices list paints no Allow or Deny at all.
   const pd = JS.slice(JS.indexOf('async function paintDevices'), JS.indexOf("document.getElementById('plus-devlist').addEventListener"));

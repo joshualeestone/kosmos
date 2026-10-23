@@ -519,6 +519,7 @@ const SITE_COUNTS = {
   'render-tophead-stable-2624.js': [1, 1],
   'render-trust-restart-0644.js': [1, 1],
   'render-type-to-focus-3283.js': [1, 0],
+  'render-typed-allow-6590.js': [1, 0],
   'render-unsent-draft-6717.js': [2, 1],
   'render-update-abort-2055.js': [1, 0],
   'render-update-toast.js': [0, 1],

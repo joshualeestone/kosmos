@@ -546,6 +546,19 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   #panel-settings #plus-asks .askreq .askcodein { font-size: 1.9rem; }
   .askreq .askcodein::placeholder { color: #93a3c6; }
   .askreq .askcodein:focus-visible { outline: 2px solid #9ab6ff; outline-offset: 2px; }
+  /* kosmos#6590: a waiting browser's code, typed by the person: the same field as a joining computer's. Its letters
+     are typed in capitals as the browser shows them. */
+  .askreq .waitcodein { width: 8.2em; max-width: 100%; box-sizing: border-box; padding: 4px 10px; border-radius: 8px;
+                        border: 1px solid #6f86c4; background: rgba(255,255,255,.06); color: #fff; text-transform: uppercase;
+                        font: 700 1.9rem/1.2 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; }
+  #panel-settings #plus-asks .askreq .waitcodein { font-size: 1.9rem; }
+  .askreq .waitcodein::placeholder { color: #93a3c6; text-transform: none; }
+  .askreq .waitcodein:focus-visible { outline: 2px solid #9ab6ff; outline-offset: 2px; }
+  /* A waiting browser's row has a line of its own for what the tunnel saw and for an answer, above the code field. */
+  .askreq.waitreq { grid-template-areas: "dev who" ". say" ". meta" ". code" ". acts"; }
+  .askreq.waitreq .waitmeta { grid-area: meta; display: grid; gap: 2px; color: #9fb0d4; font-size: .85rem; }
+  .askreq.waitreq .waitmeta p { margin: 0; }
+  .askreq.waitreq .waitmeta .waitsaid { color: #fff; }
   /* #4794: the waiting computer's code (Mona Lisa: identical to the Allow card's, which is drawn on its dark card; here it
      sits on the page, so it takes the page's ink). */
   #plus-join .askcodebig { color: var(--k-ink); }
@@ -19489,6 +19502,11 @@ window.kosmosMeasureScrollbarWidth();
       <!-- kosmos#6666: while Kosmos+ is paused for maintenance it shows no new requests; this says why. -->
       <p class="plus-paused" id="plus-paused" hidden>Kosmos+ is paused for maintenance. No new phone, browser or computer can be let in until it is back, and one that was asking may need to ask again then.</p>
       <div id="plus-ask-rows"></div>
+      <!-- kosmos#6590 (S-7d branch c): browsers waiting for the code they show to be typed here. Empty until this
+           computer's board-v2 marker exists (paintWaiting). -->
+      <div id="plus-waiting"></div>
+      <!-- One node that is never rewritten, so what a press came to is announced (a role=status made fresh is not). -->
+      <p class="vh" id="plus-waiting-live" role="status" aria-live="polite"></p>
     </div>
 
     <!-- #1615, design/plus-flow.html section 5: this pane is THREE states, not one.
@@ -52143,6 +52161,180 @@ async function pollAsk() {
   }
   paintAsk();
 }
+/* kosmos#6590 (S-7d branch c): browsers waiting to be let in by the code they show. A browser that opens this
+   computer's address makes its own key there and waits; its page shows a code, and the person types that code here.
+   This computer never shows the code: typing what the browser in your hand shows is what binds it. The list comes
+   from /api/remote/waiting, which answers only this board on this computer; it is empty (v2 false) until the board-v2
+   marker exists, so nothing here shows before then. */
+const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, wrong: {}, busy: '', ctAlarm: false, paintedSig: '' };
+function waitShown() { return WAIT.v2 && (WAIT.rows.length > 0 || !!WAIT.error || !!WAIT.note); }
+/* What was typed, said or marked wrong for a row the tunnel no longer lists is forgotten, so a row that comes back starts clean. */
+function waitForgetRows() {
+  for (const bag of [WAIT.typed, WAIT.said, WAIT.wrong]) {
+    for (const id of Object.keys(bag)) if (!WAIT.rows.some((w) => w.knockId === id)) delete bag[id];
+  }
+}
+/* Started here, beside its state, not with pollAsk's timer: web.plus-stale.test.js runs the panel script after this block
+   on its own. Answers v2 false, and nothing shows, until the board-v2 marker exists. */
+setTimeout(() => { pollWaiting(); setInterval(pollWaiting, 5000); }, 0);
+/* What the section would draw from: a poll repaints only when this changes (CI's render-snav-head-4979: without the
+   marker this poll ran paintAsk every 5 s for nothing, doubling the repaints of a board that should be unchanged). */
+function waitSig() {
+  // The address too: a row's line names it, and it is learned after the first paint.
+  return JSON.stringify([WAIT.v2, WAIT.error, WAIT.note, WAIT.ctAlarm, typeof PLUS_ADDRESS === 'string' ? PLUS_ADDRESS : '',
+    WAIT.rows.map((w) => [w.knockId, w.firstSeen, w.uaClass, w.net, w.vouched])]);
+}
+async function pollWaiting() {
+  // Against what was last DRAWN (paintWaiting records it), so a change learned between polls is drawn too.
+  const repaint = () => { if (waitSig() !== WAIT.paintedSig) paintAsk(); };
+  let res = null;
+  try { res = await fetch('/api/remote/waiting', { cache: 'no-store' }); } catch { res = null; }
+  if (!res) return;   // a blip keeps the last paint
+  // A remote session is refused this list by design: nothing to show there, and nothing to say about it.
+  if (res.status === 403) { WAIT.v2 = false; WAIT.rows = []; WAIT.error = ''; waitForgetRows(); repaint(); return; }
+  const r = await res.json().catch(() => null);
+  if (!res.ok) {
+    /* Only an error the board says it met under the marker (v2 true) is shown, with Clear, the way out of a damaged list.
+       Anything else (a board older than this page, which has no such route, review 1) draws nothing, as before. */
+    if (r && r.v2 === true) { WAIT.v2 = true; WAIT.rows = []; WAIT.error = plusWords(r.error || 'The browsers waiting to connect could not be read.'); }
+    else { WAIT.v2 = false; WAIT.rows = []; WAIT.error = ''; }
+    waitForgetRows();
+    repaint();
+    return;
+  }
+  WAIT.v2 = !!r && r.v2 === true;
+  WAIT.rows = WAIT.v2 && Array.isArray(r.waiting) ? r.waiting.filter((w) => w && typeof w.knockId === 'string') : [];
+  WAIT.ctAlarm = !!r && r.ctAlarm === true;
+  WAIT.error = '';
+  waitForgetRows();
+  if (WAIT.note && Date.now() - WAIT.noteAt > REMOVE_SAID_MS) WAIT.note = '';
+  repaint();
+}
+/* The code a browser shows: six letters and digits, usually with a dash. Allow wakes at six of them. */
+function waitCodeChars(v) { return String(v || '').replace(/[^A-Za-z0-9]/g, ''); }
+function waitRowHtml(w, n) {
+  const id = askEsc(w.knockId);
+  // What the browser says it is, labelled as its own claim (design review 2), never stated as fact.
+  const says = w.uaClass ? askEsc(w.uaClass) : '';
+  const name = 'browser ' + n + (says ? ' (says ' + says + ')' : '');
+  const said = WAIT.said[w.knockId] || '';
+  const busy = WAIT.busy === w.knockId;
+  const short = waitCodeChars(WAIT.typed[w.knockId]).length < 6;
+  // Where the code shows: this computer's own address, so the person can check that the browser in their hand is on it.
+  const at = typeof PLUS_ADDRESS === 'string' && PLUS_ADDRESS ? ' at <b>' + askEsc(PLUS_ADDRESS) + '</b>' : '';
+  return '<div class="askreq waitreq"><div class="askdev">' + askIcon(w.uaClass) + '</div>' +
+    '<div class="askwho"><b id="waithead-' + id + '">A browser wants to connect to your Kosmos</b>' + askAgoSpan(w.firstSeen) + '</div>' +
+    '<p class="asksay" id="waitsay-' + id + '">Type the code the browser in your hand shows' + at + '.</p>' +
+    '<div class="waitmeta">' + (says ? '<p>It says it is: ' + says + '</p>' : '') +
+      (w.net ? '<p>Network, as reported to this computer: ' + askEsc(w.net) + '</p>' : '') +
+      (said ? '<p class="waitsaid" id="waitsaid-' + id + '">' + askEsc(said) + '</p>' : '') + '</div>' +
+    '<p class="askcodetype"><label for="waitcode-' + id + '">Code</label>' +
+    '<input class="waitcodein" id="waitcode-' + id + '" data-waitcode="' + id + '" type="text" autocapitalize="characters"' +
+    ' autocomplete="off" autocorrect="off" spellcheck="false" maxlength="16" placeholder="ABC-DEF"' +
+    ' aria-describedby="waithead-' + id + ' waitsay-' + id + (said ? ' waitsaid-' + id : '') + '"' + (WAIT.wrong[w.knockId] ? ' aria-invalid="true"' : '') + '></p>' +
+    '<div class="acts"><button class="btn uprime" type="button" data-wait="allow" data-id="' + id + '" aria-label="Allow ' + name + '"' +
+    (WAIT.busy ? ' disabled' : short ? ' aria-disabled="true"' : '') + '>' + (busy ? 'Checking' : 'Allow') + '</button>' +
+    '<button class="btn quiet" type="button" data-wait="drop" data-id="' + id + '" aria-label="Not me: turn away ' + name + '"' + (WAIT.busy ? ' disabled' : '') + '>Not me</button></div></div>';
+}
+function paintWaiting(inPanel) {
+  const el = document.getElementById('plus-waiting');
+  if (!el) return;
+  WAIT.paintedSig = waitSig();
+  if (!inPanel || !waitShown()) { waitWrite(el, ''); return; }
+  const n = WAIT.rows.length;
+  const out = ['<p class="setname" id="plus-waiting-title">Browsers waiting to connect' + (n ? ' (' + n + ')' : '') + '</p>'];
+  if (WAIT.error) out.push('<p class="askwait" role="alert">' + askEsc(WAIT.error) + '</p>');
+  WAIT.rows.forEach((w, i) => out.push(waitRowHtml(w, i + 1)));
+  if (WAIT.note) out.push('<p class="askwait" id="plus-waiting-note" tabindex="-1">' + askEsc(WAIT.note) + '</p>');
+  if (WAIT.rows.length || WAIT.error) {
+    out.push('<div class="acts"><button class="btn quiet" type="button" data-wait="clear"' + (WAIT.busy ? ' disabled' : '') + '>Clear waiting browsers</button></div>');
+  }
+  waitWrite(el, out.join(''));
+}
+/* As askWrite: a rewrite keeps what was typed (never in the markup), and gives focus back to the field or button it was on. */
+function waitWrite(el, html) {
+  const a = document.activeElement;
+  const had = a && el.contains(a) && a.dataset ? { code: a.dataset.waitcode || '', act: a.dataset.wait || '', id: a.dataset.id || '',
+    at: a.dataset.waitcode ? [a.selectionStart, a.selectionEnd] : null } : null;
+  setLive(el, html);
+  for (const f of el.querySelectorAll('.waitcodein')) {
+    const v = WAIT.typed[f.dataset.waitcode] || '';
+    if (f.value !== v) f.value = v;
+  }
+  if (had && !el.contains(document.activeElement)) {
+    const back = had.code ? Array.from(el.querySelectorAll('.waitcodein')).find((f) => f.dataset.waitcode === had.code)
+      : Array.from(el.querySelectorAll('[data-wait]')).find((b) => b.dataset.wait === had.act && (b.dataset.id || '') === had.id);
+    if (back) {
+      back.focus();
+      if (had.at && back.value) back.setSelectionRange(Math.min(had.at[0], back.value.length), Math.min(had.at[1], back.value.length));
+    }
+  }
+  for (const sp of el.querySelectorAll('[data-ask-ago]')) {
+    const t = askAgo(Number(sp.dataset.askAgo) || 0);
+    if (sp.textContent !== t) sp.textContent = t;
+  }
+}
+async function waitAct(act, id) {
+  if (WAIT.busy) return;
+  if (act === 'allow' && waitCodeChars(WAIT.typed[id]).length < 6) {
+    WAIT.said[id] = 'Type all six letters and digits of the code this browser shows, then press Allow.';
+    paintAsk();
+    const f = document.getElementById('waitcode-' + id);
+    if (f) f.focus();
+    return;
+  }
+  WAIT.busy = id || 'clear';
+  paintAsk();
+  const route = act === 'allow' ? 'allow' : act === 'drop' ? 'drop' : 'clear';
+  let res = null;
+  try {
+    res = await fetch('/api/remote/waiting/' + route, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(act === 'clear' ? {} : act === 'allow' ? { knockId: id, code: WAIT.typed[id] || '' } : { knockId: id }) });
+  } catch { res = null; }
+  const said = res ? await res.json().catch(() => null) : null;
+  WAIT.busy = '';
+  const note = (t) => { WAIT.note = t; WAIT.noteAt = Date.now(); };
+  // A 200 counts only with the board's own answer in it (a body that does not read is not "Connected").
+  const ok = !!(res && res.ok && said && said.ok === true);
+  if (ok) {
+    delete WAIT.typed[id];
+    delete WAIT.said[id];
+    delete WAIT.wrong[id];
+    if (act === 'allow') note('Connected. You can remove it any time under Devices.');
+    else if (act === 'drop' && said.allowed) note('That browser was already let in a moment ago. If it is not yours, remove it under Devices.');
+    else if (act === 'drop') note('Turned away for today. If that was your own browser, press Clear waiting browsers, then reload the page on it for a new code.');
+    else note('Cleared. A browser that still wants in gets a new code when its page is reloaded.');
+    if (act === 'allow') paintDevices();   // the device it let in shows in the list now
+  } else if (act === 'clear') {
+    note(plusWords((said && said.error) || 'We could not clear the waiting browsers. Try again.'));
+  } else {
+    WAIT.said[id] = plusWords((said && said.error) || 'We could not save that. Try again.');
+    if (act === 'allow' && said && Number.isInteger(said.triesLeft)) WAIT.wrong[id] = true;
+  }
+  for (const rid of ['plus-waiting']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
+  paintAsk();   // never leave "Checking" up if the poll below blips
+  await pollWaiting();
+  /* A row the tunnel dropped meanwhile (five wrong codes, no longer waiting) takes its sentence with it: say it in the
+     note instead (review 1), and move focus there, or to the next row's field. */
+  if (id && WAIT.said[id] === undefined && !ok && act !== 'clear' && !WAIT.rows.some((w) => w.knockId === id)) {
+    note(plusWords((said && said.error) || 'That browser is no longer waiting.'));
+    paintAsk();
+  }
+  /* Said once: where focus lands on the answer itself (the field it describes, or the note), that is the announcement;
+     the live node speaks only when focus has nowhere to land on it (review 2). */
+  const live = document.getElementById('plus-waiting-live');
+  if (live) live.textContent = '';
+  const row = WAIT.rows.find((w) => w.knockId === id);
+  if (row && !ok) { const f = document.getElementById('waitcode-' + id); if (f) { f.focus(); f.select(); return; } }
+  const next = WAIT.rows[0] ? document.getElementById('waitcode-' + WAIT.rows[0].knockId) : null;
+  const target = (WAIT.note && document.getElementById('plus-waiting-note')) || next || document.getElementById('plus-waiting-title') || document.getElementById('plus-asks');
+  if (target) {
+    if (!target.hasAttribute('tabindex') && !/^(INPUT|BUTTON)$/.test(target.tagName)) target.setAttribute('tabindex', '-1');
+    target.focus();
+  }
+  const say = WAIT.said[id] || WAIT.note || '';
+  if (live && say && target && target.id !== 'plus-waiting-note') setTimeout(() => { live.textContent = say; }, 50);
+}
 /* #4794 (Mona Lisa, 2026-10-03): what a joining computer's empty code means on the computer already in, one line per
    reason the tunnel gives (code_wait). <name> is the joining computer. Anything else keeps the default line. */
 const JOIN_WAIT_WORDS = {
@@ -52165,7 +52357,9 @@ function paintAsk() {
   // What an Undo said stays as long as a Remove's line does (REMOVE_SAID_MS), then goes.
   if (ASK.hereSaid && Date.now() - ASK.hereSaidAt > REMOVE_SAID_MS) ASK.hereSaid = '';
   const here = ASK.here && askHereKey(ASK.here) !== ASK.hereGone ? ASK.here : null;
-  const anything = live.length || doneIds.length || here || ASK.hereSaid || ASK.paused;
+  // kosmos#6590 (S-7d branch c): browsers waiting for a typed code count as waiting too.
+  const waitN = WAIT.v2 ? WAIT.rows.length : 0;
+  const anything = live.length || doneIds.length || here || ASK.hereSaid || waitShown() || ASK.paused;
   { const p = document.getElementById('plus-paused'); if (p) p.hidden = !ASK.paused; }   // kosmos#6666
   /* #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the full cards render ABOVE the panel; on any
      other view the top card is one compact line linking there. */
@@ -52179,15 +52373,17 @@ function paintAsk() {
      card stays the compact one-line notice on every other view. */
   const inPanel = onPlus && !!panel;
   if (panel) panel.hidden = !(inPanel && anything);
+  paintWaiting(inPanel);
   /* #4637 (Mona Lisa's review W1): "Waiting for you" only while something waits; a success line stands alone. A request
      whose Allow or Not me failed still waits (its sheet shows again, with the reason). */
   const answered = (id) => !!ASK.done[id] && (ASK.done[id].state === 'allowed' || ASK.done[id].state === 'denied');
-  { const t = document.getElementById('plus-asks-title'); if (t) t.hidden = !rows.some((d) => !answered(d.device_id)); }   // the rows the sheets are drawn from
-  const hide = !anything || inPanel || (!onPlus && !live.length && !here);
+  // The rows the sheets are drawn from; waiting browsers have their own title.
+  { const t = document.getElementById('plus-asks-title'); if (t) t.hidden = !rows.some((d) => !answered(d.device_id)); }
+  const hide = !anything || inPanel || (!onPlus && !live.length && !here && !waitN);
   card.hidden = hide;
   /* The Plus tab's needs-you dot marks a request waiting, in the nav's own grammar. */
   const dot = document.querySelector('#s-nav button[data-go="plus"]');
-  if (dot) { if (live.length) dot.setAttribute('data-dot', '1'); else dot.removeAttribute('data-dot'); }
+  if (dot) { if (live.length || waitN) dot.setAttribute('data-dot', '1'); else dot.removeAttribute('data-dot'); }
   const title = document.getElementById('ask-title');
   const lead = document.getElementById('ask-lead');
   /* #6314: away from Kosmos+, or with nothing waiting, the set shown there is forgotten, so the same request met
@@ -52213,17 +52409,23 @@ function paintAsk() {
     const put = askNoteDismissed();
     // The notice names only what was not put away; with nothing left it is hidden.
     const fresh = live.filter((d) => !noteAway(d, put));
+    // kosmos#6590: a waiting browser is one request per row the tunnel keeps (a new row is a new request).
+    const freshWait = WAIT.v2 ? WAIT.rows.filter((w) => put.indexOf('knock:' + w.knockId) === -1) : [];
     const hereNew = here && put.indexOf(hereKey) === -1 ? here : null;
-    if (!fresh.length && !hereNew) { ASK.noteKeys = []; card.hidden = true; askWrite(document.getElementById('ask-rows'), ''); return; }
+    if (!fresh.length && !freshWait.length && !hereNew) { ASK.noteKeys = []; card.hidden = true; askWrite(document.getElementById('ask-rows'), ''); return; }
     title.textContent = '';
     lead.hidden = true;
-    const n = fresh.length;
+    const n = fresh.length + freshWait.length;
     // Dismiss and Review put away only what this line names: a connected-here browser behind waiting requests is not
     // named, so it is not put away (its line is the way to its Undo).
-    ASK.noteKeys = n ? fresh.map(noteKey) : [hereKey];
+    ASK.noteKeys = n ? fresh.map(noteKey).concat(freshWait.map((w) => 'knock:' + w.knockId)) : [hereKey];
     // kosmos#5786 (b): with nothing waiting, the browser this computer just connected; Review leads to its Undo.
     // kosmos#6388: several of the person's own computers joining, and nothing else, are computers, not devices.
-    const line = !n && hereNew ? askEsc(askBrowserWord(hereNew.name)) + ' on this computer is connected.' : n === 1 ? askHead(fresh[0]) + '.'
+    const line = !n && hereNew ? askEsc(askBrowserWord(hereNew.name)) + ' on this computer is connected.'
+      // kosmos#6590: browsers waiting for their code to be typed here.
+      : !fresh.length ? (n === 1 ? 'A browser wants to connect to your Kosmos.' : n + ' browsers want to connect to your Kosmos.')
+      : freshWait.length ? n + ' devices want to connect to your Kosmos.'
+      : n === 1 ? askHead(fresh[0]) + '.'
       : fresh.every((d) => d.joining_computer && d.recheck) ? n + ' of your computers want to finish a code check.'   // kosmos#6404
       : fresh.every((d) => d.joining_computer) ? n + ' of your computers want to join.' : n + ' devices want to connect to your Kosmos.';
     askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + line +
@@ -52356,7 +52558,8 @@ function paintAsk() {
   /* kosmos#6314 (Josh 11:30, landed scrolled down at the devices list: "on the laptop it doesnt say anything about it"):
      on Kosmos+ the requests stay in this section (#4610), so a NEW one is scrolled into view, once per set of requests;
      the same set repainting every few seconds never moves the page again. */
-  const waiting = inPanel ? rows.filter((d) => !answered(d.device_id)).map((d) => String(d.device_id)) : [];
+  const waiting = inPanel ? rows.filter((d) => !answered(d.device_id)).map((d) => String(d.device_id))
+    .concat(WAIT.v2 ? WAIT.rows.map((w) => 'knock:' + w.knockId) : []) : [];   // kosmos#6590: a new waiting browser too
   const before = ASK.shownKey ? ASK.shownKey.split(',') : [];
   if (waiting.some((id) => before.indexOf(id) === -1) && panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'start', behavior: window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   ASK.shownKey = waiting.join(',');
@@ -52470,6 +52673,28 @@ document.getElementById('askcard').addEventListener('click', (e) => {
 document.getElementById('plus-asks').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ask]');
   if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'), b.getAttribute('data-at'));
+});
+/* kosmos#6590: the waiting browsers' buttons, and their code fields (Allow wakes at six characters without a repaint;
+   Enter presses it). */
+document.getElementById('plus-asks').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-wait]');
+  if (b) waitAct(b.getAttribute('data-wait'), b.getAttribute('data-id'));
+});
+document.getElementById('plus-asks').addEventListener('input', (e) => {
+  const f = e.target.closest('.waitcodein');
+  if (!f) return;
+  WAIT.typed[f.dataset.waitcode] = f.value;
+  // Typing again retires "that is not the code" for this field.
+  if (WAIT.wrong[f.dataset.waitcode]) { delete WAIT.wrong[f.dataset.waitcode]; f.removeAttribute('aria-invalid'); }
+  const allow = Array.from(document.querySelectorAll('#plus-waiting [data-wait="allow"]')).find((b) => b.dataset.id === f.dataset.waitcode);
+  if (allow && !allow.disabled) { if (waitCodeChars(f.value).length < 6) allow.setAttribute('aria-disabled', 'true'); else allow.removeAttribute('aria-disabled'); }
+});
+document.getElementById('plus-asks').addEventListener('keydown', (e) => {
+  const f = e.target.closest('.waitcodein');
+  if (!f || e.key !== 'Enter' || e.isComposing) return;
+  e.preventDefault();
+  const allow = Array.from(document.querySelectorAll('#plus-waiting [data-wait="allow"]')).find((b) => b.dataset.id === f.dataset.waitcode);
+  if (allow && !allow.disabled) allow.click();
 });
 /* #6404: typing the joining computer's code. Allow wakes at six digits without a repaint; Enter presses it. */
 for (const cid of ['askcard', 'plus-asks']) {
