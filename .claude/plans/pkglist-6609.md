@@ -34,6 +34,9 @@ changes, and the site serving no list changes nothing.
   seq is not refused here as trustedKeys refuses it (the recovery key never signs two lists with one seq).
 - Not changed: the list fetch reuses the root step's one cache-buster across retries, as the manifest fetch already
   does; and an OFF helper still has the list fetched (it cannot be asked first). Both cost time, never trust.
+- Small-order public keys are refused by ed25519Key in both copies (and so by the signing tool). CryptoKit takes a
+  forged signature under the identity point where OpenSSL does not (measured), so without this a malformed key in a
+  signed list would open the .pkg path alone. The list is the libsodium one; the test checks it by curve arithmetic.
 - The postinstall never requires the list: it cannot know whether the helper is on, and requiring it while off would
   break every .pkg install until 2c serves one.
 - Rejected: falling back to the built-in keys when on and the list is missing. A site that withholds the list would
