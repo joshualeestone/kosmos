@@ -160,6 +160,11 @@ test('#6955: cleanReviewerGrants keeps roleNow (reviewer, admin or member) and r
     assert.equal(kept.length, 1);
     assert.equal('roleChangedAt' in kept[0], false, 'kept a bad roleChangedAt: ' + JSON.stringify(bad));
   }
+  // Review 1: leftAt is kept as sent, a time or an explicit null (still in the company); absent stays absent.
+  assert.equal(c([{ ...g, roleNow: 'admin', leftAt: null }])[0].leftAt, null);
+  assert.equal(c([{ ...g, roleNow: 'admin', leftAt: T + 60 }])[0].leftAt, T + 60);
+  assert.equal('leftAt' in c([{ ...g, roleNow: 'admin' }])[0], false, 'an absent leftAt became a value');
+  for (const bad of [-1, 0, 'never', 1.5]) assert.equal('leftAt' in c([{ ...g, leftAt: bad }])[0], false, 'kept a bad leftAt: ' + JSON.stringify(bad));
   // CONTROL: an older coordinator's grant (no roleNow) is unchanged from #6752.
   assert.deepStrictEqual(c([g]), [{ who: 'pat', grantedAt: T, effectiveAt: T, removedAt: T + 50 }]);
 });

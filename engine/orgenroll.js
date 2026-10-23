@@ -371,7 +371,9 @@ function cleanRole(r) { return ROLES.has(r) ? r : null; }
    to an hour after, so the page works it out from the times. A malformed entry is left out; the newest 20 are kept.
    kosmos#6955 (relay #565): a reviewer made an admin or set back to member keeps their grant, ended (removedAt is when
    the reviewer role ended), with roleNow (the role held now) and roleChangedAt (Unix seconds, absent if it never
-   changed), so the page can say why it ended. Any other role word, or a time that is not one, is dropped, not the grant. */
+   changed), so the page can say why it ended. Any other role word, or a time that is not one, is dropped, not the grant.
+   Leaving does not change the coordinator's role, so a reviewer made an admin who then left still says admin: leftAt
+   (relay, kosmos#6955 review 1) is kept as sent, a time or null, and only an explicit null means still in the company. */
 const MAX_REVIEWER_GRANTS = 20;
 const GRANT_ROLES_NOW = new Set(['reviewer', 'admin', 'member']);   // kosmos#6955: relay #565 roleNow
 function cleanReviewerGrants(list) {
@@ -389,8 +391,9 @@ function cleanReviewerGrants(list) {
     if (!effectiveAt || (g.removedAt != null && !removedAt)) continue;
     const roleNow = GRANT_ROLES_NOW.has(g.roleNow) ? g.roleNow : null;
     const roleChangedAt = secs(g.roleChangedAt);
+    const leftAt = g.leftAt === null ? null : secs(g.leftAt);   // absent from an older coordinator: left out, not null
     out.push({ who, grantedAt, effectiveAt, ...(removedAt ? { removedAt } : {}), ...(roleNow ? { roleNow } : {}),
-      ...(roleChangedAt ? { roleChangedAt } : {}) });
+      ...(roleChangedAt ? { roleChangedAt } : {}), ...('leftAt' in g && (leftAt || g.leftAt === null) ? { leftAt } : {}) });
   }
   return out.slice(-MAX_REVIEWER_GRANTS);
 }

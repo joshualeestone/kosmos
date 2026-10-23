@@ -132,7 +132,7 @@ const WATCHDOG = setTimeout(() => { console.log('FAIL  render-reviewerptr-6817 d
     /* kosmos#6955: a reviewer made an admin is not a new reviewer (no notice), and the Settings list says what they are
        now; set back to member reads as no longer a reviewer. */
     STEP = eng + ' made an admin';
-    const promoted = { ...g(3 * DAY), removedAt: now - DAY, roleNow: 'admin', roleChangedAt: now - DAY };
+    const promoted = { ...g(3 * DAY), removedAt: now - DAY, roleNow: 'admin', roleChangedAt: now - DAY, leftAt: null };
     const adminNote = await read(page, company([promoted]));
     chk(adminNote.count === 0, `${t} a reviewer made an admin raises no notice`, JSON.stringify(adminNote));
     const lines = await page.evaluate(([a, b]) => {
