@@ -312,6 +312,21 @@ const read = (page) => page.evaluate(() => {
       const { page: pb, errs: eb } = await open(browser, () => ({ body: { v2: true, count: 0, waiting: [], ctAlarm: true, ctFinding: null } }), { base });
       const off = await pb.evaluate(() => { const b = document.querySelector('#plus-waiting [data-wait="ctack"]'); return !!(b && b.disabled); });
       chk(off, 'T11 with no finding to name, the button is off');
+      // T11c: a poll repaints only when waitSig changes (the c1 fix for CI's render-snav-head-4979), so whatever the
+      // pause draws must be in it: a finding that arrives turns the button on, and the check's own state changes why.
+      let finding = null;
+      await pb.unroute('**/api/remote/waiting');
+      await pb.route('**/api/remote/waiting', (route) => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ v2: true, count: 0, waiting: [], ctAlarm: true, ctFinding: finding }) }));
+      finding = F;
+      await pb.evaluate(() => pollWaiting());
+      const on = await pb.evaluate(() => { const b = document.querySelector('#plus-waiting [data-wait="ctack"]'); return !!(b && !b.disabled); });
+      chk(on, 'T11c a finding that arrives on a poll turns the button on');
+      const why = (cw) => pb.evaluate(async (c) => { WAIT.cw = c; await pollWaiting(); return document.getElementById('plus-waiting').innerText; }, cw);
+      const foreign = await why({ on: true, state: 'foreign', foreign: 1, lost: false });
+      const lost = await why({ on: true, state: 'clear', foreign: 0, lost: true });
+      chk(!/could not read its last check/.test(foreign) && /could not read its last check/.test(lost),
+        'T11c the reason follows the certificate check on a poll (a lost report says so; a foreign one does not)', JSON.stringify({ foreign, lost }));
       allErrs.push(...eb);
       await pb.close();
     }
