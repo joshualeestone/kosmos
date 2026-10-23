@@ -131,6 +131,10 @@ test('the tunnel\'s answers: wrong with tries left, paused, Kosmos+ never asked,
   r = await remote.deviceAllowCode(KNOCK, 'qqq-qqq');
   assert.equal(r.ok, false);
   assert.ok(!/qqq-qqq/i.test(r.because), r.because);
+  // ...nor when the words carry its letters and digits alone, in another case (review 2).
+  answer = () => ({ err: "error: unexpected argument 'QQQQQQ' found", code: 2 });
+  r = await remote.deviceAllowCode(KNOCK, 'qqq-qqq');
+  assert.ok(!/q{6}/i.test(r.because), r.because);
   // The answer's own sentence is the tunnel's and is kept, even when a short code happens to appear in it (review 1).
   answer = () => ({ out: JSON.stringify({ allowed: false, acked: false, because: 'Too many wrong codes in the last minute. Wait a minute and try again.' }) });
   r = await remote.deviceAllowCode(KNOCK, 'a');

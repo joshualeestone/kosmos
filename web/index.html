@@ -52127,6 +52127,12 @@ async function pollAsk() {
    marker exists, so nothing here shows before then. */
 const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, wrong: {}, busy: '', ctAlarm: false };
 function waitShown() { return WAIT.v2 && (WAIT.rows.length > 0 || !!WAIT.error || !!WAIT.note); }
+/* What was typed, said or marked wrong for a row the tunnel no longer lists is forgotten, so a row that comes back starts clean. */
+function waitForgetRows() {
+  for (const bag of [WAIT.typed, WAIT.said, WAIT.wrong]) {
+    for (const id of Object.keys(bag)) if (!WAIT.rows.some((w) => w.knockId === id)) delete bag[id];
+  }
+}
 /* Started here, beside its state, not with pollAsk's timer: web.plus-stale.test.js runs the panel script after this block
    on its own. Answers v2 false, and nothing shows, until the board-v2 marker exists. */
 setTimeout(() => { pollWaiting(); setInterval(pollWaiting, 5000); }, 0);
@@ -52135,13 +52141,14 @@ async function pollWaiting() {
   try { res = await fetch('/api/remote/waiting', { cache: 'no-store' }); } catch { res = null; }
   if (!res) return;   // a blip keeps the last paint
   // A remote session is refused this list by design: nothing to show there, and nothing to say about it.
-  if (res.status === 403) { WAIT.v2 = false; WAIT.rows = []; WAIT.error = ''; paintAsk(); return; }
+  if (res.status === 403) { WAIT.v2 = false; WAIT.rows = []; WAIT.error = ''; waitForgetRows(); paintAsk(); return; }
   const r = await res.json().catch(() => null);
   if (!res.ok) {
     /* Only an error the board says it met under the marker (v2 true) is shown, with Clear, the way out of a damaged list.
        Anything else (a board older than this page, which has no such route, review 1) draws nothing, as before. */
     if (r && r.v2 === true) { WAIT.v2 = true; WAIT.rows = []; WAIT.error = plusWords(r.error || 'The browsers waiting to connect could not be read.'); }
     else { WAIT.v2 = false; WAIT.rows = []; WAIT.error = ''; }
+    waitForgetRows();
     paintAsk();
     return;
   }
@@ -52149,10 +52156,7 @@ async function pollWaiting() {
   WAIT.rows = WAIT.v2 && Array.isArray(r.waiting) ? r.waiting.filter((w) => w && typeof w.knockId === 'string') : [];
   WAIT.ctAlarm = !!r && r.ctAlarm === true;
   WAIT.error = '';
-  // What was typed or said for a row the tunnel no longer lists is forgotten.
-  for (const id of Object.keys(WAIT.typed)) if (!WAIT.rows.some((w) => w.knockId === id)) delete WAIT.typed[id];
-  for (const id of Object.keys(WAIT.said)) if (!WAIT.rows.some((w) => w.knockId === id)) delete WAIT.said[id];
-  for (const id of Object.keys(WAIT.wrong)) if (!WAIT.rows.some((w) => w.knockId === id)) delete WAIT.wrong[id];
+  waitForgetRows();
   if (WAIT.note && Date.now() - WAIT.noteAt > REMOVE_SAID_MS) WAIT.note = '';
   paintAsk();
 }
@@ -52265,15 +52269,20 @@ async function waitAct(act, id) {
     note(plusWords((said && said.error) || 'That browser is no longer waiting.'));
     paintAsk();
   }
+  /* Said once: where focus lands on the answer itself (the field it describes, or the note), that is the announcement;
+     the live node speaks only when focus has nowhere to land on it (review 2). */
   const live = document.getElementById('plus-waiting-live');
   if (live) live.textContent = '';
-  const said2 = WAIT.said[id];
-  if (live) setTimeout(() => { live.textContent = said2 || WAIT.note || ''; }, 50);
   const row = WAIT.rows.find((w) => w.knockId === id);
-  if (row && !ok) { const f = document.getElementById('waitcode-' + id); if (f) { f.focus(); f.select(); } return; }
+  if (row && !ok) { const f = document.getElementById('waitcode-' + id); if (f) { f.focus(); f.select(); return; } }
   const next = WAIT.rows[0] ? document.getElementById('waitcode-' + WAIT.rows[0].knockId) : null;
-  const target = WAIT.note ? document.getElementById('plus-waiting-note') : next;
-  if (target) target.focus();
+  const target = (WAIT.note && document.getElementById('plus-waiting-note')) || next || document.getElementById('plus-waiting-title') || document.getElementById('plus-asks');
+  if (target) {
+    if (!target.hasAttribute('tabindex') && !/^(INPUT|BUTTON)$/.test(target.tagName)) target.setAttribute('tabindex', '-1');
+    target.focus();
+  }
+  const say = WAIT.said[id] || WAIT.note || '';
+  if (live && say && target && target.id !== 'plus-waiting-note') setTimeout(() => { live.textContent = say; }, 50);
 }
 /* #4794 (Mona Lisa, 2026-10-03): what a joining computer's empty code means on the computer already in, one line per
    reason the tunnel gives (code_wait). <name> is the joining computer. Anything else keeps the default line. */
@@ -52624,6 +52633,8 @@ document.getElementById('plus-asks').addEventListener('input', (e) => {
   const f = e.target.closest('.waitcodein');
   if (!f) return;
   WAIT.typed[f.dataset.waitcode] = f.value;
+  // Typing again retires "that is not the code" for this field.
+  if (WAIT.wrong[f.dataset.waitcode]) { delete WAIT.wrong[f.dataset.waitcode]; f.removeAttribute('aria-invalid'); }
   const allow = Array.from(document.querySelectorAll('#plus-waiting [data-wait="allow"]')).find((b) => b.dataset.id === f.dataset.waitcode);
   if (allow && !allow.disabled) { if (waitCodeChars(f.value).length < 6) allow.setAttribute('aria-disabled', 'true'); else allow.removeAttribute('aria-disabled'); }
 });

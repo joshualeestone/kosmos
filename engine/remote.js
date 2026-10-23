@@ -2632,7 +2632,10 @@ async function devicesWaiting() {
    1: scrubbing those hid the minute-long lockout behind a one-character code). */
 function failureWordsWithout(because, code) {
   const said = typeof because === 'string' ? because.trim().slice(0, 300) : '';
-  if (!said || (code && said.toLowerCase().includes(code.toLowerCase()))) return '';
+  // The code as typed, and its letters and digits alone (a tunnel that echoed its own folded form, review 2).
+  const bare = code ? code.replace(/[^A-Za-z0-9]/g, '').toLowerCase() : '';
+  const flat = said.toLowerCase();
+  if (!said || (code && flat.includes(code.toLowerCase())) || (bare.length >= 6 && flat.replace(/[^a-z0-9]/g, '').includes(bare))) return '';
   return said;
 }
 /** Allow the waiting browser `knockId` by the code it shows, typed by the person. */
