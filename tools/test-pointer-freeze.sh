@@ -225,7 +225,10 @@ run_writer() {  # <site> <name> : sets WRC and out (not in a subshell, so both r
   case "$w" in
     # TMPDIR too, not only HOME: release.sh does `rm -rf "$TMPDIR/kosmos-cut-home"` before step 1, so the
     # caller's TMPDIR would lose a real cut's home and CI's #4273 leak check reds on what is left behind.
-    release) HOME="$SB" TMPDIR="$T/tmp" KOSMOS_SITE="$site" bash "$RSANDBOX/tools/release.sh" "$NEXTV" > "$T/w.out" 2>&1; WRC=$? ;;   # the next patch: past the version-jump guard
+    # KOSMOS_HARNESS_IGNORE_CUT=1: inside a REAL cut (release.sh step 3 runs this file) the sandboxed release.sh would
+    # otherwise refuse as "a second cut" at its live-cut guard, before it makes its cut-only home, and the home check
+    # below reds the cut that is running it (0.7.64, 10-22). The freeze refusal under test comes before that guard.
+    release) HOME="$SB" TMPDIR="$T/tmp" KOSMOS_SITE="$site" KOSMOS_HARNESS_IGNORE_CUT=1 bash "$RSANDBOX/tools/release.sh" "$NEXTV" > "$T/w.out" 2>&1; WRC=$? ;;   # the next patch: past the version-jump guard
     promote-channel) HOME="$SB" KOSMOS_SITE="$site" bash "$HERE/promote-channel.sh" > "$T/w.out" 2>&1; WRC=$? ;;
     publish-staging-pointer) HOME="$SB" bash "$HERE/publish-staging-pointer.sh" "$site" 9.9.9 > "$T/w.out" 2>&1; WRC=$? ;;
     publish-kosmos-windows) HOME="$SB" KOSMOS_SITE="$site" bash "$HERE/publish-kosmos-windows.sh" "$T/kosmos-9.9.9-win-x64.zip" > "$T/w.out" 2>&1; WRC=$? ;;
