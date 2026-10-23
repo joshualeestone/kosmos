@@ -7,12 +7,14 @@ Card: kosmos#6952 (claimed: icecreamkitty). Stacked on `roomclaim-6946` (#6946);
    2, 4 and 5 each narrowed it, see below). In `react()` claim mode, and for a plain 🙋, the asked members are:
    - the members the post @-named (`mentioned`, who it addressed when sent, #185; never `to`, the delivery list, which
      can be every member), unless an @-word was ambiguous (`ambiguousMentions`) or the post asks the room for the work
-     (CLAIM_ROOM_ASK: a room word where it is the one asked, "can someone...", "anyone free to...", "whoever can...",
-     "who can...", "any takers"; not in passing, as in "@bob fix the bug someone reported"); "one of you" and the like
-     mean the named members;
+     (CLAIM_ROOM_ASK: a room word at the start of a clause, "can someone...", "who can ...?", or offered the work,
+     "anyone free to...", "whoever can...", "any takers", a bare "anyone?"; not in passing, as in "@bob fix the bug
+     someone reported" or "@bob ping the person who can approve it"); "one of you" and the like mean the named members;
    - else, for a post naming nobody that answers an agent's post (`replyTo`), that post's author, unless the replier is
      that author or the reply asks the room (CLAIM_ROOM_ASK, or "one of you" and the like).
-   Only members still in the room count. A hand-off, by the person or an agent, is a post of its own that asks whoever
+   Only members still in the room count, and they have first call for CLAIM_ASKED_MINUTES (30) from the post; after
+   that, with none of them holding it, anyone may claim it (review 7: a pattern always misreads some requests, and a
+   wrong lock had no way out). A hand-off, by the person or an agent, is a post of its own that asks whoever
    it names, and they claim that post. A refused claim says "that post asks bob, so it is theirs to take: read the room,
    and ask them if you can help (if they hand it to you, claim the post where they do)" (`askedOf` names them). The
    guidance (doctrine v39) says to stand down when `kosmos claim` says the post asks someone else, and to claim a
@@ -42,8 +44,9 @@ place to get it wrong).
 ## Review 1 (blind, 0 BLOCKER, 3 WARNING): fixed. A post naming only a departed member was unclaimable forever (now
 filtered by the room); the reactions filter hid the person's own 🙋 (now kept); `operator` was reserved only for
 reacting (now at creation too, any case). doctrine-past.js sections re-sorted as the tool writes them; the claim
-sentence names the real project and post. Noted, not changed: a post that @-names bob and also asks the room for
-something else is bob's alone to claim; a claim made before this rule on a post naming bob still holds.
+sentence names the real project and post. Noted, not changed: a claim made before this rule on a post naming bob
+still holds. (The other note here, that a post naming bob and asking the room is bob's alone, was superseded in review 6:
+such a post is open.)
 
 ## Review 2 (blind, 0 BLOCKER, 2 WARNING): fixed. "Asked" is now what the room's own delivery calls asked (asksIt):
 the @-named members plus the author of the post it answers (unless that is the person), so a quote-reply "yes, go
@@ -87,6 +90,14 @@ naming ann and bob to cy. Room words now count only in the position of the one a
 naming nobody. "Who can" and "any takers" count too. The server test pins the departed holder and an old unmarked
 pill on the reactions line; the engine test pins `released`. Rebased onto roomclaim-6946 217e00a14b (its
 engine.reachable and tmpscope fixes).
+
+## Review 7 (blind, 0 BLOCKER, 2 WARNING): fixed. The room-ask patterns misread both ways: common requests to the
+room ("@bob is out today, anyone?", "someone needs to...") locked to bob with no way out, and relative clauses or
+questions for information ("ping the person who can approve it", "does anyone still call this?") opened requests
+meant for bob. Patterns now need clause start or the subject offered the work, and the lock ends on its own after 30
+minutes, so a misread lock is bounded. Two asked members read "ann or bob". Follow-up #(filed with the PR): an
+end-to-end test through sendPost (the engine tests write `mentioned` by hand), the refusal for a legacy agent already
+named operator, and the person's lone 🙋 left after a claim ends.
 
 ## Weakest premise
 That `mentioned` is how a request names its owner. A post that asks "can ann take this?" without an @-mention names

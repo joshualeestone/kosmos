@@ -306,7 +306,7 @@ test('#6952: a post that @-names members can be claimed only by them; control: a
   const ann = claim('ann');
   assert.equal(ann.ok, false, 'ann claimed a post that asks bob');
   assert.deepEqual(ann.askedOf, ['bob']);
-  assert.equal(ann.because, 'that post asks bob, so it is theirs to take: read the room, and ask them if you can help (if they hand it to you, claim the post where they do)');
+  assert.equal(ann.because, 'that post asks bob, so it is theirs to take for 30 more minutes: read the room, and ask them if you can help (if they hand it to you, claim the post where they do)');
   assert.deepEqual(messages.react({ project: 'p', of: 'm1', emoji: HAND, from: 'ann', members: MEMBERS }).askedOf, ['bob'], 'a plain 🙋 went around the rule');
   assert.equal(claim('bob').op, 'add', 'bob could not claim the post that asks him');
   // CONTROL: `to` is every member here too, but nobody is named, so ann can claim it.
@@ -437,4 +437,31 @@ test('#6952 review 6: released is said only when a claim was given back', () => 
   const stray = messages.react({ project: 'p', of: 'm2', emoji: HAND, from: 'bob', members: MEMBERS });
   assert.equal(stray.op, 'remove');
   assert.equal(stray.released, undefined, 'taking off a pill that was never the claim said it released one');
+});
+
+test('#6952 review 7: the asked members have first call for 30 minutes, then anyone may claim; control: inside the window, refused', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix X', outcomes: {}, at: ago(29) });
+  const inside = claim('ann', 'm1');
+  assert.deepEqual(inside.askedOf, ['bob'], 'CONTROL: inside the window ann must be refused');
+  assert.match(inside.because, /for 1 more minute:/);
+  append({ kind: 'post', id: 'm2', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], text: '@bob please fix Y', outcomes: {}, at: ago(31) });
+  assert.equal(claim('ann', 'm2').op, 'add', 'a post nobody it asked took up was held past the window');
+  // Two asked members read as "ann or bob".
+  append({ kind: 'post', id: 'm3', project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['ann', 'bob'], text: '@ann @bob please fix Z', outcomes: {}, at: ago(1) });
+  assert.match(claim('cy', 'm3').because, /^that post asks ann or bob, so it is theirs to take for 29 more minutes/);
+});
+
+test('#6952 review 7: a room word inside a request to bob, a relative clause or a question for information, is still bob\'s', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  let n = 0;
+  const ask = (text, row) => { n += 1; append({ kind: 'post', id: 'q' + n, project: 'p', from: 'you', operator: true, to: MEMBERS, mentioned: ['bob'], outcomes: {}, at: new Date().toISOString(), text, ...(row || {}) }); return 'q' + n; };
+  for (const text of ['@bob please ping the person who can approve the DNS change, then ship it', '@bob does anyone still call this endpoint? if not, please delete it',
+    '@bob check who will be on call this weekend and update the pager config', '@bob why would anyone use the old flag? please remove it',
+    '@bob please email the volunteers the new schedule']) {
+    assert.deepEqual(claim('cy', ask(text)).askedOf, ['bob'], text);
+  }
+  // CONTROL: a bare "anyone?" asks the room.
+  assert.equal(claim('cy', ask('@bob is out today, anyone?')).op, 'add');
 });
