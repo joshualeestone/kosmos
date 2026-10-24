@@ -1306,6 +1306,11 @@ do {
           && Board.imageExtension(Data([0, 0, 0, 24] + Array("ftypheic".utf8))) == "heic" && Board.imageExtension(Data("GIF89a".utf8)) == "gif"
           && Board.imageExtension(Data("RIFF\0\0\0\0WEBP".utf8)) == "webp" && Board.imageExtension(Data("hello".utf8)) == nil,
           "the image type from its own bytes")
+    let six = Date(timeIntervalSince1970: 1_761_330_605)
+    check(Board.filesRowSpoken(who: "You", at: six, text: "", count: 2, notSent: "Not sent")
+          == "You, " + six.formatted(date: .omitted, time: .shortened) + ": 2 files, not sent",
+          "a row of files says who sent it, when, how many, and that it was not sent")
+    check(Board.filesRowSpoken(who: "Dana", at: nil, text: "the deck", count: 1, notSent: nil) == "Dana: the deck, 1 file", "and its words, when it has any")
     check(Board.filesSpoken(["a.pdf"]) == "1 file: a.pdf" && Board.filesSpoken(["a.pdf", "b.png"]) == "2 files: a.pdf, b.png", "VoiceOver names the files")
 }
 
@@ -1529,7 +1534,7 @@ final class FakeBoardWorld {
     // kosmos#7071: uploads (each takes the first queued answer; nil is no answer; empty queue: a new id each time), what
     // each carried (path, type, name header, the bytes read from the file), and each post's `attachments`.
     var uploadQueue: [(Int, String)?] = []
-    var uploads: [(path: String, type: String, name: String, bytes: Data)] = []
+    var uploads: [(path: String, type: String, name: String, bytes: Data, file: String)] = []
     var uploadYields = 0
     var postedAttachments: [[String]] = []
     let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage!
@@ -1540,7 +1545,7 @@ final class FakeBoardWorld {
         let url = r.url!
         requests.append("\(r.httpMethod ?? "GET") \(url.host ?? "")\(url.path)")
         uploads.append((url.path, r.value(forHTTPHeaderField: "Content-Type") ?? "", r.value(forHTTPHeaderField: "X-Attachment-Name") ?? "",
-                        (try? Data(contentsOf: file)) ?? Data()))
+                        (try? Data(contentsOf: file)) ?? Data(), file.standardizedFileURL.path))
         let next: (Int, String)? = uploadQueue.isEmpty
             ? (200, #"{"attachment":{"id":"\#(String(format: "%024lx", uploads.count))","name":"\#(r.value(forHTTPHeaderField: "X-Attachment-Name")?.removingPercentEncoding ?? "")"}}"#)
             : uploadQueue.removeFirst()
@@ -1843,6 +1848,8 @@ section("native board loop: connecting")
               "a picked file goes up at once: the agent's route, its type from its name, its name and its bytes")
         check(attached().map(\.name) == ["deck.pdf"] && c.uploading["dana"] == 0, "and waits on the composer")
         check(FileManager.default.fileExists(atPath: a.path), "the person's own file is never removed (the client sends a copy)")
+        check(w.uploads[0].file.hasPrefix(uploadsRoot.standardizedFileURL.path + "/") && w.uploads[0].file != a.standardizedFileURL.path,
+              "what was sent is the client's copy, in the app's uploads folder (control for the checks that it is gone)")
         check(leftOver().isEmpty, "and the copy, with its folder, is gone once sent")
 
         w.uploadQueue = [(413, #"{"error":"that file is over 100 MB"}"#)]

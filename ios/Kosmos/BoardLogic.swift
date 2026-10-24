@@ -708,7 +708,14 @@ enum Board {
         if let refusal = uploadRefusal(size: facts?.fileSize, waiting: 0) { return .refused(refusal) }
         guard let folder = uploadFolder(root) else { return .refused("We could not read \(name).") }
         let file = folder.appendingPathComponent(savedName(name))
-        guard (try? FileManager.default.copyItem(at: url, to: file)) != nil,
+        // Read through a file coordinator, so a file Files still holds only in the cloud (iCloud Drive, another
+        // provider) is fetched first rather than copied as a placeholder.
+        var copied = false
+        var coordinated: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinated) { readable in
+            copied = (try? FileManager.default.copyItem(at: readable, to: file)) != nil
+        }
+        guard copied, coordinated == nil,
               let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
             try? FileManager.default.removeItem(at: folder)
             return .refused("We could not read \(name).")
@@ -764,6 +771,18 @@ enum Board {
         }
         return nil
     }
+
+    // What VoiceOver says for a row of files (kosmos#7071), as a text bubble says "You, 6:30 PM: ...": who, when, the
+    // words if any, how many files, and the Mac's word for one not sent.
+    static func filesRowSpoken(who: String, at: Date?, text: String, count: Int, notSent: String?) -> String {
+        var said = who + (at.map { ", " + $0.formatted(date: .omitted, time: .shortened) } ?? "") + ": "
+        said += text.isEmpty ? "" : text + ", "
+        said += count == 1 ? "1 file" : "\(count) files"
+        if let notSent { said += ", " + notSent.lowercased() }
+        return said
+    }
+
+    static let stillAddingLine = "A file is still being added. Send again when it is done."
 
     // "1 file: a.pdf" / "2 files: a.pdf, b.png", for VoiceOver on a message still on its way.
     static func filesSpoken(_ names: [String]) -> String {
