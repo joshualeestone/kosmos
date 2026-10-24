@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: ownseal-ui-4658
-diff_hash: PENDING
-validation: PENDING
+diff_hash: c8a1a87e79957361478f74aa2e4f92e9b3cc028f01f889bc46c038a9b77371ff
+validation: passed (Mortals full suite, entry 2026-10-24T13:37:37Z, same hash; run v10 on 6d1186a8a failed two full-suite-only guards, fixed in 62607f4fd8)
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
-timestamp: PENDING
+timestamp: 2026-10-24T13:45:45Z
 iterations: 10
 converged: true
 ---
@@ -58,4 +58,5 @@ passed with focus on the page. Mutant (both refocus paths disabled): 6 FAIL.
 ### Validation
 render-ownseal-4658 150/150 on the rebased head (chromium and webkit, 1280 and 390, consolidated, chromium tablet).
 Browser-check surface trailers name and ran render-fed-plus-gate, render-federation-invite-4649,
-render-shell-noscroll-4872, render-star-6719 and render-project-members-3387. Mortals full suite: PENDING.
+render-shell-noscroll-4872, render-star-6719 and render-project-members-3387. Mortals full suite: clean at hash c8a1a87e..., after
+adding the check to gated.txt and the README (browser-checks-indexed and #1387 wiring, which only the full suite runs).
