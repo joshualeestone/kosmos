@@ -86,6 +86,9 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           let failReads = false;
           let failsServed = 0;
           let allowedGets = 0;
+          const allowedFor = {};   // own-allowed reads per project
+          let answered = 0;        // own-remove answers the page has been sent
+          const until = async (ok, ms) => { const t = Date.now() + ms; while (!ok() && Date.now() < t) await new Promise((r) => setTimeout(r, 50)); return ok(); };
           let holdPost = null;   // a promise own-remove waits on, to act while it is in flight
           await page.route('**/api/federation/own-*', async (r) => {
             try {
@@ -94,16 +97,20 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
               if (r.request().method() === 'GET') {
                 if (failReads) { failsServed += 1; return await r.fulfill({ status: 500, json: { error: 'blip' } }); }
                 if (u.pathname.endsWith('/own-compare')) return await r.fulfill({ json: { code: null } });
-                if (u.pathname.endsWith('/own-allowed')) allowedGets += 1;
+                if (u.pathname.endsWith('/own-allowed')) { allowedGets += 1; allowedFor[pid] = (allowedFor[pid] || 0) + 1; }
                 if (u.pathname.endsWith('/own-allowed')) return await r.fulfill({ json: { computers: pid === ownerP.id ? state.allowed : [] } });
                 return await r.fulfill({ json: { computers: [] } });   // own-waiting: nobody waiting
               }
               const body = JSON.parse(r.request().postData() || '{}');
               posted.push({ path: u.pathname, body });
               if (holdPost) await holdPost;
-              if (refuseNext) { refuseNext = false; return await r.fulfill({ status: 409, json: { error: REFUSAL } }); }
-              if (u.pathname.endsWith('/own-remove')) { state.allowed = state.allowed.filter((x) => x.pub !== body.pub); return await r.fulfill({ json: { removed: true } }); }
-              return await r.fulfill({ status: 400, json: { error: 'unexpected' } });
+              let out;
+              if (refuseNext) { refuseNext = false; out = { status: 409, json: { error: REFUSAL } }; }
+              else if (u.pathname.endsWith('/own-remove')) { state.allowed = state.allowed.filter((x) => x.pub !== body.pub); out = { json: { removed: true } }; }
+              else out = { status: 400, json: { error: 'unexpected' } };
+              await r.fulfill(out);
+              answered += 1;
+              return;
             } catch { await r.abort().catch(() => {}); }
           });
           await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -178,6 +185,8 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           failReads = true; failsServed = 0;
           await page.click('#mem-go');
           await page.waitForFunction((s) => document.getElementById('mem-modal').hidden && !document.querySelector(s), sel, { timeout: 8000 }).catch(() => null);
+          await until(() => failsServed >= 3, 8000);   // the reload after it: all three reads failed
+          await page.waitForTimeout(100);
           const rm = posted.filter((p) => p.path.endsWith('/own-remove'));
           const last = rm[rm.length - 1];
           chk(rm.length === 2 && last.body.project === ownerP.id && last.body.pub === 'pub-desk' && Object.keys(last.body).length === 2, `${E} Remove it sends exactly that row's key and the project`, JSON.stringify(rm));
@@ -186,7 +195,7 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
             return { open: !document.getElementById('mem-modal').hidden, left: [...document.querySelectorAll(box + ' [data-own-act="remove"]')].map((b) => b.dataset.ownPub),
               msg: (document.querySelector(box + ' .fmsg') || {}).textContent || '', inBox: !!(a && a.closest && a.closest(box)), onRemove: !!(a && a.dataset && a.dataset.ownAct === 'remove') };
           }, BOX);
-          chk(!done.open && done.left.length === 1 && done.left[0] === 'pub-laptop' && failsServed >= 1, `${E} the removed computer leaves the list, even when the reload after it fails`, JSON.stringify(done.left) + ' fails=' + failsServed);
+          chk(!done.open && done.left.length === 1 && done.left[0] === 'pub-laptop' && failsServed >= 3, `${E} the removed computer leaves the list, even when the reload after it fails`, JSON.stringify(done.left) + ' fails=' + failsServed);
           chk(/^Removed\./.test(done.msg), `${E} the section says it was taken out`, done.msg);
           chk(done.inBox && !done.onRemove, `${E} focus stays in the section, not on another computer's Remove`, JSON.stringify(done));
           await page.waitForFunction(() => /^Removed\./.test(document.getElementById('pj-fed-own-said').textContent), null, { timeout: 4000 }).catch(() => null);
@@ -258,10 +267,13 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           await page.click('#mem-go');
           await page.waitForFunction(() => document.getElementById('mem-msg').textContent === 'Removing…', null, { timeout: 4000 }).catch(() => null);
           await open(quietP.id);
+          const before3 = answered;
           release();
-          await page.waitForTimeout(800);
-          const sw = await page.evaluate(() => ({ open: !document.getElementById('mem-modal').hidden, text: ((document.getElementById('pj-fed-own') || {}).textContent || '') + ((document.getElementById('alist-fed-own') || {}).textContent || '') }));
-          chk(!sw.open && !/Removed/.test(sw.text), `${E} a project switch during the remove: the answer changes nothing in the new project`, JSON.stringify(sw));
+          await until(() => answered > before3, 8000);
+          await page.waitForTimeout(200);   // past the live region's 60 ms fill
+          const sw = await page.evaluate(() => ({ open: !document.getElementById('mem-modal').hidden, text: ((document.getElementById('pj-fed-own') || {}).textContent || '') + ((document.getElementById('alist-fed-own') || {}).textContent || ''),
+            said: document.getElementById('pj-fed-own-said').textContent }));
+          chk(answered > before3 && !sw.open && !/Removed/.test(sw.text + sw.said), `${E} a project switch during the remove: the answer changes nothing in the new project`, JSON.stringify(sw));
           await open(ownerP.id);
           if (view === 'consolidated') await page.evaluate((pid) => { applyLayout('consolidated', true); showTab('projects'); openProject(pid); }, ownerP.id);
           state.allowed = state.allowed.filter((x) => x.pub !== 'pub-desk').concat([{ pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }]);
@@ -304,7 +316,7 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           await page.waitForFunction((box) => document.getElementById('mem-modal').hidden && /^Removed\./.test((document.querySelector(box + ' .fmsg') || {}).textContent || ''), BOX, { timeout: 8000 }).catch(() => null);
           chk(/^Removed\./.test(await page.evaluate((box) => (document.querySelector(box + ' .fmsg') || {}).textContent || '', BOX)), `${E} then the answer closes it and says Removed`);
           // Rows let in the same day carry the time, and the same minute their place too: no two labels alike.
-          const T2 = AT_DESK + 3 * 3600000;
+          const T2 = AT_DESK + 30 * 60000;   // half an hour after noon UTC: the same day as AT_DESK in every time zone
           state.allowed = [{ pub: 'pub-laptop', mac: 'mac-1', at: AT_LAPTOP }, { pub: 'pub-desk', mac: 'mac-2', at: AT_DESK },
             { pub: 'pub-a', mac: 'mac-a', at: T2 }, { pub: 'pub-b', mac: 'mac-b', at: T2 + 1000 }];
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
@@ -312,7 +324,7 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           const labels = await page.evaluate((box) => [...document.querySelectorAll(box + ' [data-own-act="remove"]')].map((b) => b.getAttribute('aria-label')), BOX);
           const hhmm = (at) => new Date(at).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit' });
           chk(labels.length === 4 && new Set(labels).size === 4, `${E} four computers, four different Remove names`, JSON.stringify(labels));
-          chk(labels.length === 4 && labels[1].includes(hhmm(AT_DESK)) && labels[2].includes('3 of 4') && labels[3].includes('4 of 4') && !labels[0].includes(' of '),
+          chk(labels.length === 4 && labels[1].includes(hhmm(AT_DESK)) && labels[2].includes('(3 of 4)') && labels[3].includes('(4 of 4)') && !labels[0].includes(' of '),
             `${E} the same day adds the time, the same minute adds the place`, JSON.stringify(labels));
           state.allowed = [{ pub: 'pub-laptop', mac: 'mac-1', at: AT_LAPTOP }, { pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }];
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
@@ -326,8 +338,10 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           await page.waitForTimeout(300);
           const switched = await page.evaluate(() => ({ open: !document.getElementById('mem-modal').hidden, rows: document.querySelectorAll('[data-own-act="remove"]').length }));
           chk(!switched.open && posted.length === before, `${E} entering another project closes the dialog and posts nothing`, JSON.stringify(switched) + ' ' + (posted.length - before));
-          await page.waitForTimeout(1200);
-          chk(await page.evaluate(() => document.querySelectorAll('[data-own-act="remove"]').length) === 0, `${E} a project with no allowed computers shows no rows`);
+          const quietReads = allowedFor[quietP.id] || 0;
+          await page.evaluate((pid) => fedOwnLoad(pid), quietP.id);
+          const quietAnswered = await until(() => (allowedFor[quietP.id] || 0) > quietReads, 8000);
+          chk(quietAnswered && await page.evaluate(() => document.querySelectorAll('[data-own-act="remove"]').length) === 0, `${E} a project with no allowed computers shows no rows (its own list answered)`);
 
           const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
           chk(!wide, `${E} no sideways scroll`);
