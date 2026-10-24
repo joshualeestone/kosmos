@@ -272,6 +272,7 @@ function handleEvent(projectId, line, heldAt) {
         noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile. A post sent after that, before the new key arrives, may not be shown to the others.');
         return;
       }
+      if (!opened) s.sealedSeenMono = mono();   // kosmos#7028: a clear judged on an answer asked before this is not made
       if (!opened && !sealed && noteOwnSealed(projectId, s)) return;   // #4658: an own computer asks for the key
       if (!opened && !sealed) {
         // This computer joined before the owner sealed the room: it holds no key and never will from that code.
@@ -841,12 +842,13 @@ function checkNeverSealed(projectId, s, link) {
     return;
   }
   s.neverSealedAskedAt = now;
+  const askedMono = mono();
   let ask;
-  try { ask = sharedEdges(now, mono()); } catch { return; }
+  try { ask = sharedEdges(now, askedMono); } catch { return; }
   ask.promise.then((r) => {
     if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return;
     if (r.data.as_owner.some((e) => e && e.project_ref === link.ref)) return;
-    const t = setTimeout(() => { forgetOwnSealed(projectId, s); }, OWNER_OFFER_WAIT_MS);
+    const t = setTimeout(() => { forgetOwnSealed(projectId, s, link, askedMono); }, OWNER_OFFER_WAIT_MS);
     if (t.unref) t.unref();
   }).catch(() => {});
 }
@@ -854,9 +856,11 @@ function checkNeverSealed(projectId, s, link) {
     the owner's offer has arrived. It holds no key and changes no epoch, so it is no rotation (#5191 WRITERS). Only
     that record: one holding a key is kept. New posts then go as in any unsealed room; one held meanwhile was written
     for a sealed room, so it is told and not sent in the clear (sendPost's sealedHeld rule). */
-function forgetOwnSealed(projectId, s) {
+function forgetOwnSealed(projectId, s, link0, askedMono) {
   return sealStep(projectId, () => {
     if (seats.get(projectId) !== s || s.stopped || s.ownerOffered) return;
+    // A sealed-looking frame since the answer was asked may be a seal made after it: asked again, not cleared.
+    if (typeof s.sealedSeenMono === 'bigint' && s.sealedSeenMono > askedMono) { checkNeverSealed(projectId, s, link0); return; }
     const link = safeLink(projectId);
     const st = roomSeal(projectId);
     if (!link || link.role !== 'self' || !st || st.role !== 'member' || st.ownComputer !== true || hasKey(st)) return;
@@ -1014,7 +1018,10 @@ function ownAllowed(projectId) {
     .sort((x, y) => (Number(x.at) || 0) - (Number(y.at) || 0));
 }
 /** kosmos#7028, seal owner: a person removed one of their computers from a sealed room. The room moves to a new
-    key that computer is not sent (revokeCheck, the step a revoked guest gets). Resolves { ok, because }. */
+    key that computer is not sent (revokeCheck, the step a revoked guest gets). Resolves { ok, because }.
+    NOT CLAIMED: posts it sealed under the old key still open for graceAfter after the remove. A revoked guest's are
+    refused inside the grace by its relay-stamped account (revokedAccounts); an own computer's stamp is this account,
+    so there is nothing to record. It reads nothing posted after the remove. */
 async function ownRemove(projectId, pub) {
   const st = roomSeal(projectId);
   if (!hasKey(st) || st.role !== 'owner') return { ok: false, because: 'only the computer that first shared this room can take another computer out of it' };

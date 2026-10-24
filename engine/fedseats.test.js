@@ -1707,6 +1707,19 @@ test('#5191: an edge check that fails holds the post, and a later check shows it
   assert.deepStrictEqual(shown(h), ['during an outage'], 'the held post was lost or shown twice');
 });
 
+test('#7028: with an own computer pinned too, a failed account-computers answer does not hold a guest\'s post', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
+  const { h, post, ref } = await pinnedRoom('proj-7028-own', 'r7028', 1);
+  // This harness answers every route with edges, so the computers answer has no list: a failed one.
+  h.edges = Object.values(fedseal.roomState('proj-7028-own').peers).map((p) => ({ id: p.edge, project_ref: ref, status: 'active' }));
+  const st = fedseal.roomState('proj-7028-own');
+  fedseal.setRoomState('proj-7028-own', Object.assign({}, st, { own: { 'pub-own': { mac: 'mac-own', at: 1 } } }));
+  post('a guest, with Kosmos+ able to name the edges');
+  await settle();
+  assert.deepStrictEqual(shown(h), ['a guest, with Kosmos+ able to name the edges'], 'the computers answer held a guest\'s post');
+  assert.ok(fedseal.roomState('proj-7028-own').own['pub-own'], 'a failed computers answer dropped an own computer');
+});
+
 test('#5191: a check still failing at the 60 s pass shows the held post unchecked (today\'s behaviour, never worse)', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-03T20:00:00Z') });
   const { h, post } = await pinnedRoom('proj-5191-down', 'rd', 1);

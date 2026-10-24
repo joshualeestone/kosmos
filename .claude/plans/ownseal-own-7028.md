@@ -68,3 +68,22 @@ engine/fedseats.ownremove-7028.test.js, server route test, guard update; mutants
 ## Tests (done)
 engine/fedseats.ownremove-7028.test.js (17), server.ownremove-7028.test.js (4), the #5191 guard and the #4658
 fixture updated. 14 mutants, all caught (mutant list: scratchpad mut7028.py, restated in the PR).
+
+## Review round 1 (blind, 04:2x) and what changed
+1. [SHOULD-FIX] The 10-minute cooldown ignored a real seal that came inside it, so posts went in the clear. FIXED:
+   no cooldown. Every sealed-looking frame records the seal (the safe side); only the asking is limited (one per
+   room per 10 s, a frame inside the window is checked when it ends).
+2. [SHOULD-FIX] The weakest premise was worse than written: a room sealed for a guest who deleted their account
+   looped forever (clear, re-record, clear) and killed every code exchange. FIXED: a same-account key-own offer
+   (only this account's computers can send one) proves the owner holds the room sealed, and then it is never
+   cleared; a "never sealed" answer clears only after 10 s more with no offer, and not at all if a sealed-looking
+   frame arrived after the answer was asked (it asks again). Residual: that guest case with the owner's board
+   offline clears until the owner's next sealed frame, which records it again.
+3. [SHOULD-FIX] No test could see revokeCheck's `checked` (it decides whether guest posts are released).
+   FIXED: fedseats.test.js "#7028: with an own computer pinned too, a failed account-computers answer does not
+   hold a guest's post".
+4. [DESIGN] A held computer is dropped for good and needs a new code compare. DECIDED, kept: a computer the account
+   holds should not read the room, and losing access is the conservative side. Would change it: a hold meaning
+   something routine (billing) rather than "not yet allowed" on the coordinator.
+5. [LOW] A removed own computer's old-key posts open for the 90 s grace (no relay-stamped account to refuse).
+   DECIDED, documented as NOT CLAIMED on ownRemove; it reads nothing after the remove.
