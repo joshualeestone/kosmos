@@ -29,4 +29,9 @@ shows the board's sentence; the room suite covers it against the real route's an
    any 2xx ok is a reopen; a DEBUG sample (KOSMOS_SAMPLE_HELD=1); a refusal note cleared when the hold changes; the
    needsLine comment moved back. Decided: the keyboard is NOT raised after a reopen (the board focuses its box; on a
    phone that pops the keyboard unasked). Reversible; one line.
+   Round 2: 0 blockers, 1 warning, 4 nits. Fixed: "Reopened" is said before the re-read (a hold it finds is said
+   after, never before), and VoiceOver's place moves to the message box (accessibility focus, no keyboard); a refusal
+   is kept only while the room is still held; the refusal clears when the notice's words change, not on every small
+   move of until; the typing cap scales with text size; the refusal sits under the button. Stated: the store's read
+   numbering wiring is tested only through readMayWriteHold (a regression costs one poll, 5 s).
 3. Validation, PR.

@@ -29,6 +29,11 @@ struct RoomView: View {
     // kosmos#7072: Reopen the room is on its way, and the board's sentence when it was refused.
     @State private var reopening = false
     @State private var reopenNote: String?
+    // About four footnote lines at the person's own text size (the board's 4.4em while typing; review 2).
+    @ScaledMetric(relativeTo: .footnote) private var heldTypingMax: CGFloat = 72
+    // VoiceOver's place after a reopen takes the notice and its button away: the message box, as the board's focus,
+    // without raising the keyboard (review 2).
+    @AccessibilityFocusState private var composerFocused: Bool
     // kosmos#7062: each file card's state, and the file Quick Look shows (removed from the phone when it closes), as in
     // the chat.
     @State private var fileStates: [String: FileCardState] = [:]
@@ -210,16 +215,16 @@ struct RoomView: View {
                 let words = Text(Board.heldNotice(until: until)).font(.footnote).foregroundColor(Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if typing {
-                    ScrollView { words.frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: 72)
+                    ScrollView { words.frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: heldTypingMax)
                 } else {
                     words
                 }
-                HStack(spacing: 10) {
-                    Button(Board.reopenButton) { reopen() }
-                        .font(.footnote.weight(.semibold)).frame(minHeight: 44).disabled(reopening)
-                    if let reopenNote {
-                        Text(reopenNote).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
-                    }
+                Button(Board.reopenButton) { reopen() }
+                    .font(.footnote.weight(.semibold)).frame(minHeight: 44).fixedSize().disabled(reopening)
+                // Under the button, never squeezed beside it (review 2).
+                if let reopenNote {
+                    Text(reopenNote).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 6)
                 }
             }
             .padding(.horizontal, 10).padding(.top, 6)
@@ -229,7 +234,9 @@ struct RoomView: View {
             // A refusal said for one hold is not carried into the next, nor past a change in it (the board rewrites its
             // notice then).
             .onDisappear { reopenNote = nil }
-            .onChange(of: until) { _ in reopenNote = nil }
+            // By the words shown, as the board rewrites its notice only when its HTML changes (review 2: until moves a
+            // little on every read, which cleared a refusal before it could be read).
+            .onChange(of: Board.heldNotice(until: until)) { _ in reopenNote = nil }
         }
     }
 
@@ -244,8 +251,16 @@ struct RoomView: View {
             // not raised: on a phone that is more than the desktop board's focus, so the person taps the box themselves.
             switch outcome {
             case .reopened:
-                if visible { UIAccessibility.post(notification: .announcement, argument: Board.reopenedAnnouncement) }
+                if visible {
+                    composerFocused = true
+                    UIAccessibility.post(notification: .announcement, argument: Board.reopenedAnnouncement)
+                }
+                // Then the re-read, so a hold it finds is announced after "Reopened", as on the board.
+                await store.loadRoom(id)
             case .refused(let sentence):
+                // Only while this room is still held: a hold lifted while the reopen was on its way takes the notice
+                // away, and its refusal must not wait beside the next one (review 2).
+                guard store.held[id] != nil else { break }
                 reopenNote = sentence
                 if visible { UIAccessibility.post(notification: .announcement, argument: sentence) }   // the board's role=status
             case .dropped:
@@ -417,6 +432,7 @@ struct RoomView: View {
                 TextField("Write something or @name to message someone…", text: $draft, axis: .vertical)
                     .lineLimit(1...5)
                     .focused($typing)
+                    .accessibilityFocused($composerFocused)
                     .accessibilityLabel("Post to everyone on this project")
                     .padding(.vertical, 10).padding(.horizontal, 14)
                     .background(RoundedRectangle(cornerRadius: 20).fill(Palette.card))

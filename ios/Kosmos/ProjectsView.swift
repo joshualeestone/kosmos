@@ -218,7 +218,8 @@ final class RoomStore: ObservableObject {
         if let refusal = Board.reopenRefusal(status: answer?.1.statusCode, answer?.0) { return .refused(refusal) }
         held[project] = nil
         reopenedAt[project] = roomReads[project] ?? 0
-        await loadRoom(project)
+        // The re-read is the caller's next step (RoomView announces first, then reads: review 2, so a hold found by
+        // the re-read is said after "Reopened", never before it).
         return .reopened
     }
 
