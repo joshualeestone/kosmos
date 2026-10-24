@@ -593,7 +593,7 @@ if [ "$(rc ka-apply)" = 0 ] && [ "$(ka_of "$KA")" = false ] && [ "$(plutil -extr
   pass "keepalive --apply over ssh: THIS runner's plist (from .service, not the relay's) gains KeepAlive, bootout before bootstrap, a new Listener"; cp "$KA" "$T/ka.after"
 else fail "keepalive --apply: rc $(rc ka-apply): $(tail -2 "$T/ka-apply.out") calls: $(grep '^launchctl' "$T/ka-apply.calls" | tr '\n' ';')"; fi
 run ka-again "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
-[ "$(rc ka-again)" = 0 ] && has ka-again "restarts after a kill" && has ka-again "and is running" && ! has ka-again "WOULD" && pass "keepalive dry run on a runner that has it: says so, would do nothing" || fail "keepalive again: $(cat "$T/ka-again.out")"
+[ "$(rc ka-again)" = 0 ] && has ka-again "restarts after a SIGKILL or a crash" && has ka-again "and is running" && ! has ka-again "WOULD" && pass "keepalive dry run on a runner that has it: says so, would do nothing" || fail "keepalive again: $(cat "$T/ka-again.out")"
 # Loaded with KeepAlive but not running (it exited 0): DOWN, not "done".
 run ka-loadeddown "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE=waiting KOSMOS_CI_STATE_WAIT_S=1 -- keepalive
 [ "$(rc ka-loadeddown)" = 1 ] && has ka-loadeddown "has KeepAlive loaded but has not been running" && has ka-loadeddown "(state = waiting)" && ! has ka-loadeddown "restarts after a kill" \
@@ -710,6 +710,13 @@ ka_fresh; plutil -insert KeepAlive -bool true "$KA"; run ka-katrue "$KH" FX_CI_E
 ka_fresh; run ka-between "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LISTENER=0 -- --apply keepalive
 [ "$(rc ka-between)" = 1 ] && has ka-between "no Listener of $KH/actions-runner does (restarting or self-updating)" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-between.calls" \
   && pass "keepalive --apply: the service up with no Listener of its own (between Listeners, a self-update) refuses before stopping anything" || fail "keepalive between: rc $(rc ka-between): $(tail -1 "$T/ka-between.out")"
+# Loaded, without KeepAlive, not running (it exited 0): --apply reloads it with no SIGTERM (nothing to stop), and the
+# reload's RunAtLoad starts it.
+ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"
+run ka-loadedstopped "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE=waiting FX_NO_PID=1 -- --apply keepalive
+[ "$(rc ka-loadedstopped)" = 0 ] && has ka-loadedstopped "has no process, so no SIGTERM first" && ! grep -q '^launchctl kill' "$T/ka-loadedstopped.calls" \
+  && grep -q '^launchctl bootout ' "$T/ka-loadedstopped.calls" && grep -q '^launchctl bootstrap ' "$T/ka-loadedstopped.calls" \
+  && pass "keepalive --apply: a loaded job that exited is reloaded without a SIGTERM, and started" || fail "keepalive loaded stopped: rc $(rc ka-loadedstopped): $(tail -2 "$T/ka-loadedstopped.out")"
 ka_fresh; run ka-noka "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
 [ "$(rc ka-noka)" = 1 ] && has ka-noka "shows no 'successful exit => 0' semaphore" \
   && pass "keepalive --apply: a reload that leaves no KeepAlive in the loaded job fails" || fail "keepalive no ka loaded: rc $(rc ka-noka): $(tail -1 "$T/ka-noka.out")"
@@ -790,6 +797,10 @@ vcase home-hidden 3 "check(s) could not be made"
 chmod 000 "$VCI"; vcase home-closed 3 "but 1 check(s) could not be made"; chmod 755 "$VCI"
 grep -q 'but 1 check(s) could not be made' "$T/v-home-hidden.out" && pass "verify counts a hidden runner dir once" || fail "hidden runner dir counted: $(grep 'could not be made' "$T/v-home-hidden.out")"
 chmod 755 "$VCI/actions-runner"
+has v-home-hidden "a dry run) says whether KeepAlive is set" && has v-home-closed "a dry run) says whether KeepAlive is set" \
+  && ! grep -q 'no $VCI/actions-runner/.service' "$T/v-home-hidden.out" "$T/v-home-closed.out" \
+  && pass "verify: a runner dir it cannot enter says it cannot check KeepAlive, not that the runner is unregistered" \
+  || fail "verify hidden dir KeepAlive note: $(grep -h 'LaunchAgent\|.service' "$T/v-home-hidden.out" "$T/v-home-closed.out" | head -3)"
 ! has v-home-hidden "install has not run here" && ! has v-home-hidden "no $VCI/actions-runner/.path here" && pass "verify: a runner dir it cannot enter is not called missing" || fail "verify hidden dir read as missing"
 cp "$T/vci.env" "$VCI/actions-runner/.env"; chmod 644 "$VCI/.kosmos-ci/job-guard.sh"
 vcase guard-not-executable 1 "job-guard.sh is missing or not executable"

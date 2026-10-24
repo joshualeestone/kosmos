@@ -650,7 +650,7 @@ keepalive() {
     while :; do
       jo="$(launchctl print "$dom/$label" 2>/dev/null || true)"
       st="$(printf '%s\n' "$jo" | sed -n 's/^[[:space:]]state = //p' | head -n 1)"
-      [ "$st" = running ] && { ok "$label restarts after a kill (KeepAlive SuccessfulExit false, in the plist and loaded), and is running"; return 0; }
+      [ "$st" = running ] && { ok "$label restarts after a SIGKILL or a crash (KeepAlive SuccessfulExit false, in the plist and loaded), and is running"; return 0; }
       [ "$w3" -lt "$lim3" ] || break
       sleep 1; w3=$((w3 + 1))
     done
@@ -874,7 +874,9 @@ EOF
   fi
   say "the runner's LaunchAgent (a killed runner must come back by itself: kosmos#7001)"
   local plist; plist="$(runner_plist)"
-  if [ -n "$plist" ] && [ -r "$plist" ]; then
+  if [ "$hidden" = 1 ]; then
+    echo "note:   cannot look inside $RUNNER_DIR as $(id -un); as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether KeepAlive is set and loaded"
+  elif [ -n "$plist" ] && [ -r "$plist" ]; then
     if keepalive_set "$plist"; then ok "$plist has KeepAlive SuccessfulExit false (whether the LOADED runner has it: as $CI_USER, tools/ci-runner-setup.sh keepalive)"
     else problem "$plist lacks $(keepalive_missing "$plist"): a killed runner may stay offline; as $CI_USER: tools/ci-runner-setup.sh --apply keepalive"; fi
   elif [ -r "$RUNNER_DIR/.service" ] && [ -z "$plist" ]; then
