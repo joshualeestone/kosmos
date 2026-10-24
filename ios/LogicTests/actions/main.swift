@@ -105,6 +105,28 @@ let pinfo = pw.flatMap(PhoneNotice.offeredPermission).map(PhoneNotice.permission
 check(pinfo?["allowN"] as? Int == 1 && pinfo?["denyLabel"] as? String == "No" && pinfo?["request"] as? String == fp, "it rides the notice as plist values")
 check(service.contains("PhoneNotice.offeredPermission(words)") && service.contains("content.categoryIdentifier = PhoneNotice.permissionCategory"), "the extension sets the category only through offeredPermission")
 
+section("Allow and Deny: the press, checked against the chat read just before it")
+var pinfoNotice = info
+pinfoNotice[PhoneNotice.permissionInfoKey] = pinfo ?? [:]
+let pAllow = NotificationAction.permissionPress(pinfoNotice, action: NotificationAction.allowAction)
+let pDeny = NotificationAction.permissionPress(pinfoNotice, action: NotificationAction.denyAction)
+check(pAllow == NotificationAction.PermissionPress(n: 1, label: "Yes", asked: "Do you want to proceed?", request: fp, allow: true), "Allow presses the prompt's own Yes")
+check(pDeny?.n == 3 && pDeny?.label == "No" && pDeny?.allow == false, "Deny presses the prompt's own No")
+check(NotificationAction.permissionPress(info, action: NotificationAction.allowAction) == nil, "CONTROL: a notice with no permission on it presses nothing")
+check(NotificationAction.permissionPress(pinfoNotice, action: NotificationAction.replyAction) == nil, "CONTROL: Reply is not a press")
+func thread(asking: Bool = true, asked: String = "Do you want to proceed?", request: String = fp) -> Data {
+    Data(#"{"asking":\#(asking),"asked":"\#(asked)","messages":[{"at":null,"text":"Do you want to proceed?","from":"ada","kind":"question","permission":{"kind":"command","allow":1,"deny":3,"request":"\#(request)"}}]}"#.utf8)
+}
+check(NotificationAction.permissionVerdict(status: 200, data: thread(), press: pAllow!, agent: "Ada") == .go, "the same request still up: it goes")
+check(NotificationAction.permissionVerdict(status: 200, data: thread(request: String(repeating: "b2", count: 32)), press: pAllow!, agent: "Ada") == .changed, "CONTROL: another command under the same question and options: refused (the minutes-old notice)")
+check(NotificationAction.permissionVerdict(status: 200, data: thread(asking: false), press: pAllow!, agent: "Ada") == .changed, "CONTROL: answered on the computer since: refused")
+check(NotificationAction.permissionVerdict(status: 200, data: thread(asked: "Something else?"), press: pAllow!, agent: "Ada") == .changed, "CONTROL: a different question: refused")
+check(NotificationAction.permissionVerdict(status: 200, data: Data(#"{"asking":true,"asked":"Do you want to proceed?","messages":[]}"#.utf8), press: pAllow!, agent: "Ada") == .changed, "CONTROL: no card on the chat (an older computer, or the box scrolled): refused")
+if case .unreadable(let said) = NotificationAction.permissionVerdict(status: 0, data: nil, press: pDeny!, agent: "Ada") {
+    check(said.contains("nothing was denied") && said.contains("Open the chat"), "no answer: says nothing was denied, and where to answer")
+} else { check(false, "no answer reads as unreadable") }
+check(NotificationAction.changedNotice(agent: "Ada", allow: true).contains("nothing was allowed"), "the refusal says nothing was allowed")
+
 let couldNot = Data(#"{"delivery":{"state":"could_not","because":"Ada is not running","at":"t"},"recorded":true}"#.utf8)
 let refusedKept = Board.sendResult(status: 200, body: couldNot)
 check(NotificationAction.notice(after: refusedKept, agent: "Ada", body: couldNot) == "Kosmos could not send your reply to Ada: Ada is not running.", "kept but not typed (the board refused): never silent, with the board's reason")

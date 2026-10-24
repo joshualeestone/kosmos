@@ -119,6 +119,60 @@ enum NotificationAction {
         return out
     }
 
+    // MARK: kosmos#7017 part 2: Allow and Deny
+
+    static var permissionCategory: String { NotificationCategories.permissionCategory }
+    static var allowAction: String { NotificationCategories.allowAction }
+    static var denyAction: String { NotificationCategories.denyAction }
+
+    // What the extension put on the notice (PhoneNotice.permissionInfo), read back: the pressed option and what it checks.
+    struct PermissionPress: Equatable {
+        let n: Int
+        let label: String
+        let asked: String
+        let request: String
+        let allow: Bool
+    }
+
+    static func permissionPress(_ userInfo: [AnyHashable: Any], action: String) -> PermissionPress? {
+        guard action == allowAction || action == denyAction,
+              let p = userInfo[PhoneNotice.permissionInfoKey] as? [String: Any],
+              let asked = p["asked"] as? String, !asked.isEmpty,
+              let request = p["request"] as? String, request.count == 64
+        else { return nil }
+        let allow = action == allowAction
+        guard let n = p[allow ? "allowN" : "denyN"] as? Int, (1...9).contains(n),
+              let label = p[allow ? "allowLabel" : "denyLabel"] as? String, !label.isEmpty
+        else { return nil }
+        return PermissionPress(n: n, label: label, asked: asked, request: request, allow: allow)
+    }
+
+    // The chat's read just before an Allow or Deny goes (GET /api/agent/<name>/thread). A notice can be minutes old, and
+    // every permission prompt asks the same question with the same Yes and No, so the press goes only while the agent
+    // is still asking AND the board's card is the very request this notice was about (its fingerprint, `request`).
+    enum PermissionVerdict: Equatable { case go, changed, unreadable(String) }
+
+    static func permissionVerdict(status: Int, data: Data?, press: PermissionPress, agent: String) -> PermissionVerdict {
+        let who = agent.isEmpty ? "your agent" : agent
+        let verb = press.allow ? "allowed" : "denied"
+        guard status == 200, let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            if status == 0 { return .unreadable("Kosmos could not reach your computer, so nothing was \(verb) for \(who). Open the chat to answer.") }
+            if status == 401 || status == 403 {
+                return .unreadable("Your computer did not let this phone in just now, so nothing was \(verb) for \(who). Open the chat to answer.")
+            }
+            return .unreadable("Kosmos could not read your chat with \(who) just now, so nothing was \(verb). Open the chat to answer.")
+        }
+        guard obj["asking"] as? Bool == true, obj["asked"] as? String == press.asked else { return .changed }
+        let rows = obj["messages"] as? [[String: Any]] ?? []
+        let cards = rows.compactMap { ($0["kind"] as? String) == "question" ? $0["permission"] as? [String: Any] : nil }
+        guard cards.contains(where: { $0["request"] as? String == press.request }) else { return .changed }
+        return .go
+    }
+
+    static func changedNotice(agent: String, allow: Bool) -> String {
+        "\(agent.isEmpty ? "Your agent" : agent) is no longer asking that, or is asking something else now, so nothing was \(allow ? "allowed" : "denied"). Open the chat to see what it is asking."
+    }
+
     // When the reply could not even be made (no kept computer for this notification, or nothing typed).
     static func cannotSend(agent: String) -> String {
         "Kosmos could not send your reply to \(agent.isEmpty ? "your agent" : agent) from here. Open the chat to send it."
