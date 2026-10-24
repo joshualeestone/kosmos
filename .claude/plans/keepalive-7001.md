@@ -269,3 +269,27 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - DEFERRED NITs: 5 (130 on TERM), 6 (ka-interrupt is red if the suite runs with SIGINT ignored, e.g. backgrounded; the
   reviewer hit that; documented here, the suite is run in the foreground), 7 (20-digit waits), 8 (cross-user dry run
   message), 9 (dry run as another user), 10 (two concurrent --apply runs: an operator runs it once).
+
+## Review round 21 (opus, blind, HEAD 713b0166cd)
+- W1 FIXED: the "new Listener" filter was untested (a mutant counting the old pid passed). Stub FX_BOOTSTRAP_SAME_PID;
+  ka-nonew; mutant red.
+- W2 FIXED (wording, NOT MEASURED): the job-during-stop refusal promised the runner "ends after that job". The SIGTERM
+  becomes SIGINT to the Listener, which (from actions/runner knowledge, not measured) cancels a running job. The
+  message now says the job is most likely cancelled too, and to rerun once idle.
+- W3 FIXED (doc): verify as the owner on a default Mac ends at 3 by design (~/Library 700); the header says so and names
+  the CI user's keepalive dry run as the check. Rejected: a separate exit code (one more contract for a case the header
+  now names; reopen if the guard-sha UNCHECKED gets lost in practice).
+- W4 FIXED: .service was trusted to name the plist; a job can write this home, and the relay's plist matches the same
+  pattern. runner_plist now also needs the plist's WorkingDirectory (svc.sh's template sets it; read on the relay plist
+  on this Mac) to be RUNNER_DIR. ka-servicerelay (relay plist untouched); mutant red. RESIDUAL, stated: a job can rewrite
+  the relay plist's WorkingDirectory too; a job that can write this home can already break the relay runner, so this
+  closes the accidental and simple case, not a determined one.
+- C1 FIXED: the dry run now predicts --apply's pid and between-Listeners refusals (ka-nopid-dry, ka-between-dry; mutants red).
+- C2 FIXED: keepalive's pgrep uses the CI user's uid, not the caller's. NOT TESTED: the pgrep stub ignores -u.
+- C3 FIXED: the measurement comments name the machine one way.
+- NIT1 FIXED: a <string> ExitTimeOut/ThrottleInterval is not taken for an integer (ka-strtimeout; mutant red).
+- NIT2 FIXED: own_re anchored to the argv start, '.' escaped (stub FX_LOOKALIKE; ka-lookalike; mutant red).
+- NIT3 FIXED: a pid change after the SIGTERM (launchd restarted it) refuses before the bootout (ka-respawn; mutant red).
+- Test harness: $T no longer has "//" ($PWD collapses it, so svc.sh's WorkingDirectory differed); the pgrep stub
+  dispatches on Runner*Listener (the pattern now spells Runner[.]Listener).
+- DEFERRED: NIT4 (wait_for_listener by name: follow-up card b), NIT5 (loaded ThrottleInterval is not printed by launchd).

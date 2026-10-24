@@ -10,7 +10,8 @@ HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 S="$HERE/ci-runner-setup.sh"
 # Several cases make a dir mode 000 and expect it unreadable, which root ignores: say so rather than red for that.
 if [ "$(id -u)" = 0 ]; then echo "skip test-ci-runner-setup-4601: run as root, where mode 000 does not block reads"; exit 0; fi
-T="$(mktemp -d "${TMPDIR:-/tmp}/test-ci-runner-setup-4601.XXXXXXXXXX")" || exit 1; [ -d "$T" ] || exit 1; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT   # chmod: some cases make dirs 000
+_td="${TMPDIR:-/tmp}"   # without a trailing /: a "//" in $T is collapsed by $PWD, which svc.sh writes as WorkingDirectory
+T="$(mktemp -d "${_td%/}/test-ci-runner-setup-4601.XXXXXXXXXX")" || exit 1; [ -d "$T" ] || exit 1; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT   # chmod: some cases make dirs 000
 fails=0
 # The test's own errors (a helper used before it is defined) print and pass on; keep them and fail on them at the end.
 exec 2> >(tee "$T/test-stderr" >&2)
@@ -37,6 +38,7 @@ case "$me" in
         [ "${FX_INTERRUPT:-0}" = 1 ] && kill -INT "$PPID"   # an operator's Ctrl-C, inside the stop window
         [ "${FX_HUP:-0}" = 1 ] && kill -HUP "$PPID"         # a dropped ssh session, inside the stop window
         [ "${FX_WORKER_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/worker-up"   # a job taken during the stop
+        [ "${FX_RESPAWN_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/respawned"  # launchd restarted it
         exit 0 ;;
       print-disabled) printf 'disabled services = {\n'
         [ "${FX_DISABLED:-0}" = 1 ] && printf '\t"actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" => disabled\n'
@@ -53,12 +55,14 @@ case "$me" in
         if [ "${FX_BOOTSTRAP_NO_KA:-0}" != 1 ] && [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$3" 2>/dev/null)" = false ]; then
           plutil -extract ExitTimeOut raw -o - "$3" 2>/dev/null > "$(dirname "$CALL_LOG")/loaded-ka" || echo 5 > "$(dirname "$CALL_LOG")/loaded-ka"
         else rm -f "$(dirname "$CALL_LOG")/loaded-ka"; fi
-        echo $(( $(cat .svc-pid 2>/dev/null || echo 4343) + 1 )) > .svc-pid; exit 0 ;;
+        # FX_BOOTSTRAP_SAME_PID=1: the old Listener is still the only one listed (launchd started no new one).
+        [ "${FX_BOOTSTRAP_SAME_PID:-0}" = 1 ] || echo $(( $(cat .svc-pid 2>/dev/null || echo 4343) + 1 )) > .svc-pid; exit 0 ;;
     esac
     case "$1 $2" in "print gui/"*/*) { [ -f "$out" ] || [ "${FX_NOT_LOADED:-0}" = 1 ]; } && exit 113
         printf '%s = {\n\tstate = %s\n' "$2" "${FX_JOB_STATE:-running}"
         # A running job shows its pid (999999 by default: a pid that cannot exist, so a wait on it ends at once).
-        [ "${FX_NO_PID:-0}" = 1 ] || printf '\tpid = %s\n' "${FX_JOB_PID:-999999}"
+        if [ -f "$(dirname "$CALL_LOG")/respawned" ]; then printf '\tpid = 888888\n'
+        elif [ "${FX_NO_PID:-0}" != 1 ]; then printf '\tpid = %s\n' "${FX_JOB_PID:-999999}"; fi
         lk="$(dirname "$CALL_LOG")/loaded-ka"
         [ -f "$lk" ] && printf '\tsemaphores = {\n\t\tsuccessful exit => 0\n\t}\n'
         # FX_LOADED_ALWAYS=1: the loaded job has KeepAlive true, as launchd prints it (measured, macOS 27, 2026-10-23).
@@ -79,11 +83,13 @@ case "$me" in
     # A Listener runs while this runner dir's svc state is "started" (cwd is the runner dir), with the pid start gave it.
     # kosmos#7001: a -f pattern is matched (ERE) against this runner's Listener argv and the relay's (#6245), so a pattern
     # that cannot tell the two apart is seen. The relay's pid changes once anything was bootstrapped (a respawn).
-    case "$*" in *"-f "*Runner.Listener*)
+    case "$*" in *"-f "*Runner*Listener*)   # Runner.Listener or Runner[.]Listener
       [ "${FX_LISTENER_PGREP_FAIL:-0}" = 1 ] && exit 3
       pat="${*: -1}"; own="${KOSMOS_CI_HOME:-/Users/kosmos-ci}/actions-runner/bin/Runner.Listener run --startuptype service"
       rel="${KOSMOS_CI_HOME:-/Users/kosmos-ci}/actions-runner-relay/bin/Runner.Listener run --startuptype service"; hit=1
       if [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] && printf '%s\n' "$own" | grep -q -E -e "$pat"; then cat .svc-pid 2>/dev/null || echo 4343; hit=0; fi
+      # FX_LOOKALIKE=1: a process that only MENTIONS this runner's Listener path (a tail of it).
+      if [ "${FX_LOOKALIKE:-0}" = 1 ] && printf '%s\n' "tail -f $own" | grep -q -E -e "$pat"; then echo 6161; hit=0; fi
       if [ "${FX_RELAY_LISTENER:-0}" = 1 ] && printf '%s\n' "$rel" | grep -q -E -e "$pat"; then
         [ -f "$(dirname "$CALL_LOG")/bootstrapped" ] && echo 5556 || echo 5555; hit=0; fi
       exit "$hit" ;; esac
@@ -155,7 +161,8 @@ case "$me" in
         printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
           '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
           '<plist version="1.0"><dict><key>Label</key><string>actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s</string>' \
-          '<key>ProgramArguments</key><array><string>runsvc.sh</string></array><key>RunAtLoad</key><true/></dict></plist>' \
+          '<key>ProgramArguments</key><array><string>runsvc.sh</string></array><key>RunAtLoad</key><true/>' \
+          "<key>WorkingDirectory</key><string>$PWD</string></dict></plist>" \
           > "$HOME/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
         echo "$HOME/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist" > "$(dirname "$0")/.service" ;;
       # FX_SVC_STOP_LAG=N: a stop still in progress reads Started for N more status calls (kosmos#7001).
@@ -581,7 +588,7 @@ ka_fresh() {   # an installed runner as svc.sh leaves it: started, its plist wit
   cp "$BIN/_stub" "$KH/actions-runner/svc.sh"; chmod +x "$KH/actions-runner/svc.sh"
   (cd "$KH/actions-runner" && HOME="$KH" CALL_LOG=/dev/null ./svc.sh install && echo started > .svc-state && echo 4343 > .svc-pid)
   # The kosmos-relay runner under the same user (#6245): its plist sorts BEFORE this repo's ('-' before '.').
-  sed 's/joshualeestone-kosmos\.kosmos-ci-agent1s/joshualeestone-kosmos-relay.agent1s-relay/' "$KA" > "$KR"
+  sed -e 's/joshualeestone-kosmos\.kosmos-ci-agent1s/joshualeestone-kosmos-relay.agent1s-relay/' -e 's#/actions-runner</string>#/actions-runner-relay</string>#' "$KA" > "$KR"
   cp "$KA" "$T/ka.before"; cp "$KR" "$T/kr.before"
 }
 ka_fresh
@@ -670,7 +677,7 @@ el=$((SECONDS - t0)); wait "$sp" 2>/dev/null
 sleep 30 & sp=$!
 # A job taken while the stop was under way: the bootout would cancel it, so the second job check refuses before it.
 ka_fresh; rm -f "$T/worker-up"; run ka-jobduring "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER_AFTER_KILL=1 -- --apply keepalive
-[ "$(rc ka-jobduring)" = 1 ] && has ka-jobduring "a job started during the stop" && has ka-jobduring "was sent SIGTERM, so it ends after that job" \
+[ "$(rc ka-jobduring)" = 1 ] && has ka-jobduring "a job started during the stop" && has ka-jobduring "was sent SIGTERM, which most likely cancels that job too" \
   && grep -q '^launchctl kill SIGTERM' "$T/ka-jobduring.calls" && ! grep -q '^launchctl bootout' "$T/ka-jobduring.calls" \
   && pass "keepalive --apply: a job taken during the stop is not booted out, and the message says the runner will stay stopped" || fail "keepalive job during stop: rc $(rc ka-jobduring): $(tail -1 "$T/ka-jobduring.out")"
 rm -f "$T/worker-up"
@@ -678,6 +685,37 @@ rm -f "$T/worker-up"
 ka_fresh; run ka-hup "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_HUP=1 -- --apply keepalive
 [ "$(rc ka-hup)" = 0 ] && grep -q '^launchctl bootstrap ' "$T/ka-hup.calls" \
   && pass "keepalive --apply: a SIGHUP during the stop does not end the script; the runner is reloaded" || fail "keepalive hup: rc $(rc ka-hup): $(tail -1 "$T/ka-hup.out")"
+# kosmos#7001 round 21. A .service rewritten to name the relay's plist (same name pattern) is not followed.
+ka_fresh; [ "$(plutil -extract WorkingDirectory raw -o - "$KR")" = "$KH/actions-runner-relay" ] || fail "fixture: the relay plist does not name its own dir"
+echo "$KR" > "$KH/actions-runner/.service"; run ka-servicerelay "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+[ "$(rc ka-servicerelay)" = 1 ] && has ka-servicerelay "names no LaunchAgent of this runner" && cmp -s "$KR" "$T/kr.before" && ! grep -q '^launchctl \(kill\|bootout\|bootstrap\)' "$T/ka-servicerelay.calls" \
+  && pass "keepalive --apply: a .service naming the relay's plist is refused, and the relay is untouched" || fail "keepalive .service names relay: rc $(rc ka-servicerelay): $(tail -1 "$T/ka-servicerelay.out")"
+# launchd restarted it after the SIGTERM: no bootout into the new Listener.
+ka_fresh; rm -f "$T/respawned"; run ka-respawn "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_RESPAWN_AFTER_KILL=1 -- --apply keepalive
+[ "$(rc ka-respawn)" = 1 ] && has ka-respawn "launchd restarted" && has ka-respawn "now 888888" && grep -q '^launchctl kill SIGTERM' "$T/ka-respawn.calls" && ! grep -q '^launchctl bootout' "$T/ka-respawn.calls" \
+  && pass "keepalive --apply: a restart by launchd after the SIGTERM is refused before the bootout" || fail "keepalive respawn: rc $(rc ka-respawn): $(tail -1 "$T/ka-respawn.out")"
+rm -f "$T/respawned"
+# The bootstrap starts no new Listener (the old one is still the only one listed): FAILED, not running again.
+ka_fresh; run ka-nonew "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_SAME_PID=1 KOSMOS_CI_START_WAIT_S=1 -- --apply keepalive
+[ "$(rc ka-nonew)" = 1 ] && has ka-nonew "no new Listener of $KH/actions-runner is running after" && ! has ka-nonew "the runner is running again" \
+  && pass "keepalive --apply: the old Listener still listed after the bootstrap is not taken for a new one" || fail "keepalive no new Listener: rc $(rc ka-nonew): $(tail -1 "$T/ka-nonew.out")"
+# The dry run predicts --apply's pid and Listener refusals.
+ka_fresh; run ka-nopid-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_PID=1 -- keepalive
+[ "$(rc ka-nopid-dry)" = 1 ] && has ka-nopid-dry "shows no pid for" && has ka-nopid-dry "so --apply would refuse" && ! has ka-nopid-dry "WOULD: launchctl bootout" \
+  && pass "keepalive dry run: no pid while its Listener runs is refused there, as --apply refuses" || fail "keepalive nopid dry: rc $(rc ka-nopid-dry): $(tail -1 "$T/ka-nopid-dry.out")"
+ka_fresh; run ka-between-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LISTENER=0 -- keepalive
+[ "$(rc ka-between-dry)" = 1 ] && has ka-between-dry "so --apply would refuse now" && ! has ka-between-dry "WOULD: launchctl bootout" \
+  && pass "keepalive dry run: between Listeners is refused there, as --apply refuses" || fail "keepalive between dry: rc $(rc ka-between-dry): $(tail -1 "$T/ka-between-dry.out")"
+# A process that only mentions the Listener's path is not this runner's Listener.
+ka_fresh; run ka-lookalike "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LISTENER=0 FX_LOOKALIKE=1 -- --apply keepalive
+[ "$(rc ka-lookalike)" = 1 ] && has ka-lookalike "no Listener of $KH/actions-runner does" && ! grep -q '^launchctl kill' "$T/ka-lookalike.calls" \
+  && pass "keepalive --apply: a tail of the Listener's path is not taken for the Listener" || fail "keepalive lookalike: rc $(rc ka-lookalike): $(tail -1 "$T/ka-lookalike.out")"
+# A string ExitTimeOut reads 35 through plutil raw, but launchd ignores it: not done.
+ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$KA"; plutil -insert ExitTimeOut -string 35 "$KA"; plutil -insert ThrottleInterval -integer 10 "$KA"
+[ "$(plutil -extract ExitTimeOut raw -o - "$KA")" = 35 ] && plutil -extract ExitTimeOut xml1 -o - "$KA" | grep -q '<string>' || fail "fixture: ExitTimeOut is not the string 35"
+run ka-strtimeout "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
+has ka-strtimeout "lacks ExitTimeOut 35" && ! has ka-strtimeout "lacks KeepAlive" \
+  && pass "keepalive: a string ExitTimeOut is not taken for the integer launchd needs" || fail "keepalive string timeout: $(grep lacks "$T/ka-strtimeout.out")"
 ka_fresh; run ka-outlives "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null
 [ "$(rc ka-outlives)" = 0 ] && has ka-outlives "had not ended 1s after SIGTERM" && grep -qx 'bootout-while-alive' "$T/ka-outlives.calls" \
@@ -816,10 +854,11 @@ vcase guard-drift 1 "something rewrote it" KOSMOS_CI_GUARD_SHA=00000000000000000
 vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
 # kosmos#7001: the LaunchAgent, when verify can read it (as the owner it usually cannot: ~/Library is mode 700).
 grep -q "no $VCI/actions-runner/.service: the runner is not registered as a service" "$T/v-clear.out" && pass "verify: no .service is a note naming that, and leaves verify clear" || fail "verify LaunchAgent note: $(grep -i -E 'launchagent|service' "$T/v-clear.out")"
-mkdir -p "$VCI/Library/LaunchAgents"; cp "$T/ka.before" "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
+mkdir -p "$VCI/Library/LaunchAgents"; sed "s#$KH/actions-runner<#$VCI/actions-runner<#" "$T/ka.before" > "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 echo "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist" > "$VCI/actions-runner/.service"
 vcase no-keepalive 1 "lacks KeepAlive {SuccessfulExit: false}"
-cp "$T/ka.after" "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
+sed "s#$KH/actions-runner<#$VCI/actions-runner<#" "$T/ka.after" > "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
+[ "$(plutil -extract WorkingDirectory raw -o - "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist")" = "$VCI/actions-runner" ] || fail "fixture: the verify plist does not name $VCI/actions-runner"
 vcase keepalive 0 "has KeepAlive SuccessfulExit false"
 # As the owner in production: ~/Library closed, .service readable. Not checked is a check not made (3), never clear.
 chmod 000 "$VCI/Library"; vcase ka-library-closed 3 "under $VCI/Library/LaunchAgents that $(id -un) can see (its ~/Library is closed to other users), so KeepAlive is not checked here"; chmod 755 "$VCI/Library"

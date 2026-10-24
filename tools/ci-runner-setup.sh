@@ -30,7 +30,9 @@
 #                             KOSMOS_CI_STATE_WAIT_S (12)
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
 #                             Give KOSMOS_CI_GUARD_SHA (the install pin), or the guard counts as unchecked.
-#                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail)
+#                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail).
+#                             As the owner on a default Mac it ends at 3 by design: $CI_USER's ~/Library is mode 700, so
+#                             the KeepAlive check is not made there; as $CI_USER, the keepalive dry run makes it.
 #   machine-settings          prints the settings that need an admin in System Settings
 #   jq-programs               prints the jq programs handed to gh --jq; reads nothing (the test runs them through jq)
 #
@@ -183,12 +185,18 @@ runner_plist() {
   local f=""
   [ -r "$RUNNER_DIR/.service" ] && f="$(head -n 1 "$RUNNER_DIR/.service" 2>/dev/null || true)"
   case "${f#"$CI_HOME"/Library/LaunchAgents/}" in */*) return 0 ;; esac   # directly in that dir, no further path
-  case "$f" in "$CI_HOME"/Library/LaunchAgents/actions.runner.*.plist) [ -e "$f" ] && printf '%s\n' "$f" ;; esac
+  # And THIS runner's: svc.sh's template sets WorkingDirectory to the runner dir. A .service rewritten (a job can write
+  # this home) to name the relay's plist, which matches the same pattern, is not followed.
+  case "$f" in "$CI_HOME"/Library/LaunchAgents/actions.runner.*.plist)
+    [ -e "$f" ] && [ "$(plutil -extract WorkingDirectory raw -o - "$f" 2>/dev/null || true)" = "$RUNNER_DIR" ] && printf '%s\n' "$f" ;; esac
   return 0
 }
 # plist_int_ge <plist> <key> <min>: the key is an integer of at least min.
 plist_int_ge() {
-  local t; t="$(plutil -extract "$2" raw -o - "$1" 2>/dev/null || true)"
+  # An <integer>, not a <string> that reads the same through raw: launchd ignores a wrongly typed key.
+  local t x; x="$(plutil -extract "$2" xml1 -o - "$1" 2>/dev/null || true)"
+  case "$x" in *"<integer>"*) ;; *) return 1 ;; esac
+  t="$(plutil -extract "$2" raw -o - "$1" 2>/dev/null || true)"
   case "$t" in ''|*[!0-9]*) return 1 ;; esac; [ "$t" -ge "$3" ]
 }
 keepalive_set() {
@@ -204,8 +212,8 @@ keepalive_missing() {
   printf '%s' "${m:-nothing}"
 }
 # loaded_always <domain/label>: the LOADED job restarts even a clean exit (an operator's KeepAlive true). launchctl print
-# lists it as "properties = keepalive | ..." with no "successful exit" semaphore (measured on macOS 27, 2026-10-23;
-# KeepAlive {SuccessfulExit: false} prints the semaphore and no keepalive property). A SIGTERM would then be followed by
+# lists it as "properties = keepalive | ..." with no "successful exit" semaphore (measured 2026-10-23 on macOS 27,
+# throwaway agents; KeepAlive {SuccessfulExit: false} prints the semaphore and no keepalive property). A SIGTERM would then be followed by
 # a restart, and the bootout could cut that new Listener while it opens its GitHub session.
 loaded_always() {
   local out; out="$(launchctl print "$1" 2>/dev/null)" || return 1
@@ -219,8 +227,8 @@ label_disabled() {
   printf '%s\n' "$dis" | grep -F "\"$2\"" | grep -E '=> (disabled|true)' >/dev/null
 }
 # loaded_keepalive <domain/label>: the LOADED job has it (launchd prints KeepAlive {SuccessfulExit: false} as the
-# semaphore "successful exit => 0", and ExitTimeOut as "exit timeout = N"; measured on macOS 27.0.1, the old Agent1s
-# Mac's). The plist on disk can have it while the loaded job
+# semaphore "successful exit => 0", and ExitTimeOut as "exit timeout = N"; measured 2026-10-23 on macOS 27, runner 1).
+# The plist on disk can have it while the loaded job
 # does not, after a reload that was refused or failed.
 loaded_keepalive() {
   local out t; out="$(launchctl print "$1" 2>/dev/null)" || return 1
@@ -649,13 +657,16 @@ keepalive() {
     # Another user (the owner, say) cannot read the CI user's runner: say that, not "register first", which is the CI
     # user's own answer when .service names no plist.
     if [ "$(id -un)" != "$CI_USER" ]; then echo "note:   cannot read $CI_USER's runner as $(id -un); run this as $CI_USER"; return 0; fi
-    echo "refused: $RUNNER_DIR/.service names no LaunchAgent under $CI_HOME/Library/LaunchAgents; register first" >&2; exit 1
+    echo "refused: $RUNNER_DIR/.service names no LaunchAgent of this runner (actions.runner.*.plist directly under $CI_HOME/Library/LaunchAgents, WorkingDirectory $RUNNER_DIR); register first" >&2; exit 1
   fi
   label="$(plutil -extract Label raw -o - "$plist" 2>/dev/null)" && [ -n "$label" ] \
     || { echo "refused: cannot read the Label of $plist" >&2; exit 1; }
   local ciuid; ciuid="$(id -u "$CI_USER" 2>/dev/null)" || { echo "refused: no user $CI_USER on this Mac" >&2; exit 1; }
   dom="gui/$ciuid"   # the CI user's domain, whoever reads it (a dry run may be someone else's)
   cd "$RUNNER_DIR" || { echo "refused: no runner in $RUNNER_DIR" >&2; exit 1; }
+  # THIS runner's Listener, by its absolute argv start (not the relay's: its dir is actions-runner-relay; not a tail or
+  # grep that merely mentions the path). Processes are the CI user's, whoever runs a dry run.
+  local own_re="^$RUNNER_DIR/bin[^/]*/Runner[.]Listener( |\$)"
   local limit="${KOSMOS_CI_UNLOAD_WAIT_S:-45}"   # over the old job's own exit timeout; a number: checked at the top
   launchctl print "$dom" >/dev/null 2>&1 || { echo "refused: no $dom domain ($CI_USER is not logged in, so its runner cannot run); log in, then run this again" >&2; exit 1; }
   # Three facts: the plist has it, the job is loaded, the LOADED job has it. Only all three mean a kill is survived.
@@ -680,7 +691,7 @@ keepalive() {
   # other way (svc.sh over ssh, by hand), and a bootstrap here would start a second copy.
   local own=0 prc=0
   if [ "$loaded" = 0 ]; then
-    pgrep -u "$(id -u)" -f "$RUNNER_DIR/bin[^/]*/Runner.Listener" >/dev/null || prc=$?
+    pgrep -u "$ciuid" -f "$own_re" >/dev/null || prc=$?
     [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc) to tell whether this runner runs" >&2; exit 1; }
     [ "$prc" = 0 ] && own=1
   fi
@@ -700,6 +711,16 @@ keepalive() {
       fi
       if loaded_always "$dom/$label"; then
         echo "refused: the LOADED $label restarts even a clean stop (KeepAlive true), so --apply would refuse to reload it; reload it by hand while idle: launchctl bootout $dom/$label, then launchctl bootstrap $dom $plist" >&2; exit 1
+      fi
+      # The same two refusals --apply makes about the pid and the Listener (see there).
+      local dpid dprc=0; dpid="$(launchctl print "$dom/$label" 2>/dev/null | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
+      pgrep -u "$ciuid" -f "$own_re" >/dev/null || dprc=$?
+      [ "$dprc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $dprc) to tell whether this runner runs" >&2; exit 1; }
+      if [ -z "$dpid" ] && [ "$dprc" = 0 ]; then
+        echo "refused: launchctl print shows no pid for $label, though a Listener of $RUNNER_DIR runs, so --apply would refuse to reload it" >&2; exit 1
+      fi
+      if [ -n "$dpid" ] && [ "$dprc" = 1 ]; then
+        echo "refused: $label runs but no Listener of $RUNNER_DIR does (restarting or self-updating), so --apply would refuse now: run this again in a minute" >&2; exit 1
       fi
       echo "WOULD: only while no job runs: stop $label with SIGTERM, then reload it"
       printf 'WOULD: launchctl kill SIGTERM %s\nWOULD: launchctl bootout %s\nWOULD: launchctl bootstrap %s %s\n' "$dom/$label" "$dom/$label" "$dom" "$plist"
@@ -722,12 +743,12 @@ keepalive() {
   # Checked last, just before the bootout, to keep the window short: a job the Listener accepted but has not yet handed
   # to a Worker is not seen and would be cancelled by the reload (as install's stop accepts too). -x, as install's check:
   # after a self-update the Worker runs from bin.<version>, so a path match on bin/Runner.Worker would miss it.
-  prc=0; pgrep -u "$(id -u)" -x Runner.Worker >/dev/null || prc=$?
+  prc=0; pgrep -u "$ciuid" -x Runner.Worker >/dev/null || prc=$?
   [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc) to rule out a running job; KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
   # Any Worker of this user, this runner's or the relay's (#6245): a name match cannot tell them apart, and a path match
   # could miss a Worker started with a relative path, whose job the reload would then cancel. Refusing is the safe side.
   [ "$prc" = 1 ] || { echo "refused: a job is running under $CI_USER (Runner.Worker is up, on this runner or the relay's); KeepAlive is in the plist, not yet loaded: run this again when both are idle" >&2; exit 1; }
-  local own_re="$RUNNER_DIR/bin[^/]*/Runner.Listener" before; prc=0; before="$(pgrep -u "$(id -u)" -f "$own_re")" || prc=$?
+  local before; prc=0; before="$(pgrep -u "$ciuid" -f "$own_re")" || prc=$?
   [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc) to note the running Listener; KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
   # Stop it with SIGTERM first and wait for it to end by itself: the LOADED job may still carry launchd's default 5 s exit
   # timeout, and a bootout alone would SIGKILL the Listener before it ends its GitHub session (the reload would then
@@ -774,12 +795,24 @@ keepalive() {
       echo "note:   the old runner (pid $opid) had not ended ${w4}s after SIGTERM; the bootout may cut its GitHub session short, and if it then reads offline (a session conflict), start it again with: launchctl kickstart $dom/$label" || true
     fi
   fi
-  # The job check again, at the bootout itself: the SIGTERM wait can last up to the unload limit, and a Listener that
-  # took a job in that window would have the job cancelled by the bootout. Refuse instead; nothing is booted out.
-  prc=0; pgrep -u "$(id -u)" -x Runner.Worker >/dev/null || prc=$?
+  # launchd restarted it after the SIGTERM (a loaded KeepAlive that restarts a clean stop in some way loaded_always
+  # does not name): the bootout would cut that new Listener while it opens its GitHub session. Refuse.
+  if [ "$sent" = 1 ]; then
+    local npid; npid="$(launchctl print "$dom/$label" 2>/dev/null | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
+    if [ -n "$npid" ] && [ "$npid" != "$opid" ]; then
+      echo "refused: launchd restarted $label after the SIGTERM (pid $opid, now $npid: its loaded definition restarts a clean stop); nothing was booted out, KeepAlive is in the plist, not yet loaded. Reload it by hand while idle: launchctl bootout $dom/$label, then launchctl bootstrap $dom $plist" >&2
+      trap - INT TERM; exit 1
+    fi
+  fi
+  # The job check again, at the bootout itself: the SIGTERM wait can last up to the unload limit, and a Listener may take
+  # a job in that window. Refuse rather than boot out.
+  prc=0; pgrep -u "$ciuid" -x Runner.Worker >/dev/null || prc=$?
   if [ "$prc" != 1 ]; then
     if [ "$sent" = 1 ]; then
-      echo "refused: a job started during the stop (Runner.Worker is up, or pgrep exit $prc); nothing was booted out. $label was sent SIGTERM, so it ends after that job and stays stopped (still the OLD definition): then run this again, which reloads and starts it" >&2
+      # Not measured: the runner turns the SIGTERM into SIGINT to its Listener, which (actions/runner) cancels a running
+      # job with "The runner has received a shutdown signal", so the job is most likely already lost; skipping the
+      # bootout only avoids making the state worse.
+      echo "refused: a job started during the stop (Runner.Worker is up, or pgrep exit $prc); nothing was booted out. $label was sent SIGTERM, which most likely cancels that job too; the runner then stays stopped (still the OLD definition): run this again once it is idle, which reloads and starts it" >&2
     else
       echo "refused: a job started during the stop (Runner.Worker is up, or pgrep exit $prc); nothing was booted out, KeepAlive is in the plist, not yet loaded: run this again when idle" >&2
     fi
@@ -816,7 +849,7 @@ keepalive() {
   # /Users/kosmos-ci/actions-runner/bin/Runner.Listener run --startuptype service (it joins ../bin, so bin/ even after a
   # self-update; bin[^/]* is only broader than needed and still excludes actions-runner-relay).
   local now w2=0 lim2="${KOSMOS_CI_START_WAIT_S:-30}"   # a number: checked at the top
-  while prc=0; now="$(pgrep -u "$(id -u)" -f "$own_re")" || prc=$?
+  while prc=0; now="$(pgrep -u "$ciuid" -f "$own_re")" || prc=$?
         [ "$prc" -lt 2 ] || { echo "FAILED: could not list processes (pgrep exit $prc) to see whether the runner started; $label was loaded" >&2; exit 1; }
         [ -z "$(printf '%s\n' "$now" | grep -v -x -F -e "${before:-none}" | grep . || true)" ]; do
     [ "$w2" -lt "$lim2" ] || { echo "FAILED: $label was loaded but no new Listener of $RUNNER_DIR is running after ${w2}s; see ~/Library/Logs/$label/stdout.log. If it crashed, launchd restarts it (KeepAlive is loaded); if it exited 0: launchctl kickstart $dom/$label" >&2; exit 1; }
