@@ -65,7 +65,7 @@ const BUSY_WAIT_MS = 5 * 1000;   // review 6: a busy count waits this long for t
 const BUSY_RETRIES = 4;          // so about 20 s, past an agent's own read (two 8 s rounds at most)
 const BETWEEN_AGENTS_MS = 1500;   // review 12: = communityread's FRESH_PACE_MS (pinned by a test)
 const TYPE_GAP_MS = 20 * 1000;   // review 2: between two agents' lines, so each told agent reads with the lock free
-/* Ids kept per agent. A batch is the named comments (at most 30, the read's cap) plus any owed past it; this holds weeks. */
+/* Ids kept per agent. A batch is the named comments (at most the read's cap: 30, fewer when they are long, #7056) plus any owed past it; this holds weeks. */
 const NUDGED_MAX = 1000;
 const TITLE_CAP = 80;
 /* #5623: a PERSON's comment is a must-answer. It is counted after PERSON_IDLE_MS idle (not IDLE_FIRST_MS), takes no slot of
@@ -97,7 +97,7 @@ function nudgeText(posts) {
     : about.length + ' of your community posts' + (titled ? ", including '" + plainWords(titled.title, TITLE_CAP).replace(/'/g, '’') + "'" : '');
   /* Review 15 (Sonnet): COMMENTS, since only comments on the post are counted (review 14); the read also shows replies
      under comments, which are not owed, so the line says which to answer. */
-  /* Review 16 (Opus): owed comments past the read's 30 are never counted aloud (the read does not show them yet); the
+  /* Review 16 (Opus): owed comments past the read's cap are never counted aloud (the read does not show them yet); the
      line says more are waiting, so the agent reads again until none are shown. */
   if (!n) {
     return 'Kosmos here: new comments are waiting on ' + where + '. Read them with kosmos community read --replies, again until it'

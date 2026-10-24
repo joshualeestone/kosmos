@@ -1696,9 +1696,9 @@ test('#4941/#5636: the single-post read and the replies read use POST_COMMENT_CA
   // #6201: the replies read's older-comments page is the third commentOf(c, false, POST_COMMENT_CAP).
   assert.equal((src.match(/commentOf\(c, false, POST_COMMENT_CAP\)/g) || []).length, 3);
   assert.equal((src.match(/commentOf\(x, true, POST_COMMENT_CAP\)/g) || []).length, 1);
-  // #7056: the fifth is readSizeOf's measure of how much room a reply takes in the replies read; it shows no text.
+  // #7056: the fifth is commentOf's measure of the room a reply takes in the replies read (readSize); it shows no text.
   assert.equal((src.match(/, POST_COMMENT_CAP\)/g) || []).length, 5, 'another read asks for the larger cap');
-  assert.equal((src.match(/const text = scrub\(body, POST_COMMENT_CAP\);/g) || []).length, 1, 'the size measure is the one use outside a read');
+  assert.equal((src.match(/o\.readSize = live \? replySizeOf\(o, asReply, bodyCap === POST_COMMENT_CAP \? o\.body : scrub\(c\.body, POST_COMMENT_CAP\)\)/g) || []).length, 1, 'the size measure is the one use outside a read');
   const from = src.indexOf('async function freshReplies');
   const fresh = src.slice(from, src.indexOf('\nasync function ', from + 1));
   assert.ok(fresh.length > 100 && !fresh.includes('POST_COMMENT_CAP'), 'the count asks for the larger cap');
@@ -2606,7 +2606,8 @@ test('#7056: a replies read fits its text budget, says how many wait, and the re
     if (!ids.length) break;
     reads += 1;
     const from = r.text.indexOf('[r1]');
-    const replies = r.text.slice(from, r.text.search(/\n\((\d+ newer replies not shown yet|no new replies)/) >= 0 ? r.text.search(/\n\((\d+ newer replies not shown yet|no new replies)/) : r.text.length);
+    const end = r.text.search(/\n\((\d+ newer replies not shown yet|no new replies)/);
+    const replies = r.text.slice(from, end >= 0 ? end : r.text.length);
     assert.ok(replies.length <= cr.REPLIES_TEXT_BUDGET, `read ${i + 1}'s replies take ${replies.length} characters, past the budget`);
     seen.push(...ids);
     const left = all.size - seen.length;
@@ -2641,20 +2642,60 @@ test('#7056: the nudge\'s count names exactly the comments the read will show un
   assert.deepEqual(named, topShown, 'the count named comments the read does not show, or left out ones it does');
 });
 
-test('#7056: REPLY_HEADER_ROOM holds the longest header a reply can have', async () => {
+/* The room a reply takes in the read, cut from the read's own text: its header line through the blank line after it
+   (every body line carries the quote, so the first empty line is that one). */
+function chunkOf(text, tag) {
+  const from = text.indexOf('\n' + tag + ' ') + 1;
+  return text.slice(from, text.indexOf('\n\n', from) + 2);
+}
+
+test('#7056: a reply\'s readSize is never smaller than the room the read gives it (capped names, edited, under comment)', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Hdr7056', remoteId: RP(5), sentAt: '2026-09-30T10:00:00Z' } }, {});
-  const long = 'N'.repeat(80);   // past authorOf's cap, so the cap is what the header holds
-  const top = comment({ id: 'c7056100-0000-4000-8000-000000000001', created_at: '2026-10-01T01:00:00Z', agent: { name: long, kind: 'person' }, body: 'q', reply_count: 1 });
-  top.replies = [comment({ id: 'c7056100-0000-4000-8000-000000000002', parent_id: top.id, created_at: '2026-10-01T02:00:00Z',
-    agent: { name: long, kind: 'person' }, reply_to_name: long, edited_at: '2026-10-01T03:00:00Z', body: 'a' })];
+  const long = 'N'.repeat(80);   // past authorOf's cap, so the cut name is what the header holds
+  const top = comment({ id: 'c7056100-0000-4000-8000-000000000001', created_at: '2026-10-01T01:00:00Z', agent: { name: long }, body: 'q', reply_count: 1 });
+  const raw = comment({ id: 'c7056100-0000-4000-8000-000000000002', parent_id: top.id, created_at: '2026-10-01T02:00:00Z',
+    agent: { name: long }, reply_to_name: long, edited_at: '2026-10-01T03:00:00Z', body: 'line one\nline two\n' + 'b'.repeat(500) });
+  top.replies = [raw];
   serve({ ['/posts/' + RP(5) + '/comments']: () => ({ status: 200, json: { comments: [top] } }) });
   const r = await cr.readReplies('Hdr7056', { now: NOW });
-  const headers = r.text.split('\n').filter((l) => /^\[r\d/.test(l));
-  const worst = headers.find((l) => l.includes(cr.UNDER_COMMENT) && l.includes('replying to') && l.includes(', edited ') && l.includes(' cut replying'));
-  assert.ok(worst, 'fixture: no header carries every part (under comment, a cut name replying to a cut name, edited): ' + headers.join(' / '));
-  // The owed mark goes at the end of a header whatever else it holds, so it is added rather than built (it needs the
-  // reply addressed to the agent's own short name).
-  const longest = worst.length + (' ' + cr.PERSON_OWED).length + 2;
-  assert.ok(longest <= cr.REPLY_HEADER_ROOM, `a ${longest}-character header does not fit REPLY_HEADER_ROOM (${cr.REPLY_HEADER_ROOM})`);
+  const chunk = chunkOf(r.text, '[r2]');
+  assert.ok(chunk.includes(cr.UNDER_COMMENT) && chunk.includes(' cut replying to ') && chunk.includes(', edited '), 'fixture: the header lacks a part: ' + chunk.slice(0, 300));
+  const size = cr.commentOf(raw, true, cr.POST_COMMENT_CAP).readSize;
+  assert.ok(size >= chunk.length, `readSize ${size} is smaller than the ${chunk.length} characters the read gave it`);
+  // The count reads at COMMENT_CAP and must measure the same.
+  assert.equal(cr.commentOf(raw, true).readSize, size, 'the count measures a reply differently from the read');
+});
+
+test('#7056: an owed person\'s readSize covers the owed mark the read adds', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Own7056', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' } },
+    { Own7056: { name: 'own-writes', remoteId: 'x', apiKey: 'K', token: 'K' } });
+  const raw = comment({ id: CID(1), created_at: T(9), agent: { name: 'Dana', kind: 'person' }, body: 'a person asks', replies: [], reply_count: 0 });
+  serve({ ['/posts/' + RP(1) + '/comments']: () => ({ status: 200, json: { comments: [raw] } }) });
+  const r = await cr.readReplies('Own7056', { now: NOW });
+  const chunk = chunkOf(r.text, '[r1]');
+  assert.ok(chunk.includes(cr.PERSON_OWED), 'fixture: the reply was not marked owed: ' + chunk);
+  const size = cr.commentOf(raw, false, cr.POST_COMMENT_CAP).readSize;
+  assert.ok(size >= chunk.length, `readSize ${size} is smaller than the ${chunk.length} characters the read gave it`);
+});
+
+test('#7056: many owed people: the count is said above the replies, the section fits its budget, and the rest are counted', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Owe7056', remoteId: RP(2), sentAt: '2026-09-30T10:00:00Z' } },
+    { Owe7056: { name: 'owe-writes', remoteId: 'x', apiKey: 'K', token: 'K' } });
+  const people = Array.from({ length: 6 }, (_, i) => comment({ id: 'c7056200-0000-4000-8000-00000000000' + i, created_at: T(9),
+    agent: { name: 'Person' + i, kind: 'person' }, body: 'question ' + i + ' ' + 'q'.repeat(1200), replies: [], reply_count: 0 }));
+  serve({ ['/posts/' + RP(2) + '/comments']: () => ({ status: 200, json: { comments: people } }) });
+  await cr.readReplies('Owe7056', { now: NOW });   // the first read shows them as new replies and moves the mark
+  const r = await cr.readReplies('Owe7056', { now: NOW + 1000 });
+  assert.equal(r.ok, true, r.because);
+  const count = r.text.indexOf('(6 people are waiting for your answer: listed after the new replies)');
+  const section = r.text.indexOf('People still waiting for your answer');
+  assert.ok(count >= 0 && section > count, 'the owed count is not said above the owed section: ' + r.text.slice(0, 600));
+  const shown = (r.text.match(/^\[p\d+\] /gm) || []).length;
+  assert.ok(shown >= 1 && shown < 5, 'CONTROL: the owed budget did not cut a 6-person section (' + shown + ' shown)');
+  assert.match(r.text, new RegExp('\\(' + (6 - shown) + ' more people are waiting: answer these, then read again\\)'));
+  const body = r.text.slice(section, r.text.indexOf('more people are waiting'));
+  assert.ok(body.length <= cr.OWED_TEXT_BUDGET + 200, `the owed section took ${body.length} characters`);
 });
