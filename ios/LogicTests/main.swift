@@ -1481,6 +1481,19 @@ section("native board loop: connecting")
         await c.sendAgain(lostRow, to: dana)
         check(!c.wasSentAgain(lostRow, for: "dana"), "Send again while a press is in the air does nothing, and the row still offers it")
         _ = await pressAgain.value
+        // And a retry of a failed message while a press is in the air sends nothing.
+        w.sendQueue = [(409, #"{"error":"no"}"#)]
+        await c.post("try me", to: dana)
+        let f1 = c.pending["dana"]!.last!.id
+        w.sendQueue = [(200, #"{"delivery":{"state":"placed"}}"#)]
+        let pressThird = Task { await c.press(tue, of: choices, to: dana) }
+        _ = await settle { c.pressing.contains("dana") }
+        let postsBefore = w.posted.count
+        await c.retry(f1, to: dana)
+        check(w.posted.count == postsBefore && c.pending["dana"]?.first(where: { $0.id == f1 })?.failed == true,
+              "a retry while a press is in the air sends nothing and the message stays not sent")
+        _ = await pressThird.value
+        c.discard(f1, for: "dana")
         let typed = Task { await c.post("a typed reply", to: dana) }
         let typing = await settle { c.isSending("dana") }
         check(typing, "CONTROL: a typed send is in the air")
@@ -1492,11 +1505,13 @@ section("native board loop: connecting")
         await c.post("will fail", to: dana)
         let failedId = c.pending["dana"]!.last!.id
         w.threadAnswer = (200, #"{"messages":[]}"#)
-        w.threadYields = 50
+        w.threadYields = 500
+        w.postYields = 0
         w.sendQueue = [(200, #"{"delivery":{"state":"placed","at":"2026-10-23T20:00:10.000Z"},"recorded":true}"#)]
         let retrying = Task { await c.retry(failedId, to: dana) }
         let reading = await settle { c.isSending("dana") }
-        check(reading, "CONTROL: a retry reading first is a send in the air")
+        check(reading && c.pending["dana"]?.first(where: { $0.id == failedId })?.failed == true,
+              "CONTROL: a retry still reading (the message still reads as failed) is a send in the air")
         let duringRetry = await c.press(tue, of: choices, to: dana)
         check(duringRetry == nil, "a press during a retry's read presses nothing")
         await retrying.value
