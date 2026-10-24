@@ -204,28 +204,41 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         completionHandler()
     }
 
-    // One session for replies, refusing redirects as the app's own client does, so the computer's cookie never goes
-    // to another host.
-    private static let replyHTTP = URLSession(configuration: .ephemeral, delegate: RefuseReplyRedirects(), delegateQueue: nil)
+    // Two sessions for replies, refusing redirects as the app's own client does (so the computer's cookie never goes to
+    // another host), each with a hard total limit: the read 8 s, the send 14 s. Together they end inside the short
+    // time iOS gives a notification action, so the person always hears what happened.
+    private static func replySession(total: TimeInterval) -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForResource = total
+        return URLSession(configuration: config, delegate: RefuseReplyRedirects(), delegateQueue: nil)
+    }
+    private static let readHTTP = replySession(total: 8)
+    private static let sendHTTP = replySession(total: 14)
 
     private func sendReply(text: String, userInfo: [AnyHashable: Any], agent: String) async {
+        let stored = SessionKeychain.macSession.load(), session = SessionKeychain.live.load()
         guard let request = NotificationAction.replyRequest(
-            userInfo: userInfo, text: text, stored: SessionKeychain.macSession.load(),
-            session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin
+            userInfo: userInfo, text: text, stored: stored, session: session, coordinator: KosmosConfig.coordinatorOrigin
+        ), let check = NotificationAction.checkRequest(
+            userInfo: userInfo, stored: stored, session: session, coordinator: KosmosConfig.coordinatorOrigin
         ) else {
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { tell(NotificationAction.cannotSend(agent: agent), about: userInfo) }
             return
         }
-        // Read the chat first: with a question or permission prompt up, a reply could answer a menu the person never
-        // saw, so it is not sent. A chat that cannot be read is not sent to either.
-        guard let check = NotificationAction.checkRequest(
-            userInfo: userInfo, stored: SessionKeychain.macSession.load(),
-            session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin
-        ), let read = try? await Self.replyHTTP.data(for: check),
-              (read.1 as? HTTPURLResponse)?.statusCode == 200, let thread = Board.parseThread(read.0)
-        else { tell(NotificationAction.couldNotCheck(agent: agent), about: userInfo); return }
-        if NotificationAction.standingQuestion(thread) { tell(NotificationAction.questionUp(agent: agent), about: userInfo); return }
-        let answer = try? await Self.replyHTTP.data(for: request)
+        // Read the chat first: while the agent is asking, a reply could answer a menu the person never saw, so it is
+        // not sent; nor when the chat cannot be read (NotificationAction.verdict).
+        let read = try? await Self.readHTTP.data(for: check)
+        switch NotificationAction.verdict(status: (read?.1 as? HTTPURLResponse)?.statusCode ?? 0, data: read?.0, agent: agent) {
+        case .asking:
+            tell(NotificationAction.askingNotice(agent: agent), about: userInfo)
+            return
+        case .unreadable(let said):
+            tell(said, about: userInfo)
+            return
+        case .go:
+            break
+        }
+        let answer = try? await Self.sendHTTP.data(for: request)
         let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
         let result = Board.sendResult(status: status, body: answer?.0)
         NSLog("[Push] reply from a notification: \(result)")

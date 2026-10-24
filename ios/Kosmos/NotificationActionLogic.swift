@@ -29,12 +29,13 @@ enum NotificationAction {
         // The cookie goes by hand on this one request; nothing here keeps a cookie jar.
         r.httpShouldHandleCookies = false
         r.setValue("\(Board.macCookieName)=\(cookie)", forHTTPHeaderField: "Cookie")
-        // An answer well inside the short time iOS gives a notification action; past it, the reply is "no answer".
-        r.timeoutInterval = 20
+        // The read and the send each have a hard total limit (PushNotificationManager's sessions), together inside the
+        // short time iOS gives a notification action; this is only the idle limit under them.
+        r.timeoutInterval = 10
         return r
     }
 
-    // The chat's read, made before a reply is sent (see standingQuestion).
+    // The chat's read, made before a reply is sent (see verdict).
     static func checkRequest(userInfo: [AnyHashable: Any], stored: String?, session: String?, coordinator: URL) -> URLRequest? {
         guard let t = target(userInfo, stored: stored, session: session, coordinator: coordinator) else { return nil }
         return signed(Board.threadRequest(mac: t.mac, session: t.agent), cookie: t.cookie)
@@ -46,21 +47,32 @@ enum NotificationAction {
         return signed(Board.sendRequest(mac: t.mac, session: t.agent, text: text), cookie: t.cookie)
     }
 
-    // Whether the agent has a question or a permission prompt up right now: the Mac puts its live question row last,
-    // with no time (Board.followKey). A reply then could answer or close a menu the person never saw (a bare digit is
-    // taken as that menu's key), so the reply is not sent and the person is sent to the chat.
-    static func standingQuestion(_ thread: Board.Thread) -> Bool {
-        guard let last = thread.rows.last, last.atRaw == nil else { return false }
-        return last.wayThrough == .question || last.wayThrough == .permission
+    // Whether a reply may go, from the chat read just before it (GET /api/agent/<name>/thread).
+    enum ReadVerdict: Equatable { case go, asking, unreadable(String) }
+
+    // The board says `asking: true` whenever the agent's card is waiting on the person (server.js thread GET), whether
+    // or not it could also serve the question's row: a question the agent reported itself is dated and placed among
+    // the rows, and a menu the board cannot read gives no row at all. While it is asking, a reply could answer or close
+    // a menu the person never saw (a bare digit is taken as its key), so nothing is sent. An older board without the
+    // field: its live question row (last, no time) is the only sign there is. A question that appears between this
+    // read and the send is not seen (only a check on the board could close that).
+    static func verdict(status: Int, data: Data?, agent: String) -> ReadVerdict {
+        let who = agent.isEmpty ? "your agent" : agent
+        guard status == 200, let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            if status == 0 { return .unreadable("Kosmos could not reach your computer, so your reply to \(who) was not sent. Open the chat to send it.") }
+            if status == 401 || status == 403 {
+                return .unreadable("Your computer did not let this phone in just now, so your reply to \(who) was not sent. Open the chat to send it.")
+            }
+            return .unreadable("Kosmos could not read your chat with \(who) just now, so your reply was not sent. Open the chat to send it.")
+        }
+        if let asking = obj["asking"] as? Bool { return asking ? .asking : .go }
+        if let thread = Board.parseThread(data), let last = thread.rows.last, last.atRaw == nil,
+           last.wayThrough == .question || last.wayThrough == .permission { return .asking }
+        return .go
     }
 
-    static func questionUp(agent: String) -> String {
-        let who = agent.isEmpty ? "Your agent" : agent
-        return "\(who) is asking you something right now, so your reply was not sent. Open the chat to see it and answer."
-    }
-
-    static func couldNotCheck(agent: String) -> String {
-        "Kosmos could not reach your computer, so your reply to \(agent.isEmpty ? "your agent" : agent) was not sent. Open the chat to send it."
+    static func askingNotice(agent: String) -> String {
+        "\(agent.isEmpty ? "Your agent" : agent) is asking you something right now, so your reply was not sent. Open the chat to see it and answer."
     }
 
     // The board's own reason on a 200 that did not type (delivery.because), which Board.sendResult does not carry.

@@ -42,7 +42,7 @@ section("Reply: the request goes only to the computer the notice came from, with
 let r = NotificationAction.replyRequest(userInfo: info, text: "  On it, thanks  ", stored: kept(), session: session, coordinator: coordinator)
 check(r?.httpMethod == "POST" && r?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/ada/thread", "a POST to that agent's chat on that computer")
 check(r?.value(forHTTPHeaderField: "Cookie") == "__Host-kosmos_tunnel_session=c00kie" && r?.httpShouldHandleCookies == false, "with the kept cookie, by hand")
-check(r?.timeoutInterval == 20, "with an answer inside iOS's short time for an action")
+check(r?.timeoutInterval == 10, "an idle limit under the sessions' total limits")
 let sent = r.flatMap { $0.httpBody }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
 check(sent?["text"] as? String == "On it, thanks", "the text, trimmed, as the chat sends it (Board.sendRequest)")
 var other = info; other["address"] = "office.kosmosplus.com"
@@ -53,22 +53,25 @@ var noAgent = info; noAgent["session"] = "../etc"
 check(NotificationAction.replyRequest(userInfo: noAgent, text: "hi", stored: kept(), session: session, coordinator: coordinator) == nil, "a malformed agent name: nothing sent")
 check(NotificationAction.replyRequest(userInfo: info, text: "   ", stored: kept(), session: session, coordinator: coordinator) == nil, "nothing typed: nothing sent")
 
-section("Reply: never into a question or permission prompt that is up right now")
-func thread(_ json: String) -> Board.Thread { Board.parseThread(Data(json.utf8))! }
-let live = thread(#"{"messages":[{"at":"2026-10-23T12:00:00.000Z","text":"Want A or B?","from":"ada"},{"text":"Pick one","from":"ada","kind":"question"}],"olderCount":0}"#)
-check(NotificationAction.standingQuestion(live), "a live question row (last, no time): the reply is not sent")
-let perm = thread(#"{"messages":[{"at":"2026-10-23T12:00:00.000Z","text":"hi","from":"ada"},{"text":"asking permission","from":"ada","kind":"question","permission":{"kind":"command"}}],"olderCount":0}"#)
-check(NotificationAction.standingQuestion(perm), "a live permission prompt: not sent")
-let past = thread(#"{"messages":[{"at":"2026-10-23T11:00:00.000Z","text":"Pick one","from":"ada","kind":"question"},{"at":"2026-10-23T12:00:00.000Z","text":"Done.","from":"ada"}],"olderCount":0}"#)
-check(!NotificationAction.standingQuestion(past), "a question already in the history: the reply goes")
-check(!NotificationAction.standingQuestion(thread(#"{"messages":[],"olderCount":0}"#)), "an empty chat: the reply goes")
-check(NotificationAction.checkRequest(userInfo: info, stored: kept(), session: session, coordinator: coordinator)?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/ada/thread"
-      && NotificationAction.checkRequest(userInfo: info, stored: kept(), session: session, coordinator: coordinator)?.httpMethod != "POST", "the check reads that agent's chat on that computer")
-check(NotificationAction.questionUp(agent: "Ada").contains("was not sent") && NotificationAction.couldNotCheck(agent: "Ada").contains("was not sent"), "the person is told the reply was not sent, and why")
-let manager2 = manager
-if let checkAt = manager2.range(of: "NotificationAction.standingQuestion("), let sendAt = manager2.range(of: "Self.replyHTTP.data(for: request)") {
-    check(checkAt.lowerBound < sendAt.lowerBound, "the app checks for a question before it sends")
-} else { check(false, "the app checks for a question before it sends") }
+section("Reply: not sent while the agent is asking, whatever the board could read")
+func v(_ status: Int, _ json: String?) -> NotificationAction.ReadVerdict { NotificationAction.verdict(status: status, data: json.map { Data($0.utf8) }, agent: "Ada") }
+check(v(200, #"{"messages":[],"olderCount":0,"asking":true,"question":null}"#) == .asking, "asking with no question row (a menu the board could not read): not sent")
+check(v(200, #"{"messages":[{"at":"2026-10-23T12:00:00.000Z","text":"Deploy? 1 yes 2 no","from":"ada","kind":"question"}],"olderCount":0,"asking":true}"#) == .asking, "a question the agent reported itself (dated, among the rows): not sent")
+check(v(200, #"{"messages":[{"at":"2026-10-23T11:00:00.000Z","text":"Pick one","from":"ada","kind":"question"}],"olderCount":0,"asking":false}"#) == .go, "a past question last, the agent no longer asking: the reply goes")
+check(v(200, #"{"messages":null,"olderCount":0,"asking":false}"#) == .go, "a history it could not read, the agent not asking: the reply goes (the send itself can work)")
+check(v(200, #"{"messages":[{"at":"2026-10-23T12:00:00.000Z","text":"hi","from":"ada"},{"text":"Pick one","from":"ada","kind":"question"}],"olderCount":0}"#) == .asking, "an older board with no asking field: its live question row (last, no time) still stops it")
+check(v(200, #"{"messages":[{"at":"2026-10-23T12:00:00.000Z","text":"Done.","from":"ada"}],"olderCount":0}"#) == .go, "an older board, nothing asked: the reply goes")
+if case .unreadable(let said) = v(0, nil) { check(said.hasPrefix("Kosmos could not reach your computer"), "no answer: 'could not reach'") } else { check(false, "no answer: unreadable") }
+if case .unreadable(let said) = v(401, #"{"error":"x"}"#) { check(said.hasPrefix("Your computer did not let this phone in"), "a 401: the sign-in, not 'could not reach'") } else { check(false, "a 401: unreadable") }
+if case .unreadable(let said) = v(404, #"{"error":"x"}"#) { check(said.hasPrefix("Kosmos could not read your chat with Ada"), "a 404: 'could not read', not 'could not reach'") } else { check(false, "a 404: unreadable") }
+check(NotificationAction.checkRequest(userInfo: info, stored: kept(), session: session, coordinator: coordinator).map { $0.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/ada/thread" && $0.httpMethod != "POST" } == true, "the check reads that agent's chat on that computer")
+check(NotificationAction.askingNotice(agent: "Ada").contains("was not sent"), "the person is told the reply was not sent, and why")
+check(manager.contains("case .asking:\n            tell(NotificationAction.askingNotice(agent: agent), about: userInfo)\n            return"), "asking: the app tells the person and returns before any send")
+check(manager.contains("case .unreadable(let said):\n            tell(said, about: userInfo)\n            return"), "unreadable: the app tells the person and returns before any send")
+if let checkAt = manager.range(of: "NotificationAction.verdict("), let sendAt = manager.range(of: "Self.sendHTTP.data(for: request)") {
+    check(checkAt.lowerBound < sendAt.lowerBound, "the app reads the chat before it sends")
+} else { check(false, "the app reads the chat before it sends") }
+check(manager.contains("replySession(total: 8)") && manager.contains("replySession(total: 14)"), "the read and the send have hard total limits, together inside iOS's time for an action")
 let service = (try? String(contentsOf: repo.appendingPathComponent("ios/KosmosNotice/NotificationService.swift"), encoding: .utf8)) ?? ""
 check(service.contains("if PhoneNotice.offersReply(words) { content.categoryIdentifier = PhoneNotice.replyCategory }"), "the extension sets Reply only through offersReply")
 
