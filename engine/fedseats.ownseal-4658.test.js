@@ -628,3 +628,44 @@ test('#4658: an own computer with no Kosmos+ id is told why its messages wait', 
   assert.ok(h.notes.some((n) => n.projectId === 'own-s17' && /not signed in to Kosmos\+/.test(n.text)));
   assert.ok(!h.notes.some((n) => n.projectId === 'own-s17' && /send you a new code/.test(n.text)), 'an own computer got the guest\'s advice');
 });
+
+/* ---- iteration-8 review ---- */
+
+test('#4658: when restarts hit the hourly limit, the person is told why the code stays', async () => {
+  const { h, seat } = await ownComputer('own-s18', 'room-s18');
+  await sealedNow(seat, 'room-s18');
+  for (let i = 0; i < fedseats.OWN_RUNS_PER_HOUR + 2; i++) {
+    const cur = fedseal.checkOwnHello(sent(seat, 'key-own-hello').pop());
+    const o = handOwner('room-s18', cur);
+    say(seat, { event: 'message', data: o.offer });
+    await settle();
+    say(seat, { event: 'message', data: fedseal.ownOfferFrame(o.owner, cur, fedseal.randomSecret()) });
+    await settle();
+  }
+  assert.ok(h.notes.some((n) => n.projectId === 'own-s18' && /too many times this hour/.test(n.text)), 'the person was not told the code is paused');
+});
+
+test('#4658: rotations kept before adoption are bounded to the newest 8 epochs', async () => {
+  const { seat } = await ownComputer('own-s19', 'room-s19');
+  const roomKey = fedseal.randomSecret();
+  const hello = await sealedNow(seat, 'room-s19', roomKey);
+  const o = handOwner('room-s19', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit);
+  say(seat, { event: 'message', data: o.share(nW, roomKey) });
+  await settle();
+  const me = fedseal.sealingKey();
+  const keys = {};
+  for (let e = 1; e <= 20; e++) {
+    keys[e] = fedseal.randomSecret();
+    say(seat, { event: 'message', data: fedseal.rotateFrame(o.owner, me.pub, keys[e], e, 'room-s19', Date.now()) });
+  }
+  await settle();
+  assert.strictEqual((await fedseats.confirmOwn('own-s19', fedseats.ownCode('own-s19'))).ok, true);
+  const st = fedseal.roomState('own-s19');
+  assert.strictEqual(st.epoch, 20, 'the newest rotation was not applied');
+  assert.strictEqual(st.keys[20], keys[20]);
+  assert.strictEqual(st.keys[12], undefined, 'more than 8 epochs were kept');
+  assert.strictEqual(st.keys[13], keys[13]);
+});
