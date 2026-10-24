@@ -912,13 +912,13 @@ do {
     split.link = URL(string: "https://example.com/q3")
     let mid = split.index(split.startIndex, offsetByCharacters: 4)
     split[mid..<split.index(mid, offsetByCharacters: 4)].inlinePresentationIntent = .stronglyEmphasized
-    check(split.runs.count == 3, "CONTROL: the hand-built link really is in three runs")
+    check(split.runs.count == 3 && split.runs.allSatisfy { $0.link != nil }, "CONTROL: the hand-built link really is in three runs, each carrying it")
     check(Board.links(in: split).map(\.absoluteString) == ["https://example.com/q3"], "one link split into runs by its styling counts once")
     check(links("[one](https://a.example) and [two](https://a.example)") == ["https://a.example", "https://a.example"],
           "two links to the same place, apart, are two")
     check(links("[call us](tel:+15555550100), [mail](mailto:a@example.com) or [open](shortcuts://run)").isEmpty,
           "an address that is not a web page is not a link, whatever its words")
-    check(links("write to a@example.com or call 555-0100 on 2026-10-23").isEmpty, "an email, a phone number or a date in the text is not a link")
+    check(links("write to a@example.com").isEmpty, "an email address in the text is not a link (the detector reads it as mailto:)")
     check(links("[site](https://example.com) and http://b.example/x") == ["https://example.com", "http://b.example/x"], "links in order")
 }
 

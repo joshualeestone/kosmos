@@ -372,15 +372,6 @@ struct TapWhen: ViewModifier {
     }
 }
 
-// VoiceOver's double-tap action only where there is one to take, so a bubble with nothing to retry offers none.
-struct DefaultActionWhen: ViewModifier {
-    let enabled: Bool
-    let action: () -> Void
-    @ViewBuilder func body(content: Content) -> some View {
-        if enabled { content.accessibilityAction(.default, action) } else { content }
-    }
-}
-
 // The "New messages" capsule asks the open chat's scroll view to go to the end.
 extension Notification.Name {
     static let chatScrollToEnd = Notification.Name("kosmos.chatScrollToEnd")
@@ -422,7 +413,9 @@ struct ChatBubble: View {
         .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spokenLabel)
-        .modifier(DefaultActionWhen(enabled: line?.canRetry == true, action: sendAgain))
+        // Always present, doing nothing where there is no retry: without a default action VoiceOver's double-tap would
+        // fall through as a tap at the bubble's centre, which can land on a link (#7014).
+        .accessibilityAction { if line?.canRetry == true { sendAgain() } }
         // The bubble is read as one element, so its links are offered as actions (one per link, named by its site, and
         // numbered when there is more than one).
         .accessibilityActions { linkActions }
@@ -486,7 +479,7 @@ struct PendingBubble: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spokenLabel)
-        .modifier(DefaultActionWhen(enabled: item.failed && line.canRetry, action: retry))
+        .accessibilityAction { if item.failed && line.canRetry { retry() } }
         // Delete only where the long-press menu offers it.
         .accessibilityActions { deleteAction }
     }
