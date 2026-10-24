@@ -581,6 +581,7 @@ async function ownsealScreen(page, data, compare, waiting) {
   await page.waitForSelector('#pj-fed-own .ownseal-code', { state: 'visible', timeout: 20000 });
   await page.evaluate(() => document.getElementById('pj-fed-own').scrollIntoView({ block: 'center' }));
 }
+
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },

@@ -81503,13 +81503,18 @@ async function fedOwnPress(btn) {
   const body = act === 'allow' ? { project, pub: btn.dataset.ownPub, code: btn.dataset.ownCode }
     : act === 'match' ? { project, code: btn.dataset.ownCode } : { project, match: false };
   const gen = FED_OWN_GEN;   // entering the project again (even the same one) bumps it
+  FED_OWN_SEQ++;             // a refresh already in flight answers from before the press: it is dropped
   FED_OWN_BUSY = project; FED_OWN_MSG = null; fedOwnPaint();
+  const said$ = document.getElementById('pj-fed-own-said');
+  if (said$) said$.textContent = '';   // cleared now, filled after the answer, so a repeated sentence is heard again
   let said;
+  let ok = false;
   try {
     const opts = (signal) => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal });
     const { res, body: j } = await fedActPost((signal) => (act === 'allow'
       ? fetch('/api/federation/own-allow', opts(signal)) : fetch('/api/federation/own-confirm', opts(signal))));
     if (res.ok) {
+      ok = true;
       said = act === 'allow' ? 'Allowed. That computer reads this room once its person has confirmed the same code there.'
         : act === 'match' ? 'Confirmed. This computer reads the room once the other computer has allowed it.'
         : j && j.started_over === true ? 'Started over. A new code appears here when the other computer answers.'
@@ -81521,9 +81526,14 @@ async function fedOwnPress(btn) {
   // An answer for a visit that has ended (another project, or this one entered again) changes nothing on screen.
   if (gen !== FED_OWN_GEN || PJ_CURRENT !== project) return;
   if (FED_OWN_BUSY === project) FED_OWN_BUSY = null;
+  // What the press did is shown at once, before the reload: the allowed row leaves, the confirmed code goes (a reload
+  // that fails then keeps this, not the state from before the press).
+  if (ok && FED_OWN && FED_OWN.project === project) {
+    if (act === 'allow') FED_OWN = Object.assign({}, FED_OWN, { waiting: FED_OWN.waiting.filter((w) => w.pub !== body.pub) });
+    else if (act === 'match') FED_OWN = Object.assign({}, FED_OWN, { code: null });
+  }
   FED_OWN_MSG = { text: said, project, sig: null };
-  const said$ = document.getElementById('pj-fed-own-said');
-  if (said$) { said$.textContent = ''; said$.textContent = said; }   // one persistent live region, so it is heard
+  if (said$) setTimeout(() => { if (FED_OWN_GEN === gen) said$.textContent = said; }, 60);   // one persistent live region
   fedOwnPaint();   // the buttons come back now, not when the reload lands
   fedOwnLoad(project, true);
 }
