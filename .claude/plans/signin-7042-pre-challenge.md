@@ -33,7 +33,7 @@ The full record of every round, each decision with what was rejected, and the we
 - nothing real
 
 ## Validation
-- iOS logic tests: run.sh 912/912 (44 new: the coordinator's own WebCrypto vector with controls, every verify answer, the document-start script run in a script engine with a hostile token), run-actions.sh 97/97, run-settings.sh 41/41.
+- iOS logic tests: run.sh 912/912 (55 new, from 857: the coordinator's own WebCrypto vector with controls, every verify answer, the document-start script run in a script engine with a hostile token), run-actions.sh 97/97, run-settings.sh 41/41.
 - Mutation: 9 breaks of the security-critical logic (the device id, the signed message, an enrol-only token, an unknown status, a 401, the script's origin check, what forget removes, a refused proof, the masked number), each caught by its own test.
 - Simulator build: no warnings (checked with a planted warning as a control). Shots on my own iPhone 17 simulator, light, dark and the largest text size: ~/work/design-shots/kosmos-7042/. Design approved by Mona Lisa.
 - Node tests that read the iOS sources: 597, 0 fail, 53 skipped (all Windows-only). Both browser-check gates: 0.
