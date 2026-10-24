@@ -20703,19 +20703,37 @@ const server = http.createServer(async (req, res) => {
     let withArchived = null;
     let listOrder = false;   // #5705: `kosmos task list` asks for its rows grouped (open, built, held, done)
     let listOnly = null;     // #5705: and may keep one group (--state)
+    /* kosmos#7057 (feedback): `kosmos task list --all` reads every project at once (all=1), and `--stale` keeps the open
+       tasks with no activity for quietDays days. Both are the cheap list arm's; the Tasks view never sends them. */
+    let allProjects = false;
+    let quietRaw = null;
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       listOrder = q.get('order') === 'state';
       listOnly = q.get('state') || null;
+      allProjects = q.get('all') === '1';
+      quietRaw = q.get('quietDays');
       projectScope = q.get('project') || null;
       forTasksView = q.get('view') === 'tasks';
       withArchived = q.get('withArchived') || null;
     } catch { projectScope = null; }
     /* #4491 slice 4: a caller that came through on its agent token alone reads ONE project's tasks, a project it
-       is on, in the list form `kosmos task list` prints. Never the global set, and never the Tasks view's arm (a
+       is on (or, with kosmos#7057's all=1, each project it is on, just below), in the list form `kosmos task list`
+       prints. Never the global set, and never the Tasks view's arm (a
        board snapshot and a transcript read per task; the page's). See AGENT_TOKEN_ROUTES. */
+    if (allProjects && projectScope) { sendJson(res, 400, { error: 'name one project or ask for all of them, not both' }); return; }
+    /* Review 1 (nit 2): all and quietDays are the list's, never the Tasks view's; refused there rather than ignored. */
+    if (forTasksView && (allProjects || quietRaw !== null)) { sendJson(res, 400, { error: 'all and quietDays are for the task list, not the Tasks view' }); return; }
     const tokenOnly = agentTokenOnlyCaller(req);
-    if (tokenOnly !== null) {
+    /* kosmos#7057: on its token alone, all=1 is every project the agent is on, each by the per-project rule below (every
+       stored record with the id lists it). Never the global set: the projects it could read one at a time, at once. */
+    let tokenProjects = null;
+    if (tokenOnly !== null && allProjects) {
+      if (!tokenOnly) { sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read its tasks' }); return; }
+      const ids = [...new Set((everyProject || []).filter((x) => x && x.id).map((x) => x.id))];
+      tokenProjects = new Set(ids.filter((id) => (everyProject || []).filter((x) => x && x.id === id).every((x) => tokenOnlyOnProject(x, tokenOnly))));
+      forTasksView = false;
+    } else if (tokenOnly !== null) {
       if (!projectScope) { sendJson(res, 403, { error: 'say which project: an agent reads the tasks of a project it is on' }); return; }
       /* Every stored project with that id (the list below filters by id, so a registry holding the id twice must
          list the agent on each one). */
@@ -20739,7 +20757,9 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     const all = tasks.allTasks(everyProject);
-    const scoped = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
+    /* kosmos#7057: all=1 leaves archived projects out, as the Tasks view does, and on an agent token only its projects. */
+    const scoped = projectScope ? all.filter((t) => t.projectId === projectScope)
+      : allProjects ? all.filter((t) => !t.projectArchived && (!tokenProjects || tokenProjects.has(t.projectId))) : all;
     /* The fields below cost a board snapshot plus a transcript read per task, so only the
        Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
        them: the agents' `kosmos tasks` reads the list exactly as cheaply as before. */
@@ -20748,10 +20768,28 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { error: 'the state to list must be one of: ' + tasks.LIST_GROUPS.join(', ') });
         return;
       }
+      /* kosmos#7057: quietDays=N keeps the OPEN tasks (built waits on review, held is held on purpose, done is always
+         quiet) whose last activity (tasks.lastActivityOf, the board's own "Quietest first" measure, so Kosmos's own
+         missed-run and dropped-message notes are not activity) is N days old or more, quietest first. A task with no
+         date at all is kept, first: an unknown is shown, never hidden. Only these rows pay for a transcript read. */
+      if (quietRaw !== null) {
+        const days = /^[0-9]{1,4}$/.test(quietRaw) ? Number(quietRaw) : NaN;
+        if (!(days >= 1 && days <= 3650)) { sendJson(res, 400, { error: 'quietDays must be a whole number of days, 1 to 3650' }); return; }
+        if (listOnly !== null && listOnly !== 'open') { sendJson(res, 400, { error: 'only open tasks are listed by how quiet they are' }); return; }
+        const cutoff = Date.now() - days * 86400000;
+        const quiet = tasks.inListOrder(scoped, 'open')
+          .map((t) => ({ t, at: tasks.lastActivityOf(t.projectId, t) }))
+          .map((x) => ({ ...x, ms: x.at ? Date.parse(x.at) : NaN }))
+          .filter((x) => !Number.isFinite(x.ms) || x.ms <= cutoff)
+          .sort((a, b) => (Number.isFinite(a.ms) ? a.ms : -Infinity) - (Number.isFinite(b.ms) ? b.ms : -Infinity))
+          .map((x) => Object.assign({}, withRepeatWords(x.t), { lastActivityAt: x.at || null }));
+        sendJson(res, 200, { tasks: quiet, count: quiet.length, project: projectScope, listState: 'open', quietDays: days, ...(allProjects ? { all: true } : {}) });
+        return;
+      }
       const rows = listOrder || listOnly ? tasks.inListOrder(scoped, listOnly) : scoped;   // #5705
       /* #5705 review 1: say which group was kept, so a command can tell a filtered answer from an older board that
-         ignored the filter and listed everything. */
-      sendJson(res, 200, { tasks: rows.map(withRepeatWords), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}) });   // kosmos#4787
+         ignored the filter and listed everything. kosmos#7057: and that every project was read (all). */
+      sendJson(res, 200, { tasks: rows.map(withRepeatWords), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}), ...(allProjects ? { all: true } : {}) });   // kosmos#4787
       return;
     }
     /* #3559: the Tasks view groups by WHERE THE WORK IS, and the engine derives

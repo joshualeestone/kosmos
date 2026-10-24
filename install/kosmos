@@ -5476,6 +5476,12 @@ cmd_feedback() {
 # #5152: one done-when check as a JSON string body (no quotes around it): control bytes other than tab, CR and newline
 # are dropped and those three become spaces (a check is one line), then backslash and double quote are escaped, as
 # cmd_task built's note is.
+# kosmos#7057: --stale's days: empty (the default, 7) or a whole number 1 to 3650, so only digits reach the URL.
+_task_stale_days() {
+  [ -z "${1:-}" ] && return 0
+  case "$1" in *[!0-9]*) say "--stale takes a whole number of days, 1 to 3650 (or none, for 7)."; exit 2 ;; esac
+  [ "${#1}" -le 4 ] && [ "$((10#$1))" -ge 1 ] && [ "$((10#$1))" -le 3650 ] || { say "--stale takes a whole number of days, 1 to 3650 (or none, for 7)."; exit 2; }
+}
 _task_check_json() { printf '%s' "$1" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r\n' '   '; }
 
 # ---- kosmos task <add|list|close> - the per-project tasks feature, surfaced (#2662) --------
@@ -5491,6 +5497,9 @@ cmd_task() {
     ''|help|-h|--help)
       say "Usage: kosmos task <list|add|assign|close|reopen|message|activity|built|done-when|hold|unhold|repeat|ran|told>"
       say "  kosmos task list <project-id> [--state open|built|held|done]  list this project's tasks, open first"
+      say "  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each"
+      say "  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first"
+      say "  kosmos task list <project-id> --stale [<days>]               the same for one project"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "      --parent <task-number>                                   make it a subtask of that task"
       say "      --who <agent>                                            give it to that agent (--who me: to you)"
@@ -5522,7 +5531,19 @@ cmd_task() {
     # cmd_post and cmd_room use, so a malformed invocation is named even when the board is stopped
     # (rather than reporting "not running" and hiding the usage).
     list)
-      [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built]"; exit 2; }
+      [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built | --stale [<days>]]   (or --all)"; exit 2; }
+      # kosmos#7057: --all (every project) and --stale [<days>]; the days are checked here, so only a number reaches the URL.
+      if [ "${1:-}" = "--all" ]; then
+        # Review 1 (nit 4), as the Windows CLI: an empty word after --all is not "nothing after it".
+        [ "$#" -lt 2 ] || [ -n "${2}" ] || { say "After --all: nothing (open tasks), --blocked, --built, or --stale [<days>]."; exit 2; }
+        case "${2:-}" in
+          ''|--open|--blocked|--built) [ "$#" -le 2 ] || { say "${2} takes nothing after it: kosmos task list --all ${2}"; exit 2; } ;;
+          --stale) _task_stale_days "${3:-}"; [ "$#" -le 3 ] || { say "--stale takes one number of days at most: kosmos task list --all --stale [<days>]"; exit 2; } ;;
+          *) say "After --all: nothing (open tasks), --blocked, --built, or --stale [<days>]."; exit 2 ;;
+        esac
+      elif [ "${2:-}" = "--stale" ]; then
+        _task_stale_days "${3:-}"; [ "$#" -le 3 ] || { say "--stale takes one number of days at most: kosmos task list <project-id> --stale [<days>]"; exit 2; }
+      fi
       # #5705: --state keeps one group; the value is checked here, so only these four words reach the URL.
       if [ "${2:-}" = "--state" ]; then
         case "${3:-}" in open|built|held|done) ;; *) say "--state takes one of: open, built, held, done."; exit 2 ;; esac
@@ -5728,6 +5749,35 @@ cmd_task() {
     exit 1
   fi
   local _bt; _bt="$(agent_board_token || true)"   # #1946: board token for an enforcing board; inert when empty
+  # kosmos#7057: `task list --all [...]` (every project; on an agent's own token, the projects it is on) and `task list
+  # <project> --stale [<days>]`, both printed by engine/tasklist.js (acrossLines), the one copy the Windows CLI runs too.
+  if [ "$sub" = "list" ] && { [ "${1:-}" = "--all" ] || [ "${2:-}" = "--stale" ]; }; then
+    local _xproj="" _xflag=open _xdays="" _xq _xtok="" _xbody _xrc=0 _xnode _xmod
+    if [ "${1:-}" = "--all" ]; then
+      case "${2:-}" in --blocked) _xflag=blocked ;; --built) _xflag=built ;; --stale) _xflag=stale; _xdays="${3:-7}" ;; esac
+    else
+      require_valid_project_id "${1:-}"; _xproj="${1:-}"; _xflag=stale; _xdays="${3:-7}"
+    fi
+    _xdays=$(printf '%s' "$_xdays" | sed 's/^0*//')   # validated above; leading zeros off, as the Windows CLI reads it
+    case "$_xflag" in open) _xq="state=open" ;; blocked) _xq="state=held" ;; built) _xq="state=built" ;; stale) _xq="state=open&quietDays=$_xdays" ;; esac
+    if [ -n "$_xproj" ]; then _xq="project=$_xproj&order=state&$_xq"; else _xq="all=1&order=state&$_xq"; fi
+    case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _xtok="$KOSMOS_AGENT_TOKEN" ;; esac   # as list: the agent's own token too
+    _xbody=$(kosmos_curl "$_bt" "$_xtok" -sS -m 30 "$URL/api/tasks?$_xq" 2>/dev/null) || _xrc=$?
+    [ "$_xrc" -eq 0 ] || { say_unreached "list tasks" "$_xrc"; exit 1; }
+    case "$_xbody" in '{"error":'*)
+      local _xwhy; _xwhy=$(printf '%s' "$_xbody" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+      # Review 1 (warning 4): a board older than all=1 refuses an agent's own token with "say which project"; that is
+      # the board's age, not a missing project, so say so as every other older-board case does.
+      case "$_xproj:$_xwhy" in ':say which project'*) say "This board is older than --all, so it did not list what was asked. Update Kosmos."; exit 1 ;; esac
+      say "Kosmos refused that: ${_xwhy:-it did not say why}."; exit 1 ;;
+    esac
+    _xnode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print that list." >&2; exit 1; }
+    _xmod="$(kosmos_engine_module tasklist).js"
+    # Review 1 (nit 1), as the Windows CLI's acrossLines check: a module from before kosmos#7057 has no `across` verb.
+    { [ -f "$_xmod" ] && grep -q 'acrossLines' "$_xmod"; } || { say "This install of Kosmos cannot list tasks that way yet; update Kosmos." >&2; exit 1; }
+    printf '%s' "$_xbody" | "$_xnode" "$_xmod" across "$_xflag" "$_xproj" "$_xdays"
+    exit $?
+  fi
   # #3035: a project id is looked up EXACTLY, never stripped -- room and task share
   # require_valid_project_id, so `kosmos room <id>` and `kosmos task <id>` reject the same bad
   # ids the same way (a typo reads as "there is no project by that name", never as an empty

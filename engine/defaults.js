@@ -486,6 +486,11 @@ const BLOCK = [
   '',
   '`kosmos task done-when <project-id> <task-number> "<check 1>" "<check 2>"`',
   '',
+  '**To see what is still open across every project,** run `kosmos task list --all`',
+  '(one line each, the project first). `kosmos task list --all --stale` keeps the open',
+  'tasks with no activity for a week, quietest first (`--stale 14` for two weeks; or',
+  'name one project in place of `--all`).',
+  '',
   '**When it is done, mark it built and say how each check went,** in a short note',
   '(it holds 300 characters):',
   '',
@@ -1216,8 +1221,14 @@ function block() {
  *     in 32 an agent's EDITED copy of those sections is not re-offered them.
  *     WEAKEST PREMISE, NAMED: that agents need the block to find the verb; `project show` already
  *     names it. If they find it there unaided, this paragraph could go.
+ *  41. kosmos#7057 (feedback: in a mature project the history buries the open items). The tasks
+ *     section names `kosmos task list --all` (open tasks in every project, one line each) and
+ *     `--stale [<days>]` (open tasks with no activity for a week, or <days>). No new heading, so
+ *     as in 32 an agent's EDITED copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that a coordinator reads this section when it audits a queue; the
+ *     card's "done when" asks for the mention, and `kosmos task` help names both forms too.
  */
-const DOCTRINE_VERSION = 40;
+const DOCTRINE_VERSION = 41;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

@@ -71,9 +71,67 @@ function compactLines(body, state, project) {
   return { lines, rc: 0 };
 }
 
-/* `node tasklist.js compact <state> <project>`, the board's JSON on stdin (install/kosmos). */
+/**
+ * kosmos#7057 (feedback: in a mature project the history buries the open items, and there was no way to look across
+ * projects or for what had gone quiet): the same compact lines across EVERY project (`--all`, the board's all=1), and
+ * the open tasks with no activity for `days` days (`--stale`, the board's quietDays), quietest first, for one project
+ * or all. `flag` is open, blocked, built or stale; `opts` is { project, days, now } (project empty for every project;
+ * now in ms, for tests). Every project's line starts with the project's id, so a line is enough to act on.
+ * Returns { lines, rc } as compactLines: rc 1 when the answer is not what was asked (an older board that ignored
+ * all=1 or quietDays and answered something else).
+ */
+const DAY_MS = 86400000;
+function quietWords(at, now) {
+  const ms = typeof at === 'string' ? Date.parse(at) : NaN;
+  if (!Number.isFinite(ms)) return 'no activity on record';
+  const d = Math.floor((now - ms) / DAY_MS);
+  return 'quiet ' + d + ' day' + (d === 1 ? '' : 's');
+}
+function acrossLines(body, flag, opts = {}) {
+  const stale = flag === 'stale';
+  const group = stale ? 'open' : COMPACT[flag];
+  if (!group) throw new Error('not a list flag: ' + flag);
+  const every = !opts.project;
+  if (!every && !stale) throw new Error('one project: use compactLines (acrossLines is --stale there)');
+  const days = stale ? opts.days : null;
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+  const tasks = body && Array.isArray(body.tasks) ? body.tasks : null;
+  if (!tasks) return { lines: ['Kosmos sent no task list, so there is nothing to show.'], rc: 1 };
+  /* As #5705 review 1: an older board ignores what it does not know and answers something else; never pass it off. */
+  const older = (what) => ({ lines: ['This board is older than ' + what + ', so it did not list what was asked. Update Kosmos.'], rc: 1 });
+  if (every && body.all !== true) return older('--all');
+  if (stale && body.quietDays !== days) return older('--stale');
+  if (body.listState !== group) return older('--' + flag);
+  const label = stale ? 'open' : flag;
+  const lines = tasks.map((x) => (every ? one(x.projectId || '?') + '  ' : '') + '#' + (x.number != null ? x.number : '?') + '  ' + label
+    + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x) + (stale ? '  (' + quietWords(x.lastActivityAt, now) + ')' : ''));
+  const n = tasks.length;
+  const what = n + ' ' + label + ' task' + (n === 1 ? '' : 's') + (stale ? ' quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more' : '');
+  if (every) {
+    const p = new Set(tasks.map((x) => x.projectId)).size;
+    lines.push(n ? what + (stale ? ',' : '') + ' across ' + p + ' project' + (p === 1 ? '' : 's') + '.'
+      : (stale ? 'No open task in any project has been quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more.' : 'No ' + label + ' tasks in any project.'));
+  } else {
+    lines.push(n ? what + ' in ' + one(opts.project) + '.'
+      : 'No open task in ' + one(opts.project) + ' has been quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more.');
+  }
+  if (Number.isInteger(body.count) && body.count !== n) {
+    lines.push('The board counted ' + body.count + ' but sent ' + n + ': list again to see them all.');
+  }
+  return { lines, rc: 0 };
+}
+
+/* `node tasklist.js compact <state> <project>` and (kosmos#7057) `node tasklist.js across <flag> <project or ""> [days]`,
+   the board's JSON on stdin (install/kosmos). */
 if (require.main === module) {
-  const [verb, state, project] = process.argv.slice(2);
+  const [verb, state, project, daysArg] = process.argv.slice(2);
+  if (verb === 'across' && (COMPACT[state] || state === 'stale')) {
+    let body = null;
+    try { body = JSON.parse(require('node:fs').readFileSync(0, 'utf8')); } catch { body = null; }
+    const out = acrossLines(body, state, { project: project || '', days: daysArg ? Number(daysArg) : undefined });
+    (out.rc ? process.stderr : process.stdout).write(out.lines.join('\n') + '\n');
+    process.exit(out.rc);
+  }
   if (verb !== 'compact' || !COMPACT[state]) {
     process.stderr.write('Kosmos could not print that list compactly; list it without the flag to see it whole.\n');
     process.exit(1);
@@ -87,4 +145,4 @@ if (require.main === module) {
   process.exit(out.rc);
 }
 
-module.exports = { COMPACT, compactLines };
+module.exports = { COMPACT, compactLines, acrossLines, STALE_DAYS_DEFAULT: 7 };
