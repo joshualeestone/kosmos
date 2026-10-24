@@ -44,7 +44,10 @@ function harness({ edges = [], macId = () => MY_MAC } = {}) {
 }
 const tick = () => new Promise((r) => setImmediate(r));
 const settle = async () => { for (let i = 0; i < 5; i++) await tick(); };
-const say = (child, obj) => child.stdout.write(JSON.stringify(obj) + '\n');
+// The relay stamps a frame from this account's own computers with same_account (kosmos#4657); own frames carry it here
+// unless a test says otherwise (sayAs).
+const say = (child, obj) => child.stdout.write(JSON.stringify(
+  obj && obj.data && typeof obj.data.t === 'string' && obj.data.t.startsWith('key-own-') && obj.same_account === undefined ? Object.assign({ same_account: true }, obj) : obj) + '\n');
 const lines = (child) => child.written.join('').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 const sent = (child, t) => lines(child).filter((f) => f.t === t);
 
@@ -231,7 +234,7 @@ test('#4658: an own computer that sees its room sealed holds its posts and says 
   const hello = await sealedNow(seat, 'room-s1');
   const st = fedseal.roomState('own-s1');
   assert.strictEqual(st.role, 'member');
-  assert.strictEqual(st.own, true);
+  assert.strictEqual(st.ownComputer, true);
   assert.ok(hello, 'no hello');
   assert.strictEqual(hello.mac, MY_MAC);
   assert.strictEqual(hello.pub, fedseal.sealingKey().pub);
@@ -367,7 +370,7 @@ test('#4658: an own computer with no id (macId not wired, or throwing) records t
     const { seat } = await ownComputer(id, 'room-' + id, { macId });
     say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 0, 'room-' + id, { from: 'Ada', kind: 'person', text: 'x' }) });
     await settle();
-    assert.strictEqual(fedseal.roomState(id).own, true, 'still holds its posts');
+    assert.strictEqual(fedseal.roomState(id).ownComputer, true, 'still holds its posts');
     assert.deepStrictEqual(sent(seat, 'key-own-hello'), []);
   }
 });
@@ -401,4 +404,82 @@ test('#4658: a forged share relabelled with the owner\'s key cannot displace a g
   await settle();
   assert.strictEqual((await fedseats.confirmOwn('own-s8', fedseats.ownCode('own-s8'))).ok, true);
   assert.strictEqual(fedseal.roomState('own-s8').keys[0], roomKey, 'the genuine share was displaced');
+});
+
+/* ---- iteration-2 review: who may take part, and the exchange recovering ---- */
+
+test('#4658: own frames without the relay\'s same-account stamp are ignored on both sides (a guest cannot take part)', async () => {
+  const { seat } = await sealOwner('own-o7', 'room-o7');
+  const w = fedseal.newKeyPair();
+  say(seat, { event: 'message', same_account: false, data: fedseal.ownHelloFrame(w, 'mac-g', fedseal.randomSecret()) });
+  say(seat, { event: 'message', data: fedseal.ownHelloFrame(w, 'mac-g', fedseal.randomSecret()), same_account: null });
+  await settle();
+  assert.deepStrictEqual(sent(seat, 'key-own-offer'), [], 'a hello with no same-account stamp was answered');
+  const { seat: s2 } = await ownComputer('own-s9', 'room-s9');
+  const hello = await sealedNow(s2, 'room-s9');
+  say(s2, { event: 'message', same_account: false, data: handOwner('room-s9', hello).offer });
+  await settle();
+  assert.deepStrictEqual(sent(s2, 'key-own-reveal'), [], 'an offer with no same-account stamp was answered');
+});
+
+test('#4658: a key already pinned as a guest is never listed as an own computer', async () => {
+  const { seat } = await sealOwner('own-o8', 'room-o8');
+  const guest = fedseal.newKeyPair();
+  const st = fedseal.roomState('own-o8');
+  fedseal.setRoomState('own-o8', Object.assign({}, st, { peers: { [guest.pub]: { edge: 'edge-g', invite: 'inv-g' } } }));
+  say(seat, { event: 'message', data: fedseal.ownHelloFrame(guest, 'mac-g', fedseal.randomSecret()) });
+  await settle();
+  assert.deepStrictEqual(sent(seat, 'key-own-offer'), []);
+});
+
+test('#4658: Allow pins nothing and keeps the computer waiting when the key cannot be sent', async () => {
+  const { seat } = await sealOwner('own-o9', 'room-o9');
+  const r = await waitingRun(seat, 'room-o9', 'mac-w9');
+  await r.reveal();
+  seat.stdin.write = () => { throw new Error('pipe closed'); };   // the connector went away
+  const out = await fedseats.allowOwn('own-o9', r.w.pub, r.code());
+  assert.strictEqual(out.ok, false, 'reported allowed with no key sent');
+  assert.strictEqual(fedseal.roomState('own-o9').own, undefined, 'pinned with no key sent');
+  assert.strictEqual(fedseats.ownWaiting('own-o9').length, 1, 'dropped from the list with no key sent');
+});
+
+test('#4658: a reveal opens every entry with that commitment, so a copied commitment cannot take it', async () => {
+  const { seat } = await sealOwner('own-o10', 'room-o10');
+  const copier = fedseal.newKeyPair();
+  const w = fedseal.newKeyPair();
+  const nW = fedseal.randomSecret();
+  const real = fedseal.ownHelloFrame(w, 'mac-c', nW);
+  say(seat, { event: 'message', data: Object.assign({}, real, { pub: copier.pub }) });   // first, under another key
+  say(seat, { event: 'message', data: real });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.ownRevealFrame('mac-c', fedseal.sealingKey().pub, nW) });
+  await settle();
+  assert.ok(fedseats.ownWaiting('own-o10').some((x) => x.pub === w.pub), 'the real computer never got its code');
+});
+
+test('#4658: the same offer again gets the same reveal again (a lost reveal recovers)', async () => {
+  const { seat } = await ownComputer('own-s10', 'room-s10');
+  const hello = await sealedNow(seat, 'room-s10');
+  const o = handOwner('room-s10', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  const reveals = sent(seat, 'key-own-reveal');
+  assert.strictEqual(reveals.length, 2);
+  assert.deepStrictEqual(reveals[0], reveals[1], 'a repeated offer got a different reveal');
+});
+
+test('#4658: a different offer after the reveal starts a new run (an owner board that restarted), never a second reveal of the nonce', async () => {
+  const { seat } = await ownComputer('own-s11', 'room-s11');
+  const hello = await sealedNow(seat, 'room-s11');
+  const o = handOwner('room-s11', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  const restarted = fedseal.ownOfferFrame(o.owner, hello, fedseal.randomSecret());   // same owner key, new nonce
+  say(seat, { event: 'message', data: restarted });
+  await settle();
+  assert.strictEqual(sent(seat, 'key-own-reveal').length, 1, 'the nonce was revealed to a second offer');
+  const again = fedseal.checkOwnHello(sent(seat, 'key-own-hello').pop());
+  assert.notStrictEqual(again.commit, hello.commit, 'no new run started');
 });

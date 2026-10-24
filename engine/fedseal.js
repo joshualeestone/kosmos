@@ -373,6 +373,14 @@ function isSealed(env) {
                                                        sealing invite: its room is sealed
                                                        for good, key or no key yet
      rooms[projectId] = { role, ... }                  see fedseats
+                                                       kosmos#4658 adds two fields:
+                                                       `own` (owner only) = { [pub]: { mac, at } }, the
+                                                       owner's own computers pinned by an Allow;
+                                                       `ownComputer: true` (member only), a computer of
+                                                       the owner's that holds or waits for the key
+                                                       through that Allow. Every writer spreads the
+                                                       record (Object.assign({}, st, ...)), so both survive
+                                                       a rotation.
    A file that exists but cannot be read or parsed THROWS and is never overwritten:
    losing it would lose every room key this board holds. */
 const PENDING_TTL_MS = 7 * 24 * 60 * 60 * 1000;   // an invite code lives 7 days

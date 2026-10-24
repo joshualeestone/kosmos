@@ -233,7 +233,7 @@ function handleEvent(projectId, line, heldAt) {
   if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to ' + farSide(projectId) + ': ' + clean(ev.because, 200) + '.'); return; }
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && !Array.isArray(ev.data)) {
     // #3728: key frames are the room's handshake, never a row.
-    if (typeof ev.data.t === 'string' && ev.data.t.startsWith('key-')) { onKeyFrame(projectId, s, ev.data); return; }
+    if (typeof ev.data.t === 'string' && ev.data.t.startsWith('key-')) { onKeyFrame(projectId, s, ev.data, ev.same_account === true); return; }
     const sealed = roomSeal(projectId);
     const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, sealLink(projectId));
     if (sealedRoom === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from ' + farSide(projectId) + ' was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
@@ -741,7 +741,7 @@ function sealStep(projectId, fn) {
 function sayHello(projectId, s) {
   const st = roomSeal(projectId);
   if (!st || st.role !== 'member' || hasKey(st) || !s.room) return;
-  if (st.own === true) { sayOwnHello(projectId, s); return; }
+  if (st.ownComputer === true) { sayOwnHello(projectId, s); return; }
   try { sendFrame(s, fedseal.helloFrame(st.s, st.code, fedseal.sealingKey(), s.room)); } catch (err) {
     noteOnce(projectId, s, 'noKey', 'This computer could not use its sealing key, so this shared room cannot open yet: ' + String((err && err.message) || err));
   }
@@ -769,7 +769,9 @@ function sendRotates(projectId, s) {
      commitment. Allow there sends key-own-share and pins the computer in `st.own`, never in `st.peers` (every
      peers reader means a guest). The new computer adopts that share only once its OWN person has confirmed the
      same code (confirmOwn), and only from the owner key of the offer they confirmed.
-   - A run lives in the seat's memory: a reconnect before the person confirmed starts a new one. */
+   - Every own frame must carry the relay's same_account stamp (kosmos#4657, written beside `data` where a sender
+     cannot reach it), so a guest in the room cannot take part; frames from an older relay without it are ignored.
+   - The member-side flag is `ownComputer: true`; `st.own` exists only on the seal owner, as the pinned map. */
 
 /** This computer's Kosmos+ id, or null (never throws into the seat's handlers). */
 function myMacId() {
@@ -793,21 +795,26 @@ function sayOwnHello(projectId, s) {
 function noteOwnSealed(projectId, s) {
   const link = safeLink(projectId);
   if (!link || link.role !== 'self') return false;
-  try { fedseal.setRoomState(projectId, { role: 'member', own: true, keys: {} }); } catch { return false; }
+  try { fedseal.setRoomState(projectId, { role: 'member', ownComputer: true, keys: {} }); } catch { return false; }
   sayOwnHello(projectId, s);
   return true;
 }
-/** Own computer: the owner's offer for this run's commitment. The run takes the FIRST offer only, and reveals its
-    nonce once: a second offer (another key answering the same hello) is ignored, so nobody learns nW in time to
-    choose a nonce against it. A code that does not match starts a new run (ownStartOver). */
+/** Own computer: the owner's offer for this run's commitment. nW is revealed to ONE offer only. The same offer
+    again (the owner answering a repeated hello) gets the same reveal again, in case the first was lost. A
+    different offer after the reveal (the owner's board restarted, or someone else answering) ends an unconfirmed
+    run and starts a new one with a new nonce, never a second reveal of this one. */
 function waitingOffer(projectId, s, frame) {
   const run = s.ownRun;
   const st = roomSeal(projectId);
-  if (!run || run.offer || run.room !== s.room || !st || st.own !== true || hasKey(st)) return;
+  if (!run || run.room !== s.room || !st || st.ownComputer !== true || hasKey(st)) return;
   const offer = fedseal.checkOwnOffer(frame, run.mac, run.commit);
   if (!offer) return;
+  if (run.offer && (run.offer.ownerPub !== offer.ownerPub || run.offer.nO !== offer.nO)) {
+    if (!run.confirmed) { s.ownRun = null; sayOwnHello(projectId, s); }
+    return;
+  }
   run.offer = offer;
-  try { sendFrame(s, fedseal.ownRevealFrame(run.mac, offer.ownerPub, run.nW)); } catch { /* the owner lists nothing; a reconnect starts again */ }
+  try { sendFrame(s, fedseal.ownRevealFrame(run.mac, offer.ownerPub, run.nW)); } catch { /* sent again when the offer repeats */ }
 }
 /** Own computer: the code this computer shows for its current run, or null. */
 function ownCode(projectId) {
@@ -855,7 +862,7 @@ function waitingShare(projectId, s, frame) {
 function adoptOwnShare(projectId, s) {
   const run = s.ownRun;
   const st = roomSeal(projectId);
-  if (!run || !run.confirmed || !run.got || !st || st.own !== true || hasKey(st)) return;
+  if (!run || !run.confirmed || !run.got || !st || st.ownComputer !== true || hasKey(st)) return;
   const got = run.got;
   fedseal.setRoomState(projectId, Object.assign({}, st, { peer: got.ownerPub, epoch: got.epoch, keys: { [got.epoch]: got.roomKey } }));
   s.ownRun = null;
@@ -870,6 +877,7 @@ function ownerOwnHello(projectId, s, frame, me) {
   const st = roomSeal(projectId);
   const h = fedseal.checkOwnHello(frame);
   if (!h || !hasKey(st) || st.role !== 'owner') return;
+  if (st.peers && Object.prototype.hasOwnProperty.call(st.peers, h.pub)) return;   // a guest's key is never an own computer
   if (!s.ownWaiting) s.ownWaiting = new Map();
   let w = s.ownWaiting.get(h.pub);
   if (!w || w.commit !== h.commit || w.mac !== h.mac) {
@@ -886,7 +894,7 @@ function ownerOwnReveal(projectId, s, frame, me) {
   for (const w of s.ownWaiting.values()) {
     if (w.mac !== frame.mac || w.nW) continue;
     const nW = fedseal.checkOwnReveal(frame, w.mac, me.pub, w.commit);
-    if (nW) { w.nW = nW; return; }
+    if (nW) w.nW = nW;   // every entry it opens: an entry that copied a commitment cannot take the reveal from the real one
   }
 }
 /** Seal owner: the computers waiting for this room's key whose code can be shown, newest last. Empty when this
@@ -913,9 +921,9 @@ function allowOwn(projectId, pub, confirmedCode) {
     try { frame = fedseal.ownShareFrame(me, { mac: w.mac, pub, nW: w.nW, nO: w.nO }, confirmedCode, st.keys[st.epoch], st.epoch, s.room); } catch (err) {
       return { ok: false, because: String((err && err.message) || err) };
     }
+    if (!sendFrame(s, frame)) return { ok: false, because: 'the key could not be sent to the room right now, so nothing changed; try again' };
     fedseal.setRoomState(projectId, Object.assign({}, st, { own: Object.assign({}, st.own || {}, { [pub]: { mac: w.mac, at: Date.now() } }) }));
     s.ownWaiting.delete(pub);
-    sendFrame(s, frame);
     return { ok: true, because: null };
   }).then((r) => r || { ok: false, because: 'the room\'s records could not be written' });
 }
@@ -1177,12 +1185,13 @@ async function ownerHello(projectId, s, link, frame, me) {
   if (firstKey) say(projectId, SEALED_LINE);   // #5195: the owner's side too, once, when the room first has its key
   flushHeld(projectId, s);
 }
-function onKeyFrame(projectId, s, frame) {
+function onKeyFrame(projectId, s, frame, sameAccount) {
   const link = safeLink(projectId);
   if (!link || !s.room) return;
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
   if (frame.t === 'key-hello' && link.role === 'owner') { sealStep(projectId, () => ownerHello(projectId, s, link, frame, me)); return; }
+  if (frame.t.startsWith('key-own-') && !sameAccount) return;   // #4658: only this account's own computers take part
   if (frame.t === 'key-own-hello' && link.role === 'owner') { sealStep(projectId, () => ownerOwnHello(projectId, s, frame, me)); return; }
   if (frame.t === 'key-own-reveal' && link.role === 'owner') { sealStep(projectId, () => ownerOwnReveal(projectId, s, frame, me)); return; }
   if (frame.t === 'key-own-offer' && link.role === 'self') { sealStep(projectId, () => waitingOffer(projectId, s, frame)); return; }
