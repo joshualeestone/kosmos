@@ -179,7 +179,8 @@ struct RoomView: View {
             // the chat's guard).
             guard opened == client.chatEpoch else { if let file { client.closed(file) }; return }
             fileStates[f.id] = file == nil ? .failed : .ready
-            guard let file else { return }
+            // The card that would say so is inside the post's one VoiceOver element, so it is said aloud (review 2).
+            guard let file else { UIAccessibility.post(notification: .announcement, argument: "\(f.name) could not be opened."); return }
             // Left the room while it came: nothing will show it, so it goes now.
             if visible { openedFile = file; previewURL = file } else { client.closed(file) }
         }
@@ -439,7 +440,8 @@ struct RoomBubble: View {
             // The post is read as one element and its cards are hidden from it, so each file is an action on it
             // (kosmos#7062), with what the card would have said while it opens or after it fails.
             ForEach(Array(row.attachments.enumerated()), id: \.offset) { _, f in
-                Button(fileStates[f.id] == .failed ? "Open \(f.name) again (it could not be opened)" : "Open \(f.name)") { openFile(f) }
+                Button(fileStates[f.id] == .failed ? "Open \(f.name) again (it could not be opened)"
+                       : Board.isWebDocument(name: f.name, type: f.type) ? "Open \(f.name) on your computer's board" : "Open \(f.name)") { openFile(f) }
             }
         }
     }
@@ -477,8 +479,9 @@ struct RoomBubble: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             // One card per file, by position as well as id (a post that names one file twice draws two). While one is
-            // on its way the others wait, as in the chat. The post is one VoiceOver element, so the cards are hidden from
-            // it and each file is offered once, as the post's "Open <name>" action (review 1: never twice).
+            // on its way the others wait, as in the chat. The post is one VoiceOver element, so the cards are read in it
+            // as plain words ("Files: ...", never as buttons, review 2: a files-only post is never an empty element) and
+            // each file is offered once, as the post's "Open <name>" action (review 1: never twice).
             if !row.attachments.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(row.attachments.enumerated()), id: \.offset) { _, f in
@@ -487,7 +490,8 @@ struct RoomBubble: View {
                     }
                 }
                 .padding(.top, words.isEmpty ? 0 : 2)
-                .accessibilityHidden(true)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Files: " + row.attachments.map(\.name).joined(separator: ", "))
             }
         }
         .padding(.vertical, 8).padding(.horizontal, 12)

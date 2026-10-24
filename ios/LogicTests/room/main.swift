@@ -289,7 +289,12 @@ check(Board.roomWords(Board.RoomRow(id: "x", atRaw: nil, at: nil, kind: .post, f
       "CONTROL: words that only mention a file name are kept")
 // The bubble draws what roomWords says, never the raw text (review 1: the tests above would pass if it went back).
 let roomView = (try? String(contentsOf: here.appendingPathComponent("../../Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
-check(roomView.contains("Board.roomWords(row)") && !roomView.contains("Board.messageText(row.text)"), "RoomBubble shows roomWords, not the stored text")
+// Review 2: aimed at the drawing itself, so a revert of either branch goes red.
+// Only RoomBubble's own source: Kosmos's lines (drawn elsewhere in the file, never with files) keep their raw text.
+let bubbleSource = roomView.components(separatedBy: "struct RoomBubble").dropFirst().first?.components(separatedBy: "\nstruct ").first ?? ""
+check(!bubbleSource.isEmpty && bubbleSource.contains("Board.roomWords(row)") && bubbleSource.contains("AttributedString(words)") && bubbleSource.contains("Board.messageText(words)")
+      && !bubbleSource.contains("AttributedString(row.text)") && !bubbleSource.contains("Board.messageText(row.text)") && !bubbleSource.contains("Text(row.text)"),
+      "RoomBubble shows roomWords, not the stored text")
 let filesItems = Board.roomItems(filesRows, now: now, calendar: cal)
 check(filesItems.compactMap { if case let .row(r, _, _) = $0.kind { return r.attachments.count } else { return nil } } == [2, 1],
       "the drawn rows keep their files")
