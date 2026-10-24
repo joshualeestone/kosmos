@@ -333,19 +333,46 @@ enum Board {
     }
 
     // Needs you and asked first, then working, then quiet; by name within each (then by key, so equal names keep one
-    // order). Set when the list appears and on pull to refresh only.
-    static func sorted(_ agents: [Agent]) -> [Agent] {
+    // order). Set when the list appears and on pull to refresh only. #7034: the person's starred agents first.
+    static func sorted(_ agents: [Agent], stars: Set<String>? = nil) -> [Agent] {
         func rank(_ a: Agent) -> Int { switch tone(a) { case .needsYou, .asked: return 0; case .working: return 1; case .quiet: return 2 } }
-        return agents.sorted { (rank($0), $0.name.lowercased(), $0.session) < (rank($1), $1.name.lowercased(), $1.session) }
+        let ordered = agents.sorted { (rank($0), $0.name.lowercased(), $0.session) < (rank($1), $1.name.lowercased(), $1.session) }
+        return starredFirst(ordered, stars: stars)
     }
 
     // A live update changes rows in place and never moves them under the person's thumb: the shown order is kept,
     // a row that is gone is dropped, and a new agent joins at the end (new ones sorted among themselves).
-    static func keepingOrder(_ shown: [Agent], with fresh: [Agent]) -> [Agent] {
+    static func keepingOrder(_ shown: [Agent], with fresh: [Agent], stars: Set<String>? = nil) -> [Agent] {
         let byKey = Dictionary(fresh.map { ($0.session, $0) }, uniquingKeysWith: { a, _ in a })
         let kept = shown.compactMap { byKey[$0.session] }
         let known = Set(shown.map(\.session))
-        return kept + sorted(fresh.filter { !known.contains($0.session) })
+        return kept + sorted(fresh.filter { !known.contains($0.session) }, stars: stars)
+    }
+
+    // #7034 (#6719 on the phone): the person's starred agents, by session name, as the board keeps them
+    // (GET /api/agent-stars answers { names, ok }).
+    static func starsRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/agent-stars", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+
+    // nil for an answer the board could not read its list for (`ok` false) or one not in that shape: then no order
+    // changes.
+    static func parseStars(_ data: Data) -> Set<String>? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              obj["ok"] as? Bool == true,
+              let names = obj["names"] as? [String]
+        else { return nil }
+        return Set(names)
+    }
+
+    // Starred agents first, each group in the order it was given (the board's rule, web/index.html #6719). No stars,
+    // or none known, leaves the order as it is.
+    static func starredFirst(_ agents: [Agent], stars: Set<String>?) -> [Agent] {
+        guard let stars, !stars.isEmpty else { return agents }
+        return agents.filter { stars.contains($0.session) } + agents.filter { !stars.contains($0.session) }
     }
 
     // The agent's picture on its Mac (server.js /api/agent/<name>/avatar, keyed by the agent's session name).

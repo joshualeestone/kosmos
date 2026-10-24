@@ -56,6 +56,9 @@ final class BoardClient: ObservableObject {
     private var pictureVersions: [String: String] = [:]
     // The list is re-sorted when it appears and on pull to refresh; live updates keep the order (Mona's spec).
     private var resortNext = true
+    // #7034: the person's starred agents as last read from a Mac, by its address. Read when the list is re-sorted; an
+    // answer that cannot be read keeps the last ones, and one Mac's stars never order another's list.
+    private var stars: (mac: String, names: Set<String>)?
     // The Mac the shown list came from.
     private var shownMac: Board.Mac?
 
@@ -879,6 +882,13 @@ final class BoardClient: ObservableObject {
         return false
     }
 
+    // #7034: the person's stars on this Mac, or nil when they cannot be read.
+    private func readStars(url: URL) async -> Set<String>? {
+        guard let result = await env.send(Board.starsRequest(mac: url)), (200...299).contains(result.1.statusCode)
+        else { return nil }
+        return Board.parseStars(result.0)
+    }
+
     // false ends the loop. 401s for 15 s (at once if no list was read in this run), or the gate's sign-in page in place of the board's answer, mean the Mac's
     // session ended: sign in to it again, at most once every 30 s. Three refreshes in a row with no list (no answer, a 5xx,
     // a redirect, an answer that is not the list) say the Mac is not answering rather than leave an old list up.
@@ -891,7 +901,10 @@ final class BoardClient: ObservableObject {
         let answer = result?.1
         let status = answer?.statusCode ?? 0
         if (200...299).contains(status), let data = result?.0, let rows = Board.parseAgents(data) {
-            agents = resortNext ? Board.sorted(rows) : Board.keepingOrder(agents, with: rows)
+            if resortNext, let names = await readStars(url: url) { stars = (mac.address, names) }
+            guard gen == generation else { return false }
+            let known = stars?.mac == mac.address ? stars?.names : nil
+            agents = resortNext ? Board.sorted(rows, stars: known) : Board.keepingOrder(agents, with: rows, stars: known)
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
             tasksTab = AppTabs.tasksTab(fromStatus: data)   // kosmos#7032: Tasks earned, with no board page loaded
             projectsUnread = AppTabs.projectsUnread(fromStatus: data)     // kosmos#7032: the Projects tab's badge

@@ -1,0 +1,34 @@
+# stars-7034: the iPhone puts starred agents first (#6719 on the phone, follow-up to #7030)
+
+Card kosmos#7034. Board rule: web/index.html #6719, "starred agents first, in every order; within each group the chosen
+order applies", stars kept by session name at GET /api/agent-stars ({ names, ok }).
+
+## The call
+- `Board.starredFirst(_:stars:)`: starred first, each group in the order it was given; nil or empty stars change
+  nothing. `Board.sorted` and `Board.keepingOrder` take `stars` (default nil, so every other caller is unchanged).
+- `Board.parseStars`: nil for `ok` false or another shape, so an unreadable answer changes no order.
+- BoardClient reads the stars when the list is re-sorted (it appears, pull to refresh): the only moments the order is
+  applied anyway, so a live update never moves a row for a star. An answer that cannot be read keeps the last stars;
+  they are kept by the Mac's address, so one Mac's stars never order another's list.
+- Today (#7030 part 2, Angel, branch todayui-7030, not on main): it should order its Needs you cards with the same
+  `Board.starredFirst` and the client's stars. Told on #7030; if part 2 merges first, this card wires it.
+
+## Rejected
+- Reading the stars on every status read (5 s): the order changes only on a re-sort, so the extra read buys nothing.
+- Re-sorting when the stars change mid-screen: the spec keeps the order under the person's thumb.
+
+## Weakest premise
+- Stars read only on appear and pull: a star set on the board shows on the phone at the next re-sort, not at once.
+  That matches how the phone treats every other order change.
+
+## Tests (ios/LogicTests 800 -> 812)
+order with and without stars, a star for an unlisted agent, a live update with stars, the parse (ok, not ok, other
+shape), the route; the client: starred first on connect, an unreadable pull keeps the last stars, a pull re-reads.
+
+## Red arms (st-arms.py, a mutated copy through run.sh's source-dir argument), each red on a test
+S1 stars change no order, S2 ok not read, S3 an unreadable answer forgets the stars, S4 sorted ignores stars, S5 new
+rows ignore stars, S6 the client never reads stars. S1's first form did not compile and was re-aimed.
+
+## Progress
+- [x] logic, client, tests, arms
+- [ ] validation, challenge-loop, PR; Today with #7030 part 2
