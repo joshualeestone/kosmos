@@ -802,12 +802,51 @@ function sayOwnHello(projectId, s) {
 function noteOwnSealed(projectId, s) {
   const link = safeLink(projectId);
   if (!link || link.role !== 'self') return false;
+  // kosmos#7028: Kosmos+ said this room was never sealed, so a sealed-looking frame is not shown and records
+  // nothing for a while (one source cannot flip the room back and forth).
+  if (Number.isFinite(s.neverSealedUntil) && Date.now() < s.neverSealedUntil) {
+    noteOnce(projectId, s, 'neverSealed', 'A sealed-looking message arrived in a shared room that Kosmos+ says was never sealed, so it was not shown.');
+    return true;
+  }
   try { fedseal.setRoomState(projectId, { role: 'member', ownComputer: true, keys: {} }); } catch {
     noteOnce(projectId, s, 'ownSealUnsaved', 'This shared room is sealed, and this computer could not record that, so it cannot ask for the room\'s key yet. Kosmos tries again with the next message.');
     return true;   // handled: the guest's "ask the owner for a new code" line is not this computer's
   }
   sayOwnHello(projectId, s);
+  checkNeverSealed(projectId, s, link);
   return true;
+}
+/** kosmos#7028: how long an own computer ignores sealed-looking frames after Kosmos+ said the room was never sealed. */
+const NEVER_SEALED_MS = 10 * 60 * 1000;
+/** kosmos#7028: anyone in the room can send a sealed-looking frame, and noteOwnSealed then holds this computer's posts
+    for a key that will never come. The owner board seals a room only for a hello matched to an active edge for its
+    project, and the account's edges are listed with every status (revoked ones too), so a fresh answer with no edge
+    for this project means the room was never sealed: the keyless record is cleared and held posts go. Any other answer
+    (failed, unreadable, an edge listed) keeps the record. Asked fresh (notBeforeMono), never from an answer asked
+    before the frame: an edge made since would be missing from it. */
+function checkNeverSealed(projectId, s, link) {
+  if (!deps || typeof deps.macRequest !== 'function') return;
+  let ask;
+  try { ask = sharedEdges(Date.now(), mono()); } catch { return; }
+  ask.promise.then((r) => {
+    if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return;
+    if (r.data.as_owner.some((e) => e && e.project_ref === link.ref)) return;
+    return forgetOwnSealed(projectId, s);
+  }).catch(() => {});
+}
+/** kosmos#7028: clear an own computer's keyless sealed record (noteOwnSealed's), under the room's sealing step. It holds
+    no key and changes no epoch, so it is no rotation (#5191 WRITERS). Only that record: one holding a key is kept. */
+function forgetOwnSealed(projectId, s) {
+  return sealStep(projectId, () => {
+    if (seats.get(projectId) !== s) return;
+    const link = safeLink(projectId);
+    const st = roomSeal(projectId);
+    if (!link || link.role !== 'self' || !st || st.role !== 'member' || st.ownComputer !== true || hasKey(st)) return;
+    try { fedseal.forgetRoom(projectId); } catch { return; }
+    s.ownRun = null;
+    s.neverSealedUntil = Date.now() + NEVER_SEALED_MS;
+    flushHeld(projectId, s);
+  });
 }
 /** Own computer: the owner's offer for this run's commitment. nW is revealed to ONE offer only. The same offer
     again (the owner answering a repeated hello) gets the same reveal again, in case the first was lost. A
