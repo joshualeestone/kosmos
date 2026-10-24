@@ -25245,12 +25245,13 @@ let PJ_ADDMENU_AGENT = null;
    sheet). Declared here, early, for the same reason: paintAgentList and fedGateStamp read them. */
 let FED_MEMBERS = null;          // { project, ok, body }: the last members answer, for the project it was asked for
 // kosmos#4658: the sealed-room key section's state (fedOwnHtml), here for the same reason as the members state.
-let FED_OWN = null;          // { project, waiting: [{ pub, code }], code: string | null, at } (the route's mac is not shown)
+let FED_OWN = null;          // { project, waiting: [{ pub, code }], code: string | null, missed, at } (missed: failed reads of
+                             // this computer's code in a row; the route's mac is not shown)
 let FED_OWN_ASKING = null;   // { project, seq }: the load in flight; a superseded one (seq behind) no longer counts
 let FED_OWN_MSG = null;      // { text, project, sig }: the last press's sentence, kept while the section shows what it did
 let FED_OWN_BUSY = null;     // the project a press is being asked for
 let FED_OWN_SEQ = 0;         // a load answered after a newer one (or a project switch) is dropped
-let FED_OWN_GEN = 0;         // a press answered after the project was entered again is dropped (fedMembersReset bumps it)
+let FED_OWN_GEN = 0;         // a press answered after the project was entered again is dropped (fedOwnReset bumps it)
 let FED_OWN_CONFIRMED = null;   // { project, code }: the code this computer's person confirmed (own-compare goes on
                                 // answering it until the other computer's Allow lands, so it is not offered twice)
 let FED_MEMBERS_SEQ = 0;         // a reply for an older ask (or another project) is dropped
@@ -73777,6 +73778,7 @@ function openProject(id) {
   // is painted, so the last visit's rows never show with dead buttons, and a Remove or Withdraw still being
   // answered from that visit is dropped rather than applied to this one.
   if (fedEntering && typeof fedMembersReset === 'function') fedMembersReset();
+  if (fedEntering && typeof fedOwnReset === 'function') fedOwnReset();   // kosmos#4658: entering only, not fedMembersLoad's reset
   /* ⚠️ "Fresh" is scoped to SWITCHING projects (round 31): re-opening the
      project already on screen used to run these same clears, so typing a
      draft, pressing back, and clicking the same project again silently
@@ -73898,6 +73900,7 @@ function openProject(id) {
   paintOneProject();
   // kosmos#4649 slice B: ask who is in this project from outside (only while the federation gate is "show").
   if (typeof fedMembersLoad === 'function') fedMembersLoad(id);
+  if (typeof fedOwnLoad === 'function') fedOwnLoad(id);   // kosmos#4658: at once, as Members, not at the next poll
   pjView('one');   // #2922: pjView('one') re-engages the live-mention mirror for the restored draft
   refreshEngMode();
   loadThread();
@@ -81447,10 +81450,15 @@ function fedOwnPaint() {
   }
   if (was) {
     const host = document.getElementById(was.box);
-    const again = host && ([...host.querySelectorAll('[data-own-act]')].find((x) => x.dataset.ownAct === was.act && (x.dataset.ownPub || '') === was.pub)
-      || host.querySelector('[data-own-act]'));
-    if (again && again !== document.activeElement) again.focus();
-    else if (!again && host && host.querySelector('.fmsg')) { host.tabIndex = -1; host.focus(); }
+    /* Only the same button (same act, same row) gets focus back. Never another one: on the owner's side the next button
+       is another computer's Allow, whose code this person has not compared, and on the waiting side after It matches it
+       is Start over. Otherwise the press's sentence, else the section heading, takes focus. */
+    const again = host && [...host.querySelectorAll('[data-own-act]')].find((x) => x.dataset.ownAct === was.act && (x.dataset.ownPub || '') === was.pub);
+    if (again) { if (again !== document.activeElement) again.focus(); }
+    else if (host) {
+      const spot = host.querySelector('.fmsg') || host.querySelector('.fedout-h');
+      if (spot) { spot.tabIndex = -1; spot.focus(); }
+    }
   }
   /* Mona's review: where Members sits under the conversation (a phone, an upright tablet: pjPhoneOrder's queries), one
      line above the room says why it does not read and where the code is. Not in the consolidated view, where the
@@ -81500,7 +81508,11 @@ async function fedOwnLoad(project, fromPress) {
   FED_OWN = { project, waiting: rows, code, missed, at: Date.now() };
   const m = FED_OWN_MSG;
   if (m && m.project === project) {
-    if (fromPress) m.sig = fedOwnSig(FED_OWN);          // what the press left on screen
+    if (fromPress) {
+      // The reload says which order it was: a confirmed code already gone means the other computer had allowed first.
+      if (m.act === 'match' && !FED_OWN.code) m.text = 'Confirmed. This computer reads the room now.';
+      m.sig = fedOwnSig(FED_OWN);          // what the press left on screen
+    }
     else if (m.sig !== fedOwnSig(FED_OWN)) FED_OWN_MSG = null;   // the section moved on: the sentence no longer describes it
   }
   fedOwnPaint();
@@ -81510,7 +81522,8 @@ function fedOwnTick() {
   const o = FED_OWN;
   const due = !o || o.project !== PJ_CURRENT || (!document.hidden && Date.now() - (o.at || 0) > FED_OWN_REFRESH_MS);
   const asking = FED_OWN_ASKING && FED_OWN_ASKING.project === PJ_CURRENT && FED_OWN_ASKING.seq === FED_OWN_SEQ;
-  if (PJ_CURRENT && due && !asking) fedOwnLoad(PJ_CURRENT);
+  // Not while a press is being asked: the press's own reload follows it.
+  if (PJ_CURRENT && due && !asking && FED_OWN_BUSY !== PJ_CURRENT) fedOwnLoad(PJ_CURRENT);
   else fedOwnPaint();
 }
 async function fedOwnPress(btn) {
@@ -81534,7 +81547,7 @@ async function fedOwnPress(btn) {
       ? fetch('/api/federation/own-allow', opts(signal)) : fetch('/api/federation/own-confirm', opts(signal))));
     if (res.ok) {
       ok = true;
-      said = act === 'allow' ? 'Allowed. That computer reads this room once its person has confirmed the same code there.'
+      said = act === 'allow' ? 'Allowed. That computer reads this room once its person has confirmed the same code there (at once, if they already have).'
         : act === 'match' ? 'Confirmed. This computer reads the room once the other computer has allowed it.'
         : j && j.started_over === true ? 'Started over. A new code appears here when the other computer answers.'
         : 'There was nothing to start over: this computer is not waiting for a code right now.';
@@ -81551,7 +81564,7 @@ async function fedOwnPress(btn) {
     if (act === 'allow') FED_OWN = Object.assign({}, FED_OWN, { waiting: FED_OWN.waiting.filter((w) => w.pub !== body.pub) });
     else if (act === 'match') FED_OWN_CONFIRMED = { project, code: body.code };
   }
-  FED_OWN_MSG = { text: said, project, sig: null };
+  FED_OWN_MSG = { text: said, project, sig: null, act: ok ? act : null };
   // One persistent live region, filled a moment after the clear at the press so a repeated sentence is heard. A visit
   // ended meanwhile (FED_OWN_GEN moved) leaves it as fedMembersReset emptied it.
   if (said$) setTimeout(() => { if (FED_OWN_GEN === gen) said$.textContent = said; }, 60);
@@ -81573,15 +81586,18 @@ if (window.matchMedia) {
 // are dropped), any members ask still in flight dropped too (FED_MEMBERS_SEQ), and the rail's markup memo cleared
 // so the next answer repaints the rail even if it matches what the last visit showed.
 function fedMembersReset() {
-  // kosmos#4658: the sealed-room key section starts over too, and is emptied now, so the last project's rows and
-  // buttons never show under this one while its own answer is asked for.
+  FED_MEMBERS = null; FED_MSGS = {}; FED_GEN++;
+  FED_MEMBERS_SEQ++; FED_MEMBERS_ASKING = null;
+  fedOutsidePaint.rail = undefined;
+}
+/* kosmos#4658: entering a project (openProject's fedEntering branch) starts the sealed-room key section over, and
+   empties it now, so the last project's rows and buttons never show under this one while its own answer is asked for.
+   Not part of fedMembersReset: that also runs from fedMembersLoad, and must not drop a press in flight. */
+function fedOwnReset() {
   fedOwnPaint.rail = undefined;   // the rail's copy repaints for the next answer, as fedOutsidePaint.rail
   FED_OWN_CONFIRMED = null;
   FED_OWN = null; FED_OWN_MSG = null; FED_OWN_ASKING = null; FED_OWN_BUSY = null; FED_OWN_SEQ++; FED_OWN_GEN++; fedOwnPaint();
   const said$ = document.getElementById('pj-fed-own-said'); if (said$) said$.textContent = '';
-  FED_MEMBERS = null; FED_MSGS = {}; FED_GEN++;
-  FED_MEMBERS_SEQ++; FED_MEMBERS_ASKING = null;
-  fedOutsidePaint.rail = undefined;
 }
 async function fedMembersLoad(project) {
   if (!project || !fedShow()) return;

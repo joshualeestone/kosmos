@@ -203,9 +203,12 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
           chk(focusIn, `${E} focus stays in the section after a press`);
           // It matches on the new code, before the other computer's Allow: exactly that code is sent, and while the engine
           // still answers it the code stays to compare with nothing left to press.
-          await page.click('#pj-fed-own [data-own-act="match"]');
+          await page.focus('#pj-fed-own [data-own-act="match"]');
+          await page.keyboard.press('Enter');
           await page.waitForFunction(() => /Confirmed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
           await page.evaluate(() => fedOwnLoad(PJ_CURRENT, true));
+          const focusAfterMatch = await page.evaluate(() => (document.activeElement && document.activeElement.dataset && document.activeElement.dataset.ownAct) || '');
+          chk(focusAfterMatch !== 'nomatch', `${E} after It matches, focus does not land on Start over`, focusAfterMatch);
           const conf = posted.filter((p) => p.path.endsWith('/own-confirm')).pop();
           chk(conf && conf.body.project === waitingP.id && conf.body.code === NEXT_CODE, `${E} It matches sends exactly the code that was on screen`, JSON.stringify(conf));
           const waitingOn = await page.evaluate(() => ({ code: (document.querySelector('#pj-fed-own .ownseal-code') || {}).textContent || '',
@@ -266,20 +269,26 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
           }, waitingP.id);
           await page.waitForTimeout(300);
           chk(posted.length === before, `${E} a button drawn for another project sends nothing`, String(posted.length - before));
-          await page.click('#pj-fed-own [data-own-pub="pub-desk"]');
+          await page.focus('#pj-fed-own [data-own-pub="pub-desk"]');
+          await page.keyboard.press('Enter');
           await page.waitForFunction(() => /Allowed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || '')
             && document.querySelectorAll('#pj-fed-own [data-own-act="allow"]').length === 1, null, { timeout: 8000 }).catch(() => null);
           const allow = posted.find((p) => p.path.endsWith('/own-allow'));
           chk(allow && allow.body.project === ownerP.id && allow.body.pub === 'pub-desk' && allow.body.code === '23456-789AB', `${E} Allow sends exactly that row's key and code`, JSON.stringify(allow));
           const left = await page.evaluate(() => document.querySelectorAll('#pj-fed-own [data-own-act="allow"]').length);
           chk(left === 1, `${E} the allowed computer leaves the list`, String(left));
+          const focusAfterAllow = await page.evaluate(() => { const a = document.activeElement; return a && a.dataset ? (a.dataset.ownAct || '') + ':' + (a.dataset.ownPub || '') : ''; });
+          chk(!/^allow:/.test(focusAfterAllow), `${E} after an Allow, focus does not land on another computer's Allow`, focusAfterAllow);
           refuseNext = true;
           await page.click('#pj-fed-own [data-own-pub="pub-laptop"]');
           await page.waitForFunction(() => /not allowed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
           chk((await MSG(page)) === 'That computer was not allowed: the code confirmed is not the one that computer shows.', `${E} a refusal's own words are shown`, await MSG(page));
-          await page.click('#pj-fed-own [data-own-pub="pub-laptop"]');
+          // A double press sends one request.
+          const postsBefore = posted.length;
+          await page.evaluate(() => { const b = document.querySelector('#pj-fed-own [data-own-pub="pub-laptop"]'); fedOwnPress(b); fedOwnPress(b); });
           await page.waitForFunction(() => /Allowed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || '')
             && !document.querySelector('#pj-fed-own [data-own-act]'), null, { timeout: 8000 }).catch(() => null);
+          chk(posted.length - postsBefore === 1, `${E} a double press sends one request`, String(posted.length - postsBefore));
           const empty = await page.evaluate(() => ({ rows: document.querySelectorAll('#pj-fed-own [data-own-act]').length, msg: (document.querySelector('#pj-fed-own .fmsg') || {}).textContent || '' }));
           chk(empty.rows === 0 && /^Allowed\./.test(empty.msg), `${E} allowing the last computer still says Allowed`, JSON.stringify(empty));
           chk(!o.wide && !(w && w.wide), `${E} no sideways scroll`);
