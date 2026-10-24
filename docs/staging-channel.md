@@ -105,14 +105,16 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      checkout's `dist/` copies, as for any promote: the commit pins the artifact's sha, not the manifest's.
    - **Keep V's tarball.** It must still be in the checkout's `dist/`. Once staging names a later build,
      nothing protects V's files from a `tools/dist-retention.sh --prune` but its keep window, so do not
-     prune while a GO is pending (a pruned tarball can be fetched back from what installkosmos.com serves,
-     as in releasing.md).
+     prune while a GO is pending. A pruned tarball can be fetched back from installkosmos.com (as in
+     releasing.md) only while a deploy still serves it, so keep a copy if in doubt.
    - **Guards.** `--force` with `--version` needs `--sha`. A V older than prod's, or one that cannot be
      compared with it, is refused unless `--allow-older` is given. The same version as prod's with other
      bytes (a re-cut replacing it) is allowed, and the promote says so.
    - **The board gates still need a board on V.** Once the cut box's board has moved to a later staging
-     build they answer cannot-tell, and the promote HOLDS (exit 2), forceable only after a hand check of V;
-     the board check it could not run is then made after the deploy on a Mac that has updated to V.
+     build, the experience gate answers cannot-tell, and so does the agent-spawn gate (whatever it saw was
+     another build's), so the promote HOLDS (exit 2), forceable only after a hand check of V; the board check
+     it could not run is then made after the deploy on a Mac that has updated to V. The tunnel gate runs V's
+     own tarball, so its verdict stands.
 5. **Deploy the promoted pointer to prod.** `promote-channel.sh` only rewrites `latest.json` in the
    LOCAL site checkout ("the next site deploy publishes the prod pointer. No rebuild happened.");
    prod keeps SERVING the old version until a deploy. **`deploy-site.sh --publish` does NOT do this**

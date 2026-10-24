@@ -54,8 +54,8 @@
 # A NAMED VERSION (--version <V>, Mac only, kosmos#7005). By default the build promoted is whatever
 # latest-staging.json names NOW, so a pending prod GO froze staging: a staging cut would replace the
 # approved build. With --version, the pointer and installer come from a site commit (on HEAD) whose
-# latest-staging.json names V, so staging can move on. Every commit naming V (that matches --sha, when
-# given) must name the same build;
+# latest-staging.json names V, so staging can move on. The commits naming V that --commit and --sha (when
+# given) leave, and that are on origin/main (when the site has an origin), must name the same build;
 # the one used is the newest whose committed setup-staging hashes to its pointer's setup_sha256 (the
 # staging cut's own commit, which carries both), else the newest naming V (both among the commits --sha and
 # --commit leave). If a later commit naming V has a pointer that differs in more than its installer, the
@@ -205,13 +205,14 @@ if [ -n "$NAMED_VERSION" ]; then
   for _c in $(git -C "$SITE" log --format=%H -G "\"version\": *\"$NAMED_VERSION\"" HEAD -- "dist/$STAGING_NAME" 2>/dev/null); do
     git -C "$SITE" show "${_c}:dist/$STAGING_NAME" > "$NAMED_DIR/candidate.json" 2>/dev/null || continue
     [ "$(read_pointer_field "$NAMED_DIR/candidate.json" version)" = "$NAMED_VERSION" ] || continue
-    if [ -n "$_has_origin" ] && ! git -C "$SITE" merge-base --is-ancestor "$_c" origin/main 2>/dev/null; then
-      _unpub="${_unpub:+$_unpub }${_c:0:10}"; continue
-    fi
     case "$_c" in "$NAMED_PICK"*) ;; *) continue ;; esac   # --commit: only that commit (empty: every commit)
     _s="$(read_pointer_field "$NAMED_DIR/candidate.json" sha256)"
     [ -n "$_s" ] || continue   # no bytes named: not a usable pointer for V, so not a candidate
     case "$_s" in "$NAMED_SHA"*) ;; *) continue ;; esac   # --sha: only the build it names (empty: every build)
+    # Last, so an unpublished commit is reported only when it is what --sha/--commit would otherwise have chosen.
+    if [ -n "$_has_origin" ] && ! git -C "$SITE" merge-base --is-ancestor "$_c" origin/main 2>/dev/null; then
+      _unpub="${_unpub:+$_unpub }${_c:0:10}"; continue
+    fi
     _seen="${_seen:+$_seen; }sha256 ${_s:0:12} in ${_c:0:10} ($(git -C "$SITE" log -1 --date=short --format=%cd "$_c"))"
     # The build a commit names: its bytes, artifact and manifest. Every commit naming V must name the same one.
     _b="$_s|$(read_pointer_field "$NAMED_DIR/candidate.json" "$ARTIFACT_FIELD")|$(read_pointer_field "$NAMED_DIR/candidate.json" manifest)"
@@ -528,6 +529,13 @@ if [ "$FAMILY" = mac ]; then
       esac
     fi
   fi
+  # kosmos#7005: in named mode the board is usually on a later staging build. When the experience gate could not tie it
+  # to $V, this gate's FAIL or PARTIAL is a verdict about that other build, so it is cannot-tell for $V (a HOLD, which a
+  # hand check of $V can --force), not a refusal of $V. Default mode keeps its refusal.
+  if [ -n "$NAMED_VERSION" ] && [ "$GATE_RC" = 2 ] && { [ "$AGENT_RC" = 1 ] || [ "$AGENT_RC" = 3 ]; }; then
+    echo "promote-channel: the agent-spawn gate answered $AGENT_RC on a board not shown to run $V (the experience gate above could not tell), so it says nothing about $V - treating it as cannot-tell." >&2
+    AGENT_RC=2
+  fi
   case "$AGENT_RC" in
     0) echo "promote-channel: agent-spawn gate PASSED - a fresh Claude and OpenAI agent came online and answered a first message (the #2129 class is not present)."
        # #5084: it ran on the same board. When the experience gate could not tie that board to $V (cannot-tell,
@@ -738,7 +746,7 @@ if [ -n "$SETUP_STAGING" ]; then
     || { echo "promote-channel: /setup does not read back as the verified setup-staging - check both by hand before any deploy" >&2; exit 1; }
   echo "   copied the staging installer onto /setup (sha256 $SETUP_STAGING)"
 elif [ "$FAMILY" = mac ]; then
-  echo "   the staging pointer names no installer (cut before #5032, or republished by hand): /setup left as it is"
+  echo "   $PTR_WORDS names no installer (cut before #5032, or republished by hand): /setup left as it is"
   # Review 2: say it loudly when a committed staging installer differs from /setup. Then prod gets this
   # build beside the OLDER installer, the pairing #5032 removes; copying is not safe either, because
   # nothing says the staging installer belongs to this build.

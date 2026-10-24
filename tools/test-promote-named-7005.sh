@@ -223,6 +223,18 @@ printf '#!/usr/bin/env bash\nprintf "RE-CUT-BYTES\\n" > "$RECUT_SITE/dist/kosmos
 S="$(newsite)"; out="$(RECUT_SITE="$S" KOSMOS_PROMOTE_GATE_CMD="bash $RECUT" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 1 ] && untouched "$S" && has "$out" "is no longer the bytes checked above" && pass "named: V re-cut while the gates ran is refused, nothing written" || bad "named re-cut during gates (rc=$rc, latest.json: $(cat "$S/dist/latest.json"), out=$out)"
 
+# ---- the agent-spawn gate on a board not shown to run V speaks for another build: cannot-tell, not a refusal ----
+AFAIL="$T/stub-agent-fail.sh"; printf '#!/usr/bin/env bash\nexit 1\n' > "$AFAIL"; chmod +x "$AFAIL"
+# (Without --force the experience gate's HOLD stops the promote before this gate runs; the --force path is where it matters.)
+S="$(newsite)"; s98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")"
+out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "so it says nothing about 9.9.8 - treating it as cannot-tell" \
+  && pass "named: an agent-spawn FAIL on a board not on V is cannot-tell, which a hand check of V can --force" || bad "named agent fail --force (rc=$rc, out=$out)"
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --force 2>&1)"; rc=$?
+[ "$rc" = 1 ] && untouched "$S" && has "$out" "agent-spawn gate FAILED (exit 1)" && pass "default: CONTROL the same agent FAIL still refuses the default promote" || bad "default agent fail (rc=$rc, out=$out)"
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 1 ] && untouched "$S" && has "$out" "agent-spawn gate FAILED (exit 1)" && pass "named: CONTROL with the board shown to run V, an agent FAIL refuses" || bad "named agent fail on V's board (rc=$rc, out=$out)"
+
 # ---- a version older than prod's is a rollback, and needs --allow-older ----
 S="$(newsite)"; bash "$HERE/promote-channel.sh" "$S" >/dev/null 2>&1   # prod now serves 9.9.9
 [ "$(field "$S/dist/latest.json" version)" = 9.9.9 ] && pass "rollback fixture: prod serves 9.9.9" || bad "rollback fixture: prod is $(cat "$S/dist/latest.json")"
@@ -283,6 +295,11 @@ republish "$S" 9.9.8 "" "$(printf '%064d' 5)"   # committed here only
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" sha256)" = "$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")" ] && ! has "$out" "disagree" \
   && pass "named: a never-pushed commit naming V with other bytes is ignored, not a disagreement" || bad "named unpushed re-cut (rc=$rc, out=$out)"
+# With an unpublished commit naming V present, a --sha that matches nothing still points at the --sha, not at it.
+S="$(newsite)"; O4="$T/origin4.git"; git init -q --bare "$O4"; git -C "$S" remote add origin "$O4"; git -C "$S" push -q origin HEAD:main
+republish "$S" 9.9.8 "" "$(printf '%064d' 6)"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha deadbeef 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "(Check the version, and the --sha or --commit given.)" && ! has "$out" "never served them" && pass "named: a --sha matching nothing is blamed, not an unrelated unpublished commit" || bad "named --sha with unpublished (rc=$rc, out=$out)"
 # Prod already serving V as other bytes: a replacement, allowed and said.
 S="$(newsite)"; printf '{"version":"9.9.8","sha256":"%064d"}\n' 3 > "$S/dist/latest.json"; git -C "$S" commit -qm "prod 9.9.8 as other bytes" -- dist/latest.json
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
