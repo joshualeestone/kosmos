@@ -267,7 +267,9 @@ enum AppTabs {
     // screen's "open the board's Settings" row) shows under Today, as an agent's chat does. Lighting the Settings tab
     // would put the native screen over the very section the person was sent to.
     // The tabs the app draws itself. Pressing one ends any press still waiting, and a lock never replays one.
-    static func isNative(_ tab: Tab) -> Bool { tab == .agents || tab == .settings }
+    // kosmos#7030: Today too. A page the app sends under Today (ContentView todayBoard) is loaded by the app itself, so
+    // a press on Today never drives the board: it brings back the native screen.
+    static func isNative(_ tab: Tab) -> Bool { tab == .agents || tab == .settings || tab == .today }
 
     static func barTab(forPage section: Tab, tasksTab: Bool) -> Tab {
         if section == .settings { return .today }

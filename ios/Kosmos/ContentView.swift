@@ -26,8 +26,8 @@ struct ContentView: View {
     // Whether the app has really been in the background, for the bar's Tasks check on return (tracked apart from the
     // biometric gate's didBackground, which only runs when that gate is on).
     @State private var tabsBackgrounded = false
-    // A signed-in launch opens on Agents, as in slice 1, until Mona Lisa rules on opening on Today (#6846 leaves it
-    // open). The App Store screenshot build
+    // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
+    // The App Store screenshot build
     // (ios/store/shoot-app.sh) photographs board screens in the web view, opened by address, so it lights the tab
     // that address belongs to (a project room under Projects).
     #if KOSMOS_STORE_SHOTS
@@ -42,21 +42,37 @@ struct ContentView: View {
         // The Agents tab's sample screenshots (KOSMOS_SAMPLE_AGENTS=1, a Debug build only) open on Agents, signed in or not.
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" {
             // kosmos#7010: KOSMOS_SAMPLE_TAB=settings opens the native Settings tab's samples instead.
-            return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TAB"] == "settings" ? .settings : .agents
+            // kosmos#7030: KOSMOS_SAMPLE_TAB=today opens the native Today's samples.
+            switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TAB"] {
+            case "settings": return .settings
+            case "today": return .today
+            default: return .agents
+            }
         }
         #endif
-        return SessionKeychain.live.load() == nil ? .today : .agents
+        return .today
     }()
     @State private var tab = ContentView.startTab
+    #endif
+    // kosmos#7030: Today is native, and the board view still shows under it whatever the app sends there (a tapped
+    // notification, Check it, the board's own Settings, the sign-in): true while it does. A person's press on Today
+    // brings back the native screen. Not signed in yet: the board, where the sign-in is. The App Store screenshot
+    // build photographs board screens, so it starts on the board too.
+    #if KOSMOS_STORE_SHOTS
+    @State private var todayBoard = true
+    #else
+    @State private var todayBoard = SessionKeychain.live.load() == nil
     #endif
     typealias Tab = AppTabs.Tab
 
     // A person's press on the bar: it also asks the board to open that tab's section. A tab the app selects itself (an
     // agent tap, a notification) does not press, so the page it was sent to stays. Where SwiftUI reports a press on
     // the tab already selected (not verified here: a device check), it presses again, which takes the section back to
-    // its top, as the board's own tab does: from an agent's chat under Today, pressing Today goes to the board's home.
+    // its top, as the board's own tab does. kosmos#7030: a press on Today shows the native Today, from a page sent
+    // under it too (where SwiftUI reports that press: the same device check).
     private var pressing: Binding<Tab> {
         Binding(get: { tab }, set: { new in
+            if new == .today { todayBoard = false }
             tab = new
             // A native tab (Agents, Settings #7010) runs nothing on the hidden page, so an agent's chat there keeps its
             // place, and it ends any press still waiting (PressTracker.press).
@@ -75,6 +91,8 @@ struct ContentView: View {
                     ForEach(AppTabs.visible(tasksTab: web.tasksTab), id: \.self) { which in
                         tabPage(which)
                             .tabItem { Label(which.title, systemImage: which.symbol) }
+                            // kosmos#7030: Today's badge is the board's one number, the Dock's (counts.waiting); none at 0 or off.
+                            .badge(which == .today ? (board.waitingCount ?? 0) : 0)
                             .tag(which)
                     }
                 }
@@ -87,7 +105,7 @@ struct ContentView: View {
         // A tapped notification, or an agent tapped on the Agents tab, opens on Today (the chat shows there until it is
         // native).
         .onChange(of: pushManager.boardToOpen) { request in
-            if request != nil { tab = .today }
+            if request != nil { todayBoard = true; tab = .today }
         }
         // kosmos#7008: a sign-out or another account drops the chats now, not at the next visit to the tab.
         .onChange(of: pushManager.accountChanges) { _ in board.accountChanged() }
@@ -98,12 +116,16 @@ struct ContentView: View {
             web.answeredTab = nil
             // The board can be on a Tasks section the bar does not offer (a project's View all): it lights Projects,
             // and the page stays.
-            tab = AppTabs.barTab(forPage: back, tasksTab: web.tasksTab)
+            let shown = AppTabs.barTab(forPage: back, tasksTab: web.tasksTab)
+            // kosmos#7030: a board page that lights Today shows under it, not behind the native screen.
+            if shown == .today { todayBoard = true }
+            tab = shown
         }
         // The page moved section by itself (a link in it, a swipe back): the bar follows, without pressing.
         .onChange(of: web.pageMove) { move in
             guard let move = move else { return }
             if let next = AppTabs.follow(from: move.from, to: move.to, selected: tab, barHeld: web.barHeld, tasksTab: web.tasksTab) {
+                if next == .today { todayBoard = true }   // kosmos#7030, as above
                 tab = next
             }
         }
@@ -113,7 +135,7 @@ struct ContentView: View {
         }
         .onAppear {
             // A notification tapped on a cold launch can set boardToOpen before the first draw, which onChange misses.
-            if pushManager.boardToOpen != nil { tab = .today }
+            if pushManager.boardToOpen != nil { todayBoard = true; tab = .today }
             // Cold launch: onChange does not fire for scenePhase's initial value,
             // so prompt here when we start locked.
             if !isUnlocked { unlock() }
@@ -157,14 +179,21 @@ struct ContentView: View {
 
     // The app moving the bar itself (not an agent tap, which loads its own page): the board follows it.
     private func select(_ new: Tab) {
+        // kosmos#7030: the app sending the person to Today means the board under it (the sign-in, a Mac that did not
+        // answer), even when Today is already the tab showing.
+        if new == .today { todayBoard = true }
         guard new != tab else { return }
         tab = new
         web.press(new)
     }
 
-    // Agents and Settings are native; the other three show the shared board.
+    // Agents and Settings are native, and Today when nothing was sent under it (kosmos#7030); the rest show the board.
     @ViewBuilder private func tabPage(_ which: Tab) -> some View {
-        if which == .agents {
+        if which == .today && !todayBoard {
+            TodayView(client: board, openPage: { url in
+                pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+            }, openBoard: { select(.today) })
+        } else if which == .agents {
             AgentsView(client: board, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoard: { select(.today) })
@@ -175,7 +204,7 @@ struct ContentView: View {
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoardSettings: {
                 // The board's own Settings, under Today (AppTabs.barTab: its Settings section lights Today).
-                tab = .today
+                todayBoard = true; tab = .today
                 web.pressBoardSection(.settings)
             })
         } else {
