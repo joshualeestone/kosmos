@@ -1095,6 +1095,10 @@ final class FakeBoardWorld {
     var posted: [String] = []
     // Runs as a conversation read is answered, for a change that lands while a read is in flight.
     var onThreadRead: (() -> Void)?
+    // Runs as a POST to a conversation is answered (taken once), for a change while a send or press is in flight.
+    var onPost: (() -> Void)?
+    // When set, a POST yields this many times before it is answered, so a test can act while it is in the air.
+    var postYields = 0
     // Runs as a status read is answered (taken once), for a change that lands while a read is in flight.
     var onStatusRead: (() -> Void)?
     let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage!
@@ -1127,6 +1131,7 @@ final class FakeBoardWorld {
                 if r.httpMethod == "POST" {
                     let body = r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                     posted.append(body?["text"] as? String ?? "")
+                    if let hook = onPost { onPost = nil; hook() }
                     let next: (Int, String)? = sendQueue.isEmpty ? (200, #"{"delivery":{"state":"placed","at":"2026-10-23T20:00:00.000Z"},"recorded":true}"#) : sendQueue.removeFirst()
                     return next.map { answer($0.0, $0.1) }
                 }
@@ -1154,7 +1159,10 @@ func boardLoopTests() async {
         let defaults = UserDefaults(suiteName: "kosmos-board-loop-tests")!
         defaults.removePersistentDomain(forName: "kosmos-board-loop-tests")
         let client = BoardClient(coordinator: coordinator, sessionStore: sessions, macStore: macs, cookies: world.cookies,
-                                 env: .init(send: { world.send($0) },
+                                 env: .init(send: { r in
+                                                if r.httpMethod == "POST" { for _ in 0..<world.postYields { await Task.yield() } }
+                                                return world.send(r)
+                                            },
                                             sleep: { world.clock += $0; await Task.yield() },
                                             now: { world.clock },
                                             defaults: defaults))
@@ -1396,6 +1404,59 @@ section("native board loop: connecting")
         w.onThreadRead = nil
         await c.post("hello", to: dana)
         check(c.pending["dana"]?.last?.after == nil, "and the old read did not set the new chat's newest row")
+        c.stop()
+    }
+    do {
+        // kosmos#7016: a press through the client, against the fake Mac.
+        let (c, w, _, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        let dana = c.agents.first { $0.session == "dana" }!
+        let choices = Board.Choices(options: [.init(n: 1, label: "Tuesday", lasting: false)], asked: "Q?", key: "k1")
+        let tue = choices.options[0]
+        w.sendQueue = [(200, #"{"delivery":{"state":"placed"}}"#)]
+        let sent = await c.press(tue, of: choices, to: dana)
+        check(sent == .sent && w.posted.last == "1", "a press types the option's digit and comes back sent")
+        check(c.answeredNow("dana", key: "k1") == BoardClient.Answered(key: "k1", at: w.clock, sure: true, n: 1), "and locks that question")
+        check(c.answeredNow("dana", key: "k2") == nil, "but not another question")
+        w.clock += 6
+        check(c.answeredNow("dana", key: "k1") == nil, "the lock ends after 6 s")
+        w.sendQueue = [(409, #"{"error":"its question is no longer on its screen"}"#)]
+        let refused = await c.press(tue, of: choices, to: dana)
+        check(refused == .refused("Its question is no longer on its screen.") && c.answeredNow("dana", key: "k1") == nil,
+              "a refusal typed nothing: no lock, the buttons come back")
+        w.sendQueue = [nil]
+        let unsure = await c.press(tue, of: choices, to: dana)
+        check(unsure == .notSure(Board.choiceUnsure) && c.answeredNow("dana", key: "k1")?.sure == false, "no answer may have gone: locked, not sure")
+        check(c.pressing.isEmpty, "nothing left in the air")
+
+        // One at a time, and never across a typed send.
+        w.postYields = 50
+        w.sendQueue = [(200, #"{"delivery":{"state":"placed"}}"#)]
+        let inFlight = Task { await c.press(tue, of: choices, to: dana) }
+        let flying = await settle { c.pressing.contains("dana") }
+        check(flying, "CONTROL: the first press is in the air")
+        let second = await c.press(tue, of: choices, to: dana)
+        let posts = w.posted.count
+        await c.post("typed meanwhile", to: dana)
+        check(second == nil && w.posted.count == posts && c.pending["dana"]?.isEmpty != false,
+              "while a press is in the air, a second press and a typed send send nothing")
+        let first = await inFlight.value
+        check(first == .sent && !c.pressing.contains("dana"), "and the first comes back sent")
+        let typed = Task { await c.post("a typed reply", to: dana) }
+        let typing = await settle { c.isSending("dana") }
+        check(typing, "CONTROL: a typed send is in the air")
+        let during = await c.press(tue, of: choices, to: dana)
+        check(during == nil, "a press while a typed send is in the air presses nothing")
+        await typed.value
+        w.postYields = 0
+
+        // A reset while a press is in the air: its answer is dropped.
+        w.onPost = { MainActor.assumeIsolated { c.accountChanged() } }
+        w.sendQueue = [(200, #"{"delivery":{"state":"placed"}}"#)]
+        let across = await c.press(tue, of: choices, to: dana)
+        w.onPost = nil
+        check(across == nil && c.answered.isEmpty && c.pressing.isEmpty, "a press that crossed a reset leaves nothing behind")
         c.stop()
     }
     do {
