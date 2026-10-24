@@ -1,8 +1,9 @@
 'use strict';
 /**
  * kosmos#7032 (the iPhone's room, slice 9 of #6838): GET /api/project/:id/room pages its JSON arm. ?n=N returns the
- * room's last N rows and `olderCount`; ?before=<a row's at> the last N older than it. CONTROL: without ?n the JSON arm
- * is exactly what it was (every row, no olderCount), which is what the board reads. Real rows through the real route.
+ * room's last N rows, `olderCount` and a server-made `olderCursor`; ?n=N&cursor=<olderCursor> the page before it.
+ * CONTROL: without ?n the JSON arm is exactly what it was (every row, no olderCount), which is what the board reads.
+ * Real rows through the real route.
  *
  * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE (HOME included).
  */
@@ -101,7 +102,7 @@ test('#7032 CONTROL: a bad n is ignored as the text arm ignores it (the whole ro
 test('#7032 review 2: a cursor that names no row of this room is refused, never an empty page that reads as the start', async () => {
   const real = (await room('?n=2')).json.olderCursor;
   const [at] = real.split('|');
-  for (const c of ['2026-01-01T00:00:00.000Z|0', at + '|999', at.replace(/\.\d{3}Z$/, 'Z') + '|0', 'x 2026|0', 'not-a-cursor', at]) {
+  for (const c of ['2026-01-01T00:00:00.000Z|0', at + '|999', at.replace(/\.\d{3}Z$/, 'Z') + '|0', 'x 2026|0', 'not-a-cursor', at, at + '|-1', '|0']) {
     const r = await room('?n=2&cursor=' + encodeURIComponent(c));
     assert.equal(r.status, 400, c + ' -> ' + JSON.stringify(r.json));
     assert.match(r.json.error, /not one this room has/, c);
@@ -132,4 +133,42 @@ test('#7032 review 2: the phone\'s contract is written down where the iPhone cod
   for (const word of ['olderCount', 'olderCursor', '?n=N&cursor=<olderCursor>', 'is a 400', 're-read the newest']) {
     assert.ok(doc.includes(word), 'ios/README.md no longer says: ' + word);
   }
+});
+
+test('#7032 review 3: three posts at one moment with the page edge after the first, and an older row stored without milliseconds, page exactly', async () => {
+  const tie = new Date(Date.now() + 1000).toISOString();
+  const plant = (row) => fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', project: pid, from: 'dana', to: [], outcomes: {}, ...row }) + '\n');
+  plant({ id: 'm7201', text: 'three A', at: tie });
+  plant({ id: 'm7202', text: 'three B', at: tie });
+  plant({ id: 'm7203', text: 'three C', at: tie });
+  const newest = await room('?n=2');
+  assert.deepEqual(texts(newest.json), ['three B', 'three C'], 'premise: the edge falls inside the tie');
+  assert.deepEqual(texts((await room('?n=1&cursor=' + encodeURIComponent(newest.json.olderCursor))).json), ['three A']);
+  // An older row's time with no milliseconds (record() takes any time that parses): its cursor must work.
+  const other = projects.create({ name: 'Old Times Room' }).id;
+  const put = (row) => fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', project: other, from: 'dana', to: [], outcomes: {}, ...row }) + '\n');
+  put({ id: 'm7301', text: 'old', at: '2026-01-01T00:00:00.000Z' });
+  put({ id: 'm7302', text: 'bare', at: '2026-01-02T00:00:00Z' });
+  put({ id: 'm7303', text: 'new', at: '2026-01-03T00:00:00.000Z' });
+  const r1 = await (await fetch(`${base}/api/project/${other}/room?n=2`)).json();
+  assert.equal(r1.olderCursor, '2026-01-02T00:00:00Z|0', 'premise: the cursor names the bare time as stored');
+  const r2 = await fetch(`${base}/api/project/${other}/room?n=2&cursor=` + encodeURIComponent(r1.olderCursor));
+  assert.equal(r2.status, 200, 'the computer refused its own cursor');
+  assert.deepEqual((await r2.json()).rows.map((r) => r.text), ['old']);
+});
+
+test('#7032 review 3: a room whose log could not be read is a 503 when paged, never an empty page or a bad cursor', async () => {
+  const real = messages.record;
+  const cursor = (await room('?n=2')).json.olderCursor;
+  messages.record = () => ({ ok: false, rows: [] });
+  try {
+    for (const q of ['?n=2', '?n=2&cursor=' + encodeURIComponent(cursor)]) {
+      const r = await room(q);
+      assert.equal(r.status, 503, q + ' -> ' + JSON.stringify(r.json));
+      assert.match(r.json.error, /could not read this room/, q);
+    }
+    const whole = await room();
+    assert.equal(whole.status, 200, 'CONTROL: the unpaged read keeps its own behaviour (ok:false, the board says it could not read)');
+    assert.equal(whole.json.ok, false);
+  } finally { messages.record = real; }
 });

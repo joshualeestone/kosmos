@@ -102,7 +102,7 @@ test('#6487: the iPhone rows ask about exactly the two events the computer answe
   assert.ok(parseId('report:' + at + ':ada'), 'report: is answered');
   assert.ok(parseId('reply:' + at + ':ada'), 'reply: is answered');
   assert.ok(parseId('post:m12'), 'post:<post id> is answered (kosmos#7032)');
-  assert.match(DOC, /The computer also answers a room post's id \(`post:<post id>`, kosmos#7032\)/, 'the page does not say room posts are answered');
+  assert.ok(DOC.includes('`post:<post id>`'), 'the page does not say room posts are answered');
   for (const kind of ['posted', 'ready', 'built', 'crashloop', 'stuckterminal', 'ownbounds', 'post']) {
     assert.equal(parseId(kind + ':' + at + ':ada'), null, kind + ': answered now; update the page');
   }

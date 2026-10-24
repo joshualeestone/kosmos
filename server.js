@@ -21343,8 +21343,8 @@ const server = http.createServer(async (req, res) => {
        with `olderCount` (how many older rows are left) and `olderCursor`, made here, never by the phone: the page before
        this one is ?n=N&cursor=<olderCursor>. A cursor is the page's first row, named as its stored time plus how many
        rows share that time ahead of it ("<at>|<k>"), so it names Kosmos lines (which carry no id) as exactly as posts,
-       and ties on a time are exact (the sort is stable). A cursor that names no row of this room is a 400, never an
-       empty page that would read as the start of the room. Without ?n the JSON arm is unchanged (the board reads the
+       and ties on a time are exact (the sort is stable). A cursor that names no row of this room is a 400, and a room
+       whose log could not be read is a 503: neither is ever an empty page that would read as the start of the room. Without ?n the JSON arm is unchanged (the board reads the
        whole room). What a cursor cannot do: a post is dated when its send STARTS and written when delivery ends, so a
        post written after a page was read can sort into it; it lands in the newest page unless more than N rows arrive
        during its delivery, which is why the phone re-reads the newest page and merges. */
@@ -21668,12 +21668,21 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (jsonRows !== null) {   // kosmos#7032: a page (see the cursor note where n is read)
+        // Review 3: a log that could not be read is not the start of the room and not a bad cursor.
+        if (!rec.ok) {
+          sendJson(res, 503, { error: 'we could not read this room just now, so no page was read' });
+          return;
+        }
         let pool = rows;
         if (jsonCursor !== null) {
-          const m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\|(\d{1,5})$/.exec(jsonCursor);
-          const start = m ? rows.findIndex((r) => r && r.at === m[1]) : -1;
-          const at = start >= 0 ? start + Number(m[2]) : -1;
-          if (at < 0 || !rows[at] || rows[at].at !== m[1]) {
+          // "<the row's at, exactly as stored>|<k>". Any stored time (an older row may lack milliseconds): the check
+          // that a row of this room has that exact time is what refuses a cursor naming none.
+          const bar = jsonCursor.lastIndexOf('|');
+          const time = bar > 0 && jsonCursor.length <= 80 ? jsonCursor.slice(0, bar) : '';
+          const k = bar > 0 && /^\d{1,6}$/.test(jsonCursor.slice(bar + 1)) ? Number(jsonCursor.slice(bar + 1)) : -1;
+          const start = time && k >= 0 ? rows.findIndex((r) => r && r.at === time) : -1;
+          const at = start >= 0 ? start + k : -1;
+          if (at < 0 || !rows[at] || rows[at].at !== time) {
             sendJson(res, 400, { error: 'that place in the room is not one this room has, so no earlier page was read' });
             return;
           }
