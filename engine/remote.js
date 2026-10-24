@@ -903,8 +903,11 @@ function serviceKeys() { return serviceKeyFiles.serviceKeyCheck(STATE_DIR(), { p
    and removed through win32env, so a Windows child never gets two spellings (#5386). */
 function setupEnv(accepted = null) {
   const keys = serviceKeyFiles.expectedCoordinatorKeys({ production: COORDINATOR() === DEFAULT_COORDINATOR });
-  // kosmos#6596 step 8: a key the person accepted vouches for itself at the registration it was taken for.
-  if (keys || accepted) return envSet({ ...process.env }, 'KOSMOS_EXPECT_COORDINATOR_KEYS', [keys, accepted].filter(Boolean).join(','));
+  if (keys) return envSet({ ...process.env }, 'KOSMOS_EXPECT_COORDINATOR_KEYS', keys);
+  /* kosmos#6596 step 8: a key the person accepted vouches for itself at the registration it was taken for, beside the
+     pin this computer already holds, so a service that goes back to that key still registers. Never with the
+     shipped list above: under a list the connector never names a key to accept, and adding one would widen it. */
+  if (accepted) return envSet({ ...process.env }, 'KOSMOS_EXPECT_COORDINATOR_KEYS', [pinHeld(), accepted].filter(Boolean).join(','));
   const inherited = Object.keys(process.env).some((k) => k.toUpperCase() === 'KOSMOS_EXPECT_COORDINATOR_KEYS');
   return inherited ? envDelete({ ...process.env }, 'KOSMOS_EXPECT_COORDINATOR_KEYS') : null;
 }
@@ -919,6 +922,13 @@ function setupEnv(accepted = null) {
 const OFFERED_KEY_LABEL = 'the key it offered: ';
 const ACCEPTED_KEY_MS = 60 * 60 * 1000;
 let acceptedKey = null;
+// The key a refused sign-in last named, with when: the only key that can be accepted (review 1).
+let lastOffered = null;
+const fresh = (rec) => !!rec && Date.now() - rec.at <= ACCEPTED_KEY_MS && Date.now() >= rec.at;
+/* The pin this computer holds, in its spelling, or null (none, unreadable, not a key). */
+function pinHeld() {
+  try { return pinSpelledKey(fs.readFileSync(path.join(STATE_DIR(), 'coordinator_pubkey'), 'utf8').trim()); } catch { return null; }
+}
 function pinSpelledKey(text) {
   if (typeof text !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(text)) return null;
   const raw = Buffer.from(text, 'base64url');
@@ -943,13 +953,23 @@ function serviceKeySetHeld() {
 /* A failed registration that named the key it was offered, while no set is held: the page can offer to accept it. */
 function withKeyChange(result) {
   if (!result || result.ok !== false || serviceKeySetHeld()) return result;
-  const offered = offeredKeyIn(String(result.stderr || '')) || offeredKeyIn(String(result.because || ''));
-  return offered ? { ...result, keyChanged: { offered } } : result;
+  // The whole of stderr; `because` (its last line) only when there is no stderr, so a text naming two keys across
+  // lines is not read as naming one.
+  const offered = result.stderr ? offeredKeyIn(String(result.stderr)) : offeredKeyIn(String(result.because || ''));
+  if (!offered) return result;
+  lastOffered = { key: offered, at: Date.now() };
+  return { ...result, keyChanged: { offered } };
 }
+/* Only the key the last refused sign-in named, within the hour, with no shipped list in force (under one the
+   connector names no key) and no signed set held, and not while this computer is being forgotten. */
 function acceptOfferedKey(key) {
   const k = pinSpelledKey(key);
-  if (!k) return { ok: false, because: 'that is not a key Kosmos+ offered' };
+  if (!k || !fresh(lastOffered) || lastOffered.key !== k) return { ok: false, because: 'that is not a key Kosmos+ offered' };
+  if (forgetting || forgetInFlight) return { ok: false, because: 'this computer is being forgotten' };
   if (serviceKeySetHeld()) return { ok: false, because: 'this computer holds a signed list of Kosmos+ keys, so a different key cannot be accepted here' };
+  if (serviceKeyFiles.expectedCoordinatorKeys({ production: COORDINATOR() === DEFAULT_COORDINATOR })) {
+    return { ok: false, because: 'this version of Kosmos checks Kosmos+ keys against its own signed list, so a different key cannot be accepted here' };
+  }
   acceptedKey = { key: k, at: Date.now() };
   return { ok: true, because: null };
 }
@@ -957,8 +977,7 @@ function acceptOfferedKey(key) {
 function takeAcceptedKey() {
   const a = acceptedKey;
   acceptedKey = null;
-  if (!a || Date.now() - a.at > ACCEPTED_KEY_MS || Date.now() < a.at) return null;
-  return a.key;
+  return fresh(a) ? a.key : null;
 }
 
 /** The switch. Turning on does not start anything by itself unless setup
@@ -1527,7 +1546,8 @@ async function forget({ anyway = false } = {}) {
   // gets the first one's answer instead of retiring the same Mac beside it. kosmos#6389: except that a second
   // asking `anyway` does not settle for a first one's kept: it runs once the first has ended.
   if (forgetInFlight) return anyway ? forgetInFlight.then((got) => (got && got.kept ? forget({ anyway: true }) : got)) : forgetInFlight;
-  acceptedKey = null;   // kosmos#6596 step 8: an accepted key belonged to the trust being forgotten
+  acceptedKey = null;   // kosmos#6596 step 8: an accepted or offered key belonged to the trust being forgotten
+  lastOffered = null;
   signinEpoch += 1;
   signinSession = null;
   companySetup = null;   // kosmos#5628 review 1: a forgotten Mac keeps no half-made company setup (nor its secret)
@@ -4255,7 +4275,7 @@ module.exports = { clearStateDir, offeredKeyIn, acceptOfferedKey, OFFERED_KEY_LA
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   bumpSelfEpochForTests: () => { selfEpoch += 1; },
-  resetForTests: () => { acceptedKey = null; tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; flushWaiting(); waitingInFlight = null; stopChild(); },
+  resetForTests: () => { acceptedKey = null; lastOffered = null; tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; flushWaiting(); waitingInFlight = null; stopChild(); },
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
