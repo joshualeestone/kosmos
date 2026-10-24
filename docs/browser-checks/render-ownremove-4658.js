@@ -142,6 +142,17 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           chk(dlg.open && /^Take this computer out of /.test(dlg.title) && dlg.go === 'Take it out', `${E} Remove opens the confirm dialog`, JSON.stringify(dlg));
           chk(dlg.focus === 'mem-keep', `${E} the dialog opens on Cancel`, String(dlg.focus));
           chk(posted.length === 0, `${E} pressing Remove posts nothing before the confirm`, String(posted.length));
+          // A refresh while the dialog is open rebuilds the rows (the laptop's day moves, so the markup changes): the
+          // button that opened the dialog is gone, and Cancel must still find that computer's Remove again.
+          state.allowed = state.allowed.map((x) => (x.pub === 'pub-laptop' ? Object.assign({}, x, { at: AT_LAPTOP + 2 * 86400000 }) : x));
+          const rebuilt = await page.evaluate(async (a) => {
+            const b = document.querySelector(a.sel);
+            b.dataset.beforeRefresh = '1';
+            await fedOwnLoad(a.pid);
+            const n = document.querySelector(a.sel);
+            return !!n && !n.dataset.beforeRefresh;
+          }, { sel, pid: ownerP.id });
+          chk(rebuilt, `${E} a refresh under the open dialog rebuilt that Remove (the case below is real)`);
           await page.click('#mem-keep');
           await page.waitForTimeout(200);
           const afterCancel = await page.evaluate(() => ({ open: !document.getElementById('mem-modal').hidden, act: (document.activeElement && document.activeElement.dataset) ? document.activeElement.dataset.ownAct + ':' + document.activeElement.dataset.ownPub : '' }));
@@ -158,7 +169,9 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
             listed: !!document.querySelector(s), live: !document.getElementById('mem-go').disabled }), sel);
           chk(refused.open && refused.msg === REFUSAL && refused.listed && refused.live, `${E} a refusal is said in the dialog, the computer still listed`, JSON.stringify(refused));
 
-          // Take it out: exactly that row's key, the dialog closes, the row goes, the section says so.
+          // Take it out: exactly that row's key, the dialog closes, the row goes, the section says so. The reads fail
+          // from here, so the reload after the remove keeps the list it had: the removed computer must not be in it.
+          failReads = true; failsServed = 0;
           await page.click('#mem-go');
           await page.waitForFunction((s) => document.getElementById('mem-modal').hidden && !document.querySelector(s), sel, { timeout: 8000 }).catch(() => null);
           const rm = posted.filter((p) => p.path.endsWith('/own-remove'));
@@ -169,18 +182,18 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
             return { open: !document.getElementById('mem-modal').hidden, left: [...document.querySelectorAll(box + ' [data-own-act="remove"]')].map((b) => b.dataset.ownPub),
               msg: (document.querySelector(box + ' .fmsg') || {}).textContent || '', inBox: !!(a && a.closest && a.closest(box)), onRemove: !!(a && a.dataset && a.dataset.ownAct === 'remove') };
           }, BOX);
-          chk(!done.open && done.left.length === 1 && done.left[0] === 'pub-laptop', `${E} the removed computer leaves the list`, JSON.stringify(done.left));
+          chk(!done.open && done.left.length === 1 && done.left[0] === 'pub-laptop' && failsServed >= 1, `${E} the removed computer leaves the list, even when the reload after it fails`, JSON.stringify(done.left) + ' fails=' + failsServed);
           chk(/^Taken out\./.test(done.msg), `${E} the section says it was taken out`, done.msg);
           chk(done.inBox && !done.onRemove, `${E} focus stays in the section, not on another computer's Remove`, JSON.stringify(done));
           await page.waitForFunction(() => /^Taken out\./.test(document.getElementById('pj-fed-own-said').textContent), null, { timeout: 4000 }).catch(() => null);
           chk(/^Taken out\./.test(await page.evaluate(() => document.getElementById('pj-fed-own-said').textContent)), `${E} the result is put in the one live region`);
 
-          // Failed reads keep the list as it was after the remove: the removed computer does not come back.
-          failReads = true; failsServed = 0;
-          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          // A second failed load (two misses in a row, the most a list is kept through) still keeps it without the
+          // removed computer.
+          failsServed = 0;
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
           const kept = await page.evaluate((box) => [...document.querySelectorAll(box + ' [data-own-act="remove"]')].map((b) => b.dataset.ownPub), BOX);
-          chk(failsServed >= 6 && kept.length === 1 && kept[0] === 'pub-laptop', `${E} failed reads keep the list without the removed computer`, JSON.stringify(kept) + ' fails=' + failsServed);
+          chk(failsServed >= 3 && kept.length === 1 && kept[0] === 'pub-laptop', `${E} failed reads keep the list without the removed computer`, JSON.stringify(kept) + ' fails=' + failsServed);
           failReads = false;
           // Let in again: the board lists it, so the page shows it again.
           state.allowed = state.allowed.concat([{ pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }]);
