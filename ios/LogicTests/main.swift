@@ -887,6 +887,14 @@ do {
     check(res(200, #"{"delivery":{"state":"held"},"recorded":false}"#) == .refused(nil), "held and not kept typed nothing")
     check(res(409, #"{"error":"Dana is at its trust prompt"}"#) == .refused("Dana is at its trust prompt"), "a refusal keeps the Mac's words")
     check(res(0, nil) == .noAnswer, "no answer is no answer")
+    check(res(502, #"{"error":"the tunnel dropped"}"#) == .noAnswer && res(504, nil) == .noAnswer && res(500, #"{"error":"x"}"#) == .noAnswer,
+          "a 5xx, words or not, is no answer (it may have arrived), so a retry reads first")
+    check(res(400, #"{"error":"x"}"#) == .refused("x") && res(499, nil) == .refused(nil), "CONTROL: a 4xx is still a refusal")
+    check(Board.isWebLink(URL(string: "https://example.com/a")!) && Board.isWebLink(URL(string: "HTTP://example.com")!),
+          "web addresses stay links")
+    check(!Board.isWebLink(URL(string: "tel:+15555550100")!) && !Board.isWebLink(URL(string: "mailto:a@example.com")!)
+          && !Board.isWebLink(URL(string: "shortcuts://run-shortcut?name=x")!) && !Board.isWebLink(URL(string: "https:nohost")!),
+          "any other address behind a message's words is not a link")
     check(Board.pendingState(after: .kept(at: "T")) == .kept(at: "T") && Board.pendingState(after: .noAnswer) == .failed(reason: nil)
           && Board.pendingState(after: .refused("x")) == .failed(reason: "x"), "each answer's pending state")
     check(Board.notSentLine(agentRunning: true, name: "Dana") == ("Not sent. Tap to try again.", true)
@@ -983,6 +991,8 @@ final class FakeBoardWorld {
     var threadAnswer: (Int, String)? = (200, #"{"messages":[],"olderCount":0}"#)
     var sendQueue: [(Int, String)?] = []
     var posted: [String] = []
+    // Runs as a conversation read is answered, for a change that lands while a read is in flight.
+    var onThreadRead: (() -> Void)?
     let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage!
 
     func count(_ path: String) -> Int { requests.filter { $0.hasSuffix(path) }.count }
@@ -1015,6 +1025,7 @@ final class FakeBoardWorld {
                     let next: (Int, String)? = sendQueue.isEmpty ? (200, #"{"delivery":{"state":"placed","at":"2026-10-23T20:00:00.000Z"},"recorded":true}"#) : sendQueue.removeFirst()
                     return next.map { answer($0.0, $0.1) }
                 }
+                onThreadRead?()
                 return threadAnswer.map { answer($0.0, $0.1) }
             }
             if url.path.hasPrefix("/api/agent/") && url.path.hasSuffix("/avatar") {
@@ -1186,20 +1197,83 @@ section("native board loop: connecting")
         c.stop()
     }
     do {
-        // A sign-out drops every chat's pending messages, unsent words and sent-again marks: nothing typed or failed under
-        // one account is shown, or sent, under the next.
+        // A read that finds no session (a Keychain that cannot be read yet) keeps the chats; a sign-out the web view
+        // reports drops every chat's pending messages, unsent words and sent-again marks at once; and a session that
+        // comes back as someone else's drops them too. Nothing typed or failed under one account is shown, or sent,
+        // under the next.
         let (c, w, sessions, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        let dana = c.agents.first { $0.session == "dana" }!
+        func hold() async {
+            w.sendQueue = [(409, #"{"error":"no"}"#)]
+            await c.post("send the wire details", to: dana)
+            c.drafts["dana"] = "half a thought"
+        }
+        await hold()
+        check(c.pending["dana"]?.isEmpty == false && c.drafts["dana"] != nil, "CONTROL: a failed message and a draft are held")
+        let epoch = c.chatEpoch
+        c.stop()
+        sessions.value = nil
+        c.start()
+        check(c.pending["dana"]?.isEmpty == false && c.drafts["dana"] == "half a thought" && c.chatEpoch == epoch,
+              "no session read: the chats, the draft and the open chat stay")
+        sessions.value = "kst1"
+        c.start()
+        check(c.pending["dana"]?.isEmpty == false && c.drafts["dana"] == "half a thought" && c.chatEpoch == epoch,
+              "and the same session back keeps them")
+        c.stop()
+        sessions.value = nil
+        c.start()
+        sessions.value = "kst2"
+        c.start()
+        check(c.pending.isEmpty && c.drafts.isEmpty && c.resent.isEmpty && c.chatEpoch > epoch,
+              "another session after a read with none: all of it is gone, and the open chat resets")
+        _ = await settle { isLive(c) }
+        await hold()
+        let before = c.chatEpoch
+        c.accountChanged()
+        check(c.pending.isEmpty && c.drafts.isEmpty && c.resent.isEmpty && c.chatEpoch > before,
+              "a sign-out the web view reports: all of it is gone at once")
+        c.stop()
+    }
+    do {
+        // Another Mac: the chats opened on the one before go, before any chat call reaches the new one.
+        let (c, w, _, _) = make("kst1")
         c.start()
         _ = await settle { isLive(c) }
         let dana = c.agents.first { $0.session == "dana" }!
         w.sendQueue = [(409, #"{"error":"no"}"#)]
         await c.post("send the wire details", to: dana)
         c.drafts["dana"] = "half a thought"
-        check(c.pending["dana"]?.isEmpty == false && c.drafts["dana"] != nil, "CONTROL: a failed message and a draft are held")
+        let epoch = c.chatEpoch
+        c.retry()
+        _ = await settle { isLive(c) }
+        check(c.pending["dana"]?.isEmpty == false && c.chatEpoch == epoch, "CONTROL: the same Mac again keeps them")
+        w.macsBody = #"{"macs":[{"name":"Office","address":"office.kosmosplus.com","last_seen":100}]}"#
+        c.retry()
+        let moved = await settle { if case .live(let m) = c.phase { return m.address == "office.kosmosplus.com" }; return false }
+        check(moved, "CONTROL: the client moved to the other Mac")
+        check(c.pending.isEmpty && c.drafts.isEmpty && c.chatEpoch > epoch, "another Mac: the chats from the one before are gone")
         c.stop()
-        sessions.value = nil
+    }
+    do {
+        // A retry's read that comes back after the chats were forgotten settles nothing into the new account's chat.
+        let (c, w, _, _) = make("kst1")
         c.start()
-        check(c.pending.isEmpty && c.drafts.isEmpty && c.resent.isEmpty, "signed out: all of it is gone")
+        _ = await settle { isLive(c) }
+        let dana = c.agents.first { $0.session == "dana" }!
+        w.sendQueue = [nil]
+        await c.post("are you there", to: dana)
+        let id = c.pending["dana"]!.last!.id
+        w.threadAnswer = (200, #"{"messages":[{"at":"2026-10-23T20:00:09.000Z","text":"old account's words","from":null,"delivery":{"state":"placed"}}]}"#)
+        w.onThreadRead = { MainActor.assumeIsolated { c.accountChanged() } }
+        let posts = w.posted.count
+        await c.retry(id, to: dana)
+        w.onThreadRead = nil
+        check(w.posted.count == posts, "nothing is sent for a chat that was forgotten meanwhile")
+        await c.post("hello", to: dana)
+        check(c.pending["dana"]?.last?.after == nil, "and the old read did not set the new chat's newest row")
         c.stop()
     }
     do {

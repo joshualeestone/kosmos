@@ -361,6 +361,12 @@ enum Board {
         return r
     }
 
+    // A link in an agent's message is kept only when it opens a web page (http or https, with a host).
+    static func isWebLink(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return false }
+        return !(url.host ?? "").isEmpty
+    }
+
     // The board's own longest message (engine/chat.js MAX_MESSAGE), counted as it counts: UTF-16 units of the message
     // with its runs of spaces and line breaks made single spaces (cleanMessage).
     static let maxMessage = 10000
@@ -471,7 +477,9 @@ enum Board {
     static func readThread(status: Int, data: Data?) -> ThreadRead {
         let obj = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if (200...299).contains(status) {
-            // A conversation the Mac cannot file says so (historyUnfilable), rather than reading as an empty one.
+            // A conversation the Mac cannot file says so (historyUnfilable), rather than reading as an empty one. Its
+            // messages sent from here stay under the reason as they are (ChatView draws pending ones with no thread):
+            // one the Mac took shows as sent, since no row will ever come to settle it.
             if obj?["historyUnfilable"] as? Bool == true, let why = obj?["historyBecause"] as? String, !why.isEmpty { return .refused(why) }
             if let data, let t = parseThread(data) { return .thread(t) }
             if let why = obj?["historyBecause"] as? String, !why.isEmpty { return .refused(why) }
@@ -585,7 +593,10 @@ enum Board {
             if state == "unconfirmed" { return .unconfirmed }
             return .refused((d["because"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         }
-        if status == 0 { return .noAnswer }
+        // A 5xx may come from the relay or tunnel after the Mac took the message, so it is no answer (a retry reads
+        // first), even when it carries words. The board's refusals are 4xx; its one 500 (a request it could not read,
+        // server.js thread POST) sent nothing, which the read before a retry finds.
+        if status == 0 || status >= 500 { return .noAnswer }
         return .refused((obj?["error"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
 
