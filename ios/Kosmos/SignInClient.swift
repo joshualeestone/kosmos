@@ -96,8 +96,20 @@ final class SignInClient {
         return SignIn.allowRead(status: answer.statusCode, json: try? JSONSerialization.jsonObject(with: data))
     }
 
-    private func post(_ path: String, _ body: [String: Any]) async throws -> (Int, Any?) {
+    // kosmos#7046: setting up a required second step, with the enrol-only token verify gave (never a session).
+    func enrol(token: String) async throws -> SignIn.Enrolled {
+        let (status, json) = try await post(SignIn.enrolPath, SignIn.enrolBody(), bearer: token)
+        return SignIn.enrolled(status: status, json: json)
+    }
+
+    func confirmSetup(token: String, code: String) async throws -> SignIn.Answer {
+        let (status, json) = try await post(SignIn.confirmPath, SignIn.confirmBody(code: code), bearer: token)
+        return SignIn.answer(status: status, json: json)
+    }
+
+    private func post(_ path: String, _ body: [String: Any], bearer: String? = nil) async throws -> (Int, Any?) {
         var request = URLRequest(url: coordinator.appendingPathComponent(path))
+        if let bearer { request.setValue("Bearer " + bearer, forHTTPHeaderField: "Authorization") }
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)

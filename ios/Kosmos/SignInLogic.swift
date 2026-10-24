@@ -109,7 +109,8 @@ enum SignIn {
         /// A second step is set up: the email code opened a challenge. `sentTo` is where an SMS went.
         case second(kind: String, challenge: String, sentTo: String?)
         /// A second step is required and not set up yet: that happens on the web sign-in page for now.
-        case needsSetup
+        /// kosmos#7046: the token is good only for setting up the step (never a session); `sms` whether texts can be sent.
+        case needsSetup(token: String, sms: Bool)
         /// Refused, with the coordinator's own sentence when it sent one. `proofRefused`: the device key was refused.
         case refused(message: String?, proofRefused: Bool)
         /// Not an answer this screen understands (a newer coordinator): the web sign-in page takes over.
@@ -122,7 +123,10 @@ enum SignIn {
             let code = body["code"] as? String
             return .refused(message: cleanMessage(body["error"]), proofRefused: code == "device_proof_refused")
         }
-        if body["enrol"] as? Bool == true { return .needsSetup }
+        if body["enrol"] as? Bool == true {
+            guard let token = body["token"] as? String, !token.isEmpty else { return .unknown }
+            return .needsSetup(token: token, sms: body["sms_available"] as? Bool == true)
+        }
         if let kind = body["second"] as? String, !kind.isEmpty {
             guard let challenge = body["challenge"] as? String, !challenge.isEmpty else { return .unknown }
             return .second(kind: kind, challenge: challenge, sentTo: cleanMessage(body["sent_to"]))
@@ -213,6 +217,10 @@ enum SignIn {
         /// The Mac said no. `asking`: told at sign-in, when Kosmos+ has already made it a fresh Allow on the Mac
         /// (signin.rs), so the screen still waits; false once the Mac has said no to that one too.
         case denied(asking: Bool)
+        /// kosmos#7046: a second step must be set up before this sign-in finishes. `token` is the enrol-only one.
+        case setup(token: String)
+        /// The authenticator's secret to add, then its first code to confirm.
+        case setupConfirm(token: String, otpauth: String, secret: String)
         /// Over to the web sign-in page, with why (one line the screen shows first).
         case web(reason: String)
         case done
@@ -229,8 +237,8 @@ enum SignIn {
             }
         case .second(let kind, let challenge, let sentTo):
             return (.second(email: email, kind: kind, challenge: challenge, sentTo: sentTo), nil, nil)
-        case .needsSetup:
-            return (.web(reason: webForSetup), nil, nil)
+        case .needsSetup(let token, _):
+            return (.setup(token: token), nil, nil)
         case .refused(let message, let proofRefused):
             return (proofRefused ? .web(reason: webForKey) : .code(email: email), nil,
                     proofRefused ? nil : (message ?? "That code is not right or has expired."))
@@ -243,6 +251,37 @@ enum SignIn {
     static let webForSetup = "Your account needs its second sign-in step set up first. That continues on the sign-in page."
     static let webForKey = "This iPhone could not prove its key to Kosmos+, so this continues on the sign-in page."
     static let webForUnknown = "Kosmos+ answered in a way this app does not know yet, so this continues on the sign-in page."
+
+    // MARK: - Setting up a required second step (kosmos#7046)
+
+    static let enrolPath = "/v1/second/enrol"
+    static let confirmPath = "/v1/second/confirm"
+
+    static func enrolBody() -> [String: Any] { ["kind": "totp"] }
+    static func confirmBody(code: String) -> [String: Any] { ["code": code] }
+
+    /// enrol's answer for an authenticator: the otpauth link and the secret (kosmos-relay second.rs EnrolResp), or the
+    /// coordinator's own sentence. Only an otpauth://totp/ link is taken.
+    enum Enrolled: Equatable { case totp(otpauth: String, secret: String), refused(String) }
+
+    static func enrolled(status: Int, json: Any?) -> Enrolled {
+        let body = json as? [String: Any] ?? [:]
+        guard (200..<300).contains(status) else { return .refused(cleanMessage(body["error"]) ?? "That did not work. Try again.") }
+        guard body["kind"] as? String == "totp", let link = body["otpauth"] as? String, link.hasPrefix("otpauth://totp/"),
+              let secret = body["secret"] as? String, !secret.isEmpty else { return .refused("That did not work. Try again.") }
+        return .totp(otpauth: link, secret: secret)
+    }
+
+    /// The secret as a person types it: groups of four.
+    static func grouped(secret: String) -> String {
+        stride(from: 0, to: secret.count, by: 4).map { i -> String in
+            let start = secret.index(secret.startIndex, offsetBy: i)
+            return String(secret[start..<(secret.index(start, offsetBy: 4, limitedBy: secret.endIndex) ?? secret.endIndex)])
+        }.joined(separator: " ")
+    }
+
+    static let setupWords = "Your account needs a second sign-in step. Set up an authenticator app now: it shows a new six-digit code every 30 seconds."
+    static let webForTexts = "Setting up text messages continues on the sign-in page."
 
     /// The second step's line, as the web page words it (secondWords). The authenticator shows "Kosmos" (the issuer
     /// in kosmos-relay totp.rs). A masked number stays whole on one line (non-breaking spaces; Mona Lisa's review).
