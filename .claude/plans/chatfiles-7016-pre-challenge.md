@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: chatfiles-7016
-diff_hash: 6113c8e6626f6a4aafd442705d63eb60153a2c097cf4b233436bea3382895c2e
+diff_hash: 7b0654767ee9f4efc35ef750509dcb8f66567d50c1eb246fa52aee97e63159db
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-24T03:40:29Z
@@ -23,6 +23,8 @@ Validation at d3301f15a3 (origin/main not ahead):
 - Release simulator build: 0 KOSMOS_SAMPLE_ markers and no sample file names; Debug has 10 (the control).
 - Shots, light and dark: 5-files and 5b-file-failed in ~/work/design-shots/kosmos-7016/. Tapping and Quick Look are not exercised (no tool on this Mac drives the simulator); the states come from Debug-only switches.
 Subdirectory CLAUDE.md audit: none under ios/.
+
+After the proof, Mona Lisa's design review (approved, one polish change) at 29972e09ef: the 40 pt symbol is centred in a 64 pt slot so every card's name starts at the same x. LogicTests pass again; Debug build clean; shot 5-files-light retaken.
 
 ### Per-Iteration Breakdown
 
