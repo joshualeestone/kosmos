@@ -374,6 +374,11 @@ struct ChatView: View {
     // question's state once, as a press would (nothing in the simulator can press here).
     @State private var sampleApplied = false
     private func applySampleChoice(_ t: Board.Thread) {
+        // KOSMOS_SAMPLE_FILESTATE=loading|failed: the first file card as a tap would leave it.
+        if !sampleApplied, let state = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILESTATE"],
+           let first = t.rows.lazy.flatMap(\.attachments).first {
+            fileStates[first.id] = state == "failed" ? .failed : .loading
+        }
         guard !sampleApplied, let c = t.choices, let which = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_CHOICE"] else { return }
         sampleApplied = true
         switch which {
