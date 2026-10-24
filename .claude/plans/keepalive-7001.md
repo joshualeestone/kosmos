@@ -473,3 +473,7 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
   on `t0: unbound variable` AND EXITED 0, with no verdict line. Only checking the verdict line caught it (the rc said
   green). Fixed; the suite prints "all passed" (245 ok).
 - Per the loop: one more blind round (33) after the 6j rerun.
+- 6j rerun FAILED on tools/test-gnu-only-forms-6808.sh: a message I reworded in round 28 contained "exit timeout $(...)",
+  which the check reads as the GNU `timeout` command (a false positive on prose, but the rule is the rule). Reworded to
+  "its 'exit timeout' as $(...)"; the check and the suite pass. MY GAP: the handoff said to re-run the sibling suites
+  whenever the code changed; I last ran 6808 at round 18 and let 6j find it.

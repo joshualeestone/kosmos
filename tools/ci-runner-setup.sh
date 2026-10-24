@@ -936,7 +936,7 @@ keepalive() {
   if ! loaded_keepalive "$dom/$label"; then
     local lo; lo="$(launchctl print "$dom/$label" 2>/dev/null || true)"
     if printf '%s\n' "$lo" | grep -x -E '[[:space:]]*successful exit => 0' >/dev/null; then
-      echo "FAILED: $label was reloaded and runs with KeepAlive, but launchctl print shows exit timeout $(printf '%s\n' "$lo" | sed -n 's/^[[:space:]]*exit timeout = //p' | head -n 1 || true) (needs 35 or more) and minimum runtime $(printf '%s\n' "$lo" | sed -n 's/^[[:space:]]*minimum runtime = //p' | head -n 1 || true) (needs 10 or more): check ExitTimeOut and ThrottleInterval in $plist" >&2; exit 1
+      echo "FAILED: $label was reloaded and runs with KeepAlive, but launchctl print shows its 'exit timeout' as $(printf '%s\n' "$lo" | sed -n 's/^[[:space:]]*exit timeout = //p' | head -n 1 || true) (needs 35 or more) and its 'minimum runtime' as $(printf '%s\n' "$lo" | sed -n 's/^[[:space:]]*minimum runtime = //p' | head -n 1 || true) (needs 10 or more): check ExitTimeOut and ThrottleInterval in $plist" >&2; exit 1
     fi
     echo "FAILED: $label was reloaded and runs, but launchctl print shows no 'successful exit => 0' semaphore, the wording this check keys on (measured on macOS 2026-10). If launchctl print $dom/$label shows KeepAlive some other way, the check is what is wrong, not the runner" >&2; exit 1
   fi
