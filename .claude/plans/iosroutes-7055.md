@@ -6,7 +6,7 @@ the Swift line that calls it.
 
 ## Decisions
 - Routes are read from the Swift source, not listed by hand, so a new call in the app is covered by itself. A floor
-  (10; today 13 paths, 15 method-and-path pairs) fails a parser that stops matching.
+  (10; today 12 paths, 15 method-and-path pairs) fails a parser that stops matching.
 - "Answered" means the board's reply differs from its reply to a made-up path at the same depth, measured in the
   run (today: 404 {"error":"no such endpoint"}). Rejected: "not 404", because real routes 404 for an unknown agent
   or project ("there is no project by that name").
@@ -31,5 +31,9 @@ the Swift line that calls it.
    parens), braces counted on string-blanked code, a request's scope ends at the next request that builds its own
    URL, two literals on one line or a route passed to an undeclared helper is a problem, the extension's helper
    declared and its body pinned, a method-loss control). Rule now: whatever cannot be attributed with certainty is a
-   loud problem, never a silent GET. 3. Validation, PR. 4. Part 2 (light, dark, accessibility) after coordinating View files; Angel
+   loud problem, never a silent GET.
+   Round 4: 1 blocker (a board route not written as one literal was skipped silently), 2 warnings, 2 nits, all
+   addressed: partial board paths, + joins, joins onto unknown bases, unknown paths and board paths in raw or
+   multi-line strings are problems; other services only on positive evidence; every httpMethod in the app claimed;
+   the variable-method callers matched loosely and counted. No false red on today's tree (17 routes, 0 problems). 3. Validation, PR. 4. Part 2 (light, dark, accessibility) after coordinating View files; Angel
    keeps SignInView/SignInClient/SignInLogic.swift (#7050 slice C).
