@@ -1696,7 +1696,9 @@ test('#4941/#5636: the single-post read and the replies read use POST_COMMENT_CA
   // #6201: the replies read's older-comments page is the third commentOf(c, false, POST_COMMENT_CAP).
   assert.equal((src.match(/commentOf\(c, false, POST_COMMENT_CAP\)/g) || []).length, 3);
   assert.equal((src.match(/commentOf\(x, true, POST_COMMENT_CAP\)/g) || []).length, 1);
-  assert.equal((src.match(/, POST_COMMENT_CAP\)/g) || []).length, 4, 'another read asks for the larger cap');
+  // #7056: the fifth is readSizeOf's measure of how much room a reply takes in the replies read; it shows no text.
+  assert.equal((src.match(/, POST_COMMENT_CAP\)/g) || []).length, 5, 'another read asks for the larger cap');
+  assert.equal((src.match(/const text = scrub\(body, POST_COMMENT_CAP\);/g) || []).length, 1, 'the size measure is the one use outside a read');
   const from = src.indexOf('async function freshReplies');
   const fresh = src.slice(from, src.indexOf('\nasync function ', from + 1));
   assert.ok(fresh.length > 100 && !fresh.includes('POST_COMMENT_CAP'), 'the count asks for the larger cap');
@@ -2570,4 +2572,89 @@ test('#6204: a saved place the service refuses is dropped and the thread is page
   assert.ok(f.asked.some((u) => /p\d+$/.test(new URL(u).searchParams.get('cursor') || '')), 'CONTROL: no saved place was tried, so none was refused');
   assert.equal(new Set(shown).size, shown.length, 'a reply was shown twice');
   for (let i = 0; i < 8; i += 1) assert.ok(shown.includes(D6204(5000 + i)), 'the tail of thread ' + i + ' was lost after its saved place was refused');
+});
+
+/* #7056: a replies read moves its posts' marks past what it shows, so a reply cut off the end of the output by the
+   agent's tool is never shown again. Thirty replies near the service's 2000 characters each are about 60 KB: the read
+   now shows what fits REPLIES_TEXT_BUDGET, says how many wait, and the next read goes on from there. */
+function bigReplies(tag) {
+  let n = 0;
+  const id = () => 'c7056000-0000-4000-8000-0000000000' + String(n++).padStart(2, '0');
+  const at = (k) => '2026-10-01T' + String(Math.floor(k / 6)).padStart(2, '0') + ':' + String((k % 6) * 10).padStart(2, '0') + ':00Z';
+  const body = (k) => tag + ' ' + k + '\n' + 'x'.repeat(1900);
+  let k = 0;
+  return Array.from({ length: 10 }, () => {
+    const t = comment({ id: id(), created_at: at(k), body: body(k++) });
+    t.replies = [0, 1].map(() => comment({ id: id(), parent_id: t.id, created_at: at(k), body: body(k++) }));
+    t.reply_count = 2;
+    return t;
+  });
+}
+
+test('#7056: a replies read fits its text budget, says how many wait, and the reads that follow show every reply once', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Big7056', remoteId: RP(3), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const tops = bigReplies('big');
+  serve({ ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: tops } }) });
+  const all = new Set(tops.flatMap((t) => [t.id, ...t.replies.map((x) => x.id)]));
+  assert.equal(all.size, 30, 'fixture: 30 items');
+  const seen = [];
+  let reads = 0;
+  for (let i = 0; i < 6; i += 1) {
+    const r = await cr.readReplies('Big7056', { now: NOW + i * 60000 });
+    const ids = (r.text.match(/\(comment ([0-9a-f-]{36})\)/g) || []).map((s) => s.slice(9, 45));
+    if (!ids.length) break;
+    reads += 1;
+    const from = r.text.indexOf('[r1]');
+    const replies = r.text.slice(from, r.text.search(/\n\((\d+ newer replies not shown yet|no new replies)/) >= 0 ? r.text.search(/\n\((\d+ newer replies not shown yet|no new replies)/) : r.text.length);
+    assert.ok(replies.length <= cr.REPLIES_TEXT_BUDGET, `read ${i + 1}'s replies take ${replies.length} characters, past the budget`);
+    seen.push(...ids);
+    const left = all.size - seen.length;
+    if (left > 0) assert.match(r.text, new RegExp('\\(' + left + ' newer replies not shown yet; the next read starts after these\\)'), `read ${i + 1} did not say ${left} wait`);
+  }
+  assert.ok(reads >= 2, 'CONTROL: 30 replies of about 1900 characters fitted one read, so the budget was never tested: ' + reads);
+  assert.equal(seen.length, 30, 'a reply was shown twice or never: ' + seen.length);
+  assert.deepEqual(new Set(seen), all, 'the reads did not cover every reply');
+});
+
+test('#7056: the "not shown yet" line comes before the owed section, so a cut after it cannot take it', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'communityread.js'), 'utf8');
+  const note = src.indexOf("' newer replies not shown yet; the next read starts after these)'");
+  const owed = src.indexOf("'People still waiting for your answer");
+  assert.ok(note > 0 && owed > 0 && note < owed, 'the line that says more replies wait is printed after the owed section');
+});
+
+test('#7056: the nudge\'s count names exactly the comments the read will show under the budget', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Cnt7056', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } },
+    { Cnt7056: { name: 'cnt-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  const tops = bigReplies('cnt');
+  serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: tops } }) });
+  const f = await cr.freshReplies('Cnt7056', { now: NOW, paceMs: 0 });
+  assert.equal(f.ok, true, JSON.stringify(f));
+  const named = new Set(f.posts.flatMap((p) => p.ids));
+  const more = new Set(f.posts.flatMap((p) => p.more));
+  const r = await cr.readReplies('Cnt7056', { now: NOW });
+  const shown = new Set((r.text.match(/\(comment ([0-9a-f-]{36})\)/g) || []).map((s) => s.slice(9, 45)));
+  const topShown = new Set(tops.map((t) => t.id).filter((x) => shown.has(x)));
+  assert.ok(more.size > 0, 'CONTROL: the budget cut nothing the count could name, so the arm measures nothing');
+  assert.deepEqual(named, topShown, 'the count named comments the read does not show, or left out ones it does');
+});
+
+test('#7056: REPLY_HEADER_ROOM holds the longest header a reply can have', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Hdr7056', remoteId: RP(5), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const long = 'N'.repeat(80);   // past authorOf's cap, so the cap is what the header holds
+  const top = comment({ id: 'c7056100-0000-4000-8000-000000000001', created_at: '2026-10-01T01:00:00Z', agent: { name: long, kind: 'person' }, body: 'q', reply_count: 1 });
+  top.replies = [comment({ id: 'c7056100-0000-4000-8000-000000000002', parent_id: top.id, created_at: '2026-10-01T02:00:00Z',
+    agent: { name: long, kind: 'person' }, reply_to_name: long, edited_at: '2026-10-01T03:00:00Z', body: 'a' })];
+  serve({ ['/posts/' + RP(5) + '/comments']: () => ({ status: 200, json: { comments: [top] } }) });
+  const r = await cr.readReplies('Hdr7056', { now: NOW });
+  const headers = r.text.split('\n').filter((l) => /^\[r\d/.test(l));
+  const worst = headers.find((l) => l.includes(cr.UNDER_COMMENT) && l.includes('replying to') && l.includes(', edited ') && l.includes(' cut replying'));
+  assert.ok(worst, 'fixture: no header carries every part (under comment, a cut name replying to a cut name, edited): ' + headers.join(' / '));
+  // The owed mark goes at the end of a header whatever else it holds, so it is added rather than built (it needs the
+  // reply addressed to the agent's own short name).
+  const longest = worst.length + (' ' + cr.PERSON_OWED).length + 2;
+  assert.ok(longest <= cr.REPLY_HEADER_ROOM, `a ${longest}-character header does not fit REPLY_HEADER_ROOM (${cr.REPLY_HEADER_ROOM})`);
 });

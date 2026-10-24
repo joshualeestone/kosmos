@@ -217,6 +217,9 @@ function commentOf(c, asReply, cap) {
     repliesCursor: !asReply && typeof c.replies_cursor === 'string' && /^[A-Za-z0-9_=.-]{1,200}$/.test(c.replies_cursor) ? c.replies_cursor : '',
     replyTo: live && c.reply_to_name ? authorOf({ name: c.reply_to_name }) : '',
     body: live ? scrub(c.body, bodyCap) : '',
+    // #7056: the room its text takes in the replies read (repliesFor's cap, whatever cap this caller used), so the nudge's
+    // count and the read cut the same list at the same place (shownWithin).
+    readSize: live ? readSizeOf(c.body) : 0,
     // Review 1: replies are not recursed into (a reply has no replies) and are cut, so a hostile answer cannot nest or flood.
     replies: !asReply && Array.isArray(c.replies) ? c.replies.slice(0, REPLIES_SHOWN).map((r) => commentOf(r, true, bodyCap)).filter(Boolean) : [],
     replyCount: !asReply && Number.isInteger(c.reply_count) && c.reply_count >= 0 ? Math.min(c.reply_count, REPLY_COUNT_MAX) : 0,
@@ -476,6 +479,34 @@ const PERSON_MARK = 'a person wrote this';   // review 5: shared with communityb
 // Review 14: the same guard the nudge line carries, so the read and the line never disagree about an answer already made.
 const PERSON_OWED = '(' + PERSON_MARK + ', so it IS owed an answer even when marked under comment: answer them in this thread, with --reply-to and this comment id, unless you already answered them there)';
 const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
+/* #7056: the replies read's text budget. Its replies move the post's mark, so a reply cut off the end of the output
+   (Claude Code's Bash tool keeps 30000 characters by default) is never shown again. At most REPLIES_SHOWN_MAX
+   replies whose text fits in REPLIES_TEXT_BUDGET are shown, always at least one, and the "not shown yet" line says
+   the rest are next. The owed-person section after them is repeated by every read until answered, so it is not
+   counted here. */
+const REPLIES_TEXT_BUDGET = 24000;
+const UUID_LEN = 36;
+const NAME_LEN = 64 + ' [cut]'.length;   // authorOf's cap, and the mark scrub adds to a name past it
+const REPLY_HEADER_ROOM = '[r99] by '.length + NAME_LEN + ' replying to '.length + NAME_LEN + ', 2026-01-01'.length
+  + ', edited '.length + 32 + ' on your post '.length + UUID_LEN + ' (comment '.length + UUID_LEN + ')'.length
+  + (' ' + UNDER_COMMENT + ' ').length + UUID_LEN + (' ' + PERSON_OWED).length + 2;   // and its two newlines
+/* The text measured is the body as the replies read shows it (its cap), so the count's shorter COMMENT_CAP bodies
+   measure the same. It shows nothing itself. */
+function readSizeOf(body) {
+  const text = scrub(body, POST_COMMENT_CAP);
+  return REPLY_HEADER_ROOM + text.length + text.split('\n').length * QUOTE.length;
+}
+/** How many of `items` (oldest first, each with `.x.readSize`) one replies read shows. */
+function shownWithin(items) {
+  let used = 0, k = 0;
+  for (const it of items) {
+    if (k >= REPLIES_SHOWN_MAX) break;
+    const size = (it && it.x && it.x.readSize) || 0;
+    if (k > 0 && used + size > REPLIES_TEXT_BUDGET) break;
+    used += size; k++;
+  }
+  return k;
+}
 /* The marks file, keyed LOSSLESSLY on the session name (sha256), so two agents whose names share a safeKey never move
    each other's marks. Holds { posts: { <service post id>: { at, id, seen: [ids shown above the mark], held, threads } } }
    (held, #6201: reads in a row a failed page has held the mark, see MARK_HOLD_MAX; threads, #6204: where each thread
@@ -794,7 +825,8 @@ async function freshReplies(sessionName, opts) {
     /* Review 9 (Sonnet): the agent's own read shows at most REPLIES_SHOWN_MAX, the oldest first across its posts, so the
        count is capped the same way: the line never names more than the read will show, and the rest (not told yet) are
        counted on a later pass, once the read has moved past these. */
-    const keep = new Set(out.flatMap((o) => o.items).sort((a, b) => byPos(a.x, b.x)).slice(0, REPLIES_SHOWN_MAX));
+    const sorted = out.flatMap((o) => o.items).sort((a, b) => byPos(a.x, b.x));
+    const keep = new Set(sorted.slice(0, shownWithin(sorted)));   // #7056: the read's own cut, count and size
     /* Review 16 (Opus): owed comments PAST the cap (not-owed replies under comments can fill the read's 30) are returned
        as `more`, never named: the line then says more are waiting and the agent reads again, else an owed comment
        behind 30 replies was never told and the agent never read past them. */
@@ -1059,7 +1091,7 @@ async function repliesFor(sessionName, opts) {
     }
   }
   fresh.sort((a, b) => byPos(a.x, b.x));
-  const shownItems = fresh.slice(0, REPLIES_SHOWN_MAX);
+  const shownItems = fresh.slice(0, shownWithin(fresh));   // #7056: at most REPLIES_SHOWN_MAX, within REPLIES_TEXT_BUDGET
   /* #5623 review 2/3: a person's comment the agent still owes is shown whatever the read's mark says, so a re-tell can
      always be read and answered (a mark records reading, not answering). Review 3: in a SEPARATE section, at most
      OWED_SHOWN_MAX, outside the read's own REPLIES_SHOWN_MAX slots and its marks, so owed items can never crowd out new
@@ -1085,6 +1117,8 @@ async function repliesFor(sessionName, opts) {
     lines.push(x.body.split('\n').map((l) => QUOTE + l).join('\n'));
     lines.push('');
   });
+  // #7056: right after the replies, so a cut later in the output cannot take the line that says more are waiting.
+  if (fresh.length > shownItems.length) lines.push('(' + (fresh.length - shownItems.length) + ' newer replies not shown yet; the next read starts after these)', '');
   if (owedShown.length) {
     lines.push('People still waiting for your answer (a person is owed an answer, newest first):', '');
     owedShown.slice(0, OWED_SHOWN_MAX).forEach(({ x, post, parent }, i) => {
@@ -1096,7 +1130,6 @@ async function repliesFor(sessionName, opts) {
     if (owedShown.length > OWED_SHOWN_MAX) lines.push('(' + (owedShown.length - OWED_SHOWN_MAX) + ' more people are waiting: answer these, then read again)', '');
   }
   const failed = threads.filter((th) => th.failed).length;
-  if (fresh.length > shownItems.length) lines.push('(' + (fresh.length - shownItems.length) + ' newer replies not shown yet; the next read starts after these)', '');
   if (!fresh.length) lines.push(failed ? '(nothing new could be read)' : '(no new replies)', '');
   // #6201 (F7d): said per post, with how many, instead of one line that could not say where or how much.
   for (const th of threads) {
@@ -1201,4 +1234,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { REPLIES_TEXT_BUDGET, REPLY_HEADER_ROOM, shownWithin, readSizeOf, THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
