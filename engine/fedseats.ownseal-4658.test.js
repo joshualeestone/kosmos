@@ -315,7 +315,7 @@ test('#4658: the coordinator-picks-the-key attack: a share from any key but the 
   assert.ok(!h.spawned[0].written.join('').includes('private words'), 'a held post went out in the clear');
 });
 
-test('#4658: a second offer for the same commitment is ignored, so the nonce is revealed once', async () => {
+test('#4658: a second offer for the same commitment gets no reveal of the nonce (it is revealed once)', async () => {
   const { seat } = await ownComputer('own-s4', 'room-s4');
   const hello = await sealedNow(seat, 'room-s4');
   const first = handOwner('room-s4', hello);
@@ -523,4 +523,29 @@ test('#4658: with every guest revoked, an allowed own computer keeps the old key
   await settle();
   // No guest is pinned now, so the owner opens it without an edge hold: recorded, not refused as retired.
   assert.ok(h.recorded.some((x) => x.text === 'in flight'), 'the own computer\'s in-flight post was refused');
+});
+
+/* ---- iteration-5 review ---- */
+
+test('#4658: a rotation between the Allow and the confirm is applied before the held posts go', async () => {
+  const { seat } = await ownComputer('own-s13', 'room-s13');
+  const roomKey = fedseal.randomSecret();
+  const hello = await sealedNow(seat, 'room-s13', roomKey);
+  fedseats.post('own-s13', { from: 'Josh', kind: 'person', text: 'held across a rotation' });
+  await settle();
+  const o = handOwner('room-s13', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit);
+  say(seat, { event: 'message', data: o.share(nW, roomKey) });   // Allow pressed: epoch 0
+  await settle();
+  const next = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.rotateFrame(o.owner, fedseal.sealingKey().pub, next, 1, 'room-s13', Date.now()) });   // a guest removed meanwhile
+  await settle();
+  assert.strictEqual((await fedseats.confirmOwn('own-s13', fedseats.ownCode('own-s13'))).ok, true);
+  const st = fedseal.roomState('own-s13');
+  assert.strictEqual(st.epoch, 1, 'the rotation that came before the confirm was dropped');
+  const out = lines(seat).filter((f) => fedseal.isSealed(f));
+  assert.ok(out.some((env) => { const x = fedseal.open({ 1: next }, 'room-s13', env); return x && x.m && x.m.text === 'held across a rotation'; }), 'the held post did not go under the new key');
+  assert.ok(!out.some((env) => fedseal.open({ 0: roomKey }, 'room-s13', env)), 'a held post went out under the retired key');
 });

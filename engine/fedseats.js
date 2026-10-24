@@ -868,6 +868,9 @@ function adoptOwnShare(projectId, s) {
   const got = run.got;
   fedseal.setRoomState(projectId, Object.assign({}, st, { peer: got.ownerPub, epoch: got.epoch, keys: { [got.epoch]: got.roomKey } }));
   s.ownRun = null;
+  // A rotation that came between the Allow and this confirm (a guest removed meanwhile) is applied BEFORE the held
+  // posts go, so none of them is sent under a key the removed guest still holds.
+  for (const f of run.rotates || []) onKeyFrame(projectId, s, f, true);
   say(projectId, SEALED_LINE);
   flushHeld(projectId, s);
 }
@@ -1213,6 +1216,11 @@ function onKeyFrame(projectId, s, frame, sameAccount) {
     }
     if (frame.t === 'key-rotate' && (link.role === 'member' || link.role === 'self')) {
       const st = roomSeal(projectId);
+      // #4658: an own computer still waiting to adopt keeps the rotation for adoptOwnShare (the newest 8).
+      if (link.role === 'self' && st && st.ownComputer === true && !hasKey(st) && s.ownRun) {
+        s.ownRun.rotates = (s.ownRun.rotates || []).concat([frame]).slice(-8);
+        return;
+      }
       if (!hasKey(st) || !st.peer) return;
       const got = fedseal.openRotate(me, st.peer, frame, s.room);
       if (!got || Object.prototype.hasOwnProperty.call(st.keys, got.epoch) || got.epoch <= st.epoch) return;
