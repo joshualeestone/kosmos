@@ -142,12 +142,17 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
               line: !document.getElementById('pj-fed-own-phone').hidden }));
             chk(c.code === FIRST_CODE, `${E} the consolidated rail shows the code where the Members card is hidden`, JSON.stringify(c));
             chk(!c.line, `${E} the line above the room is not shown in the consolidated view`, JSON.stringify(c));
-            // A focused rail button survives the rail's rebuild on the next status poll.
+            // A focused rail button survives the rail's rebuild (what every status poll does). The rebuild is forced and
+            // proven: the focused button is marked first, so focus on an unmarked button means it is the new copy.
             await page.focus('#alist-fed-own [data-own-act="match"]');
-            await page.waitForResponse((r) => r.url().includes('/api/status'), { timeout: 15000 }).catch(() => null);
-            await page.waitForTimeout(400);
-            const railFocus = await page.evaluate(() => !!document.activeElement && !!document.activeElement.closest('#alist-fed-own'));
-            chk(railFocus, `${E} focus on a rail button survives the rail's rebuild on a status poll`);
+            const railFocus = await page.evaluate(() => {
+              document.activeElement.dataset.beforeRebuild = '1';
+              paintAgentList();
+              const a = document.activeElement;
+              return { inRail: !!a && !!a.closest && !!a.closest('#alist-fed-own'), act: a && a.dataset ? a.dataset.ownAct || '' : '',
+                rebuilt: !!a && !!a.dataset && !a.dataset.beforeRebuild };
+            });
+            chk(railFocus.inRail && railFocus.act === 'match' && railFocus.rebuilt, `${E} focus on a rail button survives the rail's rebuild on a status poll`, JSON.stringify(railFocus));
             await page.click('#alist-fed-own [data-own-act="match"]');
             await page.waitForFunction(() => /Confirmed/.test((document.querySelector('#alist-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
             const cc = posted.filter((p) => p.path.endsWith('/own-confirm')).pop();
@@ -294,8 +299,10 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
           chk(allow && allow.body.project === ownerP.id && allow.body.pub === 'pub-desk' && allow.body.code === '23456-789AB', `${E} Allow sends exactly that row's key and code`, JSON.stringify(allow));
           const left = await page.evaluate(() => document.querySelectorAll('#pj-fed-own [data-own-act="allow"]').length);
           chk(left === 1, `${E} the allowed computer leaves the list`, String(left));
-          const focusAfterAllow = await page.evaluate(() => { const a = document.activeElement; return a && a.dataset ? (a.dataset.ownAct || '') + ':' + (a.dataset.ownPub || '') : ''; });
-          chk(!/^allow:/.test(focusAfterAllow), `${E} after an Allow, focus does not land on another computer's Allow`, focusAfterAllow);
+          const focusAfterAllow = await page.evaluate(() => { const a = document.activeElement;
+            return (a && a.closest && a.closest('#pj-fed-own') ? 'in:' : 'out:') + (a && a.dataset ? (a.dataset.ownAct || '') + ':' + (a.dataset.ownPub || '') : ''); });
+          // Not another computer's Allow, and not dropped to the page either: it stays in the section (the press's sentence).
+          chk(/^in:/.test(focusAfterAllow) && !/^in:allow:/.test(focusAfterAllow), `${E} after an Allow, focus does not land on another computer's Allow`, focusAfterAllow);
           refuseNext = true;
           await page.click('#pj-fed-own [data-own-pub="pub-laptop"]');
           await page.waitForFunction(() => /not allowed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
