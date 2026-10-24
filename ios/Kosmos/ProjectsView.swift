@@ -147,13 +147,15 @@ final class RoomStore: ObservableObject {
 struct ProjectsView: View {
     @ObservedObject var client: BoardClient
     @StateObject private var store: RoomStore
+    @Binding var roomRequest: String?
     let openPage: (URL) -> Void
     @AppStorage("kosmos.projects.sort") private var sortRaw = Board.ProjectSort.newest.rawValue
     @State private var openProject: Board.ProjectRow?
     @State private var showArchived = false
 
-    init(client: BoardClient, openPage: @escaping (URL) -> Void) {
+    init(client: BoardClient, roomRequest: Binding<String?>, openPage: @escaping (URL) -> Void) {
         self.client = client
+        self._roomRequest = roomRequest
         self.openPage = openPage
         _store = StateObject(wrappedValue: RoomStore(client: client))
     }
@@ -177,7 +179,9 @@ struct ProjectsView: View {
         .onAppear { client.show(BoardClient.projectsViewer) }
         .onDisappear { client.hide(BoardClient.projectsViewer) }
         // The list is read once the connection is live (a cold start reaches the Mac first), and on pull to refresh.
-        .onChange(of: client.phase) { phase in if case .live = phase { Task { await store.loadList() } } }
+        .onChange(of: client.phase) { phase in if case .live = phase { Task { await store.loadList(); openRequested() } } }
+        .onChange(of: roomRequest) { _ in openRequested() }
+        .onChange(of: store.list) { _ in openRequested() }
         .task {
             await store.loadList()
             #if DEBUG
@@ -193,6 +197,19 @@ struct ProjectsView: View {
     #if DEBUG
     private static var sampleOpened = false
     #endif
+
+    // A room a notification asked for opens once the list has it. A project the list does not have (removed since,
+    // or archived) opens the board's own room page instead, so a tap never lands nowhere.
+    private func openRequested() {
+        guard let id = roomRequest, let list = store.list else { return }
+        roomRequest = nil
+        if let p = list.projects.first(where: { $0.id == id }) {
+            openProject = p
+        } else if let mac = store.macURL, var parts = URLComponents(url: mac, resolvingAgainstBaseURL: false) {
+            parts.queryItems = [URLQueryItem(name: "tab", value: "projects"), URLQueryItem(name: "project", value: id)]
+            if let url = parts.url { openPage(url) }
+        }
+    }
 
     // No visible "Sort" word (Josh 08-23): the symbol, with the board's four orders.
     private var sortMenu: some View {

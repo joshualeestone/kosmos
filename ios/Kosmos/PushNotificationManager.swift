@@ -19,6 +19,9 @@ final class PushNotificationManager: NSObject, ObservableObject {
     // the WebView exists (a cold launch from the notification, or the biometric
     // lock still showing); the WebView loads it and clears it when it can.
     @Published var boardToOpen: BoardRequest?
+    // kosmos#7032: a room a tapped notification asked to open in the native Projects tab (ContentView decides whether it
+    // can, else it opens the board's room page through boardToOpen).
+    @Published var roomToOpen: PushBridge.RoomTarget?
 
     // kosmos#7008: bumped by a sign-out or a sign-in as someone else, so the Agents tab drops its chats at once. A
     // Keychain read that briefly finds no session is not one of these and keeps them.
@@ -199,6 +202,13 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
     ) {
         switch response.actionIdentifier {
         case UNNotificationDefaultActionIdentifier:
+            // kosmos#7032: a room notification opens that room in the native Projects tab.
+            if let room = PushBridge.roomToOpen(fromNotification: response.notification.request.content.userInfo,
+                                                coordinator: KosmosConfig.coordinatorOrigin) {
+                NSLog("[Push] tapped room notification opens a room on \(room.host)")
+                DispatchQueue.main.async { self.roomToOpen = room }
+                break
+            }
             // Only the coordinator's `address` field decides where a tap goes, and
             // only when it is a plain host under the relay domain (PushBridge.boardURL).
             let target = PushBridge.boardURL(

@@ -93,10 +93,10 @@ test('#6487: the iPhone rows ask about exactly the two events the computer answe
   const logic = read('ios/KosmosNotice/NoticeLogic.swift');
   const askable = logic.match(/static func isAskable\(id: String\) -> Bool \{([\s\S]*?)\n    \}/);
   assert.ok(askable, 'NoticeLogic.isAskable is gone; update the page');
-  assert.equal(askable[1].trim(), 'id.count <= 300 && (id.hasPrefix("report:") || id.hasPrefix("reply:"))',
+  assert.equal(askable[1].trim(), 'id.count <= 300 && (id.hasPrefix("report:") || id.hasPrefix("reply:") || id.hasPrefix("post:"))',
     'the iPhone asks about other notices now; update the page');
-  // The computer answers those two, plus a room post by its own id (kosmos#7032, which the page names and the iPhone
-  // does not ask for yet); every other kind the board sends an id for is refused.
+  // The computer answers those two, plus a room post by its own id (kosmos#7032, which the iPhone asks for too); every
+  // other kind the board sends an id for is refused.
   const { parseId } = require('./engine/phonenotice');
   const at = '2026-10-23T12:00:00.000Z';
   assert.ok(parseId('report:' + at + ':ada'), 'report: is answered');

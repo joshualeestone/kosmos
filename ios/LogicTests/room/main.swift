@@ -141,6 +141,25 @@ check(post(502, nil) == .unsure && post(0, nil) == .unsure, "no answer, or a ser
 check(post(503, #"{"error":"the board is restarting"}"#) == .refused("The board is restarting."), "a server error WITH its own sentence is the board's refusal")
 check(Board.roomPostLine(.refused("It is quiet hours.")) == "Not posted. It is quiet hours." && Board.roomPostLine(.unsure) == "Not confirmed. We could not tell whether it was posted." && Board.roomPostLine(.posted(note: nil)) == nil, "the bubble's words")
 
+section("a room notification opens its room")
+let coordinator = URL(string: "https://login.kosmosplus.com")!
+let roomPush: [AnyHashable: Any] = ["kind": "posted", "projectId": "springcatalogue", "address": "Studio.KosmosPlus.com", "session": "eli", "id": "post:m4"]
+check(PushBridge.roomToOpen(fromNotification: roomPush, coordinator: coordinator) == PushBridge.RoomTarget(host: "studio.kosmosplus.com", project: "springcatalogue"), "a posted push names its computer and project")
+var other = roomPush; other["kind"] = "replied"
+check(PushBridge.roomToOpen(fromNotification: other, coordinator: coordinator) == nil, "CONTROL: any other kind opens as before (the agent)")
+var bad = roomPush; bad["projectId"] = "../x"
+check(PushBridge.roomToOpen(fromNotification: bad, coordinator: coordinator) == nil, "a project id the board cannot have opens nothing natively")
+var far = roomPush; far["address"] = "evil.example.com"
+check(PushBridge.roomToOpen(fromNotification: far, coordinator: coordinator) == nil, "an address outside Kosmos+ opens nothing")
+check(PushBridge.roomBoardURL(PushBridge.RoomTarget(host: "studio.kosmosplus.com", project: "springcatalogue"))?.absoluteString == "https://studio.kosmosplus.com/?tab=projects&project=springcatalogue", "the board's room page, for a computer the app does not keep")
+let repo = URL(fileURLWithPath: ProcessInfo.processInfo.environment["KOSMOS_REPO"] ?? ".")
+let manager = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/PushNotificationManager.swift"), encoding: .utf8)) ?? ""
+let content = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ContentView.swift"), encoding: .utf8)) ?? ""
+if let r = manager.range(of: "PushBridge.roomToOpen("), let b = manager.range(of: "PushBridge.boardURL(") {
+    check(r.lowerBound < b.lowerBound, "the room is asked about before the agent's page, so a room tap is never sent to the agent")
+} else { check(false, "the tap handler asks about the room and the board") }
+check(content.contains("kept?.address.lowercased() == target.host") && content.contains("PushBridge.roomBoardURL(target)"), "the native room only for the kept computer, the board's page otherwise")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")

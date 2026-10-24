@@ -86,8 +86,9 @@ enum PhoneNotice {
     }
 
     // Only the push ids the computer answers (engine/phonenotice.js parseId); any other notice is left as it came.
+    // kosmos#7032: a room post's id (`post:<post id>`) too, so a room notice shows what was said.
     static func isAskable(id: String) -> Bool {
-        id.count <= 300 && (id.hasPrefix("report:") || id.hasPrefix("reply:"))
+        id.count <= 300 && (id.hasPrefix("report:") || id.hasPrefix("reply:") || id.hasPrefix("post:"))
     }
 
     // A host name and nothing else: the address goes into a URL's host, so no scheme, port, path or user part.

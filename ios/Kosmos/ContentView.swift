@@ -55,6 +55,8 @@ struct ContentView: View {
         return .today
     }()
     @State private var tab = ContentView.startTab
+    // kosmos#7032: a room the Projects tab should open (a tapped room notification), cleared once it is open.
+    @State private var roomRequest: String?
     #endif
     // kosmos#7030: Today is native, and the board view still shows under it whatever the app sends there (a tapped
     // notification, Check it, the board's own Settings, the sign-in): true while it does. A person's press on Today
@@ -139,6 +141,9 @@ struct ContentView: View {
         .onChange(of: pushManager.boardToOpen) { request in
             if request != nil { todayBoard = true; tab = .today }
         }
+        // kosmos#7032: a room notification from the computer this app keeps opens the room natively; from any other
+        // computer it opens the board's room page under Today, as a tap always did.
+        .onChange(of: pushManager.roomToOpen) { target in if let target { openRoom(target) } }
         // kosmos#7008: a sign-out or another account drops the chats now, not at the next visit to the tab.
         .onChange(of: pushManager.accountChanges) { _ in
             board.accountChanged(); web.sessionChanged()
@@ -198,6 +203,7 @@ struct ContentView: View {
         .onAppear {
             // A notification tapped on a cold launch can set boardToOpen before the first draw, which onChange misses.
             if pushManager.boardToOpen != nil { todayBoard = true; tab = .today }
+            if let target = pushManager.roomToOpen { openRoom(target) }
             // Cold launch: onChange does not fire for scenePhase's initial value,
             // so prompt here when we start locked.
             if !isUnlocked { unlock() }
@@ -253,6 +259,17 @@ struct ContentView: View {
     // kosmos#7030 review 1: the app sending the person to the board under Today (the sign-in, a Mac that did not answer,
     // Tasks leaving the bar), even when Today is already showing. Its home, as the old press took it there: a press on
     // Today no longer drives the board (Today is native), so the section is asked for directly.
+    private func openRoom(_ target: PushBridge.RoomTarget) {
+        let kept = Board.usableSaved(SessionKeychain.macSession.load(), session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin)
+        if kept?.address.lowercased() == target.host {
+            roomRequest = target.project
+            tab = .projects
+        } else if let url = PushBridge.roomBoardURL(target) {
+            pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+        }
+        pushManager.roomToOpen = nil
+    }
+
     private func showBoardToday() {
         todayBoard = true
         tab = .today
@@ -273,7 +290,7 @@ struct ContentView: View {
         } else if which == .projects {
             // kosmos#7032: the native Projects list and a project's room; the board's own project page (the room's info
             // button) opens under Today, as an agent's chat does from Agents.
-            ProjectsView(client: board, openPage: { url in
+            ProjectsView(client: board, roomRequest: $roomRequest, openPage: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             })
         } else if which == .settings {
