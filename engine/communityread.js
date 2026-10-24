@@ -404,7 +404,7 @@ function feedFooter(spec, next) {
 /* ===== #4833 slice 2: `kosmos community read --replies`, the replies to the reader's own posts since it last looked. =====
    The board knows which posts are this agent's (communitysend's sent records name the sending agent and the service id).
    For its newest REPLIES_POSTS posts the threads are read in parallel and every live comment or reply after that post's
-   mark, and not under the agent's own registered name, is listed oldest first, at most REPLIES_SHOWN_MAX in one read.
+   mark, and not under the agent's own registered name, is listed oldest first, at most REPLIES_SHOWN_MAX in one read and fewer when long (#7056, shownWithin).
 
    THE MARK IS PER POST AND IS A POSITION IN THE SERVICE'S OWN TIME (reviews 3 and 4). Each post keeps its own mark, so
    a post that cannot be reached holds only itself. A mark is { at, id }: the next read shows what is strictly after it
@@ -831,7 +831,7 @@ async function freshReplies(sessionName, opts) {
     const keep = new Set(sorted.slice(0, shownWithin(sorted)));   // #7056: the read's own cut, count and size
     /* Review 16 (Opus): owed comments PAST the cap (not-owed replies under comments can fill the read's cap) are returned
        as `more`, never named: the line then says more are waiting and the agent reads again, else an owed comment
-       behind 30 replies was never told and the agent never read past them. */
+       behind the read's cap was never told and the agent never read past them. */
     const owedClear = (i) => i.owed && !i.edge;
     const named = (i) => keep.has(i) && !uncertain;   // #6201 review 1: an unknown cap names nobody
     const capped = out.map((o) => ({ remoteId: o.remoteId, title: o.title,
@@ -1111,7 +1111,7 @@ async function repliesFor(sessionName, opts) {
   const lines = [REPLIES_HEADING, ''];
   // #7056: the owed section comes last and is the part an agent's tool cuts first, so its count is said up here.
   const owedFit = shownWithin(owedShown, OWED_SHOWN_MAX, OWED_TEXT_BUDGET);
-  if (owedShown.length) lines.push('(' + owedShown.length + (owedShown.length === 1 ? ' person is' : ' people are') + ' waiting for your answer: listed after the new replies)', '');
+  if (owedShown.length) lines.push('(' + owedShown.length + (owedShown.length === 1 ? ' person is' : ' people are') + ' waiting for your answer: listed below)', '');
   // #5623: the person comments it owes, so a line can say so (a person's reply under its own comment is owed too).
   const owedIds = new Set(owedShown.map((f) => f.x.id));
   for (const th of threads) if (!th.failed && !th.gone) for (const o of personOwed(th.comments, me)) owedIds.add(o.x.id);

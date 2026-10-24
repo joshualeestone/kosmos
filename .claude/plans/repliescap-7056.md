@@ -39,10 +39,13 @@ CLIs were not looked at; a read near 18 KB can still be middle-cut there. Also t
 
 ## Deferred (round 2)
 An owed person's comment that the new budget cuts from the replies also appears in the owed section (it is not in
-shownItems), and on the next read again as [rN]. This was already possible past the old 30 cut. Left as is: the
+shownItems), and on the next read again as [rN]. This was already possible past the old 30 cut, and is now much
+more common (about five long replies ahead of a person's comment is enough), so the duplicate can take owed budget
+and push a waiting person to the next read (still counted in "N more people are waiting"). Left as is: the
 owed mark on both says "unless you already answered them there", so the agent does not answer twice, and the mark
 logic keys on shownItems, so nothing is skipped. The owed section's comment ("outside the read's own slots and its
-marks") is still accurate.
+marks") is still accurate. Keeping cut owed items out of the owed section was rejected: #5623 review 4 shows them
+there on purpose, so a person owed an answer is never hidden behind the replies' cap.
 
 ## Validation
 - engine/communityread.test.js 137/137; related files 215 pass.
