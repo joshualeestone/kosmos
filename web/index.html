@@ -81849,13 +81849,13 @@ async function fedOwnRemoveGo() {
   if (!p || !p.own) return;
   const f = p.own;
   const go = document.getElementById('mem-go');
-  const msg = document.getElementById('mem-msg');
-  if (!fedShow()) { msg.textContent = 'Removing is not available just now. Try again in a moment.'; return; }
+  const dlgLine = document.getElementById('mem-msg');
+  if (!fedShow()) { dlgLine.textContent = 'Removing is not available just now. Try again in a moment.'; return; }
   if (f.gen !== FED_OWN_GEN || PJ_CURRENT !== f.project || FED_OWN_BUSY === f.project) return;
   // Focus moves to Cancel BEFORE Take it out is disabled, as fedRemoveGo does, so it never drops to the page.
   document.getElementById('mem-keep').focus();
   go.disabled = true;
-  msg.textContent = 'Taking it out…';
+  dlgLine.textContent = 'Taking it out…';
   FED_OWN_SEQ++;   // a refresh already in flight answers from before the remove: it is dropped
   FED_OWN_BUSY = f.project; FED_OWN_MSG = null; fedOwnPaint();
   const said$ = document.getElementById('pj-fed-own-said');
@@ -81880,7 +81880,7 @@ async function fedOwnRemoveGo() {
   if (!ok && !said) said = (body && typeof body.error === 'string' && body.error) || 'Kosmos could not take that computer out just now. Try again in a moment.';
   // Refused or unreachable with the dialog open: said in it, the computer still listed, Take it out live to retry.
   if (!ok && !timedOut && still) {
-    msg.textContent = said;
+    dlgLine.textContent = said;
     fedOwnPaint();
     fedOwnLoad(f.project, true);
     return;
