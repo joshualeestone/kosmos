@@ -64,7 +64,8 @@ struct ChatView: View {
             if let line = composerNote ?? pressLine {
                 Text(line).font(.footnote).foregroundColor(composerNote == nil ? Palette.dangerWord : Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16).padding(.top, 6)
+                    // Mona Lisa's spec: 16 pt side margins, 6 pt above the composer.
+                    .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 6)
                     .onAppear { UIAccessibility.post(notification: .announcement, argument: line) }
                     .onChange(of: line) { now in UIAccessibility.post(notification: .announcement, argument: now) }
             }
@@ -316,6 +317,7 @@ struct ChatView: View {
         }
         armed = nil
         unsureKey = nil
+        pressLine = nil
         Task {
             let result = await client.press(option, of: choices, to: agent)
             if composerNote == Board.choiceWaitLine { composerNote = nil }
@@ -342,8 +344,10 @@ struct ChatView: View {
         sampleApplied = true
         switch which {
         case "armed": if let o = c.options.first(where: \.lasting) { armed = Board.Armed(key: c.key, n: o.n, at: Date()) }
+        // As a not-sure press leaves it: the answered lock (not sure), the line under the buttons and the composer line.
         case "unsure": unsureKey = c.key; pressLine = Board.choiceUnsure; pressLineKey = c.key
-        case "answered": client.sampleAnswer(agent.session, key: c.key, n: c.options[0].n)
+            client.sampleAnswer(agent.session, key: c.key, n: c.options[0].n, sure: false)
+        case "answered": client.sampleAnswer(agent.session, key: c.key, n: c.options[0].n, sure: true)
         default: break
         }
     }
@@ -436,6 +440,8 @@ struct ChatView: View {
         // A press in the air: the words wait in the box, and the line says why (dmChoiceBlocksSend).
         if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
         composerNote = nil
+        // The composer line goes on the next send or press (Mona Lisa's spec, section 1).
+        pressLine = nil
         let text = draftText
         draftText = ""
         client.drafts[agent.session] = nil
