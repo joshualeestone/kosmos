@@ -144,6 +144,7 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
             await page.waitForFunction(() => /Confirmed/.test((document.querySelector('#alist-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
             const cc = posted.filter((p) => p.path.endsWith('/own-confirm')).pop();
             chk(cc && cc.body.code === FIRST_CODE && cc.body.project === waitingP.id, `${E} It matches works from the rail and sends the code shown there`, JSON.stringify(cc));
+            await page.waitForFunction(() => document.getElementById('pj-fed-own-said').textContent !== '', null, { timeout: 4000 }).catch(() => null);
             const heard = await page.evaluate(() => document.getElementById('pj-fed-own-said').textContent);
             chk(/^Confirmed\./.test(heard), `${E} the result is put in the one live region`, heard);
             chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
