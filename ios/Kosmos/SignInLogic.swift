@@ -174,10 +174,12 @@ enum SignIn {
     /// after, and its restore() opens signed in. The token goes in as a JSON string literal, never spliced as text.
     /// Returns true once it is stored. (Review round 1: the first version used the server's adopt cookie, which this
     /// page never reads.)
+    /// Only when the page holds no session of its own (review round 2): the app's keychain is the source, and a page
+    /// signed in as somebody (it handed that session to the app already) is left as it is.
     static func storeScript(token: String) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: [token, pageSessionKey], options: []),
               let array = String(data: data, encoding: .utf8) else { return nil }
-        return "var a = \(array); localStorage.setItem(a[1], a[0]); return localStorage.getItem(a[1]) === a[0];"
+        return "var a = \(array); if (localStorage.getItem(a[1])) return false; localStorage.setItem(a[1], a[0]); return localStorage.getItem(a[1]) === a[0];"
     }
 
     // MARK: - The screens' steps
@@ -188,7 +190,9 @@ enum SignIn {
         case second(email: String, kind: String, challenge: String, sentTo: String?)
         /// Signed in; the Mac has not answered the Allow yet (or has no computer to answer it).
         case allow(matchCode: String?, hasComputer: Bool)
-        case denied
+        /// The Mac said no. `asking`: told at sign-in, when Kosmos+ has already made it a fresh Allow on the Mac
+        /// (signin.rs), so the screen still waits; false once the Mac has said no to that one too.
+        case denied(asking: Bool)
         /// Over to the web sign-in page, with why (one line the screen shows first).
         case web(reason: String)
         case done
@@ -200,7 +204,7 @@ enum SignIn {
         case .signedIn(let s):
             switch s.deviceStatus {
             case .acked: return (.done, s, nil)
-            case .denied: return (.denied, s, nil)
+            case .denied: return (.denied(asking: true), s, nil)
             case .pending: return (.allow(matchCode: s.matchCode, hasComputer: s.hasComputer), s, nil)
             }
         case .second(let kind, let challenge, let sentTo):

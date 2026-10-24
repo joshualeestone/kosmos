@@ -2681,7 +2681,7 @@ check(SignIn.allowRead(status: 503, json: nil) == .unknown && SignIn.allowRead(s
 section("sign-in: the steps")
 let s1 = SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "AB12", hasComputer: true)
 check(SignIn.next(after: .signedIn(s1), email: "e").step == .allow(matchCode: "AB12", hasComputer: true) && SignIn.next(after: .signedIn(s1), email: "e").session == s1, "pending: the session is handed over, and the Allow is waited for")
-check(SignIn.next(after: .signedIn(.init(token: "t", deviceStatus: .denied, matchCode: nil, hasComputer: true)), email: "e").step == .denied, "denied")
+check(SignIn.next(after: .signedIn(.init(token: "t", deviceStatus: .denied, matchCode: nil, hasComputer: true)), email: "e").step == .denied(asking: true), "denied at sign-in: the Mac is asked again, so the screen still waits")
 check(SignIn.next(after: .needsSetup, email: "e").step == .web(reason: SignIn.webForSetup) && SignIn.next(after: .needsSetup, email: "e").session == nil, "a second step to set up: the web page, no session")
 check(SignIn.next(after: .refused(message: nil, proofRefused: false), email: "e").step == .code(email: "e"), "a wrong code stays on the code")
 check(SignIn.next(after: .refused(message: nil, proofRefused: true), email: "e").step == .web(reason: SignIn.webForKey), "a refused key: the web page")
@@ -2701,6 +2701,9 @@ do {
     check(ctx.evaluateScript("store['kosmos_session']")?.toString() == evil, "the token arrives exactly, under the page's own key")
     check(ctx.evaluateScript("Object.keys(store).join(',')")?.toString() == "kosmos_session", "nothing else is written: a quote in the token is not script")
     check(SignIn.pageSessionKey == "kosmos_session", "the key signin.html restore() reads (kosmos-relay, localStorage only)")
+    ctx.evaluateScript("store['kosmos_session'] = 'theirs';")
+    let again = ctx.evaluateScript("(function () { " + (SignIn.storeScript(token: "mine") ?? "") + " })()")
+    check(again?.toBool() == false && ctx.evaluateScript("store['kosmos_session']")?.toString() == "theirs", "a page that holds a session already is left as it is")
 }
 
 await boardLoopTests()

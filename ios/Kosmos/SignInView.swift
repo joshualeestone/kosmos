@@ -12,6 +12,8 @@ final class SignInModel: ObservableObject {
     @Published var busy = false
     /// The session Kosmos+ issued, once: ContentView hands it to the app (the web bridge's own path).
     @Published private(set) var issued: String?
+    /// Bumped when the person backs out of an issued session: ContentView signs it out.
+    @Published private(set) var abandoned = 0
     private let client: SignInClient?
     private var watch: Task<Void, Never>?
     /// Bumped by every new attempt and every way back: an answer for an older one changes nothing (the web page's
@@ -77,7 +79,10 @@ final class SignInModel: ObservableObject {
         }
     }
 
-    func differentEmail() { attempt += 1; busy = false; watch?.cancel(); code = ""; error = nil; step = .email }
+    func differentEmail() {
+        attempt += 1; busy = false; watch?.cancel(); code = ""; error = nil; step = .email
+        if issued != nil { issued = nil; abandoned += 1 }
+    }
 
     /// Signed in already; the app opens without waiting for the Allow (its tabs say so until the Mac answers).
     func continueToApp() { attempt += 1; watch?.cancel(); step = .done }
@@ -100,7 +105,9 @@ final class SignInModel: ObservableObject {
         error = message
         if let session {
             issued = session.token
-            if case .allow = next { watchAllow(session.token) }
+            // Denied at sign-in is not final: Kosmos+ has turned it back into a fresh Allow on the Mac (signin.rs
+            // issue_session_proven_at), so it is watched as the web page watches it (review round 2).
+            switch next { case .allow, .denied: watchAllow(session.token); default: break }
         }
     }
 
@@ -117,7 +124,8 @@ final class SignInModel: ObservableObject {
                 guard !Task.isCancelled, mine == self.attempt else { return }
                 switch read {
                 case .status(.acked): self.step = .done; return
-                case .status(.denied): self.step = .denied; return
+                // Denied at sign-in and still denied: the Mac said no again. Asked again from waiting: it said no now.
+                case .status(.denied): self.step = .denied(asking: false); return
                 case .ended:
                     self.step = .email
                     self.error = "This sign-in ended before your Mac answered. Sign in again."
@@ -139,7 +147,7 @@ final class SignInModel: ObservableObject {
         case "sms": step = .second(email: email, kind: "sms", challenge: "c", sentTo: "+1 *** *** 0123")
         case "allow": step = .allow(matchCode: "K7Q2", hasComputer: true)
         case "nomac": step = .allow(matchCode: nil, hasComputer: false)
-        case "denied": step = .denied
+        case "denied": step = .denied(asking: true)
         case "web": step = .web(reason: SignIn.webForCompany)
         case "error": step = .code(email: email); code = "48291"; error = "That code is not right or has expired."
         default: step = .email
@@ -185,12 +193,19 @@ struct SignInView: View {
             footnote("New to Kosmos+? Make your account on your computer.")
         case .code(let email):
             title("Check your email")
-            line("We sent a six-digit code to \(SignIn.wrappable(email: email)).")
+            VStack(alignment: .leading, spacing: 2) {
+                line("We sent a six-digit code to")
+                // On its own line, whole when it fits; past that it breaks only after the @ or a dot (Mona Lisa).
+                Text(SignIn.wrappable(email: email) + ".").font(.body.weight(.semibold)).foregroundColor(Palette.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             codeField(submit: model.verify)
             errorLine
             primary("Sign in", action: model.verify)
-            link("Send the code again", action: model.sendCode).disabled(model.busy)
-            link("Use a different email", action: model.differentEmail)
+            VStack(spacing: 0) {
+                link("Send the code again", action: model.sendCode).disabled(model.busy)
+                link("Use a different email", action: model.differentEmail)
+            }
         case .second(_, let kind, _, let sentTo):
             title("One more step")
             line(SignIn.secondWords(kind: kind, sentTo: sentTo))
@@ -212,10 +227,15 @@ struct SignInView: View {
                 line("No computer is connected to this account yet. Set up Kosmos on your Mac, and this iPhone will be asked about there.")
             }
             link("Continue to the app", action: model.continueToApp)
-        case .denied:
+        case .denied(let asking):
             title("Your Mac said no")
-            line("Your Mac did not let this iPhone in. If that was a mistake, sign in again and it will ask again.")
-            primary("Sign in again", action: model.differentEmail)
+            if asking {
+                line("Your Mac did not let this iPhone in before. It is asking again now: if that was a mistake, allow it there, and this screen moves on.")
+                HStack(spacing: 8) { ProgressView(); Text("Waiting for your Mac").font(.footnote).foregroundColor(Palette.secondary) }
+            } else {
+                line("Your Mac did not let this iPhone in. If that was a mistake, sign in again and it will ask again.")
+            }
+            link("Use a different email", action: model.differentEmail)
         case .web(let reason):
             title(SignIn.webTitle(reason: reason))
             line(reason)

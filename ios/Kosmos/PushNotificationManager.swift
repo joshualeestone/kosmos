@@ -149,6 +149,9 @@ final class PushNotificationManager: NSObject, ObservableObject {
         take(.signedIn(token))
     }
 
+    // kosmos#7042: the person backed out of a session the native sign-in had issued.
+    func signedOutNatively() { take(.signedOut) }
+
     private func take(_ message: PushBridge.SessionMessage) {
         // kosmos#6838: a sign-out, or a sign-in as someone else, also makes the Agents tab forget its kept Mac session,
         // at once rather than at the next visit. (Forgotten on this iPhone; the Mac ends the session on its own
