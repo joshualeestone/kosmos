@@ -14,7 +14,7 @@ Checked in the simulator; logic in ios/LogicTests. The real-iPhone check joins #
 
 ## Change
 - ios/Kosmos/BoardLogic.swift: `threadRequest`, `sendRequest` (the board chat's own route, {text}, trimmed, at most the
-  board's 10000), `parseThread` (who spoke, the way-through kind, not-sent rows, olderCount, a live question),
+  board's 10000), `parseThread` (who spoke, the way-through kind, not-sent rows, olderCount),
   `readThread` (the conversation, the Mac's own reason, or no answer), `chatItems` (runs and day lines), `dayLine`, `followKey`, `PendingSend` and `settled`, `sendResult` and `pendingState`, `notSentLine`, `sameWords` and `fitsBoard`.
 - ios/Kosmos/BoardClient.swift: `thread(for:)` through the client's own session to the connected Mac; `post`, `retry`,
   `sendAgain`, `discard`, `settle` (sends are private); pending messages, drafts and sent-again marks per agent, dropped
@@ -22,7 +22,8 @@ Checked in the simulator; logic in ios/LogicTests. The real-iPhone check joins #
 - ios/Kosmos/ChatView.swift (new): the screen, the bubbles, the tail, the working line, the way-through row.
 - ios/Kosmos/AgentsView.swift: a row pushes the chat (it used to open the board's chat in the web view); Debug-only
   `KOSMOS_SAMPLE_OPEN=<agent>` opens one at launch for screenshots.
-- ios/LogicTests/main.swift: four sections (requests, reading, runs and day lines, sending).
+- ios/LogicTests/main.swift: sections for requests, reading, runs and day lines, following, sending and settling, and
+  the client against the fake Mac (sends, holds, refusals, no answer, retry while not running, sign-out).
 
 ## Decided
 - The Mac keeps a row for every message it is sent (delivered, held or refused). A send waits for THAT row (by the time
@@ -33,7 +34,7 @@ Checked in the simulator; logic in ios/LogicTests. The real-iPhone check joins #
 - The status word and the working line come from the Agents list's own status poll, which keeps running while the chat
   is open (the list's stop is on the navigation view, which stays on screen).
 - No pull to refresh (the spec); the chat reads every 3 seconds while open and stops in the background.
-- iOS 27's glass back button shows the chevron only; the system style is kept, and the question is with Mona Lisa.
+- iOS 27's glass back button shows the chevron only; kept (Mona Lisa's ruling), its VoiceOver label stays "Agents".
 
 ## Weakest premise
 That a native POST to /api/agent/<name>/thread is taken through the Mac's tunnel like the board page's. The GET path is
