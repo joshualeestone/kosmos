@@ -40,7 +40,10 @@ struct ContentView: View {
     private static let startTab: Tab = {
         #if DEBUG
         // The Agents tab's sample screenshots (KOSMOS_SAMPLE_AGENTS=1, a Debug build only) open on Agents, signed in or not.
-        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return .agents }
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" {
+            // kosmos#7010: KOSMOS_SAMPLE_TAB=settings opens the native Settings tab's samples instead.
+            return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TAB"] == "settings" ? .settings : .agents
+        }
         #endif
         return SessionKeychain.live.load() == nil ? .today : .agents
     }()
@@ -157,12 +160,21 @@ struct ContentView: View {
         web.press(new)
     }
 
-    // Agents is the native list; the other four show the shared board.
+    // Agents and Settings are native; the other three show the shared board.
     @ViewBuilder private func tabPage(_ which: Tab) -> some View {
         if which == .agents {
             AgentsView(client: board, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoard: { select(.today) })
+        } else if which == .settings {
+            // kosmos#7010: a Kosmos+ page (the account, the delete flow) opens under Today in the shared web view, as an
+            // agent's chat does; choosing another computer is the load-failure page's own flow.
+            SettingsView(coordinator: KosmosConfig.coordinatorOrigin, openPage: { url in
+                pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+            }, chooseComputer: {
+                shell.otherComputer()
+                select(.today)
+            })
         } else {
             webBoard(which)
         }
