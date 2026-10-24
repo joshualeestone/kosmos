@@ -404,7 +404,7 @@ struct ChatView: View {
             // The row kept in place is the topmost one on screen as the page lands, wherever the person has scrolled
             // meanwhile (the board's setThread anchor), so a page landing never pulls them somewhere else.
             let shownNow = thread.map { Board.chatItems(Board.shownRows(earlier, thread: $0), now: Date(), calendar: .current) } ?? []
-            let anchor = shownNow.first { onScreen.contains($0.id) }?.id
+            let anchor = Board.anchorItem(shownNow, onScreen: onScreen)
             earlier = next
             if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
