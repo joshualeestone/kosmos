@@ -819,11 +819,14 @@ function waitingOffer(projectId, s, frame) {
   if (run.offer && (run.offer.ownerPub !== offer.ownerPub || run.offer.nO !== offer.nO)) {
     // Confirmed or not: a run still waiting for its share ends (the owner's board may have restarted and lost it),
     // and the new run's code needs a new confirm. A run holding a genuine share keeps it.
-    if (!run.got && underRunLimit(s, 'ownResets')) {
-      if (run.confirmed) say(projectId, 'The other computer started over, so the code on this screen changed. Compare the new code with the one on the other computer, and confirm again.');
-      s.ownRun = null;
-      sayOwnHello(projectId, s);
+    if (run.got) return;
+    if (!underRunLimit(s, 'ownResets')) {
+      noteOnce(projectId, s, 'ownRunsPaused', 'The code on this screen has had to start over too many times this hour, so it stays as it is for now. If it does not match the other computer, press "Does not match" to start again.');
+      return;
     }
+    if (run.confirmed) say(projectId, 'The other computer started over, so the code on this screen changed. Compare the new code with the one on the other computer, and confirm again.');
+    s.ownRun = null;
+    sayOwnHello(projectId, s);
     return;
   }
   run.offer = offer;
@@ -1249,7 +1252,11 @@ function onKeyFrame(projectId, s, frame, sameAccount) {
       if (link.role === 'self' && st && st.ownComputer === true && !hasKey(st) && s.ownRun) {
         const run = s.ownRun;
         const got = run.offer ? fedseal.openRotate(me, run.offer.ownerPub, frame, s.room) : null;
-        if (got) run.rotates = Object.assign({}, run.rotates || {}, { [got.epoch]: frame });
+        if (got) {
+          const kept = Object.assign({}, run.rotates || {}, { [got.epoch]: frame });
+          // The newest 8 epochs: a run's owner key may be a man in the middle's until the person compares.
+          run.rotates = Object.fromEntries(Object.keys(kept).map(Number).sort((a, b) => a - b).slice(-8).map((e) => [e, kept[e]]));
+        }
         return;
       }
       if (!hasKey(st) || !st.peer) return;
