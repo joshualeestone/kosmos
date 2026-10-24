@@ -72,6 +72,24 @@ struct ContentView: View {
     #endif
     typealias Tab = AppTabs.Tab
 
+    // kosmos#7042: not signed in, the native sign-in shows instead of the board's sign-in page. "Use the sign-in page"
+    // (a company sign-in, a passkey, a second step to set up) turns it off for this launch, back to today's page.
+    @State private var nativeSignIn = ContentView.startsSignedOut
+    @StateObject private var signIn = SignInModel(client: SignInClient())
+    private static var startsSignedOut: Bool {
+        #if KOSMOS_STORE_SHOTS
+        return false
+        #else
+        #if DEBUG
+        // The sign-in's sample screens (KOSMOS_SAMPLE_SIGNIN, a Debug build only) show it signed in or not; the other
+        // samples never do.
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIGNIN"] != nil { return true }
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return false }
+        #endif
+        return SessionKeychain.live.load() == nil
+        #endif
+    }
+
     // A person's press on the bar: it also asks the board to open that tab's section. A tab the app selects itself (an
     // agent tap, a notification) does not press, so the page it was sent to stays. Where SwiftUI reports a press on
     // the tab already selected (not verified here: a device check), it presses again, which takes the section back to
@@ -89,7 +107,11 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if isUnlocked {
+            if isUnlocked && nativeSignIn {
+                SignInView(model: signIn, useWeb: { nativeSignIn = false })
+                    // Mona Lisa's spec: the app's tint is the board's ink, here as on the tabs.
+                    .tint(Palette.primary)
+            } else if isUnlocked {
                 TabView(selection: pressing) {
                     // In Mona Lisa's order. Tasks is earned, as on the computer (#3559): the bar takes it from the
                     // board page once per launch (the first read that answers, retried for 20 s after a load, which is
@@ -116,6 +138,16 @@ struct ContentView: View {
         }
         // kosmos#7008: a sign-out or another account drops the chats now, not at the next visit to the tab.
         .onChange(of: pushManager.accountChanges) { _ in board.accountChanged() }
+        // kosmos#7042: Kosmos+ issued a session: the app takes it as it takes the sign-in page's, and the web view is
+        // signed in with it too. The screen stays for the Mac's Allow, then opens on the native Today.
+        .onChange(of: signIn.issued) { token in
+            guard let token = token else { return }
+            pushManager.signedInNatively(token)
+            web.signInPage(with: token)
+        }
+        .onChange(of: signIn.step) { step in
+            if step == .done { nativeSignIn = false; todayBoard = false; tab = .today }
+        }
         // A press was answered: opened, the bar is on the tab pressed; refused (a box was up), it goes to the tab the
         // page really shows, so pressing the same tab again later is a real press.
         .onChange(of: web.answeredTab) { back in
@@ -354,6 +386,28 @@ final class BoardWeb: ObservableObject {
 
     init() { coordinator.web = self }
 
+    // kosmos#7042: a session the native sign-in made, waiting to be put in the sign-in page's own cookie (SignIn.adoptScript,
+    // run on that page), so the web tabs open signed in and never ask again. Kept until the page is there to run it on.
+    private var pendingSession: String?
+
+    func signInPage(with token: String) {
+        pendingSession = token
+        if let webView = webView, !webView.isLoading { adoptPending(webView) }
+    }
+
+    private func adoptPending(_ webView: WKWebView) {
+        guard let token = pendingSession else { return }
+        // Only on the sign-in page itself: anywhere else the fetch is not the site's own (and the cookie is not its).
+        guard webView.url?.host == AppTabs.signInHost else { webView.load(URLRequest(url: KosmosConfig.boardURL)); return }
+        guard let script = SignIn.adoptScript(token: token) else { pendingSession = nil; return }
+        pendingSession = nil
+        webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
+            if case .success(let took as Bool) = result, took {} else { NSLog("[SignIn] the sign-in page did not take the session") }
+            // Either way the page loads again: signed in, or showing its own sign-in (the slice's fallback).
+            webView.load(URLRequest(url: KosmosConfig.boardURL))
+        }
+    }
+
     // Each change of the page's address (replaceState too), with the one before, so the bar can follow the page's own
     // moves between sections.
     struct PageMove: Equatable {
@@ -409,6 +463,7 @@ final class BoardWeb: ObservableObject {
     // A page finished loading: run a press that waited for it, and start a launch round of Tasks reads if no read has
     // answered this launch (PressTracker.launchReads). A later load replaces the round.
     func loaded() {
+        if pendingSession != nil, let webView = webView { adoptPending(webView); return }
         // What waits is a web tab or a section pressed on purpose (a native tab's press leaves nothing waiting), so it
         // replays as a section press.
         if let tab = tracker.pending { press(tab, ready: true, section: true) }
