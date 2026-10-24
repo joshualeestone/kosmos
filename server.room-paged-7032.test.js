@@ -58,60 +58,78 @@ test('#7032 CONTROL: without ?n the room is every row and carries no olderCount 
   assert.equal('olderCount' in r.json, false);
 });
 
-test('#7032 ?n=N is the last N rows, oldest first, with how many older rows are left', async () => {
+test('#7032 ?n=N is the last N rows, oldest first, with how many older rows are left and the cursor to them', async () => {
   const r = await room('?n=3');
   assert.equal(r.status, 200);
   assert.deepEqual(texts(r.json), ['row 5', 'row 6', 'row 7']);
   assert.equal(r.json.olderCount, 4);
+  assert.match(r.json.olderCursor, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\|\d+$/);
   assert.ok(r.json.unanswered && typeof r.json.unanswered === 'object', 'unanswered still rides along');
 });
 
-test('#7032 ?before= walks back a page at a time to the start, with an outside row kept in its place', async () => {
-  const first = await room('?n=3');
-  const second = await room('?n=3&before=' + encodeURIComponent(first.json.rows[0].at));
-  assert.deepEqual(texts(second.json), ['row 2', 'row 3', 'row 4']);
-  assert.equal(second.json.rows[2].kind, 'external', 'the outside row is a row like any other on a page');
-  assert.equal(second.json.olderCount, 1);
-  const third = await room('?n=3&before=' + encodeURIComponent(second.json.rows[0].at));
-  assert.deepEqual(texts(third.json), ['row 1']);
-  assert.equal(third.json.olderCount, 0);
+test('#7032 the server-made cursor walks back a page at a time to the start, each row once, Kosmos lines and an outside row too', async () => {
+  const seen = [];
+  let r = await room('?n=3');
+  seen.unshift(...texts(r.json));
+  while (r.json.olderCursor) {
+    r = await room('?n=3&cursor=' + encodeURIComponent(r.json.olderCursor));
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    seen.unshift(...texts(r.json));
+  }
+  assert.deepEqual(seen, ['row 1', 'row 2', 'row 3', 'row 4', 'row 5', 'row 6', 'row 7'], 'a row was skipped or served twice');
+  assert.equal(r.json.olderCount, 0);
+  assert.equal(r.json.olderCursor, null, 'the start of the room has no cursor');
 });
 
-test('#7032 a post arriving between two reads does not shift the older page (the cursor is a time)', async () => {
+test('#7032 a post arriving between two reads does not shift the older page', async () => {
   const first = await room('?n=3');
   messages.roomNote(pid, 'row 8');
   await sleep(3);
-  const second = await room('?n=3&before=' + encodeURIComponent(first.json.rows[0].at));
+  const second = await room('?n=3&cursor=' + encodeURIComponent(first.json.olderCursor));
   assert.deepEqual(texts(second.json), ['row 2', 'row 3', 'row 4']);
   assert.deepEqual(texts((await room('?n=2')).json), ['row 7', 'row 8'], 'the newest page sees it');
 });
 
-test('#7032 CONTROL: a bad n or before is ignored as the text arm ignores a bad n (the whole room; before alone does nothing)', async () => {
-  for (const q of ['?n=0', '?n=201', '?n=abc', '?before=2026-01-01T00:00:00.000Z', '?beforeId=m1']) {
+test('#7032 CONTROL: a bad n is ignored as the text arm ignores it (the whole room); a cursor without n does nothing', async () => {
+  for (const q of ['?n=0', '?n=201', '?n=abc', '?cursor=2026-01-01T00:00:00.000Z|0']) {
     const r = await room(q);
     assert.equal(r.status, 200, q);
     assert.equal('olderCount' in r.json, false, q + ': paged on a bad request');
   }
-  // Review 1: Date.parse takes "x 2026", "9" and "Oct 1", which compare as text against stored times; only the stored
-  // shape is a cursor, anything else is dropped and the newest page served.
-  for (const b of ['not-a-time', 'x 2026', '9', 'Oct 1', '1 Jan 3000']) {
-    const r = await room('?n=2&before=' + encodeURIComponent(b));
-    assert.equal(r.status, 200, b);
-    assert.deepEqual(texts(r.json), texts((await room('?n=2')).json), b + ': treated as a cursor');
+});
+
+test('#7032 review 2: a cursor that names no row of this room is refused, never an empty page that reads as the start', async () => {
+  const real = (await room('?n=2')).json.olderCursor;
+  const [at] = real.split('|');
+  for (const c of ['2026-01-01T00:00:00.000Z|0', at + '|999', at.replace(/\.\d{3}Z$/, 'Z') + '|0', 'x 2026|0', 'not-a-cursor', at]) {
+    const r = await room('?n=2&cursor=' + encodeURIComponent(c));
+    assert.equal(r.status, 400, c + ' -> ' + JSON.stringify(r.json));
+    assert.match(r.json.error, /not one this room has/, c);
   }
 });
 
-test('#7032 review 1: beforeId pages by the exact row, so two posts at the same moment across a page edge are both kept', async () => {
+test('#7032 reviews 1 and 2: a page that starts with a Kosmos line, and two posts at the same moment across an edge, are each served once', async () => {
   const tie = new Date().toISOString();
   const plant = (id, text) => fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id, project: pid, from: 'dana', to: [], outcomes: {}, text, at: tie }) + '\n');
   plant('m7101', 'tie A');
   plant('m7102', 'tie B');
   await sleep(3);
-  messages.roomNote(pid, 'after the tie');
+  messages.roomNote(pid, 'note after the tie');
+  await sleep(3);
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm7103', project: pid, from: 'dana', to: [], outcomes: {}, text: 'last', at: new Date().toISOString() }) + '\n');
   const newest = await room('?n=2');
-  assert.deepEqual(texts(newest.json), ['tie B', 'after the tie'], 'premise: the page edge falls between the two tied posts');
-  const older = await room('?n=1&beforeId=' + newest.json.rows[0].id);
-  assert.deepEqual(texts(older.json), ['tie A'], 'the tied post on the other side of the edge was skipped');
-  // CONTROL: the time cursor alone loses it, which is why the phone pages by id.
-  assert.notDeepEqual(texts((await room('?n=1&before=' + encodeURIComponent(tie))).json), ['tie A']);
+  assert.deepEqual(texts(newest.json), ['note after the tie', 'last'], 'premise: this page starts with a Kosmos line');
+  const middle = await room('?n=2&cursor=' + encodeURIComponent(newest.json.olderCursor));
+  assert.deepEqual(texts(middle.json), ['tie A', 'tie B'], 'the note came back, or a tied post was lost');
+  const page3 = await room('?n=3');
+  assert.deepEqual(texts(page3.json), ['tie B', 'note after the tie', 'last'], 'premise: an edge between the two tied posts');
+  assert.deepEqual(texts((await room('?n=1&cursor=' + encodeURIComponent(page3.json.olderCursor))).json), ['tie A'], 'the tied post across the edge was lost');
+});
+
+test('#7032 review 2: the phone\'s contract is written down where the iPhone code is documented', () => {
+  const doc = fs.readFileSync(path.join(__dirname, 'ios', 'README.md'), 'utf8');
+  assert.match(doc, /## A project's room, a page at a time \(kosmos#7032\)/);
+  for (const word of ['olderCount', 'olderCursor', '?n=N&cursor=<olderCursor>', 'is a 400', 're-read the newest']) {
+    assert.ok(doc.includes(word), 'ios/README.md no longer says: ' + word);
+  }
 });
