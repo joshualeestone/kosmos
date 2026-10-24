@@ -213,3 +213,169 @@ extension Board {
         return out
     }
 }
+
+// MARK: The Projects list (GET /api/projects; the board's projectCard, pjPillOf, sortProjects, pjTreeRows)
+
+extension Board {
+    struct ProjectMember: Equatable {
+        let session: String
+        let name: String
+        let hasAvatar: Bool
+        let provider: String?
+    }
+
+    struct ProjectRow: Equatable, Identifiable {
+        let id: String
+        let name: String
+        let description: String
+        // The server's count; nil when it is not known ("unknown is not zero").
+        let unread: Int?
+        let parent: String?
+        let archived: Bool
+        let archivedAt: Date?
+        let paused: Bool
+        let createdAt: Date?
+        let members: [ProjectMember]
+        // The project folder's own reason when it cannot be read (folderState.because), else nil.
+        let folderProblem: String?
+        let needsYou: Int
+        let needsYouQuestions: Int
+        let working: Int
+        let restarting: Int
+    }
+
+    struct ProjectList: Equatable {
+        let projects: [ProjectRow]
+        // The board could not read the agents: no status words at all (#4730), never a guess.
+        let agentsUnreadable: Bool
+    }
+
+    static func parseProjects(_ data: Data) -> ProjectList? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = obj["projects"] as? [[String: Any]] else { return nil }
+        let rows: [ProjectRow] = raw.compactMap { p in
+            guard let id = p["id"] as? String, isProjectId(id), let name = p["name"] as? String, !name.isEmpty else { return nil }
+            let s = p["summary"] as? [String: Any] ?? [:]
+            let members: [ProjectMember] = (p["agents"] as? [Any] ?? []).compactMap { a in
+                guard let a = a as? [String: Any], let session = a["sessionName"] as? String, !session.isEmpty else { return nil }
+                return ProjectMember(session: session, name: (a["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? session,
+                                     hasAvatar: isTrue(a["hasAvatar"]), provider: a["provider"] as? String)
+            }
+            let folder = p["folderState"] as? [String: Any]
+            let folderProblem = (folder?["state"] as? String).flatMap { $0 == "readable" ? nil : (folder?["because"] as? String) }
+            return ProjectRow(id: id, name: name, description: p["description"] as? String ?? "",
+                              unread: integer(p["unread"]), parent: (p["parent"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                              archived: isTrue(p["archived"]), archivedAt: isoDate(p["archivedAt"] as? String),
+                              paused: isTrue(p["paused"]), createdAt: isoDate(p["createdAt"] as? String), members: members,
+                              folderProblem: folderProblem.flatMap { $0.isEmpty ? nil : $0 },
+                              needsYou: integer(s["needsYou"]) ?? 0, needsYouQuestions: integer(s["needsYouQuestions"]) ?? 0,
+                              working: integer(s["working"]) ?? 0, restarting: integer(s["restarting"]) ?? 0)
+        }
+        return ProjectList(projects: rows, agentsUnreadable: isTrue(obj["agentsUnreadable"]))
+    }
+
+    enum ProjectWord: Equatable { case question, issue, paused, working, restarting }
+
+    // The board's one status word (pjPillOf): Question (only agents' own questions, calm) > Issue > Paused > Working >
+    // Restarting > none. None when nothing is running or the agents could not be read (#4730).
+    static func projectWord(_ p: ProjectRow, agentsUnreadable: Bool) -> ProjectWord? {
+        if !agentsUnreadable && p.needsYou > 0 && p.needsYouQuestions == p.needsYou { return .question }
+        if !agentsUnreadable && p.needsYou > 0 { return .issue }
+        if p.paused && !p.archived { return .paused }
+        if !agentsUnreadable && p.working > 0 { return .working }
+        if !agentsUnreadable && p.restarting > 0 { return .restarting }
+        return nil
+    }
+
+    static func projectWordText(_ w: ProjectWord) -> String {
+        switch w {
+        case .question: return "Question"
+        case .issue: return "Issue"
+        case .paused: return "Paused"
+        case .working: return "Working"
+        case .restarting: return "Restarting"
+        }
+    }
+
+    // The unread bubble's words (the board's unreadBadge): none at 0 or unknown, "99+" past 99.
+    static func unreadBubble(_ n: Int?) -> String? {
+        guard let n, n > 0 else { return nil }
+        return n > 99 ? "99+" : String(n)
+    }
+
+    enum ProjectSort: String, CaseIterable { case newest, oldest, az, za }
+    static func projectSortLabel(_ s: ProjectSort) -> String {
+        switch s {
+        case .newest: return "Newest first"
+        case .oldest: return "Oldest first"
+        case .az: return "Name A to Z"
+        case .za: return "Name Z to A"
+        }
+    }
+
+    // The board's sortProjects: by creation (an undated project after every dated one, in store order), or by name
+    // ignoring case. Never by last update (#168: a list that reorders itself reads as the app losing a project).
+    static func sortProjects(_ list: [ProjectRow], _ mode: ProjectSort) -> [ProjectRow] {
+        let indexed = Array(list.enumerated())
+        func byName(_ a: ProjectRow, _ b: ProjectRow) -> ComparisonResult {
+            a.name.compare(b.name, options: [.caseInsensitive, .diacriticInsensitive], range: nil, locale: Locale.current)
+        }
+        return indexed.sorted { x, y in
+            switch mode {
+            case .az:
+                let c = byName(x.element, y.element); return c == .orderedSame ? x.offset < y.offset : c == .orderedAscending
+            case .za:
+                let c = byName(y.element, x.element); return c == .orderedSame ? x.offset < y.offset : c == .orderedAscending
+            case .newest, .oldest:
+                switch (x.element.createdAt, y.element.createdAt) {
+                case (nil, nil): return x.offset < y.offset
+                case (nil, _): return false
+                case (_, nil): return true
+                case let (a?, b?):
+                    if a == b { return x.offset < y.offset }
+                    return mode == .newest ? a > b : a < b
+                }
+            }
+        }.map { $0.element }
+    }
+
+    struct ProjectTreeRow: Equatable, Identifiable {
+        let project: ProjectRow
+        let depth: Int
+        var id: String { project.id }
+    }
+
+    // The active projects as the board's tree (pjTreeRows): sorted, then each sub-project right after its parent, one
+    // level deeper. A child whose parent is archived or gone sits at the top level; a cycle never repeats a row and never
+    // hides one. Archived projects are left out here (they have their own folded list).
+    static func projectTree(_ all: [ProjectRow], sort: ProjectSort) -> [ProjectTreeRow] {
+        let active = sortProjects(all.filter { !$0.archived }, sort)
+        let ids = Set(active.map { $0.id })
+        var kids: [String: [ProjectRow]] = [:]
+        for p in active { kids[(p.parent.flatMap { ids.contains($0) ? $0 : nil }) ?? "", default: []].append(p) }
+        var out: [ProjectTreeRow] = []
+        var seen = Set<String>()
+        func emit(_ parent: String, _ depth: Int) {
+            for c in kids[parent] ?? [] where !seen.contains(c.id) {
+                seen.insert(c.id)
+                out.append(ProjectTreeRow(project: c, depth: depth))
+                emit(c.id, depth + 1)
+            }
+        }
+        emit("", 0)
+        for p in active where !seen.contains(p.id) {   // a cycle kept it out of the walk: still shown, at the top
+            seen.insert(p.id)
+            out.append(ProjectTreeRow(project: p, depth: 0))
+        }
+        return out
+    }
+
+    static func archivedProjects(_ all: [ProjectRow]) -> [ProjectRow] { all.filter { $0.archived } }
+
+    static func projectsRequest(mac: URL) -> URLRequest? {
+        var r = URLRequest(url: URL(string: "/api/projects", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+}

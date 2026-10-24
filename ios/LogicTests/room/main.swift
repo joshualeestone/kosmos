@@ -81,6 +81,50 @@ check(r2?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spri
 check(Board.roomRequest(mac: mac, project: "../x", n: 50) == nil && Board.roomRequest(mac: mac, project: "Spring", n: 50) == nil, "a project id the board cannot have is refused")
 check(Board.roomRequest(mac: mac, project: "p", n: 0) == nil && Board.roomRequest(mac: mac, project: "p", n: 201) == nil, "n outside 1 to 200 is refused")
 
+section("the Projects list: the real route's answer")
+let projData = (try? Data(contentsOf: here.appendingPathComponent("projects.json"))) ?? Data()
+let plist = Board.parseProjects(projData)
+check(plist?.projects.count == 4 && plist?.agentsUnreadable == false, "the four projects parse")
+let tree = Board.projectTree(plist?.projects ?? [], sort: .az)
+check(tree.map { "\($0.depth):\($0.project.name)" } == ["0:Spring catalogue", "1:Cover shoot", "0:Website"],
+      "the child sits under its parent, one level in, and the archived project is not in the tree: \(tree.map { "\($0.depth):\($0.project.name)" })")
+check(Board.archivedProjects(plist?.projects ?? []).map { $0.name } == ["Old launch"], "the archived project has its own list")
+let web = plist?.projects.first { $0.name == "Website" }
+check(web.map { Board.projectWord($0, agentsUnreadable: false) } == .paused, "a paused project says Paused")
+check(plist?.projects.first { $0.name == "Spring catalogue" }.map { Board.projectWord($0, agentsUnreadable: false) } == .some(nil),
+      "nothing running: no word at all (#4730)")
+check(plist?.projects.first { $0.name == "Spring catalogue" }?.description == "The print catalogue for March.", "the description")
+check(plist?.projects.allSatisfy { $0.folderProblem == nil } == true, "a readable folder has no problem line")
+
+section("the status word, ranked as the board ranks it")
+func proj(_ needs: Int = 0, q: Int = 0, working: Int = 0, restarting: Int = 0, paused: Bool = false, archived: Bool = false, name: String = "P", created: String? = nil, parent: String? = nil, id: String? = nil) -> Board.ProjectRow {
+    Board.ProjectRow(id: id ?? name.lowercased(), name: name, description: "", unread: nil, parent: parent, archived: archived, archivedAt: nil, paused: paused,
+                     createdAt: created.flatMap { Board.isoDate($0) }, members: [], folderProblem: nil, needsYou: needs, needsYouQuestions: q, working: working, restarting: restarting)
+}
+check(Board.projectWord(proj(2, q: 2, working: 1), agentsUnreadable: false) == .question, "only questions: the calm Question")
+check(Board.projectWord(proj(2, q: 1, working: 1), agentsUnreadable: false) == .issue, "anything else that needs you: Issue")
+check(Board.projectWord(proj(working: 1, paused: true), agentsUnreadable: false) == .paused, "Paused above Working")
+check(Board.projectWord(proj(working: 1, restarting: 1), agentsUnreadable: false) == .working, "Working above Restarting")
+check(Board.projectWord(proj(restarting: 1), agentsUnreadable: false) == .restarting, "Restarting")
+check(Board.projectWord(proj(2, working: 1), agentsUnreadable: true) == nil, "agents unreadable: no word that could not be read")
+check(Board.projectWord(proj(working: 1, paused: true), agentsUnreadable: true) == .paused, "a pause is the person's own setting, still shown")
+check(Board.unreadBubble(nil) == nil && Board.unreadBubble(0) == nil && Board.unreadBubble(7) == "7" && Board.unreadBubble(150) == "99+", "the unread bubble's words")
+
+section("the four orders, and the tree's edges")
+let a = proj(name: "beta", created: "2026-10-01T00:00:00.000Z"), b = proj(name: "Alpha", created: "2026-10-03T00:00:00.000Z"), c = proj(name: "gamma")
+check(Board.sortProjects([a, b, c], .newest).map { $0.name } == ["Alpha", "beta", "gamma"], "newest first; an undated project after every dated one")
+check(Board.sortProjects([a, b, c], .oldest).map { $0.name } == ["beta", "Alpha", "gamma"], "oldest first; undated still last")
+check(Board.sortProjects([a, b, c], .az).map { $0.name } == ["Alpha", "beta", "gamma"], "name A to Z, ignoring case")
+check(Board.sortProjects([a, b, c], .za).map { $0.name } == ["gamma", "beta", "Alpha"], "name Z to A")
+check(Board.ProjectSort.allCases.map(Board.projectSortLabel) == ["Newest first", "Oldest first", "Name A to Z", "Name Z to A"], "the board's four labels, no update order")
+let orphan = proj(name: "Orphan", parent: "gone")
+let underArchived = proj(name: "Child", parent: "old")
+let archivedParent = proj(archived: true, name: "Old")
+check(Board.projectTree([orphan, underArchived, archivedParent], sort: .az).map { "\($0.depth):\($0.project.name)" } == ["0:Child", "0:Orphan"],
+      "a child whose parent is gone or archived sits at the top level, never disappears")
+let x = proj(name: "X", parent: "y", id: "x"), y = proj(name: "Y", parent: "x", id: "y")
+check(Board.projectTree([x, y], sort: .az).map { $0.project.name } == ["X", "Y"], "a cycle shows each project once and hides none")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")
