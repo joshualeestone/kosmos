@@ -162,7 +162,8 @@ final class NotificationService: UNNotificationServiceExtension {
         let image = shown.map { INImage(imageData: $0.0) }
         let sender = INPerson(personHandle: INPersonHandle(value: words.session, type: .unknown), nameComponents: nil,
                               displayName: words.agent, image: image, contactIdentifier: nil, customIdentifier: words.session)
-        let intent = INSendMessageIntent(recipients: nil, outgoingMessageType: .outgoingMessageText, content: words.text,
+        // The body as set above (a permission's request, or the words): message style must never show other words.
+        let intent = INSendMessageIntent(recipients: nil, outgoingMessageType: .outgoingMessageText, content: content.body,
                                          speakableGroupName: nil, conversationIdentifier: words.session, serviceName: nil,
                                          sender: sender, attachments: nil)
         if let image { intent.setImage(image, forParameterNamed: \.sender) }

@@ -190,10 +190,17 @@ const variants = [
   ['a new file holding a key', EDIT.replace(DASHED, '$1   1 OPENAI_API_KEY=sk-live-abcdef123$2')],
   // Review 5: a file's text is read back out of the terminal's drawing, so no file gets lock-screen buttons.
   ['a new file (its text read off the drawing)', EDIT],
-  ['a new file with a line Claude Code wrapped before a number', EDIT.replace(DASHED, '$1   1 #!/bin/sh\n   2 chmod -R\n 777 /etc\n   3 echo 2$2')],
+
   ['a password given as a flag (curl -u)', BASH.replace(DASHED, '$1 curl -u admin:S3cretPass https://example.invalid$2')],
   ['a password given as a flag (mysql -p)', BASH.replace(DASHED, '$1 mysql -u root -phunter2secret$2')],
   ['a password given to sshpass', BASH.replace(DASHED, '$1 sshpass -p Pa55word ssh host$2')],
+  // Review 6:
+  ['a password in an environment variable (PGPASSWORD)', BASH.replace(DASHED, '$1 PGPASSWORD=hunter2xyz psql -h db$2')],
+  ['a password in an environment variable (MYSQL_PWD)', BASH.replace(DASHED, '$1 MYSQL_PWD=hunter2xyz mysql -u root$2')],
+  ['a password given as a flag with no space (curl -uX:Y)', BASH.replace(DASHED, '$1 curl -uadmin:hunter2xyz https://example.invalid$2')],
+  ['a password given to redis-cli', BASH.replace(DASHED, '$1 redis-cli -a hunter2xyz$2')],
+  ['a password given to docker login', BASH.replace(DASHED, '$1 docker login -p hunter2xyz$2')],
+  ['a command whose title says more than the measured one', BASH.replace(/^(\s*)Bash command\s*$/m, '$1Bash command (unsandboxed)')],
   // Review 3:
   ['a change to a file (a diff the lock screen cannot show whole)', EDIT.replace(/^ Create file$/m, ' Edit file')],
   ['a new file whose text does not fit uncut', EDIT.replace(DASHED, '$1' + Array.from({ length: 40 }, (_, i) => '  line ' + i + ' of the hook').join('\n') + '$2')],
@@ -221,4 +228,8 @@ test('#7017 reviews 4 and 5: the card reads a file\'s gutter only when it number
   const wrapped = chat.permissionCard(EDIT.replace(DASHED, '$1   1 #!/bin/sh\n   2 chmod -R\n 777 /etc\n   3 echo 2$2'));
   assert.ok(wrapped.detail.includes('777'), 'a wrapped continuation lost the number that was its text: ' + JSON.stringify(wrapped.detail));
   assert.ok(wrapped.detail.includes('1 #!/bin/sh'), 'a broken run was still read as a gutter: ' + JSON.stringify(wrapped.detail));
+  // Review 6: a change keeps the earlier reading (a diff is numbered from its own lines, not from 1).
+  const diff = chat.permissionCard(EDIT.replace(/^ Create file$/m, ' Edit file').replace(DASHED, '$1   41 -old line\n   41 +new line\n   42  context$2'));
+  assert.equal(diff.kind, 'edit', 'premise');
+  assert.equal(diff.detail, '-old line\n+new line\n context', 'an edit lost its gutter reading');
 });

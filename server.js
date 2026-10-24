@@ -4131,9 +4131,17 @@ const PHONE_PERM_DOES = {
    and paragraph separators, other control characters), so the screen could read as something it is not; or when it
    holds anything shaped like a secret (engine/secretmask.js) or a password given as a command flag (PHONE_PASSWORD_FLAG),
    which a lock screen and Notification Center would show to anyone holding the phone. */
-const PHONE_PASSWORD_FLAG = /(^|\s)(--password\b|--passwd\b|sshpass\b|-u\s+[^\s:]+:\S|--user[=\s][^\s:]+:\S)|\b(mysql|mysqldump|mariadb)\b.*\s-p\S|\bpass(word)?=\S/i;
+const PHONE_PASSWORD_FLAG = new RegExp([
+  String.raw`(^|\s)(--password\b|--passwd\b|sshpass\b|-u\s*[^\s:]+:\S|--user[=\s][^\s:]+:\S)`,   // curl -u/-uX:Y, --user
+  String.raw`\b(mysql|mysqldump|mariadb)\b.*\s-p\S`,                                              // mysql -pX
+  String.raw`\bredis-cli\b.*\s-a\s`, String.raw`\bdocker\s+login\b.*\s(-p|--password)\b`, String.raw`\bhtpasswd\b.*\s-\w*b`,
+  String.raw`(PASS(WORD|WD)?|PWD|SECRET|TOKEN)[A-Z_]*=\S`,                                         // PGPASSWORD=, MYSQL_PWD=, pass=
+].join('|'), 'i');
 function phonePermissionShown(perm) {
   if (perm.kind !== 'command' && perm.kind !== 'delete') return '';
+  // Review 6: the measured title only. A title saying more ("Bash command (unsandboxed)", say) is not shown here, so a
+  // prompt carrying one gets no buttons rather than being approved without its qualifier.
+  if (perm.title !== 'Bash command') return '';
   const lines = String(perm.detail || '').split('\n').map((l) => l.trim()).filter(Boolean);
   if (lines.length !== 1) return '';
   const out = [];

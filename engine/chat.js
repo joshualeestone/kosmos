@@ -3223,8 +3223,11 @@ function permissionCard(text) {
   // "  2 " (trimmed here to "2"); a line Claude Code wraps itself carries no number, so its continuation breaks the run
   // and the text is kept as drawn, numbers and all, rather than losing a number that was part of the text ("777").
   const gutterLines = detail ? detail.split('\n') : [];
-  const gutter = isFile && gutterLines.length > 0
-    && gutterLines.every((l, k) => { const m = l.match(/^\s*(\d+)(\s|$)/); return Boolean(m) && Number(m[1]) === k + 1; });
+  // Review 6: the strict run is for a new file (drawn from line 1). A change is drawn as a diff from its own line
+  // numbers ("  41 -old"), which keeps the earlier reading.
+  const gutter = kind === 'create' ? (gutterLines.length > 0
+    && gutterLines.every((l, k) => { const m = l.match(/^\s*(\d+)(\s|$)/); return Boolean(m) && Number(m[1]) === k + 1; }))
+    : (isFile && Boolean(detail) && gutterLines.every((l) => !l.trim() || /^\s*\d+\s/.test(l)));
   const fileText = gutter ? detail.split('\n').map((l) => l.replace(/^\s*\d+\s?/, '')).join('\n') : detail;
   return { kind, title, says: isCommand && subSure ? sub : '', target: isFile && subSure ? sub : '',
     detail: [extra, fileText].filter(Boolean).join('\n'), reason, allow: allow.n, deny: deny.n };

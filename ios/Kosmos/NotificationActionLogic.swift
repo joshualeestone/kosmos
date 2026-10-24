@@ -174,7 +174,11 @@ enum NotificationAction {
             return .unreadable("Kosmos could not read your chat with \(who) just now, so nothing was \(verb). Open the chat to answer.")
         }
         let cards = rows.compactMap { ($0["kind"] as? String) == "question" ? $0["permission"] as? [String: Any] : nil }
-        guard cards.contains(where: { $0["request"] as? String == press.request }) else { return .changed }
+        // The same question still up, but no card with this fingerprint: either its reading changed, or the board will
+        // not draw its buttons just now (its box top scrolled off). Not "it changed": it cannot be answered from here now.
+        guard cards.contains(where: { $0["request"] as? String == press.request }) else {
+            return .unreadable("Kosmos cannot answer \(who) from here just now, so nothing was \(verb). Open the chat to answer.")
+        }
         return .go
     }
 

@@ -108,7 +108,7 @@ check(pw?.permission?.shown == "Wants to run a command:\n/usr/bin/uuidgen", "the
 let oddPerm = Data(#"{"kind":"report","session":"ada","agent":"Ada","text":"Claude needs your permission to use Bash","picture":null,"permission":{"kind":"command","request":null}}"#.utf8)
 let oddWords = PhoneNotice.words(status: 200, contentType: "application/json", data: oddPerm, userInfo: ["session": "ada"])
 check(oddWords?.text == "Claude needs your permission to use Bash" && oddWords?.permission == nil, "a permission this build cannot read costs only the buttons, never the words (review 1)")
-check(service.contains("content.body = permission.shown"), "the extension shows the request as the notice's body")
+check(service.contains("content.body = permission.shown") && service.contains("outgoingMessageType: .outgoingMessageText, content: content.body,"), "the extension shows the request as the notice's body, in message style too (review 6)")
 check(PhoneNotice.carriesPermission(category: PhoneNotice.permissionCategory, userInfo: [:]) && PhoneNotice.carriesPermission(category: "AGENT_PERMISSION", userInfo: [PhoneNotice.permissionInfoKey: [:]]), "a push arriving with the category or the press data is seen (review 4)")
 check(!PhoneNotice.carriesPermission(category: "AGENT_PERMISSION", userInfo: info), "CONTROL: the coordinator's own push is left as it came")
 check(PhoneNotice.cleanedCategory(PhoneNotice.permissionCategory) == "" && PhoneNotice.cleanedCategory("AGENT_PERMISSION") == "AGENT_PERMISSION", "only our category is cleared")
@@ -132,10 +132,12 @@ func thread(asking: Bool = true, asked: String = "Do you want to proceed?", requ
     Data(#"{"asking":\#(asking),"asked":"\#(asked)","messages":[{"at":null,"text":"Do you want to proceed?","from":"ada","kind":"question","permission":{"kind":"command","allow":1,"deny":3,"request":"\#(request)"}}]}"#.utf8)
 }
 check(NotificationAction.permissionVerdict(status: 200, data: thread(), press: pAllow!, agent: "Ada") == .go, "the same request still up: it goes")
-check(NotificationAction.permissionVerdict(status: 200, data: thread(request: String(repeating: "b2", count: 32)), press: pAllow!, agent: "Ada") == .changed, "CONTROL: another command under the same question and options: refused (the minutes-old notice)")
+if case .unreadable = NotificationAction.permissionVerdict(status: 200, data: thread(request: String(repeating: "b2", count: 32)), press: pAllow!, agent: "Ada") {
+    check(true, "CONTROL: the same question but another fingerprint: refused, as cannot-answer-from-here (review 6)")
+} else { check(false, "CONTROL: the same question but another fingerprint: refused, as cannot-answer-from-here (review 6)") }
 check(NotificationAction.permissionVerdict(status: 200, data: thread(asking: false), press: pAllow!, agent: "Ada") == .changed, "CONTROL: answered on the computer since: refused")
 check(NotificationAction.permissionVerdict(status: 200, data: thread(asked: "Something else?"), press: pAllow!, agent: "Ada") == .changed, "CONTROL: a different question: refused")
-check(NotificationAction.permissionVerdict(status: 200, data: Data(#"{"asking":true,"asked":"Do you want to proceed?","messages":[]}"#.utf8), press: pAllow!, agent: "Ada") == .changed, "CONTROL: no card on the chat (an older computer, or the box scrolled): refused")
+check(NotificationAction.permissionVerdict(status: 200, data: Data(#"{"asking":true,"asked":"Do you want to proceed?","messages":[]}"#.utf8), press: pAllow!, agent: "Ada") != .go, "CONTROL: no card on the chat (an older computer, or the box scrolled): refused")
 if case .unreadable = NotificationAction.permissionVerdict(status: 200, data: Data(#"{"asking":true,"asked":"Do you want to proceed?","messages":null}"#.utf8), press: pAllow!, agent: "Ada") {
     check(true, "still asking but the rows could not be read: says it could not read, not that it changed (review 1)")
 } else { check(false, "still asking but the rows could not be read: says it could not read, not that it changed (review 1)") }
