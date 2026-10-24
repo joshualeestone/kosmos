@@ -44,6 +44,7 @@ const cp = require('node:child_process');
 // are named bare; root ones carry no prefix. Every test file that branches on a win32 HOST must
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
 const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream lifecycle (rename/remove after close)
+  'remote-boardv2-6590.test.js',   // #6590 c6: the board-v2 marker is written on Windows too (whole, by rename; its 0600 check skips there)
   'agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
   'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',
   'setup-assistant.winrules-4752.test.js',   // #4752: the guide's real rules, read on a Windows host

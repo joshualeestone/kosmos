@@ -342,6 +342,7 @@ const TRIAGED_5548 = {
   allowSelfQuietlyForTests: ['engine/remote.js', TEST_SEAM + ' (runs the own-sign-in grant once; production runs it after a sign-in and on its retry)'],
   deviceAckSelfForTests: ['engine/remote.js', TEST_SEAM + ' (the ack-only call allowSelfQuietly makes under the board-v2 marker)'],
   startVouchForTests: ['engine/remote.js', TEST_SEAM + ' (starts the automatic-Allow secret as a sign-in does; production calls startVouch from signinRegister)'],
+  writeBoardV2IfReadyForTests: ['engine/remote.js', TEST_SEAM + ' (the board-v2 marker write, with the connector capabilities passed in; production runs it from ensure() every tick)'],
 };
 
 const engineDir = path.join(__dirname, 'engine');
