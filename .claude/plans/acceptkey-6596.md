@@ -79,6 +79,18 @@ Today no recovery key ships, so the relay never refuses this way: the slice land
 - Corrected: review 1's "refused while forgetting" is defence in depth, not a reachable guard: Forget clears the offer
   before it sets its flags, so the earlier "not a key Kosmos+ offered" check always answers first. Kept, untested.
 
+## Review 4: no blocking finding; recorded
+- A registration that succeeds while the sign-in epoch moved returns through cancelledAfter before the success clears
+  the offer, so K stays acceptable for the rest of the hour. Kept: the acceptance itself was spent at spawn, an Accept
+  then vouches only for K at one later run, and the page offers Accept only beside the refusal that named it.
+- An unrelated failure (a mistyped code) does not end the offer. Kept: the offer is re-recorded on every refusal that
+  names a key, and the hour bounds it.
+- The hour test cannot see the "clock moved back" half of fresh(), and the forgetting guard is unreachable (review 3).
+  Kept as defence in depth.
+- Any failing registration whose stderr carries the label yields keyChanged, not only PinMismatch. Kept: the plan's
+  weakest premise covers a forged message, and nothing a person controls (the name rule) can carry the label.
+- One narrow race stays: a set landing between takeAcceptedKey and the connector reading its own folder.
+
 ## Rejected
 - The board writing coordinator_pubkey itself: bypasses the tunnel's store and floor discipline.
 - Parsing the key from any setup verb's error: a verb that echoes service text could show a forged prompt.
@@ -106,4 +118,5 @@ session to reach; it is the same one-line withKeyChange call as the setup path, 
 ## Progress
 - [x] engine, route, tests, arms (14 engine + 3 route tests). Sweep after review 2 (load ~12, another suite running):
   1,374 pass, 5 fail, all timing tests (a hung tunnel, the #988 end to end, a c3 offer); their 3 files alone: 110 pass.
-- [ ] validation, challenge-loop, PR
+- [x] challenge-loop: 4 rounds, the last with no blocking finding
+- [ ] validation, PR (after orgkeys-6596 merges: this branch is stacked on it)
