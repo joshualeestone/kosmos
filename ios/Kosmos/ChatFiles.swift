@@ -91,7 +91,8 @@ struct FileCard: View {
             Image(systemName: Board.fileSymbol(file)).font(.system(size: 18)).foregroundColor(Palette.avatarLetter)
                 .frame(width: 40, height: 40)
                 .background(RoundedRectangle(cornerRadius: 9).fill(Palette.avatarFill))
-                .padding(.leading, 12)
+                // Centred in the thumbnail's 64 pt slot, so every card's name starts at the same place (Mona Lisa).
+                .frame(width: 64, height: 64)
         }
     }
 
