@@ -1,0 +1,324 @@
+import SwiftUI
+import UIKit
+
+// kosmos#7032 (slice 9 of #6838): a project's room, natively. The board's room on a phone (Mona Lisa's slice 9 spec):
+// the conversation with a sender on every row, the board's words for Kosmos's lines, reactions, replies, the
+// silence line, the grouped working line, and the board's composer (its placeholder, the gold Post, a reply strip).
+struct RoomView: View {
+    @ObservedObject var store: RoomStore
+    let project: Board.ProjectRow
+    let openPage: (URL) -> Void
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var draft = ""
+    @State private var replying: Board.RoomRow?
+    @State private var loop: Task<Void, Never>?
+    @State private var chatAgent: Board.Agent?
+    @FocusState private var typing: Bool
+
+    private var rows: [Board.RoomRow] { store.rows[project.id] ?? [] }
+    private var items: [Board.RoomItem] { Board.roomItems(rows, now: Date(), calendar: .current) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            needsLine
+            thread
+            if let note = store.notes[project.id] {
+                Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
+            }
+            composer
+        }
+        .background(Palette.ground.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 0) {
+                    Text(project.name).font(.headline).foregroundColor(Palette.primary).lineLimit(1)
+                    Text(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents").font(.footnote).foregroundColor(Palette.secondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { openBoardPage() } label: { Image(systemName: "info.circle") }
+                    .accessibilityLabel("Members, files and tasks, on your computer's board")
+            }
+        }
+        .background(
+            NavigationLink(isActive: Binding(get: { chatAgent != nil }, set: { if !$0 { chatAgent = nil } })) {
+                if let a = chatAgent { ChatView(client: store.clientForChat, agent: a, openOnBoard: {}) }
+            } label: { EmptyView() }.hidden()
+        )
+        .onAppear { start() }
+        .onDisappear { loop?.cancel(); loop = nil }
+        .onChange(of: scenePhase) { phase in
+            if phase == .background { loop?.cancel(); loop = nil } else if phase == .active && loop == nil { start() }
+        }
+    }
+
+    // Re-read every 5 seconds while on screen, as the board's room does; seen on open and while new rows arrive.
+    private func start() {
+        loop?.cancel()
+        loop = Task {
+            var lastCount = -1
+            while !Task.isCancelled {
+                await store.loadRoom(project.id)
+                let count = (store.rows[project.id] ?? []).count
+                if count != lastCount { lastCount = count; await store.markSeen(project.id) }
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        }
+    }
+
+    private func openBoardPage() {
+        guard let mac = store.macURL, var parts = URLComponents(url: mac, resolvingAgainstBaseURL: false) else { return }
+        parts.queryItems = [URLQueryItem(name: "tab", value: "projects"), URLQueryItem(name: "project", value: project.id)]
+        if let url = parts.url { openPage(url) }
+    }
+
+    // "<Name> needs you on this project." pinned under the header (the board's block, which a phone would put out of
+    // reach under the conversation; the spec pins it). Open goes to that agent's chat.
+    @ViewBuilder private var needsLine: some View {
+        let waiting = store.waitingMembers(project)
+        if !waiting.isEmpty {
+            HStack(spacing: 8) {
+                Text(waiting.count == 1 ? "\(waiting[0].name) needs you on this project." : "\(waiting.count) agents need you on this project.")
+                    .font(.footnote).foregroundColor(Palette.primary)
+                Spacer(minLength: 8)
+                if waiting.count == 1 {
+                    Button("Open") { chatAgent = waiting[0] }.font(.footnote.weight(.semibold)).frame(minHeight: 44)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Palette.banner))
+            .padding(.horizontal, 16).padding(.top, 8)
+        }
+    }
+
+    private var thread: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 6) {
+                    if store.older[project.id]?.cursor != nil {
+                        HStack { Spacer(); ProgressView(); Spacer() }
+                            .onAppear { Task { await store.loadOlder(project.id) } }
+                    }
+                    if store.rows[project.id] != nil && rows.isEmpty { emptyRoom }
+                    ForEach(items) { item in itemView(item).id(item.id) }
+                    ForEach(store.pending[project.id] ?? []) { p in pendingView(p) }
+                    if store.roomFailed.contains(project.id) {
+                        Text("We cannot read this room right now. What is shown may be behind.")
+                            .font(.footnote).foregroundColor(Palette.secondary).frame(maxWidth: .infinity).padding(.top, 8)
+                    }
+                    Color.clear.frame(height: 1).id("bottom")
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+            }
+            .onChange(of: rows.last?.id) { _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
+        }
+    }
+
+    private var emptyRoom: some View {
+        Text(project.members.isEmpty ? "Put an agent on this project and the room opens."
+             : "Nothing here yet. Post below and everyone on this project receives it; use @name to hand someone a request.")
+            .font(.footnote).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity).padding(.top, 24).padding(.horizontal, 16)
+    }
+
+    @ViewBuilder private func itemView(_ item: Board.RoomItem) -> some View {
+        switch item.kind {
+        case .day(let label):
+            Text(label).font(.caption.weight(.semibold)).foregroundColor(Palette.secondary).frame(maxWidth: .infinity).padding(.vertical, 6)
+        case let .row(row, first, last):
+            if row.kind == .kosmos {
+                Text(row.text).font(.footnote).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.vertical, 4)
+            } else {
+                RoomBubble(row: row, first: first, last: last, name: displayName(row), picture: store.picture(row.from),
+                           replied: row.replyTo.flatMap { id in rows.first { $0.id == id } }, nameOf: { displayName($0) },
+                           react: { emoji in Task { await store.react(emoji, to: row, in: project.id) } },
+                           reply: { replying = row; if !row.byPerson, let from = row.from { draft = "@" + (store.names[from] ?? from) + " " }; typing = true },
+                           openAgent: { if let a = store.agent(row.from) { chatAgent = a } },
+                           mentionNames: row.mentioned.compactMap { store.names[$0] },
+                           unansweredName: { store.names[$0] ?? $0 })
+                    .padding(.top, first ? 6 : 0)
+            }
+        }
+    }
+
+    private func displayName(_ row: Board.RoomRow) -> String {
+        if row.byPerson { return "You" }
+        return row.from.map { store.names[$0] ?? $0 } ?? "Kosmos"
+    }
+
+    private func pendingView(_ p: RoomStore.Pending) -> some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            BubbleText(text: p.text, mine: true, tail: true, widthShare: 0.78, faded: true)
+            Text(p.line ?? "Sending…").font(.caption2).foregroundColor(p.line == nil ? Palette.tertiary : Palette.dangerWord)
+            if p.line != nil {
+                Button("Delete") { store.discard(p.id, in: project.id) }.font(.caption2).frame(minHeight: 44)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var composer: some View {
+        VStack(spacing: 0) {
+            if let r = replying {
+                HStack(spacing: 8) {
+                    Text("Replying to \(displayName(r)): \(r.text.components(separatedBy: "\n").first ?? "")")
+                        .font(.footnote).foregroundColor(Palette.secondary).lineLimit(1)
+                    Spacer()
+                    Button { replying = nil } label: { Image(systemName: "xmark") }.frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel("Stop replying")
+                }
+                .padding(.horizontal, 16)
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField("Write something or @name to message someone…", text: $draft, axis: .vertical)
+                    .lineLimit(1...5)
+                    .focused($typing)
+                    .accessibilityLabel("Post to everyone on this project")
+                    .padding(.vertical, 10).padding(.horizontal, 14)
+                    .background(RoundedRectangle(cornerRadius: 20).fill(Palette.card))
+                    .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator))
+                Button { send() } label: {
+                    Image(systemName: "arrow.up").font(.body.weight(.bold)).foregroundColor(Palette.sendGlyph)
+                        .frame(width: 44, height: 44).background(Circle().fill(Palette.sendFill))
+                }
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
+                .accessibilityLabel("Post")
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+        }
+        .background(Palette.ground)
+    }
+
+    private func send() {
+        let text = draft
+        let reply = replying?.id
+        draft = ""; replying = nil
+        Task { await store.post(text, to: project.id, replyTo: reply) }
+    }
+}
+
+// One post in a room: the sender's picture and name on the first of a run, the board's bubble colours, a reply header,
+// reactions and the silence line under it.
+struct RoomBubble: View {
+    let row: Board.RoomRow
+    let first: Bool
+    let last: Bool
+    let name: String
+    let picture: UIImage?
+    let replied: Board.RoomRow?
+    let nameOf: (Board.RoomRow) -> String
+    let react: (String) -> Void
+    let reply: () -> Void
+    let openAgent: () -> Void
+
+    private var mine: Bool { row.byPerson }
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            if !mine {
+                Group {
+                    if last { avatar } else { Color.clear }
+                }
+                .frame(width: 28, height: 28)
+            }
+            VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
+                bubble
+                if !row.reactions.isEmpty { reactions }
+                if !row.unanswered.isEmpty {
+                    Text(row.unanswered.map { "\(unansweredName($0)) has not answered here yet." }.joined(separator: " "))
+                        .font(.footnote).foregroundColor(Palette.tertiary)
+                }
+                if last, let at = row.at { Text(at, style: .time).font(.caption2).foregroundColor(Palette.tertiary).padding(.horizontal, 4) }
+            }
+            .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityActions {
+            Button("Reply", action: reply)
+            Button("Copy") { UIPasteboard.general.string = row.text }
+        }
+    }
+
+    @ViewBuilder private var avatar: some View {
+        if row.kind == .external {
+            Circle().strokeBorder(Palette.secondary, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                .overlay(Text(String(name.prefix(1)).uppercased()).font(.system(size: 12, weight: .semibold)).foregroundColor(Palette.secondary))
+        } else {
+            Button(action: openAgent) { AgentAvatar(name: name, picture: picture, tone: nil, size: 28) }
+                .buttonStyle(.plain).accessibilityLabel("Open \(name)'s chat")
+        }
+    }
+
+    private var bubble: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if first && !mine {
+                HStack(spacing: 6) {
+                    Text(name).font(.footnote.weight(.semibold)).foregroundColor(Palette.primary)
+                    if row.kind == .external {
+                        Text(row.externalAgent ? "External agent" : "External").font(.caption2).foregroundColor(Palette.secondary)
+                    }
+                }
+            }
+            if let replied {
+                Text("\(nameOf(replied)): \(replied.text.components(separatedBy: "\n").first ?? "")")
+                    .font(.footnote).foregroundColor(Palette.secondary).lineLimit(2)
+                    .padding(.leading, 8).overlay(Rectangle().fill(Palette.separator).frame(width: 2), alignment: .leading)
+            } else if row.replyTo != nil {
+                Text("Original message unavailable").font(.footnote).foregroundColor(Palette.tertiary)
+            }
+            Text(row.kind == .external ? AttributedString(row.text) : Self.withMentions(Board.messageText(row.text), mentioned: row.mentioned, names: mentionNames))
+                .font(.body).foregroundColor(Palette.primary).tint(Palette.link)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 8).padding(.horizontal, 12)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(mine ? Palette.personBubble : Palette.agentBubble))
+        .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
+        .contextMenu {
+            Button { react("👍") } label: { Text("👍") }
+            Button { react("❤️") } label: { Text("❤️") }
+            Button { react("🔥") } label: { Text("🔥") }
+            Button(action: reply) { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+            Button { UIPasteboard.general.string = row.text } label: { Label("Copy", systemImage: "doc.on.doc") }
+        }
+    }
+
+    var mentionNames: [String] = []
+    var unansweredName: (String) -> String = { $0 }
+
+    // @names in the mention blue, only for agents the post actually addressed (`mentioned`, the board's #4642).
+    static func withMentions(_ text: AttributedString, mentioned: [String], names: [String]) -> AttributedString {
+        guard !mentioned.isEmpty else { return text }
+        var out = text
+        let plain = String(out.characters)
+        for word in Set(mentioned + names) where !word.isEmpty {
+            var from = plain.startIndex
+            while let r = plain.range(of: "@" + word, options: [.caseInsensitive], range: from..<plain.endIndex) {
+                if let a = AttributedString.Index(r.lowerBound, within: out), let b = AttributedString.Index(r.upperBound, within: out) {
+                    out[a..<b].foregroundColor = Palette.link
+                }
+                from = r.upperBound
+            }
+        }
+        return out
+    }
+
+    private var reactions: some View {
+        HStack(spacing: 6) {
+            ForEach(row.reactions, id: \.emoji) { r in
+                Button { react(r.emoji) } label: {
+                    Text("\(r.emoji) \(r.count)").font(.footnote)
+                        .padding(.horizontal, 8).frame(minHeight: 28)
+                        .background(Capsule().fill(Palette.card))
+                        .overlay(Capsule().stroke(r.mine ? Palette.link : Palette.separator))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(r.emoji), \(r.count)\(r.mine ? ", yours" : "")")
+            }
+        }
+    }
+}

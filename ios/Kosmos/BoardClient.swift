@@ -213,6 +213,8 @@ final class BoardClient: ObservableObject {
     // tab arriving had just started, whichever order SwiftUI reports them in.
     static let agentsViewer = "agents"
     static let todayViewer = "today"
+    // kosmos#7032: the Projects tab and a room keep the connection (and the agents' names and pictures) going too.
+    static let projectsViewer = "projects"
     private var viewers: Set<String> = []
     func show(_ viewer: String) {
         let first = viewers.isEmpty
@@ -309,6 +311,9 @@ final class BoardClient: ObservableObject {
     // kosmos#7032: one request through this client's own session to the Mac it is connected to, for the Projects tab and
     // a project's room (RoomStore), so they need no second session of their own. nil when not connected, when the request
     // cannot be made, or when no answer came. The caller reads the answer itself.
+    // The Mac this client is connected to, for a link to its board (a room's info button); nil when not connected.
+    var macURL: URL? { admitted?.url }
+
     func throughMac(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         guard let held = admitted, let request = build(held.url) else { return nil }
         return await env.send(request)

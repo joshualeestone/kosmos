@@ -46,6 +46,8 @@ struct ContentView: View {
             switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TAB"] {
             case "settings": return .settings
             case "today": return .today
+            // kosmos#7032: KOSMOS_SAMPLE_TAB=projects opens the native Projects tab's samples.
+            case "projects": return .projects
             default: return .agents
             }
         }
@@ -257,7 +259,8 @@ struct ContentView: View {
         web.pressBoardSection(.today)
     }
 
-    // Agents and Settings are native, and Today when nothing was sent under it (kosmos#7030); the rest show the board.
+    // Agents, Projects (kosmos#7032) and Settings are native, and Today when nothing was sent under it (kosmos#7030);
+    // the rest show the board.
     @ViewBuilder private func tabPage(_ which: Tab) -> some View {
         if which == .today && !todayBoard {
             TodayView(client: board, openPage: { url in
@@ -267,6 +270,12 @@ struct ContentView: View {
             AgentsView(client: board, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoard: { showBoardToday() })
+        } else if which == .projects {
+            // kosmos#7032: the native Projects list and a project's room; the board's own project page (the room's info
+            // button) opens under Today, as an agent's chat does from Agents.
+            ProjectsView(client: board, openPage: { url in
+                pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+            })
         } else if which == .settings {
             // kosmos#7010: a Kosmos+ page (the account, the delete flow) opens under Today in the shared web view, as an
             // agent's chat does, and so does the board's own Settings.
