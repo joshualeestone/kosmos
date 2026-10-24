@@ -25,6 +25,10 @@ struct ChatView: View {
     // Reads are numbered: only one newer than the last shown is shown, so a slow earlier read never undoes a newer one.
     @State private var readsStarted = 0
     @State private var readShown = 0
+    // Shown on screen (not just alive in a hidden tab), and the client's forgetting count this chat was opened under.
+    @State private var visible = false
+    @State private var epoch = 0
+    @State private var lastPendingCount = 0
 
     // The agent as the list shows it now (its word and tone move with the board), or as it was tapped.
     private var shown: Board.Agent { client.agents.first { $0.session == agent.session } ?? agent }
@@ -57,16 +61,28 @@ struct ChatView: View {
             }
         }
         .onAppear {
+            visible = true
+            epoch = client.chatEpoch
             draftText = client.drafts[agent.session] ?? ""
             startReading()
         }
         .onDisappear {
-            client.drafts[agent.session] = draftText
+            visible = false
+            // Not into another account's chats: a draft from before a sign-out is dropped with the rest.
+            if epoch == client.chatEpoch { client.drafts[agent.session] = draftText }
             loop?.cancel()
             loop = nil
         }
+        // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
+        .onChange(of: client.chatEpoch) { now in
+            epoch = now
+            thread = nil
+            draftText = ""
+            refusal = nil
+            failedReads = 0
+        }
         .onChange(of: scenePhase) { phase in
-            if phase == .background { loop?.cancel(); loop = nil } else if phase == .active, loop == nil { startReading() }
+            if phase == .background { loop?.cancel(); loop = nil } else if phase == .active, visible, loop == nil { startReading() }
         }
     }
 
@@ -133,7 +149,11 @@ struct ChatView: View {
                 .onAppear { proxy.scrollTo("end", anchor: .bottom) }
                 .onChange(of: Board.followKey(thread)) { _ in follow(proxy) }
                 .onChange(of: working) { now in if now { follow(proxy) } }
-                .onChange(of: pending.count) { _ in withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                // Only a message just sent scrolls down; one settling into its row does not move the person's place.
+                .onChange(of: pending.count) { n in
+                    if n > lastPendingCount { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                    lastPendingCount = n
+                }
                 // The keyboard shrinks the thread; one that was at the newest message stays there (the spec).
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                     if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
@@ -167,7 +187,7 @@ struct ChatView: View {
     @ViewBuilder private var pendingBubbles: some View {
         ForEach(pending) { p in
             PendingBubble(item: p, widthShare: widthShare, line: Board.notSentLine(agentRunning: running, name: shown.name),
-                          retry: { Task { await client.retry(p.id, to: agent) } },
+                          retry: { Task { await client.retry(p.id, to: agent); await read() } },
                           delete: { client.discard(p.id, for: agent.session) })
                 .padding(.top, 10)
                 .id(p.id)
@@ -350,12 +370,16 @@ struct ChatBubble: View {
         VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
             BubbleText(text: row.text, mine: mine, tail: lastOfRun, widthShare: widthShare, faded: line != nil)
                 .onTapGesture { if line?.canRetry == true { sendAgain() } }
+                // One long-press menu per bubble, set here (a menu on the shared bubble would hide the pending one's Delete).
+                .contextMenu {
+                    Button { UIPasteboard.general.string = row.text } label: { Label("Copy", systemImage: "doc.on.doc") }
+                }
             if let line {
                 NotSentLine(text: line.text, canRetry: line.canRetry, action: sendAgain)
             } else if lastOfRun || row.notSent != nil {
                 HStack(spacing: 6) {
                     if lastOfRun, let at = row.at { Text(at, style: .time).foregroundColor(Palette.tertiary) }
-                    if let notSent = row.notSent { Text(notSent).foregroundColor(Palette.secondary) }
+                    if let notSent = row.notSent { Text(notSent + (row.because.map { ": " + $0 } ?? "")).foregroundColor(Palette.secondary) }
                 }
                 .font(.caption2)
                 .padding(.horizontal, 4)
@@ -385,7 +409,7 @@ struct PendingBubble: View {
     private var reason: String? { if case .failed(let why) = item.state { return why } else { return nil } }
     // Kept by the Mac but not delivered: the words its row will say, quiet, with nothing to tap (the row takes over).
     private var undelivered: String? {
-        if case .keptUndelivered(_, let held) = item.state { return held ? "Waiting to send" : "Not sent" } else { return nil }
+        if case .keptUndelivered(_, let note) = item.state { return note } else { return nil }
     }
 
     var body: some View {
@@ -459,9 +483,6 @@ struct BubbleText: View {
                 }
                 .foregroundColor(mine ? Palette.personBubble : Palette.agentBubble)
             )
-            .contextMenu {
-                Button { UIPasteboard.general.string = text } label: { Label("Copy", systemImage: "doc.on.doc") }
-            }
             .frame(maxWidth: UIScreen.main.bounds.width * widthShare, alignment: mine ? .trailing : .leading)
             .fixedSize(horizontal: false, vertical: true)
     }

@@ -795,10 +795,15 @@ do {
     check(rows[0].atRaw == "2026-10-23T13:32:00Z", "the Mac's own time is kept as sent, to match a sent message to its row")
     check(rows[4].wayThrough == .question && rows[5].wayThrough == .permission && rows[6].wayThrough == .attachment && rows[1].wayThrough == nil,
           "a question, a permission card and a file each get their way-through row")
-    check(rows[0].notSent == nil && rows[7].notSent == "Not sent" && rows[8].notSent == "Waiting to send" && rows[9].notSent == nil,
-          "placed and unconfirmed reached the agent; could_not and held did not")
+    check(rows[0].notSent == nil && rows[7].notSent == "Not sent" && rows[8].notSent == "Waiting to send" && rows[9].notSent == "Not confirmed",
+          "placed reached the agent; could_not, held and unconfirmed (it may have arrived) say which")
     check(rows[7].canSendAgain && !rows[8].canSendAgain && !rows[0].canSendAgain,
           "only a message the Mac could not deliver can be sent again; one it holds goes by itself")
+    check(!rows[9].canSendAgain, "one not confirmed is not offered again: it may have arrived, and a second copy would duplicate it")
+    // Not every could_not is a plain message to send again: a copy the Mac already marked as one, and a menu answer.
+    let odd = Board.parseThread(Data(#"{"messages":[{"at":"T1","text":"Hello","from":null,"delivery":{"state":"could_not","duplicateOf":"T0","because":"the same message was already kept above"}},{"at":"T2","text":"Yes, and don't ask again","wire":"2","from":null,"delivery":{"state":"could_not"}},{"at":"T3","text":"Plain","from":null,"delivery":{"state":"could_not","because":"Dana is not running"}}]}"#.utf8))?.rows ?? []
+    check(!odd[0].canSendAgain && !odd[1].canSendAgain && odd[2].canSendAgain, "a duplicate and a menu answer are not sent again; a plain one is")
+    check(odd[0].because == "the same message was already kept above" && odd[2].because == "Dana is not running", "the Mac's own reason is kept, to show as the board shows it")
     check(t?.olderCount == 12, "older messages are counted")
     check(Board.parseThread(Data("{}".utf8)) == nil && Board.parseThread(Data("not json".utf8)) == nil, "an answer that is not a conversation is nil")
     let empty = Board.parseThread(Data(#"{"messages":[]}"#.utf8))
@@ -867,11 +872,14 @@ section("native chat: what a send's answer means")
 do {
     let res = { (s: Int, b: String?) in Board.sendResult(status: s, body: b.map { Data($0.utf8) }) }
     check(res(200, #"{"delivery":{"state":"placed","at":"T1"},"recorded":true}"#) == .kept(at: "T1"), "placed and kept: the row is at T1")
-    check(res(200, #"{"delivery":{"state":"held","at":"T2"},"recorded":true}"#) == .keptUndelivered(at: "T2", held: true),
+    check(res(200, #"{"delivery":{"state":"held","at":"T2"},"recorded":true}"#) == .keptUndelivered(at: "T2", note: "Waiting to send"),
           "held is kept, undelivered: its row says Waiting to send, so the app never offers to send it twice")
-    check(res(200, #"{"delivery":{"state":"could_not","at":"T3","because":"x"},"recorded":true}"#) == .keptUndelivered(at: "T3", held: false),
+    check(res(200, #"{"delivery":{"state":"could_not","at":"T3","because":"x"},"recorded":true}"#) == .keptUndelivered(at: "T3", note: "Not sent"),
           "could_not is kept, undelivered: never shown as sent; its row says Not sent and is sent again from there")
     check(res(200, #"{"delivery":{"state":"placed","at":"T4"},"recorded":false}"#) == .taken, "placed but no row kept: shown as sent until a read holds the words")
+    check(res(200, #"{"delivery":{"state":"unconfirmed","at":"T5"},"recorded":true}"#) == .keptUndelivered(at: "T5", note: "Not confirmed"),
+          "unconfirmed is never shown as sent: it reads Not confirmed, as the board says it could not confirm")
+    check(res(200, #"{"delivery":{"state":"unconfirmed"},"recorded":false}"#) == .refused(nil), "unconfirmed and not kept is not taken as sent")
     check(res(200, #"{"delivery":{"state":"held"},"recorded":false}"#) == .refused(nil), "held and not kept typed nothing")
     check(res(409, #"{"error":"Dana is at its trust prompt"}"#) == .refused("Dana is at its trust prompt"), "a refusal keeps the Mac's words")
     check(res(0, nil) == .noAnswer, "no answer is no answer")
@@ -908,6 +916,13 @@ do {
     check(Board.settled(twice, with: thread).map(\.id) == ["b"], "one row clears one pending message")
     let agentSaid = Board.Thread(rows: [Board.ChatRow(id: "x", atRaw: nil, at: t0, text: "Hello", who: .agent)], olderCount: 0)
     check(Board.settled([p("a", "Hello", .taken)], with: agentSaid).map(\.id) == ["a"], "the agent saying the same words does not clear the person's message")
+    // A send with no answer is cleared only by a row newer than what the chat had already shown when it was sent.
+    var short = Board.PendingSend(id: "ok", text: "ok", at: Board.isoDate("2026-10-23T15:00:30Z")!, state: .failed(reason: nil))
+    short.after = "2026-10-23T15:00:00.000Z"
+    let earlierOk = Board.Thread(rows: [person("2026-10-23T15:00:00.000Z", "ok")], olderCount: 0)
+    check(Board.settled([short], with: earlierOk).map(\.id) == ["ok"], "an earlier ok the chat had already shown never stands in for one that was never sent")
+    let laterOk = Board.Thread(rows: [person("2026-10-23T15:00:00.000Z", "ok"), person("2026-10-23T15:00:31.000Z", "ok")], olderCount: 0)
+    check(Board.settled([short], with: laterOk).isEmpty, "a newer ok clears it")
 }
 
 section("native board: the Mac's session kept between launches")
@@ -1100,7 +1115,7 @@ section("native board loop: connecting")
         // Held: the Mac's row says Waiting to send; the app never offers to send it again (it would be typed twice).
         w.sendQueue = [(200, #"{"delivery":{"state":"held","at":"2026-10-23T20:00:02.000Z"},"recorded":true}"#)]
         await c.post("Pages 9 to 12?", to: dana)
-        check(pending().last?.state == .keptUndelivered(at: "2026-10-23T20:00:02.000Z", held: true) && pending().last?.failed == false
+        check(pending().last?.state == Board.PendingSend.State.keptUndelivered(at: "2026-10-23T20:00:02.000Z", note: "Waiting to send") && pending().last?.failed == false
               && pending().last?.shownAsSent == false, "a held send is kept undelivered: not failed, and never shown as sent")
         let before = w.posted.count
         await c.retry(pending().last!.id, to: dana)
@@ -1129,7 +1144,7 @@ section("native board loop: connecting")
         check(pending().isEmpty, "a read that holds the same words (tidied by the Mac) clears it")
 
         // A message the Mac kept as not sent is sent again as a new message.
-        let lostRow = Board.ChatRow(id: "x", atRaw: "T", at: nil, text: "Are you there?", who: .person, notSent: "Not sent")
+        let lostRow = Board.ChatRow(id: "x", atRaw: "T", at: nil, text: "Are you there?", who: .person, notSent: "Not sent", resendable: true)
         let postedBefore = w.posted.count
         await c.sendAgain(lostRow, to: dana)
         await c.sendAgain(lostRow, to: dana)

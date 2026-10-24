@@ -38,6 +38,8 @@ struct AgentsView: View {
                 )
         }
         .navigationViewStyle(.stack)
+        // Signed out, another account or another Mac: the open chat was the previous one's, so it closes.
+        .onChange(of: client.chatEpoch) { _ in openAgent = nil }
         .onAppear {
             visible = true
             client.start()

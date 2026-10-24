@@ -399,11 +399,17 @@ enum Board {
         let at: Date?
         let text: String
         let who: Who
-        // Under a message of the person's: "Not sent" (the Mac could not deliver it; it can be sent again) or "Waiting
-        // to send" (the Mac holds it and sends it itself); nil when it reached the agent.
+        // Under a message of the person's, the Mac's verdict when it is not "reached the agent": "Not sent" (it could not
+        // deliver it), "Waiting to send" (it holds it and sends it itself), or "Not confirmed" (it may have arrived: the
+        // board's "could not confirm", where sending again may duplicate it). nil when it reached the agent.
         var notSent: String? = nil
         var wayThrough: WayThrough? = nil
-        var canSendAgain: Bool { who == .person && notSent == "Not sent" }
+        // The Mac's own reason, shown under the verdict as the board shows it.
+        var because: String? = nil
+        // Only a plain message the Mac could not deliver is offered again: not a copy the Mac already marked as one
+        // (duplicateOf), and not a menu answer (its words are not what was typed).
+        var resendable = false
+        var canSendAgain: Bool { who == .person && notSent == "Not sent" && resendable }
     }
 
     struct Thread: Equatable {
@@ -440,14 +446,19 @@ enum Board {
             let n = seen[base, default: 0]
             seen[base] = n + 1
             var notSent: String? = nil
-            if who == .person, let d = row["delivery"] as? [String: Any], let state = d["state"] as? String,
-               state != "placed", state != "unconfirmed" {
-                notSent = state == "held" ? "Waiting to send" : "Not sent"
+            var because: String? = nil
+            var resendable = false
+            if who == .person, let d = row["delivery"] as? [String: Any], let state = d["state"] as? String, state != "placed" {
+                notSent = state == "held" ? "Waiting to send" : state == "unconfirmed" ? "Not confirmed" : "Not sent"
+                because = (d["because"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                let wire = (row["wire"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                resendable = state == "could_not" && d["duplicateOf"] == nil && wire == nil
             }
             let way: ChatRow.WayThrough? = row["permission"] != nil ? .permission
                 : kind == "question" ? .question
                 : (row["attachment"] != nil || (row["attachments"] as? [Any])?.isEmpty == false) ? .attachment : nil
-            return ChatRow(id: base + "#\(n)", atRaw: at, at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way)
+            return ChatRow(id: base + "#\(n)", atRaw: at, at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way,
+                           because: because, resendable: resendable)
         }
         let older = (obj["olderCount"] as? NSNumber)?.intValue ?? 0
         return Thread(rows: parsed, olderCount: max(0, older))
@@ -534,7 +545,7 @@ enum Board {
             // The Mac kept a row for it at this time but did not deliver it: held (it sends it itself) or not (the row
             // will say Not sent, and is sent again from there). Shown faded with the same words the row will have, never
             // as sent, and with nothing to tap (the row it becomes is the one place to send it again).
-            case keptUndelivered(at: String, held: Bool)
+            case keptUndelivered(at: String, note: String)
             // The Mac took it but kept no row (or did not say when): shown as sent until a read holds the same words.
             case taken
             // Not taken: the Mac's own reason when it gave one, or nil when no answer came (it may have arrived; a read
@@ -545,6 +556,9 @@ enum Board {
         let text: String
         let at: Date
         var state: State = .sending
+        // The newest row time the conversation had already shown when it was sent: a row that clears it must be newer,
+        // so an earlier "ok" never stands in for one that was never sent.
+        var after: String? = nil
         var failed: Bool { if case .failed = state { return true } else { return false } }
         var shownAsSent: Bool { switch state { case .kept, .taken: return true; default: return false } }
         // What the person can do with it by hand: delete one that failed, or one taken that no read has matched yet.
@@ -553,15 +567,16 @@ enum Board {
 
     // The Mac's answer to a send. POST /api/agent/<name>/thread answers 200 with `delivery` (its `at` is the row it
     // kept) and `recorded` (whether it kept one); a refusal answers 4xx with `{error}`.
-    enum SendResult: Equatable { case kept(at: String), keptUndelivered(at: String, held: Bool), taken, refused(String?), noAnswer }
+    enum SendResult: Equatable { case kept(at: String), keptUndelivered(at: String, note: String), taken, refused(String?), noAnswer }
 
     static func sendResult(status: Int, body: Data?) -> SendResult {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if (200...299).contains(status), let d = obj?["delivery"] as? [String: Any], let state = d["state"] as? String {
             if obj?["recorded"] as? Bool == true, let at = d["at"] as? String, !at.isEmpty {
-                return state == "placed" || state == "unconfirmed" ? .kept(at: at) : .keptUndelivered(at: at, held: state == "held")
+                return state == "placed" ? .kept(at: at)
+                    : .keptUndelivered(at: at, note: state == "held" ? "Waiting to send" : state == "unconfirmed" ? "Not confirmed" : "Not sent")
             }
-            if state == "placed" || state == "unconfirmed" { return .taken }
+            if state == "placed" { return .taken }
             return .refused((d["because"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         }
         if status == 0 { return .noAnswer }
@@ -571,7 +586,7 @@ enum Board {
     static func pendingState(after result: SendResult) -> PendingSend.State {
         switch result {
         case .kept(let at): return .kept(at: at)
-        case .keptUndelivered(let at, let held): return .keptUndelivered(at: at, held: held)
+        case .keptUndelivered(let at, let note): return .keptUndelivered(at: at, note: note)
         case .taken: return .taken
         case .refused(let why): return .failed(reason: why)
         case .noAnswer: return .failed(reason: nil)
@@ -595,7 +610,11 @@ enum Board {
                 return true
             case .taken, .failed(reason: nil):
                 let words = sameWords(p.text)
-                if let i = unused.firstIndex(where: { sameWords($0.text) == words && ($0.at.map { $0 >= p.at.addingTimeInterval(-60) } ?? true) }) {
+                func newer(_ r: ChatRow) -> Bool {
+                    if let after = p.after { return (r.atRaw.flatMap(isoDate) ?? .distantPast) > (isoDate(after) ?? .distantFuture) }
+                    return r.at.map { $0 >= p.at.addingTimeInterval(-60) } ?? true
+                }
+                if let i = unused.firstIndex(where: { sameWords($0.text) == words && newer($0) }) {
                     return take(i)
                 }
                 return true
