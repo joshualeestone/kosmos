@@ -12131,6 +12131,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    the field edge's #5c78a6 separates it on the navy and on white alike. */
 #plus-state2 #plus-si-bought-recheck { border-color: #5c78a6; }
 #plus-state2 .plus-si-small { color: var(--k-ink-2); font-size: .9rem; margin: .9rem 0 0; }
+/* kosmos#6596 step 8: the offered key is 43 characters with no spaces; it wraps anywhere rather than widen the card. */
+#plus-state2 .plus-si-key { margin-bottom: 1.1rem; }
+#plus-state2 .plus-si-key code { overflow-wrap: anywhere; word-break: break-all; }
 #plus-state2 .plus-si-addr { margin: .6rem 0 0; }
 #plus-state2 #plus-si-code-late:empty { margin: 0; }
 #plus-state2 .plus-si-addr b { color: #E6EBF7; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; margin-right: .5rem; }
@@ -19891,6 +19894,18 @@ window.kosmosMeasureScrollbarWidth();
         <p class="plus-si-lead" id="plus-si-expired-words" role="status" aria-live="polite">That sign-in timed out. Start over and we'll send a new code.</p>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-expired-go">Start over</button>
+        </div>
+      </div>
+      <!-- kosmos#6596 step 8: the connector refused to sign in because Kosmos+ answered with a different key from the
+           one this computer trusts, and named it. Accepting holds it for the NEXT sign-in only (the code is spent),
+           so both choices start over; the panel has its own buttons and no foot link (plusSiWayOut). -->
+      <div id="plus-si-keychanged" hidden>
+        <p class="plus-si-lead" role="status" aria-live="polite">Kosmos+ answered with a different security key from the one this computer trusts, so this computer did not sign in.</p>
+        <p class="plus-si-small">Accept it only if whoever runs your Kosmos+ service told you the key was changing. The new key is:</p>
+        <p class="plus-si-small plus-si-key"><code id="plus-si-keychanged-key"></code></p>
+        <div class="frow">
+          <button class="btn uprime" type="button" id="plus-si-keychanged-accept">Accept the new key</button>
+          <button class="btn" type="button" id="plus-si-keychanged-no">Do not accept</button>
         </div>
       </div>
       <!-- The way out names what it does (plusSiShow sets it): Cancel on the email step (nothing started),
@@ -54999,12 +55014,13 @@ document.getElementById('plus-forget-anyway').addEventListener('click', (e) => p
    input. Stages: signin-start -> code_sent; signin-verify -> session | second |
    enrol_second_factor; signin-second -> session; signin-enrol -> enrolment_started;
    signin-confirm-enrol -> session; signin-register -> registered (with the address). */
-const PLUS_SI_STEPS = ['plus-si-email', 'plus-si-company', 'plus-si-code', 'plus-si-second', 'plus-si-enrol', 'plus-si-enrol-confirm', 'plus-si-register', 'plus-si-expired'];
+const PLUS_SI_STEPS = ['plus-si-email', 'plus-si-company', 'plus-si-code', 'plus-si-second', 'plus-si-enrol', 'plus-si-enrol-confirm', 'plus-si-register', 'plus-si-expired', 'plus-si-keychanged'];
 /* #3796 addendum 4: what the way out is called, and so what it does, on each step. */
 function plusSiWayOut(step) {
   if (step === 'plus-si-email') return 'Cancel';
   if (step === 'plus-si-register') return 'Sign out';
   if (step === 'plus-si-expired') return '';   // the panel has its own Start over
+  if (step === 'plus-si-keychanged') return '';   // kosmos#6596 step 8: its own two buttons
   return 'Start over';
 }
 /* #5785: the branded K loader (#2692) while a register runs. Mounted fresh each time and removed by emptying the holder:
@@ -55147,7 +55163,11 @@ async function plusSiPostRaw(path, body, timeoutMs) {
   try {
     const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}), signal: ctl.signal });
     const data = await res.json().catch(() => null);
-    if (!res.ok) return { ok: false, because: plusWords((data && data.error) || 'that did not work') };
+    if (!res.ok) {
+      // kosmos#6596 step 8: a sign-in refused because the Kosmos+ key changed names the key it was offered.
+      const offered = data && data.keyChanged && typeof data.keyChanged.offered === 'string' ? data.keyChanged.offered : '';
+      return { ok: false, because: plusWords((data && data.error) || 'that did not work'), ...(offered ? { keyChanged: { offered } } : {}) };
+    }
     return { ok: true, data: data || {} };
   } catch (err) {
     // `timeout` so no caller reads the waited seconds as a cooldown (kosmos#4698: the "Email me a code"
@@ -55176,6 +55196,31 @@ function plusSiFail(because) {
     return;
   }
   plusSiMsg(text);
+}
+/* kosmos#6596 step 8: the connector refused this sign-in because Kosmos+ offered a different key, and named it. The
+   person decides. Accept holds it on this computer for the next sign-in (POST /api/remote/accept-key); the code this
+   one used is spent either way, so both choices start over on the email step with the email kept. */
+let PLUS_SI_OFFERED_KEY = '';
+function plusSiKeyChanged(offered) {
+  PLUS_SI_OFFERED_KEY = String(offered || '');
+  const k = document.getElementById('plus-si-keychanged-key'); if (k) k.textContent = PLUS_SI_OFFERED_KEY;
+  plusSiMsg('');
+  plusSiShow('plus-si-keychanged');
+  const go = document.getElementById('plus-si-keychanged-no'); if (go) go.focus();   // the safe choice holds the focus
+}
+async function plusSiKeyAccept() {
+  const btn = document.getElementById('plus-si-keychanged-accept');
+  if (btn) btn.disabled = true;
+  const r = await plusSiPost('/api/remote/accept-key', { key: PLUS_SI_OFFERED_KEY });
+  if (btn) btn.disabled = false;
+  if (r.stale) return;
+  if (!r.ok) { plusSiMsg(r.because); return; }
+  plusSiStartOver();
+  plusSiMsg('The new key is accepted for your next sign-in, in the next hour. Send yourself a new code to finish.');
+}
+function plusSiKeyDecline() {
+  plusSiStartOver();
+  plusSiMsg('Nothing was changed. This computer still trusts its own key.');
 }
 /* Start over: drop the half-finished sign-in (engine and page, as Sign out does) but stay in the
    wizard, back on the email step with the email kept, so a new code is one press away. */
@@ -55315,6 +55360,8 @@ document.getElementById('plus-si-second-help').addEventListener('click', (e) => 
   e.currentTarget.setAttribute('aria-expanded', rec.hidden ? 'false' : 'true');
 });
 document.getElementById('plus-si-expired-go').addEventListener('click', plusSiStartOver);
+document.getElementById('plus-si-keychanged-accept').addEventListener('click', () => { plusSiKeyAccept(); });
+document.getElementById('plus-si-keychanged-no').addEventListener('click', plusSiKeyDecline);
 document.getElementById('plus-si-cancel').addEventListener('click', (e) => {
   e.preventDefault();
   if (e.currentTarget.textContent.trim() === 'Start over') { plusSiStartOver(); return; }
@@ -56157,6 +56204,7 @@ async function plusSiDoRegister(name, owned) {
   if (!owned && r.ok) plusSiMsg('');
   btn.disabled = false;
   if (owned && foot && foot.parentElement) foot.parentElement.hidden = false;
+  if (!r.ok && r.keyChanged) { plusSiKeyChanged(r.keyChanged.offered); return; }   // kosmos#6596 step 8
   /* A coordinator that does not yet send account_address: its refusal names the account's one name
      ("your account already owns the name X"). Register to that one instead, once. */
   const owns = !r.ok && !owned ? /already owns the name ([a-z0-9-]{3,32})\b/.exec(String(r.because || '')) : null;
@@ -56425,6 +56473,7 @@ async function plusCompanyFinish(btn) {
   PLUS_CO_FINISHING = false;
   plusCompanySyncResend();
   if (r.stale) return;
+  if (!r.ok && r.keyChanged) { plusSiKeyChanged(r.keyChanged.offered); return; }   // kosmos#6596 step 8
   if (!r.ok) {
     const why = String(r.because || '');
     // Review 3: a refusal OF THE CODE (a wrong code says "N tries left") keeps it from being sent again unchanged.
