@@ -698,6 +698,14 @@ keepalive() {
   keepalive_set "$plist" && in_file=1
   launchctl print "$dom/$label" >/dev/null 2>&1 && loaded=1
   [ "$loaded" = 1 ] && loaded_keepalive "$dom/$label" && in_job=1
+  # The loaded check reads launchd's "exit timeout" and "minimum runtime" lines (measured on macOS 27). Without them it
+  # could never say done, and every --apply would reload an idle runner and FAIL: refuse before stopping anything.
+  if [ "$loaded" = 1 ] && [ "$in_job" = 0 ]; then
+    local pf; pf="$(launchctl print "$dom/$label" 2>/dev/null || true)"
+    if ! printf '%s\n' "$pf" | grep -E '^[[:space:]]exit timeout = [0-9]+$' >/dev/null || ! printf '%s\n' "$pf" | grep -E '^[[:space:]]minimum runtime = [0-9]+$' >/dev/null; then
+      echo "refused: launchctl print $dom/$label has no 'exit timeout' or 'minimum runtime' line (the format this check was measured on, macOS 27), so a reload could never be confirmed; nothing was changed" >&2; exit 1
+    fi
+  fi
   if [ "$in_file" = 1 ] && [ "$in_job" = 1 ]; then
     # Loaded is not running: a job that exited 0 (a stop of the service, a session conflict) stays loaded and down.
     # Re-read for a while first: between a crash and launchd's restart (its throttle, up to 10 s) a job is not running.
@@ -720,6 +728,8 @@ keepalive() {
     [ "$prc" = 0 ] && own=1
   fi
   if [ "$APPLY" != 1 ]; then
+    # --apply writes the plist BEFORE any of the refusals below, so say that with them.
+    [ "$in_file" = 1 ] || echo "note:   --apply writes KeepAlive into the plist first, even when it then refuses to reload"
     [ "$in_file" = 1 ] || echo "note:   $plist lacks $(keepalive_missing "$plist"): a killed runner may stay offline"
     [ "$in_file" = 1 ] && [ "$loaded" = 1 ] && echo "note:   $plist has KeepAlive but the LOADED $label does not show it (this reads launchctl print's 'successful exit => 0' and 'exit timeout' lines): it needs a reload"
     [ "$in_file" = 1 ] || echo "WOULD: add KeepAlive {SuccessfulExit: false}, ThrottleInterval 10 and ExitTimeOut 35 to $plist"
@@ -854,6 +864,8 @@ keepalive() {
   # would stay down, the defect this stage exists to fix. And it would save nothing (not measured: the SIGTERM becomes
   # SIGINT to the Listener, which in actions/runner cancels a running job with "The runner has received a shutdown
   # signal"). So wait once more, up to the limit, for that job and the old runner to end, then reload as before.
+  # Not seen: a Worker whose Listener already died while runsvc.sh outlived the wait (it is re-parented); that job is
+  # being cancelled by the stop anyway.
   if [ "$outlived" = 1 ]; then
     local lp w5=0; lp="$(printf '%s\n' "$before" | paste -s -d , -)"
     prc=0; pgrep -P "$lp" -x Runner.Worker >/dev/null || prc=$?
@@ -1000,6 +1012,9 @@ EOF
   elif [ -n "$plist" ] && [ -r "$plist" ]; then
     if keepalive_set "$plist"; then ok "$plist has KeepAlive SuccessfulExit false (whether the LOADED runner has it: as $CI_USER, tools/ci-runner-setup.sh keepalive)"
     else problem "$plist lacks $(keepalive_missing "$plist"): a killed runner may stay offline; as $CI_USER: tools/ci-runner-setup.sh --apply keepalive"; fi
+  elif [ -r "$RUNNER_DIR/.service" ] && [ -z "$plist" ] && [ -r "$CI_HOME/Library/LaunchAgents" ] && [ -x "$CI_HOME/Library/LaunchAgents" ]; then
+    # It CAN look, and there is no LaunchAgent of this runner: missing, or not this runner's (another WorkingDirectory).
+    problem "$RUNNER_DIR/.service names no LaunchAgent of this runner (actions.runner.*.plist directly under $CI_HOME/Library/LaunchAgents with WorkingDirectory $RUNNER_DIR): a killed runner may stay offline; as $CI_USER: tools/ci-runner-setup.sh keepalive"
   elif [ -r "$RUNNER_DIR/.service" ] && [ -z "$plist" ]; then
     # A note, not UNCHECKED: on a default Mac this is every owner run, and an exit 3 that is always there would hide the
     # checks that really could not be made. The header says verify as the owner does not cover KeepAlive.

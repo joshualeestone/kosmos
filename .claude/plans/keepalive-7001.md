@@ -406,3 +406,19 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - DEFERRED NITs: verify's message when the plist exists but is unreadable (needs an unusual directory permission);
   plist_int_ge on a dict/array holding an integer (hand-mangled plist only); the trap-order test is source order (the
   HUP case sends a real signal).
+
+## Review round 29 (opus, blind, HEAD ab73fac2ef)
+- W1 FIXED: verify gave the "cannot see" NOTE even when the owner CAN read ~/Library/LaunchAgents and the plist is
+  missing or not this runner's. It now says PROBLEM when that directory is readable and searchable; the note stays for a
+  closed ~/Library. ka-plist-missing; mutant red.
+- W2 FIXED: ka-relayoutlived passed against the widening it exists to catch (since round 27 a wrongly counted job means
+  a wait, not a refusal). It now also asserts no "a job of this runner is still up" and no "reloading anyway"; the
+  reviewer's own mutant (user-wide late check) is red now.
+- W3 FIXED: changed() cannot see plutil/cp/mv (real binaries), so the dry-run cases could not see a plist write. Seven
+  dry-run cases on the untouched fixture now also cmp the plist; a mutant writing it before the APPLY check is red.
+- NIT1 FIXED: a loaded print without the measured "exit timeout"/"minimum runtime" lines would make every --apply reload
+  and FAIL. It now refuses before writing or stopping anything (ka-noformat; mutant red).
+- NIT2 FIXED: dry-run refusals say --apply writes the plist first (ka-writesfirst).
+- NIT3: a comment for the re-parented Worker the late check cannot see.
+- TO CHECK ON RUNNER 1 BEFORE --apply: that its loaded print has a "minimum runtime" line (the dry run will refuse if
+  not, which is the safe direction).
