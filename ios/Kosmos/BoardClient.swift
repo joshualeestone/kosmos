@@ -212,6 +212,7 @@ final class BoardClient: ObservableObject {
     var drafts: [String: String] = [:]
     // Rows of the person's the Mac kept as not sent that were already sent again, so a second tap sends nothing.
     @Published private(set) var resent: Set<String> = []
+    private var retrying: Set<String> = []
 
     func post(_ text: String, to agent: Board.Agent) async {
         let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -223,16 +224,24 @@ final class BoardClient: ObservableObject {
 
     // Again, for one that was not taken, only while the agent is running (the spec: no retry until the status changes).
     func retry(_ id: String, to agent: Board.Agent) async {
-        guard let i = pending[agent.session]?.firstIndex(where: { $0.id == id }),
+        guard !retrying.contains(id), let i = pending[agent.session]?.firstIndex(where: { $0.id == id }),
               pending[agent.session]?[i].failed == true, isRunning(agent) else { return }
-        pending[agent.session]?[i].state = .sending
+        // A second tap while this one reads or sends does nothing.
+        retrying.insert(id)
+        defer { retrying.remove(id) }
+        // One that got no answer may have arrived: read first, and send only if the conversation does not hold it.
+        // (It stays failed while reading: settle matches a failed-without-answer message by its words, never a sending one.)
+        if pending[agent.session]?[i].state == .failed(reason: nil),
+           case .thread(let t) = await thread(for: agent.session) { settle(t, for: agent.session) }
+        guard let k = pending[agent.session]?.firstIndex(where: { $0.id == id }), pending[agent.session]?[k].failed == true else { return }
+        pending[agent.session]?[k].state = .sending
         await deliver(id, to: agent)
     }
 
     // A message of the person's the Mac kept as not sent: sent again as a new message, once.
     func sendAgain(_ row: Board.ChatRow, to agent: Board.Agent) async {
         let key = agent.session + "|" + row.id
-        guard row.canSendAgain, isRunning(agent), !resent.contains(key) else { return }
+        guard row.canSendAgain, isRunning(agent), !resent.contains(key), Board.fitsBoard(row.text) else { return }
         resent.insert(key)
         await post(row.text, to: agent)
     }

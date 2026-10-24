@@ -29,6 +29,7 @@ struct ChatView: View {
     @State private var visible = false
     @State private var epoch = 0
     @State private var lastPendingCount = 0
+    @State private var keepNewestInView = true
 
     // The agent as the list shows it now (its word and tone move with the board), or as it was tapped.
     private var shown: Board.Agent { client.agents.first { $0.session == agent.session } ?? agent }
@@ -63,6 +64,7 @@ struct ChatView: View {
         .onAppear {
             visible = true
             epoch = client.chatEpoch
+            lastPendingCount = pending.count
             draftText = client.drafts[agent.session] ?? ""
             startReading()
         }
@@ -155,8 +157,13 @@ struct ChatView: View {
                     lastPendingCount = n
                 }
                 // The keyboard shrinks the thread; one that was at the newest message stays there (the spec).
+                // Whether it was at the newest message is read before the keyboard shrinks the thread (which hides the
+                // end marker), and acted on once it is up.
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                    keepNewestInView = atBottom
+                }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                    if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                    if keepNewestInView { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .chatScrollToEnd)) { _ in
                     withAnimation { proxy.scrollTo("end", anchor: .bottom) }
@@ -318,7 +325,7 @@ struct ChatView: View {
         loop = Task {
             while !Task.isCancelled {
                 await read()
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                try? await Task.sleep(nanoseconds: 5_000_000_000)   // the web chat's own cadence
             }
         }
     }
@@ -326,10 +333,11 @@ struct ChatView: View {
     private func read() async {
         readsStarted += 1
         let mine = readsStarted
+        let startedIn = client.chatEpoch
         let result = await client.thread(for: agent.session)
         // A read cut short (the chat closed, the app went away) says nothing about the Mac, and an older read than the
         // one shown changes nothing.
-        guard !Task.isCancelled, mine > readShown else { return }
+        guard !Task.isCancelled, mine > readShown, startedIn == client.chatEpoch else { return }
         readShown = mine
         switch result {
         case .thread(let fresh):
@@ -345,6 +353,15 @@ struct ChatView: View {
         case .noAnswer:
             failedReads += 1
         }
+    }
+}
+
+// A tap action only where there is one to take, so a bubble's links keep their own taps everywhere else.
+struct TapWhen: ViewModifier {
+    let enabled: Bool
+    let action: () -> Void
+    @ViewBuilder func body(content: Content) -> some View {
+        if enabled { content.onTapGesture(perform: action) } else { content }
     }
 }
 
@@ -369,7 +386,7 @@ struct ChatBubble: View {
     var body: some View {
         VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
             BubbleText(text: row.text, mine: mine, tail: lastOfRun, widthShare: widthShare, faded: line != nil)
-                .onTapGesture { if line?.canRetry == true { sendAgain() } }
+                .modifier(TapWhen(enabled: line?.canRetry == true, action: sendAgain))
                 // One long-press menu per bubble, set here (a menu on the shared bubble would hide the pending one's Delete).
                 .contextMenu {
                     Button { UIPasteboard.general.string = row.text } label: { Label("Copy", systemImage: "doc.on.doc") }
@@ -409,13 +426,14 @@ struct PendingBubble: View {
     private var reason: String? { if case .failed(let why) = item.state { return why } else { return nil } }
     // Kept by the Mac but not delivered: the words its row will say, quiet, with nothing to tap (the row takes over).
     private var undelivered: String? {
-        if case .keptUndelivered(_, let note) = item.state { return note } else { return nil }
+        if case .keptUndelivered(_, let note) = item.state { return note }
+        return item.state == .unconfirmed ? "Not confirmed" : nil
     }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
             BubbleText(text: item.text, mine: true, tail: true, widthShare: widthShare, faded: !item.shownAsSent)
-                .onTapGesture { if item.failed && line.canRetry { retry() } }
+                .modifier(TapWhen(enabled: item.failed && line.canRetry, action: retry))
                 .contextMenu {
                     Button { UIPasteboard.general.string = item.text } label: { Label("Copy", systemImage: "doc.on.doc") }
                     if item.deletable { Button(role: .destructive, action: delete) { Label("Delete", systemImage: "trash") } }

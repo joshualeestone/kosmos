@@ -1148,6 +1148,17 @@ section("native board loop: connecting")
         if case .thread(let t) = await c.thread(for: "dana") { c.settle(t, for: "dana") }
         check(pending().isEmpty, "a read that holds the same words (tidied by the Mac) clears it")
 
+        // No answer, then a tap: the conversation is read first, and a message that did arrive is not sent again.
+        w.threadAnswer = (200, #"{"messages":[]}"#)
+        w.sendQueue = [nil]
+        await c.post("Arrived after all", to: dana)
+        let failedId = pending().last!.id
+        w.threadAnswer = (200, #"{"messages":[{"at":"2026-10-23T20:00:09.000Z","text":"Arrived after all","from":null,"delivery":{"state":"placed"}}]}"#)
+        let postsBeforeRetry = w.posted.count
+        await c.retry(failedId, to: dana)
+        check(w.posted.count == postsBeforeRetry && !pending().contains { $0.id == failedId },
+              "a retry after no answer finds it in the conversation and sends nothing")
+
         // A message the Mac kept as not sent is sent again as a new message.
         let lostRow = Board.ChatRow(id: "x", atRaw: "T", at: nil, text: "Are you there?", who: .person, notSent: "Not sent", resendable: true)
         let postedBefore = w.posted.count
