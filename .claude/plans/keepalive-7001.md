@@ -231,3 +231,25 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
   bootout, bootstrap (mutant that forces a pid: red).
 - CONVENTION FIXED: the plan said the unload wait defaults to 30; it is 45. NITs deferred (a print-disabled negative
   fixture is test polish with no behaviour behind it; recorded, not built).
+
+## Review round 19 (opus, blind, HEAD 0f85442f14)
+- W1 FIXED: nothing proved register adds KeepAlive BEFORE svc.sh start (the test read the plist afterwards). The svc.sh
+  start stub now logs the plist's KeepAlive at start; rg-apply asserts start-ka=false (mutant moving add_keepalive after
+  start: red).
+- W2 FIXED, MY OWN DEFECT FROM ROUND 18: the "not called unregistered" negative was single-quoted, so $VCI never
+  expanded and it could not fail. Now -F in double quotes; a mutant printing the wrong note beside the right one: red.
+  The same pass found three more vacuous negatives I left in round 18: ka-oldjob, ka-partial, ka-oldtimeout still
+  checked "restarts after a kill", the phrase round 18 renamed. Fixed; a mutant printing the ok phrase in the dry
+  run turns all three red. Lesson already in memory (grep every reader of changed wording); I did not run it.
+- W3 FIXED: a LOADED KeepAlive true restarts the clean stop the SIGTERM causes, so the bootout could cut a starting
+  Listener. MEASURED the print shape on this Mac (throwaway agents, all three variants): true prints
+  "properties = keepalive | runatload | inferred program" and no semaphore; the dict prints the semaphore and no keepalive
+  property. loaded_always() detects it (tested against the real launchd output under pipefail: true YES, dict no,
+  none no); --apply and the dry run both refuse with the by-hand reload. Cases ka-always, ka-always-dry; three mutants red.
+- W4 FIXED: the dry run promised a reload --apply refuses for a disabled label. label_disabled() is shared; ka-disabled-dry.
+- C5 FIXED: ThrottleInterval was written but never checked. keepalive_set needs >= 10 and keepalive_missing names it
+  (ka-throttle, fixture asserted to hold Throttle 1; mutant red).
+- C6 FIXED: the CI home check validates "$CI_HOME" itself, not a re-derived expression.
+- DEFERRED NITs: 7 (exit 130 on TERM as well as INT: no caller distinguishes them), 8 (a deeper-indented state line in
+  the stub), 9 (pid reuse in the new-Listener wait: fails safe), 10 (a stranger who can read the plist is told "not
+  logged in": ~/Library is 700).

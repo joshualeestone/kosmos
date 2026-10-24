@@ -59,6 +59,8 @@ case "$me" in
         [ "${FX_NO_PID:-0}" = 1 ] || printf '\tpid = %s\n' "${FX_JOB_PID:-999999}"
         lk="$(dirname "$CALL_LOG")/loaded-ka"
         [ -f "$lk" ] && printf '\tsemaphores = {\n\t\tsuccessful exit => 0\n\t}\n'
+        # FX_LOADED_ALWAYS=1: the loaded job has KeepAlive true, as launchd prints it (measured, macOS 27, 2026-10-23).
+        [ "${FX_LOADED_ALWAYS:-0}" = 1 ] && printf '\tproperties = keepalive | runatload | inferred program\n'
         printf '\texit timeout = %s\n' "$( [ -s "$lk" ] && cat "$lk" || echo 5)"
         printf '}\n'; exit 0 ;; esac
     [ "$1 ${2%%/*}" = "print gui" ] || exit 1
@@ -160,6 +162,8 @@ case "$me" in
         elif [ "${FX_SVC_STUCK:-0}" = 1 ] || [ "$(cat "$st" 2>/dev/null)" = started ]; then echo "Started"; else echo "Stopped"; fi ;;
       stop) echo stopped > "$st"; [ -z "${FX_SVC_STOP_LAG:-}" ] || echo "$FX_SVC_STOP_LAG" > "$(dirname "$0")/.svc-lag" ;;
       start) [ "${FX_SVC_START_FAIL:-0}" = 1 ] && exit 1; echo started > "$st"
+        # What launchd loads at this start: the plist as it is NOW (kosmos#7001: KeepAlive must be in it before start).
+        echo "start-ka=$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$(head -n 1 "$(dirname "$0")/.service" 2>/dev/null)" 2>/dev/null)" >> "$CALL_LOG"
         [ "${FX_SAME_PID:-0}" = 1 ] || echo $(( $(cat "$(dirname "$0")/.svc-pid" 2>/dev/null || echo 4343) + 1 )) > "$(dirname "$0")/.svc-pid" ;;
     esac ;;
 esac
@@ -534,6 +538,7 @@ ka_of() { plutil -extract KeepAlive.SuccessfulExit raw -o - "$1" 2>/dev/null; }
 [ "$(ka_of "$KP")" = false ] && [ "$(plutil -extract ThrottleInterval raw -o - "$KP" 2>/dev/null)" = 10 ] \
   && [ "$(plutil -extract ExitTimeOut raw -o - "$KP" 2>/dev/null)" = 35 ] \
   && [ "$(plutil -extract RunAtLoad raw -o - "$KP" 2>/dev/null)" = true ] && [ ! -e "$KP.new" ] \
+  && grep -qx 'start-ka=false' "$T/rg-apply.calls" \
   && pass "register --apply adds KeepAlive {SuccessfulExit: false} to the LaunchAgent svc.sh wrote, and keeps the rest (kosmos#7001)" \
   || fail "register KeepAlive: $(plutil -p "$KP" 2>&1 | tr '\n' ' ')"
 has rg-dry "WOULD: add KeepAlive {SuccessfulExit: false}" && pass "register dry run says it would add KeepAlive" || fail "register dry run: no KeepAlive line"
@@ -596,7 +601,7 @@ run ka-again "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepa
 [ "$(rc ka-again)" = 0 ] && has ka-again "restarts after a SIGKILL or a crash" && has ka-again "and is running" && ! has ka-again "WOULD" && pass "keepalive dry run on a runner that has it: says so, would do nothing" || fail "keepalive again: $(cat "$T/ka-again.out")"
 # Loaded with KeepAlive but not running (it exited 0): DOWN, not "done".
 run ka-loadeddown "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE=waiting KOSMOS_CI_STATE_WAIT_S=1 -- keepalive
-[ "$(rc ka-loadeddown)" = 1 ] && has ka-loadeddown "has KeepAlive loaded but has not been running" && has ka-loadeddown "(state = waiting)" && ! has ka-loadeddown "restarts after a kill" \
+[ "$(rc ka-loadeddown)" = 1 ] && has ka-loadeddown "has KeepAlive loaded but has not been running" && has ka-loadeddown "(state = waiting)" && ! has ka-loadeddown "restarts after a SIGKILL or a crash" \
   && pass "keepalive: KeepAlive loaded on a job that is not running is DOWN, not done" || fail "keepalive loaded down: rc $(rc ka-loadeddown): $(cat "$T/ka-loadeddown.out")"
 ka_fresh; run ka-job "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER=1 -- --apply keepalive
 [ "$(rc ka-job)" = 1 ] && has ka-job "a job is running" && [ "$(ka_of "$KA")" = false ] && ! grep -q '^launchctl boot' "$T/ka-job.calls" \
@@ -609,7 +614,7 @@ run ka-rerun "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --app
   && pass "keepalive --apply, rerun after a refused reload: the plist already has it, the loaded job does not, so it reloads" || fail "keepalive rerun: rc $(rc ka-rerun): $(tail -2 "$T/ka-rerun.out")"
 ka_fresh; cp "$T/ka.after" "$KA"; run ka-oldjob "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
 [ "$(rc ka-oldjob)" = 0 ] && has ka-oldjob "the LOADED actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s does not" && has ka-oldjob "WOULD: launchctl bootout" \
-  && ! has ka-oldjob "restarts after a kill" && pass "keepalive dry run: a plist with KeepAlive under a loaded job without it is not called done" || fail "keepalive old job: $(cat "$T/ka-oldjob.out")"
+  && ! has ka-oldjob "restarts after a SIGKILL or a crash" && pass "keepalive dry run: a plist with KeepAlive under a loaded job without it is not called done" || fail "keepalive old job: $(cat "$T/ka-oldjob.out")"
 ka_fresh; run ka-elsewhere "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 -- --apply keepalive
 [ "$(rc ka-elsewhere)" = 1 ] && has ka-elsewhere "Listener runs but" && [ "$(ka_of "$KA")" = false ] && ! grep -q '^launchctl boot' "$T/ka-elsewhere.calls" \
   && pass "keepalive --apply: its Listener runs but the job is not in gui/<uid> (started another way): refuses, starts no second copy" || fail "keepalive elsewhere: rc $(rc ka-elsewhere): $(tail -1 "$T/ka-elsewhere.out")"
@@ -636,13 +641,13 @@ ka_fresh; run ka-baselinefail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HO
 ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$KA"; echo 5 > "$T/loaded-ka"
 run ka-partial "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
 run ka-partial-apply "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
-[ "$(rc ka-partial)" = 0 ] && ! has ka-partial "restarts after a kill" && has ka-partial "lacks ExitTimeOut 35 (it has KeepAlive)" && has ka-partial "WOULD: add KeepAlive" \
+[ "$(rc ka-partial)" = 0 ] && ! has ka-partial "restarts after a SIGKILL or a crash" && has ka-partial "lacks ExitTimeOut 35, ThrottleInterval 10" && has ka-partial "WOULD: add KeepAlive" \
   && [ "$(rc ka-partial-apply)" = 0 ] && [ "$(plutil -extract ExitTimeOut raw -o - "$KA")" = 35 ] && grep -q '^launchctl bootstrap' "$T/ka-partial-apply.calls" \
   && pass "keepalive: KeepAlive without ExitTimeOut is not done; --apply adds ExitTimeOut 35 and reloads" || fail "keepalive partial: rc $(rc ka-partial)/$(rc ka-partial-apply): $(tail -2 "$T/ka-partial.out") / $(tail -1 "$T/ka-partial-apply.out")"
 # The plist has all three keys but the LOADED job still has the old 5 s exit timeout: not done, it needs a reload.
 ka_fresh; cp "$T/ka.after" "$KA"; echo 5 > "$T/loaded-ka"
 run ka-oldtimeout "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
-[ "$(rc ka-oldtimeout)" = 0 ] && ! has ka-oldtimeout "restarts after a kill" && has ka-oldtimeout "WOULD: launchctl bootout" \
+[ "$(rc ka-oldtimeout)" = 0 ] && ! has ka-oldtimeout "restarts after a SIGKILL or a crash" && has ka-oldtimeout "WOULD: launchctl bootout" \
   && pass "keepalive dry run: a loaded job with KeepAlive but launchd's 5 s exit timeout is not done" || fail "keepalive old timeout: $(cat "$T/ka-oldtimeout.out")"
 # The old job is stopped with SIGTERM before the bootout (it may still have launchd's 5 s exit timeout). 999999 is a pid
 # that does not exist, so the wait for it ends at once and touches no real process.
@@ -685,6 +690,25 @@ kl="$(grep -n 'launchctl kill SIGTERM "\$dom/\$label"' "$S" | head -n 1 | cut -d
 ka_fresh; run ka-disabled "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_DISABLED=1 -- --apply keepalive
 [ "$(rc ka-disabled)" = 1 ] && has ka-disabled "is disabled in gui/777" && has ka-disabled "launchctl enable gui/777/" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-disabled.calls" \
   && pass "keepalive --apply: a disabled label refuses before anything is stopped, and names launchctl enable" || fail "keepalive disabled: rc $(rc ka-disabled): $(tail -1 "$T/ka-disabled.out")"
+ka_fresh; run ka-disabled-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_DISABLED=1 -- keepalive
+[ "$(rc ka-disabled-dry)" = 1 ] && has ka-disabled-dry "is disabled in gui/777, so --apply would refuse" && ! has ka-disabled-dry "WOULD: launchctl bootout" && ! changed ka-disabled-dry >/dev/null \
+  && pass "keepalive dry run: a disabled label is refused there too, not promised a reload" || fail "keepalive disabled dry: rc $(rc ka-disabled-dry): $(tail -2 "$T/ka-disabled-dry.out")"
+# A LOADED KeepAlive true restarts the clean stop the SIGTERM causes, and the bootout could cut that new Listener.
+ka_fresh; run ka-always "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LOADED_ALWAYS=1 -- --apply keepalive
+[ "$(rc ka-always)" = 1 ] && has ka-always "restarts even a clean stop (KeepAlive true)" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-always.calls" \
+  && [ "$(ka_of "$KA")" = false ] \
+  && pass "keepalive --apply: a loaded KeepAlive true refuses before the SIGTERM (it would restart into the bootout)" || fail "keepalive loaded always: rc $(rc ka-always): $(tail -1 "$T/ka-always.out")"
+ka_fresh; run ka-always-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LOADED_ALWAYS=1 -- keepalive
+[ "$(rc ka-always-dry)" = 1 ] && has ka-always-dry "so --apply would refuse to reload it" && ! changed ka-always-dry >/dev/null \
+  && pass "keepalive dry run: a loaded KeepAlive true is refused there too" || fail "keepalive loaded always dry: rc $(rc ka-always-dry): $(tail -1 "$T/ka-always-dry.out")"
+# ThrottleInterval below 10 with the other two keys right is not done: it is named and raised.
+ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$KA"; plutil -insert ExitTimeOut -integer 35 "$KA"; plutil -insert ThrottleInterval -integer 1 "$KA"
+[ "$(plutil -extract ThrottleInterval raw -o - "$KA")" = 1 ] || fail "fixture: ThrottleInterval 1 was not written"
+run ka-throttle-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
+run ka-throttle "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+has ka-throttle-dry "lacks ThrottleInterval 10" && ! has ka-throttle-dry "lacks KeepAlive" && [ "$(rc ka-throttle)" = 0 ] \
+  && [ "$(plutil -extract ThrottleInterval raw -o - "$KA")" = 10 ] \
+  && pass "keepalive: a ThrottleInterval under 10 is named, and --apply raises it to 10" || fail "keepalive throttle: rc $(rc ka-throttle): $(grep -h lacks "$T/ka-throttle-dry.out")"
 # A non-integer ExitTimeOut (3.5) is not kept as if it were 35: it is replaced, and the stage converges.
 ka_fresh; plutil -insert ExitTimeOut -float 3.5 "$KA"; et0="$(plutil -extract ExitTimeOut raw -o - "$KA" 2>&1)"; run ka-real "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
 case "$et0" in 3.5*) : ;; *) fail "control: the fixture holds no non-integer ExitTimeOut ($et0)" ;; esac
@@ -798,7 +822,7 @@ chmod 000 "$VCI"; vcase home-closed 3 "but 1 check(s) could not be made"; chmod 
 grep -q 'but 1 check(s) could not be made' "$T/v-home-hidden.out" && pass "verify counts a hidden runner dir once" || fail "hidden runner dir counted: $(grep 'could not be made' "$T/v-home-hidden.out")"
 chmod 755 "$VCI/actions-runner"
 has v-home-hidden "a dry run) says whether KeepAlive is set" && has v-home-closed "a dry run) says whether KeepAlive is set" \
-  && ! grep -q 'no $VCI/actions-runner/.service' "$T/v-home-hidden.out" "$T/v-home-closed.out" \
+  && ! grep -q -F "no $VCI/actions-runner/.service" "$T/v-home-hidden.out" "$T/v-home-closed.out" \
   && pass "verify: a runner dir it cannot enter says it cannot check KeepAlive, not that the runner is unregistered" \
   || fail "verify hidden dir KeepAlive note: $(grep -h 'LaunchAgent\|.service' "$T/v-home-hidden.out" "$T/v-home-closed.out" | head -3)"
 ! has v-home-hidden "install has not run here" && ! has v-home-hidden "no $VCI/actions-runner/.path here" && pass "verify: a runner dir it cannot enter is not called missing" || fail "verify hidden dir read as missing"
