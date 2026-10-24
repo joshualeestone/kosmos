@@ -61,6 +61,68 @@ test('c6: the marker turns on what is built for it, and nothing in the board rem
   for (const piece of ['function deviceAckSelf(', 'function vouchStepV2(', 'function deviceAllowVouched(']) assert.ok(src.includes(piece), piece);
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   assert.ok(page.includes('id="plus-waiting"') && page.includes('data-wait="ctack"'), 'the page that lets a browser in is missing');
-  // Never removed by the board: no unlink of the marker anywhere in the engine.
-  assert.doesNotMatch(src, /(unlink|rm)Sync\([^)]*BOARD_V2_FILE/, 'the board removes the marker somewhere');
+  // Never removed by the board on its own (review 1: a regex for unlink(...BOARD_V2_FILE) could not match the
+  // path.join form, so it guarded nothing). The marker's name is used in exactly three places: where it is declared,
+  // the writer, and the reader. A removal anywhere needs a fourth, and the writer never removes its target.
+  const uses = src.split('\n').filter((l) => l.includes('BOARD_V2_FILE'));
+  assert.equal(uses.length, 3, 'the marker name is used somewhere new (a removal?):\n' + uses.join('\n'));
+  assert.ok(uses[0].includes("const BOARD_V2_FILE = 'board-v2'") && uses[2].includes('existsSync'), uses.join('\n'));
+  for (const l of uses) assert.doesNotMatch(l, /\b(unlink|rm|rmdir)(Sync)?\s*\(/, 'a line that names the marker removes something: ' + l);
+  const writer = src.slice(src.indexOf('function writeBoardV2IfReady('), src.indexOf('function boardV2()'));
+  assert.ok(writer.length > 0 && !/(unlink|rm)Sync\(\s*target\b/.test(writer), 'the writer removes its own target');
+  // ...and no other board file names the marker as a quoted string (comments may mention it).
+  for (const f of ['server.js', path.join('engine', 'enrolment.js')]) {
+    assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), /['"`]board-v2['"`]/, f + ' names the marker');
+  }
+  // The tick writes it: ensure() calls the writer (review 1: deleting the call kept every test green).
+  const ensure = src.slice(src.indexOf('function ensure(port)'), src.indexOf('function ensure(port)') + 1200);
+  assert.ok(/\n\s*writeBoardV2IfReady\(\);/.test(ensure), 'ensure() no longer writes the marker');
+});
+
+test('c6 review 1: any KOSMOS_BOARD_V2 but unset, 1 or on holds the write back (a mistyped off is still off)', () => {
+  try {
+    for (const v of ['0', '0 ', 'false', 'OFF', 'no', 'hold', ' 0']) {
+      setup();
+      process.env.KOSMOS_BOARD_V2 = v;
+      assert.equal(remote.writeBoardV2IfReadyForTests(WITH), false, JSON.stringify(v) + ' did not hold it');
+      assert.ok(!fs.existsSync(MARKER));
+    }
+    for (const v of ['1', 'on', ' ON ', '']) {
+      setup();
+      process.env.KOSMOS_BOARD_V2 = v;
+      assert.equal(remote.writeBoardV2IfReadyForTests(WITH), true, 'control: ' + JSON.stringify(v) + ' writes it');
+    }
+  } finally { delete process.env.KOSMOS_BOARD_V2; }
+});
+
+test('c6 review 1: not while this computer still waits for an older computer\'s Allow', () => {
+  setup({ enrolled: false });
+  for (const f of ['mac_id', 'address', 'held']) fs.writeFileSync(path.join(STATE, f), 'fake');
+  assert.equal(remote.writeBoardV2IfReadyForTests(WITH), false, 'written mid-join');
+  fs.rmSync(path.join(STATE, 'held'));
+  for (const f of ['tls.crt', 'tls.key']) fs.writeFileSync(path.join(STATE, f), 'fake');
+  assert.equal(remote.writeBoardV2IfReadyForTests(WITH), true, 'control: once joined it is written');
+});
+
+test('c6 review 1: the default capabilities are the connector\'s own (a connector that lists nothing writes nothing)', () => {
+  setup();
+  // AGENT_WORKFORCE_TUNNEL_BIN is /usr/bin/false here: it lists no capability.
+  assert.equal(remote.writeBoardV2IfReadyForTests(), false);
+  assert.ok(!fs.existsSync(MARKER));
+  assert.equal(remote.writeBoardV2IfReadyForTests(WITH), true, 'control: the same state with the capability');
+});
+
+test('c6 review 1: a failed write leaves no temporary file, and a failure that lasts is said once', () => {
+  setup();
+  const realRename = fs.renameSync;
+  const realWrite = process.stderr.write;
+  const said = [];
+  fs.renameSync = () => { const e = new Error('refused'); e.code = 'EACCES'; throw e; };
+  process.stderr.write = (chunk, ...rest) => { if (/board-v2 marker/.test(String(chunk))) { said.push(String(chunk)); return true; } return realWrite.call(process.stderr, chunk, ...rest); };
+  try {
+    for (let i = 0; i < 3; i++) assert.equal(remote.writeBoardV2IfReadyForTests(WITH), false);
+  } finally { fs.renameSync = realRename; process.stderr.write = realWrite; }
+  assert.deepEqual(fs.readdirSync(STATE).filter((f) => f.startsWith('board-v2')), [], 'a temporary file was left');
+  assert.equal(said.length, 1, 'said ' + said.length + ' times');
+  assert.equal(remote.writeBoardV2IfReadyForTests(WITH), true, 'control: once the folder takes it, it is written');
 });

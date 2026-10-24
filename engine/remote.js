@@ -2685,33 +2685,49 @@ const computerName = (v) => (typeof v === 'string' && NAME_RULE.test(v.trim().to
    here spawns, no route answers more than "not yet", and every existing screen behaves as before. */
 const BOARD_V2_FILE = 'board-v2';
 /* kosmos#6590 (S-7d branch c, c6): the marker that turns the v2 gate on for this computer. Written by this board, never
-   removed by it, only when (a) Kosmos+ is on and this computer is enrolled, (b) no register or Forget is rewriting the
-   folder, and (c) the connector it runs says it carries the v2 gate and every verb the typed-code Allow needs
+   removed by it on its own (only a Forget or a register, which empty the whole folder, clear it), only when (a) Kosmos+
+   is on and this computer is enrolled and not still waiting for an older computer's Allow, (b) no register or Forget is
+   rewriting the folder, and (c) the connector it runs says it carries the v2 gate and every verb the typed-code Allow needs
    (`device-proof-v2`); a connector from before that refuses nothing and the marker is never written. Retried on every
    ensure tick, so a registration (whose Forget or reset wipes the folder) gets it again once the capability answer is in.
    Owner-only, written whole (a temporary name, then a rename).
    THE COST, as the design states it: once the tunnel sees this file it starts enforcing (within its own few hours of
    jitter), and every phone or browser allowed before must be allowed again, by typing its code at this computer, within
    7 days of that (its old sign-in keeps working until then). KOSMOS_BOARD_V2=0 holds the write back (a staged rollout or
-   a rollback before the marker exists); once written, only the tunnel's own off switch undoes enforcement. */
+   a rollback before the marker exists), and so does any other value but 1 or on (an off switch for a one-way step
+   holds when it is mistyped, never the other way); once written, only the tunnel's own off switch undoes enforcement. */
 const BOARD_V2_CAPABILITY = 'device-proof-v2';
 /* `caps`: the connector's capabilities (connectorCapabilities; a test passes its own). It reads a connector's answer once
    and keeps it, so a connector updated under a running board is seen at the board's next start, which a Kosmos update
    always is. */
+/* The last failure said, so a failure that lasts (a folder that cannot be written) is said once, not every 15 s tick. */
+let boardV2Failure = null;
+function boardV2Held() {
+  const v = String(process.env.KOSMOS_BOARD_V2 || '').trim().toLowerCase();
+  return v !== '' && v !== '1' && v !== 'on';
+}
 function writeBoardV2IfReady(caps = connectorCapabilities) {
+  let tmp = null;
   try {
-    if (process.env.KOSMOS_BOARD_V2 === '0') return false;
-    if (boardV2() || busy() || !read().on || !enrolled()) return false;
+    if (boardV2Held()) return false;
+    if (boardV2() || busy() || !read().on || !enrolled() || inState(HELD_FILE)) return false;
     if (!caps().has(BOARD_V2_CAPABILITY)) return false;
     const target = path.join(STATE_DIR(), BOARD_V2_FILE);
-    const tmp = target + '.new-' + process.pid + '-' + crypto.randomBytes(4).toString('hex');
-    fs.writeFileSync(tmp, '', { mode: 0o600 });
+    tmp = target + '.new-' + process.pid + '-' + crypto.randomBytes(4).toString('hex');
+    fs.writeFileSync(tmp, '', { mode: 0o600, flag: 'wx' });
     fs.renameSync(tmp, target);
+    tmp = null;
+    boardV2Failure = null;
     flushWaiting();
     process.stderr.write('kosmos+: this computer now lets in a new phone or browser only by the code its own page shows\n');
     return true;
   } catch (err) {
-    process.stderr.write('kosmos+: could not write the board-v2 marker yet (' + (err && err.message) + '); trying again\n');
+    if (tmp !== null) { try { fs.unlinkSync(tmp); } catch { /* nothing was left, or it cannot be removed */ } }
+    const said = (err && (err.code || err.message)) || 'unknown';
+    if (said !== boardV2Failure) {
+      boardV2Failure = said;
+      process.stderr.write('kosmos+: could not write the board-v2 marker yet (' + (err && err.message) + '); trying again every tick, said once\n');
+    }
     return false;
   }
 }
@@ -4219,7 +4235,7 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   bumpSelfEpochForTests: () => { selfEpoch += 1; },
-  resetForTests: () => { tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; flushWaiting(); waitingInFlight = null; stopChild(); },
+  resetForTests: () => { tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; flushWaiting(); waitingInFlight = null; boardV2Failure = null; stopChild(); },
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
