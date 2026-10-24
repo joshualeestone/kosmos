@@ -7361,8 +7361,7 @@ const server = http.createServer(async (req, res) => {
       let projectList = null;   // #7030: read once per tick, shared with withCardWords' project names below
       try { projectList = projects.readAll(); } catch { projectList = null; }
       try {
-        if (projectList === null) throw new Error('unreadable');   // the same fold to 0 as before
-        counts.projectsUnread = projectsUnreadTotal(projectList, messages.unreadAll());
+        counts.projectsUnread = projectsUnreadTotal(projectList, messages.unreadAll());   // null folds to 0, as before
       } catch { counts.projectsUnread = 0; }
       /* ⚠️ COUNTED SEPARATELY, and the row still adds up: Working plus Idle
          plus the rest is what is RUNNING, and `notRunning` is the remainder of
