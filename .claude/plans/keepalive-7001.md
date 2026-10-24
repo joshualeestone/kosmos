@@ -477,3 +477,7 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
   which the check reads as the GNU `timeout` command (a false positive on prose, but the rule is the rule). Reworded to
   "its 'exit timeout' as $(...)"; the check and the suite pass. MY GAP: the handoff said to re-run the sibling suites
   whenever the code changed; I last ran 6808 at round 18 and let 6j find it.
+- 6j third run FAILED on one node test, cli.busy-health-4466.test.js ("a busy reading that comes back FAST is not
+  retried in a tight loop", 2.3 s under the full run's load). This branch does not touch that file (diff: two shell
+  files and this plan). Run alone at 1a602f45ce three times: 55 pass, 0 fail each time. Read as contention, not this
+  change; gate rerun. If it reds again in the gate, run it on origin/main under load before going further.
