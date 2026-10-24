@@ -81596,13 +81596,13 @@ function fedOwnHtml() {
   const allowed = o.allowed || [];
   const whens = fedOwnWhens(allowed);
   if (allowed.length) {
-    h += '<h4 class="fedout-h">Your other computers that read this room</h4>'
+    // Mona's review (card comment 6384830411): one line per row, the day leading in the row-title weight.
+    h += '<h4 class="fedout-h">Your other computers in this room</h4>'
       + allowed.map((a, i) => {
-        const when = whens[i];
-        return '<div class="fedout-row"><span class="fedout-b"><b class="fedout-nm">Another of your computers</b>'
-          + (when ? '<span class="fhint">Allowed ' + esc(when) + '</span>' : '') + '</span>'
+        const name = fedOwnName(whens, i);
+        return '<div class="fedout-row"><span class="fedout-b"><b class="fedout-nm">Allowed ' + esc(name) + '</b></span>'
           + '<button class="ownseal-btn" type="button" data-own-act="remove" data-own-pub="' + esc(a.pub) + '"' + busy
-          + ' aria-label="Remove the computer allowed ' + esc(when ? when : 'earlier, ' + (i + 1) + ' of ' + allowed.length) + ' from this room">Remove</button></div>';
+          + ' aria-label="Remove the computer allowed ' + esc(name) + ' from this room">Remove</button></div>';
       }).join('');
   }
   // A press's sentence stays while the section still shows what the press left (fedOwnLoad clears it on a change),
@@ -81632,7 +81632,11 @@ function fedOwnWhen(at, withTime) {
 function fedOwnWhens(allowed) {
   const day = allowed.map((a) => fedOwnWhen(a.at, false));
   const when = allowed.map((a, i) => (day[i] && day.some((x, j) => j !== i && x === day[i]) ? fedOwnWhen(a.at, true) : day[i]));
-  return when.map((w, i) => (w && when.some((x, j) => j !== i && x === w) ? w + ', ' + (i + 1) + ' of ' + allowed.length : w));
+  return when.map((w, i) => (w && when.some((x, j) => j !== i && x === w) ? w + ' (' + (i + 1) + ' of ' + allowed.length + ')' : w));
+}
+// How a row and its dialog name a computer: its day (fedOwnWhens), or, with no time from the board, its place.
+function fedOwnName(whens, i) {
+  return whens[i] || (whens.length > 1 ? 'earlier (' + (i + 1) + ' of ' + whens.length + ')' : 'earlier');
 }
 function fedOwnSpelled(code) { return String(code).replace('-', '').split('').join(' '); }
 function fedOwnCodeHtml(code, extra) {
@@ -81740,9 +81744,8 @@ async function fedOwnLoad(project, fromPress) {
     /* Only that it is no longer listed: the board also lists nothing when the room's records cannot be read or this
        computer is no longer the room's owner, so it is NOT said to be removed. A refusal the dialog was showing is
        kept, since it is still the board's word on the press. */
-    const refused = (document.getElementById('mem-msg') || {}).textContent || '';
     fedOwnDialogDrop();
-    FED_OWN_MSG = { text: 'That computer is no longer listed here.' + (refused && refused !== 'Removing…' ? ' ' + refused : ''), project, sig: fedOwnSig(FED_OWN), act: null };
+    FED_OWN_MSG = { text: 'That computer is no longer listed here.' + (pend.refusal ? ' ' + pend.refusal : ''), project, sig: fedOwnSig(FED_OWN), act: null };
     const said$ = document.getElementById('pj-fed-own-said');
     if (said$) { said$.textContent = ''; setTimeout(() => { if (FED_OWN_GEN === pend.gen) said$.textContent = FED_OWN_MSG ? FED_OWN_MSG.text : ''; }, 60); }
     fedOwnPaint();
@@ -81857,11 +81860,15 @@ function fedOwnRemoveOpen(btn) {
   fedRemoveReset();
   MEM_PENDING = { btn, own: { project, pub, box: box ? box.id : 'pj-fed-own', gen: FED_OWN_GEN } };
   const list = FED_OWN.allowed || [];
-  const when = fedOwnWhens(list)[list.indexOf(row)];
+  const whens = fedOwnWhens(list);
+  const i = list.indexOf(row);
+  // "on Oct 17", "on Oct 17, 3:00 PM (2 of 3)," (a comma closes a name that has one), or "earlier (1 of 2)".
+  const name = whens[i] ? 'on ' + whens[i] + (whens[i].includes(',') ? ',' : '') : fedOwnName(whens, i);
   document.getElementById('mem-title').textContent = 'Remove this computer from ' + pjName + '?';
-  document.getElementById('mem-small').textContent = 'The computer you allowed' + (when ? ' on ' + when : '')
-    + ' stops reading new messages in this room: the room moves to a new key that computer is not sent. What it already'
-    + ' read stays on it. It can ask to come back, and you would compare codes again.';
+  // Mona's wording; the last sentence says what ownRejoin does: it asks again by itself, and gets in only on an Allow.
+  document.getElementById('mem-small').textContent = 'The computer you allowed ' + name + ' stops getting new messages from'
+    + ' this room. What it already has stays on it. It may ask to come back by itself, and it gets in again only if you'
+    + ' compare codes and press Allow.';
   document.getElementById('mem-keep').textContent = 'Cancel';
   const go = document.getElementById('mem-go');
   go.textContent = 'Remove it';
@@ -81886,8 +81893,11 @@ function fedOwnRefocus(own) {
   if (ae && ae !== document.body && !(modal && modal.contains(ae)) && !(ae.closest && ae.closest('#pj-fed-own, #alist-fed-own'))) return;
   const again = [...host.querySelectorAll('[data-own-act="remove"]')].find((x) => x.dataset.ownPub === own.pub);
   if (again && again.getClientRects().length) { again.focus(); return; }
-  const spot = host.querySelector('.fmsg') || host.querySelector('.fedout-h') || document.querySelector('.pjcard-members .dlab');
-  if (spot) { spot.tabIndex = -1; spot.focus(); }
+  // Only a place the person can see: in the consolidated layout the card's heading is hidden, so the rail's "+".
+  const seen = (el) => !!el && el.getClientRects().length > 0;
+  const spot = [host.querySelector('.fmsg'), host.querySelector('.fedout-h'), document.querySelector('.pjcard-members .dlab'),
+    document.getElementById('rail-agents-new'), document.getElementById('pj-add-member')].find(seen);
+  if (spot) { if (!/^(BUTTON|A|INPUT)$/.test(spot.tagName)) spot.tabIndex = -1; spot.focus(); }
 }
 async function fedOwnRemoveGo() {
   const p = MEM_PENDING;
@@ -81927,13 +81937,16 @@ async function fedOwnRemoveGo() {
   // reload then closes the dialog if the board no longer lists that computer (fedOwnLoad).
   if (!ok && !timedOut && still) {
     dlgLine.textContent = said;
+    f.refusal = said;   // the board's own word, kept if a later list closes this dialog
     fedOwnPaint();
     fedOwnLoad(f.project, true);
     return;
   }
   if (ok) {
     if (FED_OWN && FED_OWN.project === f.project) FED_OWN = Object.assign({}, FED_OWN, { allowed: (FED_OWN.allowed || []).filter((a) => a.pub !== f.pub) });
-    said = 'Removed. That computer cannot read anything posted here from now on. It can ask to come back, and you would compare codes again.';
+    // Not "cannot read anything posted here": for a short while a member that has not yet got the new key can still
+    // post under the old one (fedseats graceAfter). What is true: it is not sent the new key.
+    said = 'Removed. That computer stops getting new messages from this room. It may ask to come back by itself, and it gets in again only if you compare codes and press Allow.';
   }
   // Done (or given up on): the dialog closes and the sentence is said in the section, where the list shows what the
   // board did. Closed by hand, focus is the section's to place (memConfirmClose already ran).
