@@ -17,6 +17,10 @@ struct FilesBubble: View {
     let widthShare: CGFloat
     let open: (Board.Attachment) -> Void
     var mine = false
+    // kosmos#7071: drawn faded when it can be sent again, as a text bubble is; and what VoiceOver says for the bubble
+    // (who and when) before its cards.
+    var faded = false
+    var spoken: String? = nil
 
     // One file at a time: while one is on its way, the others are drawn off.
     private var busy: Bool { states.values.contains(.loading) }
@@ -34,6 +38,10 @@ struct FilesBubble: View {
             }
         }
         .modifier(FilesBubbleBackground(widthShare: widthShare, mine: mine))
+        .opacity(faded ? 0.6 : 1)
+        // A container, so each card stays its own button, named by who sent them.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(spoken ?? "")
     }
 }
 

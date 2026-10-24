@@ -424,7 +424,7 @@ final class BoardClient: ObservableObject {
         case photo(load: () async -> (name: String, data: Data)?)
     }
 
-    // Sends one pick to the Mac for this agent's next message, counted as on its way from the moment it is picked (a
+    // Sends one pick to the Mac for this agent's next message, counted as on its way from the moment this is called (a
     // photo can take seconds to load). `epoch` is the chats' forgetting count when it was picked: a pick made under
     // another account or Mac is never sent under this one. The client's copy is removed once sent or refused.
     func attach(_ pick: Pick, epoch: Int, to agent: Board.Agent) async {
@@ -462,7 +462,7 @@ final class BoardClient: ObservableObject {
             #endif
             if sample {
                 // The sample chats (a Debug build only): added at once, so a screenshot never shows a real Mac's file.
-                result = .added(Board.Attached(id: String(format: "%024lx", (attached[session]?.count ?? 0) + 1), name: name))
+                result = .added(Board.Attached(id: String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(24)), name: name))
             } else if let held = admitted, let request = Board.uploadRequest(mac: held.url, session: session, name: name, type: type) {
                 let answer = await env.upload(request, file)
                 result = Board.uploadResult(status: answer?.1.statusCode ?? 0, body: answer?.0, name: name, size: size)
@@ -480,7 +480,8 @@ final class BoardClient: ObservableObject {
         }
     }
 
-    // Taken off the composer. The Mac keeps the file until it clears unsent ones itself, as with the board's x.
+    // Taken off the composer. The Mac keeps the file it was sent (nothing there removes a stored one), as with the
+    // board's x.
     func unattach(_ id: String, for session: String) {
         attached[session]?.removeAll { $0.id == id }
     }

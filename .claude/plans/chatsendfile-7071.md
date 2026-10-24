@@ -27,6 +27,10 @@ typecheck. The real-iPhone check joins #6838's device list.
 ## Decided
 - Chips move into the pending bubble at Send (the board keeps them on the composer until answered). A failed send
   keeps them on the bubble, whose retry resends them, so nothing is lost and the composer is free for the next one.
+- Deleting a failed bubble deletes its files with it (they are not put back on the composer): Retry resends them,
+  and the board's own files stay on the Mac either way. Rejected: putting them back, which would revive files the
+  person had just chosen to drop.
+- A removed chip's file stays on the Mac, as with the board's x (nothing there removes a stored attachment).
 - Photo Library is images only, re-encoded as JPEG by Apple's picker (`.compatible`): a HEIC the Mac cannot preview
   would show as a plain file. Videos and anything else go through Files.
 - No camera in this card (needs the camera permission string and a capture screen).

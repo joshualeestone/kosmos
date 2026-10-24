@@ -332,7 +332,10 @@ struct ChatView: View {
                 let mine = row.who == .person
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     FilesBubble(text: Board.wordsShown(row.text, files: row.attachments), files: row.attachments,
-                                thumbnails: client.thumbnails, states: fileStates, widthShare: widthShare, open: openFile, mine: mine)
+                                thumbnails: client.thumbnails, states: fileStates, widthShare: widthShare, open: openFile, mine: mine,
+                                faded: mine && row.canSendAgain && !client.wasSentAgain(row, for: agent.session),
+                                spoken: Board.filesRowSpoken(who: mine ? "You" : shown.name, at: row.at, text: Board.wordsShown(row.text, files: row.attachments),
+                                                             count: row.attachments.count, notSent: row.notSent))
                     if mine, row.canSendAgain, !client.wasSentAgain(row, for: agent.session) {
                         let line = Board.notSentLine(agentRunning: running, name: shown.name)
                         NotSentLine(text: line.text, canRetry: line.canRetry,
@@ -516,6 +519,8 @@ struct ChatView: View {
         armed = nil
         unsureKey = nil
         pressLine = nil
+        // The line about a file goes on a press too, so what the press says next is the line shown (kosmos#7071).
+        client.attachLine[agent.session] = nil
         Task {
             let result = await client.press(option, of: choices, to: agent)
             if composerNote == Board.choiceWaitLine { composerNote = nil }
@@ -649,11 +654,15 @@ struct ChatView: View {
     private var attachedHere: [Board.Attached] { client.attached[agent.session] ?? [] }
     private var uploadingHere: Int { client.uploading[agent.session] ?? 0 }
     private var attachLine: String? { client.attachLine[agent.session] }
+    // As many as a message carries are waiting or on their way: nothing more can be picked.
+    private var atFileLimit: Bool { attachedHere.count + uploadingHere >= Board.maxFiles }
 
     private var addButton: some View {
         Menu {
             Button { showPhotos = true } label: { Label("Photo Library", systemImage: "photo.on.rectangle") }
+                .disabled(atFileLimit)
             Button { showFiles = true } label: { Label("Files", systemImage: "folder") }
+                .disabled(atFileLimit)
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 17, weight: .semibold))
@@ -692,8 +701,9 @@ struct ChatView: View {
         }
     }
 
-    // One at a time, in the order picked, as the board adds them. Each is counted as on its way from the moment it is
-    // picked, and the client copies it (a photo's bytes as Apple's picker gives them, JPEG by default).
+    // One at a time, in the order picked, as the board adds them. Each is counted as on its way from the moment its turn
+    // comes (before a photo has loaded), and the client copies it (a photo's bytes as Apple's picker gives them, JPEG
+    // by default). The picks after it wait their turn uncounted; the count of ten refuses any that would pass it.
     // The line above the composer is cleared once per pick, so a refusal of one file stays while the rest go up.
     // The photos of one pick share one time, numbered after the first, so no two carry the same name.
     private func addPhotos(_ picks: [PhotosPickerItem]) async {
@@ -766,8 +776,12 @@ struct ChatView: View {
         draftText = ""
         client.drafts[agent.session] = nil
         Task {
-            // Not sent (a press or another file landed meanwhile): the words go back in an empty box, so none are lost.
-            if !(await client.post(text, files: files, to: agent)), draftText.isEmpty { draftText = text }
+            // Not sent (a press, or another file started going up meanwhile): the words go back in an empty box, so none
+            // are lost, and the line says why.
+            if !(await client.post(text, files: files, to: agent)) {
+                if draftText.isEmpty { draftText = text }
+                if uploadingHere > 0 { composerNote = Board.stillAddingLine }
+            }
             await read()
         }
     }
