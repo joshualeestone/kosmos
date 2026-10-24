@@ -51,3 +51,18 @@ sends back, so a change on the Mac breaks both together.
 ## Validation
 - ios/LogicTests pass, with mutants for the arm window, the answered lock and the not-sure reading.
 - Debug simulator build with -warn-long-expression-type-checking=100; Release has no sample code.
+
+## Part 2: files (branch chatfiles-7016)
+Finished looks like: an agent's file shows as a card inside its bubble (spec section 3: a 64 pt row, a picture for an
+image or a PDF with a preview, else a symbol, the name truncated in the middle, "PDF · 2.4 MB"), and a tap fetches it
+from the Mac through the kept sign-in and opens it in Quick Look; while it fetches a spinner, and when it cannot,
+"Could not open it. Try again." with the tap retrying.
+- BoardLogic: `Attachment`, `parseAttachments` (pjFiles; only /api/ addresses), `fileWord` (pjFileWord), `sizeText`
+  (pjSize), `attachmentMeta`, `wordsShown` (pjWords: no words when they are only the file names), `hasThumbnail`,
+  `fileSymbol`, `attachmentRequest`, `savedName`.
+- BoardClient: `fetchFile` (saved in Environment.files, a temporary folder, encrypted while locked on iOS; the gate's
+  sign-in page is no file), `loadThumbnail` (once per run), both dropped with the chats, opened files removed from disk.
+- ChatFiles.swift (new): `FilesBubble`, `FileCard`. ChatView: the cards, `.quickLookPreview`, the time on the last of a run.
+- Decided: only an agent's files draw natively; a file the person sent keeps its way-through row (the spec leaves the
+  person's files out of this part). Weakest premise: that Quick Look opens every kind the Mac sends; one it cannot
+  shows Quick Look's own "cannot preview" with share, which still lets the person save it.
