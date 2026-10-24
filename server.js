@@ -22004,7 +22004,7 @@ const server = http.createServer(async (req, res) => {
      (code) lets it adopt the key the owner's computer sends; "does not match" (match:false) starts over with a new
      code. Confirming decides who can read this computer's posts, so it is step-up gated and under the family policy
      like the Allow. */
-  if (pathname === '/api/federation/own-code' && req.method === 'GET') {
+  if (pathname === '/api/federation/own-compare' && req.method === 'GET') {
     if (!federationLiveNow()) { sendJson(res, 404, { error: FEDERATION_OFF }); return; }
     if (!isViaScreen(req, {})) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can see this computer\'s code.' }); return; }
     let pid = null;

@@ -691,11 +691,12 @@ function acceptedKeys(st, now) {
 }
 /** #5191: how long the previous epoch opens after this room's last rotation. An owner
     rotates only on a revoke (rotateForRevoked), so every rotation gets the revoke grace,
-    a member's too (#5197), read from the rooms file alone. "A member" is a pinned member PEER: when #4658
-    lets the owner's own other computers in, they must count as the owner, never here. */
+    a member's too (#5197), read from the rooms file alone. kosmos#4658: an owner's own computer allowed into
+    the room (st.own) posts from another machine and learns a rotation late, as a member does, so it keeps the
+    grace too. */
 function graceAfter(st) {
   if (st.role !== 'owner') return REVOKE_GRACE_MS;
-  return Object.keys(st.peers || {}).length ? REVOKE_GRACE_MS : 0;
+  return Object.keys(st.peers || {}).length || Object.keys(st.own || {}).length ? REVOKE_GRACE_MS : 0;
 }
 /** The link for the seal decisions: null when there is none, undefined when the record
     cannot be read (safeLink turns that into null, which would read as "not sealed"). */
@@ -777,8 +778,7 @@ function sendRotates(projectId, s) {
 function myMacId() {
   try { return deps && typeof deps.macId === 'function' ? deps.macId() : null; } catch { return null; }
 }
-/** Own computer: the room is sealed and this computer has no key yet. One run per connection: a new one only
-    when there is none, or the last ended without the person confirming. */
+/** Own computer: the room is sealed and this computer has no key yet. */
 function sayOwnHello(projectId, s) {
   const macId = myMacId();
   let me;
@@ -810,7 +810,9 @@ function waitingOffer(projectId, s, frame) {
   const offer = fedseal.checkOwnOffer(frame, run.mac, run.commit);
   if (!offer) return;
   if (run.offer && (run.offer.ownerPub !== offer.ownerPub || run.offer.nO !== offer.nO)) {
-    if (!run.confirmed) { s.ownRun = null; sayOwnHello(projectId, s); }
+    // Confirmed or not: a run still waiting for its share ends (the owner's board may have restarted and lost it),
+    // and the new run's code needs a new confirm. A run holding a genuine share keeps it.
+    if (!run.got) { s.ownRun = null; sayOwnHello(projectId, s); }
     return;
   }
   run.offer = offer;
@@ -915,6 +917,7 @@ function allowOwn(projectId, pub, confirmedCode) {
     if (!s || !s.room || !w || !w.nW) return { ok: false, because: 'that computer is no longer waiting for this room\'s key' };
     const st = roomSeal(projectId);
     if (!hasKey(st) || st.role !== 'owner') return { ok: false, because: 'only the computer that first shared this room can let another computer read it' };
+    if (st.peers && Object.prototype.hasOwnProperty.call(st.peers, pub)) return { ok: false, because: 'that key belongs to someone you invited, not to one of your computers' };
     let me;
     try { me = fedseal.sealingKey(); } catch { return { ok: false, because: 'this computer could not use its sealing key' }; }
     let frame;
@@ -967,8 +970,9 @@ function revokeCheck(projectId, link, edges) {
     for (const pub of Object.keys(peers)) if (!gone.includes(pub)) keep[pub] = peers[pub];
     const keys = Object.assign({}, st.keys, { [epoch]: fedseal.randomSecret() });
     // #5191: with nobody left, the revoked key is dropped from the record, so a member pinned
-    // later (which brings graceAfter back to REVOKE_GRACE_MS) cannot reopen it.
-    if (!Object.keys(keep).length) delete keys[st.epoch];
+    // later (which brings graceAfter back to REVOKE_GRACE_MS) cannot reopen it. kosmos#4658: an allowed own
+    // computer is somebody left.
+    if (!Object.keys(keep).length && !Object.keys(st.own || {}).length) delete keys[st.epoch];
     // #5191: the accounts dropped, each from the peer's own record (pinned with its edge) or, for a
     // peer pinned before that was kept, from this answer by its edge id; recorded at the epoch they
     // held. An account a kept peer also has (one account, two edges) is not recorded.

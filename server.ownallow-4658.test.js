@@ -80,15 +80,15 @@ test('#4658: own-allow refuses a malformed body, a request not from the screen, 
   } finally { live(false); }
 });
 
-test('#4658: own-code and own-confirm (the waiting computer\'s half) are behind the switch, screen only, and refuse a stale code', async () => {
+test('#4658: own-compare and own-confirm (the waiting computer\'s half) are behind the switch, screen only, and refuse a stale code', async () => {
   live(false);
-  assert.equal((await call('GET', '/api/federation/own-code?project=p1', undefined, SCREEN)).status, 404);
+  assert.equal((await call('GET', '/api/federation/own-compare?project=p1', undefined, SCREEN)).status, 404);
   assert.equal((await call('POST', '/api/federation/own-confirm', { project: 'p1', code: 'ABCDE-FGHJK' }, SCREEN)).status, 404);
   live(true);
   try {
-    assert.equal((await call('GET', '/api/federation/own-code?project=p1')).status, 403, 'not from the screen');
-    assert.equal((await call('GET', '/api/federation/own-code', undefined, SCREEN)).status, 400, 'no project');
-    assert.deepEqual((await call('GET', '/api/federation/own-code?project=p1', undefined, SCREEN)).json, { code: null });
+    assert.equal((await call('GET', '/api/federation/own-compare?project=p1')).status, 403, 'not from the screen');
+    assert.equal((await call('GET', '/api/federation/own-compare', undefined, SCREEN)).status, 400, 'no project');
+    assert.deepEqual((await call('GET', '/api/federation/own-compare?project=p1', undefined, SCREEN)).json, { code: null });
     for (const bad of ['not json', [], {}, { project: 'p1' }, { project: 'p1', code: ' ' }, { project: '', code: 'ABCDE-FGHJK' }]) {
       assert.equal((await call('POST', '/api/federation/own-confirm', bad, SCREEN)).status, 400, JSON.stringify(bad));
     }
