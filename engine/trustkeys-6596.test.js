@@ -173,7 +173,7 @@ test('the board\'s wipes of the tunnel state folder keep the tunnel\'s trust fil
   const make = () => {
     for (const f of fs.readdirSync(TUNNEL)) fs.rmSync(path.join(TUNNEL, f), { recursive: true, force: true });
     for (const f of ['mac_id', 'mac_key', 'coordinator_pubkey', trustkeys.STORE_FILE, trustkeys.FLOOR_FILE, 'device_key']) fs.writeFileSync(path.join(TUNNEL, f), 'x');
-    fs.mkdirSync(path.join(TUNNEL, trustkeys.LOCK_FILE));   // the tunnel's lock is a folder
+    fs.writeFileSync(path.join(TUNNEL, trustkeys.LOCK_FILE), '');
     fs.mkdirSync(path.join(TUNNEL, 'other'));
   };
   make();
@@ -186,4 +186,45 @@ test('the board\'s wipes of the tunnel state folder keep the tunnel\'s trust fil
   const src = fs.readFileSync(path.join(__dirname, 'remote.js'), 'utf8');
   assert.equal((src.match(/rmSync\(STATE_DIR\(\)/g) || []).length, 0, 'no rmSync of the whole folder');
   assert.equal((src.match(/clearStateDir\(/g) || []).length, 3, 'the definition and its two callers');
+});
+
+test('a recovery key that does not decode trusts no key, as the tunnel; the shipped list all decodes', () => {
+  const pin = pinOf(OLD);
+  const bad = trustkeys.trustedKeys(stateWith(), pin, { recoveryKeys: [ROOT_PUB, 'not-a-key'] });
+  assert.equal(bad.fault, 'unusable', 'one bad root beside a good one');
+  assert.deepEqual(bad.keys, []);
+  assert.equal(trustkeys.trustedKeys(stateWith(), pin, { recoveryKeys: ['not-a-key'] }).fault, 'unusable', 'every root bad, no store: not the pin');
+  assert.deepEqual(trustkeys.trustedKeys(stateWith(), pin, ON), { keys: [pin], fault: null }, 'CONTROL: good roots, no store: the pin');
+  const { RECOVERY_KEYS } = require('./manifest-verify');
+  for (const k of RECOVERY_KEYS) assert.ok(servicekeys.rawKey(k), 'a shipped recovery key decodes: ' + k);
+});
+
+test('the store is read as the tunnel reads it: the list form, unknown members ignored, a top-level name twice refused', () => {
+  const s = signed(setDoc([[NEW, 'current']]));
+  const want = [pinOf(NEW)];
+  const keysOf = (text) => trustkeys.trustedKeys(stateWith(text), pinOf(OLD), ON);
+  assert.deepEqual(keysOf(JSON.stringify(s)).keys, want, 'CONTROL: the object form');
+  assert.deepEqual(keysOf(JSON.stringify([s.document, s.signature])).keys, want, 'the two as a list');
+  assert.equal(keysOf(JSON.stringify([s.document, s.signature, 'x'])).fault, 'unusable', 'a list of three');
+  const extra = '{"note":{"k":1,"k":2},"document":' + JSON.stringify(s.document) + ',"signature":' + JSON.stringify(s.signature) + '}';
+  assert.deepEqual(keysOf(extra).keys, want, 'a name twice inside an unknown member is ignored');
+  const twice = '{"document":' + JSON.stringify(s.document) + ',"document":' + JSON.stringify(s.document) + ',"signature":' + JSON.stringify(s.signature) + '}';
+  assert.equal(keysOf(twice).fault, 'unusable', 'document named twice at the top');
+  assert.equal(keysOf(twice).why, 'the service key set this computer holds does not parse', 'with a fixed reason, never a name from the file');
+  const tricky = '{"note":"x,\\"signature\\":1}","document":' + JSON.stringify(s.document) + ',"signature":' + JSON.stringify(s.signature) + '}';
+  assert.deepEqual(keysOf(tricky).keys, want, 'a comma, a quoted name and a brace inside a string are not members');
+  const lone = '{"document":' + JSON.stringify(s.document) + ',"signature":' + JSON.stringify(s.signature).slice(0, -1) + '\\ud800"}';
+  assert.equal(keysOf(lone).fault, 'unusable', 'a lone surrogate in a field, which serde refuses');
+});
+
+test('Forget removes a file where the tunnel folder should be', () => {
+  const remote = require('./remote');
+  const saved = process.env.AGENT_WORKFORCE_TUNNEL_STATE;
+  const f = path.join(tmp('notdir'), 'state');
+  fs.writeFileSync(f, 'x');
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = f;
+  try {
+    remote.clearStateDir([]);
+    assert.equal(fs.existsSync(f), false);
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_STATE = saved; }
 });

@@ -126,7 +126,7 @@ function capShapeOk(u) {
 /**
  * Read the tunnel's bundle and apply it if it verifies. Never throws. Returns what is in force:
  * { applied: <record or null>, refused: <why or null>, stale?: true (the policy in force merely expired), local?: true
- * (a fault on this computer: no pinned key, or the record could not be saved) }. A missing bundle with nothing applied is "no policy".
+ * (a fault on this computer: no pinned key, a trust store that cannot be used, or the record could not be saved) }. A missing bundle with nothing applied is "no policy".
  * `now`, `pinned` and `recoveryKeys` are for tests.
  */
 function refresh({ now, pinned, recoveryKeys } = {}) {

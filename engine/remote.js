@@ -419,7 +419,11 @@ const { allowWaitSentence } = require('./allowwait');
 function clearStateDir(keep) {
   const skip = new Set([...keep, ...trustkeys.KEEP]);
   let entries = [];
-  try { entries = fs.readdirSync(STATE_DIR()); } catch { return; }   // no folder: nothing to clear
+  try { entries = fs.readdirSync(STATE_DIR()); } catch (e) {
+    // A file where the folder should be holds no trust file: it goes, as the whole-folder wipe removed it.
+    if (e && e.code === 'ENOTDIR') { try { fs.unlinkSync(STATE_DIR()); } catch { /* the register reports it */ } }
+    return;
+  }
   for (const name of entries) {
     if (skip.has(name)) continue;
     try { fs.rmSync(path.join(STATE_DIR(), name), { recursive: true, force: true }); } catch { /* the register writes it again */ }
