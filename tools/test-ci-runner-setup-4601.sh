@@ -39,7 +39,9 @@ case "$me" in
         [ "${FX_BOOTOUT_FAIL:-0}" = 1 ] && exit 5; [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
       bootstrap) [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; rm -f "$out"; touch "$(dirname "$CALL_LOG")/bootstrapped"
         [ "${FX_LISTENER:-1}" = 1 ] && echo started > .svc-state
-        # The loaded job has KeepAlive exactly when the plist it was loaded from does (state kept across runs).
+        # The loaded job has KeepAlive exactly when the plist it was loaded from does (state kept across runs). The printed
+        # shape is copied from a real capture (runner 1, macOS 27.0.1, 2026-10-23): "\tsemaphores = {" /
+        # "\t\tsuccessful exit => 0" / "\t}" and "\texit timeout = 5" for a job that does not set ExitTimeOut.
         if [ "${FX_BOOTSTRAP_NO_KA:-0}" != 1 ] && [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$3" 2>/dev/null)" = false ]; then
           plutil -extract ExitTimeOut raw -o - "$3" 2>/dev/null > "$(dirname "$CALL_LOG")/loaded-ka" || echo 5 > "$(dirname "$CALL_LOG")/loaded-ka"
         else rm -f "$(dirname "$CALL_LOG")/loaded-ka"; fi
@@ -421,7 +423,7 @@ run in-job "$R2" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R2" FX_WORKER=1 -- --apply in
   && pass "install --apply refuses while a job runs, before stopping anything" || fail "install with a job: rc $(rc in-job): $(cat "$T/in-job.calls" | tail -3)"
 R3="$T/run3"; svc_home "$R3"
 run in-stuck "$R3" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R3" FX_SVC_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply install "$C" "$G"
-[ "$(rc in-stuck)" = 1 ] && has in-stuck "did not stop" && ! grep -q '^tar ' "$T/in-stuck.calls" \
+[ "$(rc in-stuck)" = 1 ] && has in-stuck "did not stop" && has in-stuck "./svc.sh start brings it back" && ! grep -q '^tar ' "$T/in-stuck.calls" \
   && pass "install --apply refuses to unpack when the runner did not stop" || fail "install stuck stop: rc $(rc in-stuck)"
 R5="$T/run5"; svc_home "$R5"
 # A stop still in progress (Started for 2 more reads): install waits for it rather than refusing (kosmos#7001: with
