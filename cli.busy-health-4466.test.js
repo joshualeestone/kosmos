@@ -16,7 +16,7 @@
  *   - agent start/stop/restart: refused while the board answers; on a down board, 10 rapid agent
  *     restarts go ahead at most once (the cooldown); a person, and --force, are unaffected.
  * SLOW ON PURPOSE (about two minutes): the waits ARE the behaviour under test (a 20 s busy budget, curl's 15 s,
- * a 12 s hook budget). Shortening a stub delay or a budget here can make an arm pass without measuring it.
+ * a 12 s hook budget, the 8 s fast-refusal window of #7053). Shortening a stub delay or a budget here can make an arm pass without measuring it.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -702,14 +702,15 @@ test('#4466 board-run strips the agent markers from the board it execs, like the
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 a busy reading that comes back FAST is not retried in a tight loop (the board is already overloaded)', () => withBoard('fastcut', async (port, firstFile) => {
+test('#4466 a busy reading that comes back FAST is not retried in a tight loop (the board is already overloaded)', (t) => withBoard('fastcut', async (port, firstFile) => {
   const wait = 8;
   const t0 = Date.now();
   const out = await runCli(['status'], baseEnv(port, { KOSMOS_BUSY_WAIT: String(wait) }));
   assert.equal(out.code, 4, out.stdout + out.stderr);
   const n = fs.existsSync(firstFile + '.n') ? fs.readFileSync(firstFile + '.n', 'utf8').length : 0;
-  assert.ok(n >= 1, 'the stub must have been asked at least once (else the arm measures nothing)');
+  assert.ok(n >= 2, `an ${wait} s busy window must reach a second probe (else the busy-line arm below measures nothing): ${n} request(s)`);
   // Probes wait out their budget (2 s, then what is left): a handful of requests in the window, not hundreds.
+  // 8 is generous on purpose; the tight loop this guards against sends hundreds.
   assert.ok(n <= 8, `a ${wait} s busy window sent ${n} requests to a board that cut each one at once`);
   // #6682: two fast refusals are two busy readings, so the line IS said, unlike one slow answer.
   // #7053: but only when the second reading leaves budget to retry in. healthy() gives up before counting a reading
@@ -719,8 +720,11 @@ test('#4466 a busy reading that comes back FAST is not retried in a tight loop (
   // normal case: the second request was measured about 3 s in, which a 3 s budget put right on the edge.
   const times = fs.existsSync(firstFile + '.t') ? fs.readFileSync(firstFile + '.t', 'utf8').trim().split('\n').map(Number) : [];
   assert.equal(times.length, n, 'CONTROL: every request the stub counted has its time');
-  if (n >= 2 && times[1] - t0 < (wait - 2) * 1000) {
-    assert.match(out.stderr, /Kosmos is busy, retrying/, `two fast refusals did not say the busy line (second at ${times[1] - t0} ms)`);
+  const second = times[1] - t0;
+  if (second < (wait - 2) * 1000) {
+    assert.match(out.stderr, /Kosmos is busy, retrying/, `two fast refusals did not say the busy line (second at ${second} ms)`);
+  } else {
+    t.diagnostic(`#7053: second request at ${second} ms, too near the ${wait} s budget for the busy line to be owed; not checked this run`);
   }
 }));
 

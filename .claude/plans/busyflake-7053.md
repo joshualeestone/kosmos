@@ -24,8 +24,10 @@ Rejected: changing healthy() to print the line on the give-up reading (it would 
 when it is not); only raising the budget (still a timing assumption, just a wider one).
 
 Weakest premise: that "2 s inside" covers SECONDS rounding (1 s) plus reading latency under load.
-Under extreme load the gate skips the assertion rather than failing, so coverage drops, not
-correctness.
+The gate bounds when the second REQUEST arrived, not when healthy() makes its budget check (after
+curl returns). A stall of about 1 s or more between the two, with the request 5 to 6 s in, would
+still fail rather than skip. A request later than 6 s skips the assertion and says so with a test
+diagnostic. Round 1 review: the test now also asserts n >= 2 outright.
 
 ## Validation
 - Whole file 55/55. Test alone 3/3 at 8 s.
