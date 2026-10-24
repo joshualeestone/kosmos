@@ -410,7 +410,7 @@ struct SignInView: View {
             // kosmos#7050 slice C: a passkey signs in here, natively, when Kosmos+ offers it.
             if model.passkeys { link("Sign in with a passkey", action: model.passkeySignIn).disabled(model.busy) }
             // Where Apple's sheet cannot take a company's sign-in (before iOS 17.4), the web page has it: say so here.
-            if !model.companySheet { link("Sign in with your company's account", action: useWeb) }
+            if !model.companySheet { link("Sign in with your company's account", action: useWeb).disabled(model.busy) }
             footnote("New to Kosmos+? Make your account on your computer.")
         case .code(let email):
             title("Check your email")

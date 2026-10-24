@@ -225,8 +225,8 @@ struct ContentView: View {
             // be showing to someone signed in. Still on its first step, it goes once the session can be read.
             if newPhase == .active, nativeSignIn, signIn.step == .email, signIn.issued == nil,
                SessionKeychain.live.load() != nil { nativeSignIn = false }
-            // kosmos#7050 slice C: only while the native sign-in is still the screen (after the line above may have closed
-            // it for someone signed in), so a signed-in launch never asks Kosmos+ about passkeys.
+            // kosmos#7050 slice C: only while the native sign-in is on (after the line above may have turned it off for
+            // someone signed in), so a signed-in launch never asks Kosmos+ about passkeys.
             if newPhase == .active, nativeSignIn { signIn.appReturned() }
             if newPhase == .active && tabsBackgrounded {
                 tabsBackgrounded = false
