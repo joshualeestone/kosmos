@@ -44,7 +44,9 @@ green: 5032, 2036 channel/wire, 6149 floor, pointer-freeze, deploy-site-promote,
 
 ## Not done (stated on the card)
 The experience and agent-spawn gates still need a board running V. After a later staging cut moves the
-cut box's board, the gate says cannot-tell and the promote HOLDS (forceable after a hand check, with --sha).
+cut box's board, the experience gate says cannot-tell and the promote HOLDS (forceable after a hand check,
+with --sha). Under that cannot-tell, the agent-spawn gate's FAIL or PARTIAL is about the board's other build,
+so in named mode it is cannot-tell too (iteration 13), never a refusal of V. The tunnel gate runs V's tarball.
 
 ## Merge hold
 Do not merge before the 0.7.64 prod promote lands (Splinter 17:59): Baron's prepped promote scripts call
@@ -166,3 +168,12 @@ in more than its installer (with the --commit to use it).
   and now prints a NOTE; documented.
 - Wording: the announce line no longer says the commit carries the installer; the baseline source says when
   origin's main has no latest.json; the no-candidate refusal points at --sha/--commit when they filtered.
+
+## Iteration 13 (challenge) changes
+- The agent-spawn gate never checks the board's version: on a board not tied to V (experience gate
+  cannot-tell), its FAIL/PARTIAL is about another build, so named mode treats it as cannot-tell (forceable after
+  a hand check) instead of refusing V unforceably. Default mode keeps its refusal (control).
+- The publication filter runs after --commit/--sha, so a --sha that matches nothing is blamed, not an
+  unrelated unpublished commit.
+- Header: which filters shape the agreement set. One more message names the commit's pointer. Docs: which
+  gates hold on a moved board; a pruned tarball can be fetched back only while a deploy still serves it.
