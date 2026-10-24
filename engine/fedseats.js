@@ -812,7 +812,7 @@ function noteOwnSealed(projectId, s) {
   return true;
 }
 /** kosmos#7028: after Kosmos+ says a room was never sealed, how long the own computer waits for the owner's offer
-    before clearing; and the least time between two asks for one room. */
+    before clearing. */
 const OWNER_OFFER_WAIT_MS = 10 * 1000;
 /** kosmos#7028: anyone in the room can send a sealed-looking frame, and noteOwnSealed then holds this computer's posts
     for a key that will never come. The owner board seals a room only for a hello matched to an active edge for its
@@ -825,23 +825,13 @@ const OWNER_OFFER_WAIT_MS = 10 * 1000;
     it holds, so once one arrives the room is never cleared (s.ownerOffered). Without one, the record is cleared only
     after OWNER_OFFER_WAIT_MS more with none, so an owner board that is online answers the hello first. An owner that
     is offline then leaves the room cleared until its next sealed frame, which records the seal again: recording is the
-    safe side, so every sealed-looking frame records it, and only the asking is limited (one per room per
-    OWNER_OFFER_WAIT_MS; a frame inside that is checked once the window ends). Any other answer (failed, unreadable,
-    an edge of any status) keeps the record. */
+    safe side, so every sealed-looking frame records it. The asking needs no limit of its own: a room is asked only
+    while it holds no record, and a record is cleared only OWNER_OFFER_WAIT_MS after its answer, so a forger gets at
+    most one ask per room per OWNER_OFFER_WAIT_MS. Any other answer (failed, unreadable, an edge of any status)
+    keeps the record. */
 function checkNeverSealed(projectId, s, link) {
   if (!deps || typeof deps.macRequest !== 'function' || s.ownerOffered) return;
   const now = Date.now();
-  if (Number.isFinite(s.neverSealedAskedAt) && now >= s.neverSealedAskedAt && now - s.neverSealedAskedAt < OWNER_OFFER_WAIT_MS) {
-    if (!s.neverSealedTimer) {
-      s.neverSealedTimer = setTimeout(() => {
-        s.neverSealedTimer = null;
-        if (seats.get(projectId) === s && !s.stopped) checkNeverSealed(projectId, s, link);
-      }, OWNER_OFFER_WAIT_MS - (now - s.neverSealedAskedAt));
-      if (s.neverSealedTimer.unref) s.neverSealedTimer.unref();
-    }
-    return;
-  }
-  s.neverSealedAskedAt = now;
   const askedMono = mono();
   let ask;
   try { ask = sharedEdges(now, askedMono); } catch { return; }

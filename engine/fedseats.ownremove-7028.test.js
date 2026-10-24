@@ -213,6 +213,9 @@ test('#7028: the clear waits for the owner: an offer inside the wait keeps the r
   const hello = fedseal.checkOwnHello(lines(seat).filter((f) => f.t === 'key-own-hello').pop());
   assert.ok(hello, 'no own hello was said');
   const owner = fedseal.newKeyPair();
+  t.mock.timers.tick(1);   // the answer is in; a clear that did not wait would happen here
+  await settle();
+  assert.ok(sealedRecord('fg-5'), 'cleared without waiting for the owner\'s offer');
   say(seat, { event: 'message', same_account: true, data: fedseal.ownOfferFrame(owner, hello, fedseal.randomSecret()) });
   await settle();
   t.mock.timers.tick(WAIT);
@@ -239,7 +242,7 @@ test('#7028: an offer from another account does not count (only the relay\'s sam
   assert.strictEqual(fedseal.roomState('fg-6'), null, 'a guest\'s forged offer kept a forged seal');
 });
 
-test('#7028: right after a clear, a sealed-looking frame records the seal again (no window where a real seal is ignored), and is checked once the ask window ends', async (t) => {
+test('#7028: right after a clear, a sealed-looking frame records the seal again (no window where a real seal is ignored), and a frame after an ask makes it ask again', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   const { h, seat } = await ownComputer('fg-7', 'room-fg-7', { edges: [] });
   say(seat, forged('room-fg-7'));
@@ -256,11 +259,11 @@ test('#7028: right after a clear, a sealed-looking frame records the seal again 
   await settle();
   assert.ok(!seat.written.join('').includes('must not go in the clear'), 'a post went out in the clear right after a clear');
   assert.strictEqual(edgeAsks(h), asks + 1);
-  // A third frame inside this ask's window asks nothing now; it is checked when the window ends.
+  // A third frame, after that ask went out: the record is there already, so it asks nothing now.
   t.mock.timers.tick(1000);
   say(seat, forged('room-fg-7'));
   await settle();
-  assert.strictEqual(edgeAsks(h), asks + 1, 'a frame inside the window asked again');
+  assert.strictEqual(edgeAsks(h), asks + 1, 'a frame on a recorded room asked');
   t.mock.timers.tick(WAIT);
   await settle();
   // The second answer was asked before the third frame, so it does not clear: the room is asked again.
