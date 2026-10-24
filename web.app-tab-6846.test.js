@@ -97,7 +97,9 @@ test('#6846: while first run, an update or a restart covers the board, nothing o
   }
   assert.equal(run('settings', { noTabs: true }).answer, false, 'a page without the board answered opened');
   // The full-screen steps make the board inert this way; the door's check relies on it.
-  assert.ok(SCRIPT.includes("document.querySelectorAll('body > *:not(#firstrun)').forEach((el) => { el.inert = true; });"), 'first run no longer makes the board inert');
+  // The rule, not one spelling: every body child but #firstrun (and anything else first run must keep pressable, such
+  // as #6616's #stepup-ask) is made inert.
+  assert.ok(/document\.querySelectorAll\('body > \*:not\(#firstrun\)(?::not\(#[\w-]+\))*'\)\.forEach\(\(el\) => \{ el\.inert = true; \}\);/.test(SCRIPT), 'first run no longer makes the board inert');
 });
 
 test('#6846: while a confirmation or other box has its backdrop up, nothing changes under it and the app is told so', () => {
