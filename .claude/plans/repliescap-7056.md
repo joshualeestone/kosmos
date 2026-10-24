@@ -37,18 +37,20 @@ Weakest premise: the runners not measured. Codex's gpt-5.2 entry cuts at 10000 B
 CLIs were not looked at; a read near 18 KB can still be middle-cut there. Also the per-post "not reached" notes
 (up to 10 posts) are not budgeted; they only appear when a read is already paging hard.
 
-## Deferred (round 2)
-An owed person's comment that the new budget cuts from the replies also appears in the owed section (it is not in
-shownItems), and on the next read again as [rN]. This was already possible past the old 30 cut, and is now much
-more common (about five long replies ahead of a person's comment is enough), so the duplicate can take owed budget
-and push a waiting person to the next read (still counted in "N more people are waiting"). Left as is: the
-owed mark on both says "unless you already answered them there", so the agent does not answer twice, and the mark
-logic keys on shownItems, so nothing is skipped. The owed section's comment ("outside the read's own slots and its
-marks") is still accurate. Keeping cut owed items out of the owed section was rejected: #5623 review 4 shows them
-there on purpose, so a person owed an answer is never hidden behind the replies' cap.
+## The owed overlap (deferred round 2, resolved round 5)
+An owed person's comment that the new budget holds back from the replies also appears in the owed section, since
+#5623 review 4 shows every owed person not printed above, and on the next read again as [rN]. Rounds 2 to 5 raised
+it; round 5 named the harm that mattered: a person already past the mark is shown ONLY in the owed section, and a
+held-back duplicate could crowd them out of OWED_TEXT_BUDGET. Now the owed section lists people shown nowhere else in
+this read first, then the held-back ones (each group newest first, as before). Kept, not removed: the held-back
+ones stay listed, so review 4's rule (a person owed is never hidden behind the replies' cap) holds. The owed mark
+on both copies says "unless you already answered them there", so the agent does not answer twice.
+
+The count line above the replies is scoped to that section ("In the section below, people still waiting for your
+answer: N[, K of them listed]"), because people shown among the replies are marked owed there and not counted.
 
 ## Validation
-- engine/communityread.test.js 137/137; related files 215 pass.
+- engine/communityread.test.js 138/138; related files 215 pass.
 - Mutants, each red on its own test: read cut back to 30; count cut back to 30; replySizeOf without the owed mark;
   without the under-comment part; owed section without its budget; owed count line removed; note moved after the
-  owed section; a missing size counted as 0 (round 2: now Infinity, so a sizeless item shares a read with nothing).
+  owed section; a missing size counted as 0 (round 2: now Infinity, so a sizeless item shares a read with nothing); owed count always "listed below"; owed section sorted newest only (round 5).
