@@ -434,6 +434,9 @@ enum Board {
         enum Who: Equatable { case person, agent, kosmos }
         // What this first part does not draw, so the chat shows Mona Lisa's way-through row in its place
         // (slice 3a spec, "The way through").
+        // A question stays marked .question / .permission even where the chat now draws its buttons (#7016): the chat
+        // keys its buttons on it, and a notification's Reply reads it to refuse while a question is up (#7017,
+        // NotificationAction.standingQuestion), so the marking is load-bearing for both.
         enum WayThrough: Equatable { case question, permission, attachment, draft }
         let id: String
         // The Mac's own time for the row, as it sent it: a sent message is matched to its row by it.

@@ -30,6 +30,14 @@ struct ChatView: View {
     @State private var epoch = 0
     @State private var lastPendingCount = 0
     @State private var keepNewestInView = true
+    // kosmos#7016: a lasting choice pressed once (armed until a second press, another press, 15 s, or leaving the chat),
+    // the line a press left for its question (not sure it went, or the Mac's refusal), and the line over the composer
+    // when a typed send waits for a press in the air.
+    @State private var armed: Board.Armed?
+    @State private var outcome: (key: String, text: String)?
+    @State private var composerNote: String?
+    // Bumped when the arm window or the answered lock ends, so the buttons redraw then.
+    @State private var tick = 0
 
     // The agent as the list shows it now (its word and tone move with the board), or as it was tapped.
     private var shown: Board.Agent { client.agents.first { $0.session == agent.session } ?? agent }
@@ -45,6 +53,11 @@ struct ChatView: View {
             ZStack(alignment: .bottom) {
                 conversation
                 if unseenNew { newMessagesCapsule }
+            }
+            if let composerNote {
+                Text(composerNote).font(.footnote).foregroundColor(Palette.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16).padding(.top, 6)
             }
             composer
         }
@@ -71,6 +84,7 @@ struct ChatView: View {
         }
         .onDisappear {
             visible = false
+            armed = nil
             // Not into another account's chats: a draft from before a sign-out is dropped with the rest.
             if epoch == client.chatEpoch { client.drafts[agent.session] = draftText }
             loop?.cancel()
@@ -225,7 +239,9 @@ struct ChatView: View {
                 .padding(.top, 16).padding(.bottom, 8)
                 .accessibilityAddTraits(.isHeader)
         case .row(let row, let first, let last):
-            if let way = row.wayThrough {
+            if let thread, let choices = Board.choices(for: row, in: thread) {
+                choicesView(row, choices).padding(.top, 10)
+            } else if let way = row.wayThrough {
                 VStack(alignment: .leading, spacing: 4) {
                     // A file that came with words: the words as a bubble, then the way through for the file.
                     if way == .attachment, !row.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -249,6 +265,100 @@ struct ChatView: View {
                            sendAgain: { Task { await client.sendAgain(row, to: agent); await read() } })
                     .padding(.top, first ? 10 : 2)
             }
+        }
+    }
+
+    // MARK: - Answering a question (kosmos#7016)
+
+    @ViewBuilder private func choicesView(_ row: Board.ChatRow, _ choices: Board.Choices) -> some View {
+        if let p = row.permission, let card = Board.cardButtons(choices, p) {
+            PermissionCard(permission: p, allow: card.allow, deny: card.deny, more: card.more,
+                           mainState: cardMainState(choices, p), moreState: choicesState(choices, among: card.more, card: true),
+                           widthShare: widthShare, press: { press($0, choices) })
+        } else {
+            QuestionBubble(text: row.text, options: choices.options, state: choicesState(choices, among: choices.options, card: false),
+                           widthShare: widthShare, press: { press($0, choices) })
+        }
+    }
+
+    // The board's dmChoicesHtml: off while a press or a typed send is in the air or the question was just answered;
+    // the line says Sending…, Sent., the arm note, or what the last press left. On a card, Sending… and Sent. go under
+    // Allow and Deny (cardMainState), and this part says only the arm note for a choice it holds.
+    private func choicesState(_ c: Board.Choices, among shown: [Board.ChoiceOption], card: Bool) -> ChoicesState {
+        _ = tick
+        let pressingNow = client.pressing.contains(agent.session)
+        let answered = client.answeredNow(agent.session, key: c.key)
+        let off = pressingNow || client.isSending(agent.session) || answered != nil
+        let armedN = shown.map(\.n).first { Board.isArmed(armed, n: $0, key: c.key, now: Date()) }
+        var state = ChoicesState(off: off, armedN: armedN)
+        if card {
+            if !pressingNow, answered == nil, armedN != nil { state.note = Board.choiceArmNote }
+            return state
+        }
+        if pressingNow { state.note = "Sending\u{2026}" }
+        else if answered?.sure == true { state.note = "Sent." }
+        else if armedN != nil { state.note = Board.choiceArmNote }
+        else if let o = outcome, o.key == c.key { state.note = o.text; state.danger = true }
+        return state
+    }
+
+    private func cardMainState(_ c: Board.Choices, _ p: Board.Permission) -> ChoicesState {
+        var state = choicesState(c, among: c.options.filter { $0.n == p.allow || $0.n == p.deny }, card: false)
+        if let a = client.answeredNow(agent.session, key: c.key), a.sure {
+            state.note = a.n == p.allow ? "Allowed." : a.n == p.deny ? "Denied." : "Sent."
+            state.settled = a.n == p.allow || a.n == p.deny
+        }
+        // The arm note belongs to Show details, where the lasting choices are.
+        if state.note == Board.choiceArmNote { state.note = nil }
+        return state
+    }
+
+    private func press(_ option: Board.ChoiceOption, _ choices: Board.Choices) {
+        switch Board.armStep(armed, option: option, key: choices.key, now: Date()) {
+        case .ignore:
+            return
+        case .arm(let a):
+            armed = a
+            outcome = nil
+            redraw(after: Board.armWindow)
+            return
+        case .send:
+            break
+        }
+        armed = nil
+        outcome = nil
+        Task {
+            guard let result = await client.press(option, of: choices, to: agent) else { return }
+            switch result {
+            case .sent: outcome = nil
+            case .notSure(let text), .refused(let text): outcome = (choices.key, text)
+            }
+            if result.mayHaveSent { redraw(after: BoardClient.answeredLock) }
+            if composerNote == Board.choiceWaitLine { composerNote = nil }
+            await read()
+        }
+    }
+
+    #if DEBUG
+    // Screenshots only (a Debug build with KOSMOS_SAMPLE_AGENTS=1): KOSMOS_SAMPLE_CHOICE=armed|unsure|answered sets the
+    // question's state once, as a press would (nothing in the simulator can press here).
+    @State private var sampleApplied = false
+    private func applySampleChoice(_ t: Board.Thread) {
+        guard !sampleApplied, let c = t.choices, let which = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_CHOICE"] else { return }
+        sampleApplied = true
+        switch which {
+        case "armed": if let o = c.options.first(where: \.lasting) { armed = Board.Armed(key: c.key, n: o.n, at: Date().addingTimeInterval(3600)) }
+        case "unsure": outcome = (c.key, Board.choiceUnsure)
+        case "answered": client.sampleAnswer(agent.session, key: c.key, n: c.options[0].n)
+        default: break
+        }
+    }
+    #endif
+
+    private func redraw(after seconds: TimeInterval) {
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64((seconds + 0.1) * 1_000_000_000))
+            tick += 1
         }
     }
 
@@ -316,6 +426,9 @@ struct ChatView: View {
     // The bubble appears at once (60% while it sends) and the field clears (spec, "while it sends").
     private func send() {
         guard canSend else { return }
+        // A press in the air: the words wait in the box, and the line says why (dmChoiceBlocksSend).
+        if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
+        composerNote = nil
         let text = draftText
         draftText = ""
         client.drafts[agent.session] = nil
@@ -349,6 +462,9 @@ struct ChatView: View {
         switch result {
         case .thread(let fresh):
             if fresh != thread { thread = fresh }
+            #if DEBUG
+            applySampleChoice(fresh)
+            #endif
             client.settle(fresh, for: agent.session)
             lastRead = Date()
             failedReads = 0
