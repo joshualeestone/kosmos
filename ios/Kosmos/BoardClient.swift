@@ -271,6 +271,12 @@ final class BoardClient: ObservableObject {
         // Cleo's shows the way-through rows: older messages, a file, Kosmos's own line and a question.
         let cleo = #"{"messages":[{"at":"2026-10-22T16:10:00Z","text":"Here is the launch checklist we agreed.","from":"cleo","attachment":{"id":"a1","name":"checklist.pdf"}},{"at":"2026-10-22T16:12:00Z","text":"Thanks, I will read it tonight.","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T14:00:00Z","text":"Cleo paused for today's limit. It picks up again at 4:00.","from":null,"kind":"kosmos"},{"at":"2026-10-23T14:05:00Z","text":"Should the launch email go out on Tuesday or Wednesday?","from":"cleo","kind":"question"}],"olderCount":12,"question":{"text":"Should the launch email go out on Tuesday or Wednesday?"}}"#
         if let t = Board.parseThread(Data(cleo.utf8)) { sampleThreads["cleo"] = t }
+        // KOSMOS_SAMPLE_NOT_SENT=1: one message in Dana's chat that was not taken, for the not-sent screenshot.
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOT_SENT"] == "1" {
+            let line = Board.notSentLine(agentRunning: true, name: "Dana")
+            pending["dana"] = [Board.PendingSend(id: "sample-failed", text: "Can you send me pages 1 to 8 now?", at: env.now(),
+                                                 failed: line.text, canRetry: line.canRetry)]
+        }
     }
     #endif
 
