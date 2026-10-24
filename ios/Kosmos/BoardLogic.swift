@@ -1012,6 +1012,16 @@ enum Board {
         zip(rows, positions).filter { $0.1 >= end }.map(\.0)
     }
 
+    // The item kept in place when a page lands above: the first message row on screen. Never a day line: its id is
+    // built from the first row of its day, so a page ending on that same day takes the line (and its id) away, and
+    // nothing would be kept (review 6).
+    static func anchorItem(_ items: [ChatItem], onScreen: Set<String>) -> String? {
+        items.first { item in
+            if case .row = item.kind { return onScreen.contains(item.id) }
+            return false
+        }?.id
+    }
+
     // What the chat draws: the earlier rows, then the latest read's.
     static func shownRows(_ e: Earlier, thread: Thread) -> [ChatRow] { e.open ? e.rows + thread.rows : thread.rows }
 

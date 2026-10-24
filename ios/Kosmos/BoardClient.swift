@@ -539,7 +539,9 @@ final class BoardClient: ObservableObject {
     private func sampleOlder(_ session: String, before: Int) -> Board.OlderRead? {
         guard session == "cleo" || session == "dana", sampleThreads[session] != nil else { return nil }
         let rows = (0..<before).map { i -> [String: Any] in
-            ["at": String(format: "2026-10-20T%02d:%02d:00Z", 8 + i / 60, i % 60), "text": i % 3 == 0 ? "Checking the venue list, item \(i + 1)." : "Noted.",
+            // Dana's earlier page ends on the same day as her latest messages (a page cut mid-day, review 6).
+            ["at": String(format: session == "dana" ? "2026-10-23T%02d:%02d:00Z" : "2026-10-20T%02d:%02d:00Z", (session == "dana" ? 6 : 8) + i / 60, i % 60),
+             "text": i % 3 == 0 ? "Checking the venue list, item \(i + 1)." : "Noted.",
              "from": i % 2 == 0 ? "cleo" : NSNull()]
         }
         let data = try? JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": 0])

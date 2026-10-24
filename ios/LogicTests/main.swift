@@ -1164,6 +1164,18 @@ do {
           "an answer that belongs to a reset before is dropped")
     check(Board.finishLoad(Board.Earlier(open: true, before: 3, end: 12), with: page1, opening: 0) == nil, "and so is one when no load is in flight")
 
+    // The item kept in place when a page lands: a message row, never a day line whose id can vanish.
+    let sameDay = Board.parseThread(Data(#"{"messages":[{"at":"2026-10-23T10:00:00Z","text":"a","from":"c"},{"at":"2026-10-23T10:05:00Z","text":"b","from":"c"}]}"#.utf8))!.rows
+    let latestItems = Board.chatItems(sameDay, now: Date(), calendar: .current)
+    let dayId = latestItems[0].id
+    let firstRow = latestItems[1].id
+    check(Board.anchorItem(latestItems, onScreen: [dayId, firstRow]) == firstRow, "the day line at the top is passed over for the row it labels")
+    let earlierSameDay = Board.parseRows([["at": "2026-10-23T09:00:00Z", "text": "z", "from": "c"]], idPrefix: "older|0|")
+    let combined = Board.chatItems(earlierSameDay + sameDay, now: Date(), calendar: .current)
+    check(!combined.map(\.id).contains(dayId) && combined.map(\.id).contains(firstRow),
+          "CONTROL: a page ending on the same day takes the old day line's id away, and keeps the row's")
+    check(Board.anchorItem(latestItems, onScreen: [dayId]) == nil, "nothing on screen but a day line: nothing kept")
+
     // The chat's gate.
     let closed = Board.Earlier()
     check(!Board.shouldAsk(settled: false, topVisible: true, earlier: closed, olderCount: 12), "not before the first scroll has settled (the first layout shows the top)")
