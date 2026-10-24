@@ -112,7 +112,8 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
               if (refuseNext) { refuseNext = false; return await r.fulfill({ status: 409, json: { error: 'That computer was not allowed: the code confirmed is not the one that computer shows.' } }); }
               if (u.pathname.endsWith('/own-allow')) { state.rows = state.rows.filter((x) => x.pub !== body.pub); return await r.fulfill({ json: { allowed: true } }); }
               if (body.match === false) { state.code = NEXT_CODE; return await r.fulfill({ json: { started_over: true } }); }
-              state.code = null;   // confirmed and adopted: nothing left to compare
+              // Confirmed before the other computer's Allow (the order the hint asks for): the engine keeps answering the
+              // same code until the share lands, so the code stays.
               return await r.fulfill({ json: { confirmed: true } });
             } catch { await r.abort().catch(() => {}); }
           });
@@ -140,6 +141,12 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
               line: !document.getElementById('pj-fed-own-phone').hidden }));
             chk(c.code === FIRST_CODE, `${E} the consolidated rail shows the code where the Members card is hidden`, JSON.stringify(c));
             chk(!c.line, `${E} the line above the room is not shown in the consolidated view`, JSON.stringify(c));
+            // A focused rail button survives the rail's rebuild on the next status poll.
+            await page.focus('#alist-fed-own [data-own-act="match"]');
+            await page.waitForResponse((r) => r.url().includes('/api/status'), { timeout: 15000 }).catch(() => null);
+            await page.waitForTimeout(400);
+            const railFocus = await page.evaluate(() => !!document.activeElement && !!document.activeElement.closest('#alist-fed-own'));
+            chk(railFocus, `${E} focus on a rail button survives the rail's rebuild on a status poll`);
             await page.click('#alist-fed-own [data-own-act="match"]');
             await page.waitForFunction(() => /Confirmed/.test((document.querySelector('#alist-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
             const cc = posted.filter((p) => p.path.endsWith('/own-confirm')).pop();
@@ -193,16 +200,23 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
           chk(/^Started over\./.test(await MSG(page)), `${E} the start over is said on screen`, await MSG(page));
           const focusIn = await page.evaluate(() => document.getElementById('pj-fed-own').contains(document.activeElement));
           chk(focusIn, `${E} focus stays in the section after a press`);
-          // It matches on the new code: exactly that code is sent; the key is taken, so the section empties but the
-          // sentence stays.
+          // It matches on the new code, before the other computer's Allow: exactly that code is sent, and while the engine
+          // still answers it the code stays to compare with nothing left to press.
           await page.click('#pj-fed-own [data-own-act="match"]');
-          // The sentence paints at once and the reload after it: wait for the reload's result, the code gone.
-          await page.waitForFunction(() => /Confirmed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || '')
-            && !document.querySelector('#pj-fed-own .ownseal-code'), null, { timeout: 8000 }).catch(() => null);
+          await page.waitForFunction(() => /Confirmed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
+          await page.evaluate(() => fedOwnLoad(PJ_CURRENT, true));
           const conf = posted.filter((p) => p.path.endsWith('/own-confirm')).pop();
           chk(conf && conf.body.project === waitingP.id && conf.body.code === NEXT_CODE, `${E} It matches sends exactly the code that was on screen`, JSON.stringify(conf));
-          const after = await page.evaluate(() => ({ code: !!document.querySelector('#pj-fed-own .ownseal-code'), msg: (document.querySelector('#pj-fed-own .fmsg') || {}).textContent || '' }));
-          chk(!after.code && /^Confirmed\./.test(after.msg), `${E} the confirm is said even when the section has nothing else to show`, JSON.stringify(after));
+          const waitingOn = await page.evaluate(() => ({ code: (document.querySelector('#pj-fed-own .ownseal-code') || {}).textContent || '',
+            buttons: document.querySelectorAll('#pj-fed-own [data-own-act]').length, text: document.getElementById('pj-fed-own').textContent }));
+          chk(waitingOn.code === NEXT_CODE && waitingOn.buttons === 0 && /You confirmed this code/.test(waitingOn.text),
+            `${E} confirmed before the Allow: the code stays, with no button to press again`, JSON.stringify(waitingOn));
+          // The other computer's Allow lands: the code is gone.
+          state.code = null;
+          await page.evaluate(() => fedOwnLoad(PJ_CURRENT));
+          await page.waitForFunction(() => !document.querySelector('#pj-fed-own .ownseal-code'), null, { timeout: 8000 }).catch(() => null);
+          const adopted = await page.evaluate(() => !!document.querySelector('#pj-fed-own .ownseal-code'));
+          chk(!adopted, `${E} once the key is taken the code goes`);
           // The section moves on (the other computer started over): the old sentence goes with it.
           state.code = LATER_CODE;
           await page.evaluate(() => fedOwnLoad(PJ_CURRENT));
