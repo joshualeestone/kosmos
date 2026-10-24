@@ -422,3 +422,18 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - NIT3: a comment for the re-parented Worker the late check cannot see.
 - TO CHECK ON RUNNER 1 BEFORE --apply: that its loaded print has a "minimum runtime" line (the dry run will refuse if
   not, which is the safe direction).
+
+## Review round 30 (sonnet, blind, HEAD 679195e9f8)
+- W1 FIXED: the DOWN state wait (12 s) could be shorter than a loaded ThrottleInterval above 10, so a crashed runner
+  waiting out a long throttle read as DOWN. The wait is now at least the loaded "minimum runtime" + 5 s.
+  ka-longthrottle (10 + 5 = 15 s against a 1 s setting); mutant red.
+- W2 FIXED: the restart check after the SIGTERM was ONE read; launchd may show "spawn scheduled" or a new pid a moment
+  later. Now three reads a second apart (+2 s per reload). Stub FX_SPAWN_LATE_AFTER_KILL (shown one read late);
+  ka-spawnlate; a one-read mutant is red.
+- W3: the window between the first job check and the SIGTERM is the accepted one; now named in a comment there.
+- NIT on the one-tab anchor: NOT A DEFECT. ^[[:space:]]pid matches exactly ONE whitespace character before "pid", so a
+  two-tab nested line cannot match (also settled in round 22). Left.
+- DEFERRED NITs: the grep . consistency between two "new Listener" filters (both correct); the orphaned-Worker case
+  (comment already says so); children inherit the HUP/PIPE ignore (harmless, guarded).
+- MEASUREMENT: the comm-column watcher saw NO relay Worker in 60 min, so "Runner.Worker is a direct child of
+  Runner.Listener" stays the unmeasured premise (round 25), stated in the PR.
