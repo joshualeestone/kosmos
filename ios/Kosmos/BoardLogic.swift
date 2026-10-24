@@ -515,15 +515,26 @@ enum Board {
         return f.string(from: day)
     }
 
+    // What changes when a new message arrives, for following it down: not the count alone (the Mac sends at most the
+    // last 200, so a long conversation keeps its count as it moves) and not the last row alone (the Mac puts its live
+    // question row last, with no time). The count with the last row that has the Mac's time.
+    static func followKey(_ thread: Thread) -> String {
+        "\(thread.rows.count)|" + (thread.rows.last(where: { $0.atRaw != nil })?.id ?? "")
+    }
+
     // MARK: Sending
 
     // A message the person sent from this chat, shown until the conversation holds the row the Mac kept for it.
     struct PendingSend: Equatable, Identifiable {
         enum State: Equatable {
             case sending
-            // The Mac answered and kept a row for it at this time (whatever became of it: sent, held or refused, the
-            // row says so); shown, full strength, until a read brings that row.
+            // The Mac delivered it and kept a row for it at this time: shown as sent, full strength, until a read brings
+            // that row.
             case kept(at: String)
+            // The Mac kept a row for it at this time but did not deliver it: held (it sends it itself) or not (the row
+            // will say Not sent, and is sent again from there). Shown faded with the same words the row will have, never
+            // as sent, and with nothing to tap (the row it becomes is the one place to send it again).
+            case keptUndelivered(at: String, held: Bool)
             // The Mac took it but kept no row (or did not say when): shown as sent until a read holds the same words.
             case taken
             // Not taken: the Mac's own reason when it gave one, or nil when no answer came (it may have arrived; a read
@@ -536,16 +547,20 @@ enum Board {
         var state: State = .sending
         var failed: Bool { if case .failed = state { return true } else { return false } }
         var shownAsSent: Bool { switch state { case .kept, .taken: return true; default: return false } }
+        // What the person can do with it by hand: delete one that failed, or one taken that no read has matched yet.
+        var deletable: Bool { switch state { case .failed, .taken: return true; default: return false } }
     }
 
     // The Mac's answer to a send. POST /api/agent/<name>/thread answers 200 with `delivery` (its `at` is the row it
     // kept) and `recorded` (whether it kept one); a refusal answers 4xx with `{error}`.
-    enum SendResult: Equatable { case kept(at: String), taken, refused(String?), noAnswer }
+    enum SendResult: Equatable { case kept(at: String), keptUndelivered(at: String, held: Bool), taken, refused(String?), noAnswer }
 
     static func sendResult(status: Int, body: Data?) -> SendResult {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if (200...299).contains(status), let d = obj?["delivery"] as? [String: Any], let state = d["state"] as? String {
-            if obj?["recorded"] as? Bool == true, let at = d["at"] as? String, !at.isEmpty { return .kept(at: at) }
+            if obj?["recorded"] as? Bool == true, let at = d["at"] as? String, !at.isEmpty {
+                return state == "placed" || state == "unconfirmed" ? .kept(at: at) : .keptUndelivered(at: at, held: state == "held")
+            }
             if state == "placed" || state == "unconfirmed" { return .taken }
             return .refused((d["because"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         }
@@ -556,6 +571,7 @@ enum Board {
     static func pendingState(after result: SendResult) -> PendingSend.State {
         switch result {
         case .kept(let at): return .kept(at: at)
+        case .keptUndelivered(let at, let held): return .keptUndelivered(at: at, held: held)
         case .taken: return .taken
         case .refused(let why): return .failed(reason: why)
         case .noAnswer: return .failed(reason: nil)
@@ -574,7 +590,7 @@ enum Board {
             switch p.state {
             case .sending, .failed(reason: .some):
                 return true
-            case .kept(let at):
+            case .kept(let at), .keptUndelivered(let at, _):
                 if let i = unused.firstIndex(where: { $0.atRaw == at }) { return take(i) }
                 return true
             case .taken, .failed(reason: nil):

@@ -19,6 +19,12 @@ struct ChatView: View {
     @State private var loop: Task<Void, Never>?
     @State private var atBottom = true
     @State private var unseenNew = false
+    // The words in the box. Kept here while the chat is open (typing redraws only the chat) and given to the client when
+    // it goes, so leaving the chat never loses them.
+    @State private var draftText = ""
+    // Reads are numbered: only one newer than the last shown is shown, so a slow earlier read never undoes a newer one.
+    @State private var readsStarted = 0
+    @State private var readShown = 0
 
     // The agent as the list shows it now (its word and tone move with the board), or as it was tapped.
     private var shown: Board.Agent { client.agents.first { $0.session == agent.session } ?? agent }
@@ -27,10 +33,6 @@ struct ChatView: View {
     private var working: Bool { !lost && Board.tone(shown) == .working }
     private var pending: [Board.PendingSend] { client.pending[agent.session] ?? [] }
     private var widthShare: CGFloat { typeSize.isAccessibilitySize ? 0.85 : 0.78 }
-    // The words in the box live in the client, so leaving the chat (or the chat closing) never loses them.
-    private var draft: Binding<String> {
-        Binding(get: { client.drafts[agent.session] ?? "" }, set: { client.drafts[agent.session] = $0 })
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,8 +56,15 @@ struct ChatView: View {
                 .accessibilityLabel("Open on your computer's board")
             }
         }
-        .onAppear { startReading() }
-        .onDisappear { loop?.cancel(); loop = nil }
+        .onAppear {
+            draftText = client.drafts[agent.session] ?? ""
+            startReading()
+        }
+        .onDisappear {
+            client.drafts[agent.session] = draftText
+            loop?.cancel()
+            loop = nil
+        }
         .onChange(of: scenePhase) { phase in
             if phase == .background { loop?.cancel(); loop = nil } else if phase == .active, loop == nil { startReading() }
         }
@@ -111,13 +120,7 @@ struct ChatView: View {
                         ForEach(items) { item in
                             itemView(item).id(item.id)
                         }
-                        ForEach(pending) { p in
-                            PendingBubble(item: p, widthShare: widthShare, line: Board.notSentLine(agentRunning: running, name: shown.name),
-                                          retry: { Task { await client.retry(p.id, to: agent) } },
-                                          delete: { client.discard(p.id, for: agent.session) })
-                                .padding(.top, 10)
-                                .id(p.id)
-                        }
+                        pendingBubbles
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
                         Color.clear.frame(height: 1).id("end")
                             .onAppear { atBottom = true; unseenNew = false }
@@ -128,9 +131,8 @@ struct ChatView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onAppear { proxy.scrollTo("end", anchor: .bottom) }
-                // By count, not by the last id: the Mac appends its live question row last, so a new message can arrive
-                // above an unchanged last row.
-                .onChange(of: thread.rows.count) { _ in follow(proxy) }
+                .onChange(of: Board.followKey(thread)) { _ in follow(proxy) }
+                .onChange(of: working) { now in if now { follow(proxy) } }
                 .onChange(of: pending.count) { _ in withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
                 // The keyboard shrinks the thread; one that was at the newest message stays there (the spec).
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
@@ -154,9 +156,21 @@ struct ChatView: View {
                     Text("Loading the conversation\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
                 }
                 Spacer()
+                // A message sent before any conversation was read is still shown, with its not-sent line if it fails.
+                VStack(spacing: 0) { pendingBubbles }
             }
             .padding(.horizontal, 32)
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    @ViewBuilder private var pendingBubbles: some View {
+        ForEach(pending) { p in
+            PendingBubble(item: p, widthShare: widthShare, line: Board.notSentLine(agentRunning: running, name: shown.name),
+                          retry: { Task { await client.retry(p.id, to: agent) } },
+                          delete: { client.discard(p.id, for: agent.session) })
+                .padding(.top, 10)
+                .id(p.id)
         }
     }
 
@@ -200,8 +214,10 @@ struct ChatView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
             } else {
+                // Not sent: tap to try again, once (a row already sent again waits for the read that shows the new one).
                 ChatBubble(row: row, firstOfRun: first, lastOfRun: last, widthShare: widthShare, name: shown.name,
-                           line: row.canSendAgain ? Board.notSentLine(agentRunning: running, name: shown.name) : nil,
+                           line: row.canSendAgain && !client.wasSentAgain(row, for: agent.session)
+                               ? Board.notSentLine(agentRunning: running, name: shown.name) : nil,
                            sendAgain: { Task { await client.sendAgain(row, to: agent); await read() } })
                     .padding(.top, first ? 10 : 2)
             }
@@ -234,7 +250,7 @@ struct ChatView: View {
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("", text: draft, prompt: Text("Message \(shown.name)").foregroundColor(Palette.secondary), axis: .vertical)
+            TextField("", text: $draftText, prompt: Text("Message \(shown.name)").foregroundColor(Palette.secondary), axis: .vertical)
                 .font(.body)
                 .foregroundColor(Palette.primary)
                 .lineLimit(1...5)
@@ -261,13 +277,14 @@ struct ChatView: View {
         .overlay(Rectangle().fill(Palette.separator).frame(height: 0.5), alignment: .top)
     }
 
-    private var canSend: Bool { Board.fitsBoard(draft.wrappedValue) }
+    private var canSend: Bool { Board.fitsBoard(draftText) }
 
     // The bubble appears at once (60% while it sends) and the field clears (spec, "while it sends").
     private func send() {
         guard canSend else { return }
-        let text = draft.wrappedValue
-        draft.wrappedValue = ""
+        let text = draftText
+        draftText = ""
+        client.drafts[agent.session] = nil
         Task {
             await client.post(text, to: agent)
             await read()
@@ -287,7 +304,14 @@ struct ChatView: View {
     }
 
     private func read() async {
-        switch await client.thread(for: agent.session) {
+        readsStarted += 1
+        let mine = readsStarted
+        let result = await client.thread(for: agent.session)
+        // A read cut short (the chat closed, the app went away) says nothing about the Mac, and an older read than the
+        // one shown changes nothing.
+        guard !Task.isCancelled, mine > readShown else { return }
+        readShown = mine
+        switch result {
         case .thread(let fresh):
             if fresh != thread { thread = fresh }
             client.settle(fresh, for: agent.session)
@@ -359,6 +383,10 @@ struct PendingBubble: View {
     let delete: () -> Void
 
     private var reason: String? { if case .failed(let why) = item.state { return why } else { return nil } }
+    // Kept by the Mac but not delivered: the words its row will say, quiet, with nothing to tap (the row takes over).
+    private var undelivered: String? {
+        if case .keptUndelivered(_, let held) = item.state { return held ? "Waiting to send" : "Not sent" } else { return nil }
+    }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
@@ -366,12 +394,14 @@ struct PendingBubble: View {
                 .onTapGesture { if item.failed && line.canRetry { retry() } }
                 .contextMenu {
                     Button { UIPasteboard.general.string = item.text } label: { Label("Copy", systemImage: "doc.on.doc") }
-                    if item.failed { Button(role: .destructive, action: delete) { Label("Delete", systemImage: "trash") } }
+                    if item.deletable { Button(role: .destructive, action: delete) { Label("Delete", systemImage: "trash") } }
                 }
             if item.failed {
                 NotSentLine(text: line.text, canRetry: line.canRetry, action: retry)
                 // The Mac's own words for why, when it gave them.
                 if let reason { Text(reason).font(.caption).foregroundColor(Palette.secondary).multilineTextAlignment(.trailing) }
+            } else if let undelivered {
+                Text(undelivered).font(.caption2).foregroundColor(Palette.secondary).padding(.horizontal, 4)
             } else if item.shownAsSent {
                 Text(item.at, style: .time).font(.caption2).foregroundColor(Palette.tertiary).padding(.horizontal, 4)
             }
@@ -379,9 +409,10 @@ struct PendingBubble: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(ChatBubble.spoken(who: "You", at: item.shownAsSent ? item.at : nil, text: item.text)
-            + (item.failed ? (line.canRetry ? ", not sent, double-tap to try again" : ", not sent") + (reason.map { ". " + $0 } ?? "") : ""))
+            + (item.failed ? (line.canRetry ? ", not sent, double-tap to try again" : ", not sent") + (reason.map { ". " + $0 } ?? "") : "")
+            + (undelivered.map { ", " + $0.lowercased() } ?? ""))
         .accessibilityAction { if item.failed && line.canRetry { retry() } }
-        .accessibilityAction(named: "Delete") { if item.failed { delete() } }
+        .accessibilityAction(named: "Delete") { if item.deletable { delete() } }
     }
 }
 
