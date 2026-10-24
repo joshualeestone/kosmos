@@ -22317,6 +22317,35 @@ const server = http.createServer(async (req, res) => {
       .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
     return;
   }
+  /* kosmos#7028: the computers of this account that hold a sealed room's key, and taking one out (a new key it is not
+     sent). Not step-up gated, like every other remove: it only takes access away. Screen-only, like the Allow. */
+  if (pathname === '/api/federation/own-allowed' && req.method === 'GET') {
+    if (!federationLiveNow()) { sendJson(res, 404, { error: FEDERATION_OFF }); return; }
+    if (!isViaScreen(req, {})) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can see which of their computers can read a sealed project.' }); return; }
+    let pid = null;
+    try { pid = new URL(req.url, ROUTING_BASE).searchParams.get('project'); } catch { pid = null; }
+    if (!pid) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+    let computers = [];
+    try { computers = fedseats.ownAllowed(pid).map((c) => ({ pub: c.pub, mac: c.mac, at: c.at })); } catch { computers = []; }
+    sendJson(res, 200, { computers });
+    return;
+  }
+  if (pathname === '/api/federation/own-remove' && req.method === 'POST') {
+    if (!federationLiveNow()) { sendJson(res, 404, { error: FEDERATION_OFF }); return; }
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.project !== 'string' || !body.project
+          || typeof body.pub !== 'string' || !body.pub) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can take a computer out of a sealed project.' }); return; }
+        const out = await fedseats.ownRemove(body.project, body.pub);
+        if (!out.ok) { sendJson(res, 409, { error: 'That computer was not taken out: ' + out.because + '.' }); return; }
+        sendJson(res, 200, { removed: true });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
   /* kosmos#4658, the waiting computer's half: the code this computer shows, and its person's answer. "It matches"
      (code) lets it adopt the key the owner's computer sends; "does not match" (match:false) starts over with a new
      code. Confirming decides who can read this computer's posts, so it is step-up gated and under the family policy

@@ -947,6 +947,29 @@ function ownWaiting(projectId) {
   try { me = fedseal.sealingKey(); } catch { return []; }
   return [...s.ownWaiting].filter(([, w]) => w.nW).map(([pub, w]) => ({ pub, mac: w.mac, at: w.at, code: fedseal.compareCode(s.room, w.mac, pub, me.pub, w.nW, w.nO) }));
 }
+/** kosmos#7028, seal owner: the own computers that hold this room's key, oldest first. Empty when this board
+    does not hold the room's seal-owner state. */
+function ownAllowed(projectId) {
+  const st = roomSeal(projectId);
+  if (!hasKey(st) || st.role !== 'owner' || !st.own || typeof st.own !== 'object') return [];
+  return Object.keys(st.own).filter((pub) => st.own[pub] && typeof st.own[pub].mac === 'string')
+    .map((pub) => ({ pub, mac: st.own[pub].mac, at: st.own[pub].at }))
+    .sort((x, y) => (Number(x.at) || 0) - (Number(y.at) || 0));
+}
+/** kosmos#7028, seal owner: a person removed one of their computers from a sealed room. The room moves to a new
+    key that computer is not sent (revokeCheck, the step a revoked guest gets). Resolves { ok, because }. */
+async function ownRemove(projectId, pub) {
+  const st = roomSeal(projectId);
+  if (!hasKey(st) || st.role !== 'owner') return { ok: false, because: 'only the computer that first shared this room can take another computer out of it' };
+  if (!st.own || !Object.prototype.hasOwnProperty.call(st.own, pub)) return { ok: false, because: 'that computer does not hold this room\'s key' };
+  const link = safeLink(projectId);
+  if (!link) return { ok: false, because: 'this project is not shared' };
+  let r;
+  try { r = await revokeCheck(projectId, link, undefined, [pub]); } catch { r = undefined; }
+  const after = roomSeal(projectId);
+  if (after && after.own && Object.prototype.hasOwnProperty.call(after.own, pub)) return { ok: false, because: r && r.unreadable ? 'the room\'s records could not be written' : 'the room\'s key could not be changed right now; try again' };
+  return { ok: true, because: null };
+}
 /** Seal owner: a person compared the codes and pressed Allow. Resolves { ok, because }. */
 function allowOwn(projectId, pub, confirmedCode) {
   return sealStep(projectId, async () => {
@@ -1944,4 +1967,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { ownWaiting, allowOwn, ownCode, confirmOwn, ownStartOver, OWN_RUNS_PER_HOUR, contactStopped, contactState, contactReason, contactStops, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
+module.exports = { ownWaiting, allowOwn, ownAllowed, ownRemove, ownCode, confirmOwn, ownStartOver, OWN_RUNS_PER_HOUR, contactStopped, contactState, contactReason, contactStops, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
