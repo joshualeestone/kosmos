@@ -182,10 +182,21 @@ function withReplyChannel(rows) {
 /* #7004 (the iPhone plan's slice 2, #6838): each card's word as the computer shows it (engine/cardlabel labelOf) and its
    tone in the phone's list, ready-made, so the phone shows the computer's words instead of keeping its own copy. Run
    last, over the finished rows: the word reads fields the route attaches late (reconnect, crashLoop, disruption). */
-function withCardWords(rows) {
+/* #7030 (slice 4): and, for the phone's Today, why it needs the person (cardlabel.reasonOf) and the name of the project
+   its wait names (`stateProject` is an id), from `projectList`, the route's one read of the projects file (null when it
+   could not be read: then no names, never a failed status read). */
+function withCardWords(rows, projectList) {
+  const names = new Map((Array.isArray(projectList) ? projectList : [])
+    .filter((p) => p && typeof p.id === 'string' && typeof p.name === 'string' && p.name).map((p) => [p.id, p.name]));
   return rows.map((r) => {
     if (!r) return r;
-    try { return { ...r, cardWord: cardlabel.labelOf(r), cardTone: cardlabel.toneOf(r, needsPerson(r)) }; } catch { return r; }
+    try {
+      const np = needsPerson(r);
+      const why = cardlabel.reasonOf(r, np);
+      const projectName = typeof r.stateProject === 'string' ? names.get(r.stateProject) : undefined;
+      return { ...r, cardWord: cardlabel.labelOf(r), cardTone: cardlabel.toneOf(r, np),
+        ...(why ? { needsReason: why } : {}), ...(projectName ? { stateProjectName: projectName } : {}) };
+    } catch { return r; }
   });
 }
 function someAgentNeedsClaude(agentList) {
@@ -7347,8 +7358,11 @@ const server = http.createServer(async (req, res) => {
          null on an unreadable store/cursor, both of which projectsUnreadTotal folds to 0 (unknown is
          not a phantom badge). This adds one messages-record pass + one projects-file read per tick;
          both are already paid by the projects poll, and unreadAll is a single pass. */
+      let projectList = null;   // #7030: read once per tick, shared with withCardWords' project names below
+      try { projectList = projects.readAll(); } catch { projectList = null; }
       try {
-        counts.projectsUnread = projectsUnreadTotal(projects.readAll(), messages.unreadAll());
+        if (projectList === null) throw new Error('unreadable');   // the same fold to 0 as before
+        counts.projectsUnread = projectsUnreadTotal(projectList, messages.unreadAll());
       } catch { counts.projectsUnread = 0; }
       /* ⚠️ COUNTED SEPARATELY, and the row still adds up: Working plus Idle
          plus the rest is what is RUNNING, and `notRunning` is the remainder of
@@ -7407,7 +7421,7 @@ const server = http.createServer(async (req, res) => {
          false and the banner stays down. */
       // #3739: the guide is included on purpose: the bubble depends on Claude even though its row is hidden.
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
-      const rows = withCardWords(withReplyChannel(withTokenGuard(withAgentSortFields(agents.concat(offline)))));
+      const rows = withCardWords(withReplyChannel(withTokenGuard(withAgentSortFields(agents.concat(offline)))), projectList);
       /* #3996: what is waiting on the person, in one number (the Dock badge reads it). The same
          rows the Messages tile sums, after the needs-you and projects counts above are final. */
       /* #4025: null when the person switched the icon count off in Settings; the apps clear the badge on null. */
