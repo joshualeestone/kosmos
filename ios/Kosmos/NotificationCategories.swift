@@ -16,11 +16,34 @@ enum NotificationCategories {
     // notification is built for real (an authenticated call to the board or
     // coordinator, and a ruling on Face ID), a notification offers only the
     // plain tap, which opens the agent that asked.
+    // kosmos#7017: Reply, on a notification whose words the phone fetched from the computer (an agent's reply, or an
+    // agent that needs you). The notification extension sets this category only then, so Reply is never offered on a
+    // notice it could not carry. Reply does not ask to unlock the phone, as Messages does not: it only adds words to
+    // a chat the person already has.
+    // Must match PhoneNotice.replyCategory (the notification extension sets it once it has the words; a different
+    // target, so LogicTests checks the two are equal).
+    static let replyCategory = "KOSMOS_REPLY"
+    static let replyAction = "KOSMOS_REPLY_ACTION"
+
+    static let reply = UNTextInputNotificationAction(
+        identifier: replyAction,
+        title: "Reply",
+        options: [],
+        textInputButtonTitle: "Send",
+        textInputPlaceholder: "Reply"
+    )
+
     static func all() -> Set<UNNotificationCategory> {
         [
             UNNotificationCategory(
                 identifier: agentPermission,
                 actions: [],
+                intentIdentifiers: [],
+                options: []
+            ),
+            UNNotificationCategory(
+                identifier: replyCategory,
+                actions: [reply],
                 intentIdentifiers: [],
                 options: []
             ),

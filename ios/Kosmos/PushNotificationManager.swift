@@ -189,9 +189,53 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             } else {
                 NSLog("[Push] tapped notification had no usable address; staying put")
             }
+        case NotificationAction.replyAction:
+            // kosmos#7017: Reply from the notification. iOS gives the app a short while in the background; the
+            // completion handler is called only once the send has an answer.
+            let content = response.notification.request.content
+            let text = (response as? UNTextInputNotificationResponse)?.userText ?? ""
+            Task {
+                await self.sendReply(text: text, userInfo: content.userInfo, agent: content.title)
+                completionHandler()
+            }
+            return
         default:
             break
         }
         completionHandler()
+    }
+
+    // One session for replies, refusing redirects as the app's own client does, so the computer's cookie never goes
+    // to another host.
+    private static let replyHTTP = URLSession(configuration: .ephemeral, delegate: RefuseReplyRedirects(), delegateQueue: nil)
+
+    private func sendReply(text: String, userInfo: [AnyHashable: Any], agent: String) async {
+        guard let request = NotificationAction.replyRequest(
+            userInfo: userInfo, text: text, stored: SessionKeychain.macSession.load(),
+            session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin
+        ) else {
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { tell(NotificationAction.cannotSend(agent: agent)) }
+            return
+        }
+        let answer = try? await Self.replyHTTP.data(for: request)
+        let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
+        let result = Board.sendResult(status: status, body: answer?.0)
+        NSLog("[Push] reply from a notification: \(result)")
+        if let said = NotificationAction.notice(after: result, agent: agent) { tell(said) }
+    }
+
+    // A local notification saying what happened to a reply that did not plainly go.
+    private func tell(_ text: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "Kosmos"
+        content.body = text
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "reply-" + UUID().uuidString, content: content, trigger: nil))
+    }
+}
+
+private final class RefuseReplyRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

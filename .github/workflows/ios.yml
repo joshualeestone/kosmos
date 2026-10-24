@@ -81,6 +81,13 @@ jobs:
           ios/LogicTests/run-settings.sh | tee "$RUNNER_TEMP/settings.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/settings.log"
 
+      # kosmos#7017: answering from the notification, its own suite like Settings'.
+      - name: Notification action logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-actions.sh | tee "$RUNNER_TEMP/actions.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/actions.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

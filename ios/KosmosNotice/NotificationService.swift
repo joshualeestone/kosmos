@@ -109,6 +109,8 @@ final class NotificationService: UNNotificationServiceExtension {
         content.subtitle = original.body.isEmpty ? original.title : "\(original.title), \(original.body)"
         content.title = words.agent
         content.body = words.text
+        // kosmos#7017: the words came from the computer, so Reply can reach it: offer Reply on this notice.
+        content.categoryIdentifier = PhoneNotice.replyCategory
         // The words are in: from here the time limit shows them, however long the picture takes.
         if let ready = content.copy() as? UNNotificationContent { wordsReady(ready) }
 

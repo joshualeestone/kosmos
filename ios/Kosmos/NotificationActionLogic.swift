@@ -1,0 +1,53 @@
+import Foundation
+
+// kosmos#7017 (slice 8 of #6838): answering from the notification. UIKit-free, so ios/LogicTests/run-actions.sh runs
+// it on a Mac.
+//
+// Reply: a text typed on the notification goes to that agent's chat through the request the native chat uses
+// (Board.sendRequest, Board.sendResult), to the computer the notification came from, with the sign-in the app keeps
+// for it, and only when that sign-in belongs to the Kosmos+ account signed in now. Nothing is ever sent twice: a reply
+// that may have gone is never retried here; the person is told to look in the chat.
+enum NotificationAction {
+    // The category and action are NotificationCategories' (every LogicTests suite compiles that file).
+    static var replyCategory: String { NotificationCategories.replyCategory }
+    static var replyAction: String { NotificationCategories.replyAction }
+
+    // The request for a reply, or nil when there is nothing to send to: no agent named, an address that is not the
+    // kept computer's, no kept sign-in for this account, or text the board would refuse.
+    static func replyRequest(userInfo: [AnyHashable: Any], text: String, stored: String?, session: String?, coordinator: URL) -> URLRequest? {
+        guard let agent = userInfo["session"] as? String, Board.isAgentSession(agent),
+              let address = (userInfo["address"] as? String)?.lowercased(),
+              let saved = Board.usableSaved(stored, session: session, coordinator: coordinator),
+              saved.address.lowercased() == address,
+              let mac = Board.macURL(address: saved.address, coordinator: coordinator),
+              var r = Board.sendRequest(mac: mac, session: agent, text: text)
+        else { return nil }
+        // The cookie goes by hand on this one request; nothing here keeps a cookie jar.
+        r.httpShouldHandleCookies = false
+        r.setValue("\(Board.macCookieName)=\(saved.cookie)", forHTTPHeaderField: "Cookie")
+        return r
+    }
+
+    // What the person is told after a reply, or nil when it went (or is kept to go, which the chat shows).
+    static func notice(after result: Board.SendResult, agent: String) -> String? {
+        let who = agent.isEmpty ? "your agent" : agent
+        switch result {
+        case .kept, .taken, .keptUndelivered:
+            return nil
+        case .unconfirmed:
+            return "Kosmos could not confirm your reply to \(who) went. Open the chat to check before sending it again."
+        case .noAnswer:
+            return "Your computer did not answer, so your reply to \(who) may not have gone. Open the chat to check."
+        case .refused(let why):
+            if let why, !why.trimmingCharacters(in: .whitespaces).isEmpty {
+                return "Kosmos could not send your reply to \(who): \(why.trimmingCharacters(in: .whitespaces))\(why.hasSuffix(".") ? "" : ".")"
+            }
+            return "Kosmos could not send your reply to \(who). Open the chat to try again."
+        }
+    }
+
+    // When the reply could not even be made (no kept computer for this notification, or nothing typed).
+    static func cannotSend(agent: String) -> String {
+        "Kosmos could not send your reply to \(agent.isEmpty ? "your agent" : agent) from here. Open the chat to send it."
+    }
+}

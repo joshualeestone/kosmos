@@ -112,6 +112,10 @@ enum PhoneNotice {
         return r
     }
 
+    // kosmos#7017: the category that offers Reply, set once the words are in. Must match NotificationCategories.replyCategory
+    // in the app (a different target); LogicTests checks the two are equal.
+    static let replyCategory = "KOSMOS_REPLY"
+
     // kosmos#6487: true needs Kosmos.entitlements to ask for Communication Notifications. False sends the picture as
     // the notice's attachment.
     static let messageStyleKey = "KosmosMessageStyle"
