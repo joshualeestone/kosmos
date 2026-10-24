@@ -108,7 +108,7 @@ refused() {   # label site expected-phrase args...
 }
 refused "a version no commit names" "$(newsite)" "no commit on" --version 9.9.7
 S="$(newsite)"; rm -f "$S/dist/kosmos-9.9.8-arm64.tar.gz"
-refused "a named build whose artifact is not on disk" "$S" "which is not in" --version 9.9.8
+refused "a named build whose artifact is not on disk" "$S" "the pointer committed in" --version 9.9.8
 S="$(newsite)"; printf 'OTHER\n' > "$S/dist/kosmos-9.9.8-arm64.tar.gz"
 refused "a named build whose artifact does not verify" "$S" "does not verify" --version 9.9.8
 S="$(newsite)"; mkcut "$S" 9.9.6 "INSTALLER-9.9.6 KOSMOS_READONLY_APP" "$(printf 'ANOTHER-CUT\n' | shasum -a 256 | awk '{print $1}')"
@@ -208,6 +208,7 @@ exit 2
 ' > "$HOLD"; chmod +x "$HOLD"
 S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 2 ] && untouched "$S" && pass "named: a cannot-tell experience gate holds (exit 2), nothing written" || bad "named hold (rc=$rc, out=$out)"
+has "$out" "Run this against a board on 9.9.8, or verify 9.9.8 by hand and pass --force with --sha" && pass "named: the HOLD says to use a board on V, or --force with --sha" || bad "named HOLD sentence (out=$out)"
 S="$(newsite)"; s98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")"
 out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" 16999 --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && pass "named: CONTROL --force (with --sha) after a hand check promotes past cannot-tell" || bad "named hold --force (rc=$rc, out=$out)"
@@ -242,8 +243,17 @@ S="$(newsite)"; git -C "$S" remote add origin "$O2"
 echo '{"version":"9.9.9"}' > "$S/dist/latest.json"; git -C "$S" commit -qm "prod 9.9.9" -- dist/latest.json; git -C "$S" push -q origin HEAD:main
 git -C "$S" reset -q --hard HEAD~1   # the checkout is now one commit behind origin, whose latest.json names 9.9.9
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
-[ "$rc" = 1 ] && has "$out" "older than 9.9.9 (latest.json on the site's origin/main)" && [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ] \
-  && pass "named: a checkout behind origin does not hide a rollback (the baseline is origin's latest.json)" || bad "named behind-origin baseline (rc=$rc, out=$out)"
+[ "$rc" = 1 ] && has "$out" "this checkout's dist/latest.json is not origin's" && [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ] \
+  && pass "named: a checkout whose latest.json is behind origin's is refused (one baseline for every prod read)" || bad "named behind-origin baseline (rc=$rc, out=$out)"
+git -C "$S" reset -q --hard origin/main   # CONTROL: once the checkout is origin's, the guard reads 9.9.9 and sees the rollback
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "older than 9.9.9 (latest.json on the site's origin/main)" && pass "named: CONTROL in step with origin, the rollback guard reads origin's 9.9.9" || bad "named in-step baseline (rc=$rc, out=$out)"
+
+# A prod pointer that is there but names no version cannot be compared either (only no pointer at all is a first promote).
+S="$(newsite)"; echo '{}' > "$S/dist/latest.json"; git -C "$S" commit -qm empty -- dist/latest.json
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ "$(cat "$S/dist/latest.json")" = '{}' ] && has "$out" "cannot be compared with '(no version)'" \
+  && pass "named: a prod pointer that names no version refuses as cannot-compare, nothing written" || bad "named versionless prod (rc=$rc, out=$out)"
 
 # A prod pointer whose version is not numbers cannot be compared: that counts as older, never as newer.
 S="$(newsite)"; echo '{"version":"abc"}' > "$S/dist/latest.json"; git -C "$S" commit -qm odd -- dist/latest.json
