@@ -551,6 +551,9 @@ enum Board {
             // Not taken: the Mac's own reason when it gave one, or nil when no answer came (it may have arrived; a read
             // that holds the same words, written after it was sent, clears it).
             case failed(reason: String?)
+            // The Mac could not confirm it arrived and kept no row: it may have. "Not confirmed", nothing to tap (a second
+            // copy may duplicate it); a read holding the same words clears it.
+            case unconfirmed
         }
         let id: String
         let text: String
@@ -562,12 +565,12 @@ enum Board {
         var failed: Bool { if case .failed = state { return true } else { return false } }
         var shownAsSent: Bool { switch state { case .kept, .taken: return true; default: return false } }
         // What the person can do with it by hand: delete one that failed, or one taken that no read has matched yet.
-        var deletable: Bool { switch state { case .failed, .taken: return true; default: return false } }
+        var deletable: Bool { switch state { case .failed, .taken, .unconfirmed: return true; default: return false } }
     }
 
     // The Mac's answer to a send. POST /api/agent/<name>/thread answers 200 with `delivery` (its `at` is the row it
     // kept) and `recorded` (whether it kept one); a refusal answers 4xx with `{error}`.
-    enum SendResult: Equatable { case kept(at: String), keptUndelivered(at: String, note: String), taken, refused(String?), noAnswer }
+    enum SendResult: Equatable { case kept(at: String), keptUndelivered(at: String, note: String), taken, unconfirmed, refused(String?), noAnswer }
 
     static func sendResult(status: Int, body: Data?) -> SendResult {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -577,6 +580,7 @@ enum Board {
                     : .keptUndelivered(at: at, note: state == "held" ? "Waiting to send" : state == "unconfirmed" ? "Not confirmed" : "Not sent")
             }
             if state == "placed" { return .taken }
+            if state == "unconfirmed" { return .unconfirmed }
             return .refused((d["because"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         }
         if status == 0 { return .noAnswer }
@@ -588,6 +592,7 @@ enum Board {
         case .kept(let at): return .kept(at: at)
         case .keptUndelivered(let at, let note): return .keptUndelivered(at: at, note: note)
         case .taken: return .taken
+        case .unconfirmed: return .unconfirmed
         case .refused(let why): return .failed(reason: why)
         case .noAnswer: return .failed(reason: nil)
         }
@@ -600,26 +605,29 @@ enum Board {
     // or refused with the Mac's reason (which kept no row), stays.
     static func settled(_ pending: [PendingSend], with thread: Thread) -> [PendingSend] {
         var unused = thread.rows.filter { $0.who == .person }
-        func take(_ i: Int) -> Bool { unused.remove(at: i); return false }
-        return pending.filter { p in
+        var gone = Set<String>()
+        // First the messages the Mac named a row for (by its own time), so a match by words can never take their row.
+        for p in pending {
             switch p.state {
-            case .sending, .failed(reason: .some):
-                return true
             case .kept(let at), .keptUndelivered(let at, _):
-                if let i = unused.firstIndex(where: { $0.atRaw == at }) { return take(i) }
-                return true
-            case .taken, .failed(reason: nil):
+                if let i = unused.firstIndex(where: { $0.atRaw == at }) { unused.remove(at: i); gone.insert(p.id) }
+            default: break
+            }
+        }
+        // Then the ones matched by words, against the rows left.
+        for p in pending {
+            switch p.state {
+            case .taken, .unconfirmed, .failed(reason: nil):
                 let words = sameWords(p.text)
                 func newer(_ r: ChatRow) -> Bool {
                     if let after = p.after { return (r.atRaw.flatMap(isoDate) ?? .distantPast) > (isoDate(after) ?? .distantFuture) }
                     return r.at.map { $0 >= p.at.addingTimeInterval(-60) } ?? true
                 }
-                if let i = unused.firstIndex(where: { sameWords($0.text) == words && newer($0) }) {
-                    return take(i)
-                }
-                return true
+                if let i = unused.firstIndex(where: { sameWords($0.text) == words && newer($0) }) { unused.remove(at: i); gone.insert(p.id) }
+            default: break
             }
         }
+        return pending.filter { !gone.contains($0.id) }
     }
 
     // The line under a message that was not taken (the spec's wording), decided when it is drawn: an agent that is not
