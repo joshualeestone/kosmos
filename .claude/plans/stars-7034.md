@@ -14,8 +14,10 @@ order applies", stars kept by session name at GET /api/agent-stars ({ names, ok 
   route costs at most 4 s on a re-sort, never the sum of both reads. Each status read takes a ticket when it starts;
   rows from a read older than the shown list are dropped (a pull and the 5 s loop can both be in the air). Whether a
   read re-sorts is taken when it starts, so a loop read already in the air cannot spend the pull's re-sort.
-- Today (#7030 part 2, Angel, branch todayui-7030, not on main): it should order its Needs you cards with the same
-  `Board.starredFirst` and the client's stars. Told on #7030; if part 2 merges first, this card wires it.
+- Today (#7030 part 2, merged as PR #7035, so this card wires it): `Board.today(agents:tasks:stars:)` puts starred
+  agents first in Needs you with `Board.starredFirst`, each group still longest waiting first. Working now is not
+  reordered (the card asks for Needs you only). The view passes `client.shownStars`, the stars of the Mac the shown
+  list came from; Today keeps holding its order on screen (it re-takes it on appear and pull, as before).
 
 ## Rejected
 - Reading the stars on every status read (5 s): the order changes only on a re-sort, so the extra read buys nothing.
@@ -38,6 +40,9 @@ back over a newer list (with a control that a newer read did answer meanwhile).
 
 Review 1 arms ($S/st-arms-r1.sh): A0 control green; A1 no ticket guard, A2 stars not keyed by Mac, A3 no timeout,
 A4 the re-sort read late: each red on its named check.
+
+Today arms ($S/st-arms-today.sh): T0 control green; T1 Needs you ignores stars, T2 shownStars not keyed by Mac:
+each red on its named check. TodayView.swift is not in the logic build; CI's Simulator SDK build compiles it.
 
 ## Progress
 - [x] logic, client, tests, arms

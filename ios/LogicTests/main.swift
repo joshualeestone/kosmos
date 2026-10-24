@@ -791,6 +791,11 @@ do {
     check(m.working.map(\.session) == ["una", "wes"], "working now: by name")
     check(!m.needsYou.contains { $0.session == "ivo" } && !m.working.contains { $0.session == "ivo" }, "an idle agent is on neither")
     check(m.subhead == "5 things need you", "the subhead counts the needs-you cards")
+    // #7034: the person's starred agents first, each group still longest waiting first.
+    let starred = Board.today(agents: agents, tasks: [], stars: ["bo", "cleo", "wes"])
+    check(starred.needsYou.map(\.session) == ["cleo", "bo", "ada", "abe", "old"], "needs you: starred first, each group in its own order")
+    check(starred.working.map(\.session) == ["una", "wes"], "working now is not reordered by stars")
+    check(Board.today(agents: agents, tasks: [], stars: nil).needsYou.map(\.session) == m.needsYou.map(\.session), "no stars known: the same order")
 
     // The sentence and button per reason: the spec's table.
     let why = { (s: String) in Board.todayReason(one(s)) }
@@ -1564,6 +1569,7 @@ section("native board loop: connecting")
         w.starsAnswer = (200, #"{"names":["dana"],"ok":true}"#)
         await c.refreshNow()
         check(c.agents.map(\.session) == ["dana", "wes"], "a pull reads the stars again")
+        check(c.shownStars == ["dana"], "Today reads the shown Mac's stars")
         c.stop()
     }
     do {
@@ -1579,6 +1585,7 @@ section("native board loop: connecting")
         c.retry()
         let moved = await settle { if case .live(let m) = c.phase { return m.address == "office.kosmosplus.com" }; return false }
         check(moved && c.agents.map(\.session) == ["dana", "wes"], "another Mac whose stars cannot be read is listed without the first Mac's")
+        check(c.shownStars == nil, "and Today is not given the first Mac's stars")
         c.stop()
     }
     do {

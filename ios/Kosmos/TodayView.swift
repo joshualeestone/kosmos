@@ -59,7 +59,7 @@ struct TodayView: View {
     }
 
     private var model: Board.TodayModel {
-        let m = Board.today(agents: client.agents, tasks: client.readyTasks)
+        let m = Board.today(agents: client.agents, tasks: client.readyTasks, stars: client.shownStars)
         // Keep the order the screen first showed; anything new goes after, in the model's own order.
         guard !order.isEmpty else { return m }
         let rank = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
