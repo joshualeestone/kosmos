@@ -4075,7 +4075,8 @@ function dmPressable({ guideThread, card, options, question, view }) {
    permission prompt and the board itself would draw that card's buttons (dmPressable, chat.permissionCard): the same
    reading as the thread route, so the phone never offers a press the board would refuse. Each is the prompt's own
    option ({ n, label }), so a press sends exactly what the board's dmChoicePress sends ({ text: n, chose: label, asked }),
-   checked against the screen again when it arrives. Never a lasting choice: Allow is the plain "Yes", and "always allow"
+   checked against the screen again when it arrives. `request` is the request's fingerprint (chat.permissionRequestId),
+   the same one the thread route serves on the card, so the phone can refuse a press for a request no longer up. Never a lasting choice: Allow is the plain "Yes", and "always allow"
    kinds are not offered from a lock screen at all. Null whenever any of that does not hold. Never throws. */
 function phonePermissionNow(name) {
   try {
@@ -4096,7 +4097,7 @@ function phonePermissionNow(name) {
     const deny = pick(perm.deny);
     const asked = chat.questionAbove(question.text);
     if (!allow || !deny || typeof asked !== 'string' || !asked) return null;
-    return { kind: perm.kind, allow, deny, asked };
+    return { kind: perm.kind, allow, deny, asked, request: chat.permissionRequestId(perm) };
   } catch { return null; }
 }
 
@@ -18608,8 +18609,10 @@ const server = http.createServer(async (req, res) => {
        Allow, Deny, the raw request under Show details), not as its screen. Only where its buttons are offered
        (`pressable`, which also keeps it out of the setup guide's masked thread, review 1): a card with no Allow or Deny
        would promise an action it cannot take, so there the old text stays. Only the live pane question. */
-    const permCard = (pressable && question === paneQuestion && view && typeof view.text === 'string')
+    const permRead = (pressable && question === paneQuestion && view && typeof view.text === 'string')
       ? chat.permissionCard(view.text) : null;
+    // kosmos#7017 part 2: with its fingerprint, which a phone's lock-screen press is checked against before it sends.
+    const permCard = permRead ? { ...permRead, request: chat.permissionRequestId(permRead) } : null;
     sendJson(res, 200, {
       messages: permCard
         ? servedRows.map((m) => (m && m.kind === 'question' && !m.reported ? { ...m, permission: permCard } : m))

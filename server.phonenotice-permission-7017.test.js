@@ -94,6 +94,9 @@ test('#7017 a permission prompt\'s notice carries Allow and Deny: its own Yes an
       assert.match(p.deny.label, /^No\b/, name);
       const thread = await getThread();
       assert.equal(p.asked, thread.asked, name + ': the phone would press with a different identity than the board');
+      assert.match(p.request, /^[0-9a-f]{64}$/, name + ': no fingerprint');
+      const row = (thread.messages || []).find((m) => m && m.kind === 'question');
+      assert.equal(row && row.permission && row.permission.request, p.request, name + ': the thread card and the notice disagree on the fingerprint the phone checks');
       const offered = (thread.options || []).filter((o) => o.lasting === true).map((o) => o.n);
       assert.ok(offered.length > 0, name + ': premise, the prompt has a lasting choice');
       assert.ok(!offered.includes(p.allow.n) && !offered.includes(p.deny.n), name + ': a lasting choice was offered from the notification');
@@ -142,4 +145,14 @@ test('#7017 CONTROL: an agent\'s direct reply never carries a permission, even w
     assert.equal(r.status, 200, JSON.stringify(r.json));
     assert.equal('permission' in r.json, false, JSON.stringify(r.json));
   });
+});
+
+test('#7017 the fingerprint tells two requests with the same question and options apart, and reads the same twice', () => {
+  const a = chat.permissionCard(BASH);
+  const b = chat.permissionCard(BASH.replace(/uuidgen/g, 'rm -rf ~'));
+  assert.ok(a && b, 'premise: both read as cards');
+  assert.notEqual(a.detail, b.detail, 'premise: a different command');
+  assert.equal(chat.permissionRequestId(a), chat.permissionRequestId(chat.permissionCard(BASH)), 'not stable across two reads');
+  assert.notEqual(chat.permissionRequestId(a), chat.permissionRequestId(b), 'two different commands share a fingerprint');
+  assert.equal(chat.permissionRequestId(null), null);
 });

@@ -78,7 +78,8 @@ test('#6727 the route serves the permission prompt as a card, the same reading a
       const j = await getThread();
       const row = questionRow(j);
       assert.ok(row, name + ': no question row: ' + JSON.stringify(j).slice(0, 300));
-      assert.deepEqual(row.permission, chat.permissionCard(screen), name);
+      const card = chat.permissionCard(screen);
+      assert.deepEqual(row.permission, { ...card, request: chat.permissionRequestId(card) }, name + ' (kosmos#7017: with its fingerprint)');
       assert.ok(row.permission && row.permission.allow === 1, name + ': premise, Allow is option 1');
     });
   }

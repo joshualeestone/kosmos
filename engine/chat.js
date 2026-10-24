@@ -3224,6 +3224,17 @@ function permissionCard(text) {
   return { kind, title, says: isCommand && subSure ? sub : '', target: isFile && subSure ? sub : '',
     detail: [extra, fileText].filter(Boolean).join('\n'), reason, allow: allow.n, deny: deny.n };
 }
+/* kosmos#7017 part 2: one permission request's fingerprint, from its card (permissionCard): sha256 hex of what the card
+   says the request is, joined with U+001F. Every permission prompt asks "Do you want to proceed?" with "Yes" and "No", so
+   the question line cannot tell two requests apart; this can. The phone checks a lock-screen press against the card's
+   fingerprint read again just before it sends, so a notice minutes old never answers a different command with the same
+   words. The same text on a pane redrawn at another width may wrap differently and read as another request: that refuses
+   an honest press, the safe direction. Null for anything that is not a card. */
+function permissionRequestId(card) {
+  if (!card || typeof card !== 'object') return null;
+  const parts = ['kind', 'title', 'says', 'target', 'detail', 'reason'].map((k) => String(card[k] == null ? '' : card[k]));
+  return require('node:crypto').createHash('sha256').update(parts.join('\u001f'), 'utf8').digest('hex');
+}
 function questionIn(text, runner) {
   const whole = String(text == null ? '' : text);
   if (!whole.trim()) return null;
@@ -5072,7 +5083,7 @@ module.exports = {
   composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
   setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
   recoverStuckInput, setDraftSaver, withDraftRows, STUCK_INPUT_MS, stuckShrunk,   // kosmos#6717
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,
