@@ -784,7 +784,8 @@ function unreachableStates() {
          green if `wire` were dropped everywhere or the suffix inverted, so a
          delivered row is required to CARRY the phrase. */
       for (const row of (m.rows || [])) {
-        if (/could not deliver/i.test(row) && /sent as/i.test(row)) {
+        /* kosmos#6720: the person's failed row now says "Message failed to deliver" under its bubble; both words. */
+        if (/could not deliver|failed to deliver/i.test(row) && /sent as/i.test(row)) {
           problems.push(`${tag}: the receipt says a message was sent on a row whose verdict says nothing `
             + `reached the agent: ${JSON.stringify(row.slice(0, 150))}`);
         }
