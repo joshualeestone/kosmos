@@ -209,9 +209,7 @@ test('#4658: the owner starts at most OWN_RUNS_PER_HOUR new runs an hour, and ke
 /** A `self` board: joined by own code, seat connected. */
 async function ownComputer(id, room, opts) {
   federation.recordLink(id, { role: 'self', ref: 'ref-' + id });
-  // kosmos#7028: a room the owner sealed has an edge for its project (the owner seals only for an active one); with
-  // none listed, the own computer treats a sealed-looking frame as forged (fedseats.ownremove-7028.test.js).
-  const h = harness(Object.assign({ edges: [{ id: 'edge-' + id, project_ref: 'ref-' + id, status: 'active' }] }, opts));
+  const h = harness(opts);
   await fedseats.ensure(id);
   const seat = h.spawned[0];
   say(seat, { event: 'connected', room, expires_at: 9 });
