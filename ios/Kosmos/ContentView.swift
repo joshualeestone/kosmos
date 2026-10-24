@@ -137,7 +137,15 @@ struct ContentView: View {
             if request != nil { todayBoard = true; tab = .today }
         }
         // kosmos#7008: a sign-out or another account drops the chats now, not at the next visit to the tab.
-        .onChange(of: pushManager.accountChanges) { _ in board.accountChanged(); web.sessionChanged() }
+        .onChange(of: pushManager.accountChanges) { _ in
+            board.accountChanged(); web.sessionChanged()
+            // kosmos#7042 review round 5: signed out later in the launch (on the account page, a session that ended),
+            // the next sign-in is the native one too, or the web page's own device key would make this iPhone a second
+            // device on the Mac. Recorded gap: the Mac's "fresh sign-in" link then lands here, not on the page.
+            #if !KOSMOS_STORE_SHOTS
+            if !nativeSignIn && SessionKeychain.live.load() == nil { signIn.restart(); nativeSignIn = true }
+            #endif
+        }
         // kosmos#7042: Kosmos+ issued a session: the app takes it as it takes the sign-in page's, and the web view is
         // signed in with it too. The screen stays for the Mac's Allow, then opens on the native Today.
         .onChange(of: signIn.issued) { token in
