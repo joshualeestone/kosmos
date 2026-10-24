@@ -1,4 +1,7 @@
 import Foundation
+#if DEBUG && canImport(UIKit)
+import UIKit   // the sample chats draw their file pictures (Debug only)
+#endif
 
 // kosmos#6838 slice 1: the native connection to the person's Mac. The decisions
 // live in BoardLogic.swift (tested); this file only moves bytes and publishes state
@@ -34,6 +37,9 @@ final class BoardClient: ObservableObject {
         var sleep: (TimeInterval) async -> Void
         var now: () -> Date
         var defaults: UserDefaults
+        // Where an opened file is saved for Quick Look (#7016): the app's temporary folder, which iOS clears, and a
+        // folder of their own in ios/LogicTests so they never touch this Mac's.
+        var files: URL = FileManager.default.temporaryDirectory.appendingPathComponent("chat-files", isDirectory: true)
     }
 
     @Published private(set) var phase: Phase = .starting
@@ -297,6 +303,50 @@ final class BoardClient: ObservableObject {
         return Board.pressResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
     }
 
+    // MARK: Files (kosmos#7016 part 2)
+
+    // First-page pictures for file cards, by attachment id (fetched once per run; nothing is kept on disk).
+    @Published private(set) var thumbnails: [String: Data] = [:]
+    private var thumbnailAsked: Set<String> = []
+
+    func loadThumbnail(_ a: Board.Attachment) async {
+        guard Board.hasThumbnail(a), let path = a.preview, !thumbnailAsked.contains(a.id) else { return }
+        thumbnailAsked.insert(a.id)
+        #if DEBUG && canImport(UIKit)
+        if let sample = sampleThumbnail(a) { thumbnails[a.id] = sample; return }
+        #endif
+        let epoch = chatEpoch
+        guard let held = admitted, let request = Board.attachmentRequest(mac: held.url, path: path),
+              let (data, answer) = await env.send(request), epoch == chatEpoch else { thumbnailAsked.remove(a.id); return }
+        let isImage = (answer.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("image/")
+        if (200...299).contains(answer.statusCode), isImage, !data.isEmpty { thumbnails[a.id] = data }
+    }
+
+    // The file, fetched from the Mac and saved where Quick Look can open it; nil when it could not be fetched.
+    func fetchFile(_ a: Board.Attachment) async -> URL? {
+        let epoch = chatEpoch
+        #if DEBUG
+        if let sample = sampleFile(a) { return sample }
+        #endif
+        guard let held = admitted, let request = Board.attachmentRequest(mac: held.url, path: a.url),
+              let (data, answer) = await env.send(request), epoch == chatEpoch,
+              (200...299).contains(answer.statusCode) else { return nil }
+        // Not the gate's sign-in page in place of the file.
+        if (answer.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("text/html"), !a.type.lowercased().hasPrefix("text/html") { return nil }
+        let folder = env.files.appendingPathComponent(Board.savedName(a.id), isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let file = folder.appendingPathComponent(Board.savedName(a.name))
+            // Encrypted while the phone is locked. macOS refuses the option (ios/LogicTests run there), so iOS only.
+            #if os(iOS)
+            try data.write(to: file, options: [.atomic, .completeFileProtection])
+            #else
+            try data.write(to: file, options: [.atomic])
+            #endif
+            return file
+        } catch { return nil }
+    }
+
     // The answered lock for this question, while it lasts.
     func answeredNow(_ session: String, key: String) -> Answered? {
         guard let a = answered[session], a.key == key, env.now().timeIntervalSince(a.at) < Self.answeredLock else { return nil }
@@ -328,6 +378,10 @@ final class BoardClient: ObservableObject {
         pending = [:]
         pressing = []
         answered = [:]
+        thumbnails = [:]
+        thumbnailAsked = []
+        // Files opened under the account or Mac before are not left on the phone.
+        try? FileManager.default.removeItem(at: env.files)
         drafts = [:]
         resent = []
         newestSeen = [:]
@@ -404,11 +458,32 @@ final class BoardClient: ObservableObject {
         }
         return .sent
     }
+    #if canImport(UIKit)
+    // The sample chats' files, drawn here so no real file is ever in a picture.
+    private func sampleThumbnail(_ a: Board.Attachment) -> Data? {
+        guard sampleThreads.values.contains(where: { $0.rows.contains { $0.attachments.contains(a) } }) else { return nil }
+        let size = CGSize(width: 128, height: 128)
+        return UIGraphicsImageRenderer(size: size).pngData { ctx in
+            UIColor.white.setFill(); ctx.fill(CGRect(origin: .zero, size: size))
+            UIColor(white: 0.2, alpha: 1).setFill(); ctx.fill(CGRect(x: 16, y: 18, width: 70, height: 9))
+            UIColor(white: 0.75, alpha: 1).setFill()
+            for i in 0..<7 { ctx.fill(CGRect(x: 16, y: 40 + i * 11, width: i % 3 == 2 ? 60 : 96, height: 5)) }
+        }
+    }
+    #endif
+    private func sampleFile(_ a: Board.Attachment) -> URL? {
+        guard sampleThreads.values.contains(where: { $0.rows.contains { $0.attachments.contains(a) } }) else { return nil }
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILE"] == "fail" { return nil }
+        let file = env.files.appendingPathComponent("sample-" + Board.savedName(a.name) + ".txt")
+        try? FileManager.default.createDirectory(at: env.files, withIntermediateDirectories: true)
+        try? Data("A sample file (Debug build), standing in for \(a.name).".utf8).write(to: file)
+        return file
+    }
     private func loadSampleThreads() {
         let json = #"{"messages":[{"at":"2026-10-23T13:32:00Z","text":"Morning Dana. How is the catalogue copy coming along?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:33:00Z","text":"Pages 1 to 8 are written and checked against the price sheet.","from":"dana"},{"at":"2026-10-23T13:34:00Z","text":"Great. What is left?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:35:00Z","text":"Pages 9 to 12 need the new photos before I can caption them. The shoot is on Thursday, so I will have the full draft to you on Friday morning.","from":"dana"}],"olderCount":0,"question":null}"#
         if let t = Board.parseThread(Data(json.utf8)) { sampleThreads["dana"] = t }
         // Cleo's shows the way-through rows: older messages, a file, Kosmos's own line and a question.
-        let cleo = #"{"messages":[{"at":"2026-10-22T16:10:00Z","text":"Here is the launch checklist we agreed.","from":"cleo","attachment":{"id":"a1","name":"checklist.pdf"}},{"at":"2026-10-22T16:12:00Z","text":"Thanks, I will read it tonight.","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T14:00:00Z","text":"Cleo paused for today's limit. It picks up again at 4:00.","from":null,"kind":"kosmos"},{"at":"2026-10-23T14:05:00Z","text":"Should the launch email go out on Tuesday or Wednesday?","from":"cleo","kind":"question"}],"olderCount":12,"question":{"text":"Should the launch email go out on Tuesday or Wednesday?"},"asking":true,"asked":"Should the launch email go out on Tuesday or Wednesday?","presence":"on","options":[{"n":1,"label":"Tuesday"},{"n":2,"label":"Wednesday"},{"n":3,"label":"Tuesday, and do not ask again for launch emails","lasting":true}]}"#
+        let cleo = #"{"messages":[{"at":"2026-10-22T16:10:00Z","text":"Here is the launch checklist we agreed.","from":"cleo","attachments":[{"id":"5a6d0c1e2f3a4b5c6d7e8f90","name":"Launch checklist.pdf","type":"application/pdf","size":2516582,"kind":"pdf","url":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f90","preview":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f90/preview"},{"id":"5a6d0c1e2f3a4b5c6d7e8f91","name":"Press release draft.docx","type":"application/vnd.openxmlformats-officedocument.wordprocessingml.document","size":48211,"kind":"other","url":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f91","preview":null}]},{"at":"2026-10-22T16:12:00Z","text":"Thanks, I will read it tonight.","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T14:00:00Z","text":"Cleo paused for today's limit. It picks up again at 4:00.","from":null,"kind":"kosmos"},{"at":"2026-10-23T14:05:00Z","text":"Should the launch email go out on Tuesday or Wednesday?","from":"cleo","kind":"question"}],"olderCount":12,"question":{"text":"Should the launch email go out on Tuesday or Wednesday?"},"asking":true,"asked":"Should the launch email go out on Tuesday or Wednesday?","presence":"on","options":[{"n":1,"label":"Tuesday"},{"n":2,"label":"Wednesday"},{"n":3,"label":"Tuesday, and do not ask again for launch emails","lasting":true}]}"#
         if let t = Board.parseThread(Data(cleo.utf8)) { sampleThreads["cleo"] = t }
         // Eli's shows a permission prompt (#7016): a command that deletes files, with a lasting choice under Show details.
         let eli = #"{"messages":[{"at":"2026-10-23T14:20:00Z","text":"The export folder still holds last week's files.","from":"eli"},{"at":null,"text":"Do you want to proceed?","from":"eli","kind":"question","permission":{"kind":"delete","title":"Bash command","says":"Clear last week's export before the new one","target":"rm -rf exports/2026-10-16","detail":"Bash command\n\n  rm -rf exports/2026-10-16\n  Clear last week's export before the new one","reason":"Commands that delete files always ask first.","allow":1,"deny":3}}],"olderCount":0,"question":{"text":"Do you want to proceed?"},"asking":true,"asked":"Do you want to proceed?","presence":"on","options":[{"n":1,"label":"Yes"},{"n":2,"label":"Yes, and don't ask again for rm commands in this folder","lasting":true},{"n":3,"label":"No, and tell Claude what to do differently"}]}"#

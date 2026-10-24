@@ -459,6 +459,107 @@ enum Board {
         // own reported words (which take no buttons, as on the board).
         var permission: Permission? = nil
         var reported = false
+        // kosmos#7016 part 2: the files on the row, in the order sent (the board's pjFiles).
+        var attachments: [Attachment] = []
+    }
+
+    // MARK: Files (kosmos#7016 part 2; the board's pjFiles, pjAttachmentCard, pjFileWord, pjSize)
+
+    struct Attachment: Equatable {
+        let id: String
+        let name: String
+        let type: String
+        let size: Int?
+        // image, pdf, text or other (anything else the Mac says is other).
+        let kind: String
+        // The Mac's own address for the file and for its first-page picture, only ever under /api/.
+        let url: String
+        let preview: String?
+    }
+
+    // `attachments` when it has any, else `attachment`; a file whose address is not under /api/ is dropped (the board
+    // takes only its own routes, so a row can never point the phone at another host or path).
+    static func parseAttachments(_ row: [String: Any]) -> [Attachment] {
+        let many = (row["attachments"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }
+        let list = many.isEmpty ? [row["attachment"] as? [String: Any]].compactMap { $0 } : many
+        return list.compactMap { a in
+            guard let url = a["url"] as? String, isBoardPath(url) else { return nil }
+            let name = (a["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let kind = a["kind"] as? String ?? "other"
+            let preview = (a["preview"] as? String).flatMap { isBoardPath($0) ? $0 : nil }
+            return Attachment(id: a["id"] as? String ?? url, name: (name?.isEmpty == false ? name! : "a file"),
+                              type: a["type"] as? String ?? "", size: integer(a["size"]),
+                              kind: ["image", "pdf", "text"].contains(kind) ? kind : "other", url: url, preview: preview)
+        }
+    }
+
+    // One of the board's own routes: starts /api/, and no "..", no "//", no scheme (it is joined to the Mac's address).
+    static func isBoardPath(_ s: String) -> Bool {
+        s.hasPrefix("/api/") && !s.contains("..") && !s.contains("//") && !s.contains("\\") && URL(string: s)?.scheme == nil
+    }
+
+    // What a business person calls the file (pjFileWord).
+    static func fileWord(type: String, name: String, kind: String) -> String {
+        let t = type.lowercased()
+        let ext = name.range(of: #"\.([A-Za-z0-9]+)$"#, options: .regularExpression).map { String(name[$0].dropFirst()).lowercased() } ?? ""
+        if t == "application/pdf" || ext == "pdf" { return "PDF" }
+        if t.range(of: "wordprocessingml|msword", options: .regularExpression) != nil || ["doc", "docx"].contains(ext) { return "Word document" }
+        if t.range(of: "spreadsheetml|ms-excel", options: .regularExpression) != nil || ["xls", "xlsx"].contains(ext) { return "Excel spreadsheet" }
+        if t.range(of: "presentationml|ms-powerpoint", options: .regularExpression) != nil || ["ppt", "pptx"].contains(ext) { return "PowerPoint" }
+        if t.hasPrefix("image/") || kind == "image" { return "Image" }
+        if ext == "csv" { return "CSV" }
+        if ext == "md" || t == "text/markdown" { return "Text" }
+        if t.hasPrefix("text/") || kind == "text" { return "Text" }
+        if !ext.isEmpty { return ext.uppercased() + " file" }
+        return "File"
+    }
+
+    // pjSize.
+    static func sizeText(_ bytes: Int?) -> String {
+        guard let n = bytes, n >= 0 else { return "" }
+        if n < 1024 { return "\(n) B" }
+        if n < 1024 * 1024 { return "\(Int((Double(n) / 1024).rounded())) KB" }
+        return String(format: "%.1f MB", Double(n) / (1024 * 1024))
+    }
+
+    // "PDF · 2.4 MB".
+    static func attachmentMeta(_ a: Attachment) -> String {
+        [fileWord(type: a.type, name: a.name, kind: a.kind), sizeText(a.size)].filter { !$0.isEmpty }.joined(separator: " \u{00B7} ")
+    }
+
+    // A post made with no words carries the file names as its text; the cards say them, so the text is not drawn too
+    // (pjWords).
+    static func wordsShown(_ text: String, files: [Attachment]) -> String {
+        let names = files.map(\.name)
+        return !names.isEmpty && text.trimmingCharacters(in: .whitespacesAndNewlines) == names.joined(separator: ", ") ? "" : text
+    }
+
+    // The picture on the card: only an image or a PDF with a preview from the Mac (pjAttachmentCard).
+    static func hasThumbnail(_ a: Attachment) -> Bool { a.preview != nil && (a.kind == "image" || a.kind == "pdf") }
+
+    // The symbol when there is no picture (Mona Lisa's spec, section 3).
+    static func fileSymbol(_ a: Attachment) -> String {
+        switch a.kind {
+        case "pdf": return "doc.richtext"
+        case "text": return "doc.text"
+        case "image": return "photo"
+        default: return "doc"
+        }
+    }
+
+    // A GET for one of the Mac's file routes, through the client's own session.
+    static func attachmentRequest(mac: URL, path: String) -> URLRequest? {
+        guard isBoardPath(path), let url = URL(string: path, relativeTo: mac)?.absoluteURL, url.host == mac.host else { return nil }
+        var r = URLRequest(url: url)
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+
+    // The name the file is saved under for Quick Look: its own name, never a path, never hidden, never empty.
+    static func savedName(_ name: String) -> String {
+        let cleaned = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
+        return cleaned.isEmpty ? "file" : String(cleaned.prefix(200))
     }
 
     struct Thread: Equatable {
@@ -714,7 +815,7 @@ enum Board {
                 : (row["attachment"] != nil || (row["attachments"] as? [Any])?.isEmpty == false) ? .attachment : nil
             return ChatRow(id: base + "#\(n)", atRaw: at, at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way,
                            because: because, resendable: resendable,
-                           permission: permission, reported: isTrue(row["reported"]))
+                           permission: permission, reported: isTrue(row["reported"]), attachments: parseAttachments(row))
         }
         let older = (obj["olderCount"] as? NSNumber)?.intValue ?? 0
         return Thread(rows: parsed, olderCount: max(0, older), choices: parseChoices(obj))
