@@ -46,11 +46,13 @@ struct ContentView: View {
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" {
             // kosmos#7010: KOSMOS_SAMPLE_TAB=settings opens the native Settings tab's samples instead.
             // kosmos#7030: KOSMOS_SAMPLE_TAB=today opens the native Today's samples.
+            // kosmos#7031: KOSMOS_SAMPLE_TAB=tasks opens the native Tasks tab's samples.
             switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TAB"] {
             case "settings": return .settings
             case "today": return .today
             // kosmos#7032: KOSMOS_SAMPLE_TAB=projects opens the native Projects tab's samples.
             case "projects": return .projects
+            case "tasks": return .tasks   // kosmos#7031 (launch with -kosmos.app.tasksTab YES so the bar offers it)
             default: return .agents
             }
         }
