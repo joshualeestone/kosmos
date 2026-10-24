@@ -58,3 +58,18 @@ Today, Answer/Open into the native chat, Check it into the task page in the boar
   Today; its tone is now needs_you and its reason 'trust'. This also turns it red in the phone's Agents list.
 - Decided: a needs_you read off the screen with no reporter and no permission prompt is 'question' ("Waiting for your
   answer.", Answer). The chat draws that screen's question with buttons (slice 3b), so Answer leads somewhere true.
+
+## Review round 2
+- CORRECTION of round 1's last fix: an offline card on its trust prompt was never quiet. The route gives it needsTrust
+  only together with state needs_trust, which needsPerson counts, so it was already needs_you and already red in the
+  Agents list. My tone branch only matched an idle row nobody builds; removed, with a premise test of the real shape.
+  (Mona Lisa told the same night: nothing in the Agents list changes.)
+- Fixed (minor): offline trust is checked before a crash loop, matching labelOf's word and the engine's order; test on
+  the route's real offline shape with a loop.
+- Fixed (minor): every listed row is tied (the tie gate credits a wait to a project, which Today does not do), so an
+  untied pane whose reconnect gave up reads gave_up, not other.
+- Fixed (minor): the route test pins sol and rae as 'other'; the unreadable-projects test checks the read really fails.
+- Decided again, flagged for Mona Lisa: a needs_you read off the screen that is not a permission prompt and not reported
+  by the agent stays 'question'. The reviewer notes it also covers Codex hook screens and the safeguards menu, which are
+  not questions; the board's own sentence for an unattributed needs-you is "Waiting for you. It did not say which
+  project." Her call on the wording.
