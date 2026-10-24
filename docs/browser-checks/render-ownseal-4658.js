@@ -97,13 +97,14 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
           let refuseNext = false;
           let hold = null;   // a promise the two reads wait on, to look at the section before an answer lands
           let failReads = false;   // the two reads answer 500, as a blip would
+          let failsServed = 0;
           await page.route('**/api/federation/own-*', async (r) => {
             try {
               const u = new URL(r.request().url());
               const pid = u.searchParams.get('project');
               if (r.request().method() === 'GET') {
                 if (hold) await hold;
-                if (failReads) return await r.fulfill({ status: 500, json: { error: 'blip' } });
+                if (failReads) { failsServed += 1; return await r.fulfill({ status: 500, json: { error: 'blip' } }); }
                 if (u.pathname.endsWith('/own-compare')) return await r.fulfill({ json: { code: pid === waitingP.id ? state.code : null } });
                 return await r.fulfill({ json: { computers: pid === ownerP.id ? state.rows : [] } });
               }
@@ -208,9 +209,10 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
           const conf = posted.filter((p) => p.path.endsWith('/own-confirm')).pop();
           chk(conf && conf.body.project === waitingP.id && conf.body.code === NEXT_CODE, `${E} It matches sends exactly the code that was on screen`, JSON.stringify(conf));
           const waitingOn = await page.evaluate(() => ({ code: (document.querySelector('#pj-fed-own .ownseal-code') || {}).textContent || '',
-            buttons: document.querySelectorAll('#pj-fed-own [data-own-act]').length, text: document.getElementById('pj-fed-own').textContent }));
-          chk(waitingOn.code === NEXT_CODE && waitingOn.buttons === 0 && /You confirmed this code/.test(waitingOn.text),
-            `${E} confirmed before the Allow: the code stays, with no button to press again`, JSON.stringify(waitingOn));
+            buttons: [...document.querySelectorAll('#pj-fed-own [data-own-act]')].map((b) => b.dataset.ownAct + ':' + b.textContent),
+            text: document.getElementById('pj-fed-own').textContent }));
+          chk(waitingOn.code === NEXT_CODE && waitingOn.buttons.join('|') === 'nomatch:Start over' && /You confirmed this code/.test(waitingOn.text),
+            `${E} confirmed before the Allow: the code stays, with only Start over to press`, JSON.stringify(waitingOn));
           // The other computer's Allow lands: the code is gone.
           state.code = null;
           await page.evaluate(() => fedOwnLoad(PJ_CURRENT));
@@ -222,6 +224,15 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
           await page.evaluate(() => fedOwnLoad(PJ_CURRENT));
           await page.waitForFunction((c) => (document.querySelector('#pj-fed-own .ownseal-code') || {}).textContent === c, LATER_CODE, { timeout: 8000 }).catch(() => null);
           chk((await MSG(page)) === '', `${E} a sentence about an earlier code is cleared when a new code shows`, await MSG(page));
+          // This computer's code survives two failed reads and is dropped at the third.
+          failReads = true;
+          const codesThrough = await page.evaluate(async () => {
+            const seen = [];
+            for (let i = 0; i < 3; i++) { await fedOwnLoad(PJ_CURRENT); seen.push(!!document.querySelector('#pj-fed-own .ownseal-code')); }
+            return seen;
+          });
+          failReads = false;
+          chk(codesThrough.join(',') === 'true,true,false', `${E} this computer's code is kept through two failed reads and dropped at the third`, JSON.stringify(codesThrough));
           // ---- A newly opened project shows nothing of the last one while its own answer is on its way. ----
           let release;
           hold = new Promise((res) => { release = res; });
@@ -241,11 +252,11 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
           chk(!o.line, `${E} the sealed line is not shown on the computer that shared the room`);
           // A refresh whose reads fail keeps what is on screen.
           failReads = true;
-          await page.evaluate(() => fedOwnLoad(PJ_CURRENT));
-          await page.waitForTimeout(500);
+          const servedBefore = failsServed;
+          await page.evaluate(async () => { await fedOwnLoad(PJ_CURRENT); });
           failReads = false;
           const kept = await page.evaluate(() => document.querySelectorAll('#pj-fed-own [data-own-act="allow"]').length);
-          chk(kept === 2, `${E} a refresh whose reads fail keeps the rows on screen`, String(kept));
+          chk(failsServed - servedBefore === 2 && kept === 2, `${E} a refresh whose reads fail keeps the rows on screen`, JSON.stringify({ kept, failed: failsServed - servedBefore }));
           // A button drawn for another project acts on nothing here.
           const before = posted.length;
           await page.evaluate((other) => {

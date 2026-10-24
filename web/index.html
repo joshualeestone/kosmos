@@ -10475,7 +10475,7 @@ html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #a
   background: var(--k-surface); border: 1px solid var(--k-optline); border-radius: 10px; padding: .4em .9em; cursor: pointer; }
 .ownseal-btn:hover { border-color: var(--k-ink-2); }
 .ownseal-btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-.ownseal-btn[aria-disabled="true"] { opacity: .5; cursor: default; }
+.ownseal-btn[aria-disabled="true"] { opacity: .5; cursor: default; }   /* still focusable: fedOwnPress ignores the press */
 .fedout-row .ownseal-btn { flex: none; margin-left: auto; }
 /* The code's separator in the reading font: the monospace hyphen is drawn as wide as a dash. */
 .ownseal-sep { font-family: var(--font-ui); padding: 0 .08em; }
@@ -25246,7 +25246,7 @@ let PJ_ADDMENU_AGENT = null;
 let FED_MEMBERS = null;          // { project, ok, body }: the last members answer, for the project it was asked for
 // kosmos#4658: the sealed-room key section's state (fedOwnHtml), here for the same reason as the members state.
 let FED_OWN = null;          // { project, waiting: [{ pub, code }], code: string | null, at } (the route's mac is not shown)
-let FED_OWN_ASKING = null;   // the project an ask is in flight for
+let FED_OWN_ASKING = null;   // { project, seq }: the load in flight; a superseded one (seq behind) no longer counts
 let FED_OWN_MSG = null;      // { text, project, sig }: the last press's sentence, kept while the section shows what it did
 let FED_OWN_BUSY = null;     // the project a press is being asked for
 let FED_OWN_SEQ = 0;         // a load answered after a newer one (or a project switch) is dropped
@@ -81397,8 +81397,9 @@ function fedOwnHtml() {
   if (confirmed) {
     // Confirmed here, not yet allowed there: the code stays to compare, with nothing left to press on this computer.
     h += '<h4 class="fedout-h">This room is sealed</h4>'
-      + '<p class="fhint">You confirmed this code. This computer reads the room once the other computer has allowed it.</p>'
-      + fedOwnCodeHtml(o.code, '');
+      + '<p class="fhint">You confirmed this code. This computer reads the room once the other computer has allowed it. If that does not happen, start over for a new code.</p>'
+      + fedOwnCodeHtml(o.code, '')
+      + '<div class="ownseal-acts"><button class="ownseal-btn" type="button" data-own-act="nomatch"' + busy + '>Start over</button></div>';
   } else if (o.code) {
     h += '<h4 class="fedout-h">This room is sealed</h4>'
       + '<p class="fhint">To read it here, open this project on the computer that first shared it. A code appears there beside this computer. If it is the same as this one, press It matches here and Allow there.</p>'
@@ -81470,7 +81471,7 @@ function fedOwnSig(o) { return o ? JSON.stringify([o.code, o.waiting.map((w) => 
 async function fedOwnLoad(project, fromPress) {
   if (!project || !fedShow()) return;
   const seq = ++FED_OWN_SEQ;
-  FED_OWN_ASKING = project;
+  FED_OWN_ASKING = { project, seq };
   // `ask` makes the request with its route written out, so the page's fetch list can match it to a board route.
   const read = async (ask) => {
     const ctl = typeof AbortController === 'function' ? new AbortController() : null;
@@ -81492,8 +81493,11 @@ async function fedOwnLoad(project, fromPress) {
   const prev = FED_OWN && FED_OWN.project === project ? FED_OWN : null;
   const rows = waiting && Array.isArray(waiting.computers) ? waiting.computers.filter((w) => w && typeof w.pub === 'string' && typeof w.code === 'string')
     : (prev ? prev.waiting : []);
-  const code = mine ? (typeof mine.code === 'string' ? mine.code : null) : (prev ? prev.code : null);
-  FED_OWN = { project, waiting: rows, code, at: Date.now() };
+  // This computer's own code is kept through at most two failed reads in a row: past that it is dropped, since the page
+  // can no longer say it is the code this computer shows.
+  const missed = mine ? 0 : (prev ? (prev.missed || 0) + 1 : 1);
+  const code = mine ? (typeof mine.code === 'string' ? mine.code : null) : (prev && missed < 3 ? prev.code : null);
+  FED_OWN = { project, waiting: rows, code, missed, at: Date.now() };
   const m = FED_OWN_MSG;
   if (m && m.project === project) {
     if (fromPress) m.sig = fedOwnSig(FED_OWN);          // what the press left on screen
@@ -81505,7 +81509,8 @@ async function fedOwnLoad(project, fromPress) {
 function fedOwnTick() {
   const o = FED_OWN;
   const due = !o || o.project !== PJ_CURRENT || (!document.hidden && Date.now() - (o.at || 0) > FED_OWN_REFRESH_MS);
-  if (PJ_CURRENT && due && FED_OWN_ASKING !== PJ_CURRENT) fedOwnLoad(PJ_CURRENT);
+  const asking = FED_OWN_ASKING && FED_OWN_ASKING.project === PJ_CURRENT && FED_OWN_ASKING.seq === FED_OWN_SEQ;
+  if (PJ_CURRENT && due && !asking) fedOwnLoad(PJ_CURRENT);
   else fedOwnPaint();
 }
 async function fedOwnPress(btn) {
@@ -81547,7 +81552,9 @@ async function fedOwnPress(btn) {
     else if (act === 'match') FED_OWN_CONFIRMED = { project, code: body.code };
   }
   FED_OWN_MSG = { text: said, project, sig: null };
-  if (said$) setTimeout(() => { if (FED_OWN_GEN === gen) said$.textContent = said; }, 60);   // one persistent live region
+  // One persistent live region, filled a moment after the clear at the press so a repeated sentence is heard. A visit
+  // ended meanwhile (FED_OWN_GEN moved) leaves it as fedMembersReset emptied it.
+  if (said$) setTimeout(() => { if (FED_OWN_GEN === gen) said$.textContent = said; }, 60);
   fedOwnPaint();   // the buttons come back now, not when the reload lands
   fedOwnLoad(project, true);
 }
