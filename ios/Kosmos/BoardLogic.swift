@@ -918,6 +918,8 @@ enum Board {
         }
         let olderCount = integer(obj?["olderCount"]) ?? 0
         guard olderCount >= 0, olderCount + rows.count == before else { return .moved }
+        // An empty page would make no progress and be asked again on every read (review 4).
+        guard !rows.isEmpty else { return .failed(olderFailed) }
         // Ids by position from the oldest message: stable across pages and reads, never shared with the latest read.
         let parsed = parseRows(rows, idPrefix: "older|\(olderCount)|")
         // The position of each row kept, by the same rule parseRows keeps it (it has text).
