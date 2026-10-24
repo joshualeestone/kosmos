@@ -538,11 +538,16 @@ final class BoardClient: ObservableObject {
     // Cleo's earlier messages in the sample (ChatView's KOSMOS_SAMPLE_OLDER=loading|failed sets the line for the shots).
     private func sampleOlder(_ session: String, before: Int) -> Board.OlderRead? {
         guard session == "cleo" || session == "dana", sampleThreads[session] != nil else { return nil }
-        let rows = (0..<before).map { i -> [String: Any] in
-            // Dana's earlier page ends on the same day as her latest messages (a page cut mid-day, review 6).
-            ["at": String(format: session == "dana" ? "2026-10-23T%02d:%02d:00Z" : "2026-10-20T%02d:%02d:00Z", (session == "dana" ? 6 : 8) + i / 60, i % 60),
-             "text": i % 3 == 0 ? "Checking the venue list, item \(i + 1)." : "Noted.",
-             "from": i % 2 == 0 ? "cleo" : NSNull()]
+        // Dana's earlier page ends on the same day as her latest messages (a page cut mid-day, review 6). Built in typed
+        // steps: CI's Xcode 26.6 cannot type-check this as one dictionary literal.
+        let day: String = session == "dana" ? "2026-10-23" : "2026-10-20"
+        let firstHour: Int = session == "dana" ? 6 : 8
+        var rows: [[String: Any]] = []
+        for i in 0..<before {
+            let at: String = day + "T" + String(format: "%02d:%02d:00Z", firstHour + i / 60, i % 60)
+            let text: String = i % 3 == 0 ? "Checking the venue list, item \(i + 1)." : "Noted."
+            let from: Any = i % 2 == 0 ? "cleo" : NSNull()
+            rows.append(["at": at, "text": text, "from": from])
         }
         let data = try? JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": 0])
         return Board.readOlder(status: 200, data: data, before: before)
@@ -553,8 +558,11 @@ final class BoardClient: ObservableObject {
         // KOSMOS_SAMPLE_LONG=1: Dana's chat is 220 messages with 40 before them, to check that opening a long chat lands on
         // the newest message and loads nothing until the person scrolls up.
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_LONG"] == "1" {
-            let rows = (0..<220).map { i -> [String: Any] in
-                ["at": String(format: "2026-10-23T%02d:%02d:00Z", 8 + i / 60, i % 60), "text": "Message \(i + 41) of 260.", "from": i % 2 == 0 ? "dana" : NSNull()]
+            var rows: [[String: Any]] = []
+            for i in 0..<220 {
+                let at: String = String(format: "2026-10-23T%02d:%02d:00Z", 8 + i / 60, i % 60)
+                let from: Any = i % 2 == 0 ? "dana" : NSNull()
+                rows.append(["at": at, "text": "Message \(i + 41) of 260.", "from": from])
             }
             if let data = try? JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": 40]),
                let t = Board.parseThread(data) { sampleThreads["dana"] = t }
