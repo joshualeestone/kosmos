@@ -216,7 +216,8 @@ final class BoardClient: ObservableObject {
     var drafts: [String: String] = [:]
     // Rows of the person's the Mac kept as not sent that were already sent again, so a second tap sends nothing.
     @Published private(set) var resent: Set<String> = []
-    private var retrying: Set<String> = []
+    // Published: a retry still reading counts as a send in the air, so the question's buttons are drawn off meanwhile.
+    @Published private var retrying: Set<String> = []
 
     func post(_ text: String, to agent: Board.Agent) async {
         let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -229,7 +230,7 @@ final class BoardClient: ObservableObject {
 
     // Again, for one that was not taken, only while the agent is running (the spec: no retry until the status changes).
     func retry(_ id: String, to agent: Board.Agent) async {
-        guard !retrying.contains(id), let i = pending[agent.session]?.firstIndex(where: { $0.id == id }),
+        guard !retrying.contains(id), !pressing.contains(agent.session), let i = pending[agent.session]?.firstIndex(where: { $0.id == id }),
               pending[agent.session]?[i].failed == true, isRunning(agent) else { return }
         // A second tap while this one reads or sends does nothing.
         retrying.insert(id)
@@ -251,7 +252,8 @@ final class BoardClient: ObservableObject {
     // A message of the person's the Mac kept as not sent: sent again as a new message, once.
     func sendAgain(_ row: Board.ChatRow, to agent: Board.Agent) async {
         let key = agent.session + "|" + row.id
-        guard row.canSendAgain, isRunning(agent), !resent.contains(key), Board.fitsBoard(row.text) else { return }
+        // Not while a press is in the air: post would refuse it, and the row would read as sent again.
+        guard row.canSendAgain, isRunning(agent), !resent.contains(key), Board.fitsBoard(row.text), !pressing.contains(agent.session) else { return }
         resent.insert(key)
         await post(row.text, to: agent)
     }
@@ -301,7 +303,10 @@ final class BoardClient: ObservableObject {
         return a
     }
 
-    func isSending(_ session: String) -> Bool { pending[session]?.contains { $0.state == .sending } == true }
+    // A typed send in the air: one sending, or a retry still reading before it sends.
+    func isSending(_ session: String) -> Bool {
+        pending[session]?.contains { $0.state == .sending || retrying.contains($0.id) } == true
+    }
 
     // What the chats hold belongs to one account on one Mac: dropped when either changes, so nothing typed or failed
     // under one is shown, or sent, under another.
