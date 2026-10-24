@@ -114,6 +114,16 @@ extension Board {
         return TodayModel(needsYou: needs, ready: tasks, working: working)
     }
 
+    // The Today tab's badge: /api/status's counts.waiting (agents that need you plus unread messages, the Dock badge).
+    // null when the person turned the count off, then no badge; a value that is not a whole number at 0 or more is none.
+    // Not the subhead's count: the badge and the Dock always agree (engine/status.js waitingTotal).
+    static func waitingCount(_ data: Data) -> Int? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let counts = obj["counts"] as? [String: Any], let n = integer(counts["waiting"]), n >= 0
+        else { return nil }
+        return n
+    }
+
     // The tasks read Today makes: the board's own Tasks view read.
     static func readyTasksRequest(mac: URL) -> URLRequest {
         var r = URLRequest(url: URL(string: "/api/tasks?view=tasks", relativeTo: mac)!.absoluteURL)
