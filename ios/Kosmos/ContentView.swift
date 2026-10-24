@@ -61,7 +61,14 @@ struct ContentView: View {
     #if KOSMOS_STORE_SHOTS
     @State private var todayBoard = true
     #else
-    @State private var todayBoard = SessionKeychain.live.load() == nil
+    @State private var todayBoard = ContentView.startsOnBoard
+    private static var startsOnBoard: Bool {
+        #if DEBUG
+        // The sample screenshots (a Debug build only) show the native Today, signed in or not.
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return false }
+        #endif
+        return SessionKeychain.live.load() == nil
+    }
     #endif
     typealias Tab = AppTabs.Tab
 

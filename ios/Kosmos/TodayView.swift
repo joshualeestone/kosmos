@@ -86,7 +86,7 @@ struct TodayView: View {
 
     private func screen(stale: Bool) -> some View {
         let m = model
-        return List {
+        return ScrollViewReader { proxy in List {
             Section {
                 Text(m.subhead)
                     .font(.subheadline)
@@ -148,6 +148,14 @@ struct TodayView: View {
         }
         .onAppear { if order.isEmpty { order = m.needsYou.map(\.session) } }
         .onChange(of: client.updatedAt) { _ in if order.isEmpty { order = model.needsYou.map(\.session) } }
+        #if DEBUG
+        // The sample screenshots only: KOSMOS_SAMPLE_SCROLL=ready scrolls to Ready to check (nothing here can scroll).
+        .onAppear {
+            guard ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLL"] == "ready", let first = m.ready?.first else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { proxy.scrollTo(first.id, anchor: .top) }
+        }
+        #endif
+        }
     }
 
     private func picture(_ agent: Board.Agent) -> UIImage? {
