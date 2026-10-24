@@ -227,7 +227,7 @@ has "$out" "Run this against a board on 9.9.8, or verify 9.9.8 by hand and pass 
 S="$(newsite)"; s98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")"
 out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" 16999 --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && pass "named: CONTROL --force (with --sha) after a hand check promotes past cannot-tell" || bad "named hold --force (rc=$rc, out=$out)"
-has "$out" "run the check it could not on a board that runs 9.9.8: not the board the gate checked (:16999), which has moved on" && pass "named: after a forced cannot-tell it sends the check to a board on 9.9.8, not the moved one" || bad "named post-force advice (out=$out)"
+has "$out" "run the check it could not on a board that runs 9.9.8: not the board the gate checked (:16999), which could not be tied to 9.9.8" && pass "named: after a forced cannot-tell it sends the check to a board on 9.9.8 (here: a board it could not read)" || bad "named post-force advice (out=$out)"
 refused "--force without --sha" "$(newsite)" "--version with --force needs --sha" --version 9.9.8 --force
 # CONTROL: the default promote's post-force advice, with a port, names the port once (it used to print it twice).
 S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" 16999 --force 2>&1)"; rc=$?
@@ -249,7 +249,7 @@ grep -qF 'say "cannot-tell: the board on :$PORT runs $BOARD_VERSION, not $KOSMOS
 grep -q '^say() { printf .%s\\n. "\$\*"; }$' "$HERE/staging-experience-check.sh" && pass "pin: the gate's say() writes to stdout" || bad "pin: the gate's say() is no longer a plain stdout printf"
 S="$(newsite)"; s98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")"
 out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD_OTHER" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "on a board running 9.9.9, not 9.9.8, so it says nothing about 9.9.8" \
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "on a board running 9.9.9, not 9.9.8, so it says nothing about 9.9.8" && has "$out" "not the board the gate checked (KOSMOS_PORT, else :16180), which runs 9.9.9" \
   && pass "named: an agent-spawn FAIL on a board READ as another version is cannot-tell, which a hand check of V can --force" || bad "named agent fail on another version (rc=$rc, out=$out)"
 # PARTIAL (exit 3) is downgraded the same way on a board READ as another version, and stands on an unread one.
 APART="$T/stub-agent-partial.sh"; printf '#!/usr/bin/env bash\nexit 3\n' > "$APART"; chmod +x "$APART"
@@ -294,11 +294,16 @@ S="$(newsite)"; git -C "$S" remote add origin "$O2"
 echo '{"version":"9.9.9"}' > "$S/dist/latest.json"; git -C "$S" commit -qm "prod 9.9.9" -- dist/latest.json; git -C "$S" push -q origin HEAD:main
 git -C "$S" reset -q --hard HEAD~1   # the checkout is now one commit behind origin, whose latest.json names 9.9.9
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
-[ "$rc" = 1 ] && has "$out" "this checkout's dist/latest.json is not origin's" && [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ] \
-  && pass "named: a checkout whose latest.json is behind origin's is refused (one baseline for every prod read)" || bad "named behind-origin baseline (rc=$rc, out=$out)"
+[ "$rc" = 1 ] && has "$out" "this checkout is behind the site's origin/main" && [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ] \
+  && pass "named: a checkout behind origin is refused (it could miss a later commit naming V)" || bad "named behind-origin (rc=$rc, out=$out)"
 git -C "$S" reset -q --hard origin/main   # CONTROL: once the checkout is origin's, the guard reads 9.9.9 and sees the rollback
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "older than 9.9.9 (latest.json on the site's origin/main)" && pass "named: CONTROL in step with origin, the rollback guard reads origin's 9.9.9" || bad "named in-step baseline (rc=$rc, out=$out)"
+# In step with origin but holding a promote that was never deployed (latest.json changed in the working tree): one
+# baseline for every prod read, so refused.
+echo '{"version":"9.9.10"}' > "$S/dist/latest.json"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --allow-older 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "this checkout's dist/latest.json is not origin's" && pass "named: a latest.json that is not origin's (an undeployed promote) is refused" || bad "named undeployed baseline (rc=$rc, out=$out)"
 
 # A prod pointer that is there but names no version cannot be compared either (only no pointer at all is a first promote).
 S="$(newsite)"; echo '{}' > "$S/dist/latest.json"; git -C "$S" commit -qm empty -- dist/latest.json

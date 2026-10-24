@@ -223,3 +223,11 @@ test keeps that sentence and the parser in step. An unread version keeps the ref
   stderr variant).
 - Not changed (NITs): a middle republish is not compared; origin/main is hard-coded, as in the rest of the
   script and pointer_freeze_fetch; tee may reorder interleaved gate output against its stderr.
+
+## Iteration 19 (challenge) changes
+- With an origin, named mode requires the checkout to hold all of origin/main: a checkout behind it could miss a
+  later commit naming V (a re-cut) and never ask for --sha.
+- The agent downgrade message no longer says "before any --force" (it is reached only with --force given).
+- The post-force advice says "which runs W" only when the gate read W, else "which could not be tied to V".
+- set -f for the deliberate word split. Docs: the checkout must hold all of origin's main.
+- Not changed (NIT): the final PROMOTED line keeps the default wording (disclosed).

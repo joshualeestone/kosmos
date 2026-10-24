@@ -93,8 +93,9 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    staging. `tools/promote-channel.sh <site-checkout> <port> --version <V>` reads V's pointer and
    installer from the site commit that published them, so staging can take later cuts while the GO waits.
    - **Which commit.** One on the checkout's HEAD whose `latest-staging.json` names V. When the site has
-     an origin, it must also be on origin's main (a commit that is not is ignored), and the checkout's
-     `latest.json` must be origin's, so every check reads one prod baseline. If V was cut more than once,
+     an origin, it must also be on origin's main (a commit that is not is ignored), the checkout must hold
+     all of origin's main (so it sees every commit naming V), and its `latest.json` must be origin's, so
+     every check reads one prod baseline. If V was cut more than once,
      the promote refuses and lists the builds: add `--sha <8+ characters of the approved build's sha256>`.
      Where builds share the bytes but name another artifact or manifest, `--commit <site sha>` picks the
      commit; it must be one that changed V's pointer, and every check still applies to it.

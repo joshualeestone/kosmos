@@ -201,6 +201,10 @@ if [ -n "$NAMED_VERSION" ]; then
   if git -C "$SITE" remote get-url origin >/dev/null 2>&1; then
     _has_origin=1
     pointer_freeze_fetch "$SITE" || { echo "promote-channel: could not fetch the site to check which commits naming $NAMED_VERSION were published - refusing; nothing was written." >&2; exit 1; }
+    # The walk below reads HEAD's history: a checkout behind origin would miss a later commit naming V (a re-cut), and
+    # so never see that V names more than one build. It must hold all of origin/main.
+    git -C "$SITE" merge-base --is-ancestor origin/main HEAD \
+      || { echo "promote-channel: this checkout is behind the site's origin/main, so commits naming $NAMED_VERSION there would not be seen - refusing; nothing was written. Bring the site checkout to origin's main first." >&2; exit 1; }
   fi
   NAMED_COMMIT=""; _paired=""; _builds=""; _seen=""; _newest=""
   for _c in $(git -C "$SITE" log --format=%H -G "\"version\": *\"$NAMED_VERSION\"" HEAD -- "dist/$STAGING_NAME" 2>/dev/null); do
@@ -235,7 +239,7 @@ if [ -n "$NAMED_VERSION" ]; then
   case "$_builds" in *" "*)
     # What the operator can do depends on how they disagree: on the bytes (--sha picks one, or more of it does), or
     # only on the artifact or manifest name (--sha cannot separate them; --commit names the one to use).
-    _nshas="$(IFS=' '; printf '%s\n' $_builds | cut -d'|' -f1 | sort -u | wc -l | tr -d ' ')"
+    _nshas="$(set -f; IFS=' '; printf '%s\n' $_builds | cut -d'|' -f1 | sort -u | wc -l | tr -d ' ')"
     if [ "$_nshas" = 1 ]; then _way="They name the same bytes but a different artifact or manifest, which --sha cannot separate: name the commit whose pointer is right with --commit <its sha>."
     elif [ -n "$NAMED_SHA" ]; then _way="More than one build's sha256 starts with $NAMED_SHA: give more of the approved build's sha256."
     else _way="$NAMED_VERSION was cut more than once: name the build that was approved with --sha <its sha256, 8 or more characters>."; fi
@@ -487,7 +491,8 @@ if [ "$FAMILY" = mac ]; then
         _gate_board="(KOSMOS_PORT, else :16180)"; [ -z "$PORT" ] || _gate_board="(:$PORT)"
         if [ -n "$NAMED_VERSION" ]; then
           # kosmos#7005: the board here has moved on to a later staging build and will never report $V again.
-          echo "promote-channel: AFTER the deploy, run the check it could not on a board that runs $V: not the board the gate checked $_gate_board, which has moved on to a later staging build, but a Mac on the prod channel once it has updated to $V, or a fresh install from /setup. KOSMOS_GATE_EXPECT_VERSION=$V bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-experience-check.sh <that board's port>" >&2
+          _gate_state="which could not be tied to $V"; [ -z "$BOARD_OTHER" ] || _gate_state="which runs $BOARD_OTHER"
+          echo "promote-channel: AFTER the deploy, run the check it could not on a board that runs $V: not the board the gate checked $_gate_board, $_gate_state, but a Mac on the prod channel once it has updated to $V, or a fresh install from /setup. KOSMOS_GATE_EXPECT_VERSION=$V bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-experience-check.sh <that board's port>" >&2
         else
           echo "promote-channel: AFTER the deploy, once the board the gate checked $_gate_board reports $V, run the check it could not: KOSMOS_GATE_EXPECT_VERSION=$V bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-experience-check.sh${PORT:+ $PORT}" >&2
         fi
@@ -555,7 +560,7 @@ if [ "$FAMILY" = mac ]; then
   # cannot-tell for $V (a HOLD, which a hand check of $V can --force). A version it could not read (a dev box, a wrong
   # port) may be $V itself, so there, as in default mode, a FAIL still refuses.
   if [ -n "$BOARD_OTHER" ] && { [ "$AGENT_RC" = 1 ] || [ "$AGENT_RC" = 3 ]; }; then
-    echo "promote-channel: the agent-spawn gate answered $AGENT_RC on a board running $BOARD_OTHER, not $V, so it says nothing about $V's build - treating it as cannot-tell. A cause on this machine rather than in the build (a sign-in, a trust prompt) would hit $V too: check that by hand before any --force." >&2
+    echo "promote-channel: the agent-spawn gate answered $AGENT_RC on a board running $BOARD_OTHER, not $V, so it says nothing about $V's build - treating it as cannot-tell, which the --force given passes on the strength of your hand check of agent spawn on $V. A cause on this machine rather than in the build (a sign-in, a trust prompt) would hit $V too." >&2
     AGENT_RC=2
   fi
   case "$AGENT_RC" in
