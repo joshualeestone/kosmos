@@ -214,7 +214,9 @@ add_keepalive() {
   plutil -remove KeepAlive "$1.new" >/dev/null 2>&1 || true
   if plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$1.new" \
      && plutil -replace ThrottleInterval -integer 10 "$1.new" \
-     && { [ "$(plutil -extract ExitTimeOut raw -o - "$1.new" 2>/dev/null | tr -cd '0-9')" -ge 35 ] 2>/dev/null || plutil -replace ExitTimeOut -integer 35 "$1.new"; } \
+     && { et="$(plutil -extract ExitTimeOut raw -o - "$1.new" 2>/dev/null || true)"
+          case "$et" in ''|*[!0-9]*) plutil -replace ExitTimeOut -integer 35 "$1.new" ;;
+            *) [ "$et" -ge 35 ] || plutil -replace ExitTimeOut -integer 35 "$1.new" ;; esac; } \
      && plutil -lint "$1.new" >/dev/null && mv -f "$1.new" "$1"; then
     return 0
   fi
@@ -652,6 +654,7 @@ keepalive() {
   local own=0 prc=0
   if [ "$loaded" = 0 ]; then
     pgrep -u "$(id -u)" -f "$RUNNER_DIR/bin[^/]*/Runner.Listener" >/dev/null || prc=$?
+    [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc) to tell whether this runner runs" >&2; exit 1; }
     [ "$prc" = 0 ] && own=1
   fi
   if [ "$APPLY" != 1 ]; then
@@ -697,6 +700,12 @@ keepalive() {
   # timeout, and a bootout alone would SIGKILL the Listener before it ends its GitHub session (the reload would then
   # cause the very session conflict ExitTimeOut is there to prevent). The exit is 0 (a stop), which a loaded
   # KeepAlive {SuccessfulExit: false} does not restart; the bootout after it finds nothing left to kill.
+  # A disabled override would let the bootout below succeed and the bootstrap fail (5: Input/output error), leaving the
+  # runner stopped. launchctl print-disabled lists it as "<label>" => disabled (or true): refuse before stopping anything.
+  local dis; dis="$(launchctl print-disabled "$dom" 2>/dev/null || true)"
+  if printf '%s\n' "$dis" | grep -F "\"$label\"" | grep -q -E '=> (disabled|true)'; then
+    echo "refused: $label is disabled in $dom, so it could be stopped but not loaded again; nothing was stopped. Enable it first: launchctl enable $dom/$label" >&2; exit 1
+  fi
   # From here to the bootstrap the runner is being stopped: a dropped ssh session must not end the script in the middle.
   # SIGHUP and SIGPIPE are ignored and the window's one message cannot fail it; the launchctl calls' own output to a
   # gone terminal is the residual. For a session you may lose, run the stage under nohup.
@@ -737,6 +746,7 @@ keepalive() {
   local ba=1 bok=0
   while :; do
     if launchctl bootstrap "$dom" "$plist"; then bok=1; break; fi
+    launchctl print "$dom/$label" >/dev/null 2>&1 && { bok=1; break; }   # an error, yet loaded: that load stands
     [ "$ba" -lt 3 ] || break
     ba=$((ba + 1)); sleep 1
   done
@@ -757,7 +767,13 @@ keepalive() {
     [ "$w2" -lt "$lim2" ] || { echo "FAILED: $label was loaded but no new Listener of $RUNNER_DIR is running after ${w2}s; see ~/Library/Logs/$label/stdout.log. If it crashed, launchd restarts it (KeepAlive is loaded); if it exited 0: launchctl kickstart $dom/$label" >&2; exit 1; }
     sleep 1; w2=$((w2 + 1))
   done
-  loaded_keepalive "$dom/$label" || { echo "FAILED: $label was reloaded and runs, but launchctl print shows no 'successful exit => 0' semaphore, the wording this check keys on (measured on macOS 2026-10). If launchctl print $dom/$label shows KeepAlive some other way, the check is what is wrong, not the runner" >&2; exit 1; }
+  if ! loaded_keepalive "$dom/$label"; then
+    local lo; lo="$(launchctl print "$dom/$label" 2>/dev/null || true)"
+    if printf '%s\n' "$lo" | grep -x -E '[[:space:]]*successful exit => 0' >/dev/null; then
+      echo "FAILED: $label was reloaded and runs with KeepAlive, but launchctl print shows its exit timeout under 35 ($(printf '%s\n' "$lo" | sed -n 's/^[[:space:]]*exit timeout = //p' | head -n 1)): check ExitTimeOut in $plist" >&2; exit 1
+    fi
+    echo "FAILED: $label was reloaded and runs, but launchctl print shows no 'successful exit => 0' semaphore, the wording this check keys on (measured on macOS 2026-10). If launchctl print $dom/$label shows KeepAlive some other way, the check is what is wrong, not the runner" >&2; exit 1
+  fi
   ok "the runner is running again, with KeepAlive loaded; it reads online on GitHub within a few minutes (verify, as $OWNER, checks)" || true
 }
 

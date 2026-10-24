@@ -186,6 +186,16 @@ Mutants red: a broadened own-Listener pattern (two sites), no post-reload check,
   KeepAlive job, macOS 27.0.1, 17:48) and found on com.apple.Dock.agent by the round-11 reviewer; the stub cites the
   capture.
 
+## Review round 15
+- A disabled override (launchctl print-disabled shows the label => disabled) is refused before anything is stopped,
+  naming `launchctl enable`: the bootout would succeed and the bootstrap fail, leaving it stopped. Case and mutant.
+- add_keepalive judges an existing ExitTimeOut with the same integer test as keepalive_set (a 3.5 was read as 35, kept,
+  and the stage never converged). My first fixture for this used `plutil -insert -real`, which plutil rejects, so the
+  case passed vacuously; a mutant run showed it, the fixture now uses -float with a control. Mutant red.
+- The post-reload failure says which launchd line is missing (the semaphore, or an exit timeout under 35).
+- The bootstrap retry re-reads launchd between tries (an error with the job loaded ends it); a pgrep failure while
+  deciding whether the runner runs elsewhere refuses instead of saying DOWN.
+
 ## Weakest premise
 Third: that SIGKILL, not SIGTERM, is how a runner gets killed in practice (the 10-23 sender was a SIGKILL); a SIGTERM
 leaves it down, by design (KeepAlive true would restart it, at the cost of a 10 s loop on a removed registration).

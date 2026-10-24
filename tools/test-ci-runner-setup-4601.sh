@@ -34,6 +34,9 @@ case "$me" in
     out="$(dirname "$CALL_LOG")/booted-out"
     case "$1" in
       kill) [ "${FX_KILL_FAIL:-0}" = 1 ] && exit 3; exit 0 ;;
+      print-disabled) printf 'disabled services = {\n'
+        [ "${FX_DISABLED:-0}" = 1 ] && printf '\t"actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" => disabled\n'
+        printf '}\n'; exit 0 ;;
       bootout) # Whether the old job's process (FX_JOB_PID) was still alive when the bootout came: the test asserts it.
         [ -z "${FX_JOB_PID:-}" ] || { kill -0 "$FX_JOB_PID" 2>/dev/null && echo "bootout-while-alive" >> "$CALL_LOG" || echo "bootout-after-exit" >> "$CALL_LOG"; }
         [ "${FX_BOOTOUT_FAIL:-0}" = 1 ] && exit 5; [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
@@ -675,6 +678,14 @@ tl="$(grep -n "^  trap '' HUP PIPE\$" "$S" | cut -d: -f1)"; wl="$(grep -n -- '-x
 kl="$(grep -n 'launchctl kill SIGTERM "\$dom/\$label"' "$S" | head -n 1 | cut -d: -f1)"
 [ -n "$tl" ] && [ -n "$wl" ] && [ -n "$kl" ] && [ "$wl" -lt "$tl" ] && [ "$tl" -lt "$kl" ] \
   && pass "keepalive: SIGHUP and SIGPIPE are ignored from after the job check to before the SIGTERM" || fail "keepalive trap order: job $wl, trap $tl, kill $kl"
+ka_fresh; run ka-disabled "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_DISABLED=1 -- --apply keepalive
+[ "$(rc ka-disabled)" = 1 ] && has ka-disabled "is disabled in gui/777" && has ka-disabled "launchctl enable gui/777/" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-disabled.calls" \
+  && pass "keepalive --apply: a disabled label refuses before anything is stopped, and names launchctl enable" || fail "keepalive disabled: rc $(rc ka-disabled): $(tail -1 "$T/ka-disabled.out")"
+# A non-integer ExitTimeOut (3.5) is not kept as if it were 35: it is replaced, and the stage converges.
+ka_fresh; plutil -insert ExitTimeOut -float 3.5 "$KA"; et0="$(plutil -extract ExitTimeOut raw -o - "$KA" 2>&1)"; run ka-real "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+case "$et0" in 3.5*) : ;; *) fail "control: the fixture holds no non-integer ExitTimeOut ($et0)" ;; esac
+[ "$(rc ka-real)" = 0 ] && [ "$(plutil -extract ExitTimeOut raw -o - "$KA")" = 35 ] \
+  && pass "keepalive --apply replaces a non-integer ExitTimeOut (3.5) with 35" || fail "keepalive real timeout: rc $(rc ka-real): $(plutil -extract ExitTimeOut raw -o - "$KA" 2>&1); $(tail -1 "$T/ka-real.out")"
 ka_fresh; run ka-noka "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
 [ "$(rc ka-noka)" = 1 ] && has ka-noka "shows no 'successful exit => 0' semaphore" \
   && pass "keepalive --apply: a reload that leaves no KeepAlive in the loaded job fails" || fail "keepalive no ka loaded: rc $(rc ka-noka): $(tail -1 "$T/ka-noka.out")"
