@@ -84,61 +84,9 @@ struct AgentsView: View {
         }
     }
 
-    @ViewBuilder private var others: some View {
-        switch client.phase {
-        case .starting:
-            reaching
-        case .live:
-            // The list arrives with the first read; until then (or with an empty earlier list not yet re-read) this is
-            // still reaching, not "No agents yet".
-            if client.updatedAt == nil || !client.fresh { reaching } else { noAgents }
-        case .unreachable:
-            // Today's navy page, as it is: no title over it, and Back opens Today, the board.
-            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)
-                .navigationBarHidden(true)
-        case .kosmosPlusDown:
-            LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)
-                .navigationBarHidden(true)
-        case .signedOut:
-            VStack(spacing: 12) {
-                message("Sign in to Kosmos+", detail: "Your agents show here once you are signed in.")
-                Button { openBoard() } label: { Text("Sign in").foregroundColor(Palette.card) }
-                    .buttonStyle(.borderedProminent)
-            }
-        case .noMac:
-            message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then try again.", retry: true)
-        case .waitingForAllow(let mac, let code):
-            VStack(spacing: 12) {
-                message("Allow this iPhone on \(mac).",
-                        detail: code.map { "Your Mac is showing a code. Check it matches: \($0)" } ?? "Your Mac is asking whether to let this iPhone in.")
-                ProgressView().accessibilityLabel("Waiting for your Mac")
-            }
-            .accessibilityElement(children: .combine)
-            // The code is spelled out character by character, as the gate page reads it.
-            .accessibilityLabel("Allow this iPhone on \(mac). " + (code.map { "Your Mac is showing a code. Check it matches: \($0.map(String.init).joined(separator: " "))" } ?? "Your Mac is asking whether to let this iPhone in."))
-            .accessibilityAddTraits(.updatesFrequently)
-        case .connecting(let mac):
-            VStack(spacing: 12) {
-                message("Connecting to \(mac).", detail: "This can take a moment, for example just after your Mac starts.")
-                ProgressView().accessibilityLabel("Waiting for your Mac")
-            }
-        case .denied(let mac):
-            message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.", retry: true)
-        case .macRefused(let mac):
-            message("\(mac) did not accept this iPhone's sign-in.", detail: "Try again in a moment. If it keeps happening, log out under Settings, Kosmos+, and sign in again.", retry: true)
-        case .kosmosPlusRefused:
-            message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again on the Today tab. Otherwise try again in a moment.", retry: true)
-        }
-    }
-
-    // First connect, nothing shown yet (spec frame 3).
-    private var reaching: some View {
-        VStack(spacing: 8) {
-            ProgressView()
-            Text("Reaching your computer\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .combine)
+    // kosmos#7030: the connection states, shared with Today (BoardStates below); no agents is this tab's own.
+    private var others: some View {
+        BoardStates(client: client, openBoard: openBoard) { noAgents }
     }
 
     // No agents (spec frame 4): no list and no footer line.
@@ -207,6 +155,71 @@ struct AgentsView: View {
             .font(.footnote)
             .foregroundColor(Palette.tertiary)
     }
+}
+
+// The states before a list can be shown, and after a refusal (kosmos#6838 slice 1's frames), for every tab that reads
+// the agents list: Agents, and Today (kosmos#7030). `empty` is what a live Mac with nothing to list shows.
+struct BoardStates<Empty: View>: View {
+    @ObservedObject var client: BoardClient
+    let openBoard: () -> Void
+    @ViewBuilder let empty: () -> Empty
+
+    var body: some View {
+        switch client.phase {
+        case .starting:
+            reaching
+        case .live:
+            // The list arrives with the first read; until then (or with an empty earlier list not yet re-read) this is
+            // still reaching, not "No agents yet".
+            if client.updatedAt == nil || !client.fresh { reaching } else { empty() }
+        case .unreachable:
+            // Today's navy page, as it is: no title over it, and Back opens Today, the board.
+            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)
+                .navigationBarHidden(true)
+        case .kosmosPlusDown:
+            LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)
+                .navigationBarHidden(true)
+        case .signedOut:
+            VStack(spacing: 12) {
+                message("Sign in to Kosmos+", detail: "Your agents show here once you are signed in.")
+                Button { openBoard() } label: { Text("Sign in").foregroundColor(Palette.card) }
+                    .buttonStyle(.borderedProminent)
+            }
+        case .noMac:
+            message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then try again.", retry: true)
+        case .waitingForAllow(let mac, let code):
+            VStack(spacing: 12) {
+                message("Allow this iPhone on \(mac).",
+                        detail: code.map { "Your Mac is showing a code. Check it matches: \($0)" } ?? "Your Mac is asking whether to let this iPhone in.")
+                ProgressView().accessibilityLabel("Waiting for your Mac")
+            }
+            .accessibilityElement(children: .combine)
+            // The code is spelled out character by character, as the gate page reads it.
+            .accessibilityLabel("Allow this iPhone on \(mac). " + (code.map { "Your Mac is showing a code. Check it matches: \($0.map(String.init).joined(separator: " "))" } ?? "Your Mac is asking whether to let this iPhone in."))
+            .accessibilityAddTraits(.updatesFrequently)
+        case .connecting(let mac):
+            VStack(spacing: 12) {
+                message("Connecting to \(mac).", detail: "This can take a moment, for example just after your Mac starts.")
+                ProgressView().accessibilityLabel("Waiting for your Mac")
+            }
+        case .denied(let mac):
+            message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.", retry: true)
+        case .macRefused(let mac):
+            message("\(mac) did not accept this iPhone's sign-in.", detail: "Try again in a moment. If it keeps happening, log out under Settings, Kosmos+, and sign in again.", retry: true)
+        case .kosmosPlusRefused:
+            message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again on the Today tab. Otherwise try again in a moment.", retry: true)
+        }
+    }
+
+    // First connect, nothing shown yet (spec frame 3).
+    private var reaching: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+            Text("Reaching your computer\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+    }
 
     private func message(_ title: String, detail: String, retry: Bool = false) -> some View {
         VStack(spacing: 12) {
@@ -260,30 +273,7 @@ struct AgentRow: View {
     private var size: CGFloat { large ? 48 : 40 }
 
     private var avatar: some View {
-        ZStack(alignment: .bottomTrailing) {
-            Group {
-                if let picture {
-                    Image(uiImage: picture).resizable().scaledToFill()
-                } else {
-                    ZStack {
-                        Palette.avatarFill
-                        Text(String(agent.name.prefix(1)).uppercased())
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(Palette.avatarLetter)
-                    }
-                }
-            }
-            .frame(width: size, height: size)
-            .clipShape(Circle())
-            // The status dot, 12pt with a 2pt ring in the card colour, 1pt outside the picture.
-            Circle()
-                .fill(Palette.dot(tone))
-                .frame(width: 12, height: 12)
-                .overlay(Circle().stroke(Palette.card, lineWidth: 2))
-                .offset(x: 1, y: 1)
-                .animation(.easeInOut(duration: 0.2), value: tone)
-        }
-        .accessibilityHidden(true)
+        AgentAvatar(name: agent.name, picture: picture, tone: tone, size: size)
     }
 
     private var name: some View {
@@ -312,6 +302,44 @@ struct AgentRow: View {
     }
 }
 
+// An agent's picture (or its first letter) with its status dot, as slice 1 draws it; shared with Today (kosmos#7030).
+// A nil tone draws no dot (a ready-to-check card marked by the person names no agent).
+struct AgentAvatar: View {
+    let name: String
+    let picture: UIImage?
+    let tone: Board.Tone?
+    let size: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Group {
+                if let picture {
+                    Image(uiImage: picture).resizable().scaledToFill()
+                } else {
+                    ZStack {
+                        Palette.avatarFill
+                        Text(String(name.prefix(1)).uppercased())
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(Palette.avatarLetter)
+                    }
+                }
+            }
+            .frame(width: size, height: size)
+            .clipShape(Circle())
+            if let tone {
+                // The status dot, 12pt with a 2pt ring in the card colour, 1pt outside the picture.
+                Circle()
+                    .fill(Palette.dot(tone))
+                    .frame(width: 12, height: 12)
+                    .overlay(Circle().stroke(Palette.card, lineWidth: 2))
+                    .offset(x: 1, y: 1)
+                    .animation(.easeInOut(duration: 0.2), value: tone)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 // The board's own light and dark tokens (web/index.html), as Mona Lisa's slice 1 spec lists them.
 enum Palette {
     static func pair(_ light: UInt32, _ dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1) -> Color {
@@ -331,6 +359,8 @@ enum Palette {
     static let banner = pair(0xf3efe6, 0x1c1f23)
     static let askedWord = pair(0x7a5200, 0xffca55)
     static let dangerWord = pair(0xb3261e, 0xff6b5e)
+    // kosmos#7030: the board's built colour (--pj-mention), the dot before a ready-to-check card's "Marked built" line.
+    static let built = pair(0x0a58d8, 0x5aa2ff)
 
     static func dot(_ tone: Board.Tone) -> Color {
         switch tone {
