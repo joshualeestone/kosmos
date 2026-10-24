@@ -52,7 +52,7 @@ case "$me" in
         # The loaded job has KeepAlive exactly when the plist it was loaded from does (state kept across runs). The printed
         # shape is copied from a real capture (runner 1, macOS 27.0.1, 2026-10-23): "\tsemaphores = {" /
         # "\t\tsuccessful exit => 0" / "\t}" and "\texit timeout = 5" for a job that does not set ExitTimeOut.
-        if [ "${FX_BOOTSTRAP_NO_KA:-0}" != 1 ] && [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$3" 2>/dev/null)" = false ]; then
+        if [ "${FX_BOOTSTRAP_NO_KA:-0}" != 1 ] && plutil -extract KeepAlive.SuccessfulExit xml1 -o - "$3" 2>/dev/null | grep -q '<false/>'; then
           # As launchd: an ExitTimeOut that is not an <integer> is ignored, so the default 5 shows.
           case "$(plutil -extract ExitTimeOut xml1 -o - "$3" 2>/dev/null)" in
             *"<integer>"*) plutil -extract ExitTimeOut raw -o - "$3" > "$(dirname "$CALL_LOG")/loaded-ka" ;;
@@ -676,8 +676,6 @@ el=$((SECONDS - t0)); wait "$sp" 2>/dev/null
 # The run took most of the 4 s: it did wait (a process already gone before the loop would also read "after exit").
 [ "$(rc ka-waits)" = 0 ] && grep -qx 'bootout-after-exit' "$T/ka-waits.calls" && ! has ka-waits "had not ended" && [ "$el" -ge 3 ] \
   && pass "keepalive --apply waits for the old runner to end after SIGTERM before booting it out" || fail "keepalive waits: rc $(rc ka-waits): $(grep bootout- "$T/ka-waits.calls")"
-# Outlives the wait: it goes on (refusing would leave a SIGTERMed runner under its old definition) and says so.
-sleep 30 & sp=$!
 # A job up while the old runner outlived the SIGTERM wait (it may be that runner's): the bootout is refused.
 sleep 30 & jsp=$!
 ka_fresh; rm -f "$T/worker-up"; run ka-jobduring "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_WORKER_AFTER_KILL=1 -- --apply keepalive
@@ -751,6 +749,23 @@ ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"
 run ka-loadedstopped-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE=waiting FX_NO_PID=1 -- keepalive
 [ "$(rc ka-loadedstopped-dry)" = 0 ] && has ka-loadedstopped-dry "has no process, so no SIGTERM first" && ! has ka-loadedstopped-dry "WOULD: launchctl kill" && has ka-loadedstopped-dry "WOULD: launchctl bootstrap" \
   && pass "keepalive dry run: a loaded job with no process is not promised a SIGTERM" || fail "keepalive loaded stopped dry: rc $(rc ka-loadedstopped-dry): $(tail -2 "$T/ka-loadedstopped-dry.out")"
+# kosmos#7001 round 24. A <string>false</string> SuccessfulExit reads "false" through raw but launchd ignores it: not
+# done, and --apply replaces it and converges.
+ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><string>false</string></dict>' "$KA"; plutil -insert ExitTimeOut -integer 35 "$KA"; plutil -insert ThrottleInterval -integer 10 "$KA"
+[ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$KA")" = false ] && plutil -extract KeepAlive xml1 -o - "$KA" | grep -q '<string>false</string>' || fail "fixture: SuccessfulExit is not the string false"
+run ka-strka-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
+run ka-strka "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+run ka-strka-after "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
+has ka-strka-dry "lacks KeepAlive {SuccessfulExit: false}" && [ "$(rc ka-strka)" = 0 ] && plutil -extract KeepAlive xml1 -o - "$KA" | grep -q '<false/>' \
+  && [ "$(rc ka-strka-after)" = 0 ] && has ka-strka-after "restarts after a SIGKILL or a crash" \
+  && pass "keepalive: a string SuccessfulExit is not taken for <false/>; --apply replaces it and the next run finds it done" || fail "keepalive string SuccessfulExit: rc $(rc ka-strka)/$(rc ka-strka-after): $(grep -h lacks "$T/ka-strka-dry.out") / $(tail -1 "$T/ka-strka.out")"
+# A KeepAlive dict with extra keys is not "set": --apply replaces it with the exact dict and says so.
+ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/><key>Crashed</key><true/></dict>' "$KA"; plutil -insert ExitTimeOut -integer 35 "$KA"; plutil -insert ThrottleInterval -integer 10 "$KA"
+run ka-extrakey "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+[ "$(rc ka-extrakey)" = 0 ] && has ka-extrakey "note:   replacing KeepAlive" && ! plutil -extract KeepAlive.Crashed raw -o - "$KA" >/dev/null 2>&1 \
+  && pass "keepalive --apply: a KeepAlive with extra keys is replaced by the exact dict, and said" || fail "keepalive extra key: rc $(rc ka-extrakey): $(grep -i replacing "$T/ka-extrakey.out")"
+# Outlives the wait: it goes on (refusing would leave a SIGTERMed runner under its old definition) and says so.
+sleep 30 & sp=$!
 ka_fresh; run ka-outlives "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null
 [ "$(rc ka-outlives)" = 0 ] && has ka-outlives "had not ended 1s after SIGTERM" && grep -qx 'bootout-while-alive' "$T/ka-outlives.calls" \

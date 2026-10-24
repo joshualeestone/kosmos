@@ -199,14 +199,22 @@ plist_int_ge() {
   t="$(plutil -extract "$2" raw -o - "$1" 2>/dev/null || true)"
   case "$t" in ''|*[!0-9]*) return 1 ;; esac; [ "$t" -ge "$3" ]
 }
+# ka_xml <plist>: its KeepAlive as one line of XML, or nothing. raw cannot tell <false/> from <string>false</string>
+# (launchd ignores the second), so the type is read from the XML.
+ka_xml() {
+  plutil -extract KeepAlive xml1 -o - "$1" 2>/dev/null | tr -d '\n\t' | sed -e 's/.*<plist[^>]*>//' -e 's#</plist>.*##' || true
+}
+KA_DICT='<dict><key>SuccessfulExit</key><false/></dict>'
+# Exactly the dict add_keepalive writes: a typed <false/>, and no other keys (an operator's extra keys are replaced, and
+# said, by add_keepalive, so the file case and the add case agree).
 keepalive_set() {
-  [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$1" 2>/dev/null)" = false ] \
+  [ "$(ka_xml "$1")" = "$KA_DICT" ] \
     && plist_int_ge "$1" ExitTimeOut 35 && plist_int_ge "$1" ThrottleInterval 10
 }
 # keepalive_missing <plist>: what keepalive_set found missing, in words.
 keepalive_missing() {
   local m=""
-  [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$1" 2>/dev/null)" = false ] || m="KeepAlive {SuccessfulExit: false}"
+  [ "$(ka_xml "$1")" = "$KA_DICT" ] || m="KeepAlive {SuccessfulExit: false}"
   plist_int_ge "$1" ExitTimeOut 35 || m="${m:+$m, }ExitTimeOut 35"
   plist_int_ge "$1" ThrottleInterval 10 || m="${m:+$m, }ThrottleInterval 10"
   printf '%s' "${m:-nothing}"
@@ -241,8 +249,8 @@ loaded_keepalive() {
 add_keepalive() {
   local old
   # An operator's own KeepAlive (true, or a dict with other keys) is replaced: said, not silent.
-  old="$(plutil -extract KeepAlive xml1 -o - "$1" 2>/dev/null | tr -d '\n\t' | sed -e 's/.*<plist[^>]*>//' -e 's#</plist>.*##' || true)"
-  case "$old" in ''|'<dict><key>SuccessfulExit</key><false/></dict>') : ;;
+  old="$(ka_xml "$1")"
+  case "$old" in ''|"$KA_DICT") : ;;
     *) echo "note:   replacing KeepAlive $old in $1 with {SuccessfulExit: false}" || true ;; esac
   cp -p "$1" "$1.new" || return 1
   plutil -remove KeepAlive "$1.new" >/dev/null 2>&1 || true
@@ -853,7 +861,7 @@ keepalive() {
     fi
     echo "FAILED: launchctl bootstrap $dom $plist; the runner is STOPPED (not loaded): launchctl bootstrap $dom $plist, or ./svc.sh start in $CI_USER's session" >&2; exit 1
   fi
-  trap - INT TERM   # loaded again: an interrupt from here on leaves a runner launchd keeps alive
+  trap - INT TERM HUP PIPE   # loaded again: an interrupt or a hangup from here on leaves a runner launchd keeps alive
   # A new Listener of THIS runner (its own dir), not any Listener of the user: the relay's can respawn meanwhile. The
   # argv is RunnerService.js's spawn of an absolute path, measured with ps on the old Agent1s Mac (10-23):
   # /Users/kosmos-ci/actions-runner/bin/Runner.Listener run --startuptype service (it joins ../bin, so bin/ even after a

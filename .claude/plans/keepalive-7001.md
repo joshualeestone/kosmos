@@ -324,3 +324,15 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - NIT FIXED: the dry run promises a SIGTERM only when the job has a process (ka-loadedstopped-dry; mutant red).
 - DEFERRED: wait_for_listener by name (follow-up card b, pre-existing); the owner's dry run on a Mac where ~/Library is
   opened up reads "not logged in" (non-default; deferred in rounds 19, 20 and 22 too).
+
+## Review round 24 (sonnet, blind, HEAD e84915854e)
+- W FIXED: SuccessfulExit was still compared through raw, which prints "false" for <string>false</string> too (launchd
+  ignores it): in_file=1, a reload, FAILED, on every run. The same class round 23 fixed for the integers; I fixed the
+  instance there, not the class. keepalive_set now requires EXACTLY the dict add_keepalive writes (ka_xml, KA_DICT), which
+  also settles C2 (a dict with extra keys was "set" in the file case but replaced in the add case; now replaced, and
+  said, in both). The bootstrap stub honours only a typed <false/>. ka-strka (dry run lacks it, --apply converges, next
+  run done), ka-extrakey; mutants on keepalive_set and on keepalive_missing both red.
+- C3 FIXED: the HUP/PIPE ignore is cleared with INT/TERM once the job is loaded again.
+- NIT 6 FIXED: the "Outlives the wait" comment and its sleeper sat above an unrelated case; moved to ka-outlives.
+- DEFERRED NITs: 4 (eval of fixed names in the wait check), 5 (CI-home allow-list applies to every stage; documented,
+  tested).
