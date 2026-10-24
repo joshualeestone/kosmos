@@ -562,6 +562,25 @@ function replaced6923(which) {
   } };
 }
 
+/* kosmos#4658: open a project with federation live and the sealed-room key section's two reads answered. */
+async function ownsealScreen(page, data, compare, waiting) {
+  await page.route('**/api/status*', async (r) => {
+    try {
+      const resp = await r.fetch();
+      const j = await resp.json().catch(() => null);
+      if (!j) return await r.fulfill({ response: resp });
+      j.federationLive = true; j.kosmos_plus = true;
+      return await r.fulfill({ response: resp, json: j });
+    } catch { await r.abort().catch(() => {}); }
+  });
+  await page.route('**/api/federation/own-compare*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(compare) }));
+  await page.route('**/api/federation/own-waiting*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(waiting) }));
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-fed-ui') === 'show', null, { timeout: 15000 });
+  await openTab(page, 'projects');
+  await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+  await page.waitForSelector('#pj-fed-own .ownseal-code', { state: 'visible', timeout: 20000 });
+  await page.evaluate(() => document.getElementById('pj-fed-own').scrollIntoView({ block: 'center' }));
+}
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -1797,6 +1816,16 @@ const SCREENS = [
     const t = await page.evaluate(() => document.getElementById('pj-one-shared').innerText);
     if (!t.includes('Shared by harbourstudio.kosmosplus.com.')) throw new Error('the project header does not say who shared it: ' + JSON.stringify(t));
     if (await page.isVisible('#pj-one-made')) throw new Error('a joined project shows a Made by line it would not have');
+  } },
+  /* kosmos#4658 part B: the sealed-room key section in a project's Members card, both sides. Federation is turned
+     on through the status poll, and the two reads the section makes are answered with fixed codes. */
+  { name: 'ownseal-waiting-4658', owner: 'Baron Draxum', noServiceWorker: true, go: async (page, data) => {
+    await ownsealScreen(page, data, { code: 'K7M3P-Q9RXA' }, { computers: [] });
+  } },
+  { name: 'ownseal-allow-4658', owner: 'Baron Draxum', noServiceWorker: true, go: async (page, data) => {
+    await ownsealScreen(page, data, { code: null }, { computers: [
+      { pub: 'pub-sample-1', mac: 'mac-sample-1', code: 'ABCDE-FGHJK', at: 1 },
+      { pub: 'pub-sample-2', mac: 'mac-sample-2', code: '23456-789AB', at: 2 }] });
   } },
   /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
   { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {
