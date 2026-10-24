@@ -47,6 +47,13 @@ and route), which is stacked on orgkeys-6596. Lands after both.
   always-navy card, as the sibling rules are.
 - Checks after: sign-in 206 pass 0 fail, company 22 pass 0 fail; divs 37/37.
 
+## After the rebase onto main (acceptkey-6596 merged as #7058)
+- Rebased; this branch's six files only. Checks on the new base: sign-in 206/0, company 22/0, both gates green.
+- The #6022 teardown guard (browser-checks-teardown-guard-6022.test.js) went red on the key-changed section's route
+  handlers: the held refusal answered outside a try, so a late answer after the page closed could crash the check.
+  I had last run the guard tests before review 1 added that arm. Both handlers now answer inside a try, the held one
+  catching its own late rejection; guards 154/0, sign-in check 206/0.
+
 ## Rejected
 - Showing a short fingerprint: the person compares against what an administrator tells them, and a shortened key
   invites a match on the part shown. The whole key costs two lines at phone width.
