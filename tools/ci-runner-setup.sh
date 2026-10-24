@@ -24,7 +24,9 @@
 #   keepalive                 as kosmos-ci, over ssh or in its session (kosmos#7001; for another runner user, set
 #                             KOSMOS_CI_USER, e.g. kosmos-ci2). Adds KeepAlive, ThrottleInterval and ExitTimeOut to an
 #                             installed runner's LaunchAgent and reloads it while idle; a dry run says whether it is
-#                             set and loaded (exit 1 when the runner is not running as it should). This repo's runner
+#                             set and loaded: "ok: ... restarts after a SIGKILL or a crash" only when it is. Exit 1
+#                             when the runner is not running as it should, and 0 both when it is done and when it
+#                             WOULD change something (read the ok line, not the exit code). This repo's runner
 #                             only ($CI_HOME/actions-runner); a kosmos-relay runner under the same user is not touched.
 #                             Waits, in seconds: KOSMOS_CI_UNLOAD_WAIT_S (45), KOSMOS_CI_START_WAIT_S (30),
 #                             KOSMOS_CI_STATE_WAIT_S (12)
@@ -66,7 +68,7 @@ STAGE="${1:-}"
 REPO="joshualeestone/kosmos"
 REPO_URL="https://github.com/$REPO"
 CI_USER="${KOSMOS_CI_USER:-kosmos-ci}"
-CI_HOME="${KOSMOS_CI_HOME:-/Users/$CI_USER}"
+CI_HOME="${KOSMOS_CI_HOME:-/Users/$CI_USER}"; CI_HOME="${CI_HOME%/}"   # no trailing /: RUNNER_DIR must equal svc.sh's WorkingDirectory
 OWNER="${KOSMOS_CI_OWNER:-agent1}"                 # Agent1s' only user today (runbook part 2); override elsewhere
 OWNER_HOME="${KOSMOS_CI_OWNER_HOME:-/Users/$OWNER}"
 # The jq programs this script hands to gh --jq, in one place so the test can run each against canned API JSON.
@@ -659,11 +661,11 @@ runner_busy() {
 keepalive() {
   need_user "$CI_USER" ssh-ok
   mode_line
+  # Another user (the owner, say) cannot read the CI user's launchd domain or its processes' arguments, and usually not
+  # its ~/Library: any answer past here would be about the wrong account. Say so, not "register first" or "not logged in".
+  if [ "$(id -un)" != "$CI_USER" ]; then echo "note:   cannot read $CI_USER's runner as $(id -un) (its launchd jobs and processes are its own); run this as $CI_USER"; return 0; fi
   local plist label dom; plist="$(runner_plist)"
   if [ -z "$plist" ]; then
-    # Another user (the owner, say) cannot read the CI user's runner: say that, not "register first", which is the CI
-    # user's own answer when .service names no plist.
-    if [ "$(id -un)" != "$CI_USER" ]; then echo "note:   cannot read $CI_USER's runner as $(id -un); run this as $CI_USER"; return 0; fi
     echo "refused: $RUNNER_DIR/.service names no LaunchAgent of this runner (actions.runner.*.plist directly under $CI_HOME/Library/LaunchAgents, WorkingDirectory $RUNNER_DIR); register first" >&2; exit 1
   fi
   label="$(plutil -extract Label raw -o - "$plist" 2>/dev/null)" && [ -n "$label" ] \
@@ -826,13 +828,16 @@ keepalive() {
   # The job check again, at the bootout itself, only while the old runner is still alive (it outlived the wait): it may
   # have taken a job in that window. Once it has ended, or never ran, it has no Listener, so a Worker seen now is the
   # relay's (#6245, same user), and refusing would leave THIS runner stopped with nothing to restart it.
+  # Only a Worker that is a CHILD of this runner's Listener (the Listener spawns it): a relay job (#6245, same user)
+  # starting now must not veto the reload, which would leave this SIGTERMed runner stopped with nothing to restart it.
+  # (The first job check, before anything is stopped, stays user-wide: refusing there costs only a rerun.)
   if [ "$outlived" = 1 ]; then
-    prc=0; pgrep -u "$ciuid" -x Runner.Worker >/dev/null || prc=$?
+    prc=0; pgrep -P "$(printf '%s\n' "$before" | paste -s -d , -)" -x Runner.Worker >/dev/null || prc=$?
     if [ "$prc" != 1 ]; then
       # Not measured: the runner turns the SIGTERM into SIGINT to its Listener, which (actions/runner) cancels a running
       # job with "The runner has received a shutdown signal", so the job is most likely already lost; skipping the
       # bootout only avoids making the state worse.
-      echo "refused: a job is running while the old runner (pid $opid) is still stopping (Runner.Worker is up, or pgrep exit $prc); nothing was booted out. $label was sent SIGTERM, which most likely cancels that job too; the runner then stays stopped (still the OLD definition): run this again once it is idle, which reloads and starts it" >&2
+      echo "refused: a job of this runner is running while the old runner (pid $opid) is still stopping (its Runner.Worker is up, or pgrep exit $prc); nothing was booted out. $label was sent SIGTERM, which most likely cancels that job too; the runner then stays stopped (still the OLD definition): run this again once it is idle, which reloads and starts it" >&2
       trap - INT TERM; exit 1
     fi
   fi
@@ -972,7 +977,7 @@ EOF
   elif [ -r "$RUNNER_DIR/.service" ] && [ -z "$plist" ]; then
     # A note, not UNCHECKED: on a default Mac this is every owner run, and an exit 3 that is always there would hide the
     # checks that really could not be made. The header says verify as the owner does not cover KeepAlive.
-    echo "note:   KeepAlive NOT checked: $RUNNER_DIR/.service names no LaunchAgent under $CI_HOME/Library/LaunchAgents that $(id -un) can see (its ~/Library is closed to other users); as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether it is set and loaded"
+    echo "note:   KeepAlive NOT checked: $RUNNER_DIR/.service names no LaunchAgent of this runner under $CI_HOME/Library/LaunchAgents that $(id -un) can see (its ~/Library is usually closed to other users); as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether it is set and loaded"
   elif [ -e "$RUNNER_DIR/.service" ]; then
     unchecked "cannot read $RUNNER_DIR/.service as $(id -un), so KeepAlive is not checked here; as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether it is set and loaded"
   else
