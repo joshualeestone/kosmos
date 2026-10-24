@@ -10439,7 +10439,7 @@ html:not([data-fed-ui="show"]) #pj-addmenu-outside,html:not([data-fed-ui="show"]
    view's Members card (#pj-fed-outside) and in the consolidated rail's grouped members
    (#alist-fed-outside). Federation content, so it hides with the rest; fedOutsideHtml also draws
    nothing unless fedShow(). */
-html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #alist-fed-outside { display: none !important; }
+html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #alist-fed-outside,html:not([data-fed-ui="show"]) #pj-fed-own { display: none !important; }
 .fedout:empty { display: none; }
 /* Mona's .m-sec heading and .m-mem rows (mock.html) on the app's tokens. */
 .fedout-h { font: 600 .6875rem var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--label-2);
@@ -10462,6 +10462,12 @@ html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #a
 .fedout .fmsg { margin-top: 2px; }
 .fedout .fmsg:empty { display: none; }
 #alist-fed-outside { margin: 0 6px 0 8px; }
+/* kosmos#4658: the code two of the person's computers both show before a sealed room's key is handed over. Comparing
+   it IS the protection, so it is large, spaced and never wrapped or cut. */
+.ownseal-code { display: block; font: 600 1.375rem/1.25 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .12em;
+                color: var(--label); white-space: nowrap; margin: 6px 0; }
+.ownseal-code-sm { font-size: 1.0625rem; margin: 2px 0 0; }
+.ownseal-acts { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
 /* The shared #761 remove dialog's error line (slice B: a failed outside removal keeps the dialog
    open and says why). Empty for every other caller, so it takes no room there. */
 #mem-msg:empty { display: none; }
@@ -17153,6 +17159,8 @@ window.kosmosMeasureScrollbarWidth();
            fedOutsidePaint from GET /api/federation/members. Its own element, not rows inside
            the agents list above: that list's click opens an agent's page, and an outsider has none. -->
       <div id="pj-fed-outside" class="fedout"></div>
+      <!-- kosmos#4658: a sealed room's key for another of this account's computers, painted by fedOwnPaint. -->
+      <div id="pj-fed-own" class="fedout"></div>
       <!-- kosmos#6103: the team map, read-only, closed until asked for, so the resting card is still
            the members. pjTeamMap() paints it from the same roster as the list above. -->
       <button class="btn-quiet pj-tmbtn" id="pj-teammap-btn" type="button" aria-expanded="false" aria-controls="pj-teammap" hidden>Team map</button>
@@ -25222,6 +25230,11 @@ let PJ_ADDMENU_AGENT = null;
 /* kosmos#4649 slice B: the owner's "From outside" Members section (fedOutsideHtml, beside the invite
    sheet). Declared here, early, for the same reason: paintAgentList and fedGateStamp read them. */
 let FED_MEMBERS = null;          // { project, ok, body }: the last members answer, for the project it was asked for
+// kosmos#4658: the sealed-room key section's state (fedOwnHtml), here for the same reason as the members state.
+let FED_OWN = null;          // { project, waiting: [{ pub, mac, code }], code: string | null, at }
+let FED_OWN_ASKING = null;   // the project an ask is in flight for
+let FED_OWN_MSG = '';        // the last press's sentence, for this project
+let FED_OWN_BUSY = false;    // a press is being asked
 let FED_MEMBERS_SEQ = 0;         // a reply for an older ask (or another project) is dropped
 let FED_MEMBERS_ASKING = null;   // the project an ask is in flight for (fedGateMembers asks once)
 let FED_MSGS = {};               // row key -> the sentence a Withdraw or Remove left, kept across repaints
@@ -81335,10 +81348,103 @@ function fedOutsidePaint(tabOnly) {
   if ((AGENTS_GROUPED || PJ_CURRENT) && document.body.classList.contains('consolidated') && typeof paintAgentList === 'function'
     && fedOutsidePaint.rail !== html) { fedOutsidePaint.rail = html; paintAgentList(); }
 }
+/* kosmos#4658 part B: a sealed room's key for another of this account's computers (the exchange is on the card,
+   comment 6381388572). One element, two sides. The computer that first shared the room lists the computers waiting
+   (GET /api/federation/own-waiting), each with the code its own screen shows and Allow. A waiting computer shows its
+   code (GET /api/federation/own-compare) with It matches and Does not match. The person comparing the two screens is
+   the protection, so the code is shown large and a press sends back exactly the code that was on screen. */
+const FED_OWN_REFRESH_MS = 10000;
+function fedOwnHtml() {
+  const o = FED_OWN;
+  if (!o || o.project !== PJ_CURRENT || !PJ_CURRENT || !fedShow()) return '';
+  const busy = FED_OWN_BUSY ? ' aria-disabled="true"' : '';
+  let h = '';
+  if (o.code) {
+    h += '<h4 class="fedout-h">This room is sealed</h4>'
+      + '<p class="fhint">To read it here, open this project on the computer that first shared it. A code appears there beside this computer. If it is the same as this one, press It matches here and Allow there.</p>'
+      + '<span class="ownseal-code" aria-label="Code ' + esc(o.code.replace('-', '').split('').join(' ')) + '">' + esc(o.code) + '</span>'
+      + '<div class="ownseal-acts"><button class="btn" type="button" data-own-act="match" data-own-code="' + esc(o.code) + '"' + busy + '>It matches</button>'
+      + '<button class="btn-quiet" type="button" data-own-act="nomatch"' + busy + '>Does not match</button></div>';
+  }
+  if (o.waiting.length) {
+    h += '<h4 class="fedout-h">Your computers waiting for this room</h4>'
+      + '<p class="fhint">Press Allow only if the code is the same as the one on that computer\'s screen.</p>'
+      + o.waiting.map((w) => '<div class="fedout-row"><span class="fedout-b"><b class="fedout-nm">Another of your computers</b>'
+        + '<span class="ownseal-code ownseal-code-sm" aria-label="Code ' + esc(String(w.code).replace('-', '').split('').join(' ')) + '">' + esc(w.code) + '</span></span>'
+        + '<button class="fedout-act" type="button" data-own-act="allow" data-own-pub="' + esc(w.pub) + '" data-own-code="' + esc(w.code) + '"' + busy
+        + ' aria-label="Allow the computer showing ' + esc(w.code) + '">Allow</button></div>').join('');
+  }
+  if (h && FED_OWN_MSG) h += '<p class="fmsg">' + esc(FED_OWN_MSG) + '</p>';
+  return h;
+}
+function fedOwnPaint() {
+  const el = document.getElementById('pj-fed-own');
+  if (!el) return;
+  const html = fedOwnHtml();
+  if (el.__ownHtml !== html) { el.__ownHtml = html; el.innerHTML = html; }
+}
+async function fedOwnLoad(project) {
+  if (!project || !fedShow()) return;
+  FED_OWN_ASKING = project;
+  const read = async (url) => {
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), 20000) : 0;
+    try {
+      const res = await fetch(url, { cache: 'no-store', signal: ctl ? ctl.signal : undefined });
+      const body = await res.json().catch(() => null);
+      return res.ok && body && typeof body === 'object' ? body : null;
+    } catch { return null; } finally { if (timer) clearTimeout(timer); }
+  };
+  const q = '?project=' + encodeURIComponent(project);
+  const [waiting, mine] = await Promise.all([read('/api/federation/own-waiting' + q), read('/api/federation/own-compare' + q)]);
+  if (FED_OWN_ASKING === project) FED_OWN_ASKING = null;
+  if (PJ_CURRENT !== project) return;
+  const rows = waiting && Array.isArray(waiting.computers) ? waiting.computers.filter((w) => w && typeof w.pub === 'string' && typeof w.code === 'string') : [];
+  FED_OWN = { project, waiting: rows, code: mine && typeof mine.code === 'string' ? mine.code : null, at: Date.now() };
+  fedOwnPaint();
+}
+// Called by fedGateMembers on every gate stamp while the project's Members card shows.
+function fedOwnTick() {
+  const o = FED_OWN;
+  const due = !o || o.project !== PJ_CURRENT || (!document.hidden && Date.now() - (o.at || 0) > FED_OWN_REFRESH_MS);
+  if (PJ_CURRENT && due && FED_OWN_ASKING !== PJ_CURRENT) fedOwnLoad(PJ_CURRENT);
+  else fedOwnPaint();
+}
+async function fedOwnPress(btn) {
+  const project = PJ_CURRENT;
+  if (!project || FED_OWN_BUSY || btn.getAttribute('aria-disabled') === 'true') return;
+  const act = btn.dataset.ownAct;
+  const url = act === 'allow' ? '/api/federation/own-allow' : '/api/federation/own-confirm';
+  const body = act === 'allow' ? { project, pub: btn.dataset.ownPub, code: btn.dataset.ownCode }
+    : act === 'match' ? { project, code: btn.dataset.ownCode } : { project, match: false };
+  FED_OWN_BUSY = true; FED_OWN_MSG = ''; fedOwnPaint();
+  let said;
+  try {
+    const { res, body: j } = await fedActPost((signal) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal }));
+    if (res.ok) {
+      said = act === 'allow' ? 'Allowed. That computer reads this room once its person confirms the same code there.'
+        : act === 'match' ? 'Confirmed. This computer reads the room as soon as the other computer allows it.'
+        : 'Started over. Compare the new code with the one on the other computer.';
+    } else said = (j && typeof j.error === 'string' && j.error) || 'That did not go through. Try again.';
+  } catch (err) {
+    said = err && err.name === 'AbortError' ? FED_ACT_TIMED_OUT : FED_UNREACHABLE;
+  }
+  FED_OWN_BUSY = false;
+  if (PJ_CURRENT !== project) return;
+  FED_OWN_MSG = said;
+  fedOwnLoad(project);
+}
+document.addEventListener('click', (e) => {
+  const btn = e.target && e.target.closest ? e.target.closest('#pj-fed-own [data-own-act]') : null;
+  if (btn) fedOwnPress(btn);
+});
 // The list starts over: no answer, no sentences, a new generation (answers to the last visit's Remove or Withdraw
 // are dropped), any members ask still in flight dropped too (FED_MEMBERS_SEQ), and the rail's markup memo cleared
 // so the next answer repaints the rail even if it matches what the last visit showed.
 function fedMembersReset() {
+  // kosmos#4658: the sealed-room key section starts over too, and is emptied now, so the last project's rows and
+  // buttons never show under this one while its own answer is asked for.
+  FED_OWN = null; FED_OWN_MSG = ''; FED_OWN_ASKING = null; fedOwnPaint();
   FED_MEMBERS = null; FED_MSGS = {}; FED_GEN++;
   FED_MEMBERS_SEQ++; FED_MEMBERS_ASKING = null;
   fedOutsidePaint.rail = undefined;
@@ -81386,8 +81492,10 @@ function fedGateMembers(show, mode) {
     // under the person (its request going on) for that would be the opposite of the invite sheet's rule.
     if (MEM_PENDING && MEM_PENDING.fed && mode !== 'signup') memConfirmClose();
     fedOutsidePaint(true);   // the rail redraws on the poll that stamped this; no second rail paint per poll
+    fedOwnPaint();           // kosmos#4658: empty while hidden (fedOwnHtml checks fedShow)
     return;
   }
+  fedOwnTick();   // kosmos#4658
   // A failed or unchecked load is asked again on a later stamp after 30 s, so the line can clear.
   // So is an answer the board could not check (checked_at not a number): the coordinator may be back.
   const fmNow = FED_MEMBERS;
