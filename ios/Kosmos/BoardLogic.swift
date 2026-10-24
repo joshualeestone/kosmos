@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import CryptoKit
 
 // kosmos#6838 slice 1: the native Agents tab's decisions, kept free of UIKit and
@@ -483,14 +484,24 @@ enum Board {
         let many = (row["attachments"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }
         let list = many.isEmpty ? [row["attachment"] as? [String: Any]].compactMap { $0 } : many
         return list.compactMap { a in
-            guard let url = a["url"] as? String, isBoardPath(url) else { return nil }
+            // The file's own route and nothing else: /api/attachment/<24 hex>, its id taken from it (as the board's
+            // PV_ATTS does), and its picture only at that id's /preview.
+            guard let url = a["url"] as? String, let id = attachmentId(url) else { return nil }
             let name = (a["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let kind = a["kind"] as? String ?? "other"
-            let preview = (a["preview"] as? String).flatMap { isBoardPath($0) ? $0 : nil }
-            return Attachment(id: a["id"] as? String ?? url, name: (name?.isEmpty == false ? name! : "a file"),
+            let preview = (a["preview"] as? String).flatMap { $0 == url + "/preview" ? $0 : nil }
+            return Attachment(id: id, name: (name?.isEmpty == false ? name! : "a file"),
                               type: a["type"] as? String ?? "", size: integer(a["size"]),
                               kind: ["image", "pdf", "text"].contains(kind) ? kind : "other", url: url, preview: preview)
         }
+    }
+
+    // The id in a file's route, only when the route is exactly /api/attachment/<24 lowercase hex>.
+    static func attachmentId(_ url: String) -> String? {
+        let prefix = "/api/attachment/"
+        guard url.hasPrefix(prefix) else { return nil }
+        let id = String(url.dropFirst(prefix.count))
+        return id.count == 24 && id.allSatisfy({ "0123456789abcdef".contains($0) }) ? id : nil
     }
 
     // One of the board's own routes: starts /api/, and no "..", no "//", no scheme (it is joined to the Mac's address).
@@ -555,11 +566,14 @@ enum Board {
         return r
     }
 
-    // The name the file is saved under for Quick Look: its own name, never a path, never hidden, never empty.
-    static func savedName(_ name: String) -> String {
+    // The name the file is saved under for Quick Look: its own name, never a path, never hidden, never empty, and with
+    // an extension Quick Look can pick a viewer by (from its type, when the name has none).
+    static func savedName(_ name: String, type: String = "") -> String {
         let cleaned = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
             .trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
-        return cleaned.isEmpty ? "file" : String(cleaned.prefix(200))
+        var base = cleaned.isEmpty ? "file" : String(cleaned.prefix(160))
+        if !base.contains("."), let ext = UTType(mimeType: type.lowercased())?.preferredFilenameExtension { base += "." + ext }
+        return base
     }
 
     struct Thread: Equatable {

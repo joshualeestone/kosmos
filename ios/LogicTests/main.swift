@@ -1036,15 +1036,15 @@ do {
 section("native chat: a message's files (kosmos#7016 part 2)")
 do {
     func row(_ json: String) -> Board.ChatRow? { Board.parseThread(Data(("{\"messages\":[" + json + "]}").utf8))?.rows.first }
-    let r = row(#"{"at":"2026-10-22T16:10:00Z","text":"a.pdf, b.docx","from":"cleo","attachments":[{"id":"aa","name":" a.pdf ","type":"application/pdf","size":2516582,"kind":"pdf","url":"/api/attachment/aa","preview":"/api/attachment/aa/preview"},{"id":"bb","name":"b.docx","type":"application/vnd.openxmlformats-officedocument.wordprocessingml.document","size":48211,"kind":"weird","url":"/api/attachment/bb","preview":null},{"id":"cc","name":"evil","url":"https://elsewhere.example/x"}],"attachment":{"id":"zz","url":"/api/attachment/zz"}}"#)!
-    check(r.attachments.map(\.id) == ["aa", "bb"], "attachments in order, a file at another address dropped, attachment ignored when attachments has any")
+    let r = row(#"{"at":"2026-10-22T16:10:00Z","text":"a.pdf, b.docx","from":"cleo","attachments":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaa","name":" a.pdf ","type":"application/pdf","size":2516582,"kind":"pdf","url":"/api/attachment/aaaaaaaaaaaaaaaaaaaaaaaa","preview":"/api/attachment/aaaaaaaaaaaaaaaaaaaaaaaa/preview"},{"id":"bbbbbbbbbbbbbbbbbbbbbbbb","name":"b.docx","type":"application/vnd.openxmlformats-officedocument.wordprocessingml.document","size":48211,"kind":"weird","url":"/api/attachment/bbbbbbbbbbbbbbbbbbbbbbbb","preview":null},{"id":"cc","name":"evil","url":"https://elsewhere.example/x"}],"attachment":{"id":"cccccccccccccccccccccccc","url":"/api/attachment/cccccccccccccccccccccccc"}}"#)!
+    check(r.attachments.map(\.id) == ["aaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbb"], "attachments in order, a file at another address dropped, attachment ignored when attachments has any")
     check(r.attachments[0].name == "a.pdf" && r.attachments[1].kind == "other" && r.wayThrough == .attachment, "names trimmed, an unknown kind is other")
-    check(row(#"{"text":"x","from":"cleo","attachment":{"id":"zz","name":"z.png","kind":"image","url":"/api/attachment/zz"}}"#)!.attachments.map(\.id) == ["zz"],
+    check(row(#"{"text":"x","from":"cleo","attachment":{"id":"cccccccccccccccccccccccc","name":"z.png","kind":"image","url":"/api/attachment/cccccccccccccccccccccccc"}}"#)!.attachments.map(\.id) == ["cccccccccccccccccccccccc"],
           "a lone attachment when there is no list")
-    check(row(#"{"text":"x","from":"cleo","attachment":{"id":"q","url":"/api/attachment/q","name":""}}"#)!.attachments[0].name == "a file", "no name: a file")
-    check(Board.isBoardPath("/api/attachment/aa") && !Board.isBoardPath("/api/../secret") && !Board.isBoardPath("//evil.example/api/x")
+    check(row(#"{"text":"x","from":"cleo","attachment":{"id":"q","url":"/api/attachment/dddddddddddddddddddddddd","name":""}}"#)!.attachments[0].name == "a file", "no name: a file")
+    check(Board.isBoardPath("/api/attachment/aaaaaaaaaaaaaaaaaaaaaaaa") && !Board.isBoardPath("/api/../secret") && !Board.isBoardPath("//evil.example/api/x")
           && !Board.isBoardPath("/apix") && !Board.isBoardPath("https://h/api/x") && !Board.isBoardPath("/api/a\\b"), "only the board's own routes")
-    let lead = row(#"{"text":"x","from":"c","attachment":{"url":"/api/attachment/q","preview":"https://elsewhere.example/p.png","kind":"image"}}"#)!.attachments[0]
+    let lead = row(#"{"text":"x","from":"c","attachment":{"url":"/api/attachment/dddddddddddddddddddddddd","preview":"https://elsewhere.example/p.png","kind":"image"}}"#)!.attachments[0]
     check(lead.preview == nil && !Board.hasThumbnail(lead), "a preview at another address is no preview")
     check(Board.hasThumbnail(r.attachments[0]) && !Board.hasThumbnail(r.attachments[1]), "a picture only for an image or PDF with a preview")
     check(Board.attachmentMeta(r.attachments[0]) == "PDF \u{00B7} 2.4 MB" && Board.attachmentMeta(r.attachments[1]) == "Word document \u{00B7} 47 KB",
@@ -1059,8 +1059,15 @@ do {
     check(Board.fileSymbol(r.attachments[0]) == "doc.richtext" && Board.fileSymbol(r.attachments[1]) == "doc", "the symbol for a file with no picture")
     check(Board.savedName("../etc/passwd") == "-etc-passwd" && Board.savedName(".hidden") == "hidden" && Board.savedName("  ") == "file"
           && Board.savedName("a:b.pdf") == "a-b.pdf", "a saved name is never a path, never hidden, never empty")
+    check(Board.savedName("report", type: "application/pdf") == "report.pdf" && Board.savedName("report.txt", type: "application/pdf") == "report.txt"
+          && Board.savedName("notes", type: "") == "notes", "a name with no extension takes one from its type, so Quick Look can open it")
+    check(Board.attachmentId("/api/attachment/" + String(repeating: "a", count: 24)) != nil && Board.attachmentId("/api/attachment/AAAAAAAAAAAAAAAAAAAAAAAA") == nil
+          && Board.attachmentId("/api/attachment/" + String(repeating: "a", count: 24) + "/preview") == nil && Board.attachmentId("/api/status") == nil,
+          "a file's route is exactly /api/attachment/<24 hex>")
+    let otherPreview = row(#"{"text":"x","from":"c","attachment":{"url":"/api/attachment/dddddddddddddddddddddddd","preview":"/api/attachment/aaaaaaaaaaaaaaaaaaaaaaaa/preview","kind":"image"}}"#)!.attachments[0]
+    check(otherPreview.preview == nil, "a picture from another file's route is no picture")
     let mac = URL(string: "https://studio.kosmosplus.com")!
-    check(Board.attachmentRequest(mac: mac, path: "/api/attachment/aa")?.url?.absoluteString == "https://studio.kosmosplus.com/api/attachment/aa"
+    check(Board.attachmentRequest(mac: mac, path: "/api/attachment/aaaaaaaaaaaaaaaaaaaaaaaa")?.url?.absoluteString == "https://studio.kosmosplus.com/api/attachment/aaaaaaaaaaaaaaaaaaaaaaaa"
           && Board.attachmentRequest(mac: mac, path: "//evil.example/api/x") == nil, "a file is fetched only from the connected Mac")
 }
 
@@ -1162,6 +1169,9 @@ final class FakeBoardWorld {
     // kosmos#7016 part 2: what a file route answers (nil: no answer), and the paths asked for.
     var attachmentAnswer: (Int, String, Data)? = (200, "application/pdf", Data("%PDF-1.4 sample".utf8))
     var attachmentAsks: [String] = []
+    var attachmentYields = 0
+    // File requests that have started (before any yield), so a test can act while one is on its way.
+    var attachmentStarted: [String] = []
     var threadYields = 0
     // Runs as a status read is answered (taken once), for a change that lands while a read is in flight.
     var onStatusRead: (() -> Void)?
@@ -1234,6 +1244,7 @@ func boardLoopTests() async {
                                  env: .init(send: { r in
                                                 if r.httpMethod == "POST" { for _ in 0..<world.postYields { await Task.yield() } }
                                                 else if r.url?.path.hasSuffix("/thread") == true { for _ in 0..<world.threadYields { await Task.yield() } }
+                                                else if r.url?.path.hasPrefix("/api/attachment/") == true { world.attachmentStarted.append(r.url!.path); for _ in 0..<world.attachmentYields { await Task.yield() } }
                                                 return world.send(r)
                                             },
                                             sleep: { world.clock += $0; await Task.yield() },
@@ -1570,12 +1581,18 @@ section("native board loop: connecting")
         c.stop()
     }
     do {
-        // kosmos#7016 part 2: opening a file and its picture, against the fake Mac.
+        // kosmos#7016 part 2: files opened in an earlier run do not outlive it (whose they were is not known any more).
+        let leftover = testFiles.appendingPathComponent("7777777777777777777777aa", isDirectory: true)
+        try? FileManager.default.createDirectory(at: leftover, withIntermediateDirectories: true)
+        try? Data("old".utf8).write(to: leftover.appendingPathComponent("old.pdf"))
+        check(FileManager.default.fileExists(atPath: leftover.path), "CONTROL: a file from an earlier run is on disk")
+        // Opening a file and its picture, against the fake Mac.
         let (c, w, _, _) = make("kst1")
+        check(!FileManager.default.fileExists(atPath: leftover.path), "a new client removes it")
         c.start()
         _ = await settle { isLive(c) }
-        let pdf = Board.Attachment(id: "aa11", name: "../Plan.pdf", type: "application/pdf", size: 10, kind: "pdf",
-                                   url: "/api/attachment/aa11", preview: "/api/attachment/aa11/preview")
+        let pdf = Board.Attachment(id: "111111111111111111111111", name: "../Plan.pdf", type: "application/pdf", size: 10, kind: "pdf",
+                                   url: "/api/attachment/111111111111111111111111", preview: "/api/attachment/111111111111111111111111/preview")
         let file = await c.fetchFile(pdf)
         check(file?.lastPathComponent == "-Plan.pdf" && file.map { $0.path.hasPrefix(testFiles.path) } == true
               && (file.flatMap { try? Data(contentsOf: $0) }) == Data("%PDF-1.4 sample".utf8),
@@ -1583,21 +1600,64 @@ section("native board loop: connecting")
         w.attachmentAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
         let page = await c.fetchFile(pdf)
         check(page == nil, "the gate's sign-in page in place of the file is no file")
+        let html = Board.Attachment(id: "444444444444444444444444", name: "page.html", type: "text/html", size: 1, kind: "other", url: "/api/attachment/444444444444444444444444", preview: nil)
+        let htmlFile = await c.fetchFile(html)
+        check(htmlFile == nil, "a web page is never opened here, even one the agent sent as HTML")
+        // Quick Look closed: that file goes, and only its own folder.
+        w.attachmentAnswer = (200, "application/pdf", Data("%PDF-1.4 sample".utf8))
+        let opened = await c.fetchFile(pdf)!
+        let other = await c.fetchFile(Board.Attachment(id: "555555555555555555555555", name: "o.pdf", type: "application/pdf", size: 1, kind: "pdf", url: "/api/attachment/555555555555555555555555", preview: nil))!
+        c.closed(opened)
+        check(!FileManager.default.fileExists(atPath: opened.path) && FileManager.default.fileExists(atPath: other.path), "closing removes that file only")
+        c.closed(testFiles.appendingPathComponent("loose.pdf"))
+        c.closed(URL(fileURLWithPath: "/tmp/x/y.pdf"))
+        check(FileManager.default.fileExists(atPath: other.path), "a path that is not a file's own folder removes nothing")
         w.attachmentAnswer = (404, "application/json", Data(#"{"error":"no such attachment"}"#.utf8))
         let missing = await c.fetchFile(pdf)
         check(missing == nil, "a 404 is no file")
         w.attachmentAnswer = nil
         let silent = await c.fetchFile(pdf)
         check(silent == nil, "no answer is no file")
+        // A whole 1200 x 800 picture comes back from the preview route (an image's preview is the image itself).
+        let big: Data = {
+            let ctx = CGContext(data: nil, width: 1200, height: 800, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: 1200, height: 800))
+            let out = NSMutableData()
+            let dest = CGImageDestinationCreateWithData(out, "public.png" as CFString, 1, nil)!
+            CGImageDestinationAddImage(dest, ctx.makeImage()!, nil); _ = CGImageDestinationFinalize(dest)
+            return out as Data
+        }()
         w.attachmentAnswer = (200, "image/png", Data([0x89, 0x50]))
         await c.loadThumbnail(pdf)
-        check(c.thumbnails["aa11"] == Data([0x89, 0x50]) && w.attachmentAsks.last == "/api/attachment/aa11/preview", "the picture comes from its preview route")
+        check(c.thumbnails["111111111111111111111111"] == nil, "bytes that are not a picture are no picture")
+        w.attachmentAnswer = (200, "image/png", big)
+        let pdf2 = Board.Attachment(id: "333333333333333333333333", name: "x.pdf", type: "application/pdf", size: 1, kind: "pdf",
+                                    url: "/api/attachment/333333333333333333333333", preview: "/api/attachment/333333333333333333333333/preview")
+        await c.loadThumbnail(pdf2)
+        let kept = c.thumbnails["333333333333333333333333"].flatMap { CGImageSourceCreateWithData($0 as CFData, nil) }.flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
+        check(kept.map { max($0.width, $0.height) } == 128 && (c.thumbnails["333333333333333333333333"]?.count ?? .max) < big.count,
+              "the picture kept is drawn at 128 px, never the whole file")
+        check(w.attachmentAsks.last == "/api/attachment/333333333333333333333333/preview", "the picture comes from its preview route")
         let asks = w.attachmentAsks.count
-        await c.loadThumbnail(pdf)
+        await c.loadThumbnail(pdf2)
         check(w.attachmentAsks.count == asks, "and is asked for once")
-        let doc = Board.Attachment(id: "bb22", name: "b.docx", type: "", size: nil, kind: "other", url: "/api/attachment/bb22", preview: nil)
+        let doc = Board.Attachment(id: "222222222222222222222222", name: "b.docx", type: "", size: nil, kind: "other", url: "/api/attachment/222222222222222222222222", preview: nil)
         await c.loadThumbnail(doc)
-        check(w.attachmentAsks.count == asks && c.thumbnails["bb22"] == nil, "no preview: no request")
+        check(w.attachmentAsks.count == asks && c.thumbnails["222222222222222222222222"] == nil, "no preview: no request")
+        // A sign-out while a file is on its way: nothing is written afterwards.
+        w.attachmentYields = 50
+        w.attachmentAnswer = (200, "application/pdf", Data("%PDF-1.4 late".utf8))
+        let late = Task { await c.fetchFile(Board.Attachment(id: "6666666666666666666666aa", name: "late.pdf", type: "application/pdf", size: 1,
+                                                             kind: "pdf", url: "/api/attachment/6666666666666666666666aa", preview: nil)) }
+        _ = await settle { w.attachmentStarted.last == "/api/attachment/6666666666666666666666aa" }
+        c.accountChanged()
+        let lateFile = await late.value
+        check(lateFile == nil && !FileManager.default.fileExists(atPath: testFiles.appendingPathComponent("6666666666666666666666aa").path),
+              "a file fetched across a sign-out is not written")
+        w.attachmentYields = 0
+        _ = await settle { isLive(c) }
+        _ = await c.fetchFile(pdf)
         check(FileManager.default.fileExists(atPath: testFiles.path), "CONTROL: the opened file's folder exists")
         c.accountChanged()
         check(!FileManager.default.fileExists(atPath: testFiles.path) && c.thumbnails.isEmpty, "a sign-out removes opened files and pictures")

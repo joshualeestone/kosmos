@@ -48,7 +48,8 @@ struct FileCard: View {
                 Spacer(minLength: 0)
             }
             .padding(.trailing, 12)
-            .frame(height: 64)
+            // 64 pt at the default text size; taller when the text is, so nothing is cut off.
+            .frame(minHeight: 64)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
             .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -57,9 +58,10 @@ struct FileCard: View {
         .buttonStyle(.plain)
         .disabled(state == .loading)
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel(file.name + ", " + Board.attachmentMeta(file))
         .accessibilityValue(state == .loading ? "Opening" : state == .failed ? "Could not open it" : "")
-        .accessibilityHint(state == .failed ? "Double-tap to try again." : "Double-tap to open.")
+        .accessibilityHint(state == .failed ? "Tries again." : "Opens the file.")
     }
 
     // A 64 pt picture for an image or a PDF with a preview; otherwise a symbol in a 40 pt rounded square.
