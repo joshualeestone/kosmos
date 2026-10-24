@@ -81429,14 +81429,15 @@ function fedOwnHtml() {
      computer that first shared the room gets rows (own-allowed answers [] anywhere else). There is no computer name
      to show (the coordinator does not carry it to the board), so a row says when it was allowed. */
   const allowed = o.allowed || [];
+  const whens = fedOwnWhens(allowed);
   if (allowed.length) {
     h += '<h4 class="fedout-h">Your other computers that read this room</h4>'
-      + allowed.map((a) => {
-        const when = fedOwnWhen(a.at);
+      + allowed.map((a, i) => {
+        const when = whens[i];
         return '<div class="fedout-row"><span class="fedout-b"><b class="fedout-nm">Another of your computers</b>'
           + (when ? '<span class="fhint">Allowed ' + esc(when) + '</span>' : '') + '</span>'
           + '<button class="ownseal-btn" type="button" data-own-act="remove" data-own-pub="' + esc(a.pub) + '"' + busy
-          + ' aria-label="Remove the computer allowed ' + esc(when || 'earlier') + ' from this room">Remove</button></div>';
+          + ' aria-label="Remove the computer allowed ' + esc(when ? when : 'earlier, ' + (i + 1) + ' of ' + allowed.length) + ' from this room">Remove</button></div>';
       }).join('');
   }
   // A press's sentence stays while the section still shows what the press left (fedOwnLoad clears it on a change),
@@ -81448,11 +81449,21 @@ function fedOwnHtml() {
 /* The code as two groups around a plain hyphen, read letter by letter (the label spells it out). Not devCodeHtml's
    boxes: those are for typing a code into a provider's page and may break between groups, and a code compared across
    two screens is one unbroken line (Mona's review). compareCode always makes XXXXX-XXXXX, one hyphen. */
-// When a computer was let in, as the row says it: a day and a month, or '' when the board did not say.
-function fedOwnWhen(at) {
+// When a computer was let in, as the row says it: a day and a month (the year too when it is not this year, the time
+// too when another row has the same day), or '' when the board did not say.
+function fedOwnWhen(at, withTime) {
   const n = Number(at);
   if (!Number.isFinite(n) || n <= 0) return '';
-  try { return new Date(n).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }); } catch { return ''; }
+  const d = new Date(n);
+  const o = { day: 'numeric', month: 'short' };
+  if (d.getFullYear() !== new Date().getFullYear()) o.year = 'numeric';
+  if (withTime) { o.hour = 'numeric'; o.minute = '2-digit'; }
+  try { return d.toLocaleString(undefined, o); } catch { return ''; }
+}
+// Each allowed row's day, with the time where two rows share a day, so no two Remove buttons have the same name.
+function fedOwnWhens(allowed) {
+  const day = allowed.map((a) => fedOwnWhen(a.at, false));
+  return allowed.map((a, i) => (day[i] && day.some((x, j) => j !== i && x === day[i]) ? fedOwnWhen(a.at, true) : day[i]));
 }
 function fedOwnSpelled(code) { return String(code).replace('-', '').split('').join(' '); }
 function fedOwnCodeHtml(code, extra) {
@@ -81551,6 +81562,20 @@ async function fedOwnLoad(project, fromPress) {
     ? allowedAns.computers.filter((a) => a && typeof a.pub === 'string').map((a) => ({ pub: a.pub, at: a.at }))
     : (prev && allowedMissed < 3 ? (prev.allowed || []) : []);
   FED_OWN = { project, waiting: rows, allowed, code, missed, rowsMissed, allowedMissed, at: Date.now() };
+  /* A Remove dialog open for a computer this answer no longer lists (removed by an earlier press whose answer was
+     lost, or this computer is no longer the room's owner) can never succeed: it closes, and the section says so.
+     Only on a real answer, and not while its own press is being asked. */
+  const pend = MEM_PENDING && MEM_PENDING.own;
+  if (pend && pend.project === project && pend.gen === FED_OWN_GEN && FED_OWN_BUSY !== project
+    && allowedAns && Array.isArray(allowedAns.computers) && !allowed.some((a) => a.pub === pend.pub)) {
+    fedOwnDialogDrop();
+    FED_OWN_MSG = { text: 'That computer is no longer listed here, so it does not read this room\'s new messages.', project, sig: fedOwnSig(FED_OWN), act: null };
+    const said$ = document.getElementById('pj-fed-own-said');
+    if (said$) { said$.textContent = ''; setTimeout(() => { if (FED_OWN_GEN === pend.gen) said$.textContent = FED_OWN_MSG ? FED_OWN_MSG.text : ''; }, 60); }
+    fedOwnPaint();
+    fedOwnRefocus(pend);
+    return;
+  }
   const m = FED_OWN_MSG;
   if (m && m.project === project) {
     if (fromPress) m.sig = fedOwnSig(FED_OWN);          // what the press left on screen
@@ -81639,7 +81664,7 @@ function fedMembersReset() {
 function fedOwnReset() {
   fedOwnPaint.rail = undefined;   // the rail's copy repaints for the next answer, as fedOutsidePaint.rail
   // A Remove dialog opened for the last visit closes: its computer is not this visit's to take out.
-  if (MEM_PENDING && MEM_PENDING.own) memConfirmClose();
+  if (MEM_PENDING && MEM_PENDING.own) fedOwnDialogDrop();   // no refocus: this section is about to be emptied
   FED_OWN_CONFIRMED = null;
   FED_OWN = null; FED_OWN_MSG = null; FED_OWN_ASKING = null; FED_OWN_BUSY = null; FED_OWN_SEQ++; FED_OWN_GEN++; fedOwnPaint();
   const said$ = document.getElementById('pj-fed-own-said'); if (said$) said$.textContent = '';
@@ -81658,22 +81683,34 @@ function fedOwnRemoveOpen(btn) {
   const box = btn.closest ? btn.closest('#pj-fed-own, #alist-fed-own') : null;
   fedRemoveReset();
   MEM_PENDING = { btn, own: { project, pub, box: box ? box.id : 'pj-fed-own', gen: FED_OWN_GEN } };
-  const when = fedOwnWhen(row.at);
-  document.getElementById('mem-title').textContent = 'Take this computer out of ' + pjName + '?';
+  const list = FED_OWN.allowed || [];
+  const when = fedOwnWhens(list)[list.indexOf(row)];
+  document.getElementById('mem-title').textContent = 'Remove this computer from ' + pjName + '?';
   document.getElementById('mem-small').textContent = 'The computer you allowed' + (when ? ' on ' + when : '')
     + ' stops reading new messages in this room: the room moves to a new key that computer is not sent. What it already'
     + ' read stays on it. It can ask to come back, and you would compare codes again.';
   document.getElementById('mem-keep').textContent = 'Cancel';
   const go = document.getElementById('mem-go');
-  go.textContent = 'Take it out';
+  go.textContent = 'Remove it';
   go.classList.add('danger-btn');
   document.getElementById('mem-modal').hidden = false;
   document.getElementById('mem-keep').focus();
 }
-// Focus after the dialog: the same computer's Remove if it is still listed, else the section's sentence or heading.
+// The dialog closed without placing focus, for a caller that repaints first and then calls fedOwnRefocus.
+function fedOwnDialogDrop() {
+  document.getElementById('mem-modal').hidden = true;
+  MEM_PENDING = null;
+  fedRemoveReset();
+}
+/* Focus after the dialog: the same computer's Remove if it is still listed, else the section's sentence or heading.
+   Only when focus has nowhere of the person's own: on the page itself, in the closed dialog, or in the section. */
 function fedOwnRefocus(own) {
   const host = document.getElementById(own.box) || document.getElementById('pj-fed-own');
   if (!host) return;
+  const ae = document.activeElement;
+  const modal = document.getElementById('mem-modal');
+  if (modal && !modal.hidden) return;   // another dialog has opened since
+  if (ae && ae !== document.body && !(modal && modal.contains(ae)) && !(ae.closest && ae.closest('#pj-fed-own, #alist-fed-own'))) return;
   const again = [...host.querySelectorAll('[data-own-act="remove"]')].find((x) => x.dataset.ownPub === own.pub);
   if (again && again.getClientRects().length) { again.focus(); return; }
   const spot = host.querySelector('.fmsg') || host.querySelector('.fedout-h') || document.querySelector('.pjcard-members .dlab');
@@ -81687,10 +81724,10 @@ async function fedOwnRemoveGo() {
   const dlgLine = document.getElementById('mem-msg');
   if (!fedShow()) { dlgLine.textContent = 'Removing is not available just now. Try again in a moment.'; return; }
   if (f.gen !== FED_OWN_GEN || PJ_CURRENT !== f.project || FED_OWN_BUSY === f.project) return;
-  // Focus moves to Cancel BEFORE Take it out is disabled, as fedRemoveGo does, so it never drops to the page.
+  // Focus moves to Cancel BEFORE Remove it is disabled, as fedRemoveGo does, so it never drops to the page.
   document.getElementById('mem-keep').focus();
   go.disabled = true;
-  dlgLine.textContent = 'Taking it out…';
+  dlgLine.textContent = 'Removing…';
   FED_OWN_SEQ++;   // a refresh already in flight answers from before the remove: it is dropped
   FED_OWN_BUSY = f.project; FED_OWN_MSG = null; fedOwnPaint();
   const said$ = document.getElementById('pj-fed-own-said');
@@ -81712,8 +81749,9 @@ async function fedOwnRemoveGo() {
   const still = MEM_PENDING === p;   // Cancel or Escape may have closed the dialog while it was asked
   if (still) go.disabled = false;
   const ok = !said && !!res && res.ok;
-  if (!ok && !said) said = (body && typeof body.error === 'string' && body.error) || 'Kosmos could not take that computer out just now. Try again in a moment.';
-  // Refused or unreachable with the dialog open: said in it, the computer still listed, Take it out live to retry.
+  if (!ok && !said) said = (body && typeof body.error === 'string' && body.error) || 'Kosmos could not remove that computer just now. Try again in a moment.';
+  // Refused or unreachable with the dialog open: said in it, the computer still listed, Remove it live to retry. The
+  // reload then closes the dialog if the board no longer lists that computer (fedOwnLoad).
   if (!ok && !timedOut && still) {
     dlgLine.textContent = said;
     fedOwnPaint();
@@ -81722,11 +81760,11 @@ async function fedOwnRemoveGo() {
   }
   if (ok) {
     if (FED_OWN && FED_OWN.project === f.project) FED_OWN = Object.assign({}, FED_OWN, { allowed: (FED_OWN.allowed || []).filter((a) => a.pub !== f.pub) });
-    said = 'Taken out. That computer cannot read anything posted here from now on. It can ask to come back, and you would compare codes again.';
+    said = 'Removed. That computer cannot read anything posted here from now on. It can ask to come back, and you would compare codes again.';
   }
   // Done (or given up on): the dialog closes and the sentence is said in the section, where the list shows what the
   // board did. Closed by hand, focus is the section's to place (memConfirmClose already ran).
-  if (still) { document.getElementById('mem-modal').hidden = true; MEM_PENDING = null; fedRemoveReset(); }
+  if (still) fedOwnDialogDrop();
   FED_OWN_MSG = { text: said, project: f.project, sig: null, act: ok ? 'remove' : null };
   if (said$) setTimeout(() => { if (FED_OWN_GEN === f.gen) said$.textContent = said; }, 60);
   fedOwnPaint();
@@ -81774,9 +81812,13 @@ function fedGateMembers(show, mode) {
   if (!show) {
     // Only "hidden" closes an open outside Remove: a passing "signup" reading is one poll, and closing the dialog
     // under the person (its request going on) for that would be the opposite of the invite sheet's rule.
-    if (MEM_PENDING && (MEM_PENDING.fed || MEM_PENDING.own) && mode !== 'signup') memConfirmClose();
+    if (MEM_PENDING && MEM_PENDING.fed && mode !== 'signup') memConfirmClose();
+    // kosmos#4658: an own Remove closes the same way, but focus is placed after the section has emptied.
+    const ownOpen = MEM_PENDING && MEM_PENDING.own && mode !== 'signup' ? MEM_PENDING.own : null;
+    if (ownOpen) fedOwnDialogDrop();
     fedOutsidePaint(true);   // the rail redraws on the poll that stamped this; no second rail paint per poll
     fedOwnPaint();           // kosmos#4658: empty while hidden (fedOwnHtml checks fedShow)
+    if (ownOpen) fedOwnRefocus(ownOpen);
     return;
   }
   fedOwnTick();   // kosmos#4658

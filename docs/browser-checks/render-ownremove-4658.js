@@ -11,7 +11,7 @@
  *  - Remove ASKS FIRST (Josh's rule, the #761 dialog): nothing is posted on the press, and Cancel posts nothing and
  *    brings focus back to that Remove;
  *  - a refusal is said in the dialog, which stays open with the computer still listed;
- *  - Take it out sends exactly that row's key and the project, closes the dialog, takes the row away, and says so in
+ *  - Remove it sends exactly that row's key and the project, closes the dialog, takes the row away, and says so in
  *    the section, with focus inside the section;
  *  - failed reads after a remove never bring the removed computer back, and a later answer listing it again (it
  *    was let in again) shows it again;
@@ -85,6 +85,8 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           let refuseNext = false;
           let failReads = false;
           let failsServed = 0;
+          let allowedGets = 0;
+          let holdPost = null;   // a promise own-remove waits on, to act while it is in flight
           await page.route('**/api/federation/own-*', async (r) => {
             try {
               const u = new URL(r.request().url());
@@ -92,11 +94,13 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
               if (r.request().method() === 'GET') {
                 if (failReads) { failsServed += 1; return await r.fulfill({ status: 500, json: { error: 'blip' } }); }
                 if (u.pathname.endsWith('/own-compare')) return await r.fulfill({ json: { code: null } });
+                if (u.pathname.endsWith('/own-allowed')) allowedGets += 1;
                 if (u.pathname.endsWith('/own-allowed')) return await r.fulfill({ json: { computers: pid === ownerP.id ? state.allowed : [] } });
                 return await r.fulfill({ json: { computers: [] } });   // own-waiting: nobody waiting
               }
               const body = JSON.parse(r.request().postData() || '{}');
               posted.push({ path: u.pathname, body });
+              if (holdPost) await holdPost;
               if (refuseNext) { refuseNext = false; return await r.fulfill({ status: 409, json: { error: REFUSAL } }); }
               if (u.pathname.endsWith('/own-remove')) { state.allowed = state.allowed.filter((x) => x.pub !== body.pub); return await r.fulfill({ json: { removed: true } }); }
               return await r.fulfill({ status: 400, json: { error: 'unexpected' } });
@@ -113,7 +117,7 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           if (!live) {
             await page.waitForTimeout(1500);
             const seen = await page.evaluate(() => document.querySelectorAll('[data-own-act="remove"]').length);
-            chk(seen === 0, `${E} no Remove rows while federation is not live`, String(seen));
+            chk(seen === 0 && allowedGets === 0, `${E} no Remove rows, and the list is never asked, while federation is not live`, JSON.stringify({ seen, allowedGets }));
             chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
             await ctx.close();
             continue;
@@ -139,7 +143,7 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           await page.waitForFunction(() => !document.getElementById('mem-modal').hidden, null, { timeout: 4000 }).catch(() => null);
           const dlg = await page.evaluate(() => ({ open: !document.getElementById('mem-modal').hidden, title: document.getElementById('mem-title').textContent,
             go: document.getElementById('mem-go').textContent, focus: document.activeElement && document.activeElement.id }));
-          chk(dlg.open && /^Take this computer out of /.test(dlg.title) && dlg.go === 'Take it out', `${E} Remove opens the confirm dialog`, JSON.stringify(dlg));
+          chk(dlg.open && /^Remove this computer from /.test(dlg.title) && dlg.go === 'Remove it', `${E} Remove opens the confirm dialog`, JSON.stringify(dlg));
           chk(dlg.focus === 'mem-keep', `${E} the dialog opens on Cancel`, String(dlg.focus));
           chk(posted.length === 0, `${E} pressing Remove posts nothing before the confirm`, String(posted.length));
           // A refresh while the dialog is open rebuilds the rows (the laptop's day moves, so the markup changes): the
@@ -169,24 +173,24 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
             listed: !!document.querySelector(s), live: !document.getElementById('mem-go').disabled }), sel);
           chk(refused.open && refused.msg === REFUSAL && refused.listed && refused.live, `${E} a refusal is said in the dialog, the computer still listed`, JSON.stringify(refused));
 
-          // Take it out: exactly that row's key, the dialog closes, the row goes, the section says so. The reads fail
+          // Remove it: exactly that row's key, the dialog closes, the row goes, the section says so. The reads fail
           // from here, so the reload after the remove keeps the list it had: the removed computer must not be in it.
           failReads = true; failsServed = 0;
           await page.click('#mem-go');
           await page.waitForFunction((s) => document.getElementById('mem-modal').hidden && !document.querySelector(s), sel, { timeout: 8000 }).catch(() => null);
           const rm = posted.filter((p) => p.path.endsWith('/own-remove'));
           const last = rm[rm.length - 1];
-          chk(rm.length === 2 && last.body.project === ownerP.id && last.body.pub === 'pub-desk' && Object.keys(last.body).length === 2, `${E} Take it out sends exactly that row's key and the project`, JSON.stringify(rm));
+          chk(rm.length === 2 && last.body.project === ownerP.id && last.body.pub === 'pub-desk' && Object.keys(last.body).length === 2, `${E} Remove it sends exactly that row's key and the project`, JSON.stringify(rm));
           const done = await page.evaluate((box) => {
             const a = document.activeElement;
             return { open: !document.getElementById('mem-modal').hidden, left: [...document.querySelectorAll(box + ' [data-own-act="remove"]')].map((b) => b.dataset.ownPub),
               msg: (document.querySelector(box + ' .fmsg') || {}).textContent || '', inBox: !!(a && a.closest && a.closest(box)), onRemove: !!(a && a.dataset && a.dataset.ownAct === 'remove') };
           }, BOX);
           chk(!done.open && done.left.length === 1 && done.left[0] === 'pub-laptop' && failsServed >= 1, `${E} the removed computer leaves the list, even when the reload after it fails`, JSON.stringify(done.left) + ' fails=' + failsServed);
-          chk(/^Taken out\./.test(done.msg), `${E} the section says it was taken out`, done.msg);
+          chk(/^Removed\./.test(done.msg), `${E} the section says it was taken out`, done.msg);
           chk(done.inBox && !done.onRemove, `${E} focus stays in the section, not on another computer's Remove`, JSON.stringify(done));
-          await page.waitForFunction(() => /^Taken out\./.test(document.getElementById('pj-fed-own-said').textContent), null, { timeout: 4000 }).catch(() => null);
-          chk(/^Taken out\./.test(await page.evaluate(() => document.getElementById('pj-fed-own-said').textContent)), `${E} the result is put in the one live region`);
+          await page.waitForFunction(() => /^Removed\./.test(document.getElementById('pj-fed-own-said').textContent), null, { timeout: 4000 }).catch(() => null);
+          chk(/^Removed\./.test(await page.evaluate(() => document.getElementById('pj-fed-own-said').textContent)), `${E} the result is put in the one live region`);
 
           // A second failed load (two misses in a row, the most a list is kept through) still keeps it without the
           // removed computer.
@@ -200,6 +204,69 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
           await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
           chk(!!(await page.$(sel)), `${E} a computer let in again is listed again`);
+
+          const held = () => { let go; holdPost = new Promise((res) => { go = res; }); return () => { holdPost = null; go(); }; };
+          const openOn = async (pub) => {
+            await page.click(BOX + ' [data-own-act="remove"][data-own-pub="' + pub + '"]');
+            await page.waitForFunction(() => !document.getElementById('mem-modal').hidden, null, { timeout: 4000 }).catch(() => null);
+          };
+          const lookReset = () => page.evaluate(() => ({ danger: document.getElementById('mem-go').classList.contains('danger-btn'),
+            disabled: document.getElementById('mem-go').disabled, msg: document.getElementById('mem-msg').textContent }));
+          // Escape while the remove is in flight, then it succeeds: the dialog stays closed, the row goes, the section
+          // says Removed, and the shared dialog is back to its plain look for its other users.
+          let release = held();
+          await openOn('pub-desk');
+          await page.click('#mem-go');
+          await page.waitForFunction(() => document.getElementById('mem-msg').textContent === 'Removing…', null, { timeout: 4000 }).catch(() => null);
+          await page.keyboard.press('Escape');
+          release();
+          await page.waitForFunction((s) => !document.querySelector(s) && /^Removed\./.test((document.querySelector(s.split(' ')[0] + ' .fmsg') || {}).textContent || ''), sel, { timeout: 8000 }).catch(() => null);
+          const esc1 = await page.evaluate((s) => ({ open: !document.getElementById('mem-modal').hidden, listed: !!document.querySelector(s),
+            msg: (document.querySelector(s.split(' ')[0] + ' .fmsg') || {}).textContent || '' }), sel);
+          chk(!esc1.open && !esc1.listed && /^Removed\./.test(esc1.msg), `${E} Escape during the remove: it still lands, said in the section`, JSON.stringify(esc1));
+          const look1 = await lookReset();
+          chk(!look1.danger && !look1.disabled && look1.msg === '', `${E} after an own Remove the shared dialog is back to its plain look`, JSON.stringify(look1));
+          // Cancel while a refused remove is in flight: the refusal is said in the section, the dialog stays closed.
+          state.allowed = state.allowed.concat([{ pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }]);
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
+          release = held(); refuseNext = true;
+          await openOn('pub-desk');
+          await page.click('#mem-go');
+          await page.waitForFunction(() => document.getElementById('mem-msg').textContent === 'Removing…', null, { timeout: 4000 }).catch(() => null);
+          await page.click('#mem-keep');
+          release();
+          await page.waitForFunction((a) => ((document.querySelector(a.box + ' .fmsg') || {}).textContent || '') === a.t, { box: BOX, t: REFUSAL }, { timeout: 8000 }).catch(() => null);
+          const can1 = await page.evaluate((s) => ({ open: !document.getElementById('mem-modal').hidden, listed: !!document.querySelector(s),
+            msg: (document.querySelector(s.split(' ')[0] + ' .fmsg') || {}).textContent || '' }), sel);
+          chk(!can1.open && can1.listed && can1.msg === REFUSAL, `${E} Cancel during a refused remove: the refusal is said in the section, the computer still listed`, JSON.stringify(can1));
+          // The list no longer has the dialog's computer (removed by a press whose answer was lost): the dialog closes,
+          // the section says so, focus stays in the section.
+          await openOn('pub-desk');
+          state.allowed = state.allowed.filter((x) => x.pub !== 'pub-desk');
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForFunction(() => document.getElementById('mem-modal').hidden, null, { timeout: 4000 }).catch(() => null);
+          const gone = await page.evaluate((box) => { const a = document.activeElement;
+            return { open: !document.getElementById('mem-modal').hidden, msg: (document.querySelector(box + ' .fmsg') || {}).textContent || '', inBox: !!(a && a.closest && a.closest(box)) }; }, BOX);
+          chk(!gone.open && /no longer listed/.test(gone.msg) && gone.inBox, `${E} a dialog whose computer the list no longer has closes and says so`, JSON.stringify(gone));
+          state.allowed = state.allowed.concat([{ pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }]);
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
+          // A project switch while the remove is in flight: the answer changes nothing in the project now open.
+          release = held();
+          await openOn('pub-desk');
+          await page.click('#mem-go');
+          await page.waitForFunction(() => document.getElementById('mem-msg').textContent === 'Removing…', null, { timeout: 4000 }).catch(() => null);
+          await open(quietP.id);
+          release();
+          await page.waitForTimeout(800);
+          const sw = await page.evaluate(() => ({ open: !document.getElementById('mem-modal').hidden, text: ((document.getElementById('pj-fed-own') || {}).textContent || '') + ((document.getElementById('alist-fed-own') || {}).textContent || '') }));
+          chk(!sw.open && !/Removed/.test(sw.text), `${E} a project switch during the remove: the answer changes nothing in the new project`, JSON.stringify(sw));
+          await open(ownerP.id);
+          if (view === 'consolidated') await page.evaluate((pid) => { applyLayout('consolidated', true); showTab('projects'); openProject(pid); }, ownerP.id);
+          state.allowed = state.allowed.filter((x) => x.pub !== 'pub-desk').concat([{ pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }]);
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForSelector(sel, { timeout: 8000 }).catch(() => null);
 
           // Entering another project closes an open dialog and posts nothing.
           const before = posted.length;
