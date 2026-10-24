@@ -18848,7 +18848,16 @@ const server = http.createServer(async (req, res) => {
         /* #5406 slice C: a press that names its question (`asked`) is checked even when its words were dropped by the
            bounds above: otherwise its digit would skip every check below and be typed as an ordinary prompt. */
         const askedGiven = typeof body.asked === 'string' && chat.cleanMessage(body.asked).trim() !== '';
-        if (chose || askedGiven) {
+        /* kosmos#7020: a press on a permission card names the request it was drawn for (chat.permissionRequestId, the
+           `request` the thread route serves on the card). Optional, like `asked`; a value that is not one Kosmos made
+           is refused before anything else is looked at. */
+        const requestGiven = body.request !== undefined && body.request !== null;
+        if (requestGiven && !(typeof body.request === 'string' && /^[0-9a-f]{64}$/.test(body.request))) {
+          const bad = new Error('that press names a request Kosmos did not make, so we did not send it.');
+          bad.status = 400;
+          throw bad;
+        }
+        if (chose || askedGiven || requestGiven) {
           /**
            * ⚠️ A BUTTON SEND IS REFUSED WHEN THE SCREEN CONTRADICTS IT, rather
            * than stripped of its words and sent anyway.
@@ -19012,6 +19021,23 @@ const server = http.createServer(async (req, res) => {
               : 'its question is no longer on its screen, so we did not send the answer. What is on this page now is current.');
             gone.status = 409;
             throw gone;
+          }
+          /**
+           * ⚠️ kosmos#7020: AND WHICH REQUEST. Every permission prompt asks "Do you want to proceed?" above "Yes" and
+           * "No", so when the box's own lines read the same (the `asked` check above compares them), only the card's
+           * reading of the request tells two prompts apart. A press that names a request is typed only while the
+           * prompt on screen has that same fingerprint; with no permission prompt readable on screen it is refused
+           * too, since the press was for one. After the checks above, so their more specific sentences win.
+           */
+          if (requestGiven) {
+            const permLive = (seen && typeof seen.text === 'string') ? chat.permissionCard(seen.text) : null;
+            if (!permLive || chat.permissionRequestId(permLive) !== body.request) {
+              const moved = new Error('its screen moved between drawing that button and sending it, '
+                + 'so we did not send the answer. What is on this page now is current: press again '
+                + 'if it is still the one you want.');
+              moved.status = 409;
+              throw moved;
+            }
           }
         }
         // Deliver first, then record the verdict with it — and record even a
