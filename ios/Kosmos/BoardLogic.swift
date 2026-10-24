@@ -351,10 +351,13 @@ enum Board {
 
     // #7034 (#6719 on the phone): the person's starred agents, by session name, as the board keeps them
     // (GET /api/agent-stars answers { names, ok }).
+    // The list waits for this read on a re-sort, so it gives up sooner than the session's 15 s.
+    static let starsTimeout: TimeInterval = 4
     static func starsRequest(mac: URL) -> URLRequest {
         var r = URLRequest(url: URL(string: "/api/agent-stars", relativeTo: mac)!.absoluteURL)
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.cachePolicy = .reloadIgnoringLocalCacheData
+        r.timeoutInterval = starsTimeout
         return r
     }
 

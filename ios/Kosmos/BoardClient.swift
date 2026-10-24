@@ -59,6 +59,9 @@ final class BoardClient: ObservableObject {
     // #7034: the person's starred agents as last read from a Mac, by its address. Read when the list is re-sorted; an
     // answer that cannot be read keeps the last ones, and one Mac's stars never order another's list.
     private var stars: (mac: String, names: Set<String>)?
+    // Status reads by the order they started, and the one the shown list came from.
+    private var readsStarted = 0
+    private var shownTicket = 0
     // The Mac the shown list came from.
     private var shownMac: Board.Mac?
 
@@ -883,8 +886,8 @@ final class BoardClient: ObservableObject {
     }
 
     // #7034: the person's stars on this Mac, or nil when they cannot be read.
-    private func readStars(url: URL) async -> Set<String>? {
-        guard let result = await env.send(Board.starsRequest(mac: url)), (200...299).contains(result.1.statusCode)
+    private func readStars(url: URL, if wanted: Bool) async -> Set<String>? {
+        guard wanted, let result = await env.send(Board.starsRequest(mac: url)), (200...299).contains(result.1.statusCode)
         else { return nil }
         return Board.parseStars(result.0)
     }
@@ -892,23 +895,32 @@ final class BoardClient: ObservableObject {
     // false ends the loop. 401s for 15 s (at once if no list was read in this run), or the gate's sign-in page in place of the board's answer, mean the Mac's
     // session ended: sign in to it again, at most once every 30 s. Three refreshes in a row with no list (no answer, a 5xx,
     // a redirect, an answer that is not the list) say the Mac is not answering rather than leave an old list up.
-    // The list shows as current only after a refresh that read it.
+    // The list shows as current only after a refresh that read it. A re-sort reads the stars beside the list; an answer
+    // that cannot be read keeps the last ones from the same Mac.
     private func refresh(url: URL, mac: Board.Mac, _ gen: Int) async -> Bool {
+        readsStarted += 1
+        let ticket = readsStarted
+        // Taken when the read starts: a pull sets it while another read may already be in the air.
+        let resort = resortNext
+        async let starsRead = readStars(url: url, if: resort)
         let result = await env.send(Board.statusRequest(mac: url))
+        let names = await starsRead
         guard gen == generation else { return false }
         // A read that was cancelled (a pull to refresh SwiftUI dropped) says nothing about the Mac.
         if Task.isCancelled { return true }
         let answer = result?.1
         let status = answer?.statusCode ?? 0
         if (200...299).contains(status), let data = result?.0, let rows = Board.parseAgents(data) {
-            if resortNext, let names = await readStars(url: url) { stars = (mac.address, names) }
-            guard gen == generation else { return false }
+            // A read that started before the list now shown answers older rows: they are not put back over it.
+            guard ticket > shownTicket else { return true }
+            shownTicket = ticket
+            if let names { stars = (mac.address, names) }
             let known = stars?.mac == mac.address ? stars?.names : nil
-            agents = resortNext ? Board.sorted(rows, stars: known) : Board.keepingOrder(agents, with: rows, stars: known)
+            agents = resort ? Board.sorted(rows, stars: known) : Board.keepingOrder(agents, with: rows, stars: known)
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
             tasksTab = AppTabs.tasksTab(fromStatus: data)   // kosmos#7032: Tasks earned, with no board page loaded
             projectsUnread = AppTabs.projectsUnread(fromStatus: data)     // kosmos#7032: the Projects tab's badge
-            resortNext = false
+            if resort { resortNext = false }
             updatedAt = env.now()
             failedRefreshes = 0
             unauthorizedSince = nil
