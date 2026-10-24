@@ -104,3 +104,11 @@ Design (Mona Lisa, approved): links stacked with no extra space; the address sta
    the older keychain session is put back on the next document. Converges, no loop; needs a keychain write failure.
 4. [LOW] RECORDED: backing out of an issued session signs it out on the phone only; nothing asks Kosmos+ to end it,
    so a later Allow on the Mac allows a session no phone holds (the coordinator's own expiry ends it).
+
+## Review round 5 (blind, 07:1x): no blocking defect
+1. [MEDIUM-LOW] Signed out later in a launch, the next sign-in was the web page's, whose own device key makes this
+   iPhone a second device on the Mac. FIXED: when the app's session goes and the native sign-in is not showing, it
+   comes back from the email (SignInModel.restart). Recorded gap: the Mac's "fresh sign-in" link (?fresh=1) then
+   lands on the native screen, not the page's "open my Kosmos" continuation.
+2. [LOW] RECORDED: rebuilding the start scripts is removeAll then add, so a document starting in that gap gets neither
+   (the tab-bar mark, the session). WebKit has no single-script remove; the page then falls back to its own copy.
