@@ -182,6 +182,7 @@ SETUP_SRC="$SITE/setup-staging"
 SETUP_HAND="cp setup-staging setup && cp setup-staging.sha256 setup.sha256"
 SNAP_LABEL="$STAGING"
 PTR_WORDS="the staging pointer"; PTR_SUBJ="staging"; PTR_SHA_WORDS="staging pointer"   # named mode names its commit instead
+FORCE_WORDS="--force"   # named mode needs --sha with it, and says so wherever it offers --force
 SETUP_MISMATCH_HINT="(A later staging cut replaced it, or the checkout is stale.)"
 SETUP_HAND_HINT="setup-staging, copy setup-staging (+ .sha256) onto setup (+ .sha256) by hand"
 if [ -n "$NAMED_VERSION" ]; then
@@ -278,6 +279,7 @@ if [ -n "$NAMED_VERSION" ]; then
   rm -f "$NAMED_DIR/candidate.json"
   SNAP_LABEL="the $STAGING_NAME committed in ${NAMED_COMMIT:0:10}"
   PTR_WORDS="the pointer committed in ${NAMED_COMMIT:0:10}"; PTR_SUBJ="$PTR_WORDS"; PTR_SHA_WORDS="$PTR_WORDS"
+  FORCE_WORDS="--force with --sha <8+ characters of $NAMED_VERSION's sha256>"
   SETUP_MISMATCH_HINT="(The installer committed beside $SNAP_LABEL is not the one it names.)"
   SETUP_SRC="$NAMED_DIR/setup-staging"
   for _f in setup-staging setup-staging.sha256; do
@@ -287,7 +289,7 @@ if [ -n "$NAMED_VERSION" ]; then
   SETUP_HAND="git show ${NAMED_COMMIT}:setup-staging > setup && git show ${NAMED_COMMIT}:setup-staging.sha256 > setup.sha256"
   # Only V's own cut commit changes setup-staging; beside any other commit naming V (a republish) setup-staging is
   # whatever an earlier commit left, maybe a LATER cut's, so it is not offered as V's installer.
-  if git -C "$SITE" diff-tree --no-commit-id --name-only -r "$NAMED_COMMIT" -- setup-staging | grep -qx setup-staging; then
+  if git -C "$SITE" diff-tree --root --no-commit-id --name-only -r "$NAMED_COMMIT" -- setup-staging | grep -qx setup-staging; then
     SETUP_HAND_HINT="the installer committed beside $SNAP_LABEL, run $SETUP_HAND (in $SITE)"
   else
     SETUP_HAND_HINT="an installer, find it by hand: ${NAMED_COMMIT:0:10} did not commit one, so the setup-staging beside it may belong to another cut. Copy that cut's setup-staging (+ .sha256) onto setup (+ .sha256)"
@@ -566,7 +568,7 @@ if [ "$FAMILY" = mac ]; then
       if [ "$FORCE" = 1 ]; then
         echo "promote-channel: agent-spawn gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: agent spawn was NOT automatically verified." >&2
       else
-        echo "promote-channel: agent-spawn gate could not run here (exit 2, cannot-tell) - no enforcing board, a provider not signed in, or an agent that did not answer in time (the gate says which above). HOLDING. Fix what it names and run again, or pass --force after verifying by hand." >&2
+        echo "promote-channel: agent-spawn gate could not run here (exit 2, cannot-tell) - no enforcing board, a provider not signed in, or an agent that did not answer in time (the gate says which above). HOLDING. Fix what it names and run again, or pass $FORCE_WORDS after verifying by hand." >&2
         exit 2
       fi ;;
     3)
@@ -578,7 +580,7 @@ if [ "$FAMILY" = mac ]; then
         [ "$GATE_RC" = 2 ] && echo "promote-channel: NOTE: that board was not shown to run $V (the experience gate above could not tell), so this agent-spawn result is not a check of $V." >&2
         echo "promote-channel: agent-spawn gate PARTIAL (exit 3, Claude online / OpenAI-Codex arm failed) and --force was given - promoting the Claude fix + OpenAI gating; the OpenAI/Codex spawn issue is a separate card. NOTE: the OpenAI arm was NOT verified online." >&2
       else
-        echo "promote-channel: agent-spawn gate PARTIAL (exit 3) - the CLAUDE arm is ONLINE (the #2129 fix works) but the OpenAI/Codex arm did NOT come online. This may be a separate codex-spawn issue #2129 does not fix. NOT auto-holding: surface WHICH arm failed to the operator - the Claude fix + OpenAI gating are shippable. Re-run with --force to promote them now and chase the codex issue separately, or hold for an operator ruling." >&2
+        echo "promote-channel: agent-spawn gate PARTIAL (exit 3) - the CLAUDE arm is ONLINE (the #2129 fix works) but the OpenAI/Codex arm did NOT come online. This may be a separate codex-spawn issue #2129 does not fix. NOT auto-holding: surface WHICH arm failed to the operator - the Claude fix + OpenAI gating are shippable. Re-run with $FORCE_WORDS to promote them now and chase the codex issue separately, or hold for an operator ruling." >&2
         exit 3
       fi ;;
     *) echo "promote-channel: agent-spawn gate returned an unexpected code ($AGENT_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
@@ -648,7 +650,7 @@ if [ "$FAMILY" = mac ]; then
       if [ "$FORCE" = 1 ]; then
         echo "promote-channel: tunnel handshake gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: remote access was NOT automatically verified." >&2
       else
-        echo "promote-channel: tunnel handshake gate could not tell (exit 2; its CANNOT TELL line above says why) - the coordinator or relay is down or mid-deploy, the served build's connector fails too, no gate identity is enrolled here (kosmos-relay deploy/release-gate.md), or another connector holds the gate identity. HOLDING. Fix that and run again; pass --force only after verifying remote access by hand." >&2
+        echo "promote-channel: tunnel handshake gate could not tell (exit 2; its CANNOT TELL line above says why) - the coordinator or relay is down or mid-deploy, the served build's connector fails too, no gate identity is enrolled here (kosmos-relay deploy/release-gate.md), or another connector holds the gate identity. HOLDING. Fix that and run again; pass $FORCE_WORDS only after verifying remote access by hand." >&2
         exit 2
       fi ;;
     *) echo "promote-channel: tunnel handshake gate returned an unexpected code ($TUNNEL_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;

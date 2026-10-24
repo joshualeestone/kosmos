@@ -254,6 +254,13 @@ S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT
 S="$(newsite)"; out="$(KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 1 ] && untouched "$S" && has "$out" "agent-spawn gate FAILED (exit 1)" && pass "named: CONTROL with the board shown to run V, an agent FAIL refuses" || bad "named agent fail on V's board (rc=$rc, out=$out)"
 
+# Every HOLD that offers --force names --sha in named mode (here the tunnel gate's), and not in default mode.
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_TUNNEL_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 2 ] && untouched "$S" && has "$out" "pass --force with --sha <8+ characters of 9.9.8's sha256> only after verifying remote access by hand" \
+  && pass "named: the tunnel HOLD offers --force with --sha" || bad "named tunnel HOLD wording (rc=$rc, out=$out)"
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_TUNNEL_GATE_CMD="bash $HOLD" bash "$HERE/promote-channel.sh" "$S" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && has "$out" "pass --force only after verifying remote access by hand" && pass "default: CONTROL the tunnel HOLD wording is unchanged" || bad "default tunnel HOLD wording (rc=$rc, out=$out)"
+
 # ---- a version older than prod's is a rollback, and needs --allow-older ----
 S="$(newsite)"; bash "$HERE/promote-channel.sh" "$S" >/dev/null 2>&1   # prod now serves 9.9.9
 [ "$(field "$S/dist/latest.json" version)" = 9.9.9 ] && pass "rollback fixture: prod serves 9.9.9" || bad "rollback fixture: prod is $(cat "$S/dist/latest.json")"
