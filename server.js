@@ -18724,7 +18724,8 @@ const server = http.createServer(async (req, res) => {
              person's NEWEST message: sent again behind a newer one, it would reach the agent out of order while the
              row reads in its old place. */
           if (!row || row.text !== body.text || row.wire || row.replyTo || (Array.isArray(row.attachments) && row.attachments.length)
-            || !row.delivery || row.delivery.state !== chat.DELIVERY.COULD_NOT || row.delivery.retryable !== true) {
+            || !row.delivery || row.delivery.state !== chat.DELIVERY.COULD_NOT || row.delivery.retryable !== true
+            || typeof row.delivery.duplicateOf === 'string') {   // delta review: a kept-above copy goes with the kept one
             const gone = new Error('that message cannot be sent again from here: it went, or it is not one that failed');
             gone.status = 409; throw gone;
           }
@@ -19146,9 +19147,13 @@ const server = http.createServer(async (req, res) => {
             if (answering) { hold = null; behind = false; }
           }
           if ((hold || behind) && retryOf !== null) {   // kosmos#6720: a failed row is not turned into a second, held one
+            // Delta review: named as the held path names it, so a box-kept queue is not called out of usage.
+            const forInput = !hold && behind && limitqueue.list(name).some((q) => q.input === true);
             const e = new Error(hold && hold.heldFor === 'signin'
               ? 'it is signed out just now, so this was not sent again'
-              : 'it cannot take messages just now (out of usage), so this was not sent again');
+              : forInput
+                ? 'it still has messages kept while its input box held text not yet sent, so this was not sent again'
+                : 'it cannot take messages just now (out of usage), so this was not sent again');
             e.status = 409; throw e;
           }
           if (hold || behind) {
@@ -19283,7 +19288,9 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#6720: a plain message that did not go is kept as one Try again may send (no menu answer, file or reply). */
         /* Review 2: and only words the page is shown as they are (the setup guide's thread masks secrets, #3769): a row
            the page cannot send back word for word would be refused forever with its words nowhere else. */
-        const retryable = delivery && delivery.state === chat.DELIVERY.COULD_NOT && !automatic && !chose && !files.recs.length && !answered
+        /* Delta review (merged with #6774): never a copy not sent because the same words are kept above (duplicateOf):
+           that copy goes, so a try again here would type the words twice. */
+        const retryable = delivery && delivery.state === chat.DELIVERY.COULD_NOT && !delivery.duplicateOf && !automatic && !chose && !files.recs.length && !answered
           && dmServedText(body.text, name, askingCard) === body.text;   // never dmServeRows here: it fetches previews
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...attachments.rowFields(files.recs),

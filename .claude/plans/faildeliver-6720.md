@@ -144,3 +144,16 @@ card no longer fails; try again stays for every other could-not-deliver reason.
 - render-dm-retry-6720.js still uses the stuck-box sentence as its failure reason. After #6774 that sentence no longer
   reaches a failed row in real use; it only feeds the tooltip text, so the check is unchanged.
 - The 17 DM checks the surface gate names (the d-dmthread token) were each run on 433b0bbdaf and pass; trailers below.
+
+## Delta review of the #6774 merge (blind, opus, 2026-10-24 02:55): 1 BLOCKER, 1 WARNING, 1 NIT
+Decisions (a), (b) and (c) held.
+- [BLOCKER] #6774's race path (two sends at once, both refused for the box) answers the later one with a kept-above
+  copy (duplicateOf), and `retryable` did not exclude it, so try again on it typed the words a second time after the
+  sweep typed the kept copy. --> FIXED twice over: retryable never holds for a duplicateOf, and the retry_of route
+  refuses a duplicateOf row whatever it says (an older row). Tests: the race itself (one kept copy, the other row not
+  retryable, a retry after the sweep refused with nothing typed), and the route refusal with a control; each red with
+  its fix removed.
+- [WARNING] a retry behind messages kept for the box was refused as "out of usage" --> FIXED: it names the box, as the
+  held path does. Test with a control (behind an out-of-usage message it still says out of usage).
+- [NIT] retryDmFinish drops inputHeld/busy from a retried row --> DECIDED: kept; nothing reads them on a row, and the
+  reason is still in `because`.

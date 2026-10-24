@@ -313,3 +313,59 @@ test('#6720 with #6774: a Try again whose words are already kept for the box is 
   assert.equal(rows().length, before, 'a duplicate row was added');
   assert.equal(rowAt(at).delivery.state, 'could_not');
 });
+
+test('#6720 delta review: two sends at once both refused for the box keep ONE copy; the other row is never offered try again', async () => {
+  limitqueue.resetForTests();
+  let open;
+  const gate = new Promise((r) => { open = r; });
+  const aCalls = [];
+  // A types first and is held at the gate; B is refused for the box and kept; then A is refused too, after B was kept.
+  const a = post({ text: 'race words' }, { verdict: BOX_REFUSED, gate, calls: aCalls });
+  for (let i = 0; i < 200 && !aCalls.length; i++) await new Promise((r) => setTimeout(r, 25));
+  assert.equal(aCalls.length, 1, 'the first send never reached the typing');
+  const b = await post({ text: 'race words' }, { verdict: BOX_REFUSED });
+  open();
+  const ra = await a;
+  assert.equal(b.out.delivery.state, 'held', 'premise: the second was kept for the box ' + JSON.stringify(b.out));
+  assert.equal(limitqueue.list(NAME).length, 1, 'kept twice for the box');
+  const dup = rows().find((m) => m.text === 'race words' && m.delivery && typeof m.delivery.duplicateOf === 'string');
+  assert.ok(dup, 'premise: the late refusal is the kept-above copy ' + JSON.stringify(ra.out));
+  assert.notEqual(dup.delivery.retryable, true, 'a kept-above copy is offered try again, so its words would go twice');
+  assert.notEqual(ra.out.retryable, true, 'the answer offers try again for a kept-above copy');
+  // And once the sweep has typed the kept copy, a try again on that row is still refused, with nothing typed.
+  limitqueue.resetForTests(); try { fs.rmSync(limitqueue.dir(), { recursive: true, force: true }); } catch { /* fresh */ }
+  const r = await post({ text: 'race words', retry_of: dup.at });
+  assert.equal(r.status, 409, JSON.stringify(r.out));
+  assert.deepEqual(r.calls, [], 'the kept-above copy was typed a second time');
+});
+
+test('#6720 delta review: the route refuses a kept-above copy even when its row says retryable (an older row)', async () => {
+  const earlier = keep({});
+  // The newest row: a kept-above copy that still carries retryable, as a row written before this fix would.
+  const dupAt = keep({ delivery: { ...FAILED('the same message was already kept above, so this copy was not sent'), retryable: true, duplicateOf: earlier } });
+  const r = await post({ text: 'ship it', retry_of: dupAt });
+  assert.equal(r.status, 409, JSON.stringify(r.out));
+  assert.deepEqual(r.calls, [], 'a kept-above copy was typed');
+  // Control: the same shape without duplicateOf is sent again, so the refusal above is that field.
+  const plainAt = keep({});
+  const ok = await post({ text: 'ship it', retry_of: plainAt });
+  assert.equal(ok.status, 200, JSON.stringify(ok.out));
+  assert.deepEqual(ok.calls, ['ship it']);
+});
+
+test('#6720 delta review: a retry behind messages kept for the box says that, not out of usage', async () => {
+  const at = keep({});
+  const keptAt = new Date().toISOString();
+  limitqueue.add(NAME, { id: 'dm-other-6720', from: '', kind: 'dm', text: 'other words', envelope: 'e', trailer: '', at: keptAt, reset: keptAt, input: true, plain: true });
+  const r = await post({ text: 'ship it', retry_of: at });
+  assert.equal(r.status, 409, JSON.stringify(r.out));
+  assert.match(r.out.error, /input box/, 'named as out of usage');
+  assert.doesNotMatch(r.out.error, /out of usage/);
+  assert.deepEqual(r.calls, []);
+  // Control: behind messages kept for usage, it still says out of usage.
+  limitqueue.resetForTests(); try { fs.rmSync(limitqueue.dir(), { recursive: true, force: true }); } catch { /* fresh */ }
+  limitqueue.add(NAME, { id: 'dm-limit-6720', from: '', kind: 'dm', text: 'other words', envelope: 'e', trailer: '', at: keptAt, reset: keptAt });
+  const u = await post({ text: 'ship it', retry_of: at });
+  assert.equal(u.status, 409, JSON.stringify(u.out));
+  assert.match(u.out.error, /out of usage/);
+});
