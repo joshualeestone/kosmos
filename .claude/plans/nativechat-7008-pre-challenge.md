@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: nativechat-7008
-diff_hash: 34fcc7c4d53e2f3baa273bca3ea027f74feb6f08862513cdf7a6a038006f6362
+diff_hash: 549c5099799a521f9c01c22c94ed86992600164178b6842436e910ca70ed9832
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-24T01:18:43Z
@@ -29,6 +29,12 @@ Validation, at cacde6030d (rebased onto origin/main 559b55dad9):
   epoch pop, VoiceOver actions, the 44 pt tap target). A screenshot shows the composer laid out as before.
 
 Subdirectory CLAUDE.md audit: none under ios/.
+
+After the proof, one change (a3f7d7c1da): CI's Xcode 26.6 could not type-check the pending bubble's accessibility
+chain in time ("unable to type-check this expression in reasonable time", ChatView.swift:474), so both bubbles'
+spoken labels and actions moved into named properties. The words spoken are the same, checked branch by branch
+against the old expressions. LogicTests 621/621 again; local Xcode 27.0 shows no ChatView expression over 20 ms
+(positive control: KosmosApp.swift reported at 22 ms). Only CI has Xcode 26.6, so its run is the measurement.
 
 ### Per-Iteration Breakdown
 
