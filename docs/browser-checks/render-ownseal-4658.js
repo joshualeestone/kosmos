@@ -17,6 +17,9 @@
  *  - Mona's review (card comment 6382874566): the answers are bordered buttons at least 44 px tall, It matches and
  *    Does not match at equal weight (same background and border), Allow the same style; the separator is a plain
  *    ASCII hyphen; where Members sits under the room (390), one line above the room says the room is sealed;
+ *  - the consolidated view hides the Members card, so the section is drawn in the rail there (#alist-fed-own), and
+ *    works from it; the line above the room shows on an upright touch tablet in the classic look (chromium only:
+ *    the tablet query needs a coarse pointer, which only chromium's mobile emulation gives);
  *  - 390 wide with no sideways scroll, the code never wraps, chromium and webkit, no page errors.
  * The engine and routes are tested in engine/fedseats.ownseal-4658.test.js and server.ownallow-4658.test.js; here
  * the routes are answered by the page's own fake, so what is measured is what the page sends and shows.
@@ -62,12 +65,16 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
     for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]]) {
       const browser = await engine.launch({ headless: process.env.HEADED === '0' });
       try {
-        for (const [live, width] of [[false, 1280], [true, 1280], [true, 390]]) {
-          const E = `[${engineName} ${live ? 'live' : 'not live'} ${width}]`;
-          const waitingP = projects.create({ name: 'Waiting ' + engineName + width + live });
-          const ownerP = projects.create({ name: 'Owner ' + engineName + width + live });
-          const quietP = projects.create({ name: 'Quiet ' + engineName + width + live });
-          const ctx = await browser.newContext({ viewport: { width, height: 1000 }, serviceWorkers: 'block' });
+        const arms = [[false, 1280, 'tabs'], [true, 1280, 'tabs'], [true, 390, 'tabs'], [true, 1280, 'consolidated']]
+          .concat(engineName === 'chromium' ? [[true, 820, 'tablet']] : []);
+        for (const [live, width, view] of arms) {
+          const E = `[${engineName} ${live ? 'live' : 'not live'} ${width}${view === 'tabs' ? '' : ' ' + view}]`;
+          const waitingP = projects.create({ name: 'Waiting ' + engineName + width + live + view });
+          const ownerP = projects.create({ name: 'Owner ' + engineName + width + live + view });
+          const quietP = projects.create({ name: 'Quiet ' + engineName + width + live + view });
+          const ctx = await browser.newContext(view === 'tablet'
+            ? { viewport: { width, height: 1180 }, isMobile: true, hasTouch: true, serviceWorkers: 'block' }
+            : { viewport: { width, height: 1000 }, serviceWorkers: 'block' });
           const page = await ctx.newPage();
           const errs = [];
           page.on('pageerror', (e) => errs.push(e.message));
@@ -121,6 +128,33 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
             await page.waitForTimeout(1500);
             const seen = await page.evaluate(() => { const el = document.getElementById('pj-fed-own'); return !!el && el.offsetParent !== null && el.textContent.trim() !== ''; });
             chk(!seen, `${E} hidden while federation is not live`);
+            chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
+            await ctx.close();
+            continue;
+          }
+          if (view === 'consolidated') {
+            await page.evaluate((pid) => { applyLayout('consolidated', true); showTab('projects'); openProject(pid); }, waitingP.id);
+            await page.waitForSelector('#alist-fed-own .ownseal-code', { state: 'visible', timeout: 15000 }).catch(() => null);
+            const c = await page.evaluate(() => ({ code: (document.querySelector('#alist-fed-own .ownseal-code') || {}).textContent || '',
+              card: !!document.querySelector('#pj-fed-own') && document.querySelector('#pj-fed-own').offsetParent !== null,
+              line: !document.getElementById('pj-fed-own-phone').hidden }));
+            chk(c.code === FIRST_CODE, `${E} the consolidated rail shows the code where the Members card is hidden`, JSON.stringify(c));
+            chk(!c.line, `${E} the line above the room is not shown in the consolidated view`, JSON.stringify(c));
+            await page.click('#alist-fed-own [data-own-act="match"]');
+            await page.waitForFunction(() => /Confirmed/.test((document.querySelector('#alist-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
+            const cc = posted.filter((p) => p.path.endsWith('/own-confirm')).pop();
+            chk(cc && cc.body.code === FIRST_CODE && cc.body.project === waitingP.id, `${E} It matches works from the rail and sends the code shown there`, JSON.stringify(cc));
+            const heard = await page.evaluate(() => document.getElementById('pj-fed-own-said').textContent);
+            chk(/^Confirmed\./.test(heard), `${E} the result is put in the one live region`, heard);
+            chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
+            await ctx.close();
+            continue;
+          }
+          if (view === 'tablet') {
+            await page.waitForSelector('#pj-fed-own .ownseal-code', { state: 'attached', timeout: 15000 }).catch(() => null);
+            await page.waitForTimeout(500);
+            const t = await page.evaluate(() => ({ upright: pjTabletUpright(), line: !document.getElementById('pj-fed-own-phone').hidden }));
+            chk(t.upright && t.line, `${E} an upright touch tablet shows the line above the room`, JSON.stringify(t));
             chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
             await ctx.close();
             continue;
