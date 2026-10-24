@@ -25362,8 +25362,9 @@ let PJ_ADDMENU_AGENT = null;
    sheet). Declared here, early, for the same reason: paintAgentList and fedGateStamp read them. */
 let FED_MEMBERS = null;          // { project, ok, body }: the last members answer, for the project it was asked for
 // kosmos#4658: the sealed-room key section's state (fedOwnHtml), here for the same reason as the members state.
-let FED_OWN = null;          // { project, waiting: [{ pub, code }], code: string | null, missed, rowsMissed, at } (missed and
-                             // rowsMissed: failed reads in a row of each side; the route's mac is not shown)
+let FED_OWN = null;          // { project, waiting: [{ pub, code }], allowed: [{ pub, at }], code: string | null, missed,
+                             // rowsMissed, allowedMissed, at } (the misses: failed reads in a row of each side; the
+                             // routes' mac is not shown)
 let FED_OWN_ASKING = null;   // { project, seq }: the load in flight; a superseded one (seq behind) no longer counts
 let FED_OWN_MSG = null;      // { text, project, sig }: the last press's sentence, kept while the section shows what it did
 let FED_OWN_BUSY = null;     // the project a press is being asked for
@@ -80364,6 +80365,8 @@ function memConfirmClose() {
   if (p && p.btn && p.btn.isConnected && !p.btn.disabled && p.btn.getClientRects().length) p.btn.focus();
   // kosmos#4649 slice B: an outside row's button is replaced on every repaint, so its opener may be gone.
   else if (p && p.fed && typeof fedRefocus === 'function') fedRefocus(p.fed.key);
+  // kosmos#4658: a sealed room's row is rebuilt on every refresh too: its Remove again, else the section's heading.
+  else if (p && p.own) fedOwnRefocus(p.own);
 }
 /* #761: the minus asks before it acts. The dialog names the agent and the
    project, says what changes and what does not, and Enter lands on the
@@ -80493,6 +80496,7 @@ document.addEventListener('keydown', (e) => {
    and the dialog stays open until it answers (a refusal is said in it, with the member still listed). */
 document.getElementById('mem-go').addEventListener('click', () => {
   if (MEM_PENDING && MEM_PENDING.fed) { fedRemoveGo(); return; }
+  if (MEM_PENDING && MEM_PENDING.own) { fedOwnRemoveGo(); return; }   // kosmos#4658/#7028: one of the owner's computers
   const p = MEM_PENDING;
   document.getElementById('mem-modal').hidden = true;
   MEM_PENDING = null;
@@ -81585,6 +81589,21 @@ function fedOwnHtml() {
         + '<button class="ownseal-btn" type="button" data-own-act="allow" data-own-pub="' + esc(w.pub) + '" data-own-code="' + esc(w.code) + '"' + busy
         + ' aria-label="Allow the computer showing ' + esc(fedOwnSpelled(w.code)) + '">Allow</button></div>').join('');
   }
+  /* kosmos#7028's other half, on this screen: the computers this one has let in, each with Remove. Removing gives
+     the room a new key that computer is not sent (fedseats.ownRemove), so it asks first, in the #761 dialog. Only the
+     computer that first shared the room gets rows (own-allowed answers [] anywhere else). There is no computer name
+     to show (the coordinator does not carry it to the board), so a row says when it was allowed. */
+  const allowed = o.allowed || [];
+  if (allowed.length) {
+    h += '<h4 class="fedout-h">Your other computers that read this room</h4>'
+      + allowed.map((a) => {
+        const when = fedOwnWhen(a.at);
+        return '<div class="fedout-row"><span class="fedout-b"><b class="fedout-nm">Another of your computers</b>'
+          + (when ? '<span class="fhint">Allowed ' + esc(when) + '</span>' : '') + '</span>'
+          + '<button class="ownseal-btn" type="button" data-own-act="remove" data-own-pub="' + esc(a.pub) + '"' + busy
+          + ' aria-label="Remove the computer allowed ' + esc(when || 'earlier') + ' from this room">Remove</button></div>';
+      }).join('');
+  }
   // A press's sentence stays while the section still shows what the press left (fedOwnLoad clears it on a change),
   // including when the press emptied the section (the last computer allowed, the key taken).
   const m = FED_OWN_MSG;
@@ -81594,6 +81613,12 @@ function fedOwnHtml() {
 /* The code as two groups around a plain hyphen, read letter by letter (the label spells it out). Not devCodeHtml's
    boxes: those are for typing a code into a provider's page and may break between groups, and a code compared across
    two screens is one unbroken line (Mona's review). compareCode always makes XXXXX-XXXXX, one hyphen. */
+// When a computer was let in, as the row says it: a day and a month, or '' when the board did not say.
+function fedOwnWhen(at) {
+  const n = Number(at);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  try { return new Date(n).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }); } catch { return ''; }
+}
 function fedOwnSpelled(code) { return String(code).replace('-', '').split('').join(' '); }
 function fedOwnCodeHtml(code, extra) {
   const c = String(code);
@@ -81649,7 +81674,7 @@ function fedOwnPaint() {
   }
 }
 /* What the section shows, as one string: a press's sentence is kept until this changes. */
-function fedOwnSig(o) { return o ? JSON.stringify([o.code, o.waiting.map((w) => w.pub + ' ' + w.code)]) : ''; }
+function fedOwnSig(o) { return o ? JSON.stringify([o.code, o.waiting.map((w) => w.pub + ' ' + w.code), (o.allowed || []).map((a) => a.pub)]) : ''; }
 async function fedOwnLoad(project, fromPress) {
   if (!project || !fedShow()) return;
   const seq = ++FED_OWN_SEQ;
@@ -81664,9 +81689,10 @@ async function fedOwnLoad(project, fromPress) {
       return res.ok && body && typeof body === 'object' ? body : null;
     } catch { return null; } finally { if (timer) clearTimeout(timer); }
   };
-  const [waiting, mine] = await Promise.all([
+  const [waiting, mine, allowedAns] = await Promise.all([
     read((o) => fetch('/api/federation/own-waiting?project=' + encodeURIComponent(project), o)),
-    read((o) => fetch('/api/federation/own-compare?project=' + encodeURIComponent(project), o))]);
+    read((o) => fetch('/api/federation/own-compare?project=' + encodeURIComponent(project), o)),
+    read((o) => fetch('/api/federation/own-allowed?project=' + encodeURIComponent(project), o))]);
   if (seq !== FED_OWN_SEQ) return;   // a newer load (a press's, or another project's) owns the section
   FED_OWN_ASKING = null;
   if (PJ_CURRENT !== project) return;
@@ -81682,7 +81708,14 @@ async function fedOwnLoad(project, fromPress) {
   // can no longer say it is the code this computer shows.
   const missed = mine ? 0 : (prev ? (prev.missed || 0) + 1 : 1);
   const code = mine ? (typeof mine.code === 'string' ? mine.code : null) : (prev && missed < 3 ? prev.code : null);
-  FED_OWN = { project, waiting: rows, code, missed, rowsMissed, at: Date.now() };
+  // The allowed computers by the same rule as the waiting ones: kept through two misses, dropped at the third. A kept
+  // list never brings back one just removed (the remove filters it out of FED_OWN), and an answer asked after the
+  // remove is the board's word (one listed again was let in again).
+  const allowedMissed = allowedAns && Array.isArray(allowedAns.computers) ? 0 : (prev ? (prev.allowedMissed || 0) + 1 : 1);
+  const allowed = allowedAns && Array.isArray(allowedAns.computers)
+    ? allowedAns.computers.filter((a) => a && typeof a.pub === 'string').map((a) => ({ pub: a.pub, at: a.at }))
+    : (prev && allowedMissed < 3 ? (prev.allowed || []) : []);
+  FED_OWN = { project, waiting: rows, allowed, code, missed, rowsMissed, allowedMissed, at: Date.now() };
   const m = FED_OWN_MSG;
   if (m && m.project === project) {
     if (fromPress) m.sig = fedOwnSig(FED_OWN);          // what the press left on screen
@@ -81706,6 +81739,7 @@ async function fedOwnPress(btn) {
   if (!project || btn.dataset.ownProject !== project || !FED_OWN || FED_OWN.project !== project
     || FED_OWN_BUSY === project || btn.getAttribute('aria-disabled') === 'true') return;
   const act = btn.dataset.ownAct;
+  if (act === 'remove') { fedOwnRemoveOpen(btn); return; }
   const body = act === 'allow' ? { project, pub: btn.dataset.ownPub, code: btn.dataset.ownCode }
     : act === 'match' ? { project, code: btn.dataset.ownCode } : { project, match: false };
   const gen = FED_OWN_GEN;   // entering the project again (even the same one) bumps it
@@ -81769,9 +81803,100 @@ function fedMembersReset() {
    Not part of fedMembersReset: that also runs from fedMembersLoad, and must not drop a press in flight. */
 function fedOwnReset() {
   fedOwnPaint.rail = undefined;   // the rail's copy repaints for the next answer, as fedOutsidePaint.rail
+  // A Remove dialog opened for the last visit closes: its computer is not this visit's to take out.
+  if (MEM_PENDING && MEM_PENDING.own) memConfirmClose();
   FED_OWN_CONFIRMED = null;
   FED_OWN = null; FED_OWN_MSG = null; FED_OWN_ASKING = null; FED_OWN_BUSY = null; FED_OWN_SEQ++; FED_OWN_GEN++; fedOwnPaint();
   const said$ = document.getElementById('pj-fed-own-said'); if (said$) said$.textContent = '';
+}
+/* kosmos#4658 with #7028: Remove one of the owner's own computers from a sealed room, asked first in the #761 dialog
+   (Josh's rule: removing asks first). The dialog stays open until the board answers; a refusal is said in it, with the
+   computer still listed, as an outside member's Remove does. */
+function fedOwnRemoveOpen(btn) {
+  const project = PJ_CURRENT;
+  const pub = btn.dataset.ownPub;
+  if (!project || !pub || FED_OWN_BUSY === project) return;
+  const row = FED_OWN && FED_OWN.project === project ? (FED_OWN.allowed || []).find((a) => a.pub === pub) : null;
+  if (!row) return;
+  const p = pjById(project);
+  const pjName = (p && p.name) || 'this project';
+  const box = btn.closest ? btn.closest('#pj-fed-own, #alist-fed-own') : null;
+  fedRemoveReset();
+  MEM_PENDING = { btn, own: { project, pub, box: box ? box.id : 'pj-fed-own', gen: FED_OWN_GEN } };
+  const when = fedOwnWhen(row.at);
+  document.getElementById('mem-title').textContent = 'Take this computer out of ' + pjName + '?';
+  document.getElementById('mem-small').textContent = 'The computer you allowed' + (when ? ' on ' + when : '')
+    + ' stops reading new messages in this room: the room moves to a new key that computer is not sent. What it already'
+    + ' read stays on it. It can ask to come back, and you would compare codes again.';
+  document.getElementById('mem-keep').textContent = 'Cancel';
+  const go = document.getElementById('mem-go');
+  go.textContent = 'Take it out';
+  go.classList.add('danger-btn');
+  document.getElementById('mem-modal').hidden = false;
+  document.getElementById('mem-keep').focus();
+}
+// Focus after the dialog: the same computer's Remove if it is still listed, else the section's sentence or heading.
+function fedOwnRefocus(own) {
+  const host = document.getElementById(own.box) || document.getElementById('pj-fed-own');
+  if (!host) return;
+  const again = [...host.querySelectorAll('[data-own-act="remove"]')].find((x) => x.dataset.ownPub === own.pub);
+  if (again && again.getClientRects().length) { again.focus(); return; }
+  const spot = host.querySelector('.fmsg') || host.querySelector('.fedout-h') || document.querySelector('.pjcard-members .dlab');
+  if (spot) { spot.tabIndex = -1; spot.focus(); }
+}
+async function fedOwnRemoveGo() {
+  const p = MEM_PENDING;
+  if (!p || !p.own) return;
+  const f = p.own;
+  const go = document.getElementById('mem-go');
+  const msg = document.getElementById('mem-msg');
+  if (!fedShow()) { msg.textContent = 'Removing is not available just now. Try again in a moment.'; return; }
+  if (f.gen !== FED_OWN_GEN || PJ_CURRENT !== f.project || FED_OWN_BUSY === f.project) return;
+  // Focus moves to Cancel BEFORE Take it out is disabled, as fedRemoveGo does, so it never drops to the page.
+  document.getElementById('mem-keep').focus();
+  go.disabled = true;
+  msg.textContent = 'Taking it out…';
+  FED_OWN_SEQ++;   // a refresh already in flight answers from before the remove: it is dropped
+  FED_OWN_BUSY = f.project; FED_OWN_MSG = null; fedOwnPaint();
+  const said$ = document.getElementById('pj-fed-own-said');
+  if (said$) said$.textContent = '';
+  let res = null;
+  let body = null;
+  let said = '';
+  let timedOut = false;
+  try {
+    ({ res, body } = await fedActPost((signal) => fetch('/api/federation/own-remove', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project: f.project, pub: f.pub }), signal })));
+  } catch (err) {
+    timedOut = !!(err && err.name === 'AbortError');
+    said = timedOut ? FED_ACT_TIMED_OUT : FED_UNREACHABLE;
+  }
+  // A visit that has ended (another project, or this one entered again): nothing on screen is this answer's.
+  if (f.gen !== FED_OWN_GEN || PJ_CURRENT !== f.project) { if (MEM_PENDING === p) memConfirmClose(); return; }
+  if (FED_OWN_BUSY === f.project) FED_OWN_BUSY = null;
+  const still = MEM_PENDING === p;   // Cancel or Escape may have closed the dialog while it was asked
+  if (still) go.disabled = false;
+  const ok = !said && !!res && res.ok;
+  if (!ok && !said) said = (body && typeof body.error === 'string' && body.error) || 'Kosmos could not take that computer out just now. Try again in a moment.';
+  // Refused or unreachable with the dialog open: said in it, the computer still listed, Take it out live to retry.
+  if (!ok && !timedOut && still) {
+    msg.textContent = said;
+    fedOwnPaint();
+    fedOwnLoad(f.project, true);
+    return;
+  }
+  if (ok) {
+    if (FED_OWN && FED_OWN.project === f.project) FED_OWN = Object.assign({}, FED_OWN, { allowed: (FED_OWN.allowed || []).filter((a) => a.pub !== f.pub) });
+    said = 'Taken out. That computer cannot read anything posted here from now on. It can ask to come back, and you would compare codes again.';
+  }
+  // Done (or given up on): the dialog closes and the sentence is said in the section, where the list shows what the
+  // board did. Closed by hand, focus is the section's to place (memConfirmClose already ran).
+  if (still) { document.getElementById('mem-modal').hidden = true; MEM_PENDING = null; fedRemoveReset(); }
+  FED_OWN_MSG = { text: said, project: f.project, sig: null, act: ok ? 'remove' : null };
+  if (said$) setTimeout(() => { if (FED_OWN_GEN === f.gen) said$.textContent = said; }, 60);
+  fedOwnPaint();
+  if (still) fedOwnRefocus(f);
+  fedOwnLoad(f.project, true);
 }
 async function fedMembersLoad(project) {
   if (!project || !fedShow()) return;
@@ -81814,7 +81939,7 @@ function fedGateMembers(show, mode) {
   if (!show) {
     // Only "hidden" closes an open outside Remove: a passing "signup" reading is one poll, and closing the dialog
     // under the person (its request going on) for that would be the opposite of the invite sheet's rule.
-    if (MEM_PENDING && MEM_PENDING.fed && mode !== 'signup') memConfirmClose();
+    if (MEM_PENDING && (MEM_PENDING.fed || MEM_PENDING.own) && mode !== 'signup') memConfirmClose();
     fedOutsidePaint(true);   // the rail redraws on the poll that stamped this; no second rail paint per poll
     fedOwnPaint();           // kosmos#4658: empty while hidden (fedOwnHtml checks fedShow)
     return;
