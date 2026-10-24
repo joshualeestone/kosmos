@@ -1003,12 +1003,8 @@ enum Board {
     // A moved answer during a gap fill: start again, as earlierFillGap does.
     static func resetEarlier(_ e: Earlier) -> Earlier { Earlier(moved: e.moved, opening: e.opening + 1) }
 
-    // earlierFillGap: messages that left the latest 200 while the chat was open sit at [end, olderCount); the pages
-    // to fetch, newest first, as `before` values.
-    static func gapPages(end: Int, olderCount: Int) -> [Int] {
-        guard olderCount > end else { return [] }
-        return stride(from: olderCount, to: end, by: -200).map { $0 }
-    }
+    // earlierFillGap: messages that left the latest 200 while the chat was open sit at [end, olderCount).
+    static func hasGap(end: Int, olderCount: Int) -> Bool { olderCount > end }
 
     // The rows a gap page brings: only those at or after `end` (the page may reach further back than the gap), by
     // their positions, so a row the phone dropped shifts nothing.

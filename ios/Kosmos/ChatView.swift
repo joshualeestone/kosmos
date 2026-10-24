@@ -49,6 +49,8 @@ struct ChatView: View {
     @State private var settledAtEnd = false
     // The row to keep at the top once a page has landed above it.
     @State private var keepAnchor: String?
+    // The conversation's items on screen now.
+    @State private var onScreen: Set<String> = []
     // kosmos#7016 part 2: each file card's state, and the file open in Quick Look.
     @State private var fileStates: [String: FileCardState] = [:]
     @State private var previewURL: URL?
@@ -197,6 +199,9 @@ struct ChatView: View {
                         if thread.rows.isEmpty && pending.isEmpty { empty }
                         ForEach(items) { item in
                             itemView(item).id(item.id)
+                                // Which rows are on screen, so a page landing above keeps the one the reader is on.
+                                .onAppear { onScreen.insert(item.id) }
+                                .onDisappear { onScreen.remove(item.id) }
                         }
                         pendingBubbles
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
@@ -396,9 +401,10 @@ struct ChatView: View {
         Task {
             guard let read = await client.olderPage(agent.session, before: start.before), opened == client.chatEpoch,
                   let next = Board.finishLoad(earlier, with: read, opening: start.opening) else { return }
-            // The row kept in place is the one first on screen as the page lands (a read meanwhile may have moved the
-            // latest 200 on), so it is always there to keep (the board's setThread anchor).
-            let anchor = thread.map { Board.shownRows(earlier, thread: $0) }?.first?.id
+            // The row kept in place is the topmost one on screen as the page lands, wherever the person has scrolled
+            // meanwhile (the board's setThread anchor), so a page landing never pulls them somewhere else.
+            let shownNow = thread.map { Board.chatItems(Board.shownRows(earlier, thread: $0), now: Date(), calendar: .current) } ?? []
+            let anchor = shownNow.first { onScreen.contains($0.id) }?.id
             earlier = next
             if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
@@ -407,24 +413,26 @@ struct ChatView: View {
     // earlierFillGap: messages that left the latest 200 while the chat was open are fetched into the loaded pages, so
     // nothing falls between them and the latest read. Dropped if a reset came while it ran.
     private func fillGap(_ t: Board.Thread) {
-        guard earlier.open, !earlier.filling, !earlier.loading else { return }
-        let pages = Board.gapPages(end: earlier.end, olderCount: t.olderCount)
-        guard !pages.isEmpty else { return }
+        guard earlier.open, !earlier.filling, !earlier.loading, Board.hasGap(end: earlier.end, olderCount: t.olderCount) else { return }
         earlier.filling = true
         let end = earlier.end
         let token = earlier.opening
         let opened = epoch
         Task {
             var got: [Board.ChatRow] = []
-            for before in pages {
+            var before = t.olderCount
+            // Newest page first, each next one ending where the last began (the board's before -= want), so a page
+            // size other than 200 never leaves a hole.
+            while before > end {
                 let read = await client.olderPage(agent.session, before: before)
                 guard opened == client.chatEpoch, earlier.opening == token else { return }
-                guard case .page(let rows, let positions, _) = read, !rows.isEmpty else {
-                    // Moved: start again (as the board does); failed or empty: the next read tries again.
+                guard case .page(let rows, let positions, let start) = read else {
+                    // Moved: start again (as the board does); failed: the next read tries again.
                     if read == .moved { earlier = Board.resetEarlier(earlier) } else { earlier.filling = false }
                     return
                 }
                 got = Board.gapRows(rows, positions: positions, end: end) + got
+                before = start
             }
             earlier.rows += got
             earlier.end = t.olderCount

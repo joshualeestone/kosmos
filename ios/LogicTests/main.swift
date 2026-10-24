@@ -1172,8 +1172,7 @@ do {
     check(!Board.shouldAsk(settled: true, topVisible: true, earlier: Board.startLoad(closed, olderCount: 12), olderCount: 12), "never while one is loading")
 
     // The gap: messages that left the latest 200 while the chat was open.
-    check(Board.gapPages(end: 12, olderCount: 12) == [] && Board.gapPages(end: 12, olderCount: 15) == [15] && Board.gapPages(end: 12, olderCount: 450) == [450, 250, 50],
-          "the pages to fetch, newest first")
+    check(!Board.hasGap(end: 12, olderCount: 12) && Board.hasGap(end: 12, olderCount: 15), "a gap only when messages left the latest 200")
     check(Board.gapRows(p2, positions: [3, 4, 5], end: 4).map(\.text) == ["m4", "m5"] && Board.gapRows(p2, positions: [3, 4, 5], end: 3) == p2,
           "only the rows at or after the gap's start")
     // A row the phone cannot draw (no text) keeps the others' positions.
