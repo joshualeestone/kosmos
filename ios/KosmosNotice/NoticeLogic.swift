@@ -116,6 +116,9 @@ enum PhoneNotice {
     // in the app (a different target); LogicTests checks the two are equal.
     static let replyCategory = "KOSMOS_REPLY"
 
+    // Reply is offered only on an agent's direct reply (the computer's `reply` kind), never on a needs-you `report`.
+    static func offersReply(_ w: Words) -> Bool { w.kind == "reply" }
+
     // kosmos#6487: true needs Kosmos.entitlements to ask for Communication Notifications. False sends the picture as
     // the notice's attachment.
     static let messageStyleKey = "KosmosMessageStyle"

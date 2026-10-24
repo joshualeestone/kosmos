@@ -214,21 +214,23 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             userInfo: userInfo, text: text, stored: SessionKeychain.macSession.load(),
             session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin
         ) else {
-            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { tell(NotificationAction.cannotSend(agent: agent)) }
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { tell(NotificationAction.cannotSend(agent: agent), about: userInfo) }
             return
         }
         let answer = try? await Self.replyHTTP.data(for: request)
         let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
         let result = Board.sendResult(status: status, body: answer?.0)
         NSLog("[Push] reply from a notification: \(result)")
-        if let said = NotificationAction.notice(after: result, agent: agent) { tell(said) }
+        if let said = NotificationAction.notice(after: result, agent: agent, body: answer?.0) { tell(said, about: userInfo) }
     }
 
-    // A local notification saying what happened to a reply that did not plainly go.
-    private func tell(_ text: String) {
+    // A local notification saying what happened to a reply that did not plainly go. It carries the original notice's
+    // address and agent, so a tap opens that chat, as the notice it answers did (PushBridge.boardURL).
+    private func tell(_ text: String, about userInfo: [AnyHashable: Any]) {
         let content = UNMutableNotificationContent()
         content.title = "Kosmos"
         content.body = text
+        content.userInfo = NotificationAction.followUpInfo(userInfo)
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "reply-" + UUID().uuidString, content: content, trigger: nil))
     }
 }

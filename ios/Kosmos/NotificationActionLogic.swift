@@ -24,16 +24,32 @@ enum NotificationAction {
         else { return nil }
         // The cookie goes by hand on this one request; nothing here keeps a cookie jar.
         r.httpShouldHandleCookies = false
+        // An answer well inside the short time iOS gives a notification action; past it, the reply is "no answer".
+        r.timeoutInterval = 20
         r.setValue("\(Board.macCookieName)=\(saved.cookie)", forHTTPHeaderField: "Cookie")
         return r
     }
 
-    // What the person is told after a reply, or nil when it went (or is kept to go, which the chat shows).
-    static func notice(after result: Board.SendResult, agent: String) -> String? {
+    // The board's own reason on a 200 that did not type (delivery.because), which Board.sendResult does not carry.
+    static func because(_ body: Data?) -> String? {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let why = (obj?["delivery"] as? [String: Any])?["because"] as? String
+        return why.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+    }
+
+    // What the person is told after a reply, or nil only when it went or is held to go (the chat shows it waiting).
+    // `body` is the board's answer, for its reason when it kept the reply but did not type it.
+    static func notice(after result: Board.SendResult, agent: String, body: Data? = nil) -> String? {
         let who = agent.isEmpty ? "your agent" : agent
         switch result {
-        case .kept, .taken, .keptUndelivered:
+        case .kept, .taken:
             return nil
+        case .keptUndelivered(_, let note):
+            if note == "Waiting to send" { return nil }   // held: it goes by itself once the agent is ready
+            if note == "Not confirmed" {
+                return "Kosmos could not confirm your reply to \(who) went. Open the chat to check before sending it again."
+            }
+            return notice(after: .refused(because(body)), agent: agent)
         case .unconfirmed:
             return "Kosmos could not confirm your reply to \(who) went. Open the chat to check before sending it again."
         case .noAnswer:
@@ -44,6 +60,14 @@ enum NotificationAction {
             }
             return "Kosmos could not send your reply to \(who). Open the chat to try again."
         }
+    }
+
+    // The follow-up notice's tap target: only the original notice's address and agent, nothing else carried over.
+    static func followUpInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
+        var out: [AnyHashable: Any] = [:]
+        if let a = userInfo["address"] as? String { out["address"] = a }
+        if let s = userInfo["session"] as? String { out["session"] = s }
+        return out
     }
 
     // When the reply could not even be made (no kept computer for this notification, or nothing typed).
