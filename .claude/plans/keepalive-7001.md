@@ -336,3 +336,25 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - NIT 6 FIXED: the "Outlives the wait" comment and its sleeper sat above an unrelated case; moved to ka-outlives.
 - DEFERRED NITs: 4 (eval of fixed names in the wait check), 5 (CI-home allow-list applies to every stage; documented,
   tested).
+
+## Review round 25 (opus, blind, HEAD ea820ea970)
+- W1 FIXED: the job veto while the old runner outlives the wait matched ANY Worker of the user, so a relay job then left
+  this SIGTERMed runner stopped. It now matches only a Worker that is a child of this runner's Listener
+  (pgrep -P <Listener pids>). The first job check, before anything is stopped, stays user-wide on purpose (refusing
+  there costs only a rerun). Stub: -P sees only this runner's job; ka-relayoutlived; mutants (user-wide, none) red.
+  WEAKEST PREMISE, NOT YET MEASURED: that Runner.Worker is a direct child of Runner.Listener. If it is a grandchild, -P
+  misses this runner's own job and the bootout goes ahead; that job is most likely already cancelled by the SIGTERM.
+  A watcher on the relay runner here (agent1) is waiting for a real job to measure the parent. Its first version
+  matched a SHELL whose argv mentioned "Runner.Worker" (bulletin pgrep-f-matches-your-own-command-line); rewritten to
+  match the comm column, with a control on the live Listener.
+- W2 DOCUMENTED, not changed: the keepalive dry run exits 0 both when done and when it would change something; the
+  header now says to read the "ok: ... restarts after a SIGKILL or a crash" line, not the exit code. Rejected: a new exit
+  code this late, for a check nothing automates today; reopen if something starts to.
+- NIT1 FIXED (raised in rounds 19, 20, 22, 23, 25): as any user but the CI user, keepalive says to run it as the CI user
+  and reads no launchd (ka-other-readable; mutant red).
+- NIT2 FIXED: a trailing / on the CI home is dropped (ka-slash; mutant red; the pgrep stub's argv no longer inherits it).
+- NIT3 FIXED: the owner's note says "no LaunchAgent of this runner" and "usually closed".
+- NIT4 FIXED: the print stub now has a nested block with its own "state = active" and "pid = 1" BEFORE the job's lines,
+  so the one-tab anchors are load-bearing; loosening either the state or the pid anchor turns cases red.
+- DEFERRED: NIT5 (install could add KeepAlive before its own restart: scope; the keepalive stage covers it), NIT6
+  (register does not check the loaded job: register's start is svc.sh's, verified by the next keepalive dry run).

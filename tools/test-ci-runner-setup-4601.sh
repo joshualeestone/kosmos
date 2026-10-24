@@ -38,6 +38,7 @@ case "$me" in
         [ "${FX_INTERRUPT:-0}" = 1 ] && kill -INT "$PPID"   # an operator's Ctrl-C, inside the stop window
         [ "${FX_HUP:-0}" = 1 ] && kill -HUP "$PPID"         # a dropped ssh session, inside the stop window
         [ "${FX_WORKER_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/worker-up"   # a job taken during the stop
+        [ "${FX_RELAY_WORKER_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/relay-worker-up"   # a relay job, then
         [ "${FX_RESPAWN_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/respawned"  # launchd restarted it
         exit 0 ;;
       print-disabled) [ "${FX_PD_FAIL:-0}" = 1 ] && exit 1; printf 'disabled services = {\n'
@@ -62,7 +63,8 @@ case "$me" in
         [ "${FX_BOOTSTRAP_SAME_PID:-0}" = 1 ] || echo $(( $(cat .svc-pid 2>/dev/null || echo 4343) + 1 )) > .svc-pid; exit 0 ;;
     esac
     case "$1 $2" in "print gui/"*/*) { [ -f "$out" ] || [ "${FX_NOT_LOADED:-0}" = 1 ]; } && exit 113
-        printf '%s = {\n\tstate = %s\n' "$2" "${FX_JOB_STATE:-running}"
+        # A nested block first, as launchd prints coalitions (two tabs): only one-tab lines are the job's own.
+        printf '%s = {\n\tresource coalition = {\n\t\tstate = active\n\t\tpid = 1\n\t}\n\tstate = %s\n' "$2" "${FX_JOB_STATE:-running}"
         # A running job shows its pid (999999 by default: a pid that cannot exist, so a wait on it ends at once).
         if [ -f "$(dirname "$CALL_LOG")/respawned" ]; then printf '\tpid = 888888\n'
         elif [ "${FX_NO_PID:-0}" != 1 ]; then printf '\tpid = %s\n' "${FX_JOB_PID:-999999}"; fi
@@ -88,8 +90,9 @@ case "$me" in
     # that cannot tell the two apart is seen. The relay's pid changes once anything was bootstrapped (a respawn).
     case "$*" in *"-f "*Runner*Listener*)   # Runner.Listener or Runner[.]Listener
       [ "${FX_LISTENER_PGREP_FAIL:-0}" = 1 ] && exit 3
-      pat="${*: -1}"; own="${KOSMOS_CI_HOME:-/Users/kosmos-ci}/actions-runner/bin/Runner.Listener run --startuptype service"
-      rel="${KOSMOS_CI_HOME:-/Users/kosmos-ci}/actions-runner-relay/bin/Runner.Listener run --startuptype service"; hit=1
+      kh="${KOSMOS_CI_HOME:-/Users/kosmos-ci}"; kh="${kh%/}"   # the real argv is the runner's own path, no "//"
+      pat="${*: -1}"; own="$kh/actions-runner/bin/Runner.Listener run --startuptype service"
+      rel="$kh/actions-runner-relay/bin/Runner.Listener run --startuptype service"; hit=1
       if [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] && printf '%s\n' "$own" | grep -q -E -e "$pat"; then cat .svc-pid 2>/dev/null || echo 4343; hit=0; fi
       # FX_LOOKALIKE=1: a process that only MENTIONS this runner's Listener path (a tail of it).
       if [ "${FX_LOOKALIKE:-0}" = 1 ] && printf '%s\n' "tail -f $own" | grep -q -E -e "$pat"; then echo 6161; hit=0; fi
@@ -100,7 +103,9 @@ case "$me" in
       if [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ]; then [ -z "${FX_OLD_TOO:-}" ] || echo "$FX_OLD_TOO"; cat .svc-pid 2>/dev/null || echo 4343; exit 0; fi
       [ -n "${FX_OLD_TOO:-}" ] && { echo "$FX_OLD_TOO"; exit 0; }; exit 1 ;; esac
     # A self-updated runner's Worker runs from bin.<version>/Runner.Worker: a name match (-x) sees it, bin/Runner.Worker does not.
-    case "$*" in *Runner.Worker*) { [ "${FX_WORKER:-0}" = 1 ] || [ -f "$(dirname "$CALL_LOG")/worker-up" ]; } || exit 1; case "$*" in *"-x Runner.Worker"*) echo 4242; exit 0 ;; esac; exit 1 ;; esac
+    # -P <Listener pids>: only this runner's job (worker-up), never the relay's (relay-worker-up).
+    case "$*" in *"-P "*Runner.Worker*) [ -f "$(dirname "$CALL_LOG")/worker-up" ] && { echo 4242; exit 0; }; exit 1 ;; esac
+    case "$*" in *Runner.Worker*) { [ "${FX_WORKER:-0}" = 1 ] || [ -f "$(dirname "$CALL_LOG")/worker-up" ] || [ -f "$(dirname "$CALL_LOG")/relay-worker-up" ]; } || exit 1; case "$*" in *"-x Runner.Worker"*) echo 4242; exit 0 ;; esac; exit 1 ;; esac
     [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
   df) [ "${FX_DF_NOROW:-0}" = 1 ] && { echo "Filesystem 1024-blocks Used Available Capacity Mounted"; exit 0; }
     printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/disk3s1 239362496 1 %s 50%% /\n' "${FX_FREE_KIB-31457280}" ;;
@@ -680,10 +685,17 @@ el=$((SECONDS - t0)); wait "$sp" 2>/dev/null
 sleep 30 & jsp=$!
 ka_fresh; rm -f "$T/worker-up"; run ka-jobduring "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_WORKER_AFTER_KILL=1 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
-[ "$(rc ka-jobduring)" = 1 ] && has ka-jobduring "a job is running while the old runner (pid $jsp) is still stopping" && has ka-jobduring "which most likely cancels that job too" \
+[ "$(rc ka-jobduring)" = 1 ] && has ka-jobduring "a job of this runner is running while the old runner (pid $jsp) is still stopping" && has ka-jobduring "which most likely cancels that job too" \
   && grep -q '^launchctl kill SIGTERM' "$T/ka-jobduring.calls" && ! grep -q '^launchctl bootout' "$T/ka-jobduring.calls" \
   && pass "keepalive --apply: a job up while the old runner is still stopping is not booted out" || fail "keepalive job during stop: rc $(rc ka-jobduring): $(tail -1 "$T/ka-jobduring.out")"
 rm -f "$T/worker-up"
+# The old runner outlived the wait and a RELAY job starts: not this runner's, so no veto; the reload goes on.
+sleep 30 & jsp=$!
+ka_fresh; rm -f "$T/relay-worker-up"; run ka-relayoutlived "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_RELAY_WORKER_AFTER_KILL=1 -- --apply keepalive
+kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
+[ "$(rc ka-relayoutlived)" = 0 ] && grep -q '^launchctl bootout ' "$T/ka-relayoutlived.calls" && ! has ka-relayoutlived "refused" \
+  && pass "keepalive --apply: a relay job while the old runner is still stopping does not veto this runner's reload" || fail "keepalive relay job outlived: rc $(rc ka-relayoutlived): $(tail -1 "$T/ka-relayoutlived.out")"
+rm -f "$T/relay-worker-up"
 # The old runner has ended, then a Worker appears: it is the relay's (this runner has no Listener), so the reload goes on.
 ka_fresh; rm -f "$T/worker-up"; run ka-relayjob "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER_AFTER_KILL=1 -- --apply keepalive
 [ "$(rc ka-relayjob)" = 0 ] && grep -q '^launchctl bootout ' "$T/ka-relayjob.calls" && grep -q '^launchctl bootstrap ' "$T/ka-relayjob.calls" && ! has ka-relayjob "refused" \
@@ -850,6 +862,14 @@ ka_fresh; run ka-stuck "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH
 ka_fresh; chmod 000 "$KH/actions-runner/.service"; run ka-other "$KH" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$KH" -- keepalive; chmod 644 "$KH/actions-runner/.service"
 [ "$(rc ka-other)" = 0 ] && has ka-other "cannot read kosmos-ci's runner" && ! has ka-other "register first" \
   && pass "keepalive dry run as another user that cannot read the runner: says so, not \"register first\"" || fail "keepalive as other: rc $(rc ka-other): $(cat "$T/ka-other.out")"
+# As another user who CAN read the plist: still the note, never a verdict read from that user's own launchd and processes.
+ka_fresh; run ka-other-readable "$KH" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$KH" -- keepalive
+[ "$(rc ka-other-readable)" = 0 ] && has ka-other-readable "cannot read kosmos-ci's runner" && ! grep -q '^launchctl print' "$T/ka-other-readable.calls" && ! has ka-other-readable "not logged in" \
+  && pass "keepalive dry run as another user who can read the plist: says to run it as kosmos-ci, reads no launchd" || fail "keepalive other readable: rc $(rc ka-other-readable): $(tail -2 "$T/ka-other-readable.out")"
+# A trailing / on the CI home is dropped, so RUNNER_DIR still equals svc.sh's WorkingDirectory.
+ka_fresh; run ka-slash "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH/" -- keepalive
+[ "$(rc ka-slash)" = 0 ] && ! has ka-slash "register first" && has ka-slash "WOULD: add KeepAlive" \
+  && pass "keepalive: a CI home given with a trailing / still finds the runner" || fail "keepalive trailing slash: rc $(rc ka-slash): $(tail -1 "$T/ka-slash.out")"
 ka_fresh; run ka-pgrepfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_PGREP_FAIL=1 -- --apply keepalive
 [ "$(rc ka-pgrepfail)" = 1 ] && has ka-pgrepfail "could not list processes" && ! grep -q '^launchctl boot' "$T/ka-pgrepfail.calls" \
   && pass "keepalive --apply refuses when it cannot rule out a job" || fail "keepalive pgrep fail: rc $(rc ka-pgrepfail): $(tail -1 "$T/ka-pgrepfail.out")"
@@ -912,7 +932,7 @@ sed "s#$KH/actions-runner<#$VCI/actions-runner<#" "$T/ka.after" > "$VCI/Library/
 vcase keepalive 0 "has KeepAlive SuccessfulExit false"
 # As the owner in production: ~/Library closed, .service readable. A note saying KeepAlive was NOT checked, and the exit
 # is left alone (an exit 3 on every owner run would hide the checks that really could not be made).
-chmod 000 "$VCI/Library"; vcase ka-library-closed 0 "note:   KeepAlive NOT checked: $VCI/actions-runner/.service names no LaunchAgent under $VCI/Library/LaunchAgents that $(id -un) can see"; chmod 755 "$VCI/Library"
+chmod 000 "$VCI/Library"; vcase ka-library-closed 0 "note:   KeepAlive NOT checked: $VCI/actions-runner/.service names no LaunchAgent of this runner under $VCI/Library/LaunchAgents that $(id -un) can see"; chmod 755 "$VCI/Library"
 chmod 000 "$VCI/actions-runner/.service"; vcase ka-service-unreadable 3 "cannot read $VCI/actions-runner/.service as $(id -un), so KeepAlive is not checked here"; chmod 644 "$VCI/actions-runner/.service"
 rm -rf "$VCI/Library" "$VCI/actions-runner/.service"
 grep -q 'no tmux or node left' "$T/v-clear.out" && pass "verify: an idle runner's own node (RunnerService.js) is not a leftover" || fail "verify idle runner: $(grep -E 'REFUSE|ok' "$T/v-clear.out" | tail -2)"
