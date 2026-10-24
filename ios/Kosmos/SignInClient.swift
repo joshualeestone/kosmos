@@ -120,16 +120,31 @@ final class SignInClient {
 
     /// begin's offer, or nil when passkeys are off on the coordinator, it could not be reached, or the offer is not one a
     /// passkey can answer here (SignIn.passkeyOffer). Asks for nothing and stores nothing on Kosmos+.
-    /// Throws SignInError.unreachable when Kosmos+ did not answer at all (not the same as passkeys being off).
-    func passkeyOffer() async throws -> SignIn.PasskeyOffer? {
+    /// What begin said: an offer a passkey can answer, passkeys switched off (a 404: the route is not there), or an
+    /// answer that is neither (a server error, an offer for another host). Throws SignInError.unreachable when Kosmos+
+    /// did not answer at all.
+    enum PasskeyBegin { case offer(SignIn.PasskeyOffer), off, unusable }
+
+    func passkeyOffer() async throws -> PasskeyBegin {
         let (status, json) = try await post(SignIn.passkeyBeginPath, [:])
-        return SignIn.passkeyOffer(status: status, json: json, coordinator: coordinator)
+        if status == 404 { return .off }
+        return SignIn.passkeyOffer(status: status, json: json, coordinator: coordinator).map(PasskeyBegin.offer) ?? .unusable
     }
 
     /// What Apple's passkey sheet said.
     enum PasskeyAnswer { case assertion(ASAuthorizationPlatformPublicKeyCredentialAssertion), cancelled, failed }
 
     private var passkeyAsker: PasskeyAsker?
+    /// Kept until the sheet answers: the controller is not kept by anything else, and one released early answers
+    /// nobody (the company sheet's session is kept the same way).
+    private var passkeyController: ASAuthorizationController?
+
+    /// Closes an open passkey sheet (the person went back, or signed out): its ask answers `cancelled`, so nothing is
+    /// left waiting on a sheet that may never answer.
+    func cancelPasskey() {
+        passkeyController?.cancel()
+        passkeyAsker?.answer(.cancelled)
+    }
 
     /// Apple's passkey sheet for this offer: the person's passkey for Kosmos+ (any saved on this iPhone or in their
     /// iCloud Keychain, for the host this app is associated with), with Face ID, Touch ID or the passcode. One sheet at a
@@ -141,11 +156,14 @@ final class SignInClient {
         request.userVerificationPreference = .required
         return await withCheckedContinuation { (done: CheckedContinuation<PasskeyAnswer, Never>) in
             let asker = PasskeyAsker { [weak self] got in
-                self?.passkeyAsker = nil   // PasskeyAsker hands back on the main queue
+                // PasskeyAsker hands back on the main queue, once.
+                self?.passkeyAsker = nil
+                self?.passkeyController = nil
                 done.resume(returning: got)
             }
             passkeyAsker = asker
             let controller = ASAuthorizationController(authorizationRequests: [request])
+            passkeyController = controller
             controller.delegate = asker
             controller.presentationContextProvider = asker
             controller.performRequests()
@@ -218,6 +236,9 @@ private final class SheetAnchor: NSObject, ASWebAuthenticationPresentationContex
 private final class PasskeyAsker: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
     private var finish: ((SignInClient.PasskeyAnswer) -> Void)?
     init(_ finish: @escaping (SignInClient.PasskeyAnswer) -> Void) { self.finish = finish }
+
+    /// Answers now (a cancel from the app); the sheet's own later answer, if any, is then ignored.
+    func answer(_ got: SignInClient.PasskeyAnswer) { done(got) }
 
     private func done(_ got: SignInClient.PasskeyAnswer) {
         DispatchQueue.main.async {
