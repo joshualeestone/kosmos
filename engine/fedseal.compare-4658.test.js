@@ -29,8 +29,8 @@ function run() {
   const nO = seal.randomSecret();
   const hello = seal.checkOwnHello(seal.ownHelloFrame(waiting, MAC, nW));
   const offerFrame = seal.ownOfferFrame(owner, hello, nO);
-  const offer = seal.checkOwnOffer(offerFrame, MAC, hello.commit);
-  const revealed = seal.checkOwnReveal(seal.ownRevealFrame(MAC, offer.ownerPub, nW), MAC, owner.pub, hello.commit);
+  const offer = seal.checkOwnOffer(offerFrame, MAC, hello.commit, waiting.pub);
+  const revealed = seal.checkOwnReveal(seal.ownRevealFrame(MAC, offer.ownerPub, nW, waiting.pub), MAC, owner.pub, hello.commit, waiting.pub);
   const ownerSide = { mac: hello.mac, pub: hello.pub, nW: revealed, nO };
   const roomKey = seal.randomSecret();
   const code = seal.compareCode(ROOM, MAC, waiting.pub, owner.pub, nW, nO);
@@ -144,23 +144,25 @@ test('#4658: Allow refuses a code for a different key, room, computer or run, an
 test('#4658: an offer counts only for this computer\'s current commitment', () => {
   const r = run();
   const f = seal.ownOfferFrame(r.owner, r.hello, r.nO);
-  assert.ok(seal.checkOwnOffer(f, MAC, r.hello.commit));
-  assert.strictEqual(seal.checkOwnOffer(f, 'mac-2', r.hello.commit), null, 'another computer');
-  assert.strictEqual(seal.checkOwnOffer(f, MAC, seal.ownCommit(seal.randomSecret())), null, 'an older or newer commitment');
+  assert.ok(seal.checkOwnOffer(f, MAC, r.hello.commit, r.waiting.pub));
+  assert.strictEqual(seal.checkOwnOffer(f, MAC, r.hello.commit, seal.newKeyPair().pub), null, 'an offer drawn by another key\'s hello');
+  assert.strictEqual(seal.checkOwnOffer(f, 'mac-2', r.hello.commit, r.waiting.pub), null, 'another computer');
+  assert.strictEqual(seal.checkOwnOffer(f, MAC, seal.ownCommit(seal.randomSecret()), r.waiting.pub), null, 'an older or newer commitment');
   for (const junk of [null, 'x', {}, Object.assign({}, f, { v: 2 }), Object.assign({}, f, { owner: 'nope' }), Object.assign({}, f, { nonce: 'short' })]) {
-    assert.strictEqual(seal.checkOwnOffer(junk, MAC, r.hello.commit), null);
+    assert.strictEqual(seal.checkOwnOffer(junk, MAC, r.hello.commit, r.waiting.pub), null);
   }
 });
 
 test('#4658: a reveal counts only when it opens the commitment, for that owner', () => {
   const r = run();
-  const f = seal.ownRevealFrame(MAC, r.owner.pub, r.nW);
-  assert.strictEqual(seal.checkOwnReveal(f, MAC, r.owner.pub, r.hello.commit), r.nW);
-  assert.strictEqual(seal.checkOwnReveal(seal.ownRevealFrame(MAC, r.owner.pub, seal.randomSecret()), MAC, r.owner.pub, r.hello.commit), null, 'a nonce that does not open the commitment');
-  assert.strictEqual(seal.checkOwnReveal(f, MAC, seal.newKeyPair().pub, r.hello.commit), null, 'a reveal addressed to another owner');
-  assert.strictEqual(seal.checkOwnReveal(f, 'mac-2', r.owner.pub, r.hello.commit), null, 'another computer');
+  const f = seal.ownRevealFrame(MAC, r.owner.pub, r.nW, r.waiting.pub);
+  assert.strictEqual(seal.checkOwnReveal(f, MAC, r.owner.pub, r.hello.commit, r.waiting.pub), r.nW);
+  assert.strictEqual(seal.checkOwnReveal(f, MAC, r.owner.pub, r.hello.commit, seal.newKeyPair().pub), null, 'a reveal from another computer\'s key');
+  assert.strictEqual(seal.checkOwnReveal(seal.ownRevealFrame(MAC, r.owner.pub, seal.randomSecret(), r.waiting.pub), MAC, r.owner.pub, r.hello.commit, r.waiting.pub), null, 'a nonce that does not open the commitment');
+  assert.strictEqual(seal.checkOwnReveal(f, MAC, seal.newKeyPair().pub, r.hello.commit, r.waiting.pub), null, 'a reveal addressed to another owner');
+  assert.strictEqual(seal.checkOwnReveal(f, 'mac-2', r.owner.pub, r.hello.commit, r.waiting.pub), null, 'another computer');
   for (const junk of [null, 'x', {}, Object.assign({}, f, { v: 2 }), Object.assign({}, f, { t: 'key-own-hello' })]) {
-    assert.strictEqual(seal.checkOwnReveal(junk, MAC, r.owner.pub, r.hello.commit), null);
+    assert.strictEqual(seal.checkOwnReveal(junk, MAC, r.owner.pub, r.hello.commit, r.waiting.pub), null);
   }
 });
 

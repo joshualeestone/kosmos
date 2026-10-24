@@ -240,7 +240,7 @@ function openRotate(me, pinnedOwnerPub, frame, roomId) {
      waiting -> room   key-own-reveal {mac, owner, nonce: nW}          only for an offer naming its commit
    Both screens then show compareCode over (room, mac, both keys, nW, nO). A man in the middle must fix its
    commitment toward the owner before it sees nO, and its nO toward the waiting computer before it sees nW, so
-   it gets one guess at the code per run, and fedseats bounds the runs (OWN_RUNS_PER_HOUR). The person presses Allow on the owner (which sends
+   each pair of runs (a waiting run against an owner's row) is one guess at the code, and fedseats bounds the runs (OWN_RUNS_PER_HOUR). The person presses Allow on the owner (which sends
    key-own-share bound to that run) AND "It matches" on the waiting computer, which adopts a share only from
    the owner key of the offer its person confirmed. */
 
@@ -291,20 +291,23 @@ function checkOwnHello(frame) {
 }
 function ownOfferFrame(owner, hello, nO) {
   if (!hello || !macIdOk(hello.mac) || !publicKeyObject(owner && owner.pub) || !nonceOk(nO)) throw new Error('we could not answer that computer');
-  return { t: 'key-own-offer', v: V, mac: hello.mac, owner: owner.pub, nonce: nO, commit: hello.commit };
+  return { t: 'key-own-offer', v: V, mac: hello.mac, pub: hello.pub, owner: owner.pub, nonce: nO, commit: hello.commit };
 }
-/** { ownerPub, nO } when the offer is well formed and answers THIS computer's current commit, else null. */
-function checkOwnOffer(frame, macId, commit) {
+/** { ownerPub, nO } when the offer is well formed and answers THIS computer's hello (its id, key and current
+    commit), else null. Naming the key keeps an offer drawn by a copied hello from being taken for this one. */
+function checkOwnOffer(frame, macId, commit, pub) {
   if (!frame || frame.t !== 'key-own-offer' || frame.v !== V || frame.mac !== macId || frame.commit !== commit || typeof commit !== 'string') return null;
+  if (typeof pub !== 'string' || frame.pub !== pub) return null;
   return publicKeyObject(frame.owner) && nonceOk(frame.nonce) ? { ownerPub: frame.owner, nO: frame.nonce } : null;
 }
-function ownRevealFrame(macId, ownerPub, nW) {
-  if (!macIdOk(macId) || !publicKeyObject(ownerPub) || !nonceOk(nW)) throw new Error('we could not answer that offer');
-  return { t: 'key-own-reveal', v: V, mac: macId, owner: ownerPub, nonce: nW };
+function ownRevealFrame(macId, ownerPub, nW, pub) {
+  if (!macIdOk(macId) || !publicKeyObject(ownerPub) || !nonceOk(nW) || !publicKeyObject(pub)) throw new Error('we could not answer that offer');
+  return { t: 'key-own-reveal', v: V, mac: macId, pub, owner: ownerPub, nonce: nW };
 }
-/** nW when the reveal is for this owner and opens `commit`, else null. */
-function checkOwnReveal(frame, macId, ownerPub, commit) {
+/** nW when the reveal is from the computer with key `pub`, for this owner, and opens `commit`, else null. */
+function checkOwnReveal(frame, macId, ownerPub, commit, pub) {
   if (!frame || frame.t !== 'key-own-reveal' || frame.v !== V || frame.mac !== macId || frame.owner !== ownerPub || !nonceOk(frame.nonce)) return null;
+  if (typeof pub !== 'string' || frame.pub !== pub) return null;
   return ownCommit(frame.nonce) === commit ? frame.nonce : null;
 }
 

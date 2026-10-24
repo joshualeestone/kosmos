@@ -74,10 +74,10 @@ async function waitingRun(seat, room, mac = 'mac-w') {
   say(seat, { event: 'message', data: fedseal.ownHelloFrame(w, mac, nW) });
   await settle();
   const offerFrame = sent(seat, 'key-own-offer').filter((f) => f.commit === commit).pop();
-  const offer = fedseal.checkOwnOffer(offerFrame, mac, commit);
+  const offer = fedseal.checkOwnOffer(offerFrame, mac, commit, w.pub);
   return {
     w, nW, commit, offer, mac,
-    reveal: async () => { say(seat, { event: 'message', data: fedseal.ownRevealFrame(mac, offer.ownerPub, nW) }); await settle(); },
+    reveal: async () => { say(seat, { event: 'message', data: fedseal.ownRevealFrame(mac, offer.ownerPub, nW, w.pub) }); await settle(); },
     code: () => fedseal.compareCode(room, mac, w.pub, offer.ownerPub, nW, offer.nO),
   };
 }
@@ -89,7 +89,7 @@ test('#4658: the seal owner answers a hello with an offer, and lists the compute
   assert.strictEqual(r.offer.ownerPub, fedseal.sealingKey().pub);
   assert.deepStrictEqual(fedseats.ownWaiting('own-o1'), [], 'listed before the reveal, so its code could be ground');
   // A reveal that does not open the commitment lists nothing.
-  say(seat, { event: 'message', data: fedseal.ownRevealFrame(r.mac, r.offer.ownerPub, fedseal.randomSecret()) });
+  say(seat, { event: 'message', data: fedseal.ownRevealFrame(r.mac, r.offer.ownerPub, fedseal.randomSecret(), r.w.pub) });
   await settle();
   assert.deepStrictEqual(fedseats.ownWaiting('own-o1'), []);
   await r.reveal();
@@ -141,10 +141,10 @@ test('#4658: a pinned own computer that says hello again (lost its key, or a new
   const nW = fedseal.randomSecret();
   say(seat, { event: 'message', data: fedseal.ownHelloFrame(r.w, 'mac-new', nW) });
   await settle();
-  const offer = fedseal.checkOwnOffer(sent(seat, 'key-own-offer').pop(), 'mac-new', fedseal.ownCommit(nW));
+  const offer = fedseal.checkOwnOffer(sent(seat, 'key-own-offer').pop(), 'mac-new', fedseal.ownCommit(nW), r.w.pub);
   assert.ok(offer, 'a pinned key under a new id was ignored');
   assert.strictEqual(sent(seat, 'key-own-share').length, 1, 'a key was re-sent without a new Allow');
-  say(seat, { event: 'message', data: fedseal.ownRevealFrame('mac-new', offer.ownerPub, nW) });
+  say(seat, { event: 'message', data: fedseal.ownRevealFrame('mac-new', offer.ownerPub, nW, r.w.pub) });
   await settle();
   const code = fedseal.compareCode('room-o3', 'mac-new', r.w.pub, offer.ownerPub, nW, offer.nO);
   assert.deepStrictEqual(await fedseats.allowOwn('own-o3', r.w.pub, code), { ok: true, because: null });
@@ -190,7 +190,7 @@ test('#4658: the owner starts at most OWN_RUNS_PER_HOUR new runs an hour, and ke
     keys.push(k.pub);
     say(seat, { event: 'message', data: fedseal.ownHelloFrame(k, 'mac-' + i, nW) });
     await settle();
-    say(seat, { event: 'message', data: fedseal.ownRevealFrame('mac-' + i, fedseal.sealingKey().pub, nW) });
+    say(seat, { event: 'message', data: fedseal.ownRevealFrame('mac-' + i, fedseal.sealingKey().pub, nW, k.pub) });
     await settle();
   };
   for (let i = 0; i < fedseats.OWN_RUNS_PER_HOUR + 3; i++) await hello(i);
@@ -263,7 +263,7 @@ test('#4658: the own computer adopts the share only after its person confirms, a
   say(seat, { event: 'message', data: o.offer });
   await settle();
   const rev = revealOf(seat);
-  const nW = fedseal.checkOwnReveal(rev, MY_MAC, o.owner.pub, hello.commit);
+  const nW = fedseal.checkOwnReveal(rev, MY_MAC, o.owner.pub, hello.commit, hello.pub);
   assert.ok(nW, 'the reveal does not open the hello\'s commitment');
   const code = fedseal.compareCode('room-s2', MY_MAC, hello.pub, o.owner.pub, nW, o.nO);
   assert.strictEqual(fedseats.ownCode('own-s2'), code, 'this screen shows a different code from the owner\'s');
@@ -291,7 +291,7 @@ test('#4658: confirming first, then the share arriving, adopts too', async () =>
   const o = handOwner('room-s2b', hello);
   say(seat, { event: 'message', data: o.offer });
   await settle();
-  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit);
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit, hello.pub);
   assert.strictEqual((await fedseats.confirmOwn('own-s2b', fedseats.ownCode('own-s2b'))).ok, true);
   say(seat, { event: 'message', data: o.share(nW, roomKey) });
   await settle();
@@ -306,7 +306,7 @@ test('#4658: the coordinator-picks-the-key attack: a share from any key but the 
   const real = handOwner('room-s3', hello);
   say(seat, { event: 'message', data: real.offer });
   await settle();
-  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, real.owner.pub, hello.commit);
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, real.owner.pub, hello.commit, hello.pub);
   await fedseats.confirmOwn('own-s3', fedseats.ownCode('own-s3'));
   // The attacker knows every public value, including nW now, and seals a key of its choosing.
   const attacker = fedseal.newKeyPair();
@@ -356,7 +356,7 @@ test('#4658: an own computer accepts a rotation from the owner it pinned, and no
   const o = handOwner('room-s6', hello);
   say(seat, { event: 'message', data: o.offer });
   await settle();
-  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit);
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit, hello.pub);
   await fedseats.confirmOwn('own-s6', fedseats.ownCode('own-s6'));
   say(seat, { event: 'message', data: o.share(nW, roomKey) });
   await settle();
@@ -401,7 +401,7 @@ test('#4658: a forged share relabelled with the owner\'s key cannot displace a g
   const o = handOwner('room-s8', hello);
   say(seat, { event: 'message', data: o.offer });
   await settle();
-  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit);
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit, hello.pub);
   say(seat, { event: 'message', data: o.share(nW, roomKey) });
   await settle();
   const attacker = fedseal.newKeyPair();
@@ -459,7 +459,7 @@ test('#4658: a reveal opens every entry with that commitment, so a copied commit
   say(seat, { event: 'message', data: Object.assign({}, real, { pub: copier.pub }) });   // first, under another key
   say(seat, { event: 'message', data: real });
   await settle();
-  say(seat, { event: 'message', data: fedseal.ownRevealFrame('mac-c', fedseal.sealingKey().pub, nW) });
+  say(seat, { event: 'message', data: fedseal.ownRevealFrame('mac-c', fedseal.sealingKey().pub, nW, w.pub) });
   await settle();
   assert.ok(fedseats.ownWaiting('own-o10').some((x) => x.pub === w.pub), 'the real computer never got its code');
 });
@@ -543,7 +543,7 @@ test('#4658: a rotation between the Allow and the confirm is applied before the 
   const o = handOwner('room-s13', hello);
   say(seat, { event: 'message', data: o.offer });
   await settle();
-  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit);
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit, hello.pub);
   say(seat, { event: 'message', data: o.share(nW, roomKey) });   // Allow pressed: epoch 0
   await settle();
   const next = fedseal.randomSecret();
@@ -566,7 +566,7 @@ test('#4658: junk rotations cannot push out the genuine one kept for adoption', 
   const o = handOwner('room-s14', hello);
   say(seat, { event: 'message', data: o.offer });
   await settle();
-  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit);
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit, hello.pub);
   say(seat, { event: 'message', data: o.share(nW, roomKey) });
   await settle();
   const me = fedseal.sealingKey();
@@ -652,7 +652,7 @@ test('#4658: rotations kept before adoption are bounded to the newest 8 epochs',
   const o = handOwner('room-s19', hello);
   say(seat, { event: 'message', data: o.offer });
   await settle();
-  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit);
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit, hello.pub);
   say(seat, { event: 'message', data: o.share(nW, roomKey) });
   await settle();
   const me = fedseal.sealingKey();
@@ -668,4 +668,49 @@ test('#4658: rotations kept before adoption are bounded to the newest 8 epochs',
   assert.strictEqual(st.keys[20], keys[20]);
   assert.strictEqual(st.keys[12], undefined, 'more than 8 epochs were kept');
   assert.strictEqual(st.keys[13], keys[13]);
+});
+
+/* ---- iteration-9 review ---- */
+
+test('#4658: with two rotations before the confirm, no held post goes out under the middle key', async () => {
+  const { seat } = await ownComputer('own-s20', 'room-s20');
+  const roomKey = fedseal.randomSecret();
+  const hello = await sealedNow(seat, 'room-s20', roomKey);
+  fedseats.post('own-s20', { from: 'Josh', kind: 'person', text: 'held across two rotations' });
+  await settle();
+  const o = handOwner('room-s20', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit, hello.pub);
+  say(seat, { event: 'message', data: o.share(nW, roomKey) });
+  await settle();
+  const me = fedseal.sealingKey();
+  const k1 = fedseal.randomSecret();
+  const k2 = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.rotateFrame(o.owner, me.pub, k1, 1, 'room-s20', Date.now()) });
+  say(seat, { event: 'message', data: fedseal.rotateFrame(o.owner, me.pub, k2, 2, 'room-s20', Date.now()) });   // a guest removed at epoch 2 holds k1
+  await settle();
+  assert.strictEqual((await fedseats.confirmOwn('own-s20', fedseats.ownCode('own-s20'))).ok, true);
+  assert.strictEqual(fedseal.roomState('own-s20').epoch, 2);
+  const out = lines(seat).filter((f) => fedseal.isSealed(f));
+  assert.ok(!out.some((env) => fedseal.open({ 1: k1 }, 'room-s20', env)), 'a held post went out under the middle key');
+  assert.ok(out.some((env) => { const x = fedseal.open({ 2: k2 }, 'room-s20', env); return x && x.m && x.m.text === 'held across two rotations'; }), 'the held post did not go under the newest key');
+});
+
+test('#4658: an offer drawn by a copied hello (same id and commitment, another key) is not taken for this computer\'s', async () => {
+  const { seat } = await ownComputer('own-s21', 'room-s21');
+  const hello = await sealedNow(seat, 'room-s21');
+  const copier = fedseal.newKeyPair();
+  const owner = fedseal.newKeyPair();
+  const copied = fedseal.ownOfferFrame(owner, Object.assign({}, hello, { pub: copier.pub }), fedseal.randomSecret());
+  say(seat, { event: 'message', data: copied });   // arrives first
+  await settle();
+  assert.deepStrictEqual(sent(seat, 'key-own-reveal'), [], 'revealed to an offer for another key');
+  const real = fedseal.ownOfferFrame(owner, hello, fedseal.randomSecret());
+  say(seat, { event: 'message', data: real });
+  await settle();
+  const [rev] = sent(seat, 'key-own-reveal');
+  assert.ok(rev, 'the real offer got no reveal');
+  assert.strictEqual(rev.pub, hello.pub);
+  assert.strictEqual(fedseal.checkOwnHello(sent(seat, 'key-own-hello').pop()).commit, hello.commit, 'the run was reset by the copied offer');
 });
