@@ -497,10 +497,10 @@ enum Board {
     // composer is not closed (presence off: it cannot be typed into).
     static func parseChoices(_ obj: [String: Any]) -> Choices? {
         let opts: [ChoiceOption] = (obj["options"] as? [[String: Any]] ?? []).compactMap { o in
-            guard let n = o["n"] as? Int, let label = o["label"] as? String else { return nil }
-            return ChoiceOption(n: n, label: label, lasting: o["lasting"] as? Bool == true)
+            guard let n = integer(o["n"]), let label = o["label"] as? String else { return nil }
+            return ChoiceOption(n: n, label: label, lasting: isTrue(o["lasting"]))
         }
-        guard !opts.isEmpty, obj["asking"] as? Bool == true, let asked = obj["asked"] as? String, !asked.isEmpty,
+        guard !opts.isEmpty, isTrue(obj["asking"]), let asked = obj["asked"] as? String, !asked.isEmpty,
               obj["presence"] as? String != "off" else { return nil }
         let question = (obj["question"] as? [String: Any])?["text"] as? String ?? ""
         let sig = opts.map { "\($0.n)\u{1}\($0.label)" }.joined(separator: "\u{2}")
@@ -516,8 +516,20 @@ enum Board {
         return lines[...at].map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: "\n")
     }
 
+    // JSONSerialization answers `as? Int` for true and `as? Bool` for 1; the board takes only a whole number
+    // (Number.isInteger) and only `=== true`, so these do too.
+    static func integer(_ any: Any?) -> Int? {
+        guard let num = any as? NSNumber, CFGetTypeID(num) != CFBooleanGetTypeID() else { return nil }
+        let d = num.doubleValue
+        return d == d.rounded() && abs(d) < 1e9 ? Int(d) : nil
+    }
+    static func isTrue(_ any: Any?) -> Bool {
+        guard let num = any as? NSNumber, CFGetTypeID(num) == CFBooleanGetTypeID() else { return false }
+        return num.boolValue
+    }
+
     static func parsePermission(_ any: Any?) -> Permission? {
-        guard let p = any as? [String: Any], let allow = p["allow"] as? Int, let deny = p["deny"] as? Int else { return nil }
+        guard let p = any as? [String: Any], let allow = integer(p["allow"]), let deny = integer(p["deny"]) else { return nil }
         func text(_ k: String) -> String? { (p[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
         return Permission(kind: p["kind"] as? String ?? "other", says: text("says"), target: text("target"), detail: text("detail"),
                           reason: text("reason"), allow: allow, deny: deny)
@@ -601,6 +613,44 @@ enum Board {
         return .notSure(choiceUnsure + (because.map { " " + sentence($0) } ?? ""))
     }
 
+    // What a question's buttons show now (dmChoicesHtml): off while a press or a typed send is in the air or the
+    // question was just answered, and the line under them. On a card, Sending…, Allowed. / Denied. and the not-sure
+    // line go under Allow and Deny (.main), and the arm note goes with the lasting choices in Show details (.more).
+    struct ChoicesState: Equatable {
+        var off = false
+        var armedN: Int?
+        var note: String?
+        // The line is the danger colour: it may have gone.
+        var danger = false
+        // A sure press on a card: "Allowed." or "Denied." stands in place of Allow and Deny (the spec).
+        var settled = false
+    }
+    enum ChoicesPart: Equatable { case plain, main(allow: Int, deny: Int), more }
+    static func choicesState(_ part: ChoicesPart, pressing: Bool, typing: Bool, answered: (sure: Bool, n: Int)?,
+                             armedN: Int?, unsure: Bool) -> ChoicesState {
+        var s = ChoicesState(off: pressing || typing || answered != nil, armedN: armedN)
+        if pressing {
+            if part != .more { s.note = "Sending\u{2026}" }
+            return s
+        }
+        if let a = answered, a.sure {
+            guard case .main(let allow, let deny) = part else {
+                if part == .plain { s.note = "Sent." }
+                return s
+            }
+            s.note = a.n == allow ? "Allowed." : a.n == deny ? "Denied." : "Sent."
+            s.settled = a.n == allow || a.n == deny
+            return s
+        }
+        if armedN != nil, answered == nil, !isMain(part) {
+            s.note = choiceArmNote
+            return s
+        }
+        if unsure, part != .more { s.note = choiceUnsure; s.danger = true }
+        return s
+    }
+    private static func isMain(_ part: ChoicesPart) -> Bool { if case .main = part { return true }; return false }
+
     // #6172 arm and confirm: a lasting choice's first press arms it; a second press on the same option of the same
     // question within 15 s sends it; one sooner than 0.6 s is the same gesture (a double-tap) and does nothing.
     struct Armed: Equatable { let key: String; let n: Int; let at: Date }
@@ -655,13 +705,16 @@ enum Board {
                 let wire = (row["wire"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 resendable = state == "could_not" && d["duplicateOf"] == nil && wire == nil
             }
-            let way: ChatRow.WayThrough? = (row["draft"] as? Bool) == true ? .draft : row["permission"] != nil ? .permission
+            // A permission is read only on a question row (the board's m.kind === 'question' && m.permission).
+            let permission = kind == "question" ? parsePermission(row["permission"]) : nil
+            // Marked a permission prompt whenever the Mac says it is one; the card itself needs Allow and Deny it can read.
+            let isPermission = kind == "question" && row["permission"] is [String: Any]
+            let way: ChatRow.WayThrough? = (row["draft"] as? Bool) == true ? .draft : isPermission ? .permission
                 : kind == "question" ? .question
                 : (row["attachment"] != nil || (row["attachments"] as? [Any])?.isEmpty == false) ? .attachment : nil
             return ChatRow(id: base + "#\(n)", atRaw: at, at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way,
                            because: because, resendable: resendable,
-                           permission: kind == "question" ? parsePermission(row["permission"]) : nil,
-                           reported: row["reported"] as? Bool == true)
+                           permission: permission, reported: isTrue(row["reported"]))
         }
         let older = (obj["olderCount"] as? NSNumber)?.intValue ?? 0
         return Thread(rows: parsed, olderCount: max(0, older), choices: parseChoices(obj))

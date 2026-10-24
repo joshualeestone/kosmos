@@ -959,8 +959,15 @@ do {
           "Allow and Deny are the prompt's own options by number; the rest are under Show details")
     let noDeny = Board.Permission(kind: "edit", says: nil, target: nil, detail: nil, reason: nil, allow: 1, deny: 9)
     check(Board.cardButtons(pt.choices!, noDeny) == nil, "no card unless both Allow and Deny are among the options")
-    check(thread(#"{"messages":[{"at":null,"text":"x","from":"eli","permission":{"allow":1,"deny":2}}]}"#)?.rows[0].permission == nil,
-          "a permission only on a question row")
+    let notQuestion = thread(#"{"messages":[{"at":null,"text":"x","from":"eli","permission":{"allow":1,"deny":2}}]}"#)!.rows[0]
+    check(notQuestion.permission == nil && notQuestion.wayThrough == nil, "a permission only on a question row, and it takes no buttons")
+    check(thread(#"{"messages":[{"at":null,"text":"x","from":"eli","kind":"question","permission":null}]}"#)!.rows[0].wayThrough == .question,
+          "a question with permission null is a plain question")
+    // The board's strictness: a whole number, and only true.
+    let loose = thread(#"{"messages":[],"asking":1,"asked":"Q","options":[{"n":1,"label":"a"}]}"#)
+    check(loose?.choices == nil, "asking 1 is not true")
+    let boolN = thread(#"{"messages":[],"asking":true,"asked":"Q","options":[{"n":true,"label":"a"},{"n":1.5,"label":"b"},{"n":2,"label":"c","lasting":1}]}"#)
+    check(boolN?.choices?.options == [Board.ChoiceOption(n: 2, label: "c", lasting: false)], "n true or 1.5 is no option; lasting 1 is not lasting")
 
     // A press, as the board sends it.
     let mac = URL(string: "https://studio.kosmosplus.com")!
@@ -987,6 +994,28 @@ do {
     check(res(409, nil) == .refused("That did not go; try again."), "a refusal with no words")
     check(Board.PressResult.sent.mayHaveSent && Board.PressResult.notSure("x").mayHaveSent && !Board.PressResult.refused("x").mayHaveSent, "which may have gone")
     check(Board.sentence("ok!") == "Ok!" && Board.sentence("  ") == "" && Board.sentence(nil) == "", "a sentence keeps its own stop")
+
+    // What the buttons show (dmChoicesHtml).
+    func st(_ part: Board.ChoicesPart, pressing: Bool = false, typing: Bool = false, answered: (sure: Bool, n: Int)? = nil,
+            armedN: Int? = nil, unsure: Bool = false) -> Board.ChoicesState {
+        Board.choicesState(part, pressing: pressing, typing: typing, answered: answered, armedN: armedN, unsure: unsure)
+    }
+    let main = Board.ChoicesPart.main(allow: 1, deny: 3)
+    check(st(.plain) == Board.ChoicesState(), "nothing happening: pressable, no line")
+    check(st(.plain, typing: true) == Board.ChoicesState(off: true), "a typed send in the air: off, nothing said")
+    check(st(.plain, pressing: true).note == "Sending\u{2026}" && st(.plain, pressing: true).off, "a press in the air: off, Sending…")
+    check(st(.more, pressing: true).note == nil && st(main, pressing: true).note == "Sending\u{2026}", "on a card, Sending… is said once, under Allow and Deny")
+    check(st(.plain, answered: (true, 1)) == Board.ChoicesState(off: true, note: "Sent."), "sure: off, Sent.")
+    check(st(main, answered: (true, 1)) == Board.ChoicesState(off: true, note: "Allowed.", settled: true)
+          && st(main, answered: (true, 3)).note == "Denied." && st(main, answered: (true, 2)) == Board.ChoicesState(off: true, note: "Sent."),
+          "a card says what was chosen, in place of the buttons; a lasting choice says Sent.")
+    check(st(.more, answered: (true, 2)).note == nil, "Show details says nothing after a press")
+    check(st(.plain, answered: (false, 1), unsure: true) == Board.ChoicesState(off: true, note: Board.choiceUnsure, danger: true),
+          "not sure: off for the lock, and the danger line")
+    check(st(.plain, armedN: 2).note == Board.choiceArmNote && st(.more, armedN: 2).note == Board.choiceArmNote && st(main, armedN: 2).note == nil,
+          "the arm note goes with the armed choice, never under Allow and Deny")
+    check(st(.plain, armedN: 2, unsure: true).note == Board.choiceArmNote, "a new arm outranks an old not-sure line")
+    check(st(.more, unsure: true).note == nil, "Show details never says the not-sure line")
 
     // Arm and confirm (#6172).
     let t0 = Date(timeIntervalSince1970: 1000)
@@ -1099,6 +1128,7 @@ final class FakeBoardWorld {
     var onPost: (() -> Void)?
     // When set, a POST yields this many times before it is answered, so a test can act while it is in the air.
     var postYields = 0
+    var threadYields = 0
     // Runs as a status read is answered (taken once), for a change that lands while a read is in flight.
     var onStatusRead: (() -> Void)?
     let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage!
@@ -1161,6 +1191,7 @@ func boardLoopTests() async {
         let client = BoardClient(coordinator: coordinator, sessionStore: sessions, macStore: macs, cookies: world.cookies,
                                  env: .init(send: { r in
                                                 if r.httpMethod == "POST" { for _ in 0..<world.postYields { await Task.yield() } }
+                                                else if r.url?.path.hasSuffix("/thread") == true { for _ in 0..<world.threadYields { await Task.yield() } }
                                                 return world.send(r)
                                             },
                                             sleep: { world.clock += $0; await Task.yield() },
@@ -1443,12 +1474,33 @@ section("native board loop: connecting")
               "while a press is in the air, a second press and a typed send send nothing")
         let first = await inFlight.value
         check(first == .sent && !c.pressing.contains("dana"), "and the first comes back sent")
+        w.sendQueue = [(200, #"{"delivery":{"state":"placed"}}"#)]
+        let pressAgain = Task { await c.press(tue, of: choices, to: dana) }
+        _ = await settle { c.pressing.contains("dana") }
+        let lostRow = Board.ChatRow(id: "lost", atRaw: "T", at: nil, text: "Are you there?", who: .person, notSent: "Not sent", resendable: true)
+        await c.sendAgain(lostRow, to: dana)
+        check(!c.wasSentAgain(lostRow, for: "dana"), "Send again while a press is in the air does nothing, and the row still offers it")
+        _ = await pressAgain.value
         let typed = Task { await c.post("a typed reply", to: dana) }
         let typing = await settle { c.isSending("dana") }
         check(typing, "CONTROL: a typed send is in the air")
         let during = await c.press(tue, of: choices, to: dana)
         check(during == nil, "a press while a typed send is in the air presses nothing")
         await typed.value
+        // A retry still reading before it sends counts as a send in the air.
+        w.sendQueue = [nil]
+        await c.post("will fail", to: dana)
+        let failedId = c.pending["dana"]!.last!.id
+        w.threadAnswer = (200, #"{"messages":[]}"#)
+        w.threadYields = 50
+        w.sendQueue = [(200, #"{"delivery":{"state":"placed","at":"2026-10-23T20:00:10.000Z"},"recorded":true}"#)]
+        let retrying = Task { await c.retry(failedId, to: dana) }
+        let reading = await settle { c.isSending("dana") }
+        check(reading, "CONTROL: a retry reading first is a send in the air")
+        let duringRetry = await c.press(tue, of: choices, to: dana)
+        check(duringRetry == nil, "a press during a retry's read presses nothing")
+        await retrying.value
+        w.threadYields = 0
         w.postYields = 0
 
         // A reset while a press is in the air: its answer is dropped.

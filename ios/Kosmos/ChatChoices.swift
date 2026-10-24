@@ -5,17 +5,8 @@ import SwiftUI
 // board's own dmChoicesHtml and dmPermissionHtml. What to draw and what a press means are decided in BoardLogic.swift
 // (tested) and BoardClient.press; this file only draws them.
 
-// What the buttons show now, worked out by ChatView from the client (in the air, answered) and its own armed state.
-struct ChoicesState: Equatable {
-    // Every button drawn off with no tap: a press or a typed send in the air, or a question just answered.
-    var off = false
-    var armedN: Int?
-    // The line under the buttons, and whether it is in the danger colour (not sure it went, or refused).
-    var note: String?
-    var danger = false
-    // A sure press on a card: "Allowed." or "Denied." stands in place of Allow and Deny (the spec).
-    var settled = false
-}
+// What the buttons show now (Board.choicesState, under ios/LogicTests).
+typealias ChoicesState = Board.ChoicesState
 
 // A question: its words, then its options, all in one agent bubble.
 struct QuestionBubble: View {
@@ -172,6 +163,7 @@ struct ChoiceButton: View {
             .disabled(state.off)
             .opacity(state.off ? 0.5 : 1)
             .accessibilityLabel(spoken)
+            .accessibilityValue(armed ? "Armed" : "")
             .accessibilityHint(option.lasting ? "Changes what the agent may do from now on. Double-tap twice to choose." : "")
     }
 
@@ -201,6 +193,9 @@ struct ChoiceNote: View {
         if let note = state.note {
             Text(note).font(.footnote).foregroundColor(state.danger ? Palette.dangerWord : Palette.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                // Said aloud as it changes (the board's role="status"): VoiceOver hears the arm note, Sending… and Sent.
+                .onAppear { UIAccessibility.post(notification: .announcement, argument: note) }
+                .onChange(of: note) { now in UIAccessibility.post(notification: .announcement, argument: now) }
         }
     }
 }

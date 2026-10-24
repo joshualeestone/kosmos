@@ -34,7 +34,10 @@ struct ChatView: View {
     // the line a press left for its question (not sure it went, or the Mac's refusal), and the line over the composer
     // when a typed send waits for a press in the air.
     @State private var armed: Board.Armed?
-    @State private var outcome: (key: String, text: String)?
+    // The question a press may have answered (its buttons say so while it is up), and the conversation's line for a
+    // press that did not go or may have gone.
+    @State private var unsureKey: String?
+    @State private var pressLine: String?
     @State private var composerNote: String?
     // Bumped when the arm window or the answered lock ends, so the buttons redraw then.
     @State private var tick = 0
@@ -48,16 +51,20 @@ struct ChatView: View {
     private var widthShare: CGFloat { typeSize.isAccessibilitySize ? 0.85 : 0.78 }
 
     var body: some View {
+        // Read here so the end of an arm window or an answered lock redraws the buttons (redraw(after:)).
+        let _ = tick
         VStack(spacing: 0) {
             if thread != nil, let note = bannerText { banner(note) }
             ZStack(alignment: .bottom) {
                 conversation
                 if unseenNew { newMessagesCapsule }
             }
-            if let composerNote {
-                Text(composerNote).font(.footnote).foregroundColor(Palette.secondary)
+            if let line = composerNote ?? pressLine {
+                Text(line).font(.footnote).foregroundColor(composerNote == nil ? Palette.dangerWord : Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16).padding(.top, 6)
+                    .onAppear { UIAccessibility.post(notification: .announcement, argument: line) }
+                    .onChange(of: line) { now in UIAccessibility.post(notification: .announcement, argument: now) }
             }
             composer
         }
@@ -94,6 +101,10 @@ struct ChatView: View {
         .onChange(of: client.chatEpoch) { now in
             epoch = now
             thread = nil
+            armed = nil
+            unsureKey = nil
+            pressLine = nil
+            composerNote = nil
             draftText = ""
             refusal = nil
             failedReads = 0
@@ -209,7 +220,7 @@ struct ChatView: View {
     @ViewBuilder private var pendingBubbles: some View {
         ForEach(pending) { p in
             PendingBubble(item: p, widthShare: widthShare, line: Board.notSentLine(agentRunning: running, name: shown.name),
-                          retry: { Task { await client.retry(p.id, to: agent); await read() } },
+                          retry: { sendWhenFree { await client.retry(p.id, to: agent) } },
                           delete: { client.discard(p.id, for: agent.session) })
                 .padding(.top, 10)
                 .id(p.id)
@@ -262,7 +273,7 @@ struct ChatView: View {
                 ChatBubble(row: row, firstOfRun: first, lastOfRun: last, widthShare: widthShare, name: shown.name,
                            line: row.canSendAgain && !client.wasSentAgain(row, for: agent.session)
                                ? Board.notSentLine(agentRunning: running, name: shown.name) : nil,
-                           sendAgain: { Task { await client.sendAgain(row, to: agent); await read() } })
+                           sendAgain: { sendWhenFree { await client.sendAgain(row, to: agent) } })
                     .padding(.top, first ? 10 : 2)
             }
         }
@@ -273,44 +284,21 @@ struct ChatView: View {
     @ViewBuilder private func choicesView(_ row: Board.ChatRow, _ choices: Board.Choices) -> some View {
         if let p = row.permission, let card = Board.cardButtons(choices, p) {
             PermissionCard(permission: p, allow: card.allow, deny: card.deny, more: card.more,
-                           mainState: cardMainState(choices, p), moreState: choicesState(choices, among: card.more, card: true),
+                           mainState: choicesState(choices, among: [card.allow, card.deny], .main(allow: p.allow, deny: p.deny)),
+                           moreState: choicesState(choices, among: card.more, .more),
                            widthShare: widthShare, press: { press($0, choices) })
         } else {
-            QuestionBubble(text: row.text, options: choices.options, state: choicesState(choices, among: choices.options, card: false),
+            QuestionBubble(text: row.text, options: choices.options, state: choicesState(choices, among: choices.options, .plain),
                            widthShare: widthShare, press: { press($0, choices) })
         }
     }
 
-    // The board's dmChoicesHtml: off while a press or a typed send is in the air or the question was just answered;
-    // the line says Sending…, Sent., the arm note, or what the last press left. On a card, Sending… and Sent. go under
-    // Allow and Deny (cardMainState), and this part says only the arm note for a choice it holds.
-    private func choicesState(_ c: Board.Choices, among shown: [Board.ChoiceOption], card: Bool) -> ChoicesState {
-        _ = tick
-        let pressingNow = client.pressing.contains(agent.session)
-        let answered = client.answeredNow(agent.session, key: c.key)
-        let off = pressingNow || client.isSending(agent.session) || answered != nil
+    // What the client and this chat know now, decided by Board.choicesState (tested).
+    private func choicesState(_ c: Board.Choices, among shown: [Board.ChoiceOption], _ part: Board.ChoicesPart) -> ChoicesState {
+        let answered = client.answeredNow(agent.session, key: c.key).map { (sure: $0.sure, n: $0.n) }
         let armedN = shown.map(\.n).first { Board.isArmed(armed, n: $0, key: c.key, now: Date()) }
-        var state = ChoicesState(off: off, armedN: armedN)
-        if card {
-            if !pressingNow, answered == nil, armedN != nil { state.note = Board.choiceArmNote }
-            return state
-        }
-        if pressingNow { state.note = "Sending\u{2026}" }
-        else if answered?.sure == true { state.note = "Sent." }
-        else if armedN != nil { state.note = Board.choiceArmNote }
-        else if let o = outcome, o.key == c.key { state.note = o.text; state.danger = true }
-        return state
-    }
-
-    private func cardMainState(_ c: Board.Choices, _ p: Board.Permission) -> ChoicesState {
-        var state = choicesState(c, among: c.options.filter { $0.n == p.allow || $0.n == p.deny }, card: false)
-        if let a = client.answeredNow(agent.session, key: c.key), a.sure {
-            state.note = a.n == p.allow ? "Allowed." : a.n == p.deny ? "Denied." : "Sent."
-            state.settled = a.n == p.allow || a.n == p.deny
-        }
-        // The arm note belongs to Show details, where the lasting choices are.
-        if state.note == Board.choiceArmNote { state.note = nil }
-        return state
+        return Board.choicesState(part, pressing: client.pressing.contains(agent.session), typing: client.isSending(agent.session),
+                                  answered: answered, armedN: armedN, unsure: unsureKey == c.key)
     }
 
     private func press(_ option: Board.ChoiceOption, _ choices: Board.Choices) {
@@ -319,22 +307,25 @@ struct ChatView: View {
             return
         case .arm(let a):
             armed = a
-            outcome = nil
             redraw(after: Board.armWindow)
             return
         case .send:
             break
         }
         armed = nil
-        outcome = nil
+        unsureKey = nil
         Task {
-            guard let result = await client.press(option, of: choices, to: agent) else { return }
+            let result = await client.press(option, of: choices, to: agent)
+            if composerNote == Board.choiceWaitLine { composerNote = nil }
+            guard let result else { return }
+            // Why it did not go, or that it may have gone, goes on the conversation's own line, which stays when the
+            // next read draws another question or none (the board's d-say-msg); a sure press clears it.
             switch result {
-            case .sent: outcome = nil
-            case .notSure(let text), .refused(let text): outcome = (choices.key, text)
+            case .sent: pressLine = nil
+            case .notSure(let text): pressLine = text; unsureKey = choices.key
+            case .refused(let text): pressLine = text
             }
             if result.mayHaveSent { redraw(after: BoardClient.answeredLock) }
-            if composerNote == Board.choiceWaitLine { composerNote = nil }
             await read()
         }
     }
@@ -347,13 +338,26 @@ struct ChatView: View {
         guard !sampleApplied, let c = t.choices, let which = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_CHOICE"] else { return }
         sampleApplied = true
         switch which {
-        case "armed": if let o = c.options.first(where: \.lasting) { armed = Board.Armed(key: c.key, n: o.n, at: Date().addingTimeInterval(3600)) }
-        case "unsure": outcome = (c.key, Board.choiceUnsure)
+        case "armed": if let o = c.options.first(where: \.lasting) { armed = Board.Armed(key: c.key, n: o.n, at: Date()) }
+        case "unsure": unsureKey = c.key; pressLine = Board.choiceUnsure
         case "answered": client.sampleAnswer(agent.session, key: c.key, n: c.options[0].n)
         default: break
         }
     }
     #endif
+
+    // A send again or a retry while a press is in the air waits, and the line says why (dmChoiceBlocksSend).
+    private func sendWhenFree(_ go: @escaping () async -> Void) {
+        if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
+        Task { await go(); await read() }
+    }
+
+    // No thread read, no buttons (the board's rule): a question kept from an earlier read may have moved on to another
+    // with the same words (every permission prompt asks "Do you want to proceed?"), so it cannot be pressed.
+    private func dropChoices() {
+        guard let t = thread, t.choices != nil else { return }
+        thread = Board.Thread(rows: t.rows, olderCount: t.olderCount)
+    }
 
     private func redraw(after seconds: TimeInterval) {
         Task {
@@ -472,9 +476,11 @@ struct ChatView: View {
         case .refused(let why):
             // The Mac answered, with a reason: said as it is, never as "not answering".
             refusal = why
+            dropChoices()
             failedReads = 0
         case .noAnswer:
             failedReads += 1
+            dropChoices()
         }
     }
 }
