@@ -765,6 +765,77 @@ do {
     check(Board.sorted(agents).first?.session == "b", "a needs-you tone from the Mac sorts first")
 }
 
+section("Today: the model (kosmos#7030)")
+do {
+    // The fields part 1 sends, parsed; an older Mac sends none of them.
+    let json = #"{"agents":["#
+        + #"{"sessionName":"cleo","name":"Cleo","state":"needs_you","cardWord":"Question","cardTone":"asked","needsReason":"question","stateProjectName":"Spring catalogue","waitingSince":"2026-10-24T05:00:00.000Z"},"#
+        + #"{"sessionName":"ada","name":"Ada","state":"needs_trust","cardWord":"Waiting on a trust prompt","cardTone":"needs_you","needsReason":"trust","waitingSince":"2026-10-24T04:00:00.000Z"},"#
+        + #"{"sessionName":"bo","name":"Bo","state":"auth_failed","cardWord":"Sign-in Issue","cardTone":"needs_you","needsReason":"other"},"#
+        + #"{"sessionName":"abe","name":"Abe","state":"rate_limited","cardWord":"Rate Limit","cardTone":"needs_you","needsReason":"brand_new_reason"},"#
+        + #"{"sessionName":"wes","name":"Wes","state":"working","cardWord":"Working","cardTone":"working"},"#
+        + #"{"sessionName":"una","name":"Una","state":"working","cardWord":"Working","cardTone":"working"},"#
+        + #"{"sessionName":"ivo","name":"Ivo","state":"idle","cardWord":"Idle","cardTone":"quiet"},"#
+        + #"{"sessionName":"old","name":"Old","state":"needs_you","stateReportedBy":"agent"}"#
+        + #"]}"#
+    let agents = Board.parseAgents(Data(json.utf8)) ?? []
+    let one = { (s: String) in agents.first { $0.session == s }! }
+    check(one("cleo").needsReason == "question" && one("cleo").stateProjectName == "Spring catalogue" && one("cleo").waitingSince != nil,
+          "the reason, the project's name and when the wait began are read")
+    check(one("old").needsReason == nil && one("old").stateProjectName == nil && one("old").waitingSince == nil, "an older Mac sends none")
+
+    let m = Board.today(agents: agents, tasks: [])
+    check(m.needsYou.map(\.session) == ["ada", "cleo", "abe", "bo", "old"],
+          "needs you: longest waiting first, then the ones with no known start by name")
+    check(m.working.map(\.session) == ["una", "wes"], "working now: by name")
+    check(!m.needsYou.contains { $0.session == "ivo" } && !m.working.contains { $0.session == "ivo" }, "an idle agent is on neither")
+    check(m.subhead == "5 things need you", "the subhead counts the needs-you cards")
+
+    // The sentence and button per reason: the spec's table.
+    let why = { (s: String) in Board.todayReason(one(s)) }
+    check(why("cleo") == ("Waiting for your answer.", .answer), "its own question: Answer")
+    check(why("ada") == ("Waiting for you to approve it before it can start.", .open), "a trust prompt: Open")
+    check(why("bo") == ("Kosmos needs you to look at it.", .open), "other")
+    check(why("abe") == ("Kosmos needs you to look at it.", .open), "a reason the phone does not know reads as other, never a question")
+    check(why("old") == ("Kosmos needs you to look at it.", .open), "an older Mac (no reason) reads as other, never a question")
+    for (reason, action) in [("question", Board.TodayAction.answer), ("permission", .answer), ("waiting", .open), ("restart_failed", .open),
+                             ("trust", .open), ("gave_up", .open), ("crash_loop", .open), ("stuck_auth", .open), ("stuck_rate", .open),
+                             ("own_bound", .open), ("other", .open)] {
+        check(Board.todayWhy[reason]?.1 == action, "\(reason): \(action.title)")
+    }
+    check(Board.todayWhy.count == 11, "one row per reason the Mac sends (engine/cardlabel.js NEEDS_REASONS)")
+    check(Board.todayWhy["permission"]?.0 == "Waiting for you to allow or deny something.", "the spec's permission words")
+    check(Board.todayWhy["waiting"]?.0 == "Waiting for you. Open it to see what it shows.", "the spec's words for a wait read off the screen")
+    check(Board.todayWhy["restart_failed"]?.0 == "Kosmos restarted it, and it did not come back.", "pjAlsoWhy's words for a failed restart")
+
+    // The subhead's three forms.
+    check(Board.today(agents: [], tasks: []).subhead == "Nothing needs you right now.", "nothing")
+    check(Board.today(agents: [one("cleo")], tasks: []).subhead == "1 thing needs you", "one")
+    check(Board.today(agents: [], tasks: nil).subhead == "Nothing needs you right now.", "an unread tasks list adds nothing to the count")
+}
+
+section("Today: ready to check (kosmos#7030)")
+do {
+    let json = #"{"tasks":["#
+        + #"{"projectId":"p1","projectName":"Catalogue","number":4,"sentence":"Pages 1 to 8","state":"built","builtAt":"2026-10-24T06:00:00.000Z","builtBy":"dana","builtNote":"Ready for a look"},"#
+        + #"{"projectId":"p1","projectName":"Catalogue","number":2,"sentence":"Cover","state":"built","builtAt":"2026-10-24T05:00:00.000Z","builtByPerson":true,"builtBy":"dana"},"#
+        + #"{"projectId":"p2","projectName":"Site","number":9,"sentence":"Footer","state":"decision","builtAt":"2026-10-24T04:00:00.000Z","builtBy":"eli"},"#
+        + #"{"projectId":"p2","projectName":"Site","number":3,"sentence":"Header","state":"working"},"#
+        + #"{"projectId":"p2","projectName":"Site","number":7,"sentence":"Menu","state":"built"}"#
+        + #"]}"#
+    let ready = Board.readyTasks(Data(json.utf8)) ?? []
+    check(ready.map(\.id) == ["p1#2", "p1#4", "p2#7"], "only state built, oldest built first, one with no time last")
+    check(ready.first { $0.number == 2 }?.byPerson == true && ready.first { $0.number == 2 }?.builtBy == nil, "marked by the person: by you, no agent")
+    check(ready.first { $0.number == 4 }?.builtBy == "dana" && ready.first { $0.number == 4 }?.note == "Ready for a look", "the agent and its note")
+    check(!ready.contains { $0.number == 9 }, "a built task whose agent needs the person is a decision, under that agent's card instead")
+    check(Board.readyTasks(Data(#"{"error":"we cannot read your tasks right now"}"#.utf8)) == nil, "an error answer is not zero tasks")
+    check(Board.readyTasks(Data("<html>sign in</html>".utf8)) == nil, "the gate's page is not zero tasks")
+    let m = Board.today(agents: [], tasks: ready)
+    check(m.subhead == "3 things need you", "ready cards count in the subhead")
+    let req = Board.readyTasksRequest(mac: URL(string: "https://studio.kosmosplus.com/")!)
+    check(req.url?.absoluteString == "https://studio.kosmosplus.com/api/tasks?view=tasks", "the board's own Tasks view read")
+}
+
 section("native chat: requests (kosmos#7008)")
 do {
     let mac = URL(string: "https://studio.kosmosplus.com/")!

@@ -214,6 +214,12 @@ enum Board {
         // predates them, and then the phone's own table below decides.
         var macWord: String? = nil
         var macTone: Tone? = nil
+        // kosmos#7030: why Today shows the agent (needsReason, engine/cardlabel.js reasonOf) and the project its wait
+        // names (stateProjectName), ready-made; nil from a Mac older than that, and then Today words it generally. When
+        // the wait began (waitingSince, the agent's own report), for Today's order and age; nil when nobody knows.
+        var needsReason: String? = nil
+        var stateProjectName: String? = nil
+        var waitingSince: Date? = nil
         var id: String { session }
     }
 
@@ -245,7 +251,10 @@ enum Board {
                          hasAvatar: (row["hasAvatar"] as? Bool) == true,
                          avatarVer: (row["avatarVer"] as? NSNumber)?.stringValue ?? (row["avatarVer"] as? String) ?? "",
                          macWord: (row["cardWord"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                         macTone: Board.tone(named: row["cardTone"] as? String))
+                         macTone: Board.tone(named: row["cardTone"] as? String),
+                         needsReason: (row["needsReason"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                         stateProjectName: (row["stateProjectName"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                         waitingSince: isoDate(row["waitingSince"] as? String))
         }
     }
 
