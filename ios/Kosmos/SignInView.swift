@@ -81,6 +81,43 @@ final class SignInModel: ObservableObject {
         }
     }
 
+    // MARK: - kosmos#7046: a required second step, set up here
+
+    func startSetup() {
+        guard case .setup(let token) = step, let client else { return }
+        attempt += 1; let mine = attempt
+        busy = true; error = nil
+        Task {
+            defer { if mine == attempt { busy = false } }
+            do {
+                let enrolled = try await client.enrol(token: token)
+                guard mine == attempt else { return }
+                switch enrolled {
+                case .totp(let link, let secret): code = ""; step = .setupConfirm(token: token, otpauth: link, secret: secret)
+                case .refused(let sentence): error = sentence
+                }
+            } catch { if mine == attempt { fail(error) } }
+        }
+    }
+
+    func confirmSetup() {
+        guard case .setupConfirm(let token, _, _) = step else { return }
+        guard let typed = SignIn.code(code) else { error = "The code is six digits."; return }
+        guard let client else { return }
+        attempt += 1; let mine = attempt
+        busy = true; error = nil
+        Task {
+            defer { if mine == attempt { busy = false } }
+            do {
+                let answer = try await client.confirmSetup(token: token, code: typed)
+                guard mine == attempt else { return }
+                // A wrong code stays here: the authenticator is added already, only its code was early or late.
+                if case .refused(let message, false) = answer { error = message ?? "That code is not what the app shows right now."; return }
+                take(answer, email: email)
+            } catch { if mine == attempt { fail(error) } }
+        }
+    }
+
     func differentEmail() {
         attempt += 1; busy = false; watch?.cancel(); code = ""; error = nil; step = .email
         drop()
@@ -171,6 +208,9 @@ final class SignInModel: ObservableObject {
         case "denied": step = .denied(asking: true)
         case "web": step = .web(reason: SignIn.webForCompany)
         case "error": step = .code(email: email); code = "48291"; error = "That code is not right or has expired."
+        // kosmos#7046: setting up a required second step.
+        case "setup": step = .setup(token: "t")
+        case "setupconfirm": step = .setupConfirm(token: "t", otpauth: "otpauth://totp/Kosmos:ada%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Kosmos", secret: "JBSWY3DPEHPK3PXP")
         default: step = .email
         }
     }
@@ -182,6 +222,7 @@ struct SignInView: View {
     /// Today's web sign-in page, for what this screen does not do yet (and for making an account).
     let useWeb: () -> Void
     @FocusState private var focused: Bool
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         ScrollView {
@@ -261,6 +302,32 @@ struct SignInView: View {
             title(SignIn.webTitle(reason: reason))
             line(reason)
             primary("Continue", action: useWeb)
+            link("Use a different email", action: model.differentEmail)
+        case .setup:
+            title("Set up a second step")
+            line(SignIn.setupWords)
+            errorLine
+            primary("Set up an authenticator app", action: model.startSetup)
+            VStack(spacing: 0) {
+                link("Use text messages instead", action: useWeb)
+                link("Use a different email", action: model.differentEmail)
+            }
+        case .setupConfirm(_, let otpauth, let secret):
+            title("Add your key")   // one short word per line at the largest sizes, no hyphen inside one
+            line("Add Kosmos to your authenticator app with the button, or type this key into the app yourself. Then type the six-digit code it shows.")
+            if let url = URL(string: otpauth) {
+                Button { openURL(url) } label: { Text("Add to my authenticator app").frame(maxWidth: .infinity).padding(.vertical, 6) }
+                    .buttonStyle(.bordered)
+            }
+            HStack(alignment: .firstTextBaseline) {
+                Text(SignIn.grouped(secret: secret)).font(.system(.body, design: .monospaced)).foregroundColor(Palette.primary)
+                    .textSelection(.enabled).accessibilityLabel("Key: \(secret.map { String($0) }.joined(separator: " "))")
+                Spacer()
+                Button("Copy") { UIPasteboard.general.string = secret }.font(.subheadline).foregroundColor(Palette.link)
+            }
+            codeField(submit: model.confirmSetup)
+            errorLine
+            primary("Confirm", action: model.confirmSetup)
             link("Use a different email", action: model.differentEmail)
         case .done:
             HStack(spacing: 8) { ProgressView(); Text("Signed in").font(.footnote).foregroundColor(Palette.secondary) }
