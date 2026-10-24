@@ -879,7 +879,7 @@ do {
     check(res(200, #"{"delivery":{"state":"placed","at":"T4"},"recorded":false}"#) == .taken, "placed but no row kept: shown as sent until a read holds the words")
     check(res(200, #"{"delivery":{"state":"unconfirmed","at":"T5"},"recorded":true}"#) == .keptUndelivered(at: "T5", note: "Not confirmed"),
           "unconfirmed is never shown as sent: it reads Not confirmed, as the board says it could not confirm")
-    check(res(200, #"{"delivery":{"state":"unconfirmed"},"recorded":false}"#) == .refused(nil), "unconfirmed and not kept is not taken as sent")
+    check(res(200, #"{"delivery":{"state":"unconfirmed"},"recorded":false}"#) == .unconfirmed, "unconfirmed and not kept: Not confirmed, never sent and never offered again (it may have arrived)")
     check(res(200, #"{"delivery":{"state":"held"},"recorded":false}"#) == .refused(nil), "held and not kept typed nothing")
     check(res(409, #"{"error":"Dana is at its trust prompt"}"#) == .refused("Dana is at its trust prompt"), "a refusal keeps the Mac's words")
     check(res(0, nil) == .noAnswer, "no answer is no answer")
@@ -923,6 +923,11 @@ do {
     check(Board.settled([short], with: earlierOk).map(\.id) == ["ok"], "an earlier ok the chat had already shown never stands in for one that was never sent")
     let laterOk = Board.Thread(rows: [person("2026-10-23T15:00:00.000Z", "ok"), person("2026-10-23T15:00:31.000Z", "ok")], olderCount: 0)
     check(Board.settled([short], with: laterOk).isEmpty, "a newer ok clears it")
+    // Rows named by the Mac settle first: a no-answer "ok" must not take the row of a later kept "ok".
+    var fuzzy = Board.PendingSend(id: "f", text: "ok", at: Board.isoDate("2026-10-23T15:00:30Z")!, state: .failed(reason: nil)); fuzzy.after = "2026-10-23T15:00:00.000Z"
+    let exact = Board.PendingSend(id: "e", text: "ok", at: Board.isoDate("2026-10-23T15:00:40Z")!, state: .kept(at: "2026-10-23T15:00:41.000Z"))
+    let one = Board.Thread(rows: [person("2026-10-23T15:00:41.000Z", "ok")], olderCount: 0)
+    check(Board.settled([fuzzy, exact], with: one).map(\.id) == ["f"], "the kept one takes its own row; the never-sent one stays")
 }
 
 section("native board: the Mac's session kept between launches")
