@@ -68,7 +68,7 @@ test('#7030 reasonOf on real rows: each reason the phone has a sentence for', as
   assert.equal(on({ state: 'needs_you', awaitingApproval: true }), 'permission');
   assert.equal(on({ state: 'needs_you', disruption: { failed: true } }), 'restart_failed');
   assert.equal(on({ state: 'needs_trust' }), 'trust');
-  assert.equal(on({ running: false, needsTrust: true }), 'trust', 'a trust prompt on a card that is not running');
+  assert.equal(on({ state: 'needs_trust', running: false, needsTrust: true }), 'trust', 'a trust prompt on a card that is not running');
   assert.equal(on({ state: 'connection_lost', reconnect: { phase: 'gave_up' } }), 'gave_up');
   assert.equal(on({ crashLoop: { looping: true } }), 'crash_loop');
   assert.equal(on({ state: 'auth_failed', stuckError: { stuck: true, state: 'auth_failed' } }), 'stuck_auth');
@@ -93,8 +93,15 @@ test('#7030 reasonOf on real rows: the board\'s order, and no reason for an agen
   assert.equal(on({ state: 'needs_you', stateReportedBy: 'agent', awaitingApproval: true }), 'question');
   // A rate limit never hides a real reason (needsYouReasonPastUsage).
   assert.equal(on({ state: 'connection_lost', reconnect: { phase: 'gave_up' }, stuckError: { stuck: true, state: 'rate_limited' } }), 'gave_up');
-  // A card the board does not say is ours gets no specific reason from the engine.
-  assert.equal(on({ state: 'needs_trust', isNamedOurs: false }), 'other');
+  // Review 2: a pane the board does not say is ours is still on Today when its reconnect gave up (needsPerson does not
+  // ask about the tie), and its reason is the real one: the tie gate is for crediting a project, which Today does not do.
+  assert.equal(on({ state: 'connection_lost', reconnect: { phase: 'gave_up' }, isNamedOurs: false }), 'gave_up');
+  // Review 2: an offline card on its trust prompt, shaped as the route builds one (server.js: state needs_trust,
+  // running false, needsTrust true, and its crashloop read), is trust even when its short runs register as a loop:
+  // its word is "Waiting on a trust prompt", and the engine ranks trust above a crash loop.
+  const offlineTrust = { state: 'needs_trust', running: false, needsTrust: true };
+  assert.equal(cardlabel.labelOf({ ...r, ...offlineTrust, crashLoop: { looping: true } }), 'Waiting on a trust prompt', 'premise: the word');
+  assert.equal(on({ ...offlineTrust, crashLoop: { looping: true } }), 'trust');
   for (const quiet of [{ state: 'working' }, { state: 'idle' }, { state: 'restarting' }, { state: 'connection_lost', reconnect: { phase: 'waiting' } }]) {
     assert.equal(on(quiet), null, JSON.stringify(quiet));
   }
@@ -102,10 +109,12 @@ test('#7030 reasonOf on real rows: the board\'s order, and no reason for an agen
   assert.equal(cardlabel.reasonOf({ ...r }, true), 'other');
 });
 
-test('#7030 toneOf: a trust prompt on a card that is not running needs the person (it was quiet, so never on Today)', () => {
-  assert.equal(cardlabel.toneOf({ state: 'idle', running: false, needsTrust: true }, false), 'needs_you');
-  assert.equal(cardlabel.toneOf({ state: 'idle', running: false }, false), 'needs_you', 'CONTROL: not running is needs_you too');
-  assert.equal(cardlabel.labelOf({ state: 'idle', running: false, needsTrust: true }), 'Waiting on a trust prompt', 'its word is unchanged');
+test('#7030 premise: an offline card on its trust prompt, as the route builds it, is already needs_you (no tone change needed)', () => {
+  // Review 2: the route gives an offline card needsTrust only together with state needs_trust, which needsPerson counts,
+  // so its tone was needs_you before this card; an earlier version added a tone branch for an idle row nobody builds.
+  const card = { state: 'needs_trust', running: false, needsTrust: true };
+  assert.equal(needsPerson(card), true);
+  assert.equal(cardlabel.toneOf(card, needsPerson(card)), 'needs_you');
 });
 
 test('#7030 withCardWords: the project name from the route\'s projects read; none when unknown, unnamed or unread', async () => {
@@ -150,7 +159,8 @@ test('#7030 /api/status: rows on Today carry needsReason equal to reasonOf over 
     assert.equal(by('wanda').needsReason, undefined);
     assert.equal(by('ivo').needsReason, undefined);
     assert.equal(by('quin').needsReason, 'question');
-    assert.ok(by('sol').needsReason && by('rae').needsReason, 'CONTROL: the needs-you rows carry a reason');
+    // A sign-in error and a rate limit not yet counted as stuck: on Today, with no specific reason.
+    assert.deepEqual([by('sol').needsReason, by('rae').needsReason], ['other', 'other']);
   } finally { board.restore(); }
 });
 
@@ -159,6 +169,10 @@ test('#7030 /api/status: an unreadable projects file still answers, with no proj
   projects.writeAll([{ id: 'p-x', name: 'X', folder: SANDBOX, agents: [], tasks: [] }]);
   const f = projects.file();
   fs.chmodSync(f, 0o000);
+  // Review 2: only meaningful where the mode really blocks the read (not as root, not on Windows).
+  let blocked = false;
+  try { projects.readAll(); } catch { blocked = true; }
+  if (!blocked) { fs.chmodSync(f, 0o600); return; }
   const board = fleet.install([fleet.agent('quin', { state: 'needs_you' })]);
   try {
     const res = await fetch(base + '/api/status');
