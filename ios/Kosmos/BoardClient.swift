@@ -535,9 +535,9 @@ final class BoardClient: ObservableObject {
         try? Data("A sample file (Debug build), standing in for \(a.name).".utf8).write(to: file)
         return file
     }
-    // Cleo's earlier messages in the sample (KOSMOS_SAMPLE_OLDER=loading holds the first page back, for the shot).
+    // Cleo's earlier messages in the sample (ChatView's KOSMOS_SAMPLE_OLDER=loading|failed sets the line for the shots).
     private func sampleOlder(_ session: String, before: Int) -> Board.OlderRead? {
-        guard session == "cleo", sampleThreads[session] != nil else { return nil }
+        guard session == "cleo" || session == "dana", sampleThreads[session] != nil else { return nil }
         let rows = (0..<before).map { i -> [String: Any] in
             ["at": "2026-10-2\(i % 2)T1\(i % 10):0\(i % 6):00Z", "text": i % 3 == 0 ? "Checking the venue list, item \(i + 1)." : "Noted.",
              "from": i % 2 == 0 ? "cleo" : NSNull()]
@@ -548,6 +548,15 @@ final class BoardClient: ObservableObject {
     private func loadSampleThreads() {
         let json = #"{"messages":[{"at":"2026-10-23T13:32:00Z","text":"Morning Dana. How is the catalogue copy coming along?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:33:00Z","text":"Pages 1 to 8 are written and checked against the price sheet.","from":"dana"},{"at":"2026-10-23T13:34:00Z","text":"Great. What is left?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:35:00Z","text":"Pages 9 to 12 need the new photos before I can caption them. The shoot is on Thursday, so I will have the full draft to you on Friday morning.","from":"dana"}],"olderCount":0,"question":null}"#
         if let t = Board.parseThread(Data(json.utf8)) { sampleThreads["dana"] = t }
+        // KOSMOS_SAMPLE_LONG=1: Dana's chat is 220 messages with 40 before them, to check that opening a long chat lands on
+        // the newest message and loads nothing until the person scrolls up.
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_LONG"] == "1" {
+            let rows = (0..<220).map { i -> [String: Any] in
+                ["at": String(format: "2026-10-23T%02d:%02d:00Z", 8 + i / 60, i % 60), "text": "Message \(i + 41) of 260.", "from": i % 2 == 0 ? "dana" : NSNull()]
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": 40]),
+               let t = Board.parseThread(data) { sampleThreads["dana"] = t }
+        }
         // Cleo's shows the way-through rows: older messages, a file, Kosmos's own line and a question.
         let cleo = #"{"messages":[{"at":"2026-10-22T16:10:00Z","text":"Here is the launch checklist we agreed.","from":"cleo","attachments":[{"id":"5a6d0c1e2f3a4b5c6d7e8f90","name":"Launch checklist.pdf","type":"application/pdf","size":2516582,"kind":"pdf","url":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f90","preview":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f90/preview"},{"id":"5a6d0c1e2f3a4b5c6d7e8f91","name":"Press release draft.docx","type":"application/vnd.openxmlformats-officedocument.wordprocessingml.document","size":48211,"kind":"other","url":"/api/attachment/5a6d0c1e2f3a4b5c6d7e8f91","preview":null}]},{"at":"2026-10-22T16:12:00Z","text":"Thanks, I will read it tonight.","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T14:00:00Z","text":"Cleo paused for today's limit. It picks up again at 4:00.","from":null,"kind":"kosmos"},{"at":"2026-10-23T14:05:00Z","text":"Should the launch email go out on Tuesday or Wednesday?","from":"cleo","kind":"question"}],"olderCount":12,"question":{"text":"Should the launch email go out on Tuesday or Wednesday?"},"asking":true,"asked":"Should the launch email go out on Tuesday or Wednesday?","presence":"on","options":[{"n":1,"label":"Tuesday"},{"n":2,"label":"Wednesday"},{"n":3,"label":"Tuesday, and do not ask again for launch emails","lasting":true}]}"#
         if let t = Board.parseThread(Data(cleo.utf8)) { sampleThreads["cleo"] = t }

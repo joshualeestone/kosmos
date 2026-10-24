@@ -1110,9 +1110,10 @@ do {
         return try! JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": older])
     }
     func pageOf(_ r: Board.OlderRead) -> (rows: [Board.ChatRow], older: Int) {
-        if case .page(let rows, let older) = r { return (rows, older) }
+        if case .page(let rows, _, let older) = r { return (rows, older) }
         return ([], -1)
     }
+    func pos(_ r: Board.OlderRead) -> [Int] { if case .page(_, let p, _) = r { return p }; return [] }
     let (rows, older) = pageOf(Board.readOlder(status: 200, data: page(200, older: 212), before: 412))
     check(older == 212 && rows.count == 200 && rows[0].text == "m212" && rows[0].id.hasPrefix("older|212|"), "the page, oldest first, ids by its position")
     check(Board.readOlder(status: 200, data: page(200, older: 200), before: 412) == .moved, "a range that is not the one asked for: the thread moved")
@@ -1130,26 +1131,46 @@ do {
     // Loading, as the board does.
     var e = Board.Earlier()
     check(!Board.shouldLoadEarlier(e, olderCount: 0) && Board.shouldLoadEarlier(e, olderCount: 12), "only when there is something before")
-    e = Board.startLoad(e, olderCount: 12)
-    check(e.open && e.before == 12 && e.end == 12 && e.loading && !Board.shouldLoadEarlier(e, olderCount: 12), "the first load opens at the read's olderCount; one at a time")
-    e = Board.finishLoad(e, with: .page(rows: p2, olderCount: 3))
+    func load(_ e: Board.Earlier, _ olderCount: Int, _ read: Board.OlderRead) -> Board.Earlier {
+        let s = Board.startLoad(e, olderCount: olderCount)
+        return Board.finishLoad(s, with: read, opening: s.opening)!
+    }
+    let page2 = Board.OlderRead.page(rows: p2, positions: [3, 4, 5], olderCount: 3)
+    let page1 = Board.OlderRead.page(rows: p1, positions: [0, 1, 2], olderCount: 0)
+    let s0 = Board.startLoad(e, olderCount: 12)
+    check(s0.open && s0.before == 12 && s0.end == 12 && s0.loading && !Board.shouldLoadEarlier(s0, olderCount: 12), "the first load opens at the read's olderCount; one at a time")
+    e = load(e, 12, page2)
     check(!e.loading && e.before == 3 && e.rows == p2 && Board.shouldLoadEarlier(e, olderCount: 12), "a page is prepended, and the next one can load")
-    e = Board.finishLoad(Board.startLoad(e, olderCount: 12), with: .page(rows: p1, olderCount: 0))
+    e = load(e, 12, page1)
     check(e.rows == p1 + p2 && e.before == 0 && !Board.shouldLoadEarlier(e, olderCount: 12), "down to the first message, then nothing more")
-    var f = Board.finishLoad(Board.startLoad(Board.Earlier(), olderCount: 12), with: .failed("No."))
+    var f = load(Board.Earlier(), 12, .failed("No."))
     check(f.because == "No." && !Board.shouldLoadEarlier(f, olderCount: 12), "a failure stops the loading until Try again")
     f = Board.retryEarlier(f)
-    check(f.because == nil && Board.shouldLoadEarlier(f, olderCount: 12), "Try again lets it load")
-    var m = Board.finishLoad(Board.startLoad(Board.Earlier(), olderCount: 12), with: .moved)
+    check(f.because == nil && f.open && f.before == 12 && Board.shouldLoadEarlier(f, olderCount: 12), "Try again lets it load, from where it was")
+    var m = load(Board.Earlier(), 12, .moved)
     check(!m.open && m.moved == 1 && Board.shouldLoadEarlier(m, olderCount: 12), "the thread moved: start again, once")
-    m = Board.finishLoad(Board.startLoad(m, olderCount: 12), with: .moved)
-    check(m.because == Board.olderFailed && !Board.shouldLoadEarlier(m, olderCount: 12), "moved twice running is a failure, so it is not asked for ever")
-    check(Board.retryEarlier(m).moved == 0, "Try again starts the count over")
+    m = load(m, 12, .moved)
+    check(m.because == Board.olderFailed && m.movedOut && !Board.shouldLoadEarlier(m, olderCount: 12), "moved twice running is a failure, so it is not asked for ever")
+    let again = Board.retryEarlier(m)
+    check(again.moved == 0 && !again.open && again.opening > m.opening && Board.shouldLoadEarlier(again, olderCount: 9)
+          && Board.startLoad(again, olderCount: 9).before == 9, "Try again after a thread that kept moving starts from the latest read")
+    // An answer for an older opening is dropped.
+    let first = Board.startLoad(Board.Earlier(), olderCount: 12)
+    let reset = Board.resetEarlier(first)
+    let second = Board.startLoad(reset, olderCount: 12)
+    check(Board.finishLoad(second, with: page2, opening: first.opening) == nil && Board.finishLoad(second, with: page2, opening: second.opening) != nil,
+          "an answer that belongs to a reset before is dropped")
+    check(Board.finishLoad(Board.Earlier(open: true, before: 3, end: 12), with: page1, opening: 0) == nil, "and so is one when no load is in flight")
 
     // The gap: messages that left the latest 200 while the chat was open.
     check(Board.gapPages(end: 12, olderCount: 12) == [] && Board.gapPages(end: 12, olderCount: 15) == [15] && Board.gapPages(end: 12, olderCount: 450) == [450, 250, 50],
           "the pages to fetch, newest first")
-    check(Board.gapRows(p2, pageStart: 3, end: 4).map(\.text) == ["m4", "m5"] && Board.gapRows(p2, pageStart: 3, end: 3) == p2, "only the rows at or after the gap's start")
+    check(Board.gapRows(p2, positions: [3, 4, 5], end: 4).map(\.text) == ["m4", "m5"] && Board.gapRows(p2, positions: [3, 4, 5], end: 3) == p2,
+          "only the rows at or after the gap's start")
+    // A row the phone cannot draw (no text) keeps the others' positions.
+    let holey = try! JSONSerialization.data(withJSONObject: ["messages": [["at": "x", "from": "c"], ["at": "y", "text": "kept", "from": "c"]], "olderCount": 10])
+    let hr = Board.readOlder(status: 200, data: holey, before: 12)
+    check(pos(hr) == [11] && Board.gapRows(pageOf(hr).rows, positions: pos(hr), end: 11).map(\.text) == ["kept"], "positions come from the Mac's rows, not the drawn ones")
     let t = Board.Thread(rows: latest, olderCount: 6)
     check(Board.shownRows(e, thread: t) == p1 + p2 + latest && Board.shownRows(Board.Earlier(), thread: t) == latest, "earlier rows, then the latest read")
 }
@@ -1814,7 +1835,7 @@ section("native board loop: connecting")
         c.start()
         _ = await settle { isLive(c) }
         let first = await c.olderPage("dana", before: 1)
-        if case .page(let rows, let older) = first {
+        if case .page(let rows, _, let older) = first {
             check(rows.map(\.text) == ["first"] && older == 0 && w.olderAsks.last == "before=1", "a page before position 1")
         } else { check(false, "a page before position 1") }
         w.olderAnswer = (200, #"{"messages":[],"olderCount":0}"#)

@@ -897,8 +897,9 @@ enum Board {
     }
 
     enum OlderRead: Equatable {
-        // The rows asked for, oldest first, and the count still before them.
-        case page(rows: [ChatRow], olderCount: Int)
+        // The rows asked for, oldest first, each one's position counted from the oldest message, and the count still
+        // before them. Positions come from the Mac's rows, so a row the phone cannot draw (no text) shifts nothing.
+        case page(rows: [ChatRow], positions: [Int], olderCount: Int)
         // The answer was not the range asked for: the conversation changed under the page.
         case moved
         // The Mac's own words, or the board's sentence when it gave none.
@@ -919,8 +920,9 @@ enum Board {
         guard olderCount >= 0, olderCount + rows.count == before else { return .moved }
         // Ids by position from the oldest message: stable across pages and reads, never shared with the latest read.
         let parsed = parseRows(rows, idPrefix: "older|\(olderCount)|")
-        // A row the parser dropped (no text) would shift nothing: position ids come from the page start.
-        return .page(rows: parsed, olderCount: olderCount)
+        // The position of each row kept, by the same rule parseRows keeps it (it has text).
+        let positions = rows.indices.filter { rows[$0]["text"] is String }.map { olderCount + $0 }
+        return .page(rows: parsed, positions: positions, olderCount: olderCount)
     }
 
     // The earlier messages shown in one open chat, and where they reach.
@@ -937,6 +939,10 @@ enum Board {
         var because: String?
         // "The thread changed under the page" answers in a row.
         var moved = 0
+        // The failure is that the thread kept moving, so Try again starts from the latest read (the board's handler).
+        var movedOut = false
+        // Bumped by every reset (the board's EARLIER.opening): an answer that comes back for an older one is dropped.
+        var opening = 0
     }
 
     // earlierNearTop: whether reaching the top should load the page before it.
@@ -948,38 +954,46 @@ enum Board {
 
     // The state as a load starts (opening it at the read's olderCount the first time).
     static func startLoad(_ e: Earlier, olderCount: Int) -> Earlier {
-        var next = e.open ? e : Earlier(open: true, before: olderCount, end: olderCount, moved: e.moved)
+        var next = e.open ? e : Earlier(open: true, before: olderCount, end: olderCount, moved: e.moved, opening: e.opening + 1)
         next.loading = true
         next.because = nil
         return next
     }
 
     // earlierMore's outcome: rows prepended; the thread moved (start again once, then a failure); or failed.
-    static func finishLoad(_ e: Earlier, with read: OlderRead) -> Earlier {
+    // An answer for an older opening than the state's is dropped: nil.
+    static func finishLoad(_ e: Earlier, with read: OlderRead, opening: Int) -> Earlier? {
+        guard opening == e.opening, e.loading else { return nil }
         var next = e
         next.loading = false
         switch read {
-        case .page(let rows, let olderCount):
+        case .page(let rows, _, let olderCount):
             next.rows = rows + e.rows
             next.before = olderCount
             next.moved = 0
         case .moved:
             next.moved = e.moved + 1
-            if next.moved < 2 { return Earlier(moved: next.moved) }
+            if next.moved < 2 { return Earlier(moved: next.moved, opening: e.opening + 1) }
             next.because = olderFailed
+            next.movedOut = true
         case .failed(let why):
             next.because = why
         }
         return next
     }
 
-    // Try again: the failure is cleared and the moved count starts over.
+    // Try again: the failure is cleared and the moved count starts over. After a thread that kept moving, it starts
+    // again from the latest read (closed, so the next load opens at its olderCount), as the board's Try again does.
     static func retryEarlier(_ e: Earlier) -> Earlier {
+        if e.movedOut { return Earlier(opening: e.opening + 1) }
         var next = e
         next.because = nil
         next.moved = 0
         return next
     }
+
+    // A moved answer during a gap fill: start again, as earlierFillGap does.
+    static func resetEarlier(_ e: Earlier) -> Earlier { Earlier(moved: e.moved, opening: e.opening + 1) }
 
     // earlierFillGap: messages that left the latest 200 while the chat was open sit at [end, olderCount); the pages
     // to fetch, newest first, as `before` values.
@@ -988,9 +1002,10 @@ enum Board {
         return stride(from: olderCount, to: end, by: -200).map { $0 }
     }
 
-    // The rows a gap page brings: only those at or after `end` (the page may reach further back than the gap).
-    static func gapRows(_ rows: [ChatRow], pageStart: Int, end: Int) -> [ChatRow] {
-        Array(rows.dropFirst(max(0, end - pageStart)))
+    // The rows a gap page brings: only those at or after `end` (the page may reach further back than the gap), by
+    // their positions, so a row the phone dropped shifts nothing.
+    static func gapRows(_ rows: [ChatRow], positions: [Int], end: Int) -> [ChatRow] {
+        zip(rows, positions).filter { $0.1 >= end }.map(\.0)
     }
 
     // What the chat draws: the earlier rows, then the latest read's.
