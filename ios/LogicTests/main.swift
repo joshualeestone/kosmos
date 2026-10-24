@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import ImageIO
 import JavaScriptCore
 import UserNotifications
@@ -2612,6 +2613,93 @@ if let (big, ext) = PhoneNotice.attachable(pngOf(3000, 1500), contentType: "imag
 section("phone notice: the shared keychain group, checked the same in the app and the extension")
 for (group, ok) in [("6563JLN5HF.io.kosmos.app.shared", true), ("io.kosmos.app.shared", false), (".io.kosmos.app.shared", false), ("$(AppIdentifierPrefix)io.kosmos.app.shared", false), ("6563jln5hf.io.kosmos.app.shared", false), ("6563JLN5HF.", false), ("", false)] {
     check(PhoneNotice.hasTeamPrefix(group) == ok && (SessionKeychain.usableGroup(group) != nil) == ok, "\(group.isEmpty ? "(empty)" : group): \(ok ? "held" : "not held")")
+}
+
+
+// MARK: - kosmos#7042: native sign-in
+
+section("sign-in: the device proof matches the coordinator's own WebCrypto vector (devkey.rs a_webcrypto_vector_verifies)")
+do {
+    let spki = SignIn.fromBase64url("MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEg3kVSogZ6EsxikmCEN0Ayo7wzD4OVBGegXurZ-XzpB-CWClbfd9GflpSkK5gkDfjipboV234X0qmNfDCEaIAkA")!
+    let id = "k1.nIuw38MT55xf0l4wuLmgpkKs-q53DRza"
+    let sig = SignIn.fromBase64url("dJAzYXFx8mds36DkO6aAsWf8ALONWju7lMcfFAKvqP1iQJZl3ZPclUez-Z5lRV4JOw8RLGjbAYymUc-_8fuLhQ")!
+    check(SignIn.deviceID(spki: spki) == id, "the id is the one the coordinator derives from that key")
+    if let key = try? P256.Signing.PublicKey(derRepresentation: spki),
+       let signature = try? P256.Signing.ECDSASignature(rawRepresentation: sig) {
+        check(key.isValidSignature(signature, for: SignIn.proofMessage(email: "Her@X.test", code: "482913", deviceID: id)),
+              "the message bytes are the ones WebCrypto signed")
+        check(!key.isValidSignature(signature, for: SignIn.proofMessage(email: "Her@X.test", code: "482914", deviceID: id)),
+              "control: the same proof for another code does not verify")
+        check(!key.isValidSignature(signature, for: SignIn.proofMessage(email: "her@x.test", code: "482913", deviceID: id)),
+              "control: the email is signed exactly as sent (lowercased does not verify)")
+    } else { check(false, "the vector's key and signature read") }
+}
+
+section("sign-in: a fresh key's proof verifies, raw r||s, and the body carries the key and id the coordinator checks")
+do {
+    let priv = P256.Signing.PrivateKey()
+    let key = SignIn.DeviceKey.software(priv)
+    check(key.id.hasPrefix("k1.") && key.id.count == 35, "a keyed id: k1. and 32 characters")
+    if let body = try? SignIn.verifyBody(email: "Ada@Example.com", code: "123456", deviceName: "Ada's iPhone", key: key),
+       let sigText = body["device_sig"] as? String, let sig = SignIn.fromBase64url(sigText),
+       let keyText = body["device_key"] as? String {
+        check(sig.count == 64, "the signature is 64 raw bytes, not DER")
+        check(SignIn.fromBase64url(keyText) == key.spki && body["device_id"] as? String == key.id, "the key and id travel together")
+        check(!sigText.contains("=") && !sigText.contains("+") && !sigText.contains("/"), "base64url with no padding")
+        let s = try? P256.Signing.ECDSASignature(rawRepresentation: sig)
+        check(s.map { priv.publicKey.isValidSignature($0, for: SignIn.proofMessage(email: "Ada@Example.com", code: "123456", deviceID: key.id)) } == true,
+              "it verifies over the email as typed")
+        check(body["email"] as? String == "Ada@Example.com" && body["code"] as? String == "123456", "the email and code go as signed")
+    } else { check(false, "the verify body is built") }
+    check(SignIn.startBody(email: "a@b.co", deviceID: key.id, deviceName: "n").count == 3, "start sends the email, the id and the name only")
+}
+
+section("sign-in: what was typed")
+for (e, ok) in [("ada@example.com", true), ("  ada@example.com ", true), ("ada@example", false), ("ada example.com", false), ("@example.com", false), ("ada@@example.com", false), ("ada@.com", false), ("ada@example.", false), ("", false)] {
+    check(SignIn.looksLikeEmail(e) == ok, "\(e.isEmpty ? "(empty)" : e): \(ok ? "an email" : "not an email")")
+}
+check(SignIn.code("482913") == "482913" && SignIn.code("482 913") == "482913", "six digits, a space between groups dropped")
+check(SignIn.code("48291") == nil && SignIn.code("4829131") == nil && SignIn.code("48291a") == nil && SignIn.code("４８２９１３") == nil, "not six ASCII digits: refused")
+
+section("sign-in: verify's four answers")
+check(SignIn.answer(status: 200, json: jsonBody(#"{"token":"t1","device_status":"acked","match_code":"AB12","addresses":["x.kosmosplus.com"]}"#))
+      == .signedIn(.init(token: "t1", deviceStatus: .acked, matchCode: "AB12", hasComputer: true)), "a session, already allowed")
+check(SignIn.answer(status: 200, json: jsonBody(#"{"token":"t1","device_status":"weird","addresses":[]}"#))
+      == .signedIn(.init(token: "t1", deviceStatus: .pending, matchCode: nil, hasComputer: false)), "an unknown status reads as still waiting, never allowed")
+check(SignIn.answer(status: 200, json: jsonBody(#"{"second":"sms","challenge":"c1","sent_to":"+1 *** 0123"}"#))
+      == .second(kind: "sms", challenge: "c1", sentTo: "+1 *** 0123"), "a second step")
+check(SignIn.answer(status: 200, json: jsonBody(#"{"second":"totp"}"#)) == .unknown, "a second step with no challenge is not guessed at")
+check(SignIn.answer(status: 200, json: jsonBody(#"{"enrol":true,"token":"enrol-only"}"#)) == .needsSetup, "an enrol-only token is never taken as a session")
+check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"That code is not right.","code":"bad_code"}"#)) == .refused(message: "That code is not right.", proofRefused: false), "a refusal keeps the coordinator's sentence")
+check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"x","code":"device_proof_refused"}"#)) == .refused(message: "x", proofRefused: true), "a refused proof is told apart")
+check(SignIn.answer(status: 200, json: jsonBody(#"{}"#)) == .unknown && SignIn.answer(status: 500, json: nil) == .refused(message: nil, proofRefused: false), "no token, or no body")
+check(SignIn.companySignInRequired(json: jsonBody(#"{"ok":true,"sso_required":true}"#)) && !SignIn.companySignInRequired(json: jsonBody(#"{"ok":true,"sso_url":"https://x"}"#)), "a company sign-in only when it is required")
+check(SignIn.allowStatus(status: 200, json: jsonBody(#"{"device_status":"acked"}"#)) == .acked && SignIn.allowStatus(status: 401, json: jsonBody(#"{"device_status":"acked"}"#)) == nil, "the Allow, read only from an answer that is ok")
+
+section("sign-in: the steps")
+let s1 = SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "AB12", hasComputer: true)
+check(SignIn.next(after: .signedIn(s1), email: "e").step == .allow(matchCode: "AB12", hasComputer: true) && SignIn.next(after: .signedIn(s1), email: "e").session == s1, "pending: the session is handed over, and the Allow is waited for")
+check(SignIn.next(after: .signedIn(.init(token: "t", deviceStatus: .denied, matchCode: nil, hasComputer: true)), email: "e").step == .denied, "denied")
+check(SignIn.next(after: .needsSetup, email: "e").step == .web(reason: SignIn.webForSetup) && SignIn.next(after: .needsSetup, email: "e").session == nil, "a second step to set up: the web page, no session")
+check(SignIn.next(after: .refused(message: nil, proofRefused: false), email: "e").step == .code(email: "e"), "a wrong code stays on the code")
+check(SignIn.next(after: .refused(message: nil, proofRefused: true), email: "e").step == .web(reason: SignIn.webForKey), "a refused key: the web page")
+check(SignIn.secondWords(kind: "sms", sentTo: nil).contains("your phone") && SignIn.secondWords(kind: "totp", sentTo: nil).contains("authenticator"), "the second step's words, as the web page's")
+
+section("sign-in: the adopt script carries the token as a string literal, never as script")
+do {
+    let evil = #"t"});alert(1);//"#
+    let script = SignIn.adoptScript(token: evil) ?? ""
+    check(script.contains(#"\"#) && !script.contains(#"+ "t"});alert"#), "a quote in the token is escaped")
+    check(script.contains("\"x-kosmos-web\": \"1\"") && script.contains(SignIn.adoptPath) && script.contains("same-origin"), "the site's own header, the adopt route, same-origin")
+    let ctx = JSContext()!
+    var sentAuth: String?
+    let fetchFn: @convention(block) (String, JSValue) -> JSValue = { _, opts in
+        sentAuth = opts.objectForKeyedSubscript("headers")?.objectForKeyedSubscript("authorization")?.toString()
+        return ctx.evaluateScript("Promise.resolve({ ok: true })")
+    }
+    ctx.setObject(fetchFn, forKeyedSubscript: "fetch" as NSString)
+    ctx.evaluateScript("function run() { " + script + " }; run();")
+    check(ctx.exception == nil && sentAuth == "Bearer " + evil, "run in a script engine, the token arrives exactly, and nothing else runs")
 }
 
 await boardLoopTests()
