@@ -1,7 +1,7 @@
 'use strict';
 // kosmos#7028: a sealed room's own computers can be taken out (retired on the account, or removed on the screen), and a
-// forged sealed-looking frame cannot lock an own computer's unsealed room. Through a real seat and the fake connector,
-// as engine/fedseats.ownseal-4658.test.js; the routes are server.ownremove-7028.test.js.
+// computer taken out can ask to be let back in. Through a real seat and the fake connector, as
+// engine/fedseats.ownseal-4658.test.js; the routes are server.ownremove-7028.test.js.
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert');
@@ -203,4 +203,60 @@ test('#7028: an own computer keeps a sealed record whatever Kosmos+ says about e
   fedseats.post('fg-1', { from: 'Josh', kind: 'person', text: 'must not go in the clear' });
   await settle();
   assert.ok(!seat.written.join('').includes('must not go in the clear'));
+});
+
+/* ---- an own computer taken out of the key asks to be let back in ---- */
+
+/** An own computer holding the key at epoch 0, connected. */
+async function adoptedOwn(id, room) {
+  federation.recordLink(id, { role: 'self', ref: 'ref-' + id });
+  fedseal.setRoomState(id, { role: 'member', ownComputer: true, peer: fedseal.newKeyPair().pub, epoch: 0, keys: { 0: fedseal.randomSecret() } });
+  const h = harness();
+  await fedseats.ensure(id);
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room, expires_at: 9 });
+  await settle();
+  return { h, seat };
+}
+const ahead = (room) => ({ event: 'message', data: fedseal.seal(fedseal.randomSecret(), 1, room, { from: 'x', kind: 'person', text: 'newer key' }) });
+const hellos = (seat) => lines(seat).filter((f) => f.t === 'key-own-hello').length;
+
+test('#7028: an own computer still behind ten minutes after it first saw a newer key drops its old one and asks again', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  const { h, seat } = await adoptedOwn('rj-1', 'room-rj-1');
+  say(seat, ahead('room-rj-1'));
+  await settle();
+  t.mock.timers.tick(9 * 60 * 1000);
+  say(seat, ahead('room-rj-1'));
+  await settle();
+  assert.strictEqual(fedseal.roomState('rj-1').epoch, 0, 'it gave up its key before ten minutes');
+  assert.strictEqual(hellos(seat), 0);
+  t.mock.timers.tick(60 * 1000);
+  say(seat, ahead('room-rj-1'));
+  await settle();
+  const st = fedseal.roomState('rj-1');
+  assert.deepStrictEqual({ role: st.role, ownComputer: st.ownComputer, keys: st.keys }, { role: 'member', ownComputer: true, keys: {} }, 'the old key was kept');
+  assert.strictEqual(hellos(seat), 1, 'it did not ask to be let back in');
+  assert.ok(h.notes.some((n) => n.projectId === 'rj-1' && /compare the code/.test(n.text)), 'the person was not told');
+  fedseats.post('rj-1', { from: 'Josh', kind: 'person', text: 'must not go in the clear' });
+  await settle();
+  assert.ok(!seat.written.join('').includes('must not go in the clear'), 'a post went out in the clear after the rejoin');
+});
+
+test('#7028: a guest that is behind keeps its key (only an own computer rejoins)', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  federation.recordLink('rj-2', { role: 'member', ref: 'ref-rj-2', edge_id: 'e' });
+  fedseal.setRoomState('rj-2', { role: 'member', s: fedseal.randomSecret(), code: 'c', peer: fedseal.newKeyPair().pub, epoch: 0, keys: { 0: fedseal.randomSecret() } });
+  const h = harness();
+  await fedseats.ensure('rj-2');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-rj-2', expires_at: 9 });
+  await settle();
+  say(seat, ahead('room-rj-2'));
+  await settle();
+  t.mock.timers.tick(11 * 60 * 1000);
+  say(seat, ahead('room-rj-2'));
+  await settle();
+  assert.strictEqual(fedseal.roomState('rj-2').epoch, 0);
+  assert.ok(fedseal.roomState('rj-2').keys[0], 'a guest dropped its key');
 });

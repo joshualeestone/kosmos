@@ -29,8 +29,8 @@ coordinator. What does:
 - revokeCheck: proceed when peers OR own is non-empty. `gone` = guests whose edge is not active (as now) plus own
   pubs whose mac is absent from a complete computers answer, plus an explicit `dropOwn` list (the route). Edges are
   asked only with peers; computers only with own. One epoch advance, still inside revokeCheck (#5191 guard).
-- Part 3 needs a writer that removes keyless own state: `forgetOwnSealed`, added to the #5191 WRITERS with the
-  reason (changes no epoch, removes a state that holds no key).
+- (SUPERSEDED 05:2x: part 3 is not built, so there is no forgetOwnSealed. The writer added instead is ownRejoin,
+  round 3 below.)
 
 ## Rejected
 - Waiting for the relay branch: the 09-30 ownseal-4658 was stale. (Correction 05:04, Baron: it was revived as
@@ -40,16 +40,17 @@ coordinator. What does:
 - Asking before recording (the card's first option): needs a second "held while asking" state; record then clear
   holds posts the same way and keeps one path.
 
-## Weakest premise
-Part 3 reads "no edge of any status" as "never sealed". Account deletion deletes edges where the deleted account is
-the MEMBER (delete_account.sql), so a room sealed for a guest who later deleted their account can read as never
-sealed. Then an own computer that never got the key clears its state and posts in the clear into a room with no
-outside member left. What would change it: the coordinator keeping a seal fact that survives a member's deletion.
+## Weakest premise (current, 05:3x)
+That a computer the account-computers list stops naming should lose the room. A held computer, or one whose id
+changed (a re-enrolment mints a new mac id), is taken out and must compare codes again (ownRejoin gives it the way
+back, after 10 minutes behind). What would change it: a coordinator signal that separates "retired" from "held".
+(The earlier weakest premise, about part 3 reading "no edge" as "never sealed", is moot: part 3 is not built.)
 
 ## Tests (planned)
 engine/fedseats.ownremove-7028.test.js, server route test, guard update; mutants for each.
 
-## Decided while building (04:2x-04:4x 10-24)
+## Decided while building (04:2x-04:4x 10-24; the held-post, never-sealed and forgetOwnSealed bullets are
+## SUPERSEDED by part 3 not being built)
 - **Held posts after a forged seal are told, not sent.** The plan said "held posts go out"; the existing rule says a
   post written for a sealed room never leaves in the clear. The person saw "this room is sealed" when they wrote it,
   so the rule wins. Rejected: sending them (privacy promise broken for the sake of one hour's delay).
@@ -114,3 +115,19 @@ signal the owner's key signs over anything the coordinator says.
 5. [SHOULD-FIX] the clear is silent --> moot.
 Also since round 1: the owner trusts a list only if exactly one row is this computer and carries its own id
 (M21, M22).
+
+## Review round 3 (blind, 05:2x)
+1. [SHOULD-FIX] A dropped own computer still holds the old key, so it never says hello again: it writes into a room
+   nobody reads, forever, untold (this broke round 1 item 4's premise that it "needs a new code compare").
+   FIXED: ownRejoin. An own computer still behind 10 minutes after it first saw a newer key goes back to the keyless
+   record, tells the person to compare codes, and says hello; the owner answers any own hello with a new offer.
+   Added to the #5191 WRITERS (removes a key, advances no epoch). A wrong rejoin costs a code compare and reveals
+   nothing. Mutants R1 to R5.
+2. [LOW] With an own computer pinned, a guest edge check also waits on the computers request inside the sealing
+   step. RECORDED: guests and own computers do not share a room on main, and macRequest has a timeout.
+3. [LOW] A pin stamped while the clock ran ahead cannot be dropped by the list until real time passes it.
+   RECORDED: the screen remove still works, and the failure is on the safe side (keeps, never wrongly drops).
+4. [LOW] The own-id check needs this board's id; the code comment already says "when this board knows its own id"
+   (an unenrolled board cannot ask the route at all). Plan wording above was unconditional: corrected here.
+5. [PROSE] Leftovers from part 3 in the test header and this plan: FIXED (header rewritten, plan lines marked
+   SUPERSEDED).
