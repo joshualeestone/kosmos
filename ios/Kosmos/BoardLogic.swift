@@ -615,7 +615,7 @@ enum Board {
 
     // What a question's buttons show now (dmChoicesHtml): off while a press or a typed send is in the air or the
     // question was just answered, and the line under them. On a card, Sending…, Allowed. / Denied. and the not-sure
-    // line go under Allow and Deny (.main), and the arm note goes with the lasting choices in Show details (.more).
+    // line go under Allow and Deny (.main), and the arm note goes with whichever part holds the armed choice.
     struct ChoicesState: Equatable {
         var off = false
         var armedN: Int?
@@ -642,14 +642,14 @@ enum Board {
             s.settled = a.n == allow || a.n == deny
             return s
         }
-        if armedN != nil, answered == nil, !isMain(part) {
+        // armedN is only ever one of this part's own options, so the note sits with the armed button (the board's armedHere).
+        if armedN != nil, answered == nil {
             s.note = choiceArmNote
             return s
         }
         if unsure, part != .more { s.note = choiceUnsure; s.danger = true }
         return s
     }
-    private static func isMain(_ part: ChoicesPart) -> Bool { if case .main = part { return true }; return false }
 
     // #6172 arm and confirm: a lasting choice's first press arms it; a second press on the same option of the same
     // question within 15 s sends it; one sooner than 0.6 s is the same gesture (a double-tap) and does nothing.
