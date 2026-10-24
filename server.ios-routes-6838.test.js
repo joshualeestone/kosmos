@@ -45,12 +45,13 @@ function swiftFiles(dir = IOS) {
     return e.name.endsWith('.swift') ? [p] : [];
   });
 }
-// Today's app calls 15 distinct board routes by literal; a parser that finds far fewer has stopped matching.
+// Today the app calls 13 board paths by literal, 15 method-and-path pairs; far fewer means the parser stopped matching.
 const FLOOR = 10;
 // The one route whose method is a variable at the request site: SettingsLogic reads with GET and writes with PUT.
-// Its callers are matched exactly below (no more and no fewer), so a new, renamed or removed caller fails here.
+// Its callers are matched exactly below (no more and no fewer, each with a literal method), so a new, renamed or
+// removed caller fails here.
 const VARIABLE_METHODS = {
-  '/api/phone-notify': { file: 'ios/Kosmos/SettingsLogic.swift', caller: /\brequest\(mac, method: "([A-Z]+)"/g, methods: ['GET', 'PUT'] },
+  '/api/phone-notify': { file: 'ios/Kosmos/SettingsLogic.swift', caller: /\brequest\(mac, method: ([^,)]+)/g, methods: ['GET', 'PUT'] },
 };
 /* Routes the app calls whose full path comes from the board, so no literal names them. Each is pinned to the source
    text that accepts that path (not the fetch itself, which takes whatever path it is given):
@@ -62,28 +63,67 @@ const DECLARED = [
   { route: 'GET /api/attachment/000000000000000000000000/preview', file: 'ios/Kosmos/BoardLogic.swift', pin: '$0 == url + "/preview"' },
   { route: 'GET /api/agent/x/avatar', file: 'ios/KosmosNotice/NoticeLogic.swift', pin: 'path.hasPrefix("/api/agent/"), path.hasSuffix("/avatar")' },
 ];
+/* Helpers that take a route as an argument and build the request themselves (review 3). A route literal passed to
+   anything else is a problem, because the method is set where this parser cannot see it. Each helper's own body is
+   checked to still set the method named here ("GET" means it sets none). */
+const HELPERS = [
+  { file: 'ios/KosmosNotice/NoticeLogic.swift', call: 'request(host:', def: 'private static func request(host:', method: 'GET' },
+];
 
-/* One line of Swift with its comments removed and its raw-string spans (#"..."#, a test fixture's JSON) blanked, so
-   neither can name a route or claim a method. Strings are followed character by character, interpolations included,
-   so a "//" inside a string is not taken for a comment. */
-function codeOf(line) {
-  let out = '';
-  for (let i = 0, inStr = false, depth = 0; i < line.length; i++) {
-    const c = line[i];
-    if (!inStr && line.startsWith('#"', i)) { const end = line.indexOf('"#', i + 2); i = end < 0 ? line.length : end + 1; out += ' '; continue; }
-    if (!inStr && line.startsWith('//', i)) break;
-    if (inStr && c === '\\' && line[i + 1] === '(') { depth++; out += '\\('; i++; continue; }
-    if (inStr && depth > 0 && c === ')') depth--;
-    if (inStr && depth === 0 && c === '\\') { out += c + (line[i + 1] || ''); i++; continue; }
-    if (c === '"' && depth === 0) inStr = !inStr;
-    out += c;
+/* A whole Swift file as two per-line views, scanned once so state carries across lines (review 3):
+   - code: comments removed (line comments and nested block comments), raw strings (#"..."#) and multi-line strings blanked, ordinary
+     strings kept, so route literals can be read from it;
+   - bare: code with every string's contents blanked too, so a brace, an httpMethod or a URLRequest( inside a string
+     is never taken for code.
+   Interpolations count parentheses, so \(f(a) + "x") ends where it should. */
+function scanSwift(text) {
+  const code = [''], bare = [''];
+  const put = (c, b = c) => { if (c === '\n') { code.push(''); bare.push(''); } else { code[code.length - 1] += c; bare[bare.length - 1] += b; } };
+  const keepNewlines = (t) => { for (const c of t) put(c === '\n' ? '\n' : ' '); };
+  // stack of open string states: { multi, interp: paren depth inside an interpolation or -1 when in the string body }
+  const stack = [];
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const top = stack[stack.length - 1];
+    const inBody = top && top.interp < 0;
+    if (inBody) {
+      if (c === '\\' && text[i + 1] === '(') { top.interp = 0; put('\\'); put('('); i++; continue; }
+      if (c === '\\') { put(c, ' '); if (text[i + 1] !== '\n') put(text[i + 1], ' '); i++; continue; }
+      if (top.multi ? text.startsWith('"""', i) : c === '"') {
+        stack.pop();
+        if (top.multi) { put('"'); put('"'); put('"'); i += 2; } else put('"');
+        continue;
+      }
+      if (top.multi) put(c === '\n' ? '\n' : ' '); else put(c, c === '\n' ? '\n' : ' ');
+      continue;
+    }
+    if (top && top.interp >= 0) {
+      if (c === '(') top.interp++;
+      else if (c === ')') { if (top.interp === 0) { top.interp = -1; put(')', ' '); continue; } top.interp--; }
+    }
+    if (text.startsWith('//', i)) { while (i < text.length && text[i] !== '\n') i++; i--; continue; }
+    if (text.startsWith('/*', i)) {
+      let depth = 0, j = i;
+      for (; j < text.length; j++) {
+        if (text.startsWith('/*', j)) { depth++; j++; } else if (text.startsWith('*/', j)) { depth--; j++; if (depth === 0) break; }
+      }
+      keepNewlines(text.slice(i, j + 1)); i = j; continue;
+    }
+    if (text.startsWith('#"', i)) {
+      const end = text.indexOf('"#', i + 2); const j = end < 0 ? text.length : end + 1;
+      keepNewlines(text.slice(i, j + 1)); i = j; continue;
+    }
+    if (text.startsWith('"""', i)) { stack.push({ multi: true, interp: -1 }); put('"'); put('"'); put('"'); i += 2; continue; }
+    if (c === '"') { stack.push({ multi: false, interp: -1 }); put('"'); continue; }
+    put(c);
   }
-  return out;
+  return { code, bare };
 }
 
-/* The board-route literals on a line of code: each "/api/..." string, its interpolations (balanced, nested parens and
-   strings inside them included) replaced by the placeholder x, its query string kept. A literal used only as a prefix
-   ("/api/", "/api/attachment/") ends in a slash and is not a route. */
+/* The board-route literals on a line of code, each with the column it starts at: each "/api/..." string, its
+   interpolations (balanced, nested parens and strings inside them included) replaced by the placeholder x, its query
+   string kept. Multi-line strings were blanked by scanSwift. A literal used only as a prefix ("/api/",
+   "/api/attachment/") ends in a slash and is not a route. */
 function routeLiterals(code) {
   const out = [];
   for (let i = code.indexOf('"/api/'); i >= 0; i = code.indexOf('"/api/', i + 1)) {
@@ -101,55 +141,71 @@ function routeLiterals(code) {
         j = k - 1;
       } else lit += code[j];
     }
-    if (!lit.endsWith('/')) out.push(lit);
+    if (!lit.endsWith('/')) out.push({ lit, at: i });
     i = j;
   }
   return out;
 }
 
-const FUNC = /^\s*(@\w+(\([^)]*\))?\s+)*((static|private|fileprivate|public|internal|mutating|override|final|nonisolated|class)\s+)*func\s/;
+const FUNC = /^\s*(@\w+(\([^)]*\))?\s+)*((static|private|fileprivate|public|internal|open|mutating|override|final|nonisolated|class|required|convenience)\s+)*func\s/;
+const HTTP_METHOD = /\bhttpMethod\s*=\s*("([A-Z]+)"|\w+)/;
+const SETS_METHOD = /\bhttpMethod\s*=/;   // presence, tested on the string-blanked line
+// A request that builds its own URL: the next request's start, and a non-board one's (the coordinator, the relay gate).
+const OWN_URL = /URL\(string:|URLRequest\([^)]*appendingPathComponent/;
 
-/* Every board route the app calls by literal, with the method set on the same request, and the problems found. The
-   method is the first `httpMethod = ...` inside the same block as the URL (tracked by brace depth, so a neighbouring
-   function's or closure's request is never read), before the next URL or function. A line is claimed once. In every
-   file that calls the board, each httpMethod line must be claimed, and a variable method is allowed only on a route
-   in VARIABLE_METHODS (review 2: it would otherwise read as GET without a word). */
+/* Every board route the app calls by literal, with the method set on the same request, and the problems found.
+   Anything the parser cannot attribute with certainty is a problem, never a silent GET. The method is the first
+   httpMethod inside the same block as the URL (brace depth on string-blanked code, so a neighbouring function's or
+   closure's request is never read), before the next request that builds its own URL (OWN_URL) or function. A line is claimed once.
+   Problems: an httpMethod no request claimed (in a file that calls the board); a variable method on a route not in
+   VARIABLE_METHODS; two route literals on one line; a route literal passed to anything but URL(string: or a
+   declared helper. */
 function routesFromSwift() {
   const found = new Map();
   const problems = [];
   for (const file of swiftFiles()) {
     const rel = path.relative(__dirname, file);
-    const code = fs.readFileSync(file, 'utf8').split('\n').map(codeOf);
+    const { code, bare } = scanSwift(fs.readFileSync(file, 'utf8'));
     const claimed = new Set();
     let callsBoard = false;
-    const methodAfter = (i, route) => {
+    const methodAfter = (i, from, route) => {
       let depth = 0;
-      for (let j = i; j < Math.min(code.length, i + 40); j++) {
-        if (j > i && (/URL\(string:/.test(code[j]) || FUNC.test(code[j]))) break;
-        const set = code[j].match(/\bhttpMethod = ("([A-Z]+)"|\w+)/);
+      for (let j = i; j < Math.min(bare.length, i + 40); j++) {
+        const line = j === i ? bare[j].slice(from) : bare[j];
+        if (j > i && (OWN_URL.test(line) || FUNC.test(line))) break;
+        // Found on the string-blanked line (so never inside a string), read from the code line (where the value is).
+        const set = SETS_METHOD.test(line) ? (j === i ? code[j].slice(from) : code[j]).match(HTTP_METHOD) : null;
         if (set && !claimed.has(j)) {
           claimed.add(j);
           if (set[2]) return set[2];
           if (!(route && VARIABLE_METHODS[route])) problems.push(`${rel}:${j + 1}: a variable method on ${route || 'a request'} that VARIABLE_METHODS does not name`);
           return 'GET';
         }
-        for (const c of j === i ? code[j].slice(code[j].indexOf('"')) : code[j]) { if (c === '{') depth++; else if (c === '}') depth--; }
+        for (const ch of line) { if (ch === '{') depth++; else if (ch === '}') depth--; }
         if (depth < 0) break;
       }
       return 'GET';
     };
     code.forEach((line, i) => {
-      // A request to another service (the coordinator's /v1, the relay gate's /_kosmos) claims its own method line.
-      if (/URL\(string: "\/(?!api\/)/.test(line)) methodAfter(i, null);
-      for (const p of routeLiterals(line)) {
+      const lits = routeLiterals(line);
+      // A request to another service (the coordinator's /v1, the relay gate's /_kosmos, a path joined onto the
+      // coordinator) claims its own method line.
+      if (lits.length === 0 && /URL\(string: "\/|URLRequest\([^)]*appendingPathComponent/.test(code[i])) methodAfter(i, 0, null);
+      if (lits.length > 1) problems.push(`${rel}:${i + 1}: ${lits.length} route literals on one line; give each request its own`);
+      for (const { lit: p, at } of lits) {
         callsBoard = true;
-        const bare = p.split('?')[0];
-        const method = methodAfter(i, bare);
-        const methods = VARIABLE_METHODS[bare] ? VARIABLE_METHODS[bare].methods : [method];
+        const bareP = p.split('?')[0];
+        const before = line.slice(0, at);
+        const helper = HELPERS.find((h) => h.file === rel && before.includes(h.call));
+        if (!helper && !/URL\(string:\s*$/.test(before) && !/URL\(string:\s*$/.test(before.replace(/\w+\s*\?\s*$/, ''))) {
+          problems.push(`${rel}:${i + 1}: ${p} is not built with URL(string:) or a declared helper, so its method cannot be read`);
+        }
+        const method = helper ? helper.method : methodAfter(i, at, bareP);
+        const methods = VARIABLE_METHODS[bareP] ? VARIABLE_METHODS[bareP].methods : [method];
         for (const m of methods) if (!found.has(`${m} ${p}`)) found.set(`${m} ${p}`, `${rel}:${i + 1}`);
       }
     });
-    if (callsBoard) code.forEach((l, j) => { if (/\bhttpMethod = /.test(l) && !claimed.has(j)) problems.push(`${rel}:${j + 1}: an httpMethod no request claimed`); });
+    if (callsBoard) bare.forEach((l, j) => { if (SETS_METHOD.test(l) && !claimed.has(j)) problems.push(`${rel}:${j + 1}: an httpMethod no request claimed`); });
   }
   for (const d of DECLARED) if (!found.has(d.route)) found.set(d.route, d.file + ' (declared)');
   return { found, problems };
@@ -185,10 +241,18 @@ test('the parser finds the routes the app calls, with each method set on its req
   assert.ok(found.size >= FLOOR + DECLARED.length, `found only ${found.size} routes in the Swift source: ${[...found.keys()].join(', ')}`);
   assert.deepEqual(problems, [], 'methods the parser could not attribute to a request');
   for (const [p, { file, caller, methods }] of Object.entries(VARIABLE_METHODS)) {
-    const src = fs.readFileSync(path.join(__dirname, file), 'utf8');
-    assert.ok(src.includes(`"${p}"`), `${file} no longer names ${p}: update VARIABLE_METHODS`);
-    const used = [...new Set([...src.matchAll(caller)].map((m) => m[1]))].sort();
-    assert.deepEqual(used, [...methods].sort(), `${file} calls ${p} with ${used.join(', ')}: update VARIABLE_METHODS`);
+    const code = scanSwift(fs.readFileSync(path.join(__dirname, file), 'utf8')).code.join('\n');
+    assert.ok(code.includes(`"${p}"`), `${file} no longer names ${p}: update VARIABLE_METHODS`);
+    const used = [...new Set([...code.matchAll(caller)].map((m) => m[1].trim()))].sort();
+    assert.deepEqual(used, methods.map((m) => `"${m}"`).sort(), `${file} calls ${p} with ${used.join(', ')}: update VARIABLE_METHODS`);
+  }
+  for (const h of HELPERS) {
+    const src = fs.readFileSync(path.join(__dirname, h.file), 'utf8');
+    const at = src.indexOf(h.def);
+    assert.ok(at >= 0, `${h.file} no longer defines ${h.def}: update HELPERS`);
+    const body = src.slice(at, src.indexOf('\n    }', at));
+    const set = body.match(HTTP_METHOD);
+    assert.equal(set ? set[2] || set[1] : 'GET', h.method, `${h.def} now sets its method to ${set && set[1]}: update HELPERS`);
   }
   for (const d of DECLARED) {
     assert.ok(fs.readFileSync(path.join(__dirname, d.file), 'utf8').includes(d.pin), `${d.file} no longer has ${d.pin}: update DECLARED for ${d.route}`);
@@ -224,4 +288,7 @@ test('CONTROL: at the prefix, method and query of each route, two made-up siblin
 test('CONTROL: a route the board does not have is reported as gone, and a real one as answered', async () => {
   assert.equal(await isAnswered('POST', '/api/agent/x/no-such-route-7055b'), false);
   assert.equal(await isAnswered('GET', '/api/status'), true);
+  // A real path asked with a method the board does not serve there falls through too, so a route that loses the
+  // phone's method is caught, not only one that loses its path (review 3).
+  assert.equal(await isAnswered('POST', '/api/status'), false);
 });
