@@ -455,3 +455,12 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - DEFERRED: NIT2 (the first job check stays user-wide: -P rests on the unmeasured parent premise, and a refusal there
   stops nothing), NIT4 (unreadable plist in a traversable LaunchAgents: unusual mode), NIT7 (cmp in the modified-fixture
   dry-run cases: the one write site sits after the dry-run return and ka-dry covers it).
+
+## Review round 32 (sonnet, blind, HEAD 548e9fe551): CONVERGED
+- 0 BLOCKER, 0 WARNING, 0 CONVENTION. NITs:
+  - FIXED (doc/test only): the header said any other user exits 3; true of the dry run only (--apply exits 2 from
+    need_user). ka-relayjob was named for a relay job but used this runner's job fixture; now FX_RELAY_WORKER_AFTER_KILL.
+  - DEFERRED: INT/TERM ignored only after a SIGTERM was sent (with no process the runner was already down and the
+    INTERRUPTED message names the recovery); one variable bounds several waits (the note says "a few minutes"); ka-waits
+    could false-FAIL (never false-pass) under heavy load; own_listener_re rests on the measured argv (a change fails
+    safe, as a refusal).

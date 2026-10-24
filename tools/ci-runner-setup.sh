@@ -28,8 +28,8 @@
 #                             when the runner is not running as it should, and 0 both when it is done and when it
 #                             WOULD change something (read the ok line, not the exit code). A dry run also exits 1
 #                             with "refused: ... --apply would refuse" when --apply would refuse NOW (a job running,
-#                             disabled, between Listeners, a loaded KeepAlive true). As any user but $CI_USER it
-#                             reads nothing and exits 3 (a check it could not make). This repo's runner
+#                             disabled, between Listeners, a loaded KeepAlive true). A dry run as any user but
+#                             $CI_USER reads nothing and exits 3 (a check it could not make); --apply exits 2. This repo's runner
 #                             only ($CI_HOME/actions-runner); a kosmos-relay runner under the same user is not touched.
 #                             Waits, in seconds: KOSMOS_CI_UNLOAD_WAIT_S (45), KOSMOS_CI_START_WAIT_S (30),
 #                             KOSMOS_CI_STATE_WAIT_S (12)
