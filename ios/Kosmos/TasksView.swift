@@ -125,6 +125,7 @@ struct TasksView: View {
                         }
                         .accessibilityLabel("Completed, \(s.rows.count), " + (completedOpen ? "expanded" : "collapsed"))
                         .listRowBackground(Palette.card)
+                        .id("closed-label")
                     }
                 } else {
                     Section {
@@ -141,11 +142,17 @@ struct TasksView: View {
         .scrollContentBackground(.hidden)
         .background(Palette.ground)
         .refreshable { await refresh(); layOut() }
-        // After the layout, not on appear: on appear `shown` may not be drawn yet and the scroll goes nowhere.
-        .onChange(of: shown) { now in
-            guard Self.sampleScrollToEnd, !sampleScrolled, let last = now.last else { return }
+        // A moment after appearing: at appear the rows are not drawn yet and a scroll goes nowhere, and `shown` is
+        // already set by then, so a change of it never fires either (both tried, both shot the top of the list).
+        .onAppear {
+            guard Self.sampleScrollToEnd, !sampleScrolled else { return }
             sampleScrolled = true
-            DispatchQueue.main.async { scroller.scrollTo(last.rows.last?.id ?? last.group.key, anchor: .bottom) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                // A row inside a closed Completed is not drawn and cannot be scrolled to: then Completed itself.
+                guard let last = shown.last else { return }
+                let closedShut = last.group.key == "closed" && !completedOpen
+                scroller.scrollTo(closedShut ? "closed-label" : (last.rows.last?.id ?? last.group.key), anchor: .bottom)
+            }
         }
         }
     }
