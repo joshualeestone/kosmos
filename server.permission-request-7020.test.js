@@ -186,6 +186,26 @@ test('#7020: the last look before the key refuses another request under the same
   } finally { chat.resetForTests(); board.restore(); }
 });
 
+test('#7020 review 2: the last look never types a press that named a request into an ordinary menu that looks the same', async () => {
+  // Claude Code's own question menu, worded like a permission prompt: same question line, same "1. Yes".
+  const lookalike = fs.readFileSync(path.join(__dirname, 'test-support', 'claude-screens', 'question-menu-2.1.29x.txt'), 'utf8')
+    .replace('Which fruit do you want?', 'Do you want to proceed?').replace('1. Apple\n     Apple', '1. Yes\n     Yes');
+  const st = require('./engine/status');
+  assert.ok(st.claudeAnswerableMenu(lookalike) && !st.claudeAnswerableMenu(lookalike).permission, 'premise: an ordinary menu');
+  assert.equal(st.claudeAnswerableMenu(lookalike).question, 'Do you want to proceed?', 'premise: the same question line');
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: TWO_SPACES })]);
+  const expect = { question: 'Do you want to proceed?', label: 'Yes', identity: idOf(TWO_SPACES) };
+  try {
+    let calls = armSequence([lookalike, IDLE]);
+    let r = await chat.answerQuestionMenu('casey', 1, board.agents, expect);
+    assert.deepEqual([r.ok, calls.keys()], [true, ['1']], 'CONTROL: without the request the lookalike is answered, so the case below would not show the check');
+    chat.resetForTests();
+    calls = armSequence([lookalike, IDLE]);
+    r = await chat.answerQuestionMenu('casey', 1, board.agents, { ...expect, request: reqOf(TWO_SPACES) });
+    assert.deepEqual([r.ok, calls.keys()], [false, []], 'a press named for a permission request was typed into another menu');
+  } finally { chat.resetForTests(); board.restore(); }
+});
+
 /* Through the route: every read up to the last one shows the prompt drawn for, and the last look before the key (the
    one answerQuestionMenu takes) shows the other folder's. Which read that is, is measured on an honest press first. */
 async function pressWithLastLook(lastLook, request) {

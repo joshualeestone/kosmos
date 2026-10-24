@@ -1898,6 +1898,10 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
      runs of spaces, so `rm -rf "/tmp/old  build"` and `rm -rf "/tmp/old build"` share it; only the card's reading
      (permissionRequestId) tells them apart. A press that named its request is sent only at that request. */
   const reqOf = (text) => { const c = permissionCard(text); return c ? permissionRequestId(c) : null; };
+  // Review 2: a press that named a permission request is typed only at a permission prompt, never at another menu.
+  if (e.request && !menu.permission) {
+    return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
+  }
   const reqBefore = menu.permission && e.request ? reqOf(before) : null;
   if (menu.permission && e.request && reqBefore !== e.request) {
     return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
