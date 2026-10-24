@@ -187,6 +187,7 @@ const EXEMPT = {
   'POST /api/agent-import-folder': 'parses a folder; the create it feeds is gated',
   'POST /api/agent-token': 'refused remotely outright (remote_not_allowed, remotemark-6595)',
   'POST /api/disconnect-agent': 'takes an agent away',
+  'POST /api/federation/own-remove': 'takes a computer out of a sealed room (a new key it is not sent); lets nothing in (#7028)',
   'POST /api/remote/signin-cancel': "a step after signin-start, which is gated",
   'POST /api/remote/signin-confirm-enrol': "a step after signin-start, which is gated",
   'POST /api/remote/signin-enrol': "a step after signin-start, which is gated",
