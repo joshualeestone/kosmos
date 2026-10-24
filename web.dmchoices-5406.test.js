@@ -425,3 +425,43 @@ test('#5406 C review 33: a header holding the question\'s words does not cut the
   m.from(withRunUp('For dinner.'), CUR.sessionName);
   assert.notEqual(/data-gen="(\d+)"/.exec(m.html(Q))[1], g1, 'a changed run-up under a header holding the question kept the generation');
 });
+
+/* kosmos#7020: a permission card's press names its request (the live question row's permission.request), so the Mac
+   types it only at that same request; two prompts can share `asked`, so the request is part of the question too. */
+const REQ_A = 'a'.repeat(64);
+const REQ_B = 'b'.repeat(64);
+const permBody = (request) => ({ ...BODY, messages: [{ ...Q, permission: { kind: 'command', allow: 1, deny: 2, request } }] });
+async function pressBody(body) {
+  const CUR = realCard();
+  const sent = [];
+  const m = load({ CURRENT: CUR, fetch: async (url, init) => { sent.push(JSON.parse(init.body)); return { ok: true, json: async () => PLACED }; } });
+  m.from(body, CUR.sessionName);
+  await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => ({ textContent: '' }) }) });
+  assert.equal(sent.length, 1, 'premise: the press was sent');
+  return sent[0];
+}
+
+test('#7020: a press on a permission card sends its request; a press with no card sends none', async () => {
+  assert.equal((await pressBody(permBody(REQ_A))).request, REQ_A, 'the card\'s request was not sent');
+  assert.equal('request' in (await pressBody(BODY)), false, 'CONTROL: a press with no card named a request');
+  // Only a request Kosmos made (64 lowercase hex), and only from an unreported question row.
+  assert.equal('request' in (await pressBody(permBody('not-a-request'))), false, 'a malformed request was sent');
+  const reported = { ...BODY, messages: [{ ...Q, reported: true, permission: { kind: 'command', allow: 1, deny: 2, request: REQ_A } }] };
+  assert.equal('request' in (await pressBody(reported)), false, 'a reported question\'s request was sent');
+});
+
+test('#7020: the same words with another request are a new question: new generation, and the answered lock does not carry', async () => {
+  const CUR = realCard();
+  const m = load({ CURRENT: CUR });
+  m.from(permBody(REQ_A), CUR.sessionName);
+  const g1 = /data-gen="(\d+)"/.exec(m.html(Q))[1];
+  m.from(permBody(REQ_A), CUR.sessionName);
+  assert.equal(/data-gen="(\d+)"/.exec(m.html(Q))[1], g1, 'CONTROL: the same request changed generation');
+  await m.press({ getAttribute: () => '1', closest: () => ({ querySelectorAll: () => [], querySelector: () => ({ textContent: '' }) }) });
+  m.from(permBody(REQ_A), CUR.sessionName);
+  assert.match(m.html(Q), /class="dmchoice" data-n="1" data-gen="\d+" disabled>/, 'CONTROL: the answered request was pressable again at once');
+  m.from(permBody(REQ_B), CUR.sessionName);
+  const html = m.html(Q);
+  assert.notEqual(/data-gen="(\d+)"/.exec(html)[1], g1, 'a new request kept the old generation');
+  assert.doesNotMatch(html, / disabled>/, 'a new request was drawn locked by the answer to the old one');
+});

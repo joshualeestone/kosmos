@@ -41378,11 +41378,17 @@ function dmChoicesFrom(body, sessionName) {
   const opts = body && Array.isArray(body.options) ? body.options.filter((o) => o && Number.isInteger(o.n) && typeof o.label === 'string') : [];
   /* No buttons where the composer is closed (presence off: the agent cannot be typed into), the same rule as the box. */
   const prev = DM_CHOICES;
+  /* kosmos#7020: a permission card's request (chat.permissionRequestId, on the live question row), sent with a press so
+     the Mac types it only at that same request. Two prompts can share `asked`, so it is part of the question's identity. */
+  const permRow = body && Array.isArray(body.messages)
+    ? body.messages.filter((m) => m && m.kind === 'question' && !m.reported && m.permission).pop() : null;
+  const request = permRow && typeof permRow.permission.request === 'string' && /^[0-9a-f]{64}$/.test(permRow.permission.request)
+    ? permRow.permission.request : null;
   DM_CHOICES = (opts.length && body.asking === true && typeof body.asked === 'string' && body.asked && body.presence !== 'off')
-    ? { session: sessionName, options: opts, asked: body.asked, head: dmChoiceHead(body, body.asked),
+    ? { session: sessionName, options: opts, asked: body.asked, head: dmChoiceHead(body, body.asked), request,
       /* a new number whenever the question (or agent) changes, so focus is never carried onto another question's button */
       gen: prev && prev.session === sessionName && prev.asked === body.asked && dmChoiceSig(prev.options) === dmChoiceSig(opts)
-        && prev.head === dmChoiceHead(body, body.asked) ? prev.gen : (DM_CHOICE_GEN += 1) }
+        && prev.head === dmChoiceHead(body, body.asked) && prev.request === request ? prev.gen : (DM_CHOICE_GEN += 1) }
     : null;
   if (!DM_CHOICES) DM_CHOICE_ANSWERED.delete(sessionName);   // this agent's menu is gone, and so is what the lock was about
 }
@@ -41403,7 +41409,8 @@ function dmChoicesHtml(m, part) {
     || (typeof TALK_SENDING !== 'undefined' && TALK_SENDING && TALK_FLIGHT === DM_CHOICES.session);   // a typed send too
   const done = DM_CHOICE_ANSWERED.get(DM_CHOICES.session);
   /* Answered: the menu can stay up a few seconds after the key, and a second press then would answer twice. */
-  const locked = Boolean(done && done.asked === DM_CHOICES.asked && Date.now() - done.at < DM_CHOICE_ANSWERED_MS);
+  const locked = Boolean(done && done.asked === DM_CHOICES.asked && (done.request || null) === (DM_CHOICES.request || null)   // #7020
+    && Date.now() - done.at < DM_CHOICE_ANSWERED_MS);
   const off = flying || locked;
   const pressing = DM_CHOICE_INFLIGHT.has(DM_CHOICES.session);   // a typed send in the air draws them off but says nothing here
   const armedN = DM_CHOICES.options.map((o) => o.n).find((n) => dmChoiceArmed(DM_CHOICES, n));
@@ -41493,7 +41500,8 @@ async function dmChoicePress(btn) {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/thread', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: String(opt.n), chose: opt.label, asked: c.asked, ...(lasting ? { lasting: true } : {}) }),
+      body: JSON.stringify({ text: String(opt.n), chose: opt.label, asked: c.asked, ...(c.request ? { request: c.request } : {}),
+        ...(lasting ? { lasting: true } : {}) }),
     });
     const out = (await res.json().catch(() => null)) || {};
     /* A 200 carries the real outcome in delivery.state: only `placed` is sent, and `could_not` typed nothing. Anything
@@ -41516,7 +41524,7 @@ async function dmChoicePress(btn) {
   /* Placed, or may have been sent (could not confirm): the same short lock, so a quick second press cannot answer twice
      while the page's poll is still catching up. Only a refusal or could_not (nothing typed) gives the buttons back now. */
   const mayHaveSent = ok || unsure;
-  if (mayHaveSent) DM_CHOICE_ANSWERED.set(session, { asked: c.asked, at: Date.now(), sure: ok, n: opt.n });   // n: #6727 says which
+  if (mayHaveSent) DM_CHOICE_ANSWERED.set(session, { asked: c.asked, request: c.request, at: Date.now(), sure: ok, n: opt.n });   // n: #6727 says which
   /* Review 32: emptied either way; a success is announced once, in #d-reply-say below (the repaint draws "Sent." here
      for the eye, in a new node a screen reader does not read out again). */
   if (msg) msg.textContent = '';
