@@ -48,7 +48,7 @@ Runner 2 (kosmos-ci2): needs its password or sudo on the old Mac (parked on the 
   bin/Runner.Worker would miss it (the stub now models that). The check runs last, just before the bootout, after the
   plist edit (which alone harms nothing); the window for a job accepted but not yet in a Worker is written down.
 - A runner that is not loaded (stopped on purpose) gets the plist edit and is NOT started.
-- A bootout that does not unload in KOSMOS_CI_UNLOAD_WAIT_S (default 30) says the runner is still on the OLD definition
+- A bootout that does not unload in KOSMOS_CI_UNLOAD_WAIT_S (default 45) says the runner is still on the OLD definition
   and does not bootstrap; "STOPPED" is printed only after an unload was seen.
 - A dry run as a user who cannot read the runner says so instead of "register first".
 - register's failure message names the recovery (`--apply keepalive`); ThrottleInterval 10 is said to be the default.
@@ -229,5 +229,5 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
   "after a SIGKILL or a crash".
 - W3 FIXED: no case for --apply on a loaded job that is not running (exited 0). Added ka-loadedstopped: no SIGTERM,
   bootout, bootstrap (mutant that forces a pid: red).
-- DEFERRED (CONVENTION, NITs): the plan's stale "default 30" wording and a print-disabled negative fixture are plan or
-  test polish with no behaviour behind them; recorded, not built.
+- CONVENTION FIXED: the plan said the unload wait defaults to 30; it is 45. NITs deferred (a print-disabled negative
+  fixture is test polish with no behaviour behind it; recorded, not built).
