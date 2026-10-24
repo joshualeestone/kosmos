@@ -131,14 +131,20 @@ struct ContentView: View {
         // The page moved section by itself (a link in it, a swipe back): the bar follows, without pressing.
         .onChange(of: web.pageMove) { move in
             guard let move = move else { return }
+            // kosmos#7030 review 1: the native Today is not the board, so the hidden page moving (it boots after Check it
+            // was pressed and the person went back to Today) does not move the bar off it.
+            if tab == .today && !todayBoard { return }
             if let next = AppTabs.follow(from: move.from, to: move.to, selected: tab, barHeld: web.barHeld, tasksTab: web.tasksTab) {
                 if next == .today { todayBoard = true }   // kosmos#7030, as above
                 tab = next
             }
         }
-        // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing.
+        // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing. Only a real change of tab
+        // moves anything (review 1: Tasks coming or going while the native Today shows must not swap it for the board).
         .onChange(of: web.tasksTab) { shown in
-            select(AppTabs.keep(tab, tasksTab: shown))
+            let kept = AppTabs.keep(tab, tasksTab: shown)
+            guard kept != tab else { return }
+            if kept == .today { showBoardToday() } else { select(kept) }
         }
         .onAppear {
             // A notification tapped on a cold launch can set boardToOpen before the first draw, which onChange misses.
@@ -186,12 +192,18 @@ struct ContentView: View {
 
     // The app moving the bar itself (not an agent tap, which loads its own page): the board follows it.
     private func select(_ new: Tab) {
-        // kosmos#7030: the app sending the person to Today means the board under it (the sign-in, a Mac that did not
-        // answer), even when Today is already the tab showing.
-        if new == .today { todayBoard = true }
         guard new != tab else { return }
         tab = new
         web.press(new)
+    }
+
+    // kosmos#7030 review 1: the app sending the person to the board under Today (the sign-in, a Mac that did not answer,
+    // Tasks leaving the bar), even when Today is already showing. Its home, as the old press took it there: a press on
+    // Today no longer drives the board (Today is native), so the section is asked for directly.
+    private func showBoardToday() {
+        todayBoard = true
+        tab = .today
+        web.pressBoardSection(.today)
     }
 
     // Agents and Settings are native, and Today when nothing was sent under it (kosmos#7030); the rest show the board.
@@ -199,11 +211,11 @@ struct ContentView: View {
         if which == .today && !todayBoard {
             TodayView(client: board, openPage: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, openBoard: { select(.today) })
+            }, openBoard: { showBoardToday() })
         } else if which == .agents {
             AgentsView(client: board, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, openBoard: { select(.today) })
+            }, openBoard: { showBoardToday() })
         } else if which == .settings {
             // kosmos#7010: a Kosmos+ page (the account, the delete flow) opens under Today in the shared web view, as an
             // agent's chat does, and so does the board's own Settings.

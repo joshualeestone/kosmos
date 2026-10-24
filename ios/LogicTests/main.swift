@@ -811,7 +811,8 @@ do {
     // The subhead's three forms.
     check(Board.today(agents: [], tasks: []).subhead == "Nothing needs you right now.", "nothing")
     check(Board.today(agents: [one("cleo")], tasks: []).subhead == "1 thing needs you", "one")
-    check(Board.today(agents: [], tasks: nil).subhead == "Nothing needs you right now.", "an unread tasks list adds nothing to the count")
+    check(Board.today(agents: [], tasks: nil).subhead == nil, "review 1: nobody needs you and the tasks are unknown: no claim at all")
+    check(Board.today(agents: [one("cleo")], tasks: nil).subhead == "1 thing needs you", "an unknown tasks list still counts the agents")
 }
 
 section("Today: ready to check (kosmos#7030)")
@@ -830,6 +831,18 @@ do {
     check(!ready.contains { $0.number == 9 }, "a built task whose agent needs the person is a decision, under that agent's card instead")
     check(Board.readyTasks(Data(#"{"error":"we cannot read your tasks right now"}"#.utf8)) == nil, "an error answer is not zero tasks")
     check(Board.readyTasks(Data("<html>sign in</html>".utf8)) == nil, "the gate's page is not zero tasks")
+    // Review 1: a Mac that could not read who is running cannot tell built from a decision, so it is not read as tasks.
+    check(Board.readyTasks(Data(#"{"tasks":[{"projectId":"p","number":1,"sentence":"S","state":"built"}],"rosterUnreadable":true}"#.utf8)) == nil,
+          "rosterUnreadable: not known, never a list")
+    check(Board.readyTasks(Data(#"{"tasks":[{"projectId":"p","number":1,"sentence":"S","state":"built"}],"rosterUnreadable":false}"#.utf8))?.count == 1,
+          "CONTROL: a readable roster reads the task")
+    // The badge: counts.waiting, a whole number at 0 or more; null (turned off) or anything else is none.
+    let badge = { (s: String) in Board.waitingCount(Data(s.utf8)) }
+    check(badge(#"{"counts":{"waiting":4}}"#) == 4 && badge(#"{"counts":{"waiting":0}}"#) == 0, "the board's number, 0 included")
+    check(badge(#"{"counts":{"waiting":null}}"#) == nil, "turned off: no badge")
+    check(badge(#"{"counts":{"waiting":-1}}"#) == nil && badge(#"{"counts":{"waiting":2.5}}"#) == nil && badge(#"{"counts":{"waiting":true}}"#) == nil,
+          "negative, fractional or not a number: none")
+    check(badge(#"{"counts":{}}"#) == nil && badge("<html>sign in</html>") == nil, "missing, or not an answer: none")
     let m = Board.today(agents: [], tasks: ready)
     check(m.subhead == "3 things need you", "ready cards count in the subhead")
     let req = Board.readyTasksRequest(mac: URL(string: "https://studio.kosmosplus.com/")!)
@@ -1359,6 +1372,8 @@ final class FakeBoardWorld {
     // Each status request takes the first queued answer; nil is no answer at all. Empty queue: statusDefault.
     var statusQueue: [(Int, String)?] = []
     var statusDefault: (Int, String)? = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
+    // kosmos#7030: the tasks read (GET /api/tasks?view=tasks); nil is no answer at all.
+    var tasksAnswer: (Int, String)? = (200, #"{"tasks":[{"projectId":"p1","projectName":"Catalogue","number":4,"sentence":"Pages 1 to 8","state":"built","builtBy":"dana"}]}"#)
     var admitted = 0
     // The Mac cookie each status request carried, as the real session would send it from the jar.
     var presented: [String] = []
@@ -1414,6 +1429,8 @@ final class FakeBoardWorld {
                 cookies.setCookie(HTTPCookie(properties: [.name: Board.macCookieName, .value: "fresh-\(admitted)", .domain: (admitKeyedApart ? "." : "") + url.host!, .path: "/", .secure: "TRUE"])!)
             }
             return answer(sessionAnswer.0, sessionAnswer.1)
+        case "/api/tasks":
+            return tasksAnswer.map { answer($0.0, $0.1) }
         case "/api/status":
             presented.append((cookies.cookies(for: url) ?? []).filter { $0.name == Board.macCookieName }.map(\.value).joined(separator: ","))
             if let hook = onStatusRead { onStatusRead = nil; hook() }
@@ -1714,6 +1731,35 @@ section("native board loop: connecting")
         w.onThreadRead = nil
         await c.post("hello", to: dana)
         check(c.pending["dana"]?.last?.after == nil, "and the old read did not set the new chat's newest row")
+        c.stop()
+    }
+    do {
+        // kosmos#7030: Today's tasks and badge through the client, against the fake Mac.
+        let (c, w, _, _) = make("kst1")
+        w.statusDefault = (200, #"{"counts":{"waiting":3},"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
+        c.show(BoardClient.agentsViewer)
+        _ = await settle { isLive(c) }
+        check(c.waitingCount == 3, "the badge is the Mac's counts.waiting")
+        check(w.count("/api/tasks") == 0 && c.readyTasks == nil, "no tasks read while only Agents is on screen")
+        c.show(BoardClient.todayViewer)
+        let read = await settle { c.readyTasks != nil }
+        check(read && c.readyTasks?.map(\.number) == [4] && !c.tasksFailed, "Today arriving reads its tasks")
+        c.hide(BoardClient.agentsViewer)
+        check(c.agents.isEmpty == false, "CONTROL: the list stays while Today keeps the loop")
+        // A failed read: the old list goes, and it says so (never an old list shown as current).
+        w.tasksAnswer = (500, #"{"error":"we cannot read your tasks right now"}"#)
+        await c.refreshTasks()
+        check(c.readyTasks == nil && c.tasksFailed, "a failed read drops the old list and says it failed")
+        w.tasksAnswer = (200, #"{"tasks":[]}"#)
+        await c.refreshTasks()
+        check(c.readyTasks == [] && !c.tasksFailed, "and a good one brings it back")
+        // Another account: nothing of the old one's count or tasks is kept.
+        w.tasksAnswer = (200, #"{"tasks":[{"projectId":"p1","projectName":"Catalogue","number":4,"sentence":"Pages 1 to 8","state":"built"}]}"#)
+        await c.refreshTasks()
+        check(c.readyTasks?.count == 1, "CONTROL: a list to forget")
+        c.accountChanged()
+        check(c.waitingCount == nil && c.readyTasks == nil && !c.tasksFailed, "another account: no count, no tasks")
+        c.hide(BoardClient.todayViewer)
         c.stop()
     }
     do {
