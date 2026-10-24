@@ -844,8 +844,15 @@ enum Board {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let rows = obj["messages"] as? [[String: Any]]
         else { return nil }
+        let parsed = parseRows(rows, idPrefix: "")
+        let older = (obj["olderCount"] as? NSNumber)?.intValue ?? 0
+        return Thread(rows: parsed, olderCount: max(0, older), choices: parseChoices(obj))
+    }
+
+    // The rows of a read. `idPrefix` keeps an earlier page's ids apart from the latest read's and from each other.
+    static func parseRows(_ rows: [[String: Any]], idPrefix: String) -> [ChatRow] {
         var seen: [String: Int] = [:]
-        let parsed: [ChatRow] = rows.compactMap { row in
+        return rows.compactMap { row in
             guard let text = row["text"] as? String else { return nil }
             let at = row["at"] as? String
             let kind = row["kind"] as? String
@@ -871,13 +878,123 @@ enum Board {
             let way: ChatRow.WayThrough? = (row["draft"] as? Bool) == true ? .draft : isPermission ? .permission
                 : kind == "question" ? .question
                 : (row["attachment"] != nil || (row["attachments"] as? [Any])?.isEmpty == false) ? .attachment : nil
-            return ChatRow(id: base + "#\(n)", atRaw: at, at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way,
+            return ChatRow(id: idPrefix + base + "#\(n)", atRaw: at, at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way,
                            because: because, resendable: resendable,
                            permission: permission, reported: isTrue(row["reported"]), attachments: parseAttachments(row))
         }
-        let older = (obj["olderCount"] as? NSNumber)?.intValue ?? 0
-        return Thread(rows: parsed, olderCount: max(0, older), choices: parseChoices(obj))
     }
+
+    // MARK: Earlier messages (kosmos#7016 part 3; the board's EARLIER, earlierFetch, earlierMore, earlierFillGap)
+
+    // A page of up to 200 messages ending just before `before`, which counts from the OLDEST message, so a send
+    // cannot shift a page.
+    static func olderRequest(mac: URL, session: String, before: Int) -> URLRequest? {
+        guard isAgentSession(session), before > 0, before < 1_000_000_000 else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread/older?before=\(before)", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+
+    enum OlderRead: Equatable {
+        // The rows asked for, oldest first, and the count still before them.
+        case page(rows: [ChatRow], olderCount: Int)
+        // The answer was not the range asked for: the conversation changed under the page.
+        case moved
+        // The Mac's own words, or the board's sentence when it gave none.
+        case failed(String)
+    }
+
+    static let olderFailed = "We could not read the earlier messages."
+
+    // earlierFetch: the answer must be exactly the range asked for (a page ending at `before`); a thread that shrank
+    // in between answers a clamped range, which prepended here would be wrong or doubled rows.
+    static func readOlder(status: Int, data: Data?, before: Int) -> OlderRead {
+        let obj = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        guard (200...299).contains(status), let rows = obj?["messages"] as? [[String: Any]] else {
+            let said = (obj?["error"] as? String).flatMap { $0.isEmpty ? nil : sentence($0) }
+            return .failed(status == 0 ? olderFailed : said ?? olderFailed)
+        }
+        let olderCount = integer(obj?["olderCount"]) ?? 0
+        guard olderCount >= 0, olderCount + rows.count == before else { return .moved }
+        // Ids by position from the oldest message: stable across pages and reads, never shared with the latest read.
+        let parsed = parseRows(rows, idPrefix: "older|\(olderCount)|")
+        // A row the parser dropped (no text) would shift nothing: position ids come from the page start.
+        return .page(rows: parsed, olderCount: olderCount)
+    }
+
+    // The earlier messages shown in one open chat, and where they reach.
+    struct Earlier: Equatable {
+        var open = false
+        // The position of the oldest row loaded (0: the first message is loaded).
+        var before = 0
+        // The position just after the newest earlier row.
+        var end = 0
+        var rows: [ChatRow] = []
+        var loading = false
+        var filling = false
+        // A failed load: the line says so until Try again, and nothing loads by itself meanwhile.
+        var because: String?
+        // "The thread changed under the page" answers in a row.
+        var moved = 0
+    }
+
+    // earlierNearTop: whether reaching the top should load the page before it.
+    static func shouldLoadEarlier(_ e: Earlier, olderCount: Int) -> Bool {
+        if e.loading { return false }
+        if e.open { return e.before > 0 && e.because == nil }
+        return olderCount > 0
+    }
+
+    // The state as a load starts (opening it at the read's olderCount the first time).
+    static func startLoad(_ e: Earlier, olderCount: Int) -> Earlier {
+        var next = e.open ? e : Earlier(open: true, before: olderCount, end: olderCount, moved: e.moved)
+        next.loading = true
+        next.because = nil
+        return next
+    }
+
+    // earlierMore's outcome: rows prepended; the thread moved (start again once, then a failure); or failed.
+    static func finishLoad(_ e: Earlier, with read: OlderRead) -> Earlier {
+        var next = e
+        next.loading = false
+        switch read {
+        case .page(let rows, let olderCount):
+            next.rows = rows + e.rows
+            next.before = olderCount
+            next.moved = 0
+        case .moved:
+            next.moved = e.moved + 1
+            if next.moved < 2 { return Earlier(moved: next.moved) }
+            next.because = olderFailed
+        case .failed(let why):
+            next.because = why
+        }
+        return next
+    }
+
+    // Try again: the failure is cleared and the moved count starts over.
+    static func retryEarlier(_ e: Earlier) -> Earlier {
+        var next = e
+        next.because = nil
+        next.moved = 0
+        return next
+    }
+
+    // earlierFillGap: messages that left the latest 200 while the chat was open sit at [end, olderCount); the pages
+    // to fetch, newest first, as `before` values.
+    static func gapPages(end: Int, olderCount: Int) -> [Int] {
+        guard olderCount > end else { return [] }
+        return stride(from: olderCount, to: end, by: -200).map { $0 }
+    }
+
+    // The rows a gap page brings: only those at or after `end` (the page may reach further back than the gap).
+    static func gapRows(_ rows: [ChatRow], pageStart: Int, end: Int) -> [ChatRow] {
+        Array(rows.dropFirst(max(0, end - pageStart)))
+    }
+
+    // What the chat draws: the earlier rows, then the latest read's.
+    static func shownRows(_ e: Earlier, thread: Thread) -> [ChatRow] { e.open ? e.rows + thread.rows : thread.rows }
 
     // A read of the conversation: the conversation, the Mac's own reason it could not give one (a name it refuses, a
     // history it could not read), or no answer at all.
