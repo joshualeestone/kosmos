@@ -140,8 +140,12 @@ final class SignInClient {
     /// Closes an open passkey sheet (the person went back, or signed out): its ask answers `cancelled`, so nothing is
     /// left waiting on a sheet that may never answer.
     func cancelPasskey() {
-        passkeyController?.cancel()
-        passkeyAsker?.answer(.cancelled)
+        // Cleared now, not when the answer arrives on the main queue: a press straight after must find no sheet open.
+        let asker = passkeyAsker, controller = passkeyController
+        passkeyAsker = nil
+        passkeyController = nil
+        controller?.cancel()
+        asker?.answer(.cancelled)
     }
 
     /// Apple's passkey sheet for this offer: the person's passkey for Kosmos+ (any saved on this iPhone or in their
@@ -153,10 +157,11 @@ final class SignInClient {
         let request = provider.createCredentialAssertionRequest(challenge: offer.challenge)
         request.userVerificationPreference = .required
         return await withCheckedContinuation { (done: CheckedContinuation<PasskeyAnswer, Never>) in
-            let asker = PasskeyAsker { [weak self] got in
-                // PasskeyAsker hands back on the main queue, once.
-                self?.passkeyAsker = nil
-                self?.passkeyController = nil
+            var asker: PasskeyAsker?
+            asker = PasskeyAsker { [weak self] got in
+                // PasskeyAsker hands back on the main queue, once. Only this sheet's own record is cleared: a cancel may
+                // already have cleared it and a newer sheet be open.
+                if let self, self.passkeyAsker === asker { self.passkeyAsker = nil; self.passkeyController = nil }
                 done.resume(returning: got)
             }
             passkeyAsker = asker
@@ -165,6 +170,12 @@ final class SignInClient {
             controller.delegate = asker
             controller.presentationContextProvider = asker
             controller.performRequests()
+            // A sheet that never answers (the system tearing it down without a callback) is closed after six minutes,
+            // past the challenge's five, so the screen is never left busy for good.
+            let mine = asker
+            DispatchQueue.main.asyncAfter(deadline: .now() + 360) { [weak self] in
+                if let self, self.passkeyAsker === mine { self.cancelPasskey() }
+            }
         }
     }
 
