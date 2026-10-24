@@ -46,6 +46,9 @@ final class BoardClient: ObservableObject {
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var agents: [Board.Agent] = []
     @Published private(set) var updatedAt: Date?
+    // Counts the re-sorts applied (appear, pull to refresh). Today re-takes its held order on this, never on any
+    // update: a live read landing during a pull carries the old order and the old stars.
+    @Published private(set) var sortEpoch = 0
     // True once the shown list was read in this run (after the tab appears or the app returns); until then the list
     // is from an earlier read and is drawn as not current.
     @Published private(set) var fresh = false
@@ -923,16 +926,17 @@ final class BoardClient: ObservableObject {
             // A read that started before the list now shown answers older rows: they are not put back over it.
             guard ticket > shownTicket else { return true }
             shownTicket = ticket
-            if let names { stars = (mac.address, names) }
-            let known = stars?.mac == mac.address ? stars?.names : nil
             // A read that started wanting a re-sort applies one only while it is still wanted: a pull that ended
             // without one has withdrawn it.
             let sorting = resort && resortNext && ticket >= resortFrom
+            // Stars are taken only with the re-sort they were read for, so Today never orders by stars the list is not.
+            if sorting, let names { stars = (mac.address, names) }
+            let known = stars?.mac == mac.address ? stars?.names : nil
             agents = sorting ? Board.sorted(rows, stars: known) : Board.keepingOrder(agents, with: rows, stars: known)
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
             tasksTab = AppTabs.tasksTab(fromStatus: data)   // kosmos#7032: Tasks earned, with no board page loaded
             projectsUnread = AppTabs.projectsUnread(fromStatus: data)     // kosmos#7032: the Projects tab's badge
-            if sorting { resortNext = false; sortedTicket = ticket }
+            if sorting { resortNext = false; sortedTicket = ticket; sortEpoch += 1 }
             updatedAt = env.now()
             failedRefreshes = 0
             unauthorizedSince = nil

@@ -65,6 +65,19 @@ each red on its named check. TodayView.swift is not in the logic build; CI's Sim
   R1 refreshNow never withdraws, R2 no standing-request check, R3 no resortFrom check, R4 stars kept on sign-out:
   each red on its named check; A1 and T2 re-run, still red.
 
+## Review 4 (after a rebase onto main, 967 checks before this round)
+- Today re-took its held order at the first updatedAt after a pull. A loop read already in the air lands first, with
+  the old stars, so Today kept the old star order while the Agents list re-sorted with the new ones. Now BoardClient
+  publishes sortEpoch, bumped only when a re-sort applies, and Today re-takes on it during a pull (a `pulling` flag
+  keeps the updatedAt re-take for the case where nothing waited at appear, and the pull settles the order itself when
+  it re-sorted nothing).
+- Stars are now stored only by a read that re-sorts, so a read whose re-sort was withdrawn cannot hand Today stars
+  the Agents list is not ordered by.
+- Not changed: a new Mac whose stars read fails lists without stars until the next pull (the design, a UX note).
+- Tests (971): the failed-pull test now stars Dana mid-pull and checks no epoch moved and no stars were taken, then
+  that the control pull moves the epoch by exactly one. Arms ($S/st-arms-r4.sh): E0 control green; E1 stars stored
+  on any read, E2 epoch bumped on every read: each red on its named check. TodayView.swift is compiled by CI only.
+
 ## Validation it2 (e0cf46ef): 23,430 pass, 3 fail, all contention
 - cli.refused-retry-6968 (2) and server.attachment-stream-6734 (1), files this diff cannot reach (it touches only
   ios/ and this plan). Run alone through the light lane at the same HEAD: 44 of 44 pass. Load 4.37 during the run.

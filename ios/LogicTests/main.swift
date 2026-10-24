@@ -1630,6 +1630,8 @@ section("native board loop: connecting")
         c.start()
         _ = await settle { isLive(c) }
         check(c.agents.map(\.session) == ["dana", "wes"], "CONTROL: the list starts by name")
+        let epoch = c.sortEpoch
+        check(epoch >= 1, "CONTROL: the first list was a re-sort, counted for Today")
         // Wes now needs the person: a re-sort would move him first, a live update keeps him where he is.
         w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"},{"sessionName":"wes","name":"Wes","state":"needs_you"}]}"#)
         let started = w.statusStarted
@@ -1640,17 +1642,23 @@ section("native board loop: connecting")
         let inAir = await settle { w.statusStarted > started }
         w.statusQueue = [(500, "{}")]
         w.starsYields = [1100]
+        // Dana is starred meanwhile: the loop read begun during the pull reads that, but its re-sort is withdrawn.
+        w.starsAnswer = (200, #"{"names":["dana"],"ok":true}"#)
         await c.refreshNow()
         check(inAir && c.agents.first(where: { $0.session == "wes" })?.state == "needs_you", "CONTROL: the read in the air landed while the pull waited")
         let reads = w.statusStarted
         _ = await settle { w.statusStarted > reads + 2 }
         check(c.agents.map(\.session) == ["dana", "wes"], "the next live updates keep the order: the failed pull left no re-sort")
+        check(c.sortEpoch == epoch, "Today is told of no re-sort: neither the read in the air nor the withdrawn one sorted")
+        check(c.shownStars == [], "a read whose re-sort was withdrawn takes no new stars, so Today never orders by them alone")
         let starReads = w.requests.filter { $0.hasSuffix("/api/agent-stars") }.count
         let more = w.statusStarted
         _ = await settle { w.statusStarted > more + 2 }
         check(w.requests.filter { $0.hasSuffix("/api/agent-stars") }.count == starReads, "a live update does not read the stars")
+        w.starsAnswer = (200, #"{"names":[],"ok":true}"#)
         await c.refreshNow()
         check(c.agents.map(\.session) == ["wes", "dana"], "CONTROL: a pull that reads re-sorts, moving Wes first")
+        check(c.sortEpoch == epoch + 1, "and Today is told of exactly that re-sort")
         c.stop()
     }
     do {

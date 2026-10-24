@@ -16,6 +16,8 @@ struct TodayView: View {
     // The order is set when the screen appears and on a pull, never under the thumb: live updates change a card in
     // place (slice 1's rule), and a new arrival goes after the ones already shown.
     @State private var order: [String] = []
+    // A pull to refresh is in flight: its own re-sort, not a live update landing meanwhile, re-takes the order.
+    @State private var pulling = false
 
     var body: some View {
         NavigationView {
@@ -145,12 +147,19 @@ struct TodayView: View {
         .scrollContentBackground(.hidden)
         .background(Palette.ground)
         .refreshable {
+            pulling = true
             order = []
             await client.refreshNow()
+            pulling = false
+            // A pull that re-sorted nothing (the Mac did not answer) still settles the order, as before.
+            if order.isEmpty { order = model.needsYou.map(\.session) }
             await client.refreshTasks()
         }
         .onAppear { if order.isEmpty { order = m.needsYou.map(\.session) } }
-        .onChange(of: client.updatedAt) { _ in if order.isEmpty { order = model.needsYou.map(\.session) } }
+        // #7034: during a pull the order is re-taken when its re-sort lands, not at the first update: a live read
+        // landing meanwhile carries the old stars. Otherwise the first update takes it (nothing waited at appear).
+        .onChange(of: client.updatedAt) { _ in if order.isEmpty && !pulling { order = model.needsYou.map(\.session) } }
+        .onChange(of: client.sortEpoch) { _ in if order.isEmpty { order = model.needsYou.map(\.session) } }
         #if DEBUG
         // The sample screenshots only: KOSMOS_SAMPLE_SCROLL=ready scrolls to Ready to check (nothing here can scroll).
         .onAppear {
