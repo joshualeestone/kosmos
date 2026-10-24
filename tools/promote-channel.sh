@@ -64,10 +64,10 @@
 # and with --force, so a forced promote is tied to the approved bytes, not only to a version that could be
 # mistyped. --commit <sha> picks the commit itself (it must still name V, and every check still applies to it). A V
 # older than the build prod serves now is refused unless --allow-older is given (a rollback
-# is a decision, not a typo). The checks below run on what that commit holds: the artifact and its
-# sidecar, the manifest and its signature, the installer's sha and floor, and the gates (the experience
-# gate expects V, so a board on a later staging build answers cannot-tell and the promote HOLDS). The
-# artifact itself is not in git: it must still be in the checkout's dist/, as for any promote. What
+# is a decision, not a typo). The checks below run on the pointer and installer that commit holds and on
+# the files they name in the checkout's dist/ (the artifact and its sidecar, which are not in git, and the
+# manifest and its signature): sha, signature, installer floor, and the gates (the experience gate expects
+# V, so a board on a later staging build answers cannot-tell and the promote HOLDS). What
 # differs: the installer pair is read from the commit (the working tree's setup-staging is not checked or
 # used), the live staging pointer is not read, so the moved-during-the-gates check does not apply, and
 # instead the artifact is re-verified right before the first write.
@@ -235,7 +235,7 @@ if [ -n "$NAMED_VERSION" ]; then
     else
       # Which of two different pointers for V is the right one is not this script's to guess: a later one may carry a
       # correction, the earlier one is the cut's own. The operator names it.
-      echo "promote-channel: ${NAMED_COMMIT:0:10} (V's cut) and ${_newest:0:10} (a later commit naming $NAMED_VERSION) have pointers that differ in more than the installer they name - refusing; nothing was written. Name the one to promote with --commit <its sha>." >&2
+      echo "promote-channel: ${NAMED_COMMIT:0:10} ($NAMED_VERSION's cut) and ${_newest:0:10} (a later commit naming $NAMED_VERSION) have pointers that differ in more than the installer they name - refusing; nothing was written. Name the one to promote with --commit <its sha>." >&2
       exit 1
     fi
     rm -f "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json"
@@ -281,7 +281,7 @@ V="$(read_field version)"; SHA="$(read_field sha256)"; ARTIFACT="$(read_field "$
 # are used directly as filesystem paths below, so reject any value that is not a bare filename
 # (a pointer should only ever name a file in dist/, never a path). Out of the accidental-
 # corruption threat model -- anyone who can write the pointer can write latest.json -- but cheap.
-reject_pathy() { case "$2" in *"/"*|*".."*) echo "promote-channel: the staging pointer's $1 ('$2') is not a bare filename - refusing" >&2; exit 1 ;; esac; }
+reject_pathy() { case "$2" in *"/"*|*".."*) echo "promote-channel: $PTR_WORDS's $1 ('$2') is not a bare filename - refusing" >&2; exit 1 ;; esac; }
 reject_pathy "$ARTIFACT_FIELD" "$ARTIFACT"
 # kosmos#6149 point 1 (after the bare-filename check, before any write): prod must never be pointed at a Mac build older than the setup floor; the installer prod serves beside it is checked below.
 if [ "$FAMILY" = mac ]; then
@@ -356,7 +356,7 @@ if [ "$FAMILY" = mac ] && [ -n "$PTR_SETUP" ]; then
   _sg="$(shasum -a 256 < "$SETUP_SRC" | awk '{print $1}')"
   _sw="$(awk 'NR==1{print $1}' "$SETUP_SRC.sha256")"
   [ "$_sg" = "$PTR_SETUP" ] \
-    || { echo "promote-channel: setup-staging hashes to $_sg but the staging pointer names installer $PTR_SETUP - refusing; nothing was written. $SETUP_MISMATCH_HINT" >&2; exit 1; }
+    || { echo "promote-channel: setup-staging hashes to $_sg but $PTR_WORDS names installer $PTR_SETUP - refusing; nothing was written. $SETUP_MISMATCH_HINT" >&2; exit 1; }
   [ "$_sw" = "$_sg" ] \
     || { echo "promote-channel: setup-staging.sha256 names '${_sw:-nothing}', not the setup-staging bytes $_sg - refusing; nothing was written." >&2; exit 1; }
   SETUP_STAGING="$_sg"

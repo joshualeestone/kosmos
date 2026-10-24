@@ -128,3 +128,14 @@ in more than its installer (with the --commit to use it).
 - Test asserts the named HOLD sentence.
 - Not changed (NIT): a 7-character --commit prefix matching two commits is resolved by the agreement logic,
   not refused as ambiguous (safe either way).
+
+## Iteration 10 (challenge) changes
+- Test: the numeric-compare control asserts its fixture really serves 9.9.9 first (it could pass on 1.0.0).
+- Test: the first Kosmos+ sign-in gate is shown to read the named pointer (and staging's in default mode).
+- Docs: nothing but dist-retention's keep window protects V's tarball once staging moves on; do not prune
+  while a GO is pending.
+- Messages: "$NAMED_VERSION's cut" (it printed the literal "V's cut"); reject_pathy and the installer-mismatch
+  refusal name the commit's pointer in named mode; the header says the manifest pair is read from dist/.
+- Not changed (NIT): only the newest kept commit is compared with the chosen one, not a middle republish;
+  the pointer writer emits fixed fields, so that needs a hand-edited pointer.
+- Merge hold (process, stated in the PR): not before the 0.7.64 prod promote lands.
