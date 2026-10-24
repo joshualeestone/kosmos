@@ -264,6 +264,29 @@ check(PushBridge.roomOpening(studio, keptAddress: "home.kosmosplus.com") == .boa
 check(PushBridge.roomOpening(studio, keptAddress: nil) == .board(URL(string: "https://studio.kosmosplus.com/?tab=projects&project=springcatalogue")!), "no kept computer: the board's room page")
 check(content.contains("PushBridge.roomOpening(target, keptAddress:"), "ContentView decides through roomOpening")
 
+section("files on a room post (kosmos#7062)")
+// room-files.json is the REAL route's answer too, captured from a sandboxed board: one post with a text file and a PDF,
+// then one posted with no words, which the board stores with the file's name as its text.
+let filesFixture = (try? Data(contentsOf: here.appendingPathComponent("room-files.json"))) ?? Data()
+check(!filesFixture.isEmpty, "premise: the captured page with files is there")
+let filesRows = Board.parseRoom(filesFixture, names: ["roo": "Roo"])?.rows ?? []
+check(filesRows.count == 2, "both posts parse: \(filesRows.count)")
+let two = filesRows[safe: 0]?.attachments ?? []
+check(two.map(\.name) == ["print-run-quotes.txt", "cover-draft.pdf"] && two.map(\.kind) == ["text", "pdf"], "a post's files, in order, with their kinds")
+check(two.allSatisfy { Board.attachmentId($0.url) == $0.id }, "each file's address is its own /api/attachment/<id>")
+check(two[safe: 1]?.preview == two[safe: 1].map { $0.url + "/preview" } && two[safe: 0]?.preview == nil,
+      "a PDF's picture is its /preview; a text file's preview (its words, not an address) is never taken for one")
+check(filesRows[safe: 0].map(Board.roomWords) == "Here are the quotes and the cover draft.", "words beside files are shown")
+check(filesRows[safe: 1].map(Board.roomWords) == "", "a post that is only its file's name shows the card, not the name twice (the board's pjWords)")
+check(filesRows[safe: 1]?.attachments.count == 1, "a post with one file (the single `attachment` form)")
+// Control: words that are not exactly the names stay, so the rule cannot hide a real message.
+check(Board.roomWords(Board.RoomRow(id: "x", atRaw: nil, at: nil, kind: .post, from: "roo", byPerson: false,
+      text: "print-run-quotes.txt is ready", attachments: two.prefix(1).map { $0 })) == "print-run-quotes.txt is ready",
+      "CONTROL: words that only mention a file name are kept")
+let filesItems = Board.roomItems(filesRows, now: now, calendar: cal)
+check(filesItems.compactMap { if case let .row(r, _, _) = $0.kind { return r.attachments.count } else { return nil } } == [2, 1],
+      "the drawn rows keep their files")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")
