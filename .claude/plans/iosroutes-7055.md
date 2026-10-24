@@ -43,6 +43,11 @@ the Swift line that calls it.
    SITES; a method is read only from the request's own variable; every httpMethod must belong to a request. The
    string heuristics (partial paths, joins, helpers) are gone, and a permanent control test feeds the parser the
    shapes that once slipped through and ordinary non-board Swift.
+   Round 6: 2 blockers, 4 warnings, 2 nits (all silent cases on plausible Swift), all addressed: a declared helper's
+   callers are read and must match (scoped to the file only while the helper stays private, which is checked); an
+   https URL with a board path is reported, not skipped; nothing may extend a literal; a method set in a branch or a
+   URL replaced after building is reported; URLRequest.init, NSMutableURLRequest and URLSession or Data fetches from
+   a URL count as requests; page loads only on webView; httpMethod == is not a set. Each has a control case.
 3. Validation, PR.
 4. Part 2 (light, dark, accessibility) after coordinating View files; Angel keeps SignInView, SignInClient and
    SignInLogic.swift (#7050 slice C).

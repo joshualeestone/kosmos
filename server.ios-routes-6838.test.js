@@ -11,16 +11,19 @@
  * 404s for an unknown agent ("no such agent") still counts, and a route that has gone does not.
  *
  * How routes are found (review 5: heuristics over route strings kept missing new shapes, so this counts REQUESTS):
- * every place the app builds a request (URLRequest(, or a URLSession fetch straight from a URL) must account for
+ * every place the app builds a request (URLRequest(, URLRequest.init(, NSMutableURLRequest(, or a URLSession fetch
+ * or Data(contentsOf:) straight from a URL) must account for
  * itself, in one of four ways:
  *   1. a board route: its whole "/api/..." route is in URL(string: on the same line; read automatically;
- *   2. another service: the coordinator's /v1 paths or account pages, the relay gate's /_kosmos, an https URL, or a
- *      path joined onto the coordinator, on the same line; skipped;
- *   3. a web view navigation (.load(URLRequest(...))): a page, not an API call; skipped;
+ *   2. another service: the coordinator's /v1 paths or account pages, the relay gate's /_kosmos, an https URL with no
+ *      board path in it, or a path joined onto the coordinator, on the same line; skipped;
+ *   3. a web view navigation (webView.load(URLRequest(...))): a page, not an API call; skipped;
  *   4. anything else: declared in SITES below, with the routes it sends and source text that pins them.
  * A request that fits none of these fails the test, however its URL was built. A method is read only from the
  * request's own variable (r.httpMethod for var r = URLRequest(...)), and every httpMethod in the app must belong to a
- * request, so a method can never be credited to the wrong request. The coordinator's and relay's routes live in other
+ * request, so a method can never be credited to the wrong request. A route read in place must be the whole route:
+ * nothing joined after it, no method set in a branch, no URL replaced later; a helper declared in SITES has every
+ * caller's argument checked, so a new route passed through it is not silent either. The coordinator's and relay's routes live in other
  * repos; the phone's links into board PAGES (/?tab=...) are a contract with web/index.html, not with server.js.
  */
 
@@ -65,43 +68,61 @@ const SITES = [
   // A chat file and its thumbnail: the path comes from the board, accepted only as /api/attachment/<24 hex>[/preview].
   { file: 'ios/Kosmos/BoardLogic.swift', text: 'var r = URLRequest(url: url)', method: 'GET',
     routes: ['GET /api/attachment/000000000000000000000000', 'GET /api/attachment/000000000000000000000000/preview'],
-    pins: ['let prefix = "/api/attachment/"', '$0 == url + "/preview"'] },
+    pins: ['let prefix = "/api/attachment/"', '$0 == url + "/preview"'],
+    callers: { pattern: /\battachmentRequest\(mac:[^,]+,\s*path:\s*([^)]+)\)/g, every: /\battachmentRequest\(/g,
+      skip: /\bfunc\s+attachmentRequest\(/, expect: ['a.url', 'path'], scope: 'app' } },
   // The phone's notification switches: read with GET, written with PUT, through request(_:method:).
   { file: 'ios/Kosmos/SettingsLogic.swift', text: 'var r = URLRequest(url: url, cachePolicy', method: 'variable',
     routes: ['GET /api/phone-notify', 'PUT /api/phone-notify'], pins: ['URL(string: "/api/phone-notify"'],
-    callers: { pattern: /\brequest\(\s*[^,()]+,\s*method:\s*([^,)]+)/g, every: /\brequest\(/g, skip: /\bfunc\s+request\(/ } },
-  // The notification extension: a notification's words, and an agent's picture (a board path, /api/agent/<x>/avatar).
+    callers: { pattern: /\brequest\(\s*[^,()]+,\s*method:\s*([^,)]+)/g, every: /\brequest\(/g, skip: /\bfunc\s+request\(/,
+      expect: ['"GET"', '"PUT"'], scope: 'file' } },
+  // The notification extension: a notification's words, and an agent's picture (the request to "/" gets the board's
+  // picture path, accepted only as /api/agent/<x>/avatar).
   { file: 'ios/KosmosNotice/NoticeLogic.swift', text: 'var r = URLRequest(url: url, cachePolicy', method: 'GET',
     routes: ['GET /api/phone/notice', 'GET /api/agent/x/avatar'],
-    pins: ['path: "/api/phone/notice"', 'path.hasPrefix("/api/agent/"), path.hasSuffix("/avatar")'] },
+    pins: ['path.hasPrefix("/api/agent/"), path.hasSuffix("/avatar")'],
+    callers: { pattern: /\brequest\(host:[^,]+,\s*path:\s*("[^"]*"|[\w.]+)/g, every: /\brequest\(host:/g,
+      skip: /\bfunc\s+request\(host:/, expect: ['"/"', '"/api/phone/notice"'], scope: 'file' } },
 ];
+/* A SITES entry's callers (review 6): every call of the helper, in every app file, has its argument read, and the set
+   of arguments must equal expect; a call the pattern cannot read is a problem too. So a new route passed to a helper
+   is never silent. scope 'file' is for a private helper, which only its own file can call. */
 
-const REQUEST = /\bURLRequest\(|\.(data|download|bytes)\(from:/g;
-const OTHER_SERVICE = /URL\(string: "(\/(v1\/|_kosmos\/|account"|delete-account"|")|https?:\/\/)|\bcoordinator\.appendingPathComponent\(/;
-const PAGE_LOAD = /\.load\(URLRequest\(/;
-const SETS_METHOD = /\bhttpMethod\s*=/;
+const REQUEST = /\bURLRequest(?:\.init)?\(|\bNSMutableURLRequest\(|\.(?:data|download|bytes)\(from:|\.(?:dataTask|downloadTask)\(with:\s*URL\(|contentsOf:\s*URL\(string:/g;
+const OTHER_SERVICE = /URL\(string: "(\/(v1\/|_kosmos\/|account"|delete-account")|https?:\/\/)|\bcoordinator\.appendingPathComponent\(/;
+// An absolute URL that carries a board path is the board, never another service (review 6).
+const ABSOLUTE_BOARD = /"https?:\/\/[^"]*\/api\//;
+const PAGE_LOAD = /\bwebView\??\.load\(URLRequest\($/;   // tested on the text before the request
+const SETS_METHOD = /\bhttpMethod\s*=(?!=)/;
 const FUNC = /^\s*(@\w+(\([^)]*\))?\s+)*((static|private|fileprivate|public|internal|open|mutating|override|final|nonisolated|class|required|convenience)\s+)*func\s/;
 
-/* The method a request at (line i, column at) sets: read only from its own variable, inside its scope (brace depth on
-   string-blanked code), before the variable is bound again or a function starts. Claims the method line. */
-function methodOf(code, bare, i, at, claimed) {
+/* What a request at (line i, column at) does to itself, read only from its own variable, inside its scope (brace depth
+   on string-blanked code), before the variable is bound again or a function starts: the method it sets (claiming
+   that line), whether the method is set inside a branch of its scope (review 6: the other branch keeps GET), and
+   whether its URL is reassigned after it is built. */
+function requestAt(code, bare, i, at, claimed) {
+  const out = { method: 'GET', conditional: false, urlSet: false };
   const bound = code[i].slice(0, at).match(/\b(?:var|let)\s+(\w+)\s*=\s*$/);
-  if (!bound) return 'GET';
+  if (!bound) return out;
   const name = bound[1];
-  const sets = new RegExp(`\\b${name}\\.httpMethod\\s*=\\s*("([A-Z]+)"|(\\w+))`);
+  const setsAt = new RegExp(`\\b${name}\\.httpMethod\\s*=(?!=)`);
+  const value = new RegExp(`\\b${name}\\.httpMethod\\s*=\\s*("([A-Z]+)"|(\\w+))`);
+  const urlAt = new RegExp(`\\b${name}\\.url\\s*=(?!=)`);
   let depth = 0;
   for (let j = i; j < Math.min(bare.length, i + 60); j++) {
     const line = j === i ? bare[j].slice(at) : bare[j];
     if (j > i && (FUNC.test(line) || new RegExp(`\\b(var|let)\\s+${name}\\s*=`).test(line))) break;
-    if (new RegExp(`\\b${name}\\.httpMethod\\s*=`).test(line)) {
+    if (urlAt.test(line)) out.urlSet = true;
+    if (setsAt.test(line) && !claimed.has(j)) {
       claimed.add(j);
-      const m = (j === i ? code[j].slice(at) : code[j]).match(sets);
-      return m && m[2] ? m[2] : 'variable';
+      const m = (j === i ? code[j].slice(at) : code[j]).match(value);
+      out.method = m && m[2] ? m[2] : 'variable';
+      if (depth > 0) out.conditional = true;
     }
     for (const ch of line) { if (ch === '{') depth++; else if (ch === '}') depth--; }
     if (depth < 0) break;
   }
-  return 'GET';
+  return out;
 }
 
 /* Every board route the app sends, from the given Swift files ({ rel, text }), and every problem found. */
@@ -110,23 +131,28 @@ function routesFrom(files) {
   const problems = [];
   const matchedSites = new Set();
   let inPlace = 0;
-  for (const { rel, text } of files) {
-    const { code, bare } = scanSwift(text);
+  const scanned = files.map(({ rel, text }) => ({ rel, ...scanSwift(text) }));
+  for (const { rel, code, bare } of scanned) {
     const claimed = new Set();
     bare.forEach((line, i) => {
       for (const site of line.matchAll(REQUEST)) {
         const at = site.index;
         const where = `${rel}:${i + 1}`;
-        const method = methodOf(code, bare, i, at, claimed);
+        if (PAGE_LOAD.test(code[i].slice(0, at + 'URLRequest('.length))) continue;
+        const req = requestAt(code, bare, i, at, claimed);
         const lits = routeLiterals(code[i]);
-        if (PAGE_LOAD.test(code[i].slice(Math.max(0, at - 6)))) continue;
+        if (ABSOLUTE_BOARD.test(code[i])) { problems.push(`${where}: a full https URL with a board path; write the route as "/api/..." relative to the Mac`); continue; }
         if (lits.length > 1) { problems.push(`${where}: ${lits.length} board routes on one line; give each request its own line`); continue; }
         if (lits.length === 1) {
-          const { lit, at: litAt } = lits[0];
+          const { lit, at: litAt, end } = lits[0];
           if (!/URL\(string:\s*$/.test(code[i].slice(0, litAt))) { problems.push(`${where}: ${lit} is not built with URL(string:) on the request's line; write it that way or add the request to SITES`); continue; }
-          if (method === 'variable') { problems.push(`${where}: ${lit} sets its method from a variable; add the request to SITES with its callers`); continue; }
+          // Nothing may change the path after the literal (review 6): a + join or a path joined onto the URL.
+          if (/^\s*\+|appendingPathComponent\(|appending\(path:/.test(code[i].slice(end + 1))) { problems.push(`${where}: ${lit} is extended after the literal; write the whole route as one "/api/..." string`); continue; }
+          if (req.method === 'variable') { problems.push(`${where}: ${lit} sets its method from a variable; add the request to SITES with its callers`); continue; }
+          if (req.conditional) { problems.push(`${where}: ${lit} sets its method inside a branch, so it sends two methods; add the request to SITES`); continue; }
+          if (req.urlSet) { problems.push(`${where}: ${lit} has its URL replaced after it is built; add the request to SITES`); continue; }
           inPlace++;
-          if (!found.has(`${method} ${lit}`)) found.set(`${method} ${lit}`, where);
+          if (!found.has(`${req.method} ${lit}`)) found.set(`${req.method} ${lit}`, where);
           continue;
         }
         if (OTHER_SERVICE.test(code[i])) continue;
@@ -137,15 +163,18 @@ function routesFrom(files) {
         matchedSites.add(d);
         const joined = code.join('\n');
         for (const pin of d.pins) if (!joined.includes(pin)) problems.push(`${rel}: no longer has ${pin}; update SITES for ${d.routes.join(', ')}`);
-        if (d.method === 'variable') {
-          if (method !== 'variable') problems.push(`${where}: SITES says this request's method is a variable, but it sets ${method}`);
-          const calls = code.filter((l) => !d.callers.skip.test(l)).join('\n');
+        if (d.method === 'variable' ? req.method !== 'variable' : req.method !== d.method) problems.push(`${where}: sets ${req.method}, SITES says ${d.method}`);
+        if (req.conditional) problems.push(`${where}: sets its method inside a branch; SITES cannot say which`);
+        if (d.callers) {
+          if (d.callers.scope === 'file' && !code.some((l) => d.callers.skip.test(l) && /\bprivate\b/.test(l))) {
+            problems.push(`${rel}: the helper is no longer private, so other files can call it; set its SITES scope to 'app'`);
+          }
+          const calls = (d.callers.scope === 'file' ? code : scanned.flatMap((f) => f.code)).filter((l) => !d.callers.skip.test(l)).join('\n');
           const read = [...calls.matchAll(d.callers.pattern)];
-          const used = [...new Set(read.map((m) => m[1].trim().replace(/^"|"$/g, '')))].sort();
-          const declared = [...new Set(d.routes.map((r) => r.split(' ')[0]))].sort();
-          if (used.join() !== declared.join()) problems.push(`${rel}: its callers use ${used.join(', ')}, SITES says ${declared.join(', ')}`);
-          if (read.length !== [...calls.matchAll(d.callers.every)].length) problems.push(`${rel}: a caller the pattern could not read; update SITES`);
-        } else if (method !== d.method) problems.push(`${where}: sets ${method}, SITES says ${d.method}`);
+          const used = [...new Set(read.map((m) => m[1].trim()))].sort();
+          if (used.join('|') !== [...d.callers.expect].sort().join('|')) problems.push(`${rel}: the helper's callers pass ${used.join(', ')}; SITES expects ${d.callers.expect.join(', ')} (a new route through it?)`);
+          if (read.length !== [...calls.matchAll(d.callers.every)].length) problems.push(`${rel}: a call of the helper the pattern could not read; update SITES`);
+        }
         for (const r of d.routes) if (!found.has(r)) found.set(r, `${where} (SITES)`);
       }
     });
@@ -162,12 +191,10 @@ const appFiles = () => swiftFiles().map((f) => ({ rel: path.relative(__dirname, 
      strings kept, so route literals can be read from it;
    - bare: code with every string's contents blanked too, so a brace, an httpMethod or a URLRequest( inside a string
      is never taken for code.
-   Interpolations count parentheses, so \(f(a) + "x") ends where it should.
-   Also returned: hidden, the lines of raw or multi-line strings whose contents are a board path (review 4: such a
-   route would otherwise be blanked away unseen). A fixture's raw JSON starts with { and is not one. */
+   Interpolations count parentheses, so \(f(a) + "x") ends where it should. A route inside a raw or multi-line string
+   is blanked, so its request has no route in place and must be declared: it is never read silently. */
 function scanSwift(text) {
-  const code = [''], bare = [''], hidden = [];
-  const isPath = (t) => /^\s*\/?api\//.test(t);
+  const code = [''], bare = [''];
   const put = (c, b = c) => { if (c === '\n') { code.push(''); bare.push(''); } else { code[code.length - 1] += c; bare[bare.length - 1] += b; } };
   const keepNewlines = (t) => { for (const c of t) put(c === '\n' ? '\n' : ' '); };
   // stack of open string states: { multi, interp: paren depth inside an interpolation or -1 when in the string body }
@@ -181,7 +208,6 @@ function scanSwift(text) {
       if (c === '\\') { put(c, ' '); if (text[i + 1] !== '\n') put(text[i + 1], ' '); i++; continue; }
       if (top.multi ? text.startsWith('"""', i) : c === '"') {
         stack.pop();
-        if (top.multi && isPath(text.slice(top.start, i))) hidden.push(top.line);
         if (top.multi) { put('"'); put('"'); put('"'); i += 2; } else put('"');
         continue;
       }
@@ -202,14 +228,13 @@ function scanSwift(text) {
     }
     if (text.startsWith('#"', i)) {
       const end = text.indexOf('"#', i + 2); const j = end < 0 ? text.length : end + 1;
-      if (isPath(text.slice(i + 2, j - 1))) hidden.push(code.length);
       keepNewlines(text.slice(i, j + 1)); i = j; continue;
     }
-    if (text.startsWith('"""', i)) { stack.push({ multi: true, interp: -1, start: i + 3, line: code.length }); put('"'); put('"'); put('"'); i += 2; continue; }
+    if (text.startsWith('"""', i)) { stack.push({ multi: true, interp: -1 }); put('"'); put('"'); put('"'); i += 2; continue; }
     if (c === '"') { stack.push({ multi: false, interp: -1 }); put('"'); continue; }
     put(c);
   }
-  return { code, bare, hidden };
+  return { code, bare };
 }
 
 /* The board-route literals on a line of code, each with the column it starts at: each "/api/..." string, its
@@ -233,7 +258,7 @@ function routeLiterals(code) {
         j = k - 1;
       } else lit += code[j];
     }
-    if (!lit.endsWith('/')) out.push({ lit, at: i });
+    if (!lit.endsWith('/')) out.push({ lit, at: i, end: j });
     i = j;
   }
   return out;
@@ -289,7 +314,19 @@ test('CONTROL: shapes that once slipped through silently are now reported', () =
   // A method set on a variable that is not the request's own is never read as the request's.
   assert.match(one('var r = URLRequest(url: URL(string: "/api/x", relativeTo: mac)!)\nq.httpMethod = "POST"').problems.join(), /no request this test found/);
   // Ordinary non-board Swift is not a problem: a file path, a web link, a log line, an https request.
-  const quiet = one('let f = dir.appendingPathComponent("threads.json")\nlet link = "https://example.com/api/docs"\nprint("GET /api/status")\nvar h = URLRequest(url: URL(string: "https://hooks.example.com/n")!)\nh.httpMethod = "POST"');
+  // Review 6: an https URL carrying a board path; a join after the literal; a method set in a branch; a URL replaced;
+  // other request shapes; a new route through a declared helper.
+  assert.match(one('var r = URLRequest(url: URL(string: "https://\\(host)/api/agent/\\(s)/thread")!)\nr.httpMethod = "POST"').problems.join(), /full https URL/);
+  assert.match(one('let r = URLRequest(url: URL(string: "/api/agent/\\(s)/thread", relativeTo: mac)!.appendingPathComponent("older"))').problems.join(), /extended after the literal/);
+  assert.match(one('var r = URLRequest(url: URL(string: "/api/phone-notify", relativeTo: mac)!)\nif let body {\n  r.httpMethod = "PUT"\n}').problems.join(), /inside a branch/);
+  assert.match(one('var r = URLRequest(url: URL(string: "/api/status", relativeTo: mac)!)\nr.url = URL(string: "/api/status-v2", relativeTo: mac)').problems.join(), /URL replaced/);
+  for (const shape of ['URLRequest.init(url: u)', 'NSMutableURLRequest(url: u)', 'session.dataTask(with: URL(string: path, relativeTo: mac)!)', 'client.load(URLRequest(url: u))']) {
+    assert.match(one(`let r = ${shape}`).problems.join(), /cannot read/, shape);
+  }
+  const notice = fs.readFileSync(path.join(__dirname, 'ios/KosmosNotice/NoticeLogic.swift'), 'utf8')
+    + '\nextension Notice { static func ack(a: String, c: String) -> URLRequest? { request(host: a, path: "/api/phone/notice/ack", query: nil, cookie: c) } }';
+  assert.match(routesFrom([{ rel: 'ios/KosmosNotice/NoticeLogic.swift', text: notice }]).problems.join(), /a new route through it/);
+  const quiet = one('if request.httpMethod == "GET" { return request }\nlet f = dir.appendingPathComponent("threads.json")\nlet link = "https://example.com/api/docs"\nprint("GET /api/status")\nvar h = URLRequest(url: URL(string: "https://hooks.example.com/n")!)\nh.httpMethod = "POST"');
   assert.deepEqual(quiet.problems, []);
 });
 
