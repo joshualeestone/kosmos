@@ -821,7 +821,8 @@ const NEVER_SEALED_MS = 10 * 60 * 1000;
 /** kosmos#7028: anyone in the room can send a sealed-looking frame, and noteOwnSealed then holds this computer's posts
     for a key that will never come. The owner board seals a room only for a hello matched to an active edge for its
     project, and the account's edges are listed with every status (revoked ones too), so a fresh answer with no edge
-    for this project means the room was never sealed: the keyless record is cleared and held posts go. Any other answer
+    for this project means the room was never sealed: the keyless record is cleared and new posts go. One held
+    meanwhile was written for a sealed room, so it is told and not sent in the clear (sendPost's sealedHeld rule). Any other answer
     (failed, unreadable, an edge listed) keeps the record. Asked fresh (notBeforeMono), never from an answer asked
     before the frame: an edge made since would be missing from it. */
 function checkNeverSealed(projectId, s, link) {
