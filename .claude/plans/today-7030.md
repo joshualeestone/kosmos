@@ -83,3 +83,27 @@ Today, Answer/Open into the native chat, Check it into the task page in the boar
 - Not changed: stateProjectName through the route. The fake fleet cannot give a row a stateProject (it comes from the
   agent's own report), so the route's use of the projects read is pinned by source (server.statusword-7004) and the
   name logic by withCardWords directly, with the unreadable path through the route.
+
+## Part 2 plan (branch todayui-7030, stacked on today-7030 until part 1 merges)
+
+### Finished looks like
+- A signed-in launch opens on a native Today: Needs you (one card per agent with tone asked/needs_you, the reason
+  sentence from needsReason, Answer or Open into that agent's native chat), Ready to check (tasks in state `built`
+  from GET /api/tasks?view=tasks, minus those whose agent needs the person, Check it opens the task page in the board
+  view), Working now (slice 1 rows). Each section hidden when empty; the subhead counts; the badge is counts.waiting.
+- The board view still hosts every page sent "under Today" (a notification, Settings' board pages, Check it), and
+  pressing Today from there returns to the native list.
+- Logic tests (ios/LogicTests): the sentence and button per reason, matched against the spec's table; the order
+  (waitingSince oldest first, then name); the sections; the subhead; the tasks filter; parsing the new fields with a
+  Mac older than part 1 (no needsReason: the card falls back to 'other').
+- Light, dark and largest-text shots to Mona Lisa; a device check after a release.
+
+### Shape
+- 2a: TodayLogic.swift (pure: sections, order, sentences, subhead) + Agent's needsReason/stateProjectName/waitingSince
+  + the tasks read model, with logic tests. No UI.
+- 2b: TodayView.swift + ContentView (start tab, Today native with the board view under it) + BoardClient's tasks read
+  + shots.
+
+### Open, decided for now
+- Starred agents first (#6719): the phone does not read /api/agent-stars yet (the Agents list does not either). Left
+  for a follow-up so both lists gain it together; Today orders by waitingSince, then name.
