@@ -68,15 +68,32 @@ each red on its named check. TodayView.swift is not in the logic build; CI's Sim
 ## Review 4 (after a rebase onto main, 967 checks before this round)
 - Today re-took its held order at the first updatedAt after a pull. A loop read already in the air lands first, with
   the old stars, so Today kept the old star order while the Agents list re-sorted with the new ones. Now BoardClient
-  publishes sortEpoch, bumped only when a re-sort applies, and Today re-takes on it during a pull (a `pulling` flag
-  keeps the updatedAt re-take for the case where nothing waited at appear, and the pull settles the order itself when
-  it re-sorted nothing).
+  publishes sortEpoch, bumped only when a re-sort applies, for Today to re-take its order on (see review 5 for what
+  Today does with it; review 4's own view change was superseded).
 - Stars are now stored only by a read that re-sorts, so a read whose re-sort was withdrawn cannot hand Today stars
   the Agents list is not ordered by.
 - Not changed: a new Mac whose stars read fails lists without stars until the next pull (the design, a UX note).
 - Tests (971): the failed-pull test now stars Dana mid-pull and checks no epoch moved and no stars were taken, then
   that the control pull moves the epoch by exactly one. Arms ($S/st-arms-r4.sh): E0 control green; E1 stars stored
   on any read, E2 epoch bumped on every read: each red on its named check. TodayView.swift is compiled by CI only.
+
+## Review 5
+- Review 4's settle-at-pull-end froze Today on stale rows when the pull did no read (a reconnect via retry(), or a
+  pull while connecting): the reconnect's re-sort then found an order held and changed nothing. The same split showed
+  on appear and on return from the background (Today took the order at once, the re-sort's new stars came after).
+- Now Today re-takes its order at EVERY re-sort, held or not. A re-sort happens only at appear, pull and (re)connect,
+  the moments the Agents list re-orders, so the two lists cannot disagree about who is starred first, and nothing
+  moves under the thumb between them. The review-4 description ("re-takes on the epoch during a pull") was not what
+  that code did; it is what this code does.
+- The rules moved out of the view into Board.TodayOrder (TodayLogic.swift, in the logic build), so they are tested:
+  clear, pullStarted, pullEnded (settles only an empty order), updated (fills an empty order, never during a pull),
+  resorted (always re-takes), apply (held cards in place, new ones after in the model's order; now a stable sort and
+  safe on a repeated name). TodayView only calls them.
+- Tests (983): the TodayOrder transitions and apply. Arms ($S/st-arms-r5.sh): O0 control green; O1 a re-sort fills
+  only an empty order, O2 a live update fills during a pull, O3 a pull end never settles, O4 apply ignores the held
+  order: each red on its named check.
+- TodayView now type-checks locally against the iPhoneSimulator 27.0 SDK (all 26 app files); a control copy with a
+  type error in TodayView fails that check (tc=1).
 
 ## Validation it2 (e0cf46ef): 23,430 pass, 3 fail, all contention
 - cli.refused-retry-6968 (2) and server.attachment-stream-6734 (1), files this diff cannot reach (it touches only

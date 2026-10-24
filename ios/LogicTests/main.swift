@@ -821,6 +821,42 @@ do {
     check(Board.today(agents: [one("cleo")], tasks: nil).subhead == "1 thing needs you", "an unknown tasks list still counts the agents")
 }
 
+section("Today: when the held order is taken (kosmos#7034)")
+do {
+    var o = Board.TodayOrder()
+    o.updated(["a", "b"])
+    check(o.sessions == ["a", "b"], "an empty order is taken at the first list")
+    o.updated(["b", "a"])
+    check(o.sessions == ["a", "b"], "a live update never moves a card under the thumb")
+    o.resorted(["b", "a"])
+    check(o.sessions == ["b", "a"], "a re-sort re-takes the order with the stars it read, even when one is held")
+    o.pullStarted()
+    o.updated(["a", "b"])
+    check(o.sessions.isEmpty, "during a pull a live read landing (old stars) takes no order")
+    o.resorted(["a", "b"])
+    o.pullEnded(["b", "a"])
+    check(o.sessions == ["a", "b"], "the pull's own re-sort decides it, not the state when the pull ends")
+    o.pullStarted()
+    o.pullEnded(["b", "a"])
+    check(o.sessions == ["b", "a"] && !o.pulling, "a pull that re-sorted nothing settles the order when it ends")
+    o.resorted(["a", "b"])
+    check(o.sessions == ["a", "b"], "and the reconnect's re-sort after it still re-takes it")
+    o.updated(["b", "a"])
+    check(o.sessions == ["a", "b"], "CONTROL: after the pull a live update keeps the order again")
+    o.clear()
+    o.updated([])
+    check(o.sessions.isEmpty, "nothing needing you leaves the order empty")
+    o.updated(["b"])
+    check(o.sessions == ["b"], "so the first card to arrive later is taken")
+
+    let agent = { (s: String) in Board.Agent(session: s, name: s, role: nil, state: "needs_you", task: nil, needsYou: true) }
+    let m = Board.TodayModel(needsYou: ["c", "a", "b", "d"].map(agent), ready: nil, working: [])
+    var held = Board.TodayOrder()
+    check(held.apply(m) == m, "no held order: the model's own")
+    held.resorted(["b", "a"])
+    check(held.apply(m).needsYou.map(\.session) == ["b", "a", "c", "d"], "held cards keep their places; new ones follow in the model's order")
+}
+
 section("Today: ready to check (kosmos#7030)")
 do {
     let json = #"{"tasks":["#

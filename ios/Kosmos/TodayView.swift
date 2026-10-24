@@ -13,11 +13,9 @@ struct TodayView: View {
     @State private var visible = false
     @State private var wasBackground = false
     @State private var openAgent: Board.Agent?
-    // The order is set when the screen appears and on a pull, never under the thumb: live updates change a card in
-    // place (slice 1's rule), and a new arrival goes after the ones already shown.
-    @State private var order: [String] = []
-    // A pull to refresh is in flight: its own re-sort, not a live update landing meanwhile, re-takes the order.
-    @State private var pulling = false
+    // The order is set when the screen appears, on a pull and at a re-sort, never under the thumb: live updates change a
+    // card in place (slice 1's rule), and a new arrival goes after the ones already shown (Board.TodayOrder).
+    @State private var order = Board.TodayOrder()
 
     var body: some View {
         NavigationView {
@@ -28,10 +26,10 @@ struct TodayView: View {
                 .background(chatLink)
         }
         .navigationViewStyle(.stack)
-        .onChange(of: client.chatEpoch) { _ in openAgent = nil; order = [] }
+        .onChange(of: client.chatEpoch) { _ in openAgent = nil; order.clear() }
         .onAppear {
             visible = true
-            order = []
+            order.clear()
             client.show(BoardClient.todayViewer)
         }
         .onDisappear { visible = false; wasBackground = false; client.hide(BoardClient.todayViewer) }
@@ -60,14 +58,12 @@ struct TodayView: View {
         if let url = client.chatURL(for: agent) { openPage(url) }
     }
 
-    private var model: Board.TodayModel {
-        let m = Board.today(agents: client.agents, tasks: client.readyTasks, stars: client.shownStars)
-        // Keep the order the screen first showed; anything new goes after, in the model's own order.
-        guard !order.isEmpty else { return m }
-        let rank = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
-        let held = m.needsYou.sorted { (rank[$0.session] ?? Int.max) < (rank[$1.session] ?? Int.max) }
-        return Board.TodayModel(needsYou: held, ready: m.ready, working: m.working)
+    private var model: Board.TodayModel { order.apply(fresh) }
+    // The model in its own order, as a re-sort takes it.
+    private var fresh: Board.TodayModel {
+        Board.today(agents: client.agents, tasks: client.readyTasks, stars: client.shownStars)
     }
+    private var freshOrder: [String] { fresh.needsYou.map(\.session) }
 
     // As the Agents tab: a list once the Mac has answered, marked not updating while it does not.
     private var shown: Bool? {
@@ -147,19 +143,15 @@ struct TodayView: View {
         .scrollContentBackground(.hidden)
         .background(Palette.ground)
         .refreshable {
-            pulling = true
-            order = []
+            order.pullStarted()
             await client.refreshNow()
-            pulling = false
-            // A pull that re-sorted nothing (the Mac did not answer) still settles the order, as before.
-            if order.isEmpty { order = model.needsYou.map(\.session) }
+            order.pullEnded(freshOrder)
             await client.refreshTasks()
         }
-        .onAppear { if order.isEmpty { order = m.needsYou.map(\.session) } }
-        // #7034: during a pull the order is re-taken when its re-sort lands, not at the first update: a live read
-        // landing meanwhile carries the old stars. Otherwise the first update takes it (nothing waited at appear).
-        .onChange(of: client.updatedAt) { _ in if order.isEmpty && !pulling { order = model.needsYou.map(\.session) } }
-        .onChange(of: client.sortEpoch) { _ in if order.isEmpty { order = model.needsYou.map(\.session) } }
+        .onAppear { order.updated(freshOrder) }
+        .onChange(of: client.updatedAt) { _ in order.updated(freshOrder) }
+        // #7034: a re-sort (appear, pull, a reconnect) re-takes the order with the stars it read.
+        .onChange(of: client.sortEpoch) { _ in order.resorted(freshOrder) }
         #if DEBUG
         // The sample screenshots only: KOSMOS_SAMPLE_SCROLL=ready scrolls to Ready to check (nothing here can scroll).
         .onAppear {

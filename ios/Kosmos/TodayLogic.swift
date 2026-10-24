@@ -120,6 +120,32 @@ extension Board {
         return TodayModel(needsYou: starredFirst(needs, stars: stars), ready: tasks, working: working)
     }
 
+    // When Today takes the order it holds its Needs you cards in (#7030: never moved under the thumb). It re-takes it at
+    // every re-sort (appear, pull, a reconnect: the moments the Agents list re-orders), so the two lists never disagree
+    // about which agents are starred first (#7034). A live update only fills an order that is empty, and never during
+    // a pull: a read landing meanwhile carries the old stars. A pull that re-sorted nothing settles it when it ends.
+    struct TodayOrder: Equatable {
+        private(set) var sessions: [String] = []
+        private(set) var pulling = false
+
+        mutating func clear() { sessions = [] }
+        mutating func pullStarted() { pulling = true; sessions = [] }
+        mutating func pullEnded(_ needsYou: [String]) { pulling = false; if sessions.isEmpty { sessions = needsYou } }
+        mutating func updated(_ needsYou: [String]) { if sessions.isEmpty && !pulling { sessions = needsYou } }
+        mutating func resorted(_ needsYou: [String]) { sessions = needsYou }
+
+        // The model in the held order; anything new goes after, in the model's own order.
+        func apply(_ m: TodayModel) -> TodayModel {
+            guard !sessions.isEmpty else { return m }
+            let rank = Dictionary(sessions.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+            let held = m.needsYou.enumerated().sorted { x, y in
+                let (rx, ry) = (rank[x.element.session] ?? Int.max, rank[y.element.session] ?? Int.max)
+                return rx != ry ? rx < ry : x.offset < y.offset
+            }.map(\.element)
+            return TodayModel(needsYou: held, ready: m.ready, working: m.working)
+        }
+    }
+
     // The Today tab's badge: /api/status's counts.waiting (agents that need you plus unread messages, the Dock badge).
     // null when the person turned the count off, then no badge; a value that is not a whole number at 0 or more is none.
     // Not the subhead's count: the badge and the Dock always agree (engine/status.js waitingTotal).
