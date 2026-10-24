@@ -214,3 +214,12 @@ test keeps that sentence and the parser in step. An unread version keeps the ref
   rebuilt, it is red on the old comparison).
 - Not changed (NITs, disclosed already): the manifest is the dist/ copy (its sha is printed); /setup in the
   no-installer branch is compared with HEAD, as in default mode; the final PROMOTED line is the default one.
+
+## Iteration 18 (challenge) changes
+- The agent-spawn gate's contract comment states the named-mode exception; the downgrade message warns that a
+  cause on this machine (a sign-in, a trust prompt) would hit V too, to check by hand before any --force.
+- Both origin/main baseline reads are guarded by the same "has an origin remote" test as the publication check.
+- A second pin: the gate's say() writes to stdout, which is all named mode captures (pin shown to refuse a
+  stderr variant).
+- Not changed (NITs): a middle republish is not compared; origin/main is hard-coded, as in the rest of the
+  script and pointer_freeze_fetch; tee may reorder interleaved gate output against its stderr.
