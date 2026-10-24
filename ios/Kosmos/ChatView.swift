@@ -377,7 +377,7 @@ struct DefaultActionWhen: ViewModifier {
     let enabled: Bool
     let action: () -> Void
     @ViewBuilder func body(content: Content) -> some View {
-        if enabled { content.accessibilityAction(action) } else { content }
+        if enabled { content.accessibilityAction(.default, action) } else { content }
     }
 }
 
