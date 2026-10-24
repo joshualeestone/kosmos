@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // kosmos#7042 (iPhone slice 5a, #6838): the native sign-in. Email, the code, the second step, then "Allow this iPhone on
 // your Mac" with the match code until the Mac answers. The steps are SignIn.next (SignInLogic.swift, proven in
@@ -10,6 +11,10 @@ final class SignInModel: ObservableObject {
     @Published var code = ""
     @Published var error: String?
     @Published var busy = false
+    /// kosmos#7045: Kosmos+ offered this address its company's own sign-in beside the code (a link on the code step).
+    @Published private(set) var companyURL: URL?
+    /// Whether this iPhone opens a company's sign-in in Apple's sheet (iOS 17.4+); earlier, the web page has it.
+    var companySheet: Bool { client?.canUseCompanySheet ?? false }
     /// The session Kosmos+ issued, once: ContentView hands it to the app (the web bridge's own path).
     @Published private(set) var issued: String?
     /// Bumped when an issued session is dropped (backed out of, or ended): ContentView signs it out, and the web page
@@ -25,7 +30,7 @@ final class SignInModel: ObservableObject {
     init(client: SignInClient?) {
         self.client = client
         #if DEBUG
-        // The sample screens (a Debug build only): KOSMOS_SAMPLE_SIGNIN=email|code|second|sms|allow|nomac|denied|web|error.
+        // The sample screens (a Debug build only): KOSMOS_SAMPLE_SIGNIN=email|code|second|sms|allow|nomac|denied|web|error|company|companyerror.
         if let sample = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIGNIN"] { show(sample: sample) }
         #endif
     }
@@ -39,17 +44,27 @@ final class SignInModel: ObservableObject {
         attempt += 1; let mine = attempt
         busy = true; error = nil
         Task {
-            defer { if mine == attempt { busy = false } }
+            // The company's sheet keeps busy itself once it is opened (its own task, same attempt): not cleared here
+            // (review of #7045: the outer clear ran after it and let a second press throw the grant's answer away).
+            var handedOver = false
+            defer { if mine == attempt && !handedOver { busy = false } }
             do {
-                let codeComing = try await client.start(email: typed)
+                let started = try await client.start(email: typed)
                 guard mine == attempt else { return }
-                if codeComing { email = typed; code = ""; step = .code(email: typed) } else { step = .web(reason: SignIn.webForCompany) }
+                companyURL = started.company
+                if started.codeComing { email = typed; code = ""; step = .code(email: typed); return }
+                // The company requires its own sign-in, so no code is coming: straight to Apple's sheet, or the web
+                // page when the address Kosmos+ gave is not one this app opens.
+                guard let url = started.company else { step = .web(reason: SignIn.webForCompany); return }
+                email = typed
+                handedOver = true
+                companySignIn(url, mine: mine)
             } catch { if mine == attempt { fail(error) } }
         }
     }
 
     func verify() {
-        guard case .code(let email) = step else { return }
+        guard !busy, case .code(let email) = step else { return }
         guard let typed = SignIn.code(code) else { error = "The code is six digits."; return }
         guard let client else { return }
         attempt += 1; let mine = attempt
@@ -64,7 +79,7 @@ final class SignInModel: ObservableObject {
     }
 
     func verifySecond() {
-        guard case .second(let email, _, let challenge, _) = step else { return }
+        guard !busy, case .second(let email, _, let challenge, _) = step else { return }
         guard let typed = SignIn.code(code) else { error = "The code is six digits."; return }
         guard let client else { return }
         attempt += 1; let mine = attempt
@@ -78,6 +93,83 @@ final class SignInModel: ObservableObject {
                 if case .refused(let message, false) = answer { error = message ?? "That code is not right."; return }
                 take(answer, email: email)
             } catch { if mine == attempt { fail(error) } }
+        }
+    }
+
+    // MARK: - kosmos#7046: a required second step, set up here
+
+    func startSetup() {
+        guard !busy, case .setup(let token, _) = step, let client else { return }
+        attempt += 1; let mine = attempt
+        busy = true; error = nil
+        Task {
+            defer { if mine == attempt { busy = false } }
+            do {
+                let enrolled = try await client.enrol(token: token)
+                guard mine == attempt else { return }
+                switch enrolled {
+                case .totp(let link, let secret): code = ""; step = .setupConfirm(token: token, otpauth: link, secret: secret)
+                case .refused(let sentence):
+                    // As confirm: a setup Kosmos+ says to start again (the token ran out) goes back to the email.
+                    if SignIn.startsOver(sentence) { step = .email }
+                    error = sentence
+                }
+            } catch { if mine == attempt { fail(error) } }
+        }
+    }
+
+    func confirmSetup() {
+        guard !busy, case .setupConfirm(let token, _, _) = step else { return }
+        guard let typed = SignIn.code(code) else { error = "The code is six digits."; return }
+        guard let client else { return }
+        attempt += 1; let mine = attempt
+        busy = true; error = nil
+        Task {
+            defer { if mine == attempt { busy = false } }
+            do {
+                let answer = try await client.confirmSetup(token: token, code: typed)
+                guard mine == attempt else { return }
+                // A wrong code stays here: the authenticator is added already, only its code was early or late.
+                if case .refused(let message, false) = answer {
+                    // Kosmos+ says to start again (the setup expired): back to the email, with its sentence.
+                    if SignIn.startsOver(message) { code = ""; step = .email }
+                    error = message ?? "That code is not what the app shows right now."
+                    return
+                }
+                take(answer, email: email)
+            } catch { if mine == attempt { fail(error) } }
+        }
+    }
+
+    /// kosmos#7045: the company's own sign-in, in Apple's sheet. The grant it brings back is spent at verify in place of
+    /// the code, for the email the provider vouched for, with this iPhone's own proof.
+    func companySignIn() {
+        guard let url = companyURL else { return }
+        attempt += 1
+        companySignIn(url, mine: attempt)
+    }
+
+    private func companySignIn(_ url: URL, mine: Int) {
+        guard let client else { return }
+        busy = true; error = nil
+        Task {
+            defer { if mine == attempt { busy = false } }
+            guard let back = await client.openCompanySignIn(url), mine == attempt else { return }   // closed: nothing changes
+            switch SignIn.companyReturn(back, coordinator: KosmosConfig.coordinatorOrigin) {
+            case .grant(let grant, let vouched)?:
+                do {
+                    let answer = try await client.verify(email: vouched, code: grant)
+                    guard mine == attempt else { return }
+                    email = vouched
+                    take(answer, email: vouched)
+                    // A refused grant is not a wrong code to retype: back to the email, with the sentence.
+                    if case .code = step { step = .email }
+                } catch { if mine == attempt { fail(error) } }
+            case .refused(let sentence)?:
+                step = .email; error = sentence
+            case nil:
+                step = .email; error = SignIn.companyWords["failed"]
+            }
         }
     }
 
@@ -171,6 +263,12 @@ final class SignInModel: ObservableObject {
         case "denied": step = .denied(asking: true)
         case "web": step = .web(reason: SignIn.webForCompany)
         case "error": step = .code(email: email); code = "48291"; error = "That code is not right or has expired."
+        // kosmos#7046: setting up a required second step.
+        case "setup": step = .setup(token: "t", sms: true)
+        case "setupconfirm": step = .setupConfirm(token: "t", otpauth: "otpauth://totp/Kosmos:ada%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Kosmos", secret: "JBSWY3DPEHPK3PXP")
+        // kosmos#7045: the code step with the company's own sign-in offered beside it, and a company refusal.
+        case "company": step = .code(email: email); companyURL = URL(string: "https://login.kosmosplus.com/v1/sso/begin?email=x")
+        case "companyerror": step = .email; error = SignIn.companyWords["not_provisioned"]
         default: step = .email
         }
     }
@@ -182,6 +280,7 @@ struct SignInView: View {
     /// Today's web sign-in page, for what this screen does not do yet (and for making an account).
     let useWeb: () -> Void
     @FocusState private var focused: Bool
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         ScrollView {
@@ -210,7 +309,8 @@ struct SignInView: View {
                 .onChange(of: model.email) { _ in model.error = nil }
             errorLine
             primary("Send code", action: model.sendCode)
-            link("Sign in with your company or a passkey", action: useWeb)
+            // Where Apple's sheet cannot take a company's sign-in (before iOS 17.4), the web page has it: say so here.
+            link(model.companySheet ? "Sign in with a passkey" : "Sign in with your company or a passkey", action: useWeb)
             footnote("New to Kosmos+? Make your account on your computer.")
         case .code(let email):
             title("Check your email")
@@ -224,6 +324,7 @@ struct SignInView: View {
             errorLine
             primary("Sign in", action: model.verify)
             VStack(spacing: 0) {
+                if model.companyURL != nil { link("Sign in with your company's account instead", action: model.companySignIn).disabled(model.busy) }
                 link("Send the code again", action: model.sendCode).disabled(model.busy)
                 link("Use a different email", action: model.differentEmail)
             }
@@ -261,6 +362,37 @@ struct SignInView: View {
             title(SignIn.webTitle(reason: reason))
             line(reason)
             primary("Continue", action: useWeb)
+            link("Use a different email", action: model.differentEmail)
+        case .setup(_, let sms):
+            title("Set up a second step")
+            line(SignIn.setupWords)
+            errorLine
+            primary("Set up an authenticator app", action: model.startSetup)
+            VStack(spacing: 0) {
+                if sms { link("Use text messages instead", action: useWeb) }
+                link("Use a different email", action: model.differentEmail)
+            }
+        case .setupConfirm(_, let otpauth, let secret):
+            title("Add your key")   // one short word per line at the largest sizes, no hyphen inside one
+            line("Add Kosmos to your authenticator app with the button, or type this key into the app yourself. Then type the six-digit code it shows.")
+            if let url = URL(string: otpauth) {
+                Button { openURL(url) } label: { Text("Add to my authenticator app").frame(maxWidth: .infinity).padding(.vertical, 6) }
+                    .buttonStyle(.bordered)
+            }
+            HStack(alignment: .firstTextBaseline) {
+                Text(SignIn.grouped(secret: secret)).font(.system(.body, design: .monospaced)).foregroundColor(Palette.primary)
+                    .textSelection(.enabled).accessibilityLabel("Key: \(secret.map { String($0) }.joined(separator: " "))")
+                Spacer()
+                // The key is the second step itself: kept on this iPhone only (no Universal Clipboard) and for two
+                // minutes (review of #7046).
+                Button("Copy") {
+                    UIPasteboard.general.setItems([[UTType.plainText.identifier: secret]],
+                                                  options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+                }.font(.subheadline).foregroundColor(Palette.link)
+            }
+            codeField(submit: model.confirmSetup)
+            errorLine
+            primary("Confirm", action: model.confirmSetup)
             link("Use a different email", action: model.differentEmail)
         case .done:
             HStack(spacing: 8) { ProgressView(); Text("Signed in").font(.footnote).foregroundColor(Palette.secondary) }

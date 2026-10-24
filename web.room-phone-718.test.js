@@ -82,7 +82,9 @@ test('an upright tablet moves the room by DOM too: Tasks first, then the convers
   assert.match(html, /const PJ_TABLET_MQ = '[^']+';\n(?:\/\/[^\n]*\n)*var PJ_ORDER_READY = true;/);
   assert.match(html, /\n  if \(PJ_ORDER_READY\) pjPhoneOrder\(\);\n\}\nfunction lookToggleClick\(\)/);
   // Not in the consolidated view or the new look, which place Tasks themselves.
-  assert.match(html, /const tablet = window\.matchMedia\(PJ_TABLET_MQ\)\.matches && !document\.body\.classList\.contains\('consolidated'\)\n    && document\.documentElement\.dataset\.look !== 'new';/);
+  // kosmos#4658: the predicate lives in pjTabletUpright, shared with the sealed-room line above the room (fedOwnPaint).
+  assert.match(html, /const tablet = pjTabletUpright\(\);/);
+  assert.match(html, /function pjTabletUpright\(\) \{\n  return window\.matchMedia\(PJ_TABLET_MQ\)\.matches && !document\.body\.classList\.contains\('consolidated'\)\n    && document\.documentElement\.dataset\.look !== 'new';\n\}/);
 });
 
 test("the script's phone and touch queries are the CSS blocks' exact queries", () => {

@@ -109,20 +109,28 @@ enum SignIn {
         /// A second step is set up: the email code opened a challenge. `sentTo` is where an SMS went.
         case second(kind: String, challenge: String, sentTo: String?)
         /// A second step is required and not set up yet: that happens on the web sign-in page for now.
-        case needsSetup
+        /// kosmos#7046: the token is good only for setting up the step (never a session); `sms` whether texts can be sent.
+        case needsSetup(token: String, sms: Bool)
         /// Refused, with the coordinator's own sentence when it sent one. `proofRefused`: the device key was refused.
         case refused(message: String?, proofRefused: Bool)
         /// Not an answer this screen understands (a newer coordinator): the web sign-in page takes over.
         case unknown
+        /// kosmos#7045: a first company sign-in makes the account, and its terms are agreed on the sign-in page.
+        case needsTerms
     }
 
     static func answer(status: Int, json: Any?) -> Answer {
         let body = json as? [String: Any] ?? [:]
         guard (200..<300).contains(status) else {
             let code = body["code"] as? String
+            // kosmos#7045: a first company sign-in creates the account, and the terms are agreed on the page.
+            if code == "terms_required" { return .needsTerms }
             return .refused(message: cleanMessage(body["error"]), proofRefused: code == "device_proof_refused")
         }
-        if body["enrol"] as? Bool == true { return .needsSetup }
+        if body["enrol"] as? Bool == true {
+            guard let token = body["token"] as? String, !token.isEmpty else { return .unknown }
+            return .needsSetup(token: token, sms: body["sms_available"] as? Bool == true)
+        }
         if let kind = body["second"] as? String, !kind.isEmpty {
             guard let challenge = body["challenge"] as? String, !challenge.isEmpty else { return .unknown }
             return .second(kind: kind, challenge: challenge, sentTo: cleanMessage(body["sent_to"]))
@@ -140,6 +148,67 @@ enum SignIn {
     static func companySignInRequired(json: Any?) -> Bool {
         (json as? [String: Any])?["sso_required"] as? Bool == true
     }
+
+    // MARK: - A company's own sign-in (kosmos#7045), in Apple's sign-in sheet
+
+    /// Where Kosmos+ returns a company sign-in (kosmos-relay sso.rs callback): its own /signin page, the grant in the
+    /// fragment. Apple's sheet finishes there (an https callback, iOS 17.4+) only for an app associated with the host
+    /// (webcredentials, the app's entitlement and Kosmos+'s apple-app-site-association), so no other app can receive
+    /// it. (A custom-scheme return was built first and abandoned: any app can register a scheme; #7045.)
+    static let returnPath = "/signin"
+    /// What a company sign-in's grant starts with (sso.rs GRANT_PREFIX); it is spent at verify in place of the code.
+    static let grantPrefix = "ksso1_"
+
+    /// start's company sign-in address (`sso_url`), as the page to open in Apple's sheet. Only Kosmos+'s own begin path
+    /// on the coordinator: an address anywhere else is never opened. Kept byte for byte (rebuilding its query would
+    /// decode `%2B` in an address like ann+work@ into a `+`, which the server reads as a space).
+    static func companySignInURL(json: Any?, coordinator: URL) -> URL? {
+        guard let path = (json as? [String: Any])?["sso_url"] as? String, path.hasPrefix("/v1/sso/begin?"),
+              !path.contains("#"),
+              let url = URL(string: path, relativeTo: coordinator)?.absoluteURL,
+              url.scheme == coordinator.scheme, url.host == coordinator.host, url.port == coordinator.port else { return nil }
+        return url
+    }
+
+    /// What Apple's sheet brought back.
+    enum CompanyReturn: Equatable {
+        /// The grant, and the email the provider vouched for (sign in with exactly this one, as the page does).
+        case grant(String, email: String)
+        /// The coordinator's one-word refusal, already in the page's sentence.
+        case refused(String)
+    }
+
+    /// Only Kosmos+'s own /signin on the coordinator, the grant in the fragment, a refusal in the query. Nil for anything
+    /// else (nothing is guessed).
+    static func companyReturn(_ url: URL, coordinator: URL) -> CompanyReturn? {
+        guard url.scheme?.lowercased() == "https", url.host?.lowercased() == coordinator.host?.lowercased(),
+              url.port == coordinator.port, url.path == returnPath else { return nil }
+        let pairs = { (text: String?) -> [String: String] in
+            var out: [String: String] = [:]
+            for kv in (text ?? "").split(separator: "&") {
+                let p = kv.split(separator: "=", maxSplits: 1).map(String.init)
+                if p.count == 2, let v = p[1].removingPercentEncoding { out[p[0]] = v }
+            }
+            return out
+        }
+        let fragment = pairs(url.fragment), query = pairs(URLComponents(url: url, resolvingAgainstBaseURL: false)?.query)
+        if let word = query["sso_error"] { return .refused(companyWords[word] ?? companyWords["failed"]!) }
+        if let grant = fragment["sso_grant"], grant.hasPrefix(grantPrefix), let email = fragment["email"], looksLikeEmail(email) {
+            return .grant(grant, email: email)
+        }
+        return nil
+    }
+
+    /// The page's sentences for each refusal (kosmos-relay signin.html ssoReturn SSO_WORDS), word for word.
+    static let companyWords: [String: String] = [
+        "cancelled": "You did not finish signing in with your company's account. Try again, or use your email code.",
+        "expired": "That company sign-in took too long or was already used. Try again.",
+        "not_provisioned": "Your company has not given you access to Kosmos+. Ask the people who run your company's accounts.",
+        "not_member": "Your company's sign-in vouched for this address, but it is not a member of that company in Kosmos+. Sign in with your email code.",
+        "wrong_person": "Your company's sign-in said you are someone else. Sign in again with the account for this address.",
+        "unavailable": "Your company's sign-in is turned off right now. Sign in with your email code.",
+        "failed": "Signing in with your company's account did not work. Try again, or use your email code.",
+    ]
 
     /// The Allow, read from /v1/account/me.
     enum AllowRead: Equatable {
@@ -213,6 +282,10 @@ enum SignIn {
         /// The Mac said no. `asking`: told at sign-in, when Kosmos+ has already made it a fresh Allow on the Mac
         /// (signin.rs), so the screen still waits; false once the Mac has said no to that one too.
         case denied(asking: Bool)
+        /// kosmos#7046: a second step must be set up before this sign-in finishes. `token` is the enrol-only one.
+        case setup(token: String, sms: Bool)
+        /// The authenticator's secret to add, then its first code to confirm.
+        case setupConfirm(token: String, otpauth: String, secret: String)
         /// Over to the web sign-in page, with why (one line the screen shows first).
         case web(reason: String)
         case done
@@ -229,20 +302,63 @@ enum SignIn {
             }
         case .second(let kind, let challenge, let sentTo):
             return (.second(email: email, kind: kind, challenge: challenge, sentTo: sentTo), nil, nil)
-        case .needsSetup:
-            return (.web(reason: webForSetup), nil, nil)
+        case .needsSetup(let token, let sms):
+            return (.setup(token: token, sms: sms), nil, nil)
         case .refused(let message, let proofRefused):
             return (proofRefused ? .web(reason: webForKey) : .code(email: email), nil,
                     proofRefused ? nil : (message ?? "That code is not right or has expired."))
         case .unknown:
             return (.web(reason: webForUnknown), nil, nil)
+        case .needsTerms:
+            return (.web(reason: webForTerms), nil, nil)
         }
     }
 
     static let webForCompany = "This continues on the Kosmos+ sign-in page, where your company's own sign-in opens."
     static let webForSetup = "Your account needs its second sign-in step set up first. That continues on the sign-in page."
     static let webForKey = "This iPhone could not prove its key to Kosmos+, so this continues on the sign-in page."
+    static let webForTerms = "Your company's sign-in will make your Kosmos+ account, and that starts with agreeing to its terms on the sign-in page."
     static let webForUnknown = "Kosmos+ answered in a way this app does not know yet, so this continues on the sign-in page."
+
+    // MARK: - Setting up a required second step (kosmos#7046)
+
+    static let enrolPath = "/v1/second/enrol"
+    static let confirmPath = "/v1/second/confirm"
+
+    static func enrolBody() -> [String: Any] { ["kind": "totp"] }
+    static func confirmBody(code: String) -> [String: Any] { ["code": code] }
+
+    /// enrol's answer for an authenticator: the otpauth link and the secret (kosmos-relay second.rs EnrolResp), or the
+    /// coordinator's own sentence. Only an otpauth://totp/ link is taken.
+    enum Enrolled: Equatable { case totp(otpauth: String, secret: String), refused(String) }
+
+    static func enrolled(status: Int, json: Any?) -> Enrolled {
+        let body = json as? [String: Any] ?? [:]
+        guard (200..<300).contains(status) else { return .refused(cleanMessage(body["error"]) ?? "That did not work. Try again.") }
+        guard body["kind"] as? String == "totp", let link = body["otpauth"] as? String, link.hasPrefix("otpauth://totp/"),
+              let secret = body["secret"] as? String, !secret.isEmpty else { return .refused("That did not work. Try again.") }
+        return .totp(otpauth: link, secret: secret)
+    }
+
+    /// The secret as a person types it: groups of four.
+    static func grouped(secret: String) -> String {
+        stride(from: 0, to: secret.count, by: 4).map { i -> String in
+            let start = secret.index(secret.startIndex, offsetBy: i)
+            return String(secret[start..<(secret.index(start, offsetBy: 4, limitedBy: secret.endIndex) ?? secret.endIndex)])
+        }.joined(separator: " ")
+    }
+
+    static let setupWords = "Your account needs a second sign-in step. Set up an authenticator app now: it shows a new six-digit code every 30 seconds."
+    static let webForTexts = "Setting up text messages continues on the sign-in page."
+
+    /// A refusal no new code can fix: Kosmos+ says to start again (the enrol-only token expired, nothing is being set
+    /// up any more, the setup is damaged) or the account is gone (second.rs). The person goes back to the email rather
+    /// than retrying here. A wrong code says neither, and stays.
+    static func startsOver(_ message: String?) -> Bool {
+        let m = message ?? ""
+        // "sign in again": signed out everywhere, or this device removed, since the setup began (second.rs refuse_signed_out).
+        return ["start again", "sign in again", "no such account", "no longer exists", "being deleted"].contains { m.range(of: $0, options: .caseInsensitive) != nil }
+    }
 
     /// The second step's line, as the web page words it (secondWords). The authenticator shows "Kosmos" (the issuer
     /// in kosmos-relay totp.rs). A masked number stays whole on one line (non-breaking spaces; Mona Lisa's review).

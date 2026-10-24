@@ -2669,7 +2669,8 @@ check(SignIn.answer(status: 200, json: jsonBody(#"{"token":"t1","device_status":
 check(SignIn.answer(status: 200, json: jsonBody(#"{"second":"sms","challenge":"c1","sent_to":"+1 *** 0123"}"#))
       == .second(kind: "sms", challenge: "c1", sentTo: "+1 *** 0123"), "a second step")
 check(SignIn.answer(status: 200, json: jsonBody(#"{"second":"totp"}"#)) == .unknown, "a second step with no challenge is not guessed at")
-check(SignIn.answer(status: 200, json: jsonBody(#"{"enrol":true,"token":"enrol-only"}"#)) == .needsSetup, "an enrol-only token is never taken as a session")
+check(SignIn.answer(status: 200, json: jsonBody(#"{"enrol":true,"token":"enrol-only","sms_available":true}"#)) == .needsSetup(token: "enrol-only", sms: true), "an enrol-only token is never taken as a session")
+check(SignIn.answer(status: 200, json: jsonBody(#"{"enrol":true}"#)) == .unknown, "enrol with no token is not guessed at")
 check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"That code is not right.","code":"bad_code"}"#)) == .refused(message: "That code is not right.", proofRefused: false), "a refusal keeps the coordinator's sentence")
 check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"x","code":"device_proof_refused"}"#)) == .refused(message: "x", proofRefused: true), "a refused proof is told apart")
 check(SignIn.answer(status: 200, json: jsonBody(#"{}"#)) == .unknown && SignIn.answer(status: 500, json: nil) == .refused(message: nil, proofRefused: false), "no token, or no body")
@@ -2683,7 +2684,18 @@ section("sign-in: the steps")
 let s1 = SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "AB12", hasComputer: true)
 check(SignIn.next(after: .signedIn(s1), email: "e").step == .allow(matchCode: "AB12", hasComputer: true) && SignIn.next(after: .signedIn(s1), email: "e").session == s1, "pending: the session is handed over, and the Allow is waited for")
 check(SignIn.next(after: .signedIn(.init(token: "t", deviceStatus: .denied, matchCode: nil, hasComputer: true)), email: "e").step == .denied(asking: true), "denied at sign-in: the Mac is asked again, so the screen still waits")
-check(SignIn.next(after: .needsSetup, email: "e").step == .web(reason: SignIn.webForSetup) && SignIn.next(after: .needsSetup, email: "e").session == nil, "a second step to set up: the web page, no session")
+check(SignIn.next(after: .needsSetup(token: "t", sms: false), email: "e").step == .setup(token: "t", sms: false) && SignIn.next(after: .needsSetup(token: "t", sms: false), email: "e").session == nil, "a second step to set up: set up here, and still no session")
+check(SignIn.enrolled(status: 200, json: jsonBody(#"{"kind":"totp","otpauth":"otpauth://totp/Kosmos:a%40b.co?secret=ABCD","secret":"ABCDEFGHIJ"}"#)) == .totp(otpauth: "otpauth://totp/Kosmos:a%40b.co?secret=ABCD", secret: "ABCDEFGHIJ"), "the authenticator's link and secret")
+check(SignIn.enrolled(status: 200, json: jsonBody(#"{"kind":"totp","otpauth":"https://evil.example/?secret=ABCD","secret":"ABCD"}"#)) == .refused("That did not work. Try again.") && SignIn.enrolled(status: 200, json: jsonBody(#"{"kind":"sms","sent_to":"x"}"#)) == .refused("That did not work. Try again."), "only an otpauth://totp/ link, and only for an authenticator")
+check(SignIn.enrolled(status: 429, json: jsonBody(#"{"error":"Too many tries; wait a minute."}"#)) == .refused("Too many tries; wait a minute."), "a refusal keeps the coordinator's sentence")
+check(SignIn.grouped(secret: "ABCDEFGHIJ") == "ABCD EFGH IJ" && SignIn.grouped(secret: "") == "", "the secret in groups of four")
+check(SignIn.answer(status: 200, json: jsonBody(#"{"ok":true,"kind":"totp","token":"real","device_status":"pending","match_code":"K7Q2","addresses":["mini.kosmosplus.com"]}"#))
+      == .signedIn(.init(token: "real", deviceStatus: .pending, matchCode: "K7Q2", hasComputer: true)), "confirm's answer (a session with ok and kind) is the first real session")
+check(SignIn.startsOver("token invalid or expired; start again from the email") && SignIn.startsOver("nothing is being enrolled; Start again")
+      && SignIn.startsOver("no such account") && SignIn.startsOver("this Kosmos+ account no longer exists")
+      && SignIn.startsOver("this account signed out everywhere since; sign in again") && !SignIn.startsOver("that code is not the one we texted")
+      && !SignIn.startsOver("that code is not what the app shows right now; wait for the next one and try again") && !SignIn.startsOver(nil), "only a refusal that says start again, or that the account is gone, leaves the screen")
+check(SignIn.enrolBody()["kind"] as? String == "totp" && SignIn.confirmBody(code: "123456")["code"] as? String == "123456" && SignIn.confirmBody(code: "1").count == 1, "the setup requests carry only the kind, then only the code")
 check(SignIn.next(after: .refused(message: nil, proofRefused: false), email: "e").step == .code(email: "e"), "a wrong code stays on the code")
 check(SignIn.next(after: .refused(message: nil, proofRefused: true), email: "e").step == .web(reason: SignIn.webForKey), "a refused key: the web page")
 check(SignIn.secondWords(kind: "sms", sentTo: nil).contains("your phone") && SignIn.secondWords(kind: "totp", sentTo: nil).contains("authenticator"), "the second step's words, as the web page's")
@@ -2729,6 +2741,28 @@ do {
     check(SignIn.pageOrigin(coordinator) == origin && SignIn.pageOrigin(URL(string: "https://LOGIN.kosmosplus.com:443/x?y")!) == origin
           && SignIn.pageOrigin(URL(string: "https://login.kosmosplus.com:8443/")!) == "https://login.kosmosplus.com:8443",
           "the coordinator's origin is written as location.origin writes it (no slash, no default port)")
+}
+
+section("sign-in: a company's own sign-in in Apple's sheet (kosmos#7045)")
+do {
+    let begin = SignIn.companySignInURL(json: jsonBody(#"{"ok":true,"sso_url":"/v1/sso/begin?email=ann%40acme.test&device_id=k1.abc"}"#), coordinator: coordinator)
+    check(begin?.absoluteString == "https://login.kosmosplus.com/v1/sso/begin?email=ann%40acme.test&device_id=k1.abc", "Kosmos+'s begin address, on the coordinator, as given")
+    check(SignIn.companySignInURL(json: jsonBody(#"{"sso_url":"/v1/sso/begin?email=ann%2Bwork%40acme.test&device_id=k1.abc"}"#), coordinator: coordinator)?.absoluteString
+          == "https://login.kosmosplus.com/v1/sso/begin?email=ann%2Bwork%40acme.test&device_id=k1.abc", "an address with a + is kept exactly as Kosmos+ encoded it")
+    for bad in [#"{"sso_url":"https://evil.example/v1/sso/begin?x"}"#, #"{"sso_url":"//evil.example/v1/sso/begin?x"}"#, #"{"sso_url":"/v1/other?x"}"#, #"{"sso_url":"/v1/sso/begin?x#y"}"#, #"{"ok":true}"#, #"{"sso_url":7}"#] {
+        check(SignIn.companySignInURL(json: jsonBody(bad), coordinator: coordinator) == nil, "not opened: \(bad)")
+    }
+    let ret = { (s: String) in SignIn.companyReturn(URL(string: s)!, coordinator: coordinator) }
+    check(ret("https://login.kosmosplus.com/signin#sso_grant=ksso1_abc&email=ann%40acme.test") == .grant("ksso1_abc", email: "ann@acme.test"), "the grant and the vouched email, from Kosmos+'s own /signin")
+    check(ret("https://login.kosmosplus.com/signin?sso_error=not_member") == .refused(SignIn.companyWords["not_member"]!), "a refusal, in the page's sentence")
+    check(ret("https://login.kosmosplus.com/signin?sso_error=whatever") == .refused(SignIn.companyWords["failed"]!), "a word not known: the general sentence")
+    for bad in ["https://login.kosmosplus.com/signin#sso_grant=abc&email=ann%40acme.test", "https://login.kosmosplus.com/signin#sso_grant=ksso1_abc",
+                "https://evil.example/signin#sso_grant=ksso1_abc&email=a%40b.co", "https://login.kosmosplus.com/other#sso_grant=ksso1_abc&email=a%40b.co",
+                "http://login.kosmosplus.com/signin#sso_grant=ksso1_abc&email=a%40b.co", "kosmos-signin://sso#sso_grant=ksso1_abc&email=a%40b.co",
+                "https://login.kosmosplus.com/signin#sso_grant=ksso1_abc&email=not-an-email"] {
+        check(ret(bad) == nil, "nothing taken from \(bad)")
+    }
+    check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"agree first","code":"terms_required"}"#)) == .needsTerms && SignIn.next(after: .needsTerms, email: "e").step == .web(reason: SignIn.webForTerms), "a first company sign-in needs the terms: the web page")
 }
 
 await boardLoopTests()
