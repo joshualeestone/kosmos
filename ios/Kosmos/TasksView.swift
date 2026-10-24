@@ -75,7 +75,7 @@ struct TasksView: View {
             .navigationTitle("Tasks")
             .toolbar { if let read, !read.tasks.isEmpty { ToolbarItem(placement: .navigationBarTrailing) { picker } } }
             .background(Palette.ground.ignoresSafeArea())
-            .onAppear { completedOpen = false; layOut() }
+            .onAppear { completedOpen = Self.sampleCompletedOpen; layOut() }
             .onChange(of: read) { _ in update() }
             .onChange(of: project) { _ in layOut() }
     }
@@ -100,7 +100,7 @@ struct TasksView: View {
 
     private func list(_ read: Board.TasksRead) -> some View {
         let projectShown = !Tasks.leaveOutProjectLine(read, project: project)
-        return List {
+        return ScrollViewReader { scroller in List {
             Section {
                 EmptyView()
             } header: {
@@ -133,16 +133,35 @@ struct TasksView: View {
         .scrollContentBackground(.hidden)
         .background(Palette.ground)
         .refreshable { await refresh(); layOut() }
+        .onAppear { if Self.sampleScrollToEnd, let last = shown.last { scroller.scrollTo(last.group.key, anchor: .bottom) } }
+        }
     }
+
+    // Screenshots only (a Debug build with KOSMOS_SAMPLE_AGENTS=1, as the other tabs' samples): Completed open, and the
+    // list scrolled to its end, for the design review's "Completed clears the tab bar" shot. Release has neither.
+    #if DEBUG
+    private static let sampleCompletedOpen = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1"
+        && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_COMPLETED"] == "open"
+    private static let sampleScrollToEnd = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1"
+        && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLL"] == "end"
+    #else
+    private static let sampleCompletedOpen = false
+    private static let sampleScrollToEnd = false
+    #endif
 
     private func header(_ s: Tasks.Section, read: Board.TasksRead) -> some View {
         let count = s.unknown ? "?" : String(s.rows.count)
         let token = Tasks.dotToken(s.group, count: s.rows.count, rosterUnknown: read.rosterUnknown)
-        // First-baseline aligned, the dot resting on it, so a label wrapped at the largest text sizes keeps its dot beside
-        // the first line, not between the lines.
+        // The dot is centred on the label's FIRST line at any text size (Mona Lisa's review: resting on the baseline it
+        // read as a full stop): it sits in a hidden one-line text of the same font, which also gives it that line's
+        // baseline, so a label wrapped at the largest sizes keeps its dot beside the first line.
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Circle().fill(TasksPalette.dot(token)).frame(width: 8, height: 8)
-                .alignmentGuide(.firstTextBaseline) { d in d[.bottom] }
+            ZStack {
+                Text("Ag").hidden()
+                Circle().fill(TasksPalette.dot(token)).frame(width: 8, height: 8)
+            }
+            .fixedSize()
+            .accessibilityHidden(true)
             Text(s.group.label).foregroundColor(Palette.primary)
             Text(count).foregroundColor(Palette.secondary)
         }
