@@ -10439,7 +10439,7 @@ html:not([data-fed-ui="show"]) #pj-addmenu-outside,html:not([data-fed-ui="show"]
    view's Members card (#pj-fed-outside) and in the consolidated rail's grouped members
    (#alist-fed-outside). Federation content, so it hides with the rest; fedOutsideHtml also draws
    nothing unless fedShow(). */
-html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #alist-fed-outside,html:not([data-fed-ui="show"]) #pj-fed-own { display: none !important; }
+html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #alist-fed-outside,html:not([data-fed-ui="show"]) #pj-fed-own,html:not([data-fed-ui="show"]) #alist-fed-own { display: none !important; }
 .fedout:empty { display: none; }
 /* Mona's .m-sec heading and .m-mem rows (mock.html) on the app's tokens. */
 .fedout-h { font: 600 .6875rem var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--label-2);
@@ -10461,7 +10461,7 @@ html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #a
 .fedout .fhint { margin: 2px 0 4px; }
 .fedout .fmsg { margin-top: 2px; }
 .fedout .fmsg:empty { display: none; }
-#alist-fed-outside { margin: 0 6px 0 8px; }
+#alist-fed-outside, #alist-fed-own { margin: 0 6px 0 8px; }
 /* kosmos#4658: the code two of the person's computers both show before a sealed room's key is handed over. Comparing
    it IS the protection, so it is large, spaced and never wrapped or cut. */
 .ownseal-code { display: block; font: 600 1.375rem/1.25 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .12em;
@@ -17296,6 +17296,7 @@ window.kosmosMeasureScrollbarWidth();
            background. The receipt under your post names each recipient's
            real delivery state -- a post to three that reaches two must
            never render as sent. -->
+      <p class="vh" id="pj-fed-own-said" role="status" aria-live="polite"></p><!-- kosmos#4658: what a press did, heard once -->
       <p class="fhint ownseal-phone" id="pj-fed-own-phone" hidden>This room is sealed on this computer. The code to compare is under Members.</p>
       <div class="thread" id="pj-room"></div>
       <!-- ⚠️ THE ROOM'S HALF OF THE SAME SIGNAL (#176), mounted where the agent
@@ -25249,6 +25250,7 @@ let FED_OWN_ASKING = null;   // the project an ask is in flight for
 let FED_OWN_MSG = null;      // { text, project, sig }: the last press's sentence, kept while the section shows what it did
 let FED_OWN_BUSY = null;     // the project a press is being asked for
 let FED_OWN_SEQ = 0;         // a load answered after a newer one (or a project switch) is dropped
+let FED_OWN_GEN = 0;         // a press answered after the project was entered again is dropped (fedMembersReset bumps it)
 let FED_MEMBERS_SEQ = 0;         // a reply for an older ask (or another project) is dropped
 let FED_MEMBERS_ASKING = null;   // the project an ask is in flight for (fedGateMembers asks once)
 let FED_MSGS = {};               // row key -> the sentence a Withdraw or Remove left, kept across repaints
@@ -25390,8 +25392,11 @@ function paintAgentListNow() {
     // A board with no agents of its own still lists the open project's people from outside in this layout,
     // where the Members card is hidden (#3948): otherwise their Remove and Withdraw are unreachable here.
     const fedOutE = (layoutConsolidated() && PJ_CURRENT && typeof fedOutsideHtml === 'function') ? fedOutsideHtml() : '';
+    // kosmos#4658: the sealed-room key section too, for the same reason (the Members card is hidden here).
+    const fedOwnE = (layoutConsolidated() && PJ_CURRENT && typeof fedOwnHtml === 'function') ? fedOwnHtml() : '';
     alist.innerHTML = boardEmpty();
     if (fedOutE) alist.insertAdjacentHTML('beforeend', '<div id="alist-fed-outside" class="fedout">' + fedOutE + '</div>');
+    if (fedOwnE) alist.insertAdjacentHTML('beforeend', '<div id="alist-fed-own" class="fedout">' + fedOwnE + '</div>');
     fedRefocusRail();
     return;
   }
@@ -25422,8 +25427,10 @@ function paintAgentListNow() {
        Only when there is something to say: an empty wrapper would shift the list's children, which
        render-project-members-3387 counts. */
     const fedOut = typeof fedOutsideHtml === 'function' ? fedOutsideHtml() : '';
+    const fedOwn = typeof fedOwnHtml === 'function' ? fedOwnHtml() : '';   // kosmos#4658, as fedOut
     alist.innerHTML = membersHtml
       + (fedOut ? '<div id="alist-fed-outside" class="fedout">' + fedOut + '</div>' : '')
+      + (fedOwn ? '<div id="alist-fed-own" class="fedout">' + fedOwn + '</div>' : '')
       + otherAgentsHeaderHtml()
       + rest.map(lrow).join('');
     setAgentsGrouped(true);
@@ -81396,7 +81403,7 @@ function fedOwnHtml() {
   // A press's sentence stays while the section still shows what the press left (fedOwnLoad clears it on a change),
   // including when the press emptied the section (the last computer allowed, the key taken).
   const m = FED_OWN_MSG;
-  if (m && m.project === o.project) h += '<p class="fmsg" role="status" aria-live="polite">' + esc(m.text) + '</p>';
+  if (m && m.project === o.project) h += '<p class="fmsg">' + esc(m.text) + '</p>';   // announced once, by #pj-fed-own-said
   return h;
 }
 /* The code as two groups around a plain hyphen, read letter by letter (the label spells it out). Not devCodeHtml's
@@ -81411,28 +81418,35 @@ function fedOwnCodeHtml(code, extra) {
 }
 function fedOwnPaint() {
   const el = document.getElementById('pj-fed-own');
-  if (!el) return;
   const html = fedOwnHtml();
-  if (el.__ownHtml !== html) {
-    // The rebuild replaces the buttons: a focused one is found again by what it does, so a keyboard or VoiceOver
-    // user is not sent to the top of the page by a press or a refresh.
-    const ae = document.activeElement;
-    const was = ae && el.contains(ae) && ae.dataset ? { act: ae.dataset.ownAct, pub: ae.dataset.ownPub || '' } : null;
-    el.__ownHtml = html; el.innerHTML = html;
-    if (was) {
-      const again = [...el.querySelectorAll('[data-own-act]')].find((b) => b.dataset.ownAct === was.act && (b.dataset.ownPub || '') === was.pub)
-        || el.querySelector('[data-own-act]');
-      if (again) again.focus(); else if (el.querySelector('.fmsg')) { el.tabIndex = -1; el.focus(); }
-    }
+  // The rebuild replaces the buttons: a focused one (here or in the consolidated rail's copy) is found again by what it
+  // does, so a keyboard or VoiceOver user is not sent to the top of the page by a press or a refresh.
+  const ae = document.activeElement;
+  const box = ae && ae.closest ? ae.closest('#pj-fed-own, #alist-fed-own') : null;
+  const was = box && ae.dataset ? { box: box.id, act: ae.dataset.ownAct, pub: ae.dataset.ownPub || '' } : null;
+  if (el && el.__ownHtml !== html) { el.__ownHtml = html; el.innerHTML = html; }
+  /* The consolidated rail hides the Members card and draws its own copy (paintAgentList, as #alist-fed-outside):
+     repaint it only when the markup changed. */
+  if (typeof layoutConsolidated === 'function' && layoutConsolidated() && typeof paintAgentList === 'function' && fedOwnPaint.rail !== html) {
+    fedOwnPaint.rail = html; paintAgentList();
+  }
+  if (was) {
+    const host = document.getElementById(was.box);
+    const again = host && ([...host.querySelectorAll('[data-own-act]')].find((x) => x.dataset.ownAct === was.act && (x.dataset.ownPub || '') === was.pub)
+      || host.querySelector('[data-own-act]'));
+    if (again && again !== document.activeElement) again.focus();
+    else if (!again && host && host.querySelector('.fmsg')) { host.tabIndex = -1; host.focus(); }
   }
   /* Mona's review: where Members sits under the conversation (a phone, an upright tablet: pjPhoneOrder's queries), one
-     line above the room says why it does not read and where the code is. */
+     line above the room says why it does not read and where the code is. Not in the consolidated view, where the
+     section is in the rail beside the room. */
   const line = document.getElementById('pj-fed-own-phone');
   if (line) {
     const o = FED_OWN;
     // PJ_ORDER_READY: a var set right after the room's const queries, so a paint before they exist reads no layout
     // (as placeLook waits on it) instead of throwing in their dead zone.
     const below = typeof PJ_ORDER_READY !== 'undefined' && PJ_ORDER_READY === true && !!window.matchMedia
+      && !(typeof layoutConsolidated === 'function' && layoutConsolidated())
       && (window.matchMedia(PJ_PHONE_MQ).matches || pjTabletUpright());
     line.hidden = !(below && o && o.code && o.project === PJ_CURRENT && fedShow());
   }
@@ -81488,6 +81502,7 @@ async function fedOwnPress(btn) {
   const act = btn.dataset.ownAct;
   const body = act === 'allow' ? { project, pub: btn.dataset.ownPub, code: btn.dataset.ownCode }
     : act === 'match' ? { project, code: btn.dataset.ownCode } : { project, match: false };
+  const gen = FED_OWN_GEN;   // entering the project again (even the same one) bumps it
   FED_OWN_BUSY = project; FED_OWN_MSG = null; fedOwnPaint();
   let said;
   try {
@@ -81495,22 +81510,25 @@ async function fedOwnPress(btn) {
     const { res, body: j } = await fedActPost((signal) => (act === 'allow'
       ? fetch('/api/federation/own-allow', opts(signal)) : fetch('/api/federation/own-confirm', opts(signal))));
     if (res.ok) {
-      said = act === 'allow' ? 'Allowed. That computer reads this room once its person confirms the same code there.'
-        : act === 'match' ? 'Confirmed. This computer reads the room as soon as the other computer allows it.'
+      said = act === 'allow' ? 'Allowed. That computer reads this room once its person has confirmed the same code there.'
+        : act === 'match' ? 'Confirmed. This computer reads the room once the other computer has allowed it.'
         : j && j.started_over === true ? 'Started over. A new code appears here when the other computer answers.'
         : 'There was nothing to start over: this computer is not waiting for a code right now.';
     } else said = (j && typeof j.error === 'string' && j.error) || 'That did not go through. Try again.';
   } catch (err) {
     said = err && err.name === 'AbortError' ? FED_ACT_TIMED_OUT : FED_UNREACHABLE;
   }
+  // An answer for a visit that has ended (another project, or this one entered again) changes nothing on screen.
+  if (gen !== FED_OWN_GEN || PJ_CURRENT !== project) return;
   if (FED_OWN_BUSY === project) FED_OWN_BUSY = null;
-  if (PJ_CURRENT !== project) return;
   FED_OWN_MSG = { text: said, project, sig: null };
+  const said$ = document.getElementById('pj-fed-own-said');
+  if (said$) { said$.textContent = ''; said$.textContent = said; }   // one persistent live region, so it is heard
   fedOwnPaint();   // the buttons come back now, not when the reload lands
   fedOwnLoad(project, true);
 }
 document.addEventListener('click', (e) => {
-  const btn = e.target && e.target.closest ? e.target.closest('#pj-fed-own [data-own-act]') : null;
+  const btn = e.target && e.target.closest ? e.target.closest('#pj-fed-own [data-own-act], #alist-fed-own [data-own-act]') : null;
   if (btn) fedOwnPress(btn);
 });
 // The line above the room follows the layout: a phone turned, a tablet stood up (pjPhoneOrder's own two queries).
@@ -81526,7 +81544,9 @@ if (window.matchMedia) {
 function fedMembersReset() {
   // kosmos#4658: the sealed-room key section starts over too, and is emptied now, so the last project's rows and
   // buttons never show under this one while its own answer is asked for.
-  FED_OWN = null; FED_OWN_MSG = null; FED_OWN_ASKING = null; FED_OWN_BUSY = null; FED_OWN_SEQ++; fedOwnPaint();
+  fedOwnPaint.rail = undefined;   // the rail's copy repaints for the next answer, as fedOutsidePaint.rail
+  FED_OWN = null; FED_OWN_MSG = null; FED_OWN_ASKING = null; FED_OWN_BUSY = null; FED_OWN_SEQ++; FED_OWN_GEN++; fedOwnPaint();
+  const said$ = document.getElementById('pj-fed-own-said'); if (said$) said$.textContent = '';
   FED_MEMBERS = null; FED_MSGS = {}; FED_GEN++;
   FED_MEMBERS_SEQ++; FED_MEMBERS_ASKING = null;
   fedOutsidePaint.rail = undefined;
