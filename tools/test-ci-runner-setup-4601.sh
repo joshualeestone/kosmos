@@ -40,7 +40,7 @@ case "$me" in
         [ "${FX_WORKER_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/worker-up"   # a job taken during the stop
         [ "${FX_RESPAWN_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/respawned"  # launchd restarted it
         exit 0 ;;
-      print-disabled) printf 'disabled services = {\n'
+      print-disabled) [ "${FX_PD_FAIL:-0}" = 1 ] && exit 1; printf 'disabled services = {\n'
         [ "${FX_DISABLED:-0}" = 1 ] && printf '\t"actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" => disabled\n'
         printf '}\n'; exit 0 ;;
       bootout) # Whether the old job's process (FX_JOB_PID) was still alive when the bootout came: the test asserts it.
@@ -53,7 +53,10 @@ case "$me" in
         # shape is copied from a real capture (runner 1, macOS 27.0.1, 2026-10-23): "\tsemaphores = {" /
         # "\t\tsuccessful exit => 0" / "\t}" and "\texit timeout = 5" for a job that does not set ExitTimeOut.
         if [ "${FX_BOOTSTRAP_NO_KA:-0}" != 1 ] && [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$3" 2>/dev/null)" = false ]; then
-          plutil -extract ExitTimeOut raw -o - "$3" 2>/dev/null > "$(dirname "$CALL_LOG")/loaded-ka" || echo 5 > "$(dirname "$CALL_LOG")/loaded-ka"
+          # As launchd: an ExitTimeOut that is not an <integer> is ignored, so the default 5 shows.
+          case "$(plutil -extract ExitTimeOut xml1 -o - "$3" 2>/dev/null)" in
+            *"<integer>"*) plutil -extract ExitTimeOut raw -o - "$3" > "$(dirname "$CALL_LOG")/loaded-ka" ;;
+            *) echo 5 > "$(dirname "$CALL_LOG")/loaded-ka" ;; esac
         else rm -f "$(dirname "$CALL_LOG")/loaded-ka"; fi
         # FX_BOOTSTRAP_SAME_PID=1: the old Listener is still the only one listed (launchd started no new one).
         [ "${FX_BOOTSTRAP_SAME_PID:-0}" = 1 ] || echo $(( $(cat .svc-pid 2>/dev/null || echo 4343) + 1 )) > .svc-pid; exit 0 ;;
@@ -726,6 +729,28 @@ ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/>
 run ka-strtimeout "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
 has ka-strtimeout "lacks ExitTimeOut 35" && ! has ka-strtimeout "lacks KeepAlive" \
   && pass "keepalive: a string ExitTimeOut is not taken for the integer launchd needs" || fail "keepalive string timeout: $(grep lacks "$T/ka-strtimeout.out")"
+# kosmos#7001 round 23. A <string> ExitTimeOut is replaced by --apply (not kept because raw reads 35), and it converges.
+ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$KA"; plutil -insert ExitTimeOut -string 35 "$KA"; plutil -insert ThrottleInterval -integer 10 "$KA"
+plutil -extract ExitTimeOut xml1 -o - "$KA" | grep -q '<string>' || fail "fixture: ExitTimeOut is not a string"
+run ka-strapply "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+run ka-strafter "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
+[ "$(rc ka-strapply)" = 0 ] && plutil -extract ExitTimeOut xml1 -o - "$KA" | grep -q '<integer>35</integer>' \
+  && [ "$(rc ka-strafter)" = 0 ] && has ka-strafter "restarts after a SIGKILL or a crash" \
+  && pass "keepalive --apply: a string ExitTimeOut is replaced by the integer, and the next run finds it done" || fail "keepalive string apply: rc $(rc ka-strapply)/$(rc ka-strafter): $(tail -1 "$T/ka-strapply.out")"
+# A Label that is not the plist's own name (another job's: the relay's) is refused before anything is stopped.
+ka_fresh; plutil -replace Label -string actions.runner.joshualeestone-kosmos-relay.agent1s-relay "$KA"
+run ka-labelrelay "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+[ "$(rc ka-labelrelay)" = 1 ] && has ka-labelrelay "not its own name" && ! grep -q '^launchctl \(kill\|bootout\|bootstrap\)' "$T/ka-labelrelay.calls" \
+  && pass "keepalive --apply: a plist whose Label names the relay is refused, nothing stopped" || fail "keepalive label relay: rc $(rc ka-labelrelay): $(tail -1 "$T/ka-labelrelay.out")"
+# print-disabled cannot be read: not taken for "not disabled".
+ka_fresh; run ka-pdfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_PD_FAIL=1 -- --apply keepalive
+[ "$(rc ka-pdfail)" = 1 ] && has ka-pdfail "could not read launchctl print-disabled" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-pdfail.calls" \
+  && pass "keepalive --apply: an unreadable print-disabled refuses before anything is stopped" || fail "keepalive print-disabled fail: rc $(rc ka-pdfail): $(tail -1 "$T/ka-pdfail.out")"
+# Dry run of a loaded job with no process: no SIGTERM promised (--apply sends none).
+ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"
+run ka-loadedstopped-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE=waiting FX_NO_PID=1 -- keepalive
+[ "$(rc ka-loadedstopped-dry)" = 0 ] && has ka-loadedstopped-dry "has no process, so no SIGTERM first" && ! has ka-loadedstopped-dry "WOULD: launchctl kill" && has ka-loadedstopped-dry "WOULD: launchctl bootstrap" \
+  && pass "keepalive dry run: a loaded job with no process is not promised a SIGTERM" || fail "keepalive loaded stopped dry: rc $(rc ka-loadedstopped-dry): $(tail -2 "$T/ka-loadedstopped-dry.out")"
 ka_fresh; run ka-outlives "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null
 [ "$(rc ka-outlives)" = 0 ] && has ka-outlives "had not ended 1s after SIGTERM" && grep -qx 'bootout-while-alive' "$T/ka-outlives.calls" \
@@ -870,7 +895,8 @@ vcase no-keepalive 1 "lacks KeepAlive {SuccessfulExit: false}"
 sed "s#$KH/actions-runner<#$VCI/actions-runner<#" "$T/ka.after" > "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 [ "$(plutil -extract WorkingDirectory raw -o - "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist")" = "$VCI/actions-runner" ] || fail "fixture: the verify plist does not name $VCI/actions-runner"
 vcase keepalive 0 "has KeepAlive SuccessfulExit false"
-# As the owner in production: ~/Library closed, .service readable. Not checked is a check not made (3), never clear.
+# As the owner in production: ~/Library closed, .service readable. A note saying KeepAlive was NOT checked, and the exit
+# is left alone (an exit 3 on every owner run would hide the checks that really could not be made).
 chmod 000 "$VCI/Library"; vcase ka-library-closed 0 "note:   KeepAlive NOT checked: $VCI/actions-runner/.service names no LaunchAgent under $VCI/Library/LaunchAgents that $(id -un) can see"; chmod 755 "$VCI/Library"
 chmod 000 "$VCI/actions-runner/.service"; vcase ka-service-unreadable 3 "cannot read $VCI/actions-runner/.service as $(id -un), so KeepAlive is not checked here"; chmod 644 "$VCI/actions-runner/.service"
 rm -rf "$VCI/Library" "$VCI/actions-runner/.service"

@@ -309,3 +309,18 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - DEFERRED NITs: 1 (cross-user dry-run wording), 3 (a real-typed key larger than ours is replaced by ours), 4 (ka-waits on
   a very slow host passes rather than fails), 5 (PIPE half of the trap: source order only), 6 (a TMPDIR with a space
   fails the CI-home check in the suite).
+
+## Review round 23 (opus, blind, HEAD 02f7902ca6)
+- W1 FIXED, MY OWN GAP FROM ROUND 21: I taught keepalive_set to reject a <string> ExitTimeOut but left add_keepalive
+  deciding with raw, so it kept the string: "KeepAlive added", a reload, FAILED, and the same reload on every rerun.
+  add_keepalive now decides each key with plist_int_ge and re-checks keepalive_set on the .new before renaming it in.
+  The bootstrap stub now ignores a non-integer ExitTimeOut (shows 5), as launchd does. ka-strapply (apply converges, the
+  next dry run says done); mutant red.
+- W2 FIXED: the Label inside the plist was trusted. It must now equal the plist's own name (svc.sh writes them the
+  same), so a Label naming the relay cannot aim the stop at it. ka-labelrelay; mutant red.
+- C FIXED: the ka-library-closed comment said "never clear" above an assertion of exit 0.
+- NIT FIXED: an unreadable print-disabled is no longer read as "not disabled" (label_disabled returns 2; both paths refuse).
+  ka-pdfail; mutant red.
+- NIT FIXED: the dry run promises a SIGTERM only when the job has a process (ka-loadedstopped-dry; mutant red).
+- DEFERRED: wait_for_listener by name (follow-up card b, pre-existing); the owner's dry run on a Mac where ~/Library is
+  opened up reads "not logged in" (non-default; deferred in rounds 19, 20 and 22 too).

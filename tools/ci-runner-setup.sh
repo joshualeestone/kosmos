@@ -222,8 +222,9 @@ loaded_always() {
   ! printf '%s\n' "$out" | grep -x -E '[[:space:]]*successful exit => 0' >/dev/null
 }
 # label_disabled <domain> <label>: launchctl print-disabled lists it as "<label>" => disabled (or true).
+# Returns 0 disabled, 1 not, 2 could not read (never read as "not": a bootstrap would then fail after the stop).
 label_disabled() {
-  local dis; dis="$(launchctl print-disabled "$1" 2>/dev/null || true)"
+  local dis; dis="$(launchctl print-disabled "$1" 2>/dev/null)" || return 2
   printf '%s\n' "$dis" | grep -F "\"$2\"" | grep -E '=> (disabled|true)' >/dev/null
 }
 # loaded_keepalive <domain/label>: the LOADED job has it (launchd prints KeepAlive {SuccessfulExit: false} as the
@@ -238,21 +239,19 @@ loaded_keepalive() {
 }
 # add_keepalive <plist>: written beside it and renamed in, as put does, so a failure leaves the old file whole.
 add_keepalive() {
-  local et old
+  local old
   # An operator's own KeepAlive (true, or a dict with other keys) is replaced: said, not silent.
   old="$(plutil -extract KeepAlive xml1 -o - "$1" 2>/dev/null | tr -d '\n\t' | sed -e 's/.*<plist[^>]*>//' -e 's#</plist>.*##' || true)"
   case "$old" in ''|'<dict><key>SuccessfulExit</key><false/></dict>') : ;;
     *) echo "note:   replacing KeepAlive $old in $1 with {SuccessfulExit: false}" || true ;; esac
   cp -p "$1" "$1.new" || return 1
   plutil -remove KeepAlive "$1.new" >/dev/null 2>&1 || true
+  # Each key decided by the same test keepalive_set uses (an <integer>, at least the floor): a <string> "35" reads 35
+  # through raw, and keeping it would leave a plist that is never done and a reload on every run.
   if plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$1.new" \
-     && { et="$(plutil -extract ThrottleInterval raw -o - "$1.new" 2>/dev/null || true)"
-          case "$et" in ''|*[!0-9]*) plutil -replace ThrottleInterval -integer 10 "$1.new" ;;
-            *) [ "$et" -ge 10 ] || plutil -replace ThrottleInterval -integer 10 "$1.new" ;; esac; } \
-     && { et="$(plutil -extract ExitTimeOut raw -o - "$1.new" 2>/dev/null || true)"
-          case "$et" in ''|*[!0-9]*) plutil -replace ExitTimeOut -integer 35 "$1.new" ;;
-            *) [ "$et" -ge 35 ] || plutil -replace ExitTimeOut -integer 35 "$1.new" ;; esac; } \
-     && plutil -lint "$1.new" >/dev/null && mv -f "$1.new" "$1"; then
+     && { plist_int_ge "$1.new" ThrottleInterval 10 || plutil -replace ThrottleInterval -integer 10 "$1.new"; } \
+     && { plist_int_ge "$1.new" ExitTimeOut 35 || plutil -replace ExitTimeOut -integer 35 "$1.new"; } \
+     && plutil -lint "$1.new" >/dev/null && keepalive_set "$1.new" && mv -f "$1.new" "$1"; then
     return 0
   fi
   rm -f "$1.new"; return 1
@@ -661,6 +660,10 @@ keepalive() {
   fi
   label="$(plutil -extract Label raw -o - "$plist" 2>/dev/null)" && [ -n "$label" ] \
     || { echo "refused: cannot read the Label of $plist" >&2; exit 1; }
+  # svc.sh names the plist after its Label. A Label that differs (the plist sits in a home a job can write) could aim the
+  # stop and reload at another job, the relay's: refuse.
+  [ "$label" = "$(basename "$plist" .plist)" ] \
+    || { echo "refused: $plist has Label $label, not its own name; nothing was changed (svc.sh writes them the same)" >&2; exit 1; }
   local ciuid; ciuid="$(id -u "$CI_USER" 2>/dev/null)" || { echo "refused: no user $CI_USER on this Mac" >&2; exit 1; }
   dom="gui/$ciuid"   # the CI user's domain, whoever reads it (a dry run may be someone else's)
   cd "$RUNNER_DIR" || { echo "refused: no runner in $RUNNER_DIR" >&2; exit 1; }
@@ -706,7 +709,9 @@ keepalive() {
       # the point here (KeepAlive would not), so this is a change to make (exit 0), unlike a runner that is not loaded.
       local js; js="$(launchctl print "$dom/$label" 2>/dev/null | sed -n 's/^[[:space:]]state = //p' | head -n 1 || true)"
       [ "$js" = running ] || echo "note:   $label is loaded but not running now (state = ${js:-unknown}): the reload below starts it"
-      if label_disabled "$dom" "$label"; then
+      local dld=0; label_disabled "$dom" "$label" || dld=$?
+      [ "$dld" != 2 ] || { echo "refused: could not read launchctl print-disabled $dom, so --apply would refuse" >&2; exit 1; }
+      if [ "$dld" = 0 ]; then
         echo "refused: $label is disabled in $dom, so --apply would refuse to reload it. Enable it first: launchctl enable $dom/$label" >&2; exit 1
       fi
       if loaded_always "$dom/$label"; then
@@ -725,8 +730,9 @@ keepalive() {
       if [ -n "$dpid" ] && [ "$dprc" = 1 ]; then
         echo "refused: $label runs but no Listener of $RUNNER_DIR does (restarting or self-updating), so --apply would refuse now: run this again in a minute" >&2; exit 1
       fi
-      echo "WOULD: only while no job runs: stop $label with SIGTERM, then reload it"
-      printf 'WOULD: launchctl kill SIGTERM %s\nWOULD: launchctl bootout %s\nWOULD: launchctl bootstrap %s %s\n' "$dom/$label" "$dom/$label" "$dom" "$plist"
+      echo "WOULD: only while no job runs: stop $label (SIGTERM, if it has a process), then reload it"
+      if [ -n "$dpid" ]; then printf 'WOULD: launchctl kill SIGTERM %s\n' "$dom/$label"; else echo "note:   $label has no process, so no SIGTERM first"; fi
+      printf 'WOULD: launchctl bootout %s\nWOULD: launchctl bootstrap %s %s\n' "$dom/$label" "$dom" "$plist"
     else echo "DOWN: $label is not loaded, so the runner is not running; --apply puts KeepAlive in the plist and does not start it" >&2; exit 1; fi
     return 0
   fi
@@ -759,7 +765,9 @@ keepalive() {
   # KeepAlive {SuccessfulExit: false} does not restart; the bootout after it finds nothing left to kill.
   # A disabled override would let the bootout below succeed and the bootstrap fail (5: Input/output error), leaving the
   # runner stopped. launchctl print-disabled lists it as "<label>" => disabled (or true): refuse before stopping anything.
-  if label_disabled "$dom" "$label"; then
+  local ld=0; label_disabled "$dom" "$label" || ld=$?
+  [ "$ld" != 2 ] || { echo "refused: could not read launchctl print-disabled $dom to rule out a disabled override; nothing was stopped, KeepAlive is in the plist, not yet loaded" >&2; exit 1; }
+  if [ "$ld" = 0 ]; then
     echo "refused: $label is disabled in $dom, so it could be stopped but not loaded again; nothing was stopped. Enable it first: launchctl enable $dom/$label" >&2; exit 1
   fi
   if loaded_always "$dom/$label"; then
