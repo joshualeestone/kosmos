@@ -111,7 +111,16 @@ each red on its named check. TodayView.swift is not in the logic build; CI's Sim
 - cli.refused-retry-6968 (2) and server.attachment-stream-6734 (1), files this diff cannot reach (it touches only
   ios/ and this plan). Run alone through the light lane at the same HEAD: 44 of 44 pass. Load 4.37 during the run.
 
+## Validation it6 and the rebase after it
+- Full validation at f3fe434de8: GREEN 12:25 (23,784 tests, 23,460 pass, 0 fail; logic rc 0, audit rc 0).
+- Main then moved two commits (#7051 iPhone Projects, #6655), both touching BoardClient's read-apply block. Rebased:
+  three conflicts, each resolved by keeping main's two new lines (tasksTab, projectsUnread) beside this branch's line.
+  This branch's own added and removed lines are identical before and after (diffed); all eight subjects kept.
+- After the rebase: logic tests 994/994, the whole app type-checks against the iPhoneSimulator SDK. The full node
+  suite was not re-run here: the rebase changed only Swift, which it does not compile; CI runs it on the PR.
+
 ## Progress
 - [x] logic, client, tests, arms
 - [x] Today with #7030 part 2
-- [ ] validation, challenge-loop, PR
+- [x] validation, challenge-loop (6 rounds)
+- [ ] PR
