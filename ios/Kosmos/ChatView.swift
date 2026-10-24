@@ -65,7 +65,8 @@ struct ChatView: View {
             visible = true
             epoch = client.chatEpoch
             lastPendingCount = pending.count
-            draftText = client.drafts[agent.session] ?? ""
+            // Only into an empty box: if SwiftUI shows the chat again without having hidden it, the words being typed stay.
+            if draftText.isEmpty { draftText = client.drafts[agent.session] ?? "" }
             startReading()
         }
         .onDisappear {
@@ -279,6 +280,7 @@ struct ChatView: View {
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
             TextField("", text: $draftText, prompt: Text("Message \(shown.name)").foregroundColor(Palette.secondary), axis: .vertical)
+                .accessibilityLabel("Message \(shown.name)")
                 .font(.body)
                 .foregroundColor(Palette.primary)
                 .lineLimit(1...5)
@@ -294,6 +296,10 @@ struct ChatView: View {
                     .frame(width: 34, height: 34)
                     .background(Circle().fill(Palette.sendFill))
                     .opacity(canSend ? 1 : 0.35)
+                    // A 44 pt place to tap (Apple's minimum) around the 34 pt circle, laid out as the circle alone.
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+                    .padding(-5)
             }
             .disabled(!canSend)
             .accessibilityLabel("Send")
@@ -510,10 +516,14 @@ struct BubbleText: View {
     // (links only: not phone numbers or dates).
     static func formatted(_ s: String) -> AttributedString {
         var out = (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+        // A Markdown link can put any address behind friendly words (a phone call, another app), so only web addresses
+        // stay links; the words stay as text.
+        let hidden = out.runs.compactMap { run in run.link.flatMap { Board.isWebLink($0) ? nil : run.range } }
+        for range in hidden { out[range].link = nil }
         let plain = String(out.characters)
         if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
             for match in detector.matches(in: plain, range: NSRange(plain.startIndex..., in: plain)) {
-                guard let url = match.url, let range = Range(match.range, in: plain),
+                guard let url = match.url, Board.isWebLink(url), let range = Range(match.range, in: plain),
                       let lower = AttributedString.Index(range.lowerBound, within: out),
                       let upper = AttributedString.Index(range.upperBound, within: out),
                       out[lower..<upper].link == nil else { continue }

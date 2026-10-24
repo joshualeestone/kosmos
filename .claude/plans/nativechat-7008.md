@@ -28,11 +28,22 @@ Checked in the simulator; logic in ios/LogicTests. The real-iPhone check joins #
 ## Decided
 - The Mac keeps a row for every message it is sent (delivered, held or refused). A send waits for THAT row (by the time
   the Mac answers with) instead of drawing a copy of its own: held reads Waiting to send with nothing to retry (a retry
-  would queue it twice), refused reads Not sent and is sent again from its row, once. X  its own Not sent, and a read holding the same words (whitespace folded as the board folds it) clears it. Rejected: a
+  would queue it twice), refused reads Not sent and is sent again from its row, once. A send that got no answer reads its own Not sent, and a read holding the same words (whitespace folded as the board folds it) clears it. Rejected: a
   local copy that is marked sent or failed (iteration 1 found it duplicated rows and could send twice).
 - The status word and the working line come from the Agents list's own status poll, which keeps running while the chat
   is open (the list's stop is on the navigation view, which stays on screen).
 - No pull to refresh (the spec); the chat reads every 5 seconds while open (the web chat's cadence) and stops in the background.
+- Chats belong to one account on one Mac and are dropped when either changes. The app knows an account only by its
+  Kosmos+ session, so a new session counts as another account (as it already does for the kept Mac session). A Keychain
+  read that finds no session keeps the chats and drafts; a sign-out reported by the web view drops them at once
+  (PushNotificationManager.accountChanges). Rejected: dropping them on any read with no session (round 6: a brief
+  unreadable Keychain popped an open chat and lost its draft).
+- A 5xx answer to a send is no answer, not a refusal: the relay or tunnel can fail after the Mac took the message, so a
+  retry reads first. The board's own refusals are 4xx.
+- A conversation the Mac cannot file shows its reason with the messages sent from here under it; one the Mac took stays
+  shown as sent, since no row will come to settle it. Rejected: an empty conversation with a banner (it draws as a chat
+  with no messages, the misreading historyUnfilable exists to prevent).
+- Links in an agent's message open only web pages (http and https); any other address behind Markdown words is text.
 - iOS 27's glass back button shows the chevron only; kept (Mona Lisa's ruling), its VoiceOver label stays "Agents".
 
 ## Weakest premise
@@ -42,6 +53,6 @@ phone signed in to Kosmos+. If the tunnel refused it, a send would show "Not sen
 reaches the board's chat, so nothing is lost; the first TestFlight run is the measurement.
 
 ## Validation
-- ios/LogicTests pass (the four new sections included).
+- ios/LogicTests pass (the seven new sections included).
 - Simulator (iPhone 18 Pro, iOS 27), Debug build with sample chats, light and dark: ~/work/design-shots/kosmos-7008/.
 - Release simulator build: no sample code (0 matches for each of three markers; the Debug build 1 each, the control).

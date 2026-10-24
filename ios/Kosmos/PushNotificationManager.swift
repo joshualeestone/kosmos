@@ -20,6 +20,10 @@ final class PushNotificationManager: NSObject, ObservableObject {
     // lock still showing); the WebView loads it and clears it when it can.
     @Published var boardToOpen: BoardRequest?
 
+    // kosmos#7008: bumped by a sign-out or a sign-in as someone else, so the Agents tab drops its chats at once. A
+    // Keychain read that briefly finds no session is not one of these and keeps them.
+    @Published private(set) var accountChanges = 0
+
     // MARK: - Configuration
 
     // Register the notification-center delegate and the categories
@@ -145,6 +149,7 @@ final class PushNotificationManager: NSObject, ObservableObject {
         if changed {
             SessionKeychain.macSession.delete()
             UserDefaults.standard.removeObject(forKey: Board.rememberedMacKey)
+            accountChanges += 1
         }
     }
 }

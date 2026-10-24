@@ -108,16 +108,20 @@ final class BoardClient: ObservableObject {
         #endif
         let session = sessionStore.load()
         // Another account (or a new sign-in) drops everything learned under the old one. No session at all is handled
-        // just below, without touching the kept Mac session.
+        // just below, without touching the kept Mac session. The app knows an account only by its session, so a new
+        // session counts as another account here, as it does for the kept Mac session (PushNotificationManager).
         if let held = admitted, let session, held.session != session { forget() }
         // The shown list is checked too, since admitted is often unset by then (after a refusal or not answering).
         if let owner = shownOwner, let session, owner != Board.owner(of: session) { forget() }
+        // And the chats, whose owner outlives a read that found no session.
+        if let owner = chatsOwner, let session, owner != Board.owner(of: session) { forgetChats() }
+        if let session { chatsOwner = Board.owner(of: session) }
         fresh = false
         // No Kosmos+ session (signed out, or the Keychain could not be read yet): nothing from the last one is shown.
         // The kept Mac session is deleted by the sign-out itself (PushNotificationManager), not here, so a Keychain
-        // that is briefly unreadable does not cost it.
+        // that is briefly unreadable does not cost it. Nor the chats: an open one stays, with its drafts, and a
+        // sign-out drops them itself (accountChanged).
         if session == nil {
-            forgetChats()
             admitted = nil
             agents = []
             updatedAt = nil
@@ -231,9 +235,14 @@ final class BoardClient: ObservableObject {
         defer { retrying.remove(id) }
         // One that got no answer may have arrived: read first, and send only if the conversation does not hold it.
         // (It stays failed while reading: settle matches a failed-without-answer message by its words, never a sending one.)
-        if pending[agent.session]?[i].state == .failed(reason: nil),
-           case .thread(let t) = await thread(for: agent.session) { settle(t, for: agent.session) }
-        guard let k = pending[agent.session]?.firstIndex(where: { $0.id == id }), pending[agent.session]?[k].failed == true else { return }
+        // A read that comes back after the chats were forgotten (another account or Mac) settles nothing and sends nothing.
+        let epoch = chatEpoch
+        if pending[agent.session]?[i].state == .failed(reason: nil) {
+            let read = await thread(for: agent.session)
+            guard epoch == chatEpoch else { return }
+            if case .thread(let t) = read { settle(t, for: agent.session) }
+        }
+        guard epoch == chatEpoch, let k = pending[agent.session]?.firstIndex(where: { $0.id == id }), pending[agent.session]?[k].failed == true else { return }
         pending[agent.session]?[k].state = .sending
         await deliver(id, to: agent)
     }
@@ -250,7 +259,14 @@ final class BoardClient: ObservableObject {
 
     // What the chats hold belongs to one account on one Mac: dropped when either changes, so nothing typed or failed
     // under one is shown, or sent, under another.
+    // A sign-out, or a sign-in as someone else, reported by the web view (PushNotificationManager.accountChanges).
+    func accountChanged() { forget() }
+
+    // Who the chats belong to (a fingerprint of the Kosmos+ session they were made under).
+    private var chatsOwner: String?
+
     private func forgetChats() {
+        chatsOwner = nil
         pending = [:]
         drafts = [:]
         resent = []
@@ -263,11 +279,11 @@ final class BoardClient: ObservableObject {
         pending[session]?.removeAll { $0.id == id }
     }
 
-    // A read of the conversation: the pending messages it now holds stop being shown as pending (Board.settled).
     // The newest row time each chat has shown, and the count of forgettings (sign-out, another account or Mac).
     private var newestSeen: [String: String] = [:]
     @Published private(set) var chatEpoch = 0
 
+    // A read of the conversation: the pending messages it now holds stop being shown as pending (Board.settled).
     func settle(_ thread: Board.Thread, for session: String) {
         if let newest = thread.rows.compactMap({ r in r.atRaw.flatMap { raw in Board.isoDate(raw).map { (raw, $0) } } }).max(by: { $0.1 < $1.1 }) {
             newestSeen[session] = newest.0

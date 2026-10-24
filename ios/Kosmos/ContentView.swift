@@ -84,6 +84,8 @@ struct ContentView: View {
         .onChange(of: pushManager.boardToOpen) { request in
             if request != nil { tab = .today }
         }
+        // kosmos#7008: a sign-out or another account drops the chats now, not at the next visit to the tab.
+        .onChange(of: pushManager.accountChanges) { _ in board.accountChanged() }
         // A press was answered: opened, the bar is on the tab pressed; refused (a box was up), it goes to the tab the
         // page really shows, so pressing the same tab again later is a real press.
         .onChange(of: web.answeredTab) { back in
