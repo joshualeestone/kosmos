@@ -21339,11 +21339,20 @@ const server = http.createServer(async (req, res) => {
     /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; messages.ROOM_READ_ROWS
        when not given or not a whole number in range, so an older CLI and a bad value both get what they always got). */
     let textRows = messages.ROOM_READ_ROWS;
+    /* kosmos#7032 (the iPhone's room): the JSON arm can be paged too. ?n=N (1 to 200) returns the room's last N rows,
+       and ?before=<a row's at> the last N older than that row, with `olderCount` (how many older rows are left) so a
+       phone reads a page at a time instead of the whole room every few seconds. Without ?n the JSON arm is unchanged
+       (the board reads the whole room). The cursor is a time, not a position, so posts arriving between two reads
+       never shift a page. */
+    let jsonRows = null;
+    let jsonBefore = null;
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       asText = q.get('as') === 'text';
       const n = q.get('n');
-      if (n !== null && /^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200) textRows = Number(n);
+      if (n !== null && /^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200) { textRows = Number(n); jsonRows = Number(n); }
+      const before = q.get('before');
+      if (jsonRows !== null && before !== null && before.length <= 40 && !Number.isNaN(Date.parse(before))) jsonBefore = before;
     } catch { asText = false; }
     /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
        do, instead of rendering it as an empty room -- a typo or a hyphenated-name
@@ -21658,6 +21667,13 @@ const server = http.createServer(async (req, res) => {
       /* #185: which addressed agents have not answered which posts, from
          the record alone; the page renders the small line from this and
          never re-derives it. Best-effort like the room itself. */
+      if (jsonRows !== null) {
+        const pool = jsonBefore !== null ? rows.filter((r) => String((r && r.at) || '') < jsonBefore) : rows;
+        const page = pool.slice(-jsonRows);
+        sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(page), unanswered: silent, olderCount: pool.length - page.length },
+          held ? { held } : {}));
+        return;
+      }
       sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(rows), unanswered: silent }, held ? { held } : {}));
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });

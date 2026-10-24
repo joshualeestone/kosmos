@@ -95,11 +95,14 @@ test('#6487: the iPhone rows ask about exactly the two events the computer answe
   assert.ok(askable, 'NoticeLogic.isAskable is gone; update the page');
   assert.equal(askable[1].trim(), 'id.count <= 300 && (id.hasPrefix("report:") || id.hasPrefix("reply:"))',
     'the iPhone asks about other notices now; update the page');
-  // The computer answers only those two, by behaviour: every other kind the board sends an id for is refused.
+  // The computer answers those two, plus a room post by its own id (kosmos#7032, which the page names and the iPhone
+  // does not ask for yet); every other kind the board sends an id for is refused.
   const { parseId } = require('./engine/phonenotice');
   const at = '2026-10-23T12:00:00.000Z';
   assert.ok(parseId('report:' + at + ':ada'), 'report: is answered');
   assert.ok(parseId('reply:' + at + ':ada'), 'reply: is answered');
+  assert.ok(parseId('post:m12'), 'post:<post id> is answered (kosmos#7032)');
+  assert.match(DOC, /The computer also answers a room post's id \(`post:<post id>`, kosmos#7032\)/, 'the page does not say room posts are answered');
   for (const kind of ['posted', 'ready', 'built', 'crashloop', 'stuckterminal', 'ownbounds', 'post']) {
     assert.equal(parseId(kind + ':' + at + ':ada'), null, kind + ': answered now; update the page');
   }
