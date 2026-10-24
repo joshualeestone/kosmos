@@ -64,10 +64,12 @@ final class SignInModel: ObservableObject {
 
     func sendCode() {
         let typed = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard SignIn.looksLikeEmail(typed) else { error = "That does not look like an email address."; return }
         // kosmos#7050: not while a sign-in is out (a passkey's finish or verify, a company sheet): the field's return key
-        // could otherwise drop an answer the coordinator already acted on, leaving a session nobody holds.
-        guard let client, !busy else { return }
+        // could otherwise drop an answer the coordinator already acted on, leaving a session nobody holds. Checked
+        // before the address, so a press then leaves no sentence behind either.
+        guard !busy else { return }
+        guard SignIn.looksLikeEmail(typed) else { error = "That does not look like an email address."; return }
+        guard let client else { return }
         attempt += 1; let mine = attempt
         busy = true; error = nil
         Task {
