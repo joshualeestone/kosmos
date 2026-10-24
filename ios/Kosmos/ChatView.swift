@@ -80,7 +80,7 @@ struct ChatView: View {
         .toolbar(.hidden, for: .tabBar)
         .quickLookPreview($previewURL)
         // Closed: the file it showed is removed from the phone (#7016 review 1).
-        .onChange(of: previewURL) { [previewURL] now in if now == nil, let was = previewURL { client.closed(was) } }
+        .onChange(of: previewURL) { [previewURL] now in if let was = previewURL, was != now { client.closed(was) } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) { title }
@@ -306,15 +306,19 @@ struct ChatView: View {
     // MARK: - Files (kosmos#7016 part 2)
 
     // Fetched from the Mac through the kept sign-in, then shown in the system's Quick Look (share, save and print).
+    // One file at a time: a second tap while one is on its way does nothing, so a fetched file is never replaced
+    // before it is shown (and removed when it closes).
     private func openFile(_ f: Board.Attachment) {
-        guard fileStates[f.id] != .loading else { return }
+        guard !fileStates.values.contains(.loading), previewURL == nil else { return }
         fileStates[f.id] = .loading
         let opened = epoch
         Task {
             let file = await client.fetchFile(f)
-            guard opened == client.chatEpoch else { return }
+            guard opened == client.chatEpoch else { if let file { client.closed(file) }; return }
             fileStates[f.id] = file == nil ? .failed : .ready
-            if let file { previewURL = file }
+            guard let file else { return }
+            // Left the chat while it came: nothing will show it, so it goes now.
+            if visible { previewURL = file } else { client.closed(file) }
         }
     }
 

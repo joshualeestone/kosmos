@@ -344,6 +344,8 @@ final class BoardClient: ObservableObject {
 
     // The file, fetched from the Mac and saved where Quick Look can open it; nil when it could not be fetched.
     func fetchFile(_ a: Board.Attachment) async -> URL? {
+        // A web page or markup document is never fetched to open here (Board.isWebDocument).
+        guard !Board.isWebDocument(name: a.name, type: a.type) else { return nil }
         let epoch = chatEpoch
         #if DEBUG
         if let sample = sampleFile(a) { return sample }
@@ -487,7 +489,7 @@ final class BoardClient: ObservableObject {
         }
         return .sent
     }
-    #if canImport(UIKit)
+    #if DEBUG && canImport(UIKit)
     // The sample chats' files, drawn here so no real file is ever in a picture.
     private func sampleThumbnail(_ a: Board.Attachment) -> Data? {
         guard sampleThreads.values.contains(where: { $0.rows.contains { $0.attachments.contains(a) } }) else { return nil }
