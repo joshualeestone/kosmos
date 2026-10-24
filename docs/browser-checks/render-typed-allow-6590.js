@@ -352,6 +352,24 @@ const read = (page) => page.evaluate(() => {
       await pg.close();
     }
 
+    // T11d (c4 delta review): the reason follows the board's real certWatch answer (paintPlus sets WAIT.cw), not only a
+    // value the check writes into the page: foreign first, then the same board reports a lost check.
+    {
+      const cwOf = (lost) => ({ on: true, state: lost ? 'unknown' : 'foreign', foreign: lost ? 0 : 1, earlier: 0, beforeRecord: 0,
+        lost, lostAt: lost ? 1700000000 : null, key: null, checkedAt: now(), failing: false });
+      const remote = { ...REMOTE, certWatch: cwOf(false) };
+      const { page: pd, errs: ed } = await open(browser, () => ({ body: { v2: true, count: 0, waiting: [], ctAlarm: true, ctFinding: 'd'.repeat(64) } }), { base, remote });
+      const text = () => pd.evaluate(() => document.getElementById('plus-waiting').innerText);
+      const first = await text();
+      remote.certWatch = cwOf(true);
+      await pd.evaluate(async () => { await paintPlus(); await pollWaiting(); });
+      const second = await text();
+      chk(/did not ask for/.test(first) && !/could not read its last check/.test(first) && /could not read its last check/.test(second),
+        'T11d the reason follows the board\'s own certWatch answer across a poll', JSON.stringify({ first, second }));
+      allErrs.push(...ed);
+      await pd.close();
+    }
+
     // Shots for design review: light and dark, desktop and phone.
     if (SHOTS) {
       for (const [dark, phone] of [[false, false], [true, false], [false, true], [true, true]]) {
