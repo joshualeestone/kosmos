@@ -13,7 +13,9 @@ enum SignIn {
     static let verifyPath = "/v1/signin/verify"
     static let secondPath = "/v1/signin/second"
     static let mePath = "/v1/account/me"
-    static let adoptPath = "/v1/session/adopt"
+    /// Where the sign-in page keeps its session (kosmos-relay signin.html restore(): localStorage only; the page never
+    /// sends `x-kosmos-web`, so the server's HttpOnly cookie, websession.rs, is not what it reads).
+    static let pageSessionKey = "kosmos_session"
     /// How often the Allow is asked about while it is pending: the web sign-in page's own interval.
     static let allowPollSeconds: Double = 3
 
@@ -139,10 +141,22 @@ enum SignIn {
         (json as? [String: Any])?["sso_required"] as? Bool == true
     }
 
-    /// The Allow, read from /v1/account/me: nil when the answer says nothing usable.
-    static func allowStatus(status: Int, json: Any?) -> DeviceStatus? {
-        guard (200..<300).contains(status), let s = (json as? [String: Any])?["device_status"] as? String else { return nil }
-        return DeviceStatus(rawValue: s)
+    /// The Allow, read from /v1/account/me.
+    enum AllowRead: Equatable {
+        case status(DeviceStatus)
+        /// The session itself was refused (signed out everywhere, the account going): the watch stops, as the web
+        /// page's does on a 401.
+        case ended
+        /// Nothing usable (no answer, a server error): asked again on the next tick.
+        case unknown
+    }
+
+    static func allowRead(status: Int?, json: Any?) -> AllowRead {
+        guard let status else { return .unknown }
+        if status == 401 { return .ended }
+        guard (200..<300).contains(status), let s = (json as? [String: Any])?["device_status"] as? String,
+              let known = DeviceStatus(rawValue: s) else { return .unknown }
+        return .status(known)
     }
 
     /// The coordinator's sentence, kept short and on one line; nil when it sent none.
@@ -155,18 +169,15 @@ enum SignIn {
 
     // MARK: - The web view, signed in too
 
-    /// The script the app runs ON the sign-in page (login.kosmosplus.com, its main frame) so the page's own cookie
-    /// holds the session the native sign-in made (websession.rs adopt: Bearer plus `x-kosmos-web: 1`, same-origin),
-    /// then reloads the page, which then opens signed in. The token goes in as a JSON string literal, never spliced as
-    /// text. Resolves to true when the coordinator took it.
-    static func adoptScript(token: String) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: [token], options: []),
+    /// The script the app runs ON the sign-in page (login.kosmosplus.com, its main frame) so the page holds the session
+    /// the native sign-in made, where the page itself keeps it (localStorage, `pageSessionKey`). The page is reloaded
+    /// after, and its restore() opens signed in. The token goes in as a JSON string literal, never spliced as text.
+    /// Returns true once it is stored. (Review round 1: the first version used the server's adopt cookie, which this
+    /// page never reads.)
+    static func storeScript(token: String) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: [token, pageSessionKey], options: []),
               let array = String(data: data, encoding: .utf8) else { return nil }
-        let literal = String(array.dropFirst().dropLast())
-        return """
-        return fetch("\(adoptPath)", { method: "POST", credentials: "same-origin", \
-        headers: { "authorization": "Bearer " + \(literal), "x-kosmos-web": "1" } }).then(function (r) { return r.ok; })
-        """
+        return "var a = \(array); localStorage.setItem(a[1], a[0]); return localStorage.getItem(a[1]) === a[0];"
     }
 
     // MARK: - The screens' steps

@@ -88,12 +88,12 @@ final class SignInClient {
         return SignIn.answer(status: status, json: json)
     }
 
-    /// The Allow, as Kosmos+ knows it now; nil when the answer says nothing usable (asked again on the next tick).
-    func allowStatus(token: String) async -> SignIn.DeviceStatus? {
+    /// The Allow, as Kosmos+ knows it now.
+    func allowRead(token: String) async -> SignIn.AllowRead {
         var request = URLRequest(url: coordinator.appendingPathComponent(SignIn.mePath))
         request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
-        guard let (data, response) = try? await http.data(for: request), let answer = response as? HTTPURLResponse else { return nil }
-        return SignIn.allowStatus(status: answer.statusCode, json: try? JSONSerialization.jsonObject(with: data))
+        guard let (data, response) = try? await http.data(for: request), let answer = response as? HTTPURLResponse else { return .unknown }
+        return SignIn.allowRead(status: answer.statusCode, json: try? JSONSerialization.jsonObject(with: data))
     }
 
     private func post(_ path: String, _ body: [String: Any]) async throws -> (Int, Any?) {

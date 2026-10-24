@@ -22,7 +22,8 @@ Part of the iPhone plan #6838 (slice 5). Splinter, 06:13 10-24: take the next na
    again and use a different email), the second step (SMS or authenticator), and "Allow this iPhone on your Mac"
    with the match code until the Mac says yes or no.
 2. The session reaches the same place the web bridge's does (registrar.didReceive(.signedIn)), and the web view is
-   signed in too (adopt, run on the sign-in page itself), so nothing later asks again.
+   signed in too (the token stored where the sign-in page keeps it, by a script run on that page), so nothing later
+   asks again.
 3. A company's own sign-in (sso_required), a second step not set up yet (enrol), and passkeys hand over to today's
    web sign-in page, with one line saying so. Making an account stays on the computer.
 4. A keyed device id: one P-256 key per app install, in the Secure Enclave on a device, in the keychain on the
@@ -35,11 +36,31 @@ Part of the iPhone plan #6838 (slice 5). Splinter, 06:13 10-24: take the next na
 ## Rejected
 - Unkeyed device id: the coordinator replaces it at every sign-in, so the person would allow this iPhone on the Mac
   every time.
-- Setting the web view's cookie directly (WKHTTPCookieStore): it would copy the coordinator's cookie rules into the
-  app; adopt is the route made for moving a session into the site's cookie.
+- Setting the web view's cookie directly (WKHTTPCookieStore), or the adopt route's cookie: the sign-in page does not
+  read any cookie (review round 1, below).
 - Building company sign-in and passkeys now: each is its own security surface (5b, 5c).
 
-## Weakest premise
-That running the adopt fetch on the sign-in page from the app counts as the site's own page (same-origin, the
-header). Measured from websession.rs, not yet on a device. If it does not, the web view shows its sign-in once more
-(no harm, but the slice is not finished): the fallback is to load a page with the token handed over by the bridge.
+## Weakest premise (current)
+That storing the token under `kosmos_session` on the sign-in page's origin is all its restore() needs (read from
+signin.html on kosmos-relay main; restore() also calls /v1/account/me, which the token passes). Not yet seen on a
+device. If the page changes where it keeps its session, the web tabs ask once more (a key test pins the name on our
+side only; nothing cross-repo pins it).
+
+## Review round 1 (blind, 06:3x)
+1. [BLOCKER] My premise was wrong: the sign-in page keeps its session in localStorage only (restore(), me() and
+   post() send Bearer, never `x-kosmos-web`), so the adopt cookie left the web tabs signed out, and signing in there
+   would have made a second device and replaced the native session. FIXED: the script stores the token under the
+   page's own key on its own origin, then reloads; no cookie is set (which also removes the round's finding 6, a
+   session cookie the page could never clear). Test: run in a script engine with a hostile token.
+2. [SHOULD-FIX] A pending session redirected the first web load anywhere else (a notification's chat) to the sign-in
+   page. FIXED: it waits for a load on the sign-in host and leaves every other load alone.
+3. [SHOULD-FIX] A late answer landed after "Use a different email" (sign-in as the old address), and the Allow watch
+   could set done after a cancel. FIXED: an attempt counter (the page's `mine !== attempt`), re-checked after every
+   await, and cancellation re-checked after the Allow read.
+4. [SHOULD-FIX] A device key the keychain cannot keep read as "Could not reach Kosmos+" forever. FIXED: it goes to
+   the web sign-in page. RECORDED residual: a keychain READ error looks like no key, so a new key (and one more
+   Allow on the Mac) can follow; SessionStore cannot tell the two apart.
+5. [LOW] The Allow watch never stopped on a 401. FIXED: it stops and asks to sign in again. Residual: the ended
+   session stays handed over until the app's next 401 elsewhere signs it out.
+Recorded, not built (the web page does them at sign-in, none safety-related): the optional second-step offer, the
+standing / unpaid notes, a notification tap waiting on sign-in.
