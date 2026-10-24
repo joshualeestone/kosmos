@@ -210,10 +210,17 @@ loaded_keepalive() {
 }
 # add_keepalive <plist>: written beside it and renamed in, as put does, so a failure leaves the old file whole.
 add_keepalive() {
+  local et old
+  # An operator's own KeepAlive (true, or a dict with other keys) is replaced: said, not silent.
+  old="$(plutil -extract KeepAlive xml1 -o - "$1" 2>/dev/null | tr -d '\n\t' | sed -e 's/.*<plist[^>]*>//' -e 's#</plist>.*##' || true)"
+  case "$old" in ''|'<dict><key>SuccessfulExit</key><false/></dict>') : ;;
+    *) echo "note:   replacing KeepAlive $old in $1 with {SuccessfulExit: false}" || true ;; esac
   cp -p "$1" "$1.new" || return 1
   plutil -remove KeepAlive "$1.new" >/dev/null 2>&1 || true
   if plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$1.new" \
-     && plutil -replace ThrottleInterval -integer 10 "$1.new" \
+     && { et="$(plutil -extract ThrottleInterval raw -o - "$1.new" 2>/dev/null || true)"
+          case "$et" in ''|*[!0-9]*) plutil -replace ThrottleInterval -integer 10 "$1.new" ;;
+            *) [ "$et" -ge 10 ] || plutil -replace ThrottleInterval -integer 10 "$1.new" ;; esac; } \
      && { et="$(plutil -extract ExitTimeOut raw -o - "$1.new" 2>/dev/null || true)"
           case "$et" in ''|*[!0-9]*) plutil -replace ExitTimeOut -integer 35 "$1.new" ;;
             *) [ "$et" -ge 35 ] || plutil -replace ExitTimeOut -integer 35 "$1.new" ;; esac; } \
@@ -710,6 +717,8 @@ keepalive() {
   # SIGHUP and SIGPIPE are ignored and the window's one message cannot fail it; the launchctl calls' own output to a
   # gone terminal is the residual. For a session you may lose, run the stage under nohup.
   trap '' HUP PIPE
+  # An interrupt (Ctrl-C, a kill of this script) in the window says what state it may have left, then exits 130.
+  trap 'echo "INTERRUPTED while reloading $label: the runner may be stopped. If launchctl print $dom/$label lists it: launchctl kickstart $dom/$label; if not: launchctl bootstrap $dom $plist" >&2 || true; trap - EXIT; exit 130' INT TERM
   local sent=0 outlived=0
   local jo2 opid w4=0; jo2="$(launchctl print "$dom/$label" 2>/dev/null || true)"
   opid="$(printf '%s\n' "$jo2" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)"
@@ -756,6 +765,7 @@ keepalive() {
     fi
     echo "FAILED: launchctl bootstrap $dom $plist; the runner is STOPPED (not loaded): launchctl bootstrap $dom $plist, or ./svc.sh start in $CI_USER's session" >&2; exit 1
   fi
+  trap - INT TERM   # loaded again: an interrupt from here on leaves a runner launchd keeps alive
   # A new Listener of THIS runner (its own dir), not any Listener of the user: the relay's can respawn meanwhile. The
   # argv is RunnerService.js's spawn of an absolute path, measured with ps on the old Agent1s Mac (10-23):
   # /Users/kosmos-ci/actions-runner/bin/Runner.Listener run --startuptype service (it joins ../bin, so bin/ even after a
