@@ -521,3 +521,15 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
   plist in a readable LaunchAgents (again); install could note a pre-#7001 plist (keepalive is that check);
   ka-longthrottle costs 15 s and checks only the message.
 - Stopped the queued 6j gate before editing (it had started; stopped, no leftovers).
+
+## Review round 36 (sonnet, blind, READ ONLY, HEAD 6cf9e7e4cc)
+- W FIXED: Label == file name and WorkingDirectory == RUNNER_DIR prove only that the plist is self-consistent; a copy of
+  the relay's plist with its WorkingDirectory rewritten passed both. The Label must now be exactly the one svc.sh
+  derives for this runner: actions.runner.<owner>-<repo>.<NAME>. ka-relaycopy; mutant red.
+  CONSEQUENCE: runner 2 is `kosmos-ci-agent1s-2` (GitHub API), so its command needs
+  KOSMOS_CI_RUNNER_NAME=kosmos-ci-agent1s-2 as well as KOSMOS_CI_USER=kosmos-ci2 (without it: a safe refusal). Correct
+  the parked command on #7001 after merge. Runner 1's label is the default (measured earlier).
+- C FIXED: "kosmos#7001 round N" history removed from test comments (it lives here).
+- NITs FIXED: verify notes an existing but unreadable plist as NOT checked instead of PROBLEM (raised in rounds 31, 33,
+  34 and 36; ka-plist-unreadable; mutant red); ka-jobends gets a 10 s window (it breaks as soon as both end); unused
+  el/t0 and a stray comment removed. DEFERRED: the 15 s cost of the throttle-floor cases (launchd's real default is 10).

@@ -721,9 +721,9 @@ b="$(grep -n '^launchctl bootout ' "$T/ka-sigterm.calls" | head -n 1 | cut -d: -
 # Gated on the SIGTERM (the stub's kill touches $T/killed): it lives 3 s after it, however slow startup was, and ends
 # after 60 s if no SIGTERM comes. Not a bare sleep (#6710).
 ka_fresh; rm -f "$T/killed"
-perl -e 'my $t = 0; until (-e $ARGV[0] or $t > 600) { select(undef, undef, undef, 0.1); $t++ } select(undef, undef, undef, 3)' "$T/killed" & sp=$!; t0=$SECONDS
+perl -e 'my $t = 0; until (-e $ARGV[0] or $t > 600) { select(undef, undef, undef, 0.1); $t++ } select(undef, undef, undef, 3)' "$T/killed" & sp=$!
 run ka-waits "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" -- --apply keepalive
-el=$((SECONDS - t0)); wait "$sp" 2>/dev/null
+wait "$sp" 2>/dev/null
 # kill-while-alive (it was up at the SIGTERM) and bootout-after-exit (it lived 3 s past it): the script waited.
 # kill-while-alive: the process was still up at the SIGTERM, so "after exit" at the bootout means the script waited.
 [ "$(rc ka-waits)" = 0 ] && grep -qx 'kill-while-alive' "$T/ka-waits.calls" && grep -qx 'bootout-after-exit' "$T/ka-waits.calls" && ! has ka-waits "had not ended" \
@@ -738,9 +738,9 @@ kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
   && pass "keepalive --apply: a job up while the old runner is still stopping: waits again, then reloads (never left down)" || fail "keepalive job during stop: rc $(rc ka-jobduring): $(tail -1 "$T/ka-jobduring.out")"
 # The job ends during that second wait: it is waited for (several -P reads), then the reload, with no "anyway".
 perl -e 'select(undef, undef, undef, 30)' & jsp=$!   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
-ka_fresh; rm -f "$T/worker-up"; run ka-jobends "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=3 FX_WORKER_AFTER_KILL=1 FX_WORKER_ENDS_AFTER=2 -- --apply keepalive
+ka_fresh; rm -f "$T/worker-up"; run ka-jobends "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=10 FX_WORKER_AFTER_KILL=1 FX_WORKER_ENDS_AFTER=2 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
-[ "$(rc ka-jobends)" = 0 ] && has ka-jobends "Waiting up to 3s more" && [ "$(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls")" -ge 3 ] && ! has ka-jobends "reloading anyway" \
+[ "$(rc ka-jobends)" = 0 ] && has ka-jobends "Waiting up to 10s more" && [ "$(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls")" -ge 3 ] && ! has ka-jobends "reloading anyway" \
   && grep -q '^launchctl bootstrap' "$T/ka-jobends.calls" \
   && pass "keepalive --apply: the second wait polls this runner's job until it ends, then reloads" || fail "keepalive job ends: rc $(rc ka-jobends): -P reads $(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls"): $(tail -1 "$T/ka-jobends.out")"
 rm -f "$T/worker-up"
@@ -761,7 +761,7 @@ rm -f "$T/relay-worker-up"
 ka_fresh; run ka-hup "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_HUP=1 -- --apply keepalive
 [ "$(rc ka-hup)" = 0 ] && grep -q '^launchctl bootstrap ' "$T/ka-hup.calls" \
   && pass "keepalive --apply: a SIGHUP during the stop does not end the script; the runner is reloaded" || fail "keepalive hup: rc $(rc ka-hup): $(tail -1 "$T/ka-hup.out")"
-# kosmos#7001 round 21. A .service rewritten to name the relay's plist (same name pattern) is not followed.
+# A .service rewritten to name the relay's plist (same name pattern) is not followed.
 ka_fresh; [ "$(plutil -extract WorkingDirectory raw -o - "$KR")" = "$KH/actions-runner-relay" ] || fail "fixture: the relay plist does not name its own dir"
 echo "$KR" > "$KH/actions-runner/.service"; run ka-servicerelay "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
 [ "$(rc ka-servicerelay)" = 1 ] && has ka-servicerelay "names no LaunchAgent of this runner" && cmp -s "$KR" "$T/kr.before" && ! grep -q '^launchctl \(kill\|bootout\|bootstrap\)' "$T/ka-servicerelay.calls" \
@@ -821,7 +821,7 @@ ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/>
 run ka-strtimeout "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
 has ka-strtimeout "lacks ExitTimeOut 35" && ! has ka-strtimeout "lacks KeepAlive" \
   && pass "keepalive: a string ExitTimeOut is not taken for the integer launchd needs" || fail "keepalive string timeout: $(grep lacks "$T/ka-strtimeout.out")"
-# kosmos#7001 round 23. A <string> ExitTimeOut is replaced by --apply (not kept because raw reads 35), and it converges.
+# A <string> ExitTimeOut is replaced by --apply (not kept because raw reads 35), and it converges.
 ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$KA"; plutil -insert ExitTimeOut -string 35 "$KA"; plutil -insert ThrottleInterval -integer 10 "$KA"
 plutil -extract ExitTimeOut xml1 -o - "$KA" | grep -q '<string>' || fail "fixture: ExitTimeOut is not a string"
 run ka-strapply "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
@@ -829,6 +829,12 @@ run ka-strafter "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- ke
 [ "$(rc ka-strapply)" = 0 ] && plutil -extract ExitTimeOut xml1 -o - "$KA" | grep -q '<integer>35</integer>' \
   && [ "$(rc ka-strafter)" = 0 ] && has ka-strafter "restarts after a SIGKILL or a crash" \
   && pass "keepalive --apply: a string ExitTimeOut is replaced by the integer, and the next run finds it done" || fail "keepalive string apply: rc $(rc ka-strapply)/$(rc ka-strafter): $(tail -1 "$T/ka-strapply.out")"
+# A copy of the relay's plist with its WorkingDirectory rewritten to this runner's dir: self-consistent (Label = its file
+# name), but not this runner's label, so refused before anything is stopped.
+ka_fresh; plutil -replace WorkingDirectory -string "$KH/actions-runner" "$KR"; echo "$KR" > "$KH/actions-runner/.service"
+run ka-relaycopy "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+[ "$(rc ka-relaycopy)" = 1 ] && has ka-relaycopy "not actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" && ! grep -q '^launchctl \(kill\|bootout\|bootstrap\)' "$T/ka-relaycopy.calls" \
+  && pass "keepalive --apply: the relay's plist with this runner's WorkingDirectory is refused (label), nothing stopped" || fail "keepalive relay copy: rc $(rc ka-relaycopy): $(tail -1 "$T/ka-relaycopy.out")"
 # A Label that is not the plist's own name (another job's: the relay's) is refused before anything is stopped.
 ka_fresh; plutil -replace Label -string actions.runner.joshualeestone-kosmos-relay.agent1s-relay "$KA"
 run ka-labelrelay "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
@@ -843,7 +849,7 @@ ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"
 run ka-loadedstopped-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE=waiting FX_NO_PID=1 -- keepalive
 cmp -s "$KA" "$T/ka.before" && [ "$(rc ka-loadedstopped-dry)" = 0 ] && has ka-loadedstopped-dry "has no process, so no SIGTERM first" && ! has ka-loadedstopped-dry "WOULD: launchctl kill" && has ka-loadedstopped-dry "WOULD: launchctl bootstrap" \
   && pass "keepalive dry run: a loaded job with no process is not promised a SIGTERM" || fail "keepalive loaded stopped dry: rc $(rc ka-loadedstopped-dry): $(tail -2 "$T/ka-loadedstopped-dry.out")"
-# kosmos#7001 round 24. A <string>false</string> SuccessfulExit reads "false" through raw but launchd ignores it: not
+# A <string>false</string> SuccessfulExit reads "false" through raw but launchd ignores it: not
 # done, and --apply replaces it and converges.
 ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><string>false</string></dict>' "$KA"; plutil -insert ExitTimeOut -integer 35 "$KA"; plutil -insert ThrottleInterval -integer 10 "$KA"
 [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$KA")" = false ] && plutil -extract KeepAlive xml1 -o - "$KA" | grep -q '<string>false</string>' || fail "fixture: SuccessfulExit is not the string false"
@@ -858,7 +864,6 @@ ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/>
 run ka-extrakey "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
 [ "$(rc ka-extrakey)" = 0 ] && has ka-extrakey "note:   replacing KeepAlive" && ! plutil -extract KeepAlive.Crashed raw -o - "$KA" >/dev/null 2>&1 \
   && pass "keepalive --apply: a KeepAlive with extra keys is replaced by the exact dict, and said" || fail "keepalive extra key: rc $(rc ka-extrakey): $(grep -i replacing "$T/ka-extrakey.out")"
-# Outlives the wait: it goes on (refusing would leave a SIGTERMed runner under its old definition) and says so.
 # A launchctl print without the "minimum runtime" line (another macOS format): refuse before stopping anything.
 ka_fresh; run ka-noformat "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_MINRUNTIME=1 -- --apply keepalive
 [ "$(rc ka-noformat)" = 1 ] && has ka-noformat "no 'exit timeout' or 'minimum runtime' line" && cmp -s "$KA" "$T/ka.before" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-noformat.calls" \
@@ -1048,6 +1053,9 @@ mv "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-age
 vcase ka-plist-missing 1 "names no LaunchAgent of this runner (actions.runner.*.plist directly under"
 ! has v-ka-plist-missing "KeepAlive NOT checked" && pass "verify: a missing plist it can look for is not called unchecked" || fail "verify plist missing read as unchecked"
 mv "$T/vci.plist.aside" "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
+chmod 000 "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
+vcase ka-plist-unreadable 0 "KeepAlive NOT checked: $VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist cannot be read"
+chmod 644 "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 chmod 000 "$VCI/actions-runner/.service"; vcase ka-service-unreadable 3 "cannot read $VCI/actions-runner/.service as $(id -un), so KeepAlive is not checked here"; chmod 644 "$VCI/actions-runner/.service"
 rm -rf "$VCI/Library" "$VCI/actions-runner/.service"
 grep -q 'no tmux or node left' "$T/v-clear.out" && pass "verify: an idle runner's own node (RunnerService.js) is not a leftover" || fail "verify idle runner: $(grep -E 'REFUSE|ok' "$T/v-clear.out" | tail -2)"
