@@ -196,3 +196,13 @@ test keeps that sentence and the parser in step. An unread version keeps the ref
 - A NOTE names never-pushed commits naming V that were ignored; IFS is explicit for the deliberate word split.
 - The plan file is renamed to the folder's <branch>.md shape; one docs line rewrapped.
 - Not changed (NIT): "this checkout (origin's main has none)" is reachable only on a first-ever prod pointer.
+
+## Iteration 16 (challenge) changes
+- Docs: a board that is down or refuses the token is refused outright by the experience gate (exit 1, not
+  forceable), because the gate cannot read which build it runs; the same unread-version rule as iteration 14.
+  The suggested reorder (read the version before the nonce) was checked against the gate and rejected: a
+  #2023-broken board on another version already answers cannot-tell (the version check runs before the redeem),
+  and a down board answers neither, so a reorder changes nothing there and would weaken default mode.
+- Every HOLD/PARTIAL message that offers --force names --sha in named mode (FORCE_WORDS; default unchanged).
+- diff-tree --root, so a V pointer in a root commit still finds its installer; docs: --commit must name a
+  commit that changed V's pointer.

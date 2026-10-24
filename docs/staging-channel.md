@@ -93,12 +93,11 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    staging. `tools/promote-channel.sh <site-checkout> <port> --version <V>` reads V's pointer and
    installer from the site commit that published them, so staging can take later cuts while the GO waits.
    - **Which commit.** One on the checkout's HEAD whose `latest-staging.json` names V. When the site has
-     an origin, it must also be on origin's main (a commit that is not is ignored), and the
-     checkout's `latest.json` must be origin's, so
-     every check reads one prod baseline. If V was cut more than once, the promote refuses and lists the
-     builds: add `--sha <8+ characters of the approved build's sha256>`. Where builds share the bytes but
-     name another artifact or manifest, `--commit <site sha>` picks the commit (it must still name V, and
-     every check still applies).
+     an origin, it must also be on origin's main (a commit that is not is ignored), and the checkout's
+     `latest.json` must be origin's, so every check reads one prod baseline. If V was cut more than once,
+     the promote refuses and lists the builds: add `--sha <8+ characters of the approved build's sha256>`.
+     Where builds share the bytes but name another artifact or manifest, `--commit <site sha>` picks the
+     commit; it must be one that changed V's pointer, and every check still applies to it.
    - **What is checked.** The same checks as above, with two differences: the installer pair is read from
      the commit (the working tree's `setup-staging` is neither checked nor used), and the
      staging-moved-during-the-gates refusal does not apply (a commit cannot move); instead the artifact is
@@ -116,7 +115,10 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      hand check of V; the board check it could not run is then made after the deploy on a Mac that has
      updated to V. When the experience gate READ the board as another version, an agent-spawn FAIL or
      PARTIAL there is about that build and counts as cannot-tell too; when it could not read the version
-     at all, they stand as in default mode, since that board may be running V. The tunnel gate runs V's own
+     at all, they stand as in default mode, since that board may be running V. The same holds for the
+     experience gate itself: a board that is down, or that refuses the token, is refused outright (exit 1,
+     not forceable), because the gate cannot read which build it runs; bring that board up, or run the
+     promote against a board on V. The tunnel gate runs V's own
      tarball, so its verdict stands. A named promote prints the sha256 of the manifest it checked.
 5. **Deploy the promoted pointer to prod.** `promote-channel.sh` only rewrites `latest.json` in the
    LOCAL site checkout ("the next site deploy publishes the prod pointer. No rebuild happened.");
