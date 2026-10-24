@@ -144,3 +144,9 @@ Today, Answer/Open into the native chat, Check it into the task page in the boar
   Today on sign-in could cut into the board's own first-run steps, so it is left for the device check.
 - Noted: the immediate tasks read when Today arrives under a running loop is not pinned separately (the next tick reads
   anyway); the token fix has no test of its own (a race between two reads).
+
+## Part 2 review round 3 (converged: two minors, both fixed)
+- stop() cancels a tasks read in the air, so the next one is not held off after start().
+- Today coming back clears an old "could not read" too, not only the old list.
+- Recorded decisions re-checked by the reviewer and judged sound (press on the selected tab, the badge holding off
+  Agents and Today, isNative(.today) with pressBoardSection and drop).

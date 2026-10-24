@@ -201,6 +201,9 @@ final class BoardClient: ObservableObject {
         loop?.cancel()
         loop = nil
         generation += 1
+        // kosmos#7030 review 3: a tasks read in the air would otherwise hold off the next one after start().
+        tasksTask?.cancel()
+        tasksTask = nil
     }
 
     // MARK: - Today (kosmos#7030)
@@ -216,7 +219,7 @@ final class BoardClient: ObservableObject {
         viewers.insert(viewer)
         // Review 2: tasks last read longer ago than a tick are not shown as current when Today arrives (Agents can have
         // kept the loop going for a long time without reading them); unknown until the read now answers.
-        if viewer == Self.todayViewer, let at = tasksAt, env.now().timeIntervalSince(at) >= Self.tasksEvery { readyTasks = nil }
+        if viewer == Self.todayViewer, let at = tasksAt, env.now().timeIntervalSince(at) >= Self.tasksEvery { readyTasks = nil; tasksFailed = false }
         if first { start() } else if viewer == Self.todayViewer, case .live = phase, tasksTask == nil {
             // Today arriving while Agents keeps the loop going: its tasks are read now, not at the next tick.
             startTasksRead()
