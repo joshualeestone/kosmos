@@ -91,3 +91,16 @@ Design (Mona Lisa, approved): links stacked with no extra space; the address sta
    from SignIn.pageOrigin (tested to write it as browsers do).
 4. [PLAN] Sign-out order worded wrong: corrected above. Residual recorded in ContentView: a bridge sign-out lost while
    the app locks (BoardWeb.drop) would be healed back once.
+
+## Review round 4 (blind, 07:0x)
+1. [SHOULD-FIX] Writing the page's session at didFinish (rounds 1 to 3) loses a race the page always starts first:
+   restore() runs in the page's inline script and has already sent the old value to /v1/account/me, so a dead old
+   value still signs out the fresh native session, and a valid other account usually wins. FIXED at the root: the
+   session goes in a WKUserScript at document start (main frame, origin checked inside), before restore() reads it,
+   rebuilt whenever the app's session changes (accountChanges, a native sign-in). No reload at all.
+2. [LOW] The reload threw away one-shot page state (a community link's nonce, a company sign-in return mid-verify).
+   GONE with 1: nothing reloads.
+3. [LOW] RECORDED: if the keychain cannot save a session the page made (PushRegistrar keeps it for the launch only),
+   the older keychain session is put back on the next document. Converges, no loop; needs a keychain write failure.
+4. [LOW] RECORDED: backing out of an issued session signs it out on the phone only; nothing asks Kosmos+ to end it,
+   so a later Allow on the Mac allows a session no phone holds (the coordinator's own expiry ends it).

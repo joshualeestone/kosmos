@@ -2691,29 +2691,36 @@ check(SignIn.secondWords(kind: "sms", sentTo: "+1 *** *** 0123").contains("+1\u{
 check(SignIn.wrappable(email: "ada@example.com") == "ada@\u{200B}example.\u{200B}com" && SignIn.wrappable(email: "ada@example.com").replacingOccurrences(of: "\u{200B}", with: "") == "ada@example.com", "an address breaks only after @ or a dot, and reads unchanged")
 check(SignIn.webTitle(reason: SignIn.webForCompany) == "Your company signs you in" && !SignIn.webTitle(reason: SignIn.webForSetup).contains("-"), "the hand-over titles (none with a hyphen to break at)")
 
-section("sign-in: the store script puts the token where the sign-in page keeps it, as a string, never as script")
+section("sign-in: the document-start script puts the token where the sign-in page keeps it, as a string, never as script")
 do {
     let origin = "https://login.kosmosplus.com"
     func page(_ at: String) -> JSContext {
         let ctx = JSContext()!
-        ctx.evaluateScript("var location = { origin: " + "'" + at + "'" + " }; var store = {}; var localStorage = { setItem: function (k, v) { store[k] = String(v); }, getItem: function (k) { return store.hasOwnProperty(k) ? store[k] : null; } };")
+        ctx.evaluateScript("var location = { origin: " + "'" + at + "'" + " }; var writes = 0; var store = {}; var localStorage = { setItem: function (k, v) { writes++; store[k] = String(v); }, getItem: function (k) { return store.hasOwnProperty(k) ? store[k] : null; } };")
         return ctx
     }
-    func run(_ ctx: JSContext, _ token: String) -> Bool? { ctx.evaluateScript("(function () { " + (SignIn.storeScript(token: token, origin: origin) ?? "") + " })()")?.toBool() }
+    func run(_ ctx: JSContext, _ token: String) { ctx.evaluateScript(SignIn.sessionScript(token: token, origin: origin) ?? "throw 'no script'") }
     let evil = #"t"]; localStorage.setItem("x", "pwned"); var b = [" "#
     let ctx = page(origin)
-    check(run(ctx, evil) == true && ctx.exception == nil, "it runs, and says the session is stored")
-    check(ctx.evaluateScript("store['kosmos_session']")?.toString() == evil, "the token arrives exactly, under the page's own key")
+    run(ctx, evil)
+    check(ctx.exception == nil && ctx.evaluateScript("store['kosmos_session']")?.toString() == evil, "the token arrives exactly, under the page's own key")
     check(ctx.evaluateScript("Object.keys(store).join(',')")?.toString() == "kosmos_session", "nothing else is written: a quote in the token is not script")
     check(SignIn.pageSessionKey == "kosmos_session", "the key signin.html restore() reads (kosmos-relay, localStorage only)")
-    check(run(ctx, evil) == false, "the same session again changes nothing (no reload, so no loop)")
+    run(ctx, evil)
+    check(ctx.evaluateScript("writes")?.toInt32() == 1, "the same session again writes nothing")
     ctx.evaluateScript("store['kosmos_session'] = 'dead-token-from-before';")
-    check(run(ctx, "fresh") == true && ctx.evaluateScript("store['kosmos_session']")?.toString() == "fresh", "a different session left on the page is replaced by the app's")
+    run(ctx, "fresh")
+    check(ctx.evaluateScript("store['kosmos_session']")?.toString() == "fresh", "a different session left on the page is replaced by the app's, before the page reads it")
+    let other = page("https://mac-mini.kosmosplus.com")
+    run(other, "fresh")
+    check(other.evaluateScript("Object.keys(store).length")?.toInt32() == 0, "on another origin nothing is written")
+    let throwing = JSContext()!
+    throwing.evaluateScript("var location = { origin: '" + origin + "' }; var localStorage = { getItem: function () { throw new Error('denied'); }, setItem: function () { throw new Error('denied'); } };")
+    throwing.evaluateScript(SignIn.sessionScript(token: "t", origin: origin) ?? "")
+    check(throwing.exception == nil, "storage that throws breaks nothing on the page")
     check(SignIn.pageOrigin(coordinator) == origin && SignIn.pageOrigin(URL(string: "https://LOGIN.kosmosplus.com:443/x?y")!) == origin
           && SignIn.pageOrigin(URL(string: "https://login.kosmosplus.com:8443/")!) == "https://login.kosmosplus.com:8443",
           "the coordinator's origin is written as location.origin writes it (no slash, no default port)")
-    let other = page("https://mac-mini.kosmosplus.com")
-    check(run(other, "fresh") == false && other.evaluateScript("Object.keys(store).length")?.toInt32() == 0, "on another origin nothing is written")
 }
 
 await boardLoopTests()
