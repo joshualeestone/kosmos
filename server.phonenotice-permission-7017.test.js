@@ -203,6 +203,13 @@ const variants = [
   // Review 7: a token with no known prefix, and the shapes a list misses.
   ['a bearer token with no known prefix', BASH.replace(DASHED, '$1 curl -H "Authorization: Bearer 8f3a9c2d7e1b4a6f9c0d2e4f6a8b0c1d" https://example.invalid$2')],
   ['a token with no flag or header around it (only the backstop sees it)', BASH.replace(DASHED, '$1 ./deploy.sh 7c1e9a3f5b2d8e4a6c0f9b1d$2')],
+  ['a base64url token split by dashes (only the backstop sees it)', BASH.replace(DASHED, '$1 ./deploy.sh a1B2-c3D4_e5F6g7H8-i9J0$2')],
+  // Review 8: short passwords the list missed.
+  ...['unzip -P hunter2 a.zip', 'mongosh -u admin -p hunter2', 'ldapsearch -D cn=admin -w hunter2',
+    'openssl pkcs12 -in a.p12 -passin pass:hunter2', 'keytool -list -keystore k.jks -storepass hunter2',
+    'smbclient //h/s -U admin%hunter2', 'lftp -u admin,hunter2 h', 'wget --ftp-password hunter2 ftp://h/f',
+    'echo hunter2 | sudo -S ls', 'ssh-keygen -N hunter2 -f k', 'gh secret set X --body hunter2abc']
+    .map((cmd) => ['a short password: ' + cmd, BASH.replace(DASHED, '$1 ' + cmd + '$2')]),
   ['a token given as a spaced flag', BASH.replace(DASHED, '$1 some-cli --token 8f3a9c2d7e1b4a6f9c0d$2')],
   ['a cookie header', BASH.replace(DASHED, '$1 curl -H "Cookie: session=abc" https://example.invalid$2')],
   ['a command whose title says more than the measured one', BASH.replace(/^(\s*)Bash command\s*$/m, '$1Bash command (unsandboxed)')],
@@ -241,7 +248,10 @@ test('#7017 reviews 4 and 5: the card reads a file\'s gutter only when it number
 
 test('#7017 review 7: ordinary one-line commands still get buttons (the refusals are not so wide the feature never fires)', async () => {
   const ordinary = ['npm test', 'git push -u origin HEAD:main', 'ls -la', 'curl https://example.invalid', 'mkdir -p a/b',
-    'docker run -u 1000:1000 -p 8080:80 img', 'grep -r password .', 'node run.js --max-tokens=500', 'echo $PWD'];
+    'docker run -u 1000:1000 -p 8080:80 img', 'grep -r password .', 'node run.js --max-tokens=500', 'echo $PWD',
+    // Review 8: a long name with a number in it is not a token.
+    'node --test server.permcard-6727.test.js', 'git checkout -b fix-login-redirect-1234', 'cd agent-workforce-notifallow-7017',
+    'ls dist/app-release-v1.2.3.apk', 'python3 manage.py migrate app 0012_auto_20231010_1200', 'docker run --user 1000:1000 img'];
   const refused = [];
   for (const cmd of ordinary) {
     await withPrompt(BASH.replace(DASHED, '$1 ' + cmd + '$2'), async () => {

@@ -4133,20 +4133,31 @@ const PHONE_PERM_DOES = {
    or a run that looks like a token (phoneTokenLike), which a lock screen and Notification Center would show to anyone
    holding the phone. */
 const PHONE_PASSWORD_FLAG = new RegExp([
-  String.raw`(^|\s)(--password\b|--passwd\b|sshpass\b|--user[=\s][^\s:]+:\S)`,
+  // Review 8: any flag NAMED like a credential (--password, --ftp-password, -storepass, --api-token, --body-secret),
+  // except a purely numeric value (--max-tokens=500).
+  String.raw`(^|\s)--?[\w-]*(pass|pwd|secret|token|api-?key)[\w-]*[=\s](?!\d+(\s|$))\S`,
+  String.raw`(^|\s)(sshpass\b|--user[=\s][^\s:]*[^\s:\d][^\s:]*:\S)`,
   String.raw`(^|\s)-u\s*[^\s:]*[^\s:\d][^\s:]*:\S`,                                          // curl -u/-uX:Y (not docker -u 1000:1000)
-  String.raw`(^|\s)--?(token|api-?key|secret|auth|pass)(\s|=)\S`,                           // --token X, --api-key=X
+  String.raw`(^|\s)-U\s*\S+%\S`, String.raw`(^|\s)-u\s+[^\s,]+,\S`,                          // smbclient -U a%p, lftp -u a,p
+  String.raw`\bpass:\S`,                                                                      // openssl -passin pass:X
   String.raw`\b(authorization|proxy-authorization|cookie)\s*:`,                             // a header carrying a credential
-  String.raw`\b(mysql|mysqldump|mariadb)\b.*\s-p\S`, String.raw`\b(zip|7z)\b.*\s-[pP]`, String.raw`\bopenssl\b.*\s-(k|pass)\s`,
-  String.raw`\bredis-cli\b.*\s-a\s`, String.raw`\bdocker\s+login\b.*\s(-p|--password)\b`, String.raw`\bhtpasswd\b.*\s-\w*b`,
-  String.raw`\bvault\s+login\b`,
+  String.raw`\b(mysql|mysqldump|mariadb)\b.*\s-p\S`, String.raw`\bmongo(sh)?\b.*\s-p\s`, String.raw`\b(un)?(zip|7z)\b.*\s-[pP]`,
+  String.raw`\bopenssl\b.*\s-(k|pass)\s`, String.raw`\bredis-cli\b.*\s-a\s`, String.raw`\bdocker\s+login\b.*\s-p\b`,
+  String.raw`\bhtpasswd\b.*\s-\w*b`, String.raw`\bldap\w+\b.*\s-w\s`, String.raw`\bssh-keygen\b.*\s-N\s`,
+  String.raw`\bsudo\b.*\s-S\b`, String.raw`\bvault\s+login\b`, String.raw`\bgh\s+secret\s+set\b`,
   String.raw`(^|[\s;&|"'])[A-Z_]*(PASS(WORD|WD)?|PWD|SECRET|TOKEN)[A-Z_]*=\S`,              // PGPASSWORD=, MYSQL_PWD=, API_TOKEN=
 ].join('|'), 'i');
-/* Review 7: a list of credential shapes always misses one, so a backstop: any run of 20 or more letters, digits and
-   _ - . + / = that mixes letters and digits reads as a token (a bare bearer token, a session cookie, a key with no known
-   prefix). It refuses some honest commands (a full commit sha, a long build id): the safe direction, the chat has them. */
+/* Reviews 7 and 8: a list of credential shapes always misses one, so a backstop for long ones: a run of 20 or more
+   token characters that, split at - . _, has a piece of 16+ mixing letters and digits, or two or more mixed pieces (a
+   bare bearer token, a sha, a base64url key). An ordinary name with a number in it (fix-login-1234, app-v1.2.3.apk,
+   x-6727.test.js) is one mixed piece at most and passes. A short password the list misses is the stated residual: iOS
+   shows previews only when unlocked by default, and Allow asks to unlock. */
 function phoneTokenLike(text) {
-  return (String(text).match(/[A-Za-z0-9_\-.+=]{20,}/g) || []).some((t) => /[A-Za-z]/.test(t) && /\d/.test(t));
+  const mixed = (p) => /[A-Za-z]/.test(p) && /\d/.test(p);
+  return (String(text).match(/[A-Za-z0-9_\-.+=]{20,}/g) || []).some((t) => {
+    const pieces = t.split(/[-._]/);
+    return pieces.some((p) => p.length >= 16 && mixed(p)) || pieces.filter(mixed).length >= 2;
+  });
 }
 function phonePermissionShown(perm) {
   if (perm.kind !== 'command' && perm.kind !== 'delete') return '';
