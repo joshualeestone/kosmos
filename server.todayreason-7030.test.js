@@ -64,7 +64,7 @@ test('#7030 reasonOf on real rows: each reason the phone has a sentence for', as
   const r = await realRow();
   const on = (fields) => reason({ ...r, ...fields });
   assert.equal(on({ state: 'needs_you', stateReportedBy: 'agent' }), 'question', 'its own question');
-  assert.equal(on({ state: 'needs_you' }), 'question', 'a question read off its screen');
+  assert.equal(on({ state: 'needs_you' }), 'waiting', 'a wait read off its screen, not the agent\'s own question (Mona Lisa, 10-24)');
   assert.equal(on({ state: 'needs_you', awaitingApproval: true }), 'permission');
   assert.equal(on({ state: 'needs_you', disruption: { failed: true } }), 'restart_failed');
   assert.equal(on({ state: 'needs_trust' }), 'trust');
@@ -79,7 +79,7 @@ test('#7030 reasonOf on real rows: each reason the phone has a sentence for', as
   assert.equal(on({ state: 'rate_limited' }), 'other', 'a rate limit not counted as stuck');
   assert.equal(on({ state: 'blocked' }), 'other');
   assert.deepEqual([...cardlabel.NEEDS_REASONS].sort(), ['crash_loop', 'gave_up', 'other', 'own_bound', 'permission', 'question',
-    'restart_failed', 'stuck_auth', 'stuck_rate', 'trust']);
+    'restart_failed', 'stuck_auth', 'stuck_rate', 'trust', 'waiting']);
 });
 
 test('#7030 reasonOf on real rows: the board\'s order, and no reason for an agent Today does not show', async () => {
@@ -89,6 +89,12 @@ test('#7030 reasonOf on real rows: the board\'s order, and no reason for an agen
   assert.equal(on({ state: 'needs_you', disruption: { failed: true }, crashLoop: { looping: true } }), 'restart_failed');
   assert.equal(on({ state: 'needs_you', awaitingApproval: true, crashLoop: { looping: true } }), 'crash_loop',
     'the card says Keeps stopping, so the sentence must not say it is waiting for an answer');
+  // Review 3, decided: a card that is not running and keeps crashing reads "Not running" (labelOf's offline branch) with
+  // the crash-loop sentence, which says why it is not running; the route builds such rows (server.js, crashloop.read
+  // on an offline card). Not 'other': the board can name the reason.
+  const offlineLoop = { state: 'stopped', running: false, crashLoop: { looping: true } };
+  assert.equal(cardlabel.labelOf({ ...r, ...offlineLoop }), 'Not running', 'premise: the word');
+  assert.equal(on(offlineLoop), 'crash_loop');
   // labelOf's order: an agent-reported wait reads Question even on a permission prompt, so the sentence agrees.
   assert.equal(on({ state: 'needs_you', stateReportedBy: 'agent', awaitingApproval: true }), 'question');
   // A rate limit never hides a real reason (needsYouReasonPastUsage).
@@ -132,7 +138,7 @@ test('#7030 withCardWords: the project name from the route\'s projects read; non
   for (const r of [unknown, blank, none]) assert.equal('stateProjectName' in r, false, JSON.stringify(r));
   const [unread] = withCardWords([live({ state: 'needs_you', stateProject: 'p-cat' })], null);
   assert.equal('stateProjectName' in unread, false, 'an unreadable projects file named a project');
-  assert.equal(unread.needsReason, 'question', 'and the reason still goes');
+  assert.equal(unread.needsReason, 'waiting', 'and the reason still goes');
   const [calm] = withCardWords([live({ state: 'working', stateProject: 'p-cat' })], list);
   assert.equal('needsReason' in calm, false, 'a working agent carried a reason');
 });
@@ -158,7 +164,7 @@ test('#7030 /api/status: rows on Today carry needsReason equal to reasonOf over 
     const by = (n) => rows.find((a) => a.sessionName === n);
     assert.equal(by('wanda').needsReason, undefined);
     assert.equal(by('ivo').needsReason, undefined);
-    assert.equal(by('quin').needsReason, 'question');
+    assert.equal(by('quin').needsReason, 'waiting');
     // A sign-in error and a rate limit not yet counted as stuck: on Today, with no specific reason.
     assert.deepEqual([by('sol').needsReason, by('rae').needsReason], ['other', 'other']);
   } finally { board.restore(); }
@@ -179,6 +185,6 @@ test('#7030 /api/status: an unreadable projects file still answers, with no proj
     assert.equal(res.status, 200, 'an unreadable projects file failed the status read');
     const s = await res.json();
     assert.equal(s.counts.projectsUnread, 0);
-    assert.equal(s.agents.find((a) => a.sessionName === 'quin').needsReason, 'question');
+    assert.equal(s.agents.find((a) => a.sessionName === 'quin').needsReason, 'waiting');
   } finally { board.restore(); fs.chmodSync(f, 0o600); }
 });

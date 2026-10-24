@@ -85,14 +85,14 @@ function toneOf(a, needsPerson) {
    card's tone puts it on Today (asked or needs_you). In the board's own order (pjAlsoWhy, and labelOf for the word): a
    restart that did not come back (a needs_you row with no question behind it, #4006), a trust prompt on a card that is
    not running, a crash loop, then a needs_you state: the agent's own question, its permission prompt
-   (status.awaitingApprovalOf, the card's "Needs permission"), or a question read off its screen. Anything else is the
-   engine's own reason (projects.needsYouReasonPastUsage, so a rate limit never hides a real reason), and 'other' where
+   (status.awaitingApprovalOf, the card's "Needs permission"), or a wait read off its screen ('waiting'). Anything
+   else is the engine's own reason (projects.needsYouReasonPastUsage, so a rate limit never hides a real reason), and 'other' where
    it has none: a stopped agent, a rate limit not yet counted as stuck, or a state added later.
    ⚠️ A status row is not a project member row: it carries no `present` or `tied`, which needsYouReason requires. A row
    is present by being on the roster and tied (review 2: the tie gate is for crediting a wait to a project, which Today
    does not do; an untied pane whose reconnect gave up is on Today, and its reason is gave_up). Without them every
    reason but the question fell to 'other' (review 1, measured on real rows). */
-const NEEDS_REASONS = ['question', 'permission', 'restart_failed', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate',
+const NEEDS_REASONS = ['question', 'permission', 'waiting', 'restart_failed', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate',
   'own_bound', 'other'];
 function reasonOf(a, needsPerson) {
   const tone = toneOf(a, needsPerson);
@@ -104,7 +104,10 @@ function reasonOf(a, needsPerson) {
   if (a.crashLoop && a.crashLoop.looping === true) return 'crash_loop';
   if (a.state === 'needs_you') {
     if (a.stateReportedBy === 'agent') return 'question';   // labelOf's order: the card's word is Question
-    return a.awaitingApproval === true ? 'permission' : 'question';
+    // Mona Lisa, 10-24: a wait read off the screen that is neither the agent's question nor a permission prompt (a Codex
+    // hooks screen, the safeguards menu) is 'waiting' ("Waiting for you. Open it to see what it shows."), never
+    // "Waiting for your answer.", which would be false there.
+    return a.awaitingApproval === true ? 'permission' : 'waiting';
   }
   let why = null;
   try {
