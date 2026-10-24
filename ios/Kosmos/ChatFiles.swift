@@ -65,6 +65,8 @@ struct FileChip: View {
             Image(systemName: "doc").font(.system(size: 13)).foregroundColor(Palette.secondary)
             Text(name).font(.footnote).foregroundColor(Palette.primary.opacity(faded ? 0.6 : 1))
                 .lineLimit(1).truncationMode(.middle)
+                // Cut in the middle, so a long name keeps its end and the next file shows beside it.
+                .frame(maxWidth: 180, alignment: .leading)
             if let remove {
                 Button(action: remove) {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 15)).foregroundColor(Palette.secondary)

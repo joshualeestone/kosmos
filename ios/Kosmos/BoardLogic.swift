@@ -634,6 +634,7 @@ enum Board {
     static let maxFileBytes = 100 * 1024 * 1024
     // #6734: a file this large may outlast the Mac's or a relay's wait on a slow connection.
     static let slowFileBytes = 25 * 1024 * 1024
+    static let uploadTimeout: TimeInterval = 300
 
     static func isAttachmentId(_ id: String) -> Bool { attachmentId("/api/attachment/" + id) == id }
 
@@ -652,6 +653,9 @@ enum Board {
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.setValue(type.isEmpty ? "application/octet-stream" : type, forHTTPHeaderField: "Content-Type")
         r.setValue(headerName(name), forHTTPHeaderField: "X-Attachment-Name")
+        // The Mac reads an office file or a PDF before it answers (engine/attachtext.js, up to 30 s), and a large file
+        // takes a while to go: this request is given the Mac's own five minutes (#6734), not the 15 s other calls get.
+        r.timeoutInterval = uploadTimeout
         return r
     }
 
@@ -681,6 +685,54 @@ enum Board {
         if let error = obj?["error"] as? String, !error.isEmpty { return .refused(error) }
         if (status == 502 || status == 504) && slow { return .refused(notReached) }
         return .refused("We could not add that file (status \(status)).")
+    }
+
+    // A pick made ready to send: the client's own copy (in a folder of its own under `root`), its name, type and size;
+    // or the sentence for why it cannot go.
+    enum Prepared: Equatable {
+        case ready(file: URL, name: String, type: String, size: Int)
+        case refused(String)
+    }
+
+    // A file from Files: its size and kind checked first, so nothing too large and no folder is ever copied, then
+    // copied, so the person's own file is never the one removed. Reads it under its security scope (a picked file
+    // outside the app's own folders needs it). Off the main thread: a copy can be 100 MB.
+    static func prepareUpload(from url: URL, root: URL) -> Prepared {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let name = url.lastPathComponent
+        let facts = try? url.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey, .isPackageKey])
+        if facts?.isDirectory == true || facts?.isPackage == true {
+            return .refused("\(name) is a folder, so it cannot go in a message. Add the files inside it, or a zip of it.")
+        }
+        if let refusal = uploadRefusal(size: facts?.fileSize, waiting: 0) { return .refused(refusal) }
+        guard let folder = uploadFolder(root) else { return .refused("We could not read \(name).") }
+        let file = folder.appendingPathComponent(savedName(name))
+        guard (try? FileManager.default.copyItem(at: url, to: file)) != nil,
+              let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
+            try? FileManager.default.removeItem(at: folder)
+            return .refused("We could not read \(name).")
+        }
+        // Measured again on the copy: the size Files gave may have been missing.
+        if let refusal = uploadRefusal(size: size, waiting: 0) { try? FileManager.default.removeItem(at: folder); return .refused(refusal) }
+        return .ready(file: file, name: name, type: mimeType(forName: name), size: size)
+    }
+
+    // A photo's bytes, written to a file of their own.
+    static func prepareUpload(data: Data, name: String, root: URL) -> Prepared {
+        if let refusal = uploadRefusal(size: data.count, waiting: 0) { return .refused(refusal) }
+        guard let folder = uploadFolder(root) else { return .refused("We could not read that photo.") }
+        let file = folder.appendingPathComponent(savedName(name))
+        guard (try? data.write(to: file)) != nil else {
+            try? FileManager.default.removeItem(at: folder)
+            return .refused("We could not read that photo.")
+        }
+        return .ready(file: file, name: name, type: mimeType(forName: name), size: data.count)
+    }
+
+    private static func uploadFolder(_ root: URL) -> URL? {
+        let folder = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        return (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil ? folder : nil
     }
 
     // The type the Mac is told, from the name (it keeps whatever it is given, and judges a file by it).

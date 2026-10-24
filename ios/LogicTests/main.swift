@@ -1633,7 +1633,8 @@ func boardLoopTests() async {
                                             upload: { r, file in
                                                 for _ in 0..<world.uploadYields { await Task.yield() }
                                                 return world.upload(r, file)
-                                            }))
+                                            },
+                                            uploads: testFiles.appendingPathComponent("uploads", isDirectory: true)))
         return (client, world, sessions, macs)
     }
     func settle(_ cond: () -> Bool) async -> Bool {
@@ -1820,8 +1821,10 @@ section("native board loop: connecting")
         c.start()
         _ = await settle { isLive(c) }
         let dana = c.agents.first { $0.session == "dana" }!
+        let uploadsRoot = testFiles.appendingPathComponent("uploads", isDirectory: true)
         func pending() -> [Board.PendingSend] { c.pending["dana"] ?? [] }
         func attached() -> [Board.Attached] { c.attached["dana"] ?? [] }
+        func leftOver() -> [String] { (try? FileManager.default.contentsOfDirectory(atPath: uploadsRoot.path)) ?? [] }
         func picked(_ name: String, _ bytes: String = "bytes") -> URL {
             let folder = testFiles.appendingPathComponent("picked-\(UUID().uuidString)", isDirectory: true)
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -1829,28 +1832,44 @@ section("native board loop: connecting")
             try? Data(bytes.utf8).write(to: file)
             return file
         }
+        func add(_ url: URL) async { await c.attach(.file(url), epoch: c.chatEpoch, to: dana) }
 
         let a = picked("deck.pdf", "%PDF-1.4 deck")
-        await c.attach(file: a, name: "deck.pdf", type: "application/pdf", size: 13, to: dana)
+        await add(a)
         check(w.uploads.count == 1 && w.uploads[0].path == "/api/agent/dana/attachment" && w.uploads[0].type == "application/pdf"
               && w.uploads[0].name == "deck.pdf" && w.uploads[0].bytes == Data("%PDF-1.4 deck".utf8),
-              "a picked file goes up at once: the agent's route, its type, its name and its bytes")
+              "a picked file goes up at once: the agent's route, its type from its name, its name and its bytes")
         check(attached().map(\.name) == ["deck.pdf"] && c.uploading["dana"] == 0, "and waits on the composer")
-        check(!FileManager.default.fileExists(atPath: a.path), "the phone's copy is removed once sent")
+        check(FileManager.default.fileExists(atPath: a.path), "the person's own file is never removed (the client sends a copy)")
+        check(leftOver().isEmpty, "and the copy, with its folder, is gone once sent")
 
         w.uploadQueue = [(413, #"{"error":"that file is over 100 MB"}"#)]
-        let b = picked("big.mov")
-        await c.attach(file: b, name: "big.mov", type: "video/quicktime", size: 5000, to: dana)
+        await add(picked("big.mov"))
         check(attached().count == 1 && c.attachLine["dana"] == "that file is over 100 MB", "a refused file is not added, and the line says the Mac's words")
-        check(!FileManager.default.fileExists(atPath: b.path), "its copy is removed too")
+        check(leftOver().isEmpty, "its copy is removed too")
 
+        // Too large: refused before any copy or byte is sent (a sparse file, so the test writes nothing large).
+        let huge = picked("huge.mov")
+        if let h = try? FileHandle(forWritingTo: huge) { try? h.truncate(atOffset: UInt64(Board.maxFileBytes + 1)); try? h.close() }
         let uploadsBefore = w.uploads.count
-        await c.attach(file: picked("huge.mov"), name: "huge.mov", type: "video/quicktime", size: Board.maxFileBytes + 1, to: dana)
-        check(w.uploads.count == uploadsBefore && c.attachLine["dana"] == "That file is over 100 MB, which is the most a message can carry.",
-              "too large: refused before a byte is sent")
+        await add(huge)
+        check(w.uploads.count == uploadsBefore && c.attachLine["dana"] == "That file is over 100 MB, which is the most a message can carry." && leftOver().isEmpty,
+              "too large: refused before it is copied or sent")
 
-        await c.attach(file: picked("notes.txt"), name: "notes.txt", type: "text/plain", size: 5, to: dana)
-        check(attached().map(\.name) == ["deck.pdf", "notes.txt"] && c.attachLine["dana"] == nil, "a file that goes up clears the last line")
+        // A folder (a package from Files): said plainly, never sent as a failed upload.
+        let folderPick = testFiles.appendingPathComponent("Report.pages", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folderPick, withIntermediateDirectories: true)
+        await add(folderPick)
+        check(w.uploads.count == uploadsBefore && c.attachLine["dana"] == "Report.pages is a folder, so it cannot go in a message. Add the files inside it, or a zip of it.",
+              "a folder is refused with its own sentence")
+
+        // A photo: its name and bytes from the picker.
+        await c.attach(.photo(load: { ("Photo 2026-10-24 at 18.30.05.jpg", Data([0xFF, 0xD8, 0xFF, 0xE0])) }), epoch: c.chatEpoch, to: dana)
+        check(w.uploads.last?.type == "image/jpeg" && w.uploads.last?.name == "Photo%202026-10-24%20at%2018.30.05.jpg" && w.uploads.last?.bytes == Data([0xFF, 0xD8, 0xFF, 0xE0]),
+              "a photo goes up as a JPEG under its own name")
+        check(attached().count == 2 && c.attachLine["dana"] == nil, "a file that goes up clears the last line")
+        await c.attach(.photo(load: { nil }), epoch: c.chatEpoch, to: dana)
+        check(c.attachLine["dana"] == "We could not read that photo." && c.uploading["dana"] == 0, "a photo that cannot be read is said, and nothing waits")
         c.unattach(attached()[1].id, for: "dana")
         check(attached().map(\.name) == ["deck.pdf"], "the x takes one off the composer")
 
@@ -1861,7 +1880,7 @@ section("native board loop: connecting")
         check(attached().isEmpty && pending().last?.files.map(\.id) == [deckId], "the files leave the composer and ride the bubble")
 
         // A failed send keeps its files on the bubble, and the retry sends them again.
-        await c.attach(file: picked("shot.png"), name: "shot.png", type: "image/png", size: 5, to: dana)
+        await add(picked("shot.png"))
         let shot = attached()
         w.sendQueue = [(409, #"{"error":"Dana is at its trust prompt"}"#), (200, #"{"delivery":{"state":"placed","at":"2026-10-23T21:00:00.000Z"},"recorded":true}"#)]
         await c.post("look at this", files: shot, to: dana)
@@ -1871,40 +1890,54 @@ section("native board loop: connecting")
               "the retry sends the same words and the same files")
 
         // Ten waiting: the eleventh is refused before it is sent.
-        for i in 0..<10 { await c.attach(file: picked("f\(i).txt"), name: "f\(i).txt", type: "text/plain", size: 1, to: dana) }
+        for i in 0..<10 { await add(picked("f\(i).txt")) }
         let tenth = w.uploads.count
-        await c.attach(file: picked("f10.txt"), name: "f10.txt", type: "text/plain", size: 1, to: dana)
+        await add(picked("f10.txt"))
         check(attached().count == 10 && w.uploads.count == tenth && c.attachLine["dana"] == "A message can carry 10 files; send these first.",
               "an eleventh file is refused, and nothing is sent")
-        for f in attached() { c.unattach(f.id, for: "dana") }
+        for f in attached().dropFirst() { c.unattach(f.id, for: "dana") }
 
-        // A send with files waits while another file is still on its way (it would go without it).
+        // A send with the composer's files waits while another file is on its way; one sent again from a row does not.
         w.uploadYields = 50
-        let going = Task { await c.attach(file: picked("slow.pdf"), name: "slow.pdf", type: "application/pdf", size: 1, to: dana) }
+        let going = Task { await add(picked("slow.pdf")) }
         _ = await settle { c.uploading["dana"] == 1 }
         let postsBefore = w.posted.count
-        await c.post("now", files: [Board.Attached(id: deckId, name: "deck.pdf")], to: dana)
-        check(w.posted.count == postsBefore, "a send with files is not made while a file is still going up")
-        await going.value
-        w.uploadYields = 0
-        check(attached().map(\.name) == ["slow.pdf"] && c.uploading["dana"] == 0, "and the file that was going up lands on the composer")
-
-        // Not sent, sent again: its files go again with it.
+        let sentWithChips = await c.post("now", files: attached(), to: dana)
+        check(!sentWithChips && w.posted.count == postsBefore && attached().count == 1, "the composer's files are not sent while another is still going up")
+        let wordsOnly = await c.post("words only", to: dana)
+        check(wordsOnly && w.posted.last == "words only", "words alone still go, as on the board")
         var lost = Board.ChatRow(id: "y", atRaw: "T9", at: nil, text: "deck.pdf", who: .person, notSent: "Not sent", resendable: true)
         lost.attachments = [Board.Attachment(id: deckId, name: "deck.pdf", type: "application/pdf", size: 13, kind: "pdf",
                                              url: "/api/attachment/" + deckId, preview: nil)]
         await c.sendAgain(lost, to: dana)
-        check(w.posted.last == "deck.pdf" && w.postedAttachments.last == [deckId], "a not-sent message with a file is sent again with that file")
-        check(attached().map(\.name) == ["slow.pdf"], "and the files waiting on the composer stay there")
+        check(w.posted.last == "deck.pdf" && w.postedAttachments.last == [deckId] && c.wasSentAgain(lost, for: "dana"),
+              "a not-sent message with a file is sent again with that file, even while another file goes up")
+        await going.value
+        w.uploadYields = 0
+        check(attached().map(\.name) == ["f0.txt", "slow.pdf"] && c.uploading["dana"] == 0, "and the file that was going up lands on the composer")
 
-        // Another account meanwhile: an upload that answers late adds nothing to the new account's chat.
+        // A send again that post refuses (more files than a message carries, which only post checks) leaves its row
+        // tappable.
+        var crowded = Board.ChatRow(id: "z", atRaw: "T10", at: nil, text: "eleven", who: .person, notSent: "Not sent", resendable: true)
+        crowded.attachments = Array(repeating: lost.attachments[0], count: 11)
+        let crowdedPosts = w.posted.count
+        await c.sendAgain(crowded, to: dana)
+        check(w.posted.count == crowdedPosts && !c.wasSentAgain(crowded, for: "dana"), "a send again that sent nothing does not hide its row's line")
+
+        // Another account meanwhile: an upload that answers late adds nothing, and a pick made before is never sent.
         w.uploadYields = 50
-        let late = Task { await c.attach(file: picked("late.pdf"), name: "late.pdf", type: "application/pdf", size: 1, to: dana) }
+        let before = c.chatEpoch
+        let late = Task { await add(picked("late.pdf")) }
         _ = await settle { c.uploading["dana"] == 1 }
         c.accountChanged()
         await late.value
         w.uploadYields = 0
         check(c.attached.isEmpty && c.uploading.isEmpty && c.attachLine.isEmpty, "a sign-out drops the waiting files, and a late answer adds nothing")
+        let afterSignOut = w.uploads.count
+        await c.attach(.file(picked("queued.pdf")), epoch: before, to: dana)
+        check(w.uploads.count == afterSignOut && c.attached.isEmpty && (c.uploading["dana"] ?? 0) == 0,
+              "a pick from before the sign-out is never sent under the new one, and leaves nothing counted as on its way")
+        check(leftOver().isEmpty, "and no copy is left on the phone")
         c.stop()
     }
 
