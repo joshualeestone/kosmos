@@ -870,7 +870,8 @@ function adoptOwnShare(projectId, s) {
   s.ownRun = null;
   // A rotation that came between the Allow and this confirm (a guest removed meanwhile) is applied BEFORE the held
   // posts go, so none of them is sent under a key the removed guest still holds.
-  for (const f of run.rotates || []) onKeyFrame(projectId, s, f, true);
+  const rot = run.rotates || {};
+  for (const ep of Object.keys(rot).map(Number).sort((a, b) => a - b)) onKeyFrame(projectId, s, rot[ep], true);
   say(projectId, SEALED_LINE);
   flushHeld(projectId, s);
 }
@@ -1216,9 +1217,13 @@ function onKeyFrame(projectId, s, frame, sameAccount) {
     }
     if (frame.t === 'key-rotate' && (link.role === 'member' || link.role === 'self')) {
       const st = roomSeal(projectId);
-      // #4658: an own computer still waiting to adopt keeps the rotation for adoptOwnShare (the newest 8).
+      // #4658: an own computer still waiting to adopt keeps a rotation for adoptOwnShare, but only one that opens
+      // under the owner key of its run's offer (the key adoption pins), one per epoch: a frame from anyone else
+      // takes no place.
       if (link.role === 'self' && st && st.ownComputer === true && !hasKey(st) && s.ownRun) {
-        s.ownRun.rotates = (s.ownRun.rotates || []).concat([frame]).slice(-8);
+        const run = s.ownRun;
+        const got = run.offer ? fedseal.openRotate(me, run.offer.ownerPub, frame, s.room) : null;
+        if (got) run.rotates = Object.assign({}, run.rotates || {}, { [got.epoch]: frame });
         return;
       }
       if (!hasKey(st) || !st.peer) return;

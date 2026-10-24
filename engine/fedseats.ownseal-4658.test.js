@@ -549,3 +549,28 @@ test('#4658: a rotation between the Allow and the confirm is applied before the 
   assert.ok(out.some((env) => { const x = fedseal.open({ 1: next }, 'room-s13', env); return x && x.m && x.m.text === 'held across a rotation'; }), 'the held post did not go under the new key');
   assert.ok(!out.some((env) => fedseal.open({ 0: roomKey }, 'room-s13', env)), 'a held post went out under the retired key');
 });
+
+/* ---- iteration-6 review ---- */
+
+test('#4658: junk rotations cannot push out the genuine one kept for adoption', async () => {
+  const { seat } = await ownComputer('own-s14', 'room-s14');
+  const roomKey = fedseal.randomSecret();
+  const hello = await sealedNow(seat, 'room-s14', roomKey);
+  const o = handOwner('room-s14', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit);
+  say(seat, { event: 'message', data: o.share(nW, roomKey) });
+  await settle();
+  const me = fedseal.sealingKey();
+  const next = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.rotateFrame(o.owner, me.pub, next, 1, 'room-s14', Date.now()) });
+  for (let i = 0; i < 20; i++) {
+    say(seat, { event: 'message', data: fedseal.rotateFrame(fedseal.newKeyPair(), me.pub, fedseal.randomSecret(), 2 + i, 'room-s14', Date.now()) });
+  }
+  await settle();
+  assert.strictEqual((await fedseats.confirmOwn('own-s14', fedseats.ownCode('own-s14'))).ok, true);
+  const st = fedseal.roomState('own-s14');
+  assert.strictEqual(st.epoch, 1, 'the genuine rotation was pushed out (or a junk one was taken)');
+  assert.strictEqual(st.keys[1], next);
+});
