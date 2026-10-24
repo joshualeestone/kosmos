@@ -25,11 +25,13 @@ const PRELOAD = path.join(ROOT, 'test-support', 'fresh-connections.js');
 const N = 5;
 const tick = () => new Promise((r) => setImmediate(r));
 
-// The two checks of THIS process need the preload, which only tools/run-tests.sh gives (it sets KOSMOS_TEST_RUN).
-// A bare `node --test <file>` (a developer, or the cut's isolation rerun in tools/lib/cut-rerun-guard.sh) skips
-// them rather than failing every time, so a contention red in this file can still be dismissed. The spawned check
-// below covers the preload either way.
-const SUITE = process.env.KOSMOS_TEST_RUN ? {} : { skip: 'needs the preload from tools/run-tests.sh (KOSMOS_TEST_RUN is not set)' };
+// The two checks of THIS process test the preload, so they run only when it was asked for on this process's
+// command line (tools/run-tests.sh does; the first check below pins that). A bare `node --test <file>` (a
+// developer, or the cut's isolation rerun in tools/lib/cut-rerun-guard.sh) skips them rather than failing every
+// time, so a contention red in this file can still be dismissed. Keyed on the request, not on the load having
+// worked: a preload that was asked for and failed to install still goes red. The spawned check covers it either way.
+const REQUESTED = process.execArgv.join(' ').includes('fresh-connections.js');
+const SUITE = REQUESTED ? {} : { skip: 'needs --require test-support/fresh-connections.js, as tools/run-tests.sh gives it' };
 
 // N requests against a server that counts connections; prints the count.
 const PROBE = `

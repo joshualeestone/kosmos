@@ -19,6 +19,8 @@
  * still runs (pooled, as before); test-support.fresh-connections-6059.test.js then goes red and says why.
  * It covers only the global fetch of this process: node:http clients bring their own agents (server.test.js
  * already passes agent: false), and child processes a test starts are not touched.
+ * The trade: product code a test runs in-process also gets a fresh connection per fetch, where production
+ * pools, so the suite no longer covers how in-process fetch callers handle a reused keep-alive socket.
  */
 
 const KEY = Symbol.for('undici.globalDispatcher.2');
