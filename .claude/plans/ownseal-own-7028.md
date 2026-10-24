@@ -1,0 +1,51 @@
+# #7028: a sealed room's own computers can be taken out, and a forged envelope cannot lock an unsealed own room
+
+Stacked on Baron's `ownseal-board-4658` (45e1ab0f20, PR #7036, frozen). Rebased onto main once #7036 merges.
+
+## What the card assumed, measured against main (04:2x 10-24)
+The card names the coordinator's `own-seat-requests` (answers `sealed`) and a coordinator that "takes its seat when
+retired". Both are on kosmos-relay branch `ownseal-4658` (09-30, 1693 behind main, no PR); `git grep` on relay
+origin/main finds no fed_own_seats, own_room_sealed or own-seat route. So neither signal exists on the live
+coordinator. What does:
+- `POST /v1/mac/federation/edges` (Mac-signed): `as_owner` is EVERY edge of the account, revoked ones included
+  (`federation_edges_for_owner` has no status filter). An own computer is on the same account, so it sees the
+  owner's edges. The owner board seals a room only on a hello matched to an ACTIVE edge for `link.ref`
+  (`ownerHello`), so an account with no edge of any status for that ref has never had a sealed room.
+- `POST /v1/mac/account-computers` (Mac-signed): the account's unretired, unheld computers, by name. No mac id.
+
+## Finished looks like
+1. **Retired computer out of the key.** When the seal owner's periodic check (revokeCheck) learns from Kosmos+ that a
+   computer pinned in `st.own` is no longer on the account (retired, held, moved), it drops it and rotates the room
+   key in the same step a revoked guest is rotated out. Unreadable answer, or a coordinator too old to name its
+   computers: nothing changes.
+2. **Removed from the screen.** `GET /api/federation/own-allowed` lists the computers in `st.own`;
+   `POST /api/federation/own-remove {pid, pub}` drops one and rotates (same guards as own-allow). The screen button
+   itself waits for the own-computer screen, which #4658 has not built yet (routes only there too).
+3. **Forged envelope.** After an own computer records keyless own seal state (noteOwnSealed), it asks the edges.
+   If Kosmos+ answers and lists no edge of any status for this project, the room was never sealed: the keyless
+   state is cleared, held posts go out, and sealed-looking frames are ignored (logged unreadable) for a cooldown
+   so one source cannot flap it. Any other answer keeps the state (held, as today).
+4. Relay: `account-computers` rows carry `mac_id` (separate kosmos-relay PR). Not secret: the own-hello frame and
+   the match code already expose it to the account's computers.
+
+## Approach
+- revokeCheck: proceed when peers OR own is non-empty. `gone` = guests whose edge is not active (as now) plus own
+  pubs whose mac is absent from a complete computers answer, plus an explicit `dropOwn` list (the route). Edges are
+  asked only with peers; computers only with own. One epoch advance, still inside revokeCheck (#5191 guard).
+- Part 3 needs a writer that removes keyless own state: `forgetOwnSealed`, added to the #5191 WRITERS with the
+  reason (changes no epoch, removes a state that holds no key).
+
+## Rejected
+- Waiting for the relay branch: stale for 24 days with no owner on it.
+- Matching st.own to account-computers by NAME: names are not unique and change; a rename would revoke.
+- Asking before recording (the card's first option): needs a second "held while asking" state; record then clear
+  holds posts the same way and keeps one path.
+
+## Weakest premise
+Part 3 reads "no edge of any status" as "never sealed". Account deletion deletes edges where the deleted account is
+the MEMBER (delete_account.sql), so a room sealed for a guest who later deleted their account can read as never
+sealed. Then an own computer that never got the key clears its state and posts in the clear into a room with no
+outside member left. What would change it: the coordinator keeping a seal fact that survives a member's deletion.
+
+## Tests (planned)
+engine/fedseats.ownremove-7028.test.js, server route test, guard update; mutants for each.
