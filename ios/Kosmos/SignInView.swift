@@ -12,8 +12,10 @@ final class SignInModel: ObservableObject {
     @Published var busy = false
     /// The session Kosmos+ issued, once: ContentView hands it to the app (the web bridge's own path).
     @Published private(set) var issued: String?
-    /// Bumped when the person backs out of an issued session: ContentView signs it out.
+    /// Bumped when an issued session is dropped (backed out of, or ended): ContentView signs it out, and the web page
+    /// forgets it (`lastAbandoned`).
     @Published private(set) var abandoned = 0
+    private(set) var lastAbandoned: String?
     private let client: SignInClient?
     private var watch: Task<Void, Never>?
     /// Bumped by every new attempt and every way back: an answer for an older one changes nothing (the web page's
@@ -81,7 +83,12 @@ final class SignInModel: ObservableObject {
 
     func differentEmail() {
         attempt += 1; busy = false; watch?.cancel(); code = ""; error = nil; step = .email
-        if issued != nil { issued = nil; abandoned += 1 }
+        drop()
+    }
+
+    private func drop() {
+        guard let token = issued else { return }
+        issued = nil; lastAbandoned = token; abandoned += 1
     }
 
     /// Signed out later in the launch: the native sign-in starts over from the email (review round 5).
@@ -138,6 +145,9 @@ final class SignInModel: ObservableObject {
                     if case .allow(_, false) = self.step { self.step = .allow(matchCode: code, hasComputer: true) }
                     continue
                 case .ended:
+                    // An ended session is dropped like one backed out of (review round 7): signed out here, and
+                    // forgotten by the web page, which would otherwise hand the dead one back.
+                    self.drop()
                     self.step = .email
                     self.error = "This sign-in ended before your Mac answered. Sign in again."
                     return

@@ -123,3 +123,12 @@ Design (Mona Lisa, approved): links stacked with no extra space; the address sta
 3. [LOW] "Sign in with your company or a passkey" after a restart could land on a native tab. FIXED: it opens the
    board's sign-in page, freshly loaded (showBoardToday).
 Parity: restart clears the previous address, as the page does.
+
+## Review round 7 (blind, 07:2x)
+1. [MEDIUM-LOW] A session backed out of stayed in the page's storage (round 6's reload had stored it there), and
+   the web route's restore() handed it back: the person was signed in again as the account they left. FIXED: the app
+   keeps the sessions it dropped this launch; with no session held, each document's start removes a dropped one
+   from the page (anything else the page holds is left), and the page showing is cleared at once (BoardWeb.forget).
+2. [LOW-MEDIUM] After "This sign-in ended", the web route bounced back to the native screen (the page's 401 posted
+   signed-out, and round 5's restart fired). FIXED: an ended session is dropped like one backed out of (which also
+   closes round 1's residual 5), and the restart fires only on a sign-out of a session the app held.

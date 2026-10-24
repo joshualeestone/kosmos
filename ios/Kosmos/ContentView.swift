@@ -156,7 +156,10 @@ struct ContentView: View {
         }
         // The person backed out of a session already issued (Use a different email, Sign in again): it is signed out,
         // so neither the app nor the web page keeps it (review round 2).
-        .onChange(of: signIn.abandoned) { _ in pushManager.signedOutNatively() }
+        .onChange(of: signIn.abandoned) { _ in
+            pushManager.signedOutNatively()
+            if let token = signIn.lastAbandoned { web.forget(token) }
+        }
         .onChange(of: signIn.step) { step in
             if step == .done { nativeSignIn = false; todayBoard = false; tab = .today }
         }
@@ -407,10 +410,10 @@ final class BoardWeb: ObservableObject {
     // opens signed in as the app is: after a native sign-in, after a restart, and over a dead session left from before.
     // Rebuilt whenever the app's session changes; a page already showing keeps what it has, and the next page the web
     // view opens has the new one. Main frame only, and the script checks the page's origin itself.
-    static func userScripts(session: String?) -> [WKUserScript] {
+    static func userScripts(session: String?, forget: [String] = []) -> [WKUserScript] {
         var scripts = [WKUserScript(source: AppTabs.markScript, injectionTime: .atDocumentStart, forMainFrameOnly: true)]
-        if let session, let origin = SignIn.pageOrigin(KosmosConfig.coordinatorOrigin),
-           let source = SignIn.sessionScript(token: session, origin: origin) {
+        if let origin = SignIn.pageOrigin(KosmosConfig.coordinatorOrigin),
+           let source = SignIn.sessionScript(token: session, forget: forget, origin: origin) {
             scripts.append(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
         return scripts
@@ -420,7 +423,20 @@ final class BoardWeb: ObservableObject {
     func sessionChanged() {
         guard let controller = webView?.configuration.userContentController else { return }
         controller.removeAllUserScripts()
-        Self.userScripts(session: SessionKeychain.live.load()).forEach(controller.addUserScript)
+        Self.userScripts(session: SessionKeychain.live.load(), forget: forgotten).forEach(controller.addUserScript)
+    }
+
+    /// kosmos#7042 review round 7: sessions the app dropped (backed out of, or ended) this launch. The page may hold one
+    /// (it was stored there), and its restore() would hand it back; each document's start removes it, and the page
+    /// showing now is cleared at once.
+    private var forgotten: [String] = []
+
+    func forget(_ token: String) {
+        forgotten.append(token)
+        sessionChanged()
+        guard let webView, webView.url?.host == AppTabs.signInHost, let origin = SignIn.pageOrigin(KosmosConfig.coordinatorOrigin),
+              let source = SignIn.sessionScript(token: nil, forget: [token], origin: origin) else { return }
+        webView.evaluateJavaScript(source)
     }
 
     /// A NATIVE sign-in just finished while the page left showing is the sign-in page (signed out on it earlier in the

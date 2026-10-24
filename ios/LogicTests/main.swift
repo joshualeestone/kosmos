@@ -2696,7 +2696,7 @@ do {
     let origin = "https://login.kosmosplus.com"
     func page(_ at: String) -> JSContext {
         let ctx = JSContext()!
-        ctx.evaluateScript("var location = { origin: " + "'" + at + "'" + " }; var writes = 0; var store = {}; var localStorage = { setItem: function (k, v) { writes++; store[k] = String(v); }, getItem: function (k) { return store.hasOwnProperty(k) ? store[k] : null; } };")
+        ctx.evaluateScript("var location = { origin: " + "'" + at + "'" + " }; var writes = 0; var store = {}; var localStorage = { setItem: function (k, v) { writes++; store[k] = String(v); }, getItem: function (k) { return store.hasOwnProperty(k) ? store[k] : null; }, removeItem: function (k) { delete store[k]; } };")
         return ctx
     }
     func run(_ ctx: JSContext, _ token: String) { ctx.evaluateScript(SignIn.sessionScript(token: token, origin: origin) ?? "throw 'no script'") }
@@ -2718,6 +2718,14 @@ do {
     throwing.evaluateScript("var location = { origin: '" + origin + "' }; var localStorage = { getItem: function () { throw new Error('denied'); }, setItem: function () { throw new Error('denied'); } };")
     throwing.evaluateScript(SignIn.sessionScript(token: "t", origin: origin) ?? "")
     check(throwing.exception == nil, "storage that throws breaks nothing on the page")
+    let forgot = page(origin)
+    forgot.evaluateScript("store['kosmos_session'] = 'abandoned';")
+    forgot.evaluateScript(SignIn.sessionScript(token: nil, forget: ["abandoned"], origin: origin) ?? "")
+    check(forgot.evaluateScript("store.hasOwnProperty('kosmos_session')")?.toBool() == false, "a session the app dropped is removed from the page")
+    forgot.evaluateScript("store['kosmos_session'] = 'theirs';")
+    forgot.evaluateScript(SignIn.sessionScript(token: nil, forget: ["abandoned"], origin: origin) ?? "")
+    check(forgot.evaluateScript("store['kosmos_session']")?.toString() == "theirs", "any other session the page holds is left as it is")
+    check(SignIn.sessionScript(token: nil, forget: [], origin: origin) == nil, "nothing held and nothing dropped: no script")
     check(SignIn.pageOrigin(coordinator) == origin && SignIn.pageOrigin(URL(string: "https://LOGIN.kosmosplus.com:443/x?y")!) == origin
           && SignIn.pageOrigin(URL(string: "https://login.kosmosplus.com:8443/")!) == "https://login.kosmosplus.com:8443",
           "the coordinator's origin is written as location.origin writes it (no slash, no default port)")
