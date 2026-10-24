@@ -48,6 +48,10 @@ the Swift line that calls it.
    https URL with a board path is reported, not skipped; nothing may extend a literal; a method set in a branch or a
    URL replaced after building is reported; URLRequest.init, NSMutableURLRequest and URLSession or Data fetches from
    a URL count as requests; page loads only on webView; httpMethod == is not a set. Each has a control case.
+   Round 7: no silent finding on today's tree; 2 warnings and 2 nits on plausible Swift, all addressed: every
+   "/api/..." route in the app must be used by a request on its line or tied to SITES (closes a route written away
+   from its request); a bare reassignment is a new request; an early exit before the method makes it conditional;
+   other-service evidence read from the request's own argument. Each has a control case.
 3. Validation, PR.
 4. Part 2 (light, dark, accessibility) after coordinating View files; Angel keeps SignInView, SignInClient and
    SignInLogic.swift (#7050 slice C).

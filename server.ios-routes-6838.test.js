@@ -12,7 +12,7 @@
  *
  * How routes are found (review 5: heuristics over route strings kept missing new shapes, so this counts REQUESTS):
  * every place the app builds a request (URLRequest(, URLRequest.init(, NSMutableURLRequest(, or a URLSession fetch
- * or Data(contentsOf:) straight from a URL) must account for
+ * or Data(contentsOf:) from a URL written in place) must account for
  * itself, in one of four ways:
  *   1. a board route: its whole "/api/..." route is in URL(string: on the same line; read automatically;
  *   2. another service: the coordinator's /v1 paths or account pages, the relay gate's /_kosmos, an https URL with no
@@ -21,7 +21,9 @@
  *   4. anything else: declared in SITES below, with the routes it sends and source text that pins them.
  * A request that fits none of these fails the test, however its URL was built. A method is read only from the
  * request's own variable (r.httpMethod for var r = URLRequest(...)), and every httpMethod in the app must belong to a
- * request, so a method can never be credited to the wrong request. A route read in place must be the whole route:
+ * request, so a method can never be credited to the wrong request. And every "/api/..." route written anywhere in the
+ * app must be used by a request on its own line or tied to a SITES entry, so a route sent some other way (a URL
+ * built first and fetched later, say) is reported rather than missed. A route read in place must be the whole route:
  * nothing joined after it, no method set in a branch, no URL replaced later; a helper declared in SITES has every
  * caller's argument checked, so a new route passed through it is not silent either. The coordinator's and relay's routes live in other
  * repos; the phone's links into board PAGES (/?tab=...) are a contract with web/index.html, not with server.js.
@@ -98,31 +100,47 @@ const FUNC = /^\s*(@\w+(\([^)]*\))?\s+)*((static|private|fileprivate|public|inte
 
 /* What a request at (line i, column at) does to itself, read only from its own variable, inside its scope (brace depth
    on string-blanked code), before the variable is bound again or a function starts: the method it sets (claiming
-   that line), whether the method is set inside a branch of its scope (review 6: the other branch keeps GET), and
+   that line), whether the method is set inside a branch of its scope or after an early exit (reviews 6, 7: the other
+   path keeps GET), and
    whether its URL is reassigned after it is built. */
 function requestAt(code, bare, i, at, claimed) {
   const out = { method: 'GET', conditional: false, urlSet: false };
-  const bound = code[i].slice(0, at).match(/\b(?:var|let)\s+(\w+)\s*=\s*$/);
+  // Bound by var/let, or by a bare reassignment of an existing variable (review 7).
+  const bound = code[i].slice(0, at).match(/(?:\b(?:var|let)\s+|^\s*)(\w+)\s*=\s*$/);
   if (!bound) return out;
   const name = bound[1];
   const setsAt = new RegExp(`\\b${name}\\.httpMethod\\s*=(?!=)`);
   const value = new RegExp(`\\b${name}\\.httpMethod\\s*=\\s*("([A-Z]+)"|(\\w+))`);
   const urlAt = new RegExp(`\\b${name}\\.url\\s*=(?!=)`);
-  let depth = 0;
+  let depth = 0, exited = false;
   for (let j = i; j < Math.min(bare.length, i + 60); j++) {
     const line = j === i ? bare[j].slice(at) : bare[j];
-    if (j > i && (FUNC.test(line) || new RegExp(`\\b(var|let)\\s+${name}\\s*=`).test(line))) break;
+    // The variable bound again (with or without var/let) or a new function ends this request's scope (review 7).
+    if (j > i && (FUNC.test(line) || new RegExp(`(\\b(var|let)\\s+|^\\s*)${name}\\s*=(?!=)`).test(line))) break;
+    // An exit before the method is set means the request can also go out without it (review 7).
+    if (j > i && /\b(return|guard)\b/.test(line)) exited = true;
     if (urlAt.test(line)) out.urlSet = true;
     if (setsAt.test(line) && !claimed.has(j)) {
       claimed.add(j);
       const m = (j === i ? code[j].slice(at) : code[j]).match(value);
       out.method = m && m[2] ? m[2] : 'variable';
-      if (depth > 0) out.conditional = true;
+      if (depth > 0 || exited) out.conditional = true;
     }
     for (const ch of line) { if (ch === '{') depth++; else if (ch === '}') depth--; }
     if (depth < 0) break;
   }
   return out;
+}
+
+/* The text of a request's own argument: from the opening parenthesis at the site to its match (review 7: a URL
+   elsewhere on the line must not decide what this request is). */
+function argumentOf(line, at) {
+  const open = line.indexOf('(', at);
+  for (let k = open, depth = 0; k >= 0 && k < line.length; k++) {
+    if (line[k] === '(') depth++;
+    else if (line[k] === ')' && --depth === 0) return line.slice(open, k + 1);
+  }
+  return line.slice(open < 0 ? at : open);
 }
 
 /* Every board route the app sends, from the given Swift files ({ rel, text }), and every problem found. */
@@ -131,6 +149,7 @@ function routesFrom(files) {
   const problems = [];
   const matchedSites = new Set();
   let inPlace = 0;
+  const consumed = new Set();
   const scanned = files.map(({ rel, text }) => ({ rel, ...scanSwift(text) }));
   for (const { rel, code, bare } of scanned) {
     const claimed = new Set();
@@ -141,7 +160,8 @@ function routesFrom(files) {
         if (PAGE_LOAD.test(code[i].slice(0, at + 'URLRequest('.length))) continue;
         const req = requestAt(code, bare, i, at, claimed);
         const lits = routeLiterals(code[i]);
-        if (ABSOLUTE_BOARD.test(code[i])) { problems.push(`${where}: a full https URL with a board path; write the route as "/api/..." relative to the Mac`); continue; }
+        const arg = argumentOf(code[i], at);
+        if (ABSOLUTE_BOARD.test(arg)) { problems.push(`${where}: a full https URL with a board path; write the route as "/api/..." relative to the Mac`); continue; }
         if (lits.length > 1) { problems.push(`${where}: ${lits.length} board routes on one line; give each request its own line`); continue; }
         if (lits.length === 1) {
           const { lit, at: litAt, end } = lits[0];
@@ -152,10 +172,11 @@ function routesFrom(files) {
           if (req.conditional) { problems.push(`${where}: ${lit} sets its method inside a branch, so it sends two methods; add the request to SITES`); continue; }
           if (req.urlSet) { problems.push(`${where}: ${lit} has its URL replaced after it is built; add the request to SITES`); continue; }
           inPlace++;
+          consumed.add(`${rel}:${i}:${litAt}`);
           if (!found.has(`${req.method} ${lit}`)) found.set(`${req.method} ${lit}`, where);
           continue;
         }
-        if (OTHER_SERVICE.test(code[i])) continue;
+        if (OTHER_SERVICE.test(arg)) continue;
         const decl = SITES.filter((d) => d.file === rel && code[i].includes(d.text));
         if (decl.length !== 1) { problems.push(`${where}: a request this test cannot read (its URL is built elsewhere); add it to SITES with the routes it sends, or name its service in OTHER_SERVICE`); continue; }
         const d = decl[0];
@@ -176,6 +197,16 @@ function routesFrom(files) {
           if (read.length !== [...calls.matchAll(d.callers.every)].length) problems.push(`${rel}: a call of the helper the pattern could not read; update SITES`);
         }
         for (const r of d.routes) if (!found.has(r)) found.set(r, `${where} (SITES)`);
+      }
+    });
+    /* Every whole board route written in the app is used by a request on its own line, or tied to a SITES entry (a pin
+       or a helper argument it expects), so a route written away from its request is never silent (review 7). */
+    const own = SITES.filter((d) => d.file === rel);
+    code.forEach((l, j) => {
+      for (const { lit, at } of routeLiterals(l)) {
+        if (consumed.has(`${rel}:${j}:${at}`)) continue;
+        if (own.some((d) => d.pins.some((pin) => l.includes(pin)) || (d.callers && d.callers.expect.some((e) => e.startsWith('"/api/') && l.includes(e))))) continue;
+        problems.push(`${rel}:${j + 1}: ${lit} is not used by a request on its line; build the request there, or add it to SITES`);
       }
     });
     // Every method line belongs to a request, so none is credited to the wrong one or set where nobody reads it.
@@ -326,6 +357,11 @@ test('CONTROL: shapes that once slipped through silently are now reported', () =
   const notice = fs.readFileSync(path.join(__dirname, 'ios/KosmosNotice/NoticeLogic.swift'), 'utf8')
     + '\nextension Notice { static func ack(a: String, c: String) -> URLRequest? { request(host: a, path: "/api/phone/notice/ack", query: nil, cookie: c) } }';
   assert.match(routesFrom([{ rel: 'ios/KosmosNotice/NoticeLogic.swift', text: notice }]).problems.join(), /a new route through it/);
+  // Review 7: a route written away from its request; a reused variable; an early exit before the method.
+  assert.match(one('let url = URL(string: "/api/status", relativeTo: mac)!\nsession.dataTask(with: url) { _, _, _ in }').problems.join(), /not used by a request/);
+  const reuse = one('var r = URLRequest(url: URL(string: "/api/status", relativeTo: mac)!)\nsend(r)\nr = URLRequest(url: URL(string: "/api/p/x/seen", relativeTo: mac)!)\nr.httpMethod = "POST"');
+  assert.ok(reuse.found.has('GET /api/status') && reuse.found.has('POST /api/p/x/seen'), [...reuse.found.keys()].join());
+  assert.match(one('var r = URLRequest(url: URL(string: "/api/phone-notify", relativeTo: mac)!)\nguard let body else { return r }\nr.httpMethod = "PUT"').problems.join(), /inside a branch/);
   const quiet = one('if request.httpMethod == "GET" { return request }\nlet f = dir.appendingPathComponent("threads.json")\nlet link = "https://example.com/api/docs"\nprint("GET /api/status")\nvar h = URLRequest(url: URL(string: "https://hooks.example.com/n")!)\nh.httpMethod = "POST"');
   assert.deepEqual(quiet.problems, []);
 });
