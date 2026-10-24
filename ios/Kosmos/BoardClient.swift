@@ -197,6 +197,60 @@ final class BoardClient: ObservableObject {
         generation += 1
     }
 
+    // MARK: - Today (kosmos#7030)
+
+    // Two tabs read the same list now (Agents and Today), so the loop runs while either is on screen: it starts with
+    // the first and stops with the last. A plain start and stop per tab would let the tab going away stop the loop the
+    // tab arriving had just started, whichever order SwiftUI reports them in.
+    static let agentsViewer = "agents"
+    static let todayViewer = "today"
+    private var viewers: Set<String> = []
+    func show(_ viewer: String) {
+        let first = viewers.isEmpty
+        viewers.insert(viewer)
+        if first { start() } else if viewer == Self.todayViewer, case .live = phase, tasksTask == nil {
+            // Today arriving while Agents keeps the loop going: its tasks are read now, not at the next tick.
+            tasksTask = Task { await self.refreshTasks(); self.tasksTask = nil }
+        }
+    }
+    func hide(_ viewer: String) {
+        guard viewers.remove(viewer) != nil else { return }
+        if viewers.isEmpty { stop() }
+    }
+
+    // counts.waiting, the board's one number (the Dock badge); nil when the person turned it off, or before a read.
+    @Published private(set) var waitingCount: Int?
+    // The tasks an agent marked built, oldest first; nil until a read answers. tasksFailed: the last read did not
+    // answer with tasks, which Today says in place of the section, never as zero.
+    @Published private(set) var readyTasks: [Board.ReadyTask]?
+    @Published private(set) var tasksFailed = false
+    private var tasksAt: Date?
+    private var tasksTask: Task<Void, Never>?
+    static let tasksEvery: TimeInterval = 30
+
+    func refreshTasks() async {
+        guard let held = admitted else { return }
+        let gen = generation
+        let result = await env.send(Board.readyTasksRequest(mac: held.url))
+        guard gen == generation, !Task.isCancelled else { return }
+        tasksAt = env.now()
+        if let answer = result?.1, (200...299).contains(answer.statusCode), let data = result?.0, let ready = Board.readyTasks(data) {
+            readyTasks = ready
+            tasksFailed = false
+        } else {
+            tasksFailed = true
+        }
+    }
+
+    // The task's page in the board (?project=&task=, read at boot by web/index.html), on the Mac the list came from.
+    func taskURL(for task: Board.ReadyTask) -> URL? {
+        guard let mac = shownMac, let base = Board.macURL(address: mac.address, coordinator: coordinator),
+              var parts = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return nil }
+        parts.path = "/"
+        parts.queryItems = [URLQueryItem(name: "project", value: task.projectId), URLQueryItem(name: "task", value: String(task.number))]
+        return parts.url
+    }
+
     // The tapped agent's chat under Today (the same link a notification tap opens); also from a list shown as not
     // updating, which still names the Mac it came from.
     func chatURL(for agent: Board.Agent) -> URL? {
@@ -621,6 +675,10 @@ final class BoardClient: ObservableObject {
         pictureVersions = [:]
         agents = []
         updatedAt = nil
+        waitingCount = nil   // kosmos#7030: another account's count and tasks are never shown
+        readyTasks = nil
+        tasksFailed = false
+        tasksAt = nil
         env.defaults.removeObject(forKey: Board.rememberedMacKey)
         cookies.removeCookies(since: .distantPast)
         macStore.delete()
@@ -783,6 +841,7 @@ final class BoardClient: ObservableObject {
         let status = answer?.statusCode ?? 0
         if (200...299).contains(status), let data = result?.0, let rows = Board.parseAgents(data) {
             agents = resortNext ? Board.sorted(rows) : Board.keepingOrder(agents, with: rows)
+            waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
             resortNext = false
             updatedAt = env.now()
             failedRefreshes = 0
@@ -800,6 +859,11 @@ final class BoardClient: ObservableObject {
             // by the next read (a cancelled fetch must not count as a failed one).
             if pictureTask == nil {
                 pictureTask = Task { await self.fetchPictures(url: url, gen); self.pictureTask = nil }
+            }
+            // kosmos#7030: the tasks Today shows, read only while Today is on screen, at most every 30 s (the board's Tasks
+            // view read is not cheap); pull to refresh reads them at once.
+            if viewers.contains(Self.todayViewer), tasksTask == nil, tasksAt.map({ env.now().timeIntervalSince($0) >= Self.tasksEvery }) ?? true {
+                tasksTask = Task { await self.refreshTasks(); self.tasksTask = nil }
             }
             return true
         }

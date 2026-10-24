@@ -42,7 +42,7 @@ struct AgentsView: View {
         .onChange(of: client.chatEpoch) { _ in openAgent = nil }
         .onAppear {
             visible = true
-            client.start()
+            client.show(BoardClient.agentsViewer)   // kosmos#7030: Today reads the same list
             #if DEBUG
             // The sample chat's screenshots (a Debug build only): KOSMOS_SAMPLE_OPEN=<agent> opens that chat, once a launch.
             if !Self.sampleOpened, let open = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OPEN"], !open.isEmpty {
@@ -51,7 +51,7 @@ struct AgentsView: View {
             }
             #endif
         }
-        .onDisappear { visible = false; wasBackground = false; client.stop() }
+        .onDisappear { visible = false; wasBackground = false; client.hide(BoardClient.agentsViewer) }
         // No polling in the background: stop when the app leaves the screen, resume when it comes back.
         .onChange(of: scenePhase) { phase in
             guard visible else { return }
