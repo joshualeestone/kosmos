@@ -1302,6 +1302,8 @@ final class FakeBoardWorld {
     var threadAnswer: (Int, String)? = (200, #"{"messages":[],"olderCount":0}"#)
     var sendQueue: [(Int, String)?] = []
     var posted: [String] = []
+    // kosmos#7020: each post's `request` ("" when it named none), beside `posted`.
+    var postedRequests: [String] = []
     // Runs as a conversation read is answered, for a change that lands while a read is in flight.
     var onThreadRead: (() -> Void)?
     // Runs as a POST to a conversation is answered (taken once), for a change while a send or press is in flight.
@@ -1351,6 +1353,7 @@ final class FakeBoardWorld {
                 if r.httpMethod == "POST" {
                     let body = r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                     posted.append(body?["text"] as? String ?? "")
+                    postedRequests.append(body?["request"] as? String ?? "")
                     if let hook = onPost { onPost = nil; hook() }
                     let next: (Int, String)? = sendQueue.isEmpty ? (200, #"{"delivery":{"state":"placed","at":"2026-10-23T20:00:00.000Z"},"recorded":true}"#) : sendQueue.removeFirst()
                     return next.map { answer($0.0, $0.1) }
@@ -1653,6 +1656,7 @@ section("native board loop: connecting")
         w.sendQueue = [(200, #"{"delivery":{"state":"placed"}}"#)]
         let sent = await c.press(tue, of: choices, to: dana)
         check(sent == .sent && w.posted.last == "1", "a press types the option's digit and comes back sent")
+        check(w.postedRequests.last == "", "#7020 CONTROL: a press with no card names no request")
         check(c.answeredNow("dana", key: "k1") == BoardClient.Answered(key: "k1", at: w.clock, sure: true, n: 1), "and locks that question")
         check(c.answeredNow("dana", key: "k2") == nil, "but not another question")
         w.clock += 6
@@ -1665,6 +1669,11 @@ section("native board loop: connecting")
         let unsure = await c.press(tue, of: choices, to: dana)
         check(unsure == .notSure(Board.choiceUnsure) && c.answeredNow("dana", key: "k1")?.sure == false, "no answer may have gone: locked, not sure")
         check(c.pressing.isEmpty, "nothing left in the air")
+        let carded = Board.Choices(options: choices.options, asked: "Q?", key: "k9", request: String(repeating: "c", count: 64))
+        w.sendQueue = [(200, #"{"delivery":{"state":"placed"}}"#)]
+        _ = await c.press(tue, of: carded, to: dana)
+        check(w.postedRequests.last == String(repeating: "c", count: 64), "#7020: the client's press sends the card's request")
+        w.clock += 6
 
         // One at a time, and never across a typed send.
         w.postYields = 50
