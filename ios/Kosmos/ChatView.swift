@@ -412,16 +412,26 @@ struct ChatBubble: View {
         }
         .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.spoken(who: mine ? "You" : name, at: row.at, text: row.text)
-            + (line.map { $0.canRetry ? ", not sent, double-tap to try again" : ", not sent" } ?? (row.notSent.map { ", " + $0.lowercased() } ?? "")))
+        .accessibilityLabel(spokenLabel)
         .accessibilityAction { if line?.canRetry == true { sendAgain() } }
         // The bubble is read as one element, so its links are offered as actions (one per link, named by its site, and
         // numbered when there is more than one).
-        .accessibilityActions {
-            let links = BubbleText.links(in: row.text)
-            ForEach(Array(links.enumerated()), id: \.offset) { i, url in
-                Button("Open link " + (links.count > 1 ? "\(i + 1) " : "") + "to \(url.host ?? url.absoluteString)") { openURL(url) }
-            }
+        .accessibilityActions { linkActions }
+    }
+
+    // Split out of body so the compiler type-checks each part on its own (CI's Xcode timed out on the pending bubble's).
+    private var spokenLabel: String {
+        let said = Self.spoken(who: mine ? "You" : name, at: row.at, text: row.text)
+        if let line { return said + (line.canRetry ? ", not sent, double-tap to try again" : ", not sent") }
+        if let notSent = row.notSent { return said + ", " + notSent.lowercased() }
+        return said
+    }
+
+    private var linkActions: some View {
+        let links = BubbleText.links(in: row.text)
+        return ForEach(Array(links.enumerated()), id: \.offset) { i, url in
+            let number = links.count > 1 ? "\(i + 1) " : ""
+            Button("Open link \(number)to \(url.host ?? url.absoluteString)") { openURL(url) }
         }
     }
 
@@ -466,12 +476,25 @@ struct PendingBubble: View {
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(ChatBubble.spoken(who: "You", at: item.shownAsSent ? item.at : nil, text: item.text)
-            + (item.failed ? (line.canRetry ? ", not sent, double-tap to try again" : ", not sent") + (reason.map { ". " + $0 } ?? "") : "")
-            + (undelivered.map { ", " + $0.lowercased() } ?? ""))
+        .accessibilityLabel(spokenLabel)
         .accessibilityAction { if item.failed && line.canRetry { retry() } }
         // Delete only where the long-press menu offers it.
-        .accessibilityActions { if item.deletable { Button("Delete", action: delete) } }
+        .accessibilityActions { deleteAction }
+    }
+
+    // Split out of body so the compiler type-checks each part on its own (CI's Xcode timed out on the whole chain).
+    private var spokenLabel: String {
+        var said = ChatBubble.spoken(who: "You", at: item.shownAsSent ? item.at : nil, text: item.text)
+        if item.failed {
+            said += line.canRetry ? ", not sent, double-tap to try again" : ", not sent"
+            if let reason { said += ". " + reason }
+        }
+        if let undelivered { said += ", " + undelivered.lowercased() }
+        return said
+    }
+
+    @ViewBuilder private var deleteAction: some View {
+        if item.deletable { Button("Delete", action: delete) }
     }
 }
 
