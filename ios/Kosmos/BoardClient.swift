@@ -56,6 +56,8 @@ final class BoardClient: ObservableObject {
     private var pictureVersions: [String: String] = [:]
     // The list is re-sorted when it appears and on pull to refresh; live updates keep the order (Mona's spec).
     private var resortNext = true
+    // The first read that may apply the re-sort asked for: an older one, still in the air, may not.
+    private var resortFrom = 0
     // #7034: the person's starred agents as last read from a Mac, by its address. Read when the list is re-sorted; an
     // answer that cannot be read keeps the last ones, and one Mac's stars never order another's list.
     private var stars: (mac: String, names: Set<String>)?
@@ -64,6 +66,7 @@ final class BoardClient: ObservableObject {
     // Status reads by the order they started, and the one the shown list came from.
     private var readsStarted = 0
     private var shownTicket = 0
+    private var sortedTicket = 0
     // The Mac the shown list came from.
     private var shownMac: Board.Mac?
 
@@ -168,6 +171,7 @@ final class BoardClient: ObservableObject {
         unauthorizedSince = nil
         listedThisRun = false
         resortNext = true
+        resortFrom = readsStarted + 1
         // The list stays up on a return to the tab, but never with nothing in it (after a sign-out or another account).
         if case .live = phase, !agents.isEmpty {} else { set(.starting, gen) }
         loop = Task { await self.run(gen) }
@@ -199,10 +203,12 @@ final class BoardClient: ObservableObject {
         if admitted == nil && loop != nil, case .live = phase { return }
         guard case .live = phase, let held = admitted else { retry(); return }
         resortNext = true
-        let before = updatedAt
+        resortFrom = readsStarted + 1
+        let before = readsStarted
         _ = await refresh(url: held.url, mac: held.mac, generation)
-        // A refresh that read nothing must not leave the next live update to re-sort under the person's thumb.
-        if updatedAt == before { resortNext = false }
+        // Unless a read that started with this pull re-sorted the list, the next live update must not re-sort it under
+        // the person's thumb (a read already in the air may have moved updatedAt without re-sorting).
+        if sortedTicket <= before { resortNext = false }
     }
 
     func stop() {
@@ -735,6 +741,7 @@ final class BoardClient: ObservableObject {
         pictures = [:]
         pictureVersions = [:]
         agents = []
+        stars = nil
         updatedAt = nil
         forgetToday()   // kosmos#7030: another account's count and tasks are never shown
         env.defaults.removeObject(forKey: Board.rememberedMacKey)
@@ -918,11 +925,14 @@ final class BoardClient: ObservableObject {
             shownTicket = ticket
             if let names { stars = (mac.address, names) }
             let known = stars?.mac == mac.address ? stars?.names : nil
-            agents = resort ? Board.sorted(rows, stars: known) : Board.keepingOrder(agents, with: rows, stars: known)
+            // A read that started wanting a re-sort applies one only while it is still wanted: a pull that ended
+            // without one has withdrawn it.
+            let sorting = resort && resortNext && ticket >= resortFrom
+            agents = sorting ? Board.sorted(rows, stars: known) : Board.keepingOrder(agents, with: rows, stars: known)
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
             tasksTab = AppTabs.tasksTab(fromStatus: data)   // kosmos#7032: Tasks earned, with no board page loaded
             projectsUnread = AppTabs.projectsUnread(fromStatus: data)     // kosmos#7032: the Projects tab's badge
-            if resort { resortNext = false }
+            if sorting { resortNext = false; sortedTicket = ticket }
             updatedAt = env.now()
             failedRefreshes = 0
             unauthorizedSince = nil

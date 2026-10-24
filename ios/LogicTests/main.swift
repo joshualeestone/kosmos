@@ -1384,6 +1384,9 @@ final class FakeBoardWorld {
     var starsAnswer: (Int, String)? = nil
     // Each stars read waits the first count's yields before it answers; empty: none.
     var starsYields: [Int] = []
+    // Each status read waits the first count's yields before it is sent; statusStarted counts the status reads begun.
+    var statusYields: [Int] = []
+    var statusStarted = 0
     var admitted = 0
     // The Mac cookie each status request carried, as the real session would send it from the jar.
     var presented: [String] = []
@@ -1499,6 +1502,7 @@ func boardLoopTests() async {
                                                 if r.httpMethod == "POST" { for _ in 0..<world.postYields { await Task.yield() } }
                                                 else if r.url?.path.hasSuffix("/thread") == true { for _ in 0..<world.threadYields { await Task.yield() } }
                                                 else if r.url?.path == "/api/agent-stars", !world.starsYields.isEmpty { for _ in 0..<world.starsYields.removeFirst() { await Task.yield() } }
+                                                else if r.url?.path == "/api/status" { world.statusStarted += 1; if !world.statusYields.isEmpty { for _ in 0..<world.statusYields.removeFirst() { await Task.yield() } } }
                                                 else if r.url?.path.hasPrefix("/api/attachment/") == true { world.attachmentStarted.append(r.url!.path); for _ in 0..<world.attachmentYields { await Task.yield() } }
                                                 return world.send(r)
                                             },
@@ -1589,6 +1593,20 @@ section("native board loop: connecting")
         c.stop()
     }
     do {
+        // #7034: a sign-out forgets the stars with everything else learned under it.
+        let (c, w, _, _) = make("kst1")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"},{"sessionName":"wes","name":"Wes","state":"working"}]}"#)
+        w.starsAnswer = (200, #"{"names":["wes"],"ok":true}"#)
+        c.start()
+        let okF = await settle { isLive(c) }
+        check(okF && c.agents.map(\.session) == ["wes", "dana"], "CONTROL: the star orders the list")
+        w.starsAnswer = nil
+        c.accountChanged()
+        let back = await settle { isLive(c) }
+        check(back && c.agents.map(\.session) == ["dana", "wes"], "after a sign-out, stars that cannot be read are no stars")
+        c.stop()
+    }
+    do {
         // #7034: a read that started before the list now shown never puts its older rows back over it.
         let (c, w, _, _) = make("kst1")
         w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"idle"}]}"#)
@@ -1602,6 +1620,37 @@ section("native board loop: connecting")
         await c.refreshNow()
         check(w.requests.filter { $0.hasSuffix("/api/status") }.count >= reads + 2, "CONTROL: a newer read answered while the pull waited for its stars")
         check(c.agents.first?.state == "working", "the pull's older rows are not put back over the newer list")
+        c.stop()
+    }
+    do {
+        // #7034: a pull that read nothing leaves no re-sort behind, even when a read already in the air landed meanwhile.
+        let (c, w, _, _) = make("kst1")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"},{"sessionName":"wes","name":"Wes","state":"working"}]}"#)
+        w.starsAnswer = (200, #"{"names":[],"ok":true}"#)
+        c.start()
+        _ = await settle { isLive(c) }
+        check(c.agents.map(\.session) == ["dana", "wes"], "CONTROL: the list starts by name")
+        // Wes now needs the person: a re-sort would move him first, a live update keeps him where he is.
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"},{"sessionName":"wes","name":"Wes","state":"needs_you"}]}"#)
+        let started = w.statusStarted
+        // Status reads take these yields in the order they begin: the read in the air lands at about 1000, the pull's
+        // own read answers at once (a 500) and the pull ends when its stars answer, at about 1100; the loop's next read,
+        // begun while the pull waited, lands at about 3000, after the pull ended.
+        w.statusYields = [1000, 0, 2000]
+        let inAir = await settle { w.statusStarted > started }
+        w.statusQueue = [(500, "{}")]
+        w.starsYields = [1100]
+        await c.refreshNow()
+        check(inAir && c.agents.first(where: { $0.session == "wes" })?.state == "needs_you", "CONTROL: the read in the air landed while the pull waited")
+        let reads = w.statusStarted
+        _ = await settle { w.statusStarted > reads + 2 }
+        check(c.agents.map(\.session) == ["dana", "wes"], "the next live updates keep the order: the failed pull left no re-sort")
+        let starReads = w.requests.filter { $0.hasSuffix("/api/agent-stars") }.count
+        let more = w.statusStarted
+        _ = await settle { w.statusStarted > more + 2 }
+        check(w.requests.filter { $0.hasSuffix("/api/agent-stars") }.count == starReads, "a live update does not read the stars")
+        await c.refreshNow()
+        check(c.agents.map(\.session) == ["wes", "dana"], "CONTROL: a pull that reads re-sorts, moving Wes first")
         c.stop()
     }
     do {

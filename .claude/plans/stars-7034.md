@@ -27,7 +27,7 @@ order applies", stars kept by session name at GET /api/agent-stars ({ names, ok 
 - Stars read only on appear and pull: a star set on the board shows on the phone at the next re-sort, not at once.
   That matches how the phone treats every other order change.
 
-## Tests (ios/LogicTests, 878 checks with Today)
+## Tests (ios/LogicTests, 885 checks)
 order with and without stars, a star for an unlisted agent, a live update with stars, the parse (ok, not ok, other
 shape), the route; the client: starred first on connect, an unreadable pull keeps the last stars, a pull re-reads.
 
@@ -51,6 +51,23 @@ each red on its named check. TodayView.swift is not in the logic build; CI's Sim
 - A re-sort waits for the stars read: bounded by the 4 s timeout (review 1), and only on appear and pull.
 - The stale-read test was suspected of timing luck. Measured: 20 of 20 green as built, 20 of 20 red with the ticket
   guard removed ($S/st-repeat.sh, one build, the binary run 20 times).
+
+## Review 3
+- A pull that read nothing could leave a re-sort behind: a read already in the air (not re-sorting) moved updatedAt,
+  so refreshNow's `updatedAt == before` test kept resortNext, and the next live update re-sorted under the thumb.
+  Now: a re-sort request records the first read allowed to apply it (resortFrom); a read re-sorts only if it started
+  wanting one, still at or after resortFrom, and the request is still standing when it lands. refreshNow withdraws the
+  request unless a read that started with it re-sorted (sortedTicket). So an older read cannot spend a newer pull's
+  re-sort, and a read begun during a failed pull does not re-sort after it.
+- forget() clears the stars with everything else learned under the session.
+- Tests: the failed pull with a read in the air and one landing after it (fake status reads now take yields in the
+  order they begin), a live update reads no stars, a sign-out forgets the stars. Arms ($S/st-arms-r3.sh, r4.sh):
+  R1 refreshNow never withdraws, R2 no standing-request check, R3 no resortFrom check, R4 stars kept on sign-out:
+  each red on its named check; A1 and T2 re-run, still red.
+
+## Validation it2 (e0cf46ef): 23,430 pass, 3 fail, all contention
+- cli.refused-retry-6968 (2) and server.attachment-stream-6734 (1), files this diff cannot reach (it touches only
+  ios/ and this plan). Run alone through the light lane at the same HEAD: 44 of 44 pass. Load 4.37 during the run.
 
 ## Progress
 - [x] logic, client, tests, arms
