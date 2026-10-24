@@ -253,6 +253,14 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
           chk(o.codes.join('|') === 'ABCDE-FGHJK|23456-789AB', `${E} the owner lists each waiting computer with its code`, JSON.stringify(o));
           chk(o.allowH.length === 2 && o.allowH.every((x) => x >= 44), `${E} each Allow is a button at least 44 px tall`, JSON.stringify(o.allowH));
           chk(!o.line, `${E} the sealed line is not shown on the computer that shared the room`);
+          // Focus on a row's Allow does not survive that row coming back with a new code.
+          await page.focus('#pj-fed-own [data-own-pub="pub-laptop"]');
+          state.rows = state.rows.map((x) => (x.pub === 'pub-laptop' ? Object.assign({}, x, { code: 'QQQQQ-RRRRR' }) : x));
+          await page.evaluate(async () => { await fedOwnLoad(PJ_CURRENT); });
+          const onNew = await page.evaluate(() => { const a = document.activeElement; return a && a.dataset ? (a.dataset.ownCode || '') : ''; });
+          chk(onNew !== 'QQQQQ-RRRRR', `${E} focus does not move onto a row whose code changed under it`, onNew);
+          state.rows = state.rows.map((x) => (x.pub === 'pub-laptop' ? Object.assign({}, x, { code: 'ABCDE-FGHJK' }) : x));
+          await page.evaluate(async () => { await fedOwnLoad(PJ_CURRENT); });
           // A refresh whose reads fail keeps what is on screen.
           failReads = true;
           const servedBefore = failsServed;
