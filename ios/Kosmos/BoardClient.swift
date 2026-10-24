@@ -300,7 +300,8 @@ final class BoardClient: ObservableObject {
 
     private func sendPress(_ option: Board.ChoiceOption, _ choices: Board.Choices, _ session: String) async -> Board.PressResult {
         // Not connected: nothing was sent, so the buttons come back.
-        guard let held = admitted, let request = Board.pressRequest(mac: held.url, session: session, option: option, asked: choices.asked)
+        guard let held = admitted,
+              let request = Board.pressRequest(mac: held.url, session: session, option: option, asked: choices.asked, request: choices.request)
         else { return .refused("Your Mac isn't answering. Try again in a moment.") }
         let answer = await env.send(request)
         return Board.pressResult(status: answer?.1.statusCode ?? 0, body: answer?.0)

@@ -983,6 +983,23 @@ do {
     check((try! JSONSerialization.jsonObject(with: lasting.httpBody!) as! [String: Any])["lasting"] as? Bool == true, "a lasting choice confirms it")
     check(Board.pressRequest(mac: mac, session: "../x", option: .init(n: 1, label: "a", lasting: false), asked: "Q") == nil, "not an agent's name: no request")
 
+    // kosmos#7020: a permission card's press names its request; the request is part of the question's identity.
+    let reqA = String(repeating: "a", count: 64), reqB = String(repeating: "b", count: 64)
+    let named = Board.pressRequest(mac: mac, session: "cleo", option: .init(n: 1, label: "Yes", lasting: false), asked: "Q?", request: reqA)!
+    check((try! JSONSerialization.jsonObject(with: named.httpBody!) as! [String: Any])["request"] as? String == reqA, "#7020: the press names its request")
+    check(body["request"] == nil, "#7020 CONTROL: a press with no request names none")
+    let permThread = { (req: String, reported: Bool) in thread(#"{"messages":[{"at":"2026-10-24T05:00:00Z","kind":"question","from":"cleo","text":"Do you want to proceed?","reported":"#
+        + (reported ? "true" : "false") + #","permission":{"kind":"command","allow":1,"deny":2,"request":""# + req
+        + #""}}],"asking":true,"asked":"Q","options":[{"n":1,"label":"Yes"},{"n":2,"label":"No"}]}"#) }
+    let tA = permThread(reqA, false), tB = permThread(reqB, false)
+    check(tA?.choices?.request == reqA, "#7020: the live question row's request is read")
+    check(tA?.choices?.key != nil && tA?.choices?.key != tB?.choices?.key, "#7020: the same words with another request are another question")
+    check(tA?.choices?.key == permThread(reqA, false)?.choices?.key, "#7020 CONTROL: the same request keeps its key")
+    check(permThread(reqA, true)?.choices?.request == nil, "#7020: a reported question's request is not used")
+    check(permThread("not-a-request", false)?.choices?.request == nil && permThread(reqA.uppercased(), false)?.choices?.request == nil,
+          "#7020: only a request the Mac makes (64 lowercase hex)")
+    check(thread(#"{"messages":[],"asking":true,"asked":"Q","options":[{"n":1,"label":"a"}]}"#)?.choices?.request == nil, "#7020: no card, no request")
+
     // What its answer means.
     let res = { (s: Int, b: String?) in Board.pressResult(status: s, body: b.map { Data($0.utf8) }) }
     check(res(200, #"{"delivery":{"state":"placed"}}"#) == .sent, "placed is sent")

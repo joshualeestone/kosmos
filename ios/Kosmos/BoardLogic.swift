@@ -640,6 +640,9 @@ enum Board {
         // choices, or another header, is a new question (dmChoiceSig, dmChoiceHead), so an armed or answered state for
         // the old one never carries over.
         let key: String
+        // kosmos#7020: a permission card's request (chat.permissionRequestId, on the live question row), sent with a
+        // press so the Mac types it only at that same request. Part of `key`: two prompts can share `asked`.
+        var request: String? = nil
     }
 
     struct Permission: Equatable {
@@ -663,7 +666,21 @@ enum Board {
               obj["presence"] as? String != "off" else { return nil }
         let question = (obj["question"] as? [String: Any])?["text"] as? String ?? ""
         let sig = opts.map { "\($0.n)\u{1}\($0.label)" }.joined(separator: "\u{2}")
-        return Choices(options: opts, asked: asked, key: asked + "\u{3}" + choiceHead(question, asked: asked) + "\u{3}" + sig)
+        let request = permissionRequest(obj["messages"])
+        return Choices(options: opts, asked: asked,
+                       key: asked + "\u{3}" + choiceHead(question, asked: asked) + "\u{3}" + sig + "\u{3}" + (request ?? ""),
+                       request: request)
+    }
+
+    // The board's dmChoicesFrom: the last unreported question row's permission.request, only a value the Mac makes
+    // (64 lowercase hex).
+    static func permissionRequest(_ messages: Any?) -> String? {
+        let rows = messages as? [[String: Any]] ?? []
+        guard let row = rows.last(where: { $0["kind"] as? String == "question" && !isTrue($0["reported"]) && $0["permission"] is [String: Any] }),
+              let request = (row["permission"] as? [String: Any])?["request"] as? String,
+              request.utf8.count == 64, request.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) })
+        else { return nil }
+        return request
     }
 
     // dmChoiceHead: the question's lines up to the line that holds `asked` (the option lines below it carry a highlight
@@ -736,14 +753,16 @@ enum Board {
     static let choiceArmNote = "This one changes what the agent may do from now on. Press it again to choose it."
     static let choiceWaitLine = "Still sending your choice. Try again in a moment."
 
-    // The option's digit is the key typed; its words are checked against the screen; `lasting` confirms a lasting choice.
-    static func pressRequest(mac: URL, session: String, option: ChoiceOption, asked: String) -> URLRequest? {
+    // The option's digit is the key typed; its words are checked against the screen; `lasting` confirms a lasting choice;
+    // `request` (#7020) names the permission request the card was drawn for.
+    static func pressRequest(mac: URL, session: String, option: ChoiceOption, asked: String, request: String? = nil) -> URLRequest? {
         guard isAgentSession(session) else { return nil }
         var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["text": String(option.n), "chose": option.label, "asked": asked]
+        if let request { body["request"] = request }
         if option.lasting { body["lasting"] = true }
         r.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return r
