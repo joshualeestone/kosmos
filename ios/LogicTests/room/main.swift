@@ -320,16 +320,21 @@ check(!Board.heldNotice(until: nil).contains("lift on its own"), "no time given:
 // sentence is its own piece; the refusal is two pieces around its reason.
 let jsQuote = { (s: String) in s.replacingOccurrences(of: "'", with: "\\'") }
 let noticeNoTime = Board.heldNotice(until: nil)
-let splitAt = noticeNoTime.range(of: "without a result.")!.lowerBound, tailAt = noticeNoTime.range(of: " An agent whose")!.lowerBound
-let liftPiece = Board.heldNotice(until: Date(), time: { _ in "\u{1}" }).components(separatedBy: "\u{1}").first!
-    .components(separatedBy: "reopen the room.").last!
-let refusalBare = Board.reopenRefusal(status: nil, nil)!
-let refusalSplit = refusalBare.range(of: ". Try")!.lowerBound
-for phrase in [jsQuote(String(noticeNoTime[..<splitAt])), jsQuote(String(noticeNoTime[splitAt..<tailAt])),
-               jsQuote(String(noticeNoTime[tailAt...])), "'" + liftPiece + "'",
+// Guarded, not force-unwrapped (review 5): a rewording that loses a split point turns a named check red.
+let splitAt = noticeNoTime.range(of: "without a result.")?.lowerBound, tailAt = noticeNoTime.range(of: " An agent whose")?.lowerBound
+let liftPiece = Board.heldNotice(until: Date(), time: { _ in "\u{1}" }).components(separatedBy: "\u{1}").first?
+    .components(separatedBy: "reopen the room.").last ?? ""
+let refusalBare = Board.reopenRefusal(status: nil, nil) ?? ""
+let refusalSplit = refusalBare.range(of: ". Try")?.lowerBound
+check(splitAt != nil && tailAt != nil && refusalSplit != nil && !liftPiece.isEmpty, "premise: the phone's notice and refusal still have the board's split points")
+var noticePieces: [String] = []
+if let splitAt, let tailAt, splitAt < tailAt {
+    noticePieces = [String(noticeNoTime[..<splitAt]), String(noticeNoTime[splitAt..<tailAt]), String(noticeNoTime[tailAt...])].map(jsQuote)
+}
+let refusalPiece = refusalSplit.map { "'" + String(refusalBare[..<$0]) + "' + (because ? ': ' + because : '') + '" + String(refusalBare[$0...]) + "'" } ?? ""
+for phrase in noticePieces + ["'" + liftPiece + "'",
                ">" + Board.reopenButton + "</button>", "pjRoomAnnounce('" + Board.reopenedAnnouncement + "')",
-               "pjRoomAnnounce('" + Board.heldAnnouncement + "')",
-               "'" + String(refusalBare[..<refusalSplit]) + "' + (because ? ': ' + because : '') + '" + String(refusalBare[refusalSplit...]) + "'"] {
+               "pjRoomAnnounce('" + Board.heldAnnouncement + "')", refusalPiece] {
     check(!phrase.isEmpty && boardPage.contains(phrase), "the board says what the phone says: \(phrase.prefix(60))")
 }
 func capturedAnswer(_ name: String) -> (Int?, Data?) {

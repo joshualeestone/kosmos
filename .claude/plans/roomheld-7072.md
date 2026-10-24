@@ -42,4 +42,7 @@ shows the board's sentence; the room suite covers it against the real route's an
    are built from the phone's own output (notice pieces, lift sentence, refusal), never a second copy; a refusal
    that lands after the person left is not kept; a short notice takes only its own height while typing; the Debug
    sample remembers reopened rooms one by one.
+   Round 5: 0 blockers, 0 warnings, 2 nits (converged). Fixed: the parity block's force unwraps are guarded, so a
+   rewording reds a named check instead of trapping. Stated: a refusal that lands after the person left the room is
+   neither kept nor said; coming back shows the notice with Reopen enabled, so they can try again.
 3. Validation, PR.
