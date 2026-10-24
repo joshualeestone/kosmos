@@ -59,6 +59,8 @@ final class BoardClient: ObservableObject {
     // #7034: the person's starred agents as last read from a Mac, by its address. Read when the list is re-sorted; an
     // answer that cannot be read keeps the last ones, and one Mac's stars never order another's list.
     private var stars: (mac: String, names: Set<String>)?
+    // The stars of the Mac the shown list came from (Today orders its Needs you cards by them).
+    var shownStars: Set<String>? { stars?.mac == shownMac?.address ? stars?.names : nil }
     // Status reads by the order they started, and the one the shown list came from.
     private var readsStarted = 0
     private var shownTicket = 0

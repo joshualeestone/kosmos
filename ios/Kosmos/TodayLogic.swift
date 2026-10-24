@@ -100,9 +100,10 @@ extension Board {
     }
 
     // Needs you: every agent whose tone is asked or needs you (the board's own needsPerson verdict, sent since #7004),
-    // longest waiting first (an unknown start after the known ones), then by name. Working now: agents whose tone is
-    // working, by name. Each section is hidden by the view when it is empty.
-    static func today(agents: [Agent], tasks: [ReadyTask]?) -> TodayModel {
+    // longest waiting first (an unknown start after the known ones), then by name, with the person's starred agents
+    // first (#7034, the board's rule #6719). Working now: agents whose tone is working, by name. Each section is hidden
+    // by the view when it is empty.
+    static func today(agents: [Agent], tasks: [ReadyTask]?, stars: Set<String>? = nil) -> TodayModel {
         let byName: (Agent, Agent) -> Bool = { a, b in
             let c = a.name.localizedStandardCompare(b.name)
             return c == .orderedSame ? a.session < b.session : c == .orderedAscending
@@ -116,7 +117,7 @@ extension Board {
             }
         }
         let working = agents.filter { tone($0) == .working }.sorted(by: byName)
-        return TodayModel(needsYou: needs, ready: tasks, working: working)
+        return TodayModel(needsYou: starredFirst(needs, stars: stars), ready: tasks, working: working)
     }
 
     // The Today tab's badge: /api/status's counts.waiting (agents that need you plus unread messages, the Dock badge).
