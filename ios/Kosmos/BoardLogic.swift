@@ -592,7 +592,8 @@ enum Board {
         // No control or format characters (a NUL ends a path where it stands, so "page.html\u{0}" would be written as
         // page.html), as the Mac's own safeName strips them.
         let visible = String(String.UnicodeScalarView(name.unicodeScalars.filter {
-            $0.properties.generalCategory != .control && $0.properties.generalCategory != .format
+            // Joiners (U+200C, U+200D) are kept: emoji and some scripts are spelled with them.
+            $0.properties.generalCategory != .control && ($0.properties.generalCategory != .format || $0.value == 0x200C || $0.value == 0x200D)
         }))
         let cleaned = visible.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
             .trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
@@ -609,7 +610,7 @@ enum Board {
             if kept.utf8.count + String(ch).utf8.count > room { break }
             kept.append(ch)
         }
-        let cut = (keepExt && !kept.isEmpty ? kept + "." + ext : kept)
+        let cut = keepExt ? (kept.isEmpty ? "file" : kept) + "." + ext : kept
             .trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
         var base = cut.isEmpty ? "file" : cut
         // No extension, or one no app knows ("Q3.final", "v1.2 report"): Apple's lookup makes up a dynamic type for those.

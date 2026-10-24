@@ -1079,6 +1079,8 @@ do {
           && Board.savedName("a:b.pdf") == "a-b.pdf", "a saved name is never a path, never hidden, never empty")
     check(Board.savedName("page.html\u{0}") == "page.html" && Board.savedName("a\u{202E}b.pdf") == "ab.pdf" && Board.savedName("x\u{7}y.txt") == "xy.txt",
           "control and format characters never reach the saved name")
+    check(Board.savedName("\u{1F468}\u{200D}\u{1F4BB} notes.pdf") == "\u{1F468}\u{200D}\u{1F4BB} notes.pdf", "joiners stay: an emoji keeps its spelling")
+    check(Board.savedName("Z" + String(repeating: "\u{301}", count: 300) + ".pdf") == "file.pdf", "a stem that cannot fit keeps its extension")
     check(Board.savedName("Q3.final", type: "application/pdf") == "Q3.final.pdf" && Board.savedName("v1.2 report", type: "application/pdf") == "v1.2 report.pdf",
           "a dot in the name is not an extension unless an app knows it")
     check(Board.savedName("report", type: "application/pdf") == "report.pdf" && Board.savedName("report.txt", type: "application/pdf") == "report.txt"
@@ -1628,7 +1630,7 @@ section("native board loop: connecting")
         let htmlFile = await c.fetchFile(html)
         check(htmlFile == nil, "a web page is never opened here, even one the agent sent as HTML")
         // The Mac's answer is itself markup, under an ordinary name and type.
-        w.attachmentAnswer = (200, "image/svg+xml; charset=utf-8", Data("<svg/>".utf8))
+        w.attachmentAnswer = (200, "image/svg+xml ; charset=utf-8", Data("<svg/>".utf8))
         let svgAnswer = await c.fetchFile(Board.Attachment(id: "aaaaaaaaaaaaaaaaaaaaaa01", name: "chart.png", type: "image/png", size: 1, kind: "image",
                                                            url: "/api/attachment/aaaaaaaaaaaaaaaaaaaaaa01", preview: nil))
         check(svgAnswer == nil, "an answer that is markup is no file, whatever the row said")
