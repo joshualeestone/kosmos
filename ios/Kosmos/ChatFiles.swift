@@ -80,6 +80,8 @@ struct FileChip: View {
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.separator, lineWidth: 0.5))
+        // As wide as its name (up to the cap), wherever it sits: a bubble's row offers the whole width.
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
