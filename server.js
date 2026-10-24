@@ -1125,6 +1125,9 @@ function proofTokenFilesSig() {
 /* A file's parsed value, kept until the file's mtime or size changes, so the token-free proof route does not read
    it on every request. `read` returns the value; a file that cannot be stat'ed is read every time (the rare case). */
 const proofFileCache = new Map();
+/* kosmos#6720: the person's failed messages being sent again right now, by agent and row (`name\u0000at`), so two
+   presses of Try again (two tabs, a double tap) cannot type one message twice. */
+const DM_RETRYING = new Set();
 function proofCachedRead(file, read) {
   let sig = null;
   try { const st = fs.statSync(file); sig = st.mtimeMs + ':' + st.size; } catch { sig = null; }
@@ -4196,13 +4199,15 @@ const DM_OLDER_PAGE = 200;
    latest 200 and the older route's earlier pages), so the earlier pages can never show what the latest ones hide:
    in the setup guide's thread every row is masked (#3769), the person's reactions ride as pills (#3650), and
    previews are attached. The live question and account rows are NOT added here: they belong to the tail only. */
+/* The words of one row as the page is shown them: the setup guide's thread masked (#3769), any other unchanged. One
+   rule for dmServeRows and for kosmos#6720's retryable check, which must not attach previews (withPreviews fetches). */
+function dmServedText(text, name, card) {
+  const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
+  return guideThread && typeof text === 'string' ? guideMasked((card && card.sessionName) || name, text) : text;
+}
 function dmServeRows(rows, name, card) {
   if (!Array.isArray(rows)) return rows;
-  const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
-  const guideName = guideThread ? ((card && card.sessionName) || name) : null;
-  const masked = guideThread
-    ? rows.map((m) => (m && typeof m.text === 'string' ? { ...m, text: guideMasked(guideName, m.text) } : m))
-    : rows;
+  const masked = rows.map((m) => (m && typeof m.text === 'string' ? { ...m, text: dmServedText(m.text, name, card) } : m));
   const reacted = masked.map((m) => {
     if (!m || m.from !== name) return m;
     const { reactionsTold, ...rest } = m;
@@ -18751,6 +18756,7 @@ const server = http.createServer(async (req, res) => {
   if (dm && req.method === 'POST') {
     const name = decodeSegment(dm[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let retryKey = null;   // kosmos#6720: set while this request is sending a failed row again; released below
     readBody(req)
       .then(async (buf) => {
         let body;
@@ -18820,6 +18826,49 @@ const server = http.createServer(async (req, res) => {
           const missing = new Error('no agent by that name');
           missing.status = 404;
           throw missing;
+        }
+        /* kosmos#6720: Try again on a message that did not go. `retry_of` names the person's own row (its `at`), and
+           the send then takes every gate below exactly as the first press did, but its verdict REPLACES that row's
+           (chat.retryDmBegin before any key, retryDmFinish after) instead of adding a second message. Only a row whose last verdict was COULD_NOT
+           (nothing of it reached the pane, so typing it again cannot double it), with these exact words, plain text
+           (no menu answer, reply or file), and not already being sent again. Anything else is refused with nothing
+           typed. */
+        const retryOf = body.retry_of === undefined || body.retry_of === null ? null : body.retry_of;
+        if (retryOf !== null) {
+          if (typeof retryOf !== 'string' || !retryOf) throw new Error('retry_of names a message by its at');
+          if (automatic || body.chose !== undefined || (body.asked !== undefined && body.asked !== null)
+            || (body.reply_to !== undefined && body.reply_to !== null) || body.attachment
+            || (Array.isArray(body.attachments) && body.attachments.length) || body.anyway !== undefined) {
+            throw new Error('a message sent again is its own words only');
+          }
+          const key = name + '\u0000' + retryOf;
+          if (DM_RETRYING.has(key)) {
+            const busy = new Error('that message is being sent again now');
+            busy.status = 409; throw busy;
+          }
+          DM_RETRYING.add(key);
+          retryKey = key;
+          let rows;
+          try { rows = chat.readThread(chat.DIRECT, name).messages || []; } catch {
+            const unread = new Error('we could not read this conversation just now, so nothing was sent again. Try again in a moment.');
+            unread.status = 503; throw unread;
+          }
+          const own = rows.filter((r) => r && !r.from && r.kind !== 'kosmos' && r.kind !== 'question');
+          const row = own.find((r) => r.at === retryOf);
+          /* `retryable` is written when the row is kept (below), so a row failed before kosmos#6720, whose words went
+             back into the box and may since have been sent from it, is never offered (review 1). And only the
+             person's NEWEST message: sent again behind a newer one, it would reach the agent out of order while the
+             row reads in its old place. */
+          if (!row || row.text !== body.text || row.wire || row.replyTo || (Array.isArray(row.attachments) && row.attachments.length)
+            || !row.delivery || row.delivery.state !== chat.DELIVERY.COULD_NOT || row.delivery.retryable !== true
+            || typeof row.delivery.duplicateOf === 'string') {   // delta review: a kept-above copy goes with the kept one
+            const gone = new Error('that message cannot be sent again from here: it went, or it is not one that failed');
+            gone.status = 409; throw gone;
+          }
+          if (own[own.length - 1] !== row) {
+            const later = new Error('you have sent a message since, so this one was not sent again (it would arrive after it). Send it as a new message if you still need it.');
+            later.status = 409; throw later;
+          }
         }
         const roster = safeRoster();
         /* #1629: BEFORE the button block below, which only runs for a button
@@ -19149,6 +19198,10 @@ const server = http.createServer(async (req, res) => {
         // Review 2: a Claude card only (Codex and Gemini answer their own menus by their own keys).
         if (!automatic && seenNow && askingCard && String(askingCard.runner || 'claude') === 'claude') {
           const cq = seenNow.text ? require('./engine/status').claudeAnswerableMenu(seenNow.text) : null;   // #6054
+          if (cq && retryOf !== null) {   // kosmos#6720: never sent again as a menu key, nor by closing a question
+            const e = new Error('its screen is asking a question now, so this was not sent again. Answer it first.');
+            e.status = 409; throw e;
+          }
           if (cq) {
             const said = String(body.text).trim();
             /* #6054 review 1: a permission prompt is answered only by a press of its button, which carries the prompt's identity
@@ -19228,6 +19281,10 @@ const server = http.createServer(async (req, res) => {
           // Plain on both sides: a message with an attachment or answering another is never folded into one
           // that looks the same, and a copy already typed (its removal pending) is not one that waits.
           const keptCopy = keptForTheBox();
+          if (keptCopy && retryOf !== null) {   // kosmos#6720: a failed row is not answered with a second, duplicate one
+            const e = new Error('the same words are already kept to be sent once its input box is clear, so this was not sent again');
+            e.status = 409; throw e;
+          }
           if (keptCopy) {
             const dupDelivery = dupAnswer(keptCopy);
             const dupRow = chat.appendMessage(chat.DIRECT, name, { ...attachments.rowFields(files.recs), text: body.text, wire: null, at: dupDelivery.at, delivery: dupDelivery,
@@ -19251,6 +19308,16 @@ const server = http.createServer(async (req, res) => {
               } catch { answering = false; }
             }
             if (answering) { hold = null; behind = false; }
+          }
+          if ((hold || behind) && retryOf !== null) {   // kosmos#6720: a failed row is not turned into a second, held one
+            // Delta review: named as the held path names it, so a box-kept queue is not called out of usage.
+            const forInput = !hold && behind && limitqueue.list(name).some((q) => q.input === true);
+            const e = new Error(hold && hold.heldFor === 'signin'
+              ? 'it is signed out just now, so this was not sent again'
+              : forInput
+                ? 'it still has messages kept while its input box held text not yet sent, so this was not sent again'
+                : 'it cannot take messages just now (out of usage), so this was not sent again');
+            e.status = 409; throw e;
           }
           if (hold || behind) {
             const at = new Date().toISOString();
@@ -19286,17 +19353,36 @@ const server = http.createServer(async (req, res) => {
             }
           }
         }
-        let delivery = qmenuAnswer
-          ? { state: qmenuAnswer.answered ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED,
-            because: qmenuAnswer.answered ? null : 'its question was still on its screen after the answer; look at this page again in a moment before pressing anything',   // #6054: no window to look at
-            at: new Date().toISOString() }
-          : await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
-            envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
+        /* kosmos#6720: the row reads "being sent again" (UNCONFIRMED) in the RECORD before any key, so nothing this
+           send leaves behind (a crash, a failed final write) can offer Try again for words that may have been typed. */
+        if (retryOf !== null && !chat.retryDmBegin(name, retryOf, body.text)) {
+          const unmarked = new Error('it was not sent again: the message changed, you sent another since, or the conversation was busy. Look at it again in a moment.');
+          unmarked.status = 409; throw unmarked;
+        }
+        let delivery;
+        try {
+          delivery = qmenuAnswer
+            ? { state: qmenuAnswer.answered ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED,
+              because: qmenuAnswer.answered ? null : 'its question was still on its screen after the answer; look at this page again in a moment before pressing anything',   // #6054: no window to look at
+              at: new Date().toISOString() }
+            : await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
+              envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
+        } catch (err) {
+          /* kosmos#6720 review 2: a retry that threw after its row was marked says what is known, which is not "it
+             may have arrived" alone: whether any key went before the throw cannot be told from here. */
+          if (retryOf !== null) {
+            chat.retryDmFinish(name, retryOf, body.text, { state: chat.DELIVERY.UNCONFIRMED,
+              because: 'Kosmos hit a problem while sending it again, so it may or may not have arrived; check its window before sending it again' });
+          }
+          throw err;
+        }
         /* #6774: a person's own message refused because the agent's input box holds text not yet sent (#6249, nothing
            was typed) is kept, like a held message, and typed by the minute sweep once the box reads empty. Could not
            keep it: the refusal stands, as before. `plain` (no attachment, not a reply) is what a re-send is matched on. */
         let inputKept = null;   // { id, refused }: taken back out below if its row cannot be written
-        if (!automatic && !qmenuAnswer && !qmenuClosed && body.anyway !== true && delivery
+        /* kosmos#6720: never for a retry, which keeps its own row (a kept copy would be a second one); it stays failed,
+           with its try again line. */
+        if (retryOf === null && !automatic && !qmenuAnswer && !qmenuClosed && body.anyway !== true && delivery
             && delivery.state === chat.DELIVERY.COULD_NOT && delivery.inputHeld === true) {
           const limitqueue = require('./engine/limitqueue');
           const at = delivery.at || new Date().toISOString();
@@ -19347,10 +19433,28 @@ const server = http.createServer(async (req, res) => {
            send (a paste that failed part-way, a pane that changed before Enter) is the case
            most likely to have lost it. Telling twice costs one extra note; not telling is
            silent. A failed mark (the thread lock busy) also just tells again next time. */
+        /* kosmos#6720 review 3: for a retry, the row's verdict is written FIRST, so a throw in the bookkeeping below can
+           never leave it "being sent again" under a refusal for words that went. */
+        const retryWrote = retryOf !== null ? chat.retryDmFinish(name, retryOf, body.text, delivery) : null;
         if (news.note && delivery && delivery.state === chat.DELIVERY.PLACED) {   // #5943: the reactions' own part, not the question note riding with it
           chat.markDmReactionsTold(name, news.named);
         }
         if (questionAsk && delivery && delivery.state === chat.DELIVERY.PLACED) chat.markDmQuestionTold(askingCard.sessionName, questionAsk);   // #5943: once per ask
+        if (retryOf !== null) {
+          /* kosmos#6720: the same row, its new verdict. Not written (the thread busy past its lock wait) is said, as
+             the append's own failure is: the agent may have it while the row still reads failed. */
+          const rewrote = retryWrote;
+          sendJson(res, 200, { delivery, recorded: rewrote, retried: true,
+            recordedBecause: rewrote ? null : 'we could not update the message in this conversation, so it reads as possibly sent' });
+          return;
+        }
+        /* kosmos#6720: a plain message that did not go is kept as one Try again may send (no menu answer, file or reply). */
+        /* Review 2: and only words the page is shown as they are (the setup guide's thread masks secrets, #3769): a row
+           the page cannot send back word for word would be refused forever with its words nowhere else. */
+        /* Delta review (merged with #6774): never a copy not sent because the same words are kept above (duplicateOf):
+           that copy goes, so a try again here would type the words twice. */
+        const retryable = delivery && delivery.state === chat.DELIVERY.COULD_NOT && !delivery.duplicateOf && !automatic && !chose && !files.recs.length && !answered
+          && dmServedText(body.text, name, askingCard) === body.text;   // never dmServeRows here: it fetches previews
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...attachments.rowFields(files.recs),
           text: chose || body.text,
@@ -19373,7 +19477,7 @@ const server = http.createServer(async (req, res) => {
            */
           wire: chose ? chat.cleanMessage(body.text) : null,
           at: delivery.at,
-          delivery,
+          delivery: retryable ? { ...delivery, retryable: true } : delivery,
           /* #4256: stored only on a reply, so an ordinary message's row is unchanged. `wire` stays null on a reply:
              the '(answering: "...")' in front of the words is Kosmos's framing, like the envelope, not the person's. */
           ...(answered ? { replyTo: answered.at } : {}),
@@ -19392,10 +19496,12 @@ const server = http.createServer(async (req, res) => {
           delivery,
           recorded: kept.recorded === true,
           recordedBecause: kept.because || null,
+          ...(retryable && kept.recorded === true ? { retryable: true } : {}),   // kosmos#6720: its row offers try again
         });
       })
       .catch((err) => sendJson(res, (err && err.status) || ((err && err.code === 'UNREADABLE') ? 500 : 400),
-        { error: String((err && err.message) || 'we could not read that request') }));
+        { error: String((err && err.message) || 'we could not read that request') }))
+      .finally(() => { if (retryKey) DM_RETRYING.delete(retryKey); });   // kosmos#6720: after the verdict is written
     return;
   }
 

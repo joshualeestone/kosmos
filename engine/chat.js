@@ -4347,6 +4347,8 @@ function appendLocked(projectId, agent, entry, bornAt) {
         } : {}),
         // #6774: a re-send not sent because the same words were already kept above (the page words it so).
         ...(entry && entry.delivery && typeof entry.delivery.duplicateOf === 'string' ? { duplicateOf: entry.delivery.duplicateOf } : {}),
+        // kosmos#6720: a person's plain message that did not go, kept as one Try again may send (the route decides).
+        ...(entry && entry.delivery && entry.delivery.state === DELIVERY.COULD_NOT && entry.delivery.retryable === true ? { retryable: true } : {}),
       },
     }],
   };
@@ -5095,7 +5097,63 @@ function updateDmDelivery(agent, at, delivery) {
   } catch { return false; }
 }
 
+/**
+ * kosmos#6720: a person's message that did not go (COULD_NOT: nothing of it reached the pane), sent again from its own
+ * row, takes the new verdict IN PLACE rather than a second row, so the conversation shows one message either way.
+ *
+ * ⚠️ TWO WRITES, AND THE FIRST IS BEFORE ANY KEY. `retryDmBegin` turns the row UNCONFIRMED ("being sent again") under
+ * the thread lock BEFORE anything is typed, and `retryDmFinish` writes the real verdict only over a row still carrying
+ * that mark. So a board that stops mid-send, or a final write that fails, leaves a row that may have gone and offers
+ * no Try again. Two presses in one running board are stopped first by the route's in-memory mark; the record is what
+ * still holds across a restart or a failed final write (review 1).
+ * Only a row still COULD_NOT, marked retryable when it was kept, with exactly these words. Its `at` stays (the row's
+ * identity, which reactions and replies key on); the try's own time rides as `retriedAt`. Each returns true when
+ * the row was rewritten.
+ */
+const RETRYING_BECAUSE = 'it was being sent again when Kosmos last looked, so it may have arrived; check its window before sending it again';
+function rewriteDmRow(agent, at, text, pick, make, newestOnly) {
+  const name = String(agent);
+  if (typeof at !== 'string' || typeof text !== 'string') return false;
+  let file;
+  try { file = threadFile(DIRECT, name); } catch { return false; }
+  try {
+    let wrote = false;
+    const held = withThreadLock(file, () => {
+      const thread = readThread(DIRECT, name);
+      /* Review 2: "the person's newest message" is decided HERE, under the lock, so a message sent meanwhile (another
+         tab) is seen before this one is typed behind it. */
+      if (newestOnly) {
+        const own = thread.messages.filter((m) => m && !m.from && m.kind !== 'kosmos' && m.kind !== 'question');
+        if (!own.length || own[own.length - 1].at !== at) return true;
+      }
+      const messages = thread.messages.map((m) => {
+        if (wrote || !m || m.at !== at || m.from || m.text !== text || !m.delivery || !pick(m.delivery)) return m;
+        wrote = true;
+        return { ...m, delivery: make(m.delivery) };
+      });
+      if (wrote) store.saveFlushed(file, JSON.stringify({ ...thread, messages }, null, 2));
+      return true;
+    });
+    return !!(held && held.ok) && wrote;
+  } catch { return false; }
+}
+function retryDmBegin(agent, at, text) {
+  return rewriteDmRow(agent, at, text,
+    (d) => d.state === DELIVERY.COULD_NOT && d.retryable === true,
+    () => ({ state: DELIVERY.UNCONFIRMED, because: RETRYING_BECAUSE, retrying: true, retriedAt: new Date().toISOString(), paneState: null, paneNote: null }),
+    true);
+}
+function retryDmFinish(agent, at, text, delivery) {
+  if (!delivery || typeof delivery.state !== 'string') return false;
+  return rewriteDmRow(agent, at, text,
+    (d) => d.retrying === true,
+    (d) => ({ state: delivery.state, because: delivery.because || null, paneState: delivery.paneState || null,
+      paneNote: delivery.paneNote || null, retriedAt: d.retriedAt,
+      ...(delivery.state === DELIVERY.COULD_NOT ? { retryable: true } : {}) }));   // nothing typed again: it may be tried again
+}
+
 module.exports = {
+  retryDmBegin, retryDmFinish,   // kosmos#6720
   setEarlierSubmittedHook,   // #6256 item 2
   inputBoxEmpty,   // #6256 item 1
   updateDmDelivery,   // #5805 slice 2b
