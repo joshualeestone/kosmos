@@ -167,9 +167,8 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         completionHandler([.banner, .sound, .badge])
     }
 
-    // Handle a response to a notification. The categories register no actions
-    // and no .customDismissAction (#3870), so the plain tap is the only response
-    // iOS delivers here.
+    // Handle a response to a notification: the plain tap, and Reply (#7017), the one action any category registers.
+    // No .customDismissAction (#3870), so a dismiss never arrives here.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
@@ -217,6 +216,15 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { tell(NotificationAction.cannotSend(agent: agent), about: userInfo) }
             return
         }
+        // Read the chat first: with a question or permission prompt up, a reply could answer a menu the person never
+        // saw, so it is not sent. A chat that cannot be read is not sent to either.
+        guard let check = NotificationAction.checkRequest(
+            userInfo: userInfo, stored: SessionKeychain.macSession.load(),
+            session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin
+        ), let read = try? await Self.replyHTTP.data(for: check),
+              (read.1 as? HTTPURLResponse)?.statusCode == 200, let thread = Board.parseThread(read.0)
+        else { tell(NotificationAction.couldNotCheck(agent: agent), about: userInfo); return }
+        if NotificationAction.standingQuestion(thread) { tell(NotificationAction.questionUp(agent: agent), about: userInfo); return }
         let answer = try? await Self.replyHTTP.data(for: request)
         let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
         let result = Board.sendResult(status: status, body: answer?.0)
