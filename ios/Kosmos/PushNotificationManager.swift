@@ -167,7 +167,7 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         completionHandler([.banner, .sound, .badge])
     }
 
-    // Handle a response to a notification: the plain tap, and Reply (#7017), the one action any category registers.
+    // Handle a response to a notification: the plain tap, Reply, and Allow and Deny (#7017), the only actions any category registers.
     // No .customDismissAction (#3870), so a dismiss never arrives here.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
@@ -198,10 +198,52 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
                 completionHandler()
             }
             return
+        case NotificationAction.allowAction, NotificationAction.denyAction:
+            // kosmos#7017 part 2: Allow or Deny from the notification (iOS has already asked to unlock the phone).
+            let content = response.notification.request.content
+            let action = response.actionIdentifier
+            Task {
+                await self.sendPress(action: action, userInfo: content.userInfo, agent: content.title)
+                completionHandler()
+            }
+            return
         default:
             break
         }
         completionHandler()
+    }
+
+    // An Allow or Deny goes only after the chat, read just now, still shows the very request the notice was about (its
+    // fingerprint); a minutes-old notice must never answer a different command asking the same question.
+    private func sendPress(action: String, userInfo: [AnyHashable: Any], agent: String) async {
+        let stored = SessionKeychain.macSession.load(), session = SessionKeychain.live.load()
+        guard let press = NotificationAction.permissionPress(userInfo, action: action) else {
+            tell(NotificationAction.cannotPress(agent: agent), about: userInfo)
+            return
+        }
+        guard let request = NotificationAction.pressRequest(
+            userInfo: userInfo, press: press, stored: stored, session: session, coordinator: KosmosConfig.coordinatorOrigin
+        ), let check = NotificationAction.checkRequest(
+            userInfo: userInfo, stored: stored, session: session, coordinator: KosmosConfig.coordinatorOrigin
+        ) else {
+            tell(NotificationAction.cannotPress(agent: agent), about: userInfo)
+            return
+        }
+        let read = try? await Self.readHTTP.data(for: check)
+        switch NotificationAction.permissionVerdict(status: (read?.1 as? HTTPURLResponse)?.statusCode ?? 0, data: read?.0, press: press, agent: agent) {
+        case .changed:
+            tell(NotificationAction.changedNotice(agent: agent, allow: press.allow), about: userInfo)
+            return
+        case .unreadable(let said):
+            tell(said, about: userInfo)
+            return
+        case .go:
+            break
+        }
+        let answer = try? await Self.sendHTTP.data(for: request)
+        let result = Board.pressResult(status: (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0, body: answer?.0)
+        NSLog("[Push] \(press.allow ? "allow" : "deny") from a notification: \(result)")
+        if let said = NotificationAction.pressNotice(after: result, agent: agent, allow: press.allow) { tell(said, about: userInfo) }
     }
 
     // Two sessions for replies, refusing redirects as the app's own client does (so the computer's cookie never goes to

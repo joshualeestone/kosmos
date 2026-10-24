@@ -71,7 +71,9 @@ check(NotificationAction.checkRequest(userInfo: info, stored: kept(), session: s
 check(NotificationAction.askingNotice(agent: "Ada").contains("was not sent"), "the person is told the reply was not sent, and why")
 check(manager.contains("case .asking:\n            tell(NotificationAction.askingNotice(agent: agent), about: userInfo)\n            return"), "asking: the app tells the person and returns before any send")
 check(manager.contains("case .unreadable(let said):\n            tell(said, about: userInfo)\n            return"), "unreadable: the app tells the person and returns before any send")
-if let checkAt = manager.range(of: "NotificationAction.verdict("), let sendAt = manager.range(of: "Self.sendHTTP.data(for: request)") {
+// Inside sendReply only: the Allow and Deny handler has its own send (checked in its own section).
+let replyFn = manager.range(of: "private func sendReply(").map { String(manager[$0.lowerBound...]) } ?? ""
+if let checkAt = replyFn.range(of: "NotificationAction.verdict("), let sendAt = replyFn.range(of: "Self.sendHTTP.data(for: request)") {
     check(checkAt.lowerBound < sendAt.lowerBound, "the app reads the chat before it sends")
 } else { check(false, "the app reads the chat before it sends") }
 check(manager.contains("replySession(total: 8)") && manager.contains("replySession(total: 14)"), "the read and the send have hard total limits, together inside iOS's time for an action")
@@ -84,6 +86,7 @@ check(NotificationAction.notice(after: .taken, agent: "Ada") == nil, "taken: not
 check(NotificationAction.notice(after: .keptUndelivered(at: "t", note: "Waiting to send"), agent: "Ada") == nil, "held: it goes by itself once the agent is ready")
 section("Allow and Deny (part 2): only from the computer's own answer, never lasting, both ask to unlock")
 check(NotificationCategories.permissionCategory == PhoneNotice.permissionCategory, "the app and the extension name the same category")
+check(NotificationCategories.permissionInfoKey == PhoneNotice.permissionInfoKey, "the app reads Allow and Deny under the key the extension writes")
 let permCat = categories.first { $0.identifier == NotificationCategories.permissionCategory }
 check(permCat?.actions.map { $0.identifier } == [NotificationCategories.allowAction, NotificationCategories.denyAction], "it offers exactly Allow then Deny")
 check(permCat?.actions.map { $0.title } == ["Allow", "Deny"], "worded Allow and Deny, as the chat's card")
@@ -126,6 +129,22 @@ if case .unreadable(let said) = NotificationAction.permissionVerdict(status: 0, 
     check(said.contains("nothing was denied") && said.contains("Open the chat"), "no answer: says nothing was denied, and where to answer")
 } else { check(false, "no answer reads as unreadable") }
 check(NotificationAction.changedNotice(agent: "Ada", allow: true).contains("nothing was allowed"), "the refusal says nothing was allowed")
+
+section("Allow and Deny: the request is the chat's own press, and the app handles both buttons")
+let pr = NotificationAction.pressRequest(userInfo: pinfoNotice, press: pAllow!, stored: kept(), session: session, coordinator: coordinator)
+let prBody = pr?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+check(pr?.httpMethod == "POST" && pr?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/ada/thread", "a POST to that agent's chat on that computer")
+check(prBody?["text"] as? String == "1" && prBody?["chose"] as? String == "Yes" && prBody?["asked"] as? String == "Do you want to proceed?", "the body is the board's press: the digit, the option's own words, the question")
+check(prBody?["lasting"] == nil, "never a lasting choice")
+check(pr?.value(forHTTPHeaderField: "Cookie") == "__Host-kosmos_tunnel_session=c00kie" && pr?.httpShouldHandleCookies == false && pr?.timeoutInterval == 13, "the kept cookie by hand, the send's idle limit")
+check(NotificationAction.pressRequest(userInfo: pinfoNotice, press: pAllow!, stored: kept(owner: Board.owner(of: "someone-else")), session: session, coordinator: coordinator) == nil, "another account's computer: nothing sent")
+check(NotificationAction.pressNotice(after: .sent, agent: "Ada", allow: true) == nil, "sent: quiet, as the chat's Allowed.")
+check(NotificationAction.pressNotice(after: .notSure("x"), agent: "Ada", allow: true)?.contains("check before pressing again") == true, "not sure: look before pressing again")
+check(NotificationAction.pressNotice(after: .refused("Its screen moved"), agent: "Ada", allow: false) == "Nothing was denied for Ada: Its screen moved.", "refused: the computer's reason")
+check(manager.contains("case NotificationAction.allowAction, NotificationAction.denyAction:") && manager.contains("NotificationAction.permissionVerdict(") && manager.contains("NotificationAction.pressRequest("), "the app handles Allow and Deny, checking the request before it sends (no dead buttons, #3870)")
+if let a = manager.range(of: "NotificationAction.permissionVerdict("), let b = manager.range(of: "Self.sendHTTP.data(for: request)\n        let result = Board.pressResult") {
+    check(a.lowerBound < b.lowerBound, "the check comes before the send")
+} else { check(false, "the check and the send are both in the handler") }
 
 let couldNot = Data(#"{"delivery":{"state":"could_not","because":"Ada is not running","at":"t"},"recorded":true}"#.utf8)
 let refusedKept = Board.sendResult(status: 200, body: couldNot)

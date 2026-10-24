@@ -136,7 +136,7 @@ enum NotificationAction {
 
     static func permissionPress(_ userInfo: [AnyHashable: Any], action: String) -> PermissionPress? {
         guard action == allowAction || action == denyAction,
-              let p = userInfo[PhoneNotice.permissionInfoKey] as? [String: Any],
+              let p = userInfo[NotificationCategories.permissionInfoKey] as? [String: Any],
               let asked = p["asked"] as? String, !asked.isEmpty,
               let request = p["request"] as? String, request.count == 64
         else { return nil }
@@ -169,8 +169,37 @@ enum NotificationAction {
         return .go
     }
 
+    // The request for an Allow or Deny: exactly the chat's press (Board.pressRequest), never a lasting choice, to the kept
+    // computer the notice came from, or nil when there is nothing to send to.
+    static func pressRequest(userInfo: [AnyHashable: Any], press: PermissionPress, stored: String?, session: String?, coordinator: URL) -> URLRequest? {
+        guard let t = target(userInfo, stored: stored, session: session, coordinator: coordinator) else { return nil }
+        let option = Board.ChoiceOption(n: press.n, label: press.label, lasting: false)
+        return signed(Board.pressRequest(mac: t.mac, session: t.agent, option: option, asked: press.asked), cookie: t.cookie, idle: 13)
+    }
+
+    // What the person is told after an Allow or Deny (Board.pressResult), or nil when it plainly went.
+    static func pressNotice(after result: Board.PressResult, agent: String, allow: Bool) -> String? {
+        let who = agent.isEmpty ? "your agent" : agent
+        let verb = allow ? "allowed" : "denied"
+        switch result {
+        case .sent:
+            return nil
+        case .notSure:
+            return "Kosmos could not confirm that was \(verb) for \(who). Open the chat to check before pressing again."
+        case .refused(let why):
+            let w = why.trimmingCharacters(in: .whitespaces)
+            return w.isEmpty ? "Nothing was \(verb) for \(who). Open the chat to answer."
+                : "Nothing was \(verb) for \(who): \(w)\(w.hasSuffix(".") ? "" : ".")"
+        }
+    }
+
     static func changedNotice(agent: String, allow: Bool) -> String {
         "\(agent.isEmpty ? "Your agent" : agent) is no longer asking that, or is asking something else now, so nothing was \(allow ? "allowed" : "denied"). Open the chat to see what it is asking."
+    }
+
+    // When an Allow or Deny could not even be made (no kept computer, or a notice without the computer's permission).
+    static func cannotPress(agent: String) -> String {
+        "Kosmos could not answer \(agent.isEmpty ? "your agent" : agent) from here, so nothing was allowed or denied. Open the chat to answer."
     }
 
     // When the reply could not even be made (no kept computer for this notification, or nothing typed).

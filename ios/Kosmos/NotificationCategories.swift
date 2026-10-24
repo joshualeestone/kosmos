@@ -35,6 +35,8 @@ enum NotificationCategories {
     // must not let anyone allow a command. Never a lasting choice; those stay in the chat. Must match
     // PhoneNotice.permissionCategory (LogicTests checks the two are equal).
     static let permissionCategory = "KOSMOS_PERMISSION"
+    // Where the extension puts Allow and Deny on the notice. Must match PhoneNotice.permissionInfoKey (LogicTests checks).
+    static let permissionInfoKey = "kosmosPermission"
     static let allowAction = "KOSMOS_ALLOW"
     static let denyAction = "KOSMOS_DENY"
 
