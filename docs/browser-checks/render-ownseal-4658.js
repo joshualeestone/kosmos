@@ -106,6 +106,8 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
                 if (hold) await hold;
                 if (failReads) { failsServed += 1; return await r.fulfill({ status: 500, json: { error: 'blip' } }); }
                 if (u.pathname.endsWith('/own-compare')) return await r.fulfill({ json: { code: pid === waitingP.id ? state.code : null } });
+                // kosmos#7028's list (the Remove rows) is pinned in render-ownremove-4658.js; none here.
+                if (u.pathname.endsWith('/own-allowed')) return await r.fulfill({ json: { computers: [] } });
                 return await r.fulfill({ json: { computers: pid === ownerP.id ? state.rows : [] } });
               }
               const body = JSON.parse(r.request().postData() || '{}');
