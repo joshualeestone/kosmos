@@ -273,6 +273,20 @@ Android job).
 If the person declines notification permission, the app never asks APNs for a
 token, so the device is never registered and receives no pushes. That is logged.
 
+## A project's room, a page at a time (kosmos#7032)
+
+The native room reads `GET /api/project/<id>/room?n=N` (N from 1 to 200): the room's last N rows, oldest first, with
+`olderCount` (rows older than the page) and `olderCursor`. The page before it is `?n=N&cursor=<olderCursor>`, and
+`olderCursor` is `null` at the start of the room. The phone never builds a cursor: the computer makes it (the page's
+first row, as its stored time and how many rows share that time ahead of it), so Kosmos lines, which carry no id, are
+paged as exactly as posts. A cursor that names no row of the room is a 400 with an error, and a room the computer could
+not read just now is a 503, never an empty page. A post is
+dated when its send starts and written when delivery ends, so it can land after a page was read: re-read the newest
+page and merge by each row's `key` (its exact place, the cursor's own form, which Kosmos lines carry too), rather than
+trusting a page read once. A `replyTo`, a claim or an `unanswered` entry can name a post on an older page: that post is
+not gone, it is not loaded yet. An empty `cursor` is the newest page. Without `n` the route is what the computer's board reads:
+the whole room.
+
 ## Not in scope
 
 The coordinator's APNs send path and the APNs auth key (kosmos-relay, Kano), a

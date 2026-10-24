@@ -21489,11 +21489,23 @@ const server = http.createServer(async (req, res) => {
     /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; messages.ROOM_READ_ROWS
        when not given or not a whole number in range, so an older CLI and a bad value both get what they always got). */
     let textRows = messages.ROOM_READ_ROWS;
+    /* kosmos#7032 (the iPhone's room): the JSON arm can be paged too. ?n=N (1 to 200) returns the room's last N rows,
+       with `olderCount` (how many older rows are left) and `olderCursor`, made here, never by the phone: the page before
+       this one is ?n=N&cursor=<olderCursor>. A cursor is the page's first row, named as its stored time plus how many
+       rows share that time ahead of it ("<at>|<k>"), so it names Kosmos lines (which carry no id) as exactly as posts,
+       and ties on a time are exact (the sort is stable). A cursor that names no row of this room is a 400, and a room
+       whose log could not be read is a 503: neither is ever an empty page that would read as the start of the room. Without ?n the JSON arm is unchanged (the board reads the
+       whole room). What a cursor cannot do: a post is dated when its send STARTS and written when delivery ends, so a
+       post written after a page was read can sort into it; it lands in the newest page unless more than N rows arrive
+       during its delivery, which is why the phone re-reads the newest page and merges. */
+    let jsonRows = null;
+    let jsonCursor = null;   // the raw ?cursor=, checked against the rows below
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       asText = q.get('as') === 'text';
       const n = q.get('n');
-      if (n !== null && /^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200) textRows = Number(n);
+      if (n !== null && /^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200) { textRows = Number(n); jsonRows = Number(n); }
+      if (jsonRows !== null) jsonCursor = q.get('cursor') || null;   // an empty cursor is no cursor (the newest page)
     } catch { asText = false; }
     /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
        do, instead of rendering it as an empty room -- a typo or a hyphenated-name
@@ -21803,6 +21815,42 @@ const server = http.createServer(async (req, res) => {
           : '';
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
         res.end(shared + onHold + head + lines.join('\n') + (lines.length ? '\n' : ''));
+        return;
+      }
+      if (jsonRows !== null) {   // kosmos#7032: a page (see the cursor note where n is read)
+        // Review 3: a log that could not be read is not the start of the room and not a bad cursor.
+        if (!rec.ok) {
+          sendJson(res, 503, { error: 'we could not read this room just now, so no page was read' });
+          return;
+        }
+        let pool = rows;
+        if (jsonCursor !== null) {
+          // "<the row's at, exactly as stored>|<k>". Any stored time (an older row may lack milliseconds): the check
+          // that a row of this room has that exact time is what refuses a cursor naming none.
+          const bar = jsonCursor.lastIndexOf('|');
+          const time = bar > 0 && jsonCursor.length <= 80 ? jsonCursor.slice(0, bar) : '';
+          const k = bar > 0 && /^\d{1,6}$/.test(jsonCursor.slice(bar + 1)) ? Number(jsonCursor.slice(bar + 1)) : -1;
+          const start = time && k >= 0 ? rows.findIndex((r) => r && r.at === time) : -1;
+          const at = start >= 0 ? start + k : -1;
+          if (at < 0 || !rows[at] || rows[at].at !== time) {
+            sendJson(res, 400, { error: 'that place in the room is not one this room has, so no earlier page was read' });
+            return;
+          }
+          pool = rows.slice(0, at);
+        }
+        // Each row on a page carries `key`, its exact place ("<at>|<k>", the cursor's own form), so the phone can merge
+        // a re-read page row by row, Kosmos lines (which carry no id) included.
+        const firstOfTime = new Map();
+        rows.forEach((r, i) => { if (r && typeof r.at === 'string' && !firstOfTime.has(r.at)) firstOfTime.set(r.at, i); });
+        const page = pool.slice(-jsonRows).map((r, j) => {
+          const i = pool.length - Math.min(jsonRows, pool.length) + j;
+          return r && typeof r.at === 'string' && firstOfTime.has(r.at) ? { ...r, key: r.at + '|' + (i - firstOfTime.get(r.at)) } : r;
+        });
+        const olderCount = pool.length - page.length;
+        // The next older page's cursor: the first row's time and how many rows of that time sit ahead of it.
+        const olderCursor = olderCount > 0 && page[0] && typeof page[0].key === 'string' ? page[0].key : null;
+        sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(page), unanswered: silent, olderCount, olderCursor },
+          held ? { held } : {}));
         return;
       }
       /* #185: which addressed agents have not answered which posts, from

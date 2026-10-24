@@ -12,7 +12,9 @@
  * The event id names its source (server.js, where phonenotify.happened is called):
  *   report:<at>:<session>   an agent's needs_you report, kept by engine/selfreport.js with `at` (its words: `because`)
  *   reply:<at>:<session>    an agent's direct reply, kept in its direct thread (chat.DIRECT) with `at` and `from`
- * Nothing new is stored: the words are found where they already are, by that exact time and agent.
+ *   post:<post id>          kosmos#7032: an agent's post in a project room, kept in the room log by its id (m<digits>);
+ *                           the agent is the post's own `from`, never the person's own post
+ * Nothing new is stored: the words are found where they already are, by that exact time and agent, or that post.
  */
 const fs = require('node:fs');
 
@@ -22,6 +24,9 @@ const TEXT_MAX = 400;   // a lock screen shows about four lines; the app shows t
  *  one and the time is everything between the first and the last. */
 function parseId(id) {
   if (typeof id !== 'string' || id.length > 300) return null;
+  // kosmos#7032: a room post's id names the post alone (server.js phonenotify 'posted': 'post:' + delivery.id).
+  const post = /^post:(m\d{1,15})$/.exec(id);
+  if (post) return { kind: 'post', postId: post[1] };
   const first = id.indexOf(':');
   const last = id.lastIndexOf(':');
   if (first <= 0 || last <= first) return null;
@@ -81,6 +86,16 @@ function replyText(session, at, { chat = require('./chat') } = {}) {
   return m && typeof m.text === 'string' && m.text.trim() ? m.text : null;
 }
 
+/** kosmos#7032: an agent's room post by its id: { session, text }, or null. Only an agent's post (`from`, not the
+ *  person's own, `operator`), with words. Post ids are one sequence across the whole log, so the id alone finds it. */
+function postWords(postId, { messages = require('./messages') } = {}) {
+  let rows;
+  try { rows = messages.record().rows; } catch { return null; }
+  const m = (Array.isArray(rows) ? rows : []).find((x) => x && x.kind === 'post' && x.id === postId);
+  if (!m || m.operator === true || typeof m.from !== 'string' || !m.from) return null;
+  return typeof m.text === 'string' && m.text.trim() ? { session: m.from, text: m.text } : null;
+}
+
 /** What the phone shows for an event: { kind, session, text } with the words shortened, or null when the id is not
  *  one of ours or its words are not (or no longer) here. `deps.mask(session, text)` runs on the whole words BEFORE
  *  they are shortened (server.js passes the setup guide's secret mask: a cut first could leave half a key the mask no
@@ -88,7 +103,15 @@ function replyText(session, at, { chat = require('./chat') } = {}) {
 function wordsFor(id, deps = {}) {
   const p = parseId(id);
   if (!p) return null;
-  let raw = p.kind === 'report' ? reportNote(p.session, p.at, deps) : replyText(p.session, p.at, deps);
+  let raw;
+  if (p.kind === 'post') {
+    const w = postWords(p.postId, deps);
+    if (!w) return null;
+    p.session = w.session;   // the post's own author, never anything the id says
+    raw = w.text;
+  } else {
+    raw = p.kind === 'report' ? reportNote(p.session, p.at, deps) : replyText(p.session, p.at, deps);
+  }
   if (raw === null) return null;
   if (typeof deps.mask === 'function') {
     try { raw = deps.mask(p.session, raw); } catch { return null; }   // a mask that fails must not serve the words unmasked
@@ -97,4 +120,4 @@ function wordsFor(id, deps = {}) {
   return { kind: p.kind, session: p.session, text: shorten(raw) };
 }
 
-module.exports = { TEXT_MAX, REPORT_TAIL_BYTES, parseId, shorten, reportNote, replyText, wordsFor };
+module.exports = { TEXT_MAX, REPORT_TAIL_BYTES, parseId, shorten, reportNote, replyText, postWords, wordsFor };

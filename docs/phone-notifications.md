@@ -112,6 +112,10 @@ within 15 seconds, the notification shows them as a message from the agent:
 | An agent needs you (its report) | `<Agent>` | `<Agent> needs you, in <Project>`, or `<Agent> needs you` | the report's reason, shortened to about 400 characters: what the agent wrote (`kosmos report needs_you "..."`), or, when it stopped to ask permission, `asking permission to use <tool>`, with `: <command>` when there is one | the agent's picture, when it has one |
 | An agent answered you | `<Agent>` | `<Agent> replied` | the reply, shortened to about 400 characters | the agent's picture, when it has one |
 
+The computer also answers a room post's id (`post:<post id>`, kosmos#7032): the post's text and its author, never the
+person's own post. The iPhone does not ask for it yet (slice 9 of #6838 adds that), so a room notice still shows as in
+Sent today.
+
 The words are never in the push: the coordinator's notification and Apple still carry only who and what, and the
 phone fetches the words from the computer over Kosmos+ remote. If the computer does not answer (asleep, offline, an older Kosmos, or a phone not signed in to that
 computer), the notification shows as in Sent today. Every other row of Sent today (crash, stuck, helper, posts, work
