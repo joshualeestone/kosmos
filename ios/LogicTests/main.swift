@@ -1253,6 +1253,10 @@ final class FakeBoardWorld {
     var attachmentAnswer: (Int, String, Data)? = (200, "application/pdf", Data("%PDF-1.4 sample".utf8))
     var attachmentAsks: [String] = []
     var attachmentYields = 0
+    // kosmos#7016 part 3: what the earlier-messages route answers, and the queries asked.
+    var olderAnswer: (Int, String)? = (200, #"{"messages":[{"at":"2026-10-20T10:00:00Z","text":"first","from":"dana"}],"olderCount":0}"#)
+    var olderAsks: [String] = []
+    var onOlder: (() -> Void)?
     // File requests that have started (before any yield), so a test can act while one is on its way.
     var attachmentStarted: [String] = []
     var threadYields = 0
@@ -1294,6 +1298,11 @@ final class FakeBoardWorld {
                 }
                 onThreadRead?()
                 return threadAnswer.map { answer($0.0, $0.1) }
+            }
+            if url.path.hasSuffix("/thread/older") {
+                olderAsks.append(url.query ?? "")
+                if let hook = onOlder { onOlder = nil; hook() }
+                return olderAnswer.map { answer($0.0, $0.1) }
             }
             if url.path.hasPrefix("/api/attachment/") {
                 attachmentAsks.append(url.path)
@@ -1797,6 +1806,28 @@ section("native board loop: connecting")
         check(FileManager.default.fileExists(atPath: testFiles.path), "CONTROL: the opened file's folder exists")
         c.accountChanged()
         check(!FileManager.default.fileExists(atPath: testFiles.path) && c.thumbnails.isEmpty, "a sign-out removes opened files and pictures")
+        c.stop()
+    }
+    do {
+        // kosmos#7016 part 3: a page of earlier messages through the client, against the fake Mac.
+        let (c, w, _, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        let first = await c.olderPage("dana", before: 1)
+        if case .page(let rows, let older) = first {
+            check(rows.map(\.text) == ["first"] && older == 0 && w.olderAsks.last == "before=1", "a page before position 1")
+        } else { check(false, "a page before position 1") }
+        w.olderAnswer = (200, #"{"messages":[],"olderCount":0}"#)
+        let moved = await c.olderPage("dana", before: 5)
+        check(moved == .moved, "an answer that is not the range asked for is the thread moving")
+        w.olderAnswer = nil
+        let silent = await c.olderPage("dana", before: 5)
+        check(silent == .failed(Board.olderFailed), "no answer is a failure in the board's words")
+        // A reset while a page is on its way: the page belongs to the chat before.
+        w.olderAnswer = (200, #"{"messages":[{"at":"2026-10-20T10:00:00Z","text":"x","from":"dana"}],"olderCount":0}"#)
+        w.onOlder = { MainActor.assumeIsolated { c.accountChanged() } }
+        let across = await c.olderPage("dana", before: 1)
+        check(across == nil, "a page that crossed a sign-out is dropped")
         c.stop()
     }
     do {
