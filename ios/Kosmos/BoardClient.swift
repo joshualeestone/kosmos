@@ -97,7 +97,7 @@ final class BoardClient: ObservableObject {
         // (the names in Mona Lisa's design) without connecting, so no real account is ever in a picture.
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" {
             // Through the real parser, as /api/status rows from a Mac that sends its words ready-made (#7004).
-            let sample = #"{"agents":[{"sessionName":"cleo","name":"Cleo","role":"Project manager","state":"needs_you","stateReportedBy":"agent","cardWord":"Question","cardTone":"asked"},{"sessionName":"dana","name":"Dana","role":"Writer","state":"working","task":"Pages 9 to 12","cardWord":"Working","cardTone":"working"},{"sessionName":"eli","name":"Eli","role":"Researcher","state":"working","cardWord":"Working","cardTone":"working"},{"sessionName":"farah","name":"Farah","role":"Bookkeeper","state":"idle","cardWord":"Idle","cardTone":"quiet"},{"sessionName":"hana","name":"Hana","role":"Support","state":"auth_failed","cardWord":"Sign-in Issue","cardTone":"needs_you"},{"sessionName":"ivy","name":"Ivy","role":"Editor","state":"restarting","cardWord":"Switching to Opus","cardTone":"quiet"},{"sessionName":"gus","name":"Gus","role":"Social media","state":"stopped","running":false,"cardWord":"Not running","cardTone":"needs_you"}]}"#
+            let sample = #"{"agents":[{"sessionName":"cleo","name":"Cleo","role":"Project manager","state":"needs_you","stateReportedBy":"agent","cardWord":"Question","cardTone":"asked"},{"sessionName":"dana","name":"Dana","role":"Writer","state":"working","task":"Pages 9 to 12","cardWord":"Working","cardTone":"working"},{"sessionName":"eli","name":"Eli","role":"Researcher","state":"needs_you","cardWord":"Question","cardTone":"asked"},{"sessionName":"farah","name":"Farah","role":"Bookkeeper","state":"idle","cardWord":"Idle","cardTone":"quiet"},{"sessionName":"hana","name":"Hana","role":"Support","state":"auth_failed","cardWord":"Sign-in Issue","cardTone":"needs_you"},{"sessionName":"ivy","name":"Ivy","role":"Editor","state":"restarting","cardWord":"Switching to Opus","cardTone":"quiet"},{"sessionName":"gus","name":"Gus","role":"Social media","state":"stopped","running":false,"cardWord":"Not running","cardTone":"needs_you"}]}"#
             agents = Board.sorted(Board.parseAgents(Data(sample.utf8)) ?? [])
             updatedAt = Date()
             fresh = true
@@ -220,7 +220,8 @@ final class BoardClient: ObservableObject {
 
     func post(_ text: String, to agent: Board.Agent) async {
         let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard Board.fitsBoard(said) else { return }
+        // Not while a press to this agent is in the air: one key and one paste never overlap (dmChoiceBlocksSend).
+        guard Board.fitsBoard(said), !pressing.contains(agent.session) else { return }
         let item = Board.PendingSend(id: UUID().uuidString, text: said, at: env.now(), after: newestSeen[agent.session])
         pending[agent.session, default: []].append(item)
         await deliver(item.id, to: agent)
@@ -257,6 +258,51 @@ final class BoardClient: ObservableObject {
 
     func wasSentAgain(_ row: Board.ChatRow, for session: String) -> Bool { resent.contains(session + "|" + row.id) }
 
+    // MARK: Answering a question (kosmos#7016, the board's dmChoicePress)
+
+    // Agents with a press in the air: their buttons are drawn off, and a typed send waits.
+    @Published private(set) var pressing: Set<String> = []
+    // The last press that may have gone, per agent: for 6 s (the board's DM_CHOICE_ANSWERED_MS) the same question's
+    // buttons stay off, so a quick second press cannot answer twice while the next read still shows the old screen.
+    struct Answered: Equatable { let key: String; let at: Date; let sure: Bool; let n: Int }
+    @Published private(set) var answered: [String: Answered] = [:]
+    static let answeredLock: TimeInterval = 6
+
+    // nil when nothing was pressed (one already in the air, a typed send in the air, or the chats were forgotten meanwhile).
+    func press(_ option: Board.ChoiceOption, of choices: Board.Choices, to agent: Board.Agent) async -> Board.PressResult? {
+        guard !pressing.contains(agent.session), !isSending(agent.session) else { return nil }
+        let epoch = chatEpoch
+        pressing.insert(agent.session)
+        answered[agent.session] = nil
+        let result: Board.PressResult
+        #if DEBUG
+        if sampleThreads[agent.session] != nil { result = samplePress(option, to: agent.session) } else { result = await sendPress(option, choices, agent.session) }
+        #else
+        result = await sendPress(option, choices, agent.session)
+        #endif
+        // A reset meanwhile (another account or Mac) already emptied this; the answer belongs to the chat before.
+        guard epoch == chatEpoch else { return nil }
+        pressing.remove(agent.session)
+        if result.mayHaveSent { answered[agent.session] = Answered(key: choices.key, at: env.now(), sure: result == .sent, n: option.n) }
+        return result
+    }
+
+    private func sendPress(_ option: Board.ChoiceOption, _ choices: Board.Choices, _ session: String) async -> Board.PressResult {
+        // Not connected: nothing was sent, so the buttons come back.
+        guard let held = admitted, let request = Board.pressRequest(mac: held.url, session: session, option: option, asked: choices.asked)
+        else { return .refused("Your Mac isn't answering. Try again in a moment.") }
+        let answer = await env.send(request)
+        return Board.pressResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
+    }
+
+    // The answered lock for this question, while it lasts.
+    func answeredNow(_ session: String, key: String) -> Answered? {
+        guard let a = answered[session], a.key == key, env.now().timeIntervalSince(a.at) < Self.answeredLock else { return nil }
+        return a
+    }
+
+    func isSending(_ session: String) -> Bool { pending[session]?.contains { $0.state == .sending } == true }
+
     // What the chats hold belongs to one account on one Mac: dropped when either changes, so nothing typed or failed
     // under one is shown, or sent, under another.
     // A sign-out, or a sign-in as someone else, reported by the web view (PushNotificationManager.accountChanges).
@@ -275,6 +321,8 @@ final class BoardClient: ObservableObject {
     // Another Mac keeps chatsOwner (the account has not changed); forget() clears it.
     private func forgetChats() {
         pending = [:]
+        pressing = []
+        answered = [:]
         drafts = [:]
         resent = []
         newestSeen = [:]
@@ -337,12 +385,25 @@ final class BoardClient: ObservableObject {
         sampleThreads[session] = Board.Thread(rows: sample.rows + [row], olderCount: sample.olderCount)
         return .kept(at: at)
     }
+    // A press in the sample chats: the question goes, as the Mac's next read would say (KOSMOS_SAMPLE_PRESS=unsure
+    // shows the not-sure line instead).
+    private func samplePress(_ option: Board.ChoiceOption, to session: String) -> Board.PressResult {
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PRESS"] == "unsure" { return .notSure(Board.choiceUnsure) }
+        if let t = sampleThreads[session] {
+            sampleThreads[session] = Board.Thread(rows: t.rows.filter { $0.wayThrough != .question && $0.wayThrough != .permission },
+                                                  olderCount: t.olderCount)
+        }
+        return .sent
+    }
     private func loadSampleThreads() {
         let json = #"{"messages":[{"at":"2026-10-23T13:32:00Z","text":"Morning Dana. How is the catalogue copy coming along?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:33:00Z","text":"Pages 1 to 8 are written and checked against the price sheet.","from":"dana"},{"at":"2026-10-23T13:34:00Z","text":"Great. What is left?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:35:00Z","text":"Pages 9 to 12 need the new photos before I can caption them. The shoot is on Thursday, so I will have the full draft to you on Friday morning.","from":"dana"}],"olderCount":0,"question":null}"#
         if let t = Board.parseThread(Data(json.utf8)) { sampleThreads["dana"] = t }
         // Cleo's shows the way-through rows: older messages, a file, Kosmos's own line and a question.
-        let cleo = #"{"messages":[{"at":"2026-10-22T16:10:00Z","text":"Here is the launch checklist we agreed.","from":"cleo","attachment":{"id":"a1","name":"checklist.pdf"}},{"at":"2026-10-22T16:12:00Z","text":"Thanks, I will read it tonight.","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T14:00:00Z","text":"Cleo paused for today's limit. It picks up again at 4:00.","from":null,"kind":"kosmos"},{"at":"2026-10-23T14:05:00Z","text":"Should the launch email go out on Tuesday or Wednesday?","from":"cleo","kind":"question"}],"olderCount":12,"question":{"text":"Should the launch email go out on Tuesday or Wednesday?"}}"#
+        let cleo = #"{"messages":[{"at":"2026-10-22T16:10:00Z","text":"Here is the launch checklist we agreed.","from":"cleo","attachment":{"id":"a1","name":"checklist.pdf"}},{"at":"2026-10-22T16:12:00Z","text":"Thanks, I will read it tonight.","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T14:00:00Z","text":"Cleo paused for today's limit. It picks up again at 4:00.","from":null,"kind":"kosmos"},{"at":"2026-10-23T14:05:00Z","text":"Should the launch email go out on Tuesday or Wednesday?","from":"cleo","kind":"question"}],"olderCount":12,"question":{"text":"Should the launch email go out on Tuesday or Wednesday?"},"asking":true,"asked":"Should the launch email go out on Tuesday or Wednesday?","presence":"on","options":[{"n":1,"label":"Tuesday"},{"n":2,"label":"Wednesday"},{"n":3,"label":"Tuesday, and do not ask again for launch emails","lasting":true}]}"#
         if let t = Board.parseThread(Data(cleo.utf8)) { sampleThreads["cleo"] = t }
+        // Eli's shows a permission prompt (#7016): a command that deletes files, with a lasting choice under Show details.
+        let eli = #"{"messages":[{"at":"2026-10-23T14:20:00Z","text":"The export folder still holds last week's files.","from":"eli"},{"at":null,"text":"Do you want to proceed?","from":"eli","kind":"question","permission":{"kind":"delete","title":"Bash command","says":"Clear last week's export before the new one","target":"rm -rf exports/2026-10-16","detail":"Bash command\n\n  rm -rf exports/2026-10-16\n  Clear last week's export before the new one","reason":"Commands that delete files always ask first.","allow":1,"deny":3}}],"olderCount":0,"question":{"text":"Do you want to proceed?"},"asking":true,"asked":"Do you want to proceed?","presence":"on","options":[{"n":1,"label":"Yes"},{"n":2,"label":"Yes, and don't ask again for rm commands in this folder","lasting":true},{"n":3,"label":"No, and tell Claude what to do differently"}]}"#
+        if let t = Board.parseThread(Data(eli.utf8)) { sampleThreads["eli"] = t }
         // KOSMOS_SAMPLE_NOT_SENT=1: one message in Dana's chat that was not taken, for the not-sent screenshot.
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOT_SENT"] == "1" {
             pending["dana"] = [Board.PendingSend(id: "sample-failed", text: "Can you send me pages 1 to 8 now?", at: env.now(),
