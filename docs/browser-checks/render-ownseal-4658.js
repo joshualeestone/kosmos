@@ -9,7 +9,11 @@
  *    back exactly that code to POST /api/federation/own-confirm; "Does not match" sends { match: false };
  *  - the computer that first shared the room lists each waiting computer with the code from GET own-waiting, and
  *    Allow sends exactly that row's key and code to POST /api/federation/own-allow;
- *  - a refusal's own words are shown; a project that never sees either answer shows nothing;
+ *  - the page's fake answers as the engine does (an allowed row leaves the list, a confirmed code is gone, a start
+ *    over brings a new code), so a press's sentence is pinned where the press empties the section, and is pinned to
+ *    clear once the section shows something the sentence does not describe;
+ *  - a refusal's own words are shown; focus stays in the section after a press; a newly opened project never shows
+ *    the last project's rows while its own answer is on its way; a project with neither answer shows nothing;
  *  - Mona's review (card comment 6382874566): the answers are bordered buttons at least 44 px tall, It matches and
  *    Does not match at equal weight (same background and border), Allow the same style; the separator is a plain
  *    ASCII hyphen; where Members sits under the room (390), one line above the room says the room is sealed;
@@ -45,8 +49,10 @@ function chk(ok, label, extra) {
   if (!ok) fail.push(label);
 }
 
-const WAITING_CODE = 'K7M3P-Q9RXA';
-const ROWS = [{ pub: 'pub-laptop', mac: 'mac-1', code: 'ABCDE-FGHJK', at: 1 }, { pub: 'pub-desk', mac: 'mac-2', code: '23456-789AB', at: 2 }];
+const FIRST_CODE = 'K7M3P-Q9RXA';
+const NEXT_CODE = 'M4N5P-R6S7T';
+const LATER_CODE = 'W8X9Y-Z2A3B';
+const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .fmsg') || {}).textContent || '');
 
 (async () => {
   fleet.install([fleet.agent('ada', { state: 'idle', displayName: 'Ada', role: 'a planner' })]);
@@ -75,18 +81,30 @@ const ROWS = [{ pub: 'pub-laptop', mac: 'mac-1', code: 'ABCDE-FGHJK', at: 1 }, {
               return await r.fulfill({ response: resp, json: j });
             } catch { await r.abort().catch(() => {}); }
           });
-          // The four routes, answered per project: the waiting project has a code, the owner project has rows.
+          // The engine's state, as the four routes report and change it.
+          const state = {
+            code: FIRST_CODE,
+            rows: [{ pub: 'pub-laptop', mac: 'mac-1', code: 'ABCDE-FGHJK', at: 1 }, { pub: 'pub-desk', mac: 'mac-2', code: '23456-789AB', at: 2 }],
+          };
           const posted = [];
           let refuseNext = false;
+          let hold = null;   // a promise the two reads wait on, to look at the section before an answer lands
           await page.route('**/api/federation/own-*', async (r) => {
             try {
               const u = new URL(r.request().url());
               const pid = u.searchParams.get('project');
-              if (u.pathname.endsWith('/own-compare')) return await r.fulfill({ json: { code: pid === waitingP.id ? WAITING_CODE : null } });
-              if (u.pathname.endsWith('/own-waiting')) return await r.fulfill({ json: { computers: pid === ownerP.id ? ROWS : [] } });
-              posted.push({ path: u.pathname, body: JSON.parse(r.request().postData() || '{}') });
+              if (r.request().method() === 'GET') {
+                if (hold) await hold;
+                if (u.pathname.endsWith('/own-compare')) return await r.fulfill({ json: { code: pid === waitingP.id ? state.code : null } });
+                return await r.fulfill({ json: { computers: pid === ownerP.id ? state.rows : [] } });
+              }
+              const body = JSON.parse(r.request().postData() || '{}');
+              posted.push({ path: u.pathname, body });
               if (refuseNext) { refuseNext = false; return await r.fulfill({ status: 409, json: { error: 'That computer was not allowed: the code confirmed is not the one that computer shows.' } }); }
-              return await r.fulfill({ json: u.pathname.endsWith('/own-allow') ? { allowed: true } : { confirmed: true } });
+              if (u.pathname.endsWith('/own-allow')) { state.rows = state.rows.filter((x) => x.pub !== body.pub); return await r.fulfill({ json: { allowed: true } }); }
+              if (body.match === false) { state.code = NEXT_CODE; return await r.fulfill({ json: { started_over: true } }); }
+              state.code = null;   // confirmed and adopted: nothing left to compare
+              return await r.fulfill({ json: { confirmed: true } });
             } catch { await r.abort().catch(() => {}); }
           });
           await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -105,7 +123,7 @@ const ROWS = [{ pub: 'pub-laptop', mac: 'mac-1', code: 'ABCDE-FGHJK', at: 1 }, {
             await ctx.close();
             continue;
           }
-          // The waiting computer's side.
+          // ---- The waiting computer's side. ----
           await page.waitForSelector('#pj-fed-own .ownseal-code', { state: 'visible', timeout: 15000 }).catch(() => null);
           const w = await page.evaluate(() => {
             const c = document.querySelector('#pj-fed-own .ownseal-code');
@@ -115,7 +133,7 @@ const ROWS = [{ pub: 'pub-laptop', mac: 'mac-1', code: 'ABCDE-FGHJK', at: 1 }, {
               acts: [...document.querySelectorAll('#pj-fed-own [data-own-act]')].map((b) => b.textContent),
               wide: document.documentElement.scrollWidth > innerWidth };
           });
-          chk(w && w.code === WAITING_CODE, `${E} the waiting computer shows its own code`, JSON.stringify(w));
+          chk(w && w.code === FIRST_CODE, `${E} the waiting computer shows its own code`, JSON.stringify(w));
           chk(w && w.oneLine, `${E} the code stays on one line`, JSON.stringify(w));
           chk(w && w.acts.join('|') === 'It matches|Does not match', `${E} It matches and Does not match are offered`, JSON.stringify(w && w.acts));
           const look = await page.evaluate(() => {
@@ -129,38 +147,59 @@ const ROWS = [{ pub: 'pub-laptop', mac: 'mac-1', code: 'ABCDE-FGHJK', at: 1 }, {
           chk(look.st.length === 2 && look.st[0].bg === look.st[1].bg && look.st[0].bd === look.st[1].bd, `${E} It matches and Does not match are equal weight`, JSON.stringify(look.st));
           chk(look.sep === 0x2d, `${E} the separator is a plain hyphen`, String(look.sep));
           chk(look.line === (width < 600), `${E} the line above the room shows only where Members sits under it`, JSON.stringify({ width, line: look.line }));
-          await page.click('#pj-fed-own [data-own-act="match"]');
-          await page.waitForFunction(() => /Confirmed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
-          const conf = posted.find((p) => p.path.endsWith('/own-confirm'));
-          chk(conf && conf.body.project === waitingP.id && conf.body.code === WAITING_CODE, `${E} It matches sends exactly the code that was on screen`, JSON.stringify(conf));
-          const confMsg = await page.textContent('#pj-fed-own .fmsg').catch(() => '');
-          chk(/^Confirmed\./.test(confMsg || ''), `${E} the confirm is said on screen`, confMsg);
-          await page.click('#pj-fed-own [data-own-act="nomatch"]');
-          await page.waitForFunction(() => /Started over/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
+          // Does not match, pressed from the keyboard: a new code, the sentence, and focus kept in the section.
+          await page.focus('#pj-fed-own [data-own-act="nomatch"]');
+          await page.keyboard.press('Enter');
+          await page.waitForFunction((c) => (document.querySelector('#pj-fed-own .ownseal-code') || {}).textContent === c, NEXT_CODE, { timeout: 8000 }).catch(() => null);
           const over = posted.filter((p) => p.path.endsWith('/own-confirm')).pop();
           chk(over && over.body.match === false && over.body.code === undefined, `${E} Does not match asks to start over and sends no code`, JSON.stringify(over));
-          // The owner's side.
+          chk(/^Started over\./.test(await MSG(page)), `${E} the start over is said on screen`, await MSG(page));
+          const focusIn = await page.evaluate(() => document.getElementById('pj-fed-own').contains(document.activeElement));
+          chk(focusIn, `${E} focus stays in the section after a press`);
+          // It matches on the new code: exactly that code is sent; the key is taken, so the section empties but the
+          // sentence stays.
+          await page.click('#pj-fed-own [data-own-act="match"]');
+          await page.waitForFunction(() => /Confirmed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
+          const conf = posted.filter((p) => p.path.endsWith('/own-confirm')).pop();
+          chk(conf && conf.body.project === waitingP.id && conf.body.code === NEXT_CODE, `${E} It matches sends exactly the code that was on screen`, JSON.stringify(conf));
+          const after = await page.evaluate(() => ({ code: !!document.querySelector('#pj-fed-own .ownseal-code'), msg: (document.querySelector('#pj-fed-own .fmsg') || {}).textContent || '' }));
+          chk(!after.code && /^Confirmed\./.test(after.msg), `${E} the confirm is said even when the section has nothing else to show`, JSON.stringify(after));
+          // The section moves on (the other computer started over): the old sentence goes with it.
+          state.code = LATER_CODE;
+          await page.evaluate(() => fedOwnLoad(PJ_CURRENT));
+          await page.waitForFunction((c) => (document.querySelector('#pj-fed-own .ownseal-code') || {}).textContent === c, LATER_CODE, { timeout: 8000 }).catch(() => null);
+          chk((await MSG(page)) === '', `${E} a sentence about an earlier code is cleared when a new code shows`, await MSG(page));
+          // ---- A newly opened project shows nothing of the last one while its own answer is on its way. ----
+          let release;
+          hold = new Promise((res) => { release = res; });
           await open(ownerP.id);
+          const early = await page.evaluate(() => (document.getElementById('pj-fed-own') || {}).textContent || '');
+          release(); hold = null;
+          chk(early.trim() === '', `${E} another project's section is empty until its own answer arrives`, early);
+          // ---- The owner's side. ----
           await page.waitForFunction(() => document.querySelectorAll('#pj-fed-own [data-own-act="allow"]').length === 2, null, { timeout: 15000 }).catch(() => null);
           const o = await page.evaluate(() => ({
             codes: [...document.querySelectorAll('#pj-fed-own .ownseal-code')].map((c) => c.textContent),
-            mine: !!document.querySelector('#pj-fed-own [data-own-act="match"]'),
+            allowH: [...document.querySelectorAll('#pj-fed-own [data-own-act="allow"]')].map((b) => b.getBoundingClientRect().height),
+            line: (() => { const l = document.getElementById('pj-fed-own-phone'); return !!l && !l.hidden; })(),
             wide: document.documentElement.scrollWidth > innerWidth }));
-          chk(o.codes.join('|') === ROWS.map((r) => r.code).join('|'), `${E} the owner lists each waiting computer with its code`, JSON.stringify(o));
-          const allowH = await page.evaluate(() => [...document.querySelectorAll('#pj-fed-own [data-own-act="allow"]')].map((b) => b.getBoundingClientRect().height));
-          chk(allowH.length === 2 && allowH.every((x) => x >= 44), `${E} each Allow is a button at least 44 px tall`, JSON.stringify(allowH));
-          const ownerLine = await page.evaluate(() => { const l = document.getElementById('pj-fed-own-phone'); return !!l && !l.hidden; });
-          chk(!ownerLine, `${E} the sealed line is not shown on the computer that shared the room`);
-          chk(!o.mine, `${E} another project does not show the waiting project's code`, JSON.stringify(o));
+          chk(o.codes.join('|') === 'ABCDE-FGHJK|23456-789AB', `${E} the owner lists each waiting computer with its code`, JSON.stringify(o));
+          chk(o.allowH.length === 2 && o.allowH.every((x) => x >= 44), `${E} each Allow is a button at least 44 px tall`, JSON.stringify(o.allowH));
+          chk(!o.line, `${E} the sealed line is not shown on the computer that shared the room`);
           await page.click('#pj-fed-own [data-own-pub="pub-desk"]');
           await page.waitForFunction(() => /Allowed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
           const allow = posted.find((p) => p.path.endsWith('/own-allow'));
           chk(allow && allow.body.project === ownerP.id && allow.body.pub === 'pub-desk' && allow.body.code === '23456-789AB', `${E} Allow sends exactly that row's key and code`, JSON.stringify(allow));
+          const left = await page.evaluate(() => document.querySelectorAll('#pj-fed-own [data-own-act="allow"]').length);
+          chk(left === 1, `${E} the allowed computer leaves the list`, String(left));
           refuseNext = true;
           await page.click('#pj-fed-own [data-own-pub="pub-laptop"]');
           await page.waitForFunction(() => /not allowed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
-          const refused = await page.textContent('#pj-fed-own .fmsg').catch(() => '');
-          chk(refused === 'That computer was not allowed: the code confirmed is not the one that computer shows.', `${E} a refusal's own words are shown`, refused);
+          chk((await MSG(page)) === 'That computer was not allowed: the code confirmed is not the one that computer shows.', `${E} a refusal's own words are shown`, await MSG(page));
+          await page.click('#pj-fed-own [data-own-pub="pub-laptop"]');
+          await page.waitForFunction(() => /Allowed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
+          const empty = await page.evaluate(() => ({ rows: document.querySelectorAll('#pj-fed-own [data-own-act]').length, msg: (document.querySelector('#pj-fed-own .fmsg') || {}).textContent || '' }));
+          chk(empty.rows === 0 && /^Allowed\./.test(empty.msg), `${E} allowing the last computer still says Allowed`, JSON.stringify(empty));
           chk(!o.wide && !(w && w.wide), `${E} no sideways scroll`);
           // A project with neither answer shows nothing.
           await open(quietP.id);
