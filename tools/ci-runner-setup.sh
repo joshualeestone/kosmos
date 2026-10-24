@@ -686,6 +686,11 @@ keepalive() {
   # stop and reload at another job, the relay's: refuse.
   [ "$label" = "$(basename "$plist" .plist)" ] \
     || { echo "refused: $plist has Label $label, not its own name; nothing was changed (svc.sh writes them the same)" >&2; exit 1; }
+  # And it must be the label svc.sh derives for THIS runner (actions.runner.<owner>-<repo>.<name>): a job can write this
+  # home, so a copy of the relay's plist with its WorkingDirectory rewritten would pass the two checks above.
+  local want_label; want_label="actions.runner.$(printf '%s' "$REPO" | tr '/' '-').$NAME"
+  [ "$label" = "$want_label" ] \
+    || { echo "refused: $plist has Label $label, not $want_label (this repo's runner $NAME; set KOSMOS_CI_RUNNER_NAME for another); nothing was changed" >&2; exit 1; }
   local ciuid; ciuid="$(id -u "$CI_USER" 2>/dev/null)" || { echo "refused: no user $CI_USER on this Mac" >&2; exit 1; }
   dom="gui/$ciuid"   # the CI user's domain, whoever reads it (a dry run may be someone else's)
   cd "$RUNNER_DIR" || { echo "refused: no runner in $RUNNER_DIR" >&2; exit 1; }
@@ -1029,6 +1034,9 @@ EOF
   elif [ -n "$plist" ] && [ -r "$plist" ]; then
     if keepalive_set "$plist"; then ok "$plist has KeepAlive SuccessfulExit false (whether the LOADED runner has it: as $CI_USER, tools/ci-runner-setup.sh keepalive)"
     else problem "$plist lacks $(keepalive_missing "$plist"): a killed runner may stay offline; as $CI_USER: tools/ci-runner-setup.sh --apply keepalive"; fi
+  elif [ -r "$RUNNER_DIR/.service" ] && [ -z "$plist" ] && { sf="$(head -n 1 "$RUNNER_DIR/.service" 2>/dev/null || true)"; [ -e "$sf" ] && [ ! -r "$sf" ]; }; then
+    # The plist .service names is there but cannot be read as this user: not checked, not "missing".
+    echo "note:   KeepAlive NOT checked: $sf cannot be read as $(id -un); as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether it is set and loaded"
   elif [ -r "$RUNNER_DIR/.service" ] && [ -z "$plist" ] && [ -r "$CI_HOME/Library/LaunchAgents" ] && [ -x "$CI_HOME/Library/LaunchAgents" ]; then
     # It CAN look, and there is no LaunchAgent of this runner: missing, or not this runner's (another WorkingDirectory).
     problem "$RUNNER_DIR/.service names no LaunchAgent of this runner (actions.runner.*.plist directly under $CI_HOME/Library/LaunchAgents with WorkingDirectory $RUNNER_DIR): a killed runner may stay offline; as $CI_USER: tools/ci-runner-setup.sh keepalive"
