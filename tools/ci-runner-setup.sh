@@ -25,7 +25,9 @@
 #                             KOSMOS_CI_USER, e.g. kosmos-ci2). Adds KeepAlive, ThrottleInterval and ExitTimeOut to an
 #                             installed runner's LaunchAgent and reloads it while idle; a dry run says whether it is
 #                             set and loaded (exit 1 when the runner is not running as it should). This repo's runner
-#                             only ($CI_HOME/actions-runner); a kosmos-relay runner under the same user is not touched
+#                             only ($CI_HOME/actions-runner); a kosmos-relay runner under the same user is not touched.
+#                             Waits, in seconds: KOSMOS_CI_UNLOAD_WAIT_S (45), KOSMOS_CI_START_WAIT_S (30),
+#                             KOSMOS_CI_STATE_WAIT_S (12)
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
 #                             Give KOSMOS_CI_GUARD_SHA (the install pin), or the guard counts as unchecked.
 #                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail)
@@ -72,9 +74,12 @@ jq_row() { printf '.runners[] | select(.name == "%s") | "\(.status) \(.busy) \([
 NAME="${KOSMOS_CI_RUNNER_NAME:-kosmos-ci-agent1s}"
 # NAME goes into a jq string literal (jq_busy, jq_row): only characters that need no escaping there.
 case "$NAME" in ''|*[!A-Za-z0-9._-]*) echo "refused: KOSMOS_CI_RUNNER_NAME '$NAME' may hold only letters, digits, '.', '_' and '-'" >&2; exit 2 ;; esac
-# CI_HOME goes into pgrep patterns (keepalive): only characters that need no escaping there.
+# CI_HOME goes into pgrep patterns (keepalive): no character there can do more than widen a match ('.').
 case "${KOSMOS_CI_HOME:-/Users/${KOSMOS_CI_USER:-kosmos-ci}}" in ''|*[!A-Za-z0-9/._-]*) echo "refused: the CI home may hold only letters, digits, '/', '.', '_' and '-'" >&2; exit 2 ;; esac
-case "${KOSMOS_CI_UNLOAD_WAIT_S:-45}" in ''|*[!0-9]*) echo "refused: KOSMOS_CI_UNLOAD_WAIT_S is '${KOSMOS_CI_UNLOAD_WAIT_S:-}', not a number of seconds" >&2; exit 2 ;; esac
+for _w in KOSMOS_CI_UNLOAD_WAIT_S KOSMOS_CI_START_WAIT_S KOSMOS_CI_STATE_WAIT_S; do
+  eval "_v=\${$_w-}"
+  [ -z "$_v" ] || case "$_v" in *[!0-9]*) echo "refused: $_w is '$_v', not a number of seconds" >&2; exit 2 ;; esac
+done
 LABELS="self-hosted,macOS,arm64,kosmos-ci"
 BREW="${KOSMOS_CI_BREW:-/opt/homebrew}"            # the engine's fixed tmux fallback is /opt/homebrew/bin/tmux
 MIN_FREE_GIB="${KOSMOS_CI_MIN_FREE_GIB:-20}"       # the fleet's disk floor
@@ -164,7 +169,8 @@ mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN
 #   `launchctl bootout gui/<uid>/<label>` stops it.
 # - ExitTimeOut 35: launchd SIGKILLs a stopping job after its exit timeout, shown here as `exit timeout = 5`, but
 #   RunnerService.js gives the Listener 30 s to end its GitHub session; a stop cut short leaves that session behind.
-# What still stays down: a Listener that crashes is RunnerService.js's to retry (every 5 s, forever, unless
+# What still stays down: a SIGTERM or SIGINT (any kill tool's default signal) to runsvc.sh or node, which they handle as
+# a stop (exit 0), so only a SIGKILL or a crash is restarted (10-23 was a SIGKILL); a Listener that crashes is RunnerService.js's to retry (every 5 s, forever, unless
 # GITHUB_ACTIONS_SERVICE_EXIT_AFTER_N_FAILURES is set); 10 consecutive retryable exits (2, 3, 4) stop the service
 # (exit 0); and a killed Listener leaves its session on GitHub's side, which, if it outlasts the restarted Listener's
 # session-conflict retries, ends in exit 5 and a stop. The 10-23 restart came back in about 2 minutes; the liveness
@@ -207,7 +213,8 @@ add_keepalive() {
   cp -p "$1" "$1.new" || return 1
   plutil -remove KeepAlive "$1.new" >/dev/null 2>&1 || true
   if plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$1.new" \
-     && plutil -replace ThrottleInterval -integer 10 "$1.new" && plutil -replace ExitTimeOut -integer 35 "$1.new" \
+     && plutil -replace ThrottleInterval -integer 10 "$1.new" \
+     && { [ "$(plutil -extract ExitTimeOut raw -o - "$1.new" 2>/dev/null | tr -cd '0-9')" -ge 35 ] 2>/dev/null || plutil -replace ExitTimeOut -integer 35 "$1.new"; } \
      && plutil -lint "$1.new" >/dev/null && mv -f "$1.new" "$1"; then
     return 0
   fi
@@ -630,8 +637,7 @@ keepalive() {
   if [ "$in_file" = 1 ] && [ "$in_job" = 1 ]; then
     # Loaded is not running: a job that exited 0 (a stop of the service, a session conflict) stays loaded and down.
     # Re-read for a while first: between a crash and launchd's restart (its throttle, up to 10 s) a job is not running.
-    local jo st w3=0 lim3="${KOSMOS_CI_STATE_WAIT_S:-12}"
-    case "$lim3" in ''|*[!0-9]*) lim3=12 ;; esac
+    local jo st w3=0 lim3="${KOSMOS_CI_STATE_WAIT_S:-12}"   # a number: checked at the top
     while :; do
       jo="$(launchctl print "$dom/$label" 2>/dev/null || true)"
       st="$(printf '%s\n' "$jo" | sed -n 's/^[[:space:]]state = //p' | head -n 1)"
@@ -695,13 +701,13 @@ keepalive() {
   # SIGHUP and SIGPIPE are ignored and the window's one message cannot fail it; the launchctl calls' own output to a
   # gone terminal is the residual. For a session you may lose, run the stage under nohup.
   trap '' HUP PIPE
-  local sent=0
+  local sent=0 outlived=0
   local jo2 opid w4=0; jo2="$(launchctl print "$dom/$label" 2>/dev/null || true)"
   opid="$(printf '%s\n' "$jo2" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)"
   # No pid in launchd's print while this runner's Listener runs: the print format may have changed. Booting out then
   # would run under the old exit timeout, the cut this step prevents: refuse before anything is stopped.
   if [ -z "$opid" ] && [ -n "$before" ]; then
-    echo "refused: launchctl print shows no pid for $label, though its Listener runs; nothing was stopped, KeepAlive is in the plist, not yet loaded" >&2; exit 1
+    echo "refused: launchctl print shows no pid for $label, though a Listener of $RUNNER_DIR runs (started another way, by hand or orphaned, or launchd's print format changed); nothing was stopped, KeepAlive is in the plist, not yet loaded" >&2; exit 1
   fi
   [ -n "$opid" ] || echo "note:   $label has no process, so no SIGTERM first" || true
   if [ -n "$opid" ]; then
@@ -712,6 +718,7 @@ keepalive() {
     # Still alive: it was told to stop, so going on is the lesser harm (refusing now would leave a runner that may yet
     # stop under its OLD definition, with nothing to restart it). Said, so an offline runner afterwards has a reason.
     if kill -0 "$opid" 2>/dev/null; then
+      outlived=1
       echo "note:   the old runner (pid $opid) had not ended ${w4}s after SIGTERM; the bootout may cut its GitHub session short, and if it then reads offline (a session conflict), start it again with: launchctl kickstart $dom/$label" || true
     fi
   fi
@@ -721,12 +728,19 @@ keepalive() {
   local waited=0
   while launchctl print "$dom/$label" >/dev/null 2>&1 && [ "$waited" -lt "$limit" ]; do sleep 1; waited=$((waited + 1)); done
   if launchctl print "$dom/$label" >/dev/null 2>&1; then
-    if [ "$sent" = 1 ]; then
+    if [ "$sent" = 1 ] && [ "$outlived" = 0 ]; then
       echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; the runner is STOPPED (SIGTERM ended it; still loaded from the OLD definition, or unloading). Run this again: it boots out and bootstraps. If it is no longer listed: launchctl bootstrap $dom $plist" >&2; exit 1
     fi
     echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; it may still be unloading. Check: launchctl print $dom/$label. Loaded: it runs the OLD definition, without KeepAlive (run this again). Not loaded: the runner is DOWN (launchctl bootstrap $dom $plist)" >&2; exit 1
   fi
-  if ! launchctl bootstrap "$dom" "$plist"; then
+  # Up to three tries: a bootstrap right after a bootout can fail once (5: Input/output error).
+  local ba=1 bok=0
+  while :; do
+    if launchctl bootstrap "$dom" "$plist"; then bok=1; break; fi
+    [ "$ba" -lt 3 ] || break
+    ba=$((ba + 1)); sleep 1
+  done
+  if [ "$bok" = 0 ]; then
     if launchctl print "$dom/$label" >/dev/null 2>&1; then
       echo "FAILED: launchctl bootstrap $dom $plist reported an error, but $label is loaded; check it runs (launchctl print $dom/$label), then run this again" >&2; exit 1
     fi
@@ -736,8 +750,7 @@ keepalive() {
   # argv is RunnerService.js's spawn of an absolute path, measured with ps on the old Agent1s Mac (10-23):
   # /Users/kosmos-ci/actions-runner/bin/Runner.Listener run --startuptype service (it joins ../bin, so bin/ even after a
   # self-update; bin[^/]* is only broader than needed and still excludes actions-runner-relay).
-  local now w2=0 lim2="${KOSMOS_CI_START_WAIT_S:-30}"
-  case "$lim2" in ''|*[!0-9]*) lim2=30 ;; esac
+  local now w2=0 lim2="${KOSMOS_CI_START_WAIT_S:-30}"   # a number: checked at the top
   while prc=0; now="$(pgrep -u "$(id -u)" -f "$own_re")" || prc=$?
         [ "$prc" -lt 2 ] || { echo "FAILED: could not list processes (pgrep exit $prc) to see whether the runner started; $label was loaded" >&2; exit 1; }
         [ -z "$(printf '%s\n' "$now" | grep -v -x -F -e "${before:-none}" | grep . || true)" ]; do
