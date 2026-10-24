@@ -35,6 +35,7 @@ case "$me" in
     out="$(dirname "$CALL_LOG")/booted-out"
     case "$1" in
       kill) [ "${FX_KILL_FAIL:-0}" = 1 ] && exit 3
+        touch "$(dirname "$CALL_LOG")/killed"   # a gated stand-in starts its countdown here
         [ -z "${FX_JOB_PID:-}" ] || { kill -0 "$FX_JOB_PID" 2>/dev/null && echo "kill-while-alive" >> "$CALL_LOG" || echo "kill-after-exit" >> "$CALL_LOG"; }
         # A terminal Ctrl-C reaches the whole foreground group: the script AND this command. bash, waiting on a child,
         # exits on SIGINT only when the child dies of it too, so the stub signals itself as well (an ignored SIGINT is
@@ -55,7 +56,9 @@ case "$me" in
         # Whether the old job's process (FX_JOB_PID) was still alive when the bootout came: the test asserts it.
         [ -z "${FX_JOB_PID:-}" ] || { kill -0 "$FX_JOB_PID" 2>/dev/null && echo "bootout-while-alive" >> "$CALL_LOG" || echo "bootout-after-exit" >> "$CALL_LOG"; }
         [ "${FX_BOOTOUT_FAIL:-0}" = 1 ] && exit 5; [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
-      bootstrap) [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; rm -f "$out" "$(dirname "$CALL_LOG")/exited"; touch "$(dirname "$CALL_LOG")/bootstrapped"
+      bootstrap) bc="$(dirname "$CALL_LOG")/bootstrap-tries"; echo $(( $(cat "$bc" 2>/dev/null || echo 0) + 1 )) > "$bc"
+        [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5
+        [ -n "${FX_BOOTSTRAP_FAIL_TIMES:-}" ] && [ "$(cat "$bc")" -le "$FX_BOOTSTRAP_FAIL_TIMES" ] && exit 5; rm -f "$out" "$(dirname "$CALL_LOG")/exited"; touch "$(dirname "$CALL_LOG")/bootstrapped"
         [ "${FX_LISTENER:-1}" = 1 ] && echo started > .svc-state
         [ "${FX_NO_LISTENER_AFTER:-0}" = 1 ] && echo stopped > .svc-state   # this runner's Listener never comes back
         # The loaded job has KeepAlive exactly when the plist it was loaded from does (state kept across runs). The printed
@@ -715,12 +718,15 @@ b="$(grep -n '^launchctl bootout ' "$T/ka-sigterm.calls" | head -n 1 | cut -d: -
 # The wait itself: a real process the test owns stands in for the old runsvc.sh. It ends by itself in 8 s (started
 # after ka_fresh, and long enough to outlive startup on a loaded box), and the bootout must come after that, not at once
 # (under the old 5 s exit timeout an early bootout would SIGKILL the Listener).
-ka_fresh; perl -e 'select(undef, undef, undef, 8)' & sp=$!; t0=$SECONDS   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
+# Gated on the SIGTERM (the stub's kill touches $T/killed): it lives 3 s after it, however slow startup was, and ends
+# after 60 s if no SIGTERM comes. Not a bare sleep (#6710).
+ka_fresh; rm -f "$T/killed"
+perl -e 'my $t = 0; until (-e $ARGV[0] or $t > 600) { select(undef, undef, undef, 0.1); $t++ } select(undef, undef, undef, 3)' "$T/killed" & sp=$!; t0=$SECONDS
 run ka-waits "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" -- --apply keepalive
 el=$((SECONDS - t0)); wait "$sp" 2>/dev/null
-# The run took most of the 4 s: it did wait (a process already gone before the loop would also read "after exit").
+# kill-while-alive (it was up at the SIGTERM) and bootout-after-exit (it lived 3 s past it): the script waited.
 # kill-while-alive: the process was still up at the SIGTERM, so "after exit" at the bootout means the script waited.
-[ "$(rc ka-waits)" = 0 ] && grep -qx 'kill-while-alive' "$T/ka-waits.calls" && grep -qx 'bootout-after-exit' "$T/ka-waits.calls" && ! has ka-waits "had not ended" && [ "$el" -ge 3 ] \
+[ "$(rc ka-waits)" = 0 ] && grep -qx 'kill-while-alive' "$T/ka-waits.calls" && grep -qx 'bootout-after-exit' "$T/ka-waits.calls" && ! has ka-waits "had not ended" \
   && pass "keepalive --apply waits for the old runner to end after SIGTERM before booting it out" || fail "keepalive waits: rc $(rc ka-waits): $(grep bootout- "$T/ka-waits.calls")"
 # A job of this runner up while the old runner outlived the SIGTERM wait: a second wait, then the reload anyway (refusing
 # would leave a SIGTERMed runner down).
@@ -861,6 +867,11 @@ ka_fresh; run ka-noformat "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="
 ka_fresh; run ka-writesfirst "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER=1 -- keepalive
 has ka-writesfirst "--apply writes KeepAlive into the plist first" && has ka-writesfirst "so --apply would refuse until idle" \
   && pass "keepalive dry run: a refusal says --apply writes the plist first" || fail "keepalive writes first: $(tail -3 "$T/ka-writesfirst.out")"
+# CONTROL for the interrupt cases: if this suite was started with SIGINT ignored (backgrounded by a non-interactive
+# shell), no script can catch or die of it, and every interrupt case below would pass whatever the trap does.
+if [ -n "$(bash -c 'kill -INT $$; echo alive' 2>/dev/null)" ]; then
+  fail "CONTROL: SIGINT is ignored in this harness, so the interrupt cases cannot test anything: run the suite in the foreground"
+else pass "CONTROL: an unignored SIGINT ends a child bash here, so the interrupt cases can fail"; fi
 # A Ctrl-C after the SIGTERM (during the bootout) is ignored: the reload completes, the runner is not left down.
 # The same with NO process (loaded, exited): nothing gets a SIGTERM, but the bootout and bootstrap still run, and a
 # Ctrl-C between them must not leave the job unloaded.
@@ -970,6 +981,11 @@ ka_fresh; run ka-pgrepfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME=
 ka_fresh; run ka-loggedout "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LAUNCHCTL_FAIL=1 -- --apply keepalive
 [ "$(rc ka-loggedout)" = 1 ] && has ka-loggedout "is not logged in" && cmp -s "$KA" "$T/ka.before" \
   && pass "keepalive --apply refuses when the user's GUI domain does not exist" || fail "keepalive logged out: rc $(rc ka-loggedout): $(tail -1 "$T/ka-loggedout.out")"
+# A bootstrap that fails three times (5: Input/output error), then works: still within the retry window, so it loads.
+ka_fresh; rm -f "$T/bootstrap-tries"; run ka-bootretry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_FAIL_TIMES=3 -- --apply keepalive
+[ "$(rc ka-bootretry)" = 0 ] && [ "$(cat "$T/bootstrap-tries")" = 4 ] && ! has ka-bootretry "STOPPED" \
+  && pass "keepalive --apply: a bootstrap that fails three times and then works leaves the runner loaded" || fail "keepalive bootstrap retry: rc $(rc ka-bootretry), tries $(cat "$T/bootstrap-tries" 2>/dev/null): $(tail -1 "$T/ka-bootretry.out")"
+rm -f "$T/bootstrap-tries"
 ka_fresh; run ka-bootfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_FAIL=1 -- --apply keepalive
 [ "$(rc ka-bootfail)" = 1 ] && has ka-bootfail "the runner is STOPPED" && pass "keepalive --apply says the runner is stopped when bootstrap fails" || fail "keepalive bootstrap fail: rc $(rc ka-bootfail): $(tail -1 "$T/ka-bootfail.out")"
 ka_fresh; rm -f "$KA" "$KH/actions-runner/.service"; run ka-none "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive

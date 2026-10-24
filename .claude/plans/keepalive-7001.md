@@ -506,3 +506,18 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
   ka_fresh (now after it, 8 s), ka-outlives' 30 s helper several cases early (now beside its case).
 - NIT1 FIXED: the post-reload FAILED message read the values at any indent (the stub's nested 99s); one-tab now.
 - Stopped the queued 6j gate BEFORE editing this time (it had not started); no leftover processes.
+
+## Review round 35 (opus, blind, READ ONLY, HEAD 4c9c50edc5)
+- W1 FIXED: the bootstrap retried 3 times within about 2 s; a longer transient "5: Input/output error" left a booted-out
+  runner STOPPED. Now up to 5 tries over about 10 s (waits 1, 2, 3, 4 s). Stub FX_BOOTSTRAP_FAIL_TIMES + a try counter;
+  ka-bootretry (fails 3 times, loads on the 4th); the 3-try mutant is red.
+- W2 FIXED: the interrupt cases pass vacuously if the suite runs with SIGINT ignored (started in the background by a
+  non-interactive shell). A CONTROL now runs first: a child bash that SIGINTs itself must die. Shown to fail: in the
+  background the probe prints "alive"; in the foreground it does not.
+- W3 FIXED: ka-waits' stand-in counted from launch, not from the SIGTERM. The stub's kill now touches $T/killed and the
+  stand-in lives 3 s after it (60 s cap); kill-while-alive + bootout-after-exit prove the wait. The SIGTERM-wait mutant
+  is red. The stale "4 s" comment and the weak elapsed bound are gone.
+- DEFERRED NITs: re-reading `before` just before the SIGTERM (the window is checks only, milliseconds); an unreadable
+  plist in a readable LaunchAgents (again); install could note a pre-#7001 plist (keepalive is that check);
+  ka-longthrottle costs 15 s and checks only the message.
+- Stopped the queued 6j gate before editing (it had started; stopped, no leftovers).
