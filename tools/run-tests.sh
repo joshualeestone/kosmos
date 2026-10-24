@@ -781,6 +781,9 @@ fi
 # an async hang, but it runs on the test's own event loop, so it cannot stop a test blocked in a sync call
 # (spawnSync with no timeout held the queue 66 min). The file watchdog below is outside node: it stops any one
 # test FILE that runs longer than its limit and the run goes red.
+#
+# #6059: fresh-connections.js makes the global fetch open a new connection per request, so a kept-alive socket
+# left idle on a loaded runner cannot come back ECONNRESET on the next request (one preload for ~240 files).
 NODE_STATUS=0
 _rt_wd_pid=""
 _rt_wd_flag=""
@@ -788,7 +791,7 @@ _rt_wd_started=0
 _rt_wd_found=0
 rt_file_watchdog_start   # not for a shell-only run
 if [ "$KOSMOS_TEST_PART" != shell ]; then
-node --test --require "$REPO/test-support/launch-guard.js" --require "$REPO/test-support/tool-guard.js" --test-timeout="$RT_TEST_TIMEOUT_MS" "${KOSMOS_TEST_FILES[@]}" "$@"
+node --test --require "$REPO/test-support/launch-guard.js" --require "$REPO/test-support/tool-guard.js" --require "$REPO/test-support/fresh-connections.js" --test-timeout="$RT_TEST_TIMEOUT_MS" "${KOSMOS_TEST_FILES[@]}" "$@"
 NODE_STATUS=$?
 fi
 rt_file_watchdog_stop
