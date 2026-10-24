@@ -260,13 +260,20 @@ final class BoardClient: ObservableObject {
     // What the chats hold belongs to one account on one Mac: dropped when either changes, so nothing typed or failed
     // under one is shown, or sent, under another.
     // A sign-out, or a sign-in as someone else, reported by the web view (PushNotificationManager.accountChanges).
-    func accountChanged() { forget() }
+    // The loop is stopped first, so a read in flight under the old account cannot write its list back afterwards, and
+    // started again if it was running, under whoever is signed in now.
+    func accountChanged() {
+        let running = loop != nil
+        stop()
+        forget()
+        if running { start() }
+    }
 
     // Who the chats belong to (a fingerprint of the Kosmos+ session they were made under).
     private var chatsOwner: String?
 
+    // Another Mac keeps chatsOwner (the account has not changed); forget() clears it.
     private func forgetChats() {
-        chatsOwner = nil
         pending = [:]
         drafts = [:]
         resent = []
@@ -374,6 +381,7 @@ final class BoardClient: ObservableObject {
     // Everything learned under the previous Kosmos+ session goes, cookies and the kept Mac session included.
     private func forget() {
         forgetChats()
+        chatsOwner = nil
         admitted = nil
         shownMac = nil
         shownOwner = nil
