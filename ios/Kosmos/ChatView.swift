@@ -372,6 +372,15 @@ struct TapWhen: ViewModifier {
     }
 }
 
+// VoiceOver's double-tap action only where there is one to take, so a bubble with nothing to retry offers none.
+struct DefaultActionWhen: ViewModifier {
+    let enabled: Bool
+    let action: () -> Void
+    @ViewBuilder func body(content: Content) -> some View {
+        if enabled { content.accessibilityAction(action) } else { content }
+    }
+}
+
 // The "New messages" capsule asks the open chat's scroll view to go to the end.
 extension Notification.Name {
     static let chatScrollToEnd = Notification.Name("kosmos.chatScrollToEnd")
@@ -413,7 +422,7 @@ struct ChatBubble: View {
         .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spokenLabel)
-        .accessibilityAction { if line?.canRetry == true { sendAgain() } }
+        .modifier(DefaultActionWhen(enabled: line?.canRetry == true, action: sendAgain))
         // The bubble is read as one element, so its links are offered as actions (one per link, named by its site, and
         // numbered when there is more than one).
         .accessibilityActions { linkActions }
@@ -428,7 +437,7 @@ struct ChatBubble: View {
     }
 
     private var linkActions: some View {
-        let links = BubbleText.links(in: row.text)
+        let links = Board.messageLinks(row.text)
         return ForEach(Array(links.enumerated()), id: \.offset) { i, url in
             let number = links.count > 1 ? "\(i + 1) " : ""
             Button("Open link \(number)to \(url.host ?? url.absoluteString)") { openURL(url) }
@@ -477,7 +486,7 @@ struct PendingBubble: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spokenLabel)
-        .accessibilityAction { if item.failed && line.canRetry { retry() } }
+        .modifier(DefaultActionWhen(enabled: item.failed && line.canRetry, action: retry))
         // Delete only where the long-press menu offers it.
         .accessibilityActions { deleteAction }
     }
@@ -545,37 +554,8 @@ struct BubbleText: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    // What iOS reads as inline Markdown, with the message's own line breaks kept, and plain web links made tappable
-    // (links only: not phone numbers or dates).
-    // The links a message's bubble shows, in order (one link split into runs by its styling counts once).
-    static func links(in s: String) -> [URL] {
-        var out: [URL] = []
-        var last: URL?
-        for run in formatted(s).runs {
-            if let url = run.link, url != last { out.append(url) }
-            last = run.link
-        }
-        return out
-    }
-
-    static func formatted(_ s: String) -> AttributedString {
-        var out = (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
-        // A Markdown link can put any address behind friendly words (a phone call, another app), so only web addresses
-        // stay links; the words stay as text.
-        let hidden = out.runs.compactMap { run in run.link.flatMap { Board.isWebLink($0) ? nil : run.range } }
-        for range in hidden { out[range].link = nil }
-        let plain = String(out.characters)
-        if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
-            for match in detector.matches(in: plain, range: NSRange(plain.startIndex..., in: plain)) {
-                guard let url = match.url, Board.isWebLink(url), let range = Range(match.range, in: plain),
-                      let lower = AttributedString.Index(range.lowerBound, within: out),
-                      let upper = AttributedString.Index(range.upperBound, within: out),
-                      out[lower..<upper].link == nil else { continue }
-                out[lower..<upper].link = url
-            }
-        }
-        return out
-    }
+    // The message as drawn (Board.messageText, under ios/LogicTests).
+    static func formatted(_ s: String) -> AttributedString { Board.messageText(s) }
 }
 
 // The small tail on the last bubble of a run, at the bottom corner on the speaker's side (Messages' convention).
