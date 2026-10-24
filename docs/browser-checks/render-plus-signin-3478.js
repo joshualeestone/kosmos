@@ -702,12 +702,14 @@ const visible = (page, sel) => page.evaluate((s) => {
         const inFlight = await page.evaluate(() => ({ accept: document.getElementById('plus-si-keychanged-accept').disabled, no: document.getElementById('plus-si-keychanged-no').disabled }));
         chk(inFlight.accept && inFlight.no, `[${k}] kosmos#6596 while Accept is out, Do not accept cannot be pressed (it would report nothing changed after the key was taken)`, JSON.stringify(inFlight));
         for (let i = 0; i < 50 && !releaseAccept; i++) await page.waitForTimeout(50);
-        releaseAccept();
+        chk(!!releaseAccept, `[${k}] CONTROL: the Accept request reached the route`);
+        if (releaseAccept) releaseAccept();
         await page.waitForFunction(() => !document.getElementById('plus-si-keychanged-no').disabled, null, { timeout: 5000 }).catch(() => {});
         const after = await page.evaluate(() => ({ panel: !document.getElementById('plus-si-keychanged').hidden, msg: document.getElementById('plus-signin-msg').textContent.trim(),
-          accept: document.getElementById('plus-si-keychanged-accept').disabled, no: document.getElementById('plus-si-keychanged-no').disabled }));
-        chk(after.panel && /not a key Kosmos\+ offered/.test(after.msg) && !after.accept && !after.no,
-          `[${k}] kosmos#6596 a refused Accept says why and keeps the panel, both buttons back`, JSON.stringify(after));
+          accept: document.getElementById('plus-si-keychanged-accept').disabled, no: document.getElementById('plus-si-keychanged-no').disabled,
+          focus: document.activeElement ? document.activeElement.id : '' }));
+        chk(after.panel && /not a key Kosmos\+ offered/.test(after.msg) && !after.accept && !after.no && after.focus === 'plus-si-keychanged-no',
+          `[${k}] kosmos#6596 a refused Accept says why and keeps the panel, both buttons back, the focus on Do not accept`, JSON.stringify(after));
         chk(errs.length === 0, `[${k}] no page errors`, errs.join(' | '));
         await page.close();
         continue;
@@ -720,7 +722,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(accepts.length === 1 && accepts[0] && accepts[0].key === KEY && /accepted for your next sign-in/.test(after.msg) && after.email === 'you@example.com' && !after.panel,
           `[${k}] kosmos#6596 Accept sends that key once, starts over with the email kept, and says what happens next`, JSON.stringify({ accepts, after }));
       } else {
-        chk(accepts.length === 0 && /Nothing was changed/.test(after.msg) && after.email === 'you@example.com' && !after.panel,
+        chk(accepts.length === 0 && /Nothing was changed\. This computer still trusts the Kosmos\+ key it had\./.test(after.msg) && after.email === 'you@example.com' && !after.panel,
           `[${k}] kosmos#6596 Do not accept sends nothing and starts over with the email kept`, JSON.stringify({ accepts, after }));
       }
       chk(errs.length === 0, `[${k}] no page errors`, errs.join(' | '));

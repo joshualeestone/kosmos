@@ -19908,7 +19908,7 @@ window.kosmosMeasureScrollbarWidth();
            one this computer trusts, and named it. Accepting holds it for the NEXT sign-in only (the code is spent),
            so both choices start over; the panel has its own buttons and no foot link (plusSiWayOut). -->
       <div id="plus-si-keychanged" hidden>
-        <p class="plus-si-small plus-si-kc-first" id="plus-si-keychanged-why">Kosmos+ answered with a different security key from the one this computer trusts, so this computer did not sign in.</p>
+        <p class="plus-si-small plus-si-kc-first" id="plus-si-keychanged-why">This computer does not recognise it, so it did not sign in.</p>
         <p class="plus-si-small">Accept it only if whoever runs your Kosmos+ service told you the key was changing. The new key is:</p>
         <p class="plus-si-key" id="plus-si-keychanged-keyline"><code id="plus-si-keychanged-key"></code></p>
         <p class="plus-si-small" id="plus-si-keychanged-no-why">If you do not accept, nothing changes: this computer keeps the key it trusts and stays signed out of Kosmos+.</p>
@@ -55236,7 +55236,8 @@ async function plusSiKeyAccept() {
   for (const b of btns) b.disabled = false;
   if (acc) acc.removeAttribute('aria-busy');
   if (r.stale) return;
-  if (!r.ok) { plusSiMsg(r.because); return; }
+  // A refused Accept keeps the panel; the focus goes back to the safe answer (the pressed button was disabled under it).
+  if (!r.ok) { plusSiMsg(r.because); const no = document.getElementById('plus-si-keychanged-no'); if (no) no.focus(); return; }
   plusSiStartOver();
   plusSiMsg(company
     ? 'The new key is accepted for your next sign-in, in the next hour. Sign in with your company again to finish.'
@@ -55244,7 +55245,7 @@ async function plusSiKeyAccept() {
 }
 function plusSiKeyDecline() {
   plusSiStartOver();
-  plusSiMsg('Nothing was changed. This computer still trusts its own key.');
+  plusSiMsg('Nothing was changed. This computer still trusts the Kosmos+ key it had.');
 }
 /* Start over: drop the half-finished sign-in (engine and page, as Sign out does) but stay in the
    wizard, back on the email step with the email kept, so a new code is one press away. */
