@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: ownseal-ui-4658
-diff_hash: c8a1a87e79957361478f74aa2e4f92e9b3cc028f01f889bc46c038a9b77371ff
-validation: passed (Mortals full suite, entry 2026-10-24T13:37:37Z, same hash; run v10 on 6d1186a8a failed two full-suite-only guards, fixed in 62607f4fd8)
+diff_hash: 8649fac84fce24fc59ade029734ecbcc9221f36cfd112cfd16e60f9733fcf842
+validation: passed (Mortals full suite, entry 2026-10-24T13:37:37Z, at the PREVIOUS hash c8a1a87e; since then 96f7ff0ede only moves the sealed-room line off the .fhint class (CI browser-checks caught render-projects), checked by CI; run v10 on 6d1186a8a failed two full-suite-only guards, fixed in 62607f4fd8)
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-24T13:45:45Z
 iterations: 10
