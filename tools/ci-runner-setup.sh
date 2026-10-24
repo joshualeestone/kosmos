@@ -742,6 +742,7 @@ keepalive() {
     [ "$in_file" = 1 ] || echo "note:   $plist lacks $(keepalive_missing "$plist"): a killed runner may stay offline"
     [ "$in_file" = 1 ] && [ "$loaded" = 1 ] && echo "note:   $plist has KeepAlive but the LOADED $label does not show all of it (launchctl print's 'successful exit => 0', 'exit timeout' of 35 or more and 'minimum runtime' of 10 or more): it needs a reload"
     [ "$in_file" = 1 ] || echo "WOULD: add KeepAlive {SuccessfulExit: false}, ThrottleInterval 10 and ExitTimeOut 35 to $plist"
+    if [ "$in_job" = 1 ]; then echo "note:   the LOADED $label already has it, so no reload: only the file is written"; return 0; fi
     # Exit 1 for a runner that is not running as it should (as --apply does), 0 for a change it would make.
     if [ "$own" = 1 ]; then echo "refused: its Listener runs but $label is not loaded in $dom: reload it there by hand" >&2; exit 1
     elif [ "$loaded" = 1 ]; then
@@ -779,6 +780,9 @@ keepalive() {
   if [ "$in_file" = 0 ]; then
     add_keepalive "$plist" || { echo "FAILED: could not add KeepAlive to $plist; nothing reloaded" >&2; exit 1; }
     ok "KeepAlive added to $plist"
+    # The LOADED job already has it (the file lacked only what launchd shows anyway, e.g. its default throttle): done,
+    # with no reload of a runner that does not need one.
+    if [ "$in_job" = 1 ]; then ok "$label already runs with it loaded; no reload needed"; return 0; fi
   fi
   if [ "$loaded" = 0 ]; then
     if [ "$own" = 1 ]; then
@@ -907,6 +911,11 @@ keepalive() {
   while launchctl print "$dom/$label" >/dev/null 2>&1 && [ "$waited" -lt "$limit" ]; do sleep 1; waited=$((waited + 1)); done
   if launchctl print "$dom/$label" >/dev/null 2>&1; then
     if [ "$sent" = 1 ] && [ "$outlived" = 0 ]; then
+      # The SIGTERM ended it and it is still loaded under the OLD definition, which restarts nothing: start it again
+      # there, so the runner is up (without KeepAlive) rather than down until someone reruns this.
+      if launchctl kickstart "$dom/$label" >/dev/null 2>&1; then
+        echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; started it again under the OLD definition (launchctl kickstart): it runs WITHOUT KeepAlive. Run this again" >&2; exit 1
+      fi
       echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; the runner is STOPPED (SIGTERM ended it; still loaded from the OLD definition, or unloading). Run this again: it boots out and bootstraps. If it is no longer listed: launchctl bootstrap $dom $plist" >&2; exit 1
     fi
     echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; it may still be unloading. Check: launchctl print $dom/$label. Loaded: it is still loaded from the OLD definition, without KeepAlive (run this again). Not loaded: the runner is DOWN (launchctl bootstrap $dom $plist)" >&2; exit 1
@@ -1028,7 +1037,7 @@ EOF
     echo "note:   $RUNNER_DIR/_work/_temp is not empty while idle: the job-completed sweep may not be running"
   fi
   say "the runner's LaunchAgent (a killed runner must come back by itself: kosmos#7001)"
-  local plist; plist="$(runner_plist)"
+  local plist sf; plist="$(runner_plist)"
   if [ "$hidden" = 1 ]; then
     echo "note:   cannot look inside $RUNNER_DIR as $(id -un); as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether KeepAlive is set and loaded"
   elif [ -n "$plist" ] && [ -r "$plist" ]; then
