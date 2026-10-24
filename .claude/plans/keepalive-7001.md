@@ -589,3 +589,13 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
   timing and millisecond windows, and the recent ones are mostly SELF (in my own fixes: rounds 37, 39). Weakest
   premise: that the loop is converging rather than circling; if the next two rounds are still SELF-only, stop adding
   surface and ship with the residuals named.
+
+## Loop stopped after round 40, at Splinter's direction (2026-10-24 04:44)
+Splinter, on #7001: "Consider shipping the smallest thing that is already proven ... card anything left that is not a
+blocker as a follow-up, rather than running round 41 onward on the same branch." Two reasons given: the shared
+account's usage (86%, on pace to run out for all nine agents), and bulletin a-loop-can-converge-on-a-target-you-keep-
+moving (recent findings were in my own fixes: rounds 37, 39, 40). Round 41 was stopped before it reported.
+- converged: false. Round 40's findings were fixed and mutant-checked but not re-reviewed.
+- Ships as: the keepalive stage, register/install by this runner's own Listener, and verify's plist check.
+- To follow-up cards (not blockers): the deferred NITs of rounds 30-40 (listed in each round above), relay runners'
+  KeepAlive, and the SIGTERM-is-a-stop decision.
