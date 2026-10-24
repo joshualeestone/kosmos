@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-si-child plus-state2 plus-signin-email plus-signin-company plus-si-company plus-si-company-code plus-si-company-open plus-si-company-finish plus-si-company-name plus-si-company-second-row plus-si-company-second plus-si-company-go plus-si-company-resend
+// Browser-check-surface: plus-si-child plus-state2 plus-signin-email plus-signin-company plus-si-company plus-si-company-code plus-si-company-open plus-si-company-finish plus-si-company-name plus-si-company-second-row plus-si-company-second plus-si-company-go plus-si-company-resend plus-si-keychanged
 'use strict';
 /**
  * kosmos#5628 slice 2b-ui: a computer whose company's MDM installed the Kosmos profile signs in through the company's
@@ -147,6 +147,37 @@ async function openWizard(browser, BASE, managed, answers) {
       const c2 = w.sent('complete')[1];
       chk(!!c2 && c2.body && c2.body.second === '123456' && c2.body.name === 'neo-mac', 'Enter in the second-step box finishes with its code', JSON.stringify(c2));
       chk(w.errs.length === 0, 'no page errors (managed)', w.errs.join(' | '));
+      await page.close();
+    }
+    // ---- kosmos#6596 step 8: a company finish refused because Kosmos+ offered a different key shows the key panel,
+    //      and Accept's next step is the company sign-in, not an emailed code. ----
+    {
+      const KEY = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE';
+      const w = await openWizard(browser, BASE, true, (step) => {
+        if (step === 'start') return [200, { ok: true, matchCode: 'K7-3M', url: URL_SSO, interval: 1 }];
+        if (step === 'open') return [200, { ok: true }];
+        if (step === 'status') return [200, { ready: true, gone: false, retry: false }];
+        if (step === 'complete') return [400, { error: 'the Kosmos+ service offered a different key from the one this computer trusts', keyChanged: { offered: KEY } }];
+        return [404, {}];
+      });
+      const { page } = w;
+      const accepts = [];
+      await page.route('**/api/remote/accept-key', (route, req) => { accepts.push((req || route.request()).postDataJSON()); route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+      await page.fill('#plus-signin-email', 'neo@acme.test');
+      await page.click('#plus-signin-company');
+      await page.waitForSelector('#plus-si-company-name', { state: 'visible', timeout: 6000 }).catch(() => {});
+      await page.fill('#plus-si-company-name', 'neo-mac');
+      await page.focus('#plus-si-company-name');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('#plus-si-keychanged', { state: 'visible', timeout: 6000 }).catch(() => {});
+      chk(await visible(page, '#plus-si-keychanged') && (await page.textContent('#plus-si-keychanged-key')) === KEY,
+        'kosmos#6596 a company finish refused for a changed key shows the key panel with that key');
+      await page.click('#plus-si-keychanged-accept');
+      await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 }).catch(() => {});
+      const msg = (await page.textContent('#plus-signin-msg')).trim();
+      chk(accepts.length === 1 && accepts[0].key === KEY && /Sign in with your company again/.test(msg) && !/new code/.test(msg),
+        'kosmos#6596 Accept after a company finish says to sign in with the company again, not to send a code', JSON.stringify({ accepts, msg }));
+      chk(w.errs.length === 0, 'no page errors (company key change)', w.errs.join(' | '));
       await page.close();
     }
   } finally {
