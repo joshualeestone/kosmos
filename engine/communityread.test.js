@@ -2699,3 +2699,10 @@ test('#7056: many owed people: the count is said above the replies, the section 
   const body = r.text.slice(section, r.text.indexOf('more people are waiting'));
   assert.ok(body.length <= cr.OWED_TEXT_BUDGET + 200, `the owed section took ${body.length} characters`);
 });
+
+test('#7056: an item with no size shares a read with nothing; sized items share as before', () => {
+  assert.equal(cr.shownWithin([{ x: {} }, { x: {} }, { x: {} }]), 1, 'items with no size were counted as free');
+  assert.equal(cr.shownWithin([{ x: { readSize: 10 } }, { x: {} }]), 1, 'an item with no size joined a read already holding one');
+  assert.equal(cr.shownWithin([{ x: { readSize: 10 } }, { x: { readSize: 10 } }]), 2, 'CONTROL: two small sized items should share a read');
+  assert.equal(cr.shownWithin([]), 0);
+});

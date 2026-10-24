@@ -479,12 +479,10 @@ const PERSON_MARK = 'a person wrote this';   // review 5: shared with communityb
 // Review 14: the same guard the nudge line carries, so the read and the line never disagree about an answer already made.
 const PERSON_OWED = '(' + PERSON_MARK + ', so it IS owed an answer even when marked under comment: answer them in this thread, with --reply-to and this comment id, unless you already answered them there)';
 const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
-/* #7056: the replies read's text budget. Its replies move the post's mark, so a reply cut out of the output by the
-   agent's tool is never shown again. Claude Code's Bash keeps 30000 characters; Codex cuts the MIDDLE of a long output
-   at 10000 tokens for the models Kosmos runs (codex-cli 0.149's model table), which text dense in ids can reach near
-   20 KB. So a whole read is kept near that: the new replies to REPLIES_TEXT_BUDGET and the owed people after them to
-   OWED_TEXT_BUDGET, each always at least one, with a line saying what waits. Sizes come from replySizeOf, which the
-   nudge's count uses too, so it never names a comment the read holds back. */
+/* #7056: the replies read's text budgets. Its replies move the post's mark, so a reply cut out of the output by the
+   agent's tool is never shown again. New replies fit REPLIES_TEXT_BUDGET and the owed people after them
+   OWED_TEXT_BUDGET, each at least one, and a line says what waits. Sizes come from replySizeOf, which the nudge's count
+   uses too, so it never names a comment the read holds back. Why these sizes: the plan (repliescap-7056). */
 const REPLIES_TEXT_BUDGET = 12000;
 const OWED_TEXT_BUDGET = 3000;
 const UUID_LEN = 36;
@@ -504,7 +502,8 @@ function shownWithin(items, max = REPLIES_SHOWN_MAX, budget = REPLIES_TEXT_BUDGE
   let used = 0, k = 0;
   for (const it of items) {
     if (k >= max) break;
-    const size = (it && it.x && it.x.readSize) || 0;
+    // An item with no size shares a read with nothing, so it can never slip past the budget unseen.
+    const size = it && it.x && Number.isFinite(it.x.readSize) && it.x.readSize > 0 ? it.x.readSize : Infinity;
     if (k > 0 && used + size > budget) break;
     used += size; k++;
   }
