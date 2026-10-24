@@ -218,3 +218,42 @@ test('under the marker the coordinator\'s phone and browser rows leave the pendi
   assert.equal(remote.listedAsComputer('dev-oddname'), false);
   assert.equal(remote.listedAsComputer('dev-oddwait'), false);
 });
+
+/* kosmos#6590 (c2): this computer's own sign-in is acked, never allowed, under the marker. */
+function setOwnId(id) {
+  const file = path.join(require('./store').ROOT, 'remote.json');
+  const cur = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...cur, device_id: id }));
+}
+const settle = () => new Promise((r) => setTimeout(r, 60));
+
+test('c2: under the marker the own sign-in is acked (no allow); without it, allowed as before', async () => {
+  setup();
+  setOwnId('selfdev1');
+  answer = (args) => (args[1] === 'ack' ? { out: JSON.stringify({ device_id: 'selfdev1', acked: true }) } : { out: JSON.stringify({ allowed: true }) });
+  assert.equal(remote.allowSelfQuietlyForTests(), true);
+  await settle();
+  assert.deepEqual(devicesCalls().map((a) => a[1]), ['ack']);
+  assert.ok(devicesCalls()[0].includes('--device-id=selfdev1'), JSON.stringify(devicesCalls()[0]));
+  setup({ marker: false });
+  setOwnId('selfdev1');
+  assert.equal(remote.allowSelfQuietlyForTests(), true);
+  await settle();
+  assert.deepEqual(devicesCalls().map((a) => a[1]), ['allow'], 'control: without the marker the old allow runs');
+});
+
+test('c2: the ack is ok only when Kosmos+ took it; a pause is said as paused; an id starting with - stays one argument', async () => {
+  setup();
+  answer = () => ({ out: JSON.stringify({ device_id: '-dev', acked: true }) });
+  let r = await remote.deviceAckSelfForTests('-dev');
+  assert.equal(r.ok, true);
+  assert.ok(devicesCalls().at(-1).includes('--device-id=-dev'));
+  answer = () => ({ out: JSON.stringify({ device_id: 'dev', acked: false }) });
+  r = await remote.deviceAckSelfForTests('dev');
+  assert.equal(r.ok, false, 'acked false is not a grant');
+  answer = () => ({ err: 'Error: Kosmos+ is paused for maintenance: no new Allow until it is back', code: 1 });
+  r = await remote.deviceAckSelfForTests('dev');
+  assert.deepEqual([r.ok, r.paused], [false, true]);
+  r = await remote.deviceAckSelfForTests('../evil');
+  assert.equal(r.ok, false);
+});

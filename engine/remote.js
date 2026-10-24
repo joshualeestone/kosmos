@@ -2054,6 +2054,27 @@ function selfPendingInSnapshot() {
     return !!(raw && Array.isArray(raw.devices) && raw.devices.some((d) => d && String(d.device_id) === id));
   } catch { return false; }
 }
+/** kosmos#6590 (c2): tell Kosmos+ that this computer's own sign-in `id` is allowed, writing nothing to this computer's
+    lists. Ok only when Kosmos+ took it (`acked` true: an `acked` false exits 0 and is retried like any failure); a pause
+    arrives as the tunnel's error and is said as paused, not as a refusal. */
+async function deviceAckSelf(id) {
+  // As deviceAllow (c2 review 1): never while a register or a Forget is rewriting the identity; the grant retries.
+  { const b = busy(); if (b) return b; }
+  const bad = checkId(id); if (bad) return bad;
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  // `--device-id=<id>`: an id can start with "-", which the separate-argument form would read as a flag.
+  const r = await tracked(setupRun(['devices', 'ack', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(), '--device-id=' + id], null, retireTimeoutMs()));
+  if (!r.ok) {
+    if (/paused for maintenance/.test(String(r.stderr || '') + '\n' + String(r.because || ''))) return { ok: false, because: PAUSED_ALLOW_WORDS, paused: true };
+    return { ok: false, because: r.because };
+  }
+  const got = parseSaid(r);
+  if (!got.ok) return got;
+  if (got.data && got.data.acked === true) return { ok: true, because: null, data: got.data };
+  // Kosmos+ holds no sign-in with this id (its ack answered 404): said as deviceAllow says it, for the log.
+  if (got.data && got.data.account_ack === UNKNOWN_DEVICE) return { ok: false, because: UNKNOWN_WORDS };
+  return { ok: false, because: 'Kosmos+ was not told yet' };
+}
 function allowSelfQuietly() {
   const id = idInUse();
   if (!id || selfAllowing || !enrolled()) return false;
@@ -2063,7 +2084,10 @@ function allowSelfQuietly() {
   selfAllowing = true;
   selfAllowAt = Date.now();
   Promise.resolve()
-    .then(() => deviceAllow(id, thisComputerDeviceName()))
+    /* kosmos#6590 (S-7d branch c, c2): under the board-v2 marker this computer's own sign-in is only told to Kosmos+
+       (`devices ack`), never put on this computer's allow list: no browser holds that id, so allowing it would open the
+       gate to whoever could present a sign-in for it. Without the marker, as before. */
+    .then(() => (boardV2() ? deviceAckSelf(id) : deviceAllow(id, thisComputerDeviceName())))
     .then((r) => {
       if (epoch !== selfEpoch) return;   // an identity change since this grant started: its answer is not ours
       if (r && r.ok) { selfGrantedId = id; selfGrantedAt = Date.now(); return; }
@@ -4049,6 +4073,7 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   vouchPatchForTests: (patch) => { if (vouchState && patch) Object.assign(vouchState, patch); },   // kosmos#6599
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   boardV2, listedAsComputer, devicesWaiting, deviceAllowCode, deviceDropWaiting, devicesClearWaiting,   // kosmos#6590 branch c
+  deviceAckSelfForTests: deviceAckSelf, allowSelfQuietlyForTests: allowSelfQuietly,   // kosmos#6590 c2
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
   setCompanyOpenCommandForTests: (argv) => { companyOpenCommandForTests = argv || null; },
   setCompanyOpenSourceForTests: (src) => { companyOpenSourceForTests = src || null; },

@@ -337,6 +337,10 @@ const TRIAGED_5548 = {
   vouchOpenedUrlForTests: ['engine/remote.js', TEST_SEAM + ' (reports the address the opener was given)'],
   vouchUntilForTests: ['engine/remote.js', TEST_SEAM + ' (reports the window end, to pin that opening the browser does not restart it)'],
   bumpSelfEpochForTests: ['engine/remote.js', TEST_SEAM + ' (moves the epoch as a same-identity re-register does)'],
+  // kosmos#6590 (S-7d branch c, c2): engine/remote-typedallow-6590.test.js drives the own-sign-in grant and its ack-only
+  // call directly. Production runs allowSelfQuietly after a sign-in and on its retry, and deviceAckSelf only from it.
+  allowSelfQuietlyForTests: ['engine/remote.js', TEST_SEAM + ' (runs the own-sign-in grant once; production runs it after a sign-in and on its retry)'],
+  deviceAckSelfForTests: ['engine/remote.js', TEST_SEAM + ' (the ack-only call allowSelfQuietly makes under the board-v2 marker)'],
 };
 
 const engineDir = path.join(__dirname, 'engine');
