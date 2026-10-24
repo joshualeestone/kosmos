@@ -210,6 +210,72 @@ enum SignIn {
         "failed": "Signing in with your company's account did not work. Try again, or use your email code.",
     ]
 
+    // MARK: - Passkey sign-in (kosmos#7050 slice C)
+
+    // Kosmos+'s passkey routes (kosmos-relay passkey.rs): begin answers a signed challenge and takes nothing; finish
+    // checks the assertion and answers a one-time grant, spent at verify in place of the code, as a company sign-in's
+    // is. With passkeys off on the coordinator both routes answer 404, and the app offers no passkey.
+    static let passkeyBeginPath = "/v1/signin/passkey/begin"
+    static let passkeyFinishPath = "/v1/signin/passkey/finish"
+    static let passkeyGrantPrefix = "kpk1_"
+
+    /// What begin offered: the challenge to sign and the relying party it is for.
+    struct PasskeyOffer: Equatable {
+        let challenge: Data
+        let rpID: String
+    }
+
+    /// begin's answer, only when a passkey can work here: a 200 with a challenge, user verification required, and the
+    /// relying party exactly the coordinator's host (the app's webcredentials association is for that host, and the
+    /// coordinator compares the origin byte for byte). Anything else: no passkey offered.
+    static func passkeyOffer(status: Int, json: Any?, coordinator: URL) -> PasskeyOffer? {
+        guard status == 200, let body = json as? [String: Any],
+              let challenge = (body["challenge"] as? String).flatMap(fromBase64url), !challenge.isEmpty,
+              let rp = body["rp_id"] as? String, let host = coordinator.host, rp.lowercased() == host.lowercased(),
+              body["user_verification"] as? String == "required" else { return nil }
+        return PasskeyOffer(challenge: challenge, rpID: rp)
+    }
+
+    /// finish's body: the assertion as the page sends it (base64url), and this iPhone's device id, which the grant is
+    /// bound to and which verify then proves.
+    static func passkeyFinishBody(credentialID: Data, authenticatorData: Data, clientDataJSON: Data, signature: Data,
+                                  userHandle: Data?, deviceID: String) -> [String: Any] {
+        var body: [String: Any] = [
+            "credential_id": base64url(credentialID),
+            "authenticator_data": base64url(authenticatorData),
+            "client_data_json": base64url(clientDataJSON),
+            "signature": base64url(signature),
+            "device_id": deviceID,
+        ]
+        if let userHandle, !userHandle.isEmpty { body["user_handle"] = base64url(userHandle) }
+        return body
+    }
+
+    /// What finish said.
+    enum PasskeyFinish: Equatable {
+        /// The grant, and the account's email to spend it with at verify.
+        case grant(String, email: String)
+        /// A sentence to show on the email step.
+        case refused(String)
+    }
+
+    static func passkeyFinish(status: Int, json: Any?) -> PasskeyFinish {
+        let body = json as? [String: Any]
+        if status == 200, let code = body?["code"] as? String, code.hasPrefix(passkeyGrantPrefix),
+           let email = body?["email"] as? String, looksLikeEmail(email) {
+            return .grant(code, email: email)
+        }
+        if body?["code"] as? String == "sso_required" { return .refused(passkeyWords.company) }
+        return .refused(cleanMessage(body?["error"]) ?? passkeyWords.failed)
+    }
+
+    /// The page's sentences for passkey sign-in (kosmos-relay signin.html), in the app's words for its own buttons.
+    static let passkeyWords = (
+        notUsed: "The passkey was not used. Try again, or use the code we email you.",
+        failed: "That passkey sign-in did not work. Try again, or use the code we email you.",
+        company: "Your company asks you to sign in with its own account. Enter your email and press Send code."
+    )
+
     /// The Allow, read from /v1/account/me.
     enum AllowRead: Equatable {
         /// With what the same answer says about the account's computers (signin.rs session_view carries addresses and
