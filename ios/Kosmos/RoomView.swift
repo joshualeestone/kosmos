@@ -6,7 +6,9 @@ import UIKit
 // silence line, the grouped working line, and the board's composer (its placeholder, the gold Post, a reply strip).
 struct RoomView: View {
     @ObservedObject var store: RoomStore
-    let project: Board.ProjectRow
+    // The project as the room opened; `project` reads the list's current row (members change while it is open).
+    let opened: Board.ProjectRow
+    private var project: Board.ProjectRow { store.list?.projects.first { $0.id == opened.id } ?? opened }
     let openPage: (URL) -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
@@ -93,12 +95,12 @@ struct RoomView: View {
             var seenOnce = false
             var lastSeen: String?
             while !Task.isCancelled {
-                await store.loadRoom(project.id)
-                // Seen only once the room has really been read, and only while it is still open: a failed first read,
-                // or one that finished after the person left, is not the person seeing it.
+                let read = await store.loadRoom(project.id)
+                // Seen only after a read that landed, while the room is still open: a failed read (rows kept from an
+                // earlier visit included), or one that finished after the person left, is not the person seeing it.
                 if Task.isCancelled { break }
                 // By the newest row, not the count: a re-read that replaced 50 rows with 50 newer ones is still new.
-                if let shown = store.rows[project.id], !seenOnce || shown.last?.id != lastSeen {
+                if read, let shown = store.rows[project.id], !seenOnce || shown.last?.id != lastSeen {
                     seenOnce = true; lastSeen = shown.last?.id
                     await store.markSeen(project.id)
                 }
@@ -109,7 +111,9 @@ struct RoomView: View {
 
     // An older page goes in above; the row that was at the top stays where the reader is looking.
     private func loadOlder(_ proxy: ScrollViewProxy) {
-        let anchor = items.first(where: { if case .row = $0.kind { return true } else { return false } })?.id
+        // A post's id: a folded refusal line's id can change when older refusals join its run, which would leave
+        // nothing to scroll back to.
+        let anchor = items.first(where: { if case let .row(r, _, _) = $0.kind { return r.kind == .post } else { return false } })?.id
         Task {
             let before = store.older[project.id]?.cursor
             await store.loadOlder(project.id)
@@ -282,7 +286,8 @@ struct RoomView: View {
 
     // Words to post: not empty, and not only the @name Reply put there.
     private var canPost: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !Board.isOnlyMention(draft, mention: replyMention)
+        // Not before the room's first read: with nothing read, an older post with the same words could settle it.
+        store.rows[project.id] != nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !Board.isOnlyMention(draft, mention: replyMention)
     }
 
     private var composer: some View {

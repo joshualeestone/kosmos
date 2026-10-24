@@ -70,6 +70,9 @@ extension Board {
         // The computer's cursor for the page before this one; nil at the start of the room.
         let olderCursor: String?
         let held: Bool
+        // The route's `unanswered` for the WHOLE room (messages.unanswered is not filtered by page), names shown; nil
+        // when the computer did not send it. Applied to every post shown, not only this page's.
+        var silent: [String: [String]]? = nil
     }
 
     // The newest page (no cursor) or the page before a cursor the computer gave.
@@ -156,8 +159,10 @@ extension Board {
             }
         }
         let cursor = (obj["olderCursor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return RoomPage(rows: rows, olderCount: max(0, integer(obj["olderCount"]) ?? 0), olderCursor: cursor,
-                        held: obj["held"] is [String: Any])
+        var page = RoomPage(rows: rows, olderCount: max(0, integer(obj["olderCount"]) ?? 0), olderCursor: cursor,
+                            held: obj["held"] is [String: Any])
+        if obj["unanswered"] is [String: Any] { page.silent = silent.mapValues { $0.map(shown) } }
+        return page
     }
 
     // Consecutive refusals for the same reason fold into one line naming every agent once (Josh 09-10: "It's just a
@@ -227,7 +232,31 @@ extension Board {
         if page.olderCount > 0, !shown.isEmpty, !page.rows.contains(where: { ids.contains($0.id) }) {
             return (page.rows, (page.olderCount, page.olderCursor))
         }
-        return (mergeRoom(shown, with: page.rows), older)
+        return (withSilence(mergeRoom(shown, with: page.rows), page.silent), older)
+    }
+
+    // The room's silence lines, from a whole-room `unanswered` map, on every post shown: a post above the newest page
+    // whose agent has answered since loses its line. Rows are left as they are when the computer sent no map.
+    static func withSilence(_ rows: [RoomRow], _ silent: [String: [String]]?) -> [RoomRow] {
+        guard let silent else { return rows }
+        return rows.map { r in
+            guard r.kind == .post else { return r }
+            var out = r
+            out.unanswered = silent[r.id] ?? []
+            return out
+        }
+    }
+
+    // The react route's answer ({ ok, of, reactions }, server.js roomReact): the post it toggled and its fresh pills,
+    // in the room's own shape. Patching that row from it reaches a post above the newest page, which no re-read does.
+    static func reacted(_ data: Data) -> (of: String, reactions: [Reaction])? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any], isTrue(obj["ok"]),
+              let of = obj["of"] as? String, let raw = obj["reactions"] as? [[String: Any]] else { return nil }
+        let pills = raw.compactMap { x -> Reaction? in
+            guard let e = x["emoji"] as? String, let c = integer(x["count"]), c > 0 else { return nil }
+            return Reaction(emoji: e, count: c, mine: isTrue(x["mine"]))
+        }
+        return (of, pills)
     }
 
     // The person's posts in the air (or not confirmed) that the room now shows: a row by the person, with the same

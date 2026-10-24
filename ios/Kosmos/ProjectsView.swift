@@ -218,13 +218,20 @@ final class RoomStore: ObservableObject {
         #if DEBUG
         if Self.sample { return }
         #endif
-        _ = await client.throughMac { mac in
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { mac in
             var r = URLRequest(url: URL(string: "/api/project/\(project)/room/\(row.id)/react", relativeTo: mac)!.absoluteURL)
             r.httpMethod = "POST"
             r.setValue("application/json", forHTTPHeaderField: "Accept")
             r.setValue("application/json", forHTTPHeaderField: "Content-Type")
             r.httpBody = try? JSONSerialization.data(withJSONObject: ["emoji": emoji])
             return r
+        }
+        // The post's fresh pills from the answer itself: the re-read below reaches only the newest page.
+        guard same(epoch) else { return }
+        if let answer, answer.1.statusCode == 200, let got = Board.reacted(answer.0),
+           let k = rows[project]?.firstIndex(where: { $0.id == got.of }) {
+            rows[project]?[k].reactions = got.reactions
         }
         await loadRoom(project)
     }
@@ -281,7 +288,7 @@ struct ProjectsView: View {
                     NavigationLink(isActive: Binding(get: { openProject != nil }, set: { if !$0 { openProject = nil } })) {
                         // One view per room: a notification for another room while one is open starts fresh, never
                         // with the first room's draft, reply or polling.
-                        if let p = openProject { RoomView(store: store, project: p, openPage: openPage).id(p.id) }
+                        if let p = openProject { RoomView(store: store, opened: p, openPage: openPage).id(p.id) }
                     } label: { EmptyView() }
                     .hidden()
                 )

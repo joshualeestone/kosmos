@@ -119,6 +119,19 @@ let kept = Board.refreshRoom(rows, older: (2, "c-old"), page: overlapPage)
 check(kept.rows.count == rows.count && kept.older.cursor == "c-old", "CONTROL: an overlapping page merges and the older cursor stays")
 check(Board.refreshRoom(nil, older: nil, page: away).older.cursor == "2026-10-22T16:00:00.000Z|0", "a first read takes the page's cursor")
 
+section("rows above the newest page stay current")
+let silentPage = Board.parseRoom(Data(#"{"rows":[{"kind":"post","id":"m3","text":"x","at":"2026-10-22T15:03:00.000Z"},{"kind":"post","id":"m4","text":"y","at":"2026-10-22T15:04:00.000Z"}],"unanswered":{},"olderCount":2,"olderCursor":"c"}"#.utf8), names: names)!
+var waiting = Board.RoomRow(id: "m1", atRaw: "2026-10-22T15:01:00.000Z", at: Board.isoDate("2026-10-22T15:01:00.000Z"), kind: .post, from: nil, byPerson: true, text: "@dana?")
+waiting.unanswered = ["Dana"]
+let m3 = silentPage.rows[0]
+let afterAnswer = Board.refreshRoom([waiting, m3], older: (2, "c"), page: silentPage)
+check(afterAnswer.rows.first { $0.id == "m1" }?.unanswered == [], "a post above the newest page loses its silence line once the room-wide map says Dana answered")
+let noMap = Board.parseRoom(Data(#"{"rows":[{"kind":"post","id":"m3","text":"x","at":"2026-10-22T15:03:00.000Z"}],"olderCount":2,"olderCursor":"c"}"#.utf8))!
+check(Board.refreshRoom([waiting, m3], older: (2, "c"), page: noMap).rows.first { $0.id == "m1" }?.unanswered == ["Dana"], "CONTROL: a computer that sends no map leaves the line as it was")
+let reactAnswer = Data(#"{"ok":true,"op":"add","emoji":"❤️","of":"m1","reactions":[{"emoji":"❤️","count":1,"mine":true}]}"#.utf8)
+check(Board.reacted(reactAnswer).map { $0.of == "m1" && $0.reactions == [Board.Reaction(emoji: "❤️", count: 1, mine: true)] } == true, "the react answer's own pills, for a post the re-read cannot reach")
+check(Board.reacted(Data(#"{"ok":false,"because":"no such post"}"#.utf8)) == nil, "CONTROL: a refused react patches nothing")
+
 section("a post in the air settles only on a NEW row")
 let ok1 = Board.RoomRow(id: "m50", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "ok")
 let ok2 = Board.RoomRow(id: "m51", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "ok")
