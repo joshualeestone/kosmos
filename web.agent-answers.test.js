@@ -266,6 +266,11 @@ test('the person’s own row carries its time now that the receipt may say nothi
      mid-task now, so the control uses a `could_not` row, which still speaks. */
   const failed = dmRow({ text: 'hi', at, delivery: { state: 'could_not', because: 'it is waiting on an answer from you' } }, card.name);
   assert.match(failed, /Message failed to deliver/, 'CONTROL: the row cannot say anything at all');
+  /* kosmos#6720 with #6774: a copy not sent because the same words are kept above is not a failure (that copy goes),
+     so it keeps its own words and gets no failed line or try again. */
+  const dup = dmRow({ text: 'hi', at, delivery: { state: 'could_not', duplicateOf: 'earlier', because: 'the same message was already kept above, to be sent once its input box was clear, so this copy was not sent' } }, card.name);
+  assert.doesNotMatch(dup, /Message failed to deliver|dm-retry/, 'a kept-above copy reads as a failed message');
+  assert.match(dup, /already kept above/, 'a kept-above copy lost its own words');
   fleet.restore();
 });
 

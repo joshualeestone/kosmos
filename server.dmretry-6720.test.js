@@ -280,3 +280,36 @@ test('#6720 review 2: the answer to a failed plain send says its row is retryabl
   const rr = await post({ text: 'reply flag', reply_to: theirs }, { verdict: () => FAILED('we could not reach them') });
   assert.equal(rr.out.retryable, undefined);
 });
+
+/* Merged with #6774 (a message refused for a stuck input box is kept and sent once the box clears). A retry keeps its
+   one row: it is never also kept for the box, and never answered with a second, "already kept" copy. */
+const BOX_REFUSED = () => ({ ...FAILED('its input box already holds text that was not sent, so this was not typed behind it'), inputHeld: true, busy: true });
+
+test('#6720 with #6774: a Try again that meets a stuck input box stays the one failed row, and nothing is kept for the box', async () => {
+  const at = keep({});
+  const before = rows().length;
+  const r = await post({ text: 'ship it', retry_of: at }, { verdict: BOX_REFUSED });
+  assert.equal(r.status, 200, JSON.stringify(r.out));
+  assert.deepEqual(r.calls, ['ship it']);
+  assert.equal(rows().length, before, 'a second row was added');
+  assert.equal(rowAt(at).delivery.state, 'could_not', 'the row was not left failed');
+  assert.notEqual(r.out.delivery.state, 'held', 'the retry was kept for the box');
+  assert.deepEqual(limitqueue.list(NAME), [], 'a copy was kept for the box, so it would be typed later as well');
+  // Control: the same refusal on a NEW message is kept for the box (#6774), so the arm above can fail.
+  const fresh = await post({ text: 'a new message' }, { verdict: BOX_REFUSED });
+  assert.equal(fresh.out.delivery.state, 'held', JSON.stringify(fresh.out));
+  assert.equal(limitqueue.list(NAME).length, 1, 'control: the new message was not kept for the box');
+});
+
+test('#6720 with #6774: a Try again whose words are already kept for the box is refused, with nothing typed and no new row', async () => {
+  const at = keep({});
+  const keptAt = new Date().toISOString();
+  limitqueue.add(NAME, { id: 'dm-kept-6720', from: '', kind: 'dm', text: 'ship it', envelope: 'e', trailer: '', at: keptAt, reset: keptAt, input: true, plain: true });
+  const before = rows().length;
+  const r = await post({ text: 'ship it', retry_of: at });
+  assert.equal(r.status, 409, JSON.stringify(r.out));
+  assert.match(r.out.error, /already kept/);
+  assert.deepEqual(r.calls, [], 'typed although a copy waits for the box');
+  assert.equal(rows().length, before, 'a duplicate row was added');
+  assert.equal(rowAt(at).delivery.state, 'could_not');
+});
