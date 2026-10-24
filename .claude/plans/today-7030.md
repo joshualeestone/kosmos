@@ -35,3 +35,8 @@ Its `other` and the spec's "anything else" line up; the one addition is `permiss
 ## Part 2: the phone's Today screen
 Per the spec: three sections each hidden when empty, the badge from `counts.waiting`, a signed-in launch opens on
 Today, Answer/Open into the native chat, Check it into the task page in the board view. Design shots to Mona Lisa.
+
+## Ruled
+- stuck_rate stays its own reason with the board's PJ_NEEDS_WHY words and Open (Mona Lisa, 2026-10-24 02:45 CDT):
+  #6341 keeps out-of-usage off a PROJECT, Today is per agent, so folding it into "other" would hide a reason the board
+  can name. Her spec table is updated.
