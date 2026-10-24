@@ -415,10 +415,12 @@ struct ChatBubble: View {
         .accessibilityLabel(Self.spoken(who: mine ? "You" : name, at: row.at, text: row.text)
             + (line.map { $0.canRetry ? ", not sent, double-tap to try again" : ", not sent" } ?? (row.notSent.map { ", " + $0.lowercased() } ?? "")))
         .accessibilityAction { if line?.canRetry == true { sendAgain() } }
-        // The bubble is read as one element, so its links are offered as actions (one per link, named by its site).
+        // The bubble is read as one element, so its links are offered as actions (one per link, named by its site, and
+        // numbered when there is more than one).
         .accessibilityActions {
-            ForEach(Array(BubbleText.links(in: row.text).enumerated()), id: \.offset) { _, url in
-                Button("Open link to \(url.host ?? url.absoluteString)") { openURL(url) }
+            let links = BubbleText.links(in: row.text)
+            ForEach(Array(links.enumerated()), id: \.offset) { i, url in
+                Button("Open link " + (links.count > 1 ? "\(i + 1) " : "") + "to \(url.host ?? url.absoluteString)") { openURL(url) }
             }
         }
     }
