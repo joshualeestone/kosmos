@@ -18,15 +18,17 @@ itself (the Kosmos+ session in the Keychain lists the account's Macs, mints a
 handoff for one, and the Mac's tunnel gate turns it into a session cookie in the
 app's own private `URLSession`), then reads `/api/status` every 5 s. The decisions
 are in `Kosmos/BoardLogic.swift`; `BoardClient.swift` moves the bytes;
-`AgentsView.swift` draws the list. Tapping an agent opens its chat under Today, the board's home tab (#6846: Today, Agents, Projects, Tasks, Settings; the four web tabs share one web view).
+`AgentsView.swift` draws the list. Tapping an agent opens its chat natively (#7008, `ChatView.swift`: it reads and sends on the board chat's own route, `/api/agent/<name>/thread`); what that chat does not draw yet (a question's buttons, a permission card, a file, older messages) opens the agent's chat under Today, as its info button does (#6846: Today, Agents, Projects, Tasks, Settings; the four web tabs share one web view).
 The Mac's session cookie (with the Mac's name and address and a fingerprint of the Kosmos+ session, never the session) is kept
 in the Keychain item `mac-session` (`SessionKeychain.macSession`) and reused across
 launches; a sign-out, or Kosmos+ answering that the sign-in has ended, makes this
 iPhone forget it (the Mac keeps its side until it expires, as for the web view).
 The app opens on Agents when signed in to Kosmos+, otherwise on Today (the sign-in); the
-store-screenshot build lights the tab of the address it opens (a project room under Projects). One Debug-only
-launch switch exists for screenshots and never reaches Release: `KOSMOS_SAMPLE_AGENTS=1`
-shows invented agents without connecting (and skips the notification prompt). App Store screenshots taken from now on include the tab bar (the stored ones predate it).
+store-screenshot build lights the tab of the address it opens (a project room under Projects). Debug-only
+launch switches exist for screenshots and never reach Release: `KOSMOS_SAMPLE_AGENTS=1`
+shows invented agents and their chats without connecting (and skips the notification prompt and opens on Agents); with it,
+`KOSMOS_SAMPLE_OPEN=<agent>` opens that agent's chat (`dana` or `cleo`), and `KOSMOS_SAMPLE_NOT_SENT=1` adds a message that
+was not sent. In the simulator each is passed as `SIMCTL_CHILD_<name>` to `xcrun simctl launch`. App Store screenshots taken from now on include the tab bar (the stored ones predate it).
 
 ## What this is
 

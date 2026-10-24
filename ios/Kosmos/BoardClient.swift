@@ -192,79 +192,92 @@ final class BoardClient: ObservableObject {
 
     // MARK: - One agent's conversation (kosmos#7008)
 
-    // Through this client's own session to the Mac it is connected to; nil when not connected or no conversation was
-    // read (the chat keeps what it shows and says it is not updating).
-    func thread(for session: String) async -> Board.Thread? {
+    // Through this client's own session to the Mac it is connected to: the conversation, the Mac's own reason it gave
+    // none, or no answer (not connected included).
+    func thread(for session: String) async -> Board.ThreadRead {
         #if DEBUG
-        if let sample = sampleThreads[session] { return sample }
+        if let sample = sampleThreads[session] { return .thread(sample) }
         #endif
-        guard let held = admitted, let request = Board.threadRequest(mac: held.url, session: session),
-              let result = await env.send(request), (200...299).contains(result.1.statusCode)
-        else { return nil }
-        return Board.parseThread(result.0)
+        guard let held = admitted, let request = Board.threadRequest(mac: held.url, session: session) else { return .noAnswer }
+        let result = await env.send(request)
+        return Board.readThread(status: result?.1.statusCode ?? 0, data: result?.0)
     }
 
-    // Messages sent from a chat that its conversation does not hold yet, by agent. Kept while the app runs, so a message
-    // that was not sent is still there after leaving the chat (Mona Lisa's slice 3a spec).
+    // Messages sent from a chat that its conversation does not hold yet, by agent, and each chat's unsent words. Kept
+    // while the app runs, so neither is lost by leaving the chat (Mona Lisa's slice 3a spec).
     @Published private(set) var pending: [String: [Board.PendingSend]] = [:]
+    @Published var drafts: [String: String] = [:]
 
     func post(_ text: String, to agent: Board.Agent) async {
-        let item = Board.PendingSend(id: UUID().uuidString, text: text, at: env.now())
+        let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Board.fitsBoard(said) else { return }
+        let item = Board.PendingSend(id: UUID().uuidString, text: said, at: env.now())
         pending[agent.session, default: []].append(item)
         await deliver(item.id, to: agent)
     }
 
+    // Again, for one that was not taken, only while the agent is running (the spec: no retry until the status changes).
     func retry(_ id: String, to agent: Board.Agent) async {
         guard let i = pending[agent.session]?.firstIndex(where: { $0.id == id }),
-              let item = pending[agent.session]?[i], item.failed != nil, item.canRetry else { return }
-        pending[agent.session]?[i].failed = nil
+              pending[agent.session]?[i].failed == true, isRunning(agent) else { return }
+        pending[agent.session]?[i].state = .sending
         await deliver(id, to: agent)
+    }
+
+    // A message of the person's the Mac kept as not sent: sent again as a new message (the board's own chat does the same).
+    func sendAgain(_ row: Board.ChatRow, to agent: Board.Agent) async {
+        guard row.canSendAgain, isRunning(agent) else { return }
+        await post(row.text, to: agent)
     }
 
     func discard(_ id: String, for session: String) {
         pending[session]?.removeAll { $0.id == id }
     }
 
-    // A read of the conversation: the accepted messages it now holds stop being shown as pending.
+    // A read of the conversation: the pending messages it now holds stop being shown as pending (Board.settled).
     func settle(_ thread: Board.Thread, for session: String) {
         guard let list = pending[session], !list.isEmpty else { return }
         let left = Board.settled(list, with: thread)
         if left != list { pending[session] = left }
     }
 
-    private func deliver(_ id: String, to agent: Board.Agent) async {
-        guard let item = pending[agent.session]?.first(where: { $0.id == id }) else { return }
-        let outcome = await send(item.text, to: agent.session)
-        guard let i = pending[agent.session]?.firstIndex(where: { $0.id == id }) else { return }
-        switch outcome {
-        case .sent:
-            pending[agent.session]?[i].accepted = true
-        case .notSent:
-            let now = agents.first { $0.session == agent.session } ?? agent
-            let line = Board.notSentLine(agentRunning: now.running, name: now.name)
-            pending[agent.session]?[i].failed = line.text
-            pending[agent.session]?[i].canRetry = line.canRetry
-        }
+    func isRunning(_ agent: Board.Agent) -> Bool {
+        (agents.first { $0.session == agent.session } ?? agent).running
     }
 
-    func send(_ text: String, to session: String) async -> Board.SendOutcome {
+    private func deliver(_ id: String, to agent: Board.Agent) async {
+        guard let item = pending[agent.session]?.first(where: { $0.id == id }) else { return }
+        let result: Board.SendResult
         #if DEBUG
-        if var sample = sampleThreads[session] {
-            let row = Board.ChatRow(id: "sample-\(sample.rows.count)", at: env.now(), text: text, who: .person)
-            sample = Board.Thread(rows: sample.rows + [row], olderCount: sample.olderCount, asking: sample.asking)
-            sampleThreads[session] = sample
-            return .sent
+        if sampleThreads[agent.session] != nil {
+            result = sampleSend(item.text, to: agent.session)
+        } else {
+            result = await send(item.text, to: agent.session)
         }
+        #else
+        result = await send(item.text, to: agent.session)
         #endif
-        guard let held = admitted else { return .notSent("Not connected to your Mac, so it was not sent.") }
-        guard let request = Board.sendRequest(mac: held.url, session: session, text: text) else { return .notSent("Not sent.") }
+        guard let i = pending[agent.session]?.firstIndex(where: { $0.id == id }) else { return }
+        pending[agent.session]?[i].state = Board.pendingState(after: result)
+    }
+
+    private func send(_ text: String, to session: String) async -> Board.SendResult {
+        guard let held = admitted else { return .noAnswer }
+        guard let request = Board.sendRequest(mac: held.url, session: session, text: text) else { return .refused(nil) }
         let result = await env.send(request)
-        return Board.sendOutcome(status: result?.1.statusCode ?? 0, body: result?.0)
+        return Board.sendResult(status: result?.1.statusCode ?? 0, body: result?.0)
     }
 
     #if DEBUG
     // The sample chats (KOSMOS_SAMPLE_AGENTS=1, a Debug build only): Mona Lisa's 19 October design conversation.
     private var sampleThreads: [String: Board.Thread] = [:]
+    private func sampleSend(_ text: String, to session: String) -> Board.SendResult {
+        guard let sample = sampleThreads[session] else { return .noAnswer }
+        let at = ISO8601DateFormatter().string(from: env.now())
+        let row = Board.ChatRow(id: "sample-\(sample.rows.count)", atRaw: at, at: env.now(), text: text, who: .person)
+        sampleThreads[session] = Board.Thread(rows: sample.rows + [row], olderCount: sample.olderCount)
+        return .kept(at: at)
+    }
     private func loadSampleThreads() {
         let json = #"{"messages":[{"at":"2026-10-23T13:32:00Z","text":"Morning Dana. How is the catalogue copy coming along?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:33:00Z","text":"Pages 1 to 8 are written and checked against the price sheet.","from":"dana"},{"at":"2026-10-23T13:34:00Z","text":"Great. What is left?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:35:00Z","text":"Pages 9 to 12 need the new photos before I can caption them. The shoot is on Thursday, so I will have the full draft to you on Friday morning.","from":"dana"}],"olderCount":0,"question":null}"#
         if let t = Board.parseThread(Data(json.utf8)) { sampleThreads["dana"] = t }
@@ -273,9 +286,8 @@ final class BoardClient: ObservableObject {
         if let t = Board.parseThread(Data(cleo.utf8)) { sampleThreads["cleo"] = t }
         // KOSMOS_SAMPLE_NOT_SENT=1: one message in Dana's chat that was not taken, for the not-sent screenshot.
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOT_SENT"] == "1" {
-            let line = Board.notSentLine(agentRunning: true, name: "Dana")
             pending["dana"] = [Board.PendingSend(id: "sample-failed", text: "Can you send me pages 1 to 8 now?", at: env.now(),
-                                                 failed: line.text, canRetry: line.canRetry)]
+                                                 state: .failed(reason: nil))]
         }
     }
     #endif

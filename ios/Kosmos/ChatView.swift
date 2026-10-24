@@ -4,7 +4,7 @@ import SwiftUI
 // spec (~/work/workers/monalisa/ios-design-2026-10-19/slice3a/SPEC.md, on the card). Reads and sends through
 // BoardClient's own session to the Mac (the routes the board's chat uses). What this part does not draw (a question's
 // buttons, a permission card, a file, older messages) is a way-through row that opens the agent's chat on the board,
-// as the header's info button does. The layout decisions (runs, day lines, the not-sent line) are in BoardLogic.swift.
+// as the header's info button does. The layout and sending decisions are in BoardLogic.swift (tested).
 struct ChatView: View {
     @ObservedObject var client: BoardClient
     let agent: Board.Agent
@@ -14,21 +14,27 @@ struct ChatView: View {
     @State private var thread: Board.Thread?
     @State private var lastRead: Date?
     @State private var failedReads = 0
-    @State private var draft = ""
+    // The Mac's own reason it gave no conversation (a name it refuses, a history it could not read).
+    @State private var refusal: String?
     @State private var loop: Task<Void, Never>?
     @State private var atBottom = true
     @State private var unseenNew = false
 
     // The agent as the list shows it now (its word and tone move with the board), or as it was tapped.
     private var shown: Board.Agent { client.agents.first { $0.session == agent.session } ?? agent }
+    private var running: Bool { client.isRunning(agent) }
     private var lost: Bool { failedReads >= 3 }
     private var working: Bool { !lost && Board.tone(shown) == .working }
     private var pending: [Board.PendingSend] { client.pending[agent.session] ?? [] }
     private var widthShare: CGFloat { typeSize.isAccessibilitySize ? 0.85 : 0.78 }
+    // The words in the box live in the client, so leaving the chat (or the chat closing) never loses them.
+    private var draft: Binding<String> {
+        Binding(get: { client.drafts[agent.session] ?? "" }, set: { client.drafts[agent.session] = $0 })
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            if lost, thread != nil { notUpdating }
+            if thread != nil, let note = bannerText { banner(note) }
             ZStack(alignment: .bottom) {
                 conversation
                 if unseenNew { newMessagesCapsule }
@@ -69,9 +75,16 @@ struct ChatView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var notUpdating: some View {
+    // Above a conversation already shown: the Mac's own reason, or that it stopped answering.
+    private var bannerText: String? {
+        if let refusal { return refusal }
+        guard lost else { return nil }
         let time = lastRead.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""
-        return Text("Not updating. Your Mac isn't answering." + time)
+        return "Not updating. Your Mac isn't answering." + time
+    }
+
+    private func banner(_ text: String) -> some View {
+        Text(text)
             .font(.footnote).foregroundColor(Palette.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
@@ -99,7 +112,7 @@ struct ChatView: View {
                             itemView(item).id(item.id)
                         }
                         ForEach(pending) { p in
-                            PendingBubble(item: p, widthShare: widthShare,
+                            PendingBubble(item: p, widthShare: widthShare, line: Board.notSentLine(agentRunning: running, name: shown.name),
                                           retry: { Task { await client.retry(p.id, to: agent) } },
                                           delete: { client.discard(p.id, for: agent.session) })
                                 .padding(.top, 10)
@@ -115,8 +128,14 @@ struct ChatView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onAppear { proxy.scrollTo("end", anchor: .bottom) }
-                .onChange(of: thread.rows.last?.id) { _ in follow(proxy) }
+                // By count, not by the last id: the Mac appends its live question row last, so a new message can arrive
+                // above an unchanged last row.
+                .onChange(of: thread.rows.count) { _ in follow(proxy) }
                 .onChange(of: pending.count) { _ in withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                // The keyboard shrinks the thread; one that was at the newest message stays there (the spec).
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                    if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .chatScrollToEnd)) { _ in
                     withAnimation { proxy.scrollTo("end", anchor: .bottom) }
                 }
@@ -124,7 +143,10 @@ struct ChatView: View {
         } else {
             VStack(spacing: 12) {
                 Spacer()
-                if lost {
+                if let refusal {
+                    Text(refusal).font(.subheadline).foregroundColor(Palette.primary).multilineTextAlignment(.center)
+                    WayThroughRow(text: Text("Open this chat on your computer's board \u{203A}"), action: openOnBoard)
+                } else if lost {
                     Text("Your Mac isn't answering").font(.headline).foregroundColor(Palette.primary)
                     WayThroughRow(text: Text("Open this chat on your computer's board \u{203A}"), action: openOnBoard)
                 } else {
@@ -133,6 +155,7 @@ struct ChatView: View {
                 }
                 Spacer()
             }
+            .padding(.horizontal, 32)
             .frame(maxWidth: .infinity)
         }
     }
@@ -164,7 +187,8 @@ struct ChatView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     // A file that came with words: the words as a bubble, then the way through for the file.
                     if way == .attachment, !row.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        ChatBubble(row: row, firstOfRun: true, lastOfRun: true, widthShare: widthShare, name: shown.name)
+                        ChatBubble(row: row, firstOfRun: true, lastOfRun: true, widthShare: widthShare, name: shown.name,
+                                   line: nil, sendAgain: {})
                     }
                     WayThroughRow(text: wayText(way), action: openOnBoard)
                 }
@@ -172,11 +196,13 @@ struct ChatView: View {
             } else if row.who == .kosmos {
                 Text(row.text).font(.footnote).foregroundColor(Palette.secondary)
                     .multilineTextAlignment(.center)
+                    .frame(maxWidth: UIScreen.main.bounds.width * 0.85)
                     .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 24)
                     .padding(.vertical, 8)
             } else {
-                ChatBubble(row: row, firstOfRun: first, lastOfRun: last, widthShare: widthShare, name: shown.name)
+                ChatBubble(row: row, firstOfRun: first, lastOfRun: last, widthShare: widthShare, name: shown.name,
+                           line: row.canSendAgain ? Board.notSentLine(agentRunning: running, name: shown.name) : nil,
+                           sendAgain: { Task { await client.sendAgain(row, to: agent); await read() } })
                     .padding(.top, first ? 10 : 2)
             }
         }
@@ -208,7 +234,7 @@ struct ChatView: View {
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("", text: $draft, prompt: Text("Message \(shown.name)").foregroundColor(Palette.secondary), axis: .vertical)
+            TextField("", text: draft, prompt: Text("Message \(shown.name)").foregroundColor(Palette.secondary), axis: .vertical)
                 .font(.body)
                 .foregroundColor(Palette.primary)
                 .lineLimit(1...5)
@@ -235,16 +261,13 @@ struct ChatView: View {
         .overlay(Rectangle().fill(Palette.separator).frame(height: 0.5), alignment: .top)
     }
 
-    private var canSend: Bool {
-        let said = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !said.isEmpty && said.count <= Board.maxMessage
-    }
+    private var canSend: Bool { Board.fitsBoard(draft.wrappedValue) }
 
     // The bubble appears at once (60% while it sends) and the field clears (spec, "while it sends").
     private func send() {
         guard canSend else { return }
-        let text = draft
-        draft = ""
+        let text = draft.wrappedValue
+        draft.wrappedValue = ""
         Task {
             await client.post(text, to: agent)
             await read()
@@ -264,12 +287,18 @@ struct ChatView: View {
     }
 
     private func read() async {
-        if let fresh = await client.thread(for: agent.session) {
+        switch await client.thread(for: agent.session) {
+        case .thread(let fresh):
             if fresh != thread { thread = fresh }
             client.settle(fresh, for: agent.session)
             lastRead = Date()
             failedReads = 0
-        } else {
+            refusal = nil
+        case .refused(let why):
+            // The Mac answered, with a reason: said as it is, never as "not answering".
+            refusal = why
+            failedReads = 0
+        case .noAnswer:
             failedReads += 1
         }
     }
@@ -281,23 +310,28 @@ extension Notification.Name {
 }
 
 // One message as a bubble: the person's on the right, the agent's on the left, in the board's colours; the time (and a
-// tail) on the last bubble of a run.
+// tail) on the last bubble of a run. A message the Mac kept as not sent gets the not-sent line, and a tap sends it again.
 struct ChatBubble: View {
     let row: Board.ChatRow
     let firstOfRun: Bool
     let lastOfRun: Bool
     let widthShare: CGFloat
     let name: String
+    let line: (text: String, canRetry: Bool)?
+    let sendAgain: () -> Void
 
     private var mine: Bool { row.who == .person }
 
     var body: some View {
         VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
-            BubbleText(text: row.text, mine: mine, tail: lastOfRun, widthShare: widthShare)
-            if lastOfRun || row.notSent != nil {
+            BubbleText(text: row.text, mine: mine, tail: lastOfRun, widthShare: widthShare, faded: line != nil)
+                .onTapGesture { if line?.canRetry == true { sendAgain() } }
+            if let line {
+                NotSentLine(text: line.text, canRetry: line.canRetry, action: sendAgain)
+            } else if lastOfRun || row.notSent != nil {
                 HStack(spacing: 6) {
                     if lastOfRun, let at = row.at { Text(at, style: .time).foregroundColor(Palette.tertiary) }
-                    if let notSent = row.notSent { Text(notSent).foregroundColor(Palette.dangerWord) }
+                    if let notSent = row.notSent { Text(notSent).foregroundColor(Palette.secondary) }
                 }
                 .font(.caption2)
                 .padding(.horizontal, 4)
@@ -305,7 +339,9 @@ struct ChatBubble: View {
         }
         .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.spoken(who: mine ? "You" : name, at: row.at, text: row.text) + (row.notSent != nil ? ", not sent" : ""))
+        .accessibilityLabel(Self.spoken(who: mine ? "You" : name, at: row.at, text: row.text)
+            + (line.map { $0.canRetry ? ", not sent, double-tap to try again" : ", not sent" } ?? (row.notSent.map { ", " + $0.lowercased() } ?? "")))
+        .accessibilityAction { if line?.canRetry == true { sendAgain() } }
     }
 
     static func spoken(who: String, at: Date?, text: String) -> String {
@@ -313,41 +349,59 @@ struct ChatBubble: View {
     }
 }
 
-// A message the person sent from this chat, until the conversation holds it.
+// A message the person sent from this chat, until the conversation holds the row the Mac kept for it.
 struct PendingBubble: View {
     let item: Board.PendingSend
     let widthShare: CGFloat
+    // The not-sent line as it reads now (it follows the agent's status, so a retry opens once it runs again).
+    let line: (text: String, canRetry: Bool)
     let retry: () -> Void
     let delete: () -> Void
 
+    private var reason: String? { if case .failed(let why) = item.state { return why } else { return nil } }
+
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            BubbleText(text: item.text, mine: true, tail: true, widthShare: widthShare, faded: !item.accepted)
-                .onTapGesture { if item.failed != nil && item.canRetry { retry() } }
+            BubbleText(text: item.text, mine: true, tail: true, widthShare: widthShare, faded: !item.shownAsSent)
+                .onTapGesture { if item.failed && line.canRetry { retry() } }
                 .contextMenu {
                     Button { UIPasteboard.general.string = item.text } label: { Label("Copy", systemImage: "doc.on.doc") }
-                    if item.failed != nil { Button(role: .destructive, action: delete) { Label("Delete", systemImage: "trash") } }
+                    if item.failed { Button(role: .destructive, action: delete) { Label("Delete", systemImage: "trash") } }
                 }
-            if let failed = item.failed {
-                Button(action: { if item.canRetry { retry() } }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.circle")
-                        Text(failed)
-                    }
-                    .font(.footnote)
-                    .foregroundColor(Palette.dangerWord)
-                }
-                .buttonStyle(.plain)
-                .disabled(!item.canRetry)
-            } else if item.accepted {
+            if item.failed {
+                NotSentLine(text: line.text, canRetry: line.canRetry, action: retry)
+                // The Mac's own words for why, when it gave them.
+                if let reason { Text(reason).font(.caption).foregroundColor(Palette.secondary).multilineTextAlignment(.trailing) }
+            } else if item.shownAsSent {
                 Text(item.at, style: .time).font(.caption2).foregroundColor(Palette.tertiary).padding(.horizontal, 4)
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(ChatBubble.spoken(who: "You", at: item.accepted ? item.at : nil, text: item.text)
-            + (item.failed != nil ? (item.canRetry ? ", not sent, double-tap to try again" : ", not sent") : ""))
-        .accessibilityAction { if item.failed != nil && item.canRetry { retry() } }
+        .accessibilityLabel(ChatBubble.spoken(who: "You", at: item.shownAsSent ? item.at : nil, text: item.text)
+            + (item.failed ? (line.canRetry ? ", not sent, double-tap to try again" : ", not sent") + (reason.map { ". " + $0 } ?? "") : ""))
+        .accessibilityAction { if item.failed && line.canRetry { retry() } }
+        .accessibilityAction(named: "Delete") { if item.failed { delete() } }
+    }
+}
+
+// "Not sent. Tap to try again." with its glyph, in the danger colour; a tap tries again when it can.
+struct NotSentLine: View {
+    let text: String
+    let canRetry: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: { if canRetry { action() } }) {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.circle")
+                Text(text)
+            }
+            .font(.footnote)
+            .foregroundColor(Palette.dangerWord)
+        }
+        .buttonStyle(.plain)
+        .disabled(!canRetry)
     }
 }
 
