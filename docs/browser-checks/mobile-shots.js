@@ -563,7 +563,7 @@ function replaced6923(which) {
 }
 
 /* kosmos#4658: open a project with federation live and the sealed-room key section's two reads answered. */
-async function ownsealScreen(page, data, compare, waiting) {
+async function ownsealScreen(page, data, compare, waiting, allowed, ready) {
   await page.route('**/api/status*', async (r) => {
     try {
       const resp = await r.fetch();
@@ -575,11 +575,21 @@ async function ownsealScreen(page, data, compare, waiting) {
   });
   await page.route('**/api/federation/own-compare*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(compare) }));
   await page.route('**/api/federation/own-waiting*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(waiting) }));
+  // kosmos#7028's list (the Remove rows): none unless the screen gives some.
+  await page.route('**/api/federation/own-allowed*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(allowed || { computers: [] }) }));
   await page.waitForFunction(() => document.documentElement.getAttribute('data-fed-ui') === 'show', null, { timeout: 15000 });
   await openTab(page, 'projects');
   await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
-  await page.waitForSelector('#pj-fed-own .ownseal-code', { state: 'visible', timeout: 20000 });
+  await page.waitForSelector(ready || '#pj-fed-own .ownseal-code', { state: 'visible', timeout: 20000 });
   await page.evaluate(() => document.getElementById('pj-fed-own').scrollIntoView({ block: 'center' }));
+}
+// kosmos#4658 with #7028: the seal owner's section with one computer waiting and two let in (fixed noon-UTC days).
+const OWNREMOVE_ALLOWED = { computers: [
+  { pub: 'pub-sample-3', mac: 'mac-sample-3', at: Date.UTC(2026, 9, 3, 12) },
+  { pub: 'pub-sample-4', mac: 'mac-sample-4', at: Date.UTC(2026, 9, 17, 12) }] };
+async function ownremoveScreen(page, data) {
+  await ownsealScreen(page, data, { code: null }, { computers: [{ pub: 'pub-sample-1', mac: 'mac-sample-1', code: 'ABCDE-FGHJK', at: 1 }] },
+    OWNREMOVE_ALLOWED, '#pj-fed-own [data-own-act="remove"]');
 }
 
 const SCREENS = [
@@ -1847,6 +1857,16 @@ const SCREENS = [
     await ownsealScreen(page, data, { code: null }, { computers: [
       { pub: 'pub-sample-1', mac: 'mac-sample-1', code: 'ABCDE-FGHJK', at: 1 },
       { pub: 'pub-sample-2', mac: 'mac-sample-2', code: '23456-789AB', at: 2 }] });
+  } },
+  /* kosmos#4658 with #7028: the computers the room let in, each with Remove, under the waiting one; and the dialog
+     Remove opens (asked first, the #761 dialog). */
+  { name: 'ownremove-rows-4658', owner: 'Baron Draxum', noServiceWorker: true, go: async (page, data) => {
+    await ownremoveScreen(page, data);
+  } },
+  { name: 'ownremove-dialog-4658', owner: 'Baron Draxum', noServiceWorker: true, go: async (page, data) => {
+    await ownremoveScreen(page, data);
+    await page.click('#pj-fed-own [data-own-act="remove"][data-own-pub="pub-sample-4"]');
+    await page.waitForSelector('#mem-modal:not([hidden])', { state: 'visible', timeout: 10000 });
   } },
   /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
   { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {
