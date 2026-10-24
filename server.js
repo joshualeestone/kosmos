@@ -18789,7 +18789,8 @@ const server = http.createServer(async (req, res) => {
         if (body.asked !== undefined && body.asked !== null && typeof body.asked !== 'string') {
           throw new Error('a question identity is text');   // #5406 slice C: never ignored, or the checks below would be skipped
         }
-        if (automatic && (body.chose !== undefined || (body.asked !== undefined && body.asked !== null) || (body.reply_to !== undefined && body.reply_to !== null)
+        if (automatic && (body.chose !== undefined || (body.asked !== undefined && body.asked !== null) || (body.request !== undefined && body.request !== null)   // #7020
+          || (body.reply_to !== undefined && body.reply_to !== null)
           || body.attachment || (Array.isArray(body.attachments) && body.attachments.length))) {
           throw new Error('an automatic message is plain text');
         }
@@ -19159,7 +19160,8 @@ const server = http.createServer(async (req, res) => {
               e.status = 409; throw e;
             }
             if (opt && !files.recs.length && !answered) {
-              const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}) });
+              const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}),
+                ...(cq.permission && requestGiven ? { request: body.request } : {}) });   // kosmos#7020: re-checked on the last look
               // kosmos#6239: refused for quiet hours is the person's act, reported like a refused message.
               if (!r.ok && r.quiet === true) { try { require('./engine/agentevents').recordRefusal({ agent: name, rule: 'quiet-hours' }); } catch { /* not reported */ } }
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }

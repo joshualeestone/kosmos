@@ -1894,6 +1894,14 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   if (menu.permission && idBefore !== cleanMessage(e.identity)) {
     return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
   }
+  /* kosmos#7020: and the request, on this same last look. The identity above is compared after cleanMessage, which folds
+     runs of spaces, so `rm -rf "/tmp/old  build"` and `rm -rf "/tmp/old build"` share it; only the card's reading
+     (permissionRequestId) tells them apart. A press that named its request is sent only at that request. */
+  const reqOf = (text) => { const c = permissionCard(text); return c ? permissionRequestId(c) : null; };
+  const reqBefore = menu.permission && e.request ? reqOf(before) : null;
+  if (menu.permission && e.request && reqBefore !== e.request) {
+    return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
+  }
   if (!opt || (e.question && e.question !== menu.question) || (e.label && cleanMessage(e.label) !== cleanMessage(opt.label))) {
     return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
   }
@@ -1907,7 +1915,9 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
      same question line, and reading that as "not answered" would invite a second press that approves it. A redraw
      that changes the box's text reads as answered too: the safe direction, since "unconfirmed" invites a second press,
      though the record then says placed for a prompt that may still be pending. */
-  const same = still && (menu.permission ? (still.permission && idOf(after) === idBefore) : still.question === menu.question);
+  // kosmos#7020: another request under the same identity is the next prompt, so it reads answered (the direction above).
+  const same = still && (menu.permission ? (still.permission && idOf(after) === idBefore && (!reqBefore || reqOf(after) === reqBefore))
+    : still.question === menu.question);
   return { ok: true, key: String(opt.n), label: opt.label, answered: !!after && !same, screen: after };
 }
 /* Close the live question menu with Escape before a message goes (the person answered in their own words). Resolves

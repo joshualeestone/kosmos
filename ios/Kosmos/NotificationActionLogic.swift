@@ -192,7 +192,9 @@ enum NotificationAction {
     static func pressRequest(userInfo: [AnyHashable: Any], press: PermissionPress, stored: String?, session: String?, coordinator: URL) -> URLRequest? {
         guard let t = target(userInfo, stored: stored, session: session, coordinator: coordinator) else { return nil }
         let option = Board.ChoiceOption(n: press.n, label: press.label, lasting: false)
-        return signed(Board.pressRequest(mac: t.mac, session: t.agent, option: option, asked: press.asked), cookie: t.cookie, idle: 13)
+        // kosmos#7020: with the notice's request, so the Mac also refuses it at another request, after this app's own check.
+        return signed(Board.pressRequest(mac: t.mac, session: t.agent, option: option, asked: press.asked, request: press.request),
+                      cookie: t.cookie, idle: 13)
     }
 
     // What the person is told after an Allow or Deny (Board.pressResult). Never nothing: iOS takes the notice away on

@@ -124,12 +124,74 @@ test('#7020: the same press against the prompt it was drawn for is typed', async
   });
 });
 
-test('#7020: a press naming a request without asked is still checked', async () => {
+
+test('#7020: a press naming its request but no asked is refused by the request check', async () => {
   await withPane(TWO_SPACES, async (calls, set) => {
     const d = await drawn();
     set(ONE_SPACE);
     const r = await post({ text: String(d.allow), chose: 'Yes', request: d.request });
     assert.equal(r.status, 409, JSON.stringify(r.json));
+    // The request check's own sentence: without it, a later check refuses this as "not one of the numbers".
+    assert.match(JSON.stringify(r.json), /its screen moved between drawing that button and sending it/);
+    assert.deepEqual(calls.keys(), []);
+  });
+});
+
+/* The pane redraws between the route's read and the last look right before the key (answerQuestionMenu's own
+   capture). The identity it re-checks is the same for both prompts, so only the request tells them apart there. */
+function armSequence(screens) {
+  const calls = [];
+  const queue = screens.slice();
+  chat.setRunner((args) => {
+    calls.push(args);
+    if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.296\t\t0\n', err: '' };
+    if (args[0] === 'capture-pane') { const s = queue.length > 1 ? queue.shift() : queue[0]; return { ran: true, spawnFailed: false, status: 0, out: s, err: '' }; }
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  chat.setDryRun(false);
+  chat.setPauser(() => {});
+  calls.keys = () => calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
+  return calls;
+}
+const idOf = (screen) => chat.questionAbove(chat.questionIn(screen, 'claude').text);
+const reqOf = (screen) => chat.permissionRequestId(chat.permissionCard(screen));
+
+test('#7020: the last look before the key refuses another request under the same identity', async () => {
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: TWO_SPACES })]);
+  const expect = { question: 'Do you want to proceed?', label: 'Yes', identity: idOf(TWO_SPACES) };
+  try {
+    // CONTROL: without the request, the last look passes the other folder's prompt (its identity is the same).
+    let calls = armSequence([ONE_SPACE, IDLE]);
+    let r = await chat.answerQuestionMenu('casey', 1, board.agents, expect);
+    assert.deepEqual([r.ok, calls.keys()], [true, ['1']], 'the identity alone already refuses this, so the case below does not show the new check');
+    chat.resetForTests();
+    calls = armSequence([ONE_SPACE, IDLE]);
+    r = await chat.answerQuestionMenu('casey', 1, board.agents, { ...expect, request: reqOf(TWO_SPACES) });
+    assert.deepEqual([r.ok, calls.keys()], [false, []], 'Yes went to a request the person never saw');
+    chat.resetForTests();
+    // The request the person saw, still on screen: answered.
+    calls = armSequence([TWO_SPACES, IDLE]);
+    r = await chat.answerQuestionMenu('casey', 1, board.agents, { ...expect, request: reqOf(TWO_SPACES) });
+    assert.deepEqual([r.ok, r.answered, calls.keys()], [true, true, ['1']], JSON.stringify(r));
+    chat.resetForTests();
+    // After the key, the other request under the same identity is the next prompt: answered, not "still asking".
+    calls = armSequence([TWO_SPACES, ONE_SPACE]);
+    r = await chat.answerQuestionMenu('casey', 1, board.agents, { ...expect, request: reqOf(TWO_SPACES) });
+    assert.deepEqual([r.ok, r.answered], [true, true], JSON.stringify(r));
+    chat.resetForTests();
+    // CONTROL: the same request still showing after the key is unconfirmed.
+    calls = armSequence([TWO_SPACES, TWO_SPACES]);
+    r = await chat.answerQuestionMenu('casey', 1, board.agents, { ...expect, request: reqOf(TWO_SPACES) });
+    assert.deepEqual([r.ok, r.answered], [true, false], JSON.stringify(r));
+  } finally { chat.resetForTests(); board.restore(); }
+});
+
+test('#7020: an automatic message carrying a request is refused (a menu answer is always the person\'s own act)', async () => {
+  await withPane(TWO_SPACES, async (calls) => {
+    const d = await drawn();
+    const r = await post({ text: 'hello', automatic: true, request: d.request });
+    assert.equal(r.status, 400, JSON.stringify(r.json));
+    assert.match(JSON.stringify(r.json), /an automatic message is plain text/);
     assert.deepEqual(calls.keys(), []);
   });
 });
