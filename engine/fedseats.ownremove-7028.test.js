@@ -104,6 +104,8 @@ for (const [why, computers] of [
   ['an empty list', { ok: true, data: { computers: [] } }],
   ['a row with no mac id (an older coordinator)', { ok: true, data: { computers: [{ name: 'this', mac_id: MY_MAC, this: true }, { name: 'a' }] } }],
   ['no row for this computer', { ok: true, data: { computers: [{ name: 'a', mac_id: 'mac-a' }] } }],
+  ['a row for this computer under another id (ids that are not the ones computers sign as)', { ok: true, data: { computers: [{ name: 'this', mac_id: 'some-other-id', this: true }, { name: 'a', mac_id: 'mac-a' }] } }],
+  ['two rows that say they are this computer', { ok: true, data: { computers: [{ name: 'this', mac_id: MY_MAC, this: true }, { name: 'a', mac_id: 'mac-a', this: true }] } }],
 ]) {
   test('#7028: ' + why + ' takes nobody out', async () => {
     const id = 'rm-2-' + why.replace(/[^a-z]/g, '');

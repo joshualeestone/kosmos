@@ -1186,12 +1186,18 @@ async function memberEdgeCheck(projectId, ask, seat) {
 }
 /** kosmos#7028: the mac ids in an account-computers answer, or null when the answer is not complete:
     not ok, no list, a row without a mac id (a coordinator too old to name them), or no row for this
-    computer (every real answer has one). Null drops nothing. */
+    computer (every real answer has one). When this board knows its own id, the row marked as this computer must carry
+    it: a list whose ids are not the ones the account's computers sign as (the ones st.own pins) would otherwise drop
+    every pinned computer at once. Null drops nothing. */
 function accountMacs(r) {
   if (!r || !r.ok || !r.data || !Array.isArray(r.data.computers) || !r.data.computers.length) return null;
   const rows = r.data.computers;
   if (!rows.every((c) => c && typeof c.mac_id === 'string' && c.mac_id)) return null;
-  if (!rows.some((c) => c.this === true)) return null;
+  const self = rows.filter((c) => c.this === true);
+  if (self.length !== 1) return null;
+  let mine = null;
+  try { mine = deps && typeof deps.macId === 'function' ? deps.macId() : null; } catch { mine = null; }
+  if (typeof mine === 'string' && mine && self[0].mac_id !== mine) return null;
   return new Set(rows.map((c) => c.mac_id));
 }
 /** kosmos#7028: one account-computers answer for the whole Mac per EDGE_FRESH_MS, as sharedEdges. */
