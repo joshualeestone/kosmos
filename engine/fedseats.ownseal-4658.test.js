@@ -180,21 +180,28 @@ test('#4658: a board without the room\'s key (an unsealed room) answers no hello
   assert.strictEqual((await fedseats.allowOwn('own-o5', 'nope', 'AAAAA-AAAAA')).ok, false);
 });
 
-test('#4658: the waiting list is bounded, oldest out first', async () => {
+test('#4658: the owner starts at most OWN_RUNS_PER_HOUR new runs an hour, and keeps at most 16 waiting, oldest out first', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
   const { seat } = await sealOwner('own-o6', 'room-o6');
   const keys = [];
-  for (let i = 0; i < 20; i++) {
+  const hello = async (i) => {
     const k = fedseal.newKeyPair();
     const nW = fedseal.randomSecret();
     keys.push(k.pub);
     say(seat, { event: 'message', data: fedseal.ownHelloFrame(k, 'mac-' + i, nW) });
     await settle();
     say(seat, { event: 'message', data: fedseal.ownRevealFrame('mac-' + i, fedseal.sealingKey().pub, nW) });
-  }
-  await settle();
+    await settle();
+  };
+  for (let i = 0; i < fedseats.OWN_RUNS_PER_HOUR + 3; i++) await hello(i);
+  assert.strictEqual(sent(seat, 'key-own-offer').length, fedseats.OWN_RUNS_PER_HOUR, 'more new runs than the hourly limit');
+  assert.strictEqual(fedseats.ownWaiting('own-o6').length, fedseats.OWN_RUNS_PER_HOUR);
+  t.mock.timers.tick(61 * 60 * 1000);
+  for (let i = 100; i < 108; i++) await hello(i);
   const list = fedseats.ownWaiting('own-o6');
-  assert.strictEqual(list.length, 16);
-  assert.deepStrictEqual(list.map((x) => x.pub), keys.slice(4));
+  assert.strictEqual(list.length, 16, 'the waiting list is not bounded');
+  const answered = keys.slice(0, fedseats.OWN_RUNS_PER_HOUR).concat(keys.slice(fedseats.OWN_RUNS_PER_HOUR + 3));
+  assert.deepStrictEqual(list.map((x) => x.pub), answered.slice(-16), 'not oldest out first');
 });
 
 /* ---- the own computer's side ---- */
@@ -573,4 +580,51 @@ test('#4658: junk rotations cannot push out the genuine one kept for adoption', 
   const st = fedseal.roomState('own-s14');
   assert.strictEqual(st.epoch, 1, 'the genuine rotation was pushed out (or a junk one was taken)');
   assert.strictEqual(st.keys[1], next);
+});
+
+/* ---- iteration-7 review ---- */
+
+test('#4658: a waiting computer restarts its own run without its person at most OWN_RUNS_PER_HOUR times an hour', async () => {
+  const { seat } = await ownComputer('own-s15', 'room-s15');
+  await sealedNow(seat, 'room-s15');
+  for (let i = 0; i < fedseats.OWN_RUNS_PER_HOUR + 5; i++) {
+    const cur = fedseal.checkOwnHello(sent(seat, 'key-own-hello').pop());
+    const o = handOwner('room-s15', cur);
+    say(seat, { event: 'message', data: o.offer });
+    await settle();
+    say(seat, { event: 'message', data: fedseal.ownOfferFrame(o.owner, cur, fedseal.randomSecret()) });   // a different offer: restart
+    await settle();
+  }
+  // One hello for the seal, then one per restart allowed.
+  assert.strictEqual(sent(seat, 'key-own-hello').length, 1 + fedseats.OWN_RUNS_PER_HOUR, 'more restarts than the hourly limit');
+});
+
+test('#4658: the owner never lists or allows its own key', async () => {
+  const { seat } = await sealOwner('own-o12', 'room-o12');
+  const me = fedseal.sealingKey();
+  const nW = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.ownHelloFrame(me, 'mac-self', nW) });
+  await settle();
+  assert.deepStrictEqual(sent(seat, 'key-own-offer'), []);
+  assert.strictEqual((await fedseats.allowOwn('own-o12', me.pub, 'AAAAA-AAAAA')).ok, false);
+});
+
+test('#4658: a confirmed run that starts over says so on screen', async () => {
+  const { h, seat } = await ownComputer('own-s16', 'room-s16');
+  const hello = await sealedNow(seat, 'room-s16');
+  const o = handOwner('room-s16', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  await fedseats.confirmOwn('own-s16', fedseats.ownCode('own-s16'));
+  say(seat, { event: 'message', data: fedseal.ownOfferFrame(o.owner, hello, fedseal.randomSecret()) });
+  await settle();
+  assert.ok(h.notes.some((n) => n.projectId === 'own-s16' && /code on this screen changed/.test(n.text)), 'the person was not told their confirm no longer counts');
+});
+
+test('#4658: an own computer with no Kosmos+ id is told why its messages wait', async () => {
+  const { h, seat } = await ownComputer('own-s17', 'room-s17', { macId: () => null });
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 0, 'room-s17', { from: 'Ada', kind: 'person', text: 'x' }) });
+  await settle();
+  assert.ok(h.notes.some((n) => n.projectId === 'own-s17' && /not signed in to Kosmos\+/.test(n.text)));
+  assert.ok(!h.notes.some((n) => n.projectId === 'own-s17' && /send you a new code/.test(n.text)), 'an own computer got the guest\'s advice');
 });

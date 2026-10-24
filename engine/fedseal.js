@@ -240,7 +240,7 @@ function openRotate(me, pinnedOwnerPub, frame, roomId) {
      waiting -> room   key-own-reveal {mac, owner, nonce: nW}          only for an offer naming its commit
    Both screens then show compareCode over (room, mac, both keys, nW, nO). A man in the middle must fix its
    commitment toward the owner before it sees nO, and its nO toward the waiting computer before it sees nW, so
-   it gets one guess at the code per run. The person presses Allow on the owner (which sends
+   it gets one guess at the code per run, and fedseats bounds the runs (OWN_RUNS_PER_HOUR). The person presses Allow on the owner (which sends
    key-own-share bound to that run) AND "It matches" on the waiting computer, which adopts a share only from
    the owner key of the offer its person confirmed. */
 
