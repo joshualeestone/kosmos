@@ -138,6 +138,9 @@ if case .unreadable = NotificationAction.permissionVerdict(status: 200, data: th
 check(NotificationAction.permissionVerdict(status: 200, data: thread(asking: false), press: pAllow!, agent: "Ada") == .changed, "CONTROL: answered on the computer since: refused")
 check(NotificationAction.permissionVerdict(status: 200, data: thread(asked: "Something else?"), press: pAllow!, agent: "Ada") == .changed, "CONTROL: a different question: refused")
 check(NotificationAction.permissionVerdict(status: 200, data: Data(#"{"asking":true,"asked":"Do you want to proceed?","messages":[]}"#.utf8), press: pAllow!, agent: "Ada") != .go, "CONTROL: no card on the chat (an older computer, or the box scrolled): refused")
+if case .unreadable = NotificationAction.permissionVerdict(status: 200, data: Data(#"{"asking":true,"asked":null,"messages":[]}"#.utf8), press: pAllow!, agent: "Ada") {
+    check(true, "still asking but no buttons offered just now (asked null): cannot answer from here, not 'changed' (review 7)")
+} else { check(false, "still asking but no buttons offered just now (asked null): cannot answer from here, not 'changed' (review 7)") }
 if case .unreadable = NotificationAction.permissionVerdict(status: 200, data: Data(#"{"asking":true,"asked":"Do you want to proceed?","messages":null}"#.utf8), press: pAllow!, agent: "Ada") {
     check(true, "still asking but the rows could not be read: says it could not read, not that it changed (review 1)")
 } else { check(false, "still asking but the rows could not be read: says it could not read, not that it changed (review 1)") }

@@ -153,8 +153,8 @@ enum NotificationAction {
     // The chat's read just before an Allow or Deny goes (GET /api/agent/<name>/thread). A notice can be minutes old, so
     // the press goes only while the agent is still asking the same question (`asked`, the whole box, which the board
     // checks again on the press) AND the board's card carries the notice's fingerprint (`request`), a second check on
-    // the card's reading of the request. A prompt still up whose buttons the board will not draw just now (its box top
-    // scrolled off) reads as changed too: nothing is sent either way.
+    // the card's reading of the request. A prompt still up whose buttons the board will not draw just now (`asked` null)
+    // cannot be answered from here; nothing is sent either way.
     enum PermissionVerdict: Equatable { case go, changed, unreadable(String) }
 
     static func permissionVerdict(status: Int, data: Data?, press: PermissionPress, agent: String) -> PermissionVerdict {
@@ -167,15 +167,20 @@ enum NotificationAction {
             }
             return .unreadable("Kosmos could not read your chat with \(who) just now, so nothing was \(verb). Open the chat to answer.")
         }
-        guard obj["asking"] as? Bool == true, obj["asked"] as? String == press.asked else { return .changed }
+        guard obj["asking"] as? Bool == true else { return .changed }
+        // Still asking, but the board offers no buttons for it just now (`asked` null: its box top scrolled off, say).
+        guard let askedNow = obj["asked"] as? String else {
+            return .unreadable("Kosmos cannot answer \(who) from here just now, so nothing was \(verb). Open the chat to answer.")
+        }
+        guard askedNow == press.asked else { return .changed }
         // Still asking the same question, but the computer could not read the chat's rows (messages null): the card
         // cannot be compared, which is not the same as it having changed.
         guard let rows = obj["messages"] as? [[String: Any]] else {
             return .unreadable("Kosmos could not read your chat with \(who) just now, so nothing was \(verb). Open the chat to answer.")
         }
         let cards = rows.compactMap { ($0["kind"] as? String) == "question" ? $0["permission"] as? [String: Any] : nil }
-        // The same question still up, but no card with this fingerprint: either its reading changed, or the board will
-        // not draw its buttons just now (its box top scrolled off). Not "it changed": it cannot be answered from here now.
+        // The same question still up, but no card with this fingerprint: its reading of the request differs from the
+        // notice's. Not "it changed" (the question did not): it cannot be answered from here now.
         guard cards.contains(where: { $0["request"] as? String == press.request }) else {
             return .unreadable("Kosmos cannot answer \(who) from here just now, so nothing was \(verb). Open the chat to answer.")
         }

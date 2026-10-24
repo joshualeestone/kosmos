@@ -4130,13 +4130,24 @@ const PHONE_PERM_DOES = {
    draws differently on a phone than in the terminal (format controls such as bidi overrides and zero-width marks, line
    and paragraph separators, other control characters), so the screen could read as something it is not; or when it
    holds anything shaped like a secret (engine/secretmask.js) or a password given as a command flag (PHONE_PASSWORD_FLAG),
-   which a lock screen and Notification Center would show to anyone holding the phone. */
+   or a run that looks like a token (phoneTokenLike), which a lock screen and Notification Center would show to anyone
+   holding the phone. */
 const PHONE_PASSWORD_FLAG = new RegExp([
-  String.raw`(^|\s)(--password\b|--passwd\b|sshpass\b|-u\s*[^\s:]+:\S|--user[=\s][^\s:]+:\S)`,   // curl -u/-uX:Y, --user
-  String.raw`\b(mysql|mysqldump|mariadb)\b.*\s-p\S`,                                              // mysql -pX
+  String.raw`(^|\s)(--password\b|--passwd\b|sshpass\b|--user[=\s][^\s:]+:\S)`,
+  String.raw`(^|\s)-u\s*[^\s:]*[^\s:\d][^\s:]*:\S`,                                          // curl -u/-uX:Y (not docker -u 1000:1000)
+  String.raw`(^|\s)--?(token|api-?key|secret|auth|pass)(\s|=)\S`,                           // --token X, --api-key=X
+  String.raw`\b(authorization|proxy-authorization|cookie)\s*:`,                             // a header carrying a credential
+  String.raw`\b(mysql|mysqldump|mariadb)\b.*\s-p\S`, String.raw`\b(zip|7z)\b.*\s-[pP]`, String.raw`\bopenssl\b.*\s-(k|pass)\s`,
   String.raw`\bredis-cli\b.*\s-a\s`, String.raw`\bdocker\s+login\b.*\s(-p|--password)\b`, String.raw`\bhtpasswd\b.*\s-\w*b`,
-  String.raw`(PASS(WORD|WD)?|PWD|SECRET|TOKEN)[A-Z_]*=\S`,                                         // PGPASSWORD=, MYSQL_PWD=, pass=
+  String.raw`\bvault\s+login\b`,
+  String.raw`(^|[\s;&|"'])[A-Z_]*(PASS(WORD|WD)?|PWD|SECRET|TOKEN)[A-Z_]*=\S`,              // PGPASSWORD=, MYSQL_PWD=, API_TOKEN=
 ].join('|'), 'i');
+/* Review 7: a list of credential shapes always misses one, so a backstop: any run of 20 or more letters, digits and
+   _ - . + / = that mixes letters and digits reads as a token (a bare bearer token, a session cookie, a key with no known
+   prefix). It refuses some honest commands (a full commit sha, a long build id): the safe direction, the chat has them. */
+function phoneTokenLike(text) {
+  return (String(text).match(/[A-Za-z0-9_\-.+=]{20,}/g) || []).some((t) => /[A-Za-z]/.test(t) && /\d/.test(t));
+}
 function phonePermissionShown(perm) {
   if (perm.kind !== 'command' && perm.kind !== 'delete') return '';
   // Review 6: the measured title only. A title saying more ("Bash command (unsandboxed)", say) is not shown here, so a
@@ -4152,7 +4163,7 @@ function phonePermissionShown(perm) {
   if (text.length > require('./engine/phonenotice').TEXT_MAX) return '';
   // eslint-disable-next-line no-control-regex
   if (/[\p{Cf}\u2028\u2029\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u.test(text)) return '';
-  if (PHONE_PASSWORD_FLAG.test(lines[0])) return '';
+  if (PHONE_PASSWORD_FLAG.test(text) || phoneTokenLike(text)) return '';   // the whole shown text, the agent's words too
   try { if (require('./engine/secretmask').mask(text).fired.length) return ''; } catch { return ''; }
   return text;
 }

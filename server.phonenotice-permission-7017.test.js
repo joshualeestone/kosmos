@@ -200,6 +200,11 @@ const variants = [
   ['a password given as a flag with no space (curl -uX:Y)', BASH.replace(DASHED, '$1 curl -uadmin:hunter2xyz https://example.invalid$2')],
   ['a password given to redis-cli', BASH.replace(DASHED, '$1 redis-cli -a hunter2xyz$2')],
   ['a password given to docker login', BASH.replace(DASHED, '$1 docker login -p hunter2xyz$2')],
+  // Review 7: a token with no known prefix, and the shapes a list misses.
+  ['a bearer token with no known prefix', BASH.replace(DASHED, '$1 curl -H "Authorization: Bearer 8f3a9c2d7e1b4a6f9c0d2e4f6a8b0c1d" https://example.invalid$2')],
+  ['a token with no flag or header around it (only the backstop sees it)', BASH.replace(DASHED, '$1 ./deploy.sh 7c1e9a3f5b2d8e4a6c0f9b1d$2')],
+  ['a token given as a spaced flag', BASH.replace(DASHED, '$1 some-cli --token 8f3a9c2d7e1b4a6f9c0d$2')],
+  ['a cookie header', BASH.replace(DASHED, '$1 curl -H "Cookie: session=abc" https://example.invalid$2')],
   ['a command whose title says more than the measured one', BASH.replace(/^(\s*)Bash command\s*$/m, '$1Bash command (unsandboxed)')],
   // Review 3:
   ['a change to a file (a diff the lock screen cannot show whole)', EDIT.replace(/^ Create file$/m, ' Edit file')],
@@ -232,4 +237,17 @@ test('#7017 reviews 4 and 5: the card reads a file\'s gutter only when it number
   const diff = chat.permissionCard(EDIT.replace(/^ Create file$/m, ' Edit file').replace(DASHED, '$1   41 -old line\n   41 +new line\n   42  context$2'));
   assert.equal(diff.kind, 'edit', 'premise');
   assert.equal(diff.detail, '-old line\n+new line\n context', 'an edit lost its gutter reading');
+});
+
+test('#7017 review 7: ordinary one-line commands still get buttons (the refusals are not so wide the feature never fires)', async () => {
+  const ordinary = ['npm test', 'git push -u origin HEAD:main', 'ls -la', 'curl https://example.invalid', 'mkdir -p a/b',
+    'docker run -u 1000:1000 -p 8080:80 img', 'grep -r password .', 'node run.js --max-tokens=500', 'echo $PWD'];
+  const refused = [];
+  for (const cmd of ordinary) {
+    await withPrompt(BASH.replace(DASHED, '$1 ' + cmd + '$2'), async () => {
+      const p = (await notice(reportId())).json.permission;
+      if (!p || !p.shown.includes(cmd)) refused.push(cmd);
+    });
+  }
+  assert.deepEqual(refused, []);
 });
