@@ -1750,7 +1750,7 @@ test('#5623 review 14: a person comment the agent still owes is shown again, in 
   assert.match(again.text, /a person asks/);
   assert.ok(!again.text.includes('an agent says'), 'an agent\'s comment was repeated as owed');
   assert.ok(!again.text.includes('more people are waiting'), 'an overflow line with nothing over');
-  assert.ok(again.text.includes('(People still waiting for your answer: 1, listed below)'), '#7056: the owed count line, when all fit, says they are all listed');
+  assert.ok(again.text.includes('(In the section below, people still waiting for your answer: 1)'), '#7056: the owed count line, when all fit, gives only the number');
 });
 
 test('#5924: an edited post or comment says so on its header line, with the date; an unedited one says nothing', () => {
@@ -2692,7 +2692,7 @@ test('#7056: many owed people: the count is said above the replies, the section 
   const r = await cr.readReplies('Owe7056', { now: NOW + 1000 });
   assert.equal(r.ok, true, r.because);
   const shown = (r.text.match(/^\[p\d+\] /gm) || []).length;
-  const count = r.text.indexOf('(People still waiting for your answer: 6, ' + shown + ' of them listed below)');
+  const count = r.text.indexOf('(In the section below, people still waiting for your answer: 6, ' + shown + ' of them listed)');
   const section = r.text.indexOf('\nPeople still waiting for your answer (');
   assert.ok(count >= 0 && section > count, 'the owed count is not said above the owed section, with how many are listed: ' + r.text.slice(0, 600));
   assert.ok(shown >= 1 && shown < 5, 'CONTROL: the owed budget did not cut a 6-person section (' + shown + ' shown)');
@@ -2706,4 +2706,26 @@ test('#7056: an item with no size shares a read with nothing; sized items share 
   assert.equal(cr.shownWithin([{ x: { readSize: 10 } }, { x: {} }]), 1, 'an item with no size joined a read already holding one');
   assert.equal(cr.shownWithin([{ x: { readSize: 10 } }, { x: { readSize: 10 } }]), 2, 'CONTROL: two small sized items should share a read');
   assert.equal(cr.shownWithin([]), 0);
+});
+
+test('#7056: in the owed section, a person shown nowhere else comes before one the budget held back from the replies', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Pri7056', remoteId: RP(3), sentAt: '2026-09-30T10:00:00Z' } },
+    { Pri7056: { name: 'pri-writes', remoteId: 'x', apiKey: 'K', token: 'K' } });
+  const A = comment({ id: 'c7056300-0000-4000-8000-000000000001', created_at: '2026-10-01T01:00:00Z', agent: { name: 'Ada', kind: 'person' }, body: 'old question', replies: [], reply_count: 0 });
+  let list = [A];
+  serve({ ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: list } }) });
+  await cr.readReplies('Pri7056', { now: NOW });   // shows Ada and moves the mark past her
+  const long = Array.from({ length: 7 }, (_, i) => comment({ id: 'c7056300-0000-4000-8000-00000000001' + i,
+    created_at: '2026-10-01T02:0' + i + ':00Z', agent: { name: 'Bot' + i }, body: 'long ' + i + ' ' + 'z'.repeat(1900), replies: [], reply_count: 0 }));
+  const B = comment({ id: 'c7056300-0000-4000-8000-000000000002', created_at: '2026-10-01T03:00:00Z', agent: { name: 'Bea', kind: 'person' },
+    body: 'new question ' + 'w'.repeat(2500), replies: [], reply_count: 0 });
+  list = [B, ...long.slice().reverse(), A];   // newest first, as the service lists
+  const r = await cr.readReplies('Pri7056', { now: NOW + 60000 });
+  assert.equal(r.ok, true, r.because);
+  const replies = r.text.split('People still waiting for your answer (')[0];
+  assert.ok(!replies.includes('(comment ' + B.id + ')'), 'fixture: Bea was not held back from the replies, so this tests nothing');
+  assert.match(r.text, /newer replies not shown yet/, 'fixture: the budget cut nothing');
+  const first = (r.text.match(/^\[p1\] by ([^,(]+)/m) || [])[1];
+  assert.equal(first && first.trim().split(' ')[0], 'Ada', 'the owed section did not start with the person shown nowhere else: ' + first);
 });

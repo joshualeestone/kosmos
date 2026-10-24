@@ -491,7 +491,7 @@ const UUID_LEN = 36;
    mark, since only the read knows which are owed. Measured from the comment alone, so the count, which reads bodies
    at COMMENT_CAP, gets the same size. */
 function replySizeOf(x, asReply, text) {
-  const header = '[r30] by '.length + x.author.length + (x.replyTo ? ' replying to '.length + x.replyTo.length : 0)
+  const header = ('[r' + REPLIES_SHOWN_MAX + '] by ').length + x.author.length + (x.replyTo ? ' replying to '.length + x.replyTo.length : 0)
     + (x.at ? ', '.length + x.at.length : 0) + editedNote(x).length + ' on your post '.length + UUID_LEN
     + ' (comment '.length + x.id.length + ')'.length + (asReply ? (' ' + UNDER_COMMENT + ' ').length + UUID_LEN : 0)
     + (x.person ? (' ' + PERSON_OWED).length : 0);
@@ -708,7 +708,7 @@ async function readRepliesLocked(sessionName, opts) {
 function readingNow(sessionName) { return (replyReadRunning === 'read' && replyReadSession === sessionName) || (readingSessions.get(sessionName) || 0) > 0; }
 
 /* ===== #4951: which COMMENTS on this agent's own posts it owes an answer and has not read yet, for the reply nudge. =====
-   The agent's own read's set (the same posts, marks, own-name rule, (time, id) order and 30-item cap) as far as it reads:
+   The agent's own read's set (the same posts, marks, own-name rule, (time, id) order and the read's cap, count and size, #7056) as far as it reads:
    its round 2 is the first hidden page of the newest REPLY_PAGES_PER_POST comments, not the read's whole queue (#6201),
    so where it cannot see a whole thread it names nobody (see `uncertain`), and otherwise the cap falls where the read's
    does; of that set only comments ON the post are owed (review 14: a reply under a comment is
@@ -723,7 +723,7 @@ const FRESH_PACE_MS = 1500;   // review 10 (Opus): 40 a minute at most, so two a
 const NO_ANSWER_STOP = 2;   // review 8 (Opus): this many unanswered requests in a row end the count (one is skipped)
 /* Review 10 (Opus): a post the count cannot read makes the WHOLE count unknown, not just that post: the cap is taken
    over the posts read, and the agent's read a minute later may reach the skipped post, whose older replies then push
-   counted ones past its 30, and those (recorded as told) are never told again. So a post that cannot be read makes the
+   counted ones past its cap, and those (recorded as told) are never told again. So a post that cannot be read makes the
    count `partial` (busy, no retry this pass). Only one that has failed FRESH_DOWN_PASSES passes in a row is skipped,
    as gone: down that long, it is down for the agent's read too, and it must not hold the agent's nudges forever. */
 const FRESH_DOWN_PASSES = 3;
@@ -824,8 +824,8 @@ async function freshReplies(sessionName, opts) {
       }
       if (fresh.length) out.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', items: fresh });
     }
-    /* Review 9 (Sonnet): the agent's own read shows at most REPLIES_SHOWN_MAX, the oldest first across its posts, so the
-       count is capped the same way: the line never names more than the read will show, and the rest (not told yet) are
+    /* Review 9 (Sonnet): the agent's own read shows at most REPLIES_SHOWN_MAX (fewer when long, #7056), the oldest first
+       across its posts, so the count is cut the same way (shownWithin): the line never names more than the read will show, and the rest (not told yet) are
        counted on a later pass, once the read has moved past these. */
     const sorted = out.flatMap((o) => o.items).sort((a, b) => byPos(a.x, b.x));
     const keep = new Set(sorted.slice(0, shownWithin(sorted)));   // #7056: the read's own cut, count and size
@@ -1107,11 +1107,14 @@ async function repliesFor(sessionName, opts) {
     // section for ever ahead of a newer one.
     for (const o of personOwed(th.comments, me)) if (!inFresh.has(o.x.id) && (!o.x.ts || o.x.ts >= firstLook)) owedShown.push({ x: o.x, post: th.post.remoteId, parent: o.parent });
   }
-  owedShown.sort((a, b) => byPos(b.x, a.x));
+  /* #7056: a person the text budget held back from the replies is shown there next read; one already past the mark is
+     shown only here. So those come first, and the held-back ones cannot crowd them out of OWED_TEXT_BUDGET. */
+  const heldBack = new Set(fresh.slice(shownItems.length).map((f) => f.x.id));
+  owedShown.sort((a, b) => (heldBack.has(a.x.id) - heldBack.has(b.x.id)) || byPos(b.x, a.x));
   const lines = [REPLIES_HEADING, ''];
   // #7056: the owed section comes last and is the part an agent's tool cuts first, so its count is said up here.
   const owedFit = shownWithin(owedShown, OWED_SHOWN_MAX, OWED_TEXT_BUDGET);
-  if (owedShown.length) lines.push('(People still waiting for your answer: ' + owedShown.length + (owedFit < owedShown.length ? ', ' + owedFit + ' of them listed below)' : ', listed below)'), '');
+  if (owedShown.length) lines.push('(In the section below, people still waiting for your answer: ' + owedShown.length + (owedFit < owedShown.length ? ', ' + owedFit + ' of them listed)' : ')'), '');
   // #5623: the person comments it owes, so a line can say so (a person's reply under its own comment is owed too).
   const owedIds = new Set(owedShown.map((f) => f.x.id));
   for (const th of threads) if (!th.failed && !th.gone) for (const o of personOwed(th.comments, me)) owedIds.add(o.x.id);
