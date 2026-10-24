@@ -79,3 +79,23 @@ test('#4658: own-allow refuses a malformed body, a request not from the screen, 
     assert.match(r.json.error, /^That computer was not allowed: that computer is no longer waiting for this room's key\.$/);
   } finally { live(false); }
 });
+
+test('#4658: own-code and own-confirm (the waiting computer\'s half) are behind the switch, screen only, and refuse a stale code', async () => {
+  live(false);
+  assert.equal((await call('GET', '/api/federation/own-code?project=p1', undefined, SCREEN)).status, 404);
+  assert.equal((await call('POST', '/api/federation/own-confirm', { project: 'p1', code: 'ABCDE-FGHJK' }, SCREEN)).status, 404);
+  live(true);
+  try {
+    assert.equal((await call('GET', '/api/federation/own-code?project=p1')).status, 403, 'not from the screen');
+    assert.equal((await call('GET', '/api/federation/own-code', undefined, SCREEN)).status, 400, 'no project');
+    assert.deepEqual((await call('GET', '/api/federation/own-code?project=p1', undefined, SCREEN)).json, { code: null });
+    for (const bad of ['not json', [], {}, { project: 'p1' }, { project: 'p1', code: ' ' }, { project: '', code: 'ABCDE-FGHJK' }]) {
+      assert.equal((await call('POST', '/api/federation/own-confirm', bad, SCREEN)).status, 400, JSON.stringify(bad));
+    }
+    assert.equal((await call('POST', '/api/federation/own-confirm', { project: 'p1', code: 'ABCDE-FGHJK' })).status, 403, 'not from the screen');
+    const r = await call('POST', '/api/federation/own-confirm', { project: 'p1', code: 'ABCDE-FGHJK' }, SCREEN);
+    assert.equal(r.status, 409);
+    assert.match(r.json.error, /^Not confirmed: this computer is not waiting for a code right now\.$/);
+    assert.deepEqual((await call('POST', '/api/federation/own-confirm', { project: 'p1', match: false }, SCREEN)).json, { started_over: false });
+  } finally { live(false); }
+});

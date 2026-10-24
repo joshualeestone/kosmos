@@ -103,6 +103,9 @@ test('#6239: no project is shared or joined under the policy, and nothing is sig
     const r = await call('POST', '/api/federation/own-allow', { project: id, pub: 'pub-x', code: 'ABCDE-FGHJK' }, SCREEN);
     assert.equal(r.status, 403, 'own-allow ' + JSON.stringify(r.json));
     assert.match(r.json.error, /^The policy set for this Kosmos keeps agents out/, 'own-allow');
+    const c = await call('POST', '/api/federation/own-confirm', { project: id, code: 'ABCDE-FGHJK' }, SCREEN);
+    assert.equal(c.status, 403, 'own-confirm ' + JSON.stringify(c.json));
+    assert.match(c.json.error, /^The policy set for this Kosmos keeps agents out/, 'own-confirm');
   } finally { delete process.env.AGENT_WORKFORCE_FEDERATION_LIVE; }
   assert.equal(signed.length, before, 'something was signed for the coordinator under the policy');
   apply({ outside_contact: { enabled: true } });
