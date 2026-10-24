@@ -23,7 +23,7 @@ process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, REMOTE_NOT_ALLOWED } = require('./server');
+const { start, server, REMOTE_NOT_ALLOWED, boardAuthState } = require('./server');
 const remote = require('./engine/remote');
 
 let base;
@@ -68,4 +68,24 @@ test('accepting a changed key: only on this computer, by a person at the screen'
   r = await post({ ...SCREEN, origin }, { key: 'bad' });
   assert.equal(r.status, 400);
   assert.equal(r.body.error, 'that is not a key Kosmos+ offered');
+});
+
+test('with the board token enforced, only the app window\'s own session may accept', async () => {
+  const TOK = 'BOARDTOKEN_acceptkey_0123456789ab';
+  assert.equal(boardAuthState.on, false, 'CONTROL: the sandboxed board started unenforced');
+  boardAuthState.on = true;
+  boardAuthState.token = TOK;
+  try {
+    const boot = await fetch(base + '/?token=' + TOK, { redirect: 'manual' });
+    await boot.text().catch(() => {});
+    const m = (boot.headers.get('set-cookie') || '').match(/kosmos_board=([0-9a-f]{64});/);
+    assert.ok(m, 'CONTROL: the bootstrap sets a session cookie');
+    calls.length = 0;
+    let r = await post({ ...SCREEN, origin, 'x-kosmos-board-token': TOK }, { key: 'good' });
+    assert.equal(r.status, 403, 'the token in a header is not the app window');
+    assert.deepEqual(calls, [], 'a refused request reached the engine');
+    r = await post({ ...SCREEN, origin, cookie: 'kosmos_board=' + m[1] }, { key: 'good' });
+    assert.equal(r.status, 200, 'CONTROL: the session cookie: ' + JSON.stringify(r.body));
+    assert.deepEqual(calls, ['good']);
+  } finally { boardAuthState.on = false; boardAuthState.token = null; }
 });

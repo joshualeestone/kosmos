@@ -57,24 +57,26 @@ test('the offered key is read wherever the refusal sits, and only a well-formed 
   assert.equal(remote.offeredKeyIn(undefined), null);
 });
 
-/* A fake connector: `setup start` succeeds; a registration fails with `refusal` on stderr (or succeeds when null).
-   Records each run's args and environment. */
-function connector({ refusal = null, shipped = null } = {}) {
-  const runs = [];
+/* A fake connector: `setup start` succeeds; a registration fails with `c.refusal` on stderr. `c.shipped` is the
+   shipped list the board would hand over. Records each run's args and environment. */
+function connector({ refusal = 'that name is taken', shipped = null } = {}) {
+  const c = { runs: [], refusal, shipped };
   const real = check.expectedCoordinatorKeys;
-  check.expectedCoordinatorKeys = () => shipped;
+  check.expectedCoordinatorKeys = () => c.shipped;
   remote.setSetupSpawnForTests((bin, args, opts) => {
-    runs.push({ args, env: opts.env });
+    c.runs.push({ args, env: opts.env });
     const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => {};
     const register = args[0] === 'setup' && args[1] === 'complete';
-    const code = register && refusal ? 1 : register ? 1 : 0;
     setImmediate(() => {
-      if (register) child.stderr.emit('data', Buffer.from('Error: ' + (refusal || 'some other failure') + '\n'));
+      if (register) child.stderr.emit('data', Buffer.from('Error: ' + c.refusal + '\n'));
+      const code = register ? 1 : 0;
       child.emit('exit', code); child.emit('close', code);
     });
     return child;
   });
-  return { runs, done: () => { check.expectedCoordinatorKeys = real; remote.resetForTests(); } };
+  c.registrations = () => c.runs.filter((r) => r.args[1] === 'complete');
+  c.done = () => { check.expectedCoordinatorKeys = real; remote.resetForTests(); fs.rmSync(PIN, { force: true }); };
+  return c;
 }
 const expectOf = (run) => (run.env ? run.env.KOSMOS_EXPECT_COORDINATOR_KEYS : undefined);
 async function signIn() {
@@ -83,18 +85,33 @@ async function signIn() {
   return remote.setupComplete('123456', 'my-mac');
 }
 const STORE = path.join(STATE, trustkeys.STORE_FILE);
+const PIN = path.join(STATE, 'coordinator_pubkey');
+/* A refused sign-in naming `k`, then the connector refuses for another reason (so the next run is a fresh one). */
+async function offered(c, k) {
+  c.refusal = REFUSAL(k);
+  const r = await signIn();
+  assert.deepEqual(r.keyChanged, { offered: k }, 'CONTROL: the refusal named the key');
+  c.refusal = 'that name is taken';
+}
 
 test('a refused sign-in that names a key says the key changed; another failure does not', async () => {
-  let c = connector({ refusal: REFUSAL(K) });
+  const c = connector({ refusal: REFUSAL(K) });
   try {
     const r = await signIn();
     assert.equal(r.ok, false);
     assert.deepEqual(r.keyChanged, { offered: K });
+    c.refusal = 'that name is taken';
+    const other = await signIn();
+    assert.equal(other.ok, false, 'CONTROL: it failed');
+    assert.equal('keyChanged' in other, false);
   } finally { c.done(); }
-  c = connector({ refusal: 'that name is taken' });
+});
+
+test('a text naming two keys across lines is not read as naming the one on its last line', async () => {
+  const c = connector({ refusal: REFUSAL(OTHER) + '\n' + REFUSAL(K) });
   try {
     const r = await signIn();
-    assert.equal(r.ok, false, 'CONTROL: it failed');
+    assert.equal(remote.offeredKeyIn(r.because), K, 'CONTROL: the last line alone names one key');
     assert.equal('keyChanged' in r, false);
   } finally { c.done(); }
 });
@@ -112,63 +129,100 @@ test('while a service key set is held no key is offered for acceptance, even whe
   } finally { d.done(); }
 });
 
-test('an accepted key goes to the next registration only, once', async () => {
-  const c = connector({ refusal: 'that name is taken' });
+test('only the key the last refusal named can be accepted', async () => {
+  const c = connector();
   try {
+    assert.equal(remote.acceptOfferedKey(K).ok, false, 'nothing offered yet');
+    await offered(c, K);
+    assert.equal(remote.acceptOfferedKey(OTHER).ok, false, 'a key that was not offered');
+    assert.equal(remote.acceptOfferedKey('not a key').ok, false);
+    assert.equal(remote.acceptOfferedKey(K).ok, true, 'CONTROL: the offered key');
+  } finally { c.done(); }
+});
+
+test('an accepted key goes to the next registration only, once, beside the pin held', async () => {
+  const c = connector();
+  try {
+    await offered(c, K);
     assert.equal(remote.acceptOfferedKey(K).ok, true);
+    const before = c.runs.length;
     await remote.setupStart('a@example.com');
-    assert.equal(c.runs[0].args[1], 'start', 'CONTROL: the email step');
-    assert.equal(c.runs[0].env, undefined, 'a run that is not a registration does not take it');
+    assert.equal(c.runs[before].args[1], 'start', 'CONTROL: the email step');
+    assert.equal(c.runs[before].env, undefined, 'a run that is not a registration does not take it');
+    fs.writeFileSync(PIN, OTHER + '\n');
     await remote.setupComplete('123456', 'my-mac');
-    const reg = c.runs.filter((r) => r.args[1] === 'complete');
-    assert.equal(reg.length, 1, 'CONTROL: one registration ran');
-    assert.equal(expectOf(reg[0]), K, 'the registration names it');
+    const reg = c.registrations();
+    assert.equal(expectOf(reg[reg.length - 1]), OTHER + ',' + K, 'the registration names it, beside the pin held');
     await remote.setupComplete('123456', 'my-mac');
-    const again = c.runs.filter((r) => r.args[1] === 'complete');
-    assert.equal(again.length, 2, 'CONTROL: a second registration ran');
-    assert.equal(again[1].env, undefined, 'and does not name it again');
+    assert.equal(c.registrations().length, reg.length + 1, 'CONTROL: a second registration ran');
+    assert.equal(c.registrations()[reg.length].env, undefined, 'and does not name it again');
   } finally { c.done(); }
 });
 
-test('with the shipped keys, the accepted key is added to them', async () => {
-  const c = connector({ refusal: 'that name is taken', shipped: 'MCowBQYDK2VwAyEAkey1' });
+test('with no pin held the accepted key is named alone', async () => {
+  const c = connector();
   try {
+    await offered(c, K);
     remote.acceptOfferedKey(K);
-    await signIn();
-    assert.equal(expectOf(c.runs.find((r) => r.args[1] === 'complete')), 'MCowBQYDK2VwAyEAkey1,' + K);
+    await remote.setupComplete('123456', 'my-mac');
+    const reg = c.registrations();
+    assert.equal(expectOf(reg[reg.length - 1]), K);
   } finally { c.done(); }
 });
 
-test('an acceptance older than an hour, or a key that does not parse, is not used', async () => {
-  const c = connector({ refusal: 'that name is taken' });
+test('under a shipped list no key is accepted, and an accepted one never widens the list', async () => {
+  const c = connector();
+  try {
+    await offered(c, K);
+    c.shipped = 'MCowBQYDK2VwAyEAkey1';
+    assert.equal(remote.acceptOfferedKey(K).ok, false, 'refused under the list');
+    c.shipped = null;
+    assert.equal(remote.acceptOfferedKey(K).ok, true, 'CONTROL: accepted with no list');
+    c.shipped = 'MCowBQYDK2VwAyEAkey1';
+    await remote.setupComplete('123456', 'my-mac');
+    const reg = c.registrations();
+    assert.equal(expectOf(reg[reg.length - 1]), 'MCowBQYDK2VwAyEAkey1', 'the list alone, never widened');
+  } finally { c.done(); }
+});
+
+test('an offer or an acceptance older than an hour is not used', async () => {
+  const c = connector();
   const realNow = Date.now;
   try {
-    assert.equal(remote.acceptOfferedKey('not a key').ok, false);
-    assert.equal(remote.acceptOfferedKey(K.slice(0, 42)).ok, false);
     const t = realNow();
     Date.now = () => t;
-    assert.equal(remote.acceptOfferedKey(K).ok, true);
+    await offered(c, K);
     Date.now = () => t + 60 * 60 * 1000 + 1;
-    await signIn();
-    assert.equal(c.runs.find((r) => r.args[1] === 'complete').env, undefined, 'stale: not named');
+    assert.equal(remote.acceptOfferedKey(K).ok, false, 'a stale offer');
+    Date.now = () => t;
+    assert.equal(remote.acceptOfferedKey(K).ok, true, 'CONTROL: inside the hour');
+    Date.now = () => t + 60 * 60 * 1000 + 1;
+    await remote.setupComplete('123456', 'my-mac');
+    let reg = c.registrations();
+    assert.equal(reg[reg.length - 1].env, undefined, 'a stale acceptance is not named');
     Date.now = () => t;
     remote.acceptOfferedKey(K);
     Date.now = () => t + 60 * 60 * 1000 - 1;
     await remote.setupComplete('123456', 'my-mac');
-    assert.equal(expectOf(c.runs.filter((r) => r.args[1] === 'complete')[1]), K, 'CONTROL: inside the hour it is named');
+    reg = c.registrations();
+    assert.equal(expectOf(reg[reg.length - 1]), K, 'CONTROL: inside the hour it is named');
   } finally { Date.now = realNow; c.done(); }
 });
 
-test('Forget voids an acceptance; Start over (signinCancel) does not', async () => {
-  const c = connector({ refusal: 'that name is taken' });
+test('Forget voids an offer and an acceptance; Start over (signinCancel) does not', async () => {
+  const c = connector();
   try {
+    await offered(c, K);
     remote.acceptOfferedKey(K);
     remote.signinCancel();
-    await signIn();
-    assert.equal(expectOf(c.runs.find((r) => r.args[1] === 'complete')), K, 'Start over keeps it: it is how the new code is got');
+    await remote.setupComplete('123456', 'my-mac');
+    let reg = c.registrations();
+    assert.equal(expectOf(reg[reg.length - 1]), K, 'Start over keeps it: it is how the new code is got');
     remote.acceptOfferedKey(K);
     await remote.forget({ anyway: true });
+    assert.equal(remote.acceptOfferedKey(K).ok, false, 'the offer is gone after a Forget');
     await signIn();
-    assert.equal(c.runs.filter((r) => r.args[1] === 'complete')[1].env, undefined, 'after a Forget it is gone');
+    reg = c.registrations();
+    assert.equal(reg[reg.length - 1].env, undefined, 'and so is the acceptance');
   } finally { c.done(); }
 });
