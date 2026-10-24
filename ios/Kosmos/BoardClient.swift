@@ -306,6 +306,14 @@ final class BoardClient: ObservableObject {
         return Board.readThread(status: result?.1.statusCode ?? 0, data: result?.0)
     }
 
+    // kosmos#7032: one request through this client's own session to the Mac it is connected to, for the Projects tab and
+    // a project's room (RoomStore), so they need no second session of their own. nil when not connected, when the request
+    // cannot be made, or when no answer came. The caller reads the answer itself.
+    func throughMac(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
+        guard let held = admitted, let request = build(held.url) else { return nil }
+        return await env.send(request)
+    }
+
     // Messages sent from a chat that its conversation does not hold yet, by agent, and each chat's unsent words. Kept
     // while the app runs, so neither is lost by leaving the chat (Mona Lisa's slice 3a spec).
     @Published private(set) var pending: [String: [Board.PendingSend]] = [:]

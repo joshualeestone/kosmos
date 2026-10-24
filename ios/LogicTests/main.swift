@@ -2382,20 +2382,23 @@ check(AppTabs.visible(tasksTab: true).map(\.symbol) == ["sun.max", "person.2", "
 section("app tabs: press bookkeeping")
 do {
     var t = PressTracker()
-    check(t.press(.projects, page: .noView) == nil && t.pending == .projects, "with no web view yet (a signed-in launch on Agents) the tracker keeps the press (BoardWeb runs it at the load)")
+    // kosmos#7032: Tasks is the one web tab left, so it is the example press (Projects is native now).
+    check(t.press(.tasks, page: .noView) == nil && t.pending == .tasks, "with no web view yet (a signed-in launch on Agents) the tracker keeps the press (BoardWeb runs it at the load)")
     check(t.press(.tasks, page: .loading) == nil && t.pending == .tasks, "a page still loading: the press waits")
+    var native = PressTracker()
+    check(native.press(.projects, page: .ready) == nil && native.pending == nil, "#7032: the native Projects tab runs nothing")
     let serialBefore = t.serial
-    let run = t.press(.projects, page: .ready)
-    check(run != nil && run?.script == AppTabs.pressScript(.projects) && run?.serial == serialBefore + 1, "a ready page: the press runs, with a new number")
-    check(t.answered(serial: run!.serial, .absent, pageURL: nil) == nil && t.pending == .projects, "no door: it still waits")
-    let waiting = t.press(.projects, page: .ready)!
+    let run = t.press(.tasks, page: .ready)
+    check(run != nil && run?.script == AppTabs.pressScript(.tasks) && run?.serial == serialBefore + 1, "a ready page: the press runs, with a new number")
+    check(t.answered(serial: run!.serial, .absent, pageURL: nil) == nil && t.pending == .tasks, "no door: it still waits")
+    let waiting = t.press(.tasks, page: .ready)!
     check(t.running, "the press is running while it waits for its answer")
-    check(t.answered(serial: waiting.serial, .absent, pageURL: nil) == nil && !t.running && t.pending == .projects, "no answer: it waits for a load, but no longer holds the bar")
-    let again = t.press(.projects, page: .ready)!
-    check(t.answered(serial: again.serial, .opened, pageURL: nil) == .projects && t.pending == nil && !t.running, "opened: over, and the bar goes to the tab pressed")
+    check(t.answered(serial: waiting.serial, .absent, pageURL: nil) == nil && !t.running && t.pending == .tasks, "no answer: it waits for a load, but no longer holds the bar")
+    let again = t.press(.tasks, page: .ready)!
+    check(t.answered(serial: again.serial, .opened, pageURL: nil) == .tasks && t.pending == nil && !t.running, "opened: over, and the bar goes to the tab pressed")
 
     var u = PressTracker()
-    let first = u.press(.projects, page: .ready)!
+    let first = u.press(.tasks, page: .ready)!
     let second = u.press(.tasks, page: .ready)!
     check(u.answered(serial: first.serial, .refused, pageURL: roomURL) == nil && u.pending == .tasks, "a late answer to an earlier press moves nothing and ends nothing")
     check(u.answered(serial: second.serial, .refused, pageURL: roomURL) == .projects && u.pending == nil, "the latest press's refusal ends it and moves the bar to the page's tab")
@@ -2404,9 +2407,9 @@ do {
     let shown = v.press(.tasks, page: .ready)!
     v.loadingOwnPage()
     check(v.pending == nil && v.answered(serial: shown.serial, .refused, pageURL: settingsURL) == nil, "an agent tap ends a press, and a late refusal of it cannot move the bar")
-    _ = v.press(.projects, page: .loading)
+    _ = v.press(.tasks, page: .loading)
     check(v.press(.agents, page: .ready) == nil && v.pending == nil, "the native tab ends a waiting press")
-    _ = v.press(.projects, page: .loading)
+    _ = v.press(.tasks, page: .loading)
     check(v.press(.settings, page: .ready) == nil && v.pending == nil, "#7010: the native Settings tab runs nothing and ends a waiting press too")
     let section = v.press(.settings, page: .ready, section: true)
     check(section?.script == AppTabs.pressScript(.settings) && v.pending == .settings, "#7010: the board's own Settings, pressed on purpose (the native screen's row), runs")
@@ -2422,9 +2425,9 @@ do {
     let before = w.press(.tasks, page: .ready)!
     let page = w.generation
     check(w.read(true, generation: page) == true && w.readThisLaunch, "a read before the lock counts")
-    w.drop(selected: .projects)
-    check(w.pending == .projects && !w.readThisLaunch, "after a lock, the fresh page opens the selected tab and reads again")
-    check(w.answered(serial: before.serial, .opened, pageURL: nil) == nil && w.pending == .projects, "a late answer from the dropped page does not end it")
+    w.drop(selected: .tasks)
+    check(w.pending == .tasks && !w.readThisLaunch, "after a lock, the fresh page opens the selected tab and reads again")
+    check(w.answered(serial: before.serial, .opened, pageURL: nil) == nil && w.pending == .tasks, "a late answer from the dropped page does not end it")
     check(w.read(true, generation: page) == nil && !w.readThisLaunch, "nor does a late Tasks read from it count")
     w.drop(selected: .agents)
     check(w.pending == nil, "a lock on Agents leaves nothing to press")
@@ -2437,8 +2440,10 @@ do {
     func f(_ from: URL?, _ to: URL?, _ selected: AppTabs.Tab, held: Bool = false, tasks: Bool = false) -> AppTabs.Tab? {
         AppTabs.follow(from: from, to: to, selected: selected, barHeld: held, tasksTab: tasks)
     }
-    check(f(home, roomURL, .today) == .projects, "a link from Today into a project room lights Projects")
-    check(f(roomURL, home, .projects) == .today, "a swipe back to the board's home lights Today")
+    // kosmos#7032: Projects is native, so the board's project pages show under Today and never move the native list.
+    check(f(home, roomURL, .today) == nil, "#7032: a link from the board's home into a project room stays under Today")
+    check(f(roomURL, home, .projects) == nil, "#7032: the native Projects tab is not moved by the hidden page")
+    check(f(roomURL, home, .tasks, tasks: true) == .today, "a swipe back to the board's home lights Today")
     check(f(home, roomURL, .projects) == nil, "already right: nothing moves")
     check(f(home, settingsURL, .today, held: true) == nil, "the bar held for a press: its answer decides, not the address")
     check(f(home, settingsURL, .agents) == nil, "never from Agents, which shows no page")
@@ -2446,11 +2451,11 @@ do {
     check(f(home, signIn, .projects) == nil, "never on the sign-in page")
     let roomTwo = URL(string: "https://studio.kosmosplus.com/?tab=projects&project=y")
     check(f(roomURL, roomTwo, .settings) == nil, "an address rewritten within one section (Settings opened over the consolidated layout keeps ?tab=projects) moves nothing")
-    check(f(roomURL, tasksURL, .projects) == nil, "a project's View all onto a Tasks section the bar does not offer stays under Projects")
-    check(f(home, tasksURL, .today) == .projects, "and lights Projects from elsewhere")
-    check(f(roomURL, tasksURL, .projects, tasks: true) == .tasks, "Tasks once the bar has it")
-    check(f(signIn, home, .today) == nil && f(signIn, roomURL, .today) == .projects, "from the sign-in page to a Mac's page is a real move")
-    check(AppTabs.barTab(forPage: .tasks, tasksTab: false) == .projects && AppTabs.barTab(forPage: .projects, tasksTab: false) == .projects, "a hidden Tasks section belongs under Projects; any other web section lights its own tab")
+    check(f(home, tasksURL, .today) == nil, "#7032: a Tasks section the bar does not offer stays under Today")
+    check(f(roomURL, tasksURL, .today, tasks: true) == .tasks, "Tasks once the bar has it")
+    check(f(signIn, home, .tasks, tasks: true) == .today && f(signIn, roomURL, .tasks, tasks: true) == .today, "from the sign-in page to a Mac's page is a real move (to Today for a project page now)")
+    check(AppTabs.barTab(forPage: .tasks, tasksTab: false) == .today && AppTabs.barTab(forPage: .projects, tasksTab: false) == .today, "#7032: a hidden Tasks section and the board's project pages show under Today")
+    check(AppTabs.barTab(forPage: .tasks, tasksTab: true) == .tasks, "a web section the bar offers lights its own tab")
     check(AppTabs.barTab(forPage: .settings, tasksTab: true) == .today, "#7010: the board's Settings section shows under Today, since the Settings tab is native")
     check(f(home, URL(string: "https://mac.kosmosplus.com/?tab=settings")!, .settings) == nil, "#7010: native Settings is not moved by the hidden page")
     check(f(home, URL(string: "https://studio.kosmosplus.com/?tab=settings")!, .today) == nil, "#7010: a board link into its Settings (a chat's fix button) keeps the bar on Today, so the page shows")
