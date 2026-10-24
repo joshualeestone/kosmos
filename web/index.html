@@ -81376,7 +81376,7 @@ const FED_OWN_REFRESH_MS = 10000;
 function fedOwnHtml() {
   const o = FED_OWN;
   if (!o || o.project !== PJ_CURRENT || !PJ_CURRENT || !fedShow()) return '';
-  const busy = FED_OWN_BUSY === o.project ? ' aria-disabled="true"' : '';
+  const busy = (FED_OWN_BUSY === o.project ? ' aria-disabled="true"' : '') + ' data-own-project="' + esc(o.project) + '"';
   let h = '';
   if (o.code) {
     h += '<h4 class="fedout-h">This room is sealed</h4>'
@@ -81459,8 +81459,13 @@ async function fedOwnLoad(project, fromPress) {
   if (seq !== FED_OWN_SEQ) return;   // a newer load (a press's, or another project's) owns the section
   FED_OWN_ASKING = null;
   if (PJ_CURRENT !== project) return;
-  const rows = waiting && Array.isArray(waiting.computers) ? waiting.computers.filter((w) => w && typeof w.pub === 'string' && typeof w.code === 'string') : [];
-  FED_OWN = { project, waiting: rows, code: mine && typeof mine.code === 'string' ? mine.code : null, at: Date.now() };
+  // A read that failed (an error, a timeout) keeps that side as it was, rather than wiping the rows or the code the
+  // person may be comparing; only an answer replaces it.
+  const prev = FED_OWN && FED_OWN.project === project ? FED_OWN : null;
+  const rows = waiting && Array.isArray(waiting.computers) ? waiting.computers.filter((w) => w && typeof w.pub === 'string' && typeof w.code === 'string')
+    : (prev ? prev.waiting : []);
+  const code = mine ? (typeof mine.code === 'string' ? mine.code : null) : (prev ? prev.code : null);
+  FED_OWN = { project, waiting: rows, code, at: Date.now() };
   const m = FED_OWN_MSG;
   if (m && m.project === project) {
     if (fromPress) m.sig = fedOwnSig(FED_OWN);          // what the press left on screen
@@ -81468,7 +81473,7 @@ async function fedOwnLoad(project, fromPress) {
   }
   fedOwnPaint();
 }
-// Called by fedGateMembers on every gate stamp while the project's Members card shows.
+// fedGateMembers calls this on every gate stamp while federation shows (fedOwnPaint alone on the hidden branch).
 function fedOwnTick() {
   const o = FED_OWN;
   const due = !o || o.project !== PJ_CURRENT || (!document.hidden && Date.now() - (o.at || 0) > FED_OWN_REFRESH_MS);
@@ -81477,7 +81482,9 @@ function fedOwnTick() {
 }
 async function fedOwnPress(btn) {
   const project = PJ_CURRENT;
-  if (!project || FED_OWN_BUSY === project || btn.getAttribute('aria-disabled') === 'true') return;
+  // The button names the project it was drawn for: one left on screen from another project never acts on this one.
+  if (!project || btn.dataset.ownProject !== project || !FED_OWN || FED_OWN.project !== project
+    || FED_OWN_BUSY === project || btn.getAttribute('aria-disabled') === 'true') return;
   const act = btn.dataset.ownAct;
   const body = act === 'allow' ? { project, pub: btn.dataset.ownPub, code: btn.dataset.ownCode }
     : act === 'match' ? { project, code: btn.dataset.ownCode } : { project, match: false };
@@ -81499,6 +81506,7 @@ async function fedOwnPress(btn) {
   if (FED_OWN_BUSY === project) FED_OWN_BUSY = null;
   if (PJ_CURRENT !== project) return;
   FED_OWN_MSG = { text: said, project, sig: null };
+  fedOwnPaint();   // the buttons come back now, not when the reload lands
   fedOwnLoad(project, true);
 }
 document.addEventListener('click', (e) => {
