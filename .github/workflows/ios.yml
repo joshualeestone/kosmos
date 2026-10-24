@@ -74,6 +74,13 @@ jobs:
           ios/LogicTests/run.sh | tee "$RUNNER_TEMP/logic.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/logic.log"
 
+      # kosmos#7010: the Settings tab's logic, its own suite so it and the chat slice never edit one test file.
+      - name: Settings logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-settings.sh | tee "$RUNNER_TEMP/settings.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/settings.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

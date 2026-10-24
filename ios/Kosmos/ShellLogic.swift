@@ -263,8 +263,15 @@ enum AppTabs {
     // The tab that lights for a section the PAGE is on. A Tasks section the bar does not offer (a project's View all,
     // which on a Mac below Tasks' threshold is that project's only full list) belongs under Projects, where it is
     // reached from, and the page is left where it is: nothing presses it away.
+    // kosmos#7010: the Settings tab is native, so the board's own Settings section (its links into it, or the native
+    // screen's "open the board's Settings" row) shows under Today, as an agent's chat does. Lighting the Settings tab
+    // would put the native screen over the very section the person was sent to.
+    // The tabs the app draws itself. Pressing one ends any press still waiting, and a lock never replays one.
+    static func isNative(_ tab: Tab) -> Bool { tab == .agents || tab == .settings }
+
     static func barTab(forPage section: Tab, tasksTab: Bool) -> Tab {
-        visible(tasksTab: tasksTab).contains(section) ? section : .projects
+        if section == .settings { return .today }
+        return visible(tasksTab: tasksTab).contains(section) ? section : .projects
     }
 
     static func keep(_ selected: Tab, tasksTab: Bool) -> Tab {
@@ -319,7 +326,8 @@ enum AppTabs {
     // decides), never from Agents, the native tab, which shows no page, and never on the sign-in page. It never
     // presses: the page stays where the person took it.
     static func follow(from previous: URL?, to pageURL: URL?, selected: Tab, barHeld: Bool, tasksTab: Bool) -> Tab? {
-        guard !barHeld, selected != .agents, let pageURL = pageURL, pageURL.host != signInHost else { return nil }
+        // A native tab (Agents, Settings #7010) is not moved by the hidden page.
+        guard !barHeld, selected != .agents, selected != .settings, let pageURL = pageURL, pageURL.host != signInHost else { return nil }
         let now = tab(forBoardURL: pageURL)
         if let previous = previous, previous.host == pageURL.host, tab(forBoardURL: previous) == now { return nil }
         let next = barTab(forPage: now, tasksTab: tasksTab)
@@ -408,9 +416,11 @@ struct PressTracker {
 
     // A press: the script to run now and the number its answer must carry, or nil when there is nothing to run now
     // (the native tab, which also ends a waiting press; or a page not ready, when the press waits for its load).
-    mutating func press(_ tab: AppTabs.Tab, page: Page) -> (script: String, serial: Int)? {
+    // `section`: press the board's own section for a native tab on purpose (#7010, the Settings tab's row to the
+    // board's Settings); the bar is on Today by then.
+    mutating func press(_ tab: AppTabs.Tab, page: Page, section: Bool = false) -> (script: String, serial: Int)? {
         serial += 1
-        guard let script = AppTabs.pressScript(tab) else { pending = nil; running = false; return nil }
+        guard section || !AppTabs.isNative(tab), let script = AppTabs.pressScript(tab) else { pending = nil; running = false; return nil }
         pending = tab
         running = page == .ready
         return running ? (script, serial) : nil
@@ -482,7 +492,7 @@ struct PressTracker {
         serial += 1
         running = false
         generation += 1
-        pending = AppTabs.pressScript(selected) == nil ? nil : selected
+        pending = AppTabs.isNative(selected) || AppTabs.pressScript(selected) == nil ? nil : selected
         readThisLaunch = false
         launchAnswered = false
         launchHost = nil

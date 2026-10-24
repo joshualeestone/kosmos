@@ -40,7 +40,10 @@ struct ContentView: View {
     private static let startTab: Tab = {
         #if DEBUG
         // The Agents tab's sample screenshots (KOSMOS_SAMPLE_AGENTS=1, a Debug build only) open on Agents, signed in or not.
-        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return .agents }
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" {
+            // kosmos#7010: KOSMOS_SAMPLE_TAB=settings opens the native Settings tab's samples instead.
+            return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TAB"] == "settings" ? .settings : .agents
+        }
         #endif
         return SessionKeychain.live.load() == nil ? .today : .agents
     }()
@@ -55,6 +58,8 @@ struct ContentView: View {
     private var pressing: Binding<Tab> {
         Binding(get: { tab }, set: { new in
             tab = new
+            // A native tab (Agents, Settings #7010) runs nothing on the hidden page, so an agent's chat there keeps its
+            // place, and it ends any press still waiting (PressTracker.press).
             web.press(new)
         })
     }
@@ -157,12 +162,22 @@ struct ContentView: View {
         web.press(new)
     }
 
-    // Agents is the native list; the other four show the shared board.
+    // Agents and Settings are native; the other three show the shared board.
     @ViewBuilder private func tabPage(_ which: Tab) -> some View {
         if which == .agents {
             AgentsView(client: board, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoard: { select(.today) })
+        } else if which == .settings {
+            // kosmos#7010: a Kosmos+ page (the account, the delete flow) opens under Today in the shared web view, as an
+            // agent's chat does, and so does the board's own Settings.
+            SettingsView(coordinator: KosmosConfig.coordinatorOrigin, openPage: { url in
+                pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+            }, openBoardSettings: {
+                // The board's own Settings, under Today (AppTabs.barTab: its Settings section lights Today).
+                tab = .today
+                web.pressBoardSection(.settings)
+            })
         } else {
             webBoard(which)
         }
@@ -316,10 +331,10 @@ final class BoardWeb: ObservableObject {
     }
 
     // `ready` is given by a finished load (didFinish says the page is ready, whatever isLoading still reads).
-    func press(_ tab: AppTabs.Tab, ready: Bool = false) {
+    func press(_ tab: AppTabs.Tab, ready: Bool = false, section: Bool = false) {
         // The tracker decides from what the page is (PressTracker.Page); a press with no web view yet waits.
         let page: PressTracker.Page = webView.map { ready || !$0.isLoading ? .ready : .loading } ?? .noView
-        guard let run = tracker.press(tab, page: page), let webView = webView else { return }
+        guard let run = tracker.press(tab, page: page, section: section), let webView = webView else { return }
         webView.evaluateJavaScript(run.script) { [weak self] result, error in
             guard let self = self else { return }
             let answer = AppTabs.answer(result, error: error)
@@ -330,11 +345,25 @@ final class BoardWeb: ObservableObject {
 
     func loadingOwnPage() { tracker.loadingOwnPage() }
 
+    // kosmos#7010: the board's own section for a native tab, pressed on purpose (the Settings screen's row). When the
+    // shared page is a Kosmos+ page (the account page that screen opens), there is no board to press, so the board is
+    // loaded first and the press waits for it (it waits on the sign-in host, then runs once the board has loaded).
+    func pressBoardSection(_ tab: AppTabs.Tab) {
+        if let webView = webView, webView.url?.host == AppTabs.signInHost {
+            webView.load(URLRequest(url: KosmosConfig.boardURL))
+            _ = tracker.press(tab, page: .loading, section: true)
+            return
+        }
+        press(tab, section: true)
+    }
+
 
     // A page finished loading: run a press that waited for it, and start a launch round of Tasks reads if no read has
     // answered this launch (PressTracker.launchReads). A later load replaces the round.
     func loaded() {
-        if let tab = tracker.pending { press(tab, ready: true) }
+        // What waits is a web tab or a section pressed on purpose (a native tab's press leaves nothing waiting), so it
+        // replays as a section press.
+        if let tab = tracker.pending { press(tab, ready: true, section: true) }
         if let round = tracker.loaded(host: webView?.url?.host) { schedule(round, at: PressTracker.launchReads) }
     }
 
