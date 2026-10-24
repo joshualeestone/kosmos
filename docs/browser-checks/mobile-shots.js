@@ -1256,6 +1256,20 @@ const SCREENS = [
     });
     await page.waitForFunction(() => { const f = document.getElementById('plus-si-computer-field'); return f && !f.hidden && document.getElementById('plus-si-computer').value === 'Studio Mac'; }, null, { timeout: 8000 });
   }, after: async (page) => { await plusSigningInEnd(page); await page.unroute('**/api/remote/computer-name'); } },
+  /* kosmos#6596 step 8: a sign-in refused because Kosmos+ answered with a different key, showing that key and the two
+     choices. Reached with the page's own function and a sample key (never a real one); the sign-in flag keeps the card
+     up across the status tick, as the sign-in screens above. */
+  { name: 'plus-key-changed', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => {
+    await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-state2', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => {
+      for (const id of ['plus-state1', 'plus-state3']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+      PLUS_SIGNIN_ACTIVE = true;
+      document.getElementById('plus-state2').hidden = false;
+      plusSiKeyChanged('AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE');
+    });
+    await page.waitForFunction(() => { const p = document.getElementById('plus-si-keychanged'); return p && !p.hidden && p.getClientRects().length > 0; }, null, { timeout: 8000 });
+  }, after: async (page) => { await plusSigningInEnd(page); } },
   { name: 'connect-connected', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]', { state: 'visible', timeout: 8000 });
     await page.fill('#askcode-d-sample-pc', '482 915');   // #6404: the code typed from the joining computer
