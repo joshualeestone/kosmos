@@ -57,7 +57,9 @@
 # latest-staging.json names V, so staging can move on. Every commit naming V (that matches --sha, when
 # given) must name the same build;
 # the one used is the newest whose committed setup-staging hashes to its pointer's setup_sha256 (the
-# staging cut's own commit, which carries both), else the newest naming V. --sha <8+ characters of its
+# staging cut's own commit, which carries both), else the newest naming V (both among the commits --sha and
+# --commit leave). If a later commit naming V has a pointer that differs in more than its installer, the
+# promote refuses until --commit names which one is right. --sha <8+ characters of its
 # sha256> names which build Josh approved: needed when V was cut more than once (a re-cut after an abort),
 # and with --force, so a forced promote is tied to the approved bytes, not only to a version that could be
 # mistyped. --commit <sha> picks the commit itself (it must still name V, and every check still applies to it). A V
@@ -194,7 +196,6 @@ if [ -n "$NAMED_VERSION" ]; then
   for _c in $(git -C "$SITE" log --format=%H -G "\"version\": *\"$NAMED_VERSION\"" HEAD -- "dist/$STAGING_NAME" 2>/dev/null); do
     git -C "$SITE" show "${_c}:dist/$STAGING_NAME" > "$NAMED_DIR/candidate.json" 2>/dev/null || continue
     [ "$(read_pointer_field "$NAMED_DIR/candidate.json" version)" = "$NAMED_VERSION" ] || continue
-    [ -n "$_newest" ] || _newest="$_c"   # the newest commit naming V at all, before --sha/--commit narrow it
     case "$_c" in "$NAMED_PICK"*) ;; *) continue ;; esac   # --commit: only that commit (empty: every commit)
     _s="$(read_pointer_field "$NAMED_DIR/candidate.json" sha256)"
     [ -n "$_s" ] || continue   # no bytes named: not a usable pointer for V, so not a candidate
@@ -205,7 +206,7 @@ if [ -n "$NAMED_VERSION" ]; then
     # A space-separated list: pointer fields are bare filenames and hex, never with spaces (a space would read as a
     # disagreement, which refuses).
     case " $_builds " in *" $_b "*) ;; *) _builds="${_builds:+$_builds }$_b" ;; esac
-    [ -n "$NAMED_COMMIT" ] || NAMED_COMMIT="$_c"
+    [ -n "$NAMED_COMMIT" ] || NAMED_COMMIT="$_c"   # the newest commit kept (all kept commits name one build, or it refuses below)
     _ps="$(read_pointer_field "$NAMED_DIR/candidate.json" setup_sha256)"
     if [ -z "$_paired" ] && [ -n "$_ps" ] \
        && [ "$(git -C "$SITE" show "${_c}:setup-staging" 2>/dev/null | shasum -a 256 | awk '{print $1}')" = "$_ps" ]; then _paired="$_c"; fi
@@ -220,16 +221,21 @@ if [ -n "$NAMED_VERSION" ]; then
     else _way="$NAMED_VERSION was cut more than once: name the build that was approved with --sha <its sha256, 8 or more characters>."; fi
     echo "promote-channel: commits naming $NAMED_VERSION disagree on its build ($_seen) - refusing; nothing was written. $_way" >&2; exit 1 ;;
   esac
+  _newest="$NAMED_COMMIT"
   [ -z "$_paired" ] || NAMED_COMMIT="$_paired"
-  # The cut's own commit can win over a later commit naming V. Say so, and whether that later pointer differs in
-  # anything but the installer it names, so a republish made to correct a field is not dropped without a word.
+  # The cut's own commit can win over a later commit naming the same build (--sha and --commit have already narrowed
+  # the set). Say so when the two pointers match apart from the installer; refuse when they differ in more, since a
+  # republish may carry a correction and which pointer is right is the operator's to name (--commit).
   if [ -n "$_newest" ] && [ "$_newest" != "$NAMED_COMMIT" ]; then
     git -C "$SITE" show "${_newest}:dist/$STAGING_NAME" > "$NAMED_DIR/newest.json" 2>/dev/null
     git -C "$SITE" show "${NAMED_COMMIT}:dist/$STAGING_NAME" > "$NAMED_DIR/chosen.json" 2>/dev/null
     if node -e 'const r=f=>{const p=JSON.parse(require("fs").readFileSync(f,"utf8"));delete p.setup_sha256;return JSON.stringify(p,Object.keys(p).sort())};process.exit(r(process.argv[1])===r(process.argv[2])?0:1)' "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json" 2>/dev/null; then
       echo "promote-channel: NOTE using ${NAMED_COMMIT:0:10} for $NAMED_VERSION; ${_newest:0:10}, a later commit naming it, points at the same build" >&2
     else
-      echo "promote-channel: NOTE using ${NAMED_COMMIT:0:10} for $NAMED_VERSION; ${_newest:0:10}, a later commit naming it, has a pointer that differs in more than its installer: if that one is right, run again with --commit ${_newest:0:10}" >&2
+      # Which of two different pointers for V is the right one is not this script's to guess: a later one may carry a
+      # correction, the earlier one is the cut's own. The operator names it.
+      echo "promote-channel: ${NAMED_COMMIT:0:10} (V's cut) and ${_newest:0:10} (a later commit naming $NAMED_VERSION) have pointers that differ in more than the installer they name - refusing; nothing was written. Name the one to promote with --commit <its sha>." >&2
+      exit 1
     fi
     rm -f "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json"
   fi
@@ -280,16 +286,23 @@ fi
 # kosmos#7005: a named V older than what prod serves is a rollback, and needs saying so (--allow-older): with the gates
 # holding on a board that has moved on, --force is this mode's usual path, and a mistyped version must not ride it.
 if [ -n "$NAMED_VERSION" ]; then
-  _prodv="$(read_pointer_field "$SITE/dist/$PROD_NAME" version)"
-  echo "promote-channel: --version $V; prod serves ${_prodv:-nothing} now"
+  # What prod serves is origin's latest.json (fetched above when the site has an origin); a checkout behind origin,
+  # or holding a promote not yet deployed, would give a wrong baseline. Without an origin, the checkout's is all there is.
+  if git -C "$SITE" rev-parse -q --verify "origin/main:dist/$PROD_NAME" >/dev/null 2>&1; then
+    git -C "$SITE" show "origin/main:dist/$PROD_NAME" > "$NAMED_DIR/prod.json" 2>/dev/null
+    _prodv="$(read_pointer_field "$NAMED_DIR/prod.json" version)"; _prodsrc="the site's origin/main"
+  else
+    _prodv="$(read_pointer_field "$SITE/dist/$PROD_NAME" version)"; _prodsrc="this checkout (no origin to read)"
+  fi
+  echo "promote-channel: --version $V; $PROD_NAME on $_prodsrc names ${_prodv:-nothing}"
   # 0 V is not older, 1 V is older, anything else (2: a version that is not numbers; node failing) cannot tell.
   _cmp=0
   [ -z "$_prodv" ] || node -e 'const a=process.argv[1].split(".").map(Number),b=process.argv[2].split(".").map(Number);if(a.concat(b).some(Number.isNaN))process.exit(2);for(let i=0;i<Math.max(a.length,b.length);i++){const d=(a[i]||0)-(b[i]||0);if(d)process.exit(d>0?0:1)}process.exit(0)' "$V" "$_prodv" 2>/dev/null || _cmp=$?
   case "$_cmp" in
     0) : ;;
-    1) [ "$ALLOW_OLDER" = 1 ] || { echo "promote-channel: $V is older than $_prodv, which prod serves now - refusing; nothing was written. A rollback needs --allow-older as well." >&2; exit 1; }
+    1) [ "$ALLOW_OLDER" = 1 ] || { echo "promote-channel: $V is older than $_prodv ($PROD_NAME on $_prodsrc) - refusing; nothing was written. A rollback needs --allow-older as well." >&2; exit 1; }
        echo "promote-channel: --allow-older: rolling prod back from $_prodv to $V" >&2 ;;
-    *) [ "$ALLOW_OLDER" = 1 ] || { echo "promote-channel: $V cannot be compared with '$_prodv', which prod serves now, so it may be a rollback - refusing; nothing was written. Pass --allow-older to replace it anyway." >&2; exit 1; }
+    *) [ "$ALLOW_OLDER" = 1 ] || { echo "promote-channel: $V cannot be compared with '$_prodv' ($PROD_NAME on $_prodsrc), so it may be a rollback - refusing; nothing was written. Pass --allow-older to replace it anyway." >&2; exit 1; }
        echo "promote-channel: --allow-older: replacing '$_prodv' with $V without knowing which is newer" >&2 ;;
   esac
 fi
