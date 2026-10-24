@@ -3,6 +3,9 @@ import Foundation
 // kosmos#7017 (slice 8 of #6838): answering from the notification. UIKit-free, so ios/LogicTests/run-actions.sh runs
 // it on a Mac.
 //
+// Allow and Deny (part 2): on a permission prompt's notice, the prompt's own Yes or No goes to that agent's chat as the
+// chat's own press (Board.pressRequest), only after a fresh read shows the very request the notice named is still up.
+//
 // Reply: a text typed on the notification goes to that agent's chat through the request the native chat uses
 // (Board.sendRequest, Board.sendResult), to the computer the notification came from, with the sign-in the app keeps
 // for it, and only when that sign-in belongs to the Kosmos+ account signed in now. Nothing is ever sent twice: a reply
@@ -138,7 +141,7 @@ enum NotificationAction {
         guard action == allowAction || action == denyAction,
               let p = userInfo[NotificationCategories.permissionInfoKey] as? [String: Any],
               let asked = p["asked"] as? String, !asked.isEmpty,
-              let request = p["request"] as? String, request.count == 64
+              let request = p["request"] as? String, request.count == 64, request.allSatisfy({ $0.isHexDigit })
         else { return nil }
         let allow = action == allowAction
         guard let n = p[allow ? "allowN" : "denyN"] as? Int, (1...9).contains(n),
@@ -181,19 +184,23 @@ enum NotificationAction {
         return signed(Board.pressRequest(mac: t.mac, session: t.agent, option: option, asked: press.asked), cookie: t.cookie, idle: 13)
     }
 
-    // What the person is told after an Allow or Deny (Board.pressResult), or nil when it plainly went.
-    static func pressNotice(after result: Board.PressResult, agent: String, allow: Bool) -> String? {
+    // What the person is told after an Allow or Deny (Board.pressResult). Never nothing: iOS takes the notice away on
+    // the press, so silence would read the same as a press that was lost. A sure press says so quietly ("Allowed for
+    // Ada."). `status` 409 is the board refusing because the question changed under the press: said in the notification's
+    // own words, not the chat page's ("What is on this page now ...").
+    static func pressNotice(after result: Board.PressResult, status: Int, agent: String, allow: Bool) -> String {
         let who = agent.isEmpty ? "your agent" : agent
         let verb = allow ? "allowed" : "denied"
         switch result {
         case .sent:
-            return nil
+            return "\(allow ? "Allowed" : "Denied") for \(who)."
         case .notSure:
             return "Kosmos could not confirm that was \(verb) for \(who). Open the chat to check before pressing again."
         case .refused(let why):
+            if status == 409 { return changedNotice(agent: agent, allow: allow) }
             let w = why.trimmingCharacters(in: .whitespaces)
             return w.isEmpty ? "Nothing was \(verb) for \(who). Open the chat to answer."
-                : "Nothing was \(verb) for \(who): \(w)\(w.hasSuffix(".") ? "" : ".")"
+                : "Nothing was \(verb) for \(who). \(w)\(w.hasSuffix(".") ? "" : ".")"
         }
     }
 

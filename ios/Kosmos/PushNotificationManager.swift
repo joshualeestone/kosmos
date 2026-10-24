@@ -218,7 +218,7 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
     private func sendPress(action: String, userInfo: [AnyHashable: Any], agent: String) async {
         let stored = SessionKeychain.macSession.load(), session = SessionKeychain.live.load()
         guard let press = NotificationAction.permissionPress(userInfo, action: action) else {
-            tell(NotificationAction.cannotPress(agent: agent), about: userInfo)
+            tell(NotificationAction.cannotPress(agent: agent), about: userInfo, kind: "press-")
             return
         }
         guard let request = NotificationAction.pressRequest(
@@ -226,24 +226,25 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         ), let check = NotificationAction.checkRequest(
             userInfo: userInfo, stored: stored, session: session, coordinator: KosmosConfig.coordinatorOrigin
         ) else {
-            tell(NotificationAction.cannotPress(agent: agent), about: userInfo)
+            tell(NotificationAction.cannotPress(agent: agent), about: userInfo, kind: "press-")
             return
         }
         let read = try? await Self.readHTTP.data(for: check)
         switch NotificationAction.permissionVerdict(status: (read?.1 as? HTTPURLResponse)?.statusCode ?? 0, data: read?.0, press: press, agent: agent) {
         case .changed:
-            tell(NotificationAction.changedNotice(agent: agent, allow: press.allow), about: userInfo)
+            tell(NotificationAction.changedNotice(agent: agent, allow: press.allow), about: userInfo, kind: "press-")
             return
         case .unreadable(let said):
-            tell(said, about: userInfo)
+            tell(said, about: userInfo, kind: "press-")
             return
         case .go:
             break
         }
         let answer = try? await Self.sendHTTP.data(for: request)
-        let result = Board.pressResult(status: (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0, body: answer?.0)
+        let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
+        let result = Board.pressResult(status: status, body: answer?.0)
         NSLog("[Push] \(press.allow ? "allow" : "deny") from a notification: \(result)")
-        if let said = NotificationAction.pressNotice(after: result, agent: agent, allow: press.allow) { tell(said, about: userInfo) }
+        tell(NotificationAction.pressNotice(after: result, status: status, agent: agent, allow: press.allow), about: userInfo, kind: "press-")
     }
 
     // Two sessions for replies, refusing redirects as the app's own client does (so the computer's cookie never goes to
@@ -287,14 +288,14 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         if let said = NotificationAction.notice(after: result, agent: agent, body: answer?.0) { tell(said, about: userInfo) }
     }
 
-    // A local notification saying what happened to a reply that did not plainly go. It carries the original notice's
+    // A local notification saying what happened to a reply that did not plainly go, or to an Allow or Deny (always). It carries the original notice's
     // address and agent, so a tap opens that chat, as the notice it answers did (PushBridge.boardURL).
-    private func tell(_ text: String, about userInfo: [AnyHashable: Any]) {
+    private func tell(_ text: String, about userInfo: [AnyHashable: Any], kind: String = "reply-") {
         let content = UNMutableNotificationContent()
         content.title = "Kosmos"
         content.body = text
         content.userInfo = NotificationAction.followUpInfo(userInfo)
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "reply-" + UUID().uuidString, content: content, trigger: nil))
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: kind + UUID().uuidString, content: content, trigger: nil))
     }
 }
 

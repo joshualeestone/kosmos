@@ -4079,8 +4079,8 @@ function dmPressable({ guideThread, card, options, question, view }) {
    buttons for whatever prompt happens to be up. Each choice is the prompt's own option ({ n, label }; the label as the
    thread stores it, which the POST compares the same way). `request` is the request's fingerprint
    (chat.permissionRequestId), the same one the thread route serves on the card, so the phone can refuse a press for a
-   request no longer up. `shown` is what the lock screen says the request is (phonePermissionShown): a person is never
-   asked to allow a command they cannot read. Never a lasting choice: Allow is the plain "Yes", and the "always allow"
+   request no longer up. `shown` is the whole request as the lock screen says it (phonePermissionShown): a person is
+   never asked to allow a command they cannot read in full. Never a lasting choice: Allow is the plain "Yes", and the "always allow"
    kinds are not offered from a lock screen at all. Null whenever any of that does not hold, or when the question's
    identity is longer than the phone carries (2000). Never throws. */
 const PHONE_ASKED_MAX = 2000;
@@ -4118,18 +4118,33 @@ const PHONE_PERM_DOES = {
   fetch: 'fetch something from the web',
   other: 'do something that needs your permission',
 };
-/* kosmos#7017 part 2: what the lock screen says a permission request is, in the board card's words: "Wants to <what>:
-   <target>." with the target a file's name or, for anything else, the request's first line (a command); then the agent's
-   own words about it ("It says: ..."); then Claude Code's reason (a dangerous rm says so here). Shortened as the notice's
-   words are. Empty when there is nothing to name, and then no buttons are offered. */
+/* kosmos#7017 part 2: what the lock screen says a permission request is. The phone has no Show details, so it shows
+   the WHOLE request or offers no buttons: a request cut short can look harmless while Allow approves all of it. Only
+   the measured shapes (chat.permissionCard review 2: a request's arguments never reach the headline): a command whose
+   request is exactly one line, or a file by its name. A file's text, a multi-line command (a continued line, a
+   heredoc), a fetch's address and any other tool's arguments are never shown, and get no buttons; the chat has them.
+   Claude Code's reason comes FIRST, so a warning such as a dangerous rm is the first thing read. Then "Wants to
+   <what>:" with the command or file name on its own line (no full stop added to a command), then the agent's own words
+   about it. Empty, so no buttons, when nothing measured can be named or the whole does not fit the notice's words
+   (phonenotice.TEXT_MAX) uncut. */
 function phonePermissionShown(perm) {
-  const first = String(perm.detail || '').split('\n').map((l) => l.trim()).find(Boolean) || '';
-  const target = perm.target || first;
+  const isCommand = perm.kind === 'command' || perm.kind === 'delete';
+  const isFile = perm.kind === 'create' || perm.kind === 'edit';
+  let target = '';
+  if (isCommand) {
+    const lines = String(perm.detail || '').split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length !== 1) return '';
+    target = lines[0];
+  } else if (isFile) {
+    target = String(perm.target || '').trim();
+  }
   if (!target) return '';
-  const lines = ['Wants to ' + (PHONE_PERM_DOES[perm.kind] || PHONE_PERM_DOES.other) + ': ' + target + '.'];
-  if (perm.says) lines.push('It says: ' + perm.says);
-  if (perm.reason) lines.push(perm.reason);
-  return require('./engine/phonenotice').shorten(lines.join('\n'));
+  const out = [];
+  if (perm.reason) out.push(String(perm.reason).trim());
+  out.push('Wants to ' + (PHONE_PERM_DOES[perm.kind] || PHONE_PERM_DOES.other) + ':', target);
+  if (perm.says) out.push('It says: ' + String(perm.says).trim());
+  const text = out.filter(Boolean).join('\n');
+  return text.length <= require('./engine/phonenotice').TEXT_MAX ? text : '';
 }
 
 /** kosmos#5841: one page of earlier messages; the same size as the thread route's tail. */

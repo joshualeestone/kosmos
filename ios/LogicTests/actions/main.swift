@@ -147,11 +147,13 @@ check(prBody?["text"] as? String == "1" && prBody?["chose"] as? String == "Yes" 
 check(prBody?["lasting"] == nil, "never a lasting choice")
 check(pr?.value(forHTTPHeaderField: "Cookie") == "__Host-kosmos_tunnel_session=c00kie" && pr?.httpShouldHandleCookies == false && pr?.timeoutInterval == 13, "the kept cookie by hand, the send's idle limit")
 check(NotificationAction.pressRequest(userInfo: pinfoNotice, press: pAllow!, stored: kept(owner: Board.owner(of: "someone-else")), session: session, coordinator: coordinator) == nil, "another account's computer: nothing sent")
-check(NotificationAction.pressNotice(after: .sent, agent: "Ada", allow: true) == nil, "sent: quiet, as the chat's Allowed.")
-check(NotificationAction.pressNotice(after: .notSure("x"), agent: "Ada", allow: true)?.contains("check before pressing again") == true, "not sure: look before pressing again")
-check(NotificationAction.pressNotice(after: .refused("Its screen moved"), agent: "Ada", allow: false) == "Nothing was denied for Ada: Its screen moved.", "refused: the computer's reason")
+check(NotificationAction.pressNotice(after: .sent, status: 200, agent: "Ada", allow: true) == "Allowed for Ada.", "sent: says so (iOS took the notice away, so silence would look like a lost press; review 2)")
+check(NotificationAction.pressNotice(after: .sent, status: 200, agent: "Ada", allow: false) == "Denied for Ada.", "sent Deny: says so")
+check(NotificationAction.pressNotice(after: .notSure("x"), status: 0, agent: "Ada", allow: true).contains("check before pressing again"), "not sure: look before pressing again")
+check(NotificationAction.pressNotice(after: .refused("Ada is not running"), status: 200, agent: "Ada", allow: false) == "Nothing was denied for Ada. Ada is not running.", "refused: the computer's reason")
+check(NotificationAction.pressNotice(after: .refused("What is on this page now is current"), status: 409, agent: "Ada", allow: true) == NotificationAction.changedNotice(agent: "Ada", allow: true), "a 409 (the question changed) in the notification's words, not the page's (review 2)")
 check(manager.contains("case NotificationAction.allowAction, NotificationAction.denyAction:") && manager.contains("NotificationAction.permissionVerdict(") && manager.contains("NotificationAction.pressRequest("), "the app handles Allow and Deny, checking the request before it sends (no dead buttons, #3870)")
-if let a = manager.range(of: "NotificationAction.permissionVerdict("), let b = manager.range(of: "Self.sendHTTP.data(for: request)\n        let result = Board.pressResult") {
+if let a = manager.range(of: "NotificationAction.permissionVerdict("), let b = manager.range(of: "Self.sendHTTP.data(for: request)\n        let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0\n        let result = Board.pressResult") {
     check(a.lowerBound < b.lowerBound, "the check comes before the send")
 } else { check(false, "the check and the send are both in the handler") }
 
