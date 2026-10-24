@@ -166,7 +166,7 @@ final class NotificationService: UNNotificationServiceExtension {
                               displayName: words.agent, image: image, contactIdentifier: nil, customIdentifier: words.session)
         // The body as set above (a permission's request, or the words): message style must never show other words.
         let intent = INSendMessageIntent(recipients: nil, outgoingMessageType: .outgoingMessageText, content: content.body,
-                                         speakableGroupName: nil, conversationIdentifier: words.session, serviceName: nil,
+                                         speakableGroupName: nil, conversationIdentifier: PhoneNotice.conversation(words), serviceName: nil,
                                          sender: sender, attachments: nil)
         if let image { intent.setImage(image, forParameterNamed: \.sender) }
         let interaction = INInteraction(intent: intent, response: nil)

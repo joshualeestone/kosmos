@@ -66,7 +66,13 @@ struct RoomView: View {
                 }
             } label: { EmptyView() }.hidden()
         )
-        .onAppear { visible = true; start(); takeReturned() }
+        .onAppear {
+            visible = true
+            // The box as the person left it (RoomStore.drafts), then anything handed back while they were away, and a
+            // kept not-confirmed post's words cleared (onChange never sees the value present at appearance).
+            if draft.isEmpty, let d = store.drafts[project.id] { draft = d.text; replying = d.replyTo; replyMention = d.mention }
+            start(); takeReturned(); applyKept()
+        }
         .onDisappear { visible = false; loop?.cancel(); loop = nil }
         .onChange(of: scenePhase) { phase in
             if phase == .background { loop?.cancel(); loop = nil } else if phase == .active && visible && loop == nil { start() }
@@ -75,11 +81,9 @@ struct RoomView: View {
         // wait for the room's next opening, never for the box to empty (that is the moment Post is pressed).
         .onChange(of: store.returned[project.id]) { _ in takeReturned() }
         // A not-confirmed post the room now shows kept: a box still holding exactly its words is cleared.
-        .onChange(of: store.kept[project.id]) { words in
-            guard let words else { return }
-            if draft.trimmingCharacters(in: .whitespacesAndNewlines) == words { draft = ""; replying = nil }
-            store.clearKept(project.id)
-        }
+        .onChange(of: store.kept[project.id]) { _ in applyKept() }
+        .onChange(of: draft) { _ in keepDraft() }
+        .onChange(of: replying?.id) { _ in keepDraft() }
     }
 
     // Re-read every 5 seconds while on screen, as the board's room does; seen on open and while new rows arrive.
@@ -116,6 +120,17 @@ struct RoomView: View {
                 DispatchQueue.main.async { if olderShowing { loadOlder(proxy) } }
             }
         }
+    }
+
+    private func applyKept() {
+        guard let words = store.kept[project.id] else { return }
+        if draft.trimmingCharacters(in: .whitespacesAndNewlines) == words { draft = ""; replying = nil; replyMention = nil }
+        store.clearKept(project.id)
+    }
+
+    private func keepDraft() {
+        if draft.isEmpty && replying == nil { store.drafts[project.id] = nil }
+        else { store.drafts[project.id] = RoomStore.Draft(text: draft, replyTo: replying, mention: replyMention) }
     }
 
     // Words handed back by a post that did not go, taken only into an empty box (never over what the person has
@@ -156,6 +171,10 @@ struct RoomView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
+                    // The top of the room: it leaving the screen after the first layout proves the jump to the newest
+                    // row happened, even if the end marker was not reached (estimated row heights; ChatView's rule).
+                    Color.clear.frame(height: 1)
+                        .onDisappear { if !rows.isEmpty { settledAtBottom = true } }
                     if store.older[project.id]?.cursor != nil {
                         if store.olderFailed.contains(project.id) {
                             Button("We could not load earlier messages. Try again") { loadOlder(proxy) }

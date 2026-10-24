@@ -34,6 +34,10 @@ final class RoomStore: ObservableObject {
     // The words of a not-confirmed post the room now shows as kept: a box still holding exactly them is cleared, so
     // the same post is not sent twice (the board's pend.onKept).
     @Published private(set) var kept: [String: String] = [:]
+    // The room's unsent box, by project (the board's PJ_ROOM_DRAFTS): what was typed, the reply and its @name, kept when
+    // the person leaves the room or another room replaces it. Not published: the room writes it as the box changes.
+    struct Draft { var text = ""; var replyTo: Board.RoomRow?; var mention: String? }
+    var drafts: [String: Draft] = [:]
     static let pageSize = 50
 
     private let client: BoardClient
@@ -44,7 +48,7 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
-        returned = [:]; kept = [:]
+        returned = [:]; kept = [:]; drafts = [:]
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
     private var listReads = 0
@@ -68,7 +72,8 @@ final class RoomStore: ObservableObject {
         let answer = await client.throughMac { Board.projectsRequest(mac: $0) }
         // An older read landing after a newer one never replaces it (the 5-second poll and a notification's re-read
         // overlap).
-        guard same(epoch), read > listApplied else { return }
+        // A read cancelled (the tab left mid-read) is no answer, never "cannot read".
+        guard same(epoch), read > listApplied, !Task.isCancelled else { return }
         listApplied = read
         if let answer, answer.1.statusCode == 200, let parsed = Board.parseProjects(answer.0) {
             list = parsed; listState = .shown
@@ -78,24 +83,28 @@ final class RoomStore: ObservableObject {
     }
 
     // The newest page, merged into what is shown (a post written late can land inside it; ios/README.md).
-    func loadRoom(_ project: String) async {
+    // True when the read landed. A read cancelled (the room left, a member's chat pushed over it) is no answer, never
+    // "we cannot read this room".
+    @discardableResult
+    func loadRoom(_ project: String) async -> Bool {
         #if DEBUG
         if Self.sample {
             rows[project] = Board.parseRoom(Data(Self.sampleRoom.utf8), names: names)?.rows ?? []
-            older[project] = (0, nil); return
+            older[project] = (0, nil); return true
         }
         #endif
         let epoch = client.chatEpoch
         let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize) }
-        guard same(epoch) else { return }
+        guard same(epoch), !Task.isCancelled else { return false }
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
-            roomFailed.insert(project); return
+            roomFailed.insert(project); return false
         }
         roomFailed.remove(project)
         let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)
         rows[project] = fresh.rows
         older[project] = fresh.older
         settle(project)
+        return true
     }
 
     // The page before the oldest one shown, by the computer's own cursor.
@@ -143,8 +152,9 @@ final class RoomStore: ObservableObject {
         }
         switch result {
         case let .posted(note):
-            await loadRoom(project)
-            pending[project]?.removeAll { $0.id == item.id }
+            // The bubble goes when a read shows the post (settle, inside loadRoom); a re-read that failed leaves it,
+            // so a kept post never disappears while the room cannot be read. The next good read settles it.
+            _ = await loadRoom(project)
             notes[project] = note
         case .refused, .unsure:
             if pending[project]?.contains(where: { $0.id == item.id }) != true {

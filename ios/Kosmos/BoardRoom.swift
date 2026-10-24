@@ -205,15 +205,15 @@ extension Board {
             byId[r.id] = r
         }
         let merged = order.compactMap { byId[$0] }
-        // Stable by time: rows with no time keep their place relative to each other. Parsed times are compared when
-        // both have one (a time kept without milliseconds, "…:00Z", sorts after "…:00.500Z" as text); text otherwise.
-        return merged.enumerated().sorted { a, b in
-            if let x = a.element.at, let y = b.element.at, x != y { return x < y }
-            switch (a.element.atRaw, b.element.atRaw) {
-            case let (x?, y?) where x != y && (a.element.at == nil || b.element.at == nil): return x < y
-            default: return a.offset < b.offset
-            }
-        }.map { $0.element }
+        // Stable by time, on one key per row so the order is always consistent: the parsed time (a time kept without
+        // milliseconds, "…:00Z", sorts by when it was, not as text; else its raw time parsed), and a row with none takes the time of the row
+        // before it, so it keeps its place; ties keep their order.
+        var carried = Date.distantPast
+        let keyed = merged.enumerated().map { (i, r) -> (Date, Int, RoomRow) in
+            if let t = r.at ?? r.atRaw.flatMap({ isoDate($0) }) { carried = t }
+            return (carried, i, r)
+        }
+        return keyed.sorted { $0.0 != $1.0 ? $0.0 < $1.0 : $0.1 < $1.1 }.map { $0.2 }
     }
 
     // A re-read of the newest page onto rows already shown. When it overlaps them it is merged and the older cursor kept

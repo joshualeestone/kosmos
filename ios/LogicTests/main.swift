@@ -2590,9 +2590,11 @@ if let pw = PhoneNotice.words(status: 200, contentType: json, data: postAnswer, 
     check(PushBridge.roomToOpen(fromNotification: filled, coordinator: coordinator) == PushBridge.RoomTarget(host: "m-abc123.kosmosplus.com", project: "springcatalogue"), "once the extension writes it, a tap opens that room")
     var replied = postPush; replied["kind"] = "replied"
     check(PhoneNotice.withRoom(pw, userInfo: replied)[PhoneNotice.roomInfoKey] == nil, "CONTROL: only a posted notice is given a room")
+    check(PhoneNotice.conversation(pw) == "room|springcatalogue", "a room post joins its room's thread in Notification Center, not the agent's")
 } else { check(false, "a room post's answer is read") }
 if let rw = PhoneNotice.words(status: 200, contentType: json, data: Data(#"{"kind":"post","session":"dana","agent":"Dana","text":"Copy is done.","picture":null}"#.utf8), userInfo: postPush) {
     check(PhoneNotice.withRoom(rw, userInfo: postPush)[PhoneNotice.roomInfoKey] == nil, "an older computer that names no room: the notice opens the agent, as before")
+    check(PhoneNotice.conversation(rw) == "dana", "CONTROL: with no room named, the agent's thread")
 } else { check(false, "an answer with no project is still read") }
 check(PhoneNotice.words(status: 200, contentType: json, data: Data(#"{"kind":"post","session":"dana","agent":"Dana","text":"Hi","picture":null,"project":7}"#.utf8), userInfo: postPush)?.text == "Hi", "a project this build cannot read costs only the room, never the words")
 

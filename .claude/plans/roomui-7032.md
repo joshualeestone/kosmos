@@ -26,7 +26,6 @@ shows the post's words; the shell sends the board's project pages under Today.
 
 ## Known gaps (stated)
 - The pinned needs-you line has no Open when several agents wait (the spec sends it to Today).
-- A refused press on a project page lands on native Projects (afterAnswer reads the address raw).
 - Not drawn yet, though parsed: files attached to a room post (RoomRow.attachments) and the held strip with Reopen the
   room (RoomPage.held). Both are on the board's room page, one tap away (the info button).
 - An addable refusal's Add button is not drawn (members stay on the board's page); the line itself is.

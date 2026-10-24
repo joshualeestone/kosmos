@@ -202,6 +202,13 @@ enum PhoneNotice {
         return out
     }
 
+    // The conversation a notice joins: an agent's direct thread by its session, a room post by its room (kosmos#7032),
+    // so a room's posts never group into that agent's direct replies.
+    static func conversation(_ w: Words) -> String {
+        if w.kind == "post", let p = w.project, !p.isEmpty { return "room|" + p }
+        return w.session
+    }
+
     static func cleanedInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
         var out = userInfo
         out[permissionInfoKey] = nil
