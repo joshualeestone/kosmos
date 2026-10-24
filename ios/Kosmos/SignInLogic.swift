@@ -189,10 +189,17 @@ enum SignIn {
     /// the fresh native session (review round 4). The app's keychain is the source: every session the page makes it
     /// hands to the app, so a page holding anything else holds one the app no longer has and is overwritten. Nothing
     /// reloads. The token goes in as a JSON string literal, never spliced as text.
-    static func sessionScript(token: String, origin: String) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: [token, pageSessionKey, origin], options: []),
+    /// `token` nil (the app holds no session): a value the app dropped (`forget`: sessions backed out of, or ended) is
+    /// removed from the page instead, so the page cannot hand it back to the app (review round 7). Anything else the
+    /// page holds is left as it is. Nil when there is nothing to do.
+    static func sessionScript(token: String?, forget: [String] = [], origin: String) -> String? {
+        if token == nil && forget.isEmpty { return nil }
+        let held: Any = token ?? NSNull()
+        guard let data = try? JSONSerialization.data(withJSONObject: [held, pageSessionKey, origin, forget], options: []),
               let array = String(data: data, encoding: .utf8) else { return nil }
-        return "(function () { var a = \(array); if (location.origin !== a[2]) return; try { if (localStorage.getItem(a[1]) !== a[0]) localStorage.setItem(a[1], a[0]); } catch (e) {} })();"
+        return "(function () { var a = \(array); if (location.origin !== a[2]) return; try { var v = localStorage.getItem(a[1]); "
+            + "if (a[0] !== null) { if (v !== a[0]) localStorage.setItem(a[1], a[0]); } "
+            + "else if (v !== null && a[3].indexOf(v) >= 0) localStorage.removeItem(a[1]); } catch (e) {} })();"
     }
 
     // MARK: - The screens' steps

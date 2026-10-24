@@ -166,7 +166,9 @@ final class PushNotificationManager: NSObject, ObservableObject {
         if changed {
             SessionKeychain.macSession.delete()
             UserDefaults.standard.removeObject(forKey: Board.rememberedMacKey)
-            lastChangeSignedOut = message == .signedOut
+            // A sign-out of a session the app held: one that arrives with nothing held (the page clearing a session
+            // the app had already dropped) brings nothing back (review round 7).
+            lastChangeSignedOut = message == .signedOut && before != nil
             accountChanges += 1
         }
     }
