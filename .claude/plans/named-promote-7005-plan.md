@@ -108,3 +108,12 @@ in more than its installer (with the --commit to use it).
   KOSMOS_POINTER_FREEZE_OFFLINE=1).
 - Not changed (NITs): `printf '%s\n' $_builds` word-splits on purpose (fields are hex and bare filenames);
   the "beside the OLDER /setup" sentence names prod's installer and stays.
+
+## Iteration 8 (challenge) changes
+- The rollback guard's baseline is origin/main's latest.json when the site has an origin (a checkout behind
+  origin, or holding an undeployed promote, gave a wrong baseline); otherwise the checkout's, and it says which.
+- A later commit naming the same build whose pointer differs in more than its installer now REFUSES until
+  --commit names the right one (it was a NOTE). Compared only among the commits --sha/--commit leave: found
+  while testing this, comparing against a commit --sha had excluded (another build) refused wrongly.
+- Not changed (NIT): diff-tree reports nothing for a merge commit, which takes the cautious hand-fix branch
+  (0 merges measured in the site's pointer history).

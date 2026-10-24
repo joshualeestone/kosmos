@@ -137,8 +137,10 @@ has "$out" "a later commit naming it, points at the same build" && pass "named: 
 # A later commit naming V whose pointer differs in another field: the NOTE says so and how to use it.
 S="$(newsite)"; node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.version="9.9.8";p.sha256=require("fs").readFileSync(process.argv[2],"utf8").split(" ")[0];p.artifact="kosmos-9.9.8-arm64.tar.gz";p.manifest="kosmos-9.9.8-arm64.manifest.json";delete p.setup_sha256;p.extra="corrected";require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$S/dist/latest-staging.json" "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256"
 git -C "$S" commit -qm "9.9.8 republished with another field" -- dist/latest-staging.json
-out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
-[ "$rc" = 0 ] && has "$out" "differs in more than its installer: if that one is right, run again with --commit" && pass "named: a later commit naming V with another field is named, with the way to use it" || bad "named differing NOTE (rc=$rc, out=$out)"
+refused "a later commit naming V whose pointer differs, without --commit" "$S" "have pointers that differ in more than the installer they name" --version 9.9.8
+cl="$(git -C "$S" log --format=%H -1)"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --commit "${cl:0:10}" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" extra)" = corrected ] && pass "named: --commit promotes the later pointer when it is the right one" || bad "named --commit later pointer (rc=$rc, out=$out)"
 # The same republish keeping 9.9.8's installer name, but committed beside 9.9.9's setup-staging: the cut's commit still wins.
 S="$(newsite)"; republish "$S" 9.9.8 "$(printf 'INSTALLER-9.9.8 KOSMOS_READONLY_APP\n' | shasum -a 256 | awk '{print $1}')"
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
@@ -233,6 +235,15 @@ out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.10 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.10 ] && pass "named: CONTROL 9.9.10 is newer than 9.9.9 (compared by number)" || bad "named 9.9.10 vs 9.9.9 (rc=$rc, out=$out)"
 out="$(bash "$HERE/promote-channel.sh" "$(newsite)" --allow-older 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "goes with --version" && pass "default: --allow-older alone is refused" || bad "--allow-older alone (rc=$rc, out=$out)"
+
+# The baseline is origin's latest.json: a checkout behind origin (here it still names 1.0.0) does not hide a rollback.
+O2="$T/origin2.git"; git init -q --bare "$O2"
+S="$(newsite)"; git -C "$S" remote add origin "$O2"
+echo '{"version":"9.9.9"}' > "$S/dist/latest.json"; git -C "$S" commit -qm "prod 9.9.9" -- dist/latest.json; git -C "$S" push -q origin HEAD:main
+git -C "$S" reset -q --hard HEAD~1   # the checkout is now one commit behind origin, whose latest.json names 9.9.9
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "older than 9.9.9 (latest.json on the site's origin/main)" && [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ] \
+  && pass "named: a checkout behind origin does not hide a rollback (the baseline is origin's latest.json)" || bad "named behind-origin baseline (rc=$rc, out=$out)"
 
 # A prod pointer whose version is not numbers cannot be compared: that counts as older, never as newer.
 S="$(newsite)"; echo '{"version":"abc"}' > "$S/dist/latest.json"; git -C "$S" commit -qm odd -- dist/latest.json
