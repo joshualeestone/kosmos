@@ -78,7 +78,8 @@ final class SignInClient {
         guard (200..<300).contains(status) else {
             throw SignInRefusal(message: SignIn.cleanMessage((json as? [String: Any])?["error"]) ?? "Kosmos+ could not send a code just now. Try again in a minute.")
         }
-        return Started(codeComing: !SignIn.companySignInRequired(json: json), company: SignIn.companySignInURL(json: json, coordinator: coordinator))
+        let company = canUseCompanySheet ? SignIn.companySignInURL(json: json, coordinator: coordinator) : nil
+        return Started(codeComing: !SignIn.companySignInRequired(json: json), company: company)
     }
 
     // MARK: - A company's own sign-in, in Apple's sheet (kosmos#7045)
@@ -86,18 +87,27 @@ final class SignInClient {
     private var companySession: ASWebAuthenticationSession?
     private let anchor = SheetAnchor()
 
-    /// Opens Kosmos+'s company sign-in in Apple's sheet and gives back where it returned (the app's own address), or nil
-    /// when the person closed the sheet or it could not open. Shares Safari's sign-ins, so a company account already
-    /// signed in there is not asked again.
+    /// Whether Apple's sheet can finish on Kosmos+'s https return (iOS 17.4 and later). Earlier, the company sign-in
+    /// is the web page's.
+    var canUseCompanySheet: Bool {
+        if #available(iOS 17.4, *) { return true }
+        return false
+    }
+
+    /// Opens Kosmos+'s company sign-in in Apple's sheet and gives back where it returned (Kosmos+'s /signin, which the
+    /// sheet hands only to this app: the app is associated with the host), or nil when the person closed the sheet, it
+    /// could not open, or this iOS cannot finish on an https return. Shares Safari's sign-ins, so a company account
+    /// already signed in there is not asked again.
     func openCompanySignIn(_ url: URL) async -> URL? {
-        await withCheckedContinuation { (done: CheckedContinuation<URL?, Never>) in
+        guard #available(iOS 17.4, *), let host = coordinator.host else { return nil }
+        return await withCheckedContinuation { (done: CheckedContinuation<URL?, Never>) in
             var resumed = false
             let finish: (URL?) -> Void = { url in
                 guard !resumed else { return }
                 resumed = true
                 done.resume(returning: url)
             }
-            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: SignIn.appReturnScheme) { [weak self] back, _ in
+            let session = ASWebAuthenticationSession(url: url, callback: .https(host: host, path: SignIn.returnPath)) { [weak self] back, _ in
                 DispatchQueue.main.async { self?.companySession = nil; finish(back) }
             }
             session.presentationContextProvider = anchor
