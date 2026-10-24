@@ -624,7 +624,7 @@ const visible = (page, sel) => page.evaluate((s) => {
     /* kosmos#6596 step 8: a sign-in refused because Kosmos+ offered a different key shows that key and two choices,
        and nothing else of the wizard. Accept holds it for the next sign-in (POST /api/remote/accept-key with that key,
        once) and starts over; Do not accept starts over and sends nothing. The key fits the card at phone width. */
-    for (const choice of ['accept', 'decline']) {
+    for (const choice of ['accept', 'decline', 'refused']) {
       const k = 'key-changed ' + choice;
       const KEY = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE';
       const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: 'light' });
@@ -634,8 +634,11 @@ const visible = (page, sel) => page.evaluate((s) => {
       page.on('pageerror', (e) => errs.push(e.message));
       const accepts = [];
       await openPlusState1(page);
+      let releaseAccept = null;
       await page.route('**/api/remote/accept-key', (route, req) => {
         accepts.push(req.postDataJSON());
+        // 'refused': held until the check has looked at the panel in flight, then refused.
+        if (choice === 'refused') { releaseAccept = () => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'that is not a key Kosmos+ offered' }) }); return; }
         route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
       });
       await page.route('**/api/remote/signin-**', (route, req) => {
@@ -660,7 +663,13 @@ const visible = (page, sel) => page.evaluate((s) => {
         others: PLUS_SI_STEPS.filter((s) => s !== 'plus-si-keychanged' && !document.getElementById(s).hidden),
         foot: (() => { const a = document.getElementById('plus-si-cancel'); return !!a && a.getClientRects().length > 0; })(),
         msg: document.getElementById('plus-signin-msg').textContent.trim(),
+        title: document.getElementById('plus-si-title').textContent,
+        primary: [...document.querySelectorAll('#plus-si-keychanged .btn.uprime')].map((b) => b.id),
+        decline: /If you do not accept, nothing changes/.test(document.getElementById('plus-si-keychanged').textContent),
       }));
+      // Mona Lisa's review: the blue primary is the safe answer AND the focused one (Enter presses what the screen points at).
+      chk(shown.title === 'Kosmos+ offered a different security key' && shown.primary.length === 1 && shown.primary[0] === 'plus-si-keychanged-no' && shown.decline,
+        `[${k}] kosmos#6596 the title names the key change, Do not accept is the one primary (and the focus), and declining is explained`, JSON.stringify(shown));
       chk(shown.key === KEY && shown.focus === 'plus-si-keychanged-no' && shown.others.length === 0 && !shown.foot && shown.msg === '',
         `[${k}] kosmos#6596 the refusal shows the offered key, focuses Do not accept, and shows no other step, no foot link, no raw error`, JSON.stringify(shown));
       if (choice === 'accept') {
@@ -674,14 +683,34 @@ const visible = (page, sel) => page.evaluate((s) => {
               const key = document.getElementById('plus-si-keychanged-key').getBoundingClientRect();
               const btns = ['plus-si-keychanged-accept', 'plus-si-keychanged-no'].map((id) => document.getElementById(id).getBoundingClientRect());
               return { inside: key.left >= c.left - 1 && key.right <= c.right + 1 && btns.every((b) => b.left >= c.left - 1 && b.right <= c.right + 1),
-                page: document.documentElement.scrollWidth <= window.innerWidth + 1 };
+                page: document.documentElement.scrollWidth <= window.innerWidth + 1,
+                same: Math.abs(btns[0].width - btns[1].width) <= 1 && Math.abs(btns[0].height - btns[1].height) <= 1,
+                tall: btns.every((b) => b.height >= 44), widths: btns.map((b) => Math.round(b.width)) };
             });
+            // Mona Lisa's review: on a phone both buttons are full width, the same size, and at least 44px tall.
+            if (w === 390) chk(fit.same && fit.tall, `[${k}] kosmos#6596 the phone buttons are the same size and at least 44px (${theme})`, JSON.stringify(fit));
             chk(fit.inside && fit.page, `[${k}] kosmos#6596 the key and both buttons stay inside the card, no sideways scroll (${theme}, ${w}px)`, JSON.stringify(fit));
             await page.screenshot({ path: path.join(OUT, `plus-keychanged-${theme}-${w}.png`), fullPage: false });
           }
         }
         await page.setViewportSize({ width: 1400, height: 950 });
         await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
+      }
+      if (choice === 'refused') {
+        await page.click('#plus-si-keychanged-accept');
+        await page.waitForFunction(() => !!document.getElementById('plus-si-keychanged-no').disabled, null, { timeout: 5000 }).catch(() => {});
+        const inFlight = await page.evaluate(() => ({ accept: document.getElementById('plus-si-keychanged-accept').disabled, no: document.getElementById('plus-si-keychanged-no').disabled }));
+        chk(inFlight.accept && inFlight.no, `[${k}] kosmos#6596 while Accept is out, Do not accept cannot be pressed (it would report nothing changed after the key was taken)`, JSON.stringify(inFlight));
+        for (let i = 0; i < 50 && !releaseAccept; i++) await page.waitForTimeout(50);
+        releaseAccept();
+        await page.waitForFunction(() => !document.getElementById('plus-si-keychanged-no').disabled, null, { timeout: 5000 }).catch(() => {});
+        const after = await page.evaluate(() => ({ panel: !document.getElementById('plus-si-keychanged').hidden, msg: document.getElementById('plus-signin-msg').textContent.trim(),
+          accept: document.getElementById('plus-si-keychanged-accept').disabled, no: document.getElementById('plus-si-keychanged-no').disabled }));
+        chk(after.panel && /not a key Kosmos\+ offered/.test(after.msg) && !after.accept && !after.no,
+          `[${k}] kosmos#6596 a refused Accept says why and keeps the panel, both buttons back`, JSON.stringify(after));
+        chk(errs.length === 0, `[${k}] no page errors`, errs.join(' | '));
+        await page.close();
+        continue;
       }
       await page.click(choice === 'accept' ? '#plus-si-keychanged-accept' : '#plus-si-keychanged-no');
       await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });

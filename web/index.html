@@ -12132,8 +12132,16 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 #plus-si-bought-recheck { border-color: #5c78a6; }
 #plus-state2 .plus-si-small { color: var(--k-ink-2); font-size: .9rem; margin: .9rem 0 0; }
 /* kosmos#6596 step 8: the offered key is 43 characters with no spaces; it wraps anywhere rather than widen the card. */
-#plus-state2 .plus-si-key { margin-bottom: 1.1rem; }
-#plus-state2 .plus-si-key code { overflow-wrap: anywhere; word-break: break-all; }
+/* Mona Lisa's review: both paragraphs one size; the key set apart in an inset as one value to compare, wrapping
+   anywhere rather than widening the card; on a phone both buttons full width and at least 44px. */
+#plus-state2 .plus-si-kc-first { margin-top: .5rem; }
+#plus-state2 .plus-si-key { margin: .75rem 0 0; padding: .6rem .8rem; border-radius: 10px; background: rgba(4, 10, 28, .45); border: 1px solid rgba(230, 235, 247, .1); }
+#plus-state2 .plus-si-key code { color: #E6EBF7; font: .95rem/1.45 ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; word-break: break-all; }
+#plus-state2 .plus-si-kc-acts { margin-top: 1.1rem; }
+@media (max-width: 40rem) {
+  #plus-state2 .plus-si-kc-acts { flex-direction: column; align-items: stretch; }
+  #plus-state2 .plus-si-kc-acts .btn { width: 100%; min-height: 44px; }
+}
 #plus-state2 .plus-si-addr { margin: .6rem 0 0; }
 #plus-state2 #plus-si-code-late:empty { margin: 0; }
 #plus-state2 .plus-si-addr b { color: #E6EBF7; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; margin-right: .5rem; }
@@ -19900,12 +19908,15 @@ window.kosmosMeasureScrollbarWidth();
            one this computer trusts, and named it. Accepting holds it for the NEXT sign-in only (the code is spent),
            so both choices start over; the panel has its own buttons and no foot link (plusSiWayOut). -->
       <div id="plus-si-keychanged" hidden>
-        <p class="plus-si-lead" role="status" aria-live="polite">Kosmos+ answered with a different security key from the one this computer trusts, so this computer did not sign in.</p>
+        <p class="plus-si-small plus-si-kc-first" id="plus-si-keychanged-why">Kosmos+ answered with a different security key from the one this computer trusts, so this computer did not sign in.</p>
         <p class="plus-si-small">Accept it only if whoever runs your Kosmos+ service told you the key was changing. The new key is:</p>
-        <p class="plus-si-small plus-si-key"><code id="plus-si-keychanged-key"></code></p>
-        <div class="frow">
-          <button class="btn uprime" type="button" id="plus-si-keychanged-accept">Accept the new key</button>
-          <button class="btn" type="button" id="plus-si-keychanged-no">Do not accept</button>
+        <p class="plus-si-key" id="plus-si-keychanged-keyline"><code id="plus-si-keychanged-key"></code></p>
+        <p class="plus-si-small" id="plus-si-keychanged-no-why">If you do not accept, nothing changes: this computer keeps the key it trusts and stays signed out of Kosmos+.</p>
+        <!-- Mona Lisa's review: the safe answer is the blue primary and holds the focus, so Enter and the blue button
+             are the same press; accepting takes a deliberate press of the quiet one. -->
+        <div class="frow plus-si-kc-acts">
+          <button class="btn uprime" type="button" id="plus-si-keychanged-no" aria-describedby="plus-si-keychanged-why plus-si-keychanged-no-why">Do not accept</button>
+          <button class="btn" type="button" id="plus-si-keychanged-accept" aria-describedby="plus-si-keychanged-why plus-si-keychanged-keyline">Accept the new key</button>
         </div>
       </div>
       <!-- The way out names what it does (plusSiShow sets it): Cancel on the email step (nothing started),
@@ -55201,22 +55212,35 @@ function plusSiFail(because) {
    person decides. Accept holds it on this computer for the next sign-in (POST /api/remote/accept-key); the code this
    one used is spent either way, so both choices start over on the email step with the email kept. */
 let PLUS_SI_OFFERED_KEY = '';
-function plusSiKeyChanged(offered) {
+let PLUS_SI_OFFERED_COMPANY = false;   // which sign-in raised the panel: the next step differs
+function plusSiKeyChanged(offered, company) {
   PLUS_SI_OFFERED_KEY = String(offered || '');
+  PLUS_SI_OFFERED_COMPANY = company === true;
+  for (const id of ['plus-si-keychanged-accept', 'plus-si-keychanged-no']) { const b = document.getElementById(id); if (b) { b.disabled = false; b.removeAttribute('aria-busy'); } }
   const k = document.getElementById('plus-si-keychanged-key'); if (k) k.textContent = PLUS_SI_OFFERED_KEY;
   plusSiMsg('');
   plusSiShow('plus-si-keychanged');
+  /* Mona Lisa's review: the title names the decision (plusSiShow put the sign-in title back; the next step does again).
+     Neutral rather than "has a new key": whether the key is really Kosmos+'s is the question the panel puts. */
+  const title = document.getElementById('plus-si-title'); if (title) title.textContent = 'Kosmos+ offered a different security key';
   const go = document.getElementById('plus-si-keychanged-no'); if (go) go.focus();   // the safe choice holds the focus
 }
+/* Both buttons wait for the answer: a Do not accept pressed meanwhile would start over and report nothing changed while
+   the board had already taken the key (review 1). */
 async function plusSiKeyAccept() {
-  const btn = document.getElementById('plus-si-keychanged-accept');
-  if (btn) btn.disabled = true;
+  const btns = ['plus-si-keychanged-accept', 'plus-si-keychanged-no'].map((id) => document.getElementById(id)).filter(Boolean);
+  for (const b of btns) b.disabled = true;
+  const acc = document.getElementById('plus-si-keychanged-accept'); if (acc) acc.setAttribute('aria-busy', 'true');
+  const company = PLUS_SI_OFFERED_COMPANY;
   const r = await plusSiPost('/api/remote/accept-key', { key: PLUS_SI_OFFERED_KEY });
-  if (btn) btn.disabled = false;
+  for (const b of btns) b.disabled = false;
+  if (acc) acc.removeAttribute('aria-busy');
   if (r.stale) return;
   if (!r.ok) { plusSiMsg(r.because); return; }
   plusSiStartOver();
-  plusSiMsg('The new key is accepted for your next sign-in, in the next hour. Send yourself a new code to finish.');
+  plusSiMsg(company
+    ? 'The new key is accepted for your next sign-in, in the next hour. Sign in with your company again to finish.'
+    : 'The new key is accepted for your next sign-in, in the next hour. Send yourself a new code to finish.');
 }
 function plusSiKeyDecline() {
   plusSiStartOver();
@@ -56473,7 +56497,7 @@ async function plusCompanyFinish(btn) {
   PLUS_CO_FINISHING = false;
   plusCompanySyncResend();
   if (r.stale) return;
-  if (!r.ok && r.keyChanged) { plusSiKeyChanged(r.keyChanged.offered); return; }   // kosmos#6596 step 8
+  if (!r.ok && r.keyChanged) { plusSiKeyChanged(r.keyChanged.offered, true); return; }   // kosmos#6596 step 8
   if (!r.ok) {
     const why = String(r.because || '');
     // Review 3: a refusal OF THE CODE (a wrong code says "N tries left") keeps it from being sent again unchanged.

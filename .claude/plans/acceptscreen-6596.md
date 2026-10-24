@@ -15,20 +15,41 @@ and route), which is stacked on orgkeys-6596. Lands after both.
 - Focus lands on Do not accept, the choice that changes nothing.
 - Both registration flows on the page show it: the email sign-in (owned address or typed name) and the company finish.
 
+## Design review (Mona Lisa, card comment, approved with changes) and review 1 (fixed)
+- Do not accept is the blue primary and holds the focus, so Enter and the blue button are the same press; Accept is
+  the quiet secondary. (This was my weakest premise; she ruled the other way, with the reason that the screen only
+  appears when something unexpected happened.)
+- Title for the decision. She suggested "Kosmos+ has a new security key"; review 1 pointed out that states as fact
+  what the panel asks the person to doubt (the key may not be Kosmos+'s). Used: "Kosmos+ offered a different security
+  key". Told her, with the reason.
+- Both paragraphs one size; a line saying what declining does ("If you do not accept, nothing changes: this computer
+  keeps the key it trusts and stays signed out of Kosmos+"); full-width, equal, 44px+ buttons on a phone; the key in
+  a subtle inset.
+- Review 1: my edit left a stray closing div (the wizard's foot link fell outside the card; 11 layout reds in the
+  sibling scenarios). Removed; divs balance 37/37.
+- Review 1: Do not accept stayed live while Accept was out, so it could say "nothing was changed" after the board had
+  taken the key. Both buttons are now locked until the answer.
+- Review 1: after a company finish, Accept said to send a new code; it now says to sign in with the company again.
+- Review 1: screen readers heard only "Do not accept, button". Each button is described by the explanation (and the
+  key, for Accept); the never-changing live region is gone.
+- Arms ($S/as-arms.py, the page mutated in place and restored): M1 Do not accept live during Accept, M2 the company
+  flag dropped, M3 the primary moved off Do not accept, M4 the sign-in title kept: each red on its own check.
+
 ## Rejected
 - Showing a short fingerprint: the person compares against what an administrator tells them, and a shortened key
   invites a match on the part shown. The whole key costs two lines at phone width.
 - Accept retrying the sign-in itself: the code is spent; a retry would fail on the code and spend the acceptance.
 
 ## Weakest premise
-Accept is the primary (blue) button while focus sits on Do not accept. Kept because accepting is the legitimate goal
-whenever the person expected the change, and the copy says when not to; this is the open question for design review.
+Settled by design review: the safe answer is primary. What remains: a person can judge a key they are shown. The copy
+says to accept only an announced change; nothing on this screen can do better than that.
 
 ## Proof
 docs/browser-checks/render-plus-signin-3478.js, section "key-changed": both choices, the key shown, focus, no other
 step or foot link or raw error, Accept sends exactly that key once, Do not accept sends nothing, both start over
 with the email kept, the key and buttons inside the card with no sideways scroll at 1400 and 390 px in light and
-dark. Whole check: 196 pass, 0 fail (headless chromium).
+dark. After review 1: sign-in check 205 pass 0 fail; company check 22 pass 0 fail (a company finish refused for a
+changed key, and Accept's company wording).
 web.plus-connect-5787.test.js: its control on the step list now allows steps after plus-si-expired.
 
 ## Progress
