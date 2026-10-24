@@ -116,6 +116,47 @@ final class SignInClient {
         }
     }
 
+    // MARK: - Passkey sign-in (kosmos#7050 slice C)
+
+    /// begin's offer, or nil when passkeys are off on the coordinator, it could not be reached, or the offer is not one a
+    /// passkey can answer here (SignIn.passkeyOffer). Asks for nothing and stores nothing on Kosmos+.
+    func passkeyOffer() async -> SignIn.PasskeyOffer? {
+        guard let (status, json) = try? await post(SignIn.passkeyBeginPath, [:]) else { return nil }
+        return SignIn.passkeyOffer(status: status, json: json, coordinator: coordinator)
+    }
+
+    private var passkeyAsker: PasskeyAsker?
+
+    /// Apple's passkey sheet for this offer: the person's passkey for Kosmos+ (any saved on this iPhone or in their
+    /// iCloud Keychain, for the host this app is associated with), with Face ID, Touch ID or the passcode. Nil when they
+    /// closed it or it could not open.
+    func passkeyAssert(_ offer: SignIn.PasskeyOffer) async -> ASAuthorizationPlatformPublicKeyCredentialAssertion? {
+        let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: offer.rpID)
+        let request = provider.createCredentialAssertionRequest(challenge: offer.challenge)
+        request.userVerificationPreference = .required
+        return await withCheckedContinuation { (done: CheckedContinuation<ASAuthorizationPlatformPublicKeyCredentialAssertion?, Never>) in
+            let asker = PasskeyAsker { [weak self] got in
+                self?.passkeyAsker = nil   // PasskeyAsker hands back on the main queue
+                done.resume(returning: got)
+            }
+            passkeyAsker = asker
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = asker
+            controller.presentationContextProvider = asker
+            controller.performRequests()
+        }
+    }
+
+    /// finish, with this iPhone's device id (the one verify proves next).
+    func passkeyFinish(_ assertion: ASAuthorizationPlatformPublicKeyCredentialAssertion) async throws -> SignIn.PasskeyFinish {
+        let key = try deviceKey()
+        let body = SignIn.passkeyFinishBody(credentialID: assertion.credentialID, authenticatorData: assertion.rawAuthenticatorData,
+                                            clientDataJSON: assertion.rawClientDataJSON, signature: assertion.signature,
+                                            userHandle: assertion.userID, deviceID: key.id)
+        let (status, json) = try await post(SignIn.passkeyFinishPath, body)
+        return SignIn.passkeyFinish(status: status, json: json)
+    }
+
     func verify(email: String, code: String) async throws -> SignIn.Answer {
         let key = try deviceKey()
         let (status, json) = try await post(SignIn.verifyPath, try SignIn.verifyBody(email: email, code: code, deviceName: deviceName, key: key))
@@ -162,6 +203,34 @@ final class SignInClient {
 /// Where Apple's sheet shows: over the app's own window.
 private final class SheetAnchor: NSObject, ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.first.map { ASPresentationAnchor(windowScene: $0) } ?? ASPresentationAnchor()
+    }
+}
+
+/// Apple's passkey sheet's answer, handed back once, on the main queue: the assertion, or nil for anything else (closed,
+/// refused, an error). Shows over the app's own window, as SheetAnchor does.
+private final class PasskeyAsker: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    private var finish: ((ASAuthorizationPlatformPublicKeyCredentialAssertion?) -> Void)?
+    init(_ finish: @escaping (ASAuthorizationPlatformPublicKeyCredentialAssertion?) -> Void) { self.finish = finish }
+
+    private func done(_ got: ASAuthorizationPlatformPublicKeyCredentialAssertion?) {
+        DispatchQueue.main.async {
+            let f = self.finish
+            self.finish = nil
+            f?(got)
+        }
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        done(authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion)
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        done(nil)
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         return scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.first.map { ASPresentationAnchor(windowScene: $0) } ?? ASPresentationAnchor()
     }
