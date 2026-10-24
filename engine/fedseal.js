@@ -232,6 +232,35 @@ function openRotate(me, pinnedOwnerPub, frame, roomId) {
   return { epoch: frame.epoch, roomKey: b64(pt.subarray(0, 32)), rotatedAt };
 }
 
+/* ---- own-seat compare code (kosmos#4658: an owner's computer that arrives after a guest) ---- */
+
+/** The 31 symbols of the relay's match code (proto::matchcode::ALPHABET): no 0/O, no 1/I/L. */
+const COMPARE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+const COMPARE_LEN = 10;
+const COMPARE_SPACE = 31n ** BigInt(COMPARE_LEN);
+
+/** The 10-symbol code (about 49.5 bits, grouped `ABCDE-FGHJK`) that the waiting computer
+    and the allowing computer both show, so a person can confirm the room key will be
+    sealed to the key the waiting computer really holds. ONE-DIRECTIONAL (decided on the
+    card 10-24 01:4x): it binds the room, the waiting computer's id and ITS seal key, not
+    the allower's, which the waiting computer cannot know before the Allow.
+    Unlike the 4-symbol match code it authenticates, so it is long enough that a
+    coordinator cannot grind a substitute key to match it inside one Allow's window.
+    128 bits of digest reduced mod 31^10, so the modulo bias is below 2^-78.
+    null when an input is not the right shape (a waiting computer that sent no key gets
+    no code, and so no Allow). */
+function compareCode(roomId, macId, sealPub) {
+  if (typeof roomId !== 'string' || !roomId || typeof macId !== 'string' || !macId || !publicKeyObject(sealPub)) return null;
+  const d = crypto.createHash('sha256').update(aad('own-compare', V, roomId, macId, sealPub)).digest();
+  let n = BigInt('0x' + d.subarray(0, 16).toString('hex')) % COMPARE_SPACE;
+  let out = '';
+  for (let i = 0; i < COMPARE_LEN; i++) {
+    out = COMPARE_ALPHABET[Number(n % 31n)] + out;
+    n /= 31n;
+  }
+  return out.slice(0, 5) + '-' + out.slice(5);
+}
+
 /* ---- messages ---- */
 
 /** A room message sealed under the room key for `epoch`. Inside the seal it carries a
@@ -355,6 +384,7 @@ function splitInviteCode(pasted) {
 module.exports = {
   KEY_FILE, ROOMS_FILE, sealingKey, newKeyPair, randomSecret,
   helloFrame, checkHello, shareFrame, openShare, rotateFrame, openRotate,
+  compareCode,
   seal, open, isSealed,
   stashInvite, pendingInvites, spendInvite, isSealedRef, roomState, setRoomState, forgetRoom, splitInviteCode,
 };
