@@ -59,3 +59,11 @@ That the card's fields read the same on two captures of one unchanged prompt. A 
 - Noted, not changed: the answered lock now includes the request, so if the same prompt reads as another request on a
   redraw (another width), its 6 s lock lifts at once. A second press is still checked against the screen right before
   its key, so it cannot answer a request nobody saw; at worst the same prompt gets a second key.
+
+## Review round 3 (converged: nothing real)
+- Confirmed the newest refusal cannot refuse an honest press: a request exists only where permissionCard read a card,
+  which needs the same claudePermissionPrompt match that marks the menu as a permission prompt; claudeQuestionMenu
+  cannot claim such a screen (it needs a free-answer entry a permission prompt lacks).
+- Re-raised only the two points already decided above (lock lifting on a re-read; a deduplicated row).
+- Order from here: Mona Lisa's part 2 merges, rebase onto main (her commits drop), focused validation through the queue,
+  proof (3 iterations), PR "Closes #7020" once CI is green.
