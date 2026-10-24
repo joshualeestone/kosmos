@@ -31,3 +31,12 @@ not finish in the app). Kept in order by the release, not by code.
 
 ## Not in this part
 Passkeys (need the Associated Domains capability and an association file), and setting up a second step (enrol).
+
+## STOPPED 08:2x: the relay half is unsafe (blind review)
+The custom-scheme return lets any app that registers `kosmos-signin` receive a grant from a begin link an attacker
+builds (the attacker picks the device, so the binding does not help; PKCE does not either, the attacker starts the
+flow). The safe return is an https callback on login.kosmosplus.com (ASWebAuthenticationSession .https, iOS 17.4+),
+which needs the Associated Domains capability and an apple-app-site-association file on Kosmos+; the coordinator then
+needs no change. This branch's parsing, refusal sentences and terms hand-over carry over; only the return address
+changes (companyReturn would accept https://login.kosmosplus.com/signin#sso_grant=... from the sheet, and begin
+would not send app=1). Fixed here meanwhile: busy no longer drops while the sheet is open.
