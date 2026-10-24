@@ -1614,6 +1614,8 @@ final class FakeBoardWorld {
 
 // The loop tests' own folder for opened files (#7016), so no test writes into this Mac's folders.
 let testFiles = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-logic-tests-files-\(getpid())", isDirectory: true)
+// And for copies of picked files (#7071), a folder apart from it, as in the app (so neither's clearing hides the other's).
+let testUploads = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-logic-tests-uploads-\(getpid())", isDirectory: true)
 
 @MainActor
 func boardLoopTests() async {
@@ -1641,7 +1643,7 @@ func boardLoopTests() async {
                                                 for _ in 0..<world.uploadYields { await Task.yield() }
                                                 return world.upload(r, file)
                                             },
-                                            uploads: testFiles.appendingPathComponent("uploads", isDirectory: true)))
+                                            uploads: testUploads))
         return (client, world, sessions, macs)
     }
     func settle(_ cond: () -> Bool) async -> Bool {
@@ -1824,11 +1826,17 @@ section("native board loop: connecting")
 
     section("native chat: adding files and sending them, against a fake Mac (kosmos#7071)")
     do {
+        // A copy an earlier run never finished sending (the app was closed mid-upload).
+        let stale = testUploads.appendingPathComponent("earlier-run", isDirectory: true)
+        try? FileManager.default.createDirectory(at: stale, withIntermediateDirectories: true)
+        try? Data("half sent".utf8).write(to: stale.appendingPathComponent("deck.pdf"))
+        let staleWritten = FileManager.default.fileExists(atPath: stale.appendingPathComponent("deck.pdf").path)
         let (c, w, _, _) = make("kst1")
+        check(staleWritten && !FileManager.default.fileExists(atPath: stale.path), "a copy left by an earlier run is removed at launch")
         c.start()
         _ = await settle { isLive(c) }
         let dana = c.agents.first { $0.session == "dana" }!
-        let uploadsRoot = testFiles.appendingPathComponent("uploads", isDirectory: true)
+        let uploadsRoot = testUploads
         func pending() -> [Board.PendingSend] { c.pending["dana"] ?? [] }
         func attached() -> [Board.Attached] { c.attached["dana"] ?? [] }
         func leftOver() -> [String] { (try? FileManager.default.contentsOfDirectory(atPath: uploadsRoot.path)) ?? [] }

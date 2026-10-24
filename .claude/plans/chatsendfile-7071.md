@@ -40,3 +40,15 @@ typecheck. The real-iPhone check joins #6838's device list.
 That the Mac accepts the upload through Kosmos+ from the app's own session exactly as from the board's page. The
 route is the same and the session is the one every other native call uses, but no automation here reaches a real Mac
 through Kosmos+; it is on the device check.
+
+## Device checks (join #6838's list)
+1. Photo Library and Files both open from the + menu (iOS 16 and current).
+2. A photo and a PDF send to an agent through Kosmos+, with and without words; the agent sees the files.
+3. A file held only in iCloud Drive (evicted) is fetched and sent; one over 100 MB is refused without being copied.
+4. VoiceOver on a sent files row says You, the time, the count; the + says why it is off at ten files.
+
+## Deferred (with reasons)
+- No cancel for a file still being fetched from the cloud: the wait is Files', shown as Adding a file, and a cancel
+  needs its own control; the device check measures how long it really is.
+- The person's files bubble uses the agent files bubble's width (at least 85%), so the file cards keep room for their
+  names; the person's text bubbles keep 78%.

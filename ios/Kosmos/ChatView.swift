@@ -675,6 +675,7 @@ struct ChatView: View {
                 .padding(-5)
         }
         .accessibilityLabel("Add a photo or file")
+        .accessibilityHint(atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "")
         .padding(.bottom, 2)
     }
 
