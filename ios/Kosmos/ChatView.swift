@@ -47,9 +47,6 @@ struct ChatView: View {
     @State private var earlier = Board.Earlier()
     @State private var topVisible = false
     @State private var settledAtEnd = false
-    // The top has gone out of view at least once since the first scroll settled: from then on, reaching it is the
-    // person scrolling up.
-    @State private var topLeftOnce = false
     // The row to keep at the top once a page has landed above it.
     @State private var keepAnchor: String?
     // kosmos#7016 part 2: each file card's state, and the file open in Quick Look.
@@ -127,7 +124,6 @@ struct ChatView: View {
             thread = nil
             earlier = Board.Earlier()
             settledAtEnd = false
-            topLeftOnce = false
             fileStates = [:]
             previewURL = nil
             openedFile = nil
@@ -191,7 +187,7 @@ struct ChatView: View {
                         earlierFailedLine
                         Color.clear.frame(height: 1).id("top")
                             .onAppear { topVisible = true; loadEarlier() }
-                            .onDisappear { topVisible = false; topLeftOnce = settledAtEnd || topLeftOnce }
+                            .onDisappear { topVisible = false }
                         if thread.rows.isEmpty && pending.isEmpty { empty }
                         ForEach(items) { item in
                             itemView(item).id(item.id)
@@ -199,7 +195,14 @@ struct ChatView: View {
                         pendingBubbles
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
                         Color.clear.frame(height: 1).id("end")
-                            .onAppear { atBottom = true; unseenNew = false }
+                            .onAppear {
+                                atBottom = true; unseenNew = false
+                                // The first scroll has settled when the newest message is really on screen (not after
+                                // a time): from then on, reaching the top is the person scrolling up. Checked a turn
+                                // later, so the top's own disappearance from the same jump has landed first; a chat too
+                                // short to scroll still shows its top then, and loads by itself.
+                                if !settledAtEnd { DispatchQueue.main.async { settledAtEnd = true; loadEarlier() } }
+                            }
                             .onDisappear { atBottom = false }
                     }
                     .padding(.horizontal, 16)
@@ -211,10 +214,16 @@ struct ChatView: View {
                 .overlay(alignment: .top) { earlierLoadingLine }
                 .onAppear {
                     proxy.scrollTo("end", anchor: .bottom)
-                    // Only after the jump to the newest message may reaching the top load a page: the first layout
-                    // draws the top for a moment first. A chat too short to scroll still shows the top and its end
-                    // together once laid out, and loads by itself (the board's earlierNearTop after a paint).
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { settledAtEnd = true; loadEarlier() }
+                    #if DEBUG
+                    // Screenshots and checks only: KOSMOS_SAMPLE_SCROLLTOP=1 scrolls to the top 3 s after opening, as a
+                    // person would (nothing in the simulator can scroll here).
+                    if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLTOP"] == "1" {
+                        // Twice: the first reaches the top and loads a page; the second shows what landed above.
+                        for at in [3.0, 6.0] {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + at) { withAnimation { proxy.scrollTo("top", anchor: .top) } }
+                        }
+                    }
+                    #endif
                 }
                 // The place kept after a page lands above: the row that was first stays at the top.
                 .onChange(of: keepAnchor) { id in
@@ -373,7 +382,7 @@ struct ChatView: View {
     // while one loads, never after a failure until Try again. Called when the top appears, after every read, and on
     // Try again (the board's earlierNearTop: on scroll, after a paint, and from its button).
     private func loadEarlier() {
-        guard settledAtEnd, topVisible, topLeftOnce || atBottom, let t = thread,
+        guard settledAtEnd, topVisible, let t = thread,
               Board.shouldLoadEarlier(earlier, olderCount: t.olderCount) else { return }
         let anchor = Board.shownRows(earlier, thread: t).first?.id
         let start = Board.startLoad(earlier, olderCount: t.olderCount)
