@@ -74,7 +74,7 @@ check(read?.tasks[1].waitingOn == [Board.TaskRow.Waiting(who: "cleo-discord", re
 check(Board.parseTasks(Data(#"{"tasks":[],"rosterUnreadable":true}"#.utf8))?.rosterUnknown == true, "rosterUnreadable reads as unknown")
 check(Board.parseTasks(Data(#"{"error":"no"}"#.utf8)) == nil, "an answer with no tasks list is not a read")
 check(Board.parseTasks(Data("<html>sign in</html>".utf8)) == nil, "the gate's sign-in page is not a read")
-let req = Board.tasksRequest(mac: URL(string: "https://studio.kosmosplus.com")!)
+let req = Board.readyTasksRequest(mac: URL(string: "https://studio.kosmosplus.com")!)
 check(req.url?.absoluteString == "https://studio.kosmosplus.com/api/tasks?view=tasks" && req.value(forHTTPHeaderField: "Accept") == "application/json", "the request is the Tasks view's read, as JSON")
 
 section("the groups: in order, each hidden when empty")
@@ -171,21 +171,43 @@ check(Tasks.rowLine(built, now: now, name: name) == "Marked built by Rex 2 hours
 let builtByYou = row(1, "built") { $0.builtAt = iso(60); $0.builtByPerson = true }
 check(Tasks.rowLine(builtByYou, now: now, name: name) == "Marked built by you 60 seconds ago", "built by you")
 let kids = row(1, "working") { $0.subtasks = .init(done: 1, total: 3, built: 2); $0.whoNames = ["rex-discord"] }
-check(Tasks.rowLine(kids, now: now, name: name) == "All subtasks built, ready for you to check.", "every subtask done or built: the board's ready-to-check line")
+check(Tasks.rowLine(kids, now: now, name: name) == "Rex\nAll subtasks built, ready for you to check.", "every subtask done or built: the board's ready-to-check line, after the agent (review 1: it no longer hides the rest)")
 let allDone = row(1, "working") { $0.subtasks = .init(done: 3, total: 3, built: 0); $0.whoNames = ["rex-discord"] }
 check(Tasks.rowLine(allDone, now: now, name: name) == "Rex", "control: all done (not built) keeps the ordinary line")
 
 section("the schedule, as the board words it (tskRepeatSentence)")
-let rep = row(1, "scheduled") { $0.repeatWords = "every weekday at 9am"; $0.repeatNextWords = "Monday at 9am" }
+let rep = row(1, "scheduled") { $0.repeating = true; $0.repeatWords = "every weekday at 9am"; $0.repeatNextWords = "Monday at 9am" }
 check(Tasks.rowLine(rep, now: now, name: name) == "Repeats every weekday at 9am. No run reported yet. Next Monday at 9am.", "no run yet")
-let ran = row(1, "scheduled") { $0.repeatWords = "daily"; $0.lastRunAt = iso(3600); $0.lastRunBy = "rex-discord"; $0.lastRunNote = "all fine" }
+let ran = row(1, "scheduled") { $0.repeating = true; $0.repeatWords = "daily"; $0.lastRunAt = iso(3600); $0.lastRunBy = "rex-discord"; $0.lastRunNote = "all fine" }
 check(Tasks.rowLine(ran, now: now, name: name) == "Repeats daily. Last run 60 minutes ago by Rex: all fine.", "the last run")
-let missed = row(1, "scheduled") { $0.repeatWords = "daily"; $0.repeatMissed = 3; $0.repeatMissedWords = "today at 9am" }
+let missed = row(1, "scheduled") { $0.repeating = true; $0.repeatWords = "daily"; $0.repeatMissed = 3; $0.repeatMissedWords = "today at 9am" }
 check(Tasks.rowLine(missed, now: now, name: name) == "Missed 3 runs, the latest due today at 9am. Repeats daily.", "missed runs lead, and no 'No run reported yet' after them")
-let same = row(1, "scheduled") { $0.repeatWords = "daily"; $0.lastRunAt = iso(60); $0.lastRunByPerson = true; $0.unchangedRuns = 2; $0.lastChangeAt = iso(86_400 * 2); $0.lastChangeNote = "up 3%" }
+let same = row(1, "scheduled") { $0.repeating = true; $0.repeatWords = "daily"; $0.lastRunAt = iso(60); $0.lastRunByPerson = true; $0.unchangedRuns = 2; $0.lastChangeAt = iso(86_400 * 2); $0.lastChangeNote = "up 3%" }
 check(Tasks.rowLine(same, now: now, name: name) == "Repeats daily. Last run 60 seconds ago by you. The last 2 runs found nothing new; the last change was 2 days ago: up 3%.", "runs that found nothing new")
-let told = row(1, "scheduled") { $0.repeatWords = "daily"; $0.lastRunAt = iso(60); $0.verified = .init(value: "42", at: iso(60)); $0.told = .init(value: "40", at: iso(7200)) }
+let told = row(1, "scheduled") { $0.repeating = true; $0.repeatWords = "daily"; $0.lastRunAt = iso(60); $0.verified = .init(value: "42", at: iso(60)); $0.told = .init(value: "40", at: iso(7200)) }
 check(Tasks.rowLine(told, now: now, name: name) == "Repeats daily. Last run 60 seconds ago. Its latest check found \u{201C}42\u{201D}. You were last told \u{201C}40\u{201D} (2 hours ago).", "a change you were not told about")
+
+section("review 1: a row's lines stack as tskRow stacks them")
+let missedReview = row(1, "decision") { $0.repeating = true; $0.repeatWords = "daily"; $0.repeatMissed = 1; $0.repeatMissedWords = "today at 9am" }
+check(Tasks.rowLine(missedReview, now: now, name: name) == "Missed the run due today at 9am. Repeats daily.", "a missed run you review, under Needs Your Decision, says why (it names no agent)")
+let builtDecision = row(1, "decision") { $0.waitingOn = [.init(who: "cleo-discord", reason: "question")]; $0.waitingSince = iso(24); $0.builtAt = iso(7200); $0.builtBy = "rex-discord" }
+check(Tasks.rowLine(builtDecision, now: now, name: name) == "Cleo: Waiting for your answer for 24 seconds.\nMarked built by Rex 2 hours ago", "a built task under Needs Your Decision keeps both the wait and who marked it")
+let kidsDecision = row(1, "decision") { $0.subtasks = .init(done: 1, total: 3, built: 2); $0.waitingOn = [.init(who: "cleo-discord", reason: "question")]; $0.waitingSince = iso(24) }
+check(Tasks.rowLine(kidsDecision, now: now, name: name) == "All subtasks built, ready for you to check.\nCleo: Waiting for your answer for 24 seconds.", "ready-to-check beside a question keeps the question")
+check(Tasks.rowLine(row(1, "closed") { $0.repeating = true; $0.builtAt = iso(60) }, now: now, name: name).isEmpty, "a closed task has no schedule or built line (the board: not closed)")
+check(Tasks.rowLine(row(1, "scheduled"), now: now, name: name).isEmpty, "control: no repeat field, no schedule line")
+
+section("review 1: subtasks sit under their parent (taskNest)")
+let fam = [row(10, "working", created: 50), row(11, "working", created: 10) { $0.parent = 10 }, row(12, "working", created: 5) { $0.parent = 11 },
+           row(13, "working", created: 1) { $0.parent = 12 }, row(20, "working", created: 30) { $0.parent = 99; $0.parentSentence = "Launch the shop" }]
+let placed = Tasks.nest(Tasks.sortNewest(fam))
+check(placed.map { "\($0.row.number):\($0.depth)" } == ["20:0", "10:0", "11:1", "12:2", "13:2"], "each under its parent, two levels drawn, deeper at 2 (\(placed.map { "\($0.row.number):\($0.depth)" }))")
+check(placed.first { $0.row.number == 13 }?.crumb == true && placed.first { $0.row.number == 11 }?.crumb == false, "deeper than two levels says its parent; a drawn child does not")
+check(placed.first { $0.row.number == 20 }?.crumb == true && Tasks.partOf(placed[0].row) == "Part of #99 Launch the shop", "a parent not in this group: the child stays in order and says what it is part of")
+check(Tasks.nest([row(1, "working") { $0.parent = 1 }]).map(\.depth) == [0], "a task that names itself is not its own child")
+let otherProject = Tasks.nest([row(5, "working", project: "a"), row(6, "working", project: "b") { $0.parent = 5 }])
+check(otherProject.map(\.depth) == [0, 0], "a parent number in another project is not this one's parent")
+check(Board.parseTasks(Data(#"{"tasks":[{"projectId":"p","number":2,"state":"working","parent":1,"parentSentence":"Big one"}]}"#.utf8))?.tasks.first.map { ($0.parent, $0.parentSentence) }.map { $0.0 == 1 && $0.1 == "Big one" } == true, "parent and its sentence are read")
 
 section("a row, spoken and opened")
 check(Tasks.spoken(built, line: "Marked built by Rex 2 hours ago", projectShown: true) == "Task 1. Launch. Marked built by Rex 2 hours ago.", "one element: title, project, line")

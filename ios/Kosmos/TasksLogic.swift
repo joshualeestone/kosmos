@@ -5,14 +5,7 @@ import Foundation
 // here is that function's, named after it. The board's words are read from web/index.html by the tests, so a change on
 // the board shows there first.
 extension Board {
-    // `GET /api/tasks?view=tasks`: every task on every project, each with the board's own state (engine/tasks.js
-    // taskState), as the board's Tasks view reads it. Accept JSON, as the status read does (the gate's sign-in page).
-    static func tasksRequest(mac: URL) -> URLRequest {
-        var r = URLRequest(url: URL(string: "/api/tasks?view=tasks", relativeTo: mac)!.absoluteURL)
-        r.setValue("application/json", forHTTPHeaderField: "Accept")
-        r.cachePolicy = .reloadIgnoringLocalCacheData
-        return r
-    }
+    // The read is Today's (#7030) Board.readyTasksRequest: the same GET /api/tasks?view=tasks, every state.
 
     // One task as the Tasks view row reads it. Named TaskRow, not Task: inside Board a nested `Task` would hide Swift's
     // own Task from every Board extension.
@@ -27,6 +20,8 @@ extension Board {
         let sentence: String
         let state: String
         var whoNames: [String] = []
+        var parent: Int? = nil          // the task this one is part of (tskList's parentKey), in the same project
+        var parentSentence: String? = nil
         var waitingOn: [Waiting] = []
         var waitingSince: String? = nil
         var createdAt: String? = nil
@@ -83,6 +78,8 @@ extension Board {
                             sentence: row["sentence"] as? String ?? "", state: state)
             t.projectPath = (row["projectPath"] as? [Any])?.compactMap { $0 as? String } ?? []
             t.whoNames = (row["whoNames"] as? [Any])?.compactMap { $0 as? String } ?? []
+            t.parent = (row["parent"] as? NSNumber)?.intValue
+            t.parentSentence = str(row, "parentSentence")
             t.waitingOn = (row["waitingOn"] as? [[String: Any]])?.compactMap { w in
                 guard let who = w["who"] as? String, !who.isEmpty else { return nil }
                 return TaskRow.Waiting(who: who, reason: w["reason"] as? String ?? "other")
@@ -208,6 +205,35 @@ enum Tasks {
         }.map(\.element)
     }
 
+    // taskNest, as tskList calls it: a row goes under its parent only when the parent is in the SAME list (a group);
+    // otherwise it stays where the list's order put it and says what it is part of (`crumb`). Children keep the list's
+    // order; two levels are drawn (depth 0 to 2), anything deeper at 2 with its crumb. The phone has no fold.
+    struct Placed: Equatable { let row: Board.TaskRow; let depth: Int; let crumb: Bool }
+    static func nest(_ rows: [Board.TaskRow]) -> [Placed] {
+        let parentKey = { (t: Board.TaskRow) -> String? in t.parent.map { t.projectId + "#" + String($0) } }
+        let here = Set(rows.map(\.id))
+        var kids: [String: [Board.TaskRow]] = [:]
+        var top: [Board.TaskRow] = []
+        for t in rows {
+            if let pk = parentKey(t), pk != t.id, here.contains(pk) { kids[pk, default: []].append(t) } else { top.append(t) }
+        }
+        var out: [Placed] = []
+        var seen = Set<String>()
+        func walk(_ t: Board.TaskRow, _ level: Int) {
+            guard seen.insert(t.id).inserted else { return }
+            out.append(Placed(row: t, depth: min(level, 2), crumb: t.parent != nil && (level == 0 || level > 2)))
+            for c in kids[t.id] ?? [] { walk(c, level + 1) }
+        }
+        top.forEach { walk($0, 0) }
+        rows.forEach { walk($0, 0) }
+        return out
+    }
+    // tskRow's partOf, for a crumb: "Part of #12 Launch the shop".
+    static func partOf(_ t: Board.TaskRow) -> String {
+        guard let p = t.parent else { return "" }
+        return "Part of #" + String(p) + (t.parentSentence.map { " " + $0 } ?? "")
+    }
+
     // tskChainOf: the project's path, then its own name.
     static func chain(_ t: Board.TaskRow) -> [String] { t.projectPath + [t.projectName] }
     // pjChainText.
@@ -309,20 +335,28 @@ enum Tasks {
         "other": "Kosmos needs you to look at it.",
     ]
 
-    // The row's line under its title, per the spec's table, in the board's words (tskRow). `name` is tskAgentName: an
-    // agent's display name from the roster, else its session name. Empty when the group has no line.
+    // The row's lines under its title, stacked as tskRow stacks them (review 1: not one line per group, so a decision
+    // row that is a missed run or a built task keeps its reason): the agents on it (In progress, Assigned), the
+    // ready-to-check phrase, then the wait line, the who line, the schedule line and the built line, each when it
+    // applies. `name` is tskAgentName: an agent's display name from the roster, else its session name.
     static func rowLine(_ t: Board.TaskRow, now: Date, name: (String) -> String) -> String {
-        // "all subtasks built, ready for you to check" stands in for the line (the board's allDone, built arm).
+        var lines: [String] = []
+        if t.state == "working" || t.state == "assigned" {
+            let who = uniqueNames(t.whoNames).map(name).joined(separator: ", ")
+            if !who.isEmpty { lines.append(who) }
+        }
+        // tskRow's allDone, built arm: every subtask done or built, at least one built, not all done.
         if let s = t.subtasks, s.built > 0, s.done + s.built == s.total, s.done != s.total, t.state != "closed" {
-            return "All subtasks built, ready for you to check."
+            lines.append("All subtasks built, ready for you to check.")
         }
-        switch t.state {
-        case "decision": return decisionLine(t, now: now, name: name)
-        case "working", "assigned": return uniqueNames(t.whoNames).map(name).joined(separator: ", ")
-        case "built": return builtLine(t, now: now, name: name)
-        case "scheduled": return repeatSentence(t, now: now, name: name)
-        default: return ""
+        if t.state == "decision" {
+            let d = decisionLine(t, now: now, name: name)
+            if !d.isEmpty { lines.append(d) }
         }
+        if t.repeating && t.state != "closed" { lines.append(repeatSentence(t, now: now, name: name)) }
+        let b = builtLine(t, now: now, name: name)
+        if !b.isEmpty { lines.append(b) }
+        return lines.joined(separator: "\n")
     }
     private static func uniqueNames(_ xs: [String]) -> [String] {
         var seen = Set<String>()
