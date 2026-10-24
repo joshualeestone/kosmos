@@ -44,6 +44,7 @@ case "$me" in
         [ "${FX_BOOTOUT_FAIL:-0}" = 1 ] && exit 5; [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
       bootstrap) [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; rm -f "$out"; touch "$(dirname "$CALL_LOG")/bootstrapped"
         [ "${FX_LISTENER:-1}" = 1 ] && echo started > .svc-state
+        [ "${FX_NO_LISTENER_AFTER:-0}" = 1 ] && echo stopped > .svc-state   # this runner's Listener never comes back
         # The loaded job has KeepAlive exactly when the plist it was loaded from does (state kept across runs). The printed
         # shape is copied from a real capture (runner 1, macOS 27.0.1, 2026-10-23): "\tsemaphores = {" /
         # "\t\tsuccessful exit => 0" / "\t}" and "\texit timeout = 5" for a job that does not set ExitTimeOut.
@@ -620,7 +621,7 @@ ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-relayonly "$KH"
 [ "$(rc ka-relayonly)" = 1 ] && has ka-relayonly "DOWN:" && ! has ka-relayonly "Listener runs but" \
   && pass "keepalive --apply: the relay's Listener is not taken for this runner's (DOWN, not 'loaded elsewhere')" || fail "keepalive relay only: rc $(rc ka-relayonly): $(tail -1 "$T/ka-relayonly.out")"
 # ... nor, respawning during the reload, as this runner having come back.
-ka_fresh; run ka-relayrespawn "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_RELAY_LISTENER=1 FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply keepalive
+ka_fresh; run ka-relayrespawn "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_RELAY_LISTENER=1 FX_NO_LISTENER_AFTER=1 KOSMOS_CI_START_WAIT_S=1 -- --apply keepalive
 [ "$(rc ka-relayrespawn)" = 1 ] && has ka-relayrespawn "no new Listener of $KH/actions-runner" \
   && pass "keepalive --apply: a relay Listener respawning during the reload is not taken for this runner coming back" || fail "keepalive relay respawn: rc $(rc ka-relayrespawn): $(tail -1 "$T/ka-relayrespawn.out")"
 # A bootout that reports failure while the job is still listed may still be unloading: it waits, and says both outcomes.
@@ -706,6 +707,9 @@ run ka-othername "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- -
 ka_fresh; plutil -insert KeepAlive -bool true "$KA"; run ka-katrue "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
 [ "$(rc ka-katrue)" = 0 ] && has ka-katrue "note:   replacing KeepAlive <true/>" && [ "$(ka_of "$KA")" = false ] \
   && pass "keepalive --apply: an operator's KeepAlive (true) is replaced and said so" || fail "keepalive KeepAlive true: rc $(rc ka-katrue): $(grep -i replacing "$T/ka-katrue.out")"
+ka_fresh; run ka-between "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LISTENER=0 -- --apply keepalive
+[ "$(rc ka-between)" = 1 ] && has ka-between "no Listener of $KH/actions-runner does (restarting or self-updating)" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-between.calls" \
+  && pass "keepalive --apply: the service up with no Listener of its own (between Listeners, a self-update) refuses before stopping anything" || fail "keepalive between: rc $(rc ka-between): $(tail -1 "$T/ka-between.out")"
 ka_fresh; run ka-noka "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
 [ "$(rc ka-noka)" = 1 ] && has ka-noka "shows no 'successful exit => 0' semaphore" \
   && pass "keepalive --apply: a reload that leaves no KeepAlive in the loaded job fails" || fail "keepalive no ka loaded: rc $(rc ka-noka): $(tail -1 "$T/ka-noka.out")"
