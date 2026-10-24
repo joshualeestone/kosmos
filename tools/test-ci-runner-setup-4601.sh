@@ -48,7 +48,8 @@ case "$me" in
       print-disabled) [ "${FX_PD_FAIL:-0}" = 1 ] && exit 1; printf 'disabled services = {\n'
         [ "${FX_DISABLED:-0}" = 1 ] && printf '\t"actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" => disabled\n'
         printf '}\n'; exit 0 ;;
-      bootout) # Whether the old job's process (FX_JOB_PID) was still alive when the bootout came: the test asserts it.
+      bootout) [ "${FX_INTERRUPT_LATE:-0}" = 1 ] && kill -INT "$PPID"   # a Ctrl-C after the SIGTERM
+        # Whether the old job's process (FX_JOB_PID) was still alive when the bootout came: the test asserts it.
         [ -z "${FX_JOB_PID:-}" ] || { kill -0 "$FX_JOB_PID" 2>/dev/null && echo "bootout-while-alive" >> "$CALL_LOG" || echo "bootout-after-exit" >> "$CALL_LOG"; }
         [ "${FX_BOOTOUT_FAIL:-0}" = 1 ] && exit 5; [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
       bootstrap) [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; rm -f "$out" "$(dirname "$CALL_LOG")/exited"; touch "$(dirname "$CALL_LOG")/bootstrapped"
@@ -76,7 +77,7 @@ case "$me" in
         if [ -f "$sl" ]; then if [ "$(cat "$sl")" -le 0 ]; then rm -f "$sl"; touch "$(dirname "$CALL_LOG")/spawn-scheduled"; else echo $(( $(cat "$sl") - 1 )) > "$sl"; touch "$(dirname "$CALL_LOG")/exited"; fi; fi
         jst="${FX_JOB_STATE:-running}"; [ -f "$(dirname "$CALL_LOG")/spawn-scheduled" ] && jst="spawn scheduled"
         [ -f "$(dirname "$CALL_LOG")/exited" ] && [ ! -f "$(dirname "$CALL_LOG")/spawn-scheduled" ] && jst="not running"
-        printf '%s = {\n\tresource coalition = {\n\t\tstate = active\n\t\tpid = 1\n\t}\n\tstate = %s\n' "$2" "$jst"
+        printf '%s = {\n\tresource coalition = {\n\t\tstate = active\n\t\tpid = 1\n\t\texit timeout = 99\n\t\tminimum runtime = 99\n\t}\n\tstate = %s\n' "$2" "$jst"
         # A running job shows its pid (999999 by default: a pid that cannot exist, so a wait on it ends at once).
         if [ -f "$(dirname "$CALL_LOG")/spawn-scheduled" ] || [ -f "$(dirname "$CALL_LOG")/exited" ]; then :   # no pid (measured)
         elif [ -f "$(dirname "$CALL_LOG")/respawned" ]; then printf '\tpid = 888888\n'
@@ -128,7 +129,8 @@ case "$me" in
     # FX_WORKER_ENDS_AFTER=N: this runner's job ends after N more -P reads (worker-up then goes away).
     case "$*" in *"-P "*Runner.Worker*) pl="$(printf '%s\n' "$@" | sed -n '/^-P$/{n;p;}')"; wu="$(dirname "$CALL_LOG")/worker-up"
       if [ -n "${FX_WORKER_ENDS_AFTER:-}" ] && [ -f "$wu" ]; then n="$(cat "$wu" 2>/dev/null)"; n="${n:-$FX_WORKER_ENDS_AFTER}"
-        if [ "$n" -le 0 ]; then rm -f "$wu"; else echo $((n - 1)) > "$wu"; fi; fi
+        if [ "$n" -le 0 ]; then rm -f "$wu"; [ -z "${FX_JOB_PID:-}" ] || kill "$FX_JOB_PID" 2>/dev/null || true   # the old runner ends with its job
+        else echo $((n - 1)) > "$wu"; fi; fi
       [ "$pl" = "$(cat .svc-pid 2>/dev/null || echo 4343)" ] && [ -f "$wu" ] && { echo 4242; exit 0; }; exit 1 ;; esac
     case "$*" in *Runner.Worker*) { [ "${FX_WORKER:-0}" = 1 ] || [ -f "$(dirname "$CALL_LOG")/worker-up" ] || [ -f "$(dirname "$CALL_LOG")/relay-worker-up" ]; } || exit 1; case "$*" in *"-x Runner.Worker"*) echo 4242; exit 0 ;; esac; exit 1 ;; esac
     [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
@@ -728,7 +730,7 @@ kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
 sleep 30 & jsp=$!
 ka_fresh; rm -f "$T/worker-up"; run ka-jobends "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=3 FX_WORKER_AFTER_KILL=1 FX_WORKER_ENDS_AFTER=2 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
-[ "$(rc ka-jobends)" = 0 ] && has ka-jobends "Waiting up to 3s more" && [ "$(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls")" -ge 3 ] \
+[ "$(rc ka-jobends)" = 0 ] && has ka-jobends "Waiting up to 3s more" && [ "$(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls")" -ge 3 ] && ! has ka-jobends "reloading anyway" \
   && grep -q '^launchctl bootstrap' "$T/ka-jobends.calls" \
   && pass "keepalive --apply: the second wait polls this runner's job until it ends, then reloads" || fail "keepalive job ends: rc $(rc ka-jobends): -P reads $(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls"): $(tail -1 "$T/ka-jobends.out")"
 rm -f "$T/worker-up"
@@ -856,6 +858,10 @@ ka_fresh; run ka-noformat "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="
 ka_fresh; run ka-writesfirst "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER=1 -- keepalive
 has ka-writesfirst "--apply writes KeepAlive into the plist first" && has ka-writesfirst "so --apply would refuse until idle" \
   && pass "keepalive dry run: a refusal says --apply writes the plist first" || fail "keepalive writes first: $(tail -3 "$T/ka-writesfirst.out")"
+# A Ctrl-C after the SIGTERM (during the bootout) is ignored: the reload completes, the runner is not left down.
+ka_fresh; run ka-intlate "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_INTERRUPT_LATE=1 -- --apply keepalive
+[ "$(rc ka-intlate)" = 0 ] && grep -q '^launchctl bootstrap ' "$T/ka-intlate.calls" && ! has ka-intlate "INTERRUPTED" && has ka-intlate "Ctrl-C is ignored until it is loaded again" \
+  && pass "keepalive --apply: a Ctrl-C after the SIGTERM does not leave the runner down; the reload completes" || fail "keepalive late interrupt: rc $(rc ka-intlate): $(tail -1 "$T/ka-intlate.out")"
 ka_fresh; run ka-outlives "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null
 [ "$(rc ka-outlives)" = 0 ] && has ka-outlives "had not ended 1s after SIGTERM" && grep -qx 'bootout-while-alive' "$T/ka-outlives.calls" \
@@ -938,11 +944,11 @@ ka_fresh; run ka-stuck "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH
 [ "$(rc ka-stuck)" = 1 ] && has ka-stuck "had not unloaded it" && has ka-stuck "may still be unloading" && ! grep -q '^launchctl bootstrap' "$T/ka-stuck.calls" \
   && pass "keepalive --apply: a bootout that does not unload says so and does not bootstrap" || fail "keepalive stuck: rc $(rc ka-stuck): $(tail -1 "$T/ka-stuck.out")"
 ka_fresh; chmod 000 "$KH/actions-runner/.service"; run ka-other "$KH" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$KH" -- keepalive; chmod 644 "$KH/actions-runner/.service"
-[ "$(rc ka-other)" = 0 ] && has ka-other "cannot read kosmos-ci's runner" && ! has ka-other "register first" \
+[ "$(rc ka-other)" = 3 ] && has ka-other "cannot read kosmos-ci's runner" && ! has ka-other "register first" \
   && pass "keepalive dry run as another user that cannot read the runner: says so, not \"register first\"" || fail "keepalive as other: rc $(rc ka-other): $(cat "$T/ka-other.out")"
 # As another user who CAN read the plist: still the note, never a verdict read from that user's own launchd and processes.
 ka_fresh; run ka-other-readable "$KH" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$KH" -- keepalive
-[ "$(rc ka-other-readable)" = 0 ] && has ka-other-readable "cannot read kosmos-ci's runner" && ! grep -q '^launchctl print' "$T/ka-other-readable.calls" && ! has ka-other-readable "not logged in" \
+[ "$(rc ka-other-readable)" = 3 ] && has ka-other-readable "cannot read kosmos-ci's runner" && ! grep -q '^launchctl print' "$T/ka-other-readable.calls" && ! has ka-other-readable "not logged in" \
   && pass "keepalive dry run as another user who can read the plist: says to run it as kosmos-ci, reads no launchd" || fail "keepalive other readable: rc $(rc ka-other-readable): $(tail -2 "$T/ka-other-readable.out")"
 # A trailing / on the CI home is dropped, so RUNNER_DIR still equals svc.sh's WorkingDirectory.
 ka_fresh; run ka-slash "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH/" -- keepalive
