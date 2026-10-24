@@ -140,3 +140,8 @@ Parity: restart clears the previous address, as the page does.
 2. [LOW] A web view rebuilt after a drop did not carry the forgotten list. FIXED: makeWebView passes it.
 3. [LOW] "A session the app held" was read from the keychain only; a session it could not save is held by the
    registrar for the launch. FIXED: the registrar's session first, the keychain second.
+
+## Review round 9 (blind, 07:3x): nothing real, CONVERGED
+Recorded (theoretical): offline at the moment of backing out, forget()'s fresh load fails, so the old page keeps
+the dropped session until a later load, and the forgotten list does not survive a relaunch. Needs the connection
+lost at that moment plus a Mac Allow for the abandoned session or a relaunch then the web route.
