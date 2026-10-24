@@ -16,6 +16,7 @@
  *   T8  away from Kosmos+, the compact notice names the waiting browsers;
  *   T6b a row the tunnel drops (five wrong codes) keeps its sentence as the note, with focus on it;
  *   T6c a 200 whose body does not read is never said as Connected;
+ *   T6d (c3) a Not me that met the automatic Allow says it was taken back out (and, as the control, one that was not);
  *   T10 away from Kosmos+, x puts away the waiting browsers it named and a new one brings the notice back;
  *   T9  no page errors.
  *
@@ -221,6 +222,20 @@ const read = (page) => page.evaluate(() => {
       chk(r6.rows === 1 && /too many tries/.test(r6.text) && r6.focus === 'plus-waiting-note', 'T6b a row dropped by the tunnel keeps its sentence, as the note, with focus on it', JSON.stringify(r6));
       allErrs.push(...e6);
       await p6.close();
+    }
+
+    // T6d (c3): a Not me that met the automatic Allow says the browser was taken back out; one that was let in and not
+    // taken back keeps the remove-it-under-Devices sentence (the control).
+    for (const takenBack of [true, false]) {
+      const post = () => ({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, dropped: 1, allowed: true, takenBack }) });
+      const { page: pc, errs: ec } = await open(browser, () => ({ body: TWO }), { base, post });
+      await pc.click(`#plus-waiting [data-wait="drop"][data-id="${K2}"]`);
+      await pc.waitForTimeout(400);
+      const t = await pc.evaluate(() => (document.getElementById('plus-waiting').innerText || '').replace(/\s+/g, ' '));
+      chk(takenBack ? /taken back out/.test(t) && !/remove it under Devices/.test(t) : /remove it under Devices/.test(t) && !/taken back out/.test(t),
+        `T6d Not me after an Allow, takenBack ${takenBack}: ${takenBack ? 'says it was taken back out' : 'says to remove it under Devices'}`, t);
+      allErrs.push(...ec);
+      await pc.close();
     }
 
     // T6c: a 200 whose body is not the board's answer is not "Connected" (review 1).

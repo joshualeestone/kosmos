@@ -52301,6 +52301,7 @@ async function waitAct(act, id) {
     delete WAIT.said[id];
     delete WAIT.wrong[id];
     if (act === 'allow') note('Connected. You can remove it any time under Devices.');
+    else if (act === 'drop' && said.allowed && said.takenBack) note('That browser had been let in a moment before you pressed Not me. It has been taken back out.');
     else if (act === 'drop' && said.allowed) note('That browser was already let in a moment ago. If it is not yours, remove it under Devices.');
     else if (act === 'drop') note('Turned away for today. If that was your own browser, press Clear waiting browsers, then reload the page on it for a new code.');
     else note('Cleared. A browser that still wants in gets a new code when its page is reloaded.');
