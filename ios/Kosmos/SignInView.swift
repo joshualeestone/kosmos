@@ -192,6 +192,10 @@ final class SignInModel: ObservableObject {
         }
     }
 
+    /// kosmos#7050 slice C: the app left the screen (to the background): a passkey sheet still open is closed, so its
+    /// press is answered (as not used) instead of leaving the screen busy.
+    func appLeft() { client?.cancelPasskey() }
+
     /// kosmos#7050 slice C: sign in with a passkey, in Apple's passkey sheet. The grant finish brings back is spent at
     /// verify in place of the code, for the account's own email, with this iPhone's proof (as a company sign-in's is),
     /// so the second step and the Allow follow exactly as for a code.
@@ -349,6 +353,7 @@ struct SignInView: View {
     let useWeb: () -> Void
     @FocusState private var focused: Bool
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ScrollView {
@@ -362,6 +367,7 @@ struct SignInView: View {
         }
         .background(Palette.ground.ignoresSafeArea())
         .scrollDismissesKeyboard(.interactively)
+        .onChange(of: scenePhase) { phase in if phase == .background { model.appLeft() } }
     }
 
     @ViewBuilder private var content: some View {
