@@ -48,6 +48,20 @@ Today no recovery key ships, so the relay never refuses this way: the slice land
 - Kept: the accepted key is spent by the next registration run whatever stops it (a mistyped code included). Using
   it once is the property; the screen's copy (next slice) says Accept is for the next sign-in.
 
+## Review 2 (fixed)
+- The three registration routes (setup-complete, company/complete, signin-register) answered a failure with
+  `{ error }` only, so `keyChanged` never reached the page and the plan's "the answer carries it" was false at the
+  HTTP layer. Each now forwards it; a route test drives all three with a refusal that names a key and one that
+  does not (arm C1: one route's forwarding removed is red).
+- An offer outlived its use: it is now cleared when accepted (a second Accept needs a second refusal, arm C2) and
+  by any registration that goes through (setup paths through withKeyChange, arm C3; the in-app register clears it
+  on its own success path, untested for the same reason as its keyChanged).
+- Kept: the acceptance is spent by whichever registration runs next, not only the person's own retry (a company
+  finish or a second name). It vouches only for the key accepted, so the cost is one more Accept, not trust.
+- My own test edits for C2 made the Forget test vacuous twice (the second Accept was refused, then a re-offer spent
+  the acceptance before the Forget). Split into two arms, an offer then Forget and an acceptance then Forget; A6 and
+  B6 re-run red against the new test.
+
 ## Rejected
 - The board writing coordinator_pubkey itself: bypasses the tunnel's store and floor discipline.
 - Parsing the key from any setup verb's error: a verb that echoes service text could show a forged prompt.
@@ -73,5 +87,6 @@ Not covered by a test: keyChanged on the in-app register path (signin register),
 session to reach; it is the same one-line withKeyChange call as the setup path, which is tested.
 
 ## Progress
-- [x] engine, route, tests, arms (11 engine + 2 route tests; files naming the touched code: 1,377 pass, 0 fail)
+- [x] engine, route, tests, arms (12 engine + 3 route tests). Sweep after review 2 (load ~12, another suite running):
+  1,374 pass, 5 fail, all timing tests (a hung tunnel, the #988 end to end, a c3 offer); their 3 files alone: 110 pass.
 - [ ] validation, challenge-loop, PR

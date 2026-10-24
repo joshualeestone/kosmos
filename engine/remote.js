@@ -952,6 +952,8 @@ function serviceKeySetHeld() {
 }
 /* A failed registration that named the key it was offered, while no set is held: the page can offer to accept it. */
 function withKeyChange(result) {
+  // A registration that went through ends any offer: a later Accept must not vouch for a key nobody is asking about.
+  if (result && result.ok === true) lastOffered = null;
   if (!result || result.ok !== false || serviceKeySetHeld()) return result;
   // The whole of stderr; `because` (its last line) only when there is no stderr, so a text naming two keys across
   // lines is not read as naming one.
@@ -971,6 +973,7 @@ function acceptOfferedKey(key) {
     return { ok: false, because: 'this version of Kosmos checks Kosmos+ keys against its own signed list, so a different key cannot be accepted here' };
   }
   acceptedKey = { key: k, at: Date.now() };
+  lastOffered = null;   // accepted once: a second Accept needs a second refusal
   return { ok: true, because: null };
 }
 /* The accepted key for the registration run starting now, once: taken, so a second run does not reuse it. */
@@ -4166,6 +4169,7 @@ async function signinRegister(name) {
     abandonChangedIdentity(before, addressBefore, startedAt);
     return withKeyChange(r);
   }
+  lastOffered = null;   // kosmos#6596 step 8: a registration that went through ends any offer
   signinSession = null;   // the token is spent; it must not linger in this process
   /* #3827 (Josh's live test: registered, then the relay never heard from this Mac): ensure() starts the
      tunnel only when switched ON, and nothing set it, so the pane showed "Turn on" and the wizard's
