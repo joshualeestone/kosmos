@@ -4604,6 +4604,8 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
      the computer only (the list carries each browser's network). */
   waiting: Object.freeze({ code: 'remote_not_allowed', error: 'The browsers waiting to connect are shown at the computer itself, not in a remote session.' }),
   typedAllow: Object.freeze({ code: 'remote_not_allowed', error: 'Letting in a waiting browser is done at the computer itself, not from a remote session.' }),
+  /* kosmos#6596 step 8: trusting a changed Kosmos+ key is the person's decision, made at the computer. */
+  acceptKey: Object.freeze({ code: 'remote_not_allowed', error: 'A changed Kosmos+ key is accepted at the computer itself, not from a remote session.' }),
 });
 /* kosmos#6595 (R01, the step-up half; Splinter's ruling 09:44 2026-10-19): from a remote session, entering a key or
    token, updating Kosmos, and making an agent (every agent here runs with an unsandboxed shell) need a FRESH sign-in
@@ -11328,6 +11330,29 @@ const server = http.createServer(async (req, res) => {
         const done = remote.ackCertWatchLost(body.at);
         if (!done.ok) { sendJson(res, 400, { error: done.because }); return; }
         sendJson(res, 200, { certWatch: remote.certWatch() });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that' }));
+    return;
+  }
+  /* kosmos#6596 step 8: the person accepts the key a refused sign-in named (`keyChanged.offered` in its answer). It is
+     held for the next sign-in only (engine/remote.js acceptOfferedKey); nothing is written. Person-only, at the computer
+     itself, as the typed-code Allow. */
+  if (pathname === '/api/remote/accept-key' && req.method === 'POST') {
+    if (isRemoteRequest(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.acceptKey); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* As the typed-code Allow: made on this computer (loopback Host and Origin, no forwarder), with its own board
+           session, by a person at the screen. */
+        if (!isLoopbackPeer(req) || !madeOnThisComputer(req.headers) || !boardCookieHere(req) || !isViaScreen(req, body)) {
+          sendJson(res, 403, { error: 'Only a person at this computer can do this, in Kosmos.' });
+          return;
+        }
+        const done = remote.acceptOfferedKey(body.key);
+        if (!done.ok) { sendJson(res, 400, { error: done.because }); return; }
+        sendJson(res, 200, { ok: true });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that' }));
     return;
