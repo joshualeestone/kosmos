@@ -221,3 +221,13 @@ That svc.sh keeps recording the plist path in .service (true of actions/runner t
 stops, keepalive refuses rather than guessing). Second: that the runner keeps ending the launchd job with exit 0 on
 every deliberate stop. If a future runner version
 exits non-zero on, say, a session conflict, KeepAlive would restart it into the same conflict every 10 s.
+
+## Review round 18 (sonnet, blind, HEAD 70f05bbe1c)
+- W1 FIXED: verify, home hidden from the caller: the LaunchAgent check fell through to "no .service: not registered".
+  It now checks `hidden` first and says it cannot look inside (test on v-home-hidden and v-home-closed; mutant red).
+- W2 FIXED: the stage's ok line said "restarts after a kill"; a SIGTERM is a stop and is not restarted. It now says
+  "after a SIGKILL or a crash".
+- W3 FIXED: no case for --apply on a loaded job that is not running (exited 0). Added ka-loadedstopped: no SIGTERM,
+  bootout, bootstrap (mutant that forces a pid: red).
+- DEFERRED (CONVENTION, NITs): the plan's stale "default 30" wording and a print-disabled negative fixture are plan or
+  test polish with no behaviour behind them; recorded, not built.
