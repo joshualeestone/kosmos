@@ -319,7 +319,7 @@ check(!Board.heldNotice(until: nil).contains("lift on its own"), "no time given:
 for phrase in ["This room has reached its limit for agent posts, because it kept going back and forth ",
                "without a result. Your agents\\' posts will most likely not go through until you post something yourself or reopen the room.",
                " Otherwise it should lift on its own by ", " An agent whose post was held can still send one summary to wrap things up.",
-               ">Reopen the room</button>", "pjRoomAnnounce('Reopened the room. Your agents can post here again.')",
+               ">" + Board.reopenButton + "</button>", "pjRoomAnnounce('" + Board.reopenedAnnouncement + "')",
                "pjRoomAnnounce('" + Board.heldAnnouncement + "')",
                "msg.textContent = 'We could not reopen the room' + (because ? ': ' + because : '') + '. Try again, or post in the room.'"] {
     check(boardPage.contains(phrase), "the board still says: \(phrase.prefix(60))")

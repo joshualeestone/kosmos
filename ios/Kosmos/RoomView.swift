@@ -87,6 +87,8 @@ struct RoomView: View {
         )
         .onAppear {
             visible = true
+            // kosmos#7072: coming back to a room that is held says so, as the board does when it shows a held room.
+            if store.held[project.id] != nil { Self.say(Board.heldAnnouncement) }
             // The box as the person left it (RoomStore.drafts), then anything handed back while they were away, and a
             // kept not-confirmed post's words cleared (onChange never sees the value present at appearance).
             if draft.isEmpty, let d = store.drafts[project.id] { draft = d.text; replying = d.replyTo; replyMention = d.mention }
@@ -95,7 +97,7 @@ struct RoomView: View {
         .onDisappear { visible = false; loop?.cancel(); loop = nil }
         // kosmos#7072: a hold that appears while the room is on screen is said aloud, as the board's paint does.
         .onChange(of: store.held[project.id] != nil) { now in
-            if now && visible { UIAccessibility.post(notification: .announcement, argument: Board.heldAnnouncement) }
+            if now && visible { Self.say(Board.heldAnnouncement) }
         }
         // kosmos#7062: a post's file in the system's Quick Look; closed, it is removed from the phone (the chat's rule).
         .quickLookPreview($previewURL)
@@ -220,7 +222,8 @@ struct RoomView: View {
                     words
                 }
                 Button(Board.reopenButton) { reopen() }
-                    .font(.footnote.weight(.semibold)).frame(minHeight: 44).fixedSize().disabled(reopening)
+                    // It may wrap at the largest text sizes rather than run past the band (review 3).
+                    .font(.footnote.weight(.semibold)).frame(minHeight: 44).fixedSize(horizontal: false, vertical: true).disabled(reopening)
                 // Under the button, never squeezed beside it (review 2).
                 if let reopenNote {
                     Text(reopenNote).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
@@ -240,6 +243,13 @@ struct RoomView: View {
         }
     }
 
+    // kosmos#7072 review 3: queued, so it never cuts off what VoiceOver is saying (the focused box, an announcement
+    // before it), and the next one waits for it.
+    static func say(_ words: String) {
+        UIAccessibility.post(notification: .announcement,
+                             argument: NSAttributedString(string: words, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
+    }
+
     private func reopen() {
         reopening = true
         reopenNote = nil
@@ -253,7 +263,7 @@ struct RoomView: View {
             case .reopened:
                 if visible {
                     composerFocused = true
-                    UIAccessibility.post(notification: .announcement, argument: Board.reopenedAnnouncement)
+                    Self.say(Board.reopenedAnnouncement)
                 }
                 // Then the re-read, so a hold it finds is announced after "Reopened", as on the board.
                 await store.loadRoom(id)
@@ -262,7 +272,7 @@ struct RoomView: View {
                 // away, and its refusal must not wait beside the next one (review 2).
                 guard store.held[id] != nil else { break }
                 reopenNote = sentence
-                if visible { UIAccessibility.post(notification: .announcement, argument: sentence) }   // the board's role=status
+                if visible { Self.say(sentence) }   // the board's role=status
             case .dropped:
                 break
             }

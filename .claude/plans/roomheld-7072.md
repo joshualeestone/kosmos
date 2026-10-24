@@ -34,4 +34,8 @@ shows the board's sentence; the room suite covers it against the real route's an
    is kept only while the room is still held; the refusal clears when the notice's words change, not on every small
    move of until; the typing cap scales with text size; the refusal sits under the button. Stated: the store's read
    numbering wiring is tested only through readMayWriteHold (a regression costs one poll, 5 s).
+   Round 3: 0 blockers, 2 warnings, 3 nits. Fixed: every announcement here is queued (never cut off by the focused
+   box or by each other); the button may wrap at the largest text rather than overflow; the board-phrase checks use
+   the phone's own constants; returning to a held room announces it; the Debug sample hold is set once and cleared by
+   a reopen.
 3. Validation, PR.
