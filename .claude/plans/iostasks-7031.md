@@ -63,3 +63,13 @@ AppTabs.isNative, `ContentView.swift`, `ios/LogicTests/main.swift`) are touched 
 ## Weakest premise
 That the board's row rules can be mirrored as data without the page: the row line depends on agoWords and on agent
 display names (tskAgentName). The logic takes both in, and the tests pin the words against the board's own strings.
+
+## Design review (Mona Lisa, 2026-10-24 07:58 CDT, card comment): approved, one fix, one check
+- The three differences above (title words, task page under Today, the full ready-to-check sentence): all accepted.
+  "Needs Your Decision" in title case is the board's own label (#3949): kept exactly.
+- [FIX] at the largest text the dot rested on the first line's baseline and read as a full stop --> FIXED: the dot is
+  centred in a hidden one-line text of the label's font, which also carries that line's baseline into the row, so it
+  is centred on the first line at every size, same gap to the label.
+- [CHECK] the end of the list clears the floating tab bar --> shots scrolled to the end (light, dark, Completed open),
+  through two Debug-only sample switches (KOSMOS_SAMPLE_SCROLL=end, KOSMOS_SAMPLE_COMPLETED=open).
+- My own look before the review, also fixed: the dot sat between the two lines of a wrapped label.
