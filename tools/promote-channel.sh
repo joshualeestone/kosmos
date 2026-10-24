@@ -54,12 +54,14 @@
 # A NAMED VERSION (--version <V>, Mac only, kosmos#7005). By default the build promoted is whatever
 # latest-staging.json names NOW, so a pending prod GO froze staging: a staging cut would replace the
 # approved build. With --version, the pointer and installer come from a site commit (on HEAD) whose
-# latest-staging.json names V, so staging can move on. Every commit naming V must name the same bytes;
+# latest-staging.json names V, so staging can move on. Every commit naming V (that matches --sha, when
+# given) must name the same build;
 # the one used is the newest whose committed setup-staging hashes to its pointer's setup_sha256 (the
 # staging cut's own commit, which carries both), else the newest naming V. --sha <8+ characters of its
 # sha256> names which build Josh approved: needed when V was cut more than once (a re-cut after an abort),
 # and with --force, so a forced promote is tied to the approved bytes, not only to a version that could be
-# mistyped. A V older than the build prod serves now is refused unless --allow-older is given (a rollback
+# mistyped. --commit <sha> picks the commit itself (it must still name V, and every check still applies to it). A V
+# older than the build prod serves now is refused unless --allow-older is given (a rollback
 # is a decision, not a typo). The checks below run on what that commit holds: the artifact and its
 # sidecar, the manifest and its signature, the installer's sha and floor, and the gates (the experience
 # gate expects V, so a board on a later staging build answers cannot-tell and the promote HOLDS). The
@@ -74,7 +76,8 @@
 #             which is per-account and usually NOT 16180). Also settable via KOSMOS_PORT.
 #             Give the port so a wrong-port HOLD does not push you toward --force, which
 #             bypasses the gate entirely.
-#   tools/promote-channel.sh <site-checkout> [port] --version <V> [--sha <sha256 prefix>] [--allow-older] [--force]
+#   tools/promote-channel.sh <site-checkout> [port] --version <V> [--sha <sha256 prefix>] [--commit <site sha>]
+#                            [--allow-older] [--force]
 #             promote V from its own staging commit, whatever staging names now (see above)
 #   tools/promote-channel.sh <site-checkout> --family win --approved-version <V> \
 #       --approved-sha <sha256> --approval-ref <Slack message ts or permalink>
@@ -84,13 +87,13 @@
 #   (the Windows gate has no command override: it is always tools/win-staging-verified.sh)
 set -uo pipefail
 
-SITE=""; FORCE=0; PORT=""; FAMILY="mac"; APPROVED_VERSION=""; APPROVED_SHA=""; APPROVAL_REF=""; NAMED_VERSION=""; NAMED_SHA=""; ALLOW_OLDER=0
+SITE=""; FORCE=0; PORT=""; FAMILY="mac"; APPROVED_VERSION=""; APPROVED_SHA=""; APPROVAL_REF=""; NAMED_VERSION=""; NAMED_SHA=""; NAMED_PICK=""; ALLOW_OLDER=0
 while [ $# -gt 0 ]; do
   a="$1"; shift
   case "$a" in
     --force) FORCE=1 ;;
     --allow-older) ALLOW_OLDER=1 ;;
-    --family|--approved-version|--approved-sha|--approval-ref|--version|--sha)
+    --family|--approved-version|--approved-sha|--approval-ref|--version|--sha|--commit)
       [ $# -gt 0 ] || { echo "promote-channel: $a needs a value" >&2; exit 1; }
       case "$a" in
         --family) FAMILY="$1" ;;
@@ -99,6 +102,7 @@ while [ $# -gt 0 ]; do
         --approval-ref) APPROVAL_REF="$1" ;;
         --version) NAMED_VERSION="$1" ;;
         --sha) NAMED_SHA="$1" ;;
+        --commit) NAMED_PICK="$1" ;;
       esac
       shift ;;
     --family=*) FAMILY="${a#--family=}" ;;
@@ -107,6 +111,7 @@ while [ $# -gt 0 ]; do
     --approval-ref=*) APPROVAL_REF="${a#--approval-ref=}" ;;
     --version=*) NAMED_VERSION="${a#--version=}" ;;
     --sha=*) NAMED_SHA="${a#--sha=}" ;;
+    --commit=*) NAMED_PICK="${a#--commit=}" ;;
     -*) echo "promote-channel: unknown option $a" >&2; exit 1 ;;
     *)
       if [ -z "$SITE" ]; then SITE="$a"
@@ -134,6 +139,8 @@ SITE="${SITE:-${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}}"
 # A named promote's gates usually hold (the cut box's board has moved past V), so --force is its common path: tie it
 # to the approved build's bytes, not only to a version number.
 [ -z "$NAMED_VERSION" ] || [ "$FORCE" = 0 ] || [ -n "$NAMED_SHA" ] || { echo "promote-channel: --version with --force needs --sha <8+ characters of the approved build's sha256>, so a forced promote names the bytes Josh approved, not only a version" >&2; exit 1; }
+[ -z "$NAMED_PICK" ] || [ -n "$NAMED_VERSION" ] || { echo "promote-channel: --commit goes with --version" >&2; exit 1; }
+[ -z "$NAMED_PICK" ] || [[ "$NAMED_PICK" =~ ^[0-9a-f]{7,40}$ ]] || { echo "promote-channel: --commit must be 7 to 40 lowercase hex characters of a site commit (got '$NAMED_PICK')" >&2; exit 1; }
 [ -z "$NAMED_SHA" ] || [[ "$NAMED_SHA" =~ ^[0-9a-f]{8,64}$ ]] || { echo "promote-channel: --sha must be 8 to 64 lowercase hex characters of the build's sha256 (got '$NAMED_SHA')" >&2; exit 1; }
 [ -d "$SITE/dist" ] || { echo "promote-channel: no $SITE/dist" >&2; exit 1; }
 # kosmos#6620: no release pointer moves while the site is frozen (tools/pointer-freeze.sh, the incident pin).
@@ -183,10 +190,12 @@ if [ -n "$NAMED_VERSION" ]; then
   # changed V's pointer because the pointer is ONE line (tools/lib/write-latest-pointer.js), so any change to it
   # removes and adds the line holding the version; a hand-edited multi-line pointer would break that.
   git -C "$SITE" rev-parse --verify -q HEAD >/dev/null || { echo "promote-channel: $SITE is not a git checkout with a HEAD, so --version cannot read the commit that published $NAMED_VERSION - refusing; nothing was written." >&2; exit 1; }
-  NAMED_COMMIT=""; _paired=""; _builds=""; _seen=""
+  NAMED_COMMIT=""; _paired=""; _builds=""; _seen=""; _newest=""
   for _c in $(git -C "$SITE" log --format=%H -G "\"version\": *\"$NAMED_VERSION\"" HEAD -- "dist/$STAGING_NAME" 2>/dev/null); do
     git -C "$SITE" show "${_c}:dist/$STAGING_NAME" > "$NAMED_DIR/candidate.json" 2>/dev/null || continue
     [ "$(read_pointer_field "$NAMED_DIR/candidate.json" version)" = "$NAMED_VERSION" ] || continue
+    [ -n "$_newest" ] || _newest="$_c"   # the newest commit naming V at all, before --sha/--commit narrow it
+    case "$_c" in "$NAMED_PICK"*) ;; *) continue ;; esac   # --commit: only that commit (empty: every commit)
     _s="$(read_pointer_field "$NAMED_DIR/candidate.json" sha256)"
     [ -n "$_s" ] || continue   # no bytes named: not a usable pointer for V, so not a candidate
     case "$_s" in "$NAMED_SHA"*) ;; *) continue ;; esac   # --sha: only the build it names (empty: every build)
@@ -201,17 +210,29 @@ if [ -n "$NAMED_VERSION" ]; then
     if [ -z "$_paired" ] && [ -n "$_ps" ] \
        && [ "$(git -C "$SITE" show "${_c}:setup-staging" 2>/dev/null | shasum -a 256 | awk '{print $1}')" = "$_ps" ]; then _paired="$_c"; fi
   done
-  [ -n "$NAMED_COMMIT" ] || { echo "promote-channel: no commit on $SITE's HEAD has a $STAGING_NAME naming $NAMED_VERSION${NAMED_SHA:+ with a sha256 starting $NAMED_SHA} - refusing; nothing was written. (Pull the site, or check the version.)" >&2; exit 1; }
+  [ -n "$NAMED_COMMIT" ] || { echo "promote-channel: no commit on $SITE's HEAD has a $STAGING_NAME naming $NAMED_VERSION${NAMED_SHA:+ with a sha256 starting $NAMED_SHA}${NAMED_PICK:+ in a commit starting $NAMED_PICK} - refusing; nothing was written. (Pull the site, or check the version.)" >&2; exit 1; }
   case "$_builds" in *" "*)
     # What the operator can do depends on how they disagree: on the bytes (--sha picks one, or more of it does), or
-    # only on the artifact or manifest name (--sha cannot separate them: the pointer history needs fixing by hand).
+    # only on the artifact or manifest name (--sha cannot separate them; --commit names the one to use).
     _nshas="$(printf '%s\n' $_builds | cut -d'|' -f1 | sort -u | wc -l | tr -d ' ')"
-    if [ "$_nshas" = 1 ]; then _way="They name the same bytes but a different artifact or manifest, which --sha cannot separate: fix the pointer history by hand."
+    if [ "$_nshas" = 1 ]; then _way="They name the same bytes but a different artifact or manifest, which --sha cannot separate: name the commit whose pointer is right with --commit <its sha>."
     elif [ -n "$NAMED_SHA" ]; then _way="More than one build's sha256 starts with $NAMED_SHA: give more of the approved build's sha256."
     else _way="$NAMED_VERSION was cut more than once: name the build that was approved with --sha <its sha256, 8 or more characters>."; fi
     echo "promote-channel: commits naming $NAMED_VERSION disagree on its build ($_seen) - refusing; nothing was written. $_way" >&2; exit 1 ;;
   esac
   [ -z "$_paired" ] || NAMED_COMMIT="$_paired"
+  # The cut's own commit can win over a later commit naming V. Say so, and whether that later pointer differs in
+  # anything but the installer it names, so a republish made to correct a field is not dropped without a word.
+  if [ -n "$_newest" ] && [ "$_newest" != "$NAMED_COMMIT" ]; then
+    git -C "$SITE" show "${_newest}:dist/$STAGING_NAME" > "$NAMED_DIR/newest.json" 2>/dev/null
+    git -C "$SITE" show "${NAMED_COMMIT}:dist/$STAGING_NAME" > "$NAMED_DIR/chosen.json" 2>/dev/null
+    if node -e 'const r=f=>{const p=JSON.parse(require("fs").readFileSync(f,"utf8"));delete p.setup_sha256;return JSON.stringify(p,Object.keys(p).sort())};process.exit(r(process.argv[1])===r(process.argv[2])?0:1)' "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json" 2>/dev/null; then
+      echo "promote-channel: NOTE using ${NAMED_COMMIT:0:10} for $NAMED_VERSION; ${_newest:0:10}, a later commit naming it, points at the same build" >&2
+    else
+      echo "promote-channel: NOTE using ${NAMED_COMMIT:0:10} for $NAMED_VERSION; ${_newest:0:10}, a later commit naming it, has a pointer that differs in more than its installer: if that one is right, run again with --commit ${_newest:0:10}" >&2
+    fi
+    rm -f "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json"
+  fi
   # Only a commit the site has published was ever served to staging: it must be on origin/main. A site with no origin
   # (a local test site) cannot say, and the promote says so.
   if git -C "$SITE" remote get-url origin >/dev/null 2>&1; then
@@ -410,7 +431,11 @@ if [ "$FAMILY" = mac ]; then
           echo "promote-channel: AFTER the deploy, once the board the gate checked $_gate_board reports $V, run the check it could not: KOSMOS_GATE_EXPECT_VERSION=$V bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-experience-check.sh${PORT:+ $PORT}" >&2
         fi
       else
-        echo "promote-channel: gate could not tell (exit 2) - its cannot-tell line above says why: no fresh enforcing board here, or a board that is not running $V (#5084). HOLDING. Run this on/against a fresh staging board on $V, or pass --force after verifying $V by hand." >&2
+        if [ -n "$NAMED_VERSION" ]; then
+          echo "promote-channel: gate could not tell (exit 2) - its cannot-tell line above says why: no fresh enforcing board here, or a board that is not running $V (#5084; with --version, usually a board that has moved on to a later staging build). HOLDING. Run this against a board on $V, or verify $V by hand and pass --force with --sha <8+ characters of its sha256>." >&2
+        else
+          echo "promote-channel: gate could not tell (exit 2) - its cannot-tell line above says why: no fresh enforcing board here, or a board that is not running $V (#5084). HOLDING. Run this on/against a fresh staging board on $V, or pass --force after verifying $V by hand." >&2
+        fi
         exit 2
       fi ;;
     *) echo "promote-channel: gate returned an unexpected code ($GATE_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;

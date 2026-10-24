@@ -95,3 +95,16 @@ fresh cut box would not have it; the promote then refuses (artifact missing), as
 - A site that is not a git checkout is refused as such, not as "pull the site".
 - The header says exactly what differs in named mode (it said "every check runs unchanged").
 - The test's leftover-folder check has a control that plants a folder and sees it.
+
+## Iteration 7 (challenge) changes: the selection rule stops moving; the decision moves to the operator
+Iterations 2 and 7 pulled the agreement rule in opposite directions (widen it to artifact and manifest; then:
+a manifest-only difference is a dead end). Rather than flip it again, the rule stays strict and the operator
+gets the decision: `--commit <site sha>` picks the commit (it must still name V and pass every check). When
+the cut's own commit wins over a later commit naming V, a NOTE says so and whether that later pointer differs
+in more than its installer (with the --commit to use it).
+- The named-mode HOLD message names a board on V and --force with --sha.
+- Docs: --commit, and a version that cannot be compared also needs --allow-older.
+- Test: a failing fetch refuses (reached past the pointer-freeze guard, which fetches first, with
+  KOSMOS_POINTER_FREEZE_OFFLINE=1).
+- Not changed (NITs): `printf '%s\n' $_builds` word-splits on purpose (fields are hex and bare filenames);
+  the "beside the OLDER /setup" sentence names prod's installer and stays.

@@ -133,6 +133,12 @@ republish() {   # <site> <version> [setup_sha256 or ""] [sha256 override]: a han
 S="$(newsite)"; republish "$S" 9.9.8
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$S/setup")" = "INSTALLER-9.9.8 KOSMOS_READONLY_APP" ] && pass "named: a later republish naming no installer does not hide the cut's own installer" || bad "named after an installer-less republish (rc=$rc, setup: $(cat "$S/setup"), out=$out)"
+has "$out" "a later commit naming it, points at the same build" && pass "named: says a later commit names V, and that it points at the same build" || bad "named same-build NOTE (out=$out)"
+# A later commit naming V whose pointer differs in another field: the NOTE says so and how to use it.
+S="$(newsite)"; node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.version="9.9.8";p.sha256=require("fs").readFileSync(process.argv[2],"utf8").split(" ")[0];p.artifact="kosmos-9.9.8-arm64.tar.gz";p.manifest="kosmos-9.9.8-arm64.manifest.json";delete p.setup_sha256;p.extra="corrected";require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$S/dist/latest-staging.json" "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256"
+git -C "$S" commit -qm "9.9.8 republished with another field" -- dist/latest-staging.json
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "differs in more than its installer: if that one is right, run again with --commit" && pass "named: a later commit naming V with another field is named, with the way to use it" || bad "named differing NOTE (rc=$rc, out=$out)"
 # The same republish keeping 9.9.8's installer name, but committed beside 9.9.9's setup-staging: the cut's commit still wins.
 S="$(newsite)"; republish "$S" 9.9.8 "$(printf 'INSTALLER-9.9.8 KOSMOS_READONLY_APP\n' | shasum -a 256 | awk '{print $1}')"
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
@@ -163,7 +169,14 @@ out="$(bash "$HERE/promote-channel.sh" "$(newsite)" --sha "${real98:0:8}" 2>&1)"
 [ "$rc" = 1 ] && has "$out" "--sha goes with --version" && pass "default: --sha alone is refused" || bad "--sha alone (rc=$rc, out=$out)"
 S="$(newsite)"; KM_LJ_VERSION=9.9.8 KM_LJ_SHA="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")" KM_LJ_ARTIFACT=kosmos-9.9.8-arm64.tar.gz KM_LJ_MANIFEST=kosmos-9.9.8-arm64.other.json \
   node "$WR" "$S/dist/latest-staging.json"; git -C "$S" commit -qm "9.9.8 republished naming another manifest" -- dist/latest-staging.json
-refused "commits naming V with the same bytes but another manifest" "$S" "which --sha cannot separate" --version 9.9.8
+refused "commits naming V with the same bytes but another manifest" "$S" "which --sha cannot separate: name the commit whose pointer is right with --commit" --version 9.9.8
+c98="$(git -C "$S" log --format=%H -1 --grep='^9\.9\.8: the staging pointer')"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --commit "${c98:0:10}" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" manifest)" = kosmos-9.9.8-arm64.manifest.json ] && pass "named: --commit picks the commit when builds differ only in their manifest" || bad "named --commit (rc=$rc, out=$out)"
+refused "--commit naming no commit that names V" "$(newsite)" "in a commit starting 0000000" --version 9.9.8 --commit 0000000
+refused "a malformed --commit" "$(newsite)" "7 to 40 lowercase hex" --version 9.9.8 --commit xyz
+out="$(bash "$HERE/promote-channel.sh" "$(newsite)" --commit 0000000 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "--commit goes with --version" && pass "default: --commit alone is refused" || bad "--commit alone (rc=$rc, out=$out)"
 
 # ---- a named pointer that names no installer: /setup is left, and the hand fix names the commit ----
 S="$(newsite)"; mkcut "$S" 9.9.10 "INSTALLER-9.9.10 KOSMOS_READONLY_APP" none
@@ -237,6 +250,9 @@ out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.12 2>&1)"; rc=$?
 git -C "$S" push -q origin HEAD:main
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.12 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.12 ] && ! has "$out" "no origin remote" && pass "named: CONTROL once pushed, the same commit promotes" || bad "named published (rc=$rc, out=$out)"
+S="$(newsite)"; git -C "$S" remote add origin "$T/no-such-origin.git"
+# (The pointer-freeze guard fetches origin first and refuses on its own; offline, it lets this check be the one that answers.)
+KOSMOS_POINTER_FREEZE_OFFLINE=1 refused "a site whose origin cannot be fetched" "$S" "could not fetch the site to check that" --version 9.9.8
 has "$(bash "$HERE/promote-channel.sh" "$(newsite)" --version 9.9.8 2>&1)" "has no origin remote" && pass "named: a site with no origin says it cannot check publication" || bad "named no-origin note missing"
 
 # ---- the port the usage line advertises reaches the gate in named mode ----
