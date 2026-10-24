@@ -39,7 +39,6 @@ function harness({ edges = [], computers = null } = {}) {
     spawnSeat: (edge) => { const c = fakeChild(); c.edge = edge; h.spawned.push(c); return c; },
     macRequest: async (method, route) => {
       h.asked.push(route);
-      if (h.gate) await h.gate;   // a test holds the answer back
       if (route === COMPUTERS) return answer(computers) || { ok: false, because: 'no answer' };
       return { ok: true, data: { as_owner: answer(edges), as_member: [] } };
     },
@@ -182,55 +181,117 @@ async function ownComputer(id, room, opts) {
   return { h, seat };
 }
 const forged = (room) => ({ event: 'message', data: fedseal.seal(fedseal.randomSecret(), 0, room, { from: 'x', kind: 'person', text: 'forged' }) });
+const WAIT = 10 * 1000;   // fedseats OWNER_OFFER_WAIT_MS
+const edgeAsks = (h) => h.asked.filter((r) => r === fedseats.MAC_EDGES).length;
+const sealedRecord = (id) => { const st = fedseal.roomState(id); return !!st && st.ownComputer === true; };
 
-test('#7028: Kosmos+ lists no edge for the project, so a sealed-looking frame is forged: the record clears, and a post held meanwhile is told, never sent in the clear', async () => {
+test('#7028: Kosmos+ lists no edge and no owner offer comes: the record clears, and a post held meanwhile is told, never sent in the clear', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   const { h, seat } = await ownComputer('fg-1', 'room-fg-1', { edges: [{ id: 'other', project_ref: 'ref-somewhere-else', status: 'active' }] });
-  let release;
-  h.gate = new Promise((r) => { release = r; });
   say(seat, forged('room-fg-1'));
   await settle();
-  // The answer is still out: the room reads sealed with no key, so the post is held, not sent.
-  fedseats.post('fg-1', { from: 'Josh', kind: 'person', text: 'held then sent' });
+  assert.ok(sealedRecord('fg-1'), 'the seal was not recorded while it is checked');
+  fedseats.post('fg-1', { from: 'Josh', kind: 'person', text: 'held then told' });
   await settle();
-  assert.ok(!seat.written.join('').includes('held then sent'), 'a post went out while the room read sealed');
-  h.gate = null;
-  release();
+  assert.ok(!seat.written.join('').includes('held then told'), 'a post went out while the room read sealed');
+  t.mock.timers.tick(WAIT);
   await settle();
-  assert.strictEqual(fedseal.roomState('fg-1'), null, 'the keyless record survived a "never sealed" answer');
-  // Written while the room read sealed, so it never leaves in the clear (sendPost's sealedHeld rule); the person is
-  // told now, not after the hour a held post waits.
-  assert.ok(!seat.written.join('').includes('held then sent'), 'a post written for a sealed room went out in the clear');
+  assert.strictEqual(fedseal.roomState('fg-1'), null, 'the keyless record survived a "never sealed" answer and no offer');
+  assert.ok(!seat.written.join('').includes('held then told'), 'a post written for a sealed room went out in the clear');
   assert.ok(h.notes.some((n) => n.projectId === 'fg-1' && /held message was not sent/.test(n.text)), 'the held post was not told');
   fedseats.post('fg-1', { from: 'Josh', kind: 'person', text: 'after the clear' });
   await settle();
   assert.ok(seat.written.join('').includes('after the clear'), 'a new post after the clear did not go');
-  // A second forged frame within the cooldown records nothing and asks nothing.
-  const asked = h.asked.length;
-  say(seat, forged('room-fg-1'));
+});
+
+test('#7028: the clear waits for the owner: an offer inside the wait keeps the record, and later answers never clear it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  // No edge listed: the room sealed for a guest who has since deleted their account reads the same.
+  const { seat } = await ownComputer('fg-5', 'room-fg-5', { edges: [] });
+  say(seat, forged('room-fg-5'));
   await settle();
-  assert.strictEqual(fedseal.roomState('fg-1'), null, 'a forged frame flipped the room back to sealed');
-  assert.strictEqual(h.asked.length, asked);
-  assert.ok(h.notes.some((n) => n.projectId === 'fg-1' && /never sealed/.test(n.text)));
+  const hello = fedseal.checkOwnHello(lines(seat).filter((f) => f.t === 'key-own-hello').pop());
+  assert.ok(hello, 'no own hello was said');
+  const owner = fedseal.newKeyPair();
+  say(seat, { event: 'message', same_account: true, data: fedseal.ownOfferFrame(owner, hello, fedseal.randomSecret()) });
+  await settle();
+  t.mock.timers.tick(WAIT);
+  await settle();
+  assert.ok(sealedRecord('fg-5'), 'a room the owner offered for was cleared as forged');
+  t.mock.timers.tick(WAIT);
+  say(seat, forged('room-fg-5'));
+  await settle();
+  t.mock.timers.tick(WAIT);
+  await settle();
+  assert.ok(sealedRecord('fg-5'), 'a later answer cleared a room the owner offered for');
+});
+
+test('#7028: an offer from another account does not count (only the relay\'s same_account stamp does)', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const { seat } = await ownComputer('fg-6', 'room-fg-6', { edges: [] });
+  say(seat, forged('room-fg-6'));
+  await settle();
+  const hello = fedseal.checkOwnHello(lines(seat).filter((f) => f.t === 'key-own-hello').pop());
+  say(seat, { event: 'message', same_account: false, data: fedseal.ownOfferFrame(fedseal.newKeyPair(), hello, fedseal.randomSecret()) });
+  await settle();
+  t.mock.timers.tick(WAIT);
+  await settle();
+  assert.strictEqual(fedseal.roomState('fg-6'), null, 'a guest\'s forged offer kept a forged seal');
+});
+
+test('#7028: right after a clear, a sealed-looking frame records the seal again (no window where a real seal is ignored), and is checked once the ask window ends', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const { h, seat } = await ownComputer('fg-7', 'room-fg-7', { edges: [] });
+  say(seat, forged('room-fg-7'));
+  await settle();
+  t.mock.timers.tick(WAIT);
+  await settle();
+  assert.strictEqual(fedseal.roomState('fg-7'), null, 'fixture: cleared');
+  const asks = edgeAsks(h);
+  // Within the first ask's window (it was asked WAIT ago, so a new ask is allowed now): a second frame.
+  say(seat, forged('room-fg-7'));
+  await settle();
+  assert.ok(sealedRecord('fg-7'), 'a sealed-looking frame after a clear was not recorded');
+  fedseats.post('fg-7', { from: 'Josh', kind: 'person', text: 'must not go in the clear' });
+  await settle();
+  assert.ok(!seat.written.join('').includes('must not go in the clear'), 'a post went out in the clear right after a clear');
+  assert.strictEqual(edgeAsks(h), asks + 1);
+  // A third frame inside this ask's window asks nothing now; it is checked when the window ends.
+  t.mock.timers.tick(1000);
+  say(seat, forged('room-fg-7'));
+  await settle();
+  assert.strictEqual(edgeAsks(h), asks + 1, 'a frame inside the window asked again');
+  t.mock.timers.tick(WAIT);
+  await settle();
+  // The second answer was asked before the third frame, so it does not clear: the room is asked again.
+  assert.ok(sealedRecord('fg-7'), 'an answer asked before the last sealed frame cleared the room');
+  assert.strictEqual(edgeAsks(h), asks + 2, 'the frame after the ask was never checked');
+  t.mock.timers.tick(WAIT);
+  await settle();
+  assert.strictEqual(fedseal.roomState('fg-7'), null, 'a fresh "never sealed" answer with no frame since and no offer did not clear');
 });
 
 for (const [why, edges] of [
   ['an active edge', [{ id: 'e', project_ref: 'ref-fg-2', status: 'active' }]],
   ['a revoked edge (the room was sealed once)', [{ id: 'e', project_ref: 'ref-fg-2', status: 'revoked' }]],
 ]) {
-  test('#7028: with ' + why + ' for the project, the sealed record is kept', async () => {
+  test('#7028: with ' + why + ' for the project, the sealed record is kept', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
     fedseal.forgetRoom('fg-2');
     const { seat } = await ownComputer('fg-2', 'room-fg-2', { edges });
     say(seat, forged('room-fg-2'));
     await settle();
-    const st = fedseal.roomState('fg-2');
-    assert.ok(st && st.ownComputer === true, 'the sealed record was cleared');
+    t.mock.timers.tick(WAIT);
+    await settle();
+    assert.ok(sealedRecord('fg-2'), 'the sealed record was cleared');
   });
 }
 
-test('#7028: a failed edges answer keeps the sealed record', async () => {
+test('#7028: a failed edges answer keeps the sealed record', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   federation.recordLink('fg-3', { role: 'self', ref: 'ref-fg-3' });
   const h = harness();
-  fedseats.configure({ spawnSeat: (e) => { const c = fakeChild(); h.spawned.push(c); return c; }, recordExternal: () => {}, enrolled: () => true, projectExists: () => true,
+  fedseats.configure({ spawnSeat: () => { const c = fakeChild(); h.spawned.push(c); return c; }, recordExternal: () => {}, enrolled: () => true, projectExists: () => true,
     note: () => {}, macId: () => MY_MAC, macRequest: async () => ({ ok: false, because: 'down' }) });
   await fedseats.ensure('fg-3');
   const seat = h.spawned[0];
@@ -238,10 +299,13 @@ test('#7028: a failed edges answer keeps the sealed record', async () => {
   await settle();
   say(seat, forged('room-fg-3'));
   await settle();
-  assert.ok(fedseal.roomState('fg-3') && fedseal.roomState('fg-3').ownComputer === true);
+  t.mock.timers.tick(WAIT);
+  await settle();
+  assert.ok(sealedRecord('fg-3'));
 });
 
-test('#7028: the check is asked fresh, never from an answer asked before the frame', async () => {
+test('#7028: the check is asked fresh, never from an answer asked before the frame', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   let edges = [];
   federation.recordLink('fg-4a', { role: 'self', ref: 'ref-fg-4a' });
   federation.recordLink('fg-4b', { role: 'self', ref: 'ref-fg-4b' });
@@ -255,10 +319,12 @@ test('#7028: the check is asked fresh, never from an answer asked before the fra
   // Room a's check caches an answer with no edges (fresh for 15 s); then room b's edge appears.
   say(sa, forged('room-fg-4a'));
   await settle();
-  assert.strictEqual(fedseal.roomState('fg-4a'), null);
   edges = [{ id: 'e', project_ref: 'ref-fg-4b', status: 'active' }];
   say(sb, forged('room-fg-4b'));
   await settle();
-  assert.ok(fedseal.roomState('fg-4b') && fedseal.roomState('fg-4b').ownComputer === true, 'an answer asked before the frame cleared a real seal');
-  assert.strictEqual(h.asked.filter((r) => r === fedseats.MAC_EDGES).length, 2);
+  t.mock.timers.tick(WAIT);
+  await settle();
+  assert.strictEqual(fedseal.roomState('fg-4a'), null);
+  assert.ok(sealedRecord('fg-4b'), 'an answer asked before the frame cleared a real seal');
+  assert.strictEqual(edgeAsks(h), 2);
 });
