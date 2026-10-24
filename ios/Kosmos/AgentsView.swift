@@ -207,7 +207,11 @@ struct BoardStates<Empty: View>: View {
         case .macRefused(let mac):
             message("\(mac) did not accept this iPhone's sign-in.", detail: "Try again in a moment. If it keeps happening, log out under Settings, Kosmos+, and sign in again.", retry: true)
         case .kosmosPlusRefused:
-            message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again on the Today tab. Otherwise try again in a moment.", retry: true)
+            // kosmos#7030 review 2: Today is native now, so "on the Today tab" no longer leads to a sign-in; the button does.
+            VStack(spacing: 12) {
+                message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again. Otherwise try again in a moment.", retry: true)
+                Button { openBoard() } label: { Text("Sign in") }
+            }
         }
     }
 

@@ -1749,7 +1749,19 @@ section("native board loop: connecting")
         let read = await settle { c.readyTasks != nil }
         check(read && c.readyTasks?.map(\.number) == [4] && !c.tasksFailed, "Today arriving reads its tasks")
         c.hide(BoardClient.agentsViewer)
-        check(c.agents.isEmpty == false, "CONTROL: the list stays while Today keeps the loop")
+        // Review 2: the loop really keeps going for Today (the list alone would stay up even if it stopped).
+        let readsBefore = w.count("/api/status")
+        await c.refreshNow()
+        check(w.count("/api/status") > readsBefore, "CONTROL: Today keeps the loop reading after Agents goes")
+        // Review 2: tasks read longer ago than a tick are unknown when Today comes back, until the read answers.
+        c.hide(BoardClient.todayViewer)
+        c.show(BoardClient.agentsViewer)
+        w.clock += BoardClient.tasksEvery + 1
+        w.tasksAnswer = nil   // the read now does not answer, so what shows is what show() left
+        c.show(BoardClient.todayViewer)
+        check(c.readyTasks == nil, "old tasks are not shown as current when Today comes back")
+        c.hide(BoardClient.agentsViewer)
+        w.tasksAnswer = (200, #"{"tasks":[{"projectId":"p1","projectName":"Catalogue","number":4,"sentence":"Pages 1 to 8","state":"built","builtBy":"dana"}]}"#)
         // A failed read: the old list goes, and it says so (never an old list shown as current).
         w.tasksAnswer = (500, #"{"error":"we cannot read your tasks right now"}"#)
         await c.refreshTasks()
@@ -1763,6 +1775,18 @@ section("native board loop: connecting")
         check(c.readyTasks?.count == 1, "CONTROL: a list to forget")
         c.accountChanged()
         check(c.waitingCount == nil && c.readyTasks == nil && !c.tasksFailed, "another account: no count, no tasks")
+        // Review 2: Kosmos+ ending the session (a 401 on the Mac list) drops the badge and the tasks too.
+        let (c2, w2, _, _) = make("kst1")
+        w2.statusDefault = (200, #"{"counts":{"waiting":2},"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
+        c2.show(BoardClient.todayViewer)
+        _ = await settle { isLive(c2) && c2.readyTasks != nil }
+        check(c2.waitingCount == 2 && c2.readyTasks?.count == 1, "CONTROL: a badge and tasks to drop")
+        w2.macsStatus = 401
+        c2.retry(); c2.retry()
+        let out = await settle { if case .signedOut = c2.phase { return true }; return false }
+        check(out && c2.waitingCount == nil && c2.readyTasks == nil, "signed out by Kosmos+: no badge, no tasks under Sign in")
+        c2.hide(BoardClient.todayViewer)
+        c2.stop()
         c.hide(BoardClient.todayViewer)
         c.stop()
     }

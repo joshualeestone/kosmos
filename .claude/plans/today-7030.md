@@ -129,3 +129,18 @@ Today, Answer/Open into the native chat, Check it into the task page in the boar
 - Noted, not changed: the badge updates only while Agents or the native Today is on screen (the loop's rule); on other
   tabs it holds its last value. Check it ends up lit under Projects once the board rewrites the address to its project
   page, which is the board's own rule for a task page.
+
+## Part 2 review round 2
+- Fixed (major): Kosmos+ refusing this iPhone left Today on a dead end ("sign in again on the Today tab", with Today now
+  native). BoardStates' refused state has a Sign in button into the board, and the line no longer names a tab.
+- Fixed (minor): a tasks read from before a reset could clear the handle of the read after it (startTasksRead with a
+  token).
+- Fixed (minor): tasks read longer ago than a tick are unknown when Today comes back, until the read answers.
+- Fixed (minor): the ready card's spoken label keeps names' case, uses commas, and says Not updating when stale.
+- Tests: the loop keeps reading for Today after Agents goes (a real control, not the list staying up); old tasks are
+  unknown on return; a Kosmos+ 401 drops the badge and tasks. Mutants go red.
+- Noted, not changed: after a sign-in from the board under Today, the person stays on the board until the next press
+  on Today (whether SwiftUI reports a press on the selected tab is on the device-check list). Switching to the native
+  Today on sign-in could cut into the board's own first-run steps, so it is left for the device check.
+- Noted: the immediate tasks read when Today arrives under a running loop is not pinned separately (the next tick reads
+  anyway); the token fix has no test of its own (a race between two reads).
