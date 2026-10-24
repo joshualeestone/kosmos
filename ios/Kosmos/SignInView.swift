@@ -123,14 +123,19 @@ final class SignInModel: ObservableObject {
                 // Re-checked after the wait: a way back pressed while the answer was coming wins (review round 1).
                 guard !Task.isCancelled, mine == self.attempt else { return }
                 switch read {
-                case .status(.acked): self.step = .done; return
+                case .status(.acked, _, _): self.step = .done; return
                 // Denied at sign-in and still denied: the Mac said no again. Asked again from waiting: it said no now.
-                case .status(.denied): self.step = .denied(asking: false); return
+                case .status(.denied, _, _): self.step = .denied(asking: false); return
+                case .status(.pending, let code, true):
+                    // A computer connected meanwhile: show its code now (only ever from "no computer" to one; review
+                    // round 3).
+                    if case .allow(_, false) = self.step { self.step = .allow(matchCode: code, hasComputer: true) }
+                    continue
                 case .ended:
                     self.step = .email
                     self.error = "This sign-in ended before your Mac answered. Sign in again."
                     return
-                case .status(.pending), .unknown: continue
+                case .status(.pending, _, false), .unknown: continue
                 }
             }
         }

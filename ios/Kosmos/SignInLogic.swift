@@ -143,7 +143,9 @@ enum SignIn {
 
     /// The Allow, read from /v1/account/me.
     enum AllowRead: Equatable {
-        case status(DeviceStatus)
+        /// With what the same answer says about the account's computers (signin.rs session_view carries addresses and
+        /// the match code), so a computer connected meanwhile shows its code (review round 3).
+        case status(DeviceStatus, matchCode: String?, hasComputer: Bool)
         /// The session itself was refused (signed out everywhere, the account going): the watch stops, as the web
         /// page's does on a 401.
         case ended
@@ -154,9 +156,11 @@ enum SignIn {
     static func allowRead(status: Int?, json: Any?) -> AllowRead {
         guard let status else { return .unknown }
         if status == 401 { return .ended }
-        guard (200..<300).contains(status), let s = (json as? [String: Any])?["device_status"] as? String,
+        let body = json as? [String: Any]
+        guard (200..<300).contains(status), let s = body?["device_status"] as? String,
               let known = DeviceStatus(rawValue: s) else { return .unknown }
-        return .status(known)
+        let match = (body?["match_code"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return .status(known, matchCode: match, hasComputer: !((body?["addresses"] as? [Any]) ?? []).isEmpty)
     }
 
     /// The coordinator's sentence, kept short and on one line; nil when it sent none.
@@ -174,12 +178,24 @@ enum SignIn {
     /// after, and its restore() opens signed in. The token goes in as a JSON string literal, never spliced as text.
     /// Returns true once it is stored. (Review round 1: the first version used the server's adopt cookie, which this
     /// page never reads.)
-    /// Only when the page holds no session of its own (review round 2): the app's keychain is the source, and a page
-    /// signed in as somebody (it handed that session to the app already) is left as it is.
-    static func storeScript(token: String) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: [token, pageSessionKey], options: []),
+    /// The app's keychain is the source: every session the page makes it hands to the app, so a page holding anything
+    /// else holds a session the app no longer has (revoked, signed out elsewhere) and is overwritten (review round 3;
+    /// round 2 only wrote an empty slot, and a dead token left there signed out a fresh native sign-in). Returns false
+    /// when nothing changed, so the page is not reloaded. `origin` is checked inside the script too: the page may have
+    /// moved between the app's host check and the script running (review round 3).
+    /// A URL's origin as a browser's `location.origin` writes it: scheme://host, and :port only when it is not the
+    /// scheme's default. Lowercased, as browsers give it.
+    static func pageOrigin(_ url: URL) -> String? {
+        guard let scheme = url.scheme?.lowercased(), let host = url.host?.lowercased() else { return nil }
+        let defaultPort = scheme == "https" ? 443 : scheme == "http" ? 80 : nil
+        if let port = url.port, port != defaultPort { return "\(scheme)://\(host):\(port)" }
+        return "\(scheme)://\(host)"
+    }
+
+    static func storeScript(token: String, origin: String) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: [token, pageSessionKey, origin], options: []),
               let array = String(data: data, encoding: .utf8) else { return nil }
-        return "var a = \(array); if (localStorage.getItem(a[1])) return false; localStorage.setItem(a[1], a[0]); return localStorage.getItem(a[1]) === a[0];"
+        return "var a = \(array); if (location.origin !== a[2]) return false; if (localStorage.getItem(a[1]) === a[0]) return false; localStorage.setItem(a[1], a[0]); return localStorage.getItem(a[1]) === a[0];"
     }
 
     // MARK: - The screens' steps
