@@ -51,3 +51,11 @@ That the card's fields read the same on two captures of one unchanged prompt. A 
   back to the asked-only checks. That loses only the new protection and refuses nothing honest.
 - Every change has a mutant that goes red (server check, last-look check, after-key check, route passing the request,
   automatic guard, board send/lock/generation, iPhone body/key/reported filter, client wiring, notification wiring).
+
+## Review round 2 (0 blockers, 0 majors)
+- Fixed (minor): the last look checked the request only at a permission prompt, so a pane redrawn into an ordinary
+  Claude menu worded the same ("Do you want to proceed?", "1. Yes") took the key. A press that named a request is now
+  typed only at a permission prompt. Test with a control that the lookalike is answered without the request.
+- Noted, not changed: the answered lock now includes the request, so if the same prompt reads as another request on a
+  redraw (another width), its 6 s lock lifts at once. A second press is still checked against the screen right before
+  its key, so it cannot answer a request nobody saw; at worst the same prompt gets a second key.
