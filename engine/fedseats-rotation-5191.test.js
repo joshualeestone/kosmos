@@ -13,6 +13,10 @@
  *    Re-decided for kosmos#4658: noteOwnSealed (an own computer records a sealed room with NO key), allowOwn (the
  *    seal owner pins an own computer in st.own) and adoptOwnShare (an own computer ADOPTING the owner's current key
  *    from a share its person confirmed, as onKeyFrame adopts a guest's share) change no epoch and create no rotation.
+ *    Re-decided for kosmos#7028: fedseal.forgetRoom removes a room's state and is a writer too. Its engine callers are
+ *    fedmembers.js inviteNow and ownerLinkOf (a project's first invite, or a link left by an earlier project of the
+ *    same id, starts with no room keys) and forgetOwnSealed (an own computer clears the keyless record
+ *    noteOwnSealed made, for a room Kosmos+ says was never sealed). Neither changes an epoch or makes a key.
  * 2. HOW THE EPOCH ADVANCES. Exactly one advance spelled "epoch + 1" / "+= 1" / "++", inside revokeCheck. Exactly
  *    one, not "at least one": zero means that spelling is gone and this guard went blind.
  */
@@ -22,7 +26,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ENGINE = __dirname;
-const WRITERS = { 'fedseats.js': ['revokeCheck', 'ownerHello', 'onKeyFrame', 'noteOwnSealed', 'allowOwn', 'adoptOwnShare'] };
+const WRITERS = {
+  'fedseats.js': ['revokeCheck', 'ownerHello', 'onKeyFrame', 'noteOwnSealed', 'allowOwn', 'adoptOwnShare', 'forgetOwnSealed'],
+  'fedmembers.js': ['inviteNow', 'ownerLinkOf'],
+};
 const FED_FILES = ['fedseats.js', 'fedseal.js', 'federation.js', 'fedmembers.js'];
 const ADVANCE = /\bepoch\s*\+\s*1\b|\bepoch\s*\+=\s*1\b|\bepoch\+\+/;
 const TOP_FN = /^(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/;
@@ -48,9 +55,9 @@ test('#5191: only revokeCheck, ownerHello, onKeyFrame and the three #4658 own-co
   for (const f of engineFiles) {
     enclosing(fs.readFileSync(path.join(ENGINE, f), 'utf8')).forEach(({ line, fn }) => {
       // Any mention, not only a call: an alias (const set = fedseal.setRoomState) is a writer too.
-      if (!/\bsetRoomState\b/.test(code(line))) return;
-      // In fedseal.js, its definition and the top-level export list are not writers (a use inside any function is).
-      if (f === 'fedseal.js' && (/^function setRoomState\s*\(/.test(line) || (fn === null && /^\s+.*\bsetRoomState\s*,/.test(line)))) return;
+      if (!/\b(?:setRoomState|forgetRoom)\b/.test(code(line))) return;
+      // In fedseal.js, the definitions and the top-level export list are not writers (a use inside any function is).
+      if (f === 'fedseal.js' && (/^function (?:setRoomState|forgetRoom)\s*\(/.test(line) || (fn === null && /^\s+.*\b(?:setRoomState|forgetRoom)\s*,/.test(line)))) return;
       (found[f] = found[f] || new Set()).add(fn || '(top level)');
     });
   }
