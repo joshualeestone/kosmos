@@ -539,7 +539,7 @@ final class BoardClient: ObservableObject {
     private func sampleOlder(_ session: String, before: Int) -> Board.OlderRead? {
         guard session == "cleo" || session == "dana", sampleThreads[session] != nil else { return nil }
         let rows = (0..<before).map { i -> [String: Any] in
-            ["at": "2026-10-2\(i % 2)T1\(i % 10):0\(i % 6):00Z", "text": i % 3 == 0 ? "Checking the venue list, item \(i + 1)." : "Noted.",
+            ["at": String(format: "2026-10-20T%02d:%02d:00Z", 8 + i / 60, i % 60), "text": i % 3 == 0 ? "Checking the venue list, item \(i + 1)." : "Noted.",
              "from": i % 2 == 0 ? "cleo" : NSNull()]
         }
         let data = try? JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": 0])
