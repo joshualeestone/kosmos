@@ -851,14 +851,26 @@ do {
     check(Set(items.map(\.id)).count == items.count, "every item has its own id")
 }
 
+section("native chat: what follows a new message down")
+do {
+    func r(_ id: String, _ at: String?) -> Board.ChatRow { Board.ChatRow(id: id, atRaw: at, at: Board.isoDate(at), text: id, who: .agent) }
+    let before = Board.Thread(rows: [r("a", "T1"), r("b", "T2")], olderCount: 5)
+    let shifted = Board.Thread(rows: [r("b", "T2"), r("c", "T3")], olderCount: 6)
+    check(Board.followKey(before) != Board.followKey(shifted), "at the Mac's 200-row cap the count stays the same, and the key still moves")
+    let withQuestion = Board.Thread(rows: [r("a", "T1"), r("b", "T2"), r("q", nil)], olderCount: 5)
+    let newUnderQuestion = Board.Thread(rows: [r("a", "T1"), r("b", "T2"), r("c", "T3"), r("q", nil)], olderCount: 5)
+    check(Board.followKey(withQuestion) != Board.followKey(newUnderQuestion), "a new message above the Mac's untimed question row moves the key")
+    check(Board.followKey(before) == Board.followKey(Board.Thread(rows: [r("a", "T1"), r("b", "T2")], olderCount: 5)), "the same conversation read again does not")
+}
+
 section("native chat: what a send's answer means")
 do {
     let res = { (s: Int, b: String?) in Board.sendResult(status: s, body: b.map { Data($0.utf8) }) }
     check(res(200, #"{"delivery":{"state":"placed","at":"T1"},"recorded":true}"#) == .kept(at: "T1"), "placed and kept: the row is at T1")
-    check(res(200, #"{"delivery":{"state":"held","at":"T2"},"recorded":true}"#) == .kept(at: "T2"),
-          "held is kept too: the Mac's own row says Waiting to send, so the app never offers to send it twice")
-    check(res(200, #"{"delivery":{"state":"could_not","at":"T3","because":"x"},"recorded":true}"#) == .kept(at: "T3"),
-          "could_not is kept as a row that says Not sent, which can be sent again from there")
+    check(res(200, #"{"delivery":{"state":"held","at":"T2"},"recorded":true}"#) == .keptUndelivered(at: "T2", held: true),
+          "held is kept, undelivered: its row says Waiting to send, so the app never offers to send it twice")
+    check(res(200, #"{"delivery":{"state":"could_not","at":"T3","because":"x"},"recorded":true}"#) == .keptUndelivered(at: "T3", held: false),
+          "could_not is kept, undelivered: never shown as sent; its row says Not sent and is sent again from there")
     check(res(200, #"{"delivery":{"state":"placed","at":"T4"},"recorded":false}"#) == .taken, "placed but no row kept: shown as sent until a read holds the words")
     check(res(200, #"{"delivery":{"state":"held"},"recorded":false}"#) == .refused(nil), "held and not kept typed nothing")
     check(res(409, #"{"error":"Dana is at its trust prompt"}"#) == .refused("Dana is at its trust prompt"), "a refusal keeps the Mac's words")
@@ -1088,7 +1100,8 @@ section("native board loop: connecting")
         // Held: the Mac's row says Waiting to send; the app never offers to send it again (it would be typed twice).
         w.sendQueue = [(200, #"{"delivery":{"state":"held","at":"2026-10-23T20:00:02.000Z"},"recorded":true}"#)]
         await c.post("Pages 9 to 12?", to: dana)
-        check(pending().last?.state == .kept(at: "2026-10-23T20:00:02.000Z") && pending().last?.failed == false, "a held send is kept, not failed")
+        check(pending().last?.state == .keptUndelivered(at: "2026-10-23T20:00:02.000Z", held: true) && pending().last?.failed == false
+              && pending().last?.shownAsSent == false, "a held send is kept undelivered: not failed, and never shown as sent")
         let before = w.posted.count
         await c.retry(pending().last!.id, to: dana)
         check(w.posted.count == before, "and a retry of it sends nothing")
@@ -1117,8 +1130,11 @@ section("native board loop: connecting")
 
         // A message the Mac kept as not sent is sent again as a new message.
         let lostRow = Board.ChatRow(id: "x", atRaw: "T", at: nil, text: "Are you there?", who: .person, notSent: "Not sent")
+        let postedBefore = w.posted.count
         await c.sendAgain(lostRow, to: dana)
-        check(w.posted.last == "Are you there?", "Not sent, tapped, posts the words again")
+        await c.sendAgain(lostRow, to: dana)
+        check(w.posted.last == "Are you there?" && w.posted.count == postedBefore + 1, "Not sent, tapped twice, posts the words again once")
+        check(c.wasSentAgain(lostRow, for: "dana"), "and the row knows it was sent again (its line goes)")
 
         // Reads say the Mac's reason, or no answer.
         w.threadAnswer = (404, #"{"error":"that name belongs to another session"}"#)
@@ -1127,6 +1143,23 @@ section("native board loop: connecting")
         w.threadAnswer = nil
         let silentRead = await c.thread(for: "dana")
         check(silentRead == .noAnswer, "no answer is no answer")
+        c.stop()
+    }
+    do {
+        // A sign-out drops every chat's pending messages, unsent words and sent-again marks: nothing typed or failed under
+        // one account is shown, or sent, under the next.
+        let (c, w, sessions, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        let dana = c.agents.first { $0.session == "dana" }!
+        w.sendQueue = [(409, #"{"error":"no"}"#)]
+        await c.post("send the wire details", to: dana)
+        c.drafts["dana"] = "half a thought"
+        check(c.pending["dana"]?.isEmpty == false && c.drafts["dana"] != nil, "CONTROL: a failed message and a draft are held")
+        c.stop()
+        sessions.value = nil
+        c.start()
+        check(c.pending.isEmpty && c.drafts.isEmpty && c.resent.isEmpty, "signed out: all of it is gone")
         c.stop()
     }
     do {
