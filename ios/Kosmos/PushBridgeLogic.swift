@@ -177,6 +177,14 @@ enum PushBridge {
         return RoomTarget(host: raw.lowercased(), project: project)
     }
 
+    // Where a room notification opens: the native room when it came from the computer this app keeps (by its address,
+    // without case), else the board's own room page for that computer, under Today.
+    enum RoomOpening: Equatable { case native(RoomTarget), board(URL) }
+    static func roomOpening(_ t: RoomTarget, keptAddress: String?) -> RoomOpening? {
+        if let kept = keptAddress, kept.lowercased() == t.host { return .native(t) }
+        return roomBoardURL(t).map { .board($0) }
+    }
+
     // The board's own page for that room, for when the native tab cannot open it (another computer than the kept one,
     // or a project the list does not have): the board's ?tab=projects&project= deep link.
     static func roomBoardURL(_ t: RoomTarget) -> URL? {

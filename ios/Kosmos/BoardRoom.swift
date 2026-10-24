@@ -231,14 +231,17 @@ extension Board {
     }
 
     // The person's posts in the air (or not confirmed) that the room now shows: a row by the person, with the same
-    // words, that was NOT in the room when they pressed Post (the board's #6168 rule). Each row settles one post, in
-    // order, so two "ok"s in a row need two new rows. Returns the indices into `posts` that settled.
-    static func settledPosts(_ posts: [(text: String, before: Set<String>)], rows: [RoomRow]) -> [Int] {
+    // words, that was NOT in the room when they pressed Post (the board's #6168 rule) and is dated after the newest row
+    // shown then (`after`): the phone holds only the pages it has read, so an older same-words post loaded later is
+    // not in `before` and must not settle it. Each row settles one post, in order, so two "ok"s in a row need two new
+    // rows. Returns the indices into `posts` that settled.
+    static func settledPosts(_ posts: [(text: String, before: Set<String>, after: Date?)], rows: [RoomRow]) -> [Int] {
         var used = Set<String>()
         var out: [Int] = []
         for (i, p) in posts.enumerated() {
             if let r = rows.first(where: { $0.byPerson && $0.kind == .post && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == p.text
-                                       && !p.before.contains($0.id) && !used.contains($0.id) }) {
+                                       && !p.before.contains($0.id) && !used.contains($0.id)
+                                       && (p.after == nil || $0.at == nil || $0.at! > p.after!) }) {
                 used.insert(r.id)
                 out.append(i)
             }
@@ -482,9 +485,20 @@ extension Board {
 
 extension Board {
     // The board refuses empty posts and ones over its limit (the composer's maxlength, 10000).
+    // A post that cannot be sent at all, answered before any request: words over the board box's limit (its maxlength,
+    // 10,000), or no connection to the computer. nil when it can be sent.
+    static let roomPostMax = 10000
+    static func roomPostRefusedBeforeSending(text: String, connected: Bool) -> RoomPostResult? {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).count > roomPostMax {
+            return .refused("That is longer than a post can be (10,000 characters). Shorten it and post again.")
+        }
+        if !connected { return .refused("We cannot reach your computer right now, so nothing was posted.") }
+        return nil
+    }
+
     static func roomPostRequest(mac: URL, project: String, text: String, replyTo: String? = nil) -> URLRequest? {
         let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isProjectId(project), !said.isEmpty, said.count <= 10000 else { return nil }
+        guard isProjectId(project), !said.isEmpty, said.count <= roomPostMax else { return nil }
         var r = URLRequest(url: URL(string: "/api/project/\(project)/room", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Accept")

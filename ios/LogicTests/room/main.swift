@@ -122,9 +122,17 @@ check(Board.refreshRoom(nil, older: nil, page: away).older.cursor == "2026-10-22
 section("a post in the air settles only on a NEW row")
 let ok1 = Board.RoomRow(id: "m50", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "ok")
 let ok2 = Board.RoomRow(id: "m51", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "ok")
-check(Board.settledPosts([("ok", ["m50"])], rows: [ok1]).isEmpty, "an earlier \"ok\" never settles a new \"ok\" still on its way")
-check(Board.settledPosts([("ok", ["m50"])], rows: [ok1, ok2]) == [0], "CONTROL: the new row settles it")
-check(Board.settledPosts([("ok", ["m50"]), ("ok", ["m50"])], rows: [ok1, ok2]) == [0], "one new row settles one post, not two")
+check(Board.settledPosts([("ok", ["m50"], nil)], rows: [ok1]).isEmpty, "an earlier \"ok\" never settles a new \"ok\" still on its way")
+check(Board.settledPosts([("ok", ["m50"], nil)], rows: [ok1, ok2]) == [0], "CONTROL: the new row settles it")
+check(Board.settledPosts([("ok", ["m50"], nil), ("ok", ["m50"], nil)], rows: [ok1, ok2]) == [0], "one new row settles one post, not two")
+let pressAt = Board.isoDate("2026-10-24T10:00:00.000Z")
+let lastWeek = Board.RoomRow(id: "m7", atRaw: "2026-10-17T10:00:00.000Z", at: Board.isoDate("2026-10-17T10:00:00.000Z"), kind: .post, from: nil, byPerson: true, text: "Thanks")
+let justNow = Board.RoomRow(id: "m90", atRaw: "2026-10-24T10:00:02.000Z", at: Board.isoDate("2026-10-24T10:00:02.000Z"), kind: .post, from: nil, byPerson: true, text: "Thanks")
+check(Board.settledPosts([("Thanks", [], pressAt)], rows: [lastWeek]).isEmpty, "an older same-words post read in later (scrolling up) never settles a new one")
+check(Board.settledPosts([("Thanks", [], pressAt)], rows: [lastWeek, justNow]) == [0], "CONTROL: the post written after the press does")
+check(Board.roomPostRefusedBeforeSending(text: String(repeating: "a", count: 10001), connected: true) == .refused("That is longer than a post can be (10,000 characters). Shorten it and post again."), "too long: Not posted, nothing sent")
+check(Board.roomPostRefusedBeforeSending(text: "hi", connected: false) != nil, "not connected: Not posted, nothing sent")
+check(Board.roomPostRefusedBeforeSending(text: String(repeating: "a", count: 10000), connected: true) == nil, "CONTROL: at the limit, connected: it is sent")
 
 section("Reply's @name")
 check(Board.replyMention(draft: "", from: "monalisa") == "@monalisa ", "the session name, which the engine reads as one @word (never \"@Mona Lisa\")")
@@ -222,7 +230,11 @@ let content = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/C
 if let r = manager.range(of: "PushBridge.roomToOpen("), let b = manager.range(of: "PushBridge.boardURL(") {
     check(r.lowerBound < b.lowerBound, "the room is asked about before the agent's page, so a room tap is never sent to the agent")
 } else { check(false, "the tap handler asks about the room and the board") }
-check(content.contains("kept?.address.lowercased() == target.host") && content.contains("PushBridge.roomBoardURL(target)"), "the native room only for the kept computer, the board's page otherwise")
+let studio = PushBridge.RoomTarget(host: "studio.kosmosplus.com", project: "springcatalogue")
+check(PushBridge.roomOpening(studio, keptAddress: "Studio.KosmosPlus.com") == .native(studio), "the computer the app keeps: the native room (address without case)")
+check(PushBridge.roomOpening(studio, keptAddress: "home.kosmosplus.com") == .board(URL(string: "https://studio.kosmosplus.com/?tab=projects&project=springcatalogue")!), "CONTROL: another computer: the board's room page on that computer")
+check(PushBridge.roomOpening(studio, keptAddress: nil) == .board(URL(string: "https://studio.kosmosplus.com/?tab=projects&project=springcatalogue")!), "no kept computer: the board's room page")
+check(content.contains("PushBridge.roomOpening(target, keptAddress:"), "ContentView decides through roomOpening")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 

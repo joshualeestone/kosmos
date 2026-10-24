@@ -20,7 +20,11 @@ final class RoomStore: ObservableObject {
     // A post in the air or one that did not go, by project: its words, the line under it once answered, and the ids of
     // the person's posts already in the room when Post was pressed (so an earlier post with the same words never
     // settles it).
-    struct Pending: Equatable, Identifiable { let id: String; let text: String; var line: String?; var before: Set<String> = [] }
+    struct Pending: Equatable, Identifiable {
+        let id: String; let text: String; var line: String?; var before: Set<String> = []
+        // The newest row's time when Post was pressed: only a row after it can be this post.
+        var after: Date? = nil
+    }
     @Published private(set) var pending: [String: [Pending]] = [:]
     @Published private(set) var notes: [String: String] = [:]
     // Words a post that did not go hands back to the box, by project, kept here (the board's PJ_ROOM_DRAFTS) so they
@@ -109,7 +113,8 @@ final class RoomStore: ObservableObject {
     // then shows kept settles, and a box still holding those words is cleared (`kept`).
     func post(_ text: String, to project: String, replyTo: Board.RoomRow?) async {
         let mine = Set((rows[project] ?? []).filter { $0.byPerson }.map { $0.id })
-        let item = Pending(id: UUID().uuidString, text: text.trimmingCharacters(in: .whitespacesAndNewlines), line: nil, before: mine)
+        let newest = (rows[project] ?? []).compactMap { $0.at }.max()
+        let item = Pending(id: UUID().uuidString, text: text.trimmingCharacters(in: .whitespacesAndNewlines), line: nil, before: mine, after: newest)
         guard !item.text.isEmpty else { return }
         notes[project] = nil   // the last post's line goes at the next press, as on the board
         pending[project, default: []].append(item)
@@ -117,16 +122,28 @@ final class RoomStore: ObservableObject {
         if Self.sample { pending[project]?.removeAll { $0.id == item.id }; return }
         #endif
         let epoch = client.chatEpoch
-        let answer = await client.throughMac { Board.roomPostRequest(mac: $0, project: project, text: item.text, replyTo: replyTo?.id) }
-        guard same(epoch) else { return }
-        let result = Board.roomPostResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
+        let result: Board.RoomPostResult
+        if let sure = Board.roomPostRefusedBeforeSending(text: item.text, connected: client.macURL != nil) {
+            // Nothing was sent, so it is Not posted, never Not confirmed.
+            result = sure
+        } else {
+            let answer = await client.throughMac { Board.roomPostRequest(mac: $0, project: project, text: item.text, replyTo: replyTo?.id) }
+            guard same(epoch) else { return }
+            result = Board.roomPostResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
+        }
         switch result {
         case let .posted(note):
             await loadRoom(project)
             pending[project]?.removeAll { $0.id == item.id }
             notes[project] = note
         case .refused, .unsure:
-            guard let i = pending[project]?.firstIndex(where: { $0.id == item.id }) else { return }   // already shown kept
+            if pending[project]?.contains(where: { $0.id == item.id }) != true {
+                // A read already settled it on a same-words row: not confirmed, that row is the post. Refused, it was
+                // someone else's (or an older) post, so the bubble comes back, marked (the board's pjPostSend).
+                guard case .refused = result else { return }
+                pending[project, default: []].append(item)
+            }
+            guard let i = pending[project]?.firstIndex(where: { $0.id == item.id }) else { return }
             pending[project]?[i].line = Board.roomPostLine(result)
             if case let .refused(because) = result { notes[project] = because } else { notes[project] = Board.roomUnsureLine }
             returned[project] = Returned(text: item.text, replyTo: replyTo, pendingId: item.id)
@@ -162,7 +179,7 @@ final class RoomStore: ObservableObject {
         guard let list = pending[project], !list.isEmpty else { return }
         let unsure = Board.roomPostLine(.unsure)
         let open = list.enumerated().filter { $0.element.line == nil || $0.element.line == unsure }
-        let done = Board.settledPosts(open.map { ($0.element.text, $0.element.before) }, rows: rows[project] ?? [])
+        let done = Board.settledPosts(open.map { ($0.element.text, $0.element.before, $0.element.after) }, rows: rows[project] ?? [])
         let gone = Set(done.map { open[$0].element.id })
         guard !gone.isEmpty else { return }
         for p in list where gone.contains(p.id) && p.line != nil {
@@ -215,7 +232,7 @@ final class RoomStore: ObservableObject {
 struct ProjectsView: View {
     @ObservedObject var client: BoardClient
     @StateObject private var store: RoomStore
-    @Binding var roomRequest: String?
+    @Binding var roomRequest: PushBridge.RoomTarget?
     let openPage: (URL) -> Void
     @AppStorage("kosmos.projects.sort") private var sortRaw = Board.ProjectSort.newest.rawValue
     @State private var openProject: Board.ProjectRow?
@@ -224,7 +241,7 @@ struct ProjectsView: View {
     @State private var listShown = false
     @State private var showArchived = false
 
-    init(client: BoardClient, roomRequest: Binding<String?>, openPage: @escaping (URL) -> Void) {
+    init(client: BoardClient, roomRequest: Binding<PushBridge.RoomTarget?>, openPage: @escaping (URL) -> Void) {
         self.client = client
         self._roomRequest = roomRequest
         self.openPage = openPage
@@ -282,10 +299,11 @@ struct ProjectsView: View {
     // A room a notification asked for opens once the list has it. A project the list does not have (removed since,
     // or archived) opens the board's own room page instead, so a tap never lands nowhere.
     private func openRequested() {
-        guard let id = roomRequest else { return }
+        guard let target = roomRequest else { return }
+        let id = target.project
         // The list cannot be read: the board's own room page now, rather than a room that pushes itself much later.
         guard let list = store.list else {
-            if store.listState == .failed { roomRequest = nil; listReread = false; openBoardRoom(id) }
+            if store.listState == .failed { roomRequest = nil; listReread = false; openBoardRoom(target) }
             return
         }
         if let p = list.projects.first(where: { $0.id == id && !$0.archived }) {
@@ -302,14 +320,13 @@ struct ProjectsView: View {
         }
         listReread = false
         roomRequest = nil
-        openBoardRoom(id)
+        openBoardRoom(target)
     }
 
-    private func openBoardRoom(_ id: String) {
-        if let mac = store.macURL, var parts = URLComponents(url: mac, resolvingAgainstBaseURL: false) {
-            parts.queryItems = [URLQueryItem(name: "tab", value: "projects"), URLQueryItem(name: "project", value: id)]
-            if let url = parts.url { openPage(url) }
-        }
+    // The board's room page for the computer the notification named: its host rides the request, so this works even
+    // when the client is not connected (usually why the list could not be read).
+    private func openBoardRoom(_ target: PushBridge.RoomTarget) {
+        if let url = PushBridge.roomBoardURL(target) { openPage(url) }
     }
 
     // No visible "Sort" word (Josh 08-23): the symbol, with the board's four orders.

@@ -22,6 +22,10 @@ struct RoomView: View {
     // The first scroll to the newest row has happened: only then may the top of the room ask for an older page (a
     // first layout from the top would otherwise load one at once and move the reader off the newest posts).
     @State private var settledAtBottom = false
+    // The older-page spinner is on screen: when it stays on screen (a short room, or a page that folds to almost
+    // nothing), the next page is asked for without waiting for another appearance.
+    @State private var olderShowing = false
+    @State private var pendingCount = 0
     @FocusState private var typing: Bool
 
     private var rows: [Board.RoomRow] { store.rows[project.id] ?? [] }
@@ -66,6 +70,8 @@ struct RoomView: View {
             if phase == .background { loop?.cancel(); loop = nil } else if phase == .active && visible && loop == nil { start() }
         }
         .onChange(of: store.returned[project.id]) { _ in takeReturned() }
+        // Handed-back words waiting for an empty box take it as soon as it is.
+        .onChange(of: draft) { _ in if store.returned[project.id] != nil { takeReturned() } }
         // A not-confirmed post the room now shows kept: a box still holding exactly its words is cleared.
         .onChange(of: store.kept[project.id]) { words in
             guard let words else { return }
@@ -81,7 +87,9 @@ struct RoomView: View {
             var lastCount = -1
             while !Task.isCancelled {
                 await store.loadRoom(project.id)
-                // Seen only once the room has really been read: a failed first read is not the person seeing it.
+                // Seen only once the room has really been read, and only while it is still open: a failed first read,
+                // or one that finished after the person left, is not the person seeing it.
+                if Task.isCancelled { break }
                 if let shown = store.rows[project.id], shown.count != lastCount { lastCount = shown.count; await store.markSeen(project.id) }
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
@@ -92,8 +100,14 @@ struct RoomView: View {
     private func loadOlder(_ proxy: ScrollViewProxy) {
         let anchor = items.first(where: { if case .row = $0.kind { return true } else { return false } })?.id
         Task {
+            let before = store.older[project.id]?.cursor
             await store.loadOlder(project.id)
             if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            // Still at the top with more to read (the page did not fill the screen): the next one, once per new cursor.
+            let after = store.older[project.id]?.cursor
+            if olderShowing, after != nil, after != before, !store.olderFailed.contains(project.id) {
+                DispatchQueue.main.async { if olderShowing { loadOlder(proxy) } }
+            }
         }
     }
 
@@ -141,7 +155,8 @@ struct RoomView: View {
                                 .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
                         } else {
                             HStack { Spacer(); ProgressView(); Spacer() }
-                                .onAppear { if settledAtBottom { loadOlder(proxy) } }
+                                .onAppear { olderShowing = true; if settledAtBottom { loadOlder(proxy) } }
+                                .onDisappear { olderShowing = false }
                         }
                     }
                     if store.rows[project.id] != nil && rows.isEmpty { emptyRoom }
@@ -167,7 +182,12 @@ struct RoomView: View {
                 }
             }
             // The person's own post always shows: pressing Post is asking to see it.
-            .onChange(of: store.pending[project.id]?.count ?? 0) { n in if n > 0 { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+            .onChange(of: store.pending[project.id]?.count ?? 0) { n in
+                if n > pendingCount { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }   // a new post only
+                pendingCount = n
+            }
+            // The first scroll has happened and the top is already showing (a room shorter than the screen).
+            .onChange(of: settledAtBottom) { done in if done && olderShowing { loadOlder(proxy) } }
             .onAppear {
                 proxy.scrollTo("bottom", anchor: .bottom)
                 // A room opened again with its rows already read: the last row will not change, so settle here.
@@ -310,7 +330,16 @@ struct RoomBubble: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityActions {
-            if answerable { Button("Reply", action: reply) }
+            if answerable {
+                // React, Reply, Copy (the spec): each reaction pill is merged into the post, so each one is an action.
+                Button("React with thumbs up") { react("👍") }
+                Button("React with a heart") { react("❤️") }
+                Button("React with fire") { react("🔥") }
+                ForEach(row.reactions.filter { !["👍", "❤️", "🔥"].contains($0.emoji) }, id: \.emoji) { r in
+                    Button("React with \(r.emoji)") { react(r.emoji) }
+                }
+                Button("Reply", action: reply)
+            }
             Button("Copy") { UIPasteboard.general.string = row.text }
         }
     }

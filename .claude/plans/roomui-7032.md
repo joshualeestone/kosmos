@@ -37,6 +37,10 @@ shows the post's words; the shell sends the board's project pages under Today.
   lost-while-open states on this tab (it shows Reaching your computer, or the last list it read).
 - Another computer that has not earned Tasks does not take the tab away until a board page is read (the status poll
   only ever adds it).
+- The Projects badge is the board's whole count, including the room being read, for up to one poll after a post (the
+  board subtracts the open project; the tab bar does not know which room is open).
+- The biometric lock removes the Projects tab's store, so pending bubbles and handed-back words do not survive a lock
+  (the lock is off by default; the chat keeps its equivalents in BoardClient).
 
 ## Steps
 1. Models + suite. DONE. 2. Screens + shell. DONE. 3. Notification routing. DONE. 4. Review loop, validation, PR.

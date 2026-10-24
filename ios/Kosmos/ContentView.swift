@@ -28,7 +28,7 @@ struct ContentView: View {
     @State private var tabsBackgrounded = false
     // kosmos#7032: a room the Projects tab should open (a tapped room notification), cleared once it is open. Outside the
     // screenshot switch: both builds read it.
-    @State private var roomRequest: String?
+    @State private var roomRequest: PushBridge.RoomTarget?
     // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
     // The App Store screenshot build
     // (ios/store/shoot-app.sh) photographs board screens in the web view, opened by address, so it lights the tab
@@ -266,11 +266,10 @@ struct ContentView: View {
     // Today no longer drives the board (Today is native), so the section is asked for directly.
     private func openRoom(_ target: PushBridge.RoomTarget) {
         let kept = Board.usableSaved(SessionKeychain.macSession.load(), session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin)
-        if kept?.address.lowercased() == target.host {
-            roomRequest = target.project
-            tab = .projects
-        } else if let url = PushBridge.roomBoardURL(target) {
-            pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+        switch PushBridge.roomOpening(target, keptAddress: kept?.address) {
+        case .native(let t)?: roomRequest = t; tab = .projects
+        case .board(let url)?: pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+        case nil: break
         }
         pushManager.roomToOpen = nil
     }
