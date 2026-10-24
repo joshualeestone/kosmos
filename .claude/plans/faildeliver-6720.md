@@ -128,3 +128,19 @@ cannot work for that row.
   is run") failed. FIXED to `render-dm-retry-6720`; tools.browser-checks-wired.test.js 11/11 alone (from the repo
   root). Everything else in validation 2 passed, including the link-preview test validation 1 caught. No third full
   run: the fix changes one line of a list only those wired-check tests and the runner read.
+
+## Rebased onto main 2026-10-24, merged with #6774
+The nine commits were squashed to rebase once (the originals: origin/faildeliver-6720-local-backup at 1a845fb252).
+#6774 now keeps a message refused for a stuck input box and types it once the box clears, so the case behind this
+card no longer fails; try again stays for every other could-not-deliver reason.
+- Decided: a retry is never kept for the box. It stays the one failed row with its line (as for out of usage and
+  signed out). Test with a control (a new message IS kept), red without the guard.
+- Decided: a retry whose words are already kept for the box is refused, 409, nothing typed, no duplicate row. Test, red
+  without the guard.
+- Decided: a kept-above copy (#6774's duplicateOf) gets no failed line; it is not a failure. web.agent-answers test,
+  red without the exemption.
+- Rejected: keeping the retry for the box and marking the old row replaced (a new row link for a rare case).
+- Weakest premise: a retryable row meeting a stuck box needs the box to stick between the first send and the press.
+- render-dm-retry-6720.js still uses the stuck-box sentence as its failure reason. After #6774 that sentence no longer
+  reaches a failed row in real use; it only feeds the tooltip text, so the check is unchanged.
+- The 17 DM checks the surface gate names (the d-dmthread token) were each run on 433b0bbdaf and pass; trailers below.
