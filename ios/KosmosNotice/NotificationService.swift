@@ -109,6 +109,10 @@ final class NotificationService: UNNotificationServiceExtension {
         content.subtitle = original.body.isEmpty ? original.title : "\(original.title), \(original.body)"
         content.title = words.agent
         content.body = words.text
+        // kosmos#7017: Reply, only on an agent's own reply to the person, whose words came from the computer (so Reply
+        // can reach it). Never on a needs-you: a question's or a permission prompt's answer belongs in the chat (or, for
+        // a permission, its own Allow and Deny), and typed words there could answer a menu the person cannot see.
+        if PhoneNotice.offersReply(words) { content.categoryIdentifier = PhoneNotice.replyCategory }
         // The words are in: from here the time limit shows them, however long the picture takes.
         if let ready = content.copy() as? UNNotificationContent { wordsReady(ready) }
 

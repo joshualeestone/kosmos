@@ -167,9 +167,8 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         completionHandler([.banner, .sound, .badge])
     }
 
-    // Handle a response to a notification. The categories register no actions
-    // and no .customDismissAction (#3870), so the plain tap is the only response
-    // iOS delivers here.
+    // Handle a response to a notification: the plain tap, and Reply (#7017), the one action any category registers.
+    // No .customDismissAction (#3870), so a dismiss never arrives here.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
@@ -189,9 +188,77 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             } else {
                 NSLog("[Push] tapped notification had no usable address; staying put")
             }
+        case NotificationAction.replyAction:
+            // kosmos#7017: Reply from the notification. iOS gives the app a short while in the background; the
+            // completion handler is called only once the send has an answer.
+            let content = response.notification.request.content
+            let text = (response as? UNTextInputNotificationResponse)?.userText ?? ""
+            Task {
+                await self.sendReply(text: text, userInfo: content.userInfo, agent: content.title)
+                completionHandler()
+            }
+            return
         default:
             break
         }
         completionHandler()
+    }
+
+    // Two sessions for replies, refusing redirects as the app's own client does (so the computer's cookie never goes to
+    // another host), each with a hard total limit: the read 8 s, the send 14 s. Together they end inside the short
+    // time iOS gives a notification action, so the person always hears what happened.
+    private static func replySession(total: TimeInterval) -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForResource = total
+        return URLSession(configuration: config, delegate: RefuseReplyRedirects(), delegateQueue: nil)
+    }
+    private static let readHTTP = replySession(total: 8)
+    private static let sendHTTP = replySession(total: 14)
+
+    private func sendReply(text: String, userInfo: [AnyHashable: Any], agent: String) async {
+        let stored = SessionKeychain.macSession.load(), session = SessionKeychain.live.load()
+        guard let request = NotificationAction.replyRequest(
+            userInfo: userInfo, text: text, stored: stored, session: session, coordinator: KosmosConfig.coordinatorOrigin
+        ), let check = NotificationAction.checkRequest(
+            userInfo: userInfo, stored: stored, session: session, coordinator: KosmosConfig.coordinatorOrigin
+        ) else {
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { tell(NotificationAction.cannotSend(agent: agent), about: userInfo) }
+            return
+        }
+        // Read the chat first: while the agent is asking, a reply could answer a menu the person never saw, so it is
+        // not sent; nor when the chat cannot be read (NotificationAction.verdict).
+        let read = try? await Self.readHTTP.data(for: check)
+        switch NotificationAction.verdict(status: (read?.1 as? HTTPURLResponse)?.statusCode ?? 0, data: read?.0, agent: agent) {
+        case .asking:
+            tell(NotificationAction.askingNotice(agent: agent), about: userInfo)
+            return
+        case .unreadable(let said):
+            tell(said, about: userInfo)
+            return
+        case .go:
+            break
+        }
+        let answer = try? await Self.sendHTTP.data(for: request)
+        let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
+        let result = Board.sendResult(status: status, body: answer?.0)
+        NSLog("[Push] reply from a notification: \(result)")
+        if let said = NotificationAction.notice(after: result, agent: agent, body: answer?.0) { tell(said, about: userInfo) }
+    }
+
+    // A local notification saying what happened to a reply that did not plainly go. It carries the original notice's
+    // address and agent, so a tap opens that chat, as the notice it answers did (PushBridge.boardURL).
+    private func tell(_ text: String, about userInfo: [AnyHashable: Any]) {
+        let content = UNMutableNotificationContent()
+        content.title = "Kosmos"
+        content.body = text
+        content.userInfo = NotificationAction.followUpInfo(userInfo)
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "reply-" + UUID().uuidString, content: content, trigger: nil))
+    }
+}
+
+private final class RefuseReplyRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

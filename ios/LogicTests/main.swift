@@ -617,7 +617,9 @@ do {
     let cats = NotificationCategories.all()
     let perm = cats.first { $0.identifier == "AGENT_PERMISSION" }
     check(perm != nil, "the agent-permission category is still registered, so a push's category still matches")
-    check(cats.allSatisfy { $0.actions.isEmpty }, "no category registers an action button (Approve/Deny hidden)")
+    // #7017: Reply is the one live button (PushNotificationManager handles it); the rule stays "no dead buttons".
+    check(perm?.actions.isEmpty == true, "the permission category still offers no buttons (Approve/Deny hidden until #7017 part 2)")
+    check(cats.flatMap { $0.actions }.map(\.identifier) == [NotificationCategories.replyAction], "the only action anywhere is Reply, which the app handles: no dead buttons (#3870)")
     check(cats.allSatisfy { $0.options.isEmpty }, "no category asks for dismiss delivery, which the handler has no branch for")
 }
 

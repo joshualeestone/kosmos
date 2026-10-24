@@ -1,0 +1,126 @@
+import Foundation
+
+// kosmos#7017 (slice 8 of #6838): answering from the notification. UIKit-free, so ios/LogicTests/run-actions.sh runs
+// it on a Mac.
+//
+// Reply: a text typed on the notification goes to that agent's chat through the request the native chat uses
+// (Board.sendRequest, Board.sendResult), to the computer the notification came from, with the sign-in the app keeps
+// for it, and only when that sign-in belongs to the Kosmos+ account signed in now. Nothing is ever sent twice: a reply
+// that may have gone is never retried here; the person is told to look in the chat.
+enum NotificationAction {
+    // The category and action are NotificationCategories' (every LogicTests suite compiles that file).
+    static var replyCategory: String { NotificationCategories.replyCategory }
+    static var replyAction: String { NotificationCategories.replyAction }
+
+    // The kept computer and agent a notice came from, or nil: no agent named, an address that is not the kept
+    // computer's, or no kept sign-in for this account.
+    private static func target(_ userInfo: [AnyHashable: Any], stored: String?, session: String?, coordinator: URL) -> (mac: URL, cookie: String, agent: String)? {
+        guard let agent = userInfo["session"] as? String, Board.isAgentSession(agent),
+              let address = (userInfo["address"] as? String)?.lowercased(),
+              let saved = Board.usableSaved(stored, session: session, coordinator: coordinator),
+              saved.address.lowercased() == address,
+              let mac = Board.macURL(address: saved.address, coordinator: coordinator)
+        else { return nil }
+        return (mac, saved.cookie, agent)
+    }
+
+    private static func signed(_ request: URLRequest?, cookie: String, idle: TimeInterval) -> URLRequest? {
+        guard var r = request else { return nil }
+        // The cookie goes by hand on this one request; nothing here keeps a cookie jar.
+        r.httpShouldHandleCookies = false
+        r.setValue("\(Board.macCookieName)=\(cookie)", forHTTPHeaderField: "Cookie")
+        // The read and the send each have a hard total limit (PushNotificationManager's sessions, 8 s and 14 s), together
+        // inside the short time iOS gives a notification action; this idle limit sits just under each, so a slow send
+        // that did go is not cut off early and reported as "may not have gone".
+        r.timeoutInterval = idle
+        return r
+    }
+
+    // The chat's read, made before a reply is sent (see verdict).
+    static func checkRequest(userInfo: [AnyHashable: Any], stored: String?, session: String?, coordinator: URL) -> URLRequest? {
+        guard let t = target(userInfo, stored: stored, session: session, coordinator: coordinator) else { return nil }
+        return signed(Board.threadRequest(mac: t.mac, session: t.agent), cookie: t.cookie, idle: 7)
+    }
+
+    // The request for a reply, or nil when there is nothing to send to, or text the board would refuse.
+    static func replyRequest(userInfo: [AnyHashable: Any], text: String, stored: String?, session: String?, coordinator: URL) -> URLRequest? {
+        guard let t = target(userInfo, stored: stored, session: session, coordinator: coordinator) else { return nil }
+        return signed(Board.sendRequest(mac: t.mac, session: t.agent, text: text), cookie: t.cookie, idle: 13)
+    }
+
+    // Whether a reply may go, from the chat read just before it (GET /api/agent/<name>/thread).
+    enum ReadVerdict: Equatable { case go, asking, unreadable(String) }
+
+    // The board says `asking: true` whenever the agent's card is waiting on the person (server.js thread GET), whether
+    // or not it could also serve the question's row: a question the agent reported itself is dated and placed among
+    // the rows, and a menu the board cannot read gives no row at all. While it is asking, a reply could answer or close
+    // a menu the person never saw (a bare digit is taken as its key), so nothing is sent. An older board without the
+    // field: its live question row (last, no time) is the only sign there is. A question that appears between this
+    // read and the send is not seen (only a check on the board could close that).
+    static func verdict(status: Int, data: Data?, agent: String) -> ReadVerdict {
+        let who = agent.isEmpty ? "your agent" : agent
+        guard status == 200, let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            if status == 0 { return .unreadable("Kosmos could not reach your computer, so your reply to \(who) was not sent. Open the chat to send it.") }
+            if status == 401 || status == 403 {
+                return .unreadable("Your computer did not let this phone in just now, so your reply to \(who) was not sent. Open the chat to send it.")
+            }
+            return .unreadable("Kosmos could not read your chat with \(who) just now, so your reply was not sent. Open the chat to send it.")
+        }
+        if let asking = obj["asking"] as? Bool { return asking ? .asking : .go }
+        // An older board's answer that cannot be read as a chat fails closed: nothing is sent blind.
+        guard let thread = Board.parseThread(data) else {
+            return .unreadable("Kosmos could not read your chat with \(who) just now, so your reply was not sent. Open the chat to send it.")
+        }
+        if let last = thread.rows.last, last.atRaw == nil, last.wayThrough == .question || last.wayThrough == .permission { return .asking }
+        return .go
+    }
+
+    static func askingNotice(agent: String) -> String {
+        "\(agent.isEmpty ? "Your agent" : agent) is asking you something right now, so your reply was not sent. Open the chat to see it and answer."
+    }
+
+    // The board's own reason on a 200 that did not type (delivery.because), which Board.sendResult does not carry.
+    static func because(_ body: Data?) -> String? {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let why = (obj?["delivery"] as? [String: Any])?["because"] as? String
+        return why.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+    }
+
+    // What the person is told after a reply, or nil only when it went or is held to go (the chat shows it waiting).
+    // `body` is the board's answer, for its reason when it kept the reply but did not type it.
+    static func notice(after result: Board.SendResult, agent: String, body: Data? = nil) -> String? {
+        let who = agent.isEmpty ? "your agent" : agent
+        switch result {
+        case .kept, .taken:
+            return nil
+        case .keptUndelivered(_, let note):
+            if note == "Waiting to send" { return nil }   // held: it goes by itself once the agent is ready
+            if note == "Not confirmed" {
+                return "Kosmos could not confirm your reply to \(who) went. Open the chat to check before sending it again."
+            }
+            return notice(after: .refused(because(body)), agent: agent)
+        case .unconfirmed:
+            return "Kosmos could not confirm your reply to \(who) went. Open the chat to check before sending it again."
+        case .noAnswer:
+            return "Your computer did not answer, so your reply to \(who) may not have gone. Open the chat to check."
+        case .refused(let why):
+            if let why, !why.trimmingCharacters(in: .whitespaces).isEmpty {
+                return "Kosmos could not send your reply to \(who): \(why.trimmingCharacters(in: .whitespaces))\(why.hasSuffix(".") ? "" : ".")"
+            }
+            return "Kosmos could not send your reply to \(who). Open the chat to try again."
+        }
+    }
+
+    // The follow-up notice's tap target: only the original notice's address and agent, nothing else carried over.
+    static func followUpInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
+        var out: [AnyHashable: Any] = [:]
+        if let a = userInfo["address"] as? String { out["address"] = a }
+        if let s = userInfo["session"] as? String { out["session"] = s }
+        return out
+    }
+
+    // When the reply could not even be made (no kept computer for this notification, or nothing typed).
+    static func cannotSend(agent: String) -> String {
+        "Kosmos could not send your reply to \(agent.isEmpty ? "your agent" : agent) from here. Open the chat to send it."
+    }
+}
