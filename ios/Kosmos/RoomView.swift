@@ -179,8 +179,9 @@ struct RoomView: View {
             // the chat's guard).
             guard opened == client.chatEpoch else { if let file { client.closed(file) }; return }
             fileStates[f.id] = file == nil ? .failed : .ready
-            // The card that would say so is inside the post's one VoiceOver element, so it is said aloud (review 2).
-            guard let file else { UIAccessibility.post(notification: .announcement, argument: "\(f.name) could not be opened."); return }
+            // A failure is said aloud by the card itself (FileCard's own announcement runs while it is hidden from
+            // VoiceOver), so nothing more is posted here, as in the chat (review 3: it was said twice).
+            guard let file else { return }
             // Left the room while it came: nothing will show it, so it goes now.
             if visible { openedFile = file; previewURL = file } else { client.closed(file) }
         }
@@ -437,11 +438,10 @@ struct RoomBubble: View {
                 Button("Reply", action: reply)
             }
             Button("Copy") { UIPasteboard.general.string = row.text }
-            // The post is read as one element and its cards are hidden from it, so each file is an action on it
-            // (kosmos#7062), with what the card would have said while it opens or after it fails.
+            // The post is read as one element and its cards are not buttons in it, so each file is an action on it
+            // (kosmos#7062), saying what the card would: opening, another file opening, failed, or opens on the board.
             ForEach(Array(row.attachments.enumerated()), id: \.offset) { _, f in
-                Button(fileStates[f.id] == .failed ? "Open \(f.name) again (it could not be opened)"
-                       : Board.isWebDocument(name: f.name, type: f.type) ? "Open \(f.name) on your computer's board" : "Open \(f.name)") { openFile(f) }
+                Button(fileActionName(f)) { openFile(f) }
             }
         }
     }
@@ -514,6 +514,17 @@ struct RoomBubble: View {
     var thumbnails: [String: Data] = [:]
     var fileStates: [String: FileCardState] = [:]
     var openFile: (Board.Attachment) -> Void = { _ in }
+
+    // The VoiceOver action for one file, carrying the state its card shows (review 3).
+    private func fileActionName(_ f: Board.Attachment) -> String {
+        switch fileStates[f.id] {
+        case .loading: return "Opening \(f.name)"
+        case .failed: return "Open \(f.name) again (it could not be opened)"
+        default:
+            if fileStates.values.contains(.loading) { return "Open \(f.name) (another file is opening)" }
+            return Board.isWebDocument(name: f.name, type: f.type) ? "Open \(f.name) on your computer's board" : "Open \(f.name)"
+        }
+    }
 
     // @names in the mention blue, only for agents the post actually addressed (`mentioned`, the board's #4642).
     static func withMentions(_ text: AttributedString, mentioned: [String], names: [String]) -> AttributedString {

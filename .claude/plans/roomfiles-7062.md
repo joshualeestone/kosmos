@@ -28,9 +28,12 @@ the room suite covers it against the real route's answer, and it is merged.
    roomWords; the chat's 6pt card spacing; the unnamed-file difference from pjWords noted. Left as is (inherited
    from the chat, stated): watching the whole client; Quick Look state lost if the room is replaced.
    Round 2: 0 blockers, 2 warnings, 4 nits. Fixed: the cards are read in the post as "Files: <names>" (a
-   files-only post is never an empty VoiceOver element); a failed open is announced; the source check aimed at the
+   files-only post is never an empty VoiceOver element); the source check aimed at the
    drawing; a page or markup file's action says it opens on the board. Stated: the captured page has only the person's
    posts (the parse is the same for an agent's; the agent bubble is the same RoomBubble); one file id shared by two
    posts shows its opening or failed state on both cards, as in the chat; a post with a card fills the bubble's 78%
    width, as in the chat, unverified by a screenshot.
+   Round 3: 0 blockers, 1 warning, 2 nits. Fixed: round 2's extra failure announcement removed (the hidden card
+   still announces its own failure, so it was said twice; now as in the chat); each file's action says opening,
+   another file opening, failed, or opens on the board; a loose check renamed as the premise it is.
 3. Validation, PR.

@@ -297,7 +297,7 @@ check(!bubbleSource.isEmpty && bubbleSource.contains("Board.roomWords(row)") && 
       "RoomBubble shows roomWords, not the stored text")
 let filesItems = Board.roomItems(filesRows, now: now, calendar: cal)
 check(filesItems.compactMap { if case let .row(r, _, _) = $0.kind { return r.attachments.count } else { return nil } } == [2, 1],
-      "the drawn rows keep their files")
+      "premise: the drawn rows are the parsed rows, files and all")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
