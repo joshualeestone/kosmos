@@ -559,3 +559,19 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
     both paths (ka-nopidnote).
 - DEFERRED NITs: a 20-digit integer key prints a test error and is rewritten to the floor (harmless); rm a planted
   <plist>.new before cp (a job already runs as this user, so no escalation).
+
+## Review round 39 (opus, blind, READ ONLY, HEAD 402222cf8e)
+- W1 FIXED: the kickstart after a stuck bootout was decided by a FLAG (sent=1 && outlived=0), so a runner that outlived
+  the first wait and ended in the second was left stopped. Now decided from the state: no old runner alive (none, or it
+  ended) => kickstart under the old definition. That also covers the CONVENTION (a job with no process plus a stuck
+  bootout now gets the kickstart too). Only a still-alive old runner gets "may still be unloading". ka-stuckoutlived
+  (new), ka-bootoutfail and ka-stuck updated (ka-stuck now has a live stand-in); the flag mutant is red.
+- W2 FIXED, A GAP I ADDED IN ROUND 37: the "file only, no reload" path returned ok without checking the runner was
+  running. The state wait is now one function (ka_running_or_down) used by the done path and both file-only paths.
+  ka-fileonlydown; mutant red.
+- W3 FIXED: the 30 s stand-ins started their clock at launch. A `standin N` helper lives N s AFTER the stub's SIGTERM
+  (it waits for $T/killed; ka_fresh clears it); ka-relayoutlived now asserts "had not ended" (the outlived path ran).
+  A never-sets-outlived mutant reds ka-jobduring, ka-jobends and ka-stuckoutlived (ka-relayoutlived rightly stays green:
+  its purpose, no veto from a relay job, is proven by the user-wide mutant of round 25).
+- NITs FIXED: ka-other's no-op chmod dropped; the dry-run DOWN line names the plist write only when it would write.
+- DEFERRED: ka-loadeddown's 15 s (launchd's default throttle of 10 + 5 is the real floor).

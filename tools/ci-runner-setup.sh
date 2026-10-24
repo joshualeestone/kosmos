@@ -670,6 +670,24 @@ runner_busy() {
 # it while the runner is idle (the reload stops it, and a job in flight would fail). It names the GUI domain, gui/<uid>,
 # so unlike svc.sh it works over ssh (measured on the old Agent1s Mac, 2026-10-23); the user must be logged in. A dry
 # run says whether KeepAlive is already set, which is how to check a runner whose home the owner cannot read.
+# ka_running_or_down: the loaded job HAS KeepAlive; ok when it is running, else DOWN (exit 1) after a wait that covers
+# a crash and launchd's throttled restart. Uses dom and label from keepalive (dynamic scope).
+ka_running_or_down() {
+  # Loaded is not running: a job that exited 0 (a stop of the service, a session conflict) stays loaded and down.
+  # Re-read for a while first: between a crash and launchd's restart (its throttle, up to 10 s) a job is not running.
+  local jo st w3=0 lim3="${KOSMOS_CI_STATE_WAIT_S:-12}" mr   # a number: checked at the top
+  # A throttle longer than the wait would read a crashed runner as down: wait at least the loaded throttle plus 5 s.
+  mr="$(launchctl print "$dom/$label" 2>/dev/null | sed -n 's/^[[:space:]]minimum runtime = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
+  [ -z "$mr" ] || [ "$((mr + 5))" -le "$lim3" ] || lim3=$((mr + 5))
+  while :; do
+    jo="$(launchctl print "$dom/$label" 2>/dev/null || true)"
+    st="$(printf '%s\n' "$jo" | sed -n 's/^[[:space:]]state = //p' | head -n 1 || true)"
+    [ "$st" = running ] && { ok "$label restarts after a SIGKILL or a crash (KeepAlive SuccessfulExit false, in the plist and loaded), and is running"; return 0; }
+    [ "$w3" -lt "$lim3" ] || break
+    sleep 1; w3=$((w3 + 1))
+  done
+  echo "DOWN: $label has KeepAlive loaded but has not been running for ${w3}s (state = ${st:-unknown}): if it exited 0 (a stop of the service, a session conflict), KeepAlive leaves it down. To start it: launchctl kickstart $dom/$label" >&2; exit 1
+}
 keepalive() {
   need_user "$CI_USER" ssh-ok
   mode_line
@@ -712,22 +730,7 @@ keepalive() {
       echo "refused: launchctl print $dom/$label has no 'exit timeout' or 'minimum runtime' line (the format this check was measured on, macOS 27), so a reload could never be confirmed (--apply would refuse too); nothing was changed" >&2; exit 1
     fi
   fi
-  if [ "$in_file" = 1 ] && [ "$in_job" = 1 ]; then
-    # Loaded is not running: a job that exited 0 (a stop of the service, a session conflict) stays loaded and down.
-    # Re-read for a while first: between a crash and launchd's restart (its throttle, up to 10 s) a job is not running.
-    local jo st w3=0 lim3="${KOSMOS_CI_STATE_WAIT_S:-12}" mr   # a number: checked at the top
-    # A throttle longer than the wait would read a crashed runner as down: wait at least the loaded throttle plus 5 s.
-    mr="$(launchctl print "$dom/$label" 2>/dev/null | sed -n 's/^[[:space:]]minimum runtime = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
-    [ -z "$mr" ] || [ "$((mr + 5))" -le "$lim3" ] || lim3=$((mr + 5))
-    while :; do
-      jo="$(launchctl print "$dom/$label" 2>/dev/null || true)"
-      st="$(printf '%s\n' "$jo" | sed -n 's/^[[:space:]]state = //p' | head -n 1 || true)"
-      [ "$st" = running ] && { ok "$label restarts after a SIGKILL or a crash (KeepAlive SuccessfulExit false, in the plist and loaded), and is running"; return 0; }
-      [ "$w3" -lt "$lim3" ] || break
-      sleep 1; w3=$((w3 + 1))
-    done
-    echo "DOWN: $label has KeepAlive loaded but has not been running for ${w3}s (state = ${st:-unknown}): if it exited 0 (a stop of the service, a session conflict), KeepAlive leaves it down. To start it: launchctl kickstart $dom/$label" >&2; exit 1
-  fi
+  if [ "$in_file" = 1 ] && [ "$in_job" = 1 ]; then ka_running_or_down; return 0; fi
   # Not loaded, yet THIS runner's Listener runs (not the relay's: its dir is actions-runner-relay): it was loaded some
   # other way (svc.sh over ssh, by hand), and a bootstrap here would start a second copy.
   local own=0 prc=0
@@ -742,7 +745,7 @@ keepalive() {
     [ "$in_file" = 1 ] || echo "note:   $plist lacks $(keepalive_missing "$plist"): a killed runner may stay offline"
     [ "$in_file" = 1 ] && [ "$loaded" = 1 ] && echo "note:   $plist has KeepAlive but the LOADED $label does not show all of it (launchctl print's 'successful exit => 0', 'exit timeout' of 35 or more and 'minimum runtime' of 10 or more): it needs a reload"
     [ "$in_file" = 1 ] || echo "WOULD: add KeepAlive {SuccessfulExit: false}, ThrottleInterval 10 and ExitTimeOut 35 to $plist"
-    if [ "$in_job" = 1 ]; then echo "note:   the LOADED $label already has it, so no reload: only the file is written"; return 0; fi
+    if [ "$in_job" = 1 ]; then echo "note:   the LOADED $label already has it, so no reload: only the file is written"; ka_running_or_down; return 0; fi
     # Exit 1 for a runner that is not running as it should (as --apply does), 0 for a change it would make.
     if [ "$own" = 1 ]; then echo "refused: its Listener runs but $label is not loaded in $dom: reload it there by hand" >&2; exit 1
     elif [ "$loaded" = 1 ]; then
@@ -774,7 +777,7 @@ keepalive() {
       echo "WOULD: only while no job runs: stop $label (SIGTERM, if it has a process), then reload it"
       if [ -n "$dpid" ]; then printf 'WOULD: launchctl kill SIGTERM %s\n' "$dom/$label"; else echo "note:   $label has no process, so no SIGTERM first"; fi
       printf 'WOULD: launchctl bootout %s\nWOULD: launchctl bootstrap %s %s\n' "$dom/$label" "$dom" "$plist"
-    else echo "DOWN: $label is not loaded, so the runner is not running; --apply puts KeepAlive in the plist and does not start it" >&2; exit 1; fi
+    else echo "DOWN: $label is not loaded, so the runner is not running; --apply$([ "$in_file" = 1 ] || printf ' puts KeepAlive in the plist and') does not start it" >&2; exit 1; fi
     return 0
   fi
   if [ "$in_file" = 0 ]; then
@@ -782,7 +785,7 @@ keepalive() {
     ok "KeepAlive added to $plist"
     # The LOADED job already has it (the file lacked only what launchd shows anyway, e.g. its default throttle): done,
     # with no reload of a runner that does not need one.
-    if [ "$in_job" = 1 ]; then ok "$label already runs with it loaded; no reload needed"; return 0; fi
+    if [ "$in_job" = 1 ]; then ok "$label already has it loaded; no reload needed"; ka_running_or_down; return 0; fi
   fi
   if [ "$loaded" = 0 ]; then
     if [ "$own" = 1 ]; then
@@ -910,13 +913,14 @@ keepalive() {
   local waited=0
   while launchctl print "$dom/$label" >/dev/null 2>&1 && [ "$waited" -lt "$limit" ]; do sleep 1; waited=$((waited + 1)); done
   if launchctl print "$dom/$label" >/dev/null 2>&1; then
-    if [ "$sent" = 1 ] && [ "$outlived" = 0 ]; then
-      # The SIGTERM ended it and it is still loaded under the OLD definition, which restarts nothing: start it again
-      # there, so the runner is up (without KeepAlive) rather than down until someone reruns this.
+    if [ "$sent" = 0 ] || ! kill -0 "$opid" 2>/dev/null; then
+      # No old runner is alive (there was none, or the SIGTERM ended it, in the first wait or the second) and the job is
+      # still loaded under the OLD definition, which restarts nothing: start it again there, so the runner is up
+      # (without KeepAlive) rather than down until someone reruns this. Decided from the state, not from a flag.
       if launchctl kickstart "$dom/$label" >/dev/null 2>&1; then
         echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; started it again under the OLD definition (launchctl kickstart): it runs WITHOUT KeepAlive. Run this again" >&2; exit 1
       fi
-      echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; the runner is STOPPED (SIGTERM ended it; still loaded from the OLD definition, or unloading). Run this again: it boots out and bootstraps. If it is no longer listed: launchctl bootstrap $dom $plist" >&2; exit 1
+      echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; the runner is STOPPED (not running; still loaded from the OLD definition, or unloading). Run this again: it boots out and bootstraps. If it is no longer listed: launchctl bootstrap $dom $plist" >&2; exit 1
     fi
     echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; it may still be unloading. Check: launchctl print $dom/$label. Loaded: it is still loaded from the OLD definition, without KeepAlive (run this again). Not loaded: the runner is DOWN (launchctl bootstrap $dom $plist)" >&2; exit 1
   fi
