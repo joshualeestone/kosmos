@@ -26,6 +26,9 @@ struct RoomView: View {
     // On screen (not covered by a member's chat or another tab): the re-read loop runs only then, so a hidden room is
     // never marked seen.
     @State private var visible = false
+    // kosmos#7072: Reopen the room is on its way, and the board's sentence when it was refused.
+    @State private var reopening = false
+    @State private var reopenNote: String?
     // kosmos#7062: each file card's state, and the file Quick Look shows (removed from the phone when it closes), as in
     // the chat.
     @State private var fileStates: [String: FileCardState] = [:]
@@ -50,6 +53,7 @@ struct RoomView: View {
             if let note = store.notes[project.id] {
                 Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
             }
+            heldNotice
             composer
         }
         .background(Palette.ground.ignoresSafeArea())
@@ -195,6 +199,52 @@ struct RoomView: View {
 
     // "<Name> needs you on this project." pinned under the header (the board's block, which a phone would put out of
     // reach under the conversation; the spec pins it). Open goes to that agent's chat.
+    // kosmos#7072: a held room (#5800), as the board's notice at the top of its composer (pjHeldNotice): why, how it
+    // ends, when it lifts on its own, and Reopen the room. A quiet band, as the board's msg-valve. While the person
+    // types, the words keep to about four lines and scroll (the board's kosmos-keyboard-up rule), so the box stays.
+    @ViewBuilder private var heldNotice: some View {
+        if let until = store.held[project.id] {
+            VStack(alignment: .leading, spacing: 6) {
+                let words = Text(Board.heldNotice(until: until)).font(.footnote).foregroundColor(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if typing {
+                    ScrollView { words.frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: 72)
+                } else {
+                    words
+                }
+                HStack(spacing: 10) {
+                    Button(Board.reopenButton) { reopen() }
+                        .font(.footnote.weight(.semibold)).frame(minHeight: 44).disabled(reopening)
+                    if let reopenNote {
+                        Text(reopenNote).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(.horizontal, 10).padding(.top, 6)
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.separator, lineWidth: 0.5))
+            .padding(.horizontal, 16).padding(.top, 6)
+            .accessibilityElement(children: .contain)
+            // A refusal said for one hold is not carried into the next.
+            .onDisappear { reopenNote = nil }
+        }
+    }
+
+    private func reopen() {
+        reopening = true
+        reopenNote = nil
+        let id = project.id
+        Task {
+            let refusal = await store.reopen(id)
+            reopening = false
+            reopenNote = refusal
+            if refusal == nil {
+                // Focus goes to the box, as the board's: the button it was on has just gone.
+                typing = true
+                UIAccessibility.post(notification: .announcement, argument: Board.reopenedAnnouncement)
+            }
+        }
+    }
+
     @ViewBuilder private var needsLine: some View {
         let waiting = store.waitingMembers(project)
         if !waiting.isEmpty {

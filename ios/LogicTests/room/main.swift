@@ -299,6 +299,46 @@ let filesItems = Board.roomItems(filesRows, now: now, calendar: cal)
 check(filesItems.compactMap { if case let .row(r, _, _) = $0.kind { return r.attachments.count } else { return nil } } == [2, 1],
       "premise: the drawn rows are the parsed rows, files and all")
 
+section("a held room (kosmos#7072)")
+// room-held.json, reopen-ok.json and reopen-refused.json are the REAL route's answers, captured from a sandboxed board
+// held as server.room-held-5800.test.js holds one (agent posts over the room's budget, then the valve).
+let heldData = (try? Data(contentsOf: here.appendingPathComponent("room-held.json"))) ?? Data()
+check(!heldData.isEmpty, "premise: the captured held page is there")
+let heldPage = Board.parseRoom(heldData, names: ["roo": "Roo"])
+check(heldPage?.held == true, "a held room reads as held")
+let fractional = ISO8601DateFormatter()
+fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+check(heldPage?.heldUntil != nil && heldPage?.heldUntil == fractional.date(from: "2026-10-25T00:20:46.531Z"),
+      "its until is the time the computer gave: \(String(describing: heldPage?.heldUntil))")
+check(page?.held == false && page?.heldUntil == nil, "CONTROL: the open room's captured page is not held and has no until")
+let atFive = Board.heldNotice(until: Date(timeIntervalSince1970: 0), time: { _ in "5:20 PM" })
+check(atFive == "This room has reached its limit for agent posts, because it kept going back and forth without a result. Your agents' posts will most likely not go through until you post something yourself or reopen the room. Otherwise it should lift on its own by 5:20 PM. An agent whose post was held can still send one summary to wrap things up.",
+      "the notice, word for word, with the time it lifts")
+check(!Board.heldNotice(until: nil).contains("lift on its own"), "no time given: no lift sentence (the board's NaN rule)")
+// The board still says these words (pjHeldNotice), so the phone cannot drift from it unseen.
+for phrase in ["This room has reached its limit for agent posts, because it kept going back and forth ",
+               "without a result. Your agents\\' posts will most likely not go through until you post something yourself or reopen the room.",
+               " Otherwise it should lift on its own by ", " An agent whose post was held can still send one summary to wrap things up.",
+               ">Reopen the room</button>", "pjRoomAnnounce('Reopened the room. Your agents can post here again.')",
+               "msg.textContent = 'We could not reopen the room' + (because ? ': ' + because : '') + '. Try again, or post in the room.'"] {
+    check(boardPage.contains(phrase), "the board still says: \(phrase.prefix(60))")
+}
+func capturedAnswer(_ name: String) -> (Int?, Data?) {
+    guard let d = try? Data(contentsOf: here.appendingPathComponent(name)),
+          let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return (nil, nil) }
+    return (o["status"] as? Int, o["body"].flatMap { try? JSONSerialization.data(withJSONObject: $0) })
+}
+let okAnswer = capturedAnswer("reopen-ok.json")
+check(okAnswer.0 == 200 && Board.reopenRefusal(status: okAnswer.0, okAnswer.1) == nil, "the computer's reopen answer reads as reopened")
+let noAnswer = capturedAnswer("reopen-refused.json")
+check(Board.reopenRefusal(status: noAnswer.0, noAnswer.1) == "We could not reopen the room: there is no project by that name. Try again, or post in the room.",
+      "a refusal, with the computer's reason, in the board's sentence")
+check(Board.reopenRefusal(status: nil, nil) == "We could not reopen the room. Try again, or post in the room.", "no answer at all is a refusal, never a reopen")
+check(Board.reopenRefusal(status: 200, Data("<html>sign in</html>".utf8)) != nil, "CONTROL: a 200 that is not the board's answer is never a reopen")
+let reopenReq = Board.reopenRequest(mac: URL(string: "https://studio.kosmosplus.com/")!, project: "springcatalogue")
+check(reopenReq?.httpMethod == "POST" && reopenReq?.url?.path == "/api/project/springcatalogue/room/reopen", "Reopen is the board's POST /api/project/<id>/room/reopen")
+check(Board.reopenRequest(mac: URL(string: "https://studio.kosmosplus.com/")!, project: "../x") == nil, "an id that is not a project's makes no request")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")

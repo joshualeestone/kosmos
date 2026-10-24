@@ -1,0 +1,7 @@
+{
+ "status": 404,
+ "body": {
+  "ok": false,
+  "because": "there is no project by that name"
+ }
+}

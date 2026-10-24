@@ -1,0 +1,25 @@
+# roomheld-7072: a held room shows the board's notice and Reopen the room (a slice 9 gap, #6838)
+
+**Done when:** on the iPhone, while a project room is held (#5800), the board's held notice shows above the room's
+composer, word for word (why, how it ends, when it lifts on its own, the one-summary exception), with Reopen the room
+calling the board's POST /api/project/<id>/room/reopen; a reopen removes the notice and re-reads the room, a refusal
+shows the board's sentence; the room suite covers it against the real route's answers; it is merged.
+
+## Decisions
+- The board's words and behaviour (web/index.html pjHeldNotice, pjHeldReopenClick), not new ones: the notice text,
+  the button, the refusal sentence and the success announcement are the board's, and the suite checks the board
+  still says each one, so the two cannot drift unseen.
+- RoomPage keeps its held flag and gains heldUntil (the route's held.until); RoomStore keeps each room's hold from
+  every newest-page read. On a reopen the notice goes before the re-read (the board's rule: a re-read that fails
+  must not leave a dead button).
+- An answer that is not the board's {ok: true} is a refusal, never a reopen (a sign-in page at 200 included).
+- While the person types, the notice keeps to about four lines and scrolls (the board's kosmos-keyboard-up rule).
+- The new route is guarded by the route check (#7061), which found it by itself (18 routes, 0 problems).
+- Fixtures: room-held.json, reopen-ok.json and reopen-refused.json, captured from a sandboxed board held as
+  server.room-held-5800.test.js holds one.
+- Weakest premise: the look is unverified by a screenshot (the simulator run is not permitted here, #7055).
+
+## Steps
+1. Model, store, view, suite, builds. DONE (room 150/150, run 1085, actions 97, settings 41, tasks 90; Debug and
+   KOSMOS_STORE_SHOTS Release SUCCEEDED; control: the until parse removed goes red).
+2. Review loop. 3. Validation, PR.

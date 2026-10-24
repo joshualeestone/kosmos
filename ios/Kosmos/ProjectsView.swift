@@ -14,6 +14,8 @@ final class RoomStore: ObservableObject {
     @Published private(set) var rows: [String: [Board.RoomRow]] = [:]
     @Published private(set) var older: [String: (count: Int, cursor: String?)] = [:]
     @Published private(set) var roomFailed: Set<String> = []
+    // kosmos#7072: the rooms held at their last newest-page read, with when each should lift (nil: it did not say).
+    @Published private(set) var held: [String: Date?] = [:]
     @Published private(set) var loadingOlder: Set<String> = []
     // Rooms whose last older-page read failed: the top of the room offers it again rather than spinning.
     @Published private(set) var olderFailed: Set<String> = []
@@ -100,6 +102,7 @@ final class RoomStore: ObservableObject {
             roomFailed.insert(project); return false
         }
         roomFailed.remove(project)
+        if page.held { held[project] = .some(page.heldUntil) } else { held[project] = nil }
         let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)
         rows[project] = fresh.rows
         older[project] = fresh.older
@@ -192,6 +195,22 @@ final class RoomStore: ObservableObject {
             r.setValue("application/json", forHTTPHeaderField: "Accept")
             return r
         }
+    }
+
+    // kosmos#7072: the board's Reopen the room. nil when it reopened (the notice goes now, before the re-read, so a
+    // re-read that fails cannot leave a held notice with a dead button: pjHeldReopenClick); otherwise the board's
+    // sentence for the refusal.
+    func reopen(_ project: String) async -> String? {
+        #if DEBUG
+        if Self.sample { held[project] = nil; return nil }
+        #endif
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.reopenRequest(mac: $0, project: project) }
+        guard same(epoch) else { return nil }
+        if let refusal = Board.reopenRefusal(status: answer?.1.statusCode, answer?.0) { return refusal }
+        held[project] = nil
+        await loadRoom(project)
+        return nil
     }
 
     // A pending or not-confirmed post the room now shows is dropped: the room's row replaces it. A refused one never

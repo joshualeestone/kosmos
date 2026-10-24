@@ -70,6 +70,8 @@ extension Board {
         // The computer's cursor for the page before this one; nil at the start of the room.
         let olderCursor: String?
         let held: Bool
+        // kosmos#7072: when the hold should lift on its own (the route's held.until), nil when it did not say.
+        var heldUntil: Date? = nil
         // The route's `unanswered` for the WHOLE room (messages.unanswered is not filtered by page), names shown; nil
         // when the computer did not send it. Applied to every post shown, not only this page's.
         var silent: [String: [String]]? = nil
@@ -87,6 +89,37 @@ extension Board {
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
+    }
+
+    // kosmos#7072: a held room (#5800), as the board says it above its composer (web/index.html pjHeldNotice), word for
+    // word. The time it should lift is in the person's own clock format, as the board's toLocaleTimeString.
+    static func heldNotice(until: Date?, time: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }) -> String {
+        "This room has reached its limit for agent posts, because it kept going back and forth without a result. "
+            + "Your agents' posts will most likely not go through until you post something yourself or reopen the room."
+            + (until.map { " Otherwise it should lift on its own by " + time($0) + "." } ?? "")
+            + " An agent whose post was held can still send one summary to wrap things up."
+    }
+    static let reopenButton = "Reopen the room"
+    static let reopenedAnnouncement = "Reopened the room. Your agents can post here again."
+
+    // The board's own Reopen (pjHeldReopenClick): POST /api/project/<id>/room/reopen, which answers {ok, at} or
+    // {ok: false, because}.
+    static func reopenRequest(mac: URL, project: String) -> URLRequest? {
+        guard isProjectId(project) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/project/\(project)/room/reopen", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+
+    // nil when the room reopened; otherwise the board's sentence for a refusal, its reason when it gave one. An answer
+    // this build cannot read is a refusal, never taken for a reopen.
+    static func reopenRefusal(status: Int?, _ data: Data?) -> String? {
+        let obj = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if status == 200, let obj, isTrue(obj["ok"]) { return nil }
+        let because = (obj?["because"] as? String).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        return "We could not reopen the room" + (because.map { ": " + $0 } ?? "") + ". Try again, or post in the room."
     }
 
     // The board's words for Kosmos's lines in a room (web/index.html pjRoomRow, the room's text view in server.js).
@@ -161,6 +194,7 @@ extension Board {
         let cursor = (obj["olderCursor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         var page = RoomPage(rows: rows, olderCount: max(0, integer(obj["olderCount"]) ?? 0), olderCursor: cursor,
                             held: obj["held"] is [String: Any])
+        page.heldUntil = isoDate((obj["held"] as? [String: Any])?["until"] as? String)
         if obj["unanswered"] is [String: Any] { page.silent = silent.mapValues { $0.map(shown) } }
         return page
     }
