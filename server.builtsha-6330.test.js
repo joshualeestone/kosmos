@@ -185,7 +185,7 @@ test('the line typed to the next agent carries the fingerprint, and a mark witho
     assert.equal(stored(n).builtFingerprint, A, 'CONTROL: the fingerprint was kept');
     const withPrint = typed.find((t) => t.includes('mona marked task ' + n + ' built'));
     const without = typed.find((t) => t.includes('marked task ' + n2 + ' built'));
-    assert.ok(withPrint && withPrint.includes(' - fingerprint ' + A + ' - reply in the task'), JSON.stringify(typed));
+    assert.ok(withPrint && withPrint.includes(' - fingerprint ' + A + ' (check your copy with: kosmos fingerprint <file>) - reply in the task'), JSON.stringify(typed));
     assert.ok(without && !without.includes('fingerprint'), JSON.stringify(typed));
   } finally {
     chat.resetForTests();
@@ -196,8 +196,10 @@ const { execFile } = require('node:child_process');
 const MAC_HOME = path.join(SANDBOX, 'kosmos-home');
 fs.mkdirSync(path.join(MAC_HOME, 'runtime', 'bin'), { recursive: true });
 fs.symlinkSync(process.execPath, path.join(MAC_HOME, 'runtime', 'bin', 'node'));
-function mac(args, extra = {}, cwd = undefined) {
-  const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: '', ...extra };
+// kosmos#6849: --file works the fingerprint out with engine/fileprint.js, so the home carries the engine as an install does.
+fs.symlinkSync(path.join(__dirname, 'engine'), path.join(MAC_HOME, 'engine'));
+function mac(args, extra = {}, cwd = undefined, home = MAC_HOME) {
+  const env = { ...process.env, KOSMOS_HOME: home, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: '', ...extra };
   return new Promise((resolve, reject) => {
     execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 20000, cwd }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code: ' + (stderr || err.signal))); return; }
@@ -220,6 +222,8 @@ test('Mac `kosmos task built --file` sends the file\'s sha256, and task list sho
   assert.equal(r.code, 0, r.out);
   assert.equal(stored(n).builtFingerprint, want, 'the CLI sent another fingerprint: ' + r.out);
   assert.equal(stored(n).builtNote, 'delivered', 'the file path leaked into the note');
+  // #6761: the fingerprint sent is printed, whole, with the file named as given.
+  assert.ok(r.out.includes('Fingerprint sent: ' + want + ' for ' + path.basename(file)), r.out);
   const list = await mac(['task', 'list', projectId], { KOSMOS_AGENT_TOKEN: tok });
   assert.match(list.out, new RegExp('    fingerprint ' + want + ', sent by mona'), list.out);
 });
@@ -233,12 +237,14 @@ test('Mac: a missing file, --file with no path, and --file with --clear are refu
   const blank = await mac(['task', 'built', projectId, String(n), 'note', '--file', ''], { KOSMOS_AGENT_TOKEN: tok });
   assert.equal(blank.code, 2, 'an empty --file marked the task with no fingerprint: ' + blank.out);
   assert.match(blank.out, /cannot read that file/);
-  // A file that passes the read check but fails in the hasher (privacy controls, a disk error) is refused with words,
-  // not ended silently by set -e (review 7). A shasum that fails stands in for it.
-  const bin = path.join(SANDBOX, 'failing-bin');
-  fs.mkdirSync(bin, { recursive: true });
-  fs.writeFileSync(path.join(bin, 'shasum'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-  const failed = await mac(['task', 'built', projectId, String(n), 'note', '--file', __filename], { KOSMOS_AGENT_TOKEN: tok, PATH: bin + path.delimiter + process.env.PATH });
+  // A file that passes the read check but fails while it is fingerprinted (privacy controls, a disk error) is refused
+  // with words, not ended silently by set -e (review 7). Since #6849 the fingerprint is the engine's, so a home whose
+  // runtime fails stands in for it.
+  const failHome = path.join(SANDBOX, 'failing-home');
+  fs.mkdirSync(path.join(failHome, 'runtime', 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(failHome, 'runtime', 'bin', 'node'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  fs.symlinkSync(path.join(__dirname, 'engine'), path.join(failHome, 'engine'));
+  const failed = await mac(['task', 'built', projectId, String(n), 'note', '--file', __filename], { KOSMOS_AGENT_TOKEN: tok }, undefined, failHome);
   assert.equal(failed.code, 2, failed.out);
   assert.match(failed.out, /cannot read that file/);
   const empty = await mac(['task', 'built', projectId, String(n), '--file'], { KOSMOS_AGENT_TOKEN: tok });
@@ -248,4 +254,28 @@ test('Mac: a missing file, --file with no path, and --file with --clear are refu
   assert.equal(both.code, 2, both.out);
   assert.match(both.out, /takes no file/);
   assert.equal(stored(n).builtAt, undefined, 'a refused command marked the task');
+});
+
+test('#6849 Mac: task built --file and kosmos fingerprint give a PDF the fingerprint without its own dates', { skip: process.platform === 'win32' && 'the Mac CLI' }, async () => {
+  const fileprint = require('./engine/fileprint');
+  const fix = path.join(__dirname, 'test-support', 'fileprint-6849');
+  const a = path.join(fix, 'chrome-a.pdf'), b = path.join(fix, 'chrome-b.pdf');
+  const want = fileprint.fingerprint(a);
+  const plainA = 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(a)).digest('hex');
+  const plainB = 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(b)).digest('hex');
+  assert.ok(want !== plainA && plainA !== plainB, 'CONTROL: the fixtures no longer drift, so this test cannot tell the two fingerprints apart');
+  const n = tasks.create(projectId, { sentence: 'Deliver the PDF', who: 'mona' }).number;
+  const tok = sendertoken.mint('mona').token;
+  const r = await mac(['task', 'built', projectId, String(n), 'delivered', '--file', b], { KOSMOS_AGENT_TOKEN: tok });
+  assert.equal(r.code, 0, r.out);
+  assert.equal(stored(n).builtFingerprint, want, 'the second render was sent another fingerprint than the first: ' + r.out);
+  const printed = await mac(['fingerprint', a]);
+  assert.equal(printed.code, 0, printed.out);
+  assert.equal(printed.out.trim(), want);
+  const bare = await mac(['fingerprint']);
+  assert.equal(bare.code, 2, bare.out);
+  assert.match(bare.out, /Usage: kosmos fingerprint <file>/);
+  const missing = await mac(['fingerprint', path.join(fix, 'nope.pdf')]);
+  assert.equal(missing.code, 2, missing.out);
+  assert.match(missing.out, /missing \(no such file\)/);
 });

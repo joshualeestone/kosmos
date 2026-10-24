@@ -793,7 +793,10 @@ function todayUtc() {
 // real "last N days" request.
 const MAX_DAYS = 3650;
 
-async function dailyUsageByModel(days = 7) {
+/* #6829: see `holdPartial` in dailyUsageByModel. 20 days sits inside Claude Code's default 30-day transcript cleanup
+   (cleanupPeriodDays; a lower setting deletes sooner, and then a held day can be lost before it is saved). */
+const FREEZE_ANYWAY_DAYS = 20;
+async function dailyUsageByModel(days = 7, { holdPartial = false } = {}) {
   const clampedDays = Math.min(MAX_DAYS, Math.max(1, Math.trunc(Number(days)) || 1));
   const today = todayUtc();
   const wanted = [];
@@ -831,6 +834,14 @@ async function dailyUsageByModel(days = 7) {
       ? await scanDayCursor(today)
       : await scanUsage({ sinceDay, untilDay, mtimeCut: true });
     rootsRead = scanResult.rootsRead;
+    /* #6829: `holdPartial` is the board's own timed save (saveSinceInstall), which runs with nobody looking: when its
+       scan could not read every transcript, a recent past day is not saved (a past day is never rescanned once saved,
+       so a passing read error would fix it short for good), and the next tick reads it again. A day older than
+       FREEZE_ANYWAY_DAYS is saved with what could be read, since waiting can only lose more of it. A request from the
+       page saves as it always has. */
+    const hold = holdPartial && scanResult.unreadable > 0;
+    if (hold) console.error('usage: ' + scanResult.unreadable + ' transcript(s) could not be read; recent past days are not saved this time');
+    const freezeAnywayBefore = new Date(Date.now() - FREEZE_ANYWAY_DAYS * 86400000).toISOString().slice(0, 10);
     for (const day of missing) {
       /* Whichever half of a past day is already frozen keeps it: re-deriving
          it from today's transcripts could only lose what has been pruned
@@ -840,7 +851,7 @@ async function dailyUsageByModel(days = 7) {
       const folderFrozen = has(byFolder);
       if (!modelFrozen) byDay[day] = scanResult.days[day] || {};
       if (!folderFrozen) byFolder[day] = scanResult.folders[day] || {};
-      if (day !== today) {
+      if (day !== today && (!hold || day < freezeAnywayBefore)) {
         try {
           await ensureUsageDir();
         } catch { /* the writes below fail and say so */ }
@@ -995,8 +1006,81 @@ async function byAgentAsync(result, agents) {
   return byAgent(result, agents, (p) => (real.has(p) ? real.get(p) : path.resolve(p)));
 }
 
+/* #6829 (Josh 10-21 07:54: "all time usage beyond 14 days and for new users should only start counting on those days
+   from install forward"). The install's first UTC day: the earliest of the time the install id was minted
+   (ping.installedAt) and the time first-run setup completed. With neither, today. Both are times this Kosmos itself
+   wrote, which is why neither the data folder's birth time (recreated folders) nor the earliest frozen usage day (a
+   window request freezes days BEFORE install) is used. `deps` is for tests. */
+function installDay(deps = {}) {
+  const today = (deps.today || todayUtc)();
+  const times = [];
+  try { times.push((deps.installedAt || (() => require('./ping').installedAt()))()); } catch { /* not told */ }
+  try {
+    const s = (deps.firstRun || (() => require('./firstrun').seen()))();
+    if (s && s.done) times.push(s.at);
+  } catch { /* not told */ }
+  const days = times.map((t) => (typeof t === 'string' ? Date.parse(t) : NaN))
+    .filter(Number.isFinite).map((ms) => new Date(ms).toISOString().slice(0, 10));
+  const earliest = days.sort()[0];
+  /* A clock set back, or a restored file from the future, never makes the count start after today. */
+  return earliest && earliest <= today ? earliest : today;
+}
+
+/* #6829: every day from the install day through today, inclusive. `days` is that count (1 on install day), the
+   figure the Active Days tile shows. Clamped by dailyUsageByModel's MAX_DAYS like any other window. */
+async function usageSinceInstall(deps = {}, opts = {}) {
+  const since = installDay(deps);
+  const today = (deps.today || todayUtc)();
+  const days = Math.min(MAX_DAYS, Math.round((Date.parse(today + 'T00:00:00Z') - Date.parse(since + 'T00:00:00Z')) / 86400000) + 1);
+  const result = await (deps.daily || dailyUsageByModel)(days, opts);
+  return { ...result, installDay: since, days };
+}
+
+/* #6829: every all-time read, the page's and the timed save's, runs one after another, so the first open after this
+   update and the first save do not scan the same weeks of transcripts at once. A later read finds the earlier one's
+   saved days on disk. */
+let allTimeChain = Promise.resolve();
+function inTurn(fn) {
+  const run = allTimeChain.then(fn);
+  allTimeChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+function readSinceInstall(read = () => usageSinceInstall()) {
+  return inTurn(read);
+}
+
+/* #6829: save every completed day while its transcripts still exist. Claude Code deletes transcripts older than its
+   cleanupPeriodDays (30 by default), and a day was frozen only when some request's window covered it, so a day nobody
+   viewed Token Usage near was lost for good. A few minutes after the board starts, then every SAVE_EVERY_MS, the
+   all-time read runs once (its completed days come from disk after the first time, so a repeat is cheap). One at a
+   time; never under the test runner (an armed timer would land in another test). Best effort: a failed save is
+   retried on the next tick. */
+const SAVE_FIRST_MS = 3 * 60 * 1000;
+const SAVE_EVERY_MS = 6 * 60 * 60 * 1000;
+let saving = null;
+function saveSinceInstall(read = () => usageSinceInstall({}, { holdPartial: true })) {
+  if (!saving) {
+    saving = inTurn(() => read()).then(() => true, (err) => {
+      console.error('usage: could not save past days:', (err && err.message) || err);
+      return false;
+    }).finally(() => { saving = null; });
+  }
+  return saving;
+}
+function startSaving() {
+  if (process.env.NODE_TEST_CONTEXT) return false;
+  setTimeout(() => { saveSinceInstall(); }, SAVE_FIRST_MS).unref();
+  setInterval(() => { saveSinceInstall(); }, SAVE_EVERY_MS).unref();
+  return true;
+}
+
 module.exports = {
   configRoots, // re-exported so a caller can report roots without a second require
+  saveSinceInstall,    // kosmos#6829
+  readSinceInstall,    // kosmos#6829: the route's all-time read, in turn with the timed save
+  startSaving,         // kosmos#6829
+  installDay,          // kosmos#6829
+  usageSinceInstall,   // kosmos#6829
   walkTranscriptsUnder,
   scanUsage,
   scanDayCursor,      // kosmos#5759

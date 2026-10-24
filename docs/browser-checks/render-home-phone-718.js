@@ -3,16 +3,18 @@
  * #718 row 6: the home grid and the agents list on a phone.
  *
  * The harness flagged three small targets there at 375px: the agent names (16px tall),
- * "Answer" (63x24) and "Set them to start at login" (34px). Only the last is a real
+ * "Answer" (63x24) and the restart notice's start button (34px then; #6714 made it a notice's own button). Only the last is a real
  * thumb problem: a tap anywhere on an agent's card or row opens that agent (the board's
  * one click handler), and "Answer" has its own touch hit area (render-waiting-phone-718).
  * This drives the REAL page from the REAL server and reads, at the four harness sizes:
- *   - "Set them to start at login" is at least 44px tall;
+ *   - the restart notice's start button (three agents at phone width share one notice: "Start them at login") and its
+ *     x (#6714) are at least 44px;
  *   - a tap on an empty part of a card (grid) and of a row (list), away from its name
  *     and any button, opens that agent, so the 16px name is not the target;
  *   - the page is no wider than the screen, in both layouts;
  * and at desktop width (1280) the button keeps its old height (the same with any min-height
- * taken away). The tab layout only: the consolidated layout does not show #restart-wrap.
+ * taken away). The tab layout only. #6714: the button is now each agent's "Start at login" in its restart notice, and its
+ * x ("Stop reminding me about ...") is held to 44px on a phone too.
  * #6107, an upright tablet (834x1194, touch): the cards are two across (one across at 600x960, a small tablet) with
  * the face on the left, name, role and state beside it and the task underneath, a needs-you card and a long name fitting;
  * also two across at 744x1133 (the iPad mini, the 330px floor). CONTROLS, each keeping the desktop card (face above the
@@ -61,6 +63,7 @@ const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 const create = require('../../engine/create');
 const store = require('../../engine/store');
+const liveness = require('../../engine/liveness');   // #6714: the restart notice counts agents that have run
 
 // The gate runs Chromium; ENGINES=chromium,webkit adds WebKit by hand.
 const ALL_ENGINES = ['chromium', 'webkit'];
@@ -74,7 +77,8 @@ if (!ENGINES.length || ENGINES.length !== ASKED.length) {
 // The mobile-shots harness sizes: iPhone SE, iPhone 15, iPhone 15 Pro Max, a Pixel.
 const PHONES = [[375, 667], [393, 852], [430, 932], [412, 915]];
 const NAMES = ['ada', 'bram', 'cleo'];
-const SURVIVAL = '#restart-wrap [data-survival-fix]';
+const SURVIVAL = '#survival-slot [data-survival-fix]';   // #6714: a notice per agent in the floating stack
+const SURVIVAL_X = '#survival-slot [data-survival-hide]';
 
 const fail = [];
 function chk(ok, label, extra) {
@@ -114,12 +118,13 @@ function emptySpot(page, sel) {
     displayName: n[0].toUpperCase() + n.slice(1),
     role: 'Role ' + (i + 1),
   })));
-  // A profile and a folder for each agent and no login job (LAUNCH is an empty temp dir):
-  // the survival panel's "missing" list, so "Set them to start at login" shows
-  // (engine/register.js reads the profiles, not the fleet stub).
+  // A profile, a folder and a run record for each agent and no login job (LAUNCH is an empty temp dir):
+  // the restart notice's "missing" list, so each agent's "Start at login" shows
+  // (engine/register.js reads the profiles, not the fleet stub; #6714 counts only agents that have run).
   NAMES.forEach((n, i) => {
     store.writeProfile(n, { role: 'Role ' + (i + 1) });
     fs.mkdirSync(create.workerDir(n), { recursive: true });
+    liveness.seen(n);
   });
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -141,11 +146,14 @@ function emptySpot(page, sel) {
           page.on('pageerror', (e) => errs.push(String(e.message || e).split('\n')[0]));
           await home(page, URL, 'grid');
           const btn = await page.waitForSelector(SURVIVAL, { state: 'visible', timeout: 8000 }).catch(() => null);
-          if (!btn) chk(false, `${tag} "Set them to start at login" is showing`, SURVIVAL);
+          if (!btn) chk(false, `${tag} "Start at login" is showing`, SURVIVAL);
           else {
             const bh = await btn.evaluate((b) => Math.round(b.getBoundingClientRect().height * 10) / 10);
-            chk(bh >= 44, `${tag} "Set them to start at login" is at least 44px tall`, `${bh}px`);
+            chk(bh >= 44, `${tag} "Start at login" is at least 44px tall`, `${bh}px`);
           }
+          const x = await page.$(SURVIVAL_X);
+          const xb = x ? await x.evaluate((b) => { const r = b.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; }) : null;
+          chk(!!xb && xb.w >= 44 && xb.h >= 44, `${tag} #6714: the restart notice's x is at least 44px square`, JSON.stringify(xb));
           // #4662: iOS zooms into a focused field under 16px and does not zoom back; the Sort dropdown was 13px.
           const sort = await page.evaluate(() => { const e = document.getElementById('agent-sort');
             return e ? { px: parseFloat(getComputedStyle(e).fontSize) } : null; });
@@ -203,8 +211,11 @@ function emptySpot(page, sel) {
             if (!ada) return { error: 'no ada card' };
             const r = (sel) => { const e = ada.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, r: b.right, t: b.top, b: b.bottom }; };
             // Every child of an ordinary card sits in a named grid area: a new line the areas do not name would fall
-            // into an implicit row under the model line.
-            const unplaced = cards.flatMap((c) => [...c.children].filter((k) => getComputedStyle(k).display !== 'none' && getComputedStyle(k).gridArea.split('/').every((p) => p.trim() === 'auto')).map((k) => k.className));
+            // into an implicit row under the model line. #6719: an out-of-flow child (the star, absolutely placed in the
+            // card's corner) is not a line and takes no row, so it is not counted.
+            const unplaced = cards.flatMap((c) => [...c.children].filter((k) => getComputedStyle(k).display !== 'none'
+              && !['absolute', 'fixed'].includes(getComputedStyle(k).position)
+              && getComputedStyle(k).gridArea.split('/').every((p) => p.trim() === 'auto')).map((k) => k.className));
             return { columns: lefts.size, cards: cards.length, g: r('.agauge'), n: r('.aname'), m: r('.ameta'), st: r('.astate'), task: r('.atask'), unplaced };
           });
           if (card.error || !card.g || !card.n || !card.m || !card.st || !card.task) { chk(false, `${tag} the ada card and its parts are drawn`, JSON.stringify(card)); await ctx.close(); continue; }
@@ -259,12 +270,12 @@ function emptySpot(page, sel) {
           const bh = btn ? await hOf() : null;
           let bare = null;
           if (btn) {
-            const t = await page.addStyleTag({ content: '#restart-wrap .btn{min-height:0!important}' });
+            const t = await page.addStyleTag({ content: '.utoast.survival .uacts button{min-height:0!important}' });
             await page.waitForTimeout(50);
             bare = await hOf();
             await t.evaluate((n) => n.remove());
           }
-          chk(bh !== null && bh === bare, `${tag} "Set them to start at login" keeps its desktop height`, `${bh}px drawn, ${bare}px with no min-height`);
+          chk(bh !== null && bh === bare, `${tag} "Start at login" keeps its desktop height`, `${bh}px drawn, ${bare}px with no min-height`);
           const dsort = await page.evaluate(() => { const e = document.getElementById('agent-sort'); return e ? parseFloat(getComputedStyle(e).fontSize) : null; });
           chk(dsort !== null && dsort < 16, `${tag} CONTROL: the Sort dropdown keeps its desktop size (the touchscreen rule does not reach it)`, String(dsort));
           await ctx.close();

@@ -93,6 +93,31 @@ test('#4934: a loop-guard refusal (code room_held) says nothing was kept, not to
   });
 });
 
+test('#6920 / #6925: a room_held refusal offers the one closing summary only when the board says it will take it', async () => {
+  for (const [extra, offered] of [[{ closingEligible: true }, true], [{ closingUsed: true }, false], [{}, false], ['spaced', true]]) {   // #6925: {} is an older board
+    // 'spaced': the board's JSON with a space after the colon, which the CLI's match must still read
+    const body = extra === 'spaced'
+      ? '{"delivery":{"state":"could_not","code":"room_held","because":' + JSON.stringify(VALVE_BECAUSE) + ', "closingEligible": true}}'
+      : { delivery: { state: 'could_not', code: 'room_held', because: VALVE_BECAUSE, ...extra } };
+    const routes = { 'POST /api/post': { code: 200, body } };
+    await withBoard(routes, async (port) => {
+      const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+      const out = await runCli(['post', 'henderson', 'the lease renews monthly'], env);
+      assert.match(out.stdout, /Not posted: this room went back and forth/, 'CONTROL: the refusal itself is still said');
+      const hint = /The one exception: a summary that settles the thread can go through now, once: 400 characters or more\./;
+      if (offered) {
+        assert.match(out.stdout, hint, 'the closing summary was not offered');
+        const min = (fs.readFileSync(path.join(__dirname, 'engine', 'messages.js'), 'utf8').match(/^const CLOSING_POST_MIN = (\d+);/m) || [])[1];
+        assert.ok(min, 'CLOSING_POST_MIN not found in engine/messages.js');
+        assert.ok(out.stdout.includes(min + ' characters or more'), 'the CLI offers a different length than the board requires (' + min + ')');
+        assert.ok(out.stdout.indexOf('Do not send it another way') < out.stdout.indexOf('The one exception'),
+          'the exception was said before the wait, so the two read as opposite instructions');
+      }
+      else assert.doesNotMatch(out.stdout, hint, 'offered a summary the board did not say it would take');
+    });
+  }
+});
+
 /* #6420: the board says when the held room's limit lifts (clearsInMinutes); the CLI passes it on in place of
    "about an hour". The test above, with no such field (an older board), is the CONTROL that the old words stay. */
 test('#6420: a held room\'s refusal says when the limit lifts', () => {
@@ -178,4 +203,27 @@ test('#2710: reopen of an unknown project reports it and exits non-zero', () => 
     assert.match(out.stdout, /no project called "nope"/, 'a 404 reopen was not reported clearly: ' + out.stdout);
     assert.notEqual(out.code, 0, 'a failed reopen must exit non-zero');
   });
+});
+
+/* #6925: a post that went through a held room as this member's one summary says so, placed or unconfirmed; an ordinary
+   post does not. One body is written with a space after the colon, the shape the CLI's match must still read. */
+test('#6925: the one-summary line on a landed closing post (compact and spaced JSON), not on an ordinary post', async () => {
+  const LINE = /This went through as your one summary while the room is held; anything more is not posted until the hold lifts\./;
+  const cases = [
+    ['{"delivery":{"state":"placed","closing":true}}', true],
+    ['{"delivery":{"state":"placed", "closing": true}}', true],
+    ['{"delivery":{"state":"unconfirmed","because":"x","closing":true}}', true],
+    ['{"delivery":{"state":"placed"}}', false],
+    // an agent named closing is an outcomes key with a delivery-state string value, never the flag
+    ['{"delivery":{"state":"placed","outcomes":{"closing":"placed","closingEligible":"placed"}}}', false],
+  ];
+  for (const [body, said] of cases) {
+    const routes = { 'POST /api/post': { code: 200, body } };
+    await withBoard(routes, async (port) => {
+      const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+      const out = await runCli(['post', 'henderson', 'a summary'], env);
+      if (said) assert.match(out.stdout, LINE, 'not told it used the one summary: ' + body);
+      else assert.doesNotMatch(out.stdout, /your one summary/, 'an ordinary post was called the one summary');
+    });
+  }
 });

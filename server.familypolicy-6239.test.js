@@ -97,6 +97,16 @@ test('#6239: no project is shared or joined under the policy, and nothing is sig
     assert.equal(r.status, 403, route + ' ' + JSON.stringify(r.json));
     assert.match(r.json.error, /^The policy set for this Kosmos keeps agents out of the Kosmos\+ community and out of projects shared with other computers, so a project cannot be shared or joined here\.$/, route);
   }
+  // kosmos#4658: the Allow that hands a sealed room's key to another computer, behind the federation switch.
+  process.env.AGENT_WORKFORCE_FEDERATION_LIVE = '1';
+  try {
+    const r = await call('POST', '/api/federation/own-allow', { project: id, pub: 'pub-x', code: 'ABCDE-FGHJK' }, SCREEN);
+    assert.equal(r.status, 403, 'own-allow ' + JSON.stringify(r.json));
+    assert.match(r.json.error, /^The policy set for this Kosmos keeps agents out/, 'own-allow');
+    const c = await call('POST', '/api/federation/own-confirm', { project: id, code: 'ABCDE-FGHJK' }, SCREEN);
+    assert.equal(c.status, 403, 'own-confirm ' + JSON.stringify(c.json));
+    assert.match(c.json.error, /^The policy set for this Kosmos keeps agents out/, 'own-confirm');
+  } finally { delete process.env.AGENT_WORKFORCE_FEDERATION_LIVE; }
   assert.equal(signed.length, before, 'something was signed for the coordinator under the policy');
   apply({ outside_contact: { enabled: true } });
   const ok = await call('POST', '/api/federation/verify', { code: 'X' }, SCREEN);

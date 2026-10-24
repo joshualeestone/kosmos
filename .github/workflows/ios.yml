@@ -74,6 +74,20 @@ jobs:
           ios/LogicTests/run.sh | tee "$RUNNER_TEMP/logic.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/logic.log"
 
+      # kosmos#7010: the Settings tab's logic, its own suite so it and the chat slice never edit one test file.
+      - name: Settings logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-settings.sh | tee "$RUNNER_TEMP/settings.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/settings.log"
+
+      # kosmos#7017: answering from the notification, its own suite like Settings'.
+      - name: Notification action logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-actions.sh | tee "$RUNNER_TEMP/actions.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/actions.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build
@@ -116,6 +130,8 @@ jobs:
             -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Kosmos.xcarchive" \
             CODE_SIGNING_ALLOWED=NO archive
           test -d "$RUNNER_TEMP/Kosmos.xcarchive/Products/Applications/Kosmos.app"
+          # kosmos#6487: the notification extension rides inside the app, under its own bundle id.
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Kosmos.xcarchive/Products/Applications/Kosmos.app/PlugIns/KosmosNotice.appex/Info.plist")" = io.kosmos.app.notice
 
       # #6262: the store build never carries the App Store screenshot switch (ios/store/shoot-app.sh's
       # KOSMOS_STORE_SHOTS). Checked on the Release app and the archive's app, and shown able to fail on a REAL

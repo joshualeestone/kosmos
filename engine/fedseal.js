@@ -232,6 +232,110 @@ function openRotate(me, pinnedOwnerPub, frame, roomId) {
   return { epoch: frame.epoch, roomKey: b64(pt.subarray(0, 32)), rotatedAt };
 }
 
+/* ---- own computers in a sealed room (kosmos#4658) ----
+   Numeric comparison with a commitment (decided on the card 10-24, comment 6381388572), so neither our
+   relay nor our coordinator can obtain or substitute the room key:
+     waiting -> room   key-own-hello  {mac, pub, commit = H(nW)}      nW fresh, 32 bytes, never reused
+     owner   -> room   key-own-offer  {mac, owner, nonce: nO, commit}  nO fresh per hello
+     waiting -> room   key-own-reveal {mac, owner, nonce: nW}          only for an offer naming its commit
+   Both screens then show compareCode over (room, mac, both keys, nW, nO). A man in the middle must fix its
+   commitment toward the owner before it sees nO, and its nO toward the waiting computer before it sees nW, so
+   each pair of runs (a waiting run against an owner's row) is one guess at the code, and fedseats bounds the runs (OWN_RUNS_PER_HOUR). The person presses Allow on the owner (which sends
+   key-own-share bound to that run) AND "It matches" on the waiting computer, which adopts a share only from
+   the owner key of the offer its person confirmed. */
+
+/** The 31 symbols of the relay's match code (proto::matchcode::ALPHABET): no 0/O, no 1/I/L. */
+const COMPARE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+const COMPARE_LEN = 10;
+const COMPARE_SPACE = 31n ** BigInt(COMPARE_LEN);
+const nonceOk = (n) => !!unb64(n, 32);
+
+/** H(nW): what a waiting computer commits to before it sees the owner's nonce. null for a bad nonce. */
+function ownCommit(nW) {
+  if (!nonceOk(nW)) return null;
+  return b64(crypto.createHash('sha256').update(aad('own-commit', V, nW)).digest());
+}
+
+/** The 10-symbol code (about 49.5 bits, grouped `ABCDE-FGHJK`) both screens show for one run. 128 bits of
+    digest reduced mod 31^10 (bias below 2^-78). null when an input is not the right shape. */
+function compareCode(roomId, macId, waitingPub, ownerPub, nW, nO) {
+  if (typeof roomId !== 'string' || !roomId || typeof macId !== 'string' || !macId) return null;
+  if (!publicKeyObject(waitingPub) || !publicKeyObject(ownerPub) || !nonceOk(nW) || !nonceOk(nO)) return null;
+  const d = crypto.createHash('sha256').update(aad('own-compare', V, roomId, macId, waitingPub, ownerPub, nW, nO)).digest();
+  let n = BigInt('0x' + d.subarray(0, 16).toString('hex')) % COMPARE_SPACE;
+  let out = '';
+  for (let i = 0; i < COMPARE_LEN; i++) {
+    out = COMPARE_ALPHABET[Number(n % 31n)] + out;
+    n /= 31n;
+  }
+  return out.slice(0, 5) + '-' + out.slice(5);
+}
+
+/** The code a person confirmed, compared without case, spaces or the dash. */
+function sameCompareCode(a, b) {
+  const norm = (c) => String(c).toUpperCase().replace(/[\s-]/g, '');
+  return typeof a === 'string' && typeof b === 'string' && !!norm(a) && norm(a) === norm(b);
+}
+
+const macIdOk = (m) => typeof m === 'string' && !!m && m.length <= 128;
+
+function ownHelloFrame(me, macId, nW) {
+  const commit = ownCommit(nW);
+  if (!macIdOk(macId) || !publicKeyObject(me && me.pub) || !commit) throw new Error('this computer cannot say which key the room should seal to');
+  return { t: 'key-own-hello', v: V, mac: macId, pub: me.pub, commit };
+}
+/** { mac, pub, commit } when well formed, else null. Says nothing about who sent it. */
+function checkOwnHello(frame) {
+  if (!frame || frame.t !== 'key-own-hello' || frame.v !== V || !macIdOk(frame.mac) || typeof frame.commit !== 'string' || !unb64(frame.commit, 32)) return null;
+  return publicKeyObject(frame.pub) ? { mac: frame.mac, pub: frame.pub, commit: frame.commit } : null;
+}
+function ownOfferFrame(owner, hello, nO) {
+  if (!hello || !macIdOk(hello.mac) || !publicKeyObject(owner && owner.pub) || !nonceOk(nO)) throw new Error('we could not answer that computer');
+  return { t: 'key-own-offer', v: V, mac: hello.mac, pub: hello.pub, owner: owner.pub, nonce: nO, commit: hello.commit };
+}
+/** { ownerPub, nO } when the offer is well formed and answers THIS computer's hello (its id, key and current
+    commit), else null. Naming the key keeps an offer drawn by a copied hello from being taken for this one. */
+function checkOwnOffer(frame, macId, commit, pub) {
+  if (!frame || frame.t !== 'key-own-offer' || frame.v !== V || frame.mac !== macId || frame.commit !== commit || typeof commit !== 'string') return null;
+  if (typeof pub !== 'string' || frame.pub !== pub) return null;
+  return publicKeyObject(frame.owner) && nonceOk(frame.nonce) ? { ownerPub: frame.owner, nO: frame.nonce } : null;
+}
+function ownRevealFrame(macId, ownerPub, nW, pub) {
+  if (!macIdOk(macId) || !publicKeyObject(ownerPub) || !nonceOk(nW) || !publicKeyObject(pub)) throw new Error('we could not answer that offer');
+  return { t: 'key-own-reveal', v: V, mac: macId, pub, owner: ownerPub, nonce: nW };
+}
+/** nW when the reveal is from the computer with key `pub`, for this owner, and opens `commit`, else null. */
+function checkOwnReveal(frame, macId, ownerPub, commit, pub) {
+  if (!frame || frame.t !== 'key-own-reveal' || frame.v !== V || frame.mac !== macId || frame.owner !== ownerPub || !nonceOk(frame.nonce)) return null;
+  if (typeof pub !== 'string' || frame.pub !== pub) return null;
+  return ownCommit(frame.nonce) === commit ? frame.nonce : null;
+}
+
+/** The room key sealed to a waiting computer for ONE run. REFUSES unless `confirmedCode` is that run's code,
+    so the Allow is bound to exactly the keys and nonces the person was shown. The person comparing the two
+    screens is the authentication; the code check here stops a list that changed between display and press
+    from redirecting it. */
+function ownShareFrame(owner, run, confirmedCode, roomKey, epoch, roomId) {
+  const r = run || {};
+  const expected = compareCode(roomId, r.mac, r.pub, owner && owner.pub, r.nW, r.nO);
+  if (!expected || !sameCompareCode(confirmedCode, expected)) throw new Error('the code confirmed is not the one that computer shows');
+  const rk = unb64(roomKey, 32);
+  const k = pairKey(owner, r.pub, roomId, owner.pub, r.pub, 'own-share');
+  if (!rk || !k || !Number.isInteger(epoch) || epoch < 0) throw new Error('we could not seal the room key for that computer');
+  const box = aeadSeal(k, aad('own-share', roomId, r.mac, epoch, r.nW, r.nO), rk);
+  return { t: 'key-own-share', v: V, mac: r.mac, owner: owner.pub, epoch, nonce: box.nonce, ct: box.ct };
+}
+/** { ownerPub, epoch, roomKey } when the share was sealed to THIS board's key, for this computer, room and
+    run, BY `ownerPub` (the owner key of the offer this computer's person confirmed), else null. */
+function openOwnShare(me, macId, ownerPub, nW, nO, frame, roomId) {
+  if (!frame || frame.t !== 'key-own-share' || frame.v !== V || frame.mac !== macId || !macIdOk(macId) || frame.owner !== ownerPub) return null;
+  if (!Number.isInteger(frame.epoch) || frame.epoch < 0 || !publicKeyObject(frame.owner) || !nonceOk(nW) || !nonceOk(nO)) return null;
+  const k = pairKey(me, frame.owner, roomId, frame.owner, me.pub, 'own-share');
+  if (!k) return null;
+  const rk = aeadOpen(k, aad('own-share', roomId, macId, frame.epoch, nW, nO), frame.nonce, frame.ct);
+  return rk && rk.length === 32 ? { ownerPub: frame.owner, epoch: frame.epoch, roomKey: b64(rk) } : null;
+}
+
 /* ---- messages ---- */
 
 /** A room message sealed under the room key for `epoch`. Inside the seal it carries a
@@ -272,6 +376,12 @@ function isSealed(env) {
                                                        sealing invite: its room is sealed
                                                        for good, key or no key yet
      rooms[projectId] = { role, ... }                  see fedseats
+                                                       kosmos#4658 adds two fields:
+                                                       `own` (owner only) = { [pub]: { mac, at } }, the
+                                                       owner's own computers pinned by an Allow;
+                                                       `ownComputer: true` (member only), a computer of
+                                                       the owner's that holds or waits for the key
+                                                       through that Allow.
    A file that exists but cannot be read or parsed THROWS and is never overwritten:
    losing it would lose every room key this board holds. */
 const PENDING_TTL_MS = 7 * 24 * 60 * 60 * 1000;   // an invite code lives 7 days
@@ -355,6 +465,8 @@ function splitInviteCode(pasted) {
 module.exports = {
   KEY_FILE, ROOMS_FILE, sealingKey, newKeyPair, randomSecret,
   helloFrame, checkHello, shareFrame, openShare, rotateFrame, openRotate,
+  ownCommit, compareCode, sameCompareCode, ownHelloFrame, checkOwnHello, ownOfferFrame, checkOwnOffer,
+  ownRevealFrame, checkOwnReveal, ownShareFrame, openOwnShare,
   seal, open, isSealed,
   stashInvite, pendingInvites, spendInvite, isSealedRef, roomState, setRoomState, forgetRoom, splitInviteCode,
 };

@@ -229,6 +229,7 @@ test.before(async () => {
 test.after(() => {
   // fetch keeps sockets warm, and close() waits for them. Without this the
   // suite can hang on a slower dispatcher even though every test has passed.
+  // (#6059: req() no longer pools, but the file's direct fetch calls still do.)
   server.closeAllConnections();
   server.close();
   // Every run otherwise leaks a temp directory: SANDBOX holds commitment
@@ -274,9 +275,41 @@ async function anyAgent(t) {
   return encodeURIComponent(tied.sessionName);
 }
 
-async function req(path, options) {
-  const res = await fetch(base + path, options);
-  return { status: res.status, type: res.headers.get('content-type') || '', body: await res.text() };
+/* #6059: every request on a NEW connection (agent: false), never a pooled one. Global fetch reuses keep-alive
+   sockets, and on a loaded hosted runner a socket left idle across a request-free test came back ECONNRESET on the
+   next request (two PRs, 2026-10-21; server.dm-rollover-5841 does the same for the same reason). Callers pass only
+   method, headers and string bodies, and none reaches the server's one redirect. A string body with no content-type
+   is sent as text/plain, as fetch sends it, because the cross-site write guard reads that type; and a request whose
+   socket sits idle for 300 s (undici's default) fails as that request, not as a whole-file timeout. */
+const http = require('node:http');
+let REQUESTS = 0;
+let REUSED = 0;
+function req(path, options = {}) {
+  return new Promise((resolve, reject) => {
+    REQUESTS += 1;
+    const headers = { ...(options.headers || {}) };
+    if (options.body !== undefined) {
+      const has = (name) => Object.keys(headers).some((k) => k.toLowerCase() === name);
+      if (!has('content-length')) headers['content-length'] = Buffer.byteLength(options.body);
+      if (!has('content-type')) headers['content-type'] = 'text/plain;charset=UTF-8';
+    }
+    const r = http.request(base + path, { method: options.method || 'GET', agent: false, headers }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'] || '', body }));
+      res.on('error', reject);
+      // A socket that closes mid-body may emit no error; fetch rejects then, so this does too.
+      res.on('close', () => { if (!res.complete) reject(new Error(`req ${options.method || 'GET'} ${path}: the response closed before its end`)); });
+    });
+    // shouldKeepAlive is false for every agent: false request and true for every pooled keep-alive one, so this is
+    // deterministic; reusedSocket alone would move only if a socket happened to be reused during the run.
+    r.on('socket', () => { if (r.reusedSocket || r.shouldKeepAlive) REUSED += 1; });
+    r.setTimeout(300000, () => r.destroy(new Error(`req ${options.method || 'GET'} ${path}: socket idle for 300 s`)));
+    r.on('error', reject);
+    if (options.body !== undefined) r.write(options.body);
+    r.end();
+  });
 }
 
 const postJson = (path, obj) => req(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
@@ -629,6 +662,14 @@ test('#1938: /api/scan-agents caches the disk walk, and a mutating route invalid
  * why it is cheap enough to run every time.
  */
 const UNREAD_ON_PURPOSE = {
+  cardWord: '#7004: the card\'s word ready-made for the iPhone app (engine/cardlabel labelOf). The page draws its own '
+    + 'word from the same state through STATE_COPY, which cardlabel-5959 keeps equal',
+  cardTone: '#7004: the tone of that word in the iPhone app\'s Agents list (cardlabel toneOf); the page colours its '
+    + 'cards its own way',
+  needsReason: '#7030: why the iPhone app\'s Today shows the agent (cardlabel reasonOf); the page words its own '
+    + 'needs-you rows from projects.needsYouReason through PJ_NEEDS_WHY',
+  stateProjectName: '#7030: the name of the project stateProject names, ready-made for the iPhone app; the page '
+    + 'looks names up in its own projects list',
   isAgentPane: 'a classification the board uses to decide what IS an agent; it '
     + 'is an input to the list, never a thing to draw',
   reportedAt: 'the commitments timestamp. The restart dialog shows the age '
@@ -4279,11 +4320,13 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     }
     assert.match(api.card(limited), /<b>Rate Limit<\/b>/, 'the pill does not read Rate Limit');
     assert.match(api.card({ ...limited, stuckError: null }), /<div class="atask"><\/div>/, 'a plain rate-limited card carries a sentence');
-    // CONTROL: a crash loop outranks the pill (Keeps stopping) and keeps its own sentence; no rate-limit hover on it.
+    // CONTROL: a crash loop outranks the pill (Keeps stopping) and keeps its own sentence, which since #6716 is that
+    // pill's hover (no sentence is drawn on a tile); the rate-limit sentence is not on it.
     const looping = api.card({ ...limited, crashLoop: { looping: true, count: 4 } });
     assert.match(looping, /<b>Keeps stopping<\/b>/);
-    assert.match(looping, /restarted it 4 times/, 'a crash-looping rate-limited card lost its crash-loop sentence');
-    assert.doesNotMatch(looping, /<div class="astate[^"]*" title=/, 'a Keeps stopping pill carries the rate-limit hover');
+    assert.match(looping, /<div class="astate[^"]*" title="[^"]*restarted it 4 times/, 'a crash-looping card lost its crash-loop sentence');
+    assert.doesNotMatch(looping, /<div class="astate[^"]*" title="[^"]*rate limit/, 'a Keeps stopping pill carries the rate-limit hover');
+    assert.doesNotMatch(drawn(looping), /restarted it 4 times/, '#6716: the crash-loop sentence is drawn on the tile');
     /* 🛑 WHERE THE ROUTE GOES, not just that it exists. Nothing tested the
        DESTINATION, which is how it went stale: the button was written when a
        project room was the only place a question could be answered, #119 put
@@ -4415,6 +4458,148 @@ test('update awareness: the status tick carries the verdict, and the install rou
     assert.equal(idle.status, 409, 'a no-op update was accepted');
     assert.equal(ran, 1, 'the installer ran with nothing to install');
   } finally {
+    updates.resetCache();
+    updates.setFetcher(null);
+    updates.setInstallRunner(null);
+    updates.setInstalledRoot(null);
+    updates.setPlatform(null);
+  }
+});
+
+test('#6903: an Update or Roll back press that throws answers with a sentence, the board lives, and refusals are logged', async () => {
+  const updates = require('./engine/update');
+  const realLocation = updates.windowsLocationRefusal;
+  const realRollback = updates.rollbackOffer;
+  const realLastAttempt = updates.lastAttempt;
+  const realBeginInstall = updates.beginInstall;
+  const realLog = console.log;
+  const realError = console.error;
+  const lines = [];
+  console.log = (...a) => { lines.push(a.join(' ')); };
+  console.error = (...a) => { lines.push(a.join(' ')); };
+  const logged = (re) => lines.some((l) => re.test(l));
+  updates.setPlatform('darwin');
+  let ran = 0;
+  let wiredRoot = null;
+  try {
+    updates.resetCache();
+    updates.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
+    await updates.refresh();
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
+    updates.setInstallRunner(() => { ran += 1; });
+
+    /* Before #6903 this throw rejected the request handler, and with no process-level handler that ended the board:
+       the press got no answer and the dialog said only that it could not start. */
+    updates.windowsLocationRefusal = () => { throw new Error('the engine exploded'); };
+    const boom = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(boom.status, 500, 'a throw in the Update route did not answer');
+    assert.match(JSON.parse(boom.body).error, /^Kosmos could not start the update just now\. Try again in a minute\.$/,
+      'the Update route answered a throw without a sentence the dialog can show');
+    assert.equal(ran, 0, 'the installer ran although the route threw before it');
+    assert.equal(JSON.parse(boom.body).detail, undefined, 'a throw\'s raw message went back in the answer');
+    assert.ok(logged(/FAIL update press: the engine exploded/), 'the cause of the throw was not logged:\n' + lines.join('\n'));
+    // CONTROL: the board is still up and serving.
+    assert.equal((await req('/api/status', {})).status, 200, 'the board stopped serving after the Update route threw');
+
+    updates.rollbackOffer = () => { throw new Error('the rollback engine exploded'); };
+    const rb = await req('/api/update/rollback', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(rb.status, 500, 'a throw in the Roll back route did not answer');
+    assert.match(JSON.parse(rb.body).error, /^Kosmos could not start the roll back just now\. Try again in a minute\.$/);
+    assert.ok(logged(/FAIL rollback press: the rollback engine exploded/), 'the roll back throw was not logged');
+    updates.windowsLocationRefusal = realLocation;
+    updates.rollbackOffer = realRollback;
+
+    // The installer itself failing to start: the route's own 500, now logged with its cause (it logged nothing before).
+    updates.beginInstall = () => { throw new Error('the spawn exploded'); };
+    const spawnFail = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(spawnFail.status, 500);
+    assert.equal(JSON.parse(spawnFail.body).error, 'Kosmos could not start the update just now. Try again in a minute.');
+    assert.equal(JSON.parse(spawnFail.body).detail, undefined, 'a failed start\'s raw message went back in the answer');
+    assert.ok(logged(/^FAIL update press: the spawn exploded$/), 'a failed start was not logged with its cause:\n' + lines.join('\n'));
+    assert.ok(logged(/^update press answered 500: Kosmos could not start the update just now\. Try again in a minute\.$/),
+      'a failed start was not logged as a refusal:\n' + lines.join('\n'));
+    updates.beginInstall = realBeginInstall;
+
+    // The real engine's start throwing (here its runner) releases the single-flight flag, so the retry the sentence
+    // asks for can start an install rather than be told one is already running.
+    updates.setInstallRunner(() => { throw new Error('the runner exploded'); });
+    const runnerFail = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(runnerFail.status, 500, runnerFail.body);
+    assert.equal(updates.alreadyInstalling(), false, 'a start that threw left the board thinking an install is running');
+    const ended = updates.lastAttempt();
+    assert.ok(ended && ended.endedAt && ended.because === 'Kosmos could not start the installer',
+      'a start that threw left its attempt open: ' + JSON.stringify(ended));
+
+    // An automatic start that throws backs off like any other automatic failure: the next look does not retry it.
+    let autoTries = 0;
+    updates.setInstallRunner(() => { autoTries += 1; throw new Error('the automatic runner exploded'); });
+    updates.setAutoPref(() => ({ on: true }));
+    assert.throws(() => updates.beginInstall({ auto: true }), /the automatic runner exploded/);
+    assert.equal(updates.alreadyInstalling(), false);
+    await updates.refresh();
+    assert.equal(autoTries, 1, 'an automatic start that threw was retried on the very next look');
+    updates.setAutoPref(null);
+
+    // But once something WAS launched, a later throw (here the wiring of the child) keeps the flag: a second press
+    // must not start a second installer racing the first. Its own root: the wiring writes an in-flight marker there.
+    wiredRoot = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-6903-wired-'));
+    updates.setInstalledRoot(() => wiredRoot);
+    updates.setInstallRunner(() => ({ on() { throw new Error('the wiring exploded'); } }));
+    const wired = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(wired.status, 500, wired.body);
+    assert.equal(updates.alreadyInstalling(), true, 'a throw after the installer launched released the single-flight flag');
+    updates.setInstalledRoot(null);   // before the look, or the automatic install starts first
+    updates.resetCache();
+    await updates.refresh();
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
+    updates.setInstallRunner(() => { ran += 1; });
+
+    // A refusal is logged with the sentence the person saw.
+    updates.setInstalledRoot(null);
+    const src = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(src.status, 409);
+    assert.ok(logged(/^update press answered 409: this Kosmos runs from its source code/), 'a refusal was not logged with its reason:\n' + lines.join('\n'));
+
+    // CONTROL: a press that starts the update logs no refusal.
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
+    lines.length = 0;
+    const go = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(go.status, 200, go.body);
+    assert.equal(ran, 1, 'the installer did not run on a good press');
+    assert.ok(!logged(/press answered/), 'a started update was logged as a refusal:\n' + lines.join('\n'));
+    assert.ok(JSON.parse(go.body).startedAt, 'CONTROL: a good press lost its start stamp');
+
+    // Once the installer has started, a throw reading its stamp is not a refusal: 200, no stamp, the cause logged.
+    updates.setInstalledRoot(null);   // before the look, or the automatic install starts first and the press joins it
+    updates.resetCache();
+    await updates.refresh();
+    updates.setInstalledRoot(() => '/tmp/fake-kosmos-home');
+    updates.setInstallRunner(() => { ran += 1; });
+    updates.lastAttempt = () => { throw new Error('the stamp exploded'); };
+    lines.length = 0;
+    const late = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(late.status, 200, 'an install that started was answered as a refusal: ' + late.body);
+    assert.equal(ran, 2, 'the installer did not run on the second good press');
+    assert.equal(JSON.parse(late.body).startedAt, null);
+    assert.ok(logged(/FAIL update press: started, but its start stamp could not be read: the stamp exploded/), lines.join('\n'));
+    assert.ok(!logged(/press answered/), 'a started update was logged as a refusal:\n' + lines.join('\n'));
+
+    // A second press joins the running install; the same throw there is not a refusal either.
+    lines.length = 0;
+    const again = await req('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    assert.equal(again.status, 200, 'a press joining a running install was answered as a refusal: ' + again.body);
+    assert.equal(JSON.parse(again.body).already, true, 'the second press did not join the running install');
+    assert.equal(ran, 2, 'a second installer ran');
+    assert.ok(logged(/FAIL update press: started, but its start stamp could not be read/), lines.join('\n'));
+  } finally {
+    console.log = realLog;
+    console.error = realError;
+    updates.windowsLocationRefusal = realLocation;
+    updates.rollbackOffer = realRollback;
+    updates.lastAttempt = realLastAttempt;
+    updates.beginInstall = realBeginInstall;
+    if (wiredRoot) fs.rmSync(wiredRoot, { recursive: true, force: true });
+    updates.setAutoPref(null);
     updates.resetCache();
     updates.setFetcher(null);
     updates.setInstallRunner(null);
@@ -11627,9 +11812,29 @@ test('the Plus state route carries the certificate check, and its switch writes 
     r = await req('/api/remote/cert-watch', { method: 'PUT', body: JSON.stringify({ on: false }) });
     assert.equal(r.status, 403, 'a switch change that did not come from the screen is refused');
     assert.ok(!fsx.existsSync(px.join(dir, 'ct-watch-off')));
+    /* kosmos#6986: through Kosmos+ the switch is never turned off, even with the screen's header (the 'not on' value too). */
+    const remoteScreen = { ...screen, 'x-forwarded-host': 'laptop.kosmosplus.com', 'x-forwarded-for': '203.0.113.9' };
+    for (const on of [false, 'no']) {
+      r = await req('/api/remote/cert-watch', { method: 'PUT', headers: remoteScreen, body: JSON.stringify({ on }) });
+      assert.equal(r.status, 403, 'a remote session cannot switch the check off: ' + JSON.stringify(on));
+      assert.equal(JSON.parse(r.body).code, 'remote_not_allowed');
+      assert.ok(!fsx.existsSync(px.join(dir, 'ct-watch-off')));
+    }
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: { ...screen, 'x-forwarded-for': '203.0.113.9' }, body: JSON.stringify({ on: false }) });
+    assert.equal(r.status, 403, 'nor through the webhook-shaped forwarder (x-forwarded-for only)');
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: { ...screen, forwarded: 'for=203.0.113.9' }, body: JSON.stringify({ on: false }) });
+    assert.equal(r.status, 403, 'nor through a standard Forwarded header');
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: remoteScreen, body: '{not json' });
+    assert.equal(r.status, 403, 'an unreadable remote change gets the remote sentence, not "could not read"');
+    assert.equal(JSON.parse(r.body).code, 'remote_not_allowed');
     r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: false }) });
     assert.equal(r.status, 200, r.body);
     assert.equal(JSON.parse(r.body).certWatch.on, false);
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: remoteScreen, body: JSON.stringify({ on: true }) });
+    assert.equal(r.status, 200, 'switching it ON from a remote session is allowed: ' + r.body);
+    assert.ok(!fsx.existsSync(px.join(dir, 'ct-watch-off')));
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: false }) });
+    assert.equal(r.status, 200, r.body);
     assert.ok(fsx.existsSync(px.join(dir, 'ct-watch-off')));
     r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: 'no' }) });
     assert.equal(r.status, 400, 'a switch that is not on or off is refused');
@@ -11644,6 +11849,10 @@ test('the Plus state route carries the certificate check, and its switch writes 
     assert.equal(r.status, 403, 'Got it that did not come from the screen is refused');
     r = await req('/api/remote/cert-watch/ack-lost', { method: 'POST', headers: screen, body: JSON.stringify({ at: at + 1 }) });
     assert.equal(r.status, 400, 'a marker that is not the report\'s is refused');
+    r = await req('/api/remote/cert-watch/ack-lost', { method: 'POST', headers: { ...screen, 'x-forwarded-host': 'laptop.kosmosplus.com', 'x-forwarded-for': '203.0.113.9' }, body: JSON.stringify({ at }) });
+    assert.equal(r.status, 403, 'kosmos#6986: Got it from a remote session is refused, even with the screen\'s header');
+    assert.equal(JSON.parse(r.body).code, 'remote_not_allowed');
+    assert.equal(JSON.parse((await req('/api/remote')).body).certWatch.lost, true, 'and the loss is still said');
     r = await req('/api/remote/cert-watch/ack-lost', { method: 'POST', headers: screen, body: JSON.stringify({ at }) });
     assert.equal(r.status, 200, r.body);
     assert.equal(JSON.parse(r.body).certWatch.lost, false);
@@ -16915,4 +17124,11 @@ test('kosmos#5628: a managed computer sets up through the company sign-in routes
     }
     require('./engine/remote').resetForTests();
   }
+});
+
+/* Keep this the LAST test in the file: it reads the counts every earlier test left. REQUESTS catches req() going back
+   to fetch (the counter would stay 0); REUSED is a tripwire for req() going back to a pooled agent. */
+test('#6059 harness: every req() went out on a new connection, none on a reused socket', () => {
+  assert.equal(REUSED, 0, 'a req() went out on a keep-alive (poolable) connection, the shape that came back ECONNRESET on a loaded runner');
+  assert.ok(REQUESTS > 100, `only ${REQUESTS} requests went through req(), so this arm proves little`);
 });

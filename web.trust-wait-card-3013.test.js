@@ -66,7 +66,7 @@ function render(which, a) {
   const body = page.lift(SCRIPT, 'agentNeedsAttention') + '\n'
     + page.lift(SCRIPT, 'face') + '\n'
     + page.lift(SCRIPT, 'dmBadge') + '\n'
-    + page.lift(SCRIPT, 'rulesBehindLine') + '\n' + page.lift(SCRIPT, 'idleLine') + '\n' + page.lift(SCRIPT, 'offlineNote') + '\n' + page.lift(SCRIPT, 'lrowTask') + '\n'   // #5957: the offline card and row say a far-behind agent's rules, and an agent idle two weeks
+    + page.lift(SCRIPT, 'rulesBehindLine') + '\n' + page.lift(SCRIPT, 'idleLine') + '\n' + page.lift(SCRIPT, 'offlineNote') + '\n' + page.lift(SCRIPT, 'pillTitle') + '\n' + page.lift(SCRIPT, 'pillVh') + '\n' + page.lift(SCRIPT, 'needsTrustSay') + '\n' + page.lift(SCRIPT, 'lrowTask') + '\n'   // #5957: the offline card and row say a far-behind agent's rules, and an agent idle two weeks
     + page.lift(SCRIPT, which) + '\n'
     + `return ${which}(a);`;
   const fn = new Function('a', 'esc', 'roleLine', 'discTint', 'discInk', 'initials', 'ROLE_TITLES', 'CURRENT', 'STATE_COPY', 'GLYPH', body);
@@ -101,10 +101,11 @@ for (const which of ['card', 'lrow']) {
   });
 }
 
-test('card: the guidance because rides the card as a note', () => {
+test('card: the guidance because rides the pill (#6716: no sentences on a tile), not a note', () => {
   const html = render('card', trustAgent());
-  assert.match(html, /class="note"/, 'the card carries no note for the trust guidance');
-  assert.match(html, /workspace-trust prompt no one can see/, 'the card note does not carry the supervisor reason');
+  assert.doesNotMatch(html, /class="note"/, 'the card still carries a note line (#6716)');
+  assert.match(html, /class="astate st-attn" title="[^"]*workspace-trust prompt no one can see/, 'the pill hover does not carry the supervisor reason');
+  assert.match(html, /<span class="vh">\. [^<]*workspace-trust prompt no one can see/, 'a screen reader does not hear the reason');
 });
 
 test('card: a needsTrust agent with no because falls back to a self-contained sentence', () => {

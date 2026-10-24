@@ -117,7 +117,7 @@ function selfCheck() {
    a denominator that only prints is not a denominator, and a slider meant to be restyled
    (appearance:none) that lost the cascade would otherwise leave the field checks silently.
    Adding a native slider on purpose means adding its id here. */
-const KNOWN_NATIVE_SLIDERS = ['d-swarm-max', 'd-swarm-cap', 'create-swarm-max', 'create-swarm-cap'];
+const KNOWN_NATIVE_SLIDERS = ['d-swarm-max', 'd-swarm-cap', 'create-swarm-max', 'create-swarm-cap', 'crop-zoom'];
 /* The Kosmos+ sign-in wizard (#plus-state2, #3808/#3796) is NOT measured on its real ground
    here. Its navy card (a gradient, #1b2c50 to #0f1d38) is scoped to body.plus-active, which the
    Kosmos+ tab sets (syncPlusChrome) and this check, which unhides panels in place, never does.

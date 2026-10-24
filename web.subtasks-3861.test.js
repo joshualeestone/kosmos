@@ -146,8 +146,13 @@ test('kosmos#5956: the task page marks a built subtask Built and says when every
     { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
   assert.match(els['tk-subs'].innerHTML, /data-sub="2">[\s\S]*?<span class="tksub-s">Built<\/span>/);
   assert.equal(els['tk-subs-built'].hidden, false);
-  assert.match(PAGE_HTML_5956, /<p class="dhint tksubs-done" id="tk-subs-built" hidden>All subtasks are built\. Check each one and close it, then close this task\.<\/p>/);
+  assert.match(PAGE_HTML_5956, /<p class="dhint tksubs-done" id="tk-subs-built" hidden><span>All subtasks are built\. Check each one first\.<\/span><button class="linkish" type="button" id="tk-subs-closeall">Close them and this task<\/button><\/p>/);   // kosmos#6501
   assert.equal(els['tk-subs-done'].hidden, true, 'not every subtask is closed');
+  // kosmos#6501 review 1: the roll-up's press is live again only after the reload, so a second press reads the new state.
+  const rollup = PAGE_HTML_5956.slice(PAGE_HTML_5956.indexOf("getElementById('tk-subs-closeall').addEventListener"));
+  const handler = rollup.slice(0, rollup.indexOf('\n});\n'));
+  assert.ok(handler.indexOf('await pjReload()') > 0 && handler.indexOf('btn.disabled = false') > handler.indexOf('await pjReload()'),
+    'the roll-up press must be re-enabled only after the reload');
   project.tasks[1].builtAt = undefined;
   new Function('document', 'esc', 'p', 't', page.liftAll(SCRIPT, ['tkPaintSubtasks']) + '\n; tkPaintSubtasks(p, t, false);')(
     { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
@@ -273,4 +278,25 @@ test('kosmos#5956 review 3: the project card chip says "all subtasks built" only
   assert.match(chipOf(), /2\/2, all subtasks done/, 'all closed: done wins');
   tasks.close(rec0.id, top.number);
   assert.doesNotMatch(chipOf(), /all subtasks built/, 'a closed parent says nothing about built');
+});
+
+test('#6923: a subtask closed as replaced reads Replaced in its parent\'s list; a plain closed one reads Done', () => {
+  const els = { 'tk-subs': { innerHTML: '' }, 'tk-subs-done': { hidden: true }, 'tk-subs-built': { hidden: true }, 'tk-partof-row': { hidden: true }, 'tk-partof': { textContent: '', dataset: {} } };
+  const project = { tasks: [
+    { number: 1, sentence: 'Launch', parent: null, progress: { closed: false } },
+    { number: 2, sentence: 'Copy', parent: 1, progress: { closed: true }, replacedBy: 3 },
+    { number: 3, sentence: 'Copy again', parent: 1, progress: { closed: true } },
+  ] };
+  new Function('document', 'esc', 'p', 't', page.liftAll(SCRIPT, ['tkPaintSubtasks']) + '\n; tkPaintSubtasks(p, t, false);')(
+    { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
+  assert.match(els['tk-subs'].innerHTML, /data-sub="2">[\s\S]*?<span class="tksub-s">Replaced<\/span>/);
+  assert.match(els['tk-subs'].innerHTML, /data-sub="3">[\s\S]*?<span class="tksub-s">Done<\/span>/, 'CONTROL: a plain close still reads Done');
+});
+
+test('#6923: a Tasks view row closed as replaced says so under the row; a plain closed row does not', () => {
+  const base = { number: 4, sentence: 'First try', projectId: 'p', projectName: 'P', projectPath: ['P'], state: 'closed', whoNames: [], parent: null, subtasks: { total: 0 } };
+  const html = tskRowWith(ESC, { ...base, replacedBy: 5 }, { depth: 0, crumb: false, kids: 0 });
+  assert.match(html, /<div class="why tsk-replaced">Replaced by task 5<\/div>/);
+  assert.doesNotMatch(tskRowWith(ESC, base, { depth: 0, crumb: false, kids: 0 }), /tsk-replaced/, 'CONTROL: a plain close has no replaced line');
+  assert.doesNotMatch(tskRowWith(ESC, { ...base, state: 'open', replacedBy: 5 }, { depth: 0, crumb: false, kids: 0 }), /tsk-replaced/, 'an open row never says replaced');
 });

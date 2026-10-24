@@ -73,6 +73,10 @@ test('#4382: what each answer does: offer, retry, relaunch, or nothing', () => {
   assert.match(done, /guard computerMode == \.connect else \{ showUpdateOffer\(nil\); return \}/);
   assert.match(done, /case \.newer\(let v\):\n(\s+\/\/.*\n)*\s+showUpdateOffer\(v\)\n/);
   assert.match(done, /case \.failed\(let v\):\n\s+showUpdateOffer\(v, note:/);
+  // #6781: a paused fleet keeps the offer, says why, and is looked at again later (the retry above), never "failed".
+  assert.match(done, /case \.paused\(let v\):\n(\s+\/\/.*\n)*\s+if let installed = installedUpdate \{ showInstalledOffer\(installed\) \}\n\s+else \{ showUpdateOffer\(v, note: "Updates are paused while Kosmos checks a problem with a release\. Try again later\."\) \}/,
+    'a pause must keep a waiting Restart, and must not promise an update that consent may not allow');
+  assert.match(SRC, /case \("paused", 2\) where version\(words\[1\]\): return \.paused\(words\[1\]\)/);
   // Review 1: only the person's own Update restarts at once, and never under a dialog of ours. An install
   // made because updates are on waits for Restart, so words typed on the page are never lost to it.
   // The person's own Update: the offer is kept under the relaunch, so a relaunch that fails leaves Restart.
@@ -98,7 +102,7 @@ test('#4382: what each answer does: offer, retry, relaunch, or nothing', () => {
   assert.ok(done.indexOf('case .current(let v) where') < done.indexOf('case .current, .board, .refused:'), 'the version arm must come before the general one, or it never runs');
   assert.match(SRC, /case \("current", 2\) where version\(words\[1\]\): return \.current\(words\[1\]\)/);
   // Review 5: a refusal nobody pressed for (an install under way) is looked at again within the hour, once.
-  assert.match(done, /if !updateLookIsRetry \{\n\s+if case \.unknown = answer \{ retryUpdateLookSoon\(\) \}\n(\s+\/\/.*\n)*\s+if case \.refused = answer, !asked \{ retryUpdateLookSoon\(\) \}\n\s+\}/);
+  assert.match(done, /if !updateLookIsRetry \{\n\s+if case \.unknown = answer \{ retryUpdateLookSoon\(\) \}\n(\s+\/\/.*\n)*\s+if case \.paused = answer \{ retryUpdateLookSoon\(\) \}\n(\s+\/\/.*\n)*\s+if case \.refused = answer, !asked \{ retryUpdateLookSoon\(\) \}\n\s+\}/);
   // Review 5: Update pressed from the menu after Not Now still shows the bar that says the app restarts.
   const pressed = body('private func lookForUpdate(install: Bool, retry: Bool = false)');
   assert.match(pressed, /if install \{\n(\s+\/\/.*\n)*\s+let bar = updateBar \?\? makeUpdateBar\(\)\n[\s\S]*?bar\.isHidden = false\n[\s\S]*?updateKosmosNow\(_:\)\) \}\)\?\.isHidden = true\n\s+\}/,

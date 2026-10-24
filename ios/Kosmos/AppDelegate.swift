@@ -10,7 +10,7 @@ import UIKit
 // unlock), not a repackaged web page. The pieces here are wired and buildable;
 // the parts that need external unblocks are marked and stubbed:
 //   - The APNs auth key (.p8) lives on the coordinator, not in the app (#718).
-//     The app needs only the aps-environment entitlement (ios/Kosmos.entitlements)
+//     For push the app needs the aps-environment entitlement (ios/Kosmos.entitlements)
 //     and a signing identity with push enabled. Without that identity (an
 //     unsigned build, or no provisioning yet) registerForRemoteNotifications()
 //     ends in didFailToRegisterForRemoteNotificationsWithError; expected.
@@ -32,10 +32,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // register with APNs. Registration is safe to request every
         // launch; iOS returns the current token quickly if already registered.
         pushManager.configure()
+        // kosmos#6487: a computer session kept before the shared keychain group existed moves there on its first
+        // read, so the notification extension can use it from the first launch after an update, not only once the
+        // Agents tab has opened.
+        _ = SessionKeychain.macSession.load()
         #if KOSMOS_STORE_SHOTS
         // App Store screenshots (ios/store/shoot-app.sh): no permission prompt over the picture, and a simulator
         // has no way to answer it from the command line.
         #else
+        #if DEBUG
+        // The same for the Agents tab's sample screenshots (kosmos#6838; a Debug build only).
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return true }
+        // And the native sign-in's (kosmos#7042).
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIGNIN"] != nil { return true }
+        #endif
         pushManager.requestAuthorizationAndRegister()
         #endif
         return true

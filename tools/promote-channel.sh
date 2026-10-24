@@ -103,6 +103,9 @@ case "$FAMILY" in
 esac
 SITE="${SITE:-${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}}"
 [ -d "$SITE/dist" ] || { echo "promote-channel: no $SITE/dist" >&2; exit 1; }
+# kosmos#6620: no release pointer moves while the site is frozen (tools/pointer-freeze.sh, the incident pin).
+. "$(cd "$(dirname "$0")" && pwd)/lib/pointer-freeze.sh" || { echo "promote-channel: cannot load tools/lib/pointer-freeze.sh" >&2; exit 1; }
+pointer_freeze_refuse "$SITE" promote-channel.sh || exit 1
 command -v node >/dev/null 2>&1 || { echo "promote-channel: node is required" >&2; exit 1; }
 
 # The family decides which two pointers and which pointer field names the versioned artifact.
@@ -123,7 +126,8 @@ SNAP="$(mktemp "${TMPDIR:-/tmp}/promote-channel-staging.XXXXXX")" || { echo "pro
 PTMP=""
 STMP=""
 _kl_dir=""   # #6609: the served release key list, read from the site's origin/main
-trap 'rm -f "$SNAP" ${PTMP:+"$PTMP"} ${STMP:+"$STMP"}; [ -z "$_kl_dir" ] || rm -rf "$_kl_dir"' EXIT   # a signal mid-promote must not leak a temp
+_pc_qlog=""  # #6922: the agent-spawn gate's queue log; a promote killed while the gate waits in the queue must not leave it
+trap 'rm -f "$SNAP" ${PTMP:+"$PTMP"} ${STMP:+"$STMP"}; [ -z "$_kl_dir" ] || rm -rf "$_kl_dir"; [ -z "$_pc_qlog" ] || [ "$_pc_qlog" = /dev/null ] || rm -f "$_pc_qlog"' EXIT   # a signal mid-promote must not leak a temp
 cp "$STAGING" "$SNAP" || { echo "promote-channel: could not snapshot $STAGING" >&2; exit 1; }
 
 # Read a pointer's fields via node (exact JSON, never a sed heuristic). read_field reads the
@@ -285,15 +289,51 @@ if [ "$FAMILY" = mac ]; then
   # reach the board (#2023); it does NOT exercise agent spawn. #2129 was exactly that gap -
   # spawned agents wedged at the Claude Code trust prompt while the board served fine, so the
   # experience gate alone would PASS a #2129 build. This second gate creates a Claude and an
-  # OpenAI agent and confirms each comes ONLINE. Same exit contract: 0 online -> promote; 1 a
+  # OpenAI agent, confirms each comes ONLINE and answers a first message, and removes them (kosmos#6906: so it runs on
+  # a populated board). Same exit contract: 0 online -> promote; 1 a
   # trust wedge / auth / never-online (#2129 class) -> refuse, never forceable; 2 cannot-tell
-  # (no enforcing board, a provider not signed in, or a populated fleet) -> HOLD, forceable
+  # (no enforcing board, a provider not signed in, or no answer in time) -> HOLD, forceable
   # only after a HAND check. Override the command via KOSMOS_PROMOTE_AGENT_GATE_CMD.
-  AGENT_GATE_CMD="${KOSMOS_PROMOTE_AGENT_GATE_CMD:-bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-agent-online-check.sh}"
-  echo "promote-channel: running the agent-spawn gate: $AGENT_GATE_CMD${PORT:+ (port $PORT)}"
-  $AGENT_GATE_CMD ${PORT:+"$PORT"}; AGENT_RC=$?
+  # kosmos#6906: the gate creates real agents, and a launchd job file made during someone's full validation reds that
+  # run's #3011 guard (it did, 2026-10-22, on Mortals). So by default it takes a real turn in the machine's suite queue
+  # (tools/queued-heavy.sh, or KOSMOS_PROMOTE_AGENT_QUEUE: waits for no suite to be running and holds the machine claim
+  # while it runs). An explicit KOSMOS_PROMOTE_AGENT_GATE_CMD runs as given, with no queue.
+  # 🛑 The queue's OWN exit codes overlap the gate's (it exits 2, 3, 4, 75 for its own reasons, before the gate runs), so
+  # the verdict is the gate's only when the queue's "QUEUED-HEAVY ... END rc=<n>" line says the gate ran and what it
+  # answered. No such line: the gate never got a turn, which is cannot-tell (2), never PARTIAL and never a refusal.
+  _pc_repo="$(cd "$(dirname "$0")/.." && pwd)"
+  if [ -n "${KOSMOS_PROMOTE_AGENT_GATE_CMD:-}" ]; then
+    AGENT_GATE_CMD="$KOSMOS_PROMOTE_AGENT_GATE_CMD"
+    echo "promote-channel: running the agent-spawn gate: $AGENT_GATE_CMD${PORT:+ (port $PORT)}"
+    $AGENT_GATE_CMD ${PORT:+"$PORT"}; AGENT_RC=$?
+  else
+    _pc_queue="${KOSMOS_PROMOTE_AGENT_QUEUE:-$_pc_repo/tools/queued-heavy.sh}"
+    AGENT_GATE_CMD="bash $_pc_repo/tools/staging-agent-online-check.sh"
+    echo "promote-channel: running the agent-spawn gate in the machine's queue: $_pc_queue agent-spawn-gate $AGENT_GATE_CMD${PORT:+ (port $PORT)}"
+    _pc_qlog="$(mktemp "${TMPDIR:-/tmp}/promote-agentgate.XXXXXX")" || _pc_qlog=/dev/null   # no log: no END line: cannot-tell
+    bash "$_pc_queue" agent-spawn-gate $AGENT_GATE_CMD ${PORT:+"$PORT"} 2>&1 | tee "$_pc_qlog"; _pc_qrc=${PIPESTATUS[0]}
+    AGENT_RC="$(sed -n 's/^QUEUED-HEAVY [0-9:]* END rc=\([0-9][0-9]*\):.*/\1/p' "$_pc_qlog" | tail -1)"
+    _pc_inherited=""; grep -q "agent-spawn-gate runs now, inside the turn" "$_pc_qlog" 2>/dev/null && _pc_inherited=1
+    [ "$_pc_qlog" = /dev/null ] || rm -f "$_pc_qlog"; _pc_qlog=""   # #6922: the EXIT trap must not remove a reused name
+    if [ -z "$AGENT_RC" ] && [ -n "$_pc_inherited" ]; then
+      # Started inside a turn that already holds the machine (an inherited claim): the queue exec'd the gate itself and
+      # prints no END line, so its exit code IS the gate's.
+      AGENT_RC="$_pc_qrc"
+      case "$AGENT_RC" in 0|1|2|3) ;; *) echo "promote-channel: the agent-spawn gate did not finish with a verdict (rc=$AGENT_RC) - treating it as cannot-tell." >&2; AGENT_RC=2 ;; esac
+    elif [ -z "$AGENT_RC" ]; then
+      echo "promote-channel: the agent-spawn gate never got a turn in the machine's queue (the queue exited $_pc_qrc) - treating it as cannot-tell." >&2
+      AGENT_RC=2
+    else
+      case "$AGENT_RC" in
+        0|1|2|3) ;;
+        *) # 75 (the queue stopped it), 126/127 (it could not start), 128+n (killed): not a verdict the gate gave
+           echo "promote-channel: the agent-spawn gate did not finish with a verdict (END rc=$AGENT_RC) - treating it as cannot-tell." >&2
+           AGENT_RC=2 ;;
+      esac
+    fi
+  fi
   case "$AGENT_RC" in
-    0) echo "promote-channel: agent-spawn gate PASSED - a fresh Claude and OpenAI agent came online (the #2129 class is not present)."
+    0) echo "promote-channel: agent-spawn gate PASSED - a fresh Claude and OpenAI agent came online and answered a first message (the #2129 class is not present)."
        # #5084: it ran on the same board. When the experience gate could not tie that board to $V (cannot-tell,
        # then --force), this pass is not a check of $V either; say so beside it rather than let it read as one.
        [ "$GATE_RC" = 2 ] && echo "promote-channel: NOTE: that board was not shown to run $V (the experience gate above could not tell), so this agent-spawn pass is not a check of $V." >&2
@@ -303,7 +343,7 @@ if [ "$FAMILY" = mac ]; then
       if [ "$FORCE" = 1 ]; then
         echo "promote-channel: agent-spawn gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: agent spawn was NOT automatically verified." >&2
       else
-        echo "promote-channel: agent-spawn gate could not run here (exit 2, cannot-tell) - no fresh enforcing board, a provider not signed in, or a populated fleet board. HOLDING. Run on/against the fresh staging machine with both providers signed in, or pass --force after verifying by hand." >&2
+        echo "promote-channel: agent-spawn gate could not run here (exit 2, cannot-tell) - no enforcing board, a provider not signed in, or an agent that did not answer in time (the gate says which above). HOLDING. Fix what it names and run again, or pass --force after verifying by hand." >&2
         exit 2
       fi ;;
     3)

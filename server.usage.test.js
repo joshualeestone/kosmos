@@ -131,6 +131,35 @@ test('#2617: a roster that cannot be read says so, and a failing split leaves th
   }
 });
 
+test('#6829: GET /api/usage?days=all covers every day since install and says how many, not a fixed 14', async () => {
+  const day = (back) => new Date(Date.now() - back * 86400000).toISOString().slice(0, 10);
+  const ping = require('./engine/ping');
+  // Earlier tests froze past days as empty; this one starts from no saved days.
+  fs.rmSync(path.join(process.env.AGENT_WORKFORCE_DATA, 'usage'), { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(ping.FILE), { recursive: true });
+  fs.writeFileSync(ping.FILE, JSON.stringify({ installId: 'test-6829', installedAt: day(20) + 'T12:00:00.000Z' }) + '\n');
+  const dir = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'p6829');
+  fs.mkdirSync(dir, { recursive: true });
+  const row = (d, n) => JSON.stringify({ timestamp: `${d}T09:00:00.000Z`, isSidechain: false, sessionId: 's6829', message: { id: 'm' + d, model: 'claude-6829', usage: { input_tokens: n, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+  // 18 days back: inside the install, outside a 14-day window. 25 days back: before the install.
+  fs.writeFileSync(path.join(dir, 's6829.jsonl'), [row(day(25), 111), row(day(18), 222)].join('\n') + '\n');
+  try {
+    const body = await (await fetch(base + '/api/usage?days=all')).json();
+    assert.equal(body.installDay, day(20));
+    assert.equal(body.daysOnKosmos, 21, 'install day through today, inclusive');
+    assert.equal(Object.keys(body.byDay).length, 21);
+    assert.equal(body.byDay[day(18)]['claude-6829'].input_tokens, 222, 'a day older than 14 is counted');
+    assert.equal(body.byDay[day(25)], undefined, 'a day before the install is not');
+    // Control: the 14-day window this replaces cannot see day 18, and carries no install figures.
+    const old = await (await fetch(base + '/api/usage?days=14')).json();
+    assert.equal(old.byDay[day(18)], undefined);
+    assert.equal(old.daysOnKosmos, undefined);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(ping.FILE, { force: true });
+  }
+});
+
 test('GET /api/usage?days= with a hostile value does not crash the route', async () => {
   const res = await fetch(base + '/api/usage?days=not-a-number');
   assert.equal(res.status, 200, 'a non-numeric days value should fall back, not error');

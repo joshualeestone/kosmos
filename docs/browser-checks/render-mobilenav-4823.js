@@ -73,7 +73,9 @@ const look = (page) => page.evaluate(() => {
     cw: document.documentElement.clientWidth, iw: window.innerWidth,
     bar: rect(q('#kplus-bar')), barBg: q('#kplus-bar') ? getComputedStyle(q('#kplus-bar')).backgroundColor : null,
     mark: rect(q('#kplus-bar canvas')), menuBtn: vis(q('#kplus-menu')) ? rect(q('#kplus-menu')) : null,
-    logoutBtn: vis(q('#kplus-logout')), klink: vis(q('#klink')), userpop: vis(q('#userpop')), burger: vis(q('#burger')),
+    /* Any Log out drawn in the header, whatever its id (kosmos#6718 review 1: #plus-logout sits in Settings, never shown
+       on the board, so testing it could not fail). The phone menu's Log out is in #pnav, on body, not the header. */
+    logoutBtn: [...document.querySelectorAll('.apphead button, .apphead a')].some((b) => vis(b) && /log\s*out/i.test(b.textContent)), klink: vis(q('#klink')), userpop: vis(q('#userpop')), burger: vis(q('#burger')),
     apphead: rect(q('.apphead')), stats: vis(q('#boardbar .stats')), gridBtn: vis(q('#boardbar .vt[data-layout="grid"]')),
     newAgent: rect(q('#new-agent')), newAgentName: q('#new-agent') ? q('#new-agent').textContent.replace(/\s+/g, ' ').trim() : '',
     sortH: rect(q('#agent-sort')) && rect(q('#agent-sort')).h, vtH: rect(q('#boardbar .vt[data-layout="list"]')) && rect(q('#boardbar .vt[data-layout="list"]')).h,
@@ -363,9 +365,10 @@ const teardownFails = [];
         await page.setViewportSize({ width: 1280, height: 900 });
         await page.waitForFunction(() => document.getElementById('pnav').hidden && BOARD_LAYOUT === 'grid', null, { timeout: 3000 }).catch(() => {});
         l = await look(page);
-        chk(l.nav && !l.nav.shown && !l.menuBtn && l.logoutBtn && l.stats && l.gridBtn && l.layout === 'grid' && l.saved === 'grid' && !l.up,
-          T + 'W1 CONTROL: at 1280 the menu closes and today\'s header and board are back, the saved grid with them',
-          JSON.stringify({ shown: l.nav && l.nav.shown, menuBtn: !!l.menuBtn, out: l.logoutBtn, stats: l.stats, grid: l.gridBtn, layout: l.layout, saved: l.saved, up: l.up }));
+        // kosmos#6718: at a desktop width no Kosmos+ bar is drawn and its Log out is gone (it is in Settings > Kosmos+).
+        chk(l.nav && !l.nav.shown && !l.menuBtn && !l.logoutBtn && !(l.bar && l.bar.h > 0) && l.stats && l.gridBtn && l.layout === 'grid' && l.saved === 'grid' && !l.up,
+          T + 'W1 CONTROL: at 1280 the menu closes, today\'s header and board are back with the saved grid, and no Kosmos+ bar is drawn',
+          JSON.stringify({ shown: l.nav && l.nav.shown, menuBtn: !!l.menuBtn, out: l.logoutBtn, bar: l.bar, stats: l.stats, grid: l.gridBtn, layout: l.layout, saved: l.saved, up: l.up }));
         await shut(ctx, page);
       }
       // A phone held sideways is still a phone (the board's PHONE_WIDTH): the navy header and menu button stay.

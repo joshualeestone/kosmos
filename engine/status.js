@@ -7051,11 +7051,72 @@ function modelDisplayName(id) {
   return readableModelId(id) || id;   // #4416: raw only when reading it could mis-say the version
 }
 
+/** #6716 review 10: whether a transcript holds a REAL reply: an assistant row naming a model. Review 11: a failed sign-in,
+    a usage limit or a lost connection leaves an assistant row too, with "model":"<synthetic>" and isApiErrorMessage,
+    and that session has not replied (it is Renet's case exactly), so a bracketed model is not a reply. Read line by
+    line: the tail already read answers it when it is the whole file; otherwise the file is scanned in chunks (only on
+    this rare no-model path), stopping at the first reply. */
+const REPLY_ROW = /"type":"assistant"/;
+const REAL_MODEL = /"model":"(?!<)[^"]/;
+const isReplyLine = (line) => REPLY_ROW.test(line) && REAL_MODEL.test(line) && !line.includes('"isApiErrorMessage":true');
+function hasReplied(file, tailText, whole) {
+  if (whole) return !!tailText && tailText.split('\n').some(isReplyLine);
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(1 << 20);
+    let pos = 0; let rest = '';
+    for (;;) {
+      const n = fs.readSync(fd, buf, 0, buf.length, pos);
+      if (n <= 0) return isReplyLine(rest);
+      const lines = (rest + buf.toString('utf8', 0, n)).split('\n');
+      rest = lines.pop();   // a line cut by the chunk's end waits for the rest of it
+      if (lines.some(isReplyLine)) return true;
+      pos += n;
+    }
+  } catch {
+    return true;   // unreadable: fail closed, borrow nothing
+  } finally {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch { /* ignore */ }
+  }
+}
+
 function readModel(agentName, exactSession) {
   const file = transcriptFor(agentName, exactSession);
   if (!file) return { model: null, confidence: CONFIDENCE.NONE };
-  const { text } = tailBytes(file, 65536);
-  if (!text) return { model: null, confidence: CONFIDENCE.NONE };
+  const { text, whole } = tailBytes(file, 65536);
+  const now = text ? modelInText(text) : null;
+  if (now) return { model: now, confidence: CONFIDENCE.STRUCTURED };
+  // Review 10: only a session that has had NO reply borrows. One that replied but whose last 64 KB is a large paste or
+  // tool result names no model in the tail, and must stay "Unknown Model" rather than take another session's.
+  if (hasReplied(file, text, whole)) return { model: null, confidence: CONFIDENCE.NONE };
+  /**
+   * #6716 (Josh, 2026-10-20: "I am not sure why it doesnt recognize Renet's model"). A session that has not had a reply
+   * yet holds no model line: Renet's account move started a new session at 08:37, its sign-in was failing, and the
+   * file had nothing to read, so her card fell back to "Made before Kosmos recorded this". Her previous session, in
+   * the same folder, said claude-opus-5-5. So: the newest earlier session (within two days) that names one, flagged
+   * `earlierSession`. Only the tile shows it, and only where it would otherwise say "Made before Kosmos recorded this"
+   * or "Unknown Model": an agent with no planned model, which is the fleet's agents and any Kosmos agent whose job
+   * names no --model. The card prefers the model it is SET to run on whenever there is one.
+   * `exactSession` is the tmux session that picks the registry entry, not a transcript, so it does not opt out.
+   */
+  const before = modelInEarlierSession(file, agentName);
+  return before
+    ? { model: before, confidence: CONFIDENCE.STRUCTURED, earlierSession: true }
+    : { model: null, confidence: CONFIDENCE.NONE };
+}
+
+/** #6716: a reading's model as the snapshot carries it. A model borrowed from an EARLIER session is not what this one
+    runs, so it stays out of `model` (context sizing, the model panel, a switch, the server's checks read that) and
+    travels as `earlierModelName`, for the tile only. */
+function splitModelReading(reading) {
+  const r = reading || {};
+  if (r.earlierSession === true) return { model: null, earlierModelName: r.model ? modelDisplayName(r.model) : null };
+  return { model: r.model || null, earlierModelName: null };
+}
+
+/** The model a transcript tail names, or null (the rules below are readModel's, unchanged). */
+function modelInText(text) {
   /**
    * 🛑 `<synthetic>` IS NOT A MODEL, AND IT IS THE LAST ONE IN THE FILE EXACTLY
    * WHEN SOMEBODY IS LOOKING.
@@ -7083,7 +7144,7 @@ function readModel(agentName, exactSession) {
   const matches = [...text.matchAll(/"model":"([^"]+)"/g)]
     .map((m) => m[1])
     .filter((v) => !/^<.*>$/.test(v));
-  if (!matches.length) return { model: null, confidence: CONFIDENCE.NONE };
+  if (!matches.length) return null;
   /**
    * 🔑 A RECOGNISED ID WINS OVER A MERELY RECENT ONE, which is Mona Lisa's
    * point on this defect and is worth more than the bracket rule above.
@@ -7105,7 +7166,49 @@ function readModel(agentName, exactSession) {
    */
   const known = matches.filter((v) => MODEL_NAMES[v] || MODEL_NAMES[v.replace(/-\d{8}$/, '')]);
   const chosen = known.length ? known[known.length - 1] : matches[matches.length - 1];
-  return { model: chosen, confidence: CONFIDENCE.STRUCTURED };
+  return chosen;
+}
+
+/** The model the newest earlier session beside `file` names, or null. Five sessions at most, newest first, and only a
+    session recorded in this agent's own folder (the same check transcriptFor's workdir arm makes). Remembered per
+    new-session file for a minute: the board polls every few seconds, and a folder can hold hundreds of sessions. */
+const EARLIER_MODEL_TTL_MS = 60 * 1000;
+const EARLIER_MODEL_MAX_AGE_MS = 2 * 24 * 60 * 60 * 1000;
+const earlierModelSeen = new Map();
+function modelInEarlierSession(file, agentName) {
+  const key = agentName + '\0' + file;
+  const memo = earlierModelSeen.get(key);
+  if (memo && Date.now() - memo.at < EARLIER_MODEL_TTL_MS) return memo.model;
+  const model = modelInEarlierSessionUncached(file, agentName);
+  if (earlierModelSeen.size > 200) earlierModelSeen.clear();
+  earlierModelSeen.set(key, { at: Date.now(), model });
+  return model;
+}
+function modelInEarlierSessionUncached(file, agentName) {
+  const belongs = workdirBelongs(agentName);
+  if (!belongs) return null;
+  let siblings;
+  let mine;
+  try { mine = fs.statSync(file).mtimeMs; } catch { return null; }   // cannot tell what is earlier: lend nothing (review 6)
+  try {
+    const dir = path.dirname(file);
+    siblings = fs.readdirSync(dir)
+      .filter((f) => f.endsWith('.jsonl') && path.join(dir, f) !== file)
+      .map((f) => { const full = path.join(dir, f); let m = null; try { m = fs.statSync(full).mtimeMs; } catch { m = null; } return { full, m }; })
+      /* EARLIER only (review 5), readable only (review 7), and recent (review 7): within two days before this session,
+         so a model from long ago (another account, another runner) never reads as today's. */
+      .filter((x) => x.m !== null && x.m <= mine && mine - x.m <= EARLIER_MODEL_MAX_AGE_MS)
+      .sort((x, y) => y.m - x.m)
+      .slice(0, 5);
+  } catch { return null; }
+  for (const s of siblings) {
+    if (!belongs(transcriptCwd(s.full))) continue;
+    let text = '';
+    try { text = tailBytes(s.full, 65536).text; } catch { text = ''; }
+    const m = text ? modelInText(text) : null;
+    if (m) return m;
+  }
+  return null;
 }
 
 /**
@@ -9205,13 +9308,17 @@ function snapshot() {
        message, Grok's names current_model_id, Codex's rollout names it on each turn_context. A runner whose record
        names none yet (no turn since it started) falls back to the job's planned model (server.js plannedFor). */
     const sessModel = (x) => (x && x.found && typeof x.model === 'string' && x.model) || null;   // found, as the agy line always required
-    const { model } = !tied ? { model: null }
+    const { model: modelRead, earlierSession } = !tied ? { model: null }
       : isAgyPane ? { model: sessModel(agySess) }
       : isMusePane ? { model: sessModel(museSess) }   // #4603 N12: the model its last turn named
       : isGeminiPane ? { model: sessModel(geminiSess) }
       : isGrokPane ? { model: sessModel(grokSess) }
       : isCodexPane ? { model: sessModel(codexSess) }
       : readModel(pane.name, pane.session);
+    /* #6716 review 2: a model borrowed from an EARLIER session (a new one that has not replied yet) is NOT this session's
+       model: it stays out of `model` (context sizing, the model panel's "Right now", a switch's label, the server's
+       checks all read that) and travels as `earlierModelName`, which only the card's model line uses, last. */
+    const { model, earlierModelName } = splitModelReading({ model: modelRead, earlierSession });
     /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
        read "Not yet read" forever. Its context lives in the Codex rollout, which
@@ -9386,7 +9493,7 @@ function snapshot() {
          "app broken"), 'operator'/null = unknown provenance, left alarmed. Null for a scraped
          (not self-reported) state, so a scrape stays red. */
       stateReportedBy: status.by || null,
-      awaitingApproval: awaitingApprovalOf(scrapedStatus, status),   // #6091: the page's "Waiting for you"
+      awaitingApproval: awaitingApprovalOf(scrapedStatus, status),   // #6091: the page's "Needs permission" (#6727)
       /* #1889. `working` because the screen says the agent is waiting on a
          BACKGROUND agent, which is a different fact from `working` mid-turn: the
          parent's own turn has ENDED and its REPL is at its prompt. Published
@@ -9403,6 +9510,7 @@ function snapshot() {
       context,
       model,
       modelName: modelDisplayName(model),
+      earlierModelName,   // #6716: the card's last resort, never what the session is running
       /* #5811: what the #5804 "(set to X)" decision needs, all from this tick's ONE session read (geminiSess above), so
          server.js decides it without reading the job or the session again. Gemini panes only; null when the session
          was not found. server.js takes it off the row before the page gets it. */
@@ -9759,7 +9867,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = {
+module.exports = { modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)

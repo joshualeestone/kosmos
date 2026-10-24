@@ -82,7 +82,9 @@ test('Remove confirms inline with the sentence the tunnel makes true; Allow / No
   assert.match(JS, /Remove this ' \+ askEsc\(name\) \+ '\? It stops right away\. It can ask again by signing in\./);
   assert.equal((JS.match(/data-ask="later"/g) || []).length, 0, 'a Not now dismiss is back');
   assert.doesNotMatch(JS, />Deny</, 'a Deny button is back beside Not me: two ways to say no');
-  assert.equal((JS.match(/>Not me</g) || []).length, 1, 'expected exactly one Not me button');
+  // One Not me on the request card (kosmos#6590 adds its own, data-wait="drop", on each waiting browser's row).
+  assert.equal((JS.match(/data-ask="deny"[^\n]*>Not me</g) || []).length, 1, 'expected exactly one Not me button on the request card');
+  assert.equal((JS.match(/>Not me</g) || []).length, 2, 'a third Not me appeared: the request card\'s and the waiting browsers\' are the only two');
   assert.doesNotMatch(JS, /devrow pending/, 'pending requests are painted in the devices list too');
   // Stronger than the class name: the devices list paints no Allow or Deny at all.
   const pd = JS.slice(JS.indexOf('async function paintDevices'), JS.indexOf("document.getElementById('plus-devlist').addEventListener"));
@@ -194,4 +196,18 @@ test('#5786 a desktop browser is told its code is in that browser, in the tab wh
   assert.match(JS, /'Allow only if this code is showing in ' \+ askEsc\(deskBrowser\[2\]\) \+ ', in the tab where you signed in\.'/);
   // The browser name is escaped where it is put into the card.
   assert.doesNotMatch(JS, /showing in ' \+ deskBrowser\[2\]/);
+});
+
+test('kosmos#6666: while Kosmos+ is paused for maintenance the Plus section says why no request shows', () => {
+  // The line exists once, inside the requests section, and starts hidden.
+  const line = PAGE.match(/<p class="plus-paused" id="plus-paused" hidden>([^<]+)<\/p>/);
+  assert.ok(line, 'the paused line is missing, or does not start hidden');
+  assert.equal(PAGE.split('id="plus-paused"').length - 1, 1, 'the paused line appears more than once');
+  assert.match(line[1], /^Kosmos\+ is paused for maintenance\. /);
+  const panel = PAGE.slice(PAGE.indexOf('id="plus-asks"'), PAGE.indexOf('id="plus-ask-rows"'));
+  assert.ok(panel.includes('id="plus-paused"'), 'the paused line is not inside the requests section');
+  // The poll reads paused as exactly true, and painting shows the line and keeps the section open for it.
+  assert.match(JS, /ASK\.paused = r\.paused === true;/);
+  assert.match(JS, /const anything = [^;]*\|\| ASK\.paused;/);
+  assert.match(JS, /document\.getElementById\('plus-paused'\); if \(p\) p\.hidden = !ASK\.paused;/);
 });

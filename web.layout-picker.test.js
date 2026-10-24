@@ -264,9 +264,12 @@ test('piece six: the board notice bars do not sit over the consolidated grid', (
   const start = PAGE.indexOf('@media (min-width: 960px) {\n  html[data-layout="consolidated"]');
   const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
   /* #3048: the found/scan discovery bars were removed from the home, so the
-     consolidated-hide list no longer names them; removed-wrap + restart-wrap
-     (the board-management chrome kept for the tab view) must still be hidden. */
-  assert.match(block, /> #removed-wrap, [^{]*> #restart-wrap \{ display: none; \}/, 'the removed/restart bars still stack over the grid');
+     consolidated-hide list no longer names them; removed-wrap (the board-management
+     chrome kept for the tab view) must still be hidden. #6714: the restart bar is
+     gone; its notice floats in the header's notice stack, which is where notices
+     go in the consolidated view too, so it is not on this list. */
+  assert.match(block, /> #removed-wrap \{ display: none; \}/, 'the removed bar still stacks over the grid');
+  assert.doesNotMatch(PAGE, /id="restart-wrap"/, '#6714: the full-width restart bar is back');
   assert.doesNotMatch(block, /> #found-wrap|> #scan-wrap|> #found-scan-trigger/, '#3048: the removed discovery bars must be gone from the consolidated-hide list');
   /* #3955: the news line (#newsbar, #unews-slot) is gone; the "Kosmos has been updated" window
      replaced it, so there is no longer a line here to guard against being hidden. */

@@ -74,4 +74,22 @@ function serviceKeyCheck(stateDir, opts = {}) {
   }
 }
 
-module.exports = { serviceKeyCheck, SET_FILE, SIG_FILE, PIN_FILE };
+/** kosmos#6587 (S-7a slice 3): the coordinator keys the connector must hold its registration to, as the comma-separated
+ * value of KOSMOS_EXPECT_COORDINATOR_KEYS (the set's own SPKI spelling, which the connector takes as listed), or null
+ * for no check: off, no set shipped, a set that does not verify (a broken build, which the staging check refuses),
+ * or a board set to another coordinator (its key is never on Kosmos+'s set). Never throws (null). */
+function expectedCoordinatorKeys(opts = {}) {
+  try {
+    const appDir = opts.appDir || __dirname;
+    const recoveryKeys = opts.recoveryKeys || RECOVERY_KEYS;
+    if (!Array.isArray(recoveryKeys) || recoveryKeys.length === 0) return null;
+    if (opts.production === false) return null;
+    const set = verifiedSet(appDir, recoveryKeys);
+    if (!set || set.ok !== true || !Array.isArray(set.keys) || !set.keys.length) return null;
+    return set.keys.map((k) => k.pub).join(',');
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { serviceKeyCheck, expectedCoordinatorKeys, SET_FILE, SIG_FILE, PIN_FILE };

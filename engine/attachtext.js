@@ -42,6 +42,9 @@ const PDFKIT_TIMEOUT_MS = 20000;
 let WORKER_TIMEOUT_MS = 30000;
 let WORKER_HEAP_MB = 256;
 const MAX_WORKERS = 2;   // conversions at once (iteration 2: a burst of hostile uploads ran all in parallel)
+/* #6734: the converter reads the whole file into memory, and Buffer memory is outside the worker's heap limit, so a file
+   larger than this is not converted. 25 MB is the attachment cap the conversion was built and measured under. */
+const MAX_RENDER_BYTES = 25 * 1024 * 1024;
 /* Test seam: tests shorten the limits to reach the timeout path without waiting 30 s. */
 function setWorkerLimits({ timeoutMs, heapMb } = {}) { if (timeoutMs) WORKER_TIMEOUT_MS = timeoutMs; if (heapMb) WORKER_HEAP_MB = heapMb; }
 
@@ -1158,9 +1161,14 @@ if (!isMainThread && workerData && workerData.attachtext) {
 async function render(rec) {
   const kind = rec && kindFor(rec.name);
   if (!kind) return null;
-  let got = await convertIsolated(rec.file, kind);
+  let size = null;
+  try { size = fs.statSync(rec.file).size; } catch { size = null; }   // review 2: a failed stat converts nothing
+  let got = size === null ? { failed: 'Kosmos could not read this file to convert it.' }
+    : size > MAX_RENDER_BYTES
+      ? { failed: 'Kosmos converts files up to ' + (MAX_RENDER_BYTES / 1024 / 1024) + ' MB to text; this one is larger, so it is attached as it is.' }
+      : await convertIsolated(rec.file, kind);
   if (got && got.js) got = await pdfAfter(rec.file, got.js);
-  else if (kind === 'pdf' && got && got.failed) {
+  else if (kind === 'pdf' && got && got.failed && size !== null && size <= MAX_RENDER_BYTES) {
     /* Iteration 15: the JS reader gave up (time or memory); PDFKit runs in its own process with its own limit, so a Mac
        still asks it. Its text is kept only when there is some. */
     const kit = await pdfAfter(rec.file, { encrypted: false, pages: [], cut: null, undecodable: 0, ownEncoding: false, noMap: false, mapless: [], rtl: false });
@@ -1176,4 +1184,4 @@ async function render(rec) {
   return out;
 }
 
-module.exports = { TEXT_NAME, kindFor, render, xlsxText, docxText, pdfTextJs, pdfText, parseCmap, setPdfkit, setWorkerLimits, readable, MAX_SHEET_ROWS, MAX_OUT };
+module.exports = { TEXT_NAME, MAX_RENDER_BYTES, kindFor, render, xlsxText, docxText, pdfTextJs, pdfText, parseCmap, setPdfkit, setWorkerLimits, readable, MAX_SHEET_ROWS, MAX_OUT };

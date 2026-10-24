@@ -44,6 +44,23 @@ const TOP_END = projects.DMFILES_TOP_END;
 /* The folder's name inside the agent's own folder (#3614's call, written on the card). */
 const FOLDER = 'Files';
 
+/* #6726: `kosmos reply --file` hands the person the file itself, as an attachment they download in the
+   conversation. Taught only where the command has it: the Windows `kosmos` (tools/windows/kosmos-cli.js) does
+   not take --file yet and refuses it as not an option, so a Windows board does not teach it. The route attaches
+   only for a sender its AGENT token names (server.js /api/reply), and only agents Kosmos starts get one
+   (bin/agent-supervisor.sh mints it); an adopted agent (a tmux session Kosmos found, launched by its own script)
+   receives this block too and has none, so the sentence says who can (review r7 finding 3). */
+const ATTACH_PARAGRAPH = process.platform === 'win32' ? [] : [
+  'If Kosmos started you (an agent Kosmos started has its own agent token), you',
+  'can hand them the file itself by attaching it to your reply:',
+  '`kosmos reply --file <path> "what it is"`. It arrives in your conversation',
+  'with them as a file they can download, wherever they read it.',
+  'Only a file directly in your Files folder, or inside the folder of a project',
+  'you are on, can be attached, up to 100 MB. For a bigger file, or when Kosmos',
+  'refuses it, tell them where you saved it.',
+  '',
+];
+
 /* Why this module writes an agent's file, for the stale marker (#323). */
 const WROTE_WHY = 'Kosmos told it where to save the files it makes for you';
 
@@ -136,6 +153,7 @@ function blockBody(dir) {
     'where they can open it. Save files directly in it, not in subfolders: the page',
     'lists only what sits at the top of the folder.',
     '',
+    ...ATTACH_PARAGRAPH,
     'When the conversation is about one of your projects (the person names it, or the',
     'file is unmistakably that project\'s work, not only the same kind of thing), save',
     'it in that project\'s folder instead. That folder is the one listed for it under',

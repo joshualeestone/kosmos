@@ -29,15 +29,21 @@
 # build, the alias, tmux and the pkg are fetched from live and checked by deploy-site.sh as before.
 #
 # Skips, retried on the next tick: a release, deploy-site.sh or promote-channel.sh running on this
-# machine; another tick still running; exit 75 from deploy-site.sh (the live site moved or could not
-# be read). A commit the live site already serves (its .kosmos-release-export names it, as right
-# after a cut's own step 8) is recorded as deployed without deploying it again. A deploy left running
-# by a tick killed outright: waited for while under 1200 s, then stopped; a failure either way.
+# machine, unless a test started it (kosmos#6907); another tick still running; exit 75 from
+# deploy-site.sh (the live site moved or could not be read). A commit the live site already serves
+# (its .kosmos-release-export names it, as right after a cut's own step 8) is recorded as deployed
+# without deploying it again. A deploy left running by a tick killed outright: waited for while
+# under 1200 s, then stopped; a failure either way.
 # A failed deploy is retried once on the next tick (one network blip should not park a website
 # change), then PARKED: a second failure on the same sha is a finding, not a blip, and a tick
 # re-running a refusing deploy every 15 minutes would bury it. The next merge, or deleting `parked`,
 # tries again. A checkout fault (off main, dirty, diverged) or a missing source of the older
 # downloads parks at once: retrying cannot fix either.
+# kosmos#6771, the Vercel token: with no token filed the deploy uses this machine's own vercel CLI sign-in when
+# `vercel whoami` answers. No token and no sign-in (notoken, or nosecrets when the accessor itself is missing), or
+# deploy-site.sh's exit 77 (Vercel refused the authorization before making a deployment), are each red once a day,
+# keyed on no sha, never counted and never parked: signing the CLI in or filing a token is the whole fix, and the next
+# tick deploys.
 #
 # State (KOSMOS_AUTODEPLOY_STATE, default ~/.kosmos-site-autodeploy):
 #   heartbeat      the time of the last tick that held the lock (a stall shows as an old heartbeat)
@@ -72,10 +78,16 @@
 # deploy's wall-clock limit in seconds: default 900, at most 1200; empty, non-numeric, 0 or a leading 0
 # means 900), KOSMOS_AUTODEPLOY_FETCH_MAX_S (the fetch's limit: default 120, at most 300, same fallbacks),
 # KOSMOS_SITE_URL (default
-# https://installkosmos.com, the same variable deploy-site.sh reads).
+# https://installkosmos.com, the same variable deploy-site.sh reads), VERCEL_TOKEN (the deploy's Vercel token; when
+# unset it is read from the secrets map, target KOSMOS_AUTODEPLOY_VERCEL_TARGET, default vercel-chaoskosmos-site:
+# kosmos#6771), KOSMOS_AUTODEPLOY_SECRETS (the PATH of the secrets-map accessor, an executable, default secrets-map.sh
+# on PATH or in ~/.claude/scripts), KOSMOS_AUTODEPLOY_WHOAMI_SECS (the sign-in check's limit, default 30).
+# KOSMOS_AUTODEPLOY_VERCEL (TEST ONLY: the PATH of the vercel CLI the sign-in check asks, an executable, default
+# `vercel` on PATH; not run with sh -c).
 # Test seams, TEST ONLY (each is run with sh -c, so never set them in the job's environment):
 # KOSMOS_AUTODEPLOY_DEPLOY (the deploy command, default this repo's deploy-site.sh --publish),
-# KOSMOS_AUTODEPLOY_PS (the process list command, default `ps -axo command=`).
+# KOSMOS_AUTODEPLOY_PS (the process list command, default `ps -axo pid=,ppid=,command=`; a line without
+# the pid and ppid has no ancestry, so a publisher on it always holds the deploy).
 # macOS only (stat -f), like the box it runs on.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -275,22 +287,66 @@ fi
 # or a path with a space in it; cuts are launched as `bash tools/release.sh <version>`.
 # The list is captured first and matched without a pipeline: under pipefail, `ps | grep -q` reports
 # the SIGPIPE ps gets when grep stops at the first match (rc 141) on any list over a pipe buffer, so a
-# busy machine would read as "nothing running" exactly when a cut is. This also matches the shell
-# suite's own runs of tools/deploy-site.sh on this machine, which only delays a deploy a tick.
-PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo command=}"
+# busy machine would read as "nothing running" exactly when a cut is.
+# A publisher that a TEST started is not one (kosmos#6907): the shell suite runs the real deploy-site.sh and
+# release.sh as test subjects, and so does the node suite (tools.release-gate.test.js spawns release.sh), and a
+# validation can run for half an hour, so a match whose ancestry reaches a tools/test-*.sh, or a node process
+# running --test or a *.test.js file, is passed over, unless that ancestor's own command line also names a publisher
+# (bash -c 'tools/test-x.sh && tools/deploy-site.sh --publish' runs a real publish). #6912: in the node case only
+# options, and the value of --require, -r or --import, may come before that word, so `node server.js --test` is not one.
+# Ancestry needs pid and ppid, so the list is
+# "pid ppid command"; a line without them (a list that cannot say) has no ancestry, so a match there still holds
+# the deploy (fails closed, like a test harness that has died and left its subject to launchd: ppid 1, no test
+# above it, so it holds too).
+PS_CMD="${KOSMOS_AUTODEPLOY_PS:-ps -axo pid=,ppid=,command=}"
 # Fails CLOSED: a process list that cannot be read (the command fails or prints nothing; a real one
 # always lists this tick) cannot rule out a cut, so nothing deploys, and it is reported red once a day
 # (red_once psread) rather than skipping silently forever.
+# Sets PUBLISHER to what held the deploy, so a skip names it: "pid <n>: <command>" for the first match no test
+# started ("pid ?" on a line without a pid), or a sentence when the matcher itself failed. The command goes into
+# the log and the job's output, so the publishers must keep taking only a version or flags as arguments.
+# A match passed over as test-started is logged too, naming the test above it, so a wrong exemption leaves
+# a record rather than a deploy beside a real publisher with nothing said.
+PUBLISHER=""
 publisher_running() {
-  local procs
+  local procs found line
   procs=$(sh -c "$PS_CMD" 2>/dev/null) || procs=""
   if [ -z "$procs" ]; then
     red_once psread "FAIL: could not read the process list ($PS_CMD), so a release cut cannot be ruled out; nothing deployed"
   fi
-  grep -Eq '^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\.sh( |$)' <<<"$procs"
+  found=$(awk '
+    BEGIN { pub = "^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/(release|deploy-site|promote-channel)\\.sh( |$)"
+            tst = "^([^ ]*/)?(ba|z)?sh( -[^ ]+)* [^ ]*tools/test-[^ /]*\\.sh( |$)"
+            nod = "^([^ ]*/)?node(( -[^ ]+)|( (--require|-r|--import) [^ ]+))* (--test(=[^ ]*)?|[^ -][^ ]*\\.test\\.[cm]?js)( |$)"
+            any = "tools/(release|deploy-site|promote-channel)\\.sh( |$)" }
+    { n++; c = $0
+      if (match(c, /^ *[0-9]+ +[0-9]+ /)) { pid[n] = $1; par[n] = $2; c = substr(c, RLENGTH + 1); id[$1] = n }
+      else { pid[n] = "?"; par[n] = "" }
+      cmd[n] = c }
+    END {
+      for (i = 1; i <= n; i++) {
+        if (cmd[i] !~ pub) continue
+        t = 0; p = par[i]
+        for (h = 0; h < 64 && p != "" && p > 1 && (p in id); h++) {
+          j = id[p]
+          if ((cmd[j] ~ tst || cmd[j] ~ nod) && cmd[j] !~ any) { t = 1; break }   # p and j stay on the test
+          p = par[j]
+        }
+        if (t) { print "T pid " pid[i] ": " substr(cmd[i], 1, 200) " (under pid " p ": " substr(cmd[j], 1, 120) ")"; continue }
+        print "H pid " pid[i] ": " substr(cmd[i], 1, 200); exit
+      }
+    }' <<<"$procs") || found="H the process list could not be matched, so a cut cannot be ruled out"   # closed, as above
+  PUBLISHER=""
+  while IFS= read -r line; do
+    case "$line" in
+      "T "*) say "not held by ${line#T } (a test started it)" ;;
+      "H "*) PUBLISHER="${line#H }" ;;
+    esac
+  done <<<"$found"
+  [ -n "$PUBLISHER" ]
 }
 if publisher_running; then
-  say "skip: a release cut, deploy or promote is running; main ${TARGET:0:9} waits for the next tick"
+  say "skip: a release cut, deploy or promote is running ($PUBLISHER); main ${TARGET:0:9} waits for the next tick"
   exit 0
 fi
 
@@ -418,10 +474,62 @@ fi
 # Asked again now that the mirror is done: a cut that started while it ran may have been mid-write or
 # mid-prune in the source, so the mirror may not be the set to ship. Next tick, then.
 if publisher_running; then
-  say "skip: a release cut, deploy or promote started during the mirror; main ${TARGET:0:9} waits for the next tick"
+  say "skip: a release cut, deploy or promote started during the mirror ($PUBLISHER); main ${TARGET:0:9} waits for the next tick"
   exit 0
 fi
 now > "$STATE/heartbeat"   # fresh before the long part, so a slow deploy never reads as a wedged lock
+# kosmos#6771: the deploy authenticates with a scoped project token when one is filed. An inherited VERCEL_TOKEN wins;
+# otherwise it is read from the secrets map. The CLI reads VERCEL_TOKEN from the environment, so the token is never on
+# a command line. With NO token it deploys on this machine's own vercel CLI sign-in when `vercel whoami` answers
+# (kosmos#6771, 10-22): the 10-20 "Not authorized" was transient (this same job deployed on that sign-in at 18:15 that
+# day), and refusing without a token blocked every site merge for two days, Josh's homepage trailer among them. Only
+# when there is neither is nothing deployed, red once a day (no failure counted, no park).
+VERCEL_TOKEN_TARGET="${KOSMOS_AUTODEPLOY_VERCEL_TARGET:-vercel-chaoskosmos-site}"
+if [ -z "${VERCEL_TOKEN:-}" ]; then
+  SECRETS_CMD="${KOSMOS_AUTODEPLOY_SECRETS:-}"
+  [ -n "$SECRETS_CMD" ] || SECRETS_CMD=$(command -v secrets-map.sh 2>/dev/null || echo "$HOME/.claude/scripts/secrets-map.sh")
+  # A lookup that cannot run is not a token nobody filed: told apart, so nobody files a token that is already there.
+  # TARGET="" keys the red record on no sha (as the fetch's is), so a new site merge does not make it red again the
+  # same day: the cause is the machine's, not the commit's.
+  _nosecrets=""; _signedin=""; _why=""
+  if [ -x "$SECRETS_CMD" ]; then
+    # The accessor's reason on stderr names the target and the file, never the value (secrets-map.sh's own rule; a
+    # KOSMOS_AUTODEPLOY_SECRETS stand-in must keep it).
+    _whyf=$(mktemp "${TMPDIR:-/tmp}/site-autodeploy-why.XXXXXX") || _whyf=/dev/null
+    VERCEL_TOKEN=$("$SECRETS_CMD" value "$VERCEL_TOKEN_TARGET" 2>"$_whyf") || VERCEL_TOKEN=""
+    _why=$(head -1 "$_whyf" 2>/dev/null | tr '\r\n' '  '); [ "$_whyf" = /dev/null ] || rm -f "$_whyf"
+  else _nosecrets=1; fi
+  if [ -z "${VERCEL_TOKEN:-}" ]; then
+    # No token: this machine's own CLI sign-in, if it answers. Its exit code must be 0 and its stdout exactly one line
+    # shaped like an account name: an error printed to stdout is never read as a name (review 1). Its stdout goes to a
+    # FILE, not a pipe, so a child the CLI leaves running (it spawns an update worker) cannot hold this tick past the
+    # limit (KOSMOS_AUTODEPLOY_WHOAMI_SECS, default 30; KOSMOS_AUTODEPLOY_VERCEL is the CLI, for the test).
+    VCLI="${KOSMOS_AUTODEPLOY_VERCEL:-vercel}"; _wsecs="${KOSMOS_AUTODEPLOY_WHOAMI_SECS:-30}"
+    case "$_wsecs" in ''|*[!0-9]*|0*) _wsecs=30 ;; esac   # 0 would cancel perl's alarm: no limit at all (review 2)
+    _who=""; _whof=$(mktemp "${TMPDIR:-/tmp}/site-autodeploy-who.XXXXXX") || _whof=""
+    if [ -n "$_whof" ] && perl -e 'alarm shift; exec @ARGV or exit 127' "$_wsecs" "$VCLI" whoami > "$_whof" 2>/dev/null; then
+      [ "$(grep -c . "$_whof")" = 1 ] && _who=$(grep . "$_whof" | grep -E '^[A-Za-z0-9_.@-]{1,100}$')
+    fi
+    [ -z "$_whof" ] || rm -f "$_whof"
+    if [ -n "$_who" ]; then
+      say "no Vercel token${_nosecrets:+ (the secrets accessor $SECRETS_CMD is not there)}${_why:+ (the accessor said: $_why)} for $VERCEL_TOKEN_TARGET: deploying on this machine's vercel sign-in ($_who) (kosmos#6771)"
+      _signedin=1
+    fi
+  fi
+  # A lookup that cannot run is not a token nobody filed: told apart, so nobody files a token that is already there.
+  # TARGET="" keys the red record on no sha (as the fetch's is), so a new site merge does not make it red again the
+  # same day: the cause is the machine's, not the commit's.
+  [ -n "${_signedin:-}" ] || [ -z "$_nosecrets" ] || TARGET="" red_once nosecrets "FAIL: cannot read the Vercel token: $SECRETS_CMD is not there or not executable (secrets-map.sh, the fleet's credential accessor), and this machine's vercel CLI is not signed in; nothing deployed (kosmos#6771)"
+fi
+case "${VERCEL_TOKEN:-}" in *"
+"*) TARGET="" red_once notoken "FAIL: the Vercel token read for $VERCEL_TOKEN_TARGET has more than one line, which no token has; refile it (kosmos#6771); nothing deployed" ;; esac
+[ -n "${VERCEL_TOKEN:-}" ] || [ -n "${_signedin:-}" ] || TARGET="" red_once notoken "FAIL: no Vercel token for the deploy (secrets target $VERCEL_TOKEN_TARGET${_why:+; the accessor said: $_why}), and this machine's vercel CLI is not signed in (vercel whoami gave nothing): sign it in here, or file a scoped token for the chaoskosmos-site project with /add-secret on this machine (kosmos#6771); nothing deployed"
+if [ -n "${VERCEL_TOKEN:-}" ]; then
+  # In GitHub Actions the token did not come from a repository secret, so the log does not know to hide it: tell it.
+  # Straight to stdout, never through say: the mask line itself must not go into $LOG.
+  [ "${GITHUB_ACTIONS:-}" = true ] && printf '::add-mask::%s\n' "$VERCEL_TOKEN"
+  export VERCEL_TOKEN   # deploy-site.sh takes it out of the environment again and gives it to the vercel command only
+else unset VERCEL_TOKEN; fi   # the CLI's own sign-in, as deploy-site.sh does with no token
 say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9}); its output is printed when it ends, and kept in $STATE/deploy.out"
 # The deploy's output goes to this run's output and the log once it ends; rc is the deploy's own.
 # KOSMOS_REPO pins deploy-site.sh's libraries to THIS checkout; without it they load from
@@ -518,6 +626,12 @@ if [ "$rc" = 75 ]; then
   [ "$n" -ge "$RETRY_ALARM" ] && red_once moving "FAIL: ${TARGET:0:9} has hit a moving or unreadable live site $n ticks in a row; still retrying"
   say "retry: the live site moved or could not be read during the deploy of ${TARGET:0:9} ($n in a row); the next tick tries again"
   exit 0
+fi
+# 77: deploy-site.sh says Vercel refused this machine's authorization (kosmos#6771): a token to make or replace, not a
+# finding about this sha. Not counted and NOT parked, so a new token is the whole fix; red once a day, on no sha.
+if [ "$rc" = 77 ]; then
+  accounted=1
+  TARGET="" red_once vercelauth "FAIL: Vercel refused this machine's authorization for the deploy (deploy-site.sh exit 77; its own line above says whether a token was given). Sign this machine's vercel CLI in again, or make a scoped token for the chaoskosmos-site project and file it as vercel-chaoskosmos-site (kosmos#6771); nothing counted, not parked"
 fi
 printf '%s rc=%s %s\n' "$TARGET" "$rc" "$(now)" > "$STATE/last-failure"
 n=$(( $(count_for "$STATE/failures") + 1 )); echo "$TARGET $n" > "$STATE/failures"; accounted=1

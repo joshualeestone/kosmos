@@ -316,7 +316,7 @@ ok "#5923: a lib lock whose holder has died is taken over, and the run moves the
 # NOT taken over until that git exits, so no joiner loads a half-written lib. A sleep stands in for the live git and
 # ends after 3 s; the joiner must wait for it, then take over and move.
 sh -c 'exit 0' & DEADG5923=$!; wait $DEADG5923
-sleep 60 & GIT5923=$!
+perl -e 'select(undef, undef, undef, 60)' & GIT5923=$!   # #6710: a bounded wait, not a `sleep`, so a stray `pkill -f sleep` cannot end this live-git stand-in (killed by pid at the held check below)
 # Iteration 25: the shape production writes, gitcmd (what that pid runs) before gitpid, so the matching-command branch
 # is the one exercised; with no gitcmd the arm would only reach the ps-failed branch.
 mkdir -p $S/ml5923-gitlive/queued-heavy-lib.lock && echo $DEADG5923 > $S/ml5923-gitlive/queued-heavy-lib.lock/pid \
@@ -349,7 +349,7 @@ ok "#5923: a dead holder with no gitpid but a live index.lock keeps the lock unt
 # Iteration 23: the dead holder's gitpid now names an UNRELATED live process (a reused pid): its recorded gitcmd does not
 # match what that pid runs, so it is not that git, and the run takes the lock over at once instead of waiting 5 minutes.
 sh -c 'exit 0' & DEADR5923=$!; wait $DEADR5923
-sleep 600 & OTHER5923=$!   # iteration 25: outlives the run's deadline, so a wrong hold cannot end by itself and pass
+perl -e 'select(undef, undef, undef, 600)' & OTHER5923=$!   # #6710: a 600 s bounded wait, not a `sleep` (stray `pkill -f sleep`); iteration 25: outlives the run's deadline, so a wrong hold cannot end by itself and pass
 mkdir -p $S/ml5923-gitreuse/queued-heavy-lib.lock && echo $DEADR5923 > $S/ml5923-gitreuse/queued-heavy-lib.lock/pid \
   && echo $OTHER5923 > $S/ml5923-gitreuse/queued-heavy-lib.lock/gitpid && echo "/bin/bash /x/queued-heavy.sh lib-gone" > $S/ml5923-gitreuse/queued-heavy-lib.lock/gitcmd
 gr_t0_5923=$(date +%s)

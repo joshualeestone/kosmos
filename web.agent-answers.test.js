@@ -248,7 +248,7 @@ test('the person’s own row carries its time now that the receipt may say nothi
   // eslint-disable-next-line no-new-func
   const dmRow = new Function(
     'let CURRENT = ' + JSON.stringify(pick(card)) + '; let LAST = []; let YOU_PIC = false; let DISC_TINTS = ["#dfe5ea"]; let DISC_INKS = ["#4a5560"];\n'
-    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjWhenLive', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans', 'pjListDepth'].map(lift).join('\n')
+    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjWhenLive', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'dmFailedLine', 'pjRich', 'pjRichSpans', 'pjListDepth'].map(lift).join('\n')
     + '; return dmRow;',
   )();
   const at = new Date().toISOString();
@@ -265,7 +265,12 @@ test('the person’s own row carries its time now that the receipt may say nothi
      satisfied by a renderer that prints nothing. #3419: placed is silent even
      mid-task now, so the control uses a `could_not` row, which still speaks. */
   const failed = dmRow({ text: 'hi', at, delivery: { state: 'could_not', because: 'it is waiting on an answer from you' } }, card.name);
-  assert.match(failed, /Could not deliver/, 'CONTROL: the row cannot say anything at all');
+  assert.match(failed, /Message failed to deliver/, 'CONTROL: the row cannot say anything at all');
+  /* kosmos#6720 with #6774: a copy not sent because the same words are kept above is not a failure (that copy goes),
+     so it keeps its own words and gets no failed line or try again. */
+  const dup = dmRow({ text: 'hi', at, delivery: { state: 'could_not', duplicateOf: 'earlier', because: 'the same message was already kept above, to be sent once its input box was clear, so this copy was not sent' } }, card.name);
+  assert.doesNotMatch(dup, /Message failed to deliver|dm-retry/, 'a kept-above copy reads as a failed message');
+  assert.match(dup, /already kept above/, 'a kept-above copy lost its own words');
   fleet.restore();
 });
 

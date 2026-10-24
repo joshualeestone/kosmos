@@ -15,6 +15,11 @@ if ! command -v swiftc >/dev/null 2>&1; then
   echo "scan-hatch-symlink: SKIP (no swiftc on this host; the source-wiring guard is native-app.scan-hatch-2125b.test.js)"
   exit 0
 fi
+# #6799: the app is Cocoa, so a swiftc off macOS (Swift for Linux) cannot build it; skip there too, not fail.
+if [ "$(uname -s)" != Darwin ]; then
+  echo "scan-hatch-symlink: SKIP (not macOS: the app is Cocoa; the source-wiring guard is native-app.scan-hatch-2125b.test.js)"
+  exit 0
+fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/test-scan-hatch-symlink-2125b.XXXXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT

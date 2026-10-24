@@ -159,9 +159,12 @@ jobs:
           echo "mac_runner=$mac" >> "$GITHUB_OUTPUT"
           # #4601: a shell shard joins the node part on the self-hosted Mac only when it is named in the repo variable
           # KOSMOS_CI_SHELL_SHARDS ("1/2", "2/2" or "1/2,2/2") AND the node part goes there (the same own-code and
-          # kill-switch rules, inherited through $mac). Anything else, the variable unset included, is macos-latest.
-          # Measured 2026-10-09 (numbers on #4601): a shell shard queued a median 56 to 77 min for macos-latest.
-          s1='"macos-latest"'; s2='"macos-latest"'
+          # kill-switch rules, inherited through $mac). Measured 2026-10-09 (numbers on #4601): a shell shard queued a
+          # median 56 to 77 min for macos-latest.
+          # #6791: otherwise, the variable unset included, shells 1/2 and 2/2 run on ubuntu-latest: they hold only the
+          # test:shell commands measured to pass on Linux (every one not in tools/shell-macos-only.txt), and GitHub's
+          # Linux pool is far larger than its macOS one. The macOS-only commands run in their own job (see suite).
+          s1='"ubuntu-latest"'; s2='"ubuntu-latest"'
           # Whole tokens only, split on commas and whitespace: "1/2x" or "v1/2" name no shard. Only the names that
           # matched are logged, so the log line can never carry a workflow command. Shell builtins only (no tr), so
           # the parse the route test runs on a Mac is the parse this ubuntu job runs; set -f keeps a "*" literal.
@@ -180,7 +183,7 @@ jobs:
           # Said in the log, so a misspelt value (one that routes nothing) is visible without echoing the value itself.
           echo "shell shards: 1/2 -> $s1, 2/2 -> $s2 (shard names read from KOSMOS_CI_SHELL_SHARDS: '${shards#,}')"
           if [ -n "${CI_SHELL_SHARDS//[[:space:],]/}" ] && [ -z "$shards" ]; then
-            echo "KOSMOS_CI_SHELL_SHARDS is set but names no shard (only 1/2 and 2/2 count), so both shell shards stay on macos-latest"
+            echo "KOSMOS_CI_SHELL_SHARDS is set but names no shard (only 1/2 and 2/2 count), so both shell shards stay on ubuntu-latest"
           fi
 
   # #4317: the suite runs as parallel jobs, so no one job sits near its limit. On main the one job
@@ -189,25 +192,32 @@ jobs:
   # tools/shell-shard.js into SHELL_SHARDS jobs (every command in exactly one shard;
   # tools.shell-shard-4317.test.js proves the union is the full list and pins this matrix to it).
   # The `test` job below needs them all and is the one check named `test`, as before.
-  # The cost: a run now holds three macos-latest runners instead of one (the #3499 contention was
+  # The cost: a run then held three macos-latest runners instead of one (#6791: now at most two; the #3499 contention was
   # about exactly those runners). Queue time is not part of timeout-minutes, so it cannot cancel a
   # job; it can only delay the result.
   suite:
     # #5488: !cancelled() so a failed or timed-out scope job still runs the suite (fail toward testing).
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.reuse == '' }}
-    name: suite (${{ matrix.part }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
+    name: suite (${{ matrix.part }}${{ matrix.platform == 'mac' && ' macOS' || matrix.shard && format(' {0}', matrix.shard) || '' }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - part: node
             shard: ''
+          # #6791: the Linux-safe test:shell commands in two shards, and the macOS-only ones (tools/shell-macos-only.txt)
+          # in one job of their own. tools.shell-shard-4317.test.js pins this shape.
           - part: shell
             shard: '1/2'
+            platform: linux
           - part: shell
             shard: '2/2'
-    # 🛑 macOS, NOT ubuntu. This is a macOS app's suite and it is not portable to
+            platform: linux
+          - part: shell
+            shard: '1/1'
+            platform: mac
+    # 🛑 The NODE part: macOS, NOT ubuntu. This is a macOS app's suite and it is not portable to
     # Linux: measured on ubuntu-latest, ~40 tests fail on platform assumptions the
     # product legitimately makes -- `/tmp` is a symlink on macOS but not on Linux,
     # and the install path refuses with "this platform (linux) is not supported; the
@@ -215,14 +225,23 @@ jobs:
     # the fix is the runner, not the tests. macos-latest matches the developer Macs,
     # where the suite is green. (A first attempt on ubuntu-latest went red on exactly
     # these platform tests; recorded so nobody re-picks ubuntu for this suite.)
-    # #5488 part b: scope's choice (see there); macos-latest whenever scope gave none (it failed or timed out).
-    # #5488 part c: the node part takes scope's choice. #4601: a shell shard takes it too, only when named in
-    # KOSMOS_CI_SHELL_SHARDS (see scope); otherwise macos-latest.
+    # #6791: test:shell is different, and MEASURED: originally each of its 264 commands run alone on ubuntu-latest
+    # (probe run 39535595626), 238 passed, 8 of them only by skipping their macOS work (probe run 39538876370). The
+    # rest run on ubuntu-latest in shells 1/2 and 2/2; those that need macOS are listed, each with its reason, in
+    # tools/shell-macos-only.txt (its header has how many it lists) and run in `shell macOS` on macos-latest, never the
+    # self-hosted Mac (#4601: some shell tests touch launchd and sweep processes by pattern). `shell macOS` also runs
+    # every syntax-only check (`sh -n` / `bash -n`, about no time), because macOS /bin/sh is bash 3.2 and Linux sh is
+    # dash, which accepts shapes bash 3.2 refuses (review 3). A run now holds one hosted macOS runner for test:shell
+    # instead of two.
+    # #5488 part b: scope's choice (see there); for the node part, macos-latest whenever scope gave none (it failed or
+    # timed out). #5488 part c: the node part takes scope's choice. #4601: a linux shell shard takes it too, only when
+    # named in KOSMOS_CI_SHELL_SHARDS (see scope); otherwise, and whenever scope gave none, ubuntu-latest (#6791). The
+    # macOS-only shell job is always macos-latest.
     # Measured 2026-10-07: the self-hosted Mac runs the node part in 4.3 min (GitHub: 22.2) but is ONE runner,
     # and every Mac job routed to it ran serially (about 1.8 runs an hour, against about 4.2 on GitHub's 5).
     # With node alone the self-hosted Mac stayed short of being the queue (numbers on #5488); #4601 lets a shell
     # shard join it by a repo variable, off by default (one Mac cannot carry a shard at peak: numbers on #4601).
-    runs-on: ${{ fromJSON(matrix.part == 'node' && needs.scope.outputs.mac_runner || matrix.shard == '1/2' && needs.scope.outputs.shell1_runner || matrix.shard == '2/2' && needs.scope.outputs.shell2_runner || '"macos-latest"') }}
+    runs-on: ${{ fromJSON(matrix.part == 'node' && needs.scope.outputs.mac_runner || matrix.part == 'node' && '"macos-latest"' || matrix.platform == 'mac' && '"macos-latest"' || matrix.shard == '1/2' && needs.scope.outputs.shell1_runner || matrix.shard == '2/2' && needs.scope.outputs.shell2_runner || '"ubuntu-latest"') }}
     # run-tests.sh boots boards and servers; bound a hung run rather than let it
     # sit on the 360-minute default. The suite now runs ~14m (#3499; it has grown well
     # past the old "~2-3 min"), so 15 left almost no margin -- a single slow run could
@@ -253,6 +272,18 @@ jobs:
       # starts its own tmux server (#5073) and reads it through status.snapshot();
       # macos-latest ships no tmux, so without this that test cannot start a server.
       # (The no-server path is covered in engine/status.test.js.)
+      # #6791: a Linux shell shard gets the tools its commands use (as linux.yml installs them); ubuntu-latest ships
+      # no tmux. The step below then finds tmux and does nothing.
+      - name: Linux tools for test:shell (#6791)
+        if: runner.os == 'Linux'
+        # Three tries of update and install together: two Linux shards a run double a mirror hiccup's chance of
+        # failing a required job.
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y -qq tmux lsof zsh jq >/dev/null && exit 0
+            echo "apt-get attempt $i failed"; sleep 10
+          done
+          exit 1
       - name: install tmux (#1794)
         # #5488 part b: the self-hosted Mac has tmux installed once (its runner user may not own Homebrew).
         # #5488 part c: never brew install on the self-hosted runner. Its Homebrew belongs to the machine's owner,
@@ -293,11 +324,17 @@ jobs:
       # (sh -c each). No CI job calls yarn now (`yarn test` still does, locally, running
       # both parts). So the runner's `node`, `bash` and `sh` are what the suite needs here;
       # a missing one exits 127 and reds here honestly, which is the correct direction.
-      # #4317: this job's part of it (KOSMOS_TEST_PART, and KOSMOS_SHELL_SHARD for a shell shard).
+      # #4317: this job's part of it (KOSMOS_TEST_PART, and KOSMOS_SHELL_SHARD for a shell shard, with
+      # KOSMOS_SHELL_PLATFORM for its platform's share, #6791).
+      # #6977: a shell job runs its tests in a cut's shape (tools/lib/cut-shape.sh), so a test that fails only inside
+      # a cut fails on its pull request, not at a cut's step 3. CI only: on a shared Mac the stand-in cut would read as a
+      # real one to every other agent.
       - name: this job's part of the suite (run-tests.sh, gated on the exit code)
         env:
           KOSMOS_TEST_PART: ${{ matrix.part }}
           KOSMOS_SHELL_SHARD: ${{ matrix.shard }}
+          KOSMOS_SHELL_PLATFORM: ${{ matrix.platform }}
+          KOSMOS_SHELL_CUT_ENV: ${{ matrix.part == 'shell' && '1' || '0' }}
         run: bash tools/run-tests.sh
       # #4317: say how close this job came to its limit, and WARN past 70%, so a job that is growing
       # toward a cancel is seen on a green run, not discovered as a cancel that reads like a flake.
@@ -308,11 +345,12 @@ jobs:
           elapsed=$(( $(date +%s) - ${SUITE_T0:?the clock step did not run, so this job cannot say how close it came to its limit} ))
           limit=$(( SUITE_TIMEOUT_MIN * 60 ))
           pct=$(( elapsed * 100 / limit ))
-          name="${{ matrix.part }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }}"
+          name="${{ matrix.part }}${{ matrix.platform == 'mac' && ' macOS' || matrix.shard && format(' {0}', matrix.shard) || '' }}"
           line="suite ($name): $((elapsed / 60))m $((elapsed % 60))s of ${SUITE_TIMEOUT_MIN} min (${pct}%)"
           echo "$line"
           if [ "$pct" -ge 70 ]; then
-            if [ "${{ matrix.part }}" = shell ]; then fix="raise SHELL_SHARDS in tools/shell-shard.js and add the shard to this matrix"; else fix="split the node files too (run-tests.sh runs them all in this job)"; fi
+            if [ "${{ matrix.platform }}" = mac ]; then fix="give the macOS-only commands (tools/shell-macos-only.txt) a second shard, or make some pass on Linux (#6791)"
+            elif [ "${{ matrix.part }}" = shell ]; then fix="raise SHELL_SHARDS in tools/shell-shard.js and add the shard to this matrix"; else fix="split the node files too (run-tests.sh runs them all in this job)"; fi
             echo "::warning title=suite near its limit (#4317)::$line. Past 70% of timeout-minutes: $fix before it is cancelled."
             echo "⚠️ $line: past 70% of the limit; $fix (#4317)." >> "$GITHUB_STEP_SUMMARY"
           else
@@ -327,7 +365,7 @@ jobs:
   # top of this file); if `test` is ever made required, note that GitHub counts a skipped job as
   # passing.
   # It runs no tests, only reads needs.suite and needs.scope, so it is on ubuntu-latest on purpose: the
-  # macOS rule above is for the suite, and a fourth macOS runner per run would be waste.
+  # macOS rule above is for the suite, and one more macOS runner per run would be waste.
   test:
     needs: [scope, suite]
     if: ${{ !cancelled() }}

@@ -263,7 +263,7 @@ test('#5752 round 3: through the page\'s own paint loop: Save goes dark after a 
   const days = /const TK_REPEAT_DAYS = (\[[^\]]+\]);/.exec(SRC);
   const el = () => ({ value: '', dataset: {}, hidden: false, disabled: false, textContent: '', classList: { toggle() {} } });
   const els = {};
-  for (const id of ['tk-repeat-row', 'tk-repeat-when', 'tk-repeat-line', 'tk-repeat-msg', 'tk-repeat-every', 'tk-repeat-at', 'tk-repeat-day', 'tk-repeat-save']) els[id] = el();
+  for (const id of ['tk-repeat-row', 'tk-repeat-when', 'tk-repeat-line', 'tk-repeat-msg', 'tk-repeat-every', 'tk-repeat-at', 'tk-repeat-day', 'tk-repeat-save', 'tk-repeat-mins', 'tk-repeat-mins-wrap']) els[id] = el();
   const document = { getElementById: (id) => els[id], querySelector: () => el() };
   const f = new Function('TK_REPEAT_DAYS', 'document', 'TK_ACT', 'tkPaintReviewer', 'tskRepeatSentence', 'tskRepeatMissed',
     page.liftAll(SRC, ['tkRepeatStoredChoice', 'tkRepeatChoice', 'tkRepeatFillAt', 'tkRepeatKeepOthers', 'tkRepeatSaved', 'tkRepeatShowChoice', 'tkRepeatFollowUnderEdit',
@@ -298,7 +298,7 @@ test('#5752 round 4: the box changed between pressing Save and the answer: the c
   const days = /const TK_REPEAT_DAYS = (\[[^\]]+\]);/.exec(SRC);
   const el = () => ({ value: '', dataset: {}, hidden: false, disabled: false, textContent: '', classList: { toggle() {} } });
   const els = {};
-  for (const id of ['tk-repeat-row', 'tk-repeat-when', 'tk-repeat-line', 'tk-repeat-msg', 'tk-repeat-every', 'tk-repeat-at', 'tk-repeat-day', 'tk-repeat-save']) els[id] = el();
+  for (const id of ['tk-repeat-row', 'tk-repeat-when', 'tk-repeat-line', 'tk-repeat-msg', 'tk-repeat-every', 'tk-repeat-at', 'tk-repeat-day', 'tk-repeat-save', 'tk-repeat-mins', 'tk-repeat-mins-wrap']) els[id] = el();
   const document = { getElementById: (id) => els[id], querySelector: () => el() };
   const f = new Function('TK_REPEAT_DAYS', 'document', 'TK_ACT', 'tkPaintReviewer', 'tskRepeatSentence', 'tskRepeatMissed',
     page.liftAll(SRC, ['tkRepeatStoredChoice', 'tkRepeatChoice', 'tkRepeatFillAt', 'tkRepeatKeepOthers', 'tkRepeatSaved', 'tkRepeatShowChoice',

@@ -58,6 +58,7 @@ function fill(dir) {
   fs.writeFileSync(path.join(dir, 'photo.png'), PNG);
   fs.writeFileSync(path.join(dir, 'report.pdf'), Buffer.from('%PDF-1.4 a check fixture'));
   fs.writeFileSync(path.join(dir, 'notes.txt'), 'hello');
+  fs.writeFileSync(path.join(dir, 'plan.docx'), 'PK not really');   // #6724: a kind with no preview (text previews now)
   fs.symlinkSync(path.join(OUTSIDE, 'secret.png'), path.join(dir, 'away.png'));
 }
 
@@ -108,7 +109,7 @@ function fill(dir) {
           list.textContent = '';
           // Review 8: the agent lists too, through their real painters reading the board (paintAgentFiles keeps a stamp).
           if (listId === 'd-files-list') { AGENT_FILES_STAMP = null; await paintAgentFiles('ava'); }
-          else if (listId === 'd-filesall-list') await paintAgentFilesAll('ava');
+          else if (listId === 'd-filesall-list') { AGENT_FILES_ALL_STAMP = null; await paintAgentFilesAll('ava'); }   // #6724: it keeps a stamp too
           else if (listId === 'docs-list') { PJ_DOCS_FILES = [{ name, size: 70, modified: new Date().toISOString() }]; PJ_DOCS_TOTAL = 1; PJ_DOCS_PAGE = 0; pjDocsPaintPage(); }
           // Review 7: pjLoadDocs skips the redraw when the folder's stamp has not moved, so every open forgets it.
           else if (listId === 'pj-docs') { PJ_DOCS_STAMP = null; PJ_DOCS_OK = false; await pjLoadDocs(pid); }
@@ -130,7 +131,8 @@ function fill(dir) {
           const img = back && back.querySelector('img.pv-media');
           return { up: !!back, img: !!img, loaded: !!(img && img.complete && img.naturalWidth > 0), src: img ? img.getAttribute('src') : null,
             card: !!(back && back.querySelector('.pv-file')), note: back && back.querySelector('.pv-note') ? back.querySelector('.pv-note').textContent : null,
-            name: back ? (back.querySelector('#pv-name') || {}).textContent : null, act: back ? (back.querySelector('#pv-do') || {}).textContent : null };
+            name: back ? (back.querySelector('#pv-name') || {}).textContent : null, act: back ? (back.querySelector('#pv-do') || {}).textContent : null,
+            text: back && back.querySelector('pre.pv-text') ? back.querySelector('pre.pv-text').textContent : null };   // #6724
         });
         const settle = async (fn, ms = 4000) => { const t = Date.now(); let v = await fn(); while (!v.done && Date.now() - t < ms) { await page.waitForTimeout(100); v = await fn(); } return v; };
 
@@ -160,7 +162,7 @@ function fill(dir) {
             if (id === 'docs-list') { PJ_DOCS_FILES = [{ name: 'other.txt', size: 5 }, { name: 'photo.png', size: 70 }]; PJ_DOCS_TOTAL = 2; PJ_DOCS_PAGE = 0; pjDocsPaintPage(); }
             else if (id === 'pj-docs') { list.textContent = ''; PJ_DOCS_STAMP = null; PJ_DOCS_OK = false; await pjLoadDocs(PJ_CURRENT); }
             else if (id === 'd-files-list') { AGENT_FILES_STAMP = null; await paintAgentFiles('ava'); }
-            else if (id === 'd-filesall-list') await paintAgentFilesAll('ava');
+            else if (id === 'd-filesall-list') { AGENT_FILES_ALL_STAMP = null; await paintAgentFilesAll('ava'); }   // #6724: as above
             else list.append(mk('other.txt', 5), mk('photo.png', 70));
             // #5703: a superseded paint draws nothing; the poll's newer paint draws the row moments later.
             for (let i = 0; i < 30 && !list.querySelector('.pj-doc[data-doc="photo.png"]'); i++) await new Promise((r) => setTimeout(r, 100));
@@ -175,11 +177,17 @@ function fill(dir) {
           chk(s2.up && s2.loaded && s2.note === 'The first page', `${L} F2 a PDF row shows its first page`, JSON.stringify(s2));
           await page.keyboard.press('Escape');
 
-          opens.length = 0;
+          // #6724: a text row opens the preview, with the file's own words read from this list's route.
           await ownRow('notes.txt');
+          const st = await settle(async () => { const s = await shown(); return { ...s, done: s.text !== null && s.text !== 'Reading\u2026' }; });
+          chk(st.up && st.text === 'hello', `${L} F5b (#6724) a text row shows its words in the preview`, JSON.stringify(st));
+          await page.keyboard.press('Escape');
+
+          opens.length = 0;
+          await ownRow('plan.docx');
           for (let i = 0; i < 30 && opens.length === 0; i++) await page.waitForTimeout(100);
           const s3 = await shown();
-          chk(!s3.up && opens.length === 1, `${L} F5 a text row keeps opening on the computer, no preview`, JSON.stringify({ s3, opens }));
+          chk(!s3.up && opens.length === 1, `${L} F5 a row with no preview (a .docx) keeps opening on the computer`, JSON.stringify({ s3, opens }));
 
           // Review 9: THIS list's own route, looked up exactly, after forgetting any earlier list's answer.
           const awayKey = (scope === 'agent' ? '/api/agent/ava/files/preview' : '/api/project/' + encodeURIComponent(project.id) + '/file-preview') + '?name=away.png';

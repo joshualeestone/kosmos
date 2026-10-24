@@ -168,8 +168,106 @@ test('#1765: no production caller hands main a fetch of its own (which would sta
   assert.match(src('kosmos-report-hook.js'), /const run = \(input\) => main\(\{ input \}\)/);
   // The Codex supervisor's idle report: the event, its env and a quiet stdout, nothing else.
   assert.match(src('win32codexsup.js'), /require\('\.\/kosmos-report-hook'\)\s*\.main\(\{ input: JSON\.stringify\(\{ hook_event_name: 'Stop' \}\), env, stdout: \(\) => \{\} \}\)\)/);
-  // Nothing else outside the tests calls main.
-  const callers = fs.readdirSync(__dirname).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
-    .filter((f) => /kosmos-report-hook['"]\)\s*\.main\(/.test(src(f)));
-  assert.deepEqual(callers, ['win32codexsup.js']);
+  // Nothing else outside the tests calls main, anywhere in the repo (kosmos#6464: not only engine/*.js).
+  assert.deepEqual(reportHookMainCallers(), ['engine/win32codexsup.js']);
+});
+
+/* kosmos#6464: every non-test script in the repo (.js, .cjs, .mjs; tests skipped), by its path from the repo root with
+   forward slashes. The tracked files when git can list them, so a stray untracked copy on a dev box cannot change the
+   answer; else a walk that skips node_modules and .git (a checkout without git). */
+const REPO_ROOT = path.join(__dirname, '..');
+const SCRIPT_RE = /\.(c|m)?js$/;
+const TEST_RE = /\.test\.(c|m)?js$/;
+let scriptsCache = null;
+function repoScripts() {
+  if (scriptsCache) return scriptsCache;
+  const git = require('node:child_process').spawnSync('git', ['-C', REPO_ROOT, 'ls-files', '-z'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  let all;
+  if (git.status === 0 && git.stdout) all = git.stdout.split('\0').filter(Boolean);
+  else {
+    all = [];
+    const walk = (dir) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (e.isDirectory()) { if (!['node_modules', '.git', '.claude', 'dist'].includes(e.name)) walk(path.join(dir, e.name)); continue; }
+        all.push(path.relative(REPO_ROOT, path.join(dir, e.name)).split(path.sep).join('/'));
+      }
+    };
+    walk(REPO_ROOT);
+  }
+  // A tracked file deleted in the working tree is not a script here to read.
+  scriptsCache = all.filter((p) => SCRIPT_RE.test(p) && !TEST_RE.test(p) && fs.existsSync(path.join(REPO_ROOT, p))).sort();
+  return scriptsCache;
+}
+/* Whether a script's text may call main of the module it loads by moduleName (require or import, any path form).
+   Over-broad on purpose, since a false hit only fails this test: on the line that loads it, a call chained on the
+   load (require(...).main(...)), a destructured or imported main ({ main } / { main: x }), or the name the load is
+   bound to (const / let / var / a later assignment / import * as) followed anywhere by <name>.main(. */
+function callsMainOf(text, moduleName) {
+  const at = new RegExp(moduleName.replace(/[-.]/g, '\\$&') + '(\\.(c|m)?js)?[\'"]', 'g');
+  for (const m of text.matchAll(at)) {
+    const lineStart = text.lastIndexOf('\n', m.index) + 1;
+    const lineEnd = text.indexOf('\n', m.index);
+    const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
+    if (!/\brequire\s*\(|\bimport\b/.test(line)) continue;
+    if (/^\s*\)*\s*\.\s*main\b/.test(text.slice(m.index + m[0].length))) return true;   // chained on the load
+    if (/\{[^}]*\bmain\b[^}]*\}/.test(line)) return true;   // const { main } = require(...) / import { main } from
+    const bound = line.match(/\bimport\s+\*\s+as\s+([A-Za-z_$][\w$]*)/) || line.match(/\bimport\s+([A-Za-z_$][\w$]*)\s+from\b/)
+      || line.match(/([A-Za-z_$][\w$]*)\s*=(?!=)/);
+    if (bound && new RegExp('(^|[^\\w$.])' + bound[1].replace(/\$/g, '\\$&') + '\\s*\\.\\s*main\\b').test(text)) return true;
+  }
+  return false;
+}
+function reportHookMainCallers() {
+  return repoScripts().filter((f) => f !== 'engine/kosmos-report-hook.js')
+    .filter((f) => { const t = fs.readFileSync(path.join(REPO_ROOT, f), 'utf8'); return t.includes('kosmos-report-hook') && callsMainOf(t, 'kosmos-report-hook'); });
+}
+
+test('kosmos#6464: the caller pin finds a caller outside engine/, in every shape it names, and none in a file that only names the hook', () => {
+  const HOOK = 'kosmos-report-hook';
+  // Fixtures for the matcher itself.
+  assert.equal(callsMainOf("require('../engine/kosmos-report-hook').main({ input })", HOOK), true, 'chained');
+  assert.equal(callsMainOf("require('./kosmos-report-hook')\n  .main({ input })", HOOK), true, 'chained over a line break');
+  assert.equal(callsMainOf("const hook = o.hook || require(path.join(engineDir(), 'kosmos-report-hook.js'));\nawait hook.main({ input, fetchImpl });", HOOK), true, 'named, through path.join');
+  assert.equal(callsMainOf("let h;\nh = require('./kosmos-report-hook');\nh.main({});", HOOK), true, 'assigned on a later line');
+  assert.equal(callsMainOf("const { main } = require('./kosmos-report-hook');\nmain({});", HOOK), true, 'destructured');
+  assert.equal(callsMainOf("const { main: run } = require('./kosmos-report-hook');\nrun({});", HOOK), true, 'destructured and renamed');
+  assert.equal(callsMainOf("import { main } from './kosmos-report-hook.js';\nmain({});", HOOK), true, 'imported');
+  assert.equal(callsMainOf("import * as hook from './kosmos-report-hook.js';\nhook.main({});", HOOK), true, 'imported as a namespace');
+  assert.equal(callsMainOf("const hook = await import('./kosmos-report-hook.js');\nhook.main({});", HOOK), true, 'dynamic import');
+  assert.equal(callsMainOf("const hook = o.hook || require(path.join(engineDir(), 'kosmos-report-hook.js'));\nhook.resolveUrl(env);", HOOK), false, 'loads it, never calls main');
+  assert.equal(callsMainOf('// see engine/kosmos-report-hook.js main()', HOOK), false, 'a mention');
+  // And the list reaches beyond engine/.
+  assert.ok(repoScripts().includes('tools/windows/kosmos-cli.js'), 'the list does not reach tools/windows');
+  assert.ok(repoScripts().includes('bin/agy-report-bridge.js'), 'the list does not reach bin/');
+  assert.ok(!repoScripts().some((p) => TEST_RE.test(p)), 'a test file is in the list');
+});
+
+test('kosmos#6464: no production script passes the Windows kosmos command a fetch, hook or seam of its own', () => {
+  // The CLI's main(argv, io) skips the check when io carries fetch or hook (a test). Only its own entry calls main.
+  const callers = repoScripts().filter((f) => f !== 'tools/windows/kosmos-cli.js')
+    .filter((f) => { const t = fs.readFileSync(path.join(REPO_ROOT, f), 'utf8'); return t.includes('kosmos-cli') && callsMainOf(t, 'kosmos-cli'); });
+  assert.deepEqual(callers, []);
+});
+
+test('kosmos#6464: a proven board that redirects the sends elsewhere: no token, keep, report or failure reaches the other address', async () => {
+  const http = require('node:http');
+  const { answerProof } = require('../test-support/proof-listener-1765');
+  const elsewhere = await startListener({ mode: 'squatter' });
+  const redirected = [];
+  const server = http.createServer((req, res) => {
+    if (answerProof(req, res, [BOARD])) return;
+    redirected.push(req.method + ' ' + req.url);
+    res.writeHead(307, { location: elsewhere.url + req.url });   // 307 keeps the method and body if followed
+    res.end();
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const url = 'http://127.0.0.1:' + server.address().port;
+  try {
+    // The keep and the report (a file edit), and the failure digest.
+    assert.equal(await hook.main(io(url, evt('PreToolUse', { tool_name: 'Edit', tool_input: { file_path: 'C:\\w\\a.md' }, cwd: 'C:\\w', session_id: 's' })).io), 0);
+    assert.equal(await hook.main(io(url, evt('PostToolUseFailure', { tool_name: 'Bash', tool_input: { command: 'x' }, error: 'boom' })).io), 0);
+    // The board really was sent each of the three (so the arm is about them), and redirected them.
+    assert.deepEqual(redirected.slice().sort(), ['POST /api/report', 'POST /api/toolfail', 'POST /api/undo/keep'], 'a send never reached the board, so this arm measures nothing for it');
+    assert.deepEqual(elsewhere.seen.map((r) => r.method + ' ' + r.url), [], 'a send followed the redirect');
+  } finally { server.closeAllConnections(); server.close(); await elsewhere.close(); }
 });

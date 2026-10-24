@@ -28,6 +28,11 @@ if ! command -v swiftc >/dev/null 2>&1; then
   echo "a11y-writer-mock: SKIP (no swiftc on this host; the source-wiring guard is native-app.a11y-writer-2125.test.js)"
   exit 0
 fi
+# #6799: the app is Cocoa, so a swiftc off macOS (Swift for Linux) cannot build it; skip there too, not fail.
+if [ "$(uname -s)" != Darwin ]; then
+  echo "a11y-writer-mock: SKIP (not macOS: the app is Cocoa; the source-wiring guard is native-app.a11y-writer-2125.test.js)"
+  exit 0
+fi
 if ! command -v node >/dev/null 2>&1; then
   echo "a11y-writer-mock: SKIP (no node on this host to drive the engine reader)"
   exit 0

@@ -36,7 +36,10 @@ let NOFOLLOW = KERNEL_NOFOLLOW;
 const NONBLOCK = fs.constants.O_NONBLOCK;
 function _setNofollowForTest(v) { NOFOLLOW = arguments.length ? v : KERNEL_NOFOLLOW; }
 
-function tooBig(st) { return st.size > attachments.MAX_BYTES; }
+/* #6734: its own limit, not the attachment cap. This preview reads the whole file (and a PDF twice), so when the cap
+   rose to 100 MB it stayed at the 25 MB it was built under. */
+const MAX_PREVIEW_BYTES = 25 * 1024 * 1024;
+function tooBig(st) { return st.size > MAX_PREVIEW_BYTES; }
 /* Only a file the list would show: listFiles' rules, walked (resolveListedFile's `listed` mode). An agent's Files
    list is flat (maxDepth 0); a project's walks its subfolders. */
 function resolve(folder, name, where, opts) {
@@ -63,6 +66,35 @@ function readChecked(got) {
   } catch { return { ok: false, because: 'that file could not be read' }; }
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
+/* #6724: the START of a text file, for the preview: at most `max` bytes, through the same single checked handle as
+   readChecked (O_NOFOLLOW, O_NONBLOCK, the walked file and a regular one), so a big log never loads whole. */
+const TEXT_PREVIEW_BYTES = 256 * 1024;
+function readHead(got, max) {
+  let fd = null;
+  try {
+    fd = fs.openSync(got.target, fs.constants.O_RDONLY | (NOFOLLOW || 0) | (NONBLOCK || 0));
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || !projects.sameOpenedFile(got.st, st)) return { ok: false, because: 'that file changed while it was being read' };
+    const want = Math.min(st.size, max);
+    const bytes = Buffer.alloc(want);
+    let off = 0;
+    while (off < want) { const n = fs.readSync(fd, bytes, off, want - off, off); if (n <= 0) break; off += n; }
+    let end = off;
+    /* Iteration 4: a cut can fall inside a UTF-8 character; its partial bytes are dropped, so the start shown ends on a
+       whole character rather than a replacement mark. */
+    if (st.size > off) {
+      let i = end - 1;
+      while (i >= 0 && i > end - 4 && (bytes[i] & 0xc0) === 0x80) i -= 1;
+      if (i >= 0) {
+        const lead = bytes[i];
+        const len = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
+        if (i + len > end) end = i;
+      }
+    }
+    return { ok: true, bytes: bytes.subarray(0, end), cut: st.size > off };
+  } catch { return { ok: false, because: 'that file could not be read' }; }
+  finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
+}
 function prune() {
   let ents;
   const CACHE = cacheDir();
@@ -83,6 +115,14 @@ async function preview(folder, name, where, opts) {
     if (!type) return { ok: false, because: 'that is not an image this board will draw' };
     const read = readChecked(got);
     return read.ok ? { ok: true, type, bytes: read.bytes } : read;
+  }
+  if (kind === 'text') {
+    /* #6724: a text file's first TEXT_PREVIEW_BYTES, always as text/plain (an .html file too: the route's nosniff and
+       sandbox CSP keep it words, never a page). A NUL byte in that start means it is not text after all. */
+    const read = readHead(got, TEXT_PREVIEW_BYTES);
+    if (!read.ok) return read;
+    if (read.bytes.includes(0)) return { ok: false, because: 'that file is not text, so there is no preview of it' };
+    return { ok: true, type: 'text/plain; charset=utf-8', bytes: read.bytes, cut: read.cut };
   }
   if (kind !== 'pdf') return { ok: false, because: 'no preview for this kind of file' };
   // The first page is drawn by macOS (qlmanage) only: no private copy is written where nothing can draw it (review 5).
@@ -225,4 +265,4 @@ function reveal(folder, name, where, opts) {
   return projects.revealFile(got.target, { namedAs: path.join(String(folder), got.given) });   // the record's spelling, for Windows (as openFile)
 }
 
-module.exports = { get CACHE() { return cacheDir(); }, CACHE_KEEP, SOURCE_FILE, resolve, preview, reveal, sweep, _setNofollowForTest };
+module.exports = { get CACHE() { return cacheDir(); }, CACHE_KEEP, MAX_PREVIEW_BYTES, SOURCE_FILE, TEXT_PREVIEW_BYTES, resolve, preview, reveal, sweep, _setNofollowForTest };

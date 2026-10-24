@@ -1894,6 +1894,18 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
   if (menu.permission && idBefore !== cleanMessage(e.identity)) {
     return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
   }
+  /* kosmos#7020: and the request, on this same last look. The identity above is compared after cleanMessage, which folds
+     runs of spaces, so `rm -rf "/tmp/old  build"` and `rm -rf "/tmp/old build"` share it; only the card's reading
+     (permissionRequestId) tells them apart. A press that named its request is sent only at that request. */
+  const reqOf = (text) => { const c = permissionCard(text); return c ? permissionRequestId(c) : null; };
+  // Review 2: a press that named a permission request is typed only at a permission prompt, never at another menu.
+  if (e.request && !menu.permission) {
+    return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
+  }
+  const reqBefore = menu.permission && e.request ? reqOf(before) : null;
+  if (menu.permission && e.request && reqBefore !== e.request) {
+    return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
+  }
   if (!opt || (e.question && e.question !== menu.question) || (e.label && cleanMessage(e.label) !== cleanMessage(opt.label))) {
     return { ok: false, because: 'its question changed on its screen, so nothing was sent. What is on this page now is current' };
   }
@@ -1907,7 +1919,9 @@ async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
      same question line, and reading that as "not answered" would invite a second press that approves it. A redraw
      that changes the box's text reads as answered too: the safe direction, since "unconfirmed" invites a second press,
      though the record then says placed for a prompt that may still be pending. */
-  const same = still && (menu.permission ? (still.permission && idOf(after) === idBefore) : still.question === menu.question);
+  // kosmos#7020: another request under the same identity is the next prompt, so it reads answered (the direction above).
+  const same = still && (menu.permission ? (still.permission && idOf(after) === idBefore && (!reqBefore || reqOf(after) === reqBefore))
+    : still.question === menu.question);
   return { ok: true, key: String(opt.n), label: opt.label, answered: !!after && !same, screen: after };
 }
 /* Close the live question menu with Escape before a message goes (the person answered in their own words). Resolves
@@ -3164,6 +3178,88 @@ function permissionAnswerable(text) {
   const box = permissionBox(text);
   return Boolean(box && box.top >= 0);
 }
+/* kosmos#6727 (Josh, 10-20): the permission prompt as a short card instead of its screen. Read from the box, only where
+   permissionAnswerable (the whole box on screen, the same gate as the buttons), else null and the old text stays.
+   Measured on 2.1.296 (test-support/claude-screens): under the full-width rule, a title line ("Bash command", "Create
+   file"), an optional "Tip:" line, then Claude's own description of a command or the file's name; the body between two
+   dashed rules (the command, or the file's text); then, above the question, any reason Claude Code gives ("This command
+   requires approval", or a warning such as a dangerous rm). Returns { kind, title, says, target, detail, reason, allow,
+   deny }: kind is 'delete' | 'command' | 'create' | 'edit' | 'fetch' | 'other'; allow and deny are the numbers of the
+   prompt's own "Yes" and "No" options (claudePermissionPrompt guarantees both). Every text field is plain text: no
+   rule, option, key hint or control character. */
+const PERMISSION_DASHED = /^\s*╌{8,}\s*$/;
+function permissionCard(text) {
+  const box = permissionBox(text);
+  if (!box || box.top < 0) return null;
+  const lines = String(text == null ? '' : text).split('\n').slice(box.top, box.pp.at);
+  const segs = [[]];
+  for (const l of lines) {
+    if (PERMISSION_DASHED.test(l)) { segs.push([]); continue; }
+    segs[segs.length - 1].push(l);
+  }
+  // eslint-disable-next-line no-control-regex
+  const clean = (l) => l.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  const headAll = segs[0].map(clean).filter(Boolean);
+  const tipSeen = headAll.some((l) => /^Tip:/i.test(l));
+  const head = headAll.filter((l) => !/^Tip:/i.test(l));
+  const title = head[0] || '';
+  const rest = head.slice(1);
+  /* Review 4: a tip wraps on a narrow pane and its next line is not marked; with a tip on screen the description is
+     known only when exactly one line is left, so anything else is ambiguous and stays under Show details. */
+  const sub = rest.join(' ');
+  const subSure = !tipSeen || rest.length === 1;
+  const body = segs.length >= 3 ? segs.slice(1, -1).flat() : [];
+  const indent = Math.min(...body.filter((l) => l.trim()).map((l) => l.match(/^\s*/)[0].length), 80);
+  const detail = body.map((l) => l.slice(Number.isFinite(indent) ? indent : 0).replace(/\s+$/, '')).join('\n').replace(/^\n+|\n+$/g, '');
+  const tail = segs.length >= 2 ? segs[segs.length - 1].map(clean).filter(Boolean) : [];
+  const reason = tail.join(' ');
+  let kind = 'other';
+  if (/^Bash command\b/i.test(title)) kind = /\brm\b|delet|remov/i.test(reason) ? 'delete' : 'command';
+  else if (/^Create file\b/i.test(title)) kind = 'create';
+  else if (/^(Edit|Update|Write) file\b/i.test(title)) kind = 'edit';
+  else if (/^(Fetch|Web ?fetch|Web search)\b/i.test(title)) kind = 'fetch';   // review 1: the known titles only
+  const opts = box.pp.options;
+  const allow = opts.find((o) => o.label === 'Yes');
+  const deny = opts.find((o) => /^No\b/.test(o.label));
+  if (!allow || !deny) return null;
+  const isCommand = kind === 'command' || kind === 'delete';
+  const isFile = kind === 'create' || kind === 'edit';
+  /* Review 2: only a MEASURED shape puts a line where the person reads it without opening the details: a command's
+     description, a file's name. Any other box (an MCP tool's, a layout not captured) keeps its lines under Show
+     details, so a request's arguments never reach the headline. */
+  const ruled = segs.length >= 3;
+  /* Review 4: only the MEASURED shape is a card, its body between two dashed rules. Without them there is no telling
+     where the request is, and a card could offer Allow with nothing under Show details; null keeps the old text. */
+  if (!ruled) return null;
+  const extra = ((isCommand || isFile) && subSure) ? '' : sub;
+  // A file's text is drawn with a line-number gutter ("  1 hello"); the details show the text (review 2).
+  // kosmos#7017 reviews 4 and 5: only a gutter that numbers EVERY line 1, 2, 3 with no gap is one. A blank line is drawn
+  // "  2 " (trimmed here to "2"); a line Claude Code wraps itself carries no number, so its continuation breaks the run
+  // and the text is kept as drawn, numbers and all, rather than losing a number that was part of the text ("777").
+  const gutterLines = detail ? detail.split('\n') : [];
+  // Review 6: the strict run is for a new file (drawn from line 1). A change is drawn as a diff from its own line
+  // numbers ("  41 -old"), which keeps the earlier reading.
+  const gutter = kind === 'create' ? (gutterLines.length > 0
+    && gutterLines.every((l, k) => { const m = l.match(/^\s*(\d+)(\s|$)/); return Boolean(m) && Number(m[1]) === k + 1; }))
+    : (isFile && Boolean(detail) && gutterLines.every((l) => !l.trim() || /^\s*\d+\s/.test(l)));
+  const fileText = gutter ? detail.split('\n').map((l) => l.replace(/^\s*\d+\s?/, '')).join('\n') : detail;
+  return { kind, title, says: isCommand && subSure ? sub : '', target: isFile && subSure ? sub : '',
+    detail: [extra, fileText].filter(Boolean).join('\n'), reason, allow: allow.n, deny: deny.n };
+}
+/* kosmos#7017 part 2: one permission request's fingerprint, from its card (permissionCard): sha256 hex of what the card
+   says the request is, joined with U+001F. Every permission prompt asks "Do you want to proceed?" with "Yes" and "No", so
+   the question line alone cannot tell two commands apart. The press's `asked` (the whole box, #6054) is checked by
+   the phone and again by the board; this is a second check on the card's reading of it, not a replacement for that. The phone checks a lock-screen press against the card's
+   fingerprint read again just before it sends, so a notice minutes old never answers a different command with the same
+   words. The same text on a pane redrawn at another width may wrap differently and read as another request: that refuses
+   an honest press, the safe direction. The same words asked again later (from another folder, say) read as the same
+   request: the person did read those exact words. Null for anything that is not an object (pass only permissionCard's
+   result). */
+function permissionRequestId(card) {
+  if (!card || typeof card !== 'object') return null;
+  const parts = ['kind', 'title', 'says', 'target', 'detail', 'reason'].map((k) => String(card[k] == null ? '' : card[k]));
+  return require('node:crypto').createHash('sha256').update(parts.join('\u001f'), 'utf8').digest('hex');
+}
 function questionIn(text, runner) {
   const whole = String(text == null ? '' : text);
   if (!whole.trim()) return null;
@@ -4245,7 +4341,14 @@ function appendLocked(projectId, agent, entry, bornAt) {
         ...(entry && entry.delivery && entry.delivery.state === 'held' ? {
           heldUntil: typeof entry.delivery.heldUntil === 'string' ? entry.delivery.heldUntil : null,
           ...(entry.delivery.behind === true ? { behind: true } : {}),   // held behind kept messages, not on the limit
+          // #6774: why it is held (#5948 signed out, #6774 a stuck input box), so a reloaded page says the same words.
+          ...(entry.delivery.heldFor === 'signin' || entry.delivery.heldFor === 'input' ? { heldFor: entry.delivery.heldFor } : {}),
+          ...(entry.delivery.behindFor === 'input' ? { behindFor: 'input' } : {}),
         } : {}),
+        // #6774: a re-send not sent because the same words were already kept above (the page words it so).
+        ...(entry && entry.delivery && typeof entry.delivery.duplicateOf === 'string' ? { duplicateOf: entry.delivery.duplicateOf } : {}),
+        // kosmos#6720: a person's plain message that did not go, kept as one Try again may send (the route decides).
+        ...(entry && entry.delivery && entry.delivery.state === DELIVERY.COULD_NOT && entry.delivery.retryable === true ? { retryable: true } : {}),
       },
     }],
   };
@@ -4994,7 +5097,63 @@ function updateDmDelivery(agent, at, delivery) {
   } catch { return false; }
 }
 
+/**
+ * kosmos#6720: a person's message that did not go (COULD_NOT: nothing of it reached the pane), sent again from its own
+ * row, takes the new verdict IN PLACE rather than a second row, so the conversation shows one message either way.
+ *
+ * ⚠️ TWO WRITES, AND THE FIRST IS BEFORE ANY KEY. `retryDmBegin` turns the row UNCONFIRMED ("being sent again") under
+ * the thread lock BEFORE anything is typed, and `retryDmFinish` writes the real verdict only over a row still carrying
+ * that mark. So a board that stops mid-send, or a final write that fails, leaves a row that may have gone and offers
+ * no Try again. Two presses in one running board are stopped first by the route's in-memory mark; the record is what
+ * still holds across a restart or a failed final write (review 1).
+ * Only a row still COULD_NOT, marked retryable when it was kept, with exactly these words. Its `at` stays (the row's
+ * identity, which reactions and replies key on); the try's own time rides as `retriedAt`. Each returns true when
+ * the row was rewritten.
+ */
+const RETRYING_BECAUSE = 'it was being sent again when Kosmos last looked, so it may have arrived; check its window before sending it again';
+function rewriteDmRow(agent, at, text, pick, make, newestOnly) {
+  const name = String(agent);
+  if (typeof at !== 'string' || typeof text !== 'string') return false;
+  let file;
+  try { file = threadFile(DIRECT, name); } catch { return false; }
+  try {
+    let wrote = false;
+    const held = withThreadLock(file, () => {
+      const thread = readThread(DIRECT, name);
+      /* Review 2: "the person's newest message" is decided HERE, under the lock, so a message sent meanwhile (another
+         tab) is seen before this one is typed behind it. */
+      if (newestOnly) {
+        const own = thread.messages.filter((m) => m && !m.from && m.kind !== 'kosmos' && m.kind !== 'question');
+        if (!own.length || own[own.length - 1].at !== at) return true;
+      }
+      const messages = thread.messages.map((m) => {
+        if (wrote || !m || m.at !== at || m.from || m.text !== text || !m.delivery || !pick(m.delivery)) return m;
+        wrote = true;
+        return { ...m, delivery: make(m.delivery) };
+      });
+      if (wrote) store.saveFlushed(file, JSON.stringify({ ...thread, messages }, null, 2));
+      return true;
+    });
+    return !!(held && held.ok) && wrote;
+  } catch { return false; }
+}
+function retryDmBegin(agent, at, text) {
+  return rewriteDmRow(agent, at, text,
+    (d) => d.state === DELIVERY.COULD_NOT && d.retryable === true,
+    () => ({ state: DELIVERY.UNCONFIRMED, because: RETRYING_BECAUSE, retrying: true, retriedAt: new Date().toISOString(), paneState: null, paneNote: null }),
+    true);
+}
+function retryDmFinish(agent, at, text, delivery) {
+  if (!delivery || typeof delivery.state !== 'string') return false;
+  return rewriteDmRow(agent, at, text,
+    (d) => d.retrying === true,
+    (d) => ({ state: delivery.state, because: delivery.because || null, paneState: delivery.paneState || null,
+      paneNote: delivery.paneNote || null, retriedAt: d.retriedAt,
+      ...(delivery.state === DELIVERY.COULD_NOT ? { retryable: true } : {}) }));   // nothing typed again: it may be tried again
+}
+
 module.exports = {
+  retryDmBegin, retryDmFinish,   // kosmos#6720
   setEarlierSubmittedHook,   // #6256 item 2
   inputBoxEmpty,   // #6256 item 1
   updateDmDelivery,   // #5805 slice 2b
@@ -5007,7 +5166,7 @@ module.exports = {
   composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
   setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
   recoverStuckInput, setDraftSaver, withDraftRows, STUCK_INPUT_MS, stuckShrunk,   // kosmos#6717
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,

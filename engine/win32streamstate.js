@@ -127,6 +127,80 @@ function limitAfterEvent(event) {
   return undefined;
 }
 
+/* kosmos#6570: a fraction past this is not a utilization this code understands (a later change of unit to a percentage,
+   say), so it is refused rather than drawn as thousands of percent. Past 1 is real (an account over its limit). */
+const UTILIZATION_MAX = 2;
+
+/** #6570: one window's reading `{ usedPct (0..100), resetsAt (epoch SECONDS) }` from a utilization (a fraction) and a
+    reset time, in the status line's units (engine/kosmos-statusline.js), or null when either is not one. A reset in
+    milliseconds (past 1e12) is taken as such, as resetIso does. */
+function readingOf(utilization, resetsAt) {
+  if (typeof utilization !== 'number' || !Number.isFinite(utilization) || utilization < 0 || utilization > UTILIZATION_MAX) return null;
+  if (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt) || resetsAt <= 0) return null;
+  const secs = resetsAt > 1e12 ? Math.floor(resetsAt / 1000) : resetsAt;
+  /* Whole points, as the status line's used_percentage is (the calibration divides by points moved, allowance.js). */
+  return { usedPct: Math.round(utilization * 100), resetsAt: secs };
+}
+
+/**
+ * kosmos#6570: the account's usage readings one rate_limit_event carries, `{ fiveHour, weekly }` (each a reading or
+ * null), or null when it carries none.
+ *
+ * WHY: a Windows agent runs headless (stream-json), so Claude Code never runs its status line there, and the status
+ * line was the only thing that recorded these readings (measured 10-21 on the Windows box: the row showed 1% from 10-19
+ * while this event said 96%). Every turn's rate_limit_event carries them (captured on that box):
+ *   "rate_limit_info":{"status":"allowed_warning","resetsAt":1792965600,"rateLimitType":"seven_day","utilization":0.96,
+ *     ...,"unifiedWindows":{"five_hour":{"utilization":0.25,"resetsAt":1792611600},"seven_day":{"utilization":0.96,...}}}
+ * `unifiedWindows` is marked @internal in Claude Code's own schema, so a window it does not carry falls back to the
+ * top-level `utilization` + `resetsAt` when `rateLimitType` names that window. Nothing is guessed: a window with no
+ * readable figure is null.
+ */
+function usageOfEvent(event) {
+  if (!event || typeof event !== 'object' || Array.isArray(event) || event.type !== 'rate_limit_event') return null;
+  const info = event.rate_limit_info;
+  if (!info || typeof info !== 'object' || Array.isArray(info)) return null;
+  const uw = info.unifiedWindows && typeof info.unifiedWindows === 'object' && !Array.isArray(info.unifiedWindows) ? info.unifiedWindows : null;
+  const windowOf = (key) => {
+    const w = uw && uw[key] && typeof uw[key] === 'object' && !Array.isArray(uw[key]) ? uw[key] : null;
+    const fromWindows = w ? readingOf(w.utilization, w.resetsAt) : null;
+    if (fromWindows) return fromWindows;
+    return info.rateLimitType === key ? readingOf(info.utilization, info.resetsAt) : null;
+  };
+  const fiveHour = windowOf('five_hour');
+  const weekly = windowOf('seven_day');
+  return fiveHour || weekly ? { fiveHour, weekly } : null;
+}
+
+/**
+ * kosmos#6570: the Claude account folder a Windows agent's readings belong to, or null when that cannot be told for
+ * certain (then nothing is recorded: a reading filed under the wrong account is worse than none). `configDir` is the
+ * agent's CLAUDE_CONFIG_DIR (win32launch.childEnv sets exactly this, or deletes it for the default account, which then
+ * reads <home>\.claude). The default's folder is the one the agent's Claude reads (its home, os.homedir()), and it is
+ * used only when this process's AGENT_WORKFORCE_HOME, if it names one (a test, a sandboxed run started with it; a
+ * Scheduled Task carries none), gives the same default folder (accounts.homeDir()), so a run pointed at another home
+ * never writes into the real one. Only an absolute folder that already exists.
+ */
+function claudeAccountDirFor(configDir, opts) {
+  const o = opts || {};
+  const env = o.env || process.env;
+  const home = typeof o.homedir === 'string' ? o.homedir : require('node:os').homedir();
+  let dir;
+  if (typeof configDir === 'string' && configDir) {
+    dir = configDir;
+  } else {
+    if (!home) return null;
+    dir = path.join(home, '.claude');
+    const boardHome = env && typeof env.AGENT_WORKFORCE_HOME === 'string' && env.AGENT_WORKFORCE_HOME ? env.AGENT_WORKFORCE_HOME : null;
+    if (boardHome) {
+      const norm = (x) => (process.platform === 'win32' ? path.resolve(x).toLowerCase() : path.resolve(x));   // Windows folder names ignore case
+      try { if (norm(path.join(boardHome, '.claude')) !== norm(dir)) return null; } catch { return null; }
+    }
+  }
+  if (!path.isAbsolute(dir)) return null;
+  try { if (!fs.statSync(dir).isDirectory()) return null; } catch { return null; }
+  return dir;
+}
+
 /** #5805: whether a state token is the out-of-usage one `stateFor` writes (win32capture counts it as a good reading). */
 function isLimitToken(token) {
   return typeof token === 'string' && /^limit \S+ \S+ \S+/.test(token);
@@ -294,6 +368,14 @@ function publisher(name, opts) {
   const clear = o.clear || ((ownerPid) => clearState(name, ownerPid));
   const timer = o.setTimer || ((fn, ms) => setTimeout(fn, ms));
   const onProblem = typeof o.onProblem === 'function' ? o.onProblem : () => {};
+  /* kosmos#6570: the agent's Claude account folder (claudeAccountDirFor), where each rate_limit_event's readings are
+     recorded the way the status line records them; none, and nothing is. `recordUsage` is injectable for tests. */
+  /* A folder, or a function naming it (asked at each event, so an account folder made after the agent started is
+     found without a restart; review 3). */
+  const usageDirNow = typeof o.usageDir === 'function' ? o.usageDir
+    : (() => { const d = typeof o.usageDir === 'string' && o.usageDir ? o.usageDir : null; return () => d; })();
+  const recordUsage = typeof o.recordUsage === 'function' ? o.recordUsage
+    : (dir, readings) => require('./kosmos-statusline').recordReadings(dir, readings, Date.now(), { latestWins: true });
 
   let current = null;      // { pid, sessionId, state, limit } of the agent running now
   let written = null;      // the state and limit last put on disk for `current` (see keyOf)
@@ -349,6 +431,14 @@ function publisher(name, opts) {
     /** One parsed stream event. */
     event(e) {
       if (!current) return;
+      /* #6570: on its own: a reading that cannot be recorded must never cost the card its state. */
+      if (e && e.type === 'rate_limit_event') {
+        try {
+          const u = usageOfEvent(e);
+          const dir = u ? usageDirNow() : null;
+          if (u && typeof dir === 'string' && dir) recordUsage(dir, u);
+        } catch { /* the next event tries again */ }
+      }
       const next = stateAfterEvent(e);
       if (next) current.state = next;
       /* #5805: a refusal is kept, room clears it, and the refused turn's own sentence rides with it. */
@@ -409,4 +499,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, liveIdentity, isLimitToken };
+module.exports = { BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, liveIdentity, isLimitToken, usageOfEvent, claudeAccountDirFor };

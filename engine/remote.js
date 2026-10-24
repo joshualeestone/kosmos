@@ -181,7 +181,143 @@ function askConnectorCapabilities() {
 /* Whether this board has started the tunnel process that forwards. Until it has, nothing is vouched for: a tunnel
    left running by an earlier board (an older binary, say) must not borrow what this board's binary says. */
 let tunnelStartedHere = false;
+/* kosmos#6616 (R01b part 6): the binary's answer AND the running tunnel's own. Once this board has started a tunnel,
+   a capability counts only if the child it runs now also lists it in its status file (`capabilities`, written by the
+   process about itself, kosmos-relay runcaps-6616). The binary's answer alone described the file on disk, which an
+   update can replace while this board's tunnel keeps forwarding, and the ten-minute recheck would then ask the NEW
+   binary about the OLD process. A status file from another process (its pid), not yet written, unreadable, or with no
+   `capabilities` (a connector older than that field) lists nothing, and so does a moment with no child running
+   (crash backoff, a stop): nothing legitimate arrives then, so it fails closed. This only ever narrows the binary's
+   answer. A tunnel orphaned by an EARLIER board that still forwards is described by neither check (it shares this
+   board's status file under its own pid), so it is ended (endForeignTunnel, kosmos#6669); where it cannot be (Windows,
+   a Linux subreaper) it stays open, as does a pid reused between ps and the signal. */
 function connectorCapabilities(now = Date.now()) {
+  const caps = binaryCapabilities(now);
+  const running = runningCapabilities();
+  return running === null ? caps : new Set([...caps].filter((c) => running.has(c)));
+}
+// kosmos#6616: tests only, the pid of a tunnel "running here" when none was spawned (a real child always wins).
+let runningPidForTests = null;
+/* A process's capabilities are compiled into it, so once this board's child has said what it lists, that holds for
+   the life of that pid (kosmos#6669, review 3: a tunnel orphaned by an earlier board rewrites the same status file
+   under its own pid, and this board's child writes it only on a state change, so without this one foreign write
+   refused every gated remote action until the child next reconnected). */
+let runningSeen = null;   // { pid, caps }
+/* What the tunnel process this board runs says it can do; null only before this board has started any (the binary's
+   answer is then gated by tunnelStartedHere alone). Read until that process has said: a small file. */
+function runningCapabilities() {
+  if (!tunnelStartedHere) return null;
+  const pid = child ? child.pid : (process.env.NODE_TEST_CONTEXT ? runningPidForTests : null);
+  if (pid === null || pid === undefined) return new Set();
+  let raw = null;
+  // Unreadable includes a moment where Windows holds the file for the tunnel's atomic replace: refused, asked again.
+  try { raw = JSON.parse(fs.readFileSync(STATUS_FILE(), 'utf8')); } catch { /* below */ }
+  // Read even when the child's list is kept (review 7), so a foreign writer is noticed on the gated path too.
+  if (raw && Number.isInteger(raw.pid) && raw.pid !== pid) {
+    endForeignTunnel(raw.pid);
+    // Review 10: ending is asynchronous, and both tunnels forward to the same port, so a request now may be the
+    // orphan's. Until that pid is settled as one to leave alone (a live board's, not ours, gone, Windows), nothing.
+    if (foreignVerdict.get(raw.pid) !== 'leave') return new Set();
+  }
+  if (runningSeen && runningSeen.pid === pid) return runningSeen.caps;
+  if (!raw || raw.pid !== pid) return new Set();
+  return noteRunning(raw, pid);
+}
+/* Keep what this board's child said (review 5: status() reads the file far more often than a gated request does, so it
+   notes the child's write too, and a foreign tunnel that cannot be ended, on Windows say, blocks gated actions only
+   until the child's first write is seen, not until its next state change). */
+function noteRunning(raw, pid) {
+  const caps = new Set(Array.isArray(raw.capabilities) ? raw.capabilities.filter((c) => typeof c === 'string') : []);
+  runningSeen = { pid, caps };
+  return caps;
+}
+/* kosmos#6669 (R01c): a tunnel this board did not start that writes this board's status file is one an earlier board
+   left behind (killed hard, so it could not reap it). Its reconnect loop takes the relay connection back from this
+   board's tunnel after each "replaced by a newer connection", so it forwards part of the time, as whatever binary it
+   was, and neither capability check describes it. It is ended (SIGTERM, to the pid the file names) ONLY when ps shows
+   all of: its parent is 1 (it was re-parented: its board is gone; review 4, a second LIVE board on the same account
+   shares this file, and killing its child would start a kill loop between the two), the text before its first
+   ` run ` is BIN() itself or one token with BIN()'s basename (review 9: no wrapper such as `strace /x/kosmos-tunnel
+   run ...`; argv, not the kernel's executable name, which a portable test
+   fixture cannot fake; review 6) and its first argument is `run`, and it was started with this board's own `--status-file` path,
+   the whole argument. A pid outside 2..2^22 is never looked at (0 and -1 would signal a group). Our own pid and our
+   child are excluded both when asked and again right before the signal. Not closed (stated): a pid that exits and is
+   reused between ps and the signal. Kept an hour per pid: "not our tunnel" (program or path). Asked again after a
+   minute (reviews 5 and 6): a live parent (its board may die later), a pid that is gone (it may be reused by one), and
+   one just ended (a tunnel that ignores TERM). Never judged while this board is itself pid 1 (a container entrypoint,
+   whose own earlier children read as orphans).
+   A failed ps is asked again after fifteen seconds.
+   Not on Windows (no command line is read there; stated on kosmos#6669). */
+const foreignLooked = new Map();   // pid -> until when its answer stands (Infinity: Windows, never judged there)
+const FOREIGN_RECHECK_MS = 60 * 1000;
+const FOREIGN_NOT_OURS_MS = 60 * 60 * 1000;
+const FOREIGN_PS_FAILED_MS = 15 * 1000;
+const foreignAsking = new Set();
+const foreignVerdict = new Map();   // pid -> 'leave' (a live board's, not ours, gone, Windows) or 'ended'
+// Tests only, and honoured only under the test runner: (pid, statusFile) => { ppid, command } or null, instead of ps.
+let endForeignForTests = null;
+let killForTests = () => {};   // with a stand-in, the signal goes here: a made-up pid can be a real process on Linux
+const PS = fs.existsSync('/bin/ps') ? '/bin/ps' : '/usr/bin/ps';   // never PATH: a writable PATH entry could answer
+function notOurs(pid) { return pid === process.pid || (child && pid === child.pid); }
+/* Whether ps's line names this board's tunnel, whatever its parent. */
+function isOurTunnel(proc, statusFile, bin = BIN()) {
+  if (!proc || typeof proc.command !== 'string') return false;
+  const command = proc.command.split('\n')[0];
+  const at = command.indexOf(' run ');
+  if (at <= 0) return false;
+  // The program, exactly: BIN() itself, or one token (no other word before it) with the tunnel's basename (review 9:
+  // `vim /x/kosmos-tunnel run ...` matched when any text ending in the basename counted).
+  const prog = command.slice(0, at);
+  if (prog !== bin && (/\s/.test(prog) || path.basename(prog) !== path.basename(bin))) return false;
+  const esc = statusFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // The whole path, ending where the argument ends: `<file>.elsewhere` is another file (a prefix match ended it).
+  return new RegExp(' --status-file ' + esc + '( |$)').test(command.slice(at));
+}
+/* ... and orphaned: re-parented to 1, its board gone. Exported for tests. */
+function isOrphanedTunnel(proc, statusFile, bin = BIN()) {
+  return Boolean(proc) && proc.ppid === 1 && isOurTunnel(proc, statusFile, bin);
+}
+function endForeignTunnel(pid, done = () => {}) {
+  // A pid no tunnel can have (out of range) is one to leave alone; our own child is not foreign (review 11).
+  if (!Number.isInteger(pid) || pid < 2 || pid > 4194304) { foreignVerdict.set(pid, 'leave'); done(false); return; }
+  if (notOurs(pid) || foreignAsking.has(pid)) { done(false); return; }
+  const until = foreignLooked.get(pid);
+  // Expired: pruned as it is read, verdict and all (review 11: a stale "leave" trusted the request that re-asks).
+  if (until !== undefined && until <= Date.now()) { foreignLooked.delete(pid); foreignVerdict.delete(pid); }
+  if ((until || 0) > Date.now() || process.pid === 1) { done(false); return; }
+  const stand = process.env.NODE_TEST_CONTEXT ? endForeignForTests : null;
+  if (process.platform === 'win32' && !stand) { foreignLooked.set(pid, Infinity); foreignVerdict.set(pid, 'leave'); done(false); return; }
+  const statusFile = STATUS_FILE();
+  const judge = (proc) => {
+    foreignAsking.delete(pid);
+    // ps failed (missing, or a ps that refuses the flags): no answer, asked again after FOREIGN_PS_FAILED_MS (review 9:
+    // with no wait, a host without a working ps forked one per status read).
+    if (proc === undefined) { foreignLooked.set(pid, Date.now() + FOREIGN_PS_FAILED_MS); done(false); return; }
+    // "Not ours" stands an hour (review 7), not for good: macOS pids wrap at 99999, and a board runs for weeks.
+    if (proc !== null && !isOurTunnel(proc, statusFile)) { foreignLooked.set(pid, Date.now() + FOREIGN_NOT_OURS_MS); foreignVerdict.set(pid, 'leave'); done(false); return; }
+    if (!isOrphanedTunnel(proc, statusFile) || notOurs(pid)) { foreignLooked.set(pid, Date.now() + FOREIGN_RECHECK_MS); foreignVerdict.set(pid, 'leave'); done(false); return; }
+    foreignLooked.set(pid, Date.now() + FOREIGN_RECHECK_MS);
+    foreignVerdict.set(pid, 'ended');
+    try { (stand ? killForTests : process.kill.bind(process))(pid, 'SIGTERM'); process.stderr.write('remote: ended a Kosmos+ tunnel an earlier board left running (pid ' + pid + ', kosmos#6669)\n'); done(true); } catch (e) {
+      // Not ours to end (another user's, EPERM) or already gone: left alone, and said (review 11).
+      foreignVerdict.set(pid, 'leave');
+      process.stderr.write('remote: could not end a tunnel an earlier board left running (pid ' + pid + '): ' + (e && e.code) + '\n');
+      done(false);
+    }
+  };
+  foreignAsking.add(pid);
+  if (stand) { let proc; try { proc = stand(pid, statusFile); } catch { proc = undefined; } judge(proc); return; }
+  try {
+    execFile(PS, ['-ww', '-o', 'ppid=,command=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 }, (err, out) => {
+      // ps exits 1 for a pid that is gone: a definite "not a tunnel". Any other failure is no answer.
+      if (err && err.code === 1 && !String(out || '').trim()) { judge(null); return; }
+      if (err) { judge(undefined); return; }
+      const m = String(out).trim().match(/^(\d+)\s+([\s\S]*)$/);
+      judge(m ? { ppid: Number(m[1]), command: m[2] } : null);
+    });
+  } catch { judge(undefined); }
+}
+function binaryCapabilities(now) {
   if (!tunnelStartedHere) return new Set();
   if (capabilitiesSeen) {
     const wait = capabilitiesSeen.answered ? CAPABILITIES_RECHECK_MS : CAPABILITIES_UNANSWERED_RECHECK_MS;
@@ -210,8 +346,13 @@ function warmConnectorCapabilities(done = () => {}) {
     if (child && child.stdin) child.stdin.end();
   } catch { done(noteCapabilities(new Set(), false, Date.now(), generation, binary)); }
 }
-const resetConnectorCapabilitiesForTests = ({ startedHere = true } = {}) => {
+const resetConnectorCapabilitiesForTests = ({ startedHere = true, runningPid = null, commandOf = null, kill = null } = {}) => {
   tunnelStartedHere = startedHere;
+  runningPidForTests = runningPid;
+  runningSeen = null;
+  foreignLooked.clear(); foreignAsking.clear(); foreignVerdict.clear();
+  endForeignForTests = commandOf;
+  killForTests = kill || (() => {});
   forgetConnectorCapabilities({ always: true, ask: false });
 };
 /* The production addresses are the defaults (#648): a bundle needs nothing
@@ -736,6 +877,18 @@ function ackCertWatchLost(at) {
    the coordinator also receives, since the coordinator is the party a mismatch suspects. */
 const serviceKeyFiles = require('./servicekeys-check');
 function serviceKeys() { return serviceKeyFiles.serviceKeyCheck(STATE_DIR(), { production: COORDINATOR() === DEFAULT_COORDINATOR }); }
+/* kosmos#6587 (S-7a slice 3): the environment for a setup or sign-in run. With a verified service key set (and the
+   production coordinator), the connector is handed its keys and refuses to register under any other (kosmos-relay
+   expectkey-6587). Otherwise null, and the run inherits this process's environment exactly as before, except that a
+   KOSMOS_EXPECT_COORDINATOR_KEYS inherited from the launcher (a developer's export, say) is removed in every spelling:
+   the board decided "no check", and an inherited list would refuse every registration on another coordinator. Set
+   and removed through win32env, so a Windows child never gets two spellings (#5386). */
+function setupEnv() {
+  const keys = serviceKeyFiles.expectedCoordinatorKeys({ production: COORDINATOR() === DEFAULT_COORDINATOR });
+  if (keys) return envSet({ ...process.env }, 'KOSMOS_EXPECT_COORDINATOR_KEYS', keys);
+  const inherited = Object.keys(process.env).some((k) => k.toUpperCase() === 'KOSMOS_EXPECT_COORDINATOR_KEYS');
+  return inherited ? envDelete({ ...process.env }, 'KOSMOS_EXPECT_COORDINATOR_KEYS') : null;
+}
 
 /** The switch. Turning on does not start anything by itself unless setup
     already happened; the Settings flow calls setupStart/setupComplete and
@@ -854,6 +1007,7 @@ function startChild() {
   // kosmos#6595 (R01): the process that forwards is about to be this binary's, so what it vouches for is asked anew.
   tunnelStartedHere = true;
   forgetConnectorCapabilities();
+  runningSeen = null;   // a new process: its own list, even if it gets an earlier child's pid (review 10)
   if (restartPending) { restarts += 1; restartPending = false; }
   lastTunnelFailure = null;   // a new process has written nothing yet
   dialingSince = performance.now();
@@ -869,6 +1023,8 @@ function startChild() {
     args.push('--tunnel-ca', process.env.AGENT_WORKFORCE_TUNNEL_CA);
   }
   secureStateDir();
+  // kosmos#6669: a status file left by a tunnel this board did not start names that tunnel; end it if it is still one.
+  try { const left = JSON.parse(fs.readFileSync(STATUS_FILE(), 'utf8')); if (left && Number.isInteger(left.pid)) endForeignTunnel(left.pid); } catch { /* none */ }
   try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
   let spawned;
   try {
@@ -964,9 +1120,10 @@ function stopChild() {
 /* ⚠️ The child must never outlive the board (#156 is the recorded incident
    for orphans). launchd stopping the board sends SIGTERM; killing the child
    on our way out covers that and plain exit. SIGKILL leaves an orphan whose
-   own reconnect loop keeps running; accepted and documented: the next board
-   start spawns a replacement whose relay connection REPLACES the orphan's
-   (newest wins at the relay), so the orphan idles until reaped. */
+   own reconnect loop keeps running. The next board's tunnel replaces the
+   orphan's relay connection (newest wins), but the orphan just dials again
+   and takes it back, so the two alternate: it does NOT idle. Since kosmos#6669
+   the next board ends it (endForeignTunnel), where it can read its parent. */
 function reap() { try { if (child) child.kill(); } catch { /* going down anyway */ } }
 process.on('exit', reap);
 /* On a termination signal, reap the child then RE-RAISE rather than
@@ -1020,6 +1177,8 @@ function status() {
     }
     let raw;
     try { raw = JSON.parse(fs.readFileSync(STATUS_FILE(), 'utf8')); } catch { raw = null; }
+    if (raw && Number.isInteger(raw.pid) && raw.pid !== child.pid) endForeignTunnel(raw.pid);   // kosmos#6669
+    if (raw && raw.pid === child.pid && !(runningSeen && runningSeen.pid === child.pid)) noteRunning(raw, child.pid);
     if (!raw || raw.pid !== child.pid) {
       return { state: 'connecting', address: null, because: 'starting the connection' };
     }
@@ -1075,7 +1234,8 @@ function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
       resolve(result);
     };
     try {
-      spawned = setupSpawn(BIN(), args, connectorSpawnOptions({ stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'] }));
+      const env = setupEnv();
+      spawned = setupSpawn(BIN(), args, connectorSpawnOptions({ stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) }));
     } catch (err) {
       finish({ ok: false, because: 'the tunnel program could not be started: ' + (err && err.message) });
       return;
@@ -1328,6 +1488,7 @@ async function forget({ anyway = false } = {}) {
 let forgetInFlight = null;
 
 async function forgetNow(anyway) {
+  flushWaiting();   // kosmos#6590 branch c: a Forget clears the state folder, so nothing read before it is served after
   const was = { enrolled: enrolled(), address: address() };
   // A register killed mid-certificate (or any partial one) has registered the Mac
   // at the coordinator and left its key and id here, without the certificate
@@ -1399,7 +1560,16 @@ async function secondReset() {
   }
   const r = await tracked(setupRun(['second', 'reset', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
   if (!r.ok) return { ok: false, because: r.because };
-  return { ok: true, because: null };
+  // #6611: the connector prints the coordinator's answer, {"ok":true,"had":"totp"|"sms"|null}. `had` is null when
+  // there was no factor to clear, and then no session ended (kosmos#6605), so the page must not say one did. An answer
+  // this cannot read (no JSON line, no `had`, or a `had` of any other type) is undefined: unknown, never "none", because
+  // "none" makes the page say nobody was signed out. Every connector since 2026-08-25 prints `had`, so unknown means
+  // an answer that went wrong, not an old connector. And `had` cannot tell whether the coordinator ends sessions
+  // (kosmos#6605 deployed): a coordinator without it answers `had` too. That is held by the merge order, not here.
+  const got = lastJsonLine(r.said);
+  const v = got && got.value && typeof got.value === 'object' ? got.value : null;
+  const had = v && typeof v.had === 'string' && v.had.trim() ? v.had : v && v.had === null ? null : undefined;
+  return { ok: true, because: null, had };
 }
 
 /** The email step: ask the coordinator to send the code. */
@@ -1884,6 +2054,27 @@ function selfPendingInSnapshot() {
     return !!(raw && Array.isArray(raw.devices) && raw.devices.some((d) => d && String(d.device_id) === id));
   } catch { return false; }
 }
+/** kosmos#6590 (c2): tell Kosmos+ that this computer's own sign-in `id` is allowed, writing nothing to this computer's
+    lists. Ok only when Kosmos+ took it (`acked` true: an `acked` false exits 0 and is retried like any failure); a pause
+    arrives as the tunnel's error and is said as paused, not as a refusal. */
+async function deviceAckSelf(id) {
+  // As deviceAllow (c2 review 1): never while a register or a Forget is rewriting the identity; the grant retries.
+  { const b = busy(); if (b) return b; }
+  const bad = checkId(id); if (bad) return bad;
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  // `--device-id=<id>`: an id can start with "-", which the separate-argument form would read as a flag.
+  const r = await tracked(setupRun(['devices', 'ack', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(), '--device-id=' + id], null, retireTimeoutMs()));
+  if (!r.ok) {
+    if (/paused for maintenance/.test(String(r.stderr || '') + '\n' + String(r.because || ''))) return { ok: false, because: PAUSED_ALLOW_WORDS, paused: true };
+    return { ok: false, because: r.because };
+  }
+  const got = parseSaid(r);
+  if (!got.ok) return got;
+  if (got.data && got.data.acked === true) return { ok: true, because: null, data: got.data };
+  // Kosmos+ holds no sign-in with this id (its ack answered 404): said as deviceAllow says it, for the log.
+  if (got.data && got.data.account_ack === UNKNOWN_DEVICE) return { ok: false, because: UNKNOWN_WORDS };
+  return { ok: false, because: 'Kosmos+ was not told yet' };
+}
 function allowSelfQuietly() {
   const id = idInUse();
   if (!id || selfAllowing || !enrolled()) return false;
@@ -1893,13 +2084,17 @@ function allowSelfQuietly() {
   selfAllowing = true;
   selfAllowAt = Date.now();
   Promise.resolve()
-    .then(() => deviceAllow(id, thisComputerDeviceName()))
+    /* kosmos#6590 (S-7d branch c, c2): under the board-v2 marker this computer's own sign-in is only told to Kosmos+
+       (`devices ack`), never put on this computer's allow list: no browser holds that id, so allowing it would open the
+       gate to whoever could present a sign-in for it. Without the marker, as before. */
+    .then(() => (boardV2() ? deviceAckSelf(id) : deviceAllow(id, thisComputerDeviceName())))
     .then((r) => {
       if (epoch !== selfEpoch) return;   // an identity change since this grant started: its answer is not ours
       if (r && r.ok) { selfGrantedId = id; selfGrantedAt = Date.now(); return; }
       if (selfFailLoggedId !== id) {
         selfFailLoggedId = id;
-        process.stderr.write('kosmos+: could not approve this computer\'s own sign-in yet (' + String((r && r.because) || 'no answer') + '); retrying about once a minute\n');
+        const why = r && r.paused ? 'Kosmos+ is paused for maintenance' : String((r && r.because) || 'no answer');   // kosmos#6666
+        process.stderr.write('kosmos+: could not approve this computer\'s own sign-in yet (' + why + '); retrying about once a minute\n');
       }
     })
     .catch(() => null)
@@ -1947,6 +2142,14 @@ function stopVouch() {
 /* The sign-in page's address: the coordinator's own origin (it serves the page at /). https only, or plain http on
    this computer's loopback for a local coordinator. */
 function vouchUrl(secret) {
+  /* kosmos#6590 (S-7d branch c, c3): under the board-v2 marker the browser is opened on this computer's OWN address,
+     so S reaches only the page this computer's tunnel serves (gate.html, which keeps S to itself and posts the vouch
+     with its key's proof), never the coordinator's page. Without an address there is nowhere to open. */
+  if (boardV2()) {
+    const a = address();
+    if (!a || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(a)) return null;
+    return 'https://' + a.toLowerCase() + '/#allow=' + secret;
+  }
   let u;
   try { u = new URL(COORDINATOR()); } catch { return null; }
   const loopback = u.hostname === '127.0.0.1' || u.hostname === 'localhost';
@@ -1959,6 +2162,7 @@ function startVouch() {
   const outAndRefused = vouchAllowingId && notMeDuringVouch.has(vouchAllowingId) ? vouchAllowingId : '';
   notMeDuringVouch.clear();
   if (outAndRefused) notMeDuringVouch.add(outAndRefused);
+  notMeTakenBack.clear();   // kosmos#6590 (c3)
   // A computer still waiting for another computer's Allow (held, #4737) cannot allow anyone: no secret.
   if (inState(HELD_FILE)) return;
   vouchState = { secret: crypto.randomBytes(32).toString('base64url'), until: Date.now() + VOUCH_WINDOW_MS, epoch: selfEpoch, ident: macIdHere(), opened: false, matched: '', allowing: false, tries: 0, matchedOk: false };
@@ -2021,6 +2225,10 @@ function vouchTick() {
     v.opened = true;   // armed before the opener runs, so it is never re-run; one still running after 5 s is not an
     // error (runCompanyOpener), it just logs nothing. The window still bounds S.
     // The window is NOT restarted here: Josh accepted a secret that lives about 10 minutes from the app sign-in (10-10 19:04); it is 3 since #6599.
+    /* kosmos#6590 (c3): except under the board-v2 marker, where the tab opens on this computer's own address with no
+       session, so the person signs in again there: the window starts once, when the tab opens (design review 1). S is
+       still one per link, and `opened` is set once, so it can restart only this once. */
+    if (boardV2()) v.until = Date.now() + VOUCH_WINDOW_MS;
     const url = vouchUrl(v.secret);
     if (!url) {
       process.stderr.write('kosmos+: the sign-in page is not https here, so the browser is not opened to connect it; the Allow card stays\n');
@@ -2037,6 +2245,7 @@ function vouchTick() {
   }
   // A register or a Forget in flight (busy) is waited out, not counted as a refused try.
   if (v.allowing || busy()) return;
+  if (boardV2()) { vouchStepV2(v); return; }   // kosmos#6590 (c3): the tunnel matches the vouch, never this board
   // One device per secret: the first row that matched, retried until it is allowed or the window ends.
   const hit = rows.find((d) => (!v.matched || String(d.device_id) === v.matched) && vouchMatches(v.secret, d));
   if (!hit) return;
@@ -2062,7 +2271,10 @@ function vouchTick() {
         // Only the tunnel's refusals count: a busy register or Forget is waited out. (A setup-not-finished refusal is
         // not counted either, but the next tick's !enrolled() ends S: it fails closed rather than waiting.)
         const why = String((r && r.because) || '');
-        if (!busy() && !/being forgotten|still signing in|finish the Plus sign-up/.test(why)) v.tries += 1;
+        // kosmos#6666: nor is a refusal because Kosmos+ is paused. Only a race reaches this (while paused the tunnel lists
+        // no row a vouch could match; code-check rows carry none): a row listed just before the pause began. It waits within the secret's own
+        // window, so a pause that ends inside it still lets this browser in without the Allow card.
+        if (!busy() && !(r && r.paused) && !/being forgotten|still signing in|finish the Plus sign-up/.test(why)) v.tries += 1;
         // Three tries, then the ordinary Allow card is the way in (no spawn every 3 s for the whole window).
         if (vouchState === v && v.tries >= 3) {
           process.stderr.write('kosmos+: could not allow the browser this computer opened (' + String((r && r.because) || 'no answer') + '); the Allow card stays\n');
@@ -2102,6 +2314,85 @@ function vouchTick() {
       if (vouchState === v && v.tries >= 3 && !v.matchedOk) stopVouch();
     });
 }
+/* kosmos#6590 (c3): the automatic Allow under the board-v2 marker. The browser this computer opened posts its vouch,
+   HMAC(S, its key), on its own waiting row; `devices allow-vouched` (S on stdin, never argv) lets in the one key whose
+   vouch S reproduces. This board never sees or compares a vouch. One run per NEW waiting row that carries a vouch:
+   - Allowed: noted as on this computer (the notice and Undo), and S ends.
+   - No row matched (another account holder's junk vouch, or a row gone): S stays; that row is not tried again.
+   - Two keys reproduced S: S has leaked to a second browser, so it ends at once (design review 3), and the browsers
+     waiting to connect are the way in.
+   - Anything else (the certificate alarm, a pause, a lock held, a read error): tried again a little later inside the
+     window, never counted, and that row is not marked tried.
+   A Not me racing it is settled by the tunnel's one lock: pressed first, the row is gone and this finds nothing; second,
+   drop-waiting answers that the browser was already let in, and the page says to remove it under Devices. */
+const VOUCH_V2_RETRY_MS = 6000;
+// Devices a Not me took back out because an Allow had just won the race (deviceDropWaiting), so a vouch answer arriving
+// after it never notes them as connected. Cleared when the next secret starts.
+const notMeTakenBack = new Set();
+async function deviceAllowVouched(secret) {
+  // As every device verb (c3 review 1): never while a register or a Forget is rewriting the folder.
+  { const b = busy(); if (b) return { kind: 'retry' }; }
+  if (!enrolled()) return { kind: 'retry' };
+  const r = await tracked(setupRun(['devices', 'allow-vouched', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], secret, retireTimeoutMs()));
+  flushWaiting();
+  if (!r.ok) return { kind: 'retry' };
+  const got = parseSaid(r);
+  if (!got.ok) return { kind: 'retry' };
+  const d = got.data || {};
+  if (d.paused === true) return { kind: 'retry' };
+  // Any allow ends S; only a device id of the right shape is noted (review 1).
+  if (d.allowed === true) {
+    return { kind: 'allowed', device_id: typeof d.device_id === 'string' && DEVICE_ID.test(d.device_id) ? d.device_id : '', unknown: d.account_ack === UNKNOWN_DEVICE };
+  }
+  if (d.reason === 'ambiguous') return { kind: 'ambiguous' };
+  if (d.reason === 'no_row') return { kind: 'no_row' };
+  return { kind: 'retry' };   // ct_alarm, too_many, or a connector that names no reason
+}
+function vouchStepV2(v) {
+  if (Date.now() < (v.retryAt || 0)) return;
+  if (!v.tried) v.tried = new Set();
+  v.allowing = true;
+  const later = () => { v.retryAt = Date.now() + VOUCH_V2_RETRY_MS; };
+  Promise.resolve()
+    .then(() => devicesWaiting())
+    .then(async (w) => {
+      if (!w || !w.ok || !w.data) { later(); return; }
+      const row = (w.data.waiting || []).find((x) => x.vouched && !v.tried.has(x.knockId));
+      if (!row) return;
+      /* The read above awaited: everything vouchTick checked before it is checked again, so a secret retired meanwhile
+         (sign-out, Forget, switch-off, a hold, the window's end) is never used (review 1, P1). */
+      if (vouchState !== v || v.epoch !== selfEpoch || !enrolled() || !read().on || inState(HELD_FILE) || busy() || Date.now() > v.until) return;
+      const r = await deviceAllowVouched(v.secret);
+      if (r.kind === 'retry') { later(); return; }
+      v.tried.add(row.knockId);
+      if (r.kind === 'no_row') return;
+      if (r.kind === 'ambiguous') {
+        process.stderr.write('kosmos+: a second browser has the link this computer opened, so neither was let in automatically; the browsers waiting to connect are the way in\n');
+        if (vouchState === v) stopVouch();
+        return;
+      }
+      v.matchedOk = true;
+      if (vouchState === v) stopVouch();
+      const id = r.device_id;
+      if (!id) return;
+      // The person pressed Not me on this browser while the allow ran: their answer wins (review 1; the drop did the Remove).
+      if (notMeTakenBack.has(id)) return;
+      if (r.unknown) {
+        // As the coordinator-origin path (kosmos#6286): Kosmos+ holds no sign-in with that id, so take it back out.
+        const rr = await deviceRemove(id);
+        if (!rr || !rr.ok) process.stderr.write('kosmos+: a device Kosmos+ did not take could not be removed again (' + String((rr && rr.because) || 'no answer') + '); remove it under Devices\n');
+        return;
+      }
+      if (forgetting || (v.epoch !== selfEpoch && !(v.ident && macIdHere() === v.ident))) return;
+      lastVouched = { id, at: Math.floor(Date.now() / 1000) };
+      const kept = Object.entries({ ...(read().vouched || {}), [id]: { at: Math.floor(Date.now() / 1000), name: '' } })
+        .sort((a, b) => (Number(b[1] && b[1].at) || 0) - (Number(a[1] && a[1].at) || 0)).slice(0, 20);
+      const saved = write({ vouched: Object.fromEntries(kept) });
+      if (!saved.ok) process.stderr.write('kosmos+: allowed the browser this computer opened, but could not note it: ' + saved.because + '\n');
+    })
+    .catch(() => { later(); })
+    .finally(() => { v.allowing = false; });
+}
 /* The newest device allowed this way in the last VOUCH_NOTICE_MS, for the "connected" notice with its Undo. */
 function recentlyVouched(settings = read()) {
   const now = Math.floor(Date.now() / 1000);
@@ -2119,14 +2410,20 @@ const CODE_WAITS = new Set(['attempts_used', 'asked_another_computer', 'another_
 /* kosmos#4794: a computer's pairing code is two groups of three digits with one space, "482 915" (kosmos-relay
    crates/proto/src/pairsas.rs sas(): format!("{:03} {:03}")); the tunnel compares it exactly. A phone's match code never is. */
 const JOIN_CODE = /^\d{3} \d{3}$/;
+/* kosmos#6666: how old pending.json may be and still say Kosmos+ is paused (the tunnel's snapshot_says_paused uses the
+   same 120 s; it rewrites the file every PENDING_POLL_SECS, 5 s, in crates/tunnel/src/lib.rs). */
+const PAUSED_FRESH_MS = 120 * 1000;
 /** What is waiting for this Mac's Allow. A missing snapshot is an empty
     list, not an error: the tunnel writes it only once it is up, and a
     board with Plus off has nothing waiting. `snapshot` says which. */
 function pendingDevices() {
   const settings = read();
   // kosmos#5786 (b): a device allowed while Kosmos+ was being switched off still shows its notice and Undo.
-  if (!settings.on || !enrolled()) return { devices: [], snapshot: false, email: settings.email || '', connected_here: recentlyVouched(settings) };
+  if (!settings.on || !enrolled()) return { devices: [], snapshot: false, email: settings.email || '', connected_here: recentlyVouched(settings), paused: false };
   let raw;
+  // kosmos#6666: the file's age, taken BEFORE it is read, so a rewrite in between can only make it look older.
+  let snapAge = Infinity;
+  try { snapAge = Date.now() - fs.statSync(pendingFile()).mtimeMs; } catch { snapAge = Infinity; }
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { raw = null; }
   const list = raw && Array.isArray(raw.devices) ? raw.devices : [];
   /* #4610 (Josh, 12:50: "This computer (Kosmos app)" asked him to approve it): this Mac's OWN in-app sign-in is a
@@ -2134,6 +2431,7 @@ function pendingDevices() {
      stays pending for good. It is never a request: the app's window loads the board on this computer, not through
      Kosmos+. Its id is remote.json's device_id (the page used it only to relabel the row). Not listed, not counted. */
   const selves = ownDeviceIds(settings);
+  const v2 = boardV2();
   const devices = list
     .filter((d) => d && REQUEST_ID.test(String(d.device_id || '')))
     .filter((d) => !selves.includes(String(d.device_id)))
@@ -2160,13 +2458,21 @@ function pendingDevices() {
     /* #6315: a minted computer: id is a computer whatever else the row says. Without a usable joining_computer name
        (the coordinator stops naming it once its lineage is no longer waiting, or the name fails NAME_RULE) it would be
        drawn as a phone whose Allow can never work, so it is shown the way a former computer is: Allow off, Not me. */
-    .map((d) => (d.device_id.startsWith('computer:') && !d.joining_computer ? { ...d, code: '', code_wait: d.code_wait || 'was_a_computer' } : d));
+    .map((d) => (d.device_id.startsWith('computer:') && !d.joining_computer ? { ...d, code: '', code_wait: d.code_wait || 'was_a_computer' } : d))
+    /* kosmos#6590 (S-7d branch c): under the board-v2 marker a phone or a browser is let in only by the typed code its own
+       page shows (devicesWaiting), so the coordinator's rows for them are not offered: an Allow by their id admits
+       nobody there, and a Not me by id would tell Kosmos+ to end that sign-in everywhere. Computers keep their rows. */
+    .filter((d) => !v2 || isComputerRow(d));
   // kosmos#5786 (b): the device just allowed automatically is not also shown as waiting while the tunnel's snapshot
   // still lists it (until its next poll).
   const here = recentlyVouched(settings);
   // A request that is NEWER than the note (the browser removed elsewhere, asking again) still shows. A minute of slack:
   // first_seen is the coordinator's clock, the note's is this computer's.
-  return { devices: here ? devices.filter((d) => d.device_id !== here.device_id || d.first_seen > here.at + 60) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here };
+  /* kosmos#6666: while Kosmos+ is paused for maintenance the tunnel withholds new requests and says so (kosmos-relay
+     #509, kosmos#6656; code checks in progress here still show), so the page can say why no new request shows. Exactly true, or not paused.
+     Only from a snapshot under PAUSED_FRESH_MS old: a stopped tunnel or a slept Mac leaves its last file behind. */
+  const paused = !!raw && raw.paused === true && snapAge > -1000 && snapAge < PAUSED_FRESH_MS;   // a future mtime (the clock stepped back) is not fresh; a file written this instant can read a fraction of a ms ahead of Date.now()
+  return { devices: here ? devices.filter((d) => d.device_id !== here.device_id || d.first_seen > here.at + 60) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here, paused };
 }
 /* The tunnel's answer is its last line of stdout that starts with "{", one line
    of JSON. Other lines
@@ -2242,6 +2548,8 @@ function vouchedFor(vouched, d) {
 }
 /** kosmos#6286: the tunnel's `account_ack` when the coordinator holds no sign-in with the id an Allow named. */
 const UNKNOWN_DEVICE = 'unknown_device';
+/** kosmos#6666: what the person reads when an Allow is refused because Kosmos+ is paused for maintenance. */
+const PAUSED_ALLOW_WORDS = 'Kosmos+ is paused for maintenance, so no new device can be allowed right now. This request may need to ask again once Kosmos+ is back.';
 /** kosmos#6286: what the person reads when Kosmos+ holds no sign-in with the id they allowed. */
 const UNKNOWN_WORDS = 'Kosmos+ holds no sign-in waiting with that id (it was refused, or never asked). It is on this computer\'s list of devices you let in: remove it there if you did not mean to allow it.';
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
@@ -2274,6 +2582,9 @@ async function deviceAllow(id, name, code) {
     if (/\bsas_pending:/.test(said)) return { ok: false, because: 'code_pending' };
   }
   const got = parseSaid(r);
+  /* kosmos#6666: refused because Kosmos+ is paused for maintenance (the tunnel answers paused true with exit 0, and
+     writes nothing to this computer's list: kosmos#6656). Said in its own words, never as allowed. */
+  if (got.ok && got.data && got.data.paused === true) return { ok: false, because: PAUSED_ALLOW_WORDS, paused: true };
   /* kosmos#6286: the coordinator holds no sign-in with that id (its ack answered 404: refused, or never asked), so
      Kosmos+ did not take this Allow. The tunnel keeps the entry on this computer's list (its own), so the person is
      told both, as a refusal, never as allowed. Not "nobody was let in": a device the account refused that still holds
@@ -2285,8 +2596,11 @@ async function deviceAllow(id, name, code) {
   }
   return got;
 }
-/** Say no: the coordinator drops the request and the phone is told. Writes
-    nothing on this Mac; a fresh sign-in may ask again. */
+/** Say no: the coordinator drops the request and the phone is told. On a real
+    refusal (not a mere code-check drop) this records a small local note in
+    remote.json (the `denied` map, newest 50): it words a later re-ask and keeps
+    the device out of the automatic browser-vouch allow (it can still be Allowed
+    by hand). It is not a block, so a fresh sign-in may ask again. */
 async function deviceDeny(id) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
@@ -2364,6 +2678,174 @@ function removeAnswer(r) {
 /* A computer name as the coordinator gives it, by the same rule as pendingDevices' joining_computer. */
 const computerName = (v) => (typeof v === 'string' && NAME_RULE.test(v.trim().toLowerCase()) ? v.trim().toLowerCase() : null);
 /* A tunnel from before slice 1 has no `join` verb: clap refuses it with exit 2 before doing anything. */
+/* kosmos#6590 (S-7d branch c): the typed-code Allow. A browser that proved its own key on this computer's address waits
+   as a row the tunnel lists (`devices waiting`: never its code); the person types the code that browser shows. All of
+   it is INERT until the board-v2 marker is in the state folder, which only a later step writes: until then nothing
+   here spawns, no route answers more than "not yet", and every existing screen behaves as before. */
+const BOARD_V2_FILE = 'board-v2';
+/* Read from the file every time (never "I wrote it"): a Forget clears the folder, and the page must not offer typed
+   codes while the tunnel answers the old code. */
+function boardV2() {
+  try { return fs.existsSync(path.join(STATE_DIR(), BOARD_V2_FILE)); } catch { return false; }
+}
+/* A knock id as the tunnel writes it (KnockId: 128 random bits, unpadded base64url). Checked before it reaches argv. */
+const KNOCK_ID = /^[A-Za-z0-9_-]{22}$/;
+/* The finding the certificate alarm is about (a SHA-256 in hex), passed back unchanged when the person acknowledges. */
+const CT_FINDING = /^[0-9a-f]{64}$/;
+/* A row the coordinator lists as another of the person's computers (joining, waiting for its code, or a code check).
+   These keep today's Allow with the typed pairing code whatever the marker says. */
+function isComputerRow(d) {
+  return !!d && (String(d.device_id || '').startsWith('computer:') || !!d.joining_computer || !!d.code_wait || d.recheck === true);
+}
+/* Under the marker, an Allow or Not me by device id is only for a row the CURRENT snapshot lists as a computer; any other
+   id (a phone, a browser, or one not listed at all) is refused at the route, so no phone is let in by its sign-in alone.
+   The raw snapshot, not pendingDevices(): that one already drops phone rows under the marker. */
+function listedAsComputer(id) {
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return false; }
+  const list = raw && Array.isArray(raw.devices) ? raw.devices : [];
+  // The page's own rules for a computer's name (pendingDevices), so the route and the page agree on what is a computer.
+  return list.some((d) => d && String(d.device_id || '') === String(id) && REQUEST_ID.test(String(id))
+    && isComputerRow({ ...d, joining_computer: typeof d.joining_computer === 'string' && NAME_RULE.test(d.joining_computer.trim().toLowerCase()) ? d.joining_computer : null, code_wait: CODE_WAITS.has(d.code_wait) ? d.code_wait : null }));
+}
+/* One read of `devices waiting` serves every open board for a moment, and concurrent asks share the one spawn (an open
+   board polls every few seconds). Flushed after anything that changes the rows. */
+const WAITING_FRESH_MS = 2000;
+let waitingCache = null;   // { at, gen, value }
+let waitingInFlight = null;   // { gen, p }
+let waitingGen = 0;
+function flushWaiting() { waitingCache = null; waitingGen += 1; }
+const NO_WAITING = Object.freeze({ count: 0, waiting: Object.freeze([]), ctAlarm: false, ctFinding: null });
+function waitingFrom(data) {
+  const rows = data && Array.isArray(data.waiting) ? data.waiting : [];
+  const waiting = rows
+    .filter((w) => w && KNOCK_ID.test(String(w.knockId || '')))
+    .map((w) => ({
+      knockId: String(w.knockId),
+      firstSeen: Number(w.firstSeen) || 0,
+      // What the browser said it is (a coarse class the tunnel picks) and the network the relay reported.
+      uaClass: typeof w.uaClass === 'string' ? w.uaClass.slice(0, 40) : '',
+      net: typeof w.net === 'string' ? w.net.slice(0, 64) : '',
+      vouched: w.vouched === true,
+    }));
+  return {
+    count: waiting.length,
+    waiting,
+    ctAlarm: !!data && data.ctAlarm === true,
+    ctFinding: data && typeof data.ctFinding === 'string' && CT_FINDING.test(data.ctFinding) ? data.ctFinding : null,
+  };
+}
+/** The browsers waiting for a typed code, and the tunnel's certificate alarm. `v2` false: the marker is not here, so
+    nothing was asked. Off or not enrolled: nothing is spawned. */
+async function devicesWaiting() {
+  if (!boardV2()) return { ok: true, because: null, data: { v2: false, ...NO_WAITING } };
+  if (!read().on || !enrolled()) return { ok: true, because: null, data: { v2: true, ...NO_WAITING } };
+  if (waitingCache && waitingCache.gen === waitingGen && Date.now() - waitingCache.at < WAITING_FRESH_MS) return waitingCache.value;
+  /* Only a read started since the last flush is shared (review 1): one started before an Allow would show the allowed
+     row again. */
+  if (waitingInFlight && waitingInFlight.gen === waitingGen) return waitingInFlight.p;
+  const gen = waitingGen;
+  const mine = { gen, p: null };
+  mine.p = setupRun(['devices', 'waiting', '--state-dir', STATE_DIR()], null, retireTimeoutMs())
+    .then((r) => {
+      const got = parseSaid(r);
+      const value = got.ok ? { ok: true, because: null, data: { v2: true, ...waitingFrom(got.data) } } : { ok: false, because: got.because };
+      if (got.ok && gen === waitingGen) waitingCache = { at: Date.now(), gen, value };
+      return value;
+    })
+    .finally(() => { if (waitingInFlight === mine) waitingInFlight = null; });
+  waitingInFlight = mine;
+  return mine.p;
+}
+/* A failure's words (stderr, or a line the tunnel did not mean as an answer), never passed on when they hold the typed
+   code in any case. The answer's own `because` is from the tunnel's fixed set of sentences and is passed as is (review
+   1: scrubbing those hid the minute-long lockout behind a one-character code). */
+function failureWordsWithout(because, code) {
+  const said = typeof because === 'string' ? because.trim().slice(0, 300) : '';
+  // The code as typed, and its letters and digits alone (a tunnel that echoed its own folded form, review 2).
+  const bare = code ? code.replace(/[^A-Za-z0-9]/g, '').toLowerCase() : '';
+  const flat = said.toLowerCase();
+  if (!said || (code && flat.includes(code.toLowerCase())) || (bare.length >= 6 && flat.replace(/[^a-z0-9]/g, '').includes(bare))) return '';
+  return said;
+}
+/** Allow the waiting browser `knockId` by the code it shows, typed by the person. */
+async function deviceAllowCode(knockId, code) {
+  { const b = busy(); if (b) return b; }
+  if (!boardV2()) return { ok: false, because: 'this computer does not take typed codes yet' };
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  if (!read().on) return { ok: false, because: 'switch Kosmos+ on first' };
+  if (typeof knockId !== 'string' || !KNOCK_ID.test(knockId)) return { ok: false, because: 'that browser is no longer waiting' };
+  /* Refused here, not counted as a wrong try by the tunnel: an empty code, and any control character (a NUL would fail
+     the spawn with the value in its error). No length cap: the tunnel caps it. */
+  const typed = typeof code === 'string' ? code.trim() : '';
+  if (!typed || /[\u0000-\u001f\u007f]/.test(typed)) return { ok: false, because: 'type the code that browser shows' };
+  /* `--` before the two values: a knock id or a code can start with "-", and without it the tunnel's argument parser
+     could take one for a flag and echo it back in its error. */
+  const r = parseSaid(await tracked(setupRun(['devices', 'allow-code', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(), '--', knockId, typed], null, retireTimeoutMs())));
+  flushWaiting();
+  if (!r.ok) return { ok: false, because: failureWordsWithout(r.because, typed) || 'the code could not be checked; try again' };
+  const d = r.data || {};
+  if (d.paused === true) return { ok: false, because: PAUSED_ALLOW_WORDS, paused: true };
+  if (d.allowed === true) {
+    if (d.account_ack === UNKNOWN_DEVICE) return { ok: false, because: UNKNOWN_WORDS, listed: true };
+    return { ok: true, because: null, data: { allowed: true, device_id: typeof d.device_id === 'string' ? d.device_id : null, acked: d.acked === true } };
+  }
+  const left = Number.isInteger(d.tries_left) && d.tries_left >= 0 ? d.tries_left : null;
+  const said = typeof d.because === 'string' ? d.because.trim().slice(0, 300) : '';
+  return { ok: false, because: said || 'that code did not let the browser in', triesLeft: left };
+}
+/** "Not me" on one waiting browser: the tunnel turns that browser's key away on this computer for a day and drops every
+    row of it. Kosmos+ is not told. `allowed`: the browser was already let in (remove it under Devices). */
+async function deviceDropWaiting(knockId) {
+  { const b = busy(); if (b) return b; }
+  if (!boardV2()) return { ok: false, because: 'this computer does not take typed codes yet' };
+  if (typeof knockId !== 'string' || !KNOCK_ID.test(knockId)) return { ok: false, because: 'that browser is no longer waiting' };
+  const r = parseSaid(await tracked(setupRun(['devices', 'drop-waiting', '--state-dir', STATE_DIR(), '--', knockId], null, retireTimeoutMs())));
+  flushWaiting();
+  if (!r.ok) return r;
+  const d = r.data || {};
+  const device = typeof d.device_id === 'string' && DEVICE_ID.test(d.device_id) ? d.device_id : null;
+  /* kosmos#6590 (c3 review 1): an Allow (typed or automatic) won the race with this Not me. The person's answer wins: the
+     browser is taken back out here, and an automatic Allow's answer that lands after this never notes it. */
+  if (d.allowed === true && device) {
+    notMeTakenBack.add(device);
+    const rr = await deviceRemove(device);
+    return { ok: true, because: null, data: { dropped: Number(d.dropped) || 0, allowed: true, device_id: device, takenBack: !!(rr && rr.ok) } };
+  }
+  return { ok: true, because: null, data: { dropped: Number(d.dropped) || 0, allowed: d.allowed === true, device_id: device } };
+}
+/** kosmos#6590 (c4): the person has looked at the certificate warning the tunnel is pausing new browsers for. Only the
+    finding the board showed (`ctFinding` from the same waiting answer) is acknowledged: a newer one is not. The board's
+    own lost-report acknowledgement is written only after the tunnel's, so the two never disagree (design review 3). */
+async function deviceCtAck(finding) {
+  { const b = busy(); if (b) return b; }
+  if (!boardV2()) return { ok: false, because: 'this computer does not take typed codes yet' };
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  if (typeof finding !== 'string' || !CT_FINDING.test(finding)) return { ok: false, because: 'The warning changed. Look at it again.' };
+  // The lost report as it stands now, read BEFORE the tunnel call, so the board notes only the report that was shown;
+  // ackLostIn refuses a different one (review 1).
+  const shown = certWatch();
+  const r = parseSaid(await tracked(setupRun(['devices', 'ct-ack', '--state-dir', STATE_DIR(), '--finding', finding], null, retireTimeoutMs())));
+  flushWaiting();
+  if (!r.ok) return r;
+  const d = r.data || {};
+  if (d.changed === true) return { ok: false, because: 'A new certificate finding came in since this was shown. Look at the warning again.', changed: true };
+  if (d.acknowledged !== true) return { ok: false, because: 'There is no certificate warning to acknowledge now.' };
+  if (shown.lost && shown.lostAt) {
+    const a = certWatchFiles.ackLostIn(STATE_DIR(), shown.lostAt);
+    if (!a.ok) process.stderr.write('kosmos+: the certificate warning is acknowledged, but this computer could not note the lost report: ' + a.because + '\n');
+  }
+  return { ok: true, because: null, data: { acknowledged: true } };
+}
+/** Drop every waiting browser, and forget the browsers turned away today (the undo for a mistaken Not me). */
+async function devicesClearWaiting() {
+  { const b = busy(); if (b) return b; }
+  if (!boardV2()) return { ok: false, because: 'this computer does not take typed codes yet' };
+  const r = parseSaid(await tracked(setupRun(['devices', 'clear-waiting', '--state-dir', STATE_DIR()], null, retireTimeoutMs())));
+  flushWaiting();
+  if (!r.ok) return r;
+  return { ok: true, because: null, data: { cleared: Number(r.data && r.data.cleared) || 0 } };
+}
 function joinUnsupported(r) {
   const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
   return !r.ok && r.code === 2 && /unrecognized subcommand '?(join|retry)'?/.test(said);   // #6353: retry is newer than join
@@ -3626,7 +4108,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,
@@ -3705,7 +4187,7 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   bumpSelfEpochForTests: () => { selfEpoch += 1; },
-  resetForTests: () => { tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
+  resetForTests: () => { tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; flushWaiting(); waitingInFlight = null; stopChild(); },
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
@@ -3714,6 +4196,9 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   recentlyVouchedForTests: (settings) => recentlyVouched(settings),
   vouchPatchForTests: (patch) => { if (vouchState && patch) Object.assign(vouchState, patch); },   // kosmos#6599
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
+  boardV2, listedAsComputer, devicesWaiting, deviceAllowCode, deviceDropWaiting, devicesClearWaiting, deviceCtAck,   // kosmos#6590 branch c
+  deviceAckSelfForTests: deviceAckSelf, allowSelfQuietlyForTests: allowSelfQuietly,   // kosmos#6590 c2
+  startVouchForTests: () => { startVouch(); return vouchState ? vouchState.secret : null; },   // kosmos#6590 c3
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
   setCompanyOpenCommandForTests: (argv) => { companyOpenCommandForTests = argv || null; },
   setCompanyOpenSourceForTests: (src) => { companyOpenSourceForTests = src || null; },

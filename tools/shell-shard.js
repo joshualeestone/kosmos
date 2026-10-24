@@ -16,8 +16,9 @@
  * writes nothing into the checkout (a test here scans the repository, and a stray output file in
  * it was once read as a leaked signing id).
  *
- *   node tools/shell-shard.js list <i> <n>     print shard i of n (1-based), one command per line
- *   node tools/shell-shard.js run <i> <n>      run it
+ *   node tools/shell-shard.js list <i> <n> [linux|mac]   print shard i of n (1-based), one command per line
+ *   node tools/shell-shard.js run <i> <n> [linux|mac]    run it
+ * #6791: with a platform, only that platform's share of test:shell (tools/shell-macos-only.txt) is sharded.
  *
  * #5907: a local full run (tools/run-tests.sh, part all or shell with no shard) runs test:shell here
  * as shard 1 of 1, the whole list in order, so every log, local or CI, names each command's time and
@@ -42,6 +43,48 @@ function commands(pkg) {
   const list = String(script || '').split(' && ').map((c) => c.trim()).filter(Boolean);
   if (!list.length) throw new Error('shell-shard: package.json has no test:shell commands');
   return list;
+}
+
+// #6791: the test:shell commands that need macOS (tools/shell-macos-only.txt, with each one's reason and the probe that
+// measured them). A platform of `linux` keeps every command NOT listed (and the `both:` ones), `mac` only the listed
+// ones, and none (a local full run) the whole list. A listed command that test:shell does not have refuses, so the list cannot go stale quietly.
+const MAC_ONLY_FILE = path.join(ROOT, 'tools', 'shell-macos-only.txt');
+const PLATFORMS = ['linux', 'mac'];
+
+// #6799: a line written `both: <command>` runs in the macOS job AND stays in the Linux shards, for a test whose macOS
+// and Linux arms each cover something the other platform cannot (as the syntax checks below do, by pattern).
+const BOTH = /^both:\s*/;
+
+function listedLines(text) {
+  return String(text).split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+}
+
+function macOnly(text, list) {
+  const listed = listedLines(text).map((l) => l.replace(BOTH, ''));
+  const known = new Set(list);
+  const stale = listed.filter((c) => !known.has(c));
+  if (stale.length) throw new Error(`shell-shard: tools/shell-macos-only.txt names commands test:shell does not have: ${stale.join('; ')}`);
+  return new Set(listed);
+}
+
+function bothOf(text) {
+  return new Set(listedLines(text).filter((l) => BOTH.test(l)).map((l) => l.replace(BOTH, '')));
+}
+
+// #6791 review 3: a syntax-only check (`sh -n` / `bash -n`) runs on BOTH platforms. On a Mac /bin/sh is bash 3.2 in POSIX
+// mode and on ubuntu-latest it is dash, which accepts shapes bash 3.2 refuses (measured: `x=$(case a in a) echo y;; esac)`
+// is rc 2 under macOS /bin/sh, rc 0 under dash), so a check that only ran on Linux could pass an installer users' Macs
+// cannot parse. They take about no time, so the macOS job runs every one of them as well.
+const SYNTAX_ONLY = /^(ba)?sh -n /;
+
+function forPlatform(list, platform, mac, both) {
+  if (!platform) return list;
+  if (!PLATFORMS.includes(platform)) throw new Error(`shell-shard: platform must be linux or mac (got ${platform})`);
+  const text = mac ? '' : fs.readFileSync(MAC_ONLY_FILE, 'utf8');
+  const set = mac || macOnly(text, list);
+  const twice = both || bothOf(text);
+  if (platform === 'linux') return list.filter((c) => !set.has(c) || twice.has(c));
+  return list.filter((c) => set.has(c) || SYNTAX_ONLY.test(c));
 }
 
 function shardOf(command, n) {
@@ -90,7 +133,8 @@ function writeAll(fd, s, writeSync = fs.writeSync, tries = 2000) {
 }
 
 // Run a shard's commands in order, stopping at the first that fails, and return its exit status
-// (a signal is 1). `list` is the whole test:shell list, so the count in the first line is honest.
+// (a signal is 1). `list` is the whole test:shell list, or (#6791) a platform's whole share of it, so the count in the
+// first line is honest about what this job's list was.
 // #5907: each command's place is printed before it starts and its time after it ends, and the shard
 // ends on a summary of its slowest commands. `write(s, fd)` and `clock` (seconds) are seams for the test.
 function runShard(list, ii, nn, stdio = 'inherit', write = (s, fd = 1) => writeAll(fd, s), clock = () => performance.now() / 1000) {
@@ -128,14 +172,15 @@ function runShard(list, ii, nn, stdio = 'inherit', write = (s, fd = 1) => writeA
 }
 
 function main(argv) {
-  const [verb, i, n] = argv;
-  if (verb !== 'list' && verb !== 'run') { console.error('usage: node tools/shell-shard.js list|run <i> <n>'); return 2; }
+  const [verb, i, n, platform] = argv;
+  if (verb !== 'list' && verb !== 'run') { console.error('usage: node tools/shell-shard.js list|run <i> <n> [linux|mac]'); return 2; }
   const [ii, nn] = parseShard(i, n);
-  if (verb === 'list') { for (const c of select(commands(), ii, nn)) console.log(c); return 0; }
-  return runShard(commands(), ii, nn);
+  const list = forPlatform(commands(), platform || '');   // #6791
+  if (verb === 'list') { for (const c of select(list, ii, nn)) console.log(c); return 0; }
+  return runShard(list, ii, nn);
 }
 
-module.exports = { commands, shardOf, select, parseShard, runShard, writeAll, SHELL_SHARDS, SLOWEST };
+module.exports = { commands, shardOf, select, parseShard, runShard, writeAll, macOnly, bothOf, forPlatform, SHELL_SHARDS, SLOWEST, MAC_ONLY_FILE, SYNTAX_ONLY };
 
 if (require.main === module) {
   try { process.exitCode = main(process.argv.slice(2)); } catch (e) { console.error(e.message); process.exitCode = 2; }

@@ -36,7 +36,7 @@ B_SETUP="$(block install/setup.sh)"; B_CLI="$(block install/kosmos)"; B_WD="$(bl
 eval "$B_CLI"
 export KOSMOS_HOME="$TMP/home"; mkdir -p "$KOSMOS_HOME"
 M="$KOSMOS_HOME/board.stopped"
-sleep 300 & LIVE=$!; disown "$LIVE" 2>/dev/null || true
+perl -e 'select(undef, undef, undef, 300)' & LIVE=$!; disown "$LIVE" 2>/dev/null || true
 LTOK="$(kosmos_start_token "$LIVE")"
 [ -n "$LTOK" ] || bad "fixture: no start token for a live process"
 case "$LTOK" in *" "*) bad "the token holds a space (it must fit a file name)" ;; *) ok "the token fits a file name ($LTOK)" ;; esac

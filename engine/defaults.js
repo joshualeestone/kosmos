@@ -212,11 +212,32 @@ const BLOCK = [
   '**You can also react to a room post** with `kosmos react <project> <postId>',
   '<emoji>`, the way a thumbs up or a fire works in a chat. Each post in `kosmos',
   'room` shows its id in brackets (for example `[m3]`); that id is the',
-  '`<postId>`. Reacting again with the same emoji takes it back. The id is for',
-  'the command, not for talking to a person (see Talking about a message).',
+  '`<postId>`. Reacting again with the same emoji takes it back. A raised hand',
+  '(🙋) is not an ordinary reaction: it is a claim (below), so do not raise a hand',
+  'to say you are available. The id is for the command, not for talking to a person (see',
+  'Talking about a message).',
   '',
   '**The same applies to the four events above.** A Stopped nobody receives is',
   'not a Stopped.',
+  '',
+  '**Claim a request before you say you are taking it.** When a post in a room',
+  'asks for work that one agent should do, run `kosmos claim <project> <postId>`',
+  'first, and post that you are taking it only if the claim is yours (if Kosmos',
+  'did not answer, run the same claim again; if it still cannot be reached, say in',
+  'the room that you are taking it, as before). If it says',
+  'someone already claimed it, or that the post asks someone else, do not post',
+  'that you are taking it: read the',
+  'room, and offer them help if you have some; if they hand it to you, claim the',
+  'post where they do. `kosmos room` shows a claimed post',
+  'as "is claimed by", with how long ago. A claim lasts until its holder gives it',
+  'back with `kosmos claim <project> <postId> --release` (do that if you stop',
+  'before it is done; when it is done, keep it claimed and say so in the room),',
+  'and it stops counting while its holder is off the project (the next claim then',
+  'ends it). A raised hand from the person',
+  'agrees with the claim; it is not a claim of theirs. If a claim looks stale, ask',
+  'its holder or the person, not the room. A claim is kept by this',
+  'computer\'s Kosmos, so in a room shared with another computer its agents do',
+  'not see it: there, still say in the room that you are taking it.',
   '',
   '### Who a room post wakes',
   '',
@@ -471,9 +492,13 @@ const BLOCK = [
   '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
   '',
   'If the work is a file, add `--file <path>`: the next agents are sent its fingerprint',
-  'to check their copy against (`shasum -a 256 <file>` on a Mac, `(Get-FileHash <file>).Hash`',
-  'on Windows, which prints capitals: the case does not matter). If you change the file,',
-  'mark it again with `--file`: your own mark without it drops the fingerprint.',
+  'to check their copy with `kosmos fingerprint <file>`. For a PDF it leaves out the',
+  "PDF's own dates and ID, so two renders of one source match, but it is no byte-for-byte",
+  'proof (and a PDF over 64 MB is hashed as plain bytes). Any other file gets the plain',
+  'sha256: `shasum -a 256 <file>` on a Mac, `(Get-FileHash <file>).Hash` on Windows (case',
+  'does not matter). A PDF marked before this may carry a plain sha256: if `kosmos',
+  'fingerprint` does not match it, check it as above. If you change the file, mark it',
+  'again with `--file`: your own mark without it drops the fingerprint.',
   '',
   '**Work that comes back on a schedule is one task that repeats,** not a new task',
   'each time: a report every morning, a check every hour. Add it as above (or use',
@@ -564,6 +589,12 @@ const BLOCK = [
   'It prints the new project id when it works, or the reason it could not, such',
   'as the hourly cap on how many one agent makes. Once it exists you post to it',
   'and hand it work the same way as any other project.',
+  '',
+  '**A project can keep one shared list of the things it tracks** (accounts, leads,',
+  'vendors): `kosmos records <project-id>` reads it, and `kosmos records set',
+  '<project-id> "<name>"` adds or updates a row, with `--status`, `--source` and',
+  '`--confirmed YYYY-MM-DD` (the date of your latest evidence; left out, it is today) as',
+  'you have them. Keep such a list there, not in a file of your own, so no row is lost.',
   '',
   '### What you hand a person',
   '',
@@ -1165,8 +1196,28 @@ function block() {
  *     leave such a post to the agent it names, and engine/messages.js stops passing on
  *     another agent's agreement-only reply to it from the first one. No new heading, so as
  *     in 32 an agent's EDITED copy of that section is not re-offered it.
+ *  37. kosmos#6849 (a user's feedback, 10-21). The same source rendered twice as a PDF gave
+ *     two fingerprints (each render stamps its own dates). The tasks section now says to check
+ *     a delivered file with `kosmos fingerprint`, which leaves a PDF's own dates out; for any
+ *     other file it is still the plain sha256. No new heading, so as in 32 an agent's EDITED
+ *     copy of that section is not re-offered it.
+ *  38. kosmos#6946 (agent feedback, 10-22). Three agents posted "taking this" on one room
+ *     request in the same minute. The reactions section now says to claim a request with
+ *     `kosmos claim` before saying so, and not to post it when the claim is someone else's.
+ *     No new heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
+ *  39. kosmos#6952 (review of #6946). The claim paragraph now says to stand down when `kosmos
+ *     claim` says the post asks someone else, and that a post handed to you is claimed where it
+ *     is handed over. No new heading, so as in 32 an agent's EDITED copy of that section is not
+ *     re-offered it.
+ *  40. kosmos#6995 (follow-up to #6994). "Making a project" now teaches `kosmos records`, the
+ *     project's one shared list of what it tracks, so agents stop keeping such lists in files of
+ *     their own that overwrite each other. To make room, the tasks section's fingerprint paragraph
+ *     says the same things in fewer words (every phrase a test pins is kept). No new heading, so as
+ *     in 32 an agent's EDITED copy of those sections is not re-offered them.
+ *     WEAKEST PREMISE, NAMED: that agents need the block to find the verb; `project show` already
+ *     names it. If they find it there unaided, this paragraph could go.
  */
-const DOCTRINE_VERSION = 36;
+const DOCTRINE_VERSION = 40;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

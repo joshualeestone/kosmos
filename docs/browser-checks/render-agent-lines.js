@@ -136,7 +136,8 @@ const chk = (ok, label, extra) => {
            cell (a "Working now" label is legitimately here on some
            rows; the state WORD must not be). */
         const rLeftover = ls ? ls.textContent.replace(rWord, '').trim() : '';
-        const lav = r.querySelector('.lav'); const lnm = r.querySelector('.lname');
+        // #6719: the dim is on the NAME (.lname > b), not its cell, so the row's star keeps its contrast; read the name.
+        const lav = r.querySelector('.lav'); const lnm = r.querySelector('.lname > b') || r.querySelector('.lname');
         byAgent[r.dataset.agent || '?'] = {
           cls: r.className.trim(),
           wash: getComputedStyle(r).backgroundImage,

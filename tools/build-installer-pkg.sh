@@ -58,7 +58,11 @@ mkdir -p "$OUT_DIR"
 rm -f "$PKG" "$UNSIGNED" "$OUT_DIR/Kosmos.pkg.inputs" "$OUT_DIR/Kosmos.pkg.sha256"
 
 BUILD="$(mktemp -d)"
-trap 'rm -rf "$BUILD"' EXIT
+# kosmos#6831: the EXIT trap that removes $BUILD also turns a death after it (a missing library, an unset
+# variable) into a failure, which bash 3.2 would otherwise report as exit 0.
+. "$REPO/tools/lib/exit-guard.sh"
+_cleanup() { rm -rf "$BUILD"; }
+kosmos_exit_guard _cleanup build-installer-pkg
 RESOURCES="$REPO/install/pkg-resources"
 
 # The input identity is taken NOW, before pkgbuild reads a byte, and written
@@ -178,3 +182,4 @@ echo "==> input sidecar: $(tr '\n' ' ' < "$OUT_DIR/Kosmos.pkg.inputs")"
 echo "==> checksum: $(cat "$OUT_DIR/Kosmos.pkg.sha256")"
 
 echo "built + notarised + stapled: $PKG"
+kosmos_finished

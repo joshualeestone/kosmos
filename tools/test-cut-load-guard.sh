@@ -27,7 +27,14 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/test-cut-load-guard.XXXXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 # --- threshold ---
-ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+# #6799: the core count, read here directly rather than through the guard, so a guard that reads nothing on one
+# platform and falls back to 4 disagrees with it. It is the same probe order as kosmos_cpu_count, so it does not
+# test that order.
+ncpu="$(sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+case "$(kosmos_cpu_count)" in
+  ''|*[!0-9]*|0) bad "kosmos_cpu_count read no core count on $(uname -s): [$(kosmos_cpu_count)]" ;;
+  *) ok "kosmos_cpu_count reads the core count on $(uname -s) ($(kosmos_cpu_count))" ;;
+esac
 expect="$(awk -v n="$ncpu" 'BEGIN { printf "%.1f", n * 1.5 }')"
 got="$(kosmos_cut_load_threshold)"
 [ "$got" = "$expect" ] && ok "default threshold is 1.5x cores ($got)" \
@@ -148,7 +155,7 @@ got="$(KOSMOS_CUT_PARALLEL_MIN_CORES=9999 kosmos_cut_parallel_min_cores)"
 [ "$got" = "9999" ] && ok "a 4-digit (in-range) min-cores override is honoured" || bad "min-cores 4-digit: got [$got], expected [9999]"
 got="$(KOSMOS_CUT_PARALLEL_MIN_CORES=99999999999999999999 kosmos_cut_parallel_min_cores)"
 [ "$got" = "8" ] && ok "an OVERLONG (5+ digit) min-cores override folds to the default 8, so it cannot wrap the 10# arithmetic and mis-decide (fail-safe gap flagged in review)" || bad "min-cores overlong: got [$got], expected [8] (fold, no wrap)"
-ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+ncpu="$(sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 expect="$(LC_ALL=C awk -v n="$ncpu" 'BEGIN { printf "%.1f", n * 0.5 }')"
 got="$(kosmos_cut_parallel_max_load)"
 [ "$got" = "$expect" ] && ok "parallel max-load default is 0.5x cores ($got)" || bad "max-load default: got [$got], expected [$expect]"

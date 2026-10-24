@@ -34,11 +34,20 @@ const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusa
 const remote = require('./engine/remote');
 
 let base;
+/* kosmos#6616: since R01b part 6 a tunnel must be running here and list the capability in its own status file. These
+   tests stand in one (TEST_PID) whose file lists it, so the binary's answer is what they exercise. */
+const TEST_PID = 424240;
+const STATUS = path.join(require('./engine/store').ROOT, 'remote-status.json');
+const listRunning = (body = { state: 'up', pid: TEST_PID, capabilities: ['session-headers'] }) => {
+  fs.mkdirSync(path.dirname(STATUS), { recursive: true }); fs.writeFileSync(STATUS, JSON.stringify(body));
+};
+// commandOf: no test reads real process tables unless it says so (kosmos#6669's tests do).
+const reset = (opts = {}) => { listRunning(); remote.resetConnectorCapabilitiesForTests({ runningPid: TEST_PID, commandOf: () => null, ...opts }); };
 const warm = () => new Promise((resolve) => remote.warmConnectorCapabilities(resolve));
 // Polls, not a fixed sleep: a background ask on a loaded machine can take far longer than it does here.
 const until = async (ok, ms = 5000) => { const end = Date.now() + ms; while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 20)); return ok(); };
 // This board "started" its tunnel (the tests start none), so what the connector says is listened to.
-test.before(async () => { await start(0); remote.resetConnectorCapabilitiesForTests(); await warm(); base = `http://127.0.0.1:${server.address().port}`; });
+test.before(async () => { await start(0); reset(); await warm(); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(() => {
   server.closeAllConnections(); server.close();
   fs.rmSync(SANDBOX, { recursive: true, force: true });
@@ -60,9 +69,10 @@ const STEP_UP_ROUTES = [
   '/api/accounts/openai/subscription/start', '/api/accounts/grok/subscription/start', '/api/antigravity/signin',
   '/api/antigravity/win32signin', '/api/muse/signin', '/api/muse/signin/retry', '/api/github/start',
   '/api/github-device/start', '/api/vercel/start',
+  '/api/register/hide',   // #6714: closing a restart notice silences a warning
   '/api/agents', '/api/team', '/api/connect-agent', '/api/worlds', '/api/worlds/import', '/api/agent/scout/restore',
   '/api/register', '/api/remote/second-reset', '/api/project/p1/webhooks', '/api/org/enroll',
-  '/api/federation/join', '/api/federation/invite', '/api/federation/own-code',
+  '/api/federation/join', '/api/federation/invite', '/api/federation/own-code', '/api/federation/own-allow', '/api/federation/own-confirm',
   '/api/remote/signin-start', '/api/remote/signin-register', '/api/remote/setup-start', '/api/remote/setup-complete',
   '/api/remote/company/start', '/api/remote/forget',
 ];
@@ -171,11 +181,13 @@ test('R01: the gate passes update and agent creation for a fresh remote session 
    reason. A new such route that forgets the gate turns this red. And every gated route is a real route, so a rename
    cannot leave the gate guarding a path nothing serves. */
 const EXEMPT = {
+  'POST /api/register/show': 'brings a closed restart notice back; nothing is started or silenced (#6714)',
   'POST /api/agent-import': 'parses a file into instructions; the create it feeds is gated',
   'POST /api/agent-import-file': 'parses a file; the create it feeds is gated',
   'POST /api/agent-import-folder': 'parses a folder; the create it feeds is gated',
   'POST /api/agent-token': 'refused remotely outright (remote_not_allowed, remotemark-6595)',
   'POST /api/disconnect-agent': 'takes an agent away',
+  'POST /api/federation/own-remove': 'takes a computer out of a sealed room (a new key it is not sent); lets nothing in (#7028)',
   'POST /api/remote/signin-cancel': "a step after signin-start, which is gated",
   'POST /api/remote/signin-confirm-enrol': "a step after signin-start, which is gated",
   'POST /api/remote/signin-enrol': "a step after signin-start, which is gated",
@@ -258,20 +270,20 @@ test('R01: a connector that does not list session-headers cannot vouch, so even 
 });
 
 test('R01: the warm-up fills the answer without blocking, and a request then finds it kept', async () => {
-  remote.resetConnectorCapabilitiesForTests();
+  reset();
   const caps = await new Promise((resolve) => remote.warmConnectorCapabilities(resolve));
   assert.ok(caps.has('session-headers'));
   const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';
   try {
     assert.ok(remote.connectorCapabilities().has('session-headers'), 'the request used the warmed answer, not a new spawn');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); }
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); }
 });
 
 test('R01: the connector is never asked while a request waits: with no answer kept, "nothing" now, and an ask in the background', async () => {
   const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
   try {
-    remote.resetConnectorCapabilitiesForTests();
+    reset();
     assert.equal(remote.connectorCapabilities().size, 0, 'no answer yet: nothing, at once');
     assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'the background ask filled it');
     // Kept, never downgraded: a later failing connector does not undo it.
@@ -279,7 +291,7 @@ test('R01: the connector is never asked while a request waits: with no answer ke
     assert.ok(remote.connectorCapabilities(Date.now() + 10 * 60 * 60 * 1000).has('session-headers'));
     await warm();
     assert.ok(remote.connectorCapabilities().has('session-headers'), 'a failed later ask does not downgrade it');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
 test('R01: an old connector is asked again after ten minutes, one that did not answer after thirty seconds', async () => {
@@ -288,7 +300,7 @@ test('R01: an old connector is asked again after ten minutes, one that did not a
   fs.writeFileSync(old, '#!/bin/sh\nexit 2\n', { mode: 0o755 });   // an older connector: the verb is unknown
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = old;
-    remote.resetConnectorCapabilitiesForTests();
+    reset();
     assert.equal((await warm()).size, 0, 'an old connector lists nothing');
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;   // updated
     const t0 = Date.now();
@@ -296,14 +308,14 @@ test('R01: an old connector is asked again after ten minutes, one that did not a
     remote.connectorCapabilities(t0 + 10 * 60 * 1000 + 1);   // due: asks in the background
     assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'asked again after ten');
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = path.join(SANDBOX, 'no-such-tunnel');   // cannot be started
-    remote.resetConnectorCapabilitiesForTests();
+    reset();
     assert.equal((await warm()).size, 0);
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;
     const t1 = Date.now();
     assert.equal(remote.connectorCapabilities(t1 + 20 * 1000).size, 0, 'unanswered: kept for thirty seconds');
     remote.connectorCapabilities(t1 + 31 * 1000);
     assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'unanswered: asked again after thirty seconds');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
 test('R01: over HTTP, a connector that cannot vouch refuses a fresh remote session (key route, unreadable body)', async () => {
@@ -312,12 +324,12 @@ test('R01: over HTTP, a connector that cannot vouch refuses a fresh remote sessi
   fs.writeFileSync(old, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = old;
-    remote.resetConnectorCapabilitiesForTests();
+    reset();
     await warm();
     const got = await post('/api/accounts/gemini/apikey', { ...VIA_PLUS, ...fresh() }, 'not json');
     assert.equal(got.status, 403, JSON.stringify(got.body));
     assert.equal(got.body.code, 'remote_step_up_unavailable');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
 test('R01: a late answer from an earlier ask is dropped (generations), and starting a tunnel asks anew', async () => {
@@ -329,14 +341,14 @@ test('R01: a late answer from an earlier ask is dropped (generations), and start
   fs.writeFileSync(no, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = slowYes;
-    remote.resetConnectorCapabilitiesForTests();
+    reset();
     const late = warm();                       // the earlier connector's ask, still running
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = no;
     remote.forgetConnectorCapabilities();      // a tunnel is started: a new generation
     assert.equal((await warm()).size, 0, 'the connector now in place does not vouch');
     await late;                                // the earlier ask lands now, saying yes
     assert.equal(remote.connectorCapabilities().has('session-headers'), false, 'a late yes from an earlier connector was trusted');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
 test('R01: a tunnel restart on the same binary keeps a yes; a changed binary is asked again', async () => {
@@ -345,7 +357,7 @@ test('R01: a tunnel restart on the same binary keeps a yes; a changed binary is 
   fs.writeFileSync(yes, '#!/bin/sh\nprintf "session-headers\\n"\n', { mode: 0o755 });
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = yes;
-    remote.resetConnectorCapabilitiesForTests();
+    reset();
     await warm();
     remote.forgetConnectorCapabilities();   // a tunnel restarts on the same binary
     assert.ok(remote.connectorCapabilities().has('session-headers'), 'a restart on the same binary lost the answer');
@@ -353,11 +365,11 @@ test('R01: a tunnel restart on the same binary keeps a yes; a changed binary is 
     const later = new Date(Date.now() + 5000); fs.utimesSync(yes, later, later);
     remote.forgetConnectorCapabilities();
     assert.equal((await warm()).size, 0, 'a changed binary kept the old yes');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
 test('R01: a forget right after the start-up ask still ends with an answer (the ask is restarted)', async () => {
-  remote.resetConnectorCapabilitiesForTests();
+  reset();
   remote.askConnectorCapabilities();          // the start-up ask
   remote.forgetConnectorCapabilities();       // a tunnel starts before it returns
   assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'nothing was asking after the forget');
@@ -365,8 +377,238 @@ test('R01: a forget right after the start-up ask still ends with an answer (the 
 
 test('R01: until this board has started its own tunnel, nothing is vouched for (a tunnel from an earlier board borrows nothing)', async () => {
   try {
-    remote.resetConnectorCapabilitiesForTests({ startedHere: false });
+    reset({ startedHere: false });
     await warm();                                   // the binary says yes ...
     assert.equal(remote.connectorCapabilities().size, 0, 'a tunnel this board did not start was vouched for');
-  } finally { remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { reset(); await warm(); }
+});
+
+/* kosmos#6616 (R01b part 6): the RUNNING tunnel must list the capability too. The binary's yes alone described the file
+   on disk, which an update can replace while an older tunnel keeps forwarding. */
+test('R01b: while a tunnel runs here, only what that process lists in its status file counts', async () => {
+  const statusFile = STATUS;
+  const pid = 424242;
+  const write = (body) => { fs.mkdirSync(path.dirname(statusFile), { recursive: true }); fs.writeFileSync(statusFile, JSON.stringify(body)); };
+  try {
+    reset({ runningPid: pid });
+    await warm();                                                    // the binary on disk says yes
+    write({ state: 'up', pid, capabilities: ['session-headers'] });
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'CONTROL: the running process lists it');
+    // Each arm is its own running process (a fresh pid): a pid's list is kept once read (kosmos#6669).
+    // And the binary is asked again each time (a reset forgets it), so a refusal is the running list's, not an empty binary's.
+    const as = async (p) => { remote.resetConnectorCapabilitiesForTests({ runningPid: p, commandOf: () => null }); await warm(); };
+    await as(pid + 10); write({ state: 'up', pid: pid + 10 });              // an older tunnel, still running
+    assert.equal(remote.connectorCapabilities().size, 0, 'the binary vouched for an older running tunnel');
+    await as(pid + 11); write({ state: 'up', pid: pid + 12, capabilities: ['session-headers'] });
+    assert.equal(remote.connectorCapabilities().size, 0, 'another process\'s status file vouched');
+    await as(pid + 13); write({ state: 'up', pid: pid + 13, capabilities: 'session-headers' });
+    assert.equal(remote.connectorCapabilities().size, 0, 'a list that is not an array vouched');
+    await as(pid + 16); write({ state: 'up', pid: pid + 16, capabilities: [1, { 'session-headers': true }, null] });
+    assert.equal(remote.connectorCapabilities().size, 0, 'an array of non-strings vouched');
+    await as(pid + 14); fs.rmSync(statusFile, { force: true });
+    assert.equal(remote.connectorCapabilities().size, 0, 'no status file yet vouched');
+    write({ state: 'up', pid: pid + 14, capabilities: ['session-headers'] });
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'CONTROL: not kept as nothing before the process wrote');
+    await as(pid + 15); fs.writeFileSync(statusFile, '{"state":"up","pid":' + (pid + 15) + ',"capabilities":["session-hea');
+    assert.equal(remote.connectorCapabilities().size, 0, 'a truncated status file vouched');
+    // Started here, but no tunnel running now (crash backoff, a stop): nothing legitimate arrives, so nothing counts.
+    reset({ runningPid: null });   // (it writes a status file that lists the capability)
+    await warm();
+    assert.equal(remote.connectorCapabilities().size, 0, 'with no tunnel running, the binary alone vouched');
+    // The running process cannot widen the binary's answer: it only narrows.
+    const no = path.join(SANDBOX, 'no-tunnel-6616');
+    fs.writeFileSync(no, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+    const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = no;
+    try {
+      reset({ runningPid: pid });
+      await warm();
+      write({ state: 'up', pid, capabilities: ['session-headers'] });
+      assert.equal(remote.connectorCapabilities().size, 0, 'the status file widened a binary that says no');
+    } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; }
+  } finally { fs.rmSync(statusFile, { force: true }); reset(); await warm(); }
+});
+
+test('R01b: over HTTP, an older running tunnel refuses a fresh remote session though the binary says yes', async () => {
+  const statusFile = STATUS;
+  const pid = 424243;
+  try {
+    reset({ runningPid: pid });
+    await warm();
+    fs.mkdirSync(path.dirname(statusFile), { recursive: true });
+    fs.writeFileSync(statusFile, JSON.stringify({ state: 'up', pid }));
+    const got = await post('/api/accounts/gemini/apikey', { ...VIA_PLUS, ...fresh() }, 'not json');
+    assert.equal(got.status, 403, JSON.stringify(got.body));
+    assert.equal(got.body.code, 'remote_step_up_unavailable');
+    remote.resetConnectorCapabilitiesForTests({ runningPid: pid + 1, commandOf: () => null });   // a current tunnel
+    await warm();
+    fs.writeFileSync(statusFile, JSON.stringify({ state: 'up', pid: pid + 1, capabilities: ['session-headers'] }));
+    const ok = await post('/api/accounts/gemini/apikey', { ...VIA_PLUS, ...fresh() }, 'not json');
+    assert.equal(ok.status, 400, 'CONTROL: listed, the request passes the gate to the route: ' + JSON.stringify(ok.body));
+  } finally { fs.rmSync(statusFile, { force: true }); reset(); await warm(); }
+});
+
+/* kosmos#6669 (R01c): a tunnel an earlier board left running writes this board's status file under its own pid. */
+test('R01c: once this board\'s tunnel has said what it lists, a foreign write to the status file does not take it away', async () => {
+  try {
+    reset();
+    await warm();
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'CONTROL: the child listed it');
+    listRunning({ state: 'restarting', pid: TEST_PID + 7, because: 'replaced by a newer connection' });   // the orphan writes
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'one foreign write refused every gated action');
+  } finally { reset(); await warm(); }
+});
+
+const { spawn: spawnProc, execFileSync } = require('node:child_process');
+const ended = (pid) => new Promise((resolve) => remote.endForeignTunnel(pid, resolve));
+// Alive and not a zombie (review 9: a zombie answers signal 0 where nothing reaps it).
+const alive = (pid) => { try { return !/^Z/.test(execFileSync('/bin/ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim()); } catch { return false; } };
+const ppidOf = (pid) => { try { return Number(execFileSync('/bin/ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).trim()); } catch { return null; } };
+// A process ps shows as `<CONNECTOR> run --status-file <file> 30` (bash's exec -a names it; CONNECTOR's basename is
+// kosmos-tunnel). orphan: double-forked, so its parent is 1, as a tunnel whose board was killed hard.
+function fakeTunnel(file, { orphan, program = CONNECTOR }) {
+  const name = program + ' run --status-file ' + file;
+  if (!orphan) return { pid: spawnProc('/bin/bash', ['-c', 'exec -a "$0" sleep 30', name], { stdio: 'ignore' }).pid };
+  const out = execFileSync('/bin/bash', ['-c', '(exec -a "$0" sleep 30) >/dev/null 2>&1 & echo $!', name], { encoding: 'utf8' });
+  return { pid: Number(out.trim()) };
+}
+
+test('R01c: an orphaned tunnel is ended, read from the real process table; a live board\'s, a lookalike path\'s, are not', { skip: process.platform === 'win32' }, async (t) => {
+  const orphan = fakeTunnel(STATUS, { orphan: true });
+  const elsewhere = fakeTunnel(STATUS + '.elsewhere', { orphan: true });
+  const liveBoards = fakeTunnel(STATUS, { orphan: false });   // a second LIVE board on this account: its parent lives
+  const notTunnel = fakeTunnel(STATUS, { orphan: true, program: path.join(SANDBOX, 'other-program') });
+  try {
+    // Where a subreaper (systemd --user, a container init) takes orphans, their parent is not 1: production does not
+    // end them there (stated), and this test cannot set its control up, so it is skipped, not failed (review 6).
+    if (!await until(() => [orphan, elsewhere, notTunnel].every((p) => ppidOf(p.pid) === 1))) { t.skip('orphans are not re-parented to 1 here (a subreaper)'); return; }
+    assert.notEqual(ppidOf(liveBoards.pid), 1, 'CONTROL: the live one has its parent');
+    remote.resetConnectorCapabilitiesForTests({ runningPid: TEST_PID });   // real ps, no stand-in
+    assert.equal(await ended(liveBoards.pid), false, 'a live board\'s tunnel was ended (two boards would kill each other)');
+    assert.equal(await ended(elsewhere.pid), false, 'an orphan for another status file was ended');
+    assert.equal(await ended(notTunnel.pid), false, 'another program with our arguments was ended');
+    assert.ok(alive(liveBoards.pid) && alive(elsewhere.pid) && alive(notTunnel.pid), 'CONTROL: all three still running');
+    assert.equal(await ended(orphan.pid), true, 'our orphan was not ended');
+    assert.ok(await until(() => !alive(orphan.pid)), 'the orphan did not end');
+  } finally {
+    // Only a pid that is still this test's own fake (review 8: never signal a pid that may have been reused).
+    for (const p of [orphan, elsewhere, liveBoards, notTunnel]) {
+      let cmd = '';
+      try { cmd = execFileSync('/bin/ps', ['-ww', '-o', 'command=', '-p', String(p.pid)], { encoding: 'utf8' }); } catch { /* gone */ }
+      if (cmd.includes(' run --status-file ' + STATUS)) { try { process.kill(p.pid, 'SIGKILL'); } catch {} }
+    }
+    reset(); await warm();
+  }
+});
+
+test('R01c: a pid outside 2..2^22, our own pid, and a failed ps are never signalled; a failed ps is asked again after 15 s', async () => {
+  const asked = [];
+  const killed = [];
+  const realNow = Date.now;
+  let skew = 0;
+  try {
+    Date.now = () => realNow() + skew;
+    // An orphan by every other rule for the out-of-range and own pids, so only the guards stand between them and a kill.
+    const orphanLine = { ppid: 1, command: CONNECTOR + ' run --status-file ' + STATUS };
+    reset({ commandOf: (pid) => { asked.push(pid); return pid === 424299 ? undefined : orphanLine; }, kill: (pid) => killed.push(pid) });   // 424299: ps fails
+    for (const pid of [0, -1, 1, 4194305, 2 ** 23, 1.5, process.pid]) assert.equal(await ended(pid), false, String(pid));
+    assert.deepEqual(asked, [], 'an out-of-range pid, or our own, was looked up');
+    await ended(4194304);
+    assert.deepEqual(asked, [4194304], 'CONTROL: the top of the range is looked up');
+    assert.deepEqual(killed, [4194304], 'CONTROL: the stand-in would have ended an in-range orphan');
+    killed.length = 0;
+    await ended(424299); await ended(424299);
+    assert.deepEqual(asked.filter((x) => x === 424299), [424299], 'a failed ps was asked again at once (a ps fork per status read)');
+    skew = 16 * 1000;
+    await ended(424299);
+    assert.deepEqual(asked.filter((x) => x === 424299), [424299, 424299], 'a failed ps was not asked again after 15 s');
+    assert.deepEqual(killed, [], 'something was signalled');
+  } finally { Date.now = realNow; reset(); await warm(); }
+});
+
+test('R01c: reading the status file is what notices it: a foreign pid there is judged, and a non-tunnel is left alone', async () => {
+  const asked = [];
+  const killed = [];
+  const notTunnel = 424310;
+  const orphan = 424311;
+  try {
+    reset({
+      commandOf: (pid) => { asked.push(pid); return pid === orphan ? { ppid: 1, command: CONNECTOR + ' run --status-file ' + STATUS } : { ppid: 1, command: '/bin/sh -c sleep 30; true' }; },
+      kill: (pid) => killed.push(pid),
+    });
+    await warm();
+    listRunning({ state: 'up', pid: notTunnel });
+    remote.connectorCapabilities();
+    assert.deepEqual(asked, [notTunnel], 'the foreign pid in the status file was not judged');
+    assert.deepEqual(killed, [], 'a process that is not our tunnel was signalled');   // (isOurTunnel: no ` run --status-file`)
+    // Review 7: after this board's child's list is kept, the gated read still notices a foreign writer.
+    listRunning();                                   // the child writes: its list is now kept
+    assert.ok(remote.connectorCapabilities().has('session-headers'));
+    listRunning({ state: 'restarting', pid: orphan }); // then an orphan writes
+    assert.equal(remote.connectorCapabilities().size, 0, 'trusted while an orphan, being ended, may be the one forwarding (review 10)');
+    assert.deepEqual(killed, [orphan], 'an orphan writing after the child\'s list was kept was not judged');
+    // A foreign writer that is NOT an orphaned tunnel (here, not ours) is left alone and the kept list holds again.
+    listRunning({ state: 'up', pid: notTunnel });
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'a foreign writer to leave alone refused every gated action (review 3)');
+  } finally { reset(); await warm(); }
+});
+
+test('R01c: a live board\'s tunnel and a gone pid are asked again after a minute; not-our-tunnel after an hour', async () => {
+  const asked = [];
+  let answer = null;
+  const realNow = Date.now;
+  let skew = 0;
+  try {
+    Date.now = () => realNow() + skew;
+    const killed = [];
+    reset({ commandOf: (pid) => { asked.push(pid); return answer; }, kill: (pid) => killed.push(pid) });
+    const ours = CONNECTOR + ' run --status-file ' + STATUS;
+    answer = { ppid: 4242, command: ours };   // a live board's
+    await ended(424301); await ended(424301);
+    assert.deepEqual(asked, [424301], 'asked again inside the minute');
+    skew = 61 * 1000;
+    answer = { ppid: 1, command: ours };      // its board died
+    await ended(424301);
+    assert.deepEqual(asked, [424301, 424301], 'an orphan judged earlier with a live parent was never asked again');
+    assert.deepEqual(killed, [424301], 'CONTROL: the orphan was signalled (through the stand-in, never a real kill)');
+    await ended(424301);   // still writing, at once: not asked, not signalled again (review 9: no TERM loop)
+    assert.deepEqual(killed, [424301], 'an ended pid was signalled again inside the minute');
+    assert.deepEqual(asked.filter((p) => p === 424301), [424301, 424301], 'an ended pid was asked again inside the minute');
+    skew += 61 * 1000;
+    await ended(424301);   // it ignored TERM and still writes: judged again after the minute
+    assert.deepEqual(killed, [424301, 424301], 'a tunnel that ignored TERM was never judged again');
+    answer = { ppid: 1, command: '/usr/bin/other run --status-file ' + STATUS };   // not our tunnel
+    await ended(424302);
+    skew = 10 * 60 * 1000;
+    await ended(424302);
+    assert.deepEqual(asked.filter((p) => p === 424302), [424302], 'not-our-tunnel was asked again inside the hour');
+    skew += 61 * 60 * 1000;   // past the hour since it was judged
+    await ended(424302);
+    assert.deepEqual(asked.filter((p) => p === 424302), [424302, 424302], 'not-our-tunnel was kept past the hour (macOS pids wrap)');
+    // A pid that is gone (ps: no such process) is asked again after a minute, not after the hour (review 8).
+    answer = null;
+    await ended(424303);
+    skew += 61 * 1000;
+    await ended(424303);
+    assert.deepEqual(asked.filter((p) => p === 424303), [424303, 424303], 'a gone pid was kept as not-ours for the hour');
+  } finally { Date.now = realNow; reset(); await warm(); }
+});
+
+/* The matching rules alone, with no process table: these run on every platform (review 6). */
+test('R01c: isOrphanedTunnel matches only a re-parented `run` of the tunnel with this board\'s whole status-file path', () => {
+  const f = '/a b/remote-status.json';
+  const bin = '/x/kosmos-tunnel';
+  const is = (ppid, command) => remote.isOrphanedTunnel({ ppid, command }, f, bin);
+  assert.equal(remote.isOrphanedTunnel({ ppid: 1, command: '/Apps With Space/kosmos-tunnel run --status-file ' + f + ' --relay r' }, f, '/Apps With Space/kosmos-tunnel'), true, 'CONTROL: BIN() itself, spaces and all');
+  assert.equal(is(1, '/Apps With Space/kosmos-tunnel run --status-file ' + f), false, 'a spaced line that is not BIN()');
+  assert.equal(is(1, 'vim /y/kosmos-tunnel run --status-file ' + f), false, 'a wrapper or editor line');
+  assert.equal(is(1, '/y/kosmos-tunnel run --status-file ' + f), true, 'CONTROL: at the end of the line');
+  assert.equal(is(4242, '/y/kosmos-tunnel run --status-file ' + f), false, 'a live parent');
+  assert.equal(is(1, '/y/kosmos-tunnel run --status-file ' + f + '.elsewhere'), false, 'a lookalike path');
+  assert.equal(is(1, '/y/other run --status-file ' + f), false, 'another program');
+  assert.equal(is(1, '/y/kosmos-tunnel devices --status-file ' + f), false, 'not run');
+  assert.equal(is(1, '/y/kosmos-tunnel run --status-file /a b/remote-statusXjson'), false, 'a regex-special path char matched loosely');
+  assert.equal(is(1, '/y/kosmos-tunnel run --status-file ' + f + '\nother run --status-file ' + f), true, 'CONTROL: first line only');
+  assert.equal(is(1, 'x\n/y/kosmos-tunnel run --status-file ' + f), false, 'a second line was read');
+  assert.equal(remote.isOrphanedTunnel(null, f, bin), false);
 });

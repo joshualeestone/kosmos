@@ -270,38 +270,9 @@ async function measure(page, view, notice, name) {
     const c0 = at['0px'].cons.youX, c15 = at['15px'].cons.youX;
     if (!(c0 !== null && c15 !== null && Math.abs((c0 - c15) - 15) < 0.6)) problems.push(`1440px consolidated: a 0px to 15px scrollbar width moved the right controls from ${c0} to ${c15}, not 15px left; consolidated does not pad its header by the scrollbar width`);
     else console.log(`  PASS  1440px with a 15px scrollbar width: both views pad their header by it (controls at ${c15}, tabs at ${at['15px'].cons.tabsX})`);
-    // The Kosmos+ bar above the header (a remote session) pads by the width too, so its Log out ends where the header's
-    // right controls end. Read with consolidated chosen only (Agents, then a whole-page tab): in the tab view the bar's
-    // end comes from the REAL reserved gutter (kplusBarFit cancels the header padding), which a hand-set width cannot
-    // simulate on this Mac. There the two line up on a classic-scrollbar machine, and consolidated is pinned to the tab
-    // view by the header arms above. Built the way kplusBar builds it (first child of .apphead, sized by kplusBarFit),
-    // since over file:// there is no remote session.
-    const bars = {};
-    for (const state of ['consolidated', 'whole-page tab']) {
-      await measure(page, 'consolidated', false);
-      bars[state] = await page.evaluate((state) => {
-        // A whole-page tab is read with the root held unscrollable, as in the header arm above, so a real scrollbar on a
-        // classic-scrollbar runner cannot line the bar up without the fix.
-        const root = document.documentElement, prev = root.style.overflow;
-        if (state !== 'consolidated') { document.body.classList.remove('consolidated'); root.style.overflow = 'hidden'; }
-        let b = document.getElementById('kplus-bar');
-        if (!b) {
-          b = document.createElement('div'); b.id = 'kplus-bar'; b.className = 'kplus-bar';
-          b.innerHTML = '<canvas class="kplus-bar-mark" width="40" height="14"></canvas>'
-            + '<span class="kplus-bar-end"><button type="button" class="kplus-bar-out">Log out</button></span>';
-          const head = document.querySelector('.apphead'); head.insertBefore(b, head.firstChild);
-        }
-        kplusBarFit();
-        const right = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 ? Math.round(r.right * 10) / 10 : null; };
-        const got = { out: right(b.querySelector('.kplus-bar-out')), head: right(document.querySelector('.apphead header .headright')) };
-        root.style.overflow = prev;
-        return got;
-      }, state);
-      const bar = bars[state];
-      if (bar.out === null || bar.head === null) problems.push(`CONTROL failed: 1440px ${state}: ${bar.out === null ? "the Kosmos+ bar's Log out" : 'the header right controls'} did not render`);
-      else if (bar.out !== bar.head) problems.push(`1440px ${state} with a 15px scrollbar width: the Kosmos+ bar's Log out ends at x ${bar.out}, the header's right controls at ${bar.head}; the bar does not pad by the scrollbar width`);
-      else console.log(`  PASS  1440px ${state} with a 15px scrollbar width: the Kosmos+ bar's Log out ends with the header's right controls (x ${bar.out})`);
-    }
+    // kosmos#6718: the Kosmos+ bar no longer shows at desktop widths (its Log out moved to Settings > Kosmos+), so the
+    // arm that lined its Log out up with the header's right controls at 1440px is gone with it. The phone bar is
+    // render-mobilenav-4823.js's, and render-plus-bar-3837.js holds that no bar is drawn at desktop width.
     await page.close();
   }
 

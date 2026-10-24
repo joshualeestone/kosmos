@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.60",
+  "lastProd": "0.7.63",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -250,7 +250,7 @@
     },
     {
       "title": "See which agent changed a file",
-      "line": "A project's Files page usually shows which Claude agent changed a file last.",
+      "line": "A project's Documents screen, opened with View All under Files, usually shows which Claude agent changed a file last.",
       "icon": "list",
       "platforms": [
         "mac"
@@ -269,7 +269,7 @@
     },
     {
       "title": "Join a company with its code",
-      "line": "Settings, Kosmos+, Join Corporate Account takes your company's code and connects in one step.",
+      "line": "Settings, Kosmos+, Join Company or Family Account takes your company's code and connects in one step.",
       "icon": "shield",
       "rank": 13.5,
       "since": "0.7.40",
@@ -450,7 +450,8 @@
       "icon": "tasks",
       "rank": 11.5,
       "since": "0.7.48",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.63"
     },
     {
       "title": "Agents see the posts they follow",
@@ -691,7 +692,8 @@
       "icon": "tasks",
       "rank": 2.5,
       "since": "0.7.55",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.61"
     },
     {
       "title": "An agent marking a task built tells the others",
@@ -699,7 +701,8 @@
       "icon": "tasks",
       "rank": 3,
       "since": "0.7.56",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.61"
     },
     {
       "title": "Simpler agent cards",
@@ -712,11 +715,12 @@
     },
     {
       "title": "A team map for each project",
-      "line": "In the Separate tabs view, a project's Members card has a Team map: who reports to whom, what each member holds, who handed work to whom.",
+      "line": "A project's Team map, on its Members card or above its Agents list, shows who reports to whom, what each holds and who handed work on.",
       "icon": "swarm",
       "rank": 4,
       "since": "0.7.55",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.63"
     },
     {
       "title": "A way back to this computer",
@@ -727,7 +731,8 @@
       ],
       "rank": 2.6,
       "since": "0.7.57",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.61"
     },
     {
       "title": "Joining says why it waits",
@@ -735,7 +740,8 @@
       "icon": "shield",
       "rank": 2.8,
       "since": "0.7.57",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.61"
     },
     {
       "title": "Phone notifications start on",
@@ -752,7 +758,8 @@
       "icon": "swarm",
       "rank": 2.55,
       "since": "0.7.59",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.61"
     },
     {
       "title": "Smoother computer switching",
@@ -765,6 +772,49 @@
         "mac"
       ],
       "shownIn": "0.7.60"
+    },
+    {
+      "title": "Browse an agent's files",
+      "line": "An agent's Files screen lists its folders and files, previews images and text, and downloads a folder as one zip.",
+      "icon": "list",
+      "rank": 3,
+      "since": "0.7.62",
+      "status": "shown",
+      "shownIn": "0.7.63"
+    },
+    {
+      "title": "Crop a picture before saving it",
+      "line": "Choosing a still picture for an agent or for yourself opens an editor to move and zoom it inside the circle before it is saved.",
+      "icon": "spark",
+      "rank": 3.5,
+      "since": "0.7.63",
+      "status": "shown",
+      "shownIn": "0.7.63"
+    },
+    {
+      "title": "Files show a fingerprint",
+      "line": "An agent's Files screen and a project's Documents screen show a fingerprint beside the files in their folders, to tell copies apart.",
+      "icon": "shield",
+      "rank": 6,
+      "since": "0.7.63",
+      "status": "shown",
+      "shownIn": "0.7.63"
+    },
+    {
+      "title": "A task can be closed as replaced",
+      "line": "An agent can close a task as replaced by a later one: its page links to the new task, and the Tasks list says so.",
+      "icon": "tasks",
+      "rank": 5,
+      "since": "0.7.64",
+      "status": "pending"
+    },
+    {
+      "title": "Close a task and its subtasks at once",
+      "line": "When a task's subtasks are all built or closed, one press on its page closes the built ones and then the task itself.",
+      "icon": "tasks",
+      "rank": 5.5,
+      "since": "0.7.64",
+      "status": "pending"
     }
   ]
 }

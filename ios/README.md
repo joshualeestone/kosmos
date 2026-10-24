@@ -10,6 +10,26 @@ notification handling, biometric unlock). The shell (#2869) plus that native
 surface as buildable stubs (#718) are both here now. Full context on the cards
 (#2869, #718).
 
+**Going native (kosmos#6838, Josh 2026-10-21).** Screens move from the web view to
+SwiftUI one at a time; the plan and its order are on the card. Slice 1 was the
+native **Agents** tab beside the web **Board** tab; #6846 replaced Board with four web
+tabs (Today, Projects, Tasks, Settings) sharing one web view. Agents: the app connects to the Mac by
+itself (the Kosmos+ session in the Keychain lists the account's Macs, mints a
+handoff for one, and the Mac's tunnel gate turns it into a session cookie in the
+app's own private `URLSession`), then reads `/api/status` every 5 s. The decisions
+are in `Kosmos/BoardLogic.swift`; `BoardClient.swift` moves the bytes;
+`AgentsView.swift` draws the list. Tapping an agent opens its chat natively (#7008, `ChatView.swift`: it reads and sends on the board chat's own route, `/api/agent/<name>/thread`); what that chat does not draw yet (a question's buttons, a permission card, a file, older messages) opens the agent's chat under Today, as its info button does (#6846: Today, Agents, Projects, Tasks, Settings; the four web tabs share one web view).
+The Mac's session cookie (with the Mac's name and address and a fingerprint of the Kosmos+ session, never the session) is kept
+in the Keychain item `mac-session` (`SessionKeychain.macSession`) and reused across
+launches; a sign-out, or Kosmos+ answering that the sign-in has ended, makes this
+iPhone forget it (the Mac keeps its side until it expires, as for the web view).
+The app opens on Agents when signed in to Kosmos+, otherwise on Today (the sign-in); the
+store-screenshot build lights the tab of the address it opens (a project room under Projects). Debug-only
+launch switches exist for screenshots and never reach Release: `KOSMOS_SAMPLE_AGENTS=1`
+shows invented agents and their chats without connecting (and skips the notification prompt and opens on Agents); with it,
+`KOSMOS_SAMPLE_OPEN=<agent>` opens that agent's chat (`dana` or `cleo`), and `KOSMOS_SAMPLE_NOT_SENT=1` adds a message that
+was not sent. In the simulator each is passed as `SIMCTL_CHILD_<name>` to `xcrun simctl launch`. App Store screenshots taken from now on include the tab bar (the stored ones predate it).
+
 ## What this is
 
 - `Kosmos.xcodeproj` plus `Kosmos/*.swift`: a SwiftUI app (`KosmosApp`) whose
@@ -125,6 +145,8 @@ simulator running iOS 26.5 (the app targets iOS 16), loads the live Kosmos+ sign
     `io.kosmos.app` under Kosmos Agent Manager, Inc. for a person signed in to that team. A bundle id
     belongs to one team across all of Apple, so anyone else passes their own team AND their own id
     on the command line (`xcodebuild ... DEVELOPMENT_TEAM=<theirs> KOSMOS_BUNDLE_ID=<their own id>`).
+    Their App ID needs the Communication Notifications capability too (`Kosmos.entitlements` asks for it
+    in every signed build, so a hand-made profile without it fails signing).
     Never set either in Xcode's Signing or General pane: that writes them into `project.pbxproj`,
     which must not be committed (`tools/test-archive-config.sh` fails if the project's bundle id is
     anything but `$(KOSMOS_BUNDLE_ID)`). A device build registers for push as its bundle id, so a
@@ -142,6 +164,29 @@ simulator running iOS 26.5 (the app targets iOS 16), loads the live Kosmos+ sign
   devices". The certificate and its private key must be in this Mac's login keychain, usable by `codesign`, and the
   profile installed. The name may not hold an apostrophe, a double quote, a backslash, a dollar sign or a control character, start
   with a space or be empty (`--check-config` refuses each; unset the variable to sign automatically). The first TestFlight build (#6262) was uploaded this way.
+- `KOSMOS_IOS_NOTICE_PROFILE=<profile name>` goes with it (kosmos#6487): the App Store profile for the notification
+  extension, `KosmosNotice` (`<team>.<KOSMOS_BUNDLE_ID>.notice`). Hand signing needs both, and each target takes its
+  own (`KOSMOS_APP_PROFILE`, `KOSMOS_NOTICE_PROFILE` in `project.pbxproj`), so one profile is never given to both.
+
+### The notification extension (kosmos#6487)
+
+`KosmosNotice` runs when a notification arrives and shows it as a message from the agent, with the agent's picture
+and what it actually said. It asks the person's own computer for them (`GET /api/phone/notice` on the board), at the
+address the push names, with the session the app keeps for that computer (`SessionKeychain.macSession`). The words
+never ride the push. When the computer does not answer in time, or the session is for another computer, the notice
+shows as it came.
+
+- The app and the extension share one keychain group, `<team>.<KOSMOS_BUNDLE_ID>.shared` (both entitlements files).
+  The app moves a session kept before this group existed into it the first time it reads it.
+- `io.kosmos.app` holds the Communication Notifications capability (turned on in the developer portal 2026-10-22;
+  the App Store Connect API cannot turn it on, but lists it as `USERNOTIFICATIONS_COMMUNICATION`). So
+  `Kosmos.entitlements` carries `com.apple.developer.usernotifications.communication` and `KosmosNotice-Info.plist`
+  sets `KosmosMessageStyle` to true: a notice shows as a message from the agent, picture and name, as a chat app's do.
+  Set `KosmosMessageStyle` to false and the picture rides as the notice's attachment instead. Any capability change
+  on the App ID invalidates every profile for it ("Kosmos App Store" included): make fresh ones. `check-ipa-entitlements.sh` refuses a
+  store build whose extension asks for the message style while the app lacks the entitlement.
+- The UIKit-free part (`KosmosNotice/NoticeLogic.swift`) runs in `LogicTests/run.sh`;
+  `tools/check-ipa-entitlements.sh` checks the extension in a store build.
 - `--build` is required: App Store Connect refuses a build number it has already seen.
 - `archive.sh` refuses a malformed bundle id, or an empty or malformed Team ID, before it archives anything,
   and refuses `io.kosmos.app` under any team but Kosmos Agent Manager, Inc.'s (the bundle id is
@@ -198,20 +243,26 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   script), opens in Safari, so no third-party page ever shows inside the app's frame. Plain http
   never loads in the app. Mail, phone and text links need a tap. Other schemes are refused.
 - **A page that will not load** offers Try again and "Back to Kosmos" (`Shell.backAction`: after a
-  tap that failed before loading it just closes, leaving the page you were on).
+  tap that failed before loading it just closes, leaving the page you were on). When it is your Mac
+  that is not answering it also offers "Choose another computer" (kosmos#6850,
+  `Shell.offersOtherComputer`), which opens the Kosmos+ account page (`/account`, never `/`, which can
+  open a lone computer by itself): your computers, which of them are answering, and Open on each one
+  that is.
 - **A tapped notification** opens the agent that asked
   (`?tab=detail&agent=<session>`, the session checked against the board's agent-name rule), or
   the board home when the push carries no usable session.
 - **No white flash:** the WebView is navy until the first page paints. Safe areas behave as in
-  Safari: a page that opts in with `viewport-fit=cover` (sign-in, the gate) pads for the notch and
-  home bar itself, and WebKit keeps any other page (the board today) clear of them.
+  Safari: a page that opts in with `viewport-fit=cover` (sign-in, the gate) pads for the notch
+  itself, and WebKit keeps any other page (the board today) clear of it. Since the tab bar
+  (kosmos#6838) the web view ends above it, with navy behind the bar.
 - **Launch screen:** Kosmos navy, from the asset catalog (see "App icon and launch screen" above),
   so launch, the WebView before its first paint and the sign-in page are one colour.
 
 ### Tests that run without a simulator
 
 `LogicTests/run.sh` compiles the UIKit-free files (`PushBridgeLogic.swift`,
-`PushRegistrar.swift`, `ShellLogic.swift`, `NotificationCategories.swift`) for
+`PushRegistrar.swift`, `ShellLogic.swift`, `NotificationCategories.swift`, `BoardLogic.swift`,
+`BoardClient.swift`, the native connect and refresh loop, driven against a fake Kosmos+ and Mac) for
 macOS with the tests and runs them. It ends with one
 `VERDICT:` line; no verdict line means the run did not finish. Pass a directory
 to run the suite against a modified copy of those files (how the suite was
@@ -221,6 +272,20 @@ Android job).
 
 If the person declines notification permission, the app never asks APNs for a
 token, so the device is never registered and receives no pushes. That is logged.
+
+## A project's room, a page at a time (kosmos#7032)
+
+The native room reads `GET /api/project/<id>/room?n=N` (N from 1 to 200): the room's last N rows, oldest first, with
+`olderCount` (rows older than the page) and `olderCursor`. The page before it is `?n=N&cursor=<olderCursor>`, and
+`olderCursor` is `null` at the start of the room. The phone never builds a cursor: the computer makes it (the page's
+first row, as its stored time and how many rows share that time ahead of it), so Kosmos lines, which carry no id, are
+paged as exactly as posts. A cursor that names no row of the room is a 400 with an error, and a room the computer could
+not read just now is a 503, never an empty page. A post is
+dated when its send starts and written when delivery ends, so it can land after a page was read: re-read the newest
+page and merge by each row's `key` (its exact place, the cursor's own form, which Kosmos lines carry too), rather than
+trusting a page read once. A `replyTo`, a claim or an `unanswered` entry can name a post on an older page: that post is
+not gone, it is not loaded yet. An empty `cursor` is the newest page. Without `n` the route is what the computer's board reads:
+the whole room.
 
 ## Not in scope
 

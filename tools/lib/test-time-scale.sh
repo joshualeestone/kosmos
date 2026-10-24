@@ -24,7 +24,8 @@
 
 # kosmos_test_time_scale [load] [cores]
 #   No args: load from kosmos_box_load_1min (cut-load-guard.sh, if sourced) else from
-#   `sysctl -n vm.loadavg`, and cores from `sysctl -n hw.ncpu`. With args: use them --
+#   `sysctl -n vm.loadavg`, and cores from kosmos_cpu_count (the same lib, #6799) else from
+#   `sysctl -n hw.ncpu`, 4 if neither answers. With args: use them --
 #   the two seams the test drives directly. Prints a %.2f scale in [1.00, 4.00]. An
 #   empty, zero, or non-numeric load yields 1.00 (fail-safe: if the box cannot be read,
 #   do not scale), as does a core count below 1.
@@ -37,7 +38,14 @@ kosmos_test_time_scale() {
       load="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
     fi
   fi
-  [ -z "$cores" ] && cores="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+  if [ -z "$cores" ]; then
+    if command -v kosmos_cpu_count >/dev/null 2>&1; then
+      cores="$(kosmos_cpu_count)"
+    else
+      cores="$(sysctl -n hw.ncpu 2>/dev/null || true)"   # errexit-safe: a failed read falls to 4 below
+    fi
+    [ -n "$cores" ] || cores=4
+  fi
   # LC_ALL=C: sysctl always prints a `.`-decimal load, so the compare and format must
   # not follow a comma-decimal LC_NUMERIC. `+0` coerces: a non-numeric load reads as 0
   # and collapses to the floor, never to a garbage scale.

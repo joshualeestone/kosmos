@@ -238,7 +238,10 @@ sha256_of() {
 # The gate's scratch space: one download at a time, removed on exit.
 GATE_TMP=""
 cleanup_gate() { [ -z "$GATE_TMP" ] || rm -rf "$GATE_TMP"; }
-trap cleanup_gate EXIT
+# kosmos#6831: the EXIT trap also turns a death after it (an unset variable) into a failure, which bash 3.2
+# would otherwise report as exit 0; the success exit is marked finished.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/exit-guard.sh"
+kosmos_exit_guard cleanup_gate dist-retention
 
 # copy_proven <local-file>: 0 only when <COPY_BASE>/<basename> downloads IN FULL
 # and its sha256 equals the local file's. Prints the refusal reason on stdout
@@ -712,4 +715,5 @@ else
 fi
 
 [ "$ANY_FAIL" -eq 0 ] || exit 1
+kosmos_finished
 exit 0

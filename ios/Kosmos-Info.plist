@@ -9,5 +9,11 @@
 	</dict>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>KosmosSharedKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)$(KOSMOS_BUNDLE_ID).shared</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 </dict>
 </plist>

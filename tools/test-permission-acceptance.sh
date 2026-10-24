@@ -55,7 +55,7 @@ if node "$TMP/merge.js" "$TMP/s5.json" 2>/dev/null; then fail "non-object did no
 printf '{"theme":"dark"}' > "$TMP/s6.json"
 chmod 600 "$TMP/s6.json"
 node "$TMP/merge.js" "$TMP/s6.json" || fail "tightened-file merge exited nonzero"
-_mode="$(stat -f '%Lp' "$TMP/s6.json" 2>/dev/null || stat -c '%a' "$TMP/s6.json")"
+_mode="$(stat -c '%a' "$TMP/s6.json" 2>/dev/null || stat -f '%Lp' "$TMP/s6.json")"   # #6799: GNU first (GNU stat -f prints filesystem info)
 [ "$_mode" = "600" ] || fail "merge widened a tightened file to $_mode"
 
 # 7. A zero-byte file is the absent case, not a refusal.
@@ -91,7 +91,7 @@ if node "$TMP/merge.js" "$TMP/s9.json" 2>/dev/null; then fail "dangling symlink 
 : > "$TMP/s10.json"
 chmod 600 "$TMP/s10.json"
 node "$TMP/merge.js" "$TMP/s10.json" || fail "zero-byte tightened file exited nonzero"
-_mode10="$(stat -f '%Lp' "$TMP/s10.json" 2>/dev/null || stat -c '%a' "$TMP/s10.json")"
+_mode10="$(stat -c '%a' "$TMP/s10.json" 2>/dev/null || stat -f '%Lp' "$TMP/s10.json")"   # #6799: GNU first
 [ "$_mode10" = "600" ] || fail "zero-byte merge widened the mode to $_mode10"
 
 echo "permission acceptance: ten states hold (create, merge, refuse-unparseable, no-op, refuse-non-object, mode-preserved, empty-is-absent, symlink-preserved, dangling-refused, empty-mode-preserved)"

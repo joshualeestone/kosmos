@@ -68,7 +68,7 @@ run_only() { # load file
   (
     unset KOSMOS_TEST_TIME_SCALE
     KOSMOS_FAKE_LOAD="$load" KOSMOS_IGNORE_MACHINE_CLAIM=1 KOSMOS_TESTS_IGNORE_HARNESS=1 \
-      KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= \
+      KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= \
       PROBE_OUT="$PROBE_OUT" bash "$REPO/tools/run-tests.sh" --only "$file" 2>&1
   )
 }

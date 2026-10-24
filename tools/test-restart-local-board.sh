@@ -82,7 +82,7 @@ stop_stub
 #    extended past the old cap rather than the arm passing for a cheaper reason.
 #    (~11s runtime; this is the one deliberately slow arm.)
 start_stub "old-1.2.3"
-( sleep 11; printf '%s' "$WANT" > "$VF" ) &
+( perl -e 'select(undef, undef, undef, 11)'; printf '%s' "$WANT" > "$VF" ) &
 t0="$(date +%s)"
 out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$URL" KOSMOS_BOARD_WANT="$WANT" KOSMOS_BOARD_WAIT_SECS=20 bash "$SCRIPT" 2>&1)"; rc=$?
 elapsed=$(( $(date +%s) - t0 ))

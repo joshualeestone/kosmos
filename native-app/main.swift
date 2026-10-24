@@ -729,6 +729,7 @@ enum UpdateAnswer: Equatable {
     case newer(String)      // newer, and updates are off here: offered, not installed
     case updated(String)    // installed
     case failed(String)     // the installer ran and failed
+    case paused(String)     // #6781: newer, and the fleet's updates are paused: held, looked at again later
     case board              // a board runs here, and it updates itself
     case unknown            // the release host could not be reached or read, or the CLI said nothing usable
     case refused            // the CLI will not update here (not a connect computer, or an agent): no retry
@@ -753,6 +754,7 @@ func updateAnswer(fromOutput text: String) -> UpdateAnswer {
     case ("newer", 2) where version(words[1]): return .newer(words[1])
     case ("updated", 2) where version(words[1]): return .updated(words[1])
     case ("failed", 2) where version(words[1]): return .failed(words[1])
+    case ("paused", 2) where version(words[1]): return .paused(words[1])
     default: return .unknown
     }
 }
@@ -3427,6 +3429,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard computerMode == .connect else { showUpdateOffer(nil); return }
         if !updateLookIsRetry {
             if case .unknown = answer { retryUpdateLookSoon() }
+            // #6781: a pause is lifted by the people running the fleet, not by this computer: look once more within the
+            // hour; after that, a pause still on is looked at again at the app's usual look.
+            if case .paused = answer { retryUpdateLookSoon() }
             // An install another run of this app started may still be going: look again within the hour.
             if case .refused = answer, !asked { retryUpdateLookSoon() }
         }
@@ -3436,6 +3441,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             showUpdateOffer(v)
         case .failed(let v):
             showUpdateOffer(v, note: "Kosmos could not update to \(v). Press Update to try again.")
+        case .paused(let v):
+            // #6781: held on purpose, not failed. An update already installed and waiting for Restart is not held by the
+            // pause (it is on disk), so that offer stays; otherwise the newer one is offered with why it waits.
+            if let installed = installedUpdate { showInstalledOffer(installed) }
+            else { showUpdateOffer(v, note: "Updates are paused while Kosmos checks a problem with a release. Try again later.") }
         case .updated(let v) where asked && !ownDialogOpen:
             // The person pressed Update, and the bar said it restarts when done. The offer is kept
             // underneath, so a relaunch that fails leaves Restart on offer, not nothing.
@@ -3630,6 +3640,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                   let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                   let state = obj["state"] as? String
             else {
+                logToSystem("tls-pin: the board did not answer (status \(code.map(String.init) ?? "none")); treated as required")
                 logLine("tls-pin: the board did not answer for \(host) (status \(code.map(String.init) ?? "none")); treated as required")
                 done("required", []); return
             }
@@ -3639,8 +3650,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// kosmos#6589: say so, once a minute per computer at most (a page may open several connections at once).
     private func tlsPinRefused(_ host: String, mismatch: Bool) {
+        // kosmos#6589 follow-up: logLine alone writes only the test harness's file, which a person's Mac does not have, so a
+        // refusal left no record there. The unified-log line is fixed words (no computer name: #5481's rule); the harness
+        // line below keeps the host for tests.
+        logToSystem(mismatch ? "tls-pin: refused a computer: its certificate's key is not the one it vouches for"
+                             : "tls-pin: refused a computer: its certificate could not be checked")
         logLine(mismatch ? "tls-pin: refused \(host): its certificate's key is not the one it vouches for"
-                         : "tls-pin: refused \(host): its certificate could not be checked (see the line above)")
+                         : "tls-pin: refused \(host): its certificate could not be checked (see the 'did not answer' line before it)")
         let now = ProcessInfo.processInfo.systemUptime
         if let at = tlsPinToldAt[host], now - at < 60 { return }
         tlsPinToldAt[host] = now
@@ -7678,6 +7694,9 @@ if CommandLine.arguments.contains("--kosmos-app-update-selftest") {
     row("newer 0.7.19\n", .newer("0.7.19"), "newer, updates off: offered")
     row("updated 0.7.19\n", .updated("0.7.19"), "installed: relaunch")
     row("failed 0.7.19\n", .failed("0.7.19"), "the installer failed")
+    row("paused 0.7.19\n", .paused("0.7.19"), "#6781: the fleet's updates are paused: held, not failed")
+    row("paused\n", .unknown, "#6781: paused with no version")
+    row("paused 0.7.19 now\n", .unknown, "#6781: an extra word is not an answer")
     row("board\n", .board, "a board runs here and looks for itself")
     row("unknown\tthe release host could not be reached\n", .unknown, "the host could not be reached")
     row("", .unknown, "NO OUTPUT IS UNKNOWN, never current")
@@ -7703,7 +7722,7 @@ if CommandLine.arguments.contains("--kosmos-app-update-selftest") {
     want(nil, "0.7.19", false, "no running version: offer nothing")
     want("0.7.18-dev", "0.7.19", false, "a version that cannot be read offers nothing")
     row("Kosmos is starting\r\nnewer 0.7.19\r\n", .newer("0.7.19"), "CRLF lines split too (Swift reads CRLF as one Character)")
-    let expected = 23
+    let expected = 26
     if ran != expected { print("\nupdate-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nupdate-check: \(bad) row(s) wrong"); exit(1) }
     print("\nupdate-check: all good (\(ran) rows)")

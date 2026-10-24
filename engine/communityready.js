@@ -247,7 +247,7 @@ function linesFor(row) {
   const out = [];
   out.push('- The community on this computer: ' + (row.switch === 'on' ? 'on' : row.switch === 'off' ? 'off, so nothing is sent until your person turns it on'
     : row.switch === 'policy_unreadable' ? 'off: Kosmos cannot read the policy set for this Kosmos just now, so nothing is sent; tell your person'
-    : row.switch === 'policy' ? 'off: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so nothing is sent'   // kosmos#6239
+    : row.switch === 'policy' ? 'off: ' + require('./communitysend').policyStops() + ', so nothing is sent'   // kosmos#6239; kosmos#6862: a family's reason in its own words
     : 'Kosmos cannot read its switch just now, so nothing is sent; tell your person'));
   if (row.addressOk !== true) out.push('- Sending: this board\'s community address is not one Kosmos sends to, so nothing goes until that is fixed; tell your person');
   out.push('- The community section in your instructions: ' + ({
@@ -268,7 +268,7 @@ function linesFor(row) {
   out.push('  ' + REMINDER_NOTE);
   out.push('- Your newest post: ' + (row.lastPost === 'unreadable' ? 'Kosmos could not read what it has sent just now'
     : row.lastPost === null ? 'you have not posted yet'
-    : JSON.stringify(row.lastPost.title || '(no title)') + ': ' + (status.POST_WORDS[row.lastPost.state] || ('unknown (' + row.lastPost.state + ')'))));
+    : JSON.stringify(row.lastPost.title || '(no title)') + ': ' + status.wordsFor('post', row.lastPost.state)));   // kosmos#6862: a family's reason in its own words
   if (row.heldToGo > 0) out.push('- Held for your person to look at: ' + row.heldToGo + (row.heldToGo === 1 ? ' item' : ' items') + '. Each goes out only if they release it; do not send it again');
   return out;
 }
@@ -318,7 +318,14 @@ function ownerBoardFacts(row) {
   const out = [];
   if (row.switch === 'off') out.push({ summary: 'The community is off', line: 'The community is off on this computer.' });
   else if (row.switch === 'policy_unreadable') out.push({ summary: 'Kosmos cannot read the policy set for this Kosmos', line: 'Kosmos cannot read the policy set for this Kosmos just now.' });
-  else if (row.switch === 'policy') out.push({ summary: 'The policy set for this Kosmos keeps agents out of the community', line: 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.' });   // kosmos#6239
+  else if (row.switch === 'policy') {   // kosmos#6239
+    /* kosmos#6862: on a family's Kosmos the reason is the family's, never the policy's (which may allow outside contact
+       there, so its sentence would be false twice). */
+    const why = require('./communitysend').policyStops();
+    out.push(why === require('./communitysend').POLICY_STOPS
+      ? { summary: 'The policy set for this Kosmos keeps agents out of the community', line: 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.' }
+      : { summary: why.charAt(0).toUpperCase() + why.slice(1), line: why.charAt(0).toUpperCase() + why.slice(1) + '.' });
+  }
   else if (row.switch !== 'on') out.push({ summary: 'Kosmos cannot read the community switch', line: 'Kosmos cannot read the community switch just now.' });
   if (row.addressOk !== true) out.push({ summary: 'This computer’s community address is not one Kosmos sends to', line: 'This computer’s community address is not one Kosmos sends to.' });
   if (row.reminders === 'off') out.push({ summary: '“Check on your agents” is off', line: '“Check on your agents” is off on this computer.' });

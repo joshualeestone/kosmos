@@ -1,4 +1,4 @@
-// Browser-check-surface: tsk-paused tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause pj-one-goalask paintGoalAsk tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
+// Browser-check-surface: tsk-paused tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-mins tk-repeat-mins-wrap tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause pj-one-goalask paintGoalAsk tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
 'use strict';
 /**
  * On hold and paused, on the screen (kosmos#4771).
@@ -152,9 +152,13 @@ function chk(ok, label, extra) {
       /* A task put on hold from its page. */
       await openTask(page, launch.id, 1);
       chk(await text(page, '#tk-hold') === 'Put on hold', `${tag} a task's page offers Put on hold`, await text(page, '#tk-hold'));
+      chk(await text(page, '#tk-hold-hint') === 'Kosmos does not nudge anyone about a task on hold, or hand it out.',
+        `${tag} #6683 CONTROL: a task not on hold names nobody who lifts a hold`, await text(page, '#tk-hold-hint'));
       await page.click('#tk-hold');
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Take off hold', null, { timeout: 5000 }).catch(() => {});
       chk(await text(page, '#tk-hold') === 'Take off hold', `${tag} pressing it puts the task on hold; the button then offers Take off hold`, await text(page, '#tk-hold'));
+      chk(/^You put this on hold, so only you can take it off, here\./.test(await text(page, '#tk-hold-hint') || ''),
+        `${tag} #6683 the person's own hold says only they take it off`, await text(page, '#tk-hold-hint'));
       await page.waitForFunction(() => /Put on hold/.test(document.getElementById('tk-activity').textContent), null, { timeout: 5000 }).catch(() => {});
       chk(/Put on hold/.test(await text(page, '#tk-activity') || ''), `${tag} the task's activity says Put on hold`);
       chk(!/by an agent/.test(await text(page, '#tk-activity') || ''), `${tag} the person's own hold is not credited to an agent`, await text(page, '#tk-activity'));
@@ -276,6 +280,16 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => !document.getElementById('tk-repeat-line').hidden, null, { timeout: 5000 }).catch(() => {});
       chk(/^Repeats every Tuesday at 10:30am\. No run reported yet\. Next /.test(await text(page, '#tk-repeat-line') || '') && await page.isDisabled('#tk-repeat-save'),
         `${tag} #4787 Save sets the rule: the board's sentence shows and Save goes off again`, await text(page, '#tk-repeat-line'));
+      /* kosmos#6893: Every so many minutes shows only its number box (no time, no day); 30 saved is the board's own
+         "every 30 minutes", and Save goes off. */
+      await page.selectOption('#tk-repeat-every', 'minutes');
+      chk(await page.isVisible('#tk-repeat-mins') && await page.isHidden('#tk-repeat-at') && await page.isHidden('#tk-repeat-day') && await page.isEnabled('#tk-repeat-save'),
+        `${tag} #6893 Every so many minutes shows the number box only, with Save on`, String(await page.isVisible('#tk-repeat-mins')));
+      await page.fill('#tk-repeat-mins', '30');
+      await page.click('#tk-repeat-save');
+      await page.waitForFunction(() => /every 30 minutes/.test(document.getElementById('tk-repeat-line').textContent), null, { timeout: 5000 }).catch(() => {});
+      chk(/^Repeats every 30 minutes\. /.test(await text(page, '#tk-repeat-line') || '') && await page.isDisabled('#tk-repeat-save') && await page.inputValue('#tk-repeat-mins') === '30',
+        `${tag} #6893 Save sets every 30 minutes: the board's sentence says it and Save goes off`, await text(page, '#tk-repeat-line'));
       /* Review 2: an unsaved choice survives a refresh EVEN WHEN the stored rule changes under it (the rule moves to hourly
          elsewhere while the person has Every day chosen); once they choose what is stored now, the controls follow again. */
       const setRule = (body) => page.evaluate(([id, b]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then((r) => r.status), [winter.id, body]);
@@ -322,6 +336,15 @@ function chk(ok, label, extra) {
       await openSettings(page, summer.id);
       chk(await text(page, '#pj-one-pause') === 'Resume it' && /^An agent paused it\./.test(await text(page, '#pj-one-pause-hint') || ''),
         `${tag} a project an agent paused says an agent paused it`, JSON.stringify([await text(page, '#pj-one-pause'), await text(page, '#pj-one-pause-hint')]));
+
+      /* #6683: a hold made outside the screen (here the engine, as an agent's CLI does) says an agent or the person can
+         lift it. Taken off again after, so the next viewport starts with the same tasks held. */
+      tasks.setOnHold(launch.id, 2, true);
+      await openTask(page, launch.id, 2);
+      await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Take off hold', null, { timeout: 5000 }).catch(() => {});
+      chk(/^This was put on hold outside this screen \(by an agent, or with kosmos task hold\), so an agent or you can take it off\./.test(await text(page, '#tk-hold-hint') || ''),
+        `${tag} #6683 a hold made outside the screen says an agent or the person can take it off`, await text(page, '#tk-hold-hint'));
+      tasks.setOnHold(launch.id, 2, false);
 
       /* A finished task offers no hold; the open task above is the control that it is offered at all. */
       await page.evaluate(async (pid) => { if (await tskGoToProject(pid)) openTaskPage(3); }, launch.id);

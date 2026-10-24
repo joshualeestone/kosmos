@@ -88,6 +88,12 @@ site_commit_on_fresh_main() {
     # this shared checkout between here and the push.
     new_base="$(git -C "$site" rev-parse origin/main)" || return 1
     [ -n "$new_base" ] || { echo "could not resolve the fetched origin/main tip; refusing to build the release commit" >&2; return 1; }
+    # kosmos#6620: the tip this commit would go on is frozen (tools/pointer-freeze.sh), perhaps from another machine or
+    # since this cut started: no release pointer moves. Checked on the fetched tip itself, every attempt.
+    if git -C "$site" cat-file -e "$new_base:dist/POINTER_FROZEN" 2>/dev/null; then
+      echo "the site's origin/main is FROZEN at $(git -C "$site" show "$new_base:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^mac=//p' | head -1) (dist/POINTER_FROZEN, kosmos#6620), so no release pointer may move. Nothing was pushed." >&2
+      return 1
+    fi
 
     local reindex="$reindex_dir/site-reindex.$attempt"
     local base_v="$reindex_dir/versions-base.$attempt"

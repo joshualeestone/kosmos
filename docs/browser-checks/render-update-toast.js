@@ -214,7 +214,65 @@ const RELPORT = freePort();
        from-source refusal. A source-run board no longer offers an update at
        all (Josh, 2026-08-23 13:03), so that state cannot arise, and this
        board is an installed layout on purpose, where Update would start a
-       real install. Update is not pressed here. */
+       real install. The real route is never pressed: the #6903 leg below
+       presses Update only after proving its stub catches the request. */
+
+    /* #6903 (Josh, 2026-10-22 10:46): a press the board did not answer, or answered with no reason, showed only "we
+       could not start the update". Update IS pressed here, but every press is answered by the page's own route
+       below, never by the board, so no install starts. Each arm says what happened and what to do, and leaves
+       Update pressable (the 08-23 stranding). */
+    let pressed = 0;
+    let answer = null;
+    const stub = (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      pressed += 1;
+      return answer(route);
+    };
+    await p.route('**/api/update', stub);
+    await p.route('**/api/update/rollback', stub);
+    const press = async (label = 'Update') => {
+      const before = pressed;
+      await p.click('#uc-go');
+      await p.waitForFunction(() => { const e = document.getElementById('uc-err'); return e && !e.hidden; }, null, { timeout: 10000 });
+      if (pressed !== before + 1) die('#6903: the ' + label + ' press did not reach the stubbed route (' + pressed + ')');
+      const out = await p.evaluate(() => ({
+        err: document.getElementById('uc-err').textContent.trim(),
+        go: document.getElementById('uc-go').textContent.trim(),
+        enabled: !document.getElementById('uc-go').disabled,
+        open: !document.getElementById('updconfirm').hidden,
+      }));
+      if (!out.open || !out.enabled || out.go !== label) die('#6903: the dialog was left stranded: ' + JSON.stringify(out));
+      return out.err;
+    };
+    // Before any click: prove both stubs catch a POST. A miss is found on this one probe, before any press.
+    answer = (route) => route.abort('connectionreset');
+    for (const url of ['/api/update', '/api/update/rollback']) {
+      const before = pressed;
+      const reached = await p.evaluate(async (u) => fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' } }).then(() => true, () => false), url);
+      if (reached || pressed !== before + 1) die('#6903: the stub did not catch a POST to ' + url + '; not pressing anything');
+    }
+    const none = await press();
+    if (none !== 'Kosmos did not answer, so this page cannot tell whether the update started. Kosmos may be restarting, perhaps to install it. Wait a minute, then reload this page.')
+      die('#6903: no answer said: ' + none);
+    await p.screenshot({ path: path.join(OUT, 'update-confirm-no-answer.png') });
+    answer = (route) => route.fulfill({ status: 502, body: '' });
+    const bare = await press();
+    if (bare !== 'Kosmos could not start the update (it answered 502 with no reason). Try again in a minute.')
+      die('#6903: an answer with no reason said: ' + bare);
+    // CONTROL: the route's own sentence still wins over both, word for word.
+    answer = (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Kosmos could not start the update just now. Try again in a minute.' }) });
+    const own = await press();
+    if (own !== 'Kosmos could not start the update just now. Try again in a minute.') die('#6903: the route\'s own sentence was replaced: ' + own);
+    await p.screenshot({ path: path.join(OUT, 'update-confirm-route-sentence.png') });
+    // The same dialog in Roll back mode, through the page's own mode switch: no "install it" in its sentence.
+    await p.evaluate(() => setUpdConfirmMode('rollback', '0.0.1'));
+    answer = (route) => route.abort('connectionreset');
+    const rbNone = await press('Roll back');
+    if (rbNone !== 'Kosmos did not answer, so this page cannot tell whether the roll back started. Kosmos may be restarting. Wait a minute, then reload this page.')
+      die('#6903: a Roll back with no answer said: ' + rbNone);
+    await p.evaluate(() => setUpdConfirmMode('update'));
+    await p.unroute('**/api/update', stub);
+    await p.unroute('**/api/update/rollback', stub);
 
     // Not now closes. #3955: the chip has no Later; a Later pressed on an older page (a note in this
     // browser) still quiets its version for its window, which is the reading kept below.
@@ -315,7 +373,7 @@ const RELPORT = freePort();
     }
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('TOAST DRIVE OK: the one-line chip (#3955), geometry clear of header controls, frozen copy verbatim, opens on Not now, Update never pressed, a stored Later per version and back for a newer one and cleared by Check for Update, 0 page errors; shots in ' + OUT);
+    console.log('TOAST DRIVE OK: the one-line chip (#3955), geometry clear of header controls, frozen copy verbatim, opens on Not now, Update pressed only against a stubbed route (#6903: no answer, no reason, the route\'s own sentence), a stored Later per version and back for a newer one and cleared by Check for Update, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     // Review 1: wait (up to 5 s) for the board to stop before its data root is removed on exit.

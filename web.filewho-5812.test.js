@@ -8,7 +8,7 @@ const nodePath = require('node:path');
 const page = require('./test-support/page');
 
 const SCRIPT = page.scriptOf(fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8'));
-const meta = new Function(page.lift(SCRIPT, 'pjSize') + '\n' + page.lift(SCRIPT, 'pjDocMeta') + '\nreturn pjDocMeta;')();
+const meta = new Function(page.lift(SCRIPT, 'pjSize') + '\n' + page.lift(SCRIPT, 'pjDocMeta') + '\n' + page.lift(SCRIPT, 'fileFingerprint') + '\nreturn pjDocMeta;')();
 
 test('#5812: a row with a writer says "changed by"; one without says nothing about who', () => {
   const modified = '2026-10-10T20:00:00Z';

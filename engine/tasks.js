@@ -114,17 +114,48 @@ function doneWhenWords(list) {
   return Array.isArray(list) && list.length ? list.map((c, i) => (i + 1) + ') ' + c).join(' ') : null;
 }
 
+/* #6921: a title over SENTENCE_MAX is shortened instead of refused (an agent's add failed outright and it had to retry).
+   The title keeps the most whole words that leave room for "...", or is hard-cut when that would keep half or less
+   of the room; the whole original title goes first in the detail, so no words are lost. Returns
+   { sentence, detail, moved }; a title that is not an over-long string, or a detail that is not text, comes back
+   unchanged, so taskProblem still judges it. The screen caps the box at SENTENCE_MAX, and the webhook route refuses an
+   over-long title before it gets here, so this acts on the CLI and API paths. */
+function fitTitle(sentence, detail) {
+  if (typeof sentence !== 'string' || sentence.trim().length <= SENTENCE_MAX) return { sentence, detail, moved: false };
+  if (detail !== undefined && detail !== null && typeof detail !== 'string') return { sentence, detail, moved: false };
+  const full = sentence.trim();
+  const room = SENTENCE_MAX - 3;
+  let cut = '';
+  for (const ch of full) {   // by code point (a string iterates lazily), so a surrogate pair is never split
+    if ((cut + ch).length > room) break;
+    cut += ch;
+  }
+  const space = /\s/u.test(full.charAt(cut.length)) ? cut.length : cut.search(/\s\S*$/u);
+  const title = (space > room / 2 ? cut.slice(0, space) : cut).trimEnd() + '...';
+  const extra = (typeof detail === 'string' && detail.trim()) ? detail.trim() : '';
+  return { sentence: title, detail: extra ? full + '\n\n' + extra : full, moved: true };
+}
+
 function taskProblem({ sentence, detail, who } = {}) {
   if (typeof sentence !== 'string' || !sentence.trim()) {
     return 'say what needs doing';
   }
+  // Defensive since #6921: create() shortens an over-long title before calling this, so only a direct call reaches it.
   if (sentence.trim().length > SENTENCE_MAX) {
     return `say what needs doing in ${SENTENCE_MAX} characters or fewer; the detail box below has the room`;
   }
+  return detailProblem(detail) || whoProblem(who);
+}
+
+function detailProblem(detail) {
   if (detail !== undefined && detail !== null
       && (typeof detail !== 'string' || detail.length > DETAIL_MAX)) {
     return `anything they should know has to be words (${DETAIL_MAX} characters or fewer)`;
   }
+  return null;
+}
+
+function whoProblem(who) {
   // ⚠️ A PRESENT who is refused when it cannot be an agent's name, never
   // silently dropped: a caller who asked to assign and got a 200 with a
   // "Nobody yet" task believes an assignment happened. Absent/blank means
@@ -323,8 +354,18 @@ function subtaskProgress(p, n) {
  * write; the number is issued inside the same atomic mutate that stores
  * the task, so two concurrent creates cannot share one.
  */
-function create(projectId, { sentence, detail, who, parent, doneWhen, made: origin } = {}, roster) {
-  const problem = taskProblem({ sentence, detail, who }) || doneWhenProblem(doneWhen);
+function create(projectId, { sentence: asked, detail: askedDetail, who, parent, doneWhen, made: origin } = {}, roster) {
+  // A detail that is bad on its own is refused as itself, before any move, so a long title never changes its verdict.
+  const ownDetail = (typeof asked === 'string' && asked.trim().length > SENTENCE_MAX) ? detailProblem(askedDetail) : null;
+  if (ownDetail) throw new Error(ownDetail);
+  const fit = fitTitle(asked, askedDetail);
+  const { sentence, detail } = fit;
+  // The order is the one taskProblem keeps: title, then detail (the overflow is a detail problem), then who, then done-when.
+  const problem = ((fit.moved && typeof detail === 'string' && detail.length > DETAIL_MAX)
+    ? ((typeof askedDetail === 'string' && askedDetail.trim())
+      ? `that title is over ${SENTENCE_MAX} characters, and with it moved into the detail the detail would pass ${DETAIL_MAX}; shorten one of them`
+      : `that title is over ${SENTENCE_MAX} characters, and moved into the detail it would still pass ${DETAIL_MAX}; shorten it`)
+    : (taskProblem({ sentence, detail, who }) || doneWhenProblem(doneWhen)));
   if (problem) throw new Error(problem);
   // #5152: a webhook's words are outside text, so they never say what finished means for a task.
   if (origin && origin.via === 'webhook' && doneWhenValue(doneWhen)) {
@@ -408,6 +449,8 @@ function create(projectId, { sentence, detail, who, parent, doneWhen, made: orig
     ...(made.parent ? { parent: made.parent } : {}),
     ...(made.doneWhen ? { doneWhen: doneWhenWords(made.doneWhen) } : {}),
   });
+  // #6921: whether the title was shortened, for the route's note. Not enumerable, so it is neither stored nor sent.
+  Object.defineProperty(made, 'titleMoved', { value: fit.moved, enumerable: false });
   return made;
 }
 
@@ -904,9 +947,17 @@ function clearBuilt(projectId, n, { by = null, person = false, refusePersonMark 
   return { ok: true, task: changed, changed: had };
 }
 
+/* #6923: `replacedBy` closes it as replaced by that task rather than done. A task number only: a whole number above 0,
+   or the digits of one (the CLI sends text). */
+function replacedByValue(v) {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === 'number' ? v : (typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : NaN);
+  if (!Number.isSafeInteger(n) || n < 1) throw new Error('the task that replaced it has to be a task number');
+  return n;
+}
 /** Close: a record edit, never an act on an agent (see the header). */
-function close(projectId, n) {
-  return setClosed(projectId, n, new Date().toISOString());
+function close(projectId, n, { replacedBy = null } = {}) {
+  return setClosed(projectId, n, new Date().toISOString(), {}, { replacedBy: replacedByValue(replacedBy) });
 }
 
 /** Reopen: the undo of the one human verb. #6157: who put it back (`by`, an agent its token named; `person`, the
@@ -920,8 +971,9 @@ function reopen(projectId, n, { by = null, person = false, why = '' } = {}) {
   return setClosed(projectId, n, null, { ...(who ? { by: who } : {}), ...(isPerson ? { person: true } : {}), ...(said ? { why: said } : {}) });
 }
 
-function setClosed(projectId, n, closedAt, said = {}) {
+function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null } = {}) {
   let changed;
+  let replacedNew = false;   // #6923: an already-closed task newly marked replaced records that too
   // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
   let transition = 0;
   let heldDropped = false;
@@ -938,6 +990,23 @@ function setClosed(projectId, n, closedAt, said = {}) {
     // close paths never emit two `closed` lines for one completion.
     const before = progressOf(t).closed;
     changed = { ...t, closedAt };
+    /* #6923: a close may name what replaced it: another task on this project that does not lead back to this one,
+       checked inside this same read. A reopen clears the link; a plain close leaves an existing one alone. */
+    if (replacedBy !== null) {
+      if (replacedBy === t.number) throw new Error('a task cannot be replaced by itself');
+      const by = byNumber(p, replacedBy);
+      if (!by) throw new Error('there is no task ' + replacedBy + ' on this project to have replaced it');
+      // No loop of any length: follow what replaced the replacing task, and refuse if it comes back here.
+      for (let at = by, seen = 0; at && Number.isInteger(at.replacedBy) && seen < 10000; at = byNumber(p, at.replacedBy), seen += 1) {
+        if (at.replacedBy === t.number) throw new Error('task ' + replacedBy + ' is already marked as replaced by this one, directly or through other tasks');
+      }
+      replacedNew = changed.replacedBy !== replacedBy;
+      changed.replacedBy = replacedBy;
+      // Marking a task already closed keeps when it finished: only the link is new.
+      if (t.closedAt) changed.closedAt = t.closedAt;
+    } else if (closedAt === null) {
+      delete changed.replacedBy;   // a reopen clears the link; a plain close leaves one that is there
+    }
     const after = progressOf(changed).closed;
     if (before !== after) transition = after ? 1 : -1;
     /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
@@ -951,7 +1020,8 @@ function setClosed(projectId, n, closedAt, said = {}) {
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
   });
-  if (transition) taskchat.record(projectId, changed.number, transition > 0 ? { kind: 'closed' } : { kind: 'reopened', ...said });   // #6157
+  if (transition) taskchat.record(projectId, changed.number, transition > 0 ? { kind: 'closed', ...(replacedBy !== null ? { replacedBy } : {}) } : { kind: 'reopened', ...said });   // #6157, #6923
+  else if (replacedNew) taskchat.record(projectId, changed.number, { kind: 'replaced', replacedBy });   // #6923: closed earlier, replaced now
   if (heldDropped) taskchat.record(projectId, changed.number, { kind: 'hold-cleared', via: 'close' });
   if (repeatDropped) taskchat.record(projectId, changed.number, { kind: 'repeat-cleared', via: 'close' });
   return changed;
@@ -1233,6 +1303,11 @@ function setReviewer(projectId, n, who, opts = {}) {
 const RUN_DEDUP_MS = 60 * 1000;
 // kosmos#5643 retry review 3: how many recent run ids (per task, keyed by runner) are kept to absorb a late retry.
 const RUN_IDS_KEPT = 5;
+/* kosmos#6894 review 1: what a run replaced, read INSIDE the write (so two runs at once each see the one before them):
+   the reading and the last change's note before this run. Kept beside the returned task (never stored), for the
+   room line (taskrepeat.roomRunLine); runBefore(task) reads it. */
+const RUN_BEFORE = new WeakMap();
+function runBefore(task) { return (task && RUN_BEFORE.get(task)) || null; }
 function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
   /* review 5: the person is a FLAG, never a name (as setBuilt's builtByPerson): an agent called "operator" is not the person. */
   const isPerson = opts.person === true;
@@ -1249,9 +1324,12 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
   let duplicate = false;
   let inferred = false;   // kosmos#5643 review 2: set in the write, read by the transcript row after it
   let skipped = null;   // kosmos#5920: the runs this one comes after with none of them run, set in the write
+  let prior = null;   // kosmos#6894 (review 2: not `before`, which a block below also names)
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
+    prior = { verified: t.verified && typeof t.verified.value === 'string' ? t.verified.value : '',
+      changeNote: typeof t.lastChangeNote === 'string' ? t.lastChangeNote : '' };
     if (!t.repeat) throw new Error('that task does not repeat; set how often with kosmos task repeat, or close it when it is done');
     if (progressOf(t).closed) throw new Error('that task is closed, so it no longer repeats');
     /* #4787 review 1: the same run reported twice (a retried command, a duplicated job: the 10-03 report) within a minute
@@ -1327,7 +1405,8 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
     } else delete changed.lastRunRecovered;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
-  if (duplicate) return Object.assign({}, changed, { duplicate: true });
+  if (duplicate) { const out = Object.assign({}, changed, { duplicate: true }); if (prior) RUN_BEFORE.set(out, prior); return out; }
+  if (prior) RUN_BEFORE.set(changed, prior);
   taskchat.record(projectId, changed.number, { kind: 'run', ...(isPerson ? { person: true } : { by: runner }), ...(said ? { note: said } : {}), ...(changed.lastRunLate ? { late: true } : {}), ...(skipped ? { missedBefore: skipped.count, ...(skipped.more ? { missedMore: true } : {}) } : {}), ...(changed.lastRunUnchanged ? { unchanged: true, ...(inferred ? { inferred: true } : {}) } : {}) });
   return changed;
 }
@@ -1652,6 +1731,10 @@ function allTasks(everyProject) {
            comes through: the nearest held ancestor, else the tree's lowest held task), so a second agent sees whose work
            it is before starting. Absent otherwise. */
         ...(() => { const o = ownerIn(tree, t, members, owners); return o ? { ownerNames: o.who, ownerFrom: o.from } : {}; })(),
+        /* #6895: who holds an open part of this OPEN task without being one of the project's agents (removed after it was
+           given to them). The screen names them "(not on this project)". Absent when there are none, or the task is
+           finished (closing leaves parts open, and a finished task is history). */
+        ...(() => { const off = progressOf(t).closed ? [] : openHolders(t).filter((w) => !members.has(w)); return off.length ? { offProject: off } : {}; })(),
       }));
     }
   }
@@ -2140,8 +2223,8 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   return out.slice(0, 3);
 }
 
-module.exports = { create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };

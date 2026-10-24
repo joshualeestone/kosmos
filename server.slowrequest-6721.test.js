@@ -96,14 +96,20 @@ test('#6721: the real board logs a request past the limit, by path and never wit
   const lines = [];
   const real = process.stdout.write.bind(process.stdout);
   process.stdout.write = (chunk, ...rest) => { if (String(chunk).startsWith('[slow request]')) lines.push(String(chunk)); return real(chunk, ...rest); };
+  // kosmos#6876: a request answered within one millisecond measures 0 ms, under even the 1 ms limit, so the clock
+  // steps a second on every read while this request runs. The threshold itself is pinned by the tests above, and the
+  // duration assertion below fails if watchSlowRequest stops reading Date.now (a real request under a second reads "took 0.x s").
+  const realNow = Date.now;
+  let step = 0;
+  Date.now = () => realNow() + 1000 * ++step;
   try {
     const res = await fetch(base + '/api/health?token=SECRET_6721');
     await res.text();
     await new Promise((r) => setTimeout(r, 100));   // finish fires after the body is flushed
-  } finally { process.stdout.write = real; }
+  } finally { process.stdout.write = real; Date.now = realNow; }
   const mine = lines.filter((l) => l.includes(' /api/health '));
   assert.equal(mine.length, 1, 'the request was not logged: ' + JSON.stringify(lines));
-  assert.match(mine[0], /^\[slow request\] GET \/api\/health took \d+\.\d s \(answered 200\)\n$/);
+  assert.match(mine[0], /^\[slow request\] GET \/api\/health took [1-9]\d*\.\d s \(answered 200\)\n$/);
   assert.ok(!lines.join('').includes('SECRET_6721'), 'the query reached the log');
 });
 

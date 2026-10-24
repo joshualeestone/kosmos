@@ -6,8 +6,9 @@
  * show the little tab thing at the top that says the number of agents working",
  * because an animated "0 Working" looks like something is running when nothing
  * is. Since #4736 (Josh, 2026-09-30) that includes a FLOORED zero (unknowns present -> "0+"):
- * "if there are 0 working, lets not show the tile". A failed poll ("?") is not a zero and the
- * tile stays shown there.
+ * "if there are 0 working, lets not show the tile". Since #6721 one missed poll keeps the board as it
+ * was (the header says Reconnecting); the second missed poll in a row is the board not answering, and
+ * then the count is "?", not a zero, and the tile is shown.
  *
  * 🔑 WHY A BROWSER, not only the extracted-slice unit test in server.test.js.
  * Two things a fake-element unit test cannot see and that ARE the point here:
@@ -96,16 +97,24 @@ function check(name, pass, detail) {
       await tick();
       out.floorZero = { hidden: tileEl.hidden, count: countEl.textContent, anim: animLaidOut() };
 
-      // 4) failed poll -> the tile (left hidden by case 2/known-zero above if it
-      //    persisted) must come BACK showing "?", never stay hidden claiming none
-      //    work on the one poll that knows nothing. Re-hide first so the arm is a
-      //    real transition, then fail the fetch.
+      // 4) failed polls. Since kosmos#6721 one missed poll keeps the board as it was (the header says Reconnecting);
+      //    the second in a row is the board not answering, and then the tile (hidden by the known zero above) must
+      //    come BACK showing "?", never stay hidden claiming none work when nothing is known. Re-hide first so the
+      //    arm is a real transition, then fail the fetch twice.
       okFetch(['idle', 'idle'], { total: 2, unreadableLines: 0 });
       await tick(); // tile hidden again
       const hiddenBeforeFail = tileEl.hidden;
       window.fetch = async () => { throw new Error('simulated poll failure'); };
       await tick();
-      out.failedPoll = { hiddenBeforeFail, hidden: tileEl.hidden, count: countEl.textContent };
+      // The first miss counts only after a poll has answered (cases 1 to 3 above), so keep those first.
+      // misses: the page's own count. The arm requires 1, so a race with the page's 5 s poll fails with misses=2 in
+      // its detail, which names the cause.
+      const afterOneMiss = { hidden: tileEl.hidden, count: countEl.textContent,
+        reconnecting: (document.getElementById('hdr-reconnect') || {}).textContent,
+        misses: typeof BOARD_MISSES === 'number' ? BOARD_MISSES : null };
+      await tick();
+      out.failedPoll = { hiddenBeforeFail, afterOneMiss, hidden: tileEl.hidden, count: countEl.textContent,
+        reconnecting: (document.getElementById('hdr-reconnect') || {}).textContent };
 
       /* #6649 (Josh, 2026-10-19): no Idle or Waiting tile, on a fleet that has idle and blocked agents. Read by the
          row's labels, not by id, because the ids are gone (CONTROL: the Working label is still there). */
@@ -140,9 +149,17 @@ function check(name, pass, detail) {
       seen.floorZero.hidden === true && seen.floorZero.count === '0+' && seen.floorZero.anim === false,
       `hidden=${seen.floorZero.hidden} count=${JSON.stringify(seen.floorZero.count)} anim=${seen.floorZero.anim}`);
 
-    check(`${engine}: a failed poll brings the tile BACK showing "?" (was hidden), never leaves it hidden`,
-      seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.hidden === false && seen.failedPoll.count === '?',
-      `hiddenBeforeFail=${seen.failedPoll.hiddenBeforeFail} hidden=${seen.failedPoll.hidden} count=${JSON.stringify(seen.failedPoll.count)}`);
+    // kosmos#6721: one missed poll keeps the board as it was, so the hidden zero tile stays hidden. The two arms are a
+    // pair: this one passes for a tile that never moves, and only the arm below shows the tile does move.
+    check(`${engine}: one missed poll keeps the tile as it was and the header says Reconnecting (#6721)`,
+      seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.afterOneMiss.hidden === true
+        && seen.failedPoll.afterOneMiss.count === '0' && seen.failedPoll.afterOneMiss.reconnecting === 'Reconnecting\u2026'
+        && seen.failedPoll.afterOneMiss.misses === 1,
+      `afterOneMiss=${JSON.stringify(seen.failedPoll.afterOneMiss)}`);
+    check(`${engine}: a second missed poll brings the tile BACK showing "?" (was hidden) and clears Reconnecting`,
+      seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.hidden === false && seen.failedPoll.count === '?'
+        && seen.failedPoll.reconnecting === '',
+      `hiddenBeforeFail=${seen.failedPoll.hiddenBeforeFail} hidden=${seen.failedPoll.hidden} count=${JSON.stringify(seen.failedPoll.count)} reconnecting=${JSON.stringify(seen.failedPoll.reconnecting)}`);
 
     check(`${engine}: #6649 the stats row has no Idle or Waiting tile (CONTROL: Working is there)`,
       seen.labels.includes('Working') && !seen.labels.includes('Idle') && !seen.labels.includes('Waiting'), JSON.stringify(seen.labels));

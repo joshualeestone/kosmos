@@ -46,12 +46,17 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      Code trust prompt while the board served fine, so the board gate alone would PASS a #2129
      build. This gate creates a Claude agent AND an OpenAI agent and confirms each comes ONLINE
      (state idle/working on **two consecutive polls** -- guarding a transient idle before a trust
-     prompt registers -- never a `needs_you` trust wedge). It **creates real agents**, so it
-     refuses on a populated (or uncountable) fleet board unless `KOSMOS_STAGING_VERIFY_ALLOW_LIVE=1`;
-     run it on the fresh staging machine with both providers signed in.
+     prompt registers -- never a `needs_you` trust wedge), then that each **answers a first message**
+     in its own thread. It **creates real agents** and **removes them when it ends** (the board's
+     Remove agent, `DELETE /api/agent/<name>/removal`), so it runs on a populated board too, which is
+     what releases are promoted from (kosmos#6906). It still fails closed on a board whose agents it
+     cannot count, and needs both providers signed in. "Answers" means a reply stored in the agent's own thread after
+     the message was sent (the screen's question rows do not count); it does not read what the reply says. At a promote
+     it runs in the machine's suite queue (tools/queued-heavy.sh), so a promote can wait quietly, up to the queue's
+     bound, while a suite finishes: the QUEUED-HEAVY lines say it is waiting, not hung.
      - **Exit codes are centered on the CLAUDE arm** (Splinter, 2026-09-04): #2129 fixes the
        Claude spawn wedge definitively, but a separate OpenAI/Codex spawn issue may remain and
-       must not block shipping the Claude fix + the OpenAI-only gating. `0` both online; `1` the
+       must not block shipping the Claude fix + the OpenAI-only gating. `0` both online and answering; `1` the
        **Claude** arm failed (proven bad build, non-forceable); `2` cannot-tell (HOLD, forceable);
        `3` **partial** -- Claude online but the **OpenAI/Codex** arm failed, which the promoter
        **surfaces and routes** (forceable) rather than auto-holding.
@@ -187,6 +192,57 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    (First run for 0.6.30, 2026-09-04; the vercel project aliases chaoskosmos.com + installkosmos.com.)
 6. **Rollback** = promote a prior staging pointer, or flip `latest.json` back, then re-deploy per
    step 5. No rebuild.
+
+## Freezing the pointer in an incident (kosmos#6620)
+
+When a release may be compromised, pin the Mac pointers to the last known-good version AND stop the release tools
+in this repo from moving them again until the incident is over:
+
+```
+tools/pointer-freeze.sh on --mac <known-good version> --because "<one line: why>" --sha256 <its sha256, from outside the site repo>
+KOSMOS_STAGING_ROLLBACK=<that version> tools/deploy-site.sh --promote
+```
+
+(`--sha256` is optional and recommended: the site's history is part of what an incident may have tainted, so a value
+from the release record or another copy makes `on` refuse a re-cut pointer under the same version. `on` prints the
+deploy line to run. When prod already serves the pinned version and only staging was bad, it is
+`--publish` instead, because `--promote` refuses a prod pointer equal to live.)
+
+`on` restores that version's `latest.json` (to prod and staging) and the installer pair committed with it, from the
+site's own history on origin/main. Before writing anything it refuses a version below the setup floor, one whose
+artifact is no longer served with the pointer's sha256, and one whose commit lacks its installer pair. It writes the
+tracked marker `dist/POINTER_FROZEN` and PUSHES the change to origin/main (built on the fetched tip, as a release's
+site push is), so every machine sees it. It does not deploy; the second line does, and the marker itself is never
+served. The `--because` line is committed to the site repo (keep it to what the repo's readers may see). While the
+marker is on origin/main (each tool fetches it first) or in a checkout:
+- `release.sh`, `promote-channel.sh`, `publish-staging-pointer.sh` and `publish-kosmos-windows.sh` refuse before
+  changing anything. A site origin they cannot fetch is a refusal too (`KOSMOS_POINTER_FREEZE_OFFLINE=1` decides on
+  the checkout);
+- a release's site push refuses a frozen tip, and a cut re-checks origin/main just before it deploys;
+- `deploy-site.sh` publishes only the frozen Mac pointers (the version and the sha256 the marker records), and asks
+  origin/main again just before it deploys.
+`tools/pointer-freeze.sh status` says whether it is frozen; `off` lifts it (the pointers stay until the next release).
+
+What a pin does: a board older than the pinned version updates to it; a board on the bad version, or between the two,
+sees nothing newer and stays (the verifier refuses a downgrade), so it needs a NEW clean release above the bad one; a
+fresh install through `/setup` gets the pinned build. Not covered, each by hand: the site's `Kosmos.pkg` (the deploy
+carries the one live, so a bad build's pkg stays until it is replaced); the Windows pointers (prod is served from R2:
+`tools/windows/publish-r2.ps1 -Promote` moves it only onto the staged build, with Josh's approval and a passing
+staging check, so an older good build must be re-staged first); the site's `latest-win*.json` are not pinned to
+an older build but HELD as they stood at the freeze (`publish-kosmos-windows.sh` refuses, and a deploy refuses a
+change committed after the freeze, so to point them elsewhere commit that before `on`); and a rollback done in
+Vercel itself,
+which goes around every script, as below. The re-checks just before a deploy narrow the window to the deploy itself;
+a freeze landing while vercel uploads is not seen.
+
+Expected during a freeze, until the pin is deployed: the site's autodeploy tick (`tools/site-autodeploy.sh`, every 15
+minutes) sees site main's pointer differ from what live serves and SKIPS, by design (a website deploy never moves a
+release pointer). It runs nothing, logs "skip: site main's dist/latest.json is not what live serves", and turns red
+after 4 such ticks in a row (about an hour). It does not park. That is not a fault: deploy the pin with the line `on`
+printed, and the tick goes quiet once live serves it. After that, its mirror's ceiling is the pinned version (the
+newer of the two pointers' versions), so its next deploy carries no versioned build above the pin: the bad build, and
+any good builds between, leave the site's downloads. That is containment; they come back after `off` and a newer
+release.
 
 ## A floor under the installer: never serve one from before 0.7.45 (kosmos#4455)
 

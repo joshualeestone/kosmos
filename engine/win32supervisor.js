@@ -129,6 +129,13 @@ function ourLiveSession(name, live) {
   return null;
 }
 
+/* kosmos#6570: the Claude account folder a supervised agent's usage readings are recorded in, or null. Claude only:
+   another runner's configDir is its own provider's home (a CODEX_HOME, a GROK_HOME), never a Claude account. */
+function usageDirFor(spec) {
+  const s = spec || {};
+  return (s.runner || 'claude') === 'claude' ? require('./win32streamstate').claudeAccountDirFor(s.configDir) : null;   // an omitted runner means Claude (win32launch)
+}
+
 /**
  * One supervision cycle: make sure an agent for `spec` is running, and return
  * what happened. Pure-ish -- it does no waiting, so a test can drive the whole
@@ -294,6 +301,9 @@ function main(argv, deps) {
        task log, where a missing card state can be traced back to it. */
     stream: require('./win32streamstate').publisher(spec.name, {
       onProblem: (why) => say(new Date().toISOString() + ' ' + spec.name + ' state-unrecorded -- ' + why),
+      /* kosmos#6570: a Claude agent's account usage, from its own stream (Claude Code runs no status line headless).
+         Claude only: another runner's configDir is its own provider's home, never a Claude account. */
+      usageDir: () => usageDirFor(spec),   // asked at each reading: a folder made after this start is still found
     }),
     onEvent: (e) => {
       /* One line per transition, on stderr and the persisted log so it survives.
@@ -889,6 +899,6 @@ function superviseStreaming(spec, opts) {
 
 module.exports = {
   THROTTLE_MS, POLL_MS, REGISTRATION_GRACE_MS,
-  isAlive, ourLiveSession, ensureRunning, supervise, superviseStreaming, specFromArgv,
+  isAlive, ourLiveSession, ensureRunning, supervise, superviseStreaming, specFromArgv, usageDirFor,
   setLiveReader, liveSessions, main,
 };

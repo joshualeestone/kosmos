@@ -50,6 +50,9 @@ ZIP="${1:-}"
 [ -f "$ZIP" ] || { echo "publish-win: no such zip: $ZIP" >&2; exit 1; }
 
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
+# kosmos#6620: no release pointer moves while the site is frozen (tools/pointer-freeze.sh, the incident pin).
+. "$(cd "$(dirname "$0")" && pwd)/lib/pointer-freeze.sh" || { echo "publish-win: cannot load tools/lib/pointer-freeze.sh" >&2; exit 1; }
+pointer_freeze_refuse "$SITE" publish-kosmos-windows.sh || exit 1
 ARCH="${KOSMOS_WIN_ARCH:-x64}"
 # Which channel this publish writes: KOSMOS_WIN_CUT_CHANNEL, deliberately NOT the Mac cut's
 # KOSMOS_CUT_CHANNEL. That one defaults to prod in release.sh, so sharing it meant an operator who

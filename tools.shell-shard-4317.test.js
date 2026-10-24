@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const cp = require('node:child_process');
 const sh = require('./tools/shell-shard');
 
 const ROOT = __dirname;
@@ -47,6 +48,60 @@ test('every test:shell command is in exactly one shard, for the shard count CI u
     assert.equal(new Set(union).size, new Set(all).size, `n=${n}: a command is in two shards`);
     for (const [k, s] of shards.entries()) assert.ok(s.length > 0, `n=${n}: shard ${k + 1} is empty`);
   }
+});
+
+test('#6791: linux and mac split test:shell exactly, as the macOS-only list says, and every listed command exists', () => {
+  const all = sh.commands();
+  const text = fs.readFileSync(sh.MAC_ONLY_FILE, 'utf8');
+  const mac = sh.macOnly(text, all);
+  const twice = sh.bothOf(text);
+  assert.ok(mac.size > 0, 'tools/shell-macos-only.txt lists nothing');
+  const linux = sh.forPlatform(all, 'linux');
+  const onMac = sh.forPlatform(all, 'mac');
+  assert.deepEqual([...new Set([...linux, ...onMac])].sort(), [...all].sort(), 'a command runs on neither platform');
+  assert.ok(linux.every((c) => !mac.has(c) || twice.has(c)), 'a listed command not marked both: runs on linux');
+  assert.ok([...twice].every((c) => linux.includes(c)), 'a both: command is missing from linux');
+  assert.ok([...mac].every((c) => onMac.includes(c)), 'a listed command does not run on mac');
+  // Review 3: the only commands on both are syntax-only checks and the `both:` lines (#6799); every syntax check
+  // runs on mac (bash 3.2's /bin/sh).
+  const both = linux.filter((c) => onMac.includes(c));
+  assert.ok(both.length > 50, `only ${both.length} commands on both platforms: the syntax checks are not on mac`);
+  assert.ok(both.every((c) => sh.SYNTAX_ONLY.test(c) || twice.has(c)), 'a command neither a syntax check nor marked both: runs on both: ' + both.filter((c) => !sh.SYNTAX_ONLY.test(c) && !twice.has(c)).join('; '));
+  assert.deepEqual(all.filter((c) => sh.SYNTAX_ONLY.test(c)).filter((c) => !onMac.includes(c)), [], 'a syntax check is missing from the mac job');
+  assert.ok(onMac.includes('sh -n install/setup.sh'), 'CONTROL: the installer\u2019s sh -n runs on mac');
+  assert.deepEqual(onMac.filter((c) => !sh.SYNTAX_ONLY.test(c)).sort(), [...mac].sort(), 'mac runs the listed commands and syntax checks, nothing else');
+  assert.deepEqual(sh.forPlatform(all, ''), all, 'no platform (a local full run) is the whole list, in order');
+  // The linux shards still cover every linux command exactly once.
+  const union = Array.from({ length: sh.SHELL_SHARDS }, (_, k) => sh.select(linux, k + 1, sh.SHELL_SHARDS)).flat();
+  assert.deepEqual(union.sort(), [...linux].sort());
+});
+
+test('#6799: a `both:` line runs on mac and stays on linux; an unmarked line leaves linux; a stale both: line refuses', () => {
+  const list = ['bash a.sh', 'bash b.sh', 'bash c.sh'];
+  const text = '# why\nbash b.sh\nboth: bash c.sh\n';
+  assert.deepEqual([...sh.macOnly(text, list)].sort(), ['bash b.sh', 'bash c.sh']);
+  assert.deepEqual([...sh.bothOf(text)], ['bash c.sh']);
+  assert.deepEqual(sh.forPlatform(list, 'linux', sh.macOnly(text, list), sh.bothOf(text)), ['bash a.sh', 'bash c.sh']);
+  assert.deepEqual(sh.forPlatform(list, 'mac', sh.macOnly(text, list), sh.bothOf(text)), ['bash b.sh', 'bash c.sh']);
+  assert.deepEqual(sh.forPlatform(list, 'linux', sh.macOnly(text, list)), ['bash a.sh'], 'CONTROL: without the both set, a listed line leaves linux');
+  assert.throws(() => sh.macOnly('both: bash gone.sh\n', list), /does not have: bash gone\.sh/);
+});
+
+test('#6791: a stale line in the macOS-only list refuses, and so does an unknown platform; comments and blanks are ignored', () => {
+  const list = ['bash a.sh', 'bash b.sh', 'sh -n c.sh'];
+  assert.deepEqual([...sh.macOnly('# why\n\nbash b.sh\n  # indented comment\n', list)], ['bash b.sh']);
+  assert.throws(() => sh.macOnly('bash gone.sh\n', list), /names commands test:shell does not have: bash gone\.sh/);
+  const mac = new Set(['bash b.sh']);
+  assert.deepEqual(sh.forPlatform(list, 'linux', mac), ['bash a.sh', 'sh -n c.sh']);
+  assert.deepEqual(sh.forPlatform(list, 'mac', mac), ['bash b.sh', 'sh -n c.sh'], 'mac also runs every syntax check');
+  assert.throws(() => sh.forPlatform(list, 'bsd', mac), /platform must be linux or mac/);
+  // The CLI takes it as a fourth word and refuses a bad one with exit 2.
+  const r = cp.spawnSync(process.execPath, [path.join(__dirname, 'tools', 'shell-shard.js'), 'list', '1', '1', 'bsd'], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /platform must be linux or mac/);
+  const ok = cp.spawnSync(process.execPath, [path.join(__dirname, 'tools', 'shell-shard.js'), 'list', '1', '1', 'mac'], { encoding: 'utf8' });
+  assert.equal(ok.status, 0);
+  assert.deepEqual(ok.stdout.trim().split('\n').sort(), sh.forPlatform(sh.commands(), 'mac').sort(), 'CONTROL: the CLI lists the mac share');
 });
 
 test('a command\'s shard depends on the command alone, not on its place in the list', () => {
@@ -193,15 +248,19 @@ test('test.yml runs the node part once and every shell shard once, and `test` ne
   assert.ok(suite, 'test.yml has no suite job');
   const include = suite.strategy.matrix.include;
   assert.deepEqual(include.filter((m) => m.part === 'node').length, 1, 'the node part must run exactly once');
-  const shards = include.filter((m) => m.part === 'shell').map((m) => m.shard).sort();
+  // #6791: the Linux-safe commands in shards 1..SHELL_SHARDS, and the macOS-only ones in one job of their own.
+  const shards = include.filter((m) => m.part === 'shell' && m.platform === 'linux').map((m) => m.shard).sort();
   const want = Array.from({ length: sh.SHELL_SHARDS }, (_, k) => `${k + 1}/${sh.SHELL_SHARDS}`).sort();
-  assert.deepEqual(shards, want, 'the matrix must run shards 1..SHELL_SHARDS of SHELL_SHARDS, each once');
-  assert.equal(include.length, 1 + sh.SHELL_SHARDS, 'nothing else in the matrix');
+  assert.deepEqual(shards, want, 'the matrix must run linux shards 1..SHELL_SHARDS of SHELL_SHARDS, each once');
+  assert.deepEqual(include.filter((m) => m.part === 'shell' && m.platform === 'mac').map((m) => m.shard), ['1/1'], 'the macOS-only commands run in exactly one job, whole');
+  assert.equal(include.length, 2 + sh.SHELL_SHARDS, 'nothing else in the matrix');
+  assert.equal(include.find((m) => m.part === 'node').platform, undefined, 'the node part takes no platform');
   assert.equal(suite.strategy['fail-fast'], false, 'one red shard must not cancel the others');
   const run = suite.steps.find((s) => /run-tests\.sh/.test(String(s.run || '')));
   assert.ok(run, 'the suite job runs tools/run-tests.sh');
   assert.equal(run.env.KOSMOS_TEST_PART, '${{ matrix.part }}');
   assert.equal(run.env.KOSMOS_SHELL_SHARD, '${{ matrix.shard }}');
+  assert.equal(run.env.KOSMOS_SHELL_PLATFORM, '${{ matrix.platform }}');
   const agg = wf.jobs.test;
   assert.ok(agg, 'the check named test is gone');
   // #5488: `test` also needs `scope`, which may name a green run whose verdict a plans-only push reuses.
@@ -267,7 +326,7 @@ test('run-tests.sh refuses a bad part, a bad or misplaced shard, and node argume
   const stub = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-4317-stub-'));
   for (const bin of ['node', 'yarn']) fs.writeFileSync(path.join(stub, bin), '#!/bin/sh\nexit 97\n', { mode: 0o755 });
   const base = { ...process.env, PATH: stub + path.delimiter + process.env.PATH, GITHUB_ACTIONS: 'true' };
-  delete base.KOSMOS_TEST_PART; delete base.KOSMOS_SHELL_SHARD; delete base.KOSMOS_TEST_PART_LOCAL;
+  delete base.KOSMOS_TEST_PART; delete base.KOSMOS_SHELL_SHARD; delete base.KOSMOS_TEST_PART_LOCAL; delete base.KOSMOS_SHELL_PLATFORM;
   t.after(() => fs.rmSync(stub, { recursive: true, force: true }));
   const cases = [
     [{ KOSMOS_TEST_PART: 'bogus' }, [], /KOSMOS_TEST_PART must be all, node or shell/],
@@ -275,6 +334,9 @@ test('run-tests.sh refuses a bad part, a bad or misplaced shard, and node argume
     [{ KOSMOS_TEST_PART: 'node', KOSMOS_SHELL_SHARD: '1/2' }, [], /only with KOSMOS_TEST_PART=shell/],
     [{ KOSMOS_TEST_PART: 'shell', KOSMOS_SHELL_SHARD: '2' }, [], /must be i\/n/],
     [{ KOSMOS_TEST_PART: 'shell', KOSMOS_SHELL_SHARD: 'x/2' }, [], /must be i\/n/],
+    /* #6791: a platform only with a shard, and only linux or mac. */
+    [{ KOSMOS_TEST_PART: 'shell', KOSMOS_SHELL_PLATFORM: 'linux' }, [], /KOSMOS_SHELL_PLATFORM must be linux or mac and only with KOSMOS_SHELL_SHARD/],
+    [{ KOSMOS_TEST_PART: 'shell', KOSMOS_SHELL_SHARD: '1/2', KOSMOS_SHELL_PLATFORM: 'bsd' }, [], /KOSMOS_SHELL_PLATFORM must be linux or mac/],
     [{ KOSMOS_TEST_PART: 'shell' }, ['engine/store.test.js'], /takes no node --test arguments/],
     /* Outside CI, an inherited part must not narrow a cut's or a validation's `yarn test`. */
     [{ GITHUB_ACTIONS: '', KOSMOS_TEST_PART: 'node' }, [], /outside CI, set KOSMOS_TEST_PART_LOCAL=1/],
@@ -294,13 +356,54 @@ test('run-tests.sh: the default part is all, so `yarn test` still runs the node 
   const src = fs.readFileSync(path.join(ROOT, 'tools', 'run-tests.sh'), 'utf8');
   assert.match(src, /KOSMOS_TEST_PART="\$\{KOSMOS_TEST_PART:-all\}"/);
   assert.match(src, /echo "run-tests: running ONLY the \$KOSMOS_TEST_PART part of the suite/, 'a part says so in the log');
-  assert.match(src, /if \[ "\$NODE_STATUS" -eq 0 \] && \[ "\$KOSMOS_TEST_PART" != node \]; then\n\s+if \[ -n "\$\{KOSMOS_SHELL_SHARD:-\}" \]/, 'the shell half runs for every part but node, so the default all runs it');
+  // #6977: the cut-shape wrap's setup sits between the two: at most 20 lines, none of which exits, returns, sets
+  // NODE_STATUS or runs a shard, so none of them can end or stand in for the shell part.
+  assert.match(src, /if \[ "\$NODE_STATUS" -eq 0 \] && \[ "\$KOSMOS_TEST_PART" != node \]; then\n(?:[ \t]+(?!if \[ -n "\$\{KOSMOS_SHELL_SHARD)(?![^\n]*(?:\b(?:exit|return)\b|\bNODE_STATUS=|shell-shard\.js))[^\n]*\n){0,20}[ \t]+if \[ -n "\$\{KOSMOS_SHELL_SHARD:-\}" \]/, 'the shell half runs for every part but node, so the default all runs it');
   assert.match(src, /\*\) echo "run-tests: KOSMOS_TEST_PART must be all, node or shell/);
   assert.match(src, /if \[ "\$KOSMOS_TEST_PART" != shell \]; then\nnode --test --require/, 'the node --test line must stay flush left (three guards find it by ^node --test)');
   // #5907: an unsharded run is the whole list as shard 1 of 1, through the runner that times each command.
-  assert.match(src, /else\n(\s+#.*\n)*\s+node "\$REPO\/tools\/shell-shard\.js" run 1 1\n\s+fi/, 'an unsharded run must run the whole list as shard 1 of 1');
+  assert.match(src, /else\n(\s+#.*\n)*\s+(\$\{_rt_shell_wrap\[@\]\+"\$\{_rt_shell_wrap\[@\]\}"\} )?node "\$REPO\/tools\/shell-shard\.js" run 1 1\n\s+fi/, 'an unsharded run must run the whole list as shard 1 of 1');
   assert.doesNotMatch(src, /^\s*yarn\b/m, 'no line of run-tests.sh may run yarn: the shell part goes through shell-shard.js');
-  assert.match(src, /if \[ -n "\$\{KOSMOS_SHELL_SHARD:-\}" \]; then\n\s+node "\$REPO\/tools\/shell-shard\.js" run "\$\{KOSMOS_SHELL_SHARD%\/\*\}" "\$\{KOSMOS_SHELL_SHARD#\*\/\}"/, 'the shard arm must RUN its shard');
+  assert.match(src, /if \[ -n "\$\{KOSMOS_SHELL_SHARD:-\}" \]; then\n\s+(\$\{_rt_shell_wrap\[@\]\+"\$\{_rt_shell_wrap\[@\]\}"\} )?node "\$REPO\/tools\/shell-shard\.js" run "\$\{KOSMOS_SHELL_SHARD%\/\*\}" "\$\{KOSMOS_SHELL_SHARD#\*\/\}"/, 'the shard arm must RUN its shard');
   assert.match(src, /grep -Eq '\^\[0-9\]\+\/\[0-9\]\+\$'/, 'a shard that is not i/n is refused');
   assert.match(src, /\[ "\$KOSMOS_TEST_PART" != shell \] \|\|/, 'a shard outside a shell-only run is refused');
+});
+
+test('#6799: the list header states how many commands it lists (test.yml points readers to it)', () => {
+  // Only the listed count is asserted: an edit to this list is the only thing that changes it. The Linux share moves
+  // with every test:shell command added anywhere, so pinning it here would red unrelated PRs (it did, on #6814).
+  const text = fs.readFileSync(sh.MAC_ONLY_FILE, 'utf8');
+  const all = sh.commands();
+  const listed = (t) => {
+    const m = t.match(/That is (\d+) here\./);
+    assert.ok(m, 'the header no longer says "That is N here."');
+    return Number(m[1]);
+  };
+  assert.equal(listed(text), sh.macOnly(text, all).size, 'the header\'s count differs from the list');
+  const off = text.replace(/That is (\d+) here/, (_, n) => `That is ${Number(n) + 1} here`);
+  assert.notEqual(listed(off), sh.macOnly(text, all).size, 'CONTROL: a header one count off must not match');
+});
+
+test('#6791 review 2: run-tests.sh hands its platform to shell-shard.js (a lost forward would turn the macOS job into all of test:shell, green)', () => {
+  const stub = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-6791-stub-'));
+  const log = path.join(stub, 'argv.log');
+  fs.writeFileSync(path.join(stub, 'node'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexit 0\n`, { mode: 0o755 });
+  const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(KOSMOS|AGENT_WORKFORCE)_/.test(k)));
+  const seen = (env) => {
+    fs.writeFileSync(log, '');
+    const r = cp.spawnSync('bash', [path.join(ROOT, 'tools', 'run-tests.sh')], {
+      cwd: ROOT, env: { ...base, PATH: stub + path.delimiter + base.PATH, GITHUB_ACTIONS: 'true', KOSMOS_TEST_PART: 'shell',
+        // the forward under test does not depend on the suite wait; another agent's suite on the same Mac must not
+        // hold this run past its timeout (as test-runner-scale-export-5727 runs it)
+        KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_SUITE: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1', ...env }, encoding: 'utf8', timeout: 120000,
+    });
+    assert.equal(r.status, 0, `${JSON.stringify(env)}: exit ${r.status}: ${r.stderr.slice(-400)}`);
+    return fs.readFileSync(log, 'utf8').split('\n').filter((l) => /shell-shard\.js/.test(l));
+  };
+  try {
+    const shardJs = path.join(ROOT, 'tools', 'shell-shard.js');
+    assert.deepEqual(seen({ KOSMOS_SHELL_SHARD: '1/1', KOSMOS_SHELL_PLATFORM: 'mac' }), [`${shardJs} run 1 1 mac`]);
+    assert.deepEqual(seen({ KOSMOS_SHELL_SHARD: '2/2', KOSMOS_SHELL_PLATFORM: 'linux' }), [`${shardJs} run 2 2 linux`]);
+    assert.deepEqual(seen({ KOSMOS_SHELL_SHARD: '1/2' }), [`${shardJs} run 1 2`], 'CONTROL: no platform, no fourth word');
+  } finally { fs.rmSync(stub, { recursive: true, force: true }); }
 });

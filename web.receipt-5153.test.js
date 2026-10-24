@@ -23,6 +23,8 @@ function bundle() {
     + lift('usageRowTokenTotal') + '\n'
     + lift('usageModelPrice') + '\n'
     + lift('usageApiCost') + '\n'
+    + lift('tkReceiptPrsHtml') + '\n'
+    + lift('tkTokensAndCost') + '\n'
     + lift('tkReceiptAgentHtml') + '\n'
     + lift('tkReceiptHtml') + '\n'
     + 'function tkMemberName(p, sn) { return sn === "ann" ? "Ann <Lee>" : sn; }\n'
@@ -45,6 +47,24 @@ test('a Claude agent: files, a command count, tokens and an at-API-prices figure
   assert.doesNotMatch(t, /undo/i, 'no undo is offered in this slice');
 });
 
+test('#6842: the pull requests the agent worked on sit under its cost; a link only to a github.com pull request', () => {
+  const models = { 'claude-fable-5': buckets(1e6, 0, 0, 0) };
+  const base = { who: 'ann', available: true, transcriptsWithWork: 1, models, files: [], filesMore: 0, commands: 1 };
+  const one = B.tkReceiptAgentHtml({ ...base, prs: [{ repo: 'acme/app', number: 12, url: 'https://github.com/acme/app/pull/12' }], prsMore: 0 });
+  assert.match(text(one), /\$10 at API prices\. Worked on pull request app#12 ?\(opens in your browser\) ?\./);   // text() turns tags into spaces; the hidden words are for screen readers
+  assert.match(one, /<a href="https:\/\/github\.com\/acme\/app\/pull\/12" target="_blank" rel="noopener noreferrer"/);
+  assert.match(one, /app#12<span class="vh"> \(opens in your browser\)<\/span><\/a>/, 'a new tab is announced to a screen reader, as every other such link on the page');
+  const many = text(B.tkReceiptAgentHtml({ ...base, prs: [{ repo: 'acme/app', number: 1, url: null }, { repo: 'acme/relay', number: 2, url: null }], prsMore: 3 }));
+  assert.match(many, /Worked on pull requests app#1 ?, relay#2 ?and 3 more\./);
+  const bad = B.tkReceiptAgentHtml({ ...base, prs: [{ repo: 'acme/<b>x', number: 5, url: 'javascript:alert(1)' }] });
+  assert.doesNotMatch(bad, /<a /, 'no link but to a github.com pull request');
+  assert.doesNotMatch(bad, /<b>x/, 'the repo is escaped');
+  assert.match(text(B.tkReceiptAgentHtml({ ...base, prs: [null, { repo: 'acme/app', number: 9, url: null }] })), /Worked on pull request app#9/, 'a null entry is skipped, not a broken receipt');
+  for (const prs of [undefined, []]) {
+    assert.doesNotMatch(text(B.tkReceiptAgentHtml({ ...base, prs })), /pull request/i, 'no prs (an older receipt) or none: nothing said');
+  }
+});
+
 test('an unpriced model is named, never guessed', () => {
   const t = text(B.tkReceiptAgentHtml({ available: true, transcriptsWithWork: 1, models: { 'claude-unknown-9': buckets(10, 10, 0, 0) }, files: [], commands: 0 }, 'Ann'));
   assert.match(t, /no published price for claude-unknown-9/);
@@ -65,6 +85,8 @@ test('the whole receipt: names escaped, the basis stated, put-backs and hand-off
   assert.ok(html.includes('<h3 class="dlab">Receipt</h3>'), 'the column\'s kicker heading');
   assert.match(text(html), /This task was put back 1 time and handed on 2 times\./);
   assert.match(text(B.tkReceiptHtml({ retries: {}, agents: [] }, {})), /^Done without being put back or handed on\. Receipt .*Nobody held this task/);
+  // #6923: a task closed as replaced says so, not done.
+  assert.match(text(B.tkReceiptHtml({ retries: {}, agents: [] }, {}, 5)), /^Receipt /, 'no summary line: the history already says it was replaced (Mona Lisa)');
 });
 
 test('two unpriced models read "which have"', () => {

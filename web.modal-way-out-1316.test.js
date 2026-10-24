@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 23,   // 23: #5393's At a glance sheet; 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice); 21: #4930's file preview; 22: #4649's invite sheet
-    `${found.length} modals now, up from 23 (#5393's At a glance sheet). A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 24,   // 24: #6722's picture editor; 23: #5393's At a glance sheet; 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice); 21: #4930's file preview; 22: #4649's invite sheet
+    `${found.length} modals now, up from 24 (#6722's picture editor). A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -59,6 +59,9 @@ const ESCAPES_VIA = {
   /* #3955: the "Kosmos has been updated" window. Its Escape is a document keydown listener that finds
      the window by id and closes it first (its backdrop id sits in WN_HTML so this sweep can name it). */
   whatsnew:         /getElementById\('whatsnew'\);\n\s*if \(!back \|\| wnCovered\(\)\) return;\n\s*if \(e\.key === 'Escape'\)/,
+  /* #6722: the picture editor. One keydown listener: while it is open, Escape cancels it (Cancel, nothing changes),
+     and (review 4) no key goes past it to a window under it. */
+  cropmodal:        /cropmodal'\)\.hidden\) return;\n\s*e\.stopImmediatePropagation\(\);[\s\S]{0,200}if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); cropFinish\(false\); return; \}/,
   updconfirm:       /Escape[\s\S]{0,300}updconfirm/,
   'hist-modal':     /Escape[\s\S]{0,300}hist-modal/,
   'pol-modal':      /pol-modal'\)\.hidden\) return;/,

@@ -127,7 +127,7 @@ test('THE FAIL-OPEN ARM: an UNREACHABLE check at create is NOT refused (fails op
        is ACTUALLY dead, the agent 401s on its FIRST turn (codex does no turn-1 re-check).
        The fail-open is deliberate — an unreachable check must never block a legitimate
        account on a network blip — so the fix is NOT to refuse here; it is to surface the
-       turn-1 401 as `auth_failed` ("Sign-in isn't working") on the running agent. That is
+       turn-1 401 as `auth_failed` ("Sign-in Issue" since #6716) on the running agent. That is
        a running-agent liveness read, filed as a follow-up in the state layer (#2019, Renet),
        not create-time work. This assertion pins the fail-open so a future change that starts
        REFUSING unreachable checks (blocking legit accounts) is caught here. */

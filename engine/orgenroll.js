@@ -182,6 +182,12 @@ function cleanOrg(o) {
      other value, or none (an older coordinator), is a company's, which joins with no screen (#5791). */
   return { id: o.id, name: externalName(o.name, NAME_MAX), slug: externalName(o.slug, NAME_MAX), kind: o.kind === 'family' ? 'family' : 'company' };
 }
+/* kosmos#6859: an answer that names no kind (an older coordinator's) does not make a join this board knows is a
+   family's into a company's record; read as a company's, it would let a child's agents out (orgpolicy.contactAllows). */
+function keepFamily(org, answered, kind) {
+  if (org && !(answered && answered.kind) && kind === 'family') org.kind = 'family';
+  return org;
+}
 function cleanList(a) {
   if (!Array.isArray(a)) return [];
   const { externalName } = require('./externalname');
@@ -286,6 +292,10 @@ const NAMES_EVERY_KOSMOS = /\bevery kosmos on this computer\b/i;
    carry it. The coordinator's consent_names_cap is pinned to the same phrase. The line must not say token, usage or
    cost: NAMES_USAGE would read it as consent to per-day usage, which the coordinator refuses. */
 const NAMES_CAP = /\bmonthly AI cap\b/i;
+/* kosmos#6842 slice 3: whether the accepted words name per-project token use (the tokens each project's finished tasks
+   used, by AI model, with their estimated cost), so the daily rollup may carry projectUsage. The coordinator's
+   names_project_usage (kosmos-relay coordinator/src/org.rs) reads the same phrase. A match on the phrase, as NAMES_EVERY_KOSMOS is. */
+const NAMES_PROJECT_USAGE = /\beach project's finished tasks\b/i;
 /* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
    words held for the hash an existing record carries. */
 const CONSENT_KEEP = 8;
@@ -321,7 +331,8 @@ function acceptedConsent(opts) {
        coordinator's "the agent, project, activity and token use lines above from every Kosmos on this computer"): a
        usage line alone covers this Kosmos's own. The coordinator's words are pinned by kosmos-relay
        coordinator/tests/api.rs (the company consent hash) and tools/family-e2e-6239.js here. */
-    everyKosmosUsageConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l) && NAMES_USAGE.test(l)), capConsented: reports.some((l) => NAMES_CAP.test(l)) };
+    everyKosmosUsageConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l) && NAMES_USAGE.test(l)), capConsented: reports.some((l) => NAMES_CAP.test(l)),
+    projectUsageConsented: reports.some((l) => NAMES_PROJECT_USAGE.test(l) && NAMES_USAGE.test(l)) };
 }
 /* #5791 (Josh 10-10: the company decided; no member consent step): the board takes the company's current words and
    re-accepts them itself, with no screen: the same codeless enroll a person's Accept used to send (review: true),
@@ -353,6 +364,39 @@ function consentWithdrawn(opts, hash) {
 // The coordinator's org.rs ROLES. reviewer (#5685, #5529) may view this work Kosmos's content, each view logged.
 const ROLES = new Set(['member', 'recovery', 'reviewer', 'admin']);
 function cleanRole(r) { return ROLES.has(r) ? r : null; }
+/* kosmos#6752: the reviewer grants a status answer names (kosmos#6594, relay #516: given in the last 30 days, removed
+   ones included, oldest first), kept on the record so the Settings company block can list them. Each keeps the
+   reviewer's name before the @, when the role was given, when it takes effect, and when it was removed, all Unix
+   seconds. The coordinator's `state` is not kept: it was true when the answer was made, and the record is read for up
+   to an hour after, so the page works it out from the times. A malformed entry is left out; the newest 20 are kept.
+   kosmos#6955 (relay #565): a reviewer made an admin or set back to member keeps their grant, ended (removedAt is when
+   the reviewer role ended), with roleNow (the role held now) and roleChangedAt (Unix seconds, absent if it never
+   changed), so the page can say why it ended. Any other role word, or a time that is not one, is dropped, not the grant.
+   Leaving does not change the coordinator's role, so a reviewer made an admin who then left still says admin: leftAt
+   (relay, kosmos#6955 review 1) is kept as sent, a time or null, and only an explicit null means still in the company. */
+const MAX_REVIEWER_GRANTS = 20;
+const GRANT_ROLES_NOW = new Set(['reviewer', 'admin', 'member']);   // kosmos#6955: relay #565 roleNow
+function cleanReviewerGrants(list) {
+  if (!Array.isArray(list)) return [];
+  const secs = (n) => (Number.isSafeInteger(n) && n > 0 ? n : null);
+  const out = [];
+  for (const g of list.slice(-200)) {
+    if (!g || typeof g !== 'object') continue;
+    // Control and direction-changing characters out: the name is shown as text, and must read as what it is.
+    const who = typeof g.who === 'string' ? g.who.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029\u061c\ufeff\u2060-\u2064\u180e\u00ad\u034f\ufff9-\ufffb\u{e0000}-\u{e007f}]/gu, '').trim().slice(0, 64) : '';
+    const grantedAt = secs(g.grantedAt);
+    if (!who || !grantedAt) continue;
+    const effectiveAt = g.effectiveAt == null ? grantedAt : secs(g.effectiveAt);
+    const removedAt = g.removedAt == null ? null : secs(g.removedAt);
+    if (!effectiveAt || (g.removedAt != null && !removedAt)) continue;
+    const roleNow = GRANT_ROLES_NOW.has(g.roleNow) ? g.roleNow : null;
+    const roleChangedAt = secs(g.roleChangedAt);
+    const leftAt = g.leftAt === null ? null : secs(g.leftAt);   // absent from an older coordinator: left out, not null
+    out.push({ who, grantedAt, effectiveAt, ...(removedAt ? { removedAt } : {}), ...(roleNow ? { roleNow } : {}),
+      ...(roleChangedAt ? { roleChangedAt } : {}), ...('leftAt' in g && (leftAt || g.leftAt === null) ? { leftAt } : {}) });
+  }
+  return out.slice(-MAX_REVIEWER_GRANTS);
+}
 
 /* The coordinator's public error codes (#5530), said in plain words. The tunnel passes its answer through on the last
    line of `because`, so the code is found anywhere in it; anything unrecognised keeps its own words. */
@@ -512,6 +556,30 @@ function pendingKind(opts) {
 /* kosmos#6263: the kind of the org this Kosmos is enrolled to, for sentences elsewhere (a policy's): 'family',
    'company', or null when it is enrolled to none or its record names no kind (both read as a company's). */
 function kindHere(opts) { return recKind(opts) || null; }
+/* kosmos#6859: the kind for a rule that must not fail open, from the files themselves (not through readers that
+   answer null on a fault): a pending join, the enrollment record and a pending leave, all three read, and a family's
+   if any of them says so (a move into a family keeps the old record until the join settles). A file that parses but
+   names no kind (from before kinds, or with an identity readEnrollment rejects) is a company's; a file that is there
+   but cannot be read, or is not a JSON object, throws. null only when none of the three is there. */
+function kindStrict(opts) {
+  const root = storeRoot(opts);
+  const from = (name, pick) => {
+    let j;
+    try { j = JSON.parse(fs.readFileSync(path.join(root, name), 'utf8')); } catch (e) {
+      if (e && e.code === 'ENOENT') return undefined;
+      throw new Error('this Kosmos holds an enrollment file that cannot be read');
+    }
+    if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('this Kosmos holds an enrollment file that cannot be read');
+    return pick(j) || null;
+  };
+  const kinds = [
+    from(JOIN_UNKNOWN_FILE, (j) => j.orgKind),
+    from(ENROLLMENT_FILE, (j) => j.org && j.org.kind),
+    from(LEAVE_PENDING_FILE, (j) => (j.rec && j.rec.org && j.rec.org.kind) || j.orgKind),
+  ];
+  if (kinds.every((k) => k === undefined)) return null;
+  return kinds.includes('family') ? 'family' : 'company';
+}
 /* The same, as the two words a reader or a key wants: 'family', else 'company' (one copy of that mapping). */
 function kindNow(opts) { return kindOf(kindHere(opts)); }
 function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; }
@@ -628,7 +696,9 @@ async function enrollNow(code, accepted, opts) {
     }
     r = { ok: true, data: st.data };
   }
-  const org = cleanOrg(r.data && r.data.org);
+  const was = readEnrollment(opts);   // kosmos#6859: this board's record of the same org keeps its kind too
+  const sameOrg = was && r.data && r.data.org && was.org.id === r.data.org.id;
+  const org = keepFamily(cleanOrg(r.data && r.data.org), r.data && r.data.org, sameOrg && was.org.kind === 'family' ? 'family' : opts && opts.orgKind);
   const role = cleanRole(r.data && r.data.role);
   const en = r.data && r.data.enrolled;
   /* #5530 review 2: thisComputer says the CALLING signer is the enrolled one. It catches a world id copied WITHOUT the
@@ -648,6 +718,13 @@ async function enrollNow(code, accepted, opts) {
   // A review's Accept is not a new enrollment: it keeps the date this Kosmos joined (orgreview review 1).
   const prior = review ? held : null;
   const rec = { org, role, world, enrolledAt: prior && prior.world === world && typeof prior.enrolledAt === 'string' ? prior.enrolledAt : new Date().toISOString() };
+  /* kosmos#6817 review 1: a review's Accept keeps the reviewer list and the time it was confirmed, for the same company,
+     so a coordinator that then cannot read the grants still has a list to keep (the next refresh replaces it). */
+  if (prior && prior.world === world && prior.org && prior.org.id === org.id && Array.isArray(prior.reviewerGrants)
+    && prior.reviewerGrants.length && Number.isFinite(prior.reviewerGrantsAt)) {
+    rec.reviewerGrants = cleanReviewerGrants(prior.reviewerGrants);
+    rec.reviewerGrantsAt = prior.reviewerGrantsAt;
+  }
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
   /* A print sent and NOT pinned (rollup review 16): the company says the salt is not the one on record, or its binding
      write failed, so this computer's reports would not match whatever print it holds. The join stands, but its words
@@ -800,15 +877,17 @@ async function settleUnknownJoin(unsure, opts) {
   const verdict = statusVerdict(d, world);
   if (verdict === 'unclear') return { ok: false, enrolled: false, because: inKind(KIND, "Your company's answer was not complete.") };
   if (verdict !== 'here' && !old) return { ok: false, enrolled: false, because: 'Too soon to say the join was not made.' };   // kept
-  setJoinUnknown(null, opts);
+  /* kosmos#6859: the marker is removed after what replaces it is written (the record, or the undo's pending leave),
+     since orgenroll.kindStrict reads a computer with none of the three files as joined to nobody. */
   if (verdict === 'here') {
-    const org = cleanOrg(d.org), role = cleanRole(d.role);
-    if (!org || !role) return { ok: false, enrolled: false, because: inKind(KIND, "Your company's answer was not complete.") };
+    const org = keepFamily(cleanOrg(d.org), d.org, KIND), role = cleanRole(d.role);
+    if (!org || !role) { setJoinUnknown(null, opts); return { ok: false, enrolled: false, because: inKind(KIND, "Your company's answer was not complete.") }; }
     const rec = { org, role, world, enrolledAt: new Date().toISOString() };
     if (unsure.consentHash) rec.consentHash = unsure.consentHash;
     if (unsure.computerSalt) rec.computerSalt = unsure.computerSalt;   // #5532: the salt the join's print was made with
     if (unsure.printPinned === true) rec.printPinned = true;
-    try { writeEnrollment(rec, opts); } catch { setJoinUnknown(unsure, opts); return { ok: false, enrolled: false, because: "This Kosmos's data folder could not be written." }; }
+    try { writeEnrollment(rec, opts); } catch { return { ok: false, enrolled: false, because: "This Kosmos's data folder could not be written." }; }   // the marker is still there
+    setJoinUnknown(null, opts);
     setStopped(null, opts);
     setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now (review 35)
     // kosmos#5686 (b1-mac): the join a person made (its marker exists only after their Accept) starts its own pin, but
@@ -821,8 +900,10 @@ async function settleUnknownJoin(unsure, opts) {
     // The join's own salt, company and whether it sent a print, from the marker (review 17), so the undo carries the print.
     const joinPrint = { computerSalt: unsure.computerSalt || undefined, orgId: unsure.orgId || undefined, printSent: unsure.printPinned === true, orgKind: KIND || undefined };   // kosmos#6251 board review 5: the undo is said in the join's kind
     setLeavePending(true, Object.assign({}, opts, joinPrint), null, true, unsure.consentHash);   // bound elsewhere: the undo is sent by the pending-leave path
+    setJoinUnknown(null, opts);
     return leaveNow(opts, true);
   }
+  setJoinUnknown(null, opts);
   return { ok: true, enrolled: false };
 }
 /* The company names THIS world's id (on this computer or another): what a join of this world left. NOT "no world at all":
@@ -997,7 +1078,10 @@ async function refreshNow(opts) {
   const before = readEnrollment(opts);
   // kosmos#6251 (board review 4): the kind of the record read here, after the paths above that settle or leave first.
   const KIND = before && before.org ? before.org.kind : null;
-  if (before && joinUnknown(opts)) setJoinUnknown(null, opts);   // a record settles it: no follow-up beside one (review 27)
+  if (before && fs.existsSync(path.join(storeRoot(opts), JOIN_UNKNOWN_FILE))) setJoinUnknown(null, opts);   // a record settles it: no follow-up beside one (review 27)
+  // kosmos#6859: a join marker that cannot be read says nothing and is removed, as one beside a record is above;
+  // kept, orgenroll.kindStrict would read it as damage and keep outside contact closed for good.
+  if (!before && !joinUnknown(opts) && fs.existsSync(path.join(storeRoot(opts), JOIN_UNKNOWN_FILE))) setJoinUnknown(null, opts);
   const unsure = before ? null : joinUnknown(opts);
   if (unsure) return settleUnknownJoin(unsure, opts);
   /* No local world id: nothing can match, so nothing is asked (review 14). A missing id file means the record is stale
@@ -1025,7 +1109,25 @@ async function refreshNow(opts) {
   const org = cleanOrg(d.org);
   const role = cleanRole(d.role);
   if (!org || !role) return { ok: false, because: inKind(KIND, 'Your company\'s answer was not complete.'), enrolled: !!before };
+  // kosmos#6859: an org's kind does not change, so an answer that names none (an older coordinator's) leaves a
+  // family's record a family's; read as a company's, it would let a child's agents out (orgpolicy.contactAllows).
+  keepFamily(org, d.org, before && before.org && before.org.id === org.id ? before.org.kind : null);
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
+  /* kosmos#6752: this answer's reviewer grants. kosmos#6817: a coordinator sends [] for none and leaves the field out
+     only when it could not read them (kosmos-relay #542), so an answer WITHOUT the field keeps the list this record
+     had, for the same world and company, with the time it was last confirmed (`reviewerGrantsAt`, epoch ms); the page
+     says how old a list is and drops grants past 30 days itself. An older coordinator never sends the field, so its
+     records never have a list to keep. */
+  if (Array.isArray(d.reviewerGrants)) {
+    const grants = cleanReviewerGrants(d.reviewerGrants);
+    if (grants.length) rec.reviewerGrants = grants;
+    rec.reviewerGrantsAt = Date.now();
+  } else if (before && before.world === world && before.org && before.org.id === org.id
+    && Array.isArray(before.reviewerGrants) && before.reviewerGrants.length && Number.isFinite(before.reviewerGrantsAt)) {
+    // Review 1: only a list with a confirmed time is kept; one without came from before "absent" meant "unread".
+    rec.reviewerGrants = cleanReviewerGrants(before.reviewerGrants);
+    rec.reviewerGrantsAt = before.reviewerGrantsAt;
+  }
   // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
   if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
   // #5532: the salt belongs to the company its print was pinned for; a different company on the answer drops it (review 11).
@@ -1090,6 +1192,7 @@ function applyPolicy(token, opts, orgId) {
 
 module.exports = {
   onEnrollmentEnded,   // #6232 review 10
-  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindNow, kindOf, codeOf,
+  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindStrict, kindNow, kindOf, codeOf,
+  cleanReviewerGrants, MAX_REVIEWER_GRANTS, // kosmos#6752
   worldId, siblingId, SIBLING_ID_FILE, STOPPED_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, stoppedKind, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, memberCheck, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };

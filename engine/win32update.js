@@ -1794,6 +1794,10 @@ async function begin(opts) {
   /* #4382: resumeOnly asks only for the unfinished-journal handling above (a computer with no board, whose
      logon shim never runs to resume one), never for a new install. */
   if (o.resumeOnly) return { ok: false, because: 'there is no unfinished update to finish' };
+  // kosmos#6620: a new install waits out the fleet's update pause (finishing an earlier one, above, does not).
+  if (await manifestVerify.pausedAsync({ env, fetchImpl: o.fetchImpl })) {
+    return { ok: false, because: manifestVerify.PAUSED_SENTENCE };
+  }
 
   const script = path.join(root, 'app', 'engine', path.basename(__filename));
   if (!fs.existsSync(script) || !fs.existsSync(path.join(root, 'app', 'engine', apply.MODULE_FILE_NAME))) {

@@ -294,7 +294,8 @@ test('#6214: the board wires the stop route, the strict account read, the sync +
   assert.match(server.slice(stopAt, stopAt + 300), /const stopped = accountmove\.stop\(\);\n\s+sendJson\(res, stopped\.status, stopped\.body\);/);
   assert.match(server, /function moveStoppableNote\(\) \{ return accountmove\.busy\(\) \? \{ moveStoppable: true \} : \{\}; \}/);
   /* Every refusal for a held board says whether a stop would help, so each page can offer it. */
-  const refusals = server.match(/if \((?:!isNoop && )?moveHoldsBoard\(\)\) \{ sendJson\(res, 409, \{[^\n]*\}\); return; \}/g) || [];
+  // #6903: the two update routes answer through their logging `say(...)`; the other refusals through sendJson.
+  const refusals = server.match(/if \((?:!isNoop && )?moveHoldsBoard\(\)\) \{ (?:sendJson\(res, |say\()409, \{[^\n]*\}\); return; \}/g) || [];
   assert.equal(refusals.length, 4, `expected the four board-restart refusals, found ${refusals.length}`);
   for (const r of refusals) assert.ok(r.includes('...moveStoppableNote()'), `a refusal does not offer the stop: ${r}`);
 });

@@ -109,6 +109,8 @@ const RESTART_MAX_MS = 60000;
 /* A connection that lasted this long resets the restart backoff. */
 const STABLE_MS = 30000;
 const MAC_EDGES = '/v1/mac/federation/edges';
+// kosmos#7028: the account's computers (unretired, unheld), each naming its mac id.
+const MAC_COMPUTERS = '/v1/mac/account-computers';
 
 /* projectId -> { child, edge, status, backoff, timer, ended, stopped, starting, inbound, inday }
    inbound: this minute's { since, count, bytes }; inday: this UTC day's { day, bytes, rows, noted, minuteNoted } */
@@ -135,10 +137,14 @@ let deps = null;
  *                                 gets no seat (#3851)
  *   note(projectId, text)         optional; Kosmos's own line in the room, used to
  *                                 say a post did not go out or messages were dropped
+ *   macId() -> string             optional; this computer's Kosmos+ id (#4658: an own
+ *                                 computer names itself in key-own-hello; without it
+ *                                 it never asks for a sealed room's key)
  */
 function configure(d) {
   deps = d;
   macEdges = null;   // an answer from the previous wiring is not this one's
+  macComputers = null;   // kosmos#7028: likewise
 }
 
 /** Whether the board wired an optional dependency (a test's check that server.js
@@ -178,6 +184,9 @@ function handleEvent(projectId, line, heldAt) {
   // The backoff resets only once a connection has lasted (see the exit handler),
   // so a seat that connects and drops at once still backs off.
   if (ev.event === 'connected') {
+    // kosmos#7028: the connector says connected again after each ticket renewal (about every four minutes); only a
+    // seat coming up from not connected restarts an own computer's rejoin clock.
+    if (s.status !== 'connected') s.upSince = Date.now();
     setStatus(projectId, 'connected'); s.connectedAt = Date.now(); s.macNoted = false; s.endedNoted = false;
     // #3728: the room id both ends share (the coordinator derives it per project); it is bound into every seal.
     s.room = typeof ev.room === 'string' && ev.room ? ev.room : null;
@@ -230,7 +239,7 @@ function handleEvent(projectId, line, heldAt) {
   if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to ' + farSide(projectId) + ': ' + clean(ev.because, 200) + '.'); return; }
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && !Array.isArray(ev.data)) {
     // #3728: key frames are the room's handshake, never a row.
-    if (typeof ev.data.t === 'string' && ev.data.t.startsWith('key-')) { onKeyFrame(projectId, s, ev.data); return; }
+    if (typeof ev.data.t === 'string' && ev.data.t.startsWith('key-')) { onKeyFrame(projectId, s, ev.data, ev.same_account === true); return; }
     const sealed = roomSeal(projectId);
     const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, sealLink(projectId));
     if (sealedRoom === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from ' + farSide(projectId) + ' was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
@@ -261,11 +270,16 @@ function handleEvent(projectId, line, heldAt) {
       if (!opened && ahead) {
         if (s.behindArmedAt !== sealed.epoch) {
           s.behindArmedAt = sealed.epoch;
-          s.behind = { epoch: ev.data.epoch, until: now + BEHIND_HOLD_MS };
+          s.behind = { epoch: ev.data.epoch, until: now + BEHIND_HOLD_MS, at: now };
+        } else if (sealed.ownComputer === true && s.behind && Number.isFinite(s.behind.at)
+          && now - Math.max(s.behind.at, Number.isFinite(s.upSince) ? s.upSince : 0) >= OWN_REJOIN_MS) {
+          sealStep(projectId, () => ownRejoin(projectId, s, sealed.epoch));   // kosmos#7028: taken out of the key
+          return;
         }
         noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile. A post sent after that, before the new key arrives, may not be shown to the others.');
         return;
       }
+      if (!opened && !sealed && noteOwnSealed(projectId, s)) return;   // #4658: an own computer asks for the key
       if (!opened && !sealed) {
         // This computer joined before the owner sealed the room: it holds no key and never will from that code.
         noteOnce(projectId, s, 'sealedSince', 'The owner has sealed this shared room since this computer joined, so its messages cannot be read here. Ask the owner to remove you from the shared project and send you a new code.');
@@ -615,6 +629,12 @@ const HELD_MAX = INBOUND_PER_WINDOW;
    (nothing resends a refused post). Holding until the key arrives would let a forger pause
    a member indefinitely. */
 const BEHIND_HOLD_MS = 3 * 60 * 1000;
+/** kosmos#7028: an own computer still behind on the key this long after it first saw a newer one, counted from its last
+    connect too (time it was away is not time the owner could re-send in), was most likely taken out of the room
+    (retired, held, or removed on the owner's screen): the owner's board re-sends the key to every computer it keeps on
+    each connect and each minute's pass. It then asks to be let back in (ownRejoin). If the owner's board was away the
+    whole time, the cost is one code compare. A wall-clock step forward while armed can bring it early (NOT CLAIMED). */
+const OWN_REJOIN_MS = 10 * 60 * 1000;
 
 /** This room's seal state, null for a room with none, undefined when the record
     cannot be read (then nothing is sent or shown: we cannot tell). */
@@ -687,11 +707,12 @@ function acceptedKeys(st, now) {
 }
 /** #5191: how long the previous epoch opens after this room's last rotation. An owner
     rotates only on a revoke (rotateForRevoked), so every rotation gets the revoke grace,
-    a member's too (#5197), read from the rooms file alone. "A member" is a pinned member PEER: when #4658
-    lets the owner's own other computers in, they must count as the owner, never here. */
+    a member's too (#5197), read from the rooms file alone. kosmos#4658: an owner's own computer allowed into
+    the room (st.own) posts from another machine and learns a rotation late, as a member does, so it keeps the
+    grace too. */
 function graceAfter(st) {
   if (st.role !== 'owner') return REVOKE_GRACE_MS;
-  return Object.keys(st.peers || {}).length ? REVOKE_GRACE_MS : 0;
+  return Object.keys(st.peers || {}).length || Object.keys(st.own || {}).length ? REVOKE_GRACE_MS : 0;
 }
 /** The link for the seal decisions: null when there is none, undefined when the record
     cannot be read (safeLink turns that into null, which would read as "not sealed"). */
@@ -737,6 +758,7 @@ function sealStep(projectId, fn) {
 function sayHello(projectId, s) {
   const st = roomSeal(projectId);
   if (!st || st.role !== 'member' || hasKey(st) || !s.room) return;
+  if (st.ownComputer === true) { sayOwnHello(projectId, s); return; }
   try { sendFrame(s, fedseal.helloFrame(st.s, st.code, fedseal.sealingKey(), s.room)); } catch (err) {
     noteOnce(projectId, s, 'noKey', 'This computer could not use its sealing key, so this shared room cannot open yet: ' + String((err && err.message) || err));
   }
@@ -749,9 +771,261 @@ function sendRotates(projectId, s) {
   if (!hasKey(st) || st.role !== 'owner' || st.epoch < 1 || !s.room) return;
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
-  for (const pub of Object.keys(st.peers || {})) {
+  // #4658: the owner's own allowed computers too (kept apart from the guest peers, see ownWaiting).
+  for (const pub of Object.keys(st.peers || {}).concat(Object.keys(st.own || {}))) {
     try { sendFrame(s, fedseal.rotateFrame(me, pub, st.keys[st.epoch], st.epoch, s.room, Number.isSafeInteger(st.rotatedAt) ? st.rotatedAt : 0)); } catch { /* the next connect sends it again */ }
   }
+}
+
+/* ---- #4658: the owner's own computers in a sealed room ----
+   Decided on the card 10-24 (comments 6381074916, 6381275649, and 6381388572 for the exchange itself):
+   - An own computer (a `self` link) that sees its room sealed records member seal state marked own, with no key,
+     so it holds its posts rather than speaking in the clear, and runs the exchange in fedseal.js (hello with a
+     commitment, the owner's offer, its reveal) on each connect until it holds the key.
+   - Only the board holding the room's seal-OWNER state answers, and lists a computer once its reveal opens its
+     commitment. Allow there sends key-own-share and pins the computer in `st.own`, never in `st.peers` (every
+     peers reader means a guest). The new computer adopts that share only once its OWN person has confirmed the
+     same code (confirmOwn), and only from the owner key of the offer they confirmed.
+   - Every own frame must carry the relay's same_account stamp (kosmos#4657, written beside `data` where a sender
+     cannot reach it), so a guest in the room cannot take part; frames from an older relay without it are ignored.
+   - The member-side flag is `ownComputer: true`; `st.own` exists only on the seal owner, as the pinned map. */
+
+/** This computer's Kosmos+ id, or null (never throws into the seat's handlers). */
+function myMacId() {
+  try { return deps && typeof deps.macId === 'function' ? deps.macId() : null; } catch { return null; }
+}
+/** Own computer: the room is sealed and this computer has no key yet. */
+function sayOwnHello(projectId, s) {
+  const macId = myMacId();
+  let me;
+  try { me = fedseal.sealingKey(); } catch { return; }
+  if (typeof macId !== 'string' || !macId) {
+    noteOnce(projectId, s, 'ownNoId', 'This shared room is sealed, and this computer is not signed in to Kosmos+, so it cannot ask for the room\'s key yet. Its messages wait here until it can.');
+    return;
+  }
+  if (!s.room) return;
+  if (!s.ownRun || s.ownRun.room !== s.room || s.ownRun.mac !== macId) {
+    const nW = fedseal.randomSecret();
+    s.ownRun = { room: s.room, mac: macId, nW, commit: fedseal.ownCommit(nW), offer: null, confirmed: false, got: null };
+  }
+  try { sendFrame(s, fedseal.ownHelloFrame(me, macId, s.ownRun.nW)); } catch { /* the next connect says it again */ }
+  noteOnce(projectId, s, 'ownWaiting', 'This shared room is sealed. To read it on this computer, open this project on the computer that first shared it: a code appears on both screens, and once they match, press Allow there and "It matches" here.');
+}
+/** Own computer: the first sealed message tells it the room is sealed. True when it recorded so. */
+function noteOwnSealed(projectId, s) {
+  const link = safeLink(projectId);
+  if (!link || link.role !== 'self') return false;
+  try { fedseal.setRoomState(projectId, { role: 'member', ownComputer: true, keys: {} }); } catch {
+    noteOnce(projectId, s, 'ownSealUnsaved', 'This shared room is sealed, and this computer could not record that, so it cannot ask for the room\'s key yet. Kosmos tries again with the next message.');
+    return true;   // handled: the guest's "ask the owner for a new code" line is not this computer's
+  }
+  sayOwnHello(projectId, s);
+  return true;
+}
+/** Own computer: the owner's offer for this run's commitment. nW is revealed to ONE offer only. The same offer
+    again (the owner answering a repeated hello) gets the same reveal again, in case the first was lost. A
+    different offer after the reveal (the owner's board restarted, or someone else answering) ends an unconfirmed
+    run and starts a new one with a new nonce, never a second reveal of this one. */
+function waitingOffer(projectId, s, frame) {
+  const run = s.ownRun;
+  const st = roomSeal(projectId);
+  if (!run || run.room !== s.room || !st || st.ownComputer !== true || hasKey(st)) return;
+  let me;
+  try { me = fedseal.sealingKey(); } catch { return; }
+  const offer = fedseal.checkOwnOffer(frame, run.mac, run.commit, me.pub);
+  if (!offer) return;
+  if (run.offer && (run.offer.ownerPub !== offer.ownerPub || run.offer.nO !== offer.nO)) {
+    // Confirmed or not: a run still waiting for its share ends (the owner's board may have restarted and lost it),
+    // and the new run's code needs a new confirm. A run holding a genuine share keeps it.
+    if (run.got) return;
+    if (!underRunLimit(s, 'ownResets')) {
+      noteOnce(projectId, s, 'ownRunsPaused', 'The code on this screen has had to start over too many times this hour, so it stays as it is for now. If it does not match the other computer, press "Does not match" to start again.');
+      return;
+    }
+    if (run.confirmed) say(projectId, 'The other computer started over, so the code on this screen changed. Compare the new code with the one on the other computer, and confirm again.');
+    s.ownRun = null;
+    sayOwnHello(projectId, s);
+    return;
+  }
+  run.offer = offer;
+  try { sendFrame(s, fedseal.ownRevealFrame(run.mac, offer.ownerPub, run.nW, me.pub)); } catch { /* sent again when the offer repeats */ }
+}
+/** Own computer: the code this computer shows for its current run, or null. */
+function ownCode(projectId) {
+  const s = seats.get(projectId);
+  const run = s && s.ownRun;
+  if (!run || !run.offer) return null;
+  let me;
+  try { me = fedseal.sealingKey(); } catch { return null; }
+  return fedseal.compareCode(run.room, run.mac, me.pub, run.offer.ownerPub, run.nW, run.offer.nO);
+}
+/** Own computer: its person says the two codes match. Resolves { ok, because }. */
+function confirmOwn(projectId, confirmedCode) {
+  return sealStep(projectId, async () => {
+    const s = seats.get(projectId);
+    const code = ownCode(projectId);
+    if (!s || !code) return { ok: false, because: 'this computer is not waiting for a code right now' };
+    if (!fedseal.sameCompareCode(confirmedCode, code)) return { ok: false, because: 'that is not the code this computer shows' };
+    s.ownRun.confirmed = true;
+    adoptOwnShare(projectId, s);
+    return { ok: true, because: null };
+  }).then((r) => r || { ok: false, because: 'the room\'s records could not be read' });
+}
+/** kosmos#7028: an own computer the owner took out of the key still holds the old one, so it would never say hello
+    again and its posts would go where nobody can read them. It goes back to the keyless record noteOwnSealed makes and
+    asks again: the owner answers any own hello with a new code to compare. Only the key this computer holds goes, so
+    no epoch changes and it is no rotation (#5191 WRITERS). A wrong rejoin (an ahead frame forged by the relay or one
+    of this account's computers, the only senders in an own room) costs one code compare and reveals nothing: posts
+    are held until the key comes back. */
+function ownRejoin(projectId, s, epoch) {
+  if (seats.get(projectId) !== s || s.stopped) return;
+  const link = safeLink(projectId);
+  const st = roomSeal(projectId);
+  if (!link || link.role !== 'self' || !st || st.role !== 'member' || st.ownComputer !== true || !hasKey(st) || st.epoch !== epoch) return;
+  try { fedseal.setRoomState(projectId, { role: 'member', ownComputer: true, keys: {} }); } catch { return; }
+  s.behind = null;
+  s.behindArmedAt = undefined;
+  s.ownRun = null;
+  say(projectId, 'This computer has not had this sealed room\'s new key for ten minutes: it may have been taken out on your other computer, or that computer has been away. To read and post here again, compare the code on this screen with the one on that computer.');
+  sayOwnHello(projectId, s);
+}
+/** Own computer: the person said the codes do not match. The run ends and a new one starts with a new code. */
+function ownStartOver(projectId) {
+  const s = seats.get(projectId);
+  if (!s || !s.ownRun) return false;
+  s.ownRun = null;
+  sayOwnHello(projectId, s);
+  return true;
+}
+/** Own computer: a share is opened as it arrives (it is sealed to this computer) and only one that opens, from the
+    offer's owner key for this run, is kept: a forged share cannot displace a genuine one. */
+function waitingShare(projectId, s, frame) {
+  const run = s.ownRun;
+  if (!run || !run.offer || run.got) return;
+  let me;
+  try { me = fedseal.sealingKey(); } catch { return; }
+  const got = fedseal.openOwnShare(me, run.mac, run.offer.ownerPub, run.nW, run.offer.nO, frame, run.room);
+  if (!got) return;
+  run.got = got;
+  adoptOwnShare(projectId, s);
+}
+/** Own computer: take the key once BOTH hold: the person confirmed, and a genuine share arrived. Either can come
+    first. */
+function adoptOwnShare(projectId, s) {
+  const run = s.ownRun;
+  const st = roomSeal(projectId);
+  if (!run || !run.confirmed || !run.got || !st || st.ownComputer !== true || hasKey(st)) return;
+  const got = run.got;
+  fedseal.setRoomState(projectId, Object.assign({}, st, { peer: got.ownerPub, epoch: got.epoch, keys: { [got.epoch]: got.roomKey } }));
+  s.ownRun = null;
+  // A rotation that came between the Allow and this confirm (a guest removed meanwhile) is applied BEFORE the held
+  // posts go, so none of them is sent under a key the removed guest still holds.
+  const rot = run.rotates || {};
+  // Every kept rotation goes into the record first, and the held posts go once, under the newest key: a flush after
+  // each would send them under a middle key that a guest removed at a later rotation still holds.
+  for (const ep of Object.keys(rot).map(Number).sort((a, b) => a - b)) onKeyFrame(projectId, s, rot[ep], true, true);
+  say(projectId, SEALED_LINE);
+  flushHeld(projectId, s);
+}
+const OWN_WAITING_MAX = 16;
+/* A run a man in the middle abandons costs it nothing, so the number of runs bounds its guesses at the code: the
+   seal owner starts at most this many new runs (fresh commitments) in a room an hour, and a waiting computer restarts
+   its own run without its person at most this many times an hour. Past it, new commitments and different offers are
+   ignored until the hour has room again. */
+const OWN_RUNS_PER_HOUR = 12;
+/** Count one run against the seat's hourly limit for `key`. False (nothing counted) when the limit is reached. */
+function underRunLimit(s, key, now = Date.now()) {
+  const kept = (s[key] || []).filter((t) => now - t < 60 * 60 * 1000);
+  if (kept.length >= OWN_RUNS_PER_HOUR) { s[key] = kept; return false; }
+  s[key] = kept.concat([now]);
+  return true;
+}
+/** Seal owner: a hello from one of this account's computers. Answered with an offer (a fresh nonce for each new
+    commitment, the same offer again for a hello repeated on reconnect). A computer already pinned that says hello
+    lost its key, or came back under a new id: it runs the whole exchange again, Allow included. */
+function ownerOwnHello(projectId, s, frame, me) {
+  const st = roomSeal(projectId);
+  const h = fedseal.checkOwnHello(frame);
+  if (!h || !hasKey(st) || st.role !== 'owner') return;
+  if (st.peers && Object.prototype.hasOwnProperty.call(st.peers, h.pub)) return;   // a guest's key is never an own computer
+  if (h.pub === me.pub) return;   // nor this board's own key
+  if (!s.ownWaiting) s.ownWaiting = new Map();
+  let w = s.ownWaiting.get(h.pub);
+  if (!w || w.commit !== h.commit || w.mac !== h.mac) {
+    if (!underRunLimit(s, 'ownOffers')) return;
+    w = { mac: h.mac, commit: h.commit, nO: fedseal.randomSecret(), nW: null, at: Date.now() };
+    s.ownWaiting.delete(h.pub);
+    s.ownWaiting.set(h.pub, w);
+    while (s.ownWaiting.size > OWN_WAITING_MAX) s.ownWaiting.delete(s.ownWaiting.keys().next().value);
+  }
+  try { sendFrame(s, fedseal.ownOfferFrame(me, h, w.nO)); } catch { /* the next hello */ }
+}
+/** Seal owner: the waiting computer's reveal opens its commitment, so its code can be shown. */
+function ownerOwnReveal(projectId, s, frame, me) {
+  if (!s.ownWaiting || !frame || typeof frame.pub !== 'string') return;
+  const w = s.ownWaiting.get(frame.pub);   // the reveal names its computer's key, so a copied commitment cannot take it
+  if (!w || w.nW) return;
+  const nW = fedseal.checkOwnReveal(frame, w.mac, me.pub, w.commit, frame.pub);
+  if (nW) w.nW = nW;
+}
+/** Seal owner: the computers waiting for this room's key whose code can be shown, newest last. Empty when this
+    board does not hold the room's seal-owner state. */
+function ownWaiting(projectId) {
+  const s = seats.get(projectId);
+  const st = roomSeal(projectId);
+  if (!s || !s.room || !s.ownWaiting || !hasKey(st) || st.role !== 'owner') return [];
+  let me;
+  try { me = fedseal.sealingKey(); } catch { return []; }
+  return [...s.ownWaiting].filter(([, w]) => w.nW).map(([pub, w]) => ({ pub, mac: w.mac, at: w.at, code: fedseal.compareCode(s.room, w.mac, pub, me.pub, w.nW, w.nO) }));
+}
+/** kosmos#7028, seal owner: the own computers that hold this room's key, oldest first. Empty when this board
+    does not hold the room's seal-owner state. */
+function ownAllowed(projectId) {
+  const st = roomSeal(projectId);
+  if (!hasKey(st) || st.role !== 'owner' || !st.own || typeof st.own !== 'object') return [];
+  return Object.keys(st.own).filter((pub) => st.own[pub] && typeof st.own[pub].mac === 'string')
+    .map((pub) => ({ pub, mac: st.own[pub].mac, at: st.own[pub].at }))
+    .sort((x, y) => (Number(x.at) || 0) - (Number(y.at) || 0));
+}
+/** kosmos#7028, seal owner: a person removed one of their computers from a sealed room. The room moves to a new
+    key that computer is not sent (revokeCheck, the step a revoked guest gets). Resolves { ok, because }.
+    NOT CLAIMED: posts it sealed under the old key still open for graceAfter after the remove. A revoked guest's are
+    refused inside the grace by its relay-stamped account (revokedAccounts); an own computer's stamp is this account,
+    so there is nothing to record. It reads nothing posted after the remove. */
+async function ownRemove(projectId, pub) {
+  const st = roomSeal(projectId);
+  if (!hasKey(st) || st.role !== 'owner') return { ok: false, because: 'only the computer that first shared this room can take another computer out of it' };
+  if (!st.own || !Object.prototype.hasOwnProperty.call(st.own, pub)) return { ok: false, because: 'that computer does not hold this room\'s key' };
+  const link = safeLink(projectId);
+  if (!link) return { ok: false, because: 'this project is not shared' };
+  let r;
+  try { r = await revokeCheck(projectId, link, undefined, [pub]); } catch { r = undefined; }
+  const after = roomSeal(projectId);
+  if (after === undefined) return { ok: false, because: 'the room\'s records could not be read, so this computer may not have been taken out; try again' };
+  if (after && after.own && Object.prototype.hasOwnProperty.call(after.own, pub)) return { ok: false, because: r && r.unreadable ? 'the room\'s records could not be written' : 'the room\'s key could not be changed right now; try again' };
+  return { ok: true, because: null };
+}
+/** Seal owner: a person compared the codes and pressed Allow. Resolves { ok, because }. */
+function allowOwn(projectId, pub, confirmedCode) {
+  return sealStep(projectId, async () => {
+    const s = seats.get(projectId);
+    const w = s && s.ownWaiting ? s.ownWaiting.get(pub) : null;
+    if (!s || !s.room || !w || !w.nW) return { ok: false, because: 'that computer is no longer waiting for this room\'s key' };
+    const st = roomSeal(projectId);
+    if (!hasKey(st) || st.role !== 'owner') return { ok: false, because: 'only the computer that first shared this room can let another computer read it' };
+    if (st.peers && Object.prototype.hasOwnProperty.call(st.peers, pub)) return { ok: false, because: 'that key belongs to someone you invited, not to one of your computers' };
+    let me;
+    try { me = fedseal.sealingKey(); } catch { return { ok: false, because: 'this computer could not use its sealing key' }; }
+    if (pub === me.pub) return { ok: false, because: 'that is this computer\'s own key' };
+    let frame;
+    try { frame = fedseal.ownShareFrame(me, { mac: w.mac, pub, nW: w.nW, nO: w.nO }, confirmedCode, st.keys[st.epoch], st.epoch, s.room); } catch (err) {
+      return { ok: false, because: String((err && err.message) || err) };
+    }
+    if (!sendFrame(s, frame)) return { ok: false, because: 'the key could not be sent to the room right now, so nothing changed; try again' };
+    fedseal.setRoomState(projectId, Object.assign({}, st, { own: Object.assign({}, st.own || {}, { [pub]: { mac: w.mac, at: Date.now() } }) }));
+    s.ownWaiting.delete(pub);
+    return { ok: true, because: null };
+  }).then((r) => r || { ok: false, because: 'the room\'s records could not be written' });
 }
 /** Owner: a pinned member whose edge the coordinator reports as not active has been
     revoked. The room moves to a new key only the remaining members get, so the revoked
@@ -765,7 +1039,8 @@ function rotateForRevoked(projectId, link, edges) {
     { checked, rotated, unreadable? } (unreadable: the rooms record could not be read), or
     undefined when the step threw. A room with no pinned member
     has nothing to revoke, so it counts as checked without asking. */
-function revokeCheck(projectId, link, edges) {
+function revokeCheck(projectId, link, edges, dropOwn) {
+  const drop = Array.isArray(dropOwn) ? dropOwn.filter((p) => typeof p === 'string' && p) : [];
   return sealStep(projectId, async () => {
     const first = roomSeal(projectId);
     // A record that cannot be read is not a check (nothing could have been rotated).
@@ -775,30 +1050,54 @@ function revokeCheck(projectId, link, edges) {
     if (hasKey(first) && first.role === 'owner' && Number.isFinite(first.rotatedAt) && first.rotatedAt > Date.now()) {
       try { fedseal.setRoomState(projectId, Object.assign({}, first, { rotatedAt: Date.now() - REVOKE_GRACE_MS })); } catch { /* next check */ }
     }
-    if (!hasKey(first) || first.role !== 'owner' || !Object.keys(first.peers || {}).length) return { checked: true, rotated: false };
-    let r;
-    try { r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {})); } catch { return { checked: false, rotated: false }; }
-    if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return { checked: false, rotated: false };
-    const status = new Map(r.data.as_owner.filter((e) => e && e.project_ref === link.ref).map((e) => [e.id, e.status]));
+    const hasPeers = !!Object.keys(first.peers || {}).length;
+    const hasOwn = !!Object.keys(first.own || {}).length;
+    if (!hasKey(first) || first.role !== 'owner' || (!hasPeers && !hasOwn)) return { checked: true, rotated: false };
+    // kosmos#7028: the account's computers are asked only when an own computer is pinned, and their
+    // answer never decides whether the room counts as checked: a failed one would otherwise hold
+    // every guest's post for it. A failed or incomplete answer drops no own computer.
+    const macs = hasOwn ? sharedComputers(Date.now()) : null;
+    const macsAsk = macs ? macs.promise.catch(() => null) : Promise.resolve(null);
+    let r = null;
+    if (hasPeers) {
+      try { r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {})); } catch { r = null; }
+      if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) r = null;
+    }
+    // An own computer the screen removes goes even when the edges could not be read; the room is then
+    // still not checked for its guests.
+    const checked = !hasPeers || !!r;
+    if (!checked && !drop.length && !hasOwn) return { checked: false, rotated: false };
+    const onAccount = accountMacs(await macsAsk);
+    const status = new Map(r ? r.data.as_owner.filter((e) => e && e.project_ref === link.ref).map((e) => [e.id, e.status]) : []);
     const st = roomSeal(projectId);   // re-read: a hello may have pinned someone during the await
     if (st === undefined) return { checked: false, rotated: false, unreadable: true };
     if (!hasKey(st) || st.role !== 'owner') return { checked: true, rotated: false };
     const peers = st.peers || {};
+    const own = st.own || {};
     // Only an edge the coordinator names as no longer active counts; an edge it does not
     // list is not taken as revoked (a partial answer must not lock a member out).
     const gone = Object.keys(peers).filter((pub) => peers[pub] && status.has(peers[pub].edge) && status.get(peers[pub].edge) !== 'active');
-    if (!gone.length) return { checked: true, rotated: false };
+    // kosmos#7028: an own computer leaves the key when the screen removes it, or when a complete list of
+    // the account's computers no longer has its mac (retired, held, moved to another account).
+    // Only a list asked after the computer was pinned can drop it: the list is shared for EDGE_FRESH_MS, and one asked
+    // before an Allow may predate that computer joining (or being let back on) the account.
+    const listedBefore = (o) => !!o && Number.isFinite(o.at) && macs && o.at < macs.askedAt;
+    const ownGone = Object.keys(own).filter((pub) => drop.includes(pub) || (onAccount && listedBefore(own[pub]) && !onAccount.has(own[pub].mac)));
+    if (!gone.length && !ownGone.length) return { checked, rotated: false };
     const epoch = st.epoch + 1;
     const keep = {};
     for (const pub of Object.keys(peers)) if (!gone.includes(pub)) keep[pub] = peers[pub];
+    const ownKeep = {};
+    for (const pub of Object.keys(own)) if (!ownGone.includes(pub)) ownKeep[pub] = own[pub];
     const keys = Object.assign({}, st.keys, { [epoch]: fedseal.randomSecret() });
     // #5191: with nobody left, the revoked key is dropped from the record, so a member pinned
-    // later (which brings graceAfter back to REVOKE_GRACE_MS) cannot reopen it.
-    if (!Object.keys(keep).length) delete keys[st.epoch];
+    // later (which brings graceAfter back to REVOKE_GRACE_MS) cannot reopen it. kosmos#4658: an allowed own
+    // computer is somebody left.
+    if (!Object.keys(keep).length && !Object.keys(ownKeep).length) delete keys[st.epoch];
     // #5191: the accounts dropped, each from the peer's own record (pinned with its edge) or, for a
     // peer pinned before that was kept, from this answer by its edge id; recorded at the epoch they
     // held. An account a kept peer also has (one account, two edges) is not recorded.
-    const accountOf = new Map(r.data.as_owner.filter((e) => e && e.project_ref === link.ref && typeof e.member_account_id === 'string' && e.member_account_id).map((e) => [e.id, e.member_account_id]));
+    const accountOf = new Map((r ? r.data.as_owner : []).filter((e) => e && e.project_ref === link.ref && typeof e.member_account_id === 'string' && e.member_account_id).map((e) => [e.id, e.member_account_id]));
     const accountOfPeer = (p) => (p && typeof p.account === 'string' && p.account) || (p && accountOf.get(p.edge)) || null;
     const keptList = Object.values(keep).map(accountOfPeer);
     const keptAccounts = new Set(keptList.filter(Boolean));
@@ -813,12 +1112,12 @@ function revokeCheck(projectId, link, edges) {
     }
     // A revoke found but not saved is not a check: the posts it holds stay held (the pass must
     // not show them unchecked under the key the revoked member still holds).
-    try { fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, epoch, rotatedAt: Date.now(), keys, revokedAccounts: Object.fromEntries(revoked) })); } catch {
+    try { fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, own: ownKeep, epoch, rotatedAt: Date.now(), keys, revokedAccounts: Object.fromEntries(revoked) })); } catch {
       return { checked: false, rotated: false, unreadable: true };
     }
     const s = seats.get(projectId);
     if (s) sendRotates(projectId, s);
-    return { checked: true, rotated: true };
+    return { checked, rotated: true };
   });
 }
 /** #5191: one edges answer for the whole Mac, shared by every owner room's post-triggered
@@ -869,6 +1168,32 @@ async function memberEdgeCheck(projectId, ask, seat) {
   if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_member)) return;
   const e = r.data.as_member.find((x) => x && x.id === link.edge_id);
   if (e && e.status === 'revoked') endRevokedMember(projectId, s, link, e.revoked_at);
+}
+/** kosmos#7028: the mac ids in an account-computers answer, or null when the answer is not complete:
+    not ok, no list, a row without a mac id (a coordinator too old to name them), or no row for this
+    computer (every real answer has one). When this board knows its own id, the row marked as this computer must carry
+    it: a list whose ids are not the ones the account's computers sign as (the ones st.own pins) would otherwise drop
+    every pinned computer at once. Null drops nothing. */
+function accountMacs(r) {
+  if (!r || !r.ok || !r.data || !Array.isArray(r.data.computers) || !r.data.computers.length) return null;
+  const rows = r.data.computers;
+  if (!rows.every((c) => c && typeof c.mac_id === 'string' && c.mac_id)) return null;
+  const self = rows.filter((c) => c.this === true);
+  if (self.length !== 1) return null;
+  let mine = null;
+  try { mine = deps && typeof deps.macId === 'function' ? deps.macId() : null; } catch { mine = null; }
+  if (typeof mine === 'string' && mine && self[0].mac_id !== mine) return null;
+  return new Set(rows.map((c) => c.mac_id));
+}
+/** kosmos#7028: one account-computers answer for the whole Mac per EDGE_FRESH_MS, as sharedEdges. */
+let macComputers = null;
+function sharedComputers(now) {
+  if (macComputers && isFresh(macComputers.askedAt, now)) return macComputers;
+  const ask = { askedAt: now, promise: null };
+  try { ask.promise = Promise.resolve(deps.macRequest('POST', MAC_COMPUTERS, {})); } catch (err) { ask.promise = Promise.reject(err); }
+  ask.promise.catch(() => {});
+  macComputers = ask;
+  return ask;
 }
 function sharedEdges(now, notBeforeMono) {
   // #5285: `notBeforeMono` refuses a cached answer asked before then (it cannot know of a later join).
@@ -1011,12 +1336,17 @@ async function ownerHello(projectId, s, link, frame, me) {
   if (firstKey) say(projectId, SEALED_LINE);   // #5195: the owner's side too, once, when the room first has its key
   flushHeld(projectId, s);
 }
-function onKeyFrame(projectId, s, frame) {
+function onKeyFrame(projectId, s, frame, sameAccount, noFlush) {
   const link = safeLink(projectId);
   if (!link || !s.room) return;
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
   if (frame.t === 'key-hello' && link.role === 'owner') { sealStep(projectId, () => ownerHello(projectId, s, link, frame, me)); return; }
+  if (frame.t.startsWith('key-own-') && !sameAccount) return;   // #4658: only this account's own computers take part
+  if (frame.t === 'key-own-hello' && link.role === 'owner') { sealStep(projectId, () => ownerOwnHello(projectId, s, frame, me)); return; }
+  if (frame.t === 'key-own-reveal' && link.role === 'owner') { sealStep(projectId, () => ownerOwnReveal(projectId, s, frame, me)); return; }
+  if (frame.t === 'key-own-offer' && link.role === 'self') { sealStep(projectId, () => waitingOffer(projectId, s, frame)); return; }
+  if (frame.t === 'key-own-share' && link.role === 'self') { sealStep(projectId, () => waitingShare(projectId, s, frame)); return; }
   try {
     if (frame.t === 'key-share' && link.role === 'member') {
       const st = roomSeal(projectId);
@@ -1028,8 +1358,21 @@ function onKeyFrame(projectId, s, frame) {
       flushHeld(projectId, s);
       return;
     }
-    if (frame.t === 'key-rotate' && link.role === 'member') {
+    if (frame.t === 'key-rotate' && (link.role === 'member' || link.role === 'self')) {
       const st = roomSeal(projectId);
+      // #4658: an own computer still waiting to adopt keeps a rotation for adoptOwnShare, but only one that opens
+      // under the owner key of its run's offer (the key adoption pins), one per epoch: a frame from anyone else
+      // takes no place.
+      if (link.role === 'self' && st && st.ownComputer === true && !hasKey(st) && s.ownRun) {
+        const run = s.ownRun;
+        const got = run.offer ? fedseal.openRotate(me, run.offer.ownerPub, frame, s.room) : null;
+        if (got) {
+          const kept = Object.assign({}, run.rotates || {}, { [got.epoch]: frame });
+          // The newest 8 epochs: a run's owner key may be a man in the middle's until the person compares.
+          run.rotates = Object.fromEntries(Object.keys(kept).map(Number).sort((a, b) => a - b).slice(-8).map((e) => [e, kept[e]]));
+        }
+        return;
+      }
       if (!hasKey(st) || !st.peer) return;
       const got = fedseal.openRotate(me, st.peer, frame, s.room);
       if (!got || Object.prototype.hasOwnProperty.call(st.keys, got.epoch) || got.epoch <= st.epoch) return;
@@ -1039,7 +1382,7 @@ function onKeyFrame(projectId, s, frame) {
       // a member whose clock runs behind the owner's it runs from receipt (fedseal.js NOT
       // CLAIMED).
       fedseal.setRoomState(projectId, Object.assign({}, st, { keys, epoch: got.epoch, rotatedAt: Math.min(got.rotatedAt, Date.now()) }));
-      flushHeld(projectId, s);
+      if (!noFlush) flushHeld(projectId, s);
     }
   } catch (err) {
     // A record that cannot be written: the handshake is retried on the next connect.
@@ -1175,6 +1518,20 @@ function contactStopped() { return contactState() !== 'open'; }
 function contactState() {
   try { return require('./orgpolicy').contactAllows().ok === true ? 'open' : 'policy'; } catch { return 'unreadable'; }
 }
+/* kosmos#6870: why outside contact is closed, said after contactState() gave 'policy': the policy's sentence, or the
+   family default's (orgpolicy.FAMILY_CONTACT_STOPS) where no policy said off. The state stays 'policy' for both, on
+   purpose: readers branch on open | policy | unreadable, and a new value would fall through to their open sentence.
+   A second read, worth it only for the family's words; one that throws or now allows gives the policy's sentence
+   (review 1: the choice is the `family` flag contactAllows sets, never a comparison of the text). Never throws. */
+function contactReason() {
+  const op = require('./orgpolicy');
+  try {
+    const c = op.contactAllows();
+    if (c && c.ok !== true && c.family === true && typeof c.because === 'string') return { family: true, text: c.because };
+  } catch { /* the policy's sentence */ }
+  return { family: false, text: op.CONTACT_STOPS };
+}
+const contactStops = () => contactReason().text;
 
 /** Try an own room refused earlier this session again, on the person's explicit ask. */
 function retryOwn(projectId) {
@@ -1655,4 +2012,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { contactStopped, contactState, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
+module.exports = { ownWaiting, allowOwn, ownAllowed, ownRemove, ownCode, confirmOwn, ownStartOver, OWN_RUNS_PER_HOUR, contactStopped, contactState, contactReason, contactStops, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };

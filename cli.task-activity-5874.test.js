@@ -104,7 +104,9 @@ test('#5874 Windows: task activity prints the conversation oldest first, one lin
   const created = taskchat.read(projectId, num)[0];
   assert.equal(created.kind, 'created', 'CONTROL: tasks.create recorded the created event first');
   assert.deepEqual(WORDS(r.out), WANT, r.out);
-  assert.equal(r.out.split('\n').length, WANT.length, 'an event printed on more than one line: ' + r.out);
+  // #6947: one line per event, then the line saying whether the person has viewed the task.
+  assert.equal(r.out.split('\n').length, WANT.length + 1, 'an event printed on more than one line: ' + r.out);
+  assert.equal(r.out.split('\n').pop(), 'The person has not viewed this task in Kosmos yet.');
   const none = await win(['task', 'activity', quiet, String(quietNum)]);
   assert.equal(none.code, 0, none.err);
   assert.equal(none.out, 'Nothing recorded on task ' + quietNum + ' yet.');
@@ -158,4 +160,49 @@ test('#5874 Mac: task activity prints the same lines as Windows', async () => {
   assert.match(missing.out, /Usage: kosmos task activity <project-id> <task-number>/);
   const help = await mac(['task']);
   assert.match(help.out, /kosmos task activity <project-id> <task-number>/, 'the help does not name the new command');
+});
+
+test('#6947: both commands say whether the person has viewed the task, and whether that was after the latest message', async () => {
+  const taskseen = require('./engine/taskseen');
+  const t = tasks.create(projectId, { sentence: 'Needs an access grant', who: 'mara' });
+  tasks.say(projectId, t.number, 'blocked on an access grant: can you add me?');
+  const lastLine = async (run) => { const r = await run(['task', 'activity', projectId, String(t.number)]); return (r.out || '').trim().split('\n').pop(); };
+  assert.equal(await lastLine(win), 'The person has not viewed this task in Kosmos yet.');
+  const said = Date.parse(taskchat.read(projectId, t.number).filter((e) => e.kind === 'said').pop().at);
+  taskseen.markSeen(projectId, t.number, new Date(said + 60000));
+  assert.match(await lastLine(win), /^The person viewed this task at \d{4}-\d{2}-\d{2} \d{2}:\d{2}, after the latest message\.$/);
+  assert.equal(await lastLine(mac), await lastLine(win), 'the two commands said it differently');
+  taskseen.markSeen(projectId, t.number, new Date(said - 60000));
+  assert.match(await lastLine(win), /, before the latest message\.$/);
+  assert.match(await lastLine(mac), /, before the latest message\.$/);
+});
+
+test('#6947: against an older board that sends no seenByPerson field, neither command prints a viewed line', async () => {
+  const http = require('node:http');
+  // An older board: every request passes through to the real one, and the activity answer loses the new field.
+  const old = http.createServer((req, res) => {
+    const up = http.request({ host: '127.0.0.1', port: server.address().port, path: req.url, method: req.method, headers: req.headers }, (r) => {
+      if (!/\/activity\?words=1$/.test(req.url)) { res.writeHead(r.statusCode, r.headers); r.pipe(res); return; }
+      let body = ''; r.on('data', (c) => { body += c; }); r.on('end', () => {
+        const d = JSON.parse(body); assert.ok('seenByPerson' in d, 'CONTROL: the real board sends the field'); delete d.seenByPerson;
+        res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(d));
+      });
+    });
+    up.on('error', () => { res.statusCode = 502; res.end(); });
+    req.pipe(up);
+  });
+  await new Promise((r) => old.listen(0, '127.0.0.1', r));
+  const oldBase = 'http://127.0.0.1:' + old.address().port;
+  try {
+    const w = await win(['task', 'activity', projectId, String(num)], oldBase);
+    assert.equal(w.code, 0, w.err);
+    assert.doesNotMatch(w.out, /The person (has not viewed|viewed this task at)/, 'Windows claimed a view state an older board did not give');
+    assert.deepEqual(WORDS(w.out), WANT, 'CONTROL: the conversation itself still printed');
+    const m = await mac(['task', 'activity', projectId, String(num)], old.address().port);
+    assert.equal(m.code, 0, m.out);
+    assert.doesNotMatch(m.out, /The person (has not viewed|viewed this task at)/, 'Mac claimed a view state an older board did not give');
+    assert.deepEqual(WORDS(m.out), WANT, 'CONTROL: the conversation itself still printed (Mac)');
+  } finally {
+    old.close();
+  }
 });

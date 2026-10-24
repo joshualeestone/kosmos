@@ -34,20 +34,56 @@ unset _kosmos_cut_guard_lib_dir
 # the cut and the page layer are always started as tools/...). NOT SEEN either: a run whose script path contains a space, because pgrep prints it split at the space (the
 # guards this replaced had the same gap; tools/heavy-gate.sh does count it). Every checkout this fleet
 # cuts or tests from has a space-free path. This prints the
-# "<pid> <command>" lines of exactly those, from `pgrep -fl`, and returns 0 when there is one, 1 when
+# "<pid> <command>" lines of exactly those, from _kosmos_pgrep_cmdlines, and returns 0 when there is one, 1 when
 # there is none, 2 when pgrep itself failed (so a caller can tell "nothing" from "could not tell").
 # <script> is a path like tools/browser-checks.sh (letters, digits, . _ / - only; anything else returns 2);
-# its dots are matched literally. macOS only: there `pgrep -fl` prints the whole command line, where Linux
-# prints only the process name, so on Linux this finds nothing (as the guards it replaced did).
+# its dots are matched literally. The lines come from _kosmos_pgrep_cmdlines (#6799), which prints the whole command
+# line on macOS and on Linux alike.
 # The shell options a run may carry before its script (shared with _kosmos_drop_test_fixtures so the two
 # read the same command shapes). Letters are SPELLED OUT, not ranged (every letter but c, a command string,
 # and n, a syntax check): ranges are collation-dependent, and `[[ =~ ]]` runs in the caller's locale.
 _KOSMOS_SH_OPTS='( +([-+][ABCDEFGHIJKLMNOPQRSTUVWXYZabdefghijklmopqrstuvwxyz]*[oO] +[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_]+|--(rcfile|init-file) +[^ ]+|[-+][ABCDEFGHIJKLMNOPQRSTUVWXYZabdefghijklmopqrstuvwxyz]+|--[abcdefghijklmnopqrstuvwxyz][abcdefghijklmnopqrstuvwxyz-]*|--))*'
+# #6799: `pid <whole command line>` for every process whose command line matches the ERE $1, with pgrep's own
+# status (1 none, 2+ could not run). macOS `pgrep -fl` prints the whole command line; Linux (procps) `pgrep -fl`
+# prints only the process NAME and needs `-fa`, while macOS reads -a as "include ancestors", so the flag follows
+# the platform: $OSTYPE when it says darwin (no fork), else `uname -s`, because bash keeps an OSTYPE it inherits
+# (measured) and a Mac sent to -a would match nothing and fail the guards open. macOS pgrep also never lists its own
+# ancestors, and those include the caller and every `$( )` subshell around this call, which carry the caller's
+# command line; procps pgrep lists them. So on Linux the caller's ancestor chain is dropped here, and both
+# platforms answer the same (tools/test-running-anchor-5470.sh: "does not list its own ancestors").
+_kosmos_pgrep_cmdlines() {   # <ERE>
+  case "${OSTYPE:-}" in darwin*) pgrep -fl "$1"; return ;; esac
+  if [ "$(uname -s 2>/dev/null)" = Darwin ]; then pgrep -fl "$1"; return; fi
+  local raw rc anc=" " p hops=0 kept
+  # One simple command in the $( ): bash runs pgrep in that child itself, so no extra shell carrying the caller's
+  # command line sits between them (a pipe here would add one, outside the ancestor chain below). Pinned by
+  # test-running-anchor-5470's "does not list its own ancestors" arm on Linux.
+  raw="$(pgrep -fa "$1")"; rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+  # This shell's own pid, which inside a `$( )` is not $$. BASHPID is bash 4+; without it, `exec sh` makes sh a
+  # direct child of this shell, so its PPID is this shell.
+  p="${BASHPID:-}"
+  [ -n "$p" ] || p="$(exec sh -c 'echo "$PPID"' 2>/dev/null)"
+  [ -n "$p" ] || p=$$
+  while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null; do
+    anc="$anc$p "
+    p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d '[:space:]')"
+    hops=$((hops + 1)); [ "$hops" -gt 64 ] && break
+  done
+  kept="$(printf '%s\n' "$raw" | while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case "$anc" in (*" ${line%% *} "*) continue ;; esac   # leading ( : bash 3.2 misparses a bare pattern ) inside $( )
+    printf '%s\n' "$line"
+  done)"
+  [ -n "$kept" ] || return 1
+  printf '%s\n' "$kept"
+}
+
 kosmos_running_lines() {   # <script path>
   local script="${1:-}" raw rc re lines
   case "$script" in ''|*[!A-Za-z0-9._/-]*) return 2 ;; esac   # a path, nothing a regex would read as syntax
   re="${script//./\\.}"
-  raw="$(pgrep -fl "$re" 2>/dev/null)"; rc=$?
+  raw="$(_kosmos_pgrep_cmdlines "$re" 2>/dev/null)"; rc=$?
   [ "$rc" -ge 2 ] && return 2
   lines="$(printf '%s\n' "$raw" | LC_ALL=C grep -E "^[0-9]+ +([^ ]*/)?(ba)?sh${_KOSMOS_SH_OPTS} +([^ ]*/)?${re}( |$)" || true)"
   [ -n "$lines" ] || return 1
@@ -1375,7 +1411,7 @@ _kosmos_load_and_cores() {
 # turns off while it runs (the safe side).
 _kosmos_playwright_browsers() {
   local raw rc
-  raw="$(pgrep -fl 'ms-playwright/' 2>/dev/null)"; rc=$?
+  raw="$(_kosmos_pgrep_cmdlines 'ms-playwright/' 2>/dev/null)"; rc=$?
   [ "$rc" -ge 2 ] && return "$rc"
   # Review 7: not WebKit's XPC helpers. launchd starts them (parent pid 1, their own process group), so they are
   # never the side command's descendants and a side WebKit check would yield to its OWN helpers on every poll. Its UI

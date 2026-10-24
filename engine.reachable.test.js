@@ -57,6 +57,7 @@ const EXCUSED = {
   setCompanyOpenCommandForTests: 'test seam (#5628 slice 2b-ui): engine/remote.js runs this command instead of the system opener (open, rundll32 or xdg-open) for the company sign-in page, so engine/remote.test.js drives the REAL spawn and exit-code path with true and false, never a browser. Production uses the platform opener.',
   setCompanyOpenSourceForTests: 'test seam (#5889): engine/remote.js judges the company sign-in opener by this platform and environment instead of the real ones, so engine/remote.test.js can prove the allowlist and the Linux display check on any runner.',
   resetCompactNotesForTests: 'test seam (kosmos#5208): engine/sendertoken.js lets the once-per-process compaction notes be said again, so engine/sendertoken.prune-ended-5208.test.js can check one is said exactly once whatever ran earlier in that process',
+  setRealpathForTests: 'test seam (kosmos#6726): engine/replyfile.js resolves paths through this instead of realpathSync.native, so server.reply-file-6726.test.js can make the second resolution after the open answer differently (a swapped folder) and leave an alias spelling as written (a macOS firmlink), with no race and no firmlink. It throws outside a test process (store.isTestProcess). Production uses realpathSync.native.',
   setManagedReaderForTests: 'test seam (#5628): engine/remote.js replaces the MDM profile reader (which runs plutil on /Library/Managed Preferences), so engine/remote.test.js can drive a managed and an unmanaged Mac without a real profile. Production uses the default reader.',
   _setNofollowForTest: 'test seam (#1777 item 3): engine/instructions.js drops O_NOFOLLOW to simulate win32, so a Mac can see the refuseSymlinkTarget hand check doing the work on the CLAUDE.md.previous backup. With the kernel flag present, deleting that check is silent.',
   setChannel: 'test seam (#570 7c-4): engine/chat.js\'s twin of setRunner for Windows agents, injecting the supervisor-channel sayer so a suite never reaches a real agent pipe. Clearing it re-arms dry-run, the same interlock as setRunner.',
@@ -284,6 +285,13 @@ const SEAMS_5548 = {
   setLiveness: 'engine/win32job.js',
   setRunningClock: 'engine/win32job.js',
   setAlive: 'engine/win32stop.js',
+  // #6761: engine/filehash.js's background fingerprint cache. engine/filehash-6761.test.js and server.fingerprints-6761.test.js
+  // clear it between tests, hash at once instead of after the 5 s settle, observe each finished job, and wait for the
+  // queue to drain. Production never calls them.
+  _resetForTest: 'engine/filehash.js',
+  _settleForTest: 'engine/filehash.js',
+  _onHashedForTest: 'engine/filehash.js',
+  _idleForTest: 'engine/filehash.js',
   // #5309 p2: drops the per-folder plugin-reach mtime cache so a read-count test starts clean; production never clears it.
   _resetCache: 'engine/pluginreach.js',
 };
@@ -329,6 +337,11 @@ const TRIAGED_5548 = {
   vouchOpenedUrlForTests: ['engine/remote.js', TEST_SEAM + ' (reports the address the opener was given)'],
   vouchUntilForTests: ['engine/remote.js', TEST_SEAM + ' (reports the window end, to pin that opening the browser does not restart it)'],
   bumpSelfEpochForTests: ['engine/remote.js', TEST_SEAM + ' (moves the epoch as a same-identity re-register does)'],
+  // kosmos#6590 (S-7d branch c, c2): engine/remote-typedallow-6590.test.js drives the own-sign-in grant and its ack-only
+  // call directly. Production runs allowSelfQuietly after a sign-in and on its retry, and deviceAckSelf only from it.
+  allowSelfQuietlyForTests: ['engine/remote.js', TEST_SEAM + ' (runs the own-sign-in grant once; production runs it after a sign-in and on its retry)'],
+  deviceAckSelfForTests: ['engine/remote.js', TEST_SEAM + ' (the ack-only call allowSelfQuietly makes under the board-v2 marker)'],
+  startVouchForTests: ['engine/remote.js', TEST_SEAM + ' (starts the automatic-Allow secret as a sign-in does; production calls startVouch from signinRegister)'],
 };
 
 const engineDir = path.join(__dirname, 'engine');

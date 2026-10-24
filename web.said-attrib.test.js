@@ -27,21 +27,27 @@ const fs = require('node:fs');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 
 test('the quote carries a visible attribution', () => {
-  assert.match(PAGE, /<p class="detail-saidlab" id="d-said-lab" hidden><\/p>/,
+  /* #6716: the attribution is now the summary of a closed fold around the quote. */
+  assert.match(PAGE, /<details class="detail-saidbox" id="d-said-box" hidden>\s*<summary class="detail-saidlab" id="d-said-lab" hidden><\/summary>\s*<blockquote class="detail-said" id="d-said" hidden><\/blockquote>\s*<\/details>/,
     'the attribution line is gone, so scraped pane text renders bare and a slash command in it reads as an instruction');
   /* #3958: the label is computed into `lab` and written only when it changes (the painter runs
      every poll, and an identical rewrite drops a selection). */
-  assert.match(PAGE, /const lab = line \? a\.name \+ '\\u2019s screen said:' : '';\n\s*(?:\/\*[\s\S]*?\*\/\n\s*)?if \(saidLab\.textContent !== lab\) saidLab\.textContent = lab;/,
+  assert.match(PAGE, /const lab = line \? 'What ' \+ a\.name \+ '\\u2019s screen said' : '';\n\s*(?:\/\*[\s\S]*?\*\/\n\s*)?if \(saidLab\.textContent !== lab\) saidLab\.textContent = lab;/,
     'the attribution no longer names the agent, or no longer uses a.name');
 });
 
 /* The label must appear and disappear with the quote. A stranded
-   "X's screen said:" over nothing is worse than no label at all. */
+   "What X's screen said" over nothing is worse than no label at all. */
 test('the label follows the quote exactly', () => {
   const i = PAGE.indexOf("const said = document.getElementById('d-said');");
   assert.ok(i > -1, 'the evidence painter moved; re-anchor');
-  const block = PAGE.slice(i, i + 1400); // #3958 added a guard and its comment inside
+  // Up to the next section's marker, not a character count: a count went stale each time a comment grew (#6716 review 7).
+  const end = PAGE.indexOf('/* kosmos#1918: the reachable remedy', i);
+  assert.ok(end > i, 'the next section marker moved; re-anchor');
+  const block = PAGE.slice(i, end);
   assert.match(block, /said\.hidden = !line;/, 'the quote no longer hides when empty');
+  // #6716: the fold around the label and quote is what a person sees hide, so it must follow the quote too.
+  assert.match(block, /saidBox\.hidden = !line;/, 'the screen-line fold does not hide with the quote');
   assert.match(block, /saidLab\.hidden = !line;/,
     'the label does not hide with the quote, so an agent with no evidence keeps a stranded heading');
 });

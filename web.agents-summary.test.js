@@ -36,9 +36,12 @@ test('the floor fact moved onto the Agents pill, said only when the count is a f
   assert.match(PAGE, /could not be read, so an agent may be missing\.'\n\s+: '';/, 'a full read clears the title');
 });
 
-test('the one sentence that still needs a line has its own, and it is the only writer', () => {
+test('the two receipts that still need a line share it, and they are its only writers', () => {
   assert.match(PAGE, /<p class="fmsg board-msg" id="board-msg" role="status" aria-live="polite" hidden><\/p>/);
   const writers = PAGE.match(/getElementById\('board-msg'\)/g) || [];
-  assert.equal(writers.length, 2, 'one visibility gate and one writer (the could-not-open receipt), nothing else');
+  // #6719: the star's could-not-save receipt is the second writer (its success path clears only its own sentences).
+  assert.equal(writers.length, 5, 'one visibility gate, the could-not-open receipt, and the star\'s three (#6719: a failed save, a good save and a good reload clear or write it), nothing else');
+  assert.match(PAGE, /Object\.values\(STAR_MSG\)\.includes\(msg\.textContent\)\) \{ msg\.textContent = ''/,
+    'the star clears the line only when the sentence there is its own');
   assert.match(PAGE, /getElementById\('board-msg'\);\n\s+if \(msg\) \{\n\s+msg\.textContent = 'We could not open '/);
 });

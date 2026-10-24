@@ -189,8 +189,9 @@ test('every message row draws the attachment card, and the + and drop targets ar
   assert.match(SCRIPT, /input\.value = \(onlyMention \? replyMention : ''\) \+ attachList\(ATTACH_ROOM\)\.map\(\(r\) => r\.name\)\.join\(', '\);\n\s*const text = input\.value;/, 'the room sends the text captured before the names were put in the box');
   assert.match(PAGE, /id="pj-attach-file" type="file" multiple/, 'the room picker takes one file at a time');
   assert.match(PAGE, /id="d-attach-file" type="file" multiple/, 'the agent picker takes one file at a time');
-  // The 25 MB limit is the route's; the page says so before sending.
-  assert.match(SCRIPT, /file\.size > 25 \* 1024 \* 1024/);
+  // The size limit is the route's; the page says so before sending (#6734: the figure is held equal to the route's
+  // in server.attachment-stream-6734.test.js).
+  assert.match(SCRIPT, /file\.size > ATTACH_MAX_BYTES\)/);
 });
 
 test('a message that is only its attachment\'s name draws the card once, not the name twice (#358)', () => {

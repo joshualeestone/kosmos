@@ -38,7 +38,11 @@ set -euo pipefail
 # exit-1 paths once sat between the download's mktemp and a trap that was
 # "folded in" later, each leaking ~150MB of Node tarball per failed build.
 TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; _reload_table_stderr=""; _wake_table_stderr=""; _menu_table_stderr=""; _connector_probe_dir=""
-trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}" "${_wake_table_stderr:-}" "${_menu_table_stderr:-}" "${_connector_probe_dir:-}"' EXIT
+# kosmos#6831: the same trap also turns a death after it (a missing library, an unset variable) into a failure,
+# which bash 3.2 would otherwise report as exit 0; the build's last line marks it finished.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/exit-guard.sh"
+_cleanup() { rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}" "${_wake_table_stderr:-}" "${_menu_table_stderr:-}" "${_connector_probe_dir:-}"; }
+kosmos_exit_guard _cleanup build-kosmos-bundle
 
 NODE_VERSION="${KOSMOS_NODE_VERSION:-24.19.0}"
 OUT="${1:-dist}"
@@ -1026,10 +1030,14 @@ TARBALL_OUT="$OUT/kosmos-$ARCH.tar.gz"
 rm -f "$TARBALL_OUT"
 # #6562: store a neutral owner NAME (the numeric ids still come from disk; install/setup.sh extracts with
 # --no-same-owner, so no install applies a recorded owner), and refuse a tarball that still records this Mac's account.
-tar -czf "$TARBALL_OUT" --uname kosmos --gname staff -C "$STAGE" bin app runtime VERSION
+# #6678: and none of this Mac's extended attributes or file flags (no ._ entries, no xattr or fflags headers); the gate below says why it takes all four.
+COPYFILE_DISABLE=1 /usr/bin/tar -czf "$TARBALL_OUT" --uname kosmos --gname staff -C "$STAGE" --no-mac-metadata --no-xattrs --no-fflags bin app runtime VERSION
 . "$(dirname "${BASH_SOURCE[0]}")/lib/tar-owner-gate.sh"
 tar_owner_gate "$TARBALL_OUT" || exit 1
+. "$(dirname "${BASH_SOURCE[0]}")/lib/tar-macmeta-gate.sh"
+tar_macmeta_gate "$TARBALL_OUT" || exit 1
 echo "==> the tarball records no build account as owner (#6562)"
+echo "==> the tarball carries no macOS metadata from this Mac (#6678)"
 # ⚠️ The .sha256 is what install/setup.sh verifies before extracting; a
 # tarball published without it refuses to install, on purpose.
 ( cd "$OUT" && shasum -a 256 "$(basename "$TARBALL_OUT")" > "$(basename "$TARBALL_OUT").sha256" )
@@ -1127,3 +1135,4 @@ echo "    contains: $(tar -tzf "$TARBALL_OUT" | wc -l | tr -d ' ') files"
 cp "$REPO/install/setup.sh" "$OUT/setup"
 ( cd "$OUT" && shasum -a 256 setup > setup.sha256 )
 echo "==> installer emitted at $OUT/setup (+ .sha256), byte-for-byte install/setup.sh"
+kosmos_finished

@@ -242,7 +242,7 @@ async function keepCopy(req, io) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), o.timeoutMs || KEEP_TIMEOUT_MS);
   try {
-    const res = await doFetch(o.url + '/api/undo/keep', { method: 'POST', headers, body: JSON.stringify(req), signal: ctl.signal });
+    const res = await doFetch(o.url + '/api/undo/keep', { method: 'POST', headers, body: JSON.stringify(req), signal: ctl.signal, redirect: 'manual' });   // kosmos#6464: never follow, as deliver
     return { ok: !!(res && res.ok), status: res && res.status };
   } catch (err) {
     return { ok: false, error: (err && err.message) ? err.message : String(err) };
@@ -289,7 +289,7 @@ async function toolFailed(req, io) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), o.timeoutMs || KEEP_TIMEOUT_MS);
   try {
-    const res = await doFetch(o.url + '/api/toolfail', { method: 'POST', headers, body: JSON.stringify(req), signal: ctl.signal });
+    const res = await doFetch(o.url + '/api/toolfail', { method: 'POST', headers, body: JSON.stringify(req), signal: ctl.signal, redirect: 'manual' });   // kosmos#6464: never follow, as deliver
     return { ok: !!(res && res.ok), status: res && res.status };
   } catch (err) {
     return { ok: false, error: (err && err.message) ? err.message : String(err) };
@@ -340,6 +340,10 @@ async function deliver(report, io) {
       headers,
       body: JSON.stringify(buildBody(report, o.fromPane)),
       signal: ctl.signal,
+      // kosmos#6464: the board never redirects a report, and fetch would carry the tokens to wherever a listener
+      // pointed it, past the proof. 'manual': the 3xx comes back as a failed send, never followed (not 'error', which
+      // breaks undici's one retry of the board's 421 on a request with a body).
+      redirect: 'manual',
     });
     let body = '';
     try { body = await res.text(); } catch { body = ''; }

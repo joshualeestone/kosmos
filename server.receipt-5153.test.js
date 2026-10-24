@@ -89,3 +89,25 @@ test('an agent\'s receipts route carries a real receipt to the page', async () =
   const body = await res.json();
   assert.deepEqual(body.receipts.map((x) => [x.project, x.number, x.sentence, x.receipt && x.receipt.who]), [['route-p', 1, 'Ship the notes', 'vera']]);
 });
+
+/* kosmos#6842 slice 2: a project's cost. */
+test('a project\'s receipts route: the sum for the page, an agent\'s token refused, no such project a 404', async () => {
+  const made = await post('/api/projects', { name: 'Project cost route ' + Date.now() });
+  const id = made.body && made.body.project && made.body.project.id;
+  assert.ok(id, 'fixture: no project ' + JSON.stringify(made));
+  const url = base + '/api/project/' + encodeURIComponent(id) + '/receipts';
+  let res = await fetch(url);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { ok: true, picked: 0, tasks: 0, notCounted: 0, failed: 0, unread: 0, partial: 0, models: {}, prs: [], prsMore: 0, prsUnknown: 0, readable: 0, overlapping: false });
+  await post('/api/project/' + encodeURIComponent(id) + '/tasks', { sentence: 'Close me' });
+  const closed = await post('/api/project/' + encodeURIComponent(id) + '/task/1/close');
+  assert.ok(closed.status < 300, 'fixture: the task did not close ' + JSON.stringify(closed));
+  res = await fetch(url);
+  assert.equal((await res.json()).tasks, 1, 'the closed task is counted');
+  res = await fetch(url, { headers: { 'x-kosmos-agent-token': 'any-agent-token' } });
+  assert.equal(res.status, 403);
+  res = await fetch(base + '/api/project/no-such-project-6842/receipts');
+  assert.equal(res.status, 404);
+  res = await fetch(base + '/api/project/%E0%A4%A/receipts');
+  assert.equal(res.status, 400);
+});

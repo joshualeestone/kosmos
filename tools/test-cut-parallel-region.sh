@@ -96,7 +96,10 @@ run() {
     printf '%s\n' 'echo "ℹ tests 1"; echo "ℹ pass 1"; echo "ℹ fail 0"; exit "${YARN_EXIT:-0}"'
   } > "$bin/yarn"; chmod +x "$bin/yarn"
 
-  out="$(cd "$repo" && env PATH="$bin:$PATH" HOME="$fhome" REPO="$repo" V="9.9.9" $extraenv bash -c '
+  # TMPDIR="$WORK" (#6799): the region's bare `mktemp` logs land in $TMPDIR, which is /tmp on Linux, and the region
+  # leaves removing them to release.sh's own exit; inside $WORK the trap above removes them (run-tests.sh's #4273 leak
+  # guard caught 7 left behind on ubuntu-latest).
+  out="$(cd "$repo" && env PATH="$bin:$PATH" HOME="$fhome" TMPDIR="$WORK" REPO="$repo" V="9.9.9" $extraenv bash -c '
     set -euo pipefail
     . "'"$GUARD"'"
     step(){ echo "STEP: $1" >&2; }

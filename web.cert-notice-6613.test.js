@@ -299,7 +299,7 @@ test('a computer not set up for Kosmos+ is asked again only after a while', asyn
 });
 
 test('the markup carries the notice slot (first in the floating stack) and Got it', () => {
-  assert.match(PAGE, /<div class="topnotes" id="topnotes">[\s\S]{0,400}<div id="cwnote-slot"><\/div>\s*<div id="utoast-slot"><\/div>/);
+  assert.match(PAGE, /<div class="topnotes" id="topnotes">[\s\S]{0,400}<div id="cwnote-slot"><\/div>[\s\S]{0,400}<div id="sknote-slot"><\/div>\s*<div id="utoast-slot"><\/div>/);   // kosmos#6587: the service key warning second
   assert.match(PAGE, /<button class="btn" type="button" id="plus-cw-ack" hidden>Got it: earlier report<\/button>/);
 });
 

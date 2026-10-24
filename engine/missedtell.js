@@ -40,6 +40,12 @@ function owed(projects, now = Date.now()) {
       if (!missed) continue;
       const told = Date.parse(t.missToldAt || '');
       if (Number.isFinite(told) && missed.lastAt <= told) continue;
+      /* kosmos#6893 review 1: a task every few minutes misses a slot every few minutes while it is stalled, so while the
+         SAME stall goes on (no run since the miss last told) its reviewer is told again only for a miss an hour or more
+         past that one: about hourly (every 90 minutes for a 45-minute task). Review 3: a run since then ends that stall,
+         so a new one is told at its first miss. */
+      const ranSince = Date.parse(t.lastRunAt || '') > told;
+      if (t.repeat.every === 'minutes' && Number.isFinite(told) && !ranSince && missed.lastAt - told < HOUR_MS) continue;
       const named = Date.parse(t.repeatReviewerSetAt || '');
       if (Number.isFinite(named) && missed.lastAt < named) continue;
       out.push({

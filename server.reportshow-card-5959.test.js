@@ -78,10 +78,10 @@ async function get(p, { headers = {} } = {}) {
 
 /* A self-report line dated `at`, in the store's own line format: selfreport.record stamps now, and this test needs an
    old one. */
-function backdate(name, state, at, by = 'agent') {
+function backdate(name, state, at, by = 'agent', until = null) {
   fs.mkdirSync(selfreport.DIR, { recursive: true });
   fs.appendFileSync(selfreport.fileFor(name),
-    JSON.stringify({ v: 1, state, because: 'which colour?', on: null, owner: null, until: null, project: null, left: null, at, by }) + '\n');
+    JSON.stringify({ v: 1, state, because: 'which colour?', on: null, owner: null, until, project: null, left: null, at, by }) + '\n');
 }
 
 test('#5959: report show says what the card shows, in the page\'s own word', async () => {
@@ -203,5 +203,23 @@ test('#5959: a waiting question re-reported since is aged from when it was first
       until: null, project: null, left: null, at: new Date(Date.now() - 3600e3).toISOString(), by: 'agent' }) + '\n');
     const t2 = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': sendertoken.mint(WHO).token } });
     assert.doesNotMatch(t2.text, /has been standing/, t2.text);
+  });
+});
+
+/* kosmos#6683: report show and the stale reminder share one until rule (selfreport.untilDefers), so they never disagree. */
+test('kosmos#6683: a waiting report until words, or until a time to come, is not stale; until a form it cannot read, it is', async () => {
+  boardAuthState.on = false;
+  await withLeo(async () => {
+    const tok = sendertoken.mint(WHO).token;
+    const old = new Date(Date.now() - 2.5 * 24 * 3600e3).toISOString();
+    const staleWith = async (until) => {
+      backdate(WHO, 'blocked', old, 'agent', until);
+      return (await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.stale;
+    };
+    const ahead = new Date(Date.now() + 3 * 24 * 3600e3).toISOString().slice(0, 10);
+    assert.equal(await staleWith('the owner says'), false, 'until words read stale');
+    assert.equal(await staleWith(ahead), false, 'until a date to come read stale');
+    assert.equal(await staleWith('2026-10-20 09:30'), true, 'a time in a form it cannot read switched staleness off');
+    assert.equal(await staleWith(null), true, 'CONTROL: no until did not read stale');
   });
 });

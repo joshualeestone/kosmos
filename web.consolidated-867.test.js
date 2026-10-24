@@ -83,6 +83,26 @@ test('a project auto-opens on the first consolidated load, once, and only when n
   assert.ok(wantAt > -1 && wantAt < at, 'the deep-link check moved after the auto-open, so a deep link could lose the race');
 });
 
+test('#6910: a view the person opens ends both arrival opens, so a late projects read cannot replace it', () => {
+  const page = require('./test-support/page');
+  // The real functions, run: takeOverDisplayColumn (Settings, Agents, Tasks, New Agent, the Projects page) marks both done.
+  const els = {};
+  const el = () => ({ hidden: false, parentElement: null });
+  const document = { getElementById: (id) => (els[id] = els[id] || el()) };
+  const run = new Function('document', 'boardApplyVisibility', 'onAgentsTab',
+    'let PJ_AUTO_OPENED_ONCE = false, WANT_PROJECT_DONE = false, CONS_PROJECTS_OPEN = true, CONS_AGENTS_OPEN = false;\n'
+    + page.lift(SCRIPT, 'pjOpensDone') + '\n' + page.lift(SCRIPT, 'takeOverDisplayColumn')
+    + '\ntakeOverDisplayColumn();\nreturn { PJ_AUTO_OPENED_ONCE, WANT_PROJECT_DONE };')(document, () => {}, () => false);
+  assert.deepEqual(run, { PJ_AUTO_OPENED_ONCE: true, WANT_PROJECT_DONE: true },
+    'opening a view into the column leaves the auto-open or a ?project= deep link free to replace it when the read lands late');
+  // The New project form opens without the takeover, so it marks them itself, first.
+  assert.match(page.lift(SCRIPT, 'openAddProject'), /^function openAddProject\(\) \{\n  pjOpensDone\(\);/,
+    'the New project form does not end the arrival opens');
+  // PINS: the marks are what both opens read.
+  assert.match(SCRIPT, /if \(WANT_PROJECT && !PJ_CURRENT && !WANT_PROJECT_DONE\) \{/);
+  assert.match(SCRIPT, /if \(!PJ_AUTO_OPENED_ONCE && !WANT_PROJECT && !PJ_CURRENT\n/);
+});
+
 test('the agents and projects rail titles sit at the same height', () => {
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated #pj-list-view \{ grid-column: 1; padding-top: 0;/,
     'the projects rail lost the padding-top override that keeps it flush with the agents rail');
@@ -90,7 +110,7 @@ test('the agents and projects rail titles sit at the same height', () => {
 
 test('the person\'s own row stays on screen under a tall right column', () => {
   // #980 rebased this from a sticky float to a STRUCTURAL pin: rail-me is
-  // the body grid's last track (grid-row 42, rows auto/1fr/auto) under a
+  // the body grid's last track (grid-row 44 since #6722, rows auto/1fr/auto) under a
   // 100vh grid, so WHILE THE GRID FITS THE VIEWPORT it sits at the foot by
   // construction. The body is overflow-y: auto since #980's floor fix, so in a
   // window too short for the floor the page scrolls and this strip scrolls with

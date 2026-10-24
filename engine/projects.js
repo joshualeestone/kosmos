@@ -79,6 +79,7 @@ const { execFileSync, spawn } = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const filehash = require('./filehash');   // #6761: a Files row's sha256, hashed in the background
 const win32explorer = require('./win32explorer');
 const store = require('./store');
 const instructions = require('./instructions');
@@ -1069,6 +1070,10 @@ function describe(project, roster, all) {
       /* #4034: which program runs it, so the project thread can find a Gemini question box (chat.questionIn). Same
          tied gate as `state`: a pane we cannot tie to this name is not known to be this agent's program. */
       runner: (card && card.isNamedOurs && typeof card.runner === 'string' && card.runner) ? card.runner : null,
+      /* #6966: the model family for the project card's tally, from projectview.familyOf, the one `kosmos project show`
+         reads ('Claude', 'OpenAI', 'Qwen', ...). Same tied gate as `runner`. Null when no runner is recorded (a stopped
+         agent's card), which the tally leaves out rather than guessing. */
+      provider: (card && card.isNamedOurs) ? require('./projectview').familyOf(card.runner, sessionName) : null,
       /* #763/#2837: the project the member's state is about, when it said -- a
          needs_you question (#763) or a working state (#2837). */
       stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject && (knownIds === null || knownIds.has(card.stateProject))) ? card.stateProject : null,
@@ -1290,6 +1295,9 @@ function describe(project, roster, all) {
 
   return {
     ...project,
+    /* #6994: a project's records are read only through /api/project/<id>/records; up to 500 rows of them do not
+       travel with every project list the page polls. (undefined, so JSON leaves the key out.) */
+    records: undefined,
     folder: project.folder,
     folderState: folderState(project.folder),
     // Normalized here rather than trusted from the record: a legacy project
@@ -1774,6 +1782,21 @@ function isScratchName(name) {
   return SCRATCH_PREFIXES.some((p) => n.startsWith(p)) || SCRATCH_NAMES.has(n) || SCRATCH_PATTERN.test(n);
 }
 
+/* #6761: a list row as sent: name, size and date, and its sha256 when `fingerprint` is asked and the hash is known (a
+   file not yet hashed is queued and gets it on a later poll). The walk's path and stat never leave the engine. */
+function rowOf(f, fingerprint) {
+  const row = { name: f.name, size: f.size, modified: f.modified };
+  if (fingerprint && f.abs && f.st) {
+    const sha = filehash.forRow(f.abs, f.st);
+    if (sha) row.sha256 = sha;
+  }
+  return row;
+}
+function fingerprintStampPart(rows) {
+  const known = rows.filter((r) => r.sha256).map((r) => JSON.stringify([r.name, r.sha256]));   // JSON, as the records above: a newline in a name cannot merge two
+  return known.length ? '\nsha:' + known.join('\n') : '';
+}
+
 /**
  * The files in a project's folder, newest first.
  *
@@ -1831,7 +1854,7 @@ function listFiles(folder, limit, opts) {
     if (!ent.isFile()) return;
     let st;
     try { st = fs.statSync(path.join(abs, ent.name)); } catch { return; }
-    files.push({ name: relName, size: st.size, modified: st.mtime.toISOString() });
+    files.push({ name: relName, size: st.size, modified: st.mtime.toISOString(), abs: path.join(abs, ent.name), st });
   };
   while (queue.length && !truncated) {
     const { abs, rel, depth } = queue.shift();
@@ -1876,8 +1899,12 @@ function listFiles(folder, limit, opts) {
      separator itself (legal in a POSIX name) cannot blend two records into
      one -- unlike a bare `\0`/`\n` join, which two review rounds independently
      flagged as a theoretical (never practical) collision. */
+  /* #6761: the rows shown get a fingerprint (opts.fingerprint, the Files routes only): what is already known, the rest
+     queued and hashed in the background, so a poll never waits on a hash. Only the rows shown: a folder of thousands is
+     never read whole for a list of ten. The stamp includes them, so the page repaints when one arrives. */
+  const shown = files.slice(0, cap).map((f) => rowOf(f, opts && opts.fingerprint));
   const stamp = crypto.createHash('sha1')
-    .update(files.map((f) => JSON.stringify([f.name, f.size, f.modified])).join('\n') + (truncated ? '\ntruncated' : '')).digest('hex').slice(0, 16);
+    .update(files.map((f) => JSON.stringify([f.name, f.size, f.modified])).join('\n') + (truncated ? '\ntruncated' : '') + fingerprintStampPart(shown)).digest('hex').slice(0, 16);
   /* ⚠️ `names` IS EVERY FILE, not the capped view, and it is here rather than
      behind a second route because the two answers must come from ONE read of
      the folder. A message body's path citations are matched against this list,
@@ -1886,7 +1913,7 @@ function listFiles(folder, limit, opts) {
      decided by sort order. It carries no sizes or times: the matcher needs
      identity, and shipping more than that would invite a second, divergent
      documents list built off the wrong field. */
-  const out = { ok: true, total: files.length, files: files.slice(0, cap), names: files.map((f) => f.name), stamp };
+  const out = { ok: true, total: files.length, files: shown, names: files.map((f) => f.name), stamp };
   if (truncated) out.truncated = true;
   return out;
 }
@@ -2023,6 +2050,186 @@ function sameOpenedFile(gated, opened, platform = process.platform) {
   if (gated.size !== opened.size || gated.mtimeMs !== opened.mtimeMs) return false;
   if (gated.birthtimeMs && opened.birthtimeMs && gated.birthtimeMs !== opened.birthtimeMs) return false;
   return true;
+}
+
+/**
+ * #6724: the FOLDER twin of resolveListedFile's listed mode, for the in-app browser of an agent's Files (Josh viewing
+ * a board from another computer, where Finder opens on the far Mac). `rel` names a folder by its path relative to
+ * `folder`, `/`-separated; '' is the folder itself. The same rules as a listed file, so the browser can never reach a
+ * place the list would not: the shape gate (no absolute path, backslash, empty, `.`/`..` or hidden segment), every
+ * segment a REAL folder seen by lstat (never a link, never a skipped folder), no deeper than opts.maxDepth, the native
+ * realpath equal to the walked path (refuses another case or normalisation, and a link swapped in after the walk) and
+ * inside the resolved folder.
+ * Returns { ok: true, real, rel, segs, root } or { ok: false, because }.
+ */
+function resolveListedDir(folder, rel, where = 'this folder', opts = null) {
+  const given = String(rel == null ? '' : rel);
+  const segs = given ? given.split('/') : [];
+  const notHere = { ok: false, because: 'that is not a folder in ' + where };
+  if (given.includes('\\') || given.includes('\0') || path.isAbsolute(given) || path.win32.isAbsolute(given)
+      || segs.some((s) => s === '' || isScratchName(s) || LIST_SKIP_DIRS.has(s))
+      || (process.platform === 'win32' && segs.some((s) => s.includes(':')))) return notHere;
+  const maxDepth = opts && Number.isInteger(opts.maxDepth) && opts.maxDepth >= 0 ? opts.maxDepth : LIST_MAX_DEPTH;
+  if (segs.length > maxDepth) return notHere;
+  const state = folderState(folder);
+  if (!state || state.state !== FOLDER.READABLE) {
+    return { ok: false, because: (state && state.because) || 'we cannot read that folder right now' };
+  }
+  let at = state.real;
+  for (const s of segs) {
+    at = path.join(at, s);
+    let lst;
+    try { lst = lstatOfFolderPath(at); } catch { return { ok: false, because: 'that folder is not there any more, or it was moved' }; }
+    if (lst.isSymbolicLink() || !lst.isDirectory()) return notHere;
+  }
+  if (!segs.length) return { ok: true, real: state.real, rel: '', segs, root: state.real };
+  let real;
+  try { real = realpathOfFolderPath(at); } catch { return { ok: false, because: 'that folder is not there any more, or it was moved' }; }
+  const root = state.real.endsWith(path.sep) ? state.real : state.real + path.sep;
+  if (!real.startsWith(root) || !sameListedPath(real, at)) return notHere;
+  // The on-disk spelling's folders, as resolveListedFile reads them (on Windows sameListedPath is case-blind).
+  if (path.relative(state.real, real).split(path.sep).some((d) => LIST_SKIP_DIRS.has(d))) return notHere;
+  return { ok: true, real, rel: segs.join('/'), segs, root: state.real };
+}
+
+/* #6724: one entry of a browsed folder, by the list's rules: never a scratch name, never a link (the dirent reports the
+   link itself), a folder only if it is not a skipped one and the browser may enter it, a file only if regular. */
+function browsedEntry(ent, dirAbs, relDir, depth, maxDepth) {
+  if (isScratchName(ent.name)) return null;
+  /* Iteration 1: only a name the resolvers accept (a backslash is legal in a macOS name, and ':' names a stream on
+     Windows), so the list, the preview, the download and the zip always agree, and one such name cannot sink a zip. */
+  if (ent.name.includes('\\') || (process.platform === 'win32' && ent.name.includes(':'))) return null;
+  /* Iteration 2: a name the disk holds as bytes that are not UTF-8 (Linux) reaches Node with U+FFFD in it, which is not
+     the name on disk, so nothing could open it by that name; it is left out like the others. */
+  if (ent.name.includes('\uFFFD')) return null;
+  const name = relDir ? relDir + '/' + ent.name : ent.name;
+  if (ent.isDirectory()) {
+    if (LIST_SKIP_DIRS.has(ent.name) || depth + 1 > maxDepth) return null;
+    let st;
+    try { st = fs.lstatSync(path.join(dirAbs, ent.name)); } catch { return null; }
+    if (!st.isDirectory()) return null;
+    return { kind: 'dir', name, modified: st.mtime.toISOString() };
+  }
+  if (!ent.isFile()) return null;
+  let st;
+  try { st = fs.lstatSync(path.join(dirAbs, ent.name)); } catch { return null; }
+  if (!st.isFile()) return null;
+  return { kind: 'file', name, size: st.size, modified: st.mtime.toISOString(), st };
+}
+const BROWSE_MAX_ENTRIES = 1000;   // shown (iteration 2: hidden and skipped names do not count against it)
+const BROWSE_MAX_SCAN = 20000;     // read, so a folder of a million hidden files still answers
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+
+/**
+ * #6724: ONE level of a folder for the in-app browser: its folders and its files, each named by its path relative to
+ * `folder` (the names resolveListedFile takes, so a listed file can be previewed and downloaded as it is). Folders
+ * first, then files, each by name. At most BROWSE_MAX_ENTRIES entries read (`truncated` past that). A `stamp` changes
+ * whenever the answer would, as listFiles' does.
+ * Returns { ok: true, dir, dirs, files, stamp, truncated? } or { ok: false, because }.
+ */
+function listDir(folder, rel, where, opts) {
+  const maxDepth = opts && Number.isInteger(opts.maxDepth) && opts.maxDepth >= 0 ? opts.maxDepth : LIST_MAX_DEPTH;
+  const got = resolveListedDir(folder, rel, where, { maxDepth });
+  if (!got.ok) return got;
+  const dirs = [];
+  const files = [];
+  let truncated = false;
+  let scanCut = false;
+  let read = 0;
+  const maxScan = (opts && opts.maxScan) || BROWSE_MAX_SCAN;
+  /* Iteration 1: opendir follows a link, so a folder swapped for one after the gate would list an outside folder's names.
+     The folder's identity is read before and after the read, and an answer from a folder that changed is dropped. */
+  let before;
+  try { before = fs.lstatSync(got.real); } catch { return { ok: false, because: 'that folder is not there any more, or it was moved' }; }
+  if (!before.isDirectory()) return { ok: false, because: 'that is not a folder in ' + where };
+  let dir;
+  try { dir = fs.opendirSync(got.real); } catch { return { ok: false, because: 'we could not read what is in that folder' }; }
+  try {
+    for (let ent = dir.readSync(); ent !== null; ent = dir.readSync()) {
+      // Iteration 3: the read budget and the shown cap are told apart, so the page can say which one stopped it.
+      if (read >= maxScan) { truncated = true; scanCut = true; break; }
+      read += 1;
+      const e = browsedEntry(ent, got.real, got.rel, got.segs.length, maxDepth);
+      if (!e) continue;
+      if (dirs.length + files.length >= BROWSE_MAX_ENTRIES) { truncated = true; break; }   // a shown one past the cap
+      if (e.kind === 'dir') dirs.push({ name: e.name, modified: e.modified });
+      else files.push(rowOf({ name: e.name, size: e.size, modified: e.modified, abs: path.join(got.real, path.basename(e.name)), st: e.st }, opts && opts.fingerprint));
+    }
+  } catch (err) {
+    if (err instanceof TypeError || err instanceof ReferenceError) throw err;
+    return { ok: false, because: 'we could not read what is in that folder' };
+  } finally {
+    try { dir.closeSync(); } catch { /* already closed */ }
+  }
+  let after = null;
+  try { after = fs.lstatSync(got.real); } catch { after = null; }
+  if (!after || !after.isDirectory() || after.ino !== before.ino || after.dev !== before.dev) {
+    return { ok: false, because: 'that folder changed while it was being read' };
+  }
+  dirs.sort(byName);
+  files.sort(byName);
+  const stamp = crypto.createHash('sha1')
+    .update([...dirs.map((d) => JSON.stringify(['d', d.name, d.modified])), ...files.map((f) => JSON.stringify(['f', f.name, f.size, f.modified, f.sha256 || '']))].join('\n') + (truncated ? '\ntruncated' : ''))
+    .digest('hex').slice(0, 16);
+  const out = { ok: true, dir: got.rel, dirs, files, stamp };
+  if (truncated) { out.truncated = true; if (scanCut) out.scanCut = true; else out.limit = BROWSE_MAX_ENTRIES; }
+  return out;
+}
+
+/**
+ * #6724: everything a folder download (a zip) would hold: the folder `rel` and, breadth-first, every folder and file
+ * below it by the browser's rules (no link, no scratch name, no skipped folder, the depth cap). Bounded before any byte
+ * is sent: more than opts.maxFiles files or opts.maxBytes bytes in all is a refusal with the reason, never a zip cut
+ * short. Names are relative to `folder`; each file carries its lstat, so the reader can check it opened that file.
+ * Returns { ok: true, dir, dirs, files, bytes } or { ok: false, because }.
+ */
+function walkListedDir(folder, rel, where, opts) {
+  const maxDepth = opts && Number.isInteger(opts.maxDepth) && opts.maxDepth >= 0 ? opts.maxDepth : LIST_MAX_DEPTH;
+  const maxFiles = (opts && opts.maxFiles) || 2000;
+  const maxBytes = (opts && opts.maxBytes) || 1024 * 1024 * 1024;
+  const maxScan = (opts && opts.maxScan) || BROWSE_MAX_SCAN * 5;   // iteration 3: every name read counts, hidden ones too
+  const got = resolveListedDir(folder, rel, where, { maxDepth });
+  if (!got.ok) return got;
+  const dirs = [];
+  const files = [];
+  let bytes = 0;
+  let read = 0;
+  const queue = [{ abs: got.real, rel: got.rel, depth: got.segs.length }];
+  while (queue.length) {
+    const { abs, rel: here, depth } = queue.shift();
+    let dir;
+    try { dir = fs.opendirSync(abs); } catch { return { ok: false, because: 'we could not read every folder in it, so there is nothing to download' }; }
+    try {
+      for (let ent = dir.readSync(); ent !== null; ent = dir.readSync()) {
+        read += 1;
+        if (read > maxScan) return { ok: false, tooBig: true, because: 'that folder holds too many names in all to download as one zip' };
+        const e = browsedEntry(ent, abs, here, depth, maxDepth);
+        if (!e) continue;
+        if (e.kind === 'dir') {
+          dirs.push(e.name);
+          // Folders count too: a tree of empty folders is entries in the zip like any file.
+          if (dirs.length > maxFiles) return { ok: false, tooBig: true, because: 'that folder holds more than ' + maxFiles + ' folders, which is too many to download as one zip' };
+          queue.push({ abs: path.join(abs, path.basename(e.name)), rel: e.name, depth: depth + 1 });
+          continue;
+        }
+        files.push({ name: e.name, size: e.size, st: e.st });
+        bytes += e.size;
+        if (files.length > maxFiles) return { ok: false, tooBig: true, because: 'that folder holds more than ' + maxFiles + ' files, which is too many to download as one zip' };
+        if (bytes > maxBytes) {
+          const said = maxBytes >= 1024 ** 3 ? Math.floor(maxBytes / 1024 ** 3) + ' GB' : Math.max(1, Math.floor(maxBytes / 1024 ** 2)) + ' MB';
+          return { ok: false, tooBig: true, because: 'that folder holds more than ' + said + ', which is too much to download as one zip' };
+        }
+      }
+    } catch (err) {
+      if (err instanceof TypeError || err instanceof ReferenceError) throw err;
+      return { ok: false, because: 'we could not read every folder in it, so there is nothing to download' };
+    } finally {
+      try { dir.closeSync(); } catch { /* already closed */ }
+    }
+  }
+  dirs.sort();
+  files.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return { ok: true, dir: got.rel, dirs, files, bytes };
 }
 
 /**
@@ -3933,5 +4140,6 @@ module.exports = {
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setRevealEnv, setFsWorldForTests, listFiles, openFile, resolveListedFile, sameOpenedFile, sameListedPath,
+  resolveListedDir, listDir, walkListedDir, BROWSE_MAX_ENTRIES,
   isUnderTmpDir, tmpFolderRefused,
 };

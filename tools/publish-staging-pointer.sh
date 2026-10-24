@@ -20,6 +20,9 @@ set -uo pipefail
 SITE="${1:-${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}}"
 ARCH="${KOSMOS_ARCH:-arm64}"
 [ -d "$SITE/dist" ] || { echo "publish-staging: no $SITE/dist (is the site checkout present?)" >&2; exit 1; }
+# kosmos#6620: no release pointer moves while the site is frozen (tools/pointer-freeze.sh, the incident pin).
+. "$(dirname "$0")/lib/pointer-freeze.sh" || { echo "publish-staging: cannot load tools/lib/pointer-freeze.sh" >&2; exit 1; }
+pointer_freeze_refuse "$SITE" publish-staging-pointer.sh || exit 1
 command -v node >/dev/null 2>&1 || { echo "publish-staging: node is required to write latest-staging.json" >&2; exit 1; }
 
 # The version: explicit arg, or derived from the one versioned artifact in dist. Deriving

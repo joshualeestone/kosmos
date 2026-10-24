@@ -25,7 +25,7 @@
  * start the agent again while another Kosmos is the one showing.
  *
  * 🔑 AN IMPORTED AGENT HAS NO JOB YET. Its start is `create.installJob` (the same
- * door "Set them to start at login" and a connected folder go through), handed the
+ * door the restart notice's "Start at login" and a connected folder go through), handed the
  * runner, model and account read from the SOURCE Kosmos's job at import time and
  * kept on the entry, because the target has no job to read them from. A Claude
  * folder is trusted first, exactly as createAgent trusts the folder it makes: the

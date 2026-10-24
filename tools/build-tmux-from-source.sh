@@ -64,7 +64,11 @@ mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 PREFIX="$OUT/tmux-floor-prefix"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+# kosmos#6831: the EXIT trap that removes $WORK also turns a death after it (an unset variable) into a failure,
+# which bash 3.2 would otherwise report as exit 0.
+. "$HERE/lib/exit-guard.sh"
+_cleanup() { rm -rf "$WORK"; }
+kosmos_exit_guard _cleanup build-tmux-from-source
 
 # Refuse in a sentence, not a 20-line configure log, when the toolchain is
 # absent (this is a BUILD-machine script; the user path never needs one).
@@ -304,3 +308,4 @@ fi
 
 echo "==> ok: floor-targeted prefix at $PREFIX"
 echo "    next: TMUX_SOURCE=$PREFIX/bin/tmux tools/build-tmux-bundle.sh $OUT"
+kosmos_finished

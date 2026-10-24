@@ -126,7 +126,7 @@ function render(which, a) {
      reads the CURRENT global -- lift it like face, and pass CURRENT (null: no
      agent is open in this isolated render) as an arg so the eval has both. */
   const fn = new Function('a', 'esc', 'GLYPH', 'PRESSAY', 'roleLine', 'discTint', 'discInk', 'initials', 'ROLE_TITLES', 'CURRENT',
-    `${page.lift(SCRIPT, 'agentNeedsAttention')}\n${page.lift(SCRIPT, 'face')}\n${page.lift(SCRIPT, 'dmBadge')}\n${page.lift(SCRIPT, 'rulesBehindLine')}\n${page.lift(SCRIPT, 'idleLine')}\n${page.lift(SCRIPT, 'offlineNote')}\n${page.lift(SCRIPT, 'lrowTask')}\n${page.lift(SCRIPT, which)}\nreturn ${which}(a);`);
+    `${page.lift(SCRIPT, 'agentNeedsAttention')}\n${page.lift(SCRIPT, 'face')}\n${page.lift(SCRIPT, 'dmBadge')}\n${page.lift(SCRIPT, 'rulesBehindLine')}\n${page.lift(SCRIPT, 'idleLine')}\n${page.lift(SCRIPT, 'offlineNote')}\n${page.lift(SCRIPT, 'lrowTask')}\n${page.lift(SCRIPT, 'pillTitle')}\n${page.lift(SCRIPT, 'pillVh')}\n${page.lift(SCRIPT, 'needsTrustSay')}\n${page.lift(SCRIPT, which)}\nreturn ${which}(a);`);
   return fn(a, (x) => String(x == null ? '' : x), { stopped: '<span class="stop"></span>' },
     { off: 'Not running' }, (x) => x.role || '', () => '#eee', () => '#111', (n) => n[0], null, null);
 }
@@ -319,9 +319,15 @@ test('on a partial read the headline tiles are marked as floors, never printed a
   assert.ok(board({ mangle: true }).counts.unreadableLines > 0, 'the mangled fixture no longer yields an unreadable line, so the gate is untestable');
 });
 
-/* kosmos#5957 slice 2: an offline agent is the likeliest to be far behind, and its card and list row draw no task line
-   of their own, so they say it themselves. The real row from the route (strict) carries rulesBehind null, so nothing is
-   drawn; the same row 13 versions behind draws the sentence in each renderer's own slot. */
+/* kosmos#5957 slice 2: an offline agent is the likeliest to be far behind. The real row from the route (strict) carries
+   rulesBehind null, so nothing is said; the same row 13 versions behind says it. #6716 (Josh, 2026-10-20: "i dont want
+   to show these messages on these agent tiles"): it is the pill's hover and screen-reader text now, never a line on the
+   tile or row. */
+/* The sentence on the pill (its title and its visually hidden text), and no sentence slot on the tile or row. */
+function onPill(html, text) {
+  return html.includes(' title="' + text + '"') && html.includes('<span class="vh">. ' + text + '</span>')
+    && !html.includes('class="arules"') && !html.includes('ltask lnote');
+}
 for (const which of ['card', 'lrow']) {
   test(`#5957 ${which}: a stopped agent far behind says its working rules are behind; the real row (null) says nothing`, () => {
     // Offline: the fact only (the page's update is refused for an agent not in the roster), no 'Open it to update them'.
@@ -329,7 +335,7 @@ for (const which of ['card', 'lrow']) {
     assert.ok(!render(which, offlineRow()).includes('working rules'), 'a row with no number drew the sentence');
     const html = render(which, { ...offlineRow({ strict: false }), rulesBehind: 13 });
     assert.ok(html.includes(SAID), `${which} did not draw the sentence: ${html.slice(0, 200)}`);
-    assert.ok(html.includes(which === 'card' ? '<div class="arules">' + SAID : '<div class="ltask lnote" title="' + SAID + '">' + SAID), `${which} drew it outside its slot`);   // #6045: at the model column's size
+    assert.ok(onPill(html, SAID), `${which} did not put it on the pill, or drew it on the tile: ${html.slice(0, 400)}`);
     assert.ok(!html.includes('Open it to update'), `${which} promised an update the page would refuse`);
     // Not when launchd says a process may be running (the "could not check" split): the update restarts it.
     // The split branch names its label from the page's STATE_COPY, which render() does not supply: given here only.
@@ -342,18 +348,16 @@ for (const which of ['card', 'lrow']) {
   });
 }
 
-/* kosmos#5957 slice 3: an agent not run for two weeks says so in the same slot, after the rules sentence when both
-   apply, and points at the Remove on its page (Kosmos removes nothing itself). Not on the could-not-check split. */
+/* kosmos#5957 slice 3: an agent not run for two weeks says so, after the rules sentence when both apply, and points at
+   the Remove on its page (Kosmos removes nothing itself). On the pill since #6716. Not on the could-not-check split. */
 for (const which of ['card', 'lrow']) {
   test(`#5957 slice 3 ${which}: a stopped agent idle 23 days says so; the real row (null) says nothing`, () => {
     const IDLE = 'Has not run in 23 days. If it is no longer needed, remove it under AI Settings on its page.';
     assert.ok(!render(which, offlineRow()).includes('Has not run'), 'a row with no number drew the sentence');
     const html = render(which, { ...offlineRow({ strict: false }), idleDays: 23 });
-    const slot = (text) => (which === 'card' ? '<div class="arules">' : '<div class="ltask lnote" title="' + text + '">') + text;   // #6045
-    // The list cell is nowrap with an ellipsis, so it carries the whole sentence as its title.
-    assert.ok(html.includes(slot(IDLE)), `${which} did not draw it in its slot: ${html.slice(0, 200)}`);
+    assert.ok(onPill(html, IDLE), `${which} did not put it on the pill: ${html.slice(0, 400)}`);
     const both = render(which, { ...offlineRow({ strict: false }), idleDays: 23, rulesBehind: 13 });
-    assert.ok(both.includes(slot('Its working rules are 13 versions behind. ' + IDLE)), `${which} did not join both in order`);
+    assert.ok(onPill(both, 'Its working rules are 13 versions behind. ' + IDLE), `${which} did not join both in order`);
     globalThis.STATE_COPY = { unknown: { label: 'Could not check' } };
     let split;
     try { split = render(which, { ...offlineRow({ strict: false }), idleDays: 23, jobRunningUnseen: true }); }

@@ -12,13 +12,13 @@
  *
  * What this pins, on a real board in a real browser:
  *  - HEALTHY: the pane holds the real 401 envelope in its history and the account check
- *    reads connected. The agent's card does NOT say "Sign-in isn't working", and
+ *    reads connected. The agent's card does NOT say "Sign-in Issue" (#6716; it was "Sign-in isn't working"), and
  *    /api/status does not report auth_failed for it.
  *    What the card shows instead is the engine's own reading with the sign-in signal set aside
  *    (its re-entry in status.js). In this sandbox that is "Can't tell"; the check does not claim
  *    more than that the stale failure is gone.
  *  - CONTROL (the dangerous answer): the same pane with the account check reading
- *    signed out. The card DOES say "Sign-in isn't working" and /api/status reports
+ *    signed out. The card DOES say "Sign-in Issue" and /api/status reports
  *    auth_failed. Without this arm a board that never showed the failure at all would
  *    pass the first one.
  *
@@ -116,10 +116,10 @@ const SCREEN = 'Working on the report\n' + OLD_401 + '\n\nWorked for 1m 02s\n> \
       if (typeof seen.apiState === 'string' && failing === want) break;   // a real reading, not a missing row
       await page.waitForTimeout(700);
     }
-    const shows = /Sign-in isn.t working/.test(seen.cardText);
+    const shows = /Sign-in Issue/.test(seen.cardText);   // #6716: the pill's word (the sentence is its hover)
     chk(seen.card, `[${label}] the agent's card is on the board`, JSON.stringify(seen));
     chk((seen.apiState === 'auth_failed') === want, `[${label}] the board's status ${want ? 'reports' : 'does not report'} auth_failed`, String(seen.apiState));
-    chk(shows === want, `[${label}] the card ${want ? 'says' : 'does not say'} "Sign-in isn't working"`, seen.cardText.slice(0, 160));
+    chk(shows === want, `[${label}] the card ${want ? 'says' : 'does not say'} "Sign-in Issue"`, seen.cardText.slice(0, 160));
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `stale-auth-${label}.png`), fullPage: false }); }
     chk(errs.length === 0, `[${label}] no page errors`, errs.join(' | '));
     await page.close();

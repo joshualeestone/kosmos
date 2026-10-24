@@ -420,7 +420,7 @@ test('#2840: the section markup carries the approved value-view containers, and 
   // the replaced elements are gone (Josh's exact-to-spec ruling; documented on #2840).
   assert.doesNotMatch(CODE, /id="usage-cards"/, 'the old full-number cards container is removed');
   assert.doesNotMatch(CODE, /id="usage-worth"/, 'the old output-only money box is removed');
-  assert.match(SCRIPT, /fetch\('\/api\/usage\?days=14'\)/, 'the render asks for 14 days');
+  assert.match(SCRIPT, /fetch\('\/api\/usage\?days=all'\)/, 'the render asks for every day since install (#6829)');
 });
 
 /* #2617: the per-agent block, from /api/usage's byAgent. */

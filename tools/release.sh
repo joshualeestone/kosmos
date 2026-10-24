@@ -233,7 +233,11 @@ cut_record_done() {
 # #1962: also FREE the machine claim on any exit (guarded: the claim is not made
 # until after cut-guard.sh is sourced below, and an exit before then has nothing
 # to free). Expiry + dead-pid cleanup are the backstops if this ever misses.
-trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true' EXIT
+# kosmos#6831: on bash 3.2 a cut that dies on an unset variable or a failed `.` reaches this trap with $? already
+# 0, and it would then be recorded and exit as a success. A 0 is the cut's own only when the last line set
+# _REL_FINISHED=1; any other 0 is recorded and exits as 1. (Same rule in the full trap below.)
+_REL_FINISHED=0
+trap '_rc=$?; [ "$_rc" != 0 ] || [ "${_REL_FINISHED:-0}" = 1 ] || { _rc=1; echo "release: the cut stopped before finishing; the cause is above. Treat the cut as FAILED (kosmos#6831)" >&2 || true; }; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$_rc" = 0 ] || exit "$_rc"' EXIT
 # #610 nit 2: make teardown robust against Ctrl-C / kill, not just a normal exit.
 # These convert the signal into a normal `exit`, which runs whichever EXIT trap is
 # current (this one, or the full site-restore/thaw trap that REPLACES it after the
@@ -434,6 +438,10 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 . "$REPO/tools/lib/connector-provenance.sh"
 . "$REPO/tools/lib/connector-currency.sh"
 . "$REPO/tools/lib/coordinator-floor.sh"
+# kosmos#6620: a cut moves a release pointer, so none starts while the site is frozen (tools/pointer-freeze.sh, the
+# incident pin). Before the cut marks itself, so a frozen site refuses without registering a cut.
+. "$REPO/tools/lib/pointer-freeze.sh"
+pointer_freeze_refuse "$SITE" release.sh || exit 1
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -777,9 +785,10 @@ fi
 # nobody reads while the cut is green. KOSMOS_TEST_PART=all (the whole suite) is allowed; anything else, an empty
 # value included, is refused, and so is KOSMOS_TEST_PART_LOCAL. So is KOSMOS_SHELL_SHARD, CI's shard of the shell part:
 # run-tests.sh refuses a non-empty one beside a whole suite, so a leftover one would stop the cut at step 3, after the
-# bump. An empty one is refused too, as the other two are, though run-tests.sh would ignore it.
-if { [ -n "${KOSMOS_TEST_PART+x}" ] && [ "$KOSMOS_TEST_PART" != all ]; } || [ -n "${KOSMOS_TEST_PART_LOCAL+x}" ] || [ -n "${KOSMOS_SHELL_SHARD+x}" ]; then
-  echo "KOSMOS_TEST_PART, KOSMOS_TEST_PART_LOCAL or KOSMOS_SHELL_SHARD is set in this shell (part '${KOSMOS_TEST_PART-}', local '${KOSMOS_TEST_PART_LOCAL-}', shard '${KOSMOS_SHELL_SHARD-}'). A cut always tests the whole suite (#5934): unset them and run again."; exit 1
+# bump. An empty one is refused too, as the other two are, though run-tests.sh would ignore it. #6791: and so is
+# KOSMOS_SHELL_PLATFORM (CI's linux or mac share of the shell part), which run-tests.sh refuses without a shard.
+if { [ -n "${KOSMOS_TEST_PART+x}" ] && [ "$KOSMOS_TEST_PART" != all ]; } || [ -n "${KOSMOS_TEST_PART_LOCAL+x}" ] || [ -n "${KOSMOS_SHELL_SHARD+x}" ] || [ -n "${KOSMOS_SHELL_PLATFORM+x}" ]; then
+  echo "KOSMOS_TEST_PART, KOSMOS_TEST_PART_LOCAL, KOSMOS_SHELL_SHARD or KOSMOS_SHELL_PLATFORM is set in this shell (part '${KOSMOS_TEST_PART-}', local '${KOSMOS_TEST_PART_LOCAL-}', shard '${KOSMOS_SHELL_SHARD-}', platform '${KOSMOS_SHELL_PLATFORM-}'). A cut always tests the whole suite (#5934): unset them and run again."; exit 1
 fi
 # One authenticated request to Apple with the notary key, so a bad key or an outage refuses here,
 # before the bump is pushed. Step 4 can still fail at Apple after the bump (a notary outage that
@@ -997,7 +1006,7 @@ DEPLOYED=0
 # On any exit before step 8 finished, the site checkout stops claiming $V
 # (#609 review, Splinter 23:05: a failed cut left latest.json and setup.sha256
 # uncommitted at the new version, and the pair that made cut 5 refuse).
-trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
+trap '_rc=$?; [ "$_rc" != 0 ] || [ "${_REL_FINISHED:-0}" = 1 ] || { _rc=1; echo "release: the cut stopped before finishing; the cause is above. Treat the cut as FAILED (kosmos#6831)" >&2 || true; }; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"; [ "$_rc" = 0 ] || exit "$_rc"' EXIT
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD" "$V" "$CUT_CHANNEL"
 # kosmos#6149: the installer this cut publishes is the FROZEN tree's. Step 1a-floor checked the checkout's copy, and the
@@ -1768,6 +1777,18 @@ site_deploy_landed_args_ok "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_
 # own INT trap as well as vercel, and the trap deletes the local copy).
 _my_sha="$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" 2>/dev/null || true)"   # set -e: a missing file must not end the cut here
 echo "   (#5471 record) THIS cut's build is sha256 ${_my_sha:-<unreadable>}; once deployed it is served as ${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz.sha256 (equal: this cut landed; different: another build of $V is served)."
+# kosmos#6620: the push itself refused a frozen tip; this asks origin/main again, just before vercel, so a freeze pushed
+# from any machine since the site push stops the deploy. It narrows the window to the deploy itself and does not close
+# it: a freeze (and its pin deploy) landing while vercel uploads is not seen here. A fetch that fails here is said and
+# the cut goes on: the push-time check ran on a tip fetched moments ago.
+if pointer_freeze_fetch "$SITE"; then
+  if git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then
+    echo "the site's origin/main is FROZEN now (dist/POINTER_FROZEN, kosmos#6620), so this cut does not deploy; nothing was deployed. Its site commit is on origin/main: tools/pointer-freeze.sh status says what is frozen."
+    exit 1
+  fi
+else
+  echo "   (#6620) could not fetch origin/main to re-check the pointer freeze before deploying; going on (the site push checked it moments ago)"
+fi
 _vdep_rc=0
 ( cd "$_site_export" && vercel deploy --prod --yes ) || _vdep_rc=$?
 if [ "$_vdep_rc" != 0 ]; then
@@ -2077,3 +2098,5 @@ if [ "$CUT_CHANNEL" = prod ]; then
   KOSMOS_RELEASE_IS_PROD=1 KOSMOS_SITE="$SITE" bash "$MAIN_REPO/tools/post-release-notes.sh" "$V" --publish \
     || echo "post-release-notes: hook returned non-zero (the release still shipped; this is best-effort)"
 fi
+# kosmos#6831: the cut reached its end; the EXIT trap reads this to tell a finished cut from one that died.
+_REL_FINISHED=1

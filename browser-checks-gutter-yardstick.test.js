@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * kosmos#3973: render-boot-no-flash, render-plus-bar-3837 and (#4213) render-tasks-view-3559 each
+ * kosmos#3973: render-boot-no-flash and (#4213) render-tasks-view-3559 each (render-plus-bar-3837 until #6718)
  * measure their subject against the ROOT's box, and (#4213) against the root's own stable-gutter
  * width. The copies live inside page.evaluate() callbacks (one of them races a boot cover that is up
  * for moments), so they are not shared code. Pinned here, as text: the root declaration, the gutter
@@ -13,7 +13,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const FILES = ['render-boot-no-flash.js', 'render-plus-bar-3837.js', 'render-tasks-view-3559.js']
+// kosmos#6718: render-plus-bar-3837 left this list; it measured the desktop Kosmos+ bar edge to edge, and that bar is
+// no longer drawn at desktop widths (its phone bar's fit is not observable, measured with a mutant in that review).
+const FILES = ['render-boot-no-flash.js', 'render-tasks-view-3559.js']
   .map((f) => path.join(__dirname, 'docs', 'browser-checks', f));
 
 const MARK_TEXT = 'const de = document.documentElement, rs = de.style,';
@@ -52,7 +54,7 @@ test('#3973: every check that measures the root yardstick uses the same probe an
 
 test('#4213: render-tasks-view-3559 reads its right edge from the root and asserts the yardstick', () => {
   // The pin above guards the copied text; this guards its use, which a revert to clientWidth would undo.
-  const src = fs.readFileSync(FILES[2], 'utf8');
+  const src = fs.readFileSync(FILES.find((f) => f.endsWith('render-tasks-view-3559.js')), 'utf8');   // by name: the list changed (#6718)
   assert.match(src, /w: Math\.floor\(root\.right\)/, 'the right edge is no longer the root box');
   assert.doesNotMatch(src, /w: document\.documentElement\.clientWidth/, 'the right edge went back to clientWidth');
   assert.match(src, /chk\(geo\.rootOk,/, 'the yardstick is measured but never asserted');

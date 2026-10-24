@@ -28,7 +28,8 @@ cd "$REPO"
 # #4317: CI runs the two halves as separate parallel jobs. KOSMOS_TEST_PART picks one:
 #   all   (the default, and what `yarn test` runs): the node suite, then test:shell, as before;
 #   node  the node suite only;
-#   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js).
+#   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js), and with
+#         KOSMOS_SHELL_PLATFORM=linux|mac as well (only with a shard, #6791) just that platform's share of it.
 # Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates). --only (#4929,
 # below) keeps the temp root, the --require guards and the leak guards, and skips the queue wait, the coverage count,
 # the shell part and the browser-check gates.
@@ -142,6 +143,24 @@ if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
     exit 2
   fi
 fi
+# #6791: which platform's share of test:shell a shard runs (tools/shell-macos-only.txt): linux or mac, only with a shard.
+if [ -n "${KOSMOS_SHELL_PLATFORM:-}" ]; then
+  if [ -z "${KOSMOS_SHELL_SHARD:-}" ] || { [ "$KOSMOS_SHELL_PLATFORM" != linux ] && [ "$KOSMOS_SHELL_PLATFORM" != mac ]; }; then
+    echo "run-tests: KOSMOS_SHELL_PLATFORM must be linux or mac and only with KOSMOS_SHELL_SHARD (got platform '$KOSMOS_SHELL_PLATFORM', shard '${KOSMOS_SHELL_SHARD:-}')" >&2
+    exit 2
+  fi
+fi
+# #6977: KOSMOS_SHELL_CUT_ENV=1 runs the shell part in a cut's shape (tools/lib/cut-shape.sh: AGENT_WORKFORCE_HOME
+# exported, and a stand-in live cut), so a shell test that fails only in a cut fails here instead of at step 3. CI only:
+# the stand-in reads as a cut to every cut guard on the computer, so on a shared Mac it would hold up other agents.
+case "${KOSMOS_SHELL_CUT_ENV:-0}" in
+  0) ;;
+  1) if [ "${GITHUB_ACTIONS:-}" != true ]; then
+       echo "run-tests: KOSMOS_SHELL_CUT_ENV=1 is for CI only: its stand-in cut would read as a real cut to every other agent's suite and cut on this computer. To check one test by hand, use tools/lib/cut-shape.sh with a --base inside a kt<digits> folder." >&2
+       exit 2
+     fi ;;
+  *) echo "run-tests: KOSMOS_SHELL_CUT_ENV must be 0 or 1 (got '$KOSMOS_SHELL_CUT_ENV')" >&2; exit 2 ;;
+esac
 
 # --- #6668: a wall-clock limit per test FILE, outside node ---------------------
 # A test blocked in a sync call (spawnSync, execSync, execFileSync with no timeout) blocks its own event loop, so
@@ -383,6 +402,7 @@ export KOSMOS_NO_LEGACY_MIGRATION=1
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
+export KOSMOS_UPDATE_PAUSE_URL=http://127.0.0.1:9/v1/meta   # kosmos#6620: the update pause asks a dead port, never the coordinator
 export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test that inherits this env writes no language block, whatever this Mac's language is
 # #4632: the roles and teams catalogue a board downloads when asked (the picker, `kosmos agent
 # roles`, a create for a role it does not hold). A test that needs it serves its own.
@@ -449,7 +469,7 @@ seen_before() {
   # pre-initialised for `set -u` since the guard may leave it unassigned.
   local load="" cores=""
   command -v kosmos_box_load_1min >/dev/null 2>&1 && load="$(kosmos_box_load_1min)"
-  cores="$(sysctl -n hw.ncpu 2>/dev/null)"
+  command -v kosmos_cpu_count >/dev/null 2>&1 && cores="$(kosmos_cpu_count)"
   [ -n "$load" ] && lines+=("1-minute load $load on ${cores:-?} cores")
   # #5727: the wall-clock time-scale the eventually() helper applies this run, so the
   # reader of a timing red sees whether budgets were stretched for load (scale > 1x).
@@ -761,6 +781,9 @@ fi
 # an async hang, but it runs on the test's own event loop, so it cannot stop a test blocked in a sync call
 # (spawnSync with no timeout held the queue 66 min). The file watchdog below is outside node: it stops any one
 # test FILE that runs longer than its limit and the run goes red.
+#
+# #6059: fresh-connections.js makes the global fetch open a new connection per request, so a kept-alive socket
+# left idle on a loaded runner cannot come back ECONNRESET on the next request (one preload for ~240 files).
 NODE_STATUS=0
 _rt_wd_pid=""
 _rt_wd_flag=""
@@ -768,7 +791,7 @@ _rt_wd_started=0
 _rt_wd_found=0
 rt_file_watchdog_start   # not for a shell-only run
 if [ "$KOSMOS_TEST_PART" != shell ]; then
-node --test --require "$REPO/test-support/launch-guard.js" --require "$REPO/test-support/tool-guard.js" --test-timeout="$RT_TEST_TIMEOUT_MS" "${KOSMOS_TEST_FILES[@]}" "$@"
+node --test --require "$REPO/test-support/launch-guard.js" --require "$REPO/test-support/tool-guard.js" --require "$REPO/test-support/fresh-connections.js" --test-timeout="$RT_TEST_TIMEOUT_MS" "${KOSMOS_TEST_FILES[@]}" "$@"
 NODE_STATUS=$?
 fi
 rt_file_watchdog_stop
@@ -776,12 +799,24 @@ _rt_node_status="$NODE_STATUS"   # #6668: the node part's own verdict, before th
 if [ "$KOSMOS_ONLY" = 1 ]; then
   :   # #4929: --only runs named node files; the shell part is the whole suite's
 elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
+  # #6977: in a cut's shape when KOSMOS_SHELL_CUT_ENV=1 (CI only, refused above). The scratch folder goes beside the kt
+  # sandbox, not in it: a stand-in working there would be a test fixture to the cut guard and not count as a cut.
+  # Only on a GitHub-hosted runner: a self-hosted one is a shared Mac (test.yml can route shell shards to it, #4601),
+  # where the stand-in would read as a cut to every agent on it, and a runner that does not say counts as shared. The
+  # part runs plain there, and says so.
+  _rt_shell_wrap=()
+  if [ "${KOSMOS_SHELL_CUT_ENV:-0}" = 1 ] && [ "${RUNNER_ENVIRONMENT:-}" != github-hosted ]; then
+    echo "run-tests: KOSMOS_SHELL_CUT_ENV=1 is used only on a GitHub-hosted runner, not on '${RUNNER_ENVIRONMENT:-an unnamed runner}' (a shared computer); the shell part runs without the cut's shape (#6977)" >&2
+  elif [ "${KOSMOS_SHELL_CUT_ENV:-0}" = 1 ]; then
+    . "$REPO/tools/lib/cut-shape.sh"
+    _rt_shell_wrap=(kosmos_cut_shape_run --base "$(dirname "$KOSMOS_RUN_TMPDIR")")
+  fi
   if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
-    node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}"
+    ${_rt_shell_wrap[@]+"${_rt_shell_wrap[@]}"} node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}" ${KOSMOS_SHELL_PLATFORM:+"$KOSMOS_SHELL_PLATFORM"}
   else
     # #5907: the whole of test:shell as shard 1 of 1 (the same commands in the same order, stopping at the first
     # red, as the && chain did), so the log names each command's time and the slowest ones.
-    node "$REPO/tools/shell-shard.js" run 1 1
+    ${_rt_shell_wrap[@]+"${_rt_shell_wrap[@]}"} node "$REPO/tools/shell-shard.js" run 1 1
   fi
   NODE_STATUS=$?
 fi

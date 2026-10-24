@@ -28,12 +28,14 @@ render-agentdm-3414
 render-agentpage-fullwidth-2012
 render-allagents-4812
 render-alltasks
+render-apptabs-6846
 render-assigner-live-3595
 render-assistant-bubble-3034
 render-assistant-hosted-3660
 render-autohello-2686
 render-autohello-switch-2716
 render-avatar-4038
+render-avatar-crop-6722
 render-brief-note-agents
 render-bubblepop-2407
 render-build-marker-2066
@@ -84,6 +86,7 @@ render-dm-owes-4340
 render-dm-phone-718
 render-dm-reactions-3650
 render-dm-reply-4256
+render-dm-retry-6720
 render-dm-send-clears-4944
 render-dm-send-shows-now
 render-dm-sendjump-4639
@@ -171,6 +174,7 @@ render-orgchart-phone-718
 render-orgenroll-5531
 render-otheraccounts-6178
 render-owncode-4649
+render-permcard-6727
 render-personal-instr-4446
 render-phone-offline-718
 render-phone-pass-5510
@@ -193,6 +197,7 @@ render-plus-computer-name-5995
 render-plus-gate-1615
 render-plus-gutter-4542
 render-plus-panel-3829
+render-plus-paused-6666
 render-plus-signin-3478
 render-plus-signin-enter-0929
 render-plus-stars-3778
@@ -213,6 +218,7 @@ render-reassign-update-3050
 render-reauth-reach-1918
 render-recommender-guards-4545
 render-recommender-live-3595
+render-records-6994
 render-refreshlogin-5407
 render-remote-file-download-5165
 render-remove-force-2651
@@ -223,6 +229,7 @@ render-restart-screen-4343
 render-restarting-2019
 render-restore-dircheck-2615
 render-restore-refused-4976
+render-reviewerptr-6817
 render-richtext-2067
 render-richtext-room-2239
 render-room-busy-scope-2882
@@ -230,6 +237,7 @@ render-room-msgbox-2806
 render-room-reply-3745
 render-room-scroll
 render-room-send-shows-now-6168
+render-roomfree-6949
 render-runrollup-5643
 render-settings-agy-3874
 render-settings-fit-5510
@@ -240,6 +248,7 @@ render-signin-visible-3892
 render-snav-head-4979
 render-sound-master-2436
 render-stale-auth-1930
+render-star-6719
 render-start-agent-3410
 render-subback-4586
 render-subprojects-1994
@@ -251,6 +260,7 @@ render-talk
 render-talk-anchor-1926
 render-talk-fill-2622
 render-talk-search
+render-task-receipt-prs-6842
 render-task-taps-5200
 render-taskhover-4880
 render-tasks
@@ -266,6 +276,7 @@ render-tophead-consolidated-2282
 render-tophead-stable-2624
 render-trust-restart-0644
 render-type-to-focus-3283
+render-typed-allow-6590
 render-unread-edge-3743
 render-unsent-draft-6717
 render-unsent-input-6249

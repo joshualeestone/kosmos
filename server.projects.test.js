@@ -1988,7 +1988,8 @@ test('the task routes: create over the wire, refusals write nothing, close and r
   for (const [label, body, want] of [
     ['no sentence', {}, /say what needs doing/],
     ['blank sentence', { sentence: '  ' }, /say what needs doing/],
-    ['oversize sentence', { sentence: 'x'.repeat(201) }, /200 characters or fewer/],
+    // #6921: an oversize title is shortened now; it is refused only when moving it overflows the detail.
+    ['oversize sentence that overflows the detail', { sentence: 'x'.repeat(201), detail: 'y'.repeat(1900) }, /with it moved into the detail/],
   ]) {
     const r = await post(`/api/project/${made.project.id}/tasks`, body);
     assert.equal(r.status, 400, `${label} was accepted`);
@@ -2973,6 +2974,160 @@ test('#3570: `kosmos room` shows a post\'s reactions under it, and drops the lin
   });
 });
 
+test('#6946: kosmos claim through the real /api/react route, and `kosmos room` saying who holds it until it is given back', async () => {
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    const posted = await post(`/api/project/${project.id}/room`, { text: 'can someone take the release notes' });
+    assert.equal(posted.status, 200, posted.body);
+    const jrows = JSON.parse((await req(`/api/project/${project.id}/room`)).body);
+    const id = jrows.rows.filter((r) => r.kind === 'post').slice(-1)[0].id;
+    // Control: nobody has claimed it, so no claim line and no claim field.
+    let res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.doesNotMatch(res.body, /is claimed by/, 'an unclaimed post printed a claim line');
+    assert.equal(jrows.rows.find((r) => r.id === id).claim, undefined);
+
+    // The agent's own surface, as `kosmos claim` sends it: its token, no emoji, `claim`.
+    const tok = require('./engine/sendertoken').mint('zeta').token;
+    const asZeta = (body) => fetch(base + '/api/react', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+      body: JSON.stringify({ project: project.id, of: id, from_pane: '', ...body }) }).then((r) => r.json());
+    const c = await asZeta({ claim: 'claim' });
+    assert.equal(c.ok, true, 'the route did not pass `claim` through: ' + JSON.stringify(c));
+    assert.equal(c.op, 'add');
+    assert.equal(c.emoji, '\u{1F64B}');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta (just now); unless you are zeta, do not post that you are taking it.\n'),
+      'the claim line is missing or worded differently:\n' + res.body);
+    const row = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.find((r) => r.id === id);
+    assert.equal(row.claim && row.claim.by, 'zeta', 'the page row does not carry the claim');
+
+    // The person clicks zeta's 🙋 pill on the board: that agrees, it does not take the post from zeta.
+    const agreed = await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' });
+    assert.equal(agreed.status, 200, agreed.body);
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'the person\'s click changed who holds the post:\n' + res.body);
+
+    // #6952: an old unmarked raised hand from another agent (written before claims) is not listed either.
+    fs.appendFileSync(require('./engine/messages').LOG, JSON.stringify({ kind: 'reaction', project: project.id, of: id, emoji: '\u{1F64B}', op: 'add', from: 'olda', at: '2026-10-21T00:00:00.000Z' }) + '\n');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.doesNotMatch(res.body, /reactions on \[[^\]]+\]:[^\n]*olda/u, 'an old unmarked raised hand is on the reactions line:\n' + res.body);
+    // #6952: no 🙋 on the reactions line; the claim line says who holds it. Control: an ordinary reaction still shows.
+    // The person's 🙋 (their click above) stays: it says "yes, you do it". zeta's 🙋 is the claim, said on the claim
+    // line, so it is not listed here.
+    assert.ok(res.body.includes('[kosmos] reactions on [' + id + ']: \u{1F64B} operator\n'), 'the person\'s raised hand is not on the line:\n' + res.body);
+    assert.doesNotMatch(res.body, /reactions on \[[^\]]+\]:[^\n]*\u{1F64B}[^\n;]*zeta/u, 'an agent\'s raised hand is on the reactions line:\n' + res.body);
+    assert.equal((await asZeta({ emoji: '\u{1F44D}' })).op, 'add');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('[kosmos] reactions on [' + id + ']: \u{1F64B} operator; \u{1F44D} zeta\n'), 'CONTROL: an ordinary reaction is not on the line:\n' + res.body);
+
+    // Round 4: the room's own member filter. zeta removed from the project: the line goes (control: it was there above).
+    const remove = require('./engine/remove');
+    fs.mkdirSync(path.dirname(remove.REMOVED_FILE), { recursive: true });
+    fs.writeFileSync(remove.REMOVED_FILE, JSON.stringify([{ name: 'zeta', stopped: true }]));
+    try {
+      res = await req(`/api/project/${project.id}/room?as=text`);
+      assert.doesNotMatch(res.body, /is claimed by/, 'kosmos room still says a removed agent holds the post:\n' + res.body);
+      // #6952: and the reactions line does not list the departed holder's raised hand either.
+      assert.doesNotMatch(res.body, /reactions on \[[^\]]+\]:[^\n]*\u{1F64B}[^\n;]*zeta/u, 'a departed holder\'s raised hand is on the reactions line:\n' + res.body);
+      assert.equal(JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.find((r) => r.id === id).claim, undefined);
+    } finally {
+      fs.rmSync(remove.REMOVED_FILE, { force: true });
+    }
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('is claimed by zeta'), 'CONTROL: zeta back on the project does not hold the post again');
+
+    // zeta gives it back: the line goes, and a second release is a no-op.
+    assert.equal((await asZeta({ claim: 'release' })).op, 'remove');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.doesNotMatch(res.body, /is claimed by/, 'a given-back claim still printed');
+    // #6957: with no claim live, the person's lone raised hand is left out too (it would read as theirs).
+    assert.doesNotMatch(res.body, /reactions on \[[^\]]+\]:[^\n]*\u{1F64B} operator/u, 'the person\'s lone raised hand is on the line with no claim:\n' + res.body);
+    // #6957 review 1: zeta claims again; the person's raised hand agreed with the EARLIER claim, so it is not shown beside this one.
+    assert.equal((await asZeta({ claim: 'claim' })).op, 'add');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('is claimed by zeta'), res.body);
+    assert.doesNotMatch(res.body, /reactions on \[[^\]]+\]:[^\n]*\u{1F64B} operator/u, 'the person\'s old raised hand attached to a newer claim:\n' + res.body);
+    // #6974: the person takes the old hand off and raises it again: their LATEST 🙋 is the one read, so it agrees with this claim
+    // (the one-pass map in the room read keeps the last row per post; one keeping the first would read the earlier hand).
+    assert.equal(json(await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' })).op, 'remove');
+    assert.equal(json(await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' })).op, 'add');
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.match(res.body, /reactions on \[[^\]]+\]:[^\n]*\u{1F64B} operator/u, 'the person\'s new raised hand is not shown beside the claim it agrees with:\n' + res.body);
+    assert.equal((await asZeta({ claim: 'release' })).op, 'remove');
+    assert.equal((await asZeta({ claim: 'release' })).op, 'none');
+  });
+});
+
+test('#6949: the person frees a quiet agent\'s claim through the real route; the agents\' room read says so and the page\'s does not', async () => {
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    const posted = await post(`/api/project/${project.id}/room`, { text: 'can someone take the release notes' });
+    assert.equal(posted.status, 200, posted.body);
+    const id = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((r) => r.kind === 'post').slice(-1)[0].id;
+    const tok = require('./engine/sendertoken').mint('zeta').token;
+    const asZeta = (body) => fetch(base + '/api/react', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+      body: JSON.stringify({ project: project.id, of: id, from_pane: '', ...body }) }).then((r) => r.json());
+    assert.equal((await asZeta({ claim: 'claim' })).op, 'add');
+
+    // The person's 🙋 click answers with the claim too, so the page's one-row repaint keeps the pill labelled.
+    const agreed = json(await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' }));
+    assert.equal(agreed.claim && agreed.claim.by, 'zeta', 'the react route\'s answer has no claim: ' + JSON.stringify(agreed));
+    assert.equal(json(await post(`/api/project/${project.id}/room/${id}/react`, { emoji: '\u{1F64B}' })).op, 'remove');
+
+    // A page that drew someone else as the holder is refused (409, naming zeta), and nothing is freed.
+    const stale = await post(`/api/project/${project.id}/room/${id}/free-claim`, { by: 'ann' });
+    assert.equal(stale.status, 409, stale.body);
+    assert.equal(JSON.parse(stale.body).claimedBy, 'zeta');
+    assert.equal(JSON.parse(stale.body).claim && JSON.parse(stale.body).claim.by, 'zeta', 'the 409 does not carry the post as it is now');
+    assert.equal(JSON.parse(stale.body).reactions.length, 1);
+    let res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'a refused free still freed the post:\n' + res.body);
+    assert.doesNotMatch(res.body, /The person freed the claim/, 'a refused free wrote the note');
+
+    const freed = await post(`/api/project/${project.id}/room/${id}/free-claim`, { by: 'zeta' });
+    assert.equal(freed.status, 200, freed.body);
+    const out = JSON.parse(freed.body);
+    assert.equal(out.op, 'freed');
+    assert.equal(out.freed, 'zeta');
+    assert.deepEqual(out.reactions, [], 'the answer still lists zeta\'s 🙋');
+    assert.equal(out.claim, undefined, 'the answer still carries a claim');
+
+    // The agents' view: the claim line is gone and the note names the post and zeta. The page's view leaves the note out.
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.doesNotMatch(res.body, /is claimed by/, 'the freed claim still printed');
+    assert.ok(res.body.includes('The person freed the claim zeta held on [' + id + '], so another agent can claim it now.'),
+      'the agents\' room read does not say the claim was freed:\n' + res.body);
+    const page = JSON.parse((await req(`/api/project/${project.id}/room`)).body);
+    assert.equal(page.rows.find((r) => r.id === id).claim, undefined);
+    assert.ok(!page.rows.some((r) => r.kind === 'note' && /freed the claim/.test(String(r.text || ''))), 'the person\'s room shows the agents-only note');
+
+    // Freeing again is a no-op, and the post can be claimed again.
+    assert.equal(json(await post(`/api/project/${project.id}/room/${id}/free-claim`, { by: 'zeta' })).op, 'none');
+    assert.equal((await asZeta({ claim: 'claim' })).op, 'add', 'the freed post could not be claimed again');
+
+    // An agent token cannot use the person's route.
+    const asAgent = await fetch(base + `/api/project/${project.id}/room/${id}/free-claim`, { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok }, body: JSON.stringify({ by: 'zeta' }) });
+    assert.equal(asAgent.status, 403, 'an agent token was not refused by the person\'s route');
+    // The route's own refusal, not the board-token gate's (which answers 403 too on a board that enforces it).
+    assert.match((await asAgent.json()).because || '', /^only the person can free a claim/, 'the 403 is not the route\'s own refusal');
+
+    // The route's other answers: no such project (404), no holder named (400), a body that is not JSON (400).
+    assert.equal((await post(`/api/project/no-such-project/room/${id}/free-claim`, { by: 'zeta' })).status, 404);
+    const noBy = await post(`/api/project/${project.id}/room/${id}/free-claim`, {});
+    assert.equal(noBy.status, 400, noBy.body);
+    assert.equal(JSON.parse(noBy.body).because, 'we could not tell whose claim to free');
+    const garbled = await fetch(base + `/api/project/${project.id}/room/${id}/free-claim`, { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: '{not json' });
+    assert.equal(garbled.status, 400);
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'a refused request freed the claim:\n' + res.body);
+    res = await req(`/api/project/${project.id}/room?as=text`);
+    assert.ok(res.body.includes('[kosmos] [' + id + '] is claimed by zeta ('), 'the agent-token call freed the claim:\n' + res.body);
+  });
+});
+
 test('#2702: the room rejects an UNKNOWN project id (404) but still serves a real empty project (200)', async () => {
   /* Before this, `room` rendered ANY id as an empty room, so a typo or a
      hyphenated-name guess was indistinguishable from silence -- while `post`
@@ -3853,6 +4008,26 @@ test('#4642: a room post row carries its recorded `mentioned`, [] when it addres
     fsx.appendFileSync(require('./engine/messages').LOG, row('m-4642-a', { mentioned: ['kano'] }) + row('m-4642-b', {}));
     const posts = json(await req('/api/project/' + p.id + '/room')).rows.filter((m) => m.kind === 'post');
     assert.deepEqual(posts.map((m) => [m.id, m.mentioned]), [['m-4642-a', ['kano']], ['m-4642-b', []]]);
+  } finally { try { projectsEngine.remove(p.id); } catch { /* cleanup */ } }
+});
+
+/* #6925: a post that went through a held room as its agent's one summary (#6920 stores closing: true) is served with
+   closing: true, so the page can label it; an ordinary post carries no such field. */
+test('#6925: a room post row carries closing: true when it was the one summary, and no closing field otherwise', async () => {
+  const projectsEngine = require('./engine/projects');
+  const fsx = require('node:fs');
+  const p = projectsEngine.create({ name: 'Closing Record 6925', agents: [], roster: [], description: 'x', made: { via: 'test' } });
+  try {
+    const at = new Date().toISOString();
+    const row = (id, extra) => JSON.stringify({ kind: 'post', id, project: p.id, from: 'kano', to: ['you'], text: 'where we landed', at, outcomes: {}, ...extra }) + '\n';
+    fsx.appendFileSync(require('./engine/messages').LOG, row('m-6925-a', { closing: true }) + row('m-6925-b', {}));
+    const posts = json(await req('/api/project/' + p.id + '/room')).rows.filter((m) => m.kind === 'post');
+    assert.deepEqual(posts.map((m) => [m.id, m.closing]), [['m-6925-a', true], ['m-6925-b', undefined]]);
+    // The text view agents read says the same, on the summary's line only.
+    const text = (await req('/api/project/' + p.id + '/room?as=text')).body;
+    const lineOf = (id) => text.split('\n').find((l) => l.includes('[' + id + ']')) || '';
+    assert.match(lineOf('m-6925-a'), /\(its one summary while the room was held\)/, 'the text view does not mark the summary: ' + text);
+    assert.doesNotMatch(lineOf('m-6925-b'), /one summary/, 'the text view marked an ordinary post');
   } finally { try { projectsEngine.remove(p.id); } catch { /* cleanup */ } }
 });
 

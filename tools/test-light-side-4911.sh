@@ -16,11 +16,15 @@ unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_SIDE_LANE KOSMOS_SIDE_MAX_LOAD KOSMOS_SID
 T="$(mktemp -d "/tmp/test-light-side-4911.XXXXXXXXXX")"
 # Arm the cleanup BEFORE spawning the holders, so a signal in that window still removes $T.
 trap 'rm -rf "$T"' EXIT
-sleep 600 </dev/null >/dev/null 2>&1 & HOLDER=$!
-sleep 600 </dev/null >/dev/null 2>&1 & OTHER=$!
+# #6710: the long-lived stand-in controls in this file are bounded waits (perl select), not `sleep N`,
+# so a stray `pkill -f sleep` (which matches any command line containing "sleep") cannot end one mid-test;
+# a perl select still ends by itself if cleanup never runs. The /bin/sleep copies at the real-matcher
+# fixture below keep a browser path as their command line (no "sleep"), so they are left as-is.
+perl -e 'select(undef, undef, undef, 600)' </dev/null >/dev/null 2>&1 & HOLDER=$!
+perl -e 'select(undef, undef, undef, 600)' </dev/null >/dev/null 2>&1 & OTHER=$!
 # A stand-in suite that is NOT this shell's descendant (this shell holds a queue marker in the side arms, and a
 # waiter's descendants are not suites): orphaned at once, so its parent is launchd, as a real agent's suite's is not ours.
-ORPHAN="$(sh -c 'sleep 600 </dev/null >/dev/null 2>&1 & echo $!')"
+ORPHAN="$(sh -c 'perl -e "select(undef, undef, undef, 600)" </dev/null >/dev/null 2>&1 & echo $!')"
 trap 'kill "$HOLDER" "$OTHER" "$ORPHAN" 2>/dev/null; rm -rf "$T"' EXIT   # now also kill the holders; bash runs this EXIT trap on signals too
 export KOSMOS_RUN_MARKER_DIR="$T/markers"; mkdir -p "$KOSMOS_RUN_MARKER_DIR"
 fails=0
@@ -121,7 +125,7 @@ out="$(side)"; rc=$?
 rm -f "$M/suitewait.$OTHER"
 
 # The side claim: one holder; a foreign one refuses; release never removes a foreign claim; a dead holder is cleaned.
-bash -c '. "$1"; kosmos_claim_light_side 5 && exec sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
+bash -c '. "$1"; kosmos_claim_light_side 5 && exec perl -e "select(undef, undef, undef, 30)"' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
 out="$(side)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "side turn beside the heavy one"; } && pass "a live side claim refuses a second side turn" || fail "two side turns at once (rc=$rc, $out)"
@@ -176,7 +180,7 @@ KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this run" --suite-queue --side side
 # holds every side turn off; one that is side-aware does not.
 claim 300 "queued run (not a cut): a full suite"
 # A live stand-in whose command names queued-heavy.sh (a marker whose command is not its process's is stale and removed).
-printf '#!/bin/bash\ntrap '"'"'kill $c; exit 0'"'"' TERM\nsleep 600 & c=$!\nwait $c\n' > "$T/queued-heavy.sh"; chmod +x "$T/queued-heavy.sh"
+printf '#!/bin/bash\ntrap '"'"'kill $c; exit 0'"'"' TERM\nperl -e "select(undef, undef, undef, 600)" & c=$!\nwait $c\n' > "$T/queued-heavy.sh"; chmod +x "$T/queued-heavy.sh"
 "$T/queued-heavy.sh" </dev/null >/dev/null 2>&1 & QH=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do case "$(ps -ww -o command= -p "$QH")" in *queued-heavy*) break ;; esac; sleep 0.1; done
 printf '%s %s\n%s\n%s\n%s\nheavy\n' "$((NOW - 50))" "$QH" "$(ps -ww -o command= -p "$QH")" "$(_kosmos_pid_started_local "$QH")" "$(_kosmos_pid_started "$QH")" > "$M/suitewait.$QH"
@@ -252,7 +256,7 @@ kosmos_unmark_suite_waiting
 out="$( ( export KOSMOS_QUEUE_CLASS=light KOSMOS_SIDE_CAPABLE=1 KOSMOS_LOAD_PROBE="$T/load-half"; kosmos_mark_suite_waiting "$((NOW - 10))"
   kosmos_light_side_take "a light run" 5 && exit 9; [ -e "$M/light-side-claim" ] && exit 8; [ -e "$M/suitewait.$$" ] || exit 7; exit 0 ) 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "the take asks the side check again and takes nothing when the box changed" || fail "the take did not re-check (step rc=$rc, $out)"
-bash -c '. "$1"; kosmos_claim_light_side 5 && exec sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
+bash -c '. "$1"; kosmos_claim_light_side 5 && exec perl -e "select(undef, undef, undef, 30)"' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
 out="$( ( export KOSMOS_QUEUE_CLASS=light KOSMOS_SIDE_CAPABLE=1; kosmos_mark_suite_waiting "$((NOW - 10))"
   kosmos_light_side_take "a light run" 5 && exit 9; [ -e "$M/suitewait.$$" ] || exit 8; kosmos_holds_light_side && exit 7; exit 0 ) 2>&1)"; rc=$?
@@ -276,7 +280,7 @@ kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null; rm -f "$M/light-side-claim"
 # Review 5: kosmos_light_side_intruder, which a side turn polls to YIELD when a browser run that is not its own starts
 # (a heavy holder's page layer that began after the side turn, on any branch). Root R stands for the side command;
 # R itself stands for "its own" browser run (self or descendant), ORPHAN for someone else's.
-sleep 60 </dev/null >/dev/null 2>&1 & R=$!
+perl -e 'select(undef, undef, undef, 60)' </dev/null >/dev/null 2>&1 & R=$!
 # The harness guard drops its caller's whole subtree, so its stand-in is the orphan (not this shell's child).
 probe live-harness "printf '$ORPHAN bash tools/test-install.sh\\n'"
 probe own-bc "printf '$R bash tools/browser-checks.sh\\n'"
@@ -300,12 +304,12 @@ rm -f "$M/browser.$R"; kill "$R" 2>/dev/null; wait "$R" 2>/dev/null
 # Round 18 (Opus): the exclusion must cover a DESCENDANT, not only the root (a side turn's Playwright browser is its
 # grandchild). R2 is a side command with a child; the child's marked run is its own; CONTROL: the same run against an
 # unrelated root yields.
-bash -c 'sleep 60 </dev/null >/dev/null 2>&1 & wait' </dev/null >/dev/null 2>&1 & R2=$!
+bash -c 'perl -e "select(undef, undef, undef, 60)" </dev/null >/dev/null 2>&1 & wait' </dev/null >/dev/null 2>&1 & R2=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do KID="$(pgrep -P "$R2" | head -1)"; [ -n "$KID" ] && break; sleep 0.1; done
 printf 'mine\n%s\n' "$(ps -ww -o command= -p "$KID")" > "$M/browser.$KID"
 out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_intruder "$R2")"; rc=$?  # pipe-status-ok
 { [ -n "$KID" ] && [ "$rc" -eq 1 ]; } && pass "intruder check: a marked browser run by a DESCENDANT of the side command -> stay" || fail "intruder check yielded to its own descendant's run (kid=$KID rc=$rc, $out)"
-sleep 60 </dev/null >/dev/null 2>&1 & R3=$!
+perl -e 'select(undef, undef, undef, 60)' </dev/null >/dev/null 2>&1 & R3=$!
 out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_intruder "$R3")"; rc=$?
 [ "$rc" -eq 0 ] && pass "CONTROL: the same run against an unrelated side command -> yield" || fail "CONTROL: a run that is not this side command's did not yield (rc=$rc, $out)"
 rm -f "$M/browser.$KID"
@@ -332,7 +336,7 @@ fi
 ( cd "${TMPDIR:-/tmp}" && exec "$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent" 62 ) </dev/null >/dev/null 2>&1 & PX=$!
 # No exec: the path must stay on this process's command line (an exec'd sleep drops it, and the arm passed whatever
 # the matcher did; review 8 restored the loose match and this stayed green).
-( cd "${TMPDIR:-/tmp}" && exec sh -c 'sleep 63; :' "$PWD_/chromium_headless_shell-9/mentioned" ) </dev/null >/dev/null 2>&1 & PM=$!
+( cd "${TMPDIR:-/tmp}" && exec sh -c 'perl -e "select(undef, undef, undef, 63)"; :' "$PWD_/chromium_headless_shell-9/mentioned" ) </dev/null >/dev/null 2>&1 & PM=$!
 mkdir -p "$PWD_/chromium-9/x/Helpers"; cp /bin/sleep "$PWD_/chromium-9/x/Helpers/chrome_crashpad_handler"
 command -v codesign >/dev/null 2>&1 && codesign -s - -f "$PWD_/chromium-9/x/Helpers/chrome_crashpad_handler" >/dev/null 2>&1
 ( cd "${TMPDIR:-/tmp}" && exec "$PWD_/chromium-9/x/Helpers/chrome_crashpad_handler" 65 ) </dev/null >/dev/null 2>&1 & PC=$!
@@ -345,16 +349,16 @@ case "$(ps -ww -o command= -p "$PM")" in *ms-playwright/*) ;; *) fail "the real-
 { ! printf '%s\n' "$seen" | grep -qx "$PC"; } && pass "the real matcher leaves out Chrome's crash reporter" || fail "the real matcher listed chrome_crashpad_handler"
 { ! printf '%s\n' "$seen" | grep -qx "$PM"; } && pass "the real matcher leaves out a command that only mentions the folder" || fail "the real matcher listed a mention"
 kill "$PB" "$PX" "$PM" "$PC" 2>/dev/null; wait "$PB" "$PX" "$PM" "$PC" 2>/dev/null
-# Review 9/10: the fixture drop on the Playwright list, through the intruder. The stand-in is a plain sleep whose cwd
+# Review 9/10: the fixture drop on the Playwright list, through the intruder. The stand-in is a plain perl wait whose cwd
 # is a run-tests.sh-shaped sandbox (T/kt<digits>) or elsewhere, reported by the probe under a browser path. No real
 # Playwright-shaped process is made, so a real side turn on the box cannot see this arm (review 10: the first
 # version's control was a real browser-path process outside the sandbox, which a side turn beside the suite saw).
 # A kt-cwd stand-in is a suite's fixture: no yield. CONTROL: the same one elsewhere yields.
 mkdir -p "$T/T/kt4911" "$T/elsewhere"
-sleep 60 </dev/null >/dev/null 2>&1 & R2=$!
+perl -e 'select(undef, undef, undef, 60)' </dev/null >/dev/null 2>&1 & R2=$!
 for where in kt elsewhere; do
   d="$T/T/kt4911"; [ "$where" = elsewhere ] && d="$T/elsewhere"
-  ( cd "$d" && exec sleep 64 ) </dev/null >/dev/null 2>&1 & PF=$!
+  ( cd "$d" && exec perl -e 'select(undef, undef, undef, 64)' ) </dev/null >/dev/null 2>&1 & PF=$!
   probe pw-forged "printf '$PF /x/ms-playwright/chromium_headless_shell-9/x/chrome-headless-shell\\n'"
   sleep 0.2
   out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/pw-forged" kosmos_light_side_intruder "$R2")"; rc=$?
@@ -381,7 +385,7 @@ has "$out" "reserved for a release (release 0.9.99" && pass "CONTROL: a cut's cl
 rm -f "$M/machine-claim"
 # Review 10: the status names a live side turn (alone, after the holder ended, it read as the free line, so
 # who-has-the-box and heavy-gate called a tenanted box clear).
-bash -c '. "$1"; KOSMOS_SIDE_LABEL="one check" kosmos_claim_light_side 5 && exec sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
+bash -c '. "$1"; KOSMOS_SIDE_LABEL="one check" kosmos_claim_light_side 5 && exec perl -e "select(undef, undef, undef, 30)"' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
 st="$(kosmos_machine_claim_status)"
 { has "$st" "a light run has a side turn on the box (one check" && [ "$st" != "no release holds the machine right now." ]; } \
@@ -399,7 +403,7 @@ has "$(cat "$M/machine-claim")" "release 0.9.99" && pass "a renewal keeps the la
 has "$(cat "$M/machine-claim")" "queued run (not a cut): a turn" && pass "CONTROL: a claim that is not a renewal writes its own label" || fail "CONTROL: a plain claim kept the old label"
 rm -f "$M/machine-claim"
 # Review 11: a label with a newline stays one line, so the run still holds and releases its own claims.
-bash -c '. "$1"; export KOSMOS_LIGHT_SIDE_COOKIE=nl-cookie; KOSMOS_SIDE_LABEL="$(printf "two\nlines")" kosmos_claim_light_side 5 && exec sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
+bash -c '. "$1"; export KOSMOS_LIGHT_SIDE_COOKIE=nl-cookie; KOSMOS_SIDE_LABEL="$(printf "two\nlines")" kosmos_claim_light_side 5 && exec perl -e "select(undef, undef, undef, 30)"' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
 n1="$(grep -c . "$M/light-side-claim")"
 ( export KOSMOS_LIGHT_SIDE_COOKIE=nl-cookie; kosmos_holds_light_side ); h=$?
@@ -449,7 +453,7 @@ if ! grep -q 'kosmos_refuse_if_browser_run_live' "$T/bc-guard.sh" || ! grep -q '
   fail "could not find browser-checks.sh's guard block (did its first line change?)"
 else
   bcguard() { bash -c '. "$1"; unset KOSMOS_LIGHT_SIDE_COOKIE KOSMOS_BC_FROZEN_RUNNER KOSMOS_HARNESS_IGNORE_CUT; . "$2"; echo GUARD-PASSED' _ "$HERE/lib/cut-guard.sh" "$T/bc-guard.sh" 2>&1; }
-  bash -c '. "$1"; kosmos_claim_light_side 5 && exec sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
+  bash -c '. "$1"; kosmos_claim_light_side 5 && exec perl -e "select(undef, undef, undef, 30)"' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
   out="$(KOSMOS_NO_WAIT=1 KOSMOS_BC_PROBE="$T/quiet" bcguard)"; rc=$?
   { [ "$rc" -eq 1 ] && has "$out" "has a side turn beside the heavy one" && has "$out" "this page layer" && ! has "$out" GUARD-PASSED; } \
@@ -458,7 +462,7 @@ else
   # Review 3: under KOSMOS_NO_WAIT a wait and a refusal look the same, so prove the WAIT: the sleep seam ends the side
   # turn on its first call, and the guard must then go on and pass (a plain refusal exits 1 instead).
   printf '#!/bin/sh\nrm -f "%s/light-side-claim"\n' "$M" > "$T/side-ends"; chmod +x "$T/side-ends"
-  bash -c '. "$1"; kosmos_claim_light_side 5 && exec sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp2=$!
+  bash -c '. "$1"; kosmos_claim_light_side 5 && exec perl -e "select(undef, undef, undef, 30)"' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp2=$!
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
   out="$(KOSMOS_WAIT_SLEEP="$T/side-ends" KOSMOS_BC_PROBE="$T/quiet" bcguard)"; rc=$?
   { [ "$rc" -eq 0 ] && has "$out" GUARD-PASSED; } && pass "browser-checks.sh's guard WAITS for the side turn and runs once it ends (it does not refuse)" \
@@ -467,7 +471,7 @@ else
   # Review 4: a page layer that arrives while another browser run is live refuses AT ONCE, side turn or not (it never
   # waits, so it cannot meet the first one when the side turn ends). The seam records whether the guard waited.
   printf '#!/bin/sh\ntouch "%s/waited"\nrm -f "%s/light-side-claim"\n' "$T" "$M" > "$T/side-ends-rec"; chmod +x "$T/side-ends-rec"
-  bash -c '. "$1"; kosmos_claim_light_side 5 && exec sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp2=$!
+  bash -c '. "$1"; kosmos_claim_light_side 5 && exec perl -e "select(undef, undef, undef, 30)"' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp2=$!
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
   rm -f "$T/waited"
   out="$(KOSMOS_WAIT_SLEEP="$T/side-ends-rec" KOSMOS_BC_PROBE="$T/live-bc" bcguard)"; rc=$?
@@ -477,14 +481,14 @@ else
   # Review 5: the browser run the page layer meets is the side turn's OWN (its process group is published beside the
   # side claim): the page layer WAITS for the side turn and then runs, rather than refusing and turning the heavy
   # holder red. CONTROL: the same run with no group published is someone else's, and refuses at once.
-  set -m; sleep 30 </dev/null >/dev/null 2>&1 & SPG=$!; set +m
+  set -m; perl -e 'select(undef, undef, undef, 30)' </dev/null >/dev/null 2>&1 & SPG=$!; set +m
   printf '#!/bin/sh\n[ -e "%s/side-over" ] && exit 1\nprintf "%s bash tools/browser-checks.sh\\n"\n' "$T" "$SPG" > "$T/side-bc"; chmod +x "$T/side-bc"
   # The seam is the side turn ending: its claim, and its own page layer (probe line and run marker), go with it.
   printf '#!/bin/sh\ntouch "%s/waited" "%s/side-over"\nrm -f "%s/light-side-claim" "%s/browser.%s"\n' "$T" "$T" "$M" "$M" "$SPG" > "$T/side-ends-over"; chmod +x "$T/side-ends-over"
   printf '#!/bin/sh\n[ -e "%s/side-over" ] && exit 1\nexit 1\n' "$T" > "$T/side-bc-none"; chmod +x "$T/side-bc-none"
   for arm in published none marker; do
     rm -f "$T/waited" "$T/side-over"
-    bash -c '. "$1"; kosmos_claim_light_side 5 && { [ "$2" != none ] && kosmos_publish_light_side_pgid "$3"; exec sleep 30; }' _ "$HERE/lib/cut-guard.sh" "$arm" "$SPG" </dev/null >/dev/null 2>&1 & sp2=$!
+    bash -c '. "$1"; kosmos_claim_light_side 5 && { [ "$2" != none ] && kosmos_publish_light_side_pgid "$3"; exec perl -e "select(undef, undef, undef, 30)"; }' _ "$HERE/lib/cut-guard.sh" "$arm" "$SPG" </dev/null >/dev/null 2>&1 & sp2=$!
     for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && { [ "$arm" = none ] || [ -s "$M/light-side-claim.pgid" ]; } && break; sleep 0.2; done
     bcp="$T/side-bc"
     if [ "$arm" = marker ]; then   # the same run seen through its run MARKER only (the guard's other arm)

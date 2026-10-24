@@ -3716,6 +3716,64 @@ if [ "$FRESH_INSTALL" = "no" ]; then
   info "Kosmos is already installed here. Updating it in place."
 fi
 
+# kosmos#6781 (O04-5c): the fleet's update pause holds THIS installer too. run-setup asks before it runs the installer
+# (engine/manifest-verify.js pausedSync, kosmos#6620), but a pasted install line over an existing install, and a .pkg
+# on its pinned path, run the installer directly. So an update in place asks here, the same way: the coordinator's
+# /v1/meta, `"updates_paused": true` exactly (a lookalike such as "true" in quotes is not paused), 5 s, no redirect,
+# and no answer of any kind is "not paused" (a fleet that holds every update whenever the coordinator blinks cannot
+# take a security fix). A first install is never held: there is no running copy to protect, and it installs no update.
+# Asked only for bytes from the production site: the release base is under https://installkosmos.com/ AND no local
+# copy (KOSMOS_SRC, a thumb drive or a CI tree) supplies Kosmos; or when KOSMOS_UPDATE_PAUSE_URL names the address (a
+# test does). Held only when the version this run installs is NEWER than the installed one, or either cannot be read:
+# a repair or reinstall of the same version installs no new code, which is all the pause exists to stop.
+# KOSMOS_UPDATE_PAUSE_ASKED=1 is set by run-setup, which has already asked; KOSMOS_UPDATE_IGNORE_PAUSE=1 is the
+# operator's override, as in run-setup. A hold exits 96, run-setup's own code for "not fetched, a retry can succeed"
+# (a .pkg on its pinned path reports it as the install not completing). The ask runs once the installer knows it is
+# updating in place: after its log is opened and the release pointer is read, before the update is downloaded or
+# anything installed is changed.
+update_paused() {
+  # An existing install is a launcher OR an installed app: a copy whose bin/kosmos was deleted is still being updated.
+  [ "$FRESH_INSTALL" = "no" ] || [ -f "$KOSMOS_HOME/app/package.json" ] || return 1
+  [ "${KOSMOS_UPDATE_IGNORE_PAUSE:-}" = 1 ] && return 1
+  [ "${KOSMOS_UPDATE_PAUSE_ASKED:-}" = 1 ] && return 1
+  _pause_have="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' "$KOSMOS_HOME/app/package.json" 2>/dev/null | head -1)" || _pause_have=""
+  # Only an a.b.c on both sides is compared; anything else ("latest", "v1.2.3", "1.2") counts as unreadable, so held.
+  _pause_target="${TARGET_VERSION:-}"
+  for _pause_v in "$_pause_target" "$_pause_have"; do
+    case "$_pause_v" in *[!0-9.]*|.*|*.|*..*|*.*.*.*) _pause_target="" ;; *.*.*) ;; *) _pause_target="" ;; esac
+  done
+  if [ -n "$_pause_target" ] \
+     && ! printf '%s %s\n' "$_pause_target" "$_pause_have" | awk '{ split($1, t, "."); split($2, h, ".");
+          for (i = 1; i <= 3; i++) { if (t[i] + 0 > h[i] + 0) exit 0; if (t[i] + 0 < h[i] + 0) exit 1 } exit 1 }'; then
+    return 1
+  fi
+  _pause_url="${KOSMOS_UPDATE_PAUSE_URL:-}"
+  if [ -z "$_pause_url" ]; then
+    [ -n "${KOSMOS_SRC:-}" ] && return 1
+    case "$KOSMOS_RELEASE_BASE" in https://installkosmos.com/*) ;; *) return 1 ;; esac
+    _pause_url="${AGENT_WORKFORCE_TUNNEL_COORDINATOR:-https://login.kosmosplus.com}"
+    while [ "${_pause_url%/}" != "$_pause_url" ]; do _pause_url="${_pause_url%/}"; done
+    _pause_url="$_pause_url/v1/meta"
+  fi
+  # The body is read whole first (as run-setup reads it), and grep reads to the end rather than -q: under setup.sh's
+  # pipefail, a reader that stops at the first match makes its writer die of SIGPIPE, and the pipeline would then fail
+  # and read as "not paused" for a real pause. A pattern, not a JSON parse: a nested or repeated "updates_paused" can
+  # read as paused here where run-setup's JSON read says not; only the coordinator writes this answer.
+  _pause_body="$(curl -q -fsS --max-time 5 "$_pause_url" 2>/dev/null)" || _pause_body=""
+  printf '%s' "$_pause_body" | tr -d '\n\r' \
+    | grep -E '"updates_paused"[[:space:]]*:[[:space:]]*true[[:space:]]*[,}]' >/dev/null
+}
+if update_paused; then
+  printf '\n  Kosmos was not updated.\n     Updates are paused while Kosmos checks a problem with a release, so this update waits until the pause is lifted. Nothing was installed and your Kosmos stays as it is. Try again later.\n\n' >&2
+  exit 96
+fi
+# run-setup's word that it asked is for this run only: the board and anything else this installer starts must not
+# inherit it, or a later pasted install line in their environment would skip the pause.
+# The operator's override is for this one install too: a board this installer starts must keep asking.
+# (KOSMOS_UPDATE_PAUSE_URL is kept: the test harnesses rely on it reaching the boards they start, so those never ask
+# the production coordinator.)
+unset KOSMOS_UPDATE_PAUSE_ASKED KOSMOS_UPDATE_IGNORE_PAUSE _pause_url _pause_have _pause_body _pause_target _pause_v
+
 
 # 🔑 A BUSY PORT IS SAID EARLY, AND THE INSTALL STILL FINISHES.
 #
@@ -5201,7 +5259,8 @@ fi
 # exactly the marker -- so a second heredoc using it (the first version of
 # this block), or even a comment containing the opener text (the second
 # version), concatenates into its fixture and fails the suite.
-if "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" <<'HOOKSEOF' 2>/dev/null
+_hooks_rc=0
+"$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" <<'HOOKSEOF' 2>/dev/null || _hooks_rc=$?
 const path = require('path');
 const kosmosHome = process.argv[2];
 const reporthook = require(path.join(kosmosHome, 'app', 'engine', 'reporthook.js'));
@@ -5219,7 +5278,17 @@ const home = accounts.HOME_FOR_TEST;
 const targets = [path.join(home, '.claude', 'settings.json')]
   .concat(accounts.list().filter((a) => !a.isDefault).map((a) => path.join(a.dir, 'settings.json')));
 let refused = 0;
+/* #6713: the same rule the board uses (engine/installroot.js): a bundle under a non-default KOSMOS_HOME is a test
+   install here (write_install_config's stance), and it leaves the real home's account settings alone. Skipped, not
+   refused: nothing went wrong. The statusline below is gated the same way, inside allowance.ensureStatusLine. */
+let leaveAlone = () => null;
+// This is the bundle just extracted, so a rule that will not load is a fault, not an older bundle: fail closed, as
+// the board does (accounts.prepare, allowance.ensureStatusLine).
+try { leaveAlone = require(path.join(kosmosHome, 'app', 'engine', 'installroot.js')).leaveAlone; } catch { leaveAlone = () => 'could not tell'; }
+let skipped = 0;
 for (const t of targets) {
+  let why; try { why = leaveAlone(t); } catch { why = 'could not tell'; }   // a rule that throws leaves it alone
+  if (why) { skipped += 1; continue; }
   const got = reporthook.ensureWired(t, script, { claudeVersion: versionFor(t) });
   if (got.wired !== true) refused += 1;
 }
@@ -5232,15 +5301,31 @@ try {
   const allowance = require(path.join(kosmosHome, 'app', 'engine', 'allowance.js'));
   for (const t of targets) { try { allowance.ensureStatusLine(t); } catch { /* fail soft */ } }
 } catch { /* missing from this bundle, or it failed to load: the hooks' answer stands */ }
-process.exit(refused === 0 ? 0 : 1);
+// #6713, codes in the 20s so node's own exit codes (3, 4, 5 for its internal failures) cannot read as one of these:
+// 20 every target left alone on purpose, 21 some left alone and the rest wired, 22 something refused AND some left
+// alone. 1: something was refused (nothing left alone).
+process.exit(targets.length > 0 && skipped === targets.length ? 20 : refused > 0 ? (skipped > 0 ? 22 : 1) : skipped > 0 ? 21 : 0);
 HOOKSEOF
-then
-  info "agents on this computer report what they are doing themselves; the board reads their"
-  info "own words instead of their screens"
-else
-  info "some agent settings could not carry the reporting hook (an unreadable settings"
-  info "file is left alone on purpose); those agents stay readable the older way"
-fi
+case "${_hooks_rc:-0}" in
+  0)
+    info "agents on this computer report what they are doing themselves; the board reads their"
+    info "own words instead of their screens" ;;
+  20)
+    info "this install is not recognised, or could not be checked, as the installed Kosmos (its layout, or KOSMOS_HOME,"
+    info "is not the default one), so it leaves the Claude settings in your home alone; agents on it are read from"
+    info "their screens instead" ;;
+  21)
+    info "some agent settings carry the reporting hook; those in your real home were left alone, because this"
+    info "install is not recognised, or could not be checked, as the installed Kosmos, so agents on them are read"
+    info "from their screens" ;;
+  22)
+    info "some agent settings could not carry the reporting hook (an unreadable settings file is left alone on"
+    info "purpose), and those in your real home were left alone because this install is not recognised, or could"
+    info "not be checked, as the installed Kosmos; those agents are read from their screens" ;;
+  *)
+    info "some agent settings could not carry the reporting hook (an unreadable settings"
+    info "file is left alone on purpose); those agents stay readable the older way" ;;
+esac
 # #3946: said only when a settings file this block targets now carries our status
 # line (checked by its marker, the same way uninstall names it), so a machine where
 # it could not be wired is not told that it was.
@@ -5249,6 +5334,8 @@ _sl_added=""
 for _sl in "$_sl_home/.claude/settings.json" "$_sl_home"/.claude-*/settings.json; do
   [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && _sl_added=yes
 done
+# #6713: only when nothing was left alone; after 20, 21 or 22 the files scanned here may be ones this run skipped.
+case "${_hooks_rc:-0}" in 0|1) ;; *) _sl_added="" ;; esac
 if [ -n "$_sl_added" ]; then
   info "Claude accounts that had no status line of their own carry Kosmos's, in every"
   info "Claude session on them: it notes how much of the weekly allowance is used and"
@@ -5645,6 +5732,20 @@ if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
   _extra_env_kv="$( { _env_kv AGENT_WORKFORCE_DATA "$AGENT_WORKFORCE_DATA"; _env_kv AGENT_WORKFORCE_PROJECTS "$AGENT_WORKFORCE_PROJECTS"; _env_kv AGENT_WORKFORCE_WORKERS "$AGENT_WORKFORCE_WORKERS"; _env_kv AGENT_WORKFORCE_HALF_SANDBOX_OK "$AGENT_WORKFORCE_HALF_SANDBOX_OK"; printf 'X'; } )"
   _extra_env_kv="${_extra_env_kv%X}"
 fi
+# kosmos#6760: an install made with AGENT_WORKFORCE_CREATED_URL set (our CI and test installs point it at a dead
+# address, #5519) keeps it in the board's launchd job (and the watchdog's, which shares this block and never pings), so the board's install beacon never reaches the live counter
+# across logins and updates (an update re-runs this script from the board's own environment). engine/linuxboard.js
+# does the same for a systemd unit. Unset, which every real install is, nothing is added (zero bytes, as above).
+# Only a plain http(s) URL, the rule linuxboard.js applies: no whitespace, quotes, backslash or %, nor control
+# characters (XML forbids them, so launchd would refuse the plist). The last run of this script wins, as on Linux.
+case "${AGENT_WORKFORCE_CREATED_URL:-}" in
+  http://?*|https://?*)
+    case "$AGENT_WORKFORCE_CREATED_URL" in
+      *[[:space:][:cntrl:]\"\'\\%]*) ;;
+      *) _extra_env_kv="${_extra_env_kv}$(_env_kv AGENT_WORKFORCE_CREATED_URL "$AGENT_WORKFORCE_CREATED_URL"; printf X)"
+         _extra_env_kv="${_extra_env_kv%X}" ;;
+    esac ;;
+esac
 _board_ok=no
 # 🛑 THIS HEREDOC IS UNQUOTED, so every $(...) and every backtick in its body
 # RUNS while the plist is written. That is REQUIRED for the $(_xmlq ...) escaping

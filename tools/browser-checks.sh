@@ -641,6 +641,17 @@ write_fleet_rich() {
   printf '%s\n' '{"role":"helper"}' \
     > "$sb/data/Kosmos/profiles/brigitte.json"
 }
+# #6714: render-survival's own agents, added to the rich board just before it runs (it runs last there, so no earlier
+# check sees them: render-org-chart passes only in a 4-5 agent band, and a restart notice would sit on screen during
+# the others). The notice names only an agent that has RUN here (a liveness record), so brigitte and marilyn carry one
+# and leftover, a folder that never ran, does not. The board's survey runs on every poll, so they show without a restart.
+seed_survival_rich() {
+  local sb="$1" n
+  mkdir -p "$sb/data/Kosmos/liveness" "$sb/data/Kosmos/profiles" "$sb/workers/marilyn" "$sb/workers/leftover"
+  printf '%s\n' '{"role":"helper"}' > "$sb/data/Kosmos/profiles/marilyn.json"
+  printf '%s\n' '{"role":"helper"}' > "$sb/data/Kosmos/profiles/leftover.json"
+  for n in brigitte marilyn; do printf '%s\n' '{"at":"2026-10-20T00:00:00Z"}' > "$sb/data/Kosmos/liveness/$n.json"; done
+}
 # 🛑 THE BOARD SCANS THE OPERATOR'S REAL $HOME UNLESS THIS IS SET.
 # `status.configRoots()` (engine/status.js:56) returns [CONFIG_ROOT] when the
 # variable is set and otherwise walks $HOME for `.claude*`. This harness set it
@@ -1738,6 +1749,7 @@ if boot_board_rich "$sbr" "$P11"; then
   # like the 403 check above; controls: a bare 401, the board's 403, a normal board.
   run_one "render-device-signed-out-401-718" env HEADED=0 node docs/browser-checks/render-device-signed-out-401-718.js "http://127.0.0.1:$P11"
   run_one "render-update-abort-2055" env HEADED=0 node docs/browser-checks/render-update-abort-2055.js "http://127.0.0.1:$P11"
+  seed_survival_rich "$sbr"   # #6714: last on this board, so nothing above sees these agents
   run_one "render-survival"    env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-survival.js "$sbr/shots-survival"
 else
   FAILED+=("render-org-chart render-not-running render-list-row render-fields render-board-signin-403-2023 render-device-signed-out-401-718 render-update-abort-2055 render-survival (rich board did not boot)")

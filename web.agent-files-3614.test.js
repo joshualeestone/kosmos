@@ -25,7 +25,8 @@ test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(S
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
-const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'paintAgentFiles', 'paintAgentFilesAll']);
+// #6724: the Files screen is the browser now: its row, path and folder helpers come with it.
+const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'fileFingerprint', 'rowKey', 'focusedRowKey', 'refocusRow', 'paintAgentFiles', 'folderIcon', 'agentDirRow', 'agentFilesPath', 'paintAgentFilesAll']);
 
 test('the Files block sits directly under the four-pack, inside the left column, with the Explorer copy', () => {
   const navEnd = PAGE.indexOf('</nav>', PAGE.indexOf('id="d-nav"'));
@@ -49,19 +50,21 @@ function harness(respond, current = card('ana'), linux = false) {
     return el;
   };
   const el = {};
-  for (const id of ['d-files', 'd-files-list', 'd-files-msg', 'd-files-all', 'd-filesall-list', 'd-filesall-msg', 'd-filesall-more', 'd-sec-files']) el[id] = make(id);
+  for (const id of ['d-files', 'd-files-list', 'd-files-msg', 'd-files-all', 'd-filesall-list', 'd-filesall-msg', 'd-filesall-more', 'd-filesall-path', 'd-sec-files']) el[id] = make(id);
   el['d-sec-files'].hidden = true;
   const document = {
     getElementById: (id) => el[id] || null,
     createElement: () => {
-      const node = { className: '', dataset: {}, textContent: '', parts: [], append(...c) { this.parts.push(...c); }, insertAdjacentHTML() {} };
+      const node = { className: '', dataset: {}, textContent: '', parts: [], append(...c) { this.parts.push(...c); }, insertAdjacentHTML() {}, setAttribute() {} };
       return node;
     },
+    querySelector: () => null,
   };
   const calls = [];
   const env = { CURRENT: current, LINUX: linux };
   const make2 = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'asSentence', 'env',
     'let AGENT_FILES_EPOCH = 0; let AGENT_FILES_STAMP = null; let AGENT_FILES_ALL_EPOCH = 0; const AGENT_FILES_SHOWN = 10;\n'
+    + 'let AGENT_FILES_DIR = ""; let AGENT_FILES_ALL_STAMP = null; let AGENT_FILES_FOCUS = false;\n'   // #6724
     + 'const kplusRemote = () => false;\n'   // #5165: at the computer
     + 'const onLinux = () => env.LINUX;\n'   // #5865: a Mac board unless the test says Linux
     + 'const platformCopy = (key, mac) => mac;\n'   // #5865: the overflow line names the button in its platform's words
@@ -215,19 +218,24 @@ test('opening an agent clears the previous agent\'s Files rows before its own ar
   assert.match(body, /'d-filesall-list', 'd-filesall-msg'/, 'the previous agent\'s Files screen rows stay');
 });
 
-test('#3757: the Files screen lists them all, with Open in Finder, and says what is beyond the cap', async () => {
-  const many = Array.from({ length: 12 }, (_, i) => ({ name: 'f' + i + '.txt', size: 1 }));
-  const h = harness((url) => ({ ok: true, total: 520, stamp: 'm', files: /limit=500/.test(url) ? many : many.slice(0, 10) }));
+test('#3757 + #6724: the Files screen browses: folders, then files, by name only; a folder too big to list says so; Open in Finder sits there', async () => {
+  const h = harness(() => ({ ok: true, dir: '', stamp: 'm', truncated: true, limit: 1000,
+    dirs: [{ name: 'reports', modified: '2026-09-20T10:00:00Z' }],
+    files: [{ name: 'f0.txt', size: 1 }, { name: 'f1.txt', size: 1 }] }));
   await h.api.paintAgentFilesAll('ana');
-  assert.equal(h.calls[0], '/api/agent/ana/files?limit=500');
-  assert.equal(h.el['d-filesall-list'].children.length, 12);
+  assert.equal(h.calls[0], '/api/agent/ana/files/browse?dir=', 'the screen reads the browse route, at the top of Files');
+  const rows = h.el['d-filesall-list'].children;
+  assert.deepEqual(rows.map((r) => r.dataset.dir || r.dataset.doc), ['reports', 'f0.txt', 'f1.txt'], 'folders first, then files');
+  assert.equal(rows[0].className, 'pj-doc pj-dir');
   assert.equal(h.el['d-filesall-more'].hidden, false);
-  assert.match(h.el['d-filesall-more'].textContent, /And 508 more in the folder/);
-  // The Finder button lives on that screen now, not in the sidebar.
+  assert.match(h.el['d-filesall-more'].textContent, /more than 1,000 items/);
+  assert.equal(h.el['d-filesall-path'].hidden, true, 'at the top there is no path line');
+  // The Finder button lives on that screen, not in the sidebar.
   const side = PAGE.slice(PAGE.indexOf('id="d-files"'), PAGE.indexOf('</section>', PAGE.indexOf('id="d-files"')));
   assert.doesNotMatch(side, /d-files-finder/, 'Open in Finder is still in the sidebar');
   const screen = PAGE.slice(PAGE.indexOf('id="d-sec-files"'), PAGE.indexOf('</section>', PAGE.indexOf('id="d-sec-files"')));
   assert.match(screen, /id="d-files-finder"/, 'Open in Finder is not on the Files screen');
+  assert.match(screen, /id="d-files-zip"/, '#6724: Download folder is not on the Files screen');
   assert.match(SCRIPT, /getElementById\('d-files-all'\)\.addEventListener\('click', \(\) => \{\s*if \(!CURRENT\) return;\s*detailGo\('files'\);/, 'View All does not open the Files screen');
 });
 
@@ -236,12 +244,12 @@ test('#3757: a showing Files screen follows every change, an emptied folder incl
   let stamp = 's1';
   const h = harness(() => ({ ok: true, total: files.length, stamp, files }));
   await h.api.paintAgentFiles('ana');
-  assert.equal(h.calls.filter((u) => /limit=500/.test(u)).length, 0, 'the Files screen was fetched while hidden');
+  assert.equal(h.calls.filter((u) => /files\/browse/.test(u)).length, 0, 'the Files screen was fetched while hidden');
   h.el['d-sec-files'].hidden = false;
   files = []; stamp = 's2';
   await h.api.paintAgentFiles('ana');
   await new Promise((r) => setImmediate(r));
-  assert.equal(h.calls.filter((u) => /limit=500/.test(u)).length, 1, 'an emptied folder left the showing Files screen stale');
+  assert.equal(h.calls.filter((u) => /files\/browse/.test(u)).length, 1, 'an emptied folder left the showing Files screen stale');
   assert.equal(h.el['d-files'].hidden, true);
   assert.match(h.el['d-filesall-msg'].textContent, /no files yet/, 'the Files screen still lists what is gone');
 });
@@ -254,14 +262,12 @@ test('#3757: a read that fails on the network keeps the section, with its reason
   assert.match(h.el['d-files-msg'].textContent, /could not read this agent/);
 });
 
-test('#5865: on a Linux board the Files screen does not point at the Finder button it hides', async () => {
-  const many = Array.from({ length: 12 }, (_, i) => ({ name: 'f' + i + '.txt', size: 1 }));
-  const respond = (url) => ({ ok: true, total: 520, stamp: 'm', files: /limit=500/.test(url) ? many : many.slice(0, 10) });
-  const lin = harness(respond, card('ana'), true);
-  await lin.api.paintAgentFilesAll('ana');
-  assert.equal(lin.el['d-filesall-more'].textContent, 'And 508 more in the folder.');
-  // CONTROL: the same screen on a Mac still names the button.
-  const mac = harness(respond);
-  await mac.api.paintAgentFilesAll('ana');
-  assert.equal(mac.el['d-filesall-more'].textContent, 'And 508 more in the folder. Open in Finder shows them all.');
+test('#5865 + #6724: the Files screen points at no Finder button on any board (Linux hides it, Kosmos+ hides it, and the browser lists the folder itself)', async () => {
+  const respond = () => ({ ok: true, dir: '', stamp: 'm', truncated: true, dirs: [], files: [{ name: 'f0.txt', size: 1 }] });
+  for (const linux of [true, false]) {
+    const h = harness(respond, card('ana'), linux);
+    await h.api.paintAgentFilesAll('ana');
+    assert.equal(h.el['d-filesall-more'].hidden, false, 'premise: the overflow line shows');
+    assert.doesNotMatch(h.el['d-filesall-more'].textContent, /Finder|File Explorer/, (linux ? 'Linux' : 'Mac') + ': the line points at a Finder button');
+  }
 });

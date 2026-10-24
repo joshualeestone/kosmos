@@ -10,6 +10,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 REPO_ROOT="$PWD"
 . tools/lib/site-deploy.sh
+. tools/lib/pointer-freeze.sh   # the block's kosmos#6620 re-check calls it; unloaded, every arm took its fetch-failed path
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/deploy-landed-5471.XXXXXX")"; trap 'rm -rf "$T"' EXIT
 
@@ -75,6 +76,11 @@ esac
 FR="$T/repo"; mkdir -p "$FR/tools" "$T/export"
 cp "$T/verify" "$FR/tools/verify-served.sh"
 mkdir -p "$T/site/dist"; printf 'aaa111  kosmos-9.9.9-arm64.tar.gz\n' > "$T/site/dist/kosmos-9.9.9-arm64.tar.gz.sha256"
+# The site is a checkout with a local origin, unfrozen: the healthy case, so the block's kosmos#6620 re-check (it asks
+# origin/main just before vercel) fetches for real in every arm below.
+sg() { git -C "$T/site" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+git init -q --bare --initial-branch=main "$T/origin.git" && sg init -q -b main && sg add dist && sg commit -q -m site \
+  && sg remote add origin "$T/origin.git" && sg push -q origin main || { bad "could not build the fake site checkout"; exit 1; }
 # run_step8 <vercel rc> <served sha, or none> [fetches before it is served] [tries override]
 #   prints the block's output then "DEPLOYED=<value>"; returns the block's exit code
 run_step8() {
@@ -142,6 +148,26 @@ out="$(run_step8 0 none)"; rc=$?
 case "$out" in *"DEPLOYED=1") : ;; *) bad "CLI success: did not reach DEPLOYED=1 (out=$out)" ;; esac
 [ -f "$T/vercel.called" ] || bad "CLI success: the vercel stub was never called, so this arm proves nothing"
 [ "$rc" = 0 ] && [ "$(fetches)" = 0 ] && ok "CONTROL: the CLI succeeded, so step 8 asks the served host nothing (step 9 verifies)" || bad "CLI success: rc=$rc fetches=$(fetches)"
+
+# ---- kosmos#6620: the freeze re-check just before vercel ---------------------------------
+out="$(run_step8 0 aaa111 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$T/vercel.called" ] && case "$out" in *"could not fetch origin/main"*|*FROZEN*) false ;; *) true ;; esac \
+  && ok "CONTROL (#6620): an unfrozen origin is fetched and the deploy runs, with no freeze or fetch-failed line" || bad "#6620 unfrozen: rc=$rc out=$out"
+# A freeze pushed from another machine since the site push: on origin/main only, not in this checkout.
+sg checkout -q -b fz && printf 'mac=9.9.8\n' > "$T/site/dist/POINTER_FROZEN" && sg add dist/POINTER_FROZEN && sg commit -q -m freeze \
+  && sg push -q -f origin fz:main && sg checkout -q main && sg branch -q -D fz || bad "#6620: could not push the freeze"
+[ -e "$T/site/dist/POINTER_FROZEN" ] && bad "#6620: the marker is still in the checkout, so this arm would test the wrong thing"
+out="$(run_step8 0 aaa111 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ ! -f "$T/vercel.called" ] && case "$out" in *"origin/main is FROZEN now"*"nothing was deployed"*) true ;; *) false ;; esac \
+  && ok "#6620: a freeze on origin/main since the site push stops the cut BEFORE vercel deploy runs" || bad "#6620 frozen: rc=$rc vercel called=$([ -f "$T/vercel.called" ] && echo yes || echo no) out=$out"
+case "$out" in *"DEPLOYED="*) bad "#6620 frozen: DEPLOYED was reached" ;; *) ok "#6620 frozen: DEPLOYED is never set, so the trap still restores" ;; esac
+sg push -q -f origin main:main || bad "#6620: could not lift the freeze"
+# The origin cannot be reached: said, and the cut goes on (the push-time check ran moments ago).
+sg remote set-url origin "$T/no-such-origin.git"
+out="$(run_step8 0 aaa111 2>&1)"; rc=$?
+sg remote set-url origin "$T/origin.git"
+[ "$rc" = 0 ] && [ -f "$T/vercel.called" ] && case "$out" in *"(#6620) could not fetch origin/main to re-check the pointer freeze before deploying; going on"*) true ;; *) false ;; esac \
+  && ok "#6620: an unreachable origin is said, and the deploy goes on" || bad "#6620 fetch failed: rc=$rc out=$out"
 
 echo "test-deploy-landed-5471: $FAILS failure(s)"
 [ "$FAILS" = 0 ]

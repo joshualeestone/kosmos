@@ -433,6 +433,10 @@ const WEBVIEW2_SLOTS = {
   ICoreWebView2NavigationStartingEventHandler: ['9adbe429-f36d-432b-9ddc-f8881fbd76e3', ['Invoke']],
   ICoreWebView2NewWindowRequestedEventHandler: ['d4c185fe-c81c-4989-97af-2d3fa7ab5651', ['Invoke']],
   ICoreWebView2ProcessFailedEventHandler: ['79e0aea4-990b-42d9-aa1d-0fcc2e5bc7f1', ['Invoke']],
+  // #6882: the reload keys (BoardWindowForm.OnAcceleratorKeyPressed).
+  ICoreWebView2AcceleratorKeyPressedEventHandler: ['b29c7e28-fa79-41a8-8e44-65811c76dcb2', ['Invoke']],
+  ICoreWebView2AcceleratorKeyPressedEventArgs: ['9f760f8a-fb79-42be-9990-7b56900fa9c7', ['get_KeyEventKind', 'get_VirtualKey', 'get_KeyEventLParam',
+    'get_PhysicalKeyStatus', 'get_Handled', 'put_Handled']],
   ICoreWebView2Environment: ['b96d755e-0319-4e92-a296-23436f46a1fc', ['CreateCoreWebView2Controller']],
   ICoreWebView2Controller: ['4d00c0d1-9434-4eb6-8078-8697a560334f', ['get_IsVisible', 'put_IsVisible', 'get_Bounds', 'put_Bounds',
     'get_ZoomFactor', 'put_ZoomFactor', 'add_ZoomFactorChanged', 'remove_ZoomFactorChanged', 'SetBoundsAndZoomFactor', 'MoveFocus',
@@ -487,7 +491,8 @@ test('#1118: the uninstall closes the window only once the person said yes, befo
 test('#3285 review: opening Kosmos.exe again signs an open window in again, through --print-url', () => {
   /* A window that came up signed out (a slow first run, a failed mint, another Kosmos's cookie)
      was stuck: a second double-click only brought it forward, and F5 reloads the same unsigned
-     page, while the READ ME tells people to double-click Kosmos.exe again for exactly this. */
+     page, while the READ ME tells people to open Kosmos again (from the Start menu, whose shortcut runs
+     the installed Kosmos.exe) for exactly this. */
   const windowProc = sourceBetween('protected override void WndProc(', 'protected override void OnFormClosed(');
   assert.match(windowProc, /if \(m\.Msg != 0 && \(uint\)m\.Msg == showMessage\)\s*\{[^}]*Activate\(\);\s*KosmosLauncher\.SetForegroundWindow\(Handle\);\s*SignInAgain\(\);\s*return;/,
     'the window only comes forward when Kosmos.exe is opened again; it does not sign in again');
@@ -586,7 +591,8 @@ test('the zip README speaks Windows: Extract, sign in, the real prompts, a folde
   assert.doesNotMatch(readme, /paste that path into the box|Make a new folder named Kosmos/, 'the README still has people make the install folder by hand');
   assert.doesNotMatch(readme, /AppData\\\\Local\\\\Programs/, 'the README spells out a profile path the person has to guess');
   assert.doesNotMatch(readme, /<your name>\\\\Kosmos\)/, 'the README suggests C:\\Users\\<name>\\Kosmos, where the Projects live (W-09)');
-  assert.match(readme, /Bookmarks to Kosmos don\\047t stay\\r\\n'\n\s*printf 'signed in\. Always open Kosmos from Kosmos\.exe\./);
+  assert.match(readme, /Bookmarks to Kosmos don\\047t stay signed in\. Always open\\r\\n'\n\s*printf 'Kosmos from the Start menu\./);
+  assert.doesNotMatch(readme, /Always open Kosmos from Kosmos\.exe|double-click Kosmos\.exe again/, 'the README sends people back to the extracted Kosmos.exe after telling them they can delete the zip');
   /* win32-installer-native creates the Start menu entry, so the README may name it (#3286). */
   assert.match(readme, /open Start, type Task Scheduler, press Enter, and open\\r\\n'\n\s*printf 'Task Scheduler Library, then the Kosmos folder\./);
   assert.doesNotMatch(readme, /A window opens for a moment/, 'the README still describes the console window W-07 removed');

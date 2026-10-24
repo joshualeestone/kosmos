@@ -53,7 +53,7 @@ test('no model and no launch file reads as history; no model WITH one stays the 
 /* #6516: the Agents LIST cell does not repeat the sentence on every row of a board set up before Kosmos; it keeps it for a
    screen reader. Any other model line, "Unknown Model" (the fault) included, is shown as before. */
 function runLmodelCell(agent) {
-  const src = liftAll(SCRIPT, ['modelLine', 'lmodelCell', 'esc']);
+  const src = liftAll(SCRIPT, ['modelLine', 'tileModelLine', 'lmodelCell', 'esc']);   // #6716: the row's line is tileModelLine
   return new Function('a', `
     const cardStOf = () => ({ pres: 'off' });
     ${src}

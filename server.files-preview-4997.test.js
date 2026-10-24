@@ -62,6 +62,9 @@ function fillFolder(dir) {
   fs.writeFileSync(path.join(dir, 'dist', 'z.png'), SECRET);
   fs.mkdirSync(path.join(dir, 'a', 'b', 'c', 'd'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'a', 'b', 'c', 'd', 'deep.png'), SECRET);   // four folders down: past the list's depth
+  // #6724: nine folders down, past the agent browser's depth (AGENT_BROWSE_DEPTH, 8), which a Files file now reaches.
+  fs.mkdirSync(path.join(dir, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'deep.png'), SECRET);
 }
 
 test.before(async () => {
@@ -122,19 +125,13 @@ for (const [label, routes] of SURFACES) {
     const folder = label === 'project' ? PROJECT.folder : FILES;
     assert.ok(!fs.readdirSync(folder).some((n) => /preview/.test(n)), 'a preview was written into the person\'s folder');
   });
-  if (label === 'project') {
-    test(`#4997 ${label}: a file in a subfolder is served by its listed relative name (the project list walks subfolders; CONTROL for the shape refusals)`, async () => {
-      const r = await get(routes().preview, 'sub/deep.png');
-      assert.equal(r.status, 200);
-      assert.deepEqual(Buffer.from(await r.arrayBuffer()), PNG);
-    });
-  } else {
-    test(`#4997 ${label} REFUSED: a file below the top level (the agent's Files list is flat), with no bytes`, async () => {
-      const r = await get(routes().preview, 'sub/deep.png');
-      assert.equal(r.status, 404);
-      assert.equal((await r.json()).ok, false);
-    });
-  }
+  /* #6724: the agent's Files are browsed in the app now (folders too), so a file in a subfolder is served for the
+     agent as for a project; it used to be refused, when the agent's only list was flat. */
+  test(`#4997 ${label}: a file in a subfolder is served by its listed relative name (the project list walks subfolders, the agent browser enters them; CONTROL for the shape refusals)`, async () => {
+    const r = await get(routes().preview, 'sub/deep.png');
+    assert.equal(r.status, 200);
+    assert.deepEqual(Buffer.from(await r.arrayBuffer()), PNG);
+  });
   test(`#4997 + #5165 ${label}: the download is any listed file's bytes as an attachment (one route, #5165's sender)`, async () => {
     const r = await get(routes().download, 'shot.png');
     assert.equal(r.status, 200);
@@ -161,7 +158,9 @@ for (const [label, routes] of SURFACES) {
     ['a file under a skipped folder (review 1)', 'node_modules/x.png'],
     ['a skipped folder in another case (review 2: the disk may ignore case)', 'NODE_MODULES/x.png'],
     ['another skipped folder (review 5)', 'dist/z.png'],
-    ['a file four folders down, past the list\'s depth (review 5)', 'a/b/c/d/deep.png'],
+    label === 'project'
+      ? ['a file four folders down, past the list\'s depth (review 5)', 'a/b/c/d/deep.png']
+      : ['a file nine folders down, past the browser\'s depth (#6724; review 5)', 'a/b/c/d/e/f/g/h/i/deep.png'],
     ['a listed file in another case', 'SHOT.PNG'],
     ['a missing file', 'nope.png'],
     ['no name', ''],

@@ -23,6 +23,7 @@ const { spawn } = require('node:child_process');
 const liveExec = require('./live-execution');
 const platformGate = require('./platform'); // #570: can this OS replace its own Kosmos?
 const updating = require('./updating');
+const manifestVerify = require('./manifest-verify'); // kosmos#6620: the fleet's update pause
 const { version: RUNNING } = require('../package.json');
 
 const DEFAULT_BASE = 'https://installkosmos.com/dist';
@@ -413,8 +414,21 @@ async function refresh() {
         const prod = await readProdAlongside(doFetch, lookBase, platform, ctl.signal);
         if (prod && newer(prod.version, latest.version)) { latest = prod; pointer = 'prod'; }
       }
+      const wasPaused = cache.paused === true;
       cache = { at: Date.now(), latest, reached: true, readable: latest !== null, base: lookBase, channel, pointer };
       landed = true;
+      // kosmos#6620: ask whether the fleet's updates are paused (fails open) only when an automatic install would
+      // follow this look (autoInstallWouldStart: the same gates maybeAutoInstall uses), so a board that would not
+      // install makes no call to the coordinator. A manual press asks at the press (/api/update); run-setup is the
+      // backstop. The last answer is carried while this one is asked; it lands on THIS look's cache only.
+      let would = false;
+      try { would = autoInstallWouldStart(); } catch { would = false; }   // a preference that throws reads as off
+      if (would) {
+        const mine = cache;
+        mine.paused = wasPaused;
+        const paused = await manifestVerify.pausedAsync({});
+        if (cache === mine) cache.paused = paused;
+      }
     }
   } finally {
     clearTimeout(timer);
@@ -476,15 +490,22 @@ async function refresh() {
 const AUTO_RETRY_AFTER = 60 * 60 * 1000;
 let autoFailedAt = 0;
 
+/* Every gate on an automatic install except the fleet's pause, in one place: maybeAutoInstall installs on it, and
+   refresh asks the coordinator about the pause only when it holds (kosmos#6620 review 7), so the two cannot drift. */
+function autoInstallWouldStart() {
+  if (!available()) return false;
+  if (!installedRoot()) return false;
+  if (!(autoPref() || {}).on) return false;
+  if (autoFailedAt && Date.now() - autoFailedAt < AUTO_RETRY_AFTER) return false;
+  /* #6173: not while an account move restarts agents; the install restarts the board, and a board restarted between
+     an agent's bootout and bootstrap leaves it unloaded. The next look installs. */
+  if (autoDefer && autoDefer()) return false;
+  return true;
+}
 function maybeAutoInstall() {
   try {
-    if (!available()) return;
-    if (!installedRoot()) return;
-    if (!(autoPref() || {}).on) return;
-    if (autoFailedAt && Date.now() - autoFailedAt < AUTO_RETRY_AFTER) return;
-    /* #6173: not while an account move restarts agents; the install restarts the board, and a board restarted between
-       an agent's bootout and bootstrap leaves it unloaded. The next look installs. */
-    if (autoDefer && autoDefer()) return;
+    if (!autoInstallWouldStart()) return;
+    if (cache.paused === true) return;   // kosmos#6620: the fleet's update pause; the next look asks again
     beginInstall({ auto: true });
   } catch { /* an update that cannot start must not break the one that shows */ }
 }
@@ -529,6 +550,20 @@ function autoPref() {
   return require('./autoupdate').read();
 }
 
+/* #6659 (review 1): the home as the INSTALLER knows it. installedRoot() is __dirname-based, and Node resolves links in
+   __dirname (a ~/.local reached through a link, or a temp home under /var, which is /private/var on a Mac), while
+   setup.sh tells the default copy from a sandboxed one, and names its launch label, by the path STRING. install/kosmos
+   exports the path it ran under as KOSMOS_INSTALLED_HOME (it is not KOSMOS_HOME, so agents the board starts do not
+   inherit a home); used only when it resolves to this very copy. */
+let installedHomeSaid;   // #6659: set once by server.js at startup (then removed from the environment)
+function setInstalledHomeAsInstalled(v) { installedHomeSaid = typeof v === 'string' && v ? v : undefined; }
+function installedHomeAsInstalled() {
+  const root = installedRoot();
+  if (!root) return null;
+  const said = installedHomeSaid;
+  try { if (said && path.isAbsolute(said) && fs.realpathSync(said) === fs.realpathSync(root)) return said; } catch { /* gone: the root */ }
+  return root;
+}
 function installedRoot() {
   if (installedRootFn) return installedRootFn();
   /* 🪟 win32 (S4): the shipped bundle is a portable zip -- `runtime\node.exe` and `app\server.js`,
@@ -692,7 +727,7 @@ function readStatusRecord() {
   if (!s) return null;
   if (s.code === 0) return null;   // a success seeds nothing: success is the board coming back changed
   // #6468 ask 3: 97 is run-setup's "not run": the installer did not match its signed release (or could not be checked).
-  if (s.code === 96) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be downloaded, so nothing was installed. Try again in a few minutes', log: installLog() };
+  if (s.code === 96) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be downloaded, or updates are paused for now, so nothing was installed. Try again in a few minutes', log: installLog() };
   if (s.code === 97) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be checked against its signed release, so nothing was installed. Try again in a few minutes', log: installLog() };
   return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the installer stopped before it could restart the board', log: installLog() };
 }
@@ -1134,13 +1169,33 @@ function armWindowsHelperWitness(owner, opts) {
   return t;
 }
 
+/* #6903: a start that throws BEFORE anything was launched releases the single-flight flag and ends its attempt, so
+   the next press, which the failure sentence asks for, can start one. Once an installer is launched (installLaunched)
+   a later throw keeps the flag: a second installer would race the first through the stage-and-swap. */
+let installLaunched = false;
 function beginInstall(opts) {
+  try {
+    return beginInstallOnce(opts);
+  } catch (err) {
+    if (installStarted && !installLaunched) {
+      installStarted = false;
+      inFlightKindVar = null;
+      if (opts && opts.auto) autoFailedAt = Date.now();   // the unattended path backs off, as every other failure does
+      try { noteAttemptEnd(lastAttempt, null, 'Kosmos could not start the installer'); }
+      catch { /* the flag is already released; the original throw is the one to report */ }
+    }
+    throw err;
+  }
+}
+
+function beginInstallOnce(opts) {
   // ⚠️ Single-flight. available() stays truthy until the new server is up,
   // so a double click or a second tab would spawn a SECOND detached
   // installer racing the first through the stage-and-swap. One per server
   // lifetime; the flag dies with the process the installer restarts.
   if (installStarted) return;
   installStarted = true;
+  installLaunched = false;
   inFlightKindVar = 'update';
   /* A fresh press starts a fresh record: the previous attempt's failure
      is history, not a verdict on this one. */
@@ -1157,6 +1212,7 @@ function beginInstall(opts) {
      a child. */
   if (installRunner) {
     const fake = installRunner(setupUrl());
+    installLaunched = true;
     if (fake && typeof fake.on === 'function') { wireChild(fake, opts); return fake; }
     return fake;
   }
@@ -1165,7 +1221,13 @@ function beginInstall(opts) {
      Mac-style test double still runs on either OS) and BEFORE the `/bin/sh` spawn wiring, none of
      which applies on Windows. In production installRunner is null, so a real win32 board reaches this
      and a real Mac board falls through to the spawn below. */
-  if (updatePlatform() === 'win32') return beginWindowsInstall(opts);
+  if (updatePlatform() === 'win32') {
+    /* #6903: beginWindowsInstall launches its helper asynchronously, so a synchronous throw from it means nothing
+       launched and the flag is released; once it returns, the launch is under way. */
+    const begun = beginWindowsInstall(opts);
+    installLaunched = true;
+    return begun;
+  }
   // The URL travels as a positional parameter, never interpolated into the
   // command that runs the installer (run-setup, #6468; it used to end in `| sh`); and KOSMOS_RELEASE_BASE
   // rides along so the installer stages its tarballs from the SAME host the
@@ -1242,7 +1304,7 @@ function beginInstall(opts) {
      installer and the target version's signed manifest, check the installer against it, and only then run it with sh
      (run-setup). Exit 97 is "not run" (refused), recorded like any other code; readStatusRecord words it. */
   const target = cache && cache.latest && cache.latest.version ? String(cache.latest.version) : '';
-  const child = spawn('/bin/sh', ['-c', '"$5" "$6" run-setup "$1" "$7" "$8" "$9"; code=$?; printf "%s %s\n" "$code" "$3" > "$2"; if [ "$4" != /dev/null ]; then rm -f "$4"; fi', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, startedMarker, process.execPath, path.join(__dirname, 'manifest-verify.js'), releaseBase(), target, installedRoot() || ''], {
+  const child = spawn('/bin/sh', ['-c', '"$5" "$6" run-setup "$1" "$7" "$8" "$9"; code=$?; printf "%s %s\n" "$code" "$3" > "$2"; if [ "$4" != /dev/null ]; then rm -f "$4"; fi', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, startedMarker, process.execPath, path.join(__dirname, 'manifest-verify.js'), releaseBase(), target, installedHomeAsInstalled() || ''], {
     detached: true,
     stdio: 'ignore',
     // #2036: pass the channel so the spawned setup.sh re-reads the SAME pointer this refresh
@@ -1255,6 +1317,7 @@ function beginInstall(opts) {
     // must be recorded where the board can show it. A pasted install line does not carry it.
     env: { ...process.env, KOSMOS_RELEASE_BASE: releaseBase(), KOSMOS_UPDATE_CHANNEL: installPointer(), KOSMOS_SOURCE_CHANNEL: updateChannel(), KOSMOS_UPDATE_BY_BOARD: '1' },
   });
+  installLaunched = true;
   wireChild(child, opts);
   child.unref();
 }
@@ -1335,7 +1398,25 @@ function prodPublishesRunning() {
   return cache.latest.version.trim() === String(RUNNING).trim();
 }
 
+/** kosmos#6620: the last look found the fleet's updates paused. */
+function paused() { return cache.paused === true; }
+
+/** kosmos#6620: a person's Install press asks the coordinator NOW, not the last look's answer, so a pause lifted since
+ *  that look (up to a TTL ago) does not refuse an install run-setup would allow. Returns the refusal sentence or null;
+ *  fails open (no answer is not paused), and an install already under way is joined, never refused. */
+async function pauseRefusalNow({ fetchImpl } = {}) {
+  if (alreadyInstalling()) return null;
+  const mine = cache;
+  const p = await manifestVerify.pausedAsync(fetchImpl ? { fetchImpl } : {});
+  if (cache === mine) cache.paused = p;
+  return p ? manifestVerify.PAUSED_SENTENCE.charAt(0).toUpperCase() + manifestVerify.PAUSED_SENTENCE.slice(1) + '.' : null;
+}
+
 module.exports = {
+  paused, pauseRefusalNow, // kosmos#6620
+  PAUSED_SENTENCE: manifestVerify.PAUSED_SENTENCE, // kosmos#6620
+
+  installedHomeAsInstalled /* #6659: the home as the installer knows it; exported so a test RUNS its fallbacks */, setInstalledHomeAsInstalled,
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, windowsBuildName, windowsGenericName, // the per-platform check (win32-update-check)
   installOffer, // S4: the [Update] offer (installedRoot AND not a refused win32 location); one derivation

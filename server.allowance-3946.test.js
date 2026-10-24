@@ -259,6 +259,14 @@ test('#6108 /api/accounts says when an account cannot have a reading: its own st
   const away = path.join(SANDBOX, 'away-settings-6175.json');
   try {
     fs.rmSync(settings, { force: true });
+    if (process.platform === 'win32') {
+      /* kosmos#6570: on Windows an agent records the reading from its own event stream, not the status line, so no
+         settings file stops one and the row names no reason. */
+      assert.equal(await blockedOf(), null, 'a Windows account with no status line was told it cannot have a reading');
+      fs.writeFileSync(settings, JSON.stringify({ statusLine: { type: 'command', command: '/usr/local/bin/my-status.sh' } }));
+      assert.equal(await blockedOf(), null, 'a Windows account with its own status line was told it cannot have a reading');
+      return;
+    }
     assert.equal(await blockedOf(), 'not-wired', 'an account with no status line was promised a reading that cannot come');
     fs.writeFileSync(settings, JSON.stringify({ statusLine: { type: 'command', command: 'node /x/' + allowance.MARKER + ' ' + def } }));
     assert.equal(await blockedOf(), null, 'CONTROL: Kosmos\'s own status line was taken for someone else\'s');

@@ -21,10 +21,10 @@
 # unfixed suite and watch the guard fire) re-leaks onto the real box, which is the very
 # harm this guards. run-tests.sh passes the real "$HOME/Library/LaunchAgents".
 
-# _la_mtime <file> -> the file's mtime in epoch seconds, portable across BSD/macOS
-# (stat -f %m) and GNU/Linux (stat -c %Y). 0 if it cannot be read.
+# _la_mtime <file> -> the file's mtime in epoch seconds, portable across GNU/Linux
+# (stat -c %Y, tried first) and BSD/macOS (stat -f %m). 0 if it cannot be read.
 _la_mtime() {
-  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0   # #6799: GNU first (GNU stat -f prints filesystem info, then fails)
 }
 
 # launchagent_snapshot <dir> -> prints one "<mtime>\t<path>" line per

@@ -22,6 +22,7 @@ set -u
 PY3=/usr/bin/python3; "$PY3" -c '' >/dev/null 2>&1 || PY3=python3
 "$PY3" -c '' >/dev/null 2>&1 || { echo "FAIL  no runnable python3: /usr/bin/python3 and python3 on PATH both failed to start (the /usr/bin shim exits 69 until the Xcode license is accepted, #3578)"; exit 1; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
+export KOSMOS_UPDATE_PAUSE_URL=http://127.0.0.1:9/v1/meta   # kosmos#6620: run-setup here must not ask the real coordinator
 REPO="$(cd "$HERE/.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/test-pkg-checksum-1670.XXXXXXXXXX")"; trap 'rm -rf "$T"; [ -n "${SRV:-}" ] && kill "$SRV" 2>/dev/null' EXIT
 fails=0

@@ -314,7 +314,18 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(t5.hint === 'A short note the first time you open each screen.', 'T5 the Settings tips line no longer points at the ?', JSON.stringify(t5.hint));
     chk(await page.evaluate(() => !TIPS.some((t) => /\?/.test(t.body || '') || (t.steps || []).some((st) => /\?/.test(st.body)))), 'T5 no tip\'s words point at the ?');
     await openRingTip(page);
-    chk((await cardState(page)).title === RING && ['left', 'right', 'up', 'down'].includes(await cardCls(page)), 'T5 a screen tip on the board points at a card\'s ring (the arms below use it)', 'cls=' + await cardCls(page));
+    /* #6719: the star in the tile's top-right corner takes the place beside the ring (a 300px card there covers it),
+       and no other pointing place fits, so the card sits flat, as a tip does wherever every pointing place would
+       cover a control. What the arms below need is a screen tip that is open, off its ring and off every control. */
+    const t5c = await page.evaluate(() => {
+      const R = (e) => { const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; };
+      const hit = (a, b) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
+      const c = R(document.getElementById('tipcard')), ring = document.querySelector('#grid .agauge:has(.gf), #grid .agauge:has(.gu)');
+      const star = ring && ring.closest('.acard').querySelector('.astar');
+      return { covers: document.getElementById('tipcard').dataset.covers, onRing: !!ring && hit(c, R(ring)), onStar: !!star && hit(c, R(star)), star: !!star };
+    });
+    chk((await cardState(page)).title === RING && t5c.covers === '0' && !t5c.onRing && t5c.star && !t5c.onStar,
+      'T5 a screen tip on the board opens for a card\'s ring, off the ring and off every control, its star included (the arms below use it)', 'cls=' + await cardCls(page) + ' ' + JSON.stringify(t5c));
 
     // T6: Stop showing tips turns them off in one write, and the Settings switch reads it. With tips
     // off and nothing seen, nothing shows; turning the switch on shows the tour from that same state

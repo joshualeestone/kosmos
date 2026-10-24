@@ -66,6 +66,10 @@ const BOARD_PERSON_MARK = process.env.KOSMOS_BOARD_PERSON_MARK;
 delete process.env.KOSMOS_BOARD_STARTED_BY;
 delete process.env.KOSMOS_BOARD_PERSON_MARK;
 delete process.env.KOSMOS_START_BY;   // the watchdog's word to `kosmos start`; the launchers strip it, this is the backstop
+/* #6659 (review 3): the path this board's copy was installed under, from install/kosmos, kept for the update and taken
+   out of the environment, so no agent or pane this board starts inherits a home. */
+require('./engine/update').setInstalledHomeAsInstalled(process.env.KOSMOS_INSTALLED_HOME);
+delete process.env.KOSMOS_INSTALLED_HOME;
 /* #5112: before any tmux is asked anything, forget an inherited $TMUX (engine/sandbox.js says why). The real start only:
    the routing tests require this file, and the test runner's own $TMUX is not this board's to change. */
 if (require.main === module) require('./engine/sandbox').dropInheritedTmux(process.env);
@@ -173,6 +177,26 @@ function withReplyChannel(rows) {
   return rows.map((r) => {
     const ch = r && 'profile' in r ? rc.of(r.profile) : null;
     return ch ? { ...r, replyChannel: ch } : r;
+  });
+}
+/* #7004 (the iPhone plan's slice 2, #6838): each card's word as the computer shows it (engine/cardlabel labelOf) and its
+   tone in the phone's list, ready-made, so the phone shows the computer's words instead of keeping its own copy. Run
+   last, over the finished rows: the word reads fields the route attaches late (reconnect, crashLoop, disruption). */
+/* #7030 (slice 4): and, for the phone's Today, why it needs the person (cardlabel.reasonOf) and the name of the project
+   its wait names (`stateProject` is an id), from `projectList`, the route's one read of the projects file (null when it
+   could not be read: then no names, never a failed status read). */
+function withCardWords(rows, projectList) {
+  const names = new Map((Array.isArray(projectList) ? projectList : [])
+    .filter((p) => p && typeof p.id === 'string' && typeof p.name === 'string' && p.name).map((p) => [p.id, p.name]));
+  return rows.map((r) => {
+    if (!r) return r;
+    try {
+      const np = needsPerson(r);
+      const why = cardlabel.reasonOf(r, np);
+      const projectName = typeof r.stateProject === 'string' ? names.get(r.stateProject) : undefined;
+      return { ...r, cardWord: cardlabel.labelOf(r), cardTone: cardlabel.toneOf(r, np),
+        ...(why ? { needsReason: why } : {}), ...(projectName ? { stateProjectName: projectName } : {}) };
+    } catch { return r; }
   });
 }
 function someAgentNeedsClaude(agentList) {
@@ -530,8 +554,9 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
     + (n ? ': "' + n + '"' : '')
     + (forParent.includes(m) ? ' (it is under your task ' + heldAt.number + ')' : '')
     /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
-       Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). */
-    + (/^sha256:[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint : '')
+       Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). kosmos#6849: it
+       names the command, since a PDF's fingerprint is not its shasum and an older instruction says shasum. */
+    + (/^sha256:[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file>)' : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
@@ -898,6 +923,8 @@ function fedKosmosPlusNow() {
 const FEDERATION_OFF = 'Sharing a project with people outside this computer is not turned on yet.';
 // kosmos#6239: Settings' community switch, under a policy that stops outside contact (orgpolicy.contactAllows).
 const COMMUNITY_STOPPED = 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so they do not take part in the Kosmos+ community whatever this switch says.';
+// kosmos#6862: the same on a family's Kosmos, where the reason is the family, not a policy (orgpolicy.communityAllows).
+const FAMILY_COMMUNITY_STOPPED = "On a family's Kosmos, agents do not take part in the Kosmos+ community, whatever this switch says.";
 /* kosmos#6239: the sentence refusing a new link to another computer (an invite, joining one, an own-computer code) while
    the policy set for this Kosmos stops outside contact, else null. Removing someone or withdrawing an invite is never
    refused: it only takes contact away. A policy read that throws refuses. */
@@ -905,7 +932,9 @@ function federationPolicyStop() {
   try {
     const op = require('./engine/orgpolicy');
     op.inForce(); const c = op.contactAllows();   // fresh: a route, not a hot path (apply, then the strict read)
-    return c.ok === true ? null : 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so a project cannot be shared or joined here.';
+    if (c.ok === true) return null;
+    const why = typeof c.because === 'string' ? c.because : op.CONTACT_STOPS;   // kosmos#6870: a family default says its own
+    return why.charAt(0).toUpperCase() + why.slice(1) + ', so a project cannot be shared or joined here.';
   } catch { return 'Kosmos could not read the policy set for this Kosmos just now, so a project cannot be shared or joined here.'; }
 }
 function federationLiveNow() {
@@ -1096,6 +1125,9 @@ function proofTokenFilesSig() {
 /* A file's parsed value, kept until the file's mtime or size changes, so the token-free proof route does not read
    it on every request. `read` returns the value; a file that cannot be stat'ed is read every time (the rare case). */
 const proofFileCache = new Map();
+/* kosmos#6720: the person's failed messages being sent again right now, by agent and row (`name\u0000at`), so two
+   presses of Try again (two tabs, a double tap) cannot type one message twice. */
+const DM_RETRYING = new Set();
 function proofCachedRead(file, read) {
   let sig = null;
   try { const st = fs.statSync(file); sig = st.mtimeMs + ':' + st.size; } catch { sig = null; }
@@ -1337,6 +1369,11 @@ const recordGuideOutcome = guidestate.makeRecorder({
 const heartbeat = require('./engine/heartbeat');
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
 const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
+/* kosmos#6894: when each task last put a run in its project room, so a task that changes every run says so at most hourly. */
+const ROOM_RUN_SAID = new Map();
+const ROOM_RUN_EVERY_MS = 60 * 60 * 1000;
+function _resetRoomRunSaidForTest() { ROOM_RUN_SAID.clear(); }
+function _ageRoomRunSaidForTest(ms) { for (const v of ROOM_RUN_SAID.values()) v.at -= ms; }   // review 2: the hour, passed
 const holdstale = require('./engine/holdstale'); // kosmos#6209 part 3: an owner still working a held task in its room is asked about the hold
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new comments, once per comment
@@ -1702,6 +1739,7 @@ const messages = require('./engine/messages');
 const unfurl = require('./engine/unfurl');
 const attachments = require('./engine/attachments');
 const filepreview = require('./engine/filepreview');   // #4997: the preview for a file in a Files list
+const zipwrite = require('./engine/zipwrite');   // #6724: a folder of an agent's Files, downloaded as one zip
 // #3485: the community feed's board->feed choke (feedguard scrub -> trust -> store).
 // The ONE primitive both the agent/board routes below and the community-site routes
 // call, so no content of any origin reaches communitystore un-scrubbed.
@@ -2226,7 +2264,9 @@ function whoamiFor(card, known, live) {
        📌 Keyed on a KNOWN non-claude runner, so an answer carrying no runner at
        all (every injected reader that predates this field) takes the old path. */
     const foreignRunner = !!(resolvedRunner && resolvedRunner !== 'claude');
-    if (!foreignRunner && rec && rec.model) {
+    /* #6716: a model borrowed from an EARLIER session is not what this one runs (a switch or relaunch that has not
+       replied yet): skip it, so the launch argument below answers, as it did before the borrowing existed. */
+    if (!foreignRunner && rec && rec.model && rec.earlierSession !== true) {
       /* `modelDisplayName`, NOT the raw id, and this is the branch that normally
          answers. The LIVE path's display name was pinned; this one - the
          PREFERRED source for the model - was asserted nowhere, so swapping it
@@ -2671,6 +2711,18 @@ function communityValveRelease(agentId, at) {
 // key would let such an agent share the operator's budget and exhaust it (a
 // cross-identity DoS) -- the Symbol removes the collision rather than asserting it away.
 const COMMUNITY_HUMAN_VALVE_KEY = Symbol('community-human-valve');
+
+/* #6949: the 🙋 claim on one room post ({by, at} or null) for the person's react and free-claim routes, so their
+   one-row repaint labels the pill as the full room read does: claimOf over claimMembers of the stored record's
+   members, the room read's own derivation (which caches claimMembers across a read's posts). Read only when a 🙋 is among the
+   post's reactions. Best-effort: null on any failure, and the next room read draws it right. */
+function roomPostClaim(projectId, postId, reactions) {
+  try {
+    if (!Array.isArray(reactions) || !reactions.some((r) => r && messages.isClaimEmoji(r.emoji))) return null;
+    const stored = projects.readAll().find((p) => p && p.id === projectId) || null;
+    return messages.claimOf(postId, messages.record().rows, messages.claimMembers(stored && stored.agents));
+  } catch { return null; }
+}
 
 function safeRoster() {
   try {
@@ -3442,6 +3494,12 @@ function withCreatorLock(creator, fn) {
  * folder of thousands costs that on each 5-second poll. Reversible. */
 const AGENT_FILES_DEFAULT_CAP = 20;
 const AGENT_FILES_MAX_CAP = 500;
+/* #6724: how deep the in-app browser of an agent's Files goes (folders below Files), and so how deep its preview,
+   download and folder zip reach: any file the browser shows, and nothing it does not. The glance list stays flat. */
+const AGENT_BROWSE_DEPTH = 8;
+/* #6724: a folder downloaded as one zip: refused, with the reason, past these (stored entries, no ZIP64). */
+const FOLDER_ZIP_MAX_FILES = 2000;
+const FOLDER_ZIP_MAX_BYTES = 1024 * 1024 * 1024;
 
 /* #3739: mark the setup guide's row, stated on every row (`isGuide`), and give it its title. Before its first
    session its model is unread and its job may name none (it starts on Claude's own default), so it says so
@@ -3740,6 +3798,140 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
+/* #6903: the Update and Roll back presses. Every refusal (a non-200 answer) is logged with its sentence, and every
+   throw with its cause, so a person who saw the dialog refuse never has to be asked what it said. */
+function updatePressAnswer(res, kind) {
+  return (code, obj) => {
+    if (code !== 200) {
+      const why = (obj && obj.error) || '(no reason given)';
+      console.log(kind + ' press answered ' + code + ': ' + why + (obj && obj.detail ? ' (' + obj.detail + ')' : ''));
+    }
+    sendJson(res, code, obj);
+  };
+}
+const UPDATE_PRESS_FAILED = {
+  update: 'Kosmos could not start the update just now. Try again in a minute.',
+  rollback: 'Kosmos could not start the roll back just now. Try again in a minute.',
+};
+function updatePressThrew(res, say, kind, err) {
+  if (isGateThrowInTest(err)) throw err;
+  const detail = String((err && err.message) || err);
+  if (res.headersSent) { console.error('FAIL ' + kind + ' press after answering: ' + detail); return; }
+  console.error('FAIL ' + kind + ' press: ' + detail);
+  say(500, { error: UPDATE_PRESS_FAILED[kind] });   // the cause is in the log line above, never in the answer
+}
+/* Once the installer has started, the press is answered 200 whatever follows: a throw reading the stamp is logged and
+   the answer goes without it, never as a refusal of an install that is already running. */
+function startedStamp(kind) {
+  try {
+    const att = updates.lastAttempt();
+    return att ? att.startedAt : null;
+  } catch (err) {
+    console.error('FAIL ' + kind + ' press: started, but its start stamp could not be read: ' + String((err && err.message) || err));
+    return null;
+  }
+}
+
+/* #6734: a stored file sent from disk as a stream, never read whole, so a 100 MB attachment costs the board a
+   read buffer rather than 100 MB. The file is opened and measured once, so Content-Length is the size of the very
+   file that is sent. A client that goes away mid-download, and a read that fails mid-file, both end in pipeline's
+   cleanup, which closes the descriptor; a read error after the headers ends the response short, which the client
+   sees as a cut download (its length does not match), never as a whole file. `unread` is the 404 sentence for a
+   file that cannot be opened. */
+let DOWNLOAD_STALL_MS = 120 * 1000;
+function _setDownloadStallForTest(ms) { DOWNLOAD_STALL_MS = ms == null ? 120 * 1000 : ms; }
+
+/* #6805: one `Range: bytes=...` against a file of `size` bytes (RFC 9110 14.1.2). Answers { start, end } (both
+   inclusive) for a range to send, 'unsatisfiable' for a 416, or null when the header is to be ignored and the whole
+   file sent: no header, another unit, a malformed spec, or more than one range (no multipart answers). */
+function parseByteRange(header, size) {
+  if (typeof header !== 'string') return null;
+  const m = /^\s*bytes\s*=\s*(\d*)\s*-\s*(\d*)\s*$/i.exec(header);
+  if (!m || (m[1] === '' && m[2] === '')) return null;
+  if (m[1] === '') {   // `-n`: the last n bytes
+    const n = Number(m[2]);
+    if (n === 0 || size === 0) return 'unsatisfiable';
+    return { start: Math.max(0, size - n), end: size - 1 };
+  }
+  const start = Number(m[1]);
+  // `b < a` is not a valid spec, so the header is ignored. Compared with the end as WRITTEN: `a-` past the file is a
+  // 416, not a spec whose filled-in end (size - 1) happens to fall before its start.
+  if (m[2] !== '' && Number(m[2]) < start) return null;
+  if (!Number.isSafeInteger(start) || start >= size) return 'unsatisfiable';
+  return { start, end: m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1) };
+}
+
+/* `opts.etag`, when given, lets a GET ask for one byte range (#6805), so a cut download resumes instead of starting
+   again. It names the file (an attachment's id); the ETag sent adds the file's size and modification time as
+   measured on the open descriptor, so if the bytes under that name ever change, an If-Range from before no longer
+   matches and the client gets the whole file instead of the end of one file joined onto the start of another.
+   The ETag is for resuming only: If-None-Match is not answered (no 304), since the route sends no caching. */
+function sendFileStream(req, res, file, unread, headers, opts = {}) {
+  let fd = null;
+  let size = 0;
+  let start = 0;
+  let length = 0;
+  try {
+    // Review 3: without blocking, so a FIFO put in a file's place cannot stall the board; isFile() then refuses it.
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) throw new Error('not a file');
+    size = st.size;
+    length = size;
+    const etag = opts.etag ? `"${opts.etag}-${st.size.toString(36)}-${Math.trunc(st.mtimeMs).toString(36)}"` : null;
+    const ranged = etag ? { ...headers, 'accept-ranges': 'bytes', etag } : headers;
+    /* #6805: an If-Range that is not exactly this file's ETag (another file's, or a date: no Last-Modified is sent)
+       means the client's first part may be of different bytes, so it gets the whole file. */
+    const range = etag && req.method === 'GET' && (req.headers['if-range'] === undefined || req.headers['if-range'] === etag)
+      ? parseByteRange(req.headers.range, size) : null;
+    if (range === 'unsatisfiable') {
+      fs.closeSync(fd);
+      fd = null;
+      res.writeHead(416, { ...ranged, 'content-range': `bytes */${size}`, 'content-length': 0 });
+      res.end();
+      return;
+    }
+    if (range) {
+      start = range.start;
+      length = range.end - range.start + 1;
+      res.writeHead(206, { ...ranged, 'content-range': `bytes ${range.start}-${range.end}/${size}`, 'content-length': length });
+    } else {
+      res.writeHead(200, { ...ranged, 'content-length': size });   // review 4: inside the try, so a throw closes fd
+    }
+  } catch {
+    if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ }
+    if (!res.headersSent) sendJson(res, 404, { error: unread });
+    else res.destroy();
+    return;
+  }
+  if (req.method === 'HEAD' || length === 0) { res.end(); try { fs.closeSync(fd); } catch { /* closed */ } return; }
+  /* Review 2: read no further than the size measured, so a file that grows meanwhile cannot overrun Content-Length.
+     Review 4: and one that shrank cuts the response at its end instead of ending it short, so a keep-alive client is
+     not left waiting for bytes that will never come. #6805: both measured against the range sent, not the file. */
+  const rs = fs.createReadStream(null, { fd, start, end: start + length - 1, autoClose: true });
+  rs.once('end', () => { if (rs.bytesRead < length) res.destroy(); });
+  /* Review 26: a client that stays connected but stops reading would hold the descriptor for ever; as the folder zip
+     does (ZIP_STALL_MS), a download that moves no bytes for DOWNLOAD_STALL_MS is ended, which closes it. */
+  let stall = null;
+  const arm = () => { clearTimeout(stall); stall = setTimeout(() => res.destroy(), DOWNLOAD_STALL_MS); stall.unref(); };
+  rs.on('data', arm);
+  res.once('close', () => clearTimeout(stall));
+  arm();
+  pipeline(rs, res, () => { /* aborted or failed: both streams are destroyed */ });
+}
+
+/* #6734: an upload answered with a refusal. When the body has not all arrived (over the cap, or the client went),
+   the connection closes after the answer so the rest is never read, and is cut a moment later if the client keeps
+   it open, so a refused upload cannot hold a socket. */
+function refuseUpload(req, res, error) {
+  if (res.headersSent || res.destroyed) { req.destroy(); return; }
+  if (!req.complete) {
+    res.setHeader('connection', 'close');
+    res.once('finish', () => { setTimeout(() => req.destroy(), 1000).unref(); });
+  }
+  sendJson(res, 400, { error });
+}
+
 /* ---- #1704 PR2 (plan §5): a kept-running agent's sends are never lost ------
    On a world switch the person may keep a Kosmos's agents running. Board tokens
    are per world, so a kept-running agent's reply reached the board serving
@@ -3877,19 +4069,145 @@ function isSetupGuide(name) {
   } catch { return false; }
 }
 
+/* #5406 slice C: may this screen's options be offered as buttons? Every condition must hold. kosmos#7017: one answer
+   for the thread route (the board's buttons) and the phone's notification (its Allow and Deny), never two. `options` is
+   chat.optionsIn(question.text); `view` the fresh capture the question was read from. */
+function dmPressable({ guideThread, card, options, question, view }) {
+  const cqNow = view && view.text ? require('./engine/status').claudeAnswerableMenu(view.text) : null;   // #6054: a permission prompt too
+  return !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude'
+    && Array.isArray(options) && Boolean(question) && typeof question.text === 'string'
+    && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry
+    && Boolean(cqNow)
+    // #6054 review 3: a permission prompt only with its whole box on screen (its identity must be the whole request).
+    && (!cqNow.permission || chat.permissionAnswerable(view.text))
+    // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
+    && cqNow.options.length === options.length
+    && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
+}
+
+/* kosmos#7017 part 2: Allow and Deny for a phone notification, only while the agent is stopped on Claude Code's
+   permission prompt and the board itself would draw that card's buttons (dmPressable, chat.permissionCard): the same
+   reading as the thread route, so the phone never offers a press the board would refuse. And only for the notice that
+   prompt raised: the report it is about (`at`) must be the agent's current one AND the permission hook's own wait
+   (selfreport.isAutoPermissionWait), so an agent's own question, or an older notice delivered late, never carries
+   buttons for whatever prompt happens to be up. Each choice is the prompt's own option ({ n, label }; the label as the
+   thread stores it, which the POST compares the same way). `request` is the request's fingerprint
+   (chat.permissionRequestId), the same one the thread route serves on the card, so the phone can refuse a press for a
+   request no longer up. `shown` is the whole request as the lock screen says it (phonePermissionShown): a person is
+   never asked to allow a command they cannot read in full. Never a lasting choice: Allow is the plain "Yes", and the "always allow"
+   kinds are not offered from a lock screen at all. Null whenever any of that does not hold. The 2000 cap on the
+   question's identity is a backstop that matches the phone's: while `shown` must fit 400 characters it cannot be
+   reached, since the identity is the same box plus a few lines. Never throws. */
+const PHONE_ASKED_MAX = 2000;
+function phonePermissionNow(name, at, roster) {
+  try {
+    const rep = selfreport.read(name);
+    if (!selfreport.isAutoPermissionWait(rep) || rep.at !== at) return null;
+    const card = ourCardByName(roster, name);
+    if (!card || card.state !== STATE.NEEDS_YOU || (card.disruption && card.disruption.failed === true)) return null;
+    const guideThread = isSetupGuide(name) || isSetupGuide(card.sessionName);
+    const view = chat.viewport(name, roster);
+    if (!view || typeof view.text !== 'string') return null;
+    const question = chat.questionIn(view.text, card.runner);
+    if (!question || typeof question.text !== 'string' || question.reported) return null;
+    const options = chat.optionsIn(question.text);
+    if (!dmPressable({ guideThread, card, options, question, view })) return null;
+    const perm = chat.permissionCard(view.text);
+    if (!perm) return null;
+    const pick = (n) => { const o = options.find((x) => x.n === n); return o && o.lasting !== true ? { n: o.n, label: chat.cleanMessage(o.label) } : null; };
+    const allow = pick(perm.allow);
+    const deny = pick(perm.deny);
+    const asked = chat.questionAbove(question.text);
+    const shown = phonePermissionShown(perm);
+    if (!allow || !deny || typeof asked !== 'string' || !asked || asked.length > PHONE_ASKED_MAX || !shown) return null;
+    return { kind: perm.kind, allow, deny, asked, request: chat.permissionRequestId(perm), shown };
+  } catch { return null; }
+}
+
+/* The board's words for what a permission card asks (web/index.html DM_PERM_DOES), for the lock screen. */
+const PHONE_PERM_DOES = {
+  delete: 'run a command that deletes files',
+  command: 'run a command',
+  create: 'create a file',
+  edit: 'change a file',
+  fetch: 'fetch something from the web',
+  other: 'do something that needs your permission',
+};
+/* kosmos#7017 part 2: what the lock screen says a permission request is. The phone has no Show details, so it shows
+   the WHOLE request or offers no buttons: a request cut short can look harmless while Allow approves all of it. Only
+   one measured shape: a command whose request is exactly one line. A file (new or changed: its text is read back out of
+   the terminal's drawing, where a line Claude Code wraps itself can lose or gain words, review 5), a multi-line command
+   (a continued line, a heredoc), a fetch's address and any other tool's arguments get no buttons; the chat has them.
+   Claude Code's reason comes FIRST, so a warning such as a dangerous rm is the first thing read. Then "Wants to
+   <what>:" with the command on its own line (no full stop added), then the agent's own words about it. Empty, so no
+   buttons, when the whole does not fit the notice's words (phonenotice.TEXT_MAX) uncut; when it holds a character that
+   draws differently on a phone than in the terminal (format controls such as bidi overrides and zero-width marks, line
+   and paragraph separators, other control characters), so the screen could read as something it is not; or when it
+   holds anything shaped like a secret (engine/secretmask.js) or a password given as a command flag (PHONE_PASSWORD_FLAG),
+   or a run that looks like a token (phoneTokenLike), which a lock screen and Notification Center would show to anyone
+   holding the phone. */
+const PHONE_PASSWORD_FLAG = new RegExp([
+  // Review 8: any flag NAMED like a credential (--password, --ftp-password, -storepass, --api-token, --body-secret),
+  // except a purely numeric value (--max-tokens=500).
+  String.raw`(^|\s)--?[\w-]*(pass|pwd|secret|token|api-?key)[\w-]*[=\s](?!\d+(\s|$))\S`,
+  String.raw`(^|\s)(sshpass\b|--user[=\s][^\s:]*[^\s:\d][^\s:]*:\S)`,
+  String.raw`(^|\s)-u\s*[^\s:]*[^\s:\d][^\s:]*:\S`,                                          // curl -u/-uX:Y (not docker -u 1000:1000)
+  String.raw`(^|\s)-U\s*\S+%\S`, String.raw`(^|\s)-u\s+[^\s,]+,\S`,                          // smbclient -U a%p, lftp -u a,p
+  String.raw`\bpass:\S`,                                                                      // openssl -passin pass:X
+  String.raw`\b(authorization|proxy-authorization|cookie)\s*:`,                             // a header carrying a credential
+  String.raw`\b(mysql|mysqldump|mariadb)\b.*\s-p\S`, String.raw`\bmongo(sh)?\b.*\s-p\s`, String.raw`\b(un)?(zip|7z)\b.*\s-[pP]`,
+  String.raw`\bopenssl\b.*\s-(k|pass)\s`, String.raw`\bredis-cli\b.*\s-a\s`, String.raw`\bdocker\s+login\b.*\s-p\b`,
+  String.raw`\bhtpasswd\b.*\s-\w*b`, String.raw`\bldap\w+\b.*\s-w\s`, String.raw`\bssh-keygen\b.*\s-N\s`,
+  String.raw`\bsudo\b.*\s-S\b`, String.raw`\bvault\s+login\b`, String.raw`\bgh\s+secret\s+set\b`,
+  String.raw`(^|[\s;&|"'])[A-Z_]*(PASS(WORD|WD)?|PWD|SECRET|TOKEN)[A-Z_]*=\S`,              // PGPASSWORD=, MYSQL_PWD=, API_TOKEN=
+].join('|'), 'i');
+/* Reviews 7 and 8: a list of credential shapes always misses one, so a backstop for long ones: a run of 20 or more
+   token characters that, split at - . _, has a piece of 16+ mixing letters and digits, or two or more mixed pieces (a
+   bare bearer token, a sha, a base64url key). An ordinary name with a number in it (fix-login-1234, app-v1.2.3.apk,
+   x-6727.test.js) is one mixed piece at most and passes. A short password the list misses is the stated residual: iOS
+   shows previews only when unlocked by default, and Allow asks to unlock. */
+function phoneTokenLike(text) {
+  const mixed = (p) => /[A-Za-z]/.test(p) && /\d/.test(p);
+  return (String(text).match(/[A-Za-z0-9_\-.+=]{20,}/g) || []).some((t) => {
+    const pieces = t.split(/[-._]/);
+    return pieces.some((p) => p.length >= 16 && mixed(p)) || pieces.filter(mixed).length >= 2;
+  });
+}
+function phonePermissionShown(perm) {
+  if (perm.kind !== 'command' && perm.kind !== 'delete') return '';
+  // Review 6: the measured title only. A title saying more ("Bash command (unsandboxed)", say) is not shown here, so a
+  // prompt carrying one gets no buttons rather than being approved without its qualifier.
+  if (perm.title !== 'Bash command') return '';
+  const lines = String(perm.detail || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length !== 1) return '';
+  const out = [];
+  if (perm.reason) out.push(String(perm.reason).trim());
+  out.push('Wants to ' + PHONE_PERM_DOES[perm.kind] + ':', lines[0]);
+  if (perm.says) out.push('It says: ' + String(perm.says).trim());
+  const text = out.filter(Boolean).join('\n');
+  if (text.length > require('./engine/phonenotice').TEXT_MAX) return '';
+  // eslint-disable-next-line no-control-regex
+  if (/[\p{Cf}\u2028\u2029\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u.test(text)) return '';
+  if (PHONE_PASSWORD_FLAG.test(text) || phoneTokenLike(text)) return '';   // the whole shown text, the agent's words too
+  try { if (require('./engine/secretmask').mask(text).fired.length) return ''; } catch { return ''; }
+  return text;
+}
+
 /** kosmos#5841: one page of earlier messages; the same size as the thread route's tail. */
 const DM_OLDER_PAGE = 200;
 /* kosmos#5841: what the person sees of a direct thread's rows, decided ONCE for both readers (the thread route's
    latest 200 and the older route's earlier pages), so the earlier pages can never show what the latest ones hide:
    in the setup guide's thread every row is masked (#3769), the person's reactions ride as pills (#3650), and
    previews are attached. The live question and account rows are NOT added here: they belong to the tail only. */
+/* The words of one row as the page is shown them: the setup guide's thread masked (#3769), any other unchanged. One
+   rule for dmServeRows and for kosmos#6720's retryable check, which must not attach previews (withPreviews fetches). */
+function dmServedText(text, name, card) {
+  const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
+  return guideThread && typeof text === 'string' ? guideMasked((card && card.sessionName) || name, text) : text;
+}
 function dmServeRows(rows, name, card) {
   if (!Array.isArray(rows)) return rows;
-  const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
-  const guideName = guideThread ? ((card && card.sessionName) || name) : null;
-  const masked = guideThread
-    ? rows.map((m) => (m && typeof m.text === 'string' ? { ...m, text: guideMasked(guideName, m.text) } : m))
-    : rows;
+  const masked = rows.map((m) => (m && typeof m.text === 'string' ? { ...m, text: dmServedText(m.text, name, card) } : m));
   const reacted = masked.map((m) => {
     if (!m || m.from !== name) return m;
     const { reactionsTold, ...rest } = m;
@@ -3972,6 +4290,8 @@ function keepAgentReply(who, text, at, opts) {
     from: who,
     // #4354: Kosmos's own words in the agent's name (the daily-limit notice), so dmOwes can tell them from a reply
     ...(opts && opts.kosmos === true ? { kosmos: true } : {}),
+    // #6726: a file the agent attached, as the same record a person's upload rides its row with
+    ...(opts && Array.isArray(opts.files) ? attachments.rowFields(opts.files) : {}),
   });
 }
 
@@ -4277,6 +4597,13 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
   allow: Object.freeze({ code: 'remote_not_allowed', error: 'Allowing another device is done at the computer itself, not from a remote session.' }),
   joinConfirm: Object.freeze({ code: 'remote_not_allowed', error: "Finishing this computer's join is done at the computer itself, not from a remote session." }),
   agentToken: Object.freeze({ code: 'remote_not_allowed', error: 'Agent tokens are made at the computer itself, not from a remote session.' }),
+  /* kosmos#6986: a security check's off switch and its acknowledgement. Switching it ON stays open remotely. */
+  certWatchOff: Object.freeze({ code: 'remote_not_allowed', error: 'The certificate check is switched off at the computer itself, not from a remote session.' }),
+  certWatchAck: Object.freeze({ code: 'remote_not_allowed', error: 'A lost certificate report is acknowledged at the computer itself, not from a remote session.' }),
+  /* kosmos#6590 (S-7d branch c): the browsers waiting for a typed code, and what is done to them, are for the person at
+     the computer only (the list carries each browser's network). */
+  waiting: Object.freeze({ code: 'remote_not_allowed', error: 'The browsers waiting to connect are shown at the computer itself, not in a remote session.' }),
+  typedAllow: Object.freeze({ code: 'remote_not_allowed', error: 'Letting in a waiting browser is done at the computer itself, not from a remote session.' }),
 });
 /* kosmos#6595 (R01, the step-up half; Splinter's ruling 09:44 2026-10-19): from a remote session, entering a key or
    token, updating Kosmos, and making an agent (every agent here runs with an unsandboxed shell) need a FRESH sign-in
@@ -4285,8 +4612,9 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    session's email code was proven, and x-kosmos-session-second, 1 when the second factor was. Missing or malformed
    counts as NOT fresh. A tunnel older than sessioniat-6595 does not strip client copies, so its headers are trusted
    only when the bundled connector says it does (`kosmos-tunnel capabilities` lists session-headers; asked by
-   remote.connectorCapabilities, in the background): an older connector, on any platform, makes every gated remote
-   request refused with remote_step_up_unavailable. A local
+   remote.connectorCapabilities, in the background) AND the tunnel this board runs lists it in its own status file
+   (kosmos#6616): an older connector, on any platform, makes every gated remote request refused with
+   remote_step_up_unavailable. A local
    request is not asked: the person is at the computer. Taking things away (deleting a key, forgetting a token) is
    not asked either. */
 /* Twelve minutes, a little longer than the coordinator's own STEP_UP_SECS (ten): a handoff minted near the end of the
@@ -4324,9 +4652,15 @@ const REMOTE_STEP_UP_EXACT = new Set([
   'POST /api/agents', 'POST /api/team', 'POST /api/connect-agent', 'POST /api/worlds', 'POST /api/worlds/import',
   // Writing an agent's launchd job (it starts processes), the same class as bringing an agent back.
   'POST /api/register',
+  // #6714 review 12: closing an agent's restart notice silences a warning that it will not come back, so a stale remote
+  // session may not do it. Show again only brings a warning back, so it is not here.
+  'POST /api/register/hide',
   // Federation: joining another Kosmos's project opens a room here that outsiders post into and agents act on;
   // inviting one, or sharing this project's own code, lets another Kosmos in. Removing and withdrawing take away.
   'POST /api/federation/join', 'POST /api/federation/invite', 'POST /api/federation/own-code',
+  // kosmos#4658: an Allow hands a sealed room's key to another computer of this account; a confirm decides whose key
+  // this computer seals its posts to.
+  'POST /api/federation/own-allow', 'POST /api/federation/own-confirm',
   // Signing this computer in to Kosmos+ anew, enrolling it, or forgetting its enrolment (review iteration 17): from a
   // stale remote session, someone could sign this computer in to THEIR account, then make a fresh sign-in of their
   // own and pass every gate here. The steps after a start (verify, second, enrol, confirm, cancel) follow it.
@@ -4940,20 +5274,25 @@ function refuseDownload(req, res, because, status = 404) {
   }
   sendJson(res, status, { ok: false, because });
 }
+/* An ASCII filename= for clients that do not read filename*, then the exact name as RFC 5987 (encodeURIComponent
+   leaves ' ( ) * ! as they are, and its attr-char set does not allow them). */
+function attachmentDisposition(base) {
+  return 'attachment; filename="' + base.replace(/[^\x20-\x7e]|["\\]/g, '_') + '"; filename*=UTF-8\'\''
+    + encodeURIComponent(base).replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+}
+/* The flags every read of a listed file opens with (#4997, #6724's folder zip): one copy, undefined-safe on win32. */
+const LISTED_READ_FLAGS = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
 function sendFileDownload(req, res, found, recheck) {
   const checkOnly = isDownloadCheck(req);
   const base = path.basename(found.given);
   const headersFor = (size) => ({
     'content-type': 'application/octet-stream', 'content-length': size, 'x-content-type-options': 'nosniff',
-    /* An ASCII filename= for clients that do not read filename*, then the exact name as RFC 5987 (encodeURIComponent
-       leaves ' ( ) * ! as they are, and its attr-char set does not allow them). */
-    'content-disposition': 'attachment; filename="' + base.replace(/[^\x20-\x7e]|["\\]/g, '_') + '"; filename*=UTF-8\'\''
-      + encodeURIComponent(base).replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()),
+    'content-disposition': attachmentDisposition(base),
     'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
   });
   // #4997: O_NOFOLLOW (a file swapped for a link after the gates is refused, not followed; undefined on win32, where
   // sameOpenedFile below is the guard) and O_NONBLOCK (a FIFO swapped in must not hang the board; fstat refuses it).
-  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
+  const flags = LISTED_READ_FLAGS;
   fs.open(found.target, flags, (openErr, fd) => {
     if (openErr) { refuseDownload(req, res, openErr.code === 'ENOENT' || openErr.code === 'ELOOP' ? DOWNLOAD_GONE : DOWNLOAD_UNREADABLE); return; }
     fs.fstat(fd, (statErr, st) => {
@@ -4973,6 +5312,156 @@ function sendFileDownload(req, res, found, recheck) {
       require('node:stream').pipeline(stream, res, () => {});
     });
   });
+}
+
+/* #6724: a folder of an agent's Files, downloaded as one zip (over Kosmos+ the person is on another device, and Finder
+   would open on the board's computer). The folder is named by its browsed path in ?dir= ('' is all of Files) and walked
+   by the browser's own rules (projects.walkListedDir: no link, no hidden or skipped name, the depth cap, bounded in
+   files and bytes before any byte is sent). The zip holds the folder itself as its one top-level folder. Every folder
+   and file is gated AGAIN as it is written (resolveListedDir, resolveListedFile in listed mode) and every file read from
+   ONE O_NOFOLLOW handle checked with sameOpenedFile. Entries are stored, so the zip's length is known and sent: a file
+   that changed size, or whose bytes changed between the CRC pass and the send, ends the connection (never a zip that
+   says one thing and holds another). Refusals are refuseDownload's, so a browser never saves one as the zip; ?check=1
+   is the page's look. Cross-site reads are refused (crossSiteRead), as the file download's are. */
+const ZIP_CHUNK = 1024 * 1024;
+/* Iteration 1: a client that stops reading would hold its response and an open file forever (Node sets no response
+   timeout). Past this long with nothing taken, the download is ended. */
+let ZIP_STALL_MS = 120 * 1000;
+function _setZipStallForTest(ms) { ZIP_STALL_MS = ms == null ? 120 * 1000 : ms; }
+/* Iteration 2: at most this many folder zips stream at once. Each can read up to FOLDER_ZIP_MAX_BYTES twice (the CRC
+   pass, then the send), so many at once from one remote session would tie up the disk; past it the reason is said. */
+const ZIP_MAX_IN_FLIGHT_DEFAULT = 2;
+let ZIP_MAX_IN_FLIGHT = ZIP_MAX_IN_FLIGHT_DEFAULT;
+let ZIPS_IN_FLIGHT = 0;
+function _setZipLimitForTest(n) { ZIP_MAX_IN_FLIGHT = n == null ? ZIP_MAX_IN_FLIGHT_DEFAULT : n; }
+/* Iteration 3 (measured: the page's look was counted against the very download it looks at, and said "try again" while
+   that zip downloaded): the look never reads the live count. It says busy only when the person's own download of the
+   same folder was REFUSED as busy in the last ZIP_BUSY_SAID_MS; one accepted clears that. When every place is taken and
+   no refusal is recorded yet, the look waits ZIP_LOOK_WAIT_MS for the download it sits beside to be decided. */
+const ZIP_BUSY = 'another folder download is already under way on this computer; try again when it has finished';
+const ZIP_BUSY_SAID_MS = 10 * 1000;
+const ZIP_LOOK_WAIT_MS = 500;
+const zipBusyRefusedAt = new Map();   // folder + dir -> when its download was last refused as busy
+function zipBusyRecent(key) {
+  const t = zipBusyRefusedAt.get(key);
+  return Boolean(t) && Date.now() - t < ZIP_BUSY_SAID_MS;
+}
+/* Iteration 4: a record only speaks while the places are still full; once one frees, the look says nothing is wrong
+   (the download it sits beside will take that place). */
+function zipBusyNow(key) { return ZIPS_IN_FLIGHT >= ZIP_MAX_IN_FLIGHT && zipBusyRecent(key); }
+function sendFolderZip(req, res, folder, rel, where, opts) {
+  const refusedRead = crossSiteRead(req);
+  if (refusedRead) { refuseDownload(req, res, refusedRead, 403); return; }
+  const checkOnly = isDownloadCheck(req);
+  const key = folder + '\0' + String(rel || '');
+  // A real download past the limit is refused before the folder is walked (iteration 3: a refusal costs no walk).
+  if (!checkOnly && req.method !== 'HEAD' && ZIPS_IN_FLIGHT >= ZIP_MAX_IN_FLIGHT) {
+    for (const [k, t] of zipBusyRefusedAt) if (Date.now() - t >= ZIP_BUSY_SAID_MS) zipBusyRefusedAt.delete(k);
+    // Iteration 4: keys come from the request, so the map has a hard size too (the oldest go first).
+    while (zipBusyRefusedAt.size >= 100) zipBusyRefusedAt.delete(zipBusyRefusedAt.keys().next().value);
+    zipBusyRefusedAt.set(key, Date.now());
+    refuseDownload(req, res, ZIP_BUSY, 429);
+    return;
+  }
+  const maxDepth = opts.maxDepth;
+  const walk = projects.walkListedDir(folder, rel, where, { maxDepth, maxFiles: FOLDER_ZIP_MAX_FILES, maxBytes: FOLDER_ZIP_MAX_BYTES });
+  if (!walk.ok) { refuseDownload(req, res, walk.because, walk.tooBig ? 413 : 404); return; }
+  const top = walk.dir ? walk.dir.split('/').pop() : 'Files';
+  const inZip = (n) => top + '/' + (walk.dir ? n.slice(walk.dir.length + 1) : n);
+  const now = new Date();
+  const entries = [{ name: top, isDir: true, mtime: now }]
+    .concat(walk.dirs.map((d) => ({ name: inZip(d), isDir: true, rel: d, mtime: now })))
+    .concat(walk.files.map((f) => ({ name: inZip(f.name), isDir: false, rel: f.name, size: f.size, st: f.st, mtime: f.st.mtime })));
+  let length;
+  try { length = zipwrite.zipLength(entries); } catch { refuseDownload(req, res, 'that folder cannot be put into one zip', 413); return; }
+  if (checkOnly) {
+    const answer = () => {
+      if (zipBusyNow(key)) { refuseDownload(req, res, ZIP_BUSY, 429); return; }
+      res.writeHead(204, { 'cache-control': 'no-store' });
+      res.end();
+    };
+    if (ZIPS_IN_FLIGHT < ZIP_MAX_IN_FLIGHT || zipBusyNow(key)) answer(); else setTimeout(answer, ZIP_LOOK_WAIT_MS);
+    return;
+  }
+  res.writeHead(200, {
+    'content-type': 'application/zip', 'content-length': length, 'x-content-type-options': 'nosniff',
+    'content-disposition': attachmentDisposition(top + '.zip'),
+    'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
+  });
+  if (req.method === 'HEAD') { res.end(); return; }
+  zipBusyRefusedAt.delete(key);   // this folder's download is under way: an older refusal no longer speaks for it
+  ZIPS_IN_FLIGHT += 1;
+  res.once('close', () => { ZIPS_IN_FLIGHT -= 1; });   // finished, cut, or the client gone: 'close' comes once in each
+  writeZipEntries(res, folder, where, maxDepth, entries).catch(() => { if (!res.destroyed) res.destroy(); });
+}
+/* One write of the zip at a time, waiting for the socket to take it; a closed connection, or one that takes nothing for
+   ZIP_STALL_MS, ends the download (rejects, and the walk stops with its open file closed). */
+function zipPut(res, buf) {
+  return new Promise((resolve, reject) => {
+    if (res.destroyed || res.writableEnded) { reject(new Error('the connection closed')); return; }
+    let stall = null;
+    const gone = () => { if (stall) clearTimeout(stall); reject(new Error('the connection closed')); };
+    res.once('close', gone);
+    const done = () => { if (stall) clearTimeout(stall); res.removeListener('close', gone); resolve(); };
+    if (res.write(buf)) { done(); return; }
+    res.once('drain', done);
+    stall = setTimeout(() => { res.removeListener('drain', done); res.destroy(); }, ZIP_STALL_MS);   // 'close' then rejects
+  });
+}
+async function writeZipEntries(res, folder, where, maxDepth, entries) {
+  const zlib = require('node:zlib');
+  const changed = () => new Error('that folder changed while it was being downloaded');
+  const put = (buf) => zipPut(res, buf);
+  const flags = LISTED_READ_FLAGS;   // #4997's, one copy (#1732's inventory counts it once)
+  const central = [];
+  let offset = 0;
+  for (const e of entries) {
+    if (e.isDir) {
+      if (e.rel !== undefined && !projects.resolveListedDir(folder, e.rel, where, { maxDepth }).ok) throw changed();
+      const h = zipwrite.localHeader(e);
+      await put(h);
+      central.push(zipwrite.centralRecord(e, offset));
+      offset += h.length;
+      continue;
+    }
+    const gate = filepreview.resolve(folder, e.rel, where, { maxDepth, act: 'download' });
+    if (!gate.ok || !projects.sameOpenedFile(e.st, gate.st) || gate.st.size !== e.size) throw changed();
+    const fh = await fs.promises.open(gate.target, flags);
+    try {
+      const st = await fh.stat();
+      if (!projects.sameOpenedFile(gate.st, st) || st.size !== e.size) throw changed();
+      // The CRC first (the local header carries it), then the bytes, CRC'd again: a file rewritten in between is caught.
+      const scratch = Buffer.alloc(Math.min(ZIP_CHUNK, Math.max(1, e.size)));
+      let crc = 0;
+      for (let pos = 0; pos < e.size;) {
+        const { bytesRead } = await fh.read(scratch, 0, Math.min(scratch.length, e.size - pos), pos);
+        if (bytesRead <= 0) throw changed();
+        crc = zlib.crc32(scratch.subarray(0, bytesRead), crc);
+        pos += bytesRead;
+      }
+      const entry = { ...e, crc };
+      const h = zipwrite.localHeader(entry);
+      await put(h);
+      let again = 0;
+      for (let pos = 0; pos < e.size;) {
+        const chunk = Buffer.alloc(Math.min(ZIP_CHUNK, e.size - pos));   // its own buffer: the socket may hold it
+        const { bytesRead } = await fh.read(chunk, 0, chunk.length, pos);
+        if (bytesRead !== chunk.length) throw changed();
+        again = zlib.crc32(chunk, again);
+        await put(chunk);
+        pos += bytesRead;
+      }
+      if (again !== crc) throw changed();
+      central.push(zipwrite.centralRecord(entry, offset));
+      offset += h.length + e.size;
+    } finally {
+      await fh.close().catch(() => {});
+    }
+  }
+  const cd = Buffer.concat(central);
+  await put(cd);
+  await put(zipwrite.endRecord(entries.length, cd.length, offset));
+  res.end();
 }
 
 /* #4997: the full-page preview for a file in a Files list (an agent's Files folder, a project's folder). The file is
@@ -5015,7 +5504,8 @@ function listedFileVerb(req, res, verb, folder, where, opts) {
   const sandbox = "default-src 'none'; sandbox";
   filepreview.preview(folder, named, where, opts).then((pv) => {
     if (!pv.ok) { sendJson(res, 404, { ok: false, because: pv.because }); return; }
-    res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, no-cache', 'x-content-type-options': 'nosniff', 'content-security-policy': sandbox });
+    // #6724: a text preview is the START of the file; the page says so when it was cut.
+    res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, no-cache', 'x-content-type-options': 'nosniff', 'content-security-policy': sandbox, ...(pv.cut ? { 'x-kosmos-preview-cut': '1' } : {}) });
     res.end(req.method === 'HEAD' ? undefined : pv.bytes);
   }).catch(() => sendJson(res, 404, { ok: false, because: 'this computer could not draw that file' }));
   return true;
@@ -5274,7 +5764,10 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    `?force`. Planning a removal (GET), restore, and every other agent route stay behind the board token. */
 /* #5874: `kosmos task activity` (GET .../task/<n>/activity) joins as a READ: its handler names a token-only caller and
    refuses one that is not on the project, as GET /api/tasks does. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^GET \/api\/project\/[^/]+\/task\/\d+\/activity$/, /^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|told|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
+/* #6994: `kosmos records` joins: the read (GET .../records) answers the same for every caller, as .../overview does;
+   the writes (POST .../records, .../records/remove, .../records/label) name the caller (processCaller) and refuse an
+   agent that is not on the project (notOnProjectRefusal). */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^GET \/api\/project\/[^/]+\/records$/, /^POST \/api\/project\/[^/]+\/records(?:\/(?:remove|label))?$/, /^GET \/api\/project\/[^/]+\/task\/\d+\/activity$/, /^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|told|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -6891,8 +7384,10 @@ const server = http.createServer(async (req, res) => {
          null on an unreadable store/cursor, both of which projectsUnreadTotal folds to 0 (unknown is
          not a phantom badge). This adds one messages-record pass + one projects-file read per tick;
          both are already paid by the projects poll, and unreadAll is a single pass. */
+      let projectList = null;   // #7030: read once per tick, shared with withCardWords' project names below
+      try { projectList = projects.readAll(); } catch { projectList = null; }
       try {
-        counts.projectsUnread = projectsUnreadTotal(projects.readAll(), messages.unreadAll());
+        counts.projectsUnread = projectsUnreadTotal(projectList, messages.unreadAll());   // null folds to 0, as before
       } catch { counts.projectsUnread = 0; }
       /* ⚠️ COUNTED SEPARATELY, and the row still adds up: Working plus Idle
          plus the rest is what is RUNNING, and `notRunning` is the remainder of
@@ -6951,7 +7446,7 @@ const server = http.createServer(async (req, res) => {
          false and the banner stays down. */
       // #3739: the guide is included on purpose: the bubble depends on Claude even though its row is hidden.
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
-      const rows = withReplyChannel(withTokenGuard(withAgentSortFields(agents.concat(offline))));
+      const rows = withCardWords(withReplyChannel(withTokenGuard(withAgentSortFields(agents.concat(offline)))), projectList);
       /* #3996: what is waiting on the person, in one number (the Dock badge reads it). The same
          rows the Messages tile sums, after the needs-you and projects counts above are final. */
       /* #4025: null when the person switched the icon count off in Settings; the apps clear the badge on null. */
@@ -7133,6 +7628,27 @@ const server = http.createServer(async (req, res) => {
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that picture') }));
+    return;
+  }
+
+  /* kosmos#6487: the words behind a phone notification, asked by the phone itself (its Notification Service Extension,
+     through Kosmos+ remote and the phone's own sign-in) when the notification arrives, so the words never ride the push
+     through the coordinator and Apple (engine/phonenotice.js). GET /api/phone/notice?id=<the push's id>: the agent's
+     shown name, its picture's address when it has one, and the message's words, shortened. 404 when the id is not ours
+     or its words are not here; the phone then shows the plain notification. */
+  if (pathname === '/api/phone/notice' && req.method === 'GET') {
+    let noticeId = null;
+    try { noticeId = new URL(req.url, ROUTING_BASE).searchParams.get('id'); } catch { noticeId = null; }
+    const got = require('./engine/phonenotice').wordsFor(noticeId, { mask: guideMasked });   // #3769: rows kept before the write-side mask
+    if (!got || borrowedName(got.session)) { sendJson(res, 404, { error: 'we have no words for that notification' }); return; }
+    const roster = safeRoster();
+    const card = ourCardByName(roster, got.session);   // as the thread readers find it: any spelling, tied only
+    let picture = null;
+    try { picture = store.avatarPath(got.session) ? '/api/agent/' + encodeURIComponent(got.session) + '/avatar' : null; } catch { picture = null; }
+    /* kosmos#7017 part 2: a needs_you raised by a permission prompt still on screen carries Allow and Deny. */
+    const permission = got.kind === 'report' ? phonePermissionNow(got.session, (require('./engine/phonenotice').parseId(noticeId) || {}).at, roster) : null;
+    sendJson(res, 200, { kind: got.kind, session: got.session, agent: (card && card.name) || got.session, text: got.text, picture,
+      ...(permission ? { permission } : {}) });
     return;
   }
 
@@ -7697,11 +8213,14 @@ const server = http.createServer(async (req, res) => {
      #2245, a relative path; the target must resolve inside the folder), revealFolder (Finder, or File Explorer on Windows), and (#4997) preview,
      download and reveal-file for the full-page preview (listedFileVerb: only a file the flat list would show). A Files folder that does not
      exist yet is the EMPTY state, not an error: nothing has been saved there. */
-  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal|preview|download|reveal-file))?$/);
+  /* #6724: browse (one level of Files or a folder in it, ?dir=) and download-folder (that folder as one zip) are the
+     in-app browser, for a person viewing the board from another computer, where Finder opens on the far Mac. Both
+     resolve the folder by projects.resolveListedDir (the list's rules, for a folder) and take no path from the request. */
+  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal|preview|download|reveal-file|browse|download-folder))?$/);
   if (agentFiles) {
     const name = decodeSegment(agentFiles[1]);
     // #5165: a refusal of a download goes through refuseDownload, so a browser's download never saves it as the file.
-    const refuse = (status, because) => (agentFiles[2] === 'download' && (req.method === 'GET' || req.method === 'HEAD')
+    const refuse = (status, because) => ((agentFiles[2] === 'download' || agentFiles[2] === 'download-folder') && (req.method === 'GET' || req.method === 'HEAD')
       ? refuseDownload(req, res, because, status) : sendJson(res, status, { ok: false, because }));
     if (name === null) { refuse(400, 'that is not a name we can read'); return; }
     // The folder is dmfiles.filesDir (beside the agent's own instructions file), and the agent's
@@ -7737,11 +8256,33 @@ const server = http.createServer(async (req, res) => {
       // it, so it is dropped here rather than sent on every poll.
       // Flat on purpose (#2245 round 7): the agent's instructions (engine/dmfiles.js) tell it to save
       // directly in Files, and this page says so; only a PROJECT's list walks subfolders.
-      const { names: _allNames, ...listed } = projects.listFiles(folder, cap, { maxDepth: 0 });
+      const { names: _allNames, ...listed } = projects.listFiles(folder, cap, { maxDepth: 0, fingerprint: true });   // #6761: each row's sha256
       sendJson(res, 200, { ...listed, folder });
       return;
     }
-    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: 0, owner: { kind: 'agent', id: name } })) return;   // flat, as the list
+    const browsing = verb === 'browse' || verb === 'download-folder';
+    if (browsing && (req.method === 'GET' || req.method === 'HEAD')) {
+      let dir = '';
+      try { dir = new URL(req.url, ROUTING_BASE).searchParams.get('dir') || ''; } catch { dir = ''; }
+      if (verb === 'download-folder') {
+        sendFolderZip(req, res, folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH });
+        return;
+      }
+      const refusedRead = crossSiteRead(req);
+      if (refusedRead) { sendJson(res, 403, { ok: false, because: refusedRead }); return; }
+      // Not made yet is the empty state at the top, as the list's; below the top a missing folder is gone.
+      if (!dir && projects.folderState(folder).state === projects.FOLDER.MISSING) {
+        sendJson(res, 200, { ok: true, missing: true, dir: '', dirs: [], files: [], stamp: 'missing' });
+        return;
+      }
+      const listed = projects.listDir(folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH, fingerprint: true });   // #6761
+      /* Iteration 1: 404 is kept for "no such agent" (the page says it has no folder of its own); a Files that is a file
+         or cannot be read answers 409 with its reason, and a folder inside Files that is not there is 404 as a file is. */
+      sendJson(res, listed.ok ? 200 : (dir ? 404 : 409), listed);
+      return;
+    }
+    // #6724: as deep as the browser goes, so any file it shows can be previewed and downloaded (it was flat, the list).
+    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH, owner: { kind: 'agent', id: name } })) return;
     if (verb === 'open' && req.method === 'POST') {
       readBody(req)
         .then((buf) => {
@@ -7778,7 +8319,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'the folder did not open' });
       return;
     }
-    sendJson(res, 405, { ok: false, because: verb ? ((verb === 'preview' || verb === 'download') ? 'use GET for that' : 'use POST for that') : 'the Files list is read-only; use open, reveal, preview, download or reveal-file' });
+    sendJson(res, 405, { ok: false, because: verb ? ((verb === 'preview' || verb === 'download' || browsing) ? 'use GET for that' : 'use POST for that') : 'the Files list is read-only; use open, reveal, preview, download, reveal-file, browse or download-folder' });
     return;
   }
   /* #5153 slice 3: an agent's change receipts, newest close first (engine/receipt.js forAgent): the closed tasks it held,
@@ -8448,6 +8989,10 @@ const server = http.createServer(async (req, res) => {
           // Validated above; composed into the file BEFORE the session starts
           // (#323), so the addAgent below finds the block already there.
           projects: projectsToJoin,
+          // kosmos#6908: `community: false` makes an agent with no Kosmos+ community section (a test agent, such as the
+          // promote gate's throwaway ones, must not be asked to post in public). Only a literal false counts; anything
+          // else is the usual rule (the Community switch). Last, so #732's check still finds `projects:` near the call.
+          ...(body.community === false ? { community: false } : {}),
         });
         /* #3038: RESTORED. The create-agent beacon was removed by an AGENT in
            #2623; Josh ruled that removal was NOT his and that he "always wanted"
@@ -9858,9 +10403,10 @@ const server = http.createServer(async (req, res) => {
   /* #4820: no `noticeSeen` any more (the one-time notice is gone). A page from an older build opened
      that notice only on noticeSeen === false, so an answer without the field opens nothing there either. */
   /* kosmos#6239: `stopped` is the sentence for a policy that keeps agents out of the community whatever the switch says
-     (orgpolicy.contactAllows), else null; the switch stays the person's to set. */
+     (orgpolicy.communityAllows; kosmos#6862: the family's sentence on a family's Kosmos), else null; the switch stays the
+     person's to set. */
   const communityStopped = () => {
-    try { const op = require('./engine/orgpolicy'); op.inForce(); return op.contactAllows().ok === true ? null : COMMUNITY_STOPPED; }
+    try { const op = require('./engine/orgpolicy'); op.inForce(); const c = op.communityAllows(); return c.ok === true ? null : c.family === true ? FAMILY_COMMUNITY_STOPPED : COMMUNITY_STOPPED; }
     catch { return 'Kosmos cannot read the policy set for this Kosmos just now, so agents do not take part in the Kosmos+ community until it can.'; }   // round 3: as the send layer reads it
   };
   const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null, stopped: communityStopped() }; };
@@ -9958,6 +10504,32 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { on: r.on, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* #6719 (Josh, 2026-10-20): the person's starred agents, which sort first on the board. GET reads them; PUT
+     { name, on } stars or unstars one agent by its session name. The person's, like the settings above: an agent's
+     token is refused on PUT. A file that could not be read answers ok false and is never overwritten from that. */
+  if (pathname === '/api/agent-stars' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const r = require('./engine/stars').read();
+    sendJson(res, 200, { names: r.names, ok: r.ok });
+    return;
+  }
+  if (pathname === '/api/agent-stars' && req.method === 'PUT') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'stars are the person\'s, not an agent\'s' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        // Review 3: an agent token in the body is refused too, as the language route does.
+        if (presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'stars are the person\'s, not an agent\'s' }); return; }
+        const r = require('./engine/stars').set(body.name, body.on);
+        if (r.refused) { sendJson(res, 400, { error: r.refused }); return; }
+        if (!r.ok) { sendJson(res, 500, { error: 'we could not save that star' }); return; }
+        sendJson(res, 200, { names: r.names, ok: true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that star' }));
     return;
   }
   if (pathname === '/api/undo/keep' && req.method === 'POST') {
@@ -10730,7 +11302,10 @@ const server = http.createServer(async (req, res) => {
       .then((buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
-        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* kosmos#6986: never switched off from a remote session (switching it on only adds protection); an unreadable
+           remote change gets the same answer. */
+        catch { if (isRemoteRequest(req)) sendJson(res, 403, REMOTE_NOT_ALLOWED.certWatchOff); else sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (body.on !== true && isRemoteRequest(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.certWatchOff); return; }
         /* A security check's off switch is a person's setting: not an agent's (the isViaScreen class). */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
         const saved = remote.setCertWatch(body.on);
@@ -10742,6 +11317,7 @@ const server = http.createServer(async (req, res) => {
   }
   /* kosmos#6613: a person has seen the lost-report sentence (person-only, like the switch). */
   if (pathname === '/api/remote/cert-watch/ack-lost' && req.method === 'POST') {
+    if (isRemoteRequest(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.certWatchAck); return; }   // kosmos#6986
     readBody(req)
       .then((buf) => {
         let body;
@@ -11082,7 +11658,8 @@ const server = http.createServer(async (req, res) => {
      relayed. The control under Plus is the design queue's; this is the seam. */
   if (pathname === '/api/remote/second-reset' && req.method === 'POST') {
     remote.secondReset()
-      .then((got) => sendJson(res, got.ok ? 200 : 400, got.ok ? { ok: true } : { error: got.because }))
+      // #6611: `had` passes through when the connector reported it (null: nothing was cleared).
+      .then((got) => sendJson(res, got.ok ? 200 : 400, got.ok ? { ok: true, ...(got.had !== undefined ? { had: got.had } : {}) } : { error: got.because }))
       .catch((err) => sendJson(res, 500, { error: 'we could not reset the second factor: ' + (err && err.message) }));
     return;
   }
@@ -11166,8 +11743,24 @@ const server = http.createServer(async (req, res) => {
       // kosmos#6367: the company's policy requires reports, so Remove this computer from Kosmos+ says the company will see it stop.
       const reportingRequired = here ? require('./engine/orgpolicy').reportingRequired() : false;
       sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
+       // kosmos#6752: recent reviewer grants, to the screen only and only when there are some (the not-joined shape is unchanged).
+       ...(here && rec && Array.isArray(rec.reviewerGrants) && rec.reviewerGrants.length ? { reviewerGrants: oe.cleanReviewerGrants(rec.reviewerGrants),
+         ...(Number.isFinite(rec.reviewerGrantsAt) ? { reviewerGrantsAt: rec.reviewerGrantsAt } : {}) } : {}),   // kosmos#6817: when the list was last confirmed
        stoppedFor: stopped, ...(stopped ? { stoppedKind } : {}), leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
+    return;
+  }
+  /* kosmos#6817 item 1: the board's reviewer notice reads the recent grants here, not from /api/org, because a GET there
+     spends the one-time notes (stoppedFor, leaveRefused) the Settings block exists to show. This route spends nothing.
+     Grants and the company's kind go to the screen only, as on /api/org (review 12 there). */
+  if (pathname === '/api/org/grants' && req.method === 'GET') {
+    try {
+      const oe = require('./engine/orgenroll');
+      const here = oe.isEnrolledHere();
+      const rec = here && isViaScreen(req, {}) ? oe.readEnrollment() : null;
+      sendJson(res, 200, { enrolled: here, kind: rec && rec.org ? (rec.org.kind === 'family' ? 'family' : 'company') : null,
+        reviewerGrants: rec && Array.isArray(rec.reviewerGrants) ? oe.cleanReviewerGrants(rec.reviewerGrants) : [] });
+    } catch { sendJson(res, 200, { enrolled: false, kind: null, reviewerGrants: [] }); }
     return;
   }
   if ((pathname === '/api/org/preview' || pathname === '/api/org/enroll' || pathname === '/api/org/leave') && req.method === 'POST') {
@@ -11398,6 +11991,50 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
     return;
   }
+  /* kosmos#6590 (S-7d branch c): the typed-code Allow. Inert until the board-v2 marker exists (the engine answers "not
+     yet" and the list is empty). Reading the list needs this computer's own board session on a loopback connection that
+     no forwarder touched: a same-origin GET carries no Origin, so madeOnThisComputer cannot be asked here. */
+  if (pathname === '/api/remote/waiting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (!isLoopbackPeer(req) || isRemoteRequest(req) || !boardCookieHere(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.waiting); return; }
+    remote.devicesWaiting()
+      .then((r) => {
+        /* v2 true: the engine reads the list only under the marker, so a failure here is one the page should show (with
+           Clear, the way out of a damaged list); an older board's 404 carries no v2 and the page draws nothing. */
+        if (!r.ok) { sendJson(res, 500, { error: r.because, v2: true }); return; }
+        sendJson(res, 200, r.data);
+      })
+      .catch(() => sendJson(res, 500, { error: 'we could not read the waiting browsers', v2: true }));
+    return;
+  }
+  const waitingVerb = /^\/api\/remote\/waiting\/(allow|drop|clear|ct-ack)$/.exec(pathname);
+  if (waitingVerb && req.method === 'POST') {
+    if (isRemoteRequest(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.typedAllow); return; }
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* Made on this computer (loopback Host and Origin, no forwarder), with its own board session, by a person at the
+           screen: a POST carries Origin, so all three can be asked. */
+        if (!isLoopbackPeer(req) || !madeOnThisComputer(req.headers) || !boardCookieHere(req) || !isViaScreen(req, body)) {
+          sendJson(res, 403, { error: 'Only a person at this computer can do this, in Kosmos.' });
+          return;
+        }
+        const knockId = typeof body.knockId === 'string' ? body.knockId : '';
+        const verb = waitingVerb[1];
+        const got = verb === 'allow' ? await remote.deviceAllowCode(knockId, body.code)
+          : verb === 'drop' ? await remote.deviceDropWaiting(knockId)
+            : verb === 'ct-ack' ? await remote.deviceCtAck(body.finding)   // kosmos#6590 (c4): never from a remote session
+              : await remote.devicesClearWaiting();
+        if (!got.ok) {
+          sendJson(res, 400, { error: got.because, ...(got.paused ? { paused: true } : {}), ...(Number.isInteger(got.triesLeft) ? { triesLeft: got.triesLeft } : {}) });
+          return;
+        }
+        sendJson(res, 200, { ok: true, ...(got.data || {}) });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not change that' }));
+    return;
+  }
   const deviceVerb = /^\/api\/remote\/devices\/(allow|deny|remove)$/.exec(pathname);
   if (deviceVerb && req.method === 'POST') {
     /* kosmos#6595: Allow lets a device in, so never from a remote session. Deny and Remove take access away and stay
@@ -11414,6 +12051,13 @@ const server = http.createServer(async (req, res) => {
            away, so a local agent may still use them. ADVISORY (#3595), as above. */
         if (verb === 'allow' && !isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can allow a device.' }); return; }
         const id = typeof body.device_id === 'string' ? body.device_id : '';
+        /* kosmos#6590 (S-7d branch c): under the board-v2 marker, Allow and Not me by id are for a computer the current
+           snapshot lists (it pairs by its own code). A phone or a browser is let in only by the code its page shows, and
+           is turned away by key, never by telling Kosmos+ to end its sign-in. Remove is unchanged. */
+        if ((verb === 'allow' || verb === 'deny') && remote.boardV2() && !remote.listedAsComputer(id)) {
+          sendJson(res, 403, { code: 'typed_code_only', error: 'That is not a computer asking to join right now. A phone or a browser is let in by typing the code its page shows, under the browsers waiting to connect.' });
+          return;
+        }
         const got = verb === 'allow' ? await remote.deviceAllow(id, body.name, body.code)
           : verb === 'deny' ? await remote.deviceDeny(id)
             : await remote.deviceRemove(id);
@@ -11628,7 +12272,8 @@ const server = http.createServer(async (req, res) => {
    * #853: real per-model, per-day token usage, not the point-in-time
    * context-window reading `/api/status` answers per agent. `?days=N`
    * (default 7) is clamped inside `dailyUsageByModel` itself, so a bad or
-   * hostile value cannot crash this route.
+   * hostile value cannot crash this route. `?days=all` (#6829) is every day
+   * since install, and adds `installDay` and `daysOnKosmos`.
    *
    * ⚠️ FOUR BUCKETS, NEVER BLENDED -- the response carries
    * input_tokens/output_tokens/cache_creation_input_tokens/
@@ -11642,13 +12287,20 @@ const server = http.createServer(async (req, res) => {
    */
   if (pathname === '/api/usage' && (req.method === 'GET' || req.method === 'HEAD')) {
     let days = 7;
-    try { days = Number(new URL(req.url, ROUTING_BASE).searchParams.get('days')) || 7; } catch { days = 7; }
+    let raw = null;
+    try { raw = new URL(req.url, ROUTING_BASE).searchParams.get('days'); } catch { raw = null; }
+    /* #6829: `days=all` is every day since this install began (usage.installDay), and the answer says which day
+       that was (`installDay`) and how many days it is (`daysOnKosmos`, 1 on install day). A number is a window as before. */
+    const sinceInstall = raw === 'all';
+    if (!sinceInstall) days = Number(raw) || 7;
     // Async, not a blocking call: usage.dailyUsageByModel reads potentially
     // hundreds of transcripts (tens of MB) off disk, and a synchronous read
     // there would stall every other route on this single-threaded server
     // for the scan's duration -- found in review, fixed at the source.
-    usage.dailyUsageByModel(days)
-      .then((result) => {
+    (sinceInstall ? usage.readSinceInstall() : usage.dailyUsageByModel(days))
+      .then((full) => {
+        const { installDay: since, days: n, ...result } = full;
+        const extra = sinceInstall ? { installDay: since, daysOnKosmos: n } : {};
         /* #2617: the same window per agent. Every agent Kosmos has a record
            of, stopped ones included, keyed by its folder. A roster that cannot
            be read gives no per-agent split: every token then lands in
@@ -11672,7 +12324,7 @@ const server = http.createServer(async (req, res) => {
         return split.then((byAgent) => byAgent, (err) => {
           console.error('usage: the per-agent split failed:', (err && err.message) || err);
           return null;
-        }).then((byAgent) => sendJson(res, 200, { ...rest, byAgent }));
+        }).then((byAgent) => sendJson(res, 200, { ...rest, byAgent, ...extra }));
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read token usage' }));
     return;
@@ -15591,59 +16243,73 @@ const server = http.createServer(async (req, res) => {
    * update never touches.
    */
   if (pathname === '/api/update' && req.method === 'POST') {
-    const avail = updates.available();
-    if (!avail) { sendJson(res, 409, { error: 'there is no update to install right now' }); return; }
-    /* 🛑 #570: THE PLATFORM ARM GOES FIRST, AND ITS ORDER IS THE WHOLE POINT.
-       The updater ends in `spawn('/bin/sh', ...)`, which cannot exist on Windows;
-       the engine refuses it (update.selfInstallRefusal) and this is where that
-       refusal becomes something a person READS -- the confirm dialog renders this
-       route's `error` verbatim (web/index.html, uc-go's handler).
-       ⚠️ BEFORE the installedRoot arm, because on Windows that arm answers FIRST
-       and answers WRONG: the shipped Windows bundle is `runtime/node.exe`, not
-       `runtime/bin/node`, so installedRoot() reads null and a portable-zip install
-       is told "this Kosmos runs from its source code" -- a sentence that is false
-       and points at git. Two true things beat one, and the truer one goes first. */
-    const platRefusal = updates.selfInstallRefusal();
-    if (platRefusal) { sendJson(res, 409, { error: platRefusal }); return; }
-    if (moveHoldsBoard()) { sendJson(res, 409, { error: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173: the install restarts the board
-    if (!updates.installedRoot()) {
-      sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
-      return;
-    }
-    /* 🪟 S4 decision 5: a win32 bundle under OneDrive or Program Files never attempts the in-app swap
-       -- the in-app updater refuses it through the one named location rule (windowsLocationRefusal),
-       and the status already shows the manual download instead of an [Update] button, so this is the
-       belt-and-braces refusal for a stray POST, rendered verbatim in the confirm dialog. Null (and so
-       skipped) on the Mac and for a normal win32 bundle. */
-    const locationRefusal = updates.windowsLocationRefusal();
-    if (locationRefusal) { sendJson(res, 409, { error: locationRefusal }); return; }
-    if (updates.alreadyInstalling()) {
-      // Idempotent: the first POST started it; a retry, a double click, or a
-      // second tab gets the same true answer without a second installer
-      // racing the first through the stage-and-swap.
-      /* The in-flight attempt is the one this second press joins; its
-         stamp rides back so a reattached overlay can see its verdict.
-         🪟 S5 (#3017): tell the truth about WHAT is running. If a rollback holds the single-flight, an
-         Update press must not claim an update is under way -- report the actual operation instead. */
-      const inflight = updates.lastAttempt();
-      const startedAt = inflight ? inflight.startedAt : null;
-      if (updates.inFlightKind() === 'rollback') {
-        sendJson(res, 200, { ok: true, already: true, operation: 'rollback', startedAt });
+    const say = updatePressAnswer(res, 'update');   // #6903: every refusal is logged with its reason
+    try {
+      /* kosmos#6620: the fleet's update pause, asked live (review 4) and FIRST (review 5): the ask can take seconds, so
+         every check below reads the board as it is after it, not before (a move begun meanwhile still holds the board).
+         Its refusal is answered further down, after the platform and source refusals, whose sentences are truer. With
+         nothing on offer and nothing running (review 6), the answer below is "no update" whatever the pause says: no ask. */
+      const pauseRefusal = (updates.available() || updates.alreadyInstalling()) ? await updates.pauseRefusalNow() : null;
+      const avail = updates.available();
+      if (!avail) { say(409, { error: 'there is no update to install right now' }); return; }
+      /* 🛑 #570: THE PLATFORM ARM GOES FIRST, AND ITS ORDER IS THE WHOLE POINT.
+         The updater ends in `spawn('/bin/sh', ...)`, which cannot exist on Windows;
+         the engine refuses it (update.selfInstallRefusal) and this is where that
+         refusal becomes something a person READS -- the confirm dialog renders this
+         route's `error` verbatim (web/index.html, uc-go's handler).
+         ⚠️ BEFORE the installedRoot arm, because on Windows that arm answers FIRST
+         and answers WRONG: the shipped Windows bundle is `runtime/node.exe`, not
+         `runtime/bin/node`, so installedRoot() reads null and a portable-zip install
+         is told "this Kosmos runs from its source code" -- a sentence that is false
+         and points at git. Two true things beat one, and the truer one goes first. */
+      const platRefusal = updates.selfInstallRefusal();
+      if (platRefusal) { say(409, { error: platRefusal }); return; }
+      if (moveHoldsBoard()) { say(409, { error: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173: the install restarts the board
+      if (!updates.installedRoot()) {
+        say(409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
         return;
       }
-      sendJson(res, 200, { ok: true, updating: avail.version, already: true, operation: 'update', startedAt });
+      /* 🪟 S4 decision 5: a win32 bundle under OneDrive or Program Files never attempts the in-app swap
+         -- the in-app updater refuses it through the one named location rule (windowsLocationRefusal),
+         and the status already shows the manual download instead of an [Update] button, so this is the
+         belt-and-braces refusal for a stray POST, rendered verbatim in the confirm dialog. Null (and so
+         skipped) on the Mac and for a normal win32 bundle. */
+      const locationRefusal = updates.windowsLocationRefusal();
+      if (locationRefusal) { say(409, { error: locationRefusal }); return; }
+      // kosmos#6620: the pause asked at the top; an install that started during that ask is joined below, not refused.
+      if (pauseRefusal && !updates.alreadyInstalling()) { say(409, { error: pauseRefusal }); return; }
+      if (updates.alreadyInstalling()) {
+        // Idempotent: the first POST started it; a retry, a double click, or a
+        // second tab gets the same true answer without a second installer
+        // racing the first through the stage-and-swap.
+        /* The in-flight attempt is the one this second press joins; its
+           stamp rides back so a reattached overlay can see its verdict.
+           🪟 S5 (#3017): tell the truth about WHAT is running. If a rollback holds the single-flight, an
+           Update press must not claim an update is under way -- report the actual operation instead. */
+        const startedAt = startedStamp('update');
+        if (updates.inFlightKind() === 'rollback') {
+          say(200, { ok: true, already: true, operation: 'rollback', startedAt });
+          return;
+        }
+        say(200, { ok: true, updating: avail.version, already: true, operation: 'update', startedAt });
+        return;
+      }
+      try { updates.beginInstall(); }
+      catch (err) {
+        console.error('FAIL update press: ' + String((err && err.message) || err));
+        say(500, { error: UPDATE_PRESS_FAILED.update });
+        return;
+      }
+      /* #553: the attempt's own start stamp rides back so the page can tell
+         THIS attempt's verdict from any older one by exact equality, never
+         by comparing clocks. */
+      say(200, { ok: true, updating: avail.version, startedAt: startedStamp('update') });
       return;
+    } catch (err) {
+      /* #6903: a throw here used to reject the request handler, and with no process-level handler that ends the
+         board: the press got no answer at all and the dialog could only say it could not start. */
+      updatePressThrew(res, say, 'update', err);
     }
-    try { updates.beginInstall(); }
-    catch (err) {
-      sendJson(res, 500, { error: 'we could not start the update', detail: String((err && err.message) || err) });
-      return;
-    }
-    /* #553: the attempt's own start stamp rides back so the page can tell
-       THIS attempt's verdict from any older one by exact equality, never
-       by comparing clocks. */
-    const att = updates.lastAttempt();
-    sendJson(res, 200, { ok: true, updating: avail.version, startedAt: att ? att.startedAt : null });
     return;
   }
 
@@ -15657,36 +16323,43 @@ const server = http.createServer(async (req, res) => {
    * start a second helper.
    */
   if (pathname === '/api/update/rollback' && req.method === 'POST') {
-    const rollback = updates.rollbackOffer();
-    if (!rollback) { sendJson(res, 409, { error: 'there is no earlier Kosmos kept to roll back to right now' }); return; }
-    if (moveHoldsBoard()) { sendJson(res, 409, { error: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173 review 4: a rollback restarts the board too
-    if (!updates.installedRoot()) {
-      sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
-      return;
-    }
-    /* Belt-and-braces for a stray POST: a OneDrive/Program Files bundle never does the destructive swap
-       (the status already withholds the rollback offer there). Null and skipped on the Mac. */
-    const locationRefusal = updates.windowsLocationRefusal();
-    if (locationRefusal) { sendJson(res, 409, { error: locationRefusal }); return; }
-    if (updates.alreadyInstalling()) {
-      /* 🪟 S5 (#3017): honest `already` -- if a forward UPDATE holds the single-flight, do not claim a
-         rollback is under way (the board will come back on the newer build, not the previous one). */
-      const inflight = updates.lastAttempt();
-      const startedAt = inflight ? inflight.startedAt : null;
-      if (updates.inFlightKind() === 'update') {
-        sendJson(res, 200, { ok: true, already: true, operation: 'update', startedAt });
+    const say = updatePressAnswer(res, 'rollback');   // #6903: every refusal is logged with its reason
+    try {
+      const rollback = updates.rollbackOffer();
+      if (!rollback) { say(409, { error: 'there is no earlier Kosmos kept to roll back to right now' }); return; }
+      if (moveHoldsBoard()) { say(409, { error: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173 review 4: a rollback restarts the board too
+      if (!updates.installedRoot()) {
+        say(409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
         return;
       }
-      sendJson(res, 200, { ok: true, rollingBackTo: rollback.version, already: true, operation: 'rollback', startedAt });
+      /* Belt-and-braces for a stray POST: a OneDrive/Program Files bundle never does the destructive swap
+         (the status already withholds the rollback offer there). Null and skipped on the Mac. */
+      const locationRefusal = updates.windowsLocationRefusal();
+      if (locationRefusal) { say(409, { error: locationRefusal }); return; }
+      if (updates.alreadyInstalling()) {
+        /* 🪟 S5 (#3017): honest `already` -- if a forward UPDATE holds the single-flight, do not claim a
+           rollback is under way (the board will come back on the newer build, not the previous one). */
+        const startedAt = startedStamp('rollback');
+        if (updates.inFlightKind() === 'update') {
+          say(200, { ok: true, already: true, operation: 'update', startedAt });
+          return;
+        }
+        say(200, { ok: true, rollingBackTo: rollback.version, already: true, operation: 'rollback', startedAt });
+        return;
+      }
+      try { updates.beginRollback(); }
+      catch (err) {
+        console.error('FAIL rollback press: ' + String((err && err.message) || err));
+        say(500, { error: UPDATE_PRESS_FAILED.rollback });
+        return;
+      }
+      say(200, { ok: true, rollingBackTo: rollback.version, startedAt: startedStamp('rollback') });
       return;
+    } catch (err) {
+      /* #6903: a throw here used to reject the request handler, and with no process-level handler that ends the
+         board: the press got no answer at all and the dialog could only say it could not start. */
+      updatePressThrew(res, say, 'rollback', err);
     }
-    try { updates.beginRollback(); }
-    catch (err) {
-      sendJson(res, 500, { error: 'we could not start the roll back', detail: String((err && err.message) || err) });
-      return;
-    }
-    const att = updates.lastAttempt();
-    sendJson(res, 200, { ok: true, rollingBackTo: rollback.version, startedAt: att ? att.startedAt : null });
     return;
   }
 
@@ -16547,7 +17220,8 @@ const server = http.createServer(async (req, res) => {
       const atMs = rep && rep.found === true ? Date.parse(rep.askedAt || rep.at || '') : NaN;
       const ageMs = Number.isFinite(atMs) ? Date.now() - atMs : null;
       const stale = !!(rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state)
-        && ageMs !== null && ageMs > selfreport.STALE_WAIT_MS);
+        && ageMs !== null && ageMs > selfreport.STALE_WAIT_MS
+        && !selfreport.untilDefers(rep, Date.now()));   // kosmos#6683: the same until rule as the reminder
       /* A no-report agent is a SUCCESSFUL read of "you have no state yet" -- 200,
          found:false -- never a refusal, so the CLI exits 0 on it. Only auth /
          server-fault paths above are non-2xx. */
@@ -16893,8 +17567,25 @@ const server = http.createServer(async (req, res) => {
            refusing), and the block's warning is the compensating control that
            reaches the agent BEFORE the guard. The outbox drain (#1704 PR2) runs
            the same function, so a kept reply is refused exactly as a live one. */
+        /* #6726: `file` attaches one of the agent's own files (engine/replyfile.js). With no words, the
+           file's name is the text, as the page sends a person's wordless upload (pjWords hides it). */
+        if (body.file !== undefined && body.file !== null && typeof body.file !== 'string') {
+          const bad = new Error('file is the path of one file'); bad.status = 400; throw bad;
+        }
+        const replyFile = typeof body.file === 'string' && body.file ? body.file : null;
+        /* With no words the file's name is the text: provisionally the path's last part, for the checks below, then the
+           name the copy was SAVED under (review r2 finding 6), which safeName may cut or change, so the bubble never
+           shows a second spelling beside the card. */
+        const wordless = Boolean(replyFile) && (typeof body.text !== 'string' || !body.text.trim());
+        if (wordless) body.text = path.basename(replyFile);
         const problem = agentReplyProblem(body.text);
         if (problem) { const bad = new Error(problem); bad.status = 400; throw bad; }
+        /* The path names a file on THIS computer, so it is taken only from a caller on it: a remote agent's
+           folders are on its own computer, and a forwarded request must not make this one read a path. */
+        if (replyFile && isRemoteRequest(req)) {
+          sendJson(res, 200, { kept: false, because: 'a file can be attached only by an agent running on this computer' });
+          return;
+        }
 
         const roster = safeRoster();
         if (roster === null) {
@@ -16921,8 +17612,37 @@ const server = http.createServer(async (req, res) => {
         if (!sender.ok) { sendJson(res, 200, { kept: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
+        /* #6726: checked and copied only now that the sender is known, since which folders count is the sender's. */
+        let attached = null;
+        if (replyFile) {
+          /* Review r1 finding 5, r2 finding 2 (decided): a file goes only from a sender its AGENT token named. Then
+             resolveAgentSender took the token path (above), so `who` is the token's agent and its folders are the ones
+             judged, whatever pane the body names.
+             CLOSED: a pane name alone (guessable by any process of this user) cannot attach; nor can the board token,
+             which names no agent and which every agent of this user can read, so it would let agent A send agent B's
+             file as B.
+             NOT CLOSED: an agent token is a file readable by this same user, so a process that reads another agent's
+             token can still send as that agent. That is the reach every same-user process already has over the
+             other agents' files; this route adds no new one. */
+          if (!presentedAgentToken(req, body)) {
+            sendJson(res, 200, { kept: false, because: 'a file can be attached only by an agent Kosmos started with its own agent token; this reply came without one, so nothing was sent' });
+            return;
+          }
+          const got = require('./engine/replyfile').attach(who, replyFile, { roster });
+          if (!got.ok) { sendJson(res, 200, { kept: false, because: got.because }); return; }
+          attached = got.rec;
+          if (wordless) body.text = attached.name;
+        }
         const replyAt = new Date().toISOString();
-        const kept = keepAgentReply(who, body.text, replyAt);
+        /* Review r1 finding 6: a copy no message carries is taken back, whether the keep said no or threw. */
+        let kept;
+        try {
+          kept = keepAgentReply(who, body.text, replyAt, attached ? { files: [attached] } : undefined);
+        } catch (err) {
+          if (attached) require('./engine/replyfile').discard(attached);
+          throw err;
+        }
+        if (attached && kept.recorded !== true) require('./engine/replyfile').discard(attached);
         // #718: phone notifications, only when the person turned them on
         // (engine/phonenotify.js). Never the reply's words.
         if (kept.recorded === true) {
@@ -16931,6 +17651,8 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, {
           kept: kept.recorded === true,
           because: kept.recorded === true ? null : kept.because,
+          /* #6726 review r3 NIT 6: the name the file was saved under (the real file's), for the command to say. */
+          ...(attached && kept.recorded === true ? { attached: attached.name } : {}),
         });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
@@ -17504,7 +18226,9 @@ const server = http.createServer(async (req, res) => {
         // #2255: the project's members, same derivation as /api/post -- react()
         // refuses an agent that is not on the project (room isolation).
         const members = (found.agents || []).map((a) => a.sessionName);
-        const out = messages.react({ project: found.id, of: body.of, emoji: body.emoji, from: sender.card.sessionName, members });
+        // #6946: `claim` ('claim' | 'release') is `kosmos claim`; react() refuses any other value.
+        const out = messages.react({ project: found.id, of: body.of, emoji: body.emoji, from: sender.card.sessionName, members,
+          ...(body.claim !== undefined ? { claim: body.claim } : {}) });
         // #2255: 200 for a refusal too, matching /api/post and this route's own
         // pre-react refusals above -- a react refusal is a room-state answer the
         // caller reads off `ok`, not an HTTP-level error.
@@ -17596,6 +18320,17 @@ const server = http.createServer(async (req, res) => {
         try {
           try { delivery = await chat.deliverAsync(name, entry.text, safeRoster(), entry.envelope, entry.trailer); }
           catch (err) { delivery = { state: chat.DELIVERY.COULD_NOT, because: 'it could not be typed: ' + String((err && err.message) || err) }; }
+          /* #6774: refused because its input box still holds text (nothing typed): it stays kept for the sweep, and its
+             row stays held, so pressing this cannot lose the automatic send. */
+          if (delivery && delivery.state === chat.DELIVERY.COULD_NOT && delivery.inputHeld === true) {
+            // What it still waits for, by why it was kept: the box alone, or the box and its own reason as well.
+            const waitsFor = entry.input === true ? 'later on its own'
+              : entry.behind === true ? 'on its own after the messages ahead of it, once the box is clear'
+                : entry.signin === true ? 'on its own once it is signed in again and the box is clear'
+                  : 'on its own after the reset, once the box is clear';
+            sendJson(res, 409, { inputHeld: true, error: 'its input box still holds text that has not been sent, so nothing was typed; it stays kept and Kosmos sends it ' + waitsFor });
+            return;
+          }
           // Removed only after the try, so a board that stops mid-typing still has it kept.
           limitqueue.settle(name, entry.id);
         } finally { limitqueue.release(entry.id); }
@@ -17985,19 +18720,21 @@ const server = http.createServer(async (req, res) => {
     const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
     const guideName = guideThread ? ((card && card.sessionName) || name) : null;
     const servedRows = dmServeRows(servedMessages, name, card);   // kosmos#5841: shared with the older route
-    /* #5406 slice C: may this screen's options be offered as buttons (see `asked` below)? Every condition must hold. */
-    const cqNow = view && view.text ? require('./engine/status').claudeAnswerableMenu(view.text) : null;   // #6054: a permission prompt too
-    const pressable = !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude'
-      && Array.isArray(options) && Boolean(question) && typeof question.text === 'string'
-      && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry
-      && Boolean(cqNow)
-      // #6054 review 3: a permission prompt only with its whole box on screen (its identity must be the whole request).
-      && (!cqNow.permission || chat.permissionAnswerable(view.text))
-      // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
-      && cqNow.options.length === options.length
-      && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
+    /* #5406 slice C: may this screen's options be offered as buttons (see `asked` below)? kosmos#7017: decided by
+       dmPressable, which the phone's notification asks too, so a phone button is offered exactly where a board one is. */
+    const pressable = dmPressable({ guideThread, card, options, question, view });
+    /* kosmos#6727: a permission prompt read off the screen is served as a short card (what the agent wants to do,
+       Allow, Deny, the raw request under Show details), not as its screen. Only where its buttons are offered
+       (`pressable`, which also keeps it out of the setup guide's masked thread, review 1): a card with no Allow or Deny
+       would promise an action it cannot take, so there the old text stays. Only the live pane question. */
+    const permRead = (pressable && question === paneQuestion && view && typeof view.text === 'string')
+      ? chat.permissionCard(view.text) : null;
+    // kosmos#7017 part 2: with its fingerprint, which a phone's lock-screen press is checked against before it sends.
+    const permCard = permRead ? { ...permRead, request: chat.permissionRequestId(permRead) } : null;
     sendJson(res, 200, {
-      messages: servedRows,
+      messages: permCard
+        ? servedRows.map((m) => (m && m.kind === 'question' && !m.reported ? { ...m, permission: permCard } : m))
+        : servedRows,
       olderCount,
       historyBecause,
       historyUnfilable,
@@ -18040,6 +18777,7 @@ const server = http.createServer(async (req, res) => {
   if (dm && req.method === 'POST') {
     const name = decodeSegment(dm[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let retryKey = null;   // kosmos#6720: set while this request is sending a failed row again; released below
     readBody(req)
       .then(async (buf) => {
         let body;
@@ -18091,7 +18829,8 @@ const server = http.createServer(async (req, res) => {
         if (body.asked !== undefined && body.asked !== null && typeof body.asked !== 'string') {
           throw new Error('a question identity is text');   // #5406 slice C: never ignored, or the checks below would be skipped
         }
-        if (automatic && (body.chose !== undefined || (body.asked !== undefined && body.asked !== null) || (body.reply_to !== undefined && body.reply_to !== null)
+        if (automatic && (body.chose !== undefined || (body.asked !== undefined && body.asked !== null) || (body.request !== undefined && body.request !== null)   // #7020
+          || (body.reply_to !== undefined && body.reply_to !== null)
           || body.attachment || (Array.isArray(body.attachments) && body.attachments.length))) {
           throw new Error('an automatic message is plain text');
         }
@@ -18108,6 +18847,49 @@ const server = http.createServer(async (req, res) => {
           const missing = new Error('no agent by that name');
           missing.status = 404;
           throw missing;
+        }
+        /* kosmos#6720: Try again on a message that did not go. `retry_of` names the person's own row (its `at`), and
+           the send then takes every gate below exactly as the first press did, but its verdict REPLACES that row's
+           (chat.retryDmBegin before any key, retryDmFinish after) instead of adding a second message. Only a row whose last verdict was COULD_NOT
+           (nothing of it reached the pane, so typing it again cannot double it), with these exact words, plain text
+           (no menu answer, reply or file), and not already being sent again. Anything else is refused with nothing
+           typed. */
+        const retryOf = body.retry_of === undefined || body.retry_of === null ? null : body.retry_of;
+        if (retryOf !== null) {
+          if (typeof retryOf !== 'string' || !retryOf) throw new Error('retry_of names a message by its at');
+          if (automatic || body.chose !== undefined || (body.asked !== undefined && body.asked !== null)
+            || (body.reply_to !== undefined && body.reply_to !== null) || body.attachment
+            || (Array.isArray(body.attachments) && body.attachments.length) || body.anyway !== undefined) {
+            throw new Error('a message sent again is its own words only');
+          }
+          const key = name + '\u0000' + retryOf;
+          if (DM_RETRYING.has(key)) {
+            const busy = new Error('that message is being sent again now');
+            busy.status = 409; throw busy;
+          }
+          DM_RETRYING.add(key);
+          retryKey = key;
+          let rows;
+          try { rows = chat.readThread(chat.DIRECT, name).messages || []; } catch {
+            const unread = new Error('we could not read this conversation just now, so nothing was sent again. Try again in a moment.');
+            unread.status = 503; throw unread;
+          }
+          const own = rows.filter((r) => r && !r.from && r.kind !== 'kosmos' && r.kind !== 'question');
+          const row = own.find((r) => r.at === retryOf);
+          /* `retryable` is written when the row is kept (below), so a row failed before kosmos#6720, whose words went
+             back into the box and may since have been sent from it, is never offered (review 1). And only the
+             person's NEWEST message: sent again behind a newer one, it would reach the agent out of order while the
+             row reads in its old place. */
+          if (!row || row.text !== body.text || row.wire || row.replyTo || (Array.isArray(row.attachments) && row.attachments.length)
+            || !row.delivery || row.delivery.state !== chat.DELIVERY.COULD_NOT || row.delivery.retryable !== true
+            || typeof row.delivery.duplicateOf === 'string') {   // delta review: a kept-above copy goes with the kept one
+            const gone = new Error('that message cannot be sent again from here: it went, or it is not one that failed');
+            gone.status = 409; throw gone;
+          }
+          if (own[own.length - 1] !== row) {
+            const later = new Error('you have sent a message since, so this one was not sent again (it would arrive after it). Send it as a new message if you still need it.');
+            later.status = 409; throw later;
+          }
         }
         const roster = safeRoster();
         /* #1629: BEFORE the button block below, which only runs for a button
@@ -18150,7 +18932,16 @@ const server = http.createServer(async (req, res) => {
         /* #5406 slice C: a press that names its question (`asked`) is checked even when its words were dropped by the
            bounds above: otherwise its digit would skip every check below and be typed as an ordinary prompt. */
         const askedGiven = typeof body.asked === 'string' && chat.cleanMessage(body.asked).trim() !== '';
-        if (chose || askedGiven) {
+        /* kosmos#7020: a press on a permission card names the request it was drawn for (chat.permissionRequestId, the
+           `request` the thread route serves on the card). Optional, like `asked`; a value that is not one Kosmos made
+           is refused before anything else is looked at. */
+        const requestGiven = body.request !== undefined && body.request !== null;
+        if (requestGiven && !(typeof body.request === 'string' && /^[0-9a-f]{64}$/.test(body.request))) {
+          const bad = new Error('that press names a request Kosmos did not make, so we did not send it.');
+          bad.status = 400;
+          throw bad;
+        }
+        if (chose || askedGiven || requestGiven) {
           /**
            * ⚠️ A BUTTON SEND IS REFUSED WHEN THE SCREEN CONTRADICTS IT, rather
            * than stripped of its words and sent anyway.
@@ -18315,6 +19106,23 @@ const server = http.createServer(async (req, res) => {
             gone.status = 409;
             throw gone;
           }
+          /**
+           * ⚠️ kosmos#7020: AND WHICH REQUEST. Every permission prompt asks "Do you want to proceed?" above "Yes" and
+           * "No", so when the box's own lines read the same (the `asked` check above compares them), only the card's
+           * reading of the request tells two prompts apart. A press that names a request is typed only while the
+           * prompt on screen has that same fingerprint; with no permission prompt readable on screen it is refused
+           * too, since the press was for one. After the checks above, so their more specific sentences win.
+           */
+          if (requestGiven) {
+            const permLive = (seen && typeof seen.text === 'string') ? chat.permissionCard(seen.text) : null;
+            if (!permLive || chat.permissionRequestId(permLive) !== body.request) {
+              const moved = new Error('its screen moved between drawing that button and sending it, '
+                + 'so we did not send the answer. What is on this page now is current: press again '
+                + 'if it is still the one you want.');
+              moved.status = 409;
+              throw moved;
+            }
+          }
         }
         // Deliver first, then record the verdict with it — and record even a
         // failure, exactly as the project thread does.
@@ -18411,6 +19219,10 @@ const server = http.createServer(async (req, res) => {
         // Review 2: a Claude card only (Codex and Gemini answer their own menus by their own keys).
         if (!automatic && seenNow && askingCard && String(askingCard.runner || 'claude') === 'claude') {
           const cq = seenNow.text ? require('./engine/status').claudeAnswerableMenu(seenNow.text) : null;   // #6054
+          if (cq && retryOf !== null) {   // kosmos#6720: never sent again as a menu key, nor by closing a question
+            const e = new Error('its screen is asking a question now, so this was not sent again. Answer it first.');
+            e.status = 409; throw e;
+          }
           if (cq) {
             const said = String(body.text).trim();
             /* #6054 review 1: a permission prompt is answered only by a press of its button, which carries the prompt's identity
@@ -18435,7 +19247,8 @@ const server = http.createServer(async (req, res) => {
               e.status = 409; throw e;
             }
             if (opt && !files.recs.length && !answered) {
-              const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}) });
+              const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}),
+                ...(cq.permission && requestGiven ? { request: body.request } : {}) });   // kosmos#7020: re-checked on the last look
               // kosmos#6239: refused for quiet hours is the person's act, reported like a refused message.
               if (!r.ok && r.quiet === true) { try { require('./engine/agentevents').recordRefusal({ agent: name, rule: 'quiet-hours' }); } catch { /* not reported */ } }
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }
@@ -18461,8 +19274,45 @@ const server = http.createServer(async (req, res) => {
            messages kept from then (slice 2a's order rule), is kept and typed after the reset by the minute sweep, unless
            the person sent it anyway. The row is recorded held; the page offers Send now anyway. Could not keep it: it is
            typed as before (a person's message is never refused for this). */
+        /* #6774: a plain copy of these words (no attachment, not a reply) already kept for the agent's input box, or
+           behind messages kept for it, and not typed yet: matched as typed (spacing does not count). */
+        const keptForTheBox = () => {
+          if ((files.recs && files.recs.length) || answered) return null;
+          const lq = require('./engine/limitqueue');
+          const copy = lq.list(name).find((e) => e.kind === 'dm' && e.input === true && e.plain === true
+            && chat.cleanMessage(e.text) === chat.cleanMessage(body.text) && !lq.isDone(e.id)) || null;
+          if (!copy) return null;
+          /* Only while NOTHING has been said in this thread since the kept copy, by either side (as `kosmos msg`'s fold,
+             #4580), apart from earlier re-sends of it: after a reply, or the person's own other words, the same words
+             may mean something new ("yes", "no", "yes"), so they are a new message, kept behind. A thread that cannot be
+             read folds nothing (both are kept and go, rather than one answer lost). */
+          let rows = null;
+          try { rows = chat.readThread(chat.DIRECT, name).messages || null; } catch { rows = null; }
+          if (!Array.isArray(rows)) return null;
+          const since = Date.parse(copy.at);
+          return rows.some((m) => m && Date.parse(m.at) > since && !(m.delivery && m.delivery.duplicateOf === copy.at)) ? null : copy;
+        };
+        const dupAnswer = (keptCopy) => ({ state: chat.DELIVERY.COULD_NOT, at: new Date().toISOString(), duplicateOf: keptCopy.at,
+          because: 'the same message was already kept above, to be sent once ' + name + "'s input box was clear, so this copy was not sent" });
         if (!automatic && !qmenuAnswer && !qmenuClosed && body.anyway !== true) {
           const limitqueue = require('./engine/limitqueue');
+          /* #6774: the same words sent again by hand while a copy is kept for a stuck input box (or behind messages kept
+             for it): that copy stays where it is in the queue and goes once; this one is recorded as not sent, and why.
+             Nothing is taken out, so a re-send that then fails cannot lose the words, and the order is kept. */
+          // Plain on both sides: a message with an attachment or answering another is never folded into one
+          // that looks the same, and a copy already typed (its removal pending) is not one that waits.
+          const keptCopy = keptForTheBox();
+          if (keptCopy && retryOf !== null) {   // kosmos#6720: a failed row is not answered with a second, duplicate one
+            const e = new Error('the same words are already kept to be sent once its input box is clear, so this was not sent again');
+            e.status = 409; throw e;
+          }
+          if (keptCopy) {
+            const dupDelivery = dupAnswer(keptCopy);
+            const dupRow = chat.appendMessage(chat.DIRECT, name, { ...attachments.rowFields(files.recs), text: body.text, wire: null, at: dupDelivery.at, delivery: dupDelivery,
+              ...(answered ? { replyTo: answered.at } : {}) });
+            sendJson(res, 200, { delivery: dupDelivery, recorded: dupRow.recorded === true, recordedBecause: dupRow.because || null });
+            return;
+          }
           let hold = null;
           try { hold = chat.accountHeldVerdict(name, roster); } catch { hold = null; }   // #5948: or signed out
           let behind = !hold && chat.addressable(name, roster).ok === true && limitqueue.list(name).length > 0;
@@ -18480,16 +19330,33 @@ const server = http.createServer(async (req, res) => {
             }
             if (answering) { hold = null; behind = false; }
           }
+          if ((hold || behind) && retryOf !== null) {   // kosmos#6720: a failed row is not turned into a second, held one
+            // Delta review: named as the held path names it, so a box-kept queue is not called out of usage.
+            const forInput = !hold && behind && limitqueue.list(name).some((q) => q.input === true);
+            const e = new Error(hold && hold.heldFor === 'signin'
+              ? 'it is signed out just now, so this was not sent again'
+              : forInput
+                ? 'it still has messages kept while its input box held text not yet sent, so this was not sent again'
+                : 'it cannot take messages just now (out of usage), so this was not sent again');
+            e.status = 409; throw e;
+          }
           if (hold || behind) {
             const at = new Date().toISOString();
             const signin = !!hold && hold.heldFor === 'signin';   // #5948: no reset to wait for, only a sign-in
             const until = hold && !signin && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
             const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // #5943 review 1: no question note in a held message: by the reset it may be untrue
             const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');   // two sends in one millisecond stay two
-            if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at, signin: signin && !behind })) {
+            /* #6774: kept behind messages any of which were kept for the box, it is released by the box rule too, is
+               matched as a re-send, and is told that reason: one rule for the flag and the words. */
+            const behindInput = behind && limitqueue.list(name).some((e) => e.input === true);
+            const plain = !(files.recs && files.recs.length) && !answered;
+            if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at, signin: signin && !behind, input: behindInput, plain })) {
               const heldDelivery = {
                 state: 'held', held: true, heldBy: 'limit', heldUntil: until, at, ...(behind ? { behind: true } : {}), ...(signin ? { heldFor: 'signin' } : {}),
-                because: behind ? 'held: it still has messages kept from while it was out of usage; Kosmos sends this one after them'
+                ...(behindInput ? { behindFor: 'input' } : {}),
+                because: behind ? (behindInput   // #6774: name the real reason
+                  ? 'held: it still has messages kept while its input box held text not yet sent; Kosmos sends this one after them'
+                  : 'held: it still has messages kept from while it was out of usage; Kosmos sends this one after them')
                   : signin ? hold.because
                   : 'held: it is out of usage' + (until ? ' until ' + until : '') + '; Kosmos sends it after the reset',
               };
@@ -18507,12 +19374,52 @@ const server = http.createServer(async (req, res) => {
             }
           }
         }
-        let delivery = qmenuAnswer
-          ? { state: qmenuAnswer.answered ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED,
-            because: qmenuAnswer.answered ? null : 'its question was still on its screen after the answer; look at this page again in a moment before pressing anything',   // #6054: no window to look at
-            at: new Date().toISOString() }
-          : await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
-            envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
+        /* kosmos#6720: the row reads "being sent again" (UNCONFIRMED) in the RECORD before any key, so nothing this
+           send leaves behind (a crash, a failed final write) can offer Try again for words that may have been typed. */
+        if (retryOf !== null && !chat.retryDmBegin(name, retryOf, body.text)) {
+          const unmarked = new Error('it was not sent again: the message changed, you sent another since, or the conversation was busy. Look at it again in a moment.');
+          unmarked.status = 409; throw unmarked;
+        }
+        let delivery;
+        try {
+          delivery = qmenuAnswer
+            ? { state: qmenuAnswer.answered ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED,
+              because: qmenuAnswer.answered ? null : 'its question was still on its screen after the answer; look at this page again in a moment before pressing anything',   // #6054: no window to look at
+              at: new Date().toISOString() }
+            : await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
+              envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
+        } catch (err) {
+          /* kosmos#6720 review 2: a retry that threw after its row was marked says what is known, which is not "it
+             may have arrived" alone: whether any key went before the throw cannot be told from here. */
+          if (retryOf !== null) {
+            chat.retryDmFinish(name, retryOf, body.text, { state: chat.DELIVERY.UNCONFIRMED,
+              because: 'Kosmos hit a problem while sending it again, so it may or may not have arrived; check its window before sending it again' });
+          }
+          throw err;
+        }
+        /* #6774: a person's own message refused because the agent's input box holds text not yet sent (#6249, nothing
+           was typed) is kept, like a held message, and typed by the minute sweep once the box reads empty. Could not
+           keep it: the refusal stands, as before. `plain` (no attachment, not a reply) is what a re-send is matched on. */
+        let inputKept = null;   // { id, refused }: taken back out below if its row cannot be written
+        /* kosmos#6720: never for a retry, which keeps its own row (a kept copy would be a second one); it stays failed,
+           with its try again line. */
+        if (retryOf === null && !automatic && !qmenuAnswer && !qmenuClosed && body.anyway !== true && delivery
+            && delivery.state === chat.DELIVERY.COULD_NOT && delivery.inputHeld === true) {
+          const limitqueue = require('./engine/limitqueue');
+          const at = delivery.at || new Date().toISOString();
+          const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // as the held path above: no question note
+          const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');
+          const plain = !(files.recs && files.recs.length) && !answered;
+          // Looked for again now: the same words sent twice at once both reach here after their refusals, the second
+          // after the first was kept, so it is that copy and is not kept twice.
+          const keptMeanwhile = keptForTheBox();
+          if (keptMeanwhile) delivery = dupAnswer(keptMeanwhile);
+          else if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: at, input: true, plain })) {
+            inputKept = { id: heldId, refused: delivery };
+            delivery = { state: 'held', held: true, heldBy: 'limit', heldFor: 'input', heldUntil: null, at,
+              because: 'held: its input box holds text not yet sent; Kosmos sends it once the box is clear' };
+          }
+        }
         /* kosmos#6239: a person's message refused in the policy's quiet hours is reported to whoever set the policy. */
         if (!automatic && delivery && delivery.quiet === true) {
           try { require('./engine/agentevents').recordRefusal({ agent: name, rule: 'quiet-hours' }); } catch { /* not reported */ }
@@ -18547,10 +19454,28 @@ const server = http.createServer(async (req, res) => {
            send (a paste that failed part-way, a pane that changed before Enter) is the case
            most likely to have lost it. Telling twice costs one extra note; not telling is
            silent. A failed mark (the thread lock busy) also just tells again next time. */
+        /* kosmos#6720 review 3: for a retry, the row's verdict is written FIRST, so a throw in the bookkeeping below can
+           never leave it "being sent again" under a refusal for words that went. */
+        const retryWrote = retryOf !== null ? chat.retryDmFinish(name, retryOf, body.text, delivery) : null;
         if (news.note && delivery && delivery.state === chat.DELIVERY.PLACED) {   // #5943: the reactions' own part, not the question note riding with it
           chat.markDmReactionsTold(name, news.named);
         }
         if (questionAsk && delivery && delivery.state === chat.DELIVERY.PLACED) chat.markDmQuestionTold(askingCard.sessionName, questionAsk);   // #5943: once per ask
+        if (retryOf !== null) {
+          /* kosmos#6720: the same row, its new verdict. Not written (the thread busy past its lock wait) is said, as
+             the append's own failure is: the agent may have it while the row still reads failed. */
+          const rewrote = retryWrote;
+          sendJson(res, 200, { delivery, recorded: rewrote, retried: true,
+            recordedBecause: rewrote ? null : 'we could not update the message in this conversation, so it reads as possibly sent' });
+          return;
+        }
+        /* kosmos#6720: a plain message that did not go is kept as one Try again may send (no menu answer, file or reply). */
+        /* Review 2: and only words the page is shown as they are (the setup guide's thread masks secrets, #3769): a row
+           the page cannot send back word for word would be refused forever with its words nowhere else. */
+        /* Delta review (merged with #6774): never a copy not sent because the same words are kept above (duplicateOf):
+           that copy goes, so a try again here would type the words twice. */
+        const retryable = delivery && delivery.state === chat.DELIVERY.COULD_NOT && !delivery.duplicateOf && !automatic && !chose && !files.recs.length && !answered
+          && dmServedText(body.text, name, askingCard) === body.text;   // never dmServeRows here: it fetches previews
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...attachments.rowFields(files.recs),
           text: chose || body.text,
@@ -18573,7 +19498,7 @@ const server = http.createServer(async (req, res) => {
            */
           wire: chose ? chat.cleanMessage(body.text) : null,
           at: delivery.at,
-          delivery,
+          delivery: retryable ? { ...delivery, retryable: true } : delivery,
           /* #4256: stored only on a reply, so an ordinary message's row is unchanged. `wire` stays null on a reply:
              the '(answering: "...")' in front of the words is Kosmos's framing, like the envelope, not the person's. */
           ...(answered ? { replyTo: answered.at } : {}),
@@ -18581,14 +19506,23 @@ const server = http.createServer(async (req, res) => {
         // (No `agentsUnreadable`: nothing reads it here, and the GET on this
         // same route deleted the identical field for the identical reason.
         // One rule, both halves.)
+        /* #6774: kept for the box but its row could not be written: taken back out, as the limit path above
+           does, so it is never typed later behind a "not sent" the person may send again. The refusal stands. */
+        if (inputKept && kept.recorded !== true) {
+          // settle, not remove: if the file write fails too, the id is remembered as done so the sweep never types it.
+          require('./engine/limitqueue').settle(name, inputKept.id);
+          delivery = inputKept.refused;
+        }
         sendJson(res, 200, {
           delivery,
           recorded: kept.recorded === true,
           recordedBecause: kept.because || null,
+          ...(retryable && kept.recorded === true ? { retryable: true } : {}),   // kosmos#6720: its row offers try again
         });
       })
       .catch((err) => sendJson(res, (err && err.status) || ((err && err.code === 'UNREADABLE') ? 500 : 400),
-        { error: String((err && err.message) || 'we could not read that request') }));
+        { error: String((err && err.message) || 'we could not read that request') }))
+      .finally(() => { if (retryKey) DM_RETRYING.delete(retryKey); });   // kosmos#6720: after the verdict is written
     return;
   }
 
@@ -18611,6 +19545,9 @@ const server = http.createServer(async (req, res) => {
      without draw exactly the same card, so the only way to find out which of
      yours come back was to restart the computer. Josh did, on 2026-08-22, and
      one of his sixteen came back. */
+  /* #6714: register.survey forgets closed restart notices that no longer apply (engine/register.js forgetHidden), read
+     afresh and written only when something changed, wherever the survey runs (this route, the status poll, the agent
+     events, a hide: every caller of register.survey). */
   if (pathname === '/api/register' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, register.survey()); }
     catch { sendJson(res, 500, { error: 'we could not check which of your agents start on their own' }); }
@@ -18621,19 +19558,56 @@ const server = http.createServer(async (req, res) => {
      the set the GET above reports, so the two can never describe different
      work. A body would let a caller name an agent the survey refused. */
   if (pathname === '/api/register' && req.method === 'POST') {
-    try {
-      /* The model each one LAST RAN AS, which is the only surviving record of
-         it: the model an agent was SET to run on lived in the job that does not
-         exist. A reading we cannot make travels as nothing, and that agent
-         comes back on Claude's own default rather than not coming back. */
-      const out = register.repair({
-        modelFor: (name) => {
-          try { const m = status.readModel(name); return (m && m.model) || null; }
-          catch { return null; }
-        },
-      });
-      sendJson(res, out.ok ? 200 : 500, out);
-    } catch { sendJson(res, 500, { error: 'we could not set your agents to start on their own' }); }
+    /* #6714: an optional { name } starts one agent from its own notice. The repair accepts only a name the survey
+       offers, so the set it acts on is still exactly what the GET reports. No body (or an empty one) is all of them. */
+    readBody(req).then((raw) => {
+      let only;
+      if (raw && String(raw).trim()) {
+        let body = null;
+        try { body = JSON.parse(raw); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body) || (body.name !== undefined && typeof body.name !== 'string')) {
+          sendJson(res, 400, { error: 'we could not read that request' }); return;
+        }
+        only = body.name;   // undefined (an empty object) is all of them, as no body is
+      }
+      try {
+        /* The model each one LAST RAN AS, which is the only surviving record of
+           it: the model an agent was SET to run on lived in the job that does not
+           exist. A reading we cannot make travels as nothing, and that agent
+           comes back on Claude's own default rather than not coming back. */
+        const out = register.repair({
+          only,
+          /* #6716: a model from the agent's EARLIER session is accepted here on purpose. Repair restores what it LAST
+             RAN AS and acts only on agents with no login job, so no planned model competes; the borrowed one is that. */
+          modelFor: (name) => {
+            try { const m = status.readModel(name); return (m && m.model) || null; }
+            catch { return null; }
+          },
+        });
+        sendJson(res, out.ok ? 200 : (out.refused ? 400 : 500), out);   // refused: a name the notice does not offer
+      } catch { sendJson(res, 500, { error: 'we could not set your agents to start on their own' }); }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+  /* #6714: stop reminding about one agent's restart notice, or show it again (Settings > Computer). A notice, not a
+     fix: neither changes whether the agent comes back. Hiding silences a warning, so it is behind the remote step-up
+     (REMOTE_STEP_UP_EXACT); showing only brings one back, so it is not. */
+  /* Two literal conditions, not one combined: server.remotestepup-6595.test.js finds every write route by this shape. */
+  const registerNoticeRoute = (pathname === '/api/register/hide' && req.method === 'POST') ? 'hide'
+    : (pathname === '/api/register/show' && req.method === 'POST') ? 'show' : null;
+  if (registerNoticeRoute) {
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || typeof body.name !== 'string' || !create.NAME_RE.test(body.name)) {
+        sendJson(res, 400, { error: 'we could not read that request' }); return;
+      }
+      let out;
+      try { out = registerNoticeRoute === 'hide' ? register.hide(body.name) : register.show(body.name); }
+      catch { out = { ok: false, because: 'we could not record that' }; }
+      /* 400 only for a name with no notice (the page reads that as already done); anything else did not happen. */
+      sendJson(res, out.ok ? 200 : (out.notOffered ? 400 : 500), out);
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
   /* #5359: the note that this computer restarted while Kosmos was running and Kosmos came back by itself
@@ -18765,9 +19739,12 @@ const server = http.createServer(async (req, res) => {
      multipart): PUT the bytes with the file's type as content-type and its
      name in x-attachment-name, get the record back, then post the message
      with `attachment: <id>`. Two steps so a failed upload is a sentence
-     before anything is said, and so the 25 MB limit applies to the bytes
-     alone. The file is served back as a download, never inline, and the
-     preview is a PNG this Mac drew (or the image itself). */
+     before anything is said, and so the size limit (attachments.MAX_BYTES)
+     applies to the bytes alone. The file is served back as a download, never
+     inline, and the preview is a PNG this computer drew (or the image itself).
+     #6734: both ways are streams. The upload is written to disk as it arrives
+     and refused the moment it crosses the cap; the download is sent from disk.
+     Neither holds the file in memory, which is what lets the cap be 100 MB. */
   const attachUp = pathname.match(/^\/api\/(agent|project)\/([^/]+)\/attachment$/);
   if (attachUp && req.method === 'PUT') {
     const scope = attachUp[1];
@@ -18779,18 +19756,34 @@ const server = http.createServer(async (req, res) => {
       try { has = projects.readAll().some((p) => p.id === owner); } catch { sendJson(res, 500, { error: 'we could not read the projects' }); return; }
       if (!has) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
     }
-    readBody(req, attachments.MAX_BYTES + 1)
-      .then((bytes) => {
-        let name = '';
-        try { name = decodeURIComponent(String(req.headers['x-attachment-name'] || '')); } catch { name = String(req.headers['x-attachment-name'] || ''); }
-        const rec = attachments.save(scope, owner, { name, type: req.headers['content-type'], bytes });
+    /* #6734: a body that says up front it is over the cap is refused before a byte of it is read. */
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > attachments.MAX_BYTES) { refuseUpload(req, res, attachments.TOO_LARGE); return; }
+    let name = '';
+    try { name = decodeURIComponent(String(req.headers['x-attachment-name'] || '')); } catch { name = String(req.headers['x-attachment-name'] || ''); }
+    attachments.saveStream(scope, owner, { name, type: req.headers['content-type'] }, req)
+      .then((rec) => {
         /* #6098: an office file gets its text rendering before the answer, so the message that carries it can name
            it. The conversion runs in a worker thread with a memory and a time limit (attachtext.js), so a hostile
            file cannot stall or crash the board; it never fails the upload. */
         return require('./engine/attachtext').render(rec).catch(() => null)
-          .then(() => sendJson(res, 200, { attachment: attachments.rowField(rec) }));
-      })
-      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not keep that file') }));
+          .then(() => {
+            /* Review 20: the client left during the conversion, so it will never hear the id; take the file back. */
+            // Review 25: not `!res.socket`, which is also true for a pipelined request still waiting its turn.
+            if (res.destroyed || (req.socket && req.socket.destroyed)) { attachments.discardStored(rec); return; }
+            sendJson(res, 200, { attachment: attachments.rowField(rec) });
+          })
+          /* Review 18/19: the file was stored, but nothing refers to it until the page hears its id, and nothing would
+             list it later, so it is taken back and the person told plainly that it was not added. Review 20: only while
+             nothing of the answer has gone out; once it has, the page may hold the id, so the file stays. */
+          .catch(() => {
+            if (res.headersSent) return;
+            attachments.discardStored(rec);
+            sendJson(res, 500, { error: 'we could not add that file; try again' });
+          });
+      }, (err) => refuseUpload(req, res, (err && !err.code && err.message) ? String(err.message) : 'we could not keep that file'));
+      /* Review 9: a system error (it has a code, like ENOSPC) carries a path with the user's name; the person and their
+         phone get the sentence instead. The store's own refusals are sentences and have no code. */
     return;
   }
   /* #4930: the full-page preview's "Open in Finder": the attachment's own file, selected in its folder (never opened).
@@ -18811,23 +19804,19 @@ const server = http.createServer(async (req, res) => {
     const rec = attachments.read(attachGet[1]);
     if (!rec) { sendJson(res, 404, { error: 'no such attachment' }); return; }
     if (attachGet[2]) {
-      attachments.preview(rec).then((pv) => {
+      attachments.previewFile(rec).then((pv) => {
         if (!pv.ok) { sendJson(res, 404, { error: pv.because }); return; }
-        res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
-        res.end(req.method === 'HEAD' ? undefined : pv.bytes);
+        sendFileStream(req, res, pv.file, pv.unread, { 'content-type': pv.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
       }).catch(() => sendJson(res, 404, { error: 'this computer could not draw the first page' }));
       return;
     }
-    let bytes;
-    try { bytes = fs.readFileSync(rec.file); } catch { sendJson(res, 404, { error: 'that file could not be read' }); return; }
     /* A download, whatever the type: a person's file is handed back as a
        file, and an HTML one never renders on the board's origin. */
-    res.writeHead(200, {
-      'content-type': rec.type, 'content-length': bytes.length, 'x-content-type-options': 'nosniff',
+    sendFileStream(req, res, rec.file, 'that file could not be read', {
+      'content-type': rec.type, 'x-content-type-options': 'nosniff',
       'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(rec.name),
       'content-security-policy': "default-src 'none'; sandbox",
-    });
-    res.end(req.method === 'HEAD' ? undefined : bytes);
+    }, { etag: rec.id });   // #6805: the id names the file; sendFileStream adds its size and time
     return;
   }
   if (pathname === '/api/unfurl' && req.method === 'GET') {
@@ -20518,11 +21507,23 @@ const server = http.createServer(async (req, res) => {
     /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; messages.ROOM_READ_ROWS
        when not given or not a whole number in range, so an older CLI and a bad value both get what they always got). */
     let textRows = messages.ROOM_READ_ROWS;
+    /* kosmos#7032 (the iPhone's room): the JSON arm can be paged too. ?n=N (1 to 200) returns the room's last N rows,
+       with `olderCount` (how many older rows are left) and `olderCursor`, made here, never by the phone: the page before
+       this one is ?n=N&cursor=<olderCursor>. A cursor is the page's first row, named as its stored time plus how many
+       rows share that time ahead of it ("<at>|<k>"), so it names Kosmos lines (which carry no id) as exactly as posts,
+       and ties on a time are exact (the sort is stable). A cursor that names no row of this room is a 400, and a room
+       whose log could not be read is a 503: neither is ever an empty page that would read as the start of the room. Without ?n the JSON arm is unchanged (the board reads the
+       whole room). What a cursor cannot do: a post is dated when its send STARTS and written when delivery ends, so a
+       post written after a page was read can sort into it; it lands in the newest page unless more than N rows arrive
+       during its delivery, which is why the phone re-reads the newest page and merges. */
+    let jsonRows = null;
+    let jsonCursor = null;   // the raw ?cursor=, checked against the rows below
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       asText = q.get('as') === 'text';
       const n = q.get('n');
-      if (n !== null && /^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200) textRows = Number(n);
+      if (n !== null && /^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200) { textRows = Number(n); jsonRows = Number(n); }
+      if (jsonRows !== null) jsonCursor = q.get('cursor') || null;   // an empty cursor is no cursor (the newest page)
     } catch { asText = false; }
     /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
        do, instead of rendering it as an empty room -- a typo or a hyphenated-name
@@ -20580,6 +21581,8 @@ const server = http.createServer(async (req, res) => {
     }
     try {
       const rec = messages.record();
+      let claimMembers;   // #6946: the room's members for claims, read once per request and only if a post has a 🙋
+      let youClaimAt;     // #6974: post id -> when the person's live 🙋 on it was given (null once taken off), one pass per request
       const noteNames = new Map();   // #4423: one read's names for recommender notes (noteTextNow)
       /* #4649 slice 3: the owner's labels by stamped account, read ONCE per request (review round 3: a read per row
          stalled a busy room). The text view never shows them, so it does not read them. */
@@ -20627,13 +21630,34 @@ const server = http.createServer(async (req, res) => {
                 ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}),
                 // #3745: the post this one answers (the page finds it in these rows, or says it is gone).
                 ...(typeof m.replyTo === 'string' ? { replyTo: m.replyTo } : {}),
+                // #6925: this post went through a held room as its agent's one summary (#6920); the page labels it.
+                ...(m.closing === true ? { closing: true } : {}),
                 /* #4642: who this post really addressed, as recorded when it was sent (#185), so the page
                    paints blue from what happened and not from today's rule and roster. Always an array on
                    a post row, [] for none: the engine leaves the field off when nobody was addressed. A
                    row written before #185 recorded it (08-24) also reads [], and its @names show plain,
                    the safe direction (measured: 0 such rows among 221 posts on a real board, 09-29). */
                 mentioned: Array.isArray(m.mentioned) ? m.mentioned : [],
-                ...(reactions.length ? { reactions } : {}) };
+                ...(reactions.length ? { reactions } : {}),
+                // #6946: which agent holds the 🙋 claim on this post, {by, at}. Read only when a
+                // 🙋 is among the reactions, so a room with none pays no second pass over the log.
+                ...((() => {
+                  if (!reactions.some((r) => messages.isClaimEmoji(r.emoji))) return {};
+                  if (claimMembers === undefined) claimMembers = messages.claimMembers(roomRecord && roomRecord.agents);
+                  const c = messages.claimOf(m.id, rec.rows, claimMembers);
+                  if (!c) return {};
+                  // #6957: whether the person's live 🙋 was given after this claim began (agrees with THIS holder).
+                  if (youClaimAt === undefined) {
+                    youClaimAt = new Map();
+                    for (const x of rec.rows) {
+                      if (!x || x.kind !== 'reaction' || x.operator !== true || !messages.isClaimEmoji(x.emoji)) continue;
+                      youClaimAt.set(String(x.of), x.op === 'remove' ? null : x.at);
+                    }
+                  }
+                  const youAt = youClaimAt.get(String(m.id)) || null;
+                  const agreed = typeof youAt === 'string' && typeof c.at === 'string' && Date.parse(youAt) >= Date.parse(c.at);
+                  return { claim: c, ...(agreed ? { claimAgreed: true } : {}) };
+                })()) };
             })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
@@ -20735,7 +21759,9 @@ const server = http.createServer(async (req, res) => {
           // sees the thread too. The post's own tag stays first; this second bracket is a
           // reference to another post, not this one's id.
           const answering = typeof m.replyTo === 'string' && /^m\d+$/.test(m.replyTo) ? ' (answering [' + m.replyTo + '])' : '';
-          const line = when + '  [' + m.id + '] ' + who + answering + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + flatText;
+          // #6925: a post that went through a held room as its agent's one summary says so, as the page labels it.
+          const closingNote = m.closing === true ? ' (its one summary while the room was held)' : '';
+          const line = when + '  [' + m.id + '] ' + who + closingNote + answering + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + flatText;
           /* The same sentence the page shows, one per silent name, right
              under the post it is about (#563). */
           const owed = Array.isArray(silent[m.id]) ? silent[m.id] : [];
@@ -20748,14 +21774,29 @@ const server = http.createServer(async (req, res) => {
              validates on write: a row that reached the log another way must
              not break the one-line-per-row contract (#314). */
           const shown = (Array.isArray(m.reactions) ? m.reactions : [])
+            /* #6952: no AGENT raised hands here. The claim line below says who holds the post; listing every agent's
+               🙋 would show a holder who left, or an old pill from before claims, as if they held it. The person's 🙋
+               stays: it is not a claim, it says "yes, you do it" (review 1). Kept by the person's sentinel 'you',
+               before it is renamed, so an agent's own name can never pass for it (review 3). */
             .map((r) => ({ emoji: messages.normalizeReactionEmoji(r.emoji),
-              who: (Array.isArray(r.who) ? r.who : []).map((w) => (w === 'you' ? 'operator' : String(w).replace(/\s+/g, ' '))) }))
+              // #6957: the person's 🙋 agrees with a claim, so it shows only beside the claim it was given to (newer than
+              // that claim); with no claim live, or a later holder, it would read as theirs or as approving someone new.
+              who: (Array.isArray(r.who) ? r.who : []).filter((w) => !messages.isClaimEmoji(r.emoji) || (w === 'you' && m.claim && m.claimAgreed))
+                .map((w) => (w === 'you' ? 'operator' : String(w).replace(/\s+/g, ' '))) }))
             .filter((r) => r.emoji && r.who.length);
           const reacted = shown.length
             ? [when + '  [kosmos] reactions on [' + m.id + ']: '
               + shown.map((r) => r.emoji + ' ' + r.who.join(', ')).join('; ')]
             : [];
-          return [line, ...reacted, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
+          /* #6946: the claim on its own line, so an agent reading the room before it answers a request sees that
+             someone already has it, and in words rather than as one pill among the reactions. */
+          const c = m.claim && typeof m.claim.by === 'string' && m.claim.by ? m.claim : null;
+          const claimedBy = c ? String(c.by).replace(/\s+/g, ' ') : '';   // always an agent: the person's 🙋 is not a claim
+          const claimed = c
+            ? [when + '  [kosmos] [' + m.id + '] is claimed by ' + claimedBy + ' (' + messages.claimAge(c.at) + '); unless you are '
+              + claimedBy + ', do not post that you are taking it.']
+            : [];
+          return [line, ...reacted, ...claimed, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
         });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
@@ -20766,8 +21807,11 @@ const server = http.createServer(async (req, res) => {
         try {
           if (fedseats.linkFor(id)) {
             const cs = fedseats.contactState();   // kosmos#6239: a room closed under the policy, or a fault, says so instead
+            const why = cs === 'policy' ? fedseats.contactReason() : null;   // kosmos#6870: a family default says its own
             shared = cs === 'policy'
-              ? '[kosmos] This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer.\n'
+              ? (!why.family
+                ? '[kosmos] This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer.\n'
+                : '[kosmos] This room is shared with another computer, but it is closed: nothing posted here leaves this computer. ' + why.text.charAt(0).toUpperCase() + why.text.slice(1) + '.\n')
               : cs === 'unreadable'
                 ? '[kosmos] This room is shared with another computer, but it is closed for now: Kosmos cannot read the policy set for this Kosmos, so nothing posted here leaves this computer.\n'
                 : '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n';
@@ -20780,10 +21824,51 @@ const server = http.createServer(async (req, res) => {
           ? '[kosmos] This room is at its limit for agent posts: it kept going back and forth without a result. '
             + 'A post from you now will most likely be refused. Your person can lift the hold now by posting here or '
             + 'reopening the room' + (held.until ? '; otherwise it should lift by ' + messages.roomClock(held.until, zone) : '') + '. '
-            + 'Do not send your post another way meanwhile.\n'
+            + 'Do not send your post another way meanwhile. '
+            /* #6925: the one exception (#6920) as the engine allows it: only after one of that agent's own posts was held,
+               and one per agent. Stated for whoever reads: this view does not know which agent it is or whether it has used
+               its summary (the post refusal says that, per agent). The number is the engine's own. */
+            + 'Once one of your posts has been held, one summary can still go through: a post of '
+            + messages.CLOSING_POST_MIN + ' characters or more that settles the thread.\n'
           : '';
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
         res.end(shared + onHold + head + lines.join('\n') + (lines.length ? '\n' : ''));
+        return;
+      }
+      if (jsonRows !== null) {   // kosmos#7032: a page (see the cursor note where n is read)
+        // Review 3: a log that could not be read is not the start of the room and not a bad cursor.
+        if (!rec.ok) {
+          sendJson(res, 503, { error: 'we could not read this room just now, so no page was read' });
+          return;
+        }
+        let pool = rows;
+        if (jsonCursor !== null) {
+          // "<the row's at, exactly as stored>|<k>". Any stored time (an older row may lack milliseconds): the check
+          // that a row of this room has that exact time is what refuses a cursor naming none.
+          const bar = jsonCursor.lastIndexOf('|');
+          const time = bar > 0 && jsonCursor.length <= 80 ? jsonCursor.slice(0, bar) : '';
+          const k = bar > 0 && /^\d{1,6}$/.test(jsonCursor.slice(bar + 1)) ? Number(jsonCursor.slice(bar + 1)) : -1;
+          const start = time && k >= 0 ? rows.findIndex((r) => r && r.at === time) : -1;
+          const at = start >= 0 ? start + k : -1;
+          if (at < 0 || !rows[at] || rows[at].at !== time) {
+            sendJson(res, 400, { error: 'that place in the room is not one this room has, so no earlier page was read' });
+            return;
+          }
+          pool = rows.slice(0, at);
+        }
+        // Each row on a page carries `key`, its exact place ("<at>|<k>", the cursor's own form), so the phone can merge
+        // a re-read page row by row, Kosmos lines (which carry no id) included.
+        const firstOfTime = new Map();
+        rows.forEach((r, i) => { if (r && typeof r.at === 'string' && !firstOfTime.has(r.at)) firstOfTime.set(r.at, i); });
+        const page = pool.slice(-jsonRows).map((r, j) => {
+          const i = pool.length - Math.min(jsonRows, pool.length) + j;
+          return r && typeof r.at === 'string' && firstOfTime.has(r.at) ? { ...r, key: r.at + '|' + (i - firstOfTime.get(r.at)) } : r;
+        });
+        const olderCount = pool.length - page.length;
+        // The next older page's cursor: the first row's time and how many rows of that time sit ahead of it.
+        const olderCursor = olderCount > 0 && page[0] && typeof page[0].key === 'string' ? page[0].key : null;
+        sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(page), unanswered: silent, olderCount, olderCursor },
+          held ? { held } : {}));
         return;
       }
       /* #185: which addressed agents have not answered which posts, from
@@ -20917,7 +22002,60 @@ const server = http.createServer(async (req, res) => {
         /* The fresh reactions for this post, from the operator's viewpoint. */
         let reactions = [];
         try { reactions = messages.reactionsFor(out.of, messages.record().rows, 'you'); } catch { reactions = []; }   // #4631: the canonical id (the route takes '530' too)
-        sendJson(res, 200, { ok: true, op: out.op, emoji: out.emoji, of: out.of, reactions });
+        // #6949: and the claim, so the one-row repaint keeps the 🙋 pill labelled as a claim.
+        const claim = roomPostClaim(found.id, out.of, reactions);
+        sendJson(res, 200, { ok: true, op: out.op, emoji: out.emoji, of: out.of, reactions, ...(claim ? { claim } : {}) });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
+  /* #6949: the person FREES the 🙋 claim on a room post, for an agent that went quiet holding it. Its own POST route,
+     the person's only (agents give a claim back with `kosmos claim --release`; this route is not in
+     AGENT_TOKEN_ROUTES), board-token gated like the react route above. The body names the holder the page showed
+     (`by`), so a claim that changed hands since is refused rather than freed. Answers with the post's fresh reactions
+     and claim, the react route's shape, so the page repaints the one row. */
+  const roomFree = pathname.match(/^\/api\/project\/([^/]+)\/room\/([^/]+)\/free-claim$/);
+  if (roomFree && req.method === 'POST') {
+    const id = decodeSegment(roomFree[1]);
+    const postId = decodeSegment(roomFree[2]);
+    if (id === null || postId === null) { sendJson(res, 400, { error: 'that is not something we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read'); bad.status = 400; throw bad;
+        }
+        if (!body || typeof body !== 'object') {
+          const bad = new Error('that request is not the shape we expect'); bad.status = 400; throw bad;
+        }
+        /* A caller that presents an agent token is an agent, whatever else it holds, and is refused. A convention, not a
+           boundary, like the board's other person-only routes: a process holding only the board token is not told apart
+           (#4491). */
+        if (presentedAgentToken(req, body)) { sendJson(res, 403, { ok: false, because: 'only the person can free a claim; give your own back with kosmos claim --release' }); return; }
+        let stored = null;
+        try { stored = projects.readAll().find((p) => p && p.id === id) || null; } catch {
+          sendJson(res, 503, { ok: false, because: 'we could not read your projects just now, so nothing was freed' });
+          return;
+        }
+        if (!stored) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
+        // The members the room read filters claims by (the stored record's names), so the holder freed is the one shown.
+        let out;
+        try { out = messages.freeClaim({ project: stored.id, of: postId, by: body.by, members: stored.agents }); } catch {
+          // A write that failed part way: said in plain words, never the system's (a path, an errno) on the person's screen.
+          sendJson(res, 500, { ok: false, because: 'we could not write that to the room just now; look at the room again before you retry' });
+          return;
+        }
+        const fresh = () => {
+          let reactions = [];
+          try { reactions = messages.reactionsFor(out.of, messages.record().rows, 'you'); } catch { reactions = []; }
+          const claim = roomPostClaim(stored.id, out.of, reactions);
+          return { reactions, ...(claim ? { claim } : {}) };
+        };
+        // 409: the claim changed hands since the page drew it; the post as it is now goes with it, so the row redraws.
+        if (!out.ok) { sendJson(res, out.claimedBy ? 409 : 400, out.claimedBy ? { ...out, ...fresh() } : out); return; }
+        sendJson(res, 200, { ...out, ...fresh() });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));
@@ -20954,7 +22092,7 @@ const server = http.createServer(async (req, res) => {
        the view asks for up to 500, and an unbounded ask cannot be minted. */
     let fileCap = 10;
     try { const l = Number(new URL(req.url, ROUTING_BASE).searchParams.get('limit')); if (Number.isFinite(l) && l > 0) fileCap = Math.min(Math.floor(l), 500); } catch { fileCap = 10; }
-    const listed = projects.listFiles(record.folder, fileCap);
+    const listed = projects.listFiles(record.folder, fileCap, { fingerprint: true });   // #6761: each row's sha256
     /* #5812: each row says which agent changed it last, when the board recorded one close enough to the change. */
     if (listed && listed.ok && Array.isArray(listed.files)) {
       try {
@@ -21163,6 +22301,101 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, out.status, out.body);
       })
       .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
+    return;
+  }
+  /* kosmos#4658: in a sealed room, this account's other computers waiting for the room's key, and the person's Allow
+     once the code on that computer's screen matches. Only the board holding the room's seal-owner state lists or
+     allows anyone (fedseats.ownWaiting / allowOwn). Screen only, behind the federation switch; the Allow hands the
+     room key to another computer, so it is also in REMOTE_STEP_UP_EXACT and under the family policy, like own-code. */
+  if (pathname === '/api/federation/own-waiting' && req.method === 'GET') {
+    if (!federationLiveNow()) { sendJson(res, 404, { error: FEDERATION_OFF }); return; }
+    if (!isViaScreen(req, {})) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can see which of their computers are waiting.' }); return; }
+    let pid = null;
+    try { pid = new URL(req.url, ROUTING_BASE).searchParams.get('project'); } catch { pid = null; }
+    if (!pid) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+    let computers = [];
+    try { computers = fedseats.ownWaiting(pid).map((w) => ({ pub: w.pub, mac: w.mac, code: w.code, at: w.at })); } catch { computers = []; }
+    sendJson(res, 200, { computers });
+    return;
+  }
+  if (pathname === '/api/federation/own-allow' && req.method === 'POST') {
+    if (!federationLiveNow()) { sendJson(res, 404, { error: FEDERATION_OFF }); return; }
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.project !== 'string' || !body.project
+          || typeof body.pub !== 'string' || !body.pub || typeof body.code !== 'string' || !body.code.trim()) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can let another computer read a sealed project.' }); return; }
+        { const stop = federationPolicyStop(); if (stop) { sendJson(res, 403, { error: stop }); return; } }   // kosmos#6239: a room with another computer
+        const out = await fedseats.allowOwn(body.project, body.pub, body.code);
+        if (!out.ok) { sendJson(res, 409, { error: 'That computer was not allowed: ' + out.because + '.' }); return; }
+        sendJson(res, 200, { allowed: true });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* kosmos#7028: the computers of this account that hold a sealed room's key, and taking one out (a new key it is not
+     sent). Not step-up gated, like every other remove: it only takes access away. Screen-only, like the Allow. */
+  if (pathname === '/api/federation/own-allowed' && req.method === 'GET') {
+    if (!federationLiveNow()) { sendJson(res, 404, { error: FEDERATION_OFF }); return; }
+    if (!isViaScreen(req, {})) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can see which of their computers can read a sealed project.' }); return; }
+    let pid = null;
+    try { pid = new URL(req.url, ROUTING_BASE).searchParams.get('project'); } catch { pid = null; }
+    if (!pid) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+    let computers = [];
+    try { computers = fedseats.ownAllowed(pid).map((c) => ({ pub: c.pub, mac: c.mac, at: c.at })); } catch { computers = []; }
+    sendJson(res, 200, { computers });
+    return;
+  }
+  if (pathname === '/api/federation/own-remove' && req.method === 'POST') {
+    if (!federationLiveNow()) { sendJson(res, 404, { error: FEDERATION_OFF }); return; }
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.project !== 'string' || !body.project
+          || typeof body.pub !== 'string' || !body.pub) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can take a computer out of a sealed project.' }); return; }
+        const out = await fedseats.ownRemove(body.project, body.pub);
+        if (!out.ok) { sendJson(res, 409, { error: 'That computer was not taken out: ' + out.because + '.' }); return; }
+        sendJson(res, 200, { removed: true });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* kosmos#4658, the waiting computer's half: the code this computer shows, and its person's answer. "It matches"
+     (code) lets it adopt the key the owner's computer sends; "does not match" (match:false) starts over with a new
+     code. Confirming decides who can read this computer's posts, so it is step-up gated and under the family policy
+     like the Allow. */
+  if (pathname === '/api/federation/own-compare' && req.method === 'GET') {
+    if (!federationLiveNow()) { sendJson(res, 404, { error: FEDERATION_OFF }); return; }
+    if (!isViaScreen(req, {})) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can see this computer\'s code.' }); return; }
+    let pid = null;
+    try { pid = new URL(req.url, ROUTING_BASE).searchParams.get('project'); } catch { pid = null; }
+    if (!pid) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+    let code = null;
+    try { code = fedseats.ownCode(pid); } catch { code = null; }
+    sendJson(res, 200, { code });
+    return;
+  }
+  if (pathname === '/api/federation/own-confirm' && req.method === 'POST') {
+    if (!federationLiveNow()) { sendJson(res, 404, { error: FEDERATION_OFF }); return; }
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        const startOver = !!body && body.match === false;
+        if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.project !== 'string' || !body.project
+          || (!startOver && (typeof body.code !== 'string' || !body.code.trim()))) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can confirm this computer\'s code.' }); return; }
+        { const stop = federationPolicyStop(); if (stop) { sendJson(res, 403, { error: stop }); return; } }   // kosmos#6239: a room with another computer
+        if (startOver) { sendJson(res, 200, { started_over: fedseats.ownStartOver(body.project) }); return; }
+        const out = await fedseats.confirmOwn(body.project, body.code);
+        if (!out.ok) { sendJson(res, 409, { error: 'Not confirmed: ' + out.because + '.' }); return; }
+        sendJson(res, 200, { confirmed: true });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
     return;
   }
   /* kosmos#4649: the "add your other computer" code for a project on this computer, for
@@ -21538,6 +22771,12 @@ const server = http.createServer(async (req, res) => {
                 + (note ? ' ' + note : '');
             }
           } catch { note = ''; }
+          /* #6921: a title over the cap was shortened by tasks.create rather than refused. First, so #5319's copyable
+             command stays the end of the line. */
+          if (made.titleMoved) {
+            note = 'Note: the title was over ' + tasks.SENTENCE_MAX + ' characters, so it was shortened and the whole title is at the start of the details.'
+              + (note ? ' ' + note : '');
+          }
           // The assignee's managed block now lists this task in the exact
           // spelling the join matches on, so the agent is TOLD, not merely
           // recorded. Non-gating, same as every tell: a task that could not
@@ -21673,10 +22912,41 @@ const server = http.createServer(async (req, res) => {
         return (card && card.name) || sn;   // the card's name is its display name (engine/status.js)
       };
       const { phrase } = require('./engine/taskactphrase');
-      sendJson(res, 200, { events: events.map((ev) => Object.assign({}, ev, { words: phrase(ev, nameOf, { forAgent: true }) })), count: events.length });
+      /* #6947: when the page last recorded the person viewing this task's conversation, so the agent can tell an unseen nudge from one seen and
+         not yet acted on (null: not since this was recorded). */
+      const seenByPerson = require('./engine/taskseen').seenAt(id, Number(taskActivity[2]));
+      sendJson(res, 200, { events: events.map((ev) => Object.assign({}, ev, { words: phrase(ev, nameOf, { forAgent: true }) })), count: events.length, seenByPerson });
       return;
     }
     sendJson(res, 200, { events, count: events.length });
+    return;
+  }
+
+  /* #6947: the page drew this task's conversation on the person's screen (engine/taskseen.js says what "seen" means,
+     when the page sends it, and what it misses). Only a request from the page counts
+     (isViaScreen: no agent token, and the browser's own Sec-Fetch-Site or a local Origin), so an agent cannot mark its
+     own nudge seen with its token or with the shared board token alone; those headers are advisory, so a local process
+     that forges them can. Answers { seenAt }. */
+  const taskSeen = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/seen$/);
+  if (taskSeen && req.method === 'POST') {
+    if (!isViaScreen(req)) { sendJson(res, 403, { error: 'only the person\'s page can mark a task seen' }); return; }
+    const id = decodeSegment(taskSeen[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let every = null;
+    try { every = projects.readAll() || []; } catch { every = null; }
+    // A read that failed is not "no such task" (the activity route's answer for the same case).
+    if (every === null) { sendJson(res, 503, { error: 'we could not read the projects just now, so this was not recorded' }); return; }
+    let task = null;
+    // Any row with this id, as the activity route reads it, so the two routes agree on which tasks exist.
+    for (const proj of every.filter((x) => x && x.id === id)) { task = tasks.byNumber(proj, Number(taskSeen[2])) || task; }
+    if (!task) { sendJson(res, 404, { error: 'no such task' }); return; }
+    const seenAt = require('./engine/taskseen').markSeen(id, task.number);
+    if (!seenAt) {
+      // #6951: said in the board's log, so a view that could not be recorded is seen somewhere, not only as "not viewed".
+      try { console.error('task seen: could not record task ' + task.number + ' of ' + id); } catch { /* never mask */ }
+      sendJson(res, 500, { error: 'we could not record that just now' }); return;
+    }
+    sendJson(res, 200, { seenAt });
     return;
   }
 
@@ -21706,11 +22976,94 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#6842 slice 2: what a project's closed tasks cost (engine/receipt.js forProject), the sum of the same receipts
+     the task pages show. For the person's page, so an agent's token is refused, as on the task receipt route. */
+  const projectReceipts = pathname.match(/^\/api\/project\/([^/]+)\/receipts$/);
+  if (projectReceipts && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'a project\'s receipts are for the person, not for agents' }); return; }
+    const id = decodeSegment(projectReceipts[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    require('./engine/receipt').forProject(id)
+      .then((out) => sendJson(res, out.ok ? 200 : out.because === 'no-project' ? 404 : 500, out))
+      .catch((err) => {
+        console.error('project receipts: could not be worked out:', (err && err.message) || err);
+        sendJson(res, 500, { ok: false, because: 'we could not work out the project\'s cost just now' });
+      });
+    return;
+  }
+
+  /* #6994: a project's records (engine/records.js). GET lists them with their age and the stale count; any caller
+     may read, as for the project itself. POST adds or updates one row (body { name, status?, confirmed?, source? }),
+     POST .../remove takes one away (body { name }), POST .../label names what the rows are (body { label }). The
+     writer is named as a task's is (token, else pane), and an identified agent changes only a project it is on. */
+  const recordsAt = pathname.match(/^\/api\/project\/([^/]+)\/records(?:\/(remove|label))?$/);
+  if (recordsAt) {
+    const id = decodeSegment(recordsAt[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    const recordsEngine = require('./engine/records');
+    // The engine's refusals carry a status (400, 404, 409); anything without one is ours, a 500 in our own words.
+    const failed = (err, fallback) => {
+      if (!err || !err.status || err.code === 'UNREADABLE') {
+        if (!err || err.code !== 'UNREADABLE') console.error('records:', (err && err.message) || err);
+        sendJson(res, 500, { error: err && err.code === 'UNREADABLE' ? String(err.message) : fallback });
+        return;
+      }
+      sendJson(res, err.status, { error: String(err.message || '') || fallback });
+    };
+    // GET only: the agent-token gate admits GET, so a HEAD would answer differently for a token-only caller.
+    if (!recordsAt[2] && req.method === 'GET') {
+      /* A caller on its agent token alone (`kosmos records`) reads the records only of a project it is on: the
+         GET .../task/<n>/activity rule and its refusals. The page and the person's terminal send no token. */
+      const tokenOnly = agentTokenOnlyCaller(req);
+      if (tokenOnly !== null) {
+        let stored = null;
+        try { stored = projects.readAll().filter((x) => x && x.id === id); } catch { stored = null; }
+        if (stored === null) { sendJson(res, 503, { error: 'we could not read the projects just now, so its records cannot be read' }); return; }
+        if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+        if (!tokenOnly) { sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read these records' }); return; }
+        if (!stored.every((x) => tokenOnlyOnProject(x, tokenOnly))) {
+          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot read its records' + NOT_ON_PROJECT_FIX });
+          return;
+        }
+      }
+      let out;
+      try { out = recordsEngine.list(id); } catch (err) { failed(err, 'we could not read its records'); return; }
+      // ?as=text: the list as both CLIs print it (records.renderList), so stock bash needs no JSON parser.
+      let asText = false;
+      try { asText = new URL(req.url, 'http://x').searchParams.get('as') === 'text'; } catch { asText = false; }
+      if (!asText) { sendJson(res, 200, out); return; }
+      let name = null;
+      try { const p = projects.readAll().find((x) => x.id === id); name = p ? p.name : null; } catch { name = null; }
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(recordsEngine.renderList(out, { projectId: id, projectName: name }) + '\n');
+      return;
+    }
+    if (req.method !== 'POST') { sendJson(res, 405, { error: recordsAt[2] ? 'use POST for that' : 'use GET to read them or POST to change one' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const viaScreen = isViaScreen(req, body);
+      const who = processCaller(req, body, safeRoster(), viaScreen, 'the records were not changed');
+      const refusal = who.refusal || notOnProjectRefusal(who, id, 'change its records', 'the records were not changed', 'change a record');
+      if (refusal) { sendJson(res, refusal[0], { error: refusal[1] }); return; }
+      const by = who.card ? who.card.sessionName : null;
+      try {
+        if (recordsAt[2] === 'remove') { sendJson(res, 200, recordsEngine.remove(id, body.name)); return; }
+        if (recordsAt[2] === 'label') { sendJson(res, 200, recordsEngine.setLabel(id, body.label)); return; }
+        const out = recordsEngine.set(id, body.name, { status: body.status, confirmed: body.confirmed, source: body.source },
+          { by, person: viaScreen });
+        sendJson(res, out.created ? 201 : 200, out);
+      } catch (err) { failed(err, 'we could not change that record'); }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   const taskAct = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(close|reopen)$/);
   if (taskAct && req.method === 'POST') {
     const id = decodeSegment(taskAct[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    /* #4491 slice 5: `kosmos task close` presents the agent's own token (the header: this route reads no body). A
+    /* #4491 slice 5: `kosmos task close` presents the agent's own token (the header; the body, when there is one, carries only a reopen's reason or a close's replacedBy). A
        caller that presents one is named by it, and closes or reopens tasks only in a project it is on. A caller
        with none (the page, the person's terminal, an older CLI) is as before: this route has never read a pane,
        so an agent that sends no token is not named here, unlike on task add. The roster is read only for a token.
@@ -21735,11 +23088,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
     }
-    const act = (why) => {
+    const act = (why, replacedBy) => {
       try {
         /* #6157: a reopen records who put it back (the person from the screen, or the agent its token named; an agent
-           that sends no token stays unnamed, as above) and why. */
-        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2])
+           that sends no token stays unnamed, as above) and why. #6923: a close may name the task that replaced it. */
+        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2], { replacedBy })
           : tasks.reopen(id, taskAct[2], { by: actor, person: isViaScreen(req, {}), why });
         // Close and reopen change what the assignee's block should list, so
         // the block follows the record. Non-gating.
@@ -21755,7 +23108,28 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, code, { error: msg || 'we could not change that task' });
       }
     };
-    if (taskAct[3] !== 'reopen') { act(''); return; }
+    if (taskAct[3] === 'close') {
+      /* #6923: a close may carry { replacedBy: <task number> }. No body is a plain close, as every older caller sends. A
+         body that cannot be read is refused rather than taken as a plain close: closing drops the built mark, hold and
+         repeat, so a garbled replace must not close the task as done. tasks.close refuses a replacedBy that is not a
+         task number. */
+      readBody(req, 8 * 1024).then((raw) => {
+        let body = null;
+        const text = String(raw == null ? '' : raw);   // readBody can hand back a Buffer
+        if (text.trim()) {
+          try { body = JSON.parse(text); } catch { body = undefined; }
+          // Anything but { replacedBy } (a misspelled key, a bare number, a list) is refused, never taken as a plain close.
+          if (!body || typeof body !== 'object' || Array.isArray(body)) {
+            sendJson(res, 400, { error: 'we could not read that request, so the task was not closed' }); return;
+          }
+          if (Object.keys(body).some((k) => k !== 'replacedBy')) {
+            sendJson(res, 400, { error: 'a close takes only replacedBy (the number of the task that replaced it), so the task was not closed' }); return;
+          }
+        }
+        act('', body && typeof body === 'object' ? body.replacedBy : undefined);
+      }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+      return;
+    }
     /* #6157: a reopen may say why ({ why }). No body, or one that is not JSON, is a reopen with no reason, as every
        older caller (the page, an older CLI) sends; a `why` that is not text is refused rather than dropped. 8 KiB, as
        the other small JSON routes: the reason is capped at 300 characters. */
@@ -22240,6 +23614,39 @@ const server = http.createServer(async (req, res) => {
         const msg = String((err && err.message) || 'we could not change that task');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can (change it|make it repeat|stop it repeating)|only the person can name/.test(msg) ? 403 : 400, { error: msg });
         return;
+      }
+      /* kosmos#6894: a run that changed something is said in the project room (taskrepeat.roomRunLine), so the room does not
+         look idle while the job runs. Unchanged runs and duplicates say nothing there. Best effort, as every room note. */
+      if (taskRepeat[3] === 'ran' && task) {
+        const key = id + '#' + task.number;
+        let said = ROOM_RUN_SAID.get(key) || null;
+        /* Review 3: what the room heard belongs to one rule. A changed or cleared rule (closing a task clears it) starts
+           the room's record of this task again, so an old rule's notes are never said, or used to silence, under a new one. */
+        if (said && said.ruleAt !== (task.repeatSetAt || '')) { ROOM_RUN_SAID.delete(key); said = null; }
+        /* Review 1: one line per task an hour (in memory: a restart can let one more through). The task page has every run.
+           Review 2: a clock stepped back counts as the hour passed, so it never mutes a task. */
+        /* Review 5: a run that leaves the task with no change note (a run with no note clears it) ends what the room heard
+           as current, so the same words after it are news again (a problem that came back), never silenced by a note the
+           room heard, or was taken to know, before the clear. */
+        if (said && !(typeof task.lastChangeNote === 'string' && task.lastChangeNote)) said.note = '';
+        const age = said ? Date.now() - said.at : Infinity;
+        /* Inside the hour the run is held, and nothing is kept for it: the next line reads the task's own LATEST change
+           note (review 5: a held copy outlived the runs that replaced it and was said later as news). */
+        if (!(age >= 0 && age < ROOM_RUN_EVERY_MS)) {
+          // Review 2: measured against what the room was last told, so a change held back by the hour is said now.
+          const line = taskrepeat.roomRunLine(tasks.runBefore(task), task, said);
+          /* Review 4: remembered only when the room actually got the line, so a failed append does not mute the task. */
+          if (line && messages.roomNote(id, line.text)) {
+            /* Review 3: remember what the line SAID: its note (or the note the room already had), and the reading as it now
+               stands (the line says it when it changed; otherwise the room already had it).
+               Review 4: the FIRST line of a task that names no note records the task's standing change note as known, so
+               an older note (from before this run, or before the board started) is never said later as news. */
+            const standing = typeof task.lastChangeNote === 'string' ? task.lastChangeNote : '';
+            ROOM_RUN_SAID.set(key, { at: Date.now(), ruleAt: task.repeatSetAt || '',
+              reading: line.reading || (said ? said.reading : (task.verified && typeof task.verified.value === 'string' ? task.verified.value : '')),
+              note: line.note || (said ? said.note : standing) });
+          }
+        }
       }
       // kosmos#5836: a run that sent a reading hears how it compares with what the person was last told.
       // Review 1: the reading SENT (masked as stored), never only the stored one, so a run absorbed as a duplicate still
@@ -23514,6 +24921,7 @@ const server = http.createServer(async (req, res) => {
  */
 fedseats.configure({
   spawnSeat: (edge) => remote.spawnFedSeat(edge),
+  macId: () => remote.macIdHere(),   // #4658: an own computer names itself when it asks for a sealed room's key
   macRequest: (method, route, body) => remote.macRequest(method, route, body),
   /* #5732: a post the relay stamps as this account's own (another of the person's computers) tells the project's
      agents to read the room, with no post text. Whether it does is messages.ownPostNudges (a person's own post, on by
@@ -23604,7 +25012,7 @@ function federateOut(projectId, delivery, operator) {
   const cs = fedseats.contactState();
   if (cs !== 'open') {
     messages.roomNote(projectId, cs === 'policy'
-      ? 'That post stayed on this computer: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.'
+      ? 'That post stayed on this computer: ' + fedseats.contactStops() + '.'   // kosmos#6870: a family default says its own
       : 'That post stayed on this computer: Kosmos cannot read the policy set for this Kosmos just now, so this room is closed until it can.');
     return;
   }
@@ -23957,6 +25365,9 @@ function start(port = PORT) {
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
+  /* #6734: attachment folders a stopped upload left with no record, now and hourly (attachments.sweepOrphans). */
+  try { attachments.sweepOrphans(); } catch { /* best effort */ }
+  setInterval(() => { try { attachments.sweepOrphans(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
   require('./engine/agentnames').setFleetSource(() => nameCheckFleet());   // #5957: one display name per agent
   /* #5535 E0.6 slice (d): the company backup tick, hourly and only while orgenroll.mayReport (enrolled here AND the
      company's words accepted here). The first run is an hour after start, never at boot. Kosmos+ answers backup_off
@@ -23980,6 +25391,8 @@ function start(port = PORT) {
   /* kosmos#6309: this board counts the month for a family's usage cap, in a worker thread that starts only when a cap
      is in force. Any other process reads the month's saved count. */
   try { require('./engine/usagecap').countOnThisBoard(); } catch { /* the cap reads the saved count */ }
+  /* kosmos#6829: past days of token usage are saved on a clock, before Claude deletes their transcripts. */
+  try { usage.startSaving(); } catch { /* best effort */ }
   setTimeout(agentEventsTick, 2 * 60 * 1000).unref();   // #5683: a first look two minutes after start, a minute after the rollup's, so their computer-print reads do not land together
   setInterval(agentEventsTick, ORG_ROLLUP_TICK_MS).unref();   // #5683: every five minutes, as the rollup
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
@@ -25536,6 +26949,9 @@ if (require.main === module) {
          above, once the board is listening, and never in a test that merely
          requires this file. */
       startOutboxDrain();
+      /* #6726 review r2 finding 4: the day's reply-attachment totals, read from the store once, here, so no reply
+         walks it. Not fatal: a reply that finds no ledger seeds it then. */
+      try { require('./engine/replyfile').seed(); } catch { /* seeded on the first reply instead */ }
     }).catch((err) => {
       // Say what to do rather than name an exception. A raw EADDRINUSE stack is
       // exactly what start()'s promise exists to replace, and leaving this
@@ -25554,9 +26970,12 @@ if (require.main === module) {
 // re-implementation of it. Testing the path helper in isolation would not have
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
-module.exports = {
+module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
+  _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
+  _setDownloadStallForTest, // kosmos#6734: the download's stall timeout, for its test
+  parseByteRange, // kosmos#6805: the Range parser, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616
@@ -25591,6 +27010,7 @@ module.exports = {
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   HOOK_RATE, // #1307: the webhook limits, so a test reads the number it asserts
   markGuide, // #3739: the guide row's mark and title, for its tests
+  withCardWords, // #7004: the card word and tone on the finished rows, for its tests
   guideCardFailing, resetGuideCardMemoForTests, // #3660: the fallback's reading of the guide card, for its tests
   keepAgentReply, guideMasked, guideMaskedRows, // #3769: the setup guide's words masked where they are stored, for its tests
   creatorRunsOn, // #3734: where an agent-made team member runs by default, for its tests

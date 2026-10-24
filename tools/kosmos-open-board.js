@@ -22,8 +22,9 @@
  *      `_bt` non-empty);
  *   3. POST /api/board-nonce to mint a SINGLE-USE, short-TTL nonce, and open
  *      `<url>/?boot=<nonce>` (cmd_open: same);
- *   4. on a non-enforcing board, or any failure, open the PLAIN url unchanged
- *      (cmd_open falls back the same way).
+ *   4. on a non-enforcing board, open the PLAIN url unchanged. On an enforcing
+ *      board a failed mint opens nothing (kosmos#6464; cmd_open still falls back
+ *      to the plain url when the board answers without a nonce).
  *
  * WHY A NONCE, NOT THE TOKEN, ON THE URL: #1979 deliberately removed the durable
  * token from the browser argv (macOS `ps` exposes argv cross-account; the durable
@@ -58,8 +59,10 @@
  * behavior, never a crash with no url. EXCEPT ON AN ENFORCING BOARD (#1765, a
  * token on disk), where nothing is opened and no address is printed (exit
  * OPENER_REFUSED_EXIT) when: a listener cannot prove it holds this account's
- * token (see boardProven below), nothing answers within the wait, or the helper
- * fails before it could check (main's catch).
+ * token (see boardProven below), the mint fails right after a passing proof
+ * (kosmos#6464), nothing answers within the wait, or the helper fails before it
+ * could check (main's catch). A board.token that is there but cannot be read is
+ * treated as enforcing (kosmos#6464): nothing is opened.
  */
 
 const path = require('path');
@@ -121,12 +124,14 @@ function readBoardToken(appDir) {
     // ENOENT is the NORMAL non-enforcing state: the board writes board.token only
     // on the enforcing path, so a missing file simply means "not enforcing" and the
     // plain url is correct - warning there would fire on every non-enforcing board.
-    // ANY OTHER error (EACCES: the file exists but cannot be read) is the genuine
-    // "enforcing but token unreadable" case, which silently reproduces the #2007
-    // symptom (plain url -> 403), so it earns a stderr note for Windows debugging.
-    // The return is '' either way, so the plain-url contract is unchanged.
+    // ANY OTHER error (EACCES, EBUSY, EISDIR: the file is there but cannot be read)
+    // is the "enforcing but token unreadable" case. kosmos#6464: it returns null, not
+    // '', and the callers open NOTHING (exit OPENER_REFUSED_EXIT): with no token this
+    // helper cannot check what answers, and the plain address would hand whatever
+    // does the sign-in cookie (#2007 used to open the plain url here, with this note).
     if (e && e.code !== 'ENOENT') {
-      process.stderr.write('kosmos-open-board: board.token exists but could not be read (' + (e.code || (e && e.message) || e) + '); opening the plain url (this will 403 if the board is enforcing)\n');
+      process.stderr.write('kosmos-open-board: board.token exists but could not be read (' + (e.code || (e && e.message) || e) + '), so this computer cannot check that Kosmos is what answers; nothing was opened. Opening Kosmos again in a minute usually works.\n');
+      return null;
     }
     return '';
   }
@@ -140,6 +145,9 @@ async function mintNonce(url, token) {
       // Bound the mint too (a board that accepts but never answers must not hang
       // the launcher); mirrors cmd_open's `-m 15` on the mint.
       signal: AbortSignal.timeout(MINT_TIMEOUT_MS),
+      // kosmos#6464: the board never redirects the mint, and fetch would carry the board token to wherever a
+      // listener pointed it, past the proof. 'manual': the 3xx comes back as a failed mint (not r.ok), never followed.
+      redirect: 'manual',
     });
     if (!r || !r.ok) return '';
     const body = await r.json();
@@ -190,7 +198,8 @@ async function resolveOpenUrl({ appDir, port, timeoutMs, proveBoard }) {
   if (!(await waitForBoard(url, deadline))) {
     // #1765: on an enforcing board (a token on disk), an address nothing has answered for is not opened either: a
     // listener that took the connection and never answered would get the sign-in cookie.
-    if (readBoardToken(appDir)) {
+    // kosmos#6464: only '' is no token; null (there, but unreadable) refuses too.
+    if (readBoardToken(appDir) !== '') {
       process.stderr.write('kosmos-open-board: Kosmos did not answer in time, so nothing was opened. Try again in a minute.\n');
       return null;
     }
@@ -198,6 +207,8 @@ async function resolveOpenUrl({ appDir, port, timeoutMs, proveBoard }) {
     return url;
   }
   const token = readBoardToken(appDir);
+  // kosmos#6464: a token that is there but cannot be read (null) proves nothing: open nothing (it said why).
+  if (token === null) return null;
   if (!token) {
     // Non-enforcing board (or no store): the plain url authenticates fine.
     return url;
@@ -208,10 +219,14 @@ async function resolveOpenUrl({ appDir, port, timeoutMs, proveBoard }) {
     process.stderr.write('kosmos-open-board: ' + refusalWords(url, proof) + '\n');
     return null;
   }
+  /* kosmos#6464: the proof covers this one mint, sent straight after it, and nothing later: the mint is never tried
+   * again here (a retry would need a proof of its own). A mint that fails right after a passing proof means the
+   * listener changed or misbehaved between the two, so nothing is opened: the plain address would hand whatever
+   * answers there the sign-in cookie, as a failed proof would. Opening Kosmos again proves afresh. */
   const nonce = await mintNonce(url, token);
   if (!nonce) {
-    process.stderr.write('kosmos-open-board: could not mint a boot nonce; opening the plain url (may 403 on an enforcing board)\n');
-    return url;
+    process.stderr.write('kosmos-open-board: Kosmos showed it is your Kosmos but then did not sign you in, so nothing was opened. Try again in a minute.\n');
+    return null;
   }
   return `${url}/?boot=${nonce}`;
 }
@@ -303,7 +318,7 @@ if (require.main === module) {
     // pre-fix behavior). Await the open so its own diagnostic is written first.
     process.stderr.write('kosmos-open-board: ' + (e && e.message || e) + '\n');
     // #1765: on an enforcing board (a token on disk) nothing has shown it is this account's board: open nothing.
-    if (readBoardToken(argValue('--app', path.join(__dirname, 'app')))) { process.exitCode = OPENER_REFUSED_EXIT; return; }
+    if (readBoardToken(argValue('--app', path.join(__dirname, 'app'))) !== '') { process.exitCode = OPENER_REFUSED_EXIT; return; }
     const url = `http://127.0.0.1:${argValue('--port', DEFAULT_PORT)}`;
     process.stdout.write(url + '\n');
     // --print-url: the window loads the plain url itself; opening a browser too would be two Kosmoses.

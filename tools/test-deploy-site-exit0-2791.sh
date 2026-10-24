@@ -91,6 +91,7 @@ HOSTURL="https://fake.test"
 BIN="$T/bin"; mkdir -p "$BIN"
 cat > "$BIN/curl" <<'CURL'
 #!/bin/bash
+[ -n "${VERCEL_TOKEN:-}" ] && touch "$LIVE_DIR/curl-saw-token"   # kosmos#6771: the token must not reach this step
 url=""; dest=""; wfmt=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -114,6 +115,13 @@ CURL
 chmod +x "$BIN/curl"
 cat > "$BIN/vercel" <<'VERCEL'
 #!/bin/bash
+# kosmos#6771: VERCEL_REFUSE=auth answers as the CLI does when its sign-in or token is refused; =other fails otherwise.
+[ "${VERCEL_REFUSE:-}" = auth ] && { echo "Deploying chaoskosmos"; echo "Error: Not authorized" >&2; exit 7; }
+[ "${VERCEL_REFUSE:-}" = colour ] && { printf '\033[31mError:\033[39m Not authorized\n' >&2; exit 7; }
+[ "${VERCEL_REFUSE:-}" = badtoken ] && { echo "> Error: The token provided via VERCEL_TOKEN environment variable is not valid. Please provide a valid token." >&2; exit 1; }
+[ "${VERCEL_REFUSE:-}" = whosees ] && { printf '%s' "${VERCEL_TOKEN:-}" > "$LIVE_DIR/vercel-saw-token"; exit 0; }
+[ "${VERCEL_REFUSE:-}" = afterdeploy ] && { echo "Inspect: https://vercel.com/joshua-stones-projects/chaoskosmos/x"; echo "Production: https://chaoskosmos-x.vercel.app"; echo "Error: Not authorized" >&2; exit 1; }
+[ "${VERCEL_REFUSE:-}" = other ] && { echo "Deploying chaoskosmos"; echo "Error: The deployment exceeded the size limit" >&2; exit 5; }
 # `vercel deploy --prod --yes` runs with the EXPORT as cwd. Publish it into LIVE (additive copy is
 # enough to run the served-verify honestly).
 mkdir -p "$LIVE_DIR/dist"
@@ -198,6 +206,16 @@ else
   bad "B1: a successful --publish did not return 0 with the success line (rc=$RC); out=$out"
 fi
 
+# B1d) kosmos#6826: a COMPLETED DRY RUN returns 0 too. Its exit is the other one that must set _DS_FINISHED=1
+# first; without it the EXIT trap reads the run as unfinished and exits 1.
+read -r S L <<<"$(make_publish_scenario ok)"
+run_deploy "$S" "$L"
+if [ "$RC" = 0 ] && has "$out" "DRY RUN complete" && ! has "$out" "stopped before finishing"; then
+  pass "B1d: a completed dry run returns 0 and is not read as unfinished (kosmos#6826)"
+else
+  bad "B1d: a completed dry run did not return 0 cleanly (rc=$RC); out=$out"
+fi
+
 # B2) CONTROL: a STALE site (committed pointer != live) must REFUSE with a non-zero exit -- proving
 # B1's rc==0 is a real success signal, not a harness that returns 0 no matter what.
 read -r S2 L2 <<<"$(make_publish_scenario stale)"
@@ -231,6 +249,65 @@ if [ "$RC" != 0 ] && has "$out" "postinstall REFUSES"; then
   pass "B4-CONTROL: an unreachable /setup.sha256 refuses (rc=$RC) -- the fetch-fail branch fires, not just the mismatch branch"
 else
   bad "B4-CONTROL: an unreachable /setup.sha256 did not refuse (rc=$RC); the fetch-fail branch is untested. out=$out"
+fi
+
+# B5) kosmos#6771: the CLI refused, no token given: exit 77, and the refusal is said in full (the secrets target), not
+# only "Not authorized", which is still shown.
+read -r S5 L5 <<<"$(make_publish_scenario ok)"
+VERCEL_REFUSE=auth run_deploy "$S5" "$L5" --publish
+if [ "$RC" = 77 ] && has "$out" "Error: Not authorized" && has "$out" "no VERCEL_TOKEN was given" && has "$out" "vercel-chaoskosmos-site" && has "$out" "refused (rc 7): exiting 77"; then
+  pass "B5: a refused deploy with no token: exit 77, the CLI's own line kept, its own code (7) reported, the missing token named"
+else
+  bad "B5: a refused deploy with no token (rc=$RC); out=$out"
+fi
+# B6) the same refusal with a token given says the TOKEN was refused (and never prints it).
+read -r S6 L6 <<<"$(make_publish_scenario ok)"
+VERCEL_TOKEN=tok-6771-not-printed VERCEL_REFUSE=auth run_deploy "$S6" "$L6" --publish
+if [ "$RC" = 77 ] && has "$out" "REFUSED the token in VERCEL_TOKEN" && has "$out" "wins over the map" && ! has "$out" "tok-6771-not-printed"; then
+  pass "B6: a refused deploy with a token: exit 77, says the token was refused and that an inherited one wins, and deploy-site's own lines do not print it"
+else
+  bad "B6: a refused deploy with a token (rc=$RC); out=$out"
+fi
+
+# B5c) the same refusal with the CLI's colour codes on its line is still recognised.
+read -r S8 L8 <<<"$(make_publish_scenario ok)"
+VERCEL_REFUSE=colour run_deploy "$S8" "$L8" --publish
+if [ "$RC" = 77 ] && has "$out" "no VERCEL_TOKEN was given"; then
+  pass "B5c: a coloured 'Error: Not authorized' is still read as the refusal (exit 77)"
+else
+  bad "B5c: a coloured refusal (rc=$RC); out=$out"
+fi
+# B5t) the CLI's own words for a refused token (from its code), behind a "> " prefix: still exit 77.
+read -r S9 L9 <<<"$(make_publish_scenario ok)"
+VERCEL_TOKEN=tok-bad VERCEL_REFUSE=badtoken run_deploy "$S9" "$L9" --publish
+if [ "$RC" = 77 ] && has "$out" "REFUSED the token"; then
+  pass "B5t: the CLI's real refused-token wording, prefixed, is still the refusal (exit 77)"
+else
+  bad "B5t: real wording (rc=$RC); out=$out"
+fi
+# B8) the token reaches the vercel command (it is given back to it alone).
+read -r S10 L10 <<<"$(make_publish_scenario ok)"
+VERCEL_TOKEN=tok-for-vercel VERCEL_REFUSE=whosees run_deploy "$S10" "$L10" --publish
+[ "$(cat "$L10/vercel-saw-token" 2>/dev/null)" = tok-for-vercel ] && [ ! -e "$L10/curl-saw-token" ] && pass "B8: the vercel command gets VERCEL_TOKEN, and the fetches (curl) never see it" || bad "B8: vercel saw '$(cat "$L10/vercel-saw-token" 2>/dev/null)' (rc=$RC)"
+# B5d) the same refusal AFTER the CLI made a deployment (an Inspect URL before it) is an ordinary failure, exit 1, so
+# the autodeploy counts it rather than letting its "already live" shortcut bless an unverified deploy.
+read -r S11 L11 <<<"$(make_publish_scenario ok)"
+VERCEL_REFUSE=afterdeploy run_deploy "$S11" "$L11" --publish
+if [ "$RC" = 1 ] && has "$out" "vercel deploy --prod failed (rc 1)" && ! has "$out" "exiting 77"; then
+  pass "B5d: a refusal after a deployment was made: exit 1 (counted), not 77"
+else
+  bad "B5d: a refusal after a deployment (rc=$RC); out=$out"
+fi
+# B8-CONTROL: the curl stand-in does record a VERCEL_TOKEN it is given, so B8's "never sees it" can fail.
+( VERCEL_TOKEN=x LIVE_DIR="$T/b8ctl" HOST_URL="$HOSTURL"; export VERCEL_TOKEN LIVE_DIR HOST_URL; mkdir -p "$LIVE_DIR"; "$BIN/curl" -s "$HOSTURL/x" >/dev/null 2>&1 )
+[ -e "$T/b8ctl/curl-saw-token" ] && pass "B8-CONTROL: the curl stand-in records a token it is given" || bad "B8-CONTROL: the curl stand-in cannot see a token, so B8 proves nothing"
+# B7) a failure that is NOT an authorization refusal says only that the deploy failed, with its code: no token words.
+read -r S7 L7 <<<"$(make_publish_scenario ok)"
+VERCEL_REFUSE=other run_deploy "$S7" "$L7" --publish
+if [ "$RC" = 1 ] && has "$out" "vercel deploy --prod failed (rc 5)" && ! has "$out" "VERCEL_TOKEN"; then
+  pass "B7: another Vercel failure: its own code (5), and no token sentence"
+else
+  bad "B7: a non-authorization failure (rc=$RC); out=$out"
 fi
 
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }

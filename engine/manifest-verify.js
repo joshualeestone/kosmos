@@ -153,6 +153,92 @@ function verifySetup({ manifest, sig, setup, version, installedVersion, keys = K
   return { code: 0, why: `the installer matches the signed manifest for ${version}` };
 }
 
+/* ---- kosmos#6620 (O04-5): the fleet's update pause, the board half. Here, not in a module of its own, because
+ * run-setup is called by .pkg files already downloaded and by fixtures that carry this one file. ---- */
+/**
+ * During a release incident the operator turns the pause on at the coordinator (kosmos-relay
+ * `deploy/updates-pause.sh on`), and its public `/v1/meta` answers `"updates_paused": true`. Before this Kosmos
+ * installs (engine/manifest-verify.js runSetup on a Mac, any version it is asked for, a same-version reinstall too;
+ * engine/win32update.js begin on Windows, a new install), it asks, and holds back while the answer is true. Rolling
+ * back is not asked: it installs no new code. A Kosmos older than this code is held too, by the installer it downloads
+ * (install/setup.sh update_paused, #6781), but its board reports the hold as a failed install: the installer's 96
+ * reaches it as a plain failure (see runSetup), and only this code knows the word "paused".
+ *
+ * Why the coordinator: the release site, its pointer and its signing key are the suspect part in that incident, so a
+ * pause carried there could be removed by whoever holds them.
+ *
+ * It fails OPEN. No answer, a slow answer, an answer that is not JSON, or one without the field all read as "not
+ * paused": a fleet that holds every update whenever the coordinator blinks cannot take a security fix. So the pause
+ * covers the computers that can reach the coordinator; for the rest the signed manifest is the only defence.
+ *
+ * The reverse also holds: whoever controls that answer can hold every update, a security fix included, until the
+ * pause is turned off; the only way past it on one computer is the override below.
+ *
+ * Under `node --test` (NODE_TEST_CONTEXT, in the env given or this process's own) it asks nothing unless a test names
+ * the address with KOSMOS_UPDATE_PAUSE_URL; tools/run-tests.sh points that at a dead local port for every suite.
+ * Two overrides, both needing control of this computer's env: KOSMOS_UPDATE_IGNORE_PAUSE=1 skips the question (for an
+ * operator who must install during a pause), and KOSMOS_UPDATE_PAUSE_URL asks another address. Neither, nor
+ * AGENT_WORKFORCE_TUNNEL_COORDINATOR, is required to be https: one set to http lets a network in between hold updates,
+ * the same reach as whoever controls the answer above, and setting it already takes control of this computer's env.
+ *
+ * The installer asks the same question itself when it updates in place (install/setup.sh update_paused, #6781), so a
+ * pasted install line and a .pkg on its pinned path are held too; runSetup tells the installer it has already asked.
+ *
+ * A second reader of /v1/meta beside engine/remote.js fetchMetaFlag, on purpose: run-setup is the installed copy of
+ * this file run on its own (also by .pkg files already downloaded), so it requires nothing of the board's modules, and
+ * it needs a synchronous form (curl) that fetchMetaFlag cannot give. Both refuse redirects and read only a boolean.
+ */
+const PAUSE_DEFAULT_COORDINATOR = 'https://login.kosmosplus.com';
+const PAUSE_TIMEOUT_SECS = 5;
+
+/** The /v1/meta address to ask, or null when nothing should be asked (an override, or a test that named none). */
+function pauseUrl(env = process.env) {
+  if (env.KOSMOS_UPDATE_IGNORE_PAUSE === '1') return null;
+  if (env.KOSMOS_UPDATE_PAUSE_URL) return String(env.KOSMOS_UPDATE_PAUSE_URL);
+  // This process's own env too: a test may hand in an env of its own without NODE_TEST_CONTEXT (review 1).
+  if (env.NODE_TEST_CONTEXT || process.env.NODE_TEST_CONTEXT) return null;
+  const base = String(env.AGENT_WORKFORCE_TUNNEL_COORDINATOR || PAUSE_DEFAULT_COORDINATOR).replace(/\/+$/, '');
+  return base + '/v1/meta';
+}
+
+/** True only for a JSON object whose `updates_paused` is exactly true; anything else is "not paused". */
+function pausedIn(body) {
+  try {
+    const v = JSON.parse(String(body));
+    return Boolean(v && typeof v === 'object' && v.updates_paused === true);
+  } catch {
+    return false;
+  }
+}
+
+/** The Mac form, for runSetup (which is synchronous): curl, as runSetup fetches everything else. */
+function pausedSync({ env = process.env, spawnSync = require('child_process').spawnSync } = {}) {
+  const url = pauseUrl(env);
+  if (!url) return false;
+  try {
+    const r = spawnSync('curl', ['-q', '-fsS', '--max-time', String(PAUSE_TIMEOUT_SECS), url], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return r && r.status === 0 ? pausedIn(r.stdout) : false;
+  } catch {
+    return false;
+  }
+}
+
+/** The Windows form, for win32update.begin (async). */
+async function pausedAsync({ env = process.env, fetchImpl = globalThis.fetch } = {}) {
+  const url = pauseUrl(env);
+  if (!url || typeof fetchImpl !== 'function') return false;
+  try {
+    const res = await fetchImpl(url, { redirect: 'error', signal: AbortSignal.timeout(PAUSE_TIMEOUT_SECS * 1000) });
+    if (!res || !res.ok) return false;
+    return pausedIn(await res.text());
+  } catch {
+    return false;
+  }
+}
+
+/** The one sentence a held install says, on either platform. */
+const PAUSED_SENTENCE = 'updates are paused while Kosmos checks a problem with a release, so this update waits until the pause is lifted';
+
 /* 🛑 A FROZEN INTERFACE. `run-setup <setup-url> <release-base> <version> <installed-home>` and its exit codes (0 or
  * the installer's own, 96 not fetched, 97 refused) are also called by .pkg files already downloaded (#6474), which
  * run against whatever NEWER copy of this file is installed. Add forms; never reorder or remove these.
@@ -162,11 +248,22 @@ function verifySetup({ manifest, sig, setup, version, installedVersion, keys = K
  * through. Returns the installer's exit code, or 97 (a sentence on stderr) when it was not run. */
 const NOT_RUN = 97;      // refused: the installer or its manifest did not check out (a retry gives the same answer)
 const NOT_FETCHED = 96;  // a download failed (a retry can succeed: a half-published deploy, the network)
+/* #6659 (review 1): setup.sh tells the default copy from a sandboxed one by the path STRING, so a home that resolves to
+   the default copy is handed over as the default string itself (a ~/.local reached through a link resolves elsewhere). */
+function asTheInstallerNamesIt(home) {
+  const dflt = path.join(require('os').homedir(), '.local', 'share', 'kosmos');
+  try { if (fs.realpathSync(home) === fs.realpathSync(dflt)) return dflt; } catch { /* either gone: as handed */ }
+  return home;
+}
 function runSetup({ setupUrl, base, version, home, spawnSync = require('child_process').spawnSync }) {
   const say = (why) => { process.stderr.write('Kosmos: ' + why + ', so the installer was not run.\n'); return NOT_RUN; };
   const sayFetch = (why) => { process.stderr.write('Kosmos: ' + why + ', so the installer was not run.\n'); return NOT_FETCHED; };
   if (!/^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(String(version || ''))) return say('the version to install is not known');
   if (!home) return say('the installed copy could not be found');
+  // kosmos#6620: held during the fleet's update pause (any version run-setup is asked for, a reinstall of the same one
+  // too), as NOT_FETCHED: a retry, once the pause is off, succeeds.
+  // Its own curl, not the injected spawnSync: a test that counts runSetup's downloads must see only those.
+  if (pausedSync()) { process.stderr.write('Kosmos: ' + PAUSED_SENTENCE + '; the installer was not run.\n'); return NOT_FETCHED; }
   let dir;
   try { dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'kosmos-setup-')); } catch { return say('there was no private folder to check the installer in'); }
   try {
@@ -213,6 +310,13 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     if (r.code !== 0) return say(r.why);
     const env = { ...process.env };
     delete env.NODE_OPTIONS;
+    /* #6659: the installer updates THIS copy, the home it was handed. The board runs with no KOSMOS_HOME exported
+       (install/kosmos sets it unexported), so without this the installer took its default, ~/.local/share/kosmos: a
+       board installed anywhere else (a test board, a home of the person's choosing) updated the default copy instead,
+       stopping and replacing the person's own Kosmos. */
+    env.KOSMOS_HOME = asTheInstallerNamesIt(home);
+    // #6781: the installer asks the update pause itself (for a pasted line or a pinned .pkg); this run already asked.
+    env.KOSMOS_UPDATE_PAUSE_ASKED = '1';
     // stdin is not handed on: under curl | sh the installer's stdin was its own bytes, so it never read one.
     const run = spawnSync('/bin/sh', [files.setup], { stdio: ['ignore', 'inherit', 'inherit'], env });
     // 96 and 97 are reserved for "not run": an installer that exits either itself is reported as a plain failure.
@@ -255,11 +359,11 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
  * stolen release key is a new list without it, seq + 1, signed with the recovery key (tools/lib/release-keys-sign.js),
  * and the next release raises MIN_KEY_LIST_SEQ to it. Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
 const RECOVERY_KEYS = Object.freeze([]);   // frozen: nothing in the process can turn the feature on by adding one
-/* 🛑 #6609: NOT filled in until the whole chain takes the list. Done: run-setup (2a) and setup.sh's checks (2b). NOT done:
-   the .pkg installer's pinned path (kosmos-pkg-verify, #6576), which still chooses the installer with the built-in keys;
-   the Windows updater (engine/win32update.js, #6607), which checks its manifest with the built-in KEYS; and serving the
-   list from the site (2c). Filled in before all three, a revoked key still opens a .pkg install or a Windows update,
-   and every update fails for want of a list (.claude/plans/recoverykey3-6609.md). */
+/* 🛑 #6609: NOT filled in until the whole chain takes the list. Done: run-setup (2a), setup.sh's checks (2b), the
+   Windows updater (engine/win32update.js releaseKeys, #6692), and the .pkg installer's pinned path (kosmos-pkg-verify,
+   #6576; its recoveryKeys must match these; that whole path is itself off while install/pkg-verify/floor reads "off").
+   NOT done: serving the list from the site (2c). Filled in before the site serves a list, every update fails, and so
+   does every .pkg install with its check on (.claude/plans/recoverykey3-6609.md). */
 const KEY_LIST_STATE = 'release-keys.state';   // a folder: one seq-<n>.json per list taken
 // The lowest list seq this build accepts, even with no state stored (a fresh install): raised in the release after a
 // revocation, so a copy without a record still refuses the list from before it.
@@ -269,6 +373,20 @@ const MAX_SEQ = 2147483647;
 const KEY_LIST_TYPE = 'kosmos-release-keys';
 const sameKeys = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
+// The Ed25519 points of small order (dividing 8), as their 32-byte encodings with the sign bit cleared, the
+// non-canonical spellings of 0 and 1 included (the list libsodium refuses). Some verifiers accept a forged signature
+// under such a key (Apple's CryptoKit does, for the identity point), so none is ever a key here; the same list is in
+// install/pkg-verify/main.swift (install.pkg-verify-keylist-6609.test.js checks both, and checks the points).
+const SMALL_ORDER = new Set([
+  '0000000000000000000000000000000000000000000000000000000000000000',
+  '0100000000000000000000000000000000000000000000000000000000000000',
+  '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05',
+  'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a',
+  'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+  'edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+  'eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+]);
+
 /** An Ed25519 public key from its SubjectPublicKeyInfo base64, or null for anything else. Only the canonical
  * spelling is a key (the bytes re-encoded must be the same string), so comparing strings compares keys. */
 function ed25519Key(b64) {
@@ -276,6 +394,8 @@ function ed25519Key(b64) {
   const der = Buffer.from(b64, 'base64');
   if (der.length !== 44 || der.toString('base64') !== b64) return null;
   if (!der.subarray(0, 12).equals(Buffer.from('302a300506032b6570032100', 'hex'))) return null;
+  const point = Buffer.from(der.subarray(12)); point[31] &= 0x7f;
+  if (SMALL_ORDER.has(point.toString('hex'))) return null;
   try { return crypto.createPublicKey({ key: der, format: 'der', type: 'spki' }); } catch { return null; }
 }
 
@@ -395,13 +515,13 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   return { ok: true, why: v.why, keys: v.keys };
 }
 
-module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles, signedManifest, filesRefusal, win32HeaderRefusal, PARTS,
+module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, pauseUrl, pausedIn, pausedSync, pausedAsync, PAUSED_SENTENCE, PAUSE_DEFAULT_COORDINATOR, KEYS, listFiles, signedManifest, filesRefusal, win32HeaderRefusal, PARTS,
   RECOVERY_KEYS, KEY_LIST_STATE, KEY_LIST_TYPE, MIN_KEY_LIST_SEQ, MAX_SEQ, ed25519Key, verifyKeyList, storedKeyList, trustedKeys };
 
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before
  * using a call form: it greps the next line, which lists every form this copy understands beyond the original
  * <manifest> <sig> <tarball> <stage> <version> <home>. Keep it one line, and add to it when adding a form.
- * manifest-verify capabilities: run-setup early tmux keylist */
+ * manifest-verify capabilities: run-setup early tmux keylist paused */
 /* #6609 phase 2b: the keys the plain and tmux forms check with. Off: the built-in KEYS. On: the release key list setup.sh
    fetched beside the manifest, named by KOSMOS_KEY_LIST and KOSMOS_KEY_LIST_SIG, taken through trustedKeys (this copy's
    record, so an older list cannot come back). On with no list given is a refusal: an installer that does not fetch it
@@ -429,6 +549,12 @@ if (require.main === module && process.argv[2] === 'needs-key-list') {
   let code;
   try { code = runSetup({ setupUrl, base, version, home }); } catch (e) { process.stderr.write('Kosmos: the installer could not be checked (' + (e && e.code || 'error') + '), so it was not run.\n'); code = NOT_RUN; }
   process.exit(code);
+} else if (require.main === module && process.argv[2] === 'paused') {
+  // #6781: <installed node> manifest-verify.js paused: exit 0 when the fleet's updates are paused, 1 when not (or no
+  // answer). `kosmos update --if-newer` asks it so a connect computer's app can say "paused", not "failed".
+  let p = false;
+  try { p = pausedSync(); } catch { p = false; }
+  process.exit(p ? 0 : 1);
 } else if (require.main === module && process.argv[2] === 'tmux') {
   // <installed node> manifest-verify.js tmux <manifest> <sig> <tmux.tar.gz> <version> <installed-home>
   const [manifest, sig, tmux, version, home] = process.argv.slice(3);

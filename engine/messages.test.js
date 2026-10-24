@@ -1613,6 +1613,119 @@ test('#4934/#5967: after an ack-only refusal a content post from the same agent 
   });
 });
 
+test('#6920: a held room lets each member land ONE long post that is not agreement, and still holds acks, short posts and a second long one', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // A room over its volume budget: real content, alternating senders, so only the volume valve fires.
+    const posts = [];
+    for (let i = 0; i < ROOM_BUDGET / 2; i += 1) posts.push({ from: MEMBERS[i % 3], text: 'round ' + i + ' carries real content' });
+    seedPosts(now, posts);
+    const summary = 'Where we landed: the export moves to the new path, Mara owns the migration script, and April checks '
+      + 'the three customer folders before Friday. The two claims on the parser were the same change, so Leo keeps it and '
+      + 'Mara drops hers. Nothing else is open in this thread; the person decides whether the Friday date holds, and every '
+      + 'one of us waits for that rather than posting here again. Details are in the task notes for each step.';
+    assert.ok(summary.length >= 400, 'the fixture summary is shorter than the closing-post minimum: ' + summary.length);
+    const posted = (session, text) => {
+      armSender(session); arm([]);
+      return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text }, board.agents, MEMBERS);
+    };
+    const closingRows = () => messages.record().rows.filter((m) => m.kind === 'post' && m.closing === true);
+
+    // The post that TIPS the room over is held, even a long one: the room was not held yet, so it is not a closing post,
+    // and the member keeps its one for after it learns of the hold.
+    const tip = posted('leo-discord', summary);
+    assert.equal(tip.code, 'room_held', 'the post that tipped the room over landed as a closing post');
+    assert.equal(tip.closingEligible, true, '#6925: the first refusal (the one that records the row) does not offer the summary');
+    const liftBefore = tip.clearsAt;
+    assert.ok(typeof liftBefore === 'string' && liftBefore !== '', 'the hold gave no lift time, so the no-charge check below would prove nothing');
+    assert.equal(closingRows().length, 0);
+    // CONTROL: an acknowledgement in the held room is held, as before.
+    const ack = posted('leo-discord', 'agreed, thanks');
+    assert.equal(ack.code, 'room_held', 'a short ack got through a held room');
+    // A short post with content is held too: only a long one is a closing post.
+    const short = posted('leo-discord', 'one more thing about the parser');
+    assert.equal(short.code, 'room_held', 'a short content post got through a held room');
+    // One character under the minimum is held (the line is where the constant says).
+    const under = posted('leo-discord', summary.slice(0, 399));
+    assert.equal(under.code, 'room_held', 'a 399-character post got through as a closing post');
+
+    // The summary lands, delivered, and is stored as this member's closing post.
+    const landed = posted('leo-discord', summary);
+    assert.notEqual(landed.state, chat.DELIVERY.COULD_NOT, 'the summarizing post was held: ' + JSON.stringify(landed));
+    assert.equal(landed.closing, true, 'the sender is not told its post went through as its one closing post');
+    assert.equal(closingRows().length, 1, 'the summary was not stored as a closing post');
+    assert.equal(closingRows()[0].from, 'leo');
+
+    // A second long post from the SAME member is held: one per member per hold.
+    const again = posted('leo-discord', summary + ' Adding one more detail.');
+    assert.equal(again.code, 'room_held', 'a second long post from the same member got through');
+    assert.equal(again.closingUsed, true, 'the refusal does not tell the CLI this member has used its closing post');
+    assert.equal(ack.closingUsed, undefined, 'a member that has not used its closing post was told it had');
+    assert.equal(ack.closingEligible, true, '#6925: a refused member with its summary unused is not told the board will take one');
+    assert.equal(again.closingEligible, undefined, '#6925: a member that used its summary is still told the board will take one');
+    // The summary did not push the room's lift later: closing posts are not charged to the room.
+    assert.equal(again.clearsAt, liftBefore, 'the closing post moved the room\'s lift time');
+    // Another member that this hold has not refused yet is held first (it learns of the hold), then lands its own.
+    const maraFirst = posted('mara-discord', summary.replace('Where we landed', 'My side'));
+    assert.equal(maraFirst.code, 'room_held', 'a member the hold had not refused yet landed a closing post');
+    const mara = posted('mara-discord', summary.replace('Where we landed', 'My side'));
+    assert.notEqual(mara.state, chat.DELIVERY.COULD_NOT, 'another member was refused its own closing post');
+    assert.equal(closingRows().length, 2);
+
+    // CONTROL for the exemption itself: in an UNDER-budget room the same summary is an ordinary post, not marked closing.
+    wipeLog(); chat.resetForTests(); messages.resetForTests();
+    const plain = posted('leo-discord', summary);
+    assert.notEqual(plain.state, chat.DELIVERY.COULD_NOT);
+    assert.equal(plain.closing, undefined);
+    assert.equal(closingRows().length, 0, 'a post in a room that was not held was marked closing');
+    // A short post padded out with indented lines is measured on its one-line form, so it is not a closing post.
+    wipeLog(); chat.resetForTests(); messages.resetForTests();
+    seedPosts(now, posts);
+    posted('leo-discord', 'tipping it over');
+    const padded = posted('leo-discord', 'one more thing' + ('\n' + ' '.repeat(60) + 'x').repeat(8));
+    assert.equal(padded.code, 'room_held', 'indentation padding made a short post a closing post');
+    // A room held just UNDER its budget (posts of uneven size leave it one arrival short, and every 2-recipient post is
+    // refused): the hold still lets a summary through, once the member has been refused once.
+    wipeLog(); chat.resetForTests(); messages.resetForTests();
+    const under1 = [];
+    for (let i = 0; i < ROOM_BUDGET / 2 - 1; i += 1) under1.push({ from: MEMBERS[i % 3], text: 'round ' + i + ' carries real content' });
+    seedPosts(now, under1);
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'solo', project: 'henderson-lease', from: 'april',
+      to: ['mara'], text: 'one to one', at: new Date(now - 60000).toISOString(), outcomes: {} }) + '\n');
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'valve', from: 'mara', to: 'henderson-lease', project: 'henderson-lease',
+      at: new Date(now - 30000).toISOString(), because: 'held earlier', stopped: true }) + '\n');
+    const retip = posted('leo-discord', summary);
+    assert.equal(retip.code, 'room_held', 'a member the hold had not refused landed a closing post');
+    const retry = posted('leo-discord', summary);
+    assert.notEqual(retry.state, chat.DELIVERY.COULD_NOT, 'a room held just under budget never let the summary through');
+    assert.equal(closingRows().length, 1);
+  });
+});
+
+test('#6920: with the limit Off nothing is held, so a long post is an ordinary post, never a closing one', () => {
+  withFleet(room3(), (board) => {
+    assert.equal(limits.write({ on: false, perHour: 10 }).ok, true);
+    try {
+      const now = Date.now();
+      const posts = [];
+      for (let i = 0; i < 20; i += 1) posts.push({ from: MEMBERS[i % 3], text: 'round ' + i + ' carries real content' });
+      seedPosts(now, posts);
+      // A refusal from while the limit was on, so the limit being off is the only thing that keeps this post ordinary.
+      fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'refused', from: 'leo', to: 'henderson-lease', project: 'henderson-lease',
+        because: 'the room was going back and forth without landing, so Kosmos was holding it for the person',
+        at: new Date(now - 30000).toISOString() }) + '\n');
+      armSender('leo-discord'); arm([]);
+      const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'x'.repeat(10) + ' ' + 'summary words '.repeat(40) },
+        board.agents, MEMBERS);
+      assert.equal(out.state, chat.DELIVERY.PLACED, out.because || '');
+      assert.equal(out.closing, undefined, 'a post in a room with the limit off was marked closing');
+      assert.equal(messages.record().rows.filter((m) => m.kind === 'post' && m.closing === true).length, 0);
+    } finally {
+      fs.rmSync(limits.FILE, { force: true });
+    }
+  });
+});
+
 test('#4934/#5967: in a room OVER the volume budget, an ack run yields the honest room_held, not ack_only (the "goes through straight away" promise must hold)', () => {
   withFleet(room3(), (board) => {
     const now = Date.now();

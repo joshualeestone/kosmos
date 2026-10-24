@@ -97,3 +97,13 @@ test('the cache follows the signature too: the same set with a bad signature is 
   fs.writeFileSync(path.join(d, SIG_FILE), VECTOR_SIG.replace(/^./, (c) => (c === 'A' ? 'B' : 'A')) + '\n');
   assert.deepEqual(serviceKeyCheck(state(PIN7), on(d)), { state: 'refused' }, 'a changed signature');
 });
+
+test('slice 3: the keys handed to the connector are the verified set\'s, and only when on, verified and production', () => {
+  const { expectedCoordinatorKeys } = require('./servicekeys-check');
+  assert.equal(expectedCoordinatorKeys({ appDir: app() }), null, 'off as shipped');
+  assert.equal(expectedCoordinatorKeys(on(app())), 'MCowBQYDK2VwAyEA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=,MCowBQYDK2VwAyEAE5j2LG0aRXxRumpLXz29L2n8qTIWIY3ImX5Ba9F9k8o=',
+    'both listed keys, in the set\'s own spelling');
+  assert.equal(expectedCoordinatorKeys({ ...on(app()), production: false }), null, 'another coordinator');
+  assert.equal(expectedCoordinatorKeys(on(app({ set: VECTOR.replace('"seq": 1', '"seq": 2') }))), null, 'a set that does not verify');
+  assert.equal(expectedCoordinatorKeys(on(app({ set: null }))), null, 'no set shipped');
+});

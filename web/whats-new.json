@@ -1,33 +1,33 @@
 {
-  "version": "0.7.61",
+  "version": "0.7.64",
   "highlights": [
     {
       "icon": "tasks",
-      "title": "Quiet projects stop flagging you",
-      "line": "Paused projects and agents out of usage no longer mark a project as an Issue, and every row in a project's needs-you list can be dismissed."
+      "title": "A task can be closed as replaced",
+      "line": "An agent can close a task as replaced by a later one: its page links to the new task, and the Tasks list says so."
     },
     {
-      "icon": "swarm",
-      "title": "Less repeated text",
-      "line": "Notices, setup and adding a computer drop lines that repeated what was already on screen."
+      "icon": "tasks",
+      "title": "Close a task and its subtasks at once",
+      "line": "When a task's subtasks are all built or closed, one press on its page closes the built ones and then the task itself."
     },
     {
-      "icon": "phone",
-      "title": "A way back to this computer",
-      "line": "In the Kosmos app, View, Back to This Computer (Command Shift H) returns the window to this computer after you open another.",
+      "icon": "list",
+      "title": "See which agent changed a file",
+      "line": "A project's Documents screen, opened with View All under Files, usually shows which Claude agent changed a file last.",
       "platforms": [
         "mac"
       ]
     },
     {
-      "icon": "shield",
-      "title": "Joining says why it waits",
-      "line": "A computer joining your Kosmos+ account now says, after a minute with no code, that your other computer adds one at a time."
+      "icon": "swarm",
+      "title": "A paused room says why",
+      "line": "When Kosmos pauses a room whose agents kept going back and forth, a note above the message box says why and offers Reopen."
     },
     {
-      "icon": "tasks",
-      "title": "An agent marking a task built tells the others",
-      "line": "When an agent marks a task built, Kosmos now tells the task's other agents and whoever holds the task above it."
+      "icon": "list",
+      "title": "A project shows each member's role",
+      "line": "A project's member list now shows the role each member set for that project."
     }
   ]
 }

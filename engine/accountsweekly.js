@@ -36,9 +36,12 @@ function fiveHourOf(a, nowMs) {
 }
 
 /** Why there can be NO reading for this account, when that is known: 'own-statusline', 'not-wired',
-    'linked-settings' (#6175) or 'unreadable-settings'. null when Kosmos's own status line is there, so a reading comes once an agent on it works. */
-function weeklyBlockedOf(a) {
+    'linked-settings' (#6175) or 'unreadable-settings'. null when Kosmos's own status line is there, so a reading comes once an agent on it works.
+    kosmos#6570: always null on Windows, where an agent's readings come from its own event stream (win32streamstate), not
+    the status line, which Claude Code never runs for a headless agent: none of these reasons stops a reading there. */
+function weeklyBlockedOf(a, platform = process.platform) {
   if (!a || a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
+  if (platform === 'win32') return null;
   const sp = path.join(a.dir, 'settings.json');
   const linkedAway = () => {   // #6175: the same test the set-up route makes before it writes
     try { if (!fs.lstatSync(sp).isSymbolicLink()) return false; } catch { return false; }

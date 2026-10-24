@@ -31,6 +31,21 @@ DEPLOYS="$T/deploys"; : > "$DEPLOYS"; REPOENV="$T/repoenv"
 export KOSMOS_AUTODEPLOY_SITE="$T/site" KOSMOS_AUTODEPLOY_STATE="$T/state" KOSMOS_AUTODEPLOY_DIST_FROM="$CUTDIST" KOSMOS_SITE_URL="file://$SERVED"
 export KOSMOS_AUTODEPLOY_DEPLOY='git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS"'; printf %s "$KOSMOS_REPO" > '"$REPOENV"'; echo deploy-said-this; exit "${DEPLOY_RC:-0}"'
 export KOSMOS_AUTODEPLOY_PS="printf %s\\n idle"
+# kosmos#6771: every arm below runs with a token, as the job will once it is filed; the token arms at the end unset it.
+export VERCEL_TOKEN=test-token-6771
+# kosmos#6771 (10-22): with no token the job deploys on the machine's own vercel sign-in when `vercel whoami` answers.
+# Never the real CLI here (signed in on Mortals, not on Agent1s: the answer would depend on the machine): by default a
+# stand-in that is NOT signed in, so every arm without a token is red as before; the sign-in arms swap in one that is.
+mkdir -p "$T/vbin"
+printf '#!/bin/sh\necho "Error: No existing credentials found." >&2\nexit 1\n' > "$T/vbin/vercel-out"
+printf '#!/bin/sh\necho "$*" >> "%s"\necho "Vercel CLI 99.0.0" >&2\necho "someone-6084"\n' "$T/vercel.log" > "$T/vbin/vercel-in"
+# Review 1: a failing whoami that prints its error on STDOUT; one that prints two lines; one that hangs, with a child
+# holding its stdout (the real CLI spawns an update worker that inherits it).
+printf '#!/bin/sh\necho "unauthorized"\nexit 1\n' > "$T/vbin/vercel-errout"   # name-shaped, so only the exit code tells
+printf '#!/bin/sh\necho someone-6084\necho "Update available 60.0.0"\n' > "$T/vbin/vercel-two"
+printf '#!/bin/sh\nperl -e "select(undef,undef,undef,6)" &\nexec perl -e "select(undef,undef,undef,6)"\n' > "$T/vbin/vercel-hang"
+chmod +x "$T/vbin/vercel-out" "$T/vbin/vercel-in" "$T/vbin/vercel-errout" "$T/vbin/vercel-two" "$T/vbin/vercel-hang"
+export KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-out"
 ST="$T/state"
 tick() { OUT=$(bash "$AD" 2>&1); RC=$?; }
 ndeploys() { wc -l < "$DEPLOYS" | tr -d ' '; }
@@ -132,6 +147,64 @@ KOSMOS_AUTODEPLOY_PS="printf %s\\n 'grep tools/release.sh' 'vim tools/release.sh
 { [ "$(ndeploys)" = 6 ] && [ "$(cat "$ST/last-deployed")" = "$H6" ]; } \
   && pass "a grep or an editor naming release.sh is not a cut (control: the deploy goes ahead)" || bad "a mention of release.sh held the deploy (deploys=$(ndeploys))"
 
+# 7b) kosmos#6907: a publisher a TEST started (the shell suite runs the real deploy-site.sh) does not hold the deploy;
+# one with no test above it does, and the skip names it. Each arm has its own state and deploy log, so the counts
+# the rest of this file reads are untouched.
+arm6907() {  # <name> <ps lines...>: one tick on fresh state; leaves OUT, RC and N (deploys it made)
+  local name="$1"; shift; local lines="$T/ps6907-$name"; printf '%s\n' "$@" > "$lines"
+  KOSMOS_AUTODEPLOY_STATE="$T/state6907-$name" KOSMOS_AUTODEPLOY_PS="cat $lines" \
+    KOSMOS_AUTODEPLOY_DEPLOY="echo x >> $T/deploys6907-$name" tick
+  N=$(cat "$T/deploys6907-$name" 2>/dev/null | wc -l | tr -d ' ')
+}
+arm6907 test '  100     1 /bin/bash /Users/x/work/val-pauseall-6781/tools/test-deploy-site-promote.sh' \
+  '  150   100 sh -c bash "$REPO/tools/deploy-site.sh" --promote' \
+  '  200   150 bash /Users/x/work/val-pauseall-6781/tools/deploy-site.sh --promote'
+{ [ "$RC" = 0 ] && [ "$N" = 1 ] && printf '%s' "$OUT" | grep -qF 'not held by pid 200: bash /Users/x/work/val-pauseall-6781/tools/deploy-site.sh --promote (under pid 100: /bin/bash /Users/x/work/val-pauseall-6781/tools/test-deploy-site-promote.sh) (a test started it)'; } \
+  && pass "a deploy-site.sh a test-*.sh started (two levels up) does not hold the deploy, and the tick says which test" || bad "a test's deploy-site.sh held the deploy, or was passed over silently (rc=$RC, deploys=$N): $OUT"
+arm6907 real '  100     1 -zsh' '  200   100 bash tools/deploy-site.sh --publish'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -qF '(pid 200: bash tools/deploy-site.sh --publish)'; } \
+  && pass "control: a hand-run deploy-site.sh holds the deploy and the skip names its pid and command" || bad "a hand-run deploy-site.sh did not hold, or was not named (deploys=$N): $OUT"
+arm6907 orphan '  200     1 bash /Users/x/work/val-pauseall-6781/tools/deploy-site.sh --promote'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ]; } && pass "a test subject whose harness died (ppid 1) still holds the deploy (fails closed)" || bad "an orphaned deploy-site.sh did not hold (deploys=$N)"
+arm6907 cut '  100     1 /bin/bash tools/release.sh 0.7.64' '  200   100 bash tools/test-deploy-site-promote.sh' \
+  '  300   200 bash /Users/x/work/kosmos/tools/deploy-site.sh --promote'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -qF '(pid 100: /bin/bash tools/release.sh 0.7.64)'; } \
+  && pass "a cut whose own gate runs a test of deploy-site.sh still holds, named as the cut" || bad "a cut running its tests did not hold or was misnamed (deploys=$N): $OUT"
+arm6907 node '  100     1 node --test --test-concurrency=4 tools.release-gate.test.js' \
+  '  150   100 /usr/local/bin/node --test-reporter=tap /Users/x/work/k/tools.release-gate.test.js' \
+  '  200   150 bash /var/folders/x/T/rg-1/tools/release.sh 0.7.99'
+{ [ "$RC" = 0 ] && [ "$N" = 1 ] && printf '%s' "$OUT" | grep -qF 'not held by pid 200: bash /var/folders/x/T/rg-1/tools/release.sh 0.7.99 (under pid 150: '; } \
+  && pass "a release.sh the node suite started does not hold the deploy, and the tick says which test" || bad "a node test's release.sh held the deploy, or was passed over silently (rc=$RC, deploys=$N): $OUT"
+arm6907 mixed '  100     1 bash tools/test-deploy-site-promote.sh' '  200   100 bash x/tools/deploy-site.sh --promote' \
+  '  300     1 -zsh' '  400   300 /bin/bash tools/promote-channel.sh /site --force'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -qF 'not held by pid 200:' && printf '%s' "$OUT" | grep -qF '(pid 400: /bin/bash tools/promote-channel.sh /site --force)'; } \
+  && pass "a test's deploy-site.sh listed first does not hide a real promote: logged, then held by the promote" || bad "a real promote after a test's deploy-site.sh was missed or misnamed (deploys=$N): $OUT"
+arm6907 nodetest '  100     1 node --test' '  200   100 bash /var/folders/x/T/rg-2/tools/release.sh 0.7.99'
+{ [ "$RC" = 0 ] && [ "$N" = 1 ]; } && pass "a release.sh directly under a bare node --test does not hold the deploy" || bad "a release.sh under node --test held the deploy (rc=$RC, deploys=$N): $OUT"
+arm6907 shellc "  100     1 bash -c tools/test-a.sh && bash tools/deploy-site.sh --publish" '  200   100 bash tools/deploy-site.sh --publish'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -qF '(pid 200: bash tools/deploy-site.sh --publish)'; } \
+  && pass "a shell that runs a test and then a real publish is not a test: its publish holds" || bad "a real publish under a test-then-publish shell was passed over (deploys=$N): $OUT"
+arm6907 nodeflagsfirst "  100     1 node server.js --test" '  200   100 bash tools/release.sh 0.7.99'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ]; } && pass "#6912: a release.sh under node server.js --test holds (an argument before --test is not a test runner)" || bad "#6912: node server.js --test exempted a release.sh (deploys=$N): $OUT"
+# The runner's real child as measured on this Mac (node 26.8.1), with the two --require pairs tools/run-tests.sh passes, with
+# NO matching parent in the list, so this arm proves the child line itself counts as a test.
+arm6907 realchild '  150     1 /opt/homebrew/Cellar/node/26.8.1/bin/node --test-concurrency=0 --heap-prof-interval=524288 --stack-trace-limit=10 --report-signal=SIGUSR2 --max-http-header-size=16384 --watch-kill-signal=SIGTERM --heapsnapshot-near-heap-limit=0 --inspect-publish-uid=stderr,http --test-isolation=process --test-coverage-lines=0 --cpu-prof-interval=1000 --test-coverage-functions=0 --require=/x/k/req.js --test-timeout=600000 --inspect-port=127.0.0.1:9229 --test-coverage-branches=0 --use-largepages=off --experimental-addon-modules --network-family-autoselection-attempt-timeout=500 --secure-heap-min=2 --v8-pool-size=4 --secure-heap=0 --tls-cipher-list=TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:DHE-RSA-AES256-SHA384:ECDHE-RSA-AES256-SHA256:DHE-RSA-AES256-SHA256:HIGH:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA --node-snapshot --trace-event-file-pattern=node_trace.${rotation}.log --require /x/k/launch-guard.js --require /x/k/tool-guard.js --test-timeout=600000 /x/k/a.test.js' \
+  '  200   150 bash /var/folders/x/T/rg-3/tools/release.sh 0.7.99'
+{ [ "$RC" = 0 ] && [ "$N" = 1 ] && printf '%s' "$OUT" | grep -qF 'not held by pid 200: bash /var/folders/x/T/rg-3/tools/release.sh 0.7.99 (under pid 150: '; } \
+  && pass "#6912: the node test runner's real child (options, two --require <file> pairs, then the test file) counts as a test on its own" || bad "#6912: the real node test child no longer exempts (deploys=$N): $OUT"
+arm6907 titletest '  100     1 node --title=a.test.js server.js' '  200   100 bash tools/release.sh 0.7.99'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ]; } && pass "#6912: an option whose value ends .test.js is not a test file" || bad "#6912: node --title=a.test.js exempted a release.sh (deploys=$N)"
+arm6907 nodeserver '  100     1 node server.js --port 16180' '  200   100 bash tools/release.sh 0.7.99'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ]; } && pass "control: a release.sh under a node process that is not a test still holds" || bad "a release.sh under a plain node process did not hold (deploys=$N)"
+arm6907 cycle '  200   300 bash tools/deploy-site.sh --publish' '  300   200 /bin/zsh -l'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -qF '(pid 200:'; } && pass "a parent cycle with no test in it ends and holds the deploy" || bad "a parent cycle did not hold (rc=$RC, deploys=$N): $OUT"
+realps=$(ps -axo pid=,ppid=,command=); first=${realps%%$'\n'*}
+[[ "$first" =~ ^\ *[0-9]+\ +[0-9]+\ . ]] && pass "this machine's ps -axo pid=,ppid=,command= has the pid ppid command shape the matcher reads" || bad "real ps output is not 'pid ppid command': '$first'"
+mkdir -p "$T/badawk"; printf '#!/bin/sh\nexit 2\n' > "$T/badawk/awk"; chmod +x "$T/badawk/awk"
+PATH="$T/badawk:$PATH" arm6907 awkfail '  100     1 -zsh'
+{ [ "$RC" = 0 ] && [ "$N" = 0 ] && printf '%s' "$OUT" | grep -q 'could not be matched'; } \
+  && pass "a matcher that fails holds the deploy (fails closed) and says why" || bad "a failing matcher let the deploy through (deploys=$N): $OUT"
+
 # 8) a failed deploy is retried once, then parked; a new merge tries again and clears it.
 H7=$(advance seven)
 DEPLOY_RC=1 tick
@@ -167,7 +240,7 @@ tick; n10=$(ndeploys)
 #     a dead holder's lock is taken over and the tick removes its own lock.
 H11=$(advance eleven)
 echo old > "$ST/heartbeat"
-mkdir "$ST/lock"; sleep 300 & live=$!; echo "$live" > "$ST/lock/pid"
+mkdir "$ST/lock"; perl -e 'select(undef, undef, undef, 300)' & live=$!; echo "$live" > "$ST/lock/pid"
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = "$n10" ] && [ "$(cat "$ST/heartbeat")" = old ]; } && pass "a live lock holder: no deploy, heartbeat untouched" || bad "deployed or beat under a live lock"
 # ...and once the lock has been held with no heartbeat for over an hour, it goes red (a wedged lock).
@@ -293,12 +366,12 @@ git -C "$T/site" remote set-url origin "$T/origin.git"
 #     published before hanging), not a retry: red, retried once, then parked; never blessed as live.
 H22=$(advance twentytwo); rm -f "$ST/retries" "$ST/failures"
 HANGPID="$T/hang.pid"
-KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANGPID"'; wait' tick
+KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANGPID"'; wait' tick
 hp=$(cat "$HANGPID" 2>/dev/null); sleep 1
 { [ "$RC" = 1 ] && [ -n "$hp" ] && ! kill -0 "$hp" 2>/dev/null && grep -q "^$H22 rc=124 " "$ST/last-failure" && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "past its 2s limit"; } \
   && pass "a hung deploy is stopped with its child and counted as a failure (rc 124), not parked yet" || { bad "hung deploy (rc=$RC, child $hp alive=$(kill -0 "$hp" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp" ] && kill "$hp" 2>/dev/null; }
 printf 'kosmos-release-export\ncommit=%s\n' "$H22" > "$SERVED/.kosmos-release-export"   # as if it published, then hung
-KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANGPID"'; wait' tick
+KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANGPID"'; wait' tick
 hp=$(cat "$HANGPID" 2>/dev/null); sleep 1; [ -n "$hp" ] && kill -0 "$hp" 2>/dev/null && kill "$hp"
 { [ "$RC" = 1 ] && [ "$(cat "$ST/parked" 2>/dev/null)" = "$H22" ] && [ "$(cat "$ST/last-deployed")" != "$H22" ]; } \
   && pass "a second hang parks the sha, and a marker naming it does not bless it as deployed" || bad "second hang (rc=$RC, parked=$(cat "$ST/parked" 2>/dev/null))"
@@ -306,7 +379,7 @@ rm -f "$ST/parked" "$ST/failures"; rm -rf "$ST/reported.d"
 
 # 23) the tick itself is killed mid-deploy (the runner cancels the job): its deploy group goes with it.
 H23=$(advance twentythree); HANG2="$T/hang2.pid"
-KOSMOS_AUTODEPLOY_DEPLOY='echo started-23; sleep 300 & echo $! > '"$HANG2"'; wait' bash "$AD" > "$T/tick23.out" 2>&1 & tick23=$!
+KOSMOS_AUTODEPLOY_DEPLOY='echo started-23; perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANG2"'; wait' bash "$AD" > "$T/tick23.out" 2>&1 & tick23=$!
 # Signal only once the tick has said it is deploying (its traps are set by then), not on the child alone.
 for i in $(seq 1 100); do [ -s "$HANG2" ] && command grep -q "deploying site main" "$T/tick23.out" && break; sleep 0.1; done; sleep 0.3
 kill -TERM "$tick23"; wait "$tick23" 2>/dev/null; sleep 1
@@ -362,35 +435,42 @@ rm -f "$CUTDIST/kosmos-0.7.22-arm64.tar.gz" "$CUTDIST/kosmos-0.7.22-arm64.tar.gz
   && pass "mirror: red once at the alarm under its own cause, then reported" || bad "mirror cause (c1=$c1 c2=$c2) $OUTC"
 rm -f "$ST/retries"; tick
 # wedged re-arm: a wedge reported, the lock freed (a tick takes it), then a NEW wedge is red at once.
-mkdir "$ST/lock"; sleep 300 & w1=$!; echo "$w1" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
+mkdir "$ST/lock"; perl -e 'select(undef, undef, undef, 300)' & w1=$!; echo "$w1" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
 tick; r1=$RC; kill "$w1" 2>/dev/null; wait "$w1" 2>/dev/null
 echo 999999 > "$ST/lock/pid"; tick   # takes over the dead lock: the wedge record clears
-mkdir "$ST/lock"; sleep 300 & w2=$!; echo "$w2" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
+mkdir "$ST/lock"; perl -e 'select(undef, undef, undef, 300)' & w2=$!; echo "$w2" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
 tick; r2=$RC; kill "$w2" 2>/dev/null; wait "$w2" 2>/dev/null; rm -rf "$ST/lock"
 { [ "$r1" = 1 ] && [ "$r2" = 1 ]; } && pass "wedged: after the lock is taken again, a new wedge is red at once" || bad "wedged re-arm (r1=$r1 r2=$r2)"
 
 # 26) a fetch that hangs is stopped at its limit with its whole process group, and is red_once fetch.
-#     (ext:: runs a command as the remote; the sleep's length is unique to this run, so it can be looked
-#     for afterwards without counting another run's.)
+#     (ext:: runs a command as the remote; the wait's length is unique to this run, so it can be looked
+#     for afterwards without counting another run's. kosmos#6730: a perl bounded wait, not `sleep`, so a stray
+#     `pkill -f sleep` cannot end the hang early and let this arm pass for the wrong reason. Its code has no
+#     spaces, because ext:: splits its command on them.)
 Z26="$(( 4000 + $$ % 900 )).$RANDOM$RANDOM"   # a fractional length: no two runs pick the same one
 git -C "$T/site" config protocol.ext.allow always
-git -C "$T/site" remote set-url origin "ext::sleep $Z26"
+HOLD26="select(undef,undef,undef,$Z26)"
+# Anchored at the start of the line, so the grep below never counts its own command line (which holds this text).
+# Any path before perl: git runs the remote by the full path it found on PATH (/usr/bin/perl here, a Homebrew or
+# CI perl elsewhere), and the control below is started the same way, so it proves the form git produces.
+HOLD26RE="^([^ ]*/)?perl -e select\\(undef,undef,undef,${Z26//./\\.}\\)\$"
+git -C "$T/site" remote set-url origin "ext::perl -e $HOLD26"
 t0=$SECONDS; KOSMOS_AUTODEPLOY_FETCH_MAX_S=2 tick; el=$((SECONDS - t0)); sleep 1
-left=$(ps -axo command= | command grep -Ec "(^|/)sleep ${Z26//./\\.}\$")   # ps names it /bin/sleep (measured)
+left=$(ps -axo command= | command grep -cE "$HOLD26RE")
 git -C "$T/site" remote set-url origin "$T/origin.git"; git -C "$T/site" config --unset protocol.ext.allow
 { [ "$RC" = 1 ] && [ "$el" -lt 10 ] && [ "$left" = 0 ] && printf '%s' "$OUT" | grep -q "could not fetch"; } \
   && pass "a hanging fetch is stopped at its limit, its helpers with it, and reported red" || bad "hanging fetch (rc=$RC, ${el}s, $left left) $OUT"
 # (No cleanup kill on a failure: this is a shared user, and a pattern kill reaches other people's
-#  processes. A leftover sleep ends by itself within 82 minutes.)
+#  processes. A leftover wait ends by itself within 82 minutes.)
 tick   # a good tick (the fetch record stays: see test 21)
-# Control: the count above can see a leftover (a sleep of the same length, started here, is counted).
-/bin/sleep "$Z26" & ctl26=$!; sleep 0.3; seen=$(ps -axo command= | command grep -Ec "(^|/)sleep ${Z26//./\\.}\$"); kill "$ctl26"; wait "$ctl26" 2>/dev/null
-[ "$seen" -ge 1 ] && pass "the leftover count sees a sleep of that length (control)" || bad "the leftover count cannot see a sleep (it counted $seen)"
+# Control: the count above can see a leftover (a wait of the same length, started here, is counted).
+"$(command -v perl)" -e "$HOLD26" & ctl26=$!; sleep 0.3; seen=$(ps -axo command= | command grep -cE "$HOLD26RE"); kill "$ctl26"; wait "$ctl26" 2>/dev/null
+[ "$seen" -ge 1 ] && pass "the leftover count sees a wait of that length (control)" || bad "the leftover count cannot see a wait (it counted $seen)"
 
 # 27) a SECOND signal while a killed tick is stopping a deploy that ignores TERM (a runner's cancel
 #     escalates) does not cut the failure record out.
 H27=$(advance twentyseven); HANG27="$T/hang27.pid"; rm -f "$ST/failures" "$ST/last-failure"
-KOSMOS_AUTODEPLOY_DEPLOY='trap "" TERM; echo started-27; sleep 300 & echo $! > '"$HANG27"'; wait' bash "$AD" > "$T/tick27.out" 2>&1 & tick27=$!
+KOSMOS_AUTODEPLOY_DEPLOY='trap "" TERM; echo started-27; perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANG27"'; wait' bash "$AD" > "$T/tick27.out" 2>&1 & tick27=$!
 for i in $(seq 1 100); do [ -s "$HANG27" ] && command grep -q "deploying site main" "$T/tick27.out" && break; sleep 0.1; done; sleep 0.3
 kill -TERM "$tick27"; sleep 1; kill -TERM "$tick27" 2>/dev/null; wait "$tick27" 2>/dev/null; sleep 1
 hp27=$(cat "$HANG27" 2>/dev/null)
@@ -403,7 +483,7 @@ rm -f "$ST/failures" "$ST/parked"; rm -rf "$ST/reported.d" "$ST/lock"
 #     next tick finds it from deploy.pid and waits; once it is past 1200 s it is stopped and counted
 #     as a failure (it may have published).
 H28=$(advance twentyeight); HANG28="$T/hang28.pid"
-KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANG28"'; wait' bash "$AD" > "$T/tick28.out" 2>&1 & tick28=$!
+KOSMOS_AUTODEPLOY_DEPLOY='perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANG28"'; wait' bash "$AD" > "$T/tick28.out" 2>&1 & tick28=$!
 for i in $(seq 1 100); do [ -s "$HANG28" ] && [ -s "$ST/deploy.pid" ] && break; sleep 0.1; done; sleep 0.3
 kill -KILL "$tick28"; wait "$tick28" 2>/dev/null; hp28=$(cat "$HANG28" 2>/dev/null)
 n28=$(ndeploys); tick
@@ -416,7 +496,7 @@ KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick; sleep 1
   && pass "past 1200 s the orphan is stopped and counted a failure; a marker naming its sha does not bless it" \
   || { bad "orphan stop (alive=$(kill -0 "$hp28" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp28" ] && kill "$hp28" 2>/dev/null; }
 # A pid in deploy.pid whose start time does not match (a reused pid) is not touched.
-sleep 300 & other=$!; printf '%s %s %s\n' "$other" "$H28" "Mon_Jan_1_00:00:00_2001" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+perl -e 'select(undef, undef, undef, 300)' & other=$!; printf '%s %s %s\n' "$other" "$H28" "Mon_Jan_1_00:00:00_2001" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick
 kill -0 "$other" 2>/dev/null && pass "a reused pid in deploy.pid (start time differs) is never signalled" || bad "signalled a process that was not the deploy"
 kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
@@ -424,7 +504,7 @@ rm -f "$ST/failures" "$ST/parked" "$ST/deploy.pid"; rm -rf "$ST/reported.d"
 
 # 29) a deploy whose leader exits leaving a child running in its group: the child is stopped.
 H29=$(advance twentynine); HANG29="$T/hang29.pid"
-KOSMOS_AUTODEPLOY_DEPLOY='sleep 300 & echo $! > '"$HANG29"'; exit 0' tick; sleep 1; hp29=$(cat "$HANG29" 2>/dev/null)
+KOSMOS_AUTODEPLOY_DEPLOY='perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANG29"'; exit 0' tick; sleep 1; hp29=$(cat "$HANG29" 2>/dev/null)
 { [ "$RC" = 0 ] && [ -n "$hp29" ] && ! kill -0 "$hp29" 2>/dev/null && printf '%s' "$OUT" | grep -q "left processes running"; } \
   && pass "a child left running in the deploy's group after it exits is stopped" || { bad "lingering child (rc=$RC alive=$(kill -0 "$hp29" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp29" ] && kill "$hp29" 2>/dev/null; }
 
@@ -448,13 +528,13 @@ KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=0 KOSMOS_AUTODEPLOY_DEPLOY='sleep 4; exit 0' tick
 
 # 32) deploy.pid identity. (a) the leader is alive but the file has NO start time: not ours, never
 #     signalled. (b) the leader has exited but its group still has a member: ours, stopped and counted.
-set -m; sleep 300 & own32=$!; set +m
+set -m; perl -e 'select(undef, undef, undef, 300)' & own32=$!; set +m
 printf '%s %s \n' "$own32" "$H31b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 tick
 kill -0 "$own32" 2>/dev/null && pass "a deploy.pid with no start time never signals a live leader" || bad "signalled a leader it could not identify"
 kill "$own32" 2>/dev/null; wait "$own32" 2>/dev/null
 M32="$T/member32.pid"
-set -m; sh -c 'sleep 300 & echo $! > '"$M32"'; exit 0' & lead32=$!; set +m; wait "$lead32" 2>/dev/null
+set -m; sh -c 'perl -e "select(undef, undef, undef, 300)" & echo $! > '"$M32"'; exit 0' & lead32=$!; set +m; wait "$lead32" 2>/dev/null
 for i in $(seq 1 50); do [ -s "$M32" ] && break; sleep 0.1; done; m32=$(cat "$M32")
 printf '%s %s Mon_Jan_1_00:00:00_2001\n' "$lead32" "$H31b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 tick; sleep 1
@@ -485,6 +565,106 @@ KOSMOS_AUTODEPLOY_PS="printf ''" tick; p1=$RC; OUTP=$OUT; KOSMOS_AUTODEPLOY_PS="
 { [ "$p1" = 1 ] && [ "$p2" = 0 ] && [ "$(ndeploys)" = "$n35" ] && printf '%s' "$OUTP" | grep -q "could not read the process list"; } \
   && pass "an unreadable process list never deploys: red once, then reported" || bad "unreadable ps (p1=$p1 p2=$p2 deploys $n35 -> $(ndeploys)) $OUTP"
 tick; [ "$(cat "$ST/last-deployed")" = "$H35" ] && pass "with the process list readable again, it deploys (control)" || bad "no deploy after ps recovered"
+
+# 6771) the Vercel token. The deploy is not run without one, and the job reads it from the secrets map.
+SEC="$T/secrets"; SECLOG="$T/secrets.log"; TOKSEEN="$T/tokseen"
+cat > "$SEC" <<EOF
+#!/bin/sh
+echo "\$*" >> "$SECLOG"
+[ -n "\${SEC_TOKEN:-}" ] || exit 1
+printf '%s' "\$SEC_TOKEN"
+EOF
+chmod +x "$SEC"
+H6771=$(advance six-seven-seven-one); n0=$(ndeploys)
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; echo "$RC" > "$T/rc1"; printf '%s' "$OUT" > "$T/out1"
+  KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; echo "$RC" > "$T/rc2"; printf '%s' "$OUT" > "$T/out2" )
+{ [ "$(cat "$T/rc1")" = 1 ] && grep -q "no Vercel token for the deploy (secrets target vercel-chaoskosmos-site" "$T/out1" && grep -q "vercel CLI is not signed in" "$T/out1" && [ "$(ndeploys)" = "$n0" ]; } \
+  && pass "6771: no token and no CLI sign-in: red, names the secrets target and the sign-in, nothing deployed" || bad "6771 no token (rc=$(cat "$T/rc1")): $(cat "$T/out1")"
+{ [ "$(cat "$T/rc2")" = 0 ] && grep -q "STILL FAILING (reported): no Vercel token" "$T/out2" && [ "$(ndeploys)" = "$n0" ] && [ ! -e "$ST/parked" ]; } \
+  && pass "6771: the next tick without a token: green with STILL FAILING, still nothing deployed, never parked" || bad "6771 second tick (rc=$(cat "$T/rc2")): $(cat "$T/out2")"
+# A new site merge while the token is still missing stays green the same day (the record is the machine's, not the sha's).
+H6771n=$(advance six-seven-seven-one-new)
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; echo "$RC" > "$T/rcn"; printf '%s' "$OUT" > "$T/outn" )
+{ [ "$(cat "$T/rcn")" = 0 ] && grep -q "STILL FAILING (reported): no Vercel token" "$T/outn"; } \
+  && pass "6771: a new merge without the token: still green with STILL FAILING (red once a day, not once a sha)" || bad "6771 new sha re-red (rc=$(cat "$T/rcn")): $(cat "$T/outn")"
+grep -qx "value vercel-chaoskosmos-site" "$SECLOG" && pass "6771: the token is asked for by its secrets target, with the value accessor" || bad "6771: secrets asked with: $(cat "$SECLOG" 2>/dev/null)"
+( unset VERCEL_TOKEN; SEC_TOKEN=from-the-map KOSMOS_AUTODEPLOY_SECRETS="$SEC" KOSMOS_AUTODEPLOY_DEPLOY='printf %s "$VERCEL_TOKEN" > '"$TOKSEEN"'; git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS" tick; echo "$RC" > "$T/rc3" )
+{ [ "$(cat "$T/rc3")" = 0 ] && [ "$(cat "$TOKSEEN" 2>/dev/null)" = from-the-map ] && [ "$(cat "$ST/last-deployed")" = "$H6771n" ]; } \
+  && pass "6771: once the token is filed, the next tick deploys with it in VERCEL_TOKEN" || bad "6771 filed token (rc=$(cat "$T/rc3")): saw '$(cat "$TOKSEEN" 2>/dev/null)'"
+H6771b=$(advance six-seven-seven-one-b); : > "$SECLOG"
+KOSMOS_AUTODEPLOY_SECRETS="$SEC" KOSMOS_AUTODEPLOY_DEPLOY='printf %s "$VERCEL_TOKEN" > '"$TOKSEEN"'; git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS" tick
+{ [ "$RC" = 0 ] && [ "$(cat "$TOKSEEN")" = test-token-6771 ] && [ ! -s "$SECLOG" ]; } \
+  && pass "6771: a token already in the environment wins, and the secrets map is not read" || bad "6771 inherited token (rc=$RC): saw '$(cat "$TOKSEEN")', secrets log '$(cat "$SECLOG")'"
+
+# A lookup that cannot run is said as that, not as a missing token; and the accessor's reason is kept.
+H6771c=$(advance six-seven-seven-one-c)
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_SECRETS="$T/no-such-secrets-map" tick; echo "$RC" > "$T/rc4"; printf '%s' "$OUT" > "$T/out4" )
+{ [ "$(cat "$T/rc4")" = 1 ] && grep -q "cannot read the Vercel token: $T/no-such-secrets-map is not there or not executable" "$T/out4" && ! grep -q "file a scoped token" "$T/out4"; } \
+  && pass "6771: no secrets-map: its own red, not 'file a token'" || bad "6771 no accessor (rc=$(cat "$T/rc4")): $(cat "$T/out4")"
+cat > "$T/secrets-why" <<'EOF'
+#!/bin/sh
+echo "secrets-map: no credential for target '$2' (the map lists none)" >&2; exit 1
+EOF
+chmod +x "$T/secrets-why"; rm -rf "$ST/reported.d"
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_SECRETS="$T/secrets-why" tick; printf '%s' "$OUT" > "$T/out5" )
+grep -q "the accessor said: secrets-map: no credential for target 'vercel-chaoskosmos-site'" "$T/out5" && pass "6771: the accessor's own reason is in the red line" || bad "6771 accessor reason: $(cat "$T/out5")"
+# In Actions the token is masked before anything else prints; outside Actions nothing prints it.
+( unset VERCEL_TOKEN; GITHUB_ACTIONS=true SEC_TOKEN=mask-me KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; printf '%s' "$OUT" > "$T/out6" )
+grep -qx '::add-mask::mask-me' "$T/out6" && pass "6771: in GitHub Actions the token is masked" || bad "6771 no mask in Actions: $(head -5 "$T/out6")"
+H6771d=$(advance six-seven-seven-one-d)
+( unset VERCEL_TOKEN GITHUB_ACTIONS; SEC_TOKEN=do-not-print KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; printf '%s' "$OUT" > "$T/out7" )
+! grep -q 'do-not-print' "$T/out7" && [ "$(cat "$ST/last-deployed")" = "$H6771d" ] && pass "6771: outside Actions the token is never printed (and the tick did reach the deploy)" || bad "6771 token printed outside Actions"
+
+# kosmos#6771 (10-22): no token, but the CLI is signed in: it deploys on that sign-in, says so, and hands the deploy no
+# VERCEL_TOKEN (an empty one would be worse than none). Then with no secrets accessor at all, the same.
+# An EXPORTED EMPTY token (not unset) is how the job really meets "none filed": the deploy must still get none.
+H6771s=$(advance six-seven-seven-one-signin); rm -rf "$ST/reported.d"; : > "$T/vercel.log"
+( export VERCEL_TOKEN=; KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-in" KOSMOS_AUTODEPLOY_SECRETS="$SEC" \
+    KOSMOS_AUTODEPLOY_DEPLOY='printf "[%s]" "${VERCEL_TOKEN-unset}" > '"$TOKSEEN"'; git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS" tick
+  echo "$RC" > "$T/rcs"; printf '%s' "$OUT" > "$T/outs" )
+{ [ "$(cat "$T/rcs")" = 0 ] && [ "$(cat "$ST/last-deployed")" = "$H6771s" ] && [ "$(cat "$TOKSEEN")" = "[unset]" ] \
+    && grep -q "deploying on this machine's vercel sign-in (someone-6084)" "$T/outs" && grep -qx whoami "$T/vercel.log"; } \
+  && pass "6771: no token, CLI signed in: deploys on the sign-in, says whose, no VERCEL_TOKEN given" || bad "6771 sign-in (rc=$(cat "$T/rcs")): token '$(cat "$TOKSEEN" 2>/dev/null)' $(cat "$T/outs")"
+H6771t=$(advance six-seven-seven-one-signin-nosec)
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-in" KOSMOS_AUTODEPLOY_SECRETS="$T/no-such-secrets-map" tick; echo "$RC" > "$T/rct"; printf '%s' "$OUT" > "$T/outt" )
+{ [ "$(cat "$T/rct")" = 0 ] && [ "$(cat "$ST/last-deployed")" = "$H6771t" ] && grep -q "secrets accessor $T/no-such-secrets-map is not there" "$T/outt"; } \
+  && pass "6771: no secrets accessor, CLI signed in: deploys on the sign-in and says the accessor is missing" || bad "6771 sign-in no accessor (rc=$(cat "$T/rct")): $(cat "$T/outt")"
+# Not signed in, three ways that look like a name if read carelessly: red, nothing deployed, the sign-in named.
+for v in errout two hang; do
+  H=$(advance "six-seven-seven-one-$v"); rm -rf "$ST/reported.d"; n0=$(ndeploys); t0=$(date +%s)
+  ( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_WHOAMI_SECS=1 KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-$v" KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick
+    echo "$RC" > "$T/rcv"; printf '%s' "$OUT" > "$T/outv" )
+  el=$(( $(date +%s) - t0 ))
+  { [ "$(cat "$T/rcv")" = 1 ] && [ "$(ndeploys)" = "$n0" ] && grep -q "vercel CLI is not signed in" "$T/outv" && ! grep -q "deploying on this machine" "$T/outv" \
+      && { [ "$v" != hang ] || [ "$el" -lt 5 ]; }; } \
+    && pass "6771: whoami $v is not a sign-in: red, nothing deployed${v:+ ($el s)}" || bad "6771 whoami $v (rc=$(cat "$T/rcv"), $el s): $(cat "$T/outv")"
+done
+# An unreadable filed token is said even when the sign-in deploys (it would otherwise be masked until the sign-in lapses).
+H=$(advance six-seven-seven-one-why); rm -rf "$ST/reported.d"
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-in" KOSMOS_AUTODEPLOY_SECRETS="$T/secrets-why" tick; printf '%s' "$OUT" > "$T/outw" )
+grep -q "the accessor said: secrets-map: no credential for target 'vercel-chaoskosmos-site'.*deploying on this machine's vercel sign-in" "$T/outw" \
+  && pass "6771: the accessor's reason is kept on a sign-in deploy" || bad "6771 why on sign-in: $(cat "$T/outw")"
+# A filed token still wins over the sign-in: the CLI is not even asked.
+H6771u=$(advance six-seven-seven-one-token-wins); : > "$T/vercel.log"
+( unset VERCEL_TOKEN; SEC_TOKEN=filed KOSMOS_AUTODEPLOY_VERCEL="$T/vbin/vercel-in" KOSMOS_AUTODEPLOY_SECRETS="$SEC" \
+    KOSMOS_AUTODEPLOY_DEPLOY='printf "[%s]" "${VERCEL_TOKEN-unset}" > '"$TOKSEEN"'; git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS" tick )
+{ [ "$(cat "$TOKSEEN")" = "[filed]" ] && [ ! -s "$T/vercel.log" ]; } \
+  && pass "6771: a filed token wins over the sign-in, and whoami is not run" || bad "6771 token over sign-in: '$(cat "$TOKSEEN")' log '$(cat "$T/vercel.log")'"
+
+# deploy-site.sh's exit 77 (Vercel refused the authorization) is red once, never counted, never parked, so a new token
+# deploys on the next tick.
+H6771e=$(advance six-seven-seven-one-e); rm -rf "$ST/reported.d"; rm -f "$ST/failures" "$ST/parked"
+KOSMOS_AUTODEPLOY_DEPLOY='exit 77' tick; r77a=$RC; o77a=$OUT
+KOSMOS_AUTODEPLOY_DEPLOY='exit 77' tick; r77b=$RC; o77b=$OUT
+{ [ "$r77a" = 1 ] && printf '%s' "$o77a" | grep -q "Vercel refused this machine's authorization" && [ "$r77b" = 0 ] && printf '%s' "$o77b" | grep -q "STILL FAILING (reported): Vercel refused" && [ ! -e "$ST/parked" ] && [ ! -s "$ST/failures" ]; } \
+  && pass "6771: exit 77 twice: red once, then STILL FAILING, no failure counted, not parked" || bad "6771 exit 77 (r=$r77a/$r77b, parked=$(cat "$ST/parked" 2>/dev/null), failures=$(cat "$ST/failures" 2>/dev/null)): $o77b"
+tick
+[ "$RC" = 0 ] && [ "$(cat "$ST/last-deployed")" = "$H6771e" ] && pass "6771: after the refusals, the next tick with a working deploy deploys (nothing parked it)" || bad "6771 after 77 (rc=$RC): $OUT"
+
+# A token with more than one line is refused, never half-masked.
+H6771f=$(advance six-seven-seven-one-f); rm -rf "$ST/reported.d"
+( unset VERCEL_TOKEN; SEC_TOKEN="$(printf 'line1\nline2')" KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; echo "$RC" > "$T/rc8"; printf '%s' "$OUT" > "$T/out8" )
+{ [ "$(cat "$T/rc8")" = 1 ] && grep -q "has more than one line" "$T/out8" && ! grep -q 'line2' "$T/out8"; } && pass "6771: a two-line token is refused and not printed" || bad "6771 two-line token (rc=$(cat "$T/rc8")): $(cat "$T/out8")"
 
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?

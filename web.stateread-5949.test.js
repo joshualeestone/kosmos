@@ -71,7 +71,7 @@ test('#5949 the words are the page\'s own: no engine text, no em dash', () => {
 
 test('#5949 the grid card, the list row and the agent page all carry it; the remembered mark is drawn by CSS', () => {
   /* The card's pill also carries a rate-limit hover (#6398): one title attribute holds both sentences. */
-  assert.match(pageFnSource('card'), /<div class="astate st-\$\{m\.st\}"\$\{typeof stateReadAttrs === 'function' \? stateReadAttrs\(a, rateLimitSay\(a\)\) : rateLimitTitle\(a\)\}>/);
+  assert.match(pageFnSource('card'), /<div class="astate st-\$\{m\.st\}"\$\{typeof stateReadAttrs === 'function' \? stateReadAttrs\(a, say\) : pillTitle\(say\)\}>/);   // #6716: say = pillSay(a), once per card
   assert.match(pageFnSource('lrow'), /<div class="lstate"\$\{typeof stateReadAttrs === 'function' \? stateReadAttrs\(a\) : ''\}>/);
   const detail = pageFnSource('paintDetailState');
   assert.match(detail, /workingSampleIsStale\(card\) \? \{ \.\.\.card, state: 'idle', stateEvidence: '', stateRead: '' \}/, 'no mark on a state the stale-sample rule replaced');

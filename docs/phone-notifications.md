@@ -1,7 +1,8 @@
 # Phone notifications: every message type and its wording
 
 kosmos#6487 (Josh, 2026-10-18: "We should configure a list of all of the message types we could send and document").
-Read from the code on 2026-10-18 and checked against the push path owner's table on that card.
+Read from the code on 2026-10-18 and checked against the push path owner's table on that card; the iPhone message
+section was added from the code on 2026-10-23.
 
 ## Words used here
 - **The coordinator**: the Kosmos+ service on the internet that passes a notification from this computer to a phone.
@@ -17,7 +18,8 @@ A computer running Kosmos notices that something happened and sends the coordina
 agent, the project when there is one, and an id. The coordinator turns that into the words on the phone, through Apple
 for an iPhone and through web push for Android and the browser.
 
-**The words of a message are never sent.** A notification says who did what, and a tap usually opens that agent's page (exceptions below).
+**The words of a message are never sent in the notification itself.** (An iPhone fetches them from the person's own
+computer for two kinds of notice: see On an iPhone.) A notification says who did what, and a tap usually opens that agent's page (exceptions below).
 
 **The master switch**: Settings, "Buzz my phone about my agents". Up to Kosmos 0.7.57 it is off until the person presses
 Turn on. From the release after 0.7.57 (kosmos#6488) it turns itself on once this computer is connected to Kosmos+ (see Words used here), unless the person has
@@ -46,7 +48,8 @@ its old copy of the coordinator's worker, which wrote `on <Project>` or `in Kosm
 update (within about a day). This repo's own `web/sw.js` matches it from the release after 0.7.57 (kosmos#6502). As of
 2026-10-18 nobody has seen the new words on a real phone. The test notice (`Kosmos has something for you`, body `in Kosmos`) is a
 deliberate exception that keeps its body; the email keeps its own sentence (`<Agent> needs you on <Project>.`), since it is
-not a notification. No test reads this page yet.
+not a notification. `web.phone-notify-catalog-6487.test.js` reads this page: it fails when the kinds or the words in
+the Wording table, or the iPhone message rows below, stop matching what this repo's code shows (see Where the code lives).
 
 ## Sent today
 
@@ -93,6 +96,45 @@ An event of any other kind from a computer cannot reach a phone: the computer an
 
 Sound: the default sound on iPhone; on Android and the browser, whatever the device does. Grouping: none yet; each notification stands alone.
 
+## On an iPhone: the message itself
+
+Built and merged 2026-10-22 and 10-23 (kosmos#6942 the iPhone's notification extension, #6943 the computer's answer,
+#6972 message style, kosmos-relay #564 live on the coordinator). It reaches a person with Kosmos 0.7.64 on their computer
+and an iPhone app build that carries the extension (TestFlight build 2, valid 2026-10-23). As of 2026-10-23 nobody has
+seen it on a real phone.
+
+When an iPhone notification for one of the two events below arrives, the iPhone asks the person's own computer, through
+Kosmos+ remote and the sign-in the app already keeps for that computer, for the words behind it. If the computer answers
+within 15 seconds, the notification shows them as a message from the agent:
+
+| Event | Title | Subtitle | Text | Picture |
+|---|---|---|---|---|
+| An agent needs you (its report) | `<Agent>` | `<Agent> needs you, in <Project>`, or `<Agent> needs you` | the report's reason, shortened to about 400 characters: what the agent wrote (`kosmos report needs_you "..."`), or, when it stopped to ask permission, `asking permission to use <tool>`, with `: <command>` when there is one | the agent's picture, when it has one |
+| An agent answered you | `<Agent>` | `<Agent> replied` | the reply, shortened to about 400 characters | the agent's picture, when it has one |
+
+The computer also answers a room post's id (`post:<post id>`, kosmos#7032): the post's text and its author, never the
+person's own post. The iPhone does not ask for it yet (slice 9 of #6838 adds that), so a room notice still shows as in
+Sent today.
+
+The words are never in the push: the coordinator's notification and Apple still carry only who and what, and the
+phone fetches the words from the computer over Kosmos+ remote. If the computer does not answer (asleep, offline, an older Kosmos, or a phone not signed in to that
+computer), the notification shows as in Sent today. Every other row of Sent today (crash, stuck, helper, posts, work
+ready) is not asked about and always shows as there. Android and the browser do not ask yet: they show Sent today's words.
+
+**A permission request puts the command on the lock screen.** When an agent stops to ask permission, its report's
+reason names the tool and the command (up to 200 characters of it), and that is the text an iPhone shows. The
+picture is fetched after the words with its own 8 seconds; a notice whose picture is late shows without one. Whether
+iOS keeps the subtitle on a message-style notice is not yet seen on a real phone.
+
+**Allow and Deny on a permission request (kosmos#7017 part 2).** When the agent is stopped on Claude Code's permission
+prompt for a one-line command (title exactly "Bash command") and the board itself would show that card's buttons, the
+computer's answer also carries the request, and the text becomes the request in the board card's words: Claude Code's
+reason first, then `Wants to run a command:` and the command on its own line, then `It says: <the agent's words>`.
+The notification then offers Allow and Deny, both asking to unlock the phone. A press re-reads the chat first and goes
+only while the same request is still up; the person is always told the outcome. No buttons (the text stays as above)
+for a file, a multi-line command, any other tool, a request longer than about 400 characters, characters that draw
+differently on a phone, or anything shaped like a credential. Never an "always allow" choice.
+
 ## Built, not on
 
 | Event | When it would fire | Wording | Status |
@@ -116,11 +158,10 @@ On a phone these fall into the notification's two lines, the bold title and the 
 
 | Event | Title | Body | Status |
 |---|---|---|---|
-| Direct message from an agent | `<Agent> said` | `<message>`, shortened | proposed |
+| Direct message from an agent | `<Agent> said` | `<message>`, shortened | built on iPhone in a different shape: see On an iPhone (the agent's name as the title, `<Agent> replied` under it, then the message) |
 | Project post | `<Agent> commented in <Project>` | `<message>`, shortened | proposed |
 
-**This puts the words of a message on the lock screen.** Today those words never leave the computer, so it needs a
-decision before it is built. Three ways:
+**This puts the words of a message on the lock screen.** Three ways were weighed on 2026-10-18:
 1. The computer sends the text with the event. Simplest, but the words then pass through the coordinator and Apple.
 2. The phone fetches the text from the computer itself when the notification arrives, so the coordinator and Apple
    still carry only "something happened". On an iPhone that is a notification service extension; on Android and the
@@ -128,7 +169,8 @@ decision before it is built. Three ways:
    plain notification above shows instead. More to build.
 3. Keep the no-words notifications as they are now.
 
-Recommended: option 2. The call is Josh's.
+Josh chose option 2 on 2026-10-22 (13:28: "use the agent avatar and put the actual text, like discord does"). It is
+built for the iPhone (On an iPhone); the Android and browser half, and the project post, are not built yet.
 
 ## Where the code lives
 The computer side: `engine/phonenotify.js` (kinds, switches, how often, and from the release after 0.7.57 the default turn-on), called from `server.js`. The words:
@@ -137,3 +179,6 @@ web push, which `coordinator/src/sw.js` shows as it arrives; it also words the t
 `operator_test_with` sends). This repo's `web/sw.js` shows the same words from
 the release after 0.7.57 (#6502), though no phone push reaches it today (phones subscribe on the coordinator's address, #3510). The email: kosmos-relay `coordinator/src/delivery.rs`
 (`agent_needs_you_words`), sent by the `notify.rs` sweep.
+The iPhone message rows: the computer's answer is `engine/phonenotice.js` (which events it answers, and the shortening),
+served by `server.js` at `GET /api/phone/notice`; the iPhone side is `ios/KosmosNotice/NotificationService.swift` (title,
+subtitle, text) and `ios/KosmosNotice/NoticeLogic.swift` (which notices it asks about).

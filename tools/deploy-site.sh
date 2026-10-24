@@ -49,6 +49,9 @@
 # Usage:
 #   tools/deploy-site.sh              # DRY RUN: fetch + verify + export + guards, then stop
 #   tools/deploy-site.sh --publish    # the same, then vercel deploy --prod, then verify SERVED bytes
+#                                     # (exit 77, kosmos#6771: Vercel refused this machine's authorization before
+#                                     # making a deployment; said in full only when output is not a terminal,
+#                                     # which is how the autodeploy runs it. At a terminal it is exit 1.)
 #   tools/deploy-site.sh --promote    # PUBLISH a pointer-MOVE deploy (#2195): serve the COMMITTED
 #                                     # latest.json even though it differs from live (a staging->prod
 #                                     # promote, or a rollback to a prior pointer). Skips the
@@ -79,6 +82,11 @@
 # That holds on this macOS-only fleet (it already hardcodes $HOME/work/... and `shasum`); it would
 # need a #!/bin/bash and rework to run under dash.
 set -eu
+# kosmos#6771: a Vercel token given in the environment goes to the vercel command alone, not to any step this script
+# starts before it (the checks, the fetches, the build): kept in an unexported variable, the environment's copy
+# removed first. That scopes it from CHILDREN only: a same-user tool can still read this process's starting
+# environment (ps -E on macOS), the usual cost of a token passed in the environment.
+_vercel_token="${VERCEL_TOKEN:-}"; unset VERCEL_TOKEN
 
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 REPO="${KOSMOS_REPO:-$HOME/work/agent-workforce}"
@@ -161,6 +169,9 @@ command -v vercel >/dev/null 2>&1 || { echo "deploy-site: vercel CLI not found";
 # --- 1) fetch and verify the CURRENT live artifacts into the site dist/ -------
 # The export carries whatever is in dist/. We make the critical current artifacts present
 # and correct so the deploy cannot drop them; a stale or empty checkout is then safe.
+# kosmos#6826: 0 until a success exit sets it to 1; the EXIT trap in the block below reads it. Kept OUTSIDE
+# the block on purpose: the #4745 test runs the block alone, where an unset flag counts as finished.
+_DS_FINISHED=0
 # >>> site-fetch helpers (#4745) -- tools/test-deploy-site-fetch-4745.sh extracts and tests this block.
 # 🛑 #4745: NEVER FETCH ONTO THE REAL NAME. This used to be `curl ... "$1" -o "$2"`, straight onto
 # the artifact path. A stalled download (curl exit 18, "Transferred a partial file") refused
@@ -190,11 +201,17 @@ _fetch_cleanup() {
   [ -z "$_FETCH_TMP_A" ] || rm -f "$_FETCH_TMP_A"
   [ -z "$_FETCH_TMP_S" ] || rm -f "$_FETCH_TMP_S"
   [ -z "$_FETCH_TMP_P" ] || rm -rf "$_FETCH_TMP_P"
+  [ -z "${VOUT:-}" ] || rm -f "$VOUT"; [ -z "${VRC:-}" ] || rm -f "$VRC"   # kosmos#6771's deploy output and code
   _FETCH_TMP_A=""; _FETCH_TMP_S=""; _FETCH_TMP_P=""
 }
 # Every exit path removes a temp in flight: the refusals below remove it explicitly, and these
-# traps cover an interrupt or an unexpected set -e abort mid-fetch.
-trap '_fetch_cleanup' EXIT
+# traps cover an interrupt or an unexpected set -e abort mid-fetch. (They also remove the deploy
+# step's output and code files, VOUT and VRC: kosmos#6771.)
+# kosmos#6826: on this Mac's /bin/sh (bash 3.2), a run that dies on a missing library (a failed `.`) or an
+# unset variable (set -u) reaches this trap with $? already 0, so it would exit 0 having done nothing. So a 0
+# here is a failure unless a success exit set _DS_FINISHED=1. Unset (this block run on its own, as the #4745
+# test does) counts as finished, which keeps that test's exits as they were.
+trap '_ds_rc=$?; _fetch_cleanup; [ "$_ds_rc" != 0 ] || [ "${_DS_FINISHED:-1}" = 1 ] || { echo "deploy-site: the run stopped before finishing; the cause is above. Treat the run as FAILED (kosmos#6826)" >&2; exit 1; }' EXIT
 trap '_fetch_cleanup; exit 130' INT
 trap '_fetch_cleanup; exit 143' TERM HUP
 _fetch_tmp_for() {  # <dest> -> the temp path beside it
@@ -400,7 +417,7 @@ ptr_versioned() { printf '%s' "$1" | sed -n 's/.*"versioned":[[:space:]]*"\([^"]
 win_zip_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p'; }
 # kosmos#6149 point 1: the rollback floor. The COMMITTED Mac pointers are what this deploy serves, so neither may name
 # a build older than the setup floor (tools/lib/setup-floor.sh); the installers are checked with them on the export.
-. "$REPO/tools/lib/setup-floor.sh"   # as this script's other libs (a failed . fails closed: set -eu ends the run)
+. "$REPO/tools/lib/setup-floor.sh"   # as this script's other libs (a failed . ends the run; the EXIT trap makes it a failure, kosmos#6826)
 # Absent is not unreadable: a pointer the commit HAS but that could not be read is refused, not skipped.
 CSJ=""
 if git -C "$SITE" cat-file -e "$H:dist/latest-staging.json" 2>/dev/null; then
@@ -412,6 +429,70 @@ if git -C "$SITE" cat-file -e "$H:dist/latest.json" 2>/dev/null && [ -z "$CJ" ];
 fi
 [ -z "$CJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest.json" "$CJ" || exit 1
 [ -z "$CSJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest-staging.json" "$CSJ" || exit 1
+# kosmos#6620: while the pointer freeze (tools/pointer-freeze.sh) is on, this deploy publishes only the frozen version:
+# both Mac pointers must name it. origin/main is asked whenever there is an origin, even when $H carries a marker of its
+# own (an old freeze in a stale checkout must not answer for a newer one on origin): its marker decides when it has one.
+# $H's marker decides when there is no origin, under KOSMOS_POINTER_FREEZE_OFFLINE=1, or when origin/main has none (a
+# freeze not pushed yet, or a lift this checkout has not pulled: kept frozen, the safe reading). As every writer
+# (tools/lib/pointer-freeze.sh): a site origin that cannot be fetched refuses (nothing deployed), unless
+# KOSMOS_POINTER_FREEZE_OFFLINE=1 says to decide on $H.
+# Checked first: under #!/bin/sh a failed `.` ends the shell before any `||` could speak.
+[ -f "$REPO/tools/lib/pointer-freeze.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/pointer-freeze.sh (kosmos#6620) -- refusing; nothing was deployed"; exit 1; }
+. "$REPO/tools/lib/pointer-freeze.sh"
+FROZEN_SRC=""; ORIGIN_READ=0
+H_FROZEN=""; git -C "$SITE" cat-file -e "$H:dist/POINTER_FROZEN" 2>/dev/null && H_FROZEN="$H"
+# What a refusal tells the operator to do, chosen by what is TRUE of this checkout, not by where the freeze was read.
+# Never "lift it": off, then on again, leaves every release tool free between the two, in the middle of an incident.
+freeze_advice() {
+  _fa_h="$(git -C "$SITE" rev-parse "$H" 2>/dev/null)"; _fa_o="$(git -C "$SITE" rev-parse origin/main 2>/dev/null)"
+  if [ "$ORIGIN_READ" = 1 ] && [ "$_fa_h" != "$_fa_o" ] && git -C "$SITE" merge-base --is-ancestor "$H" origin/main 2>/dev/null; then
+    echo "This checkout is behind origin/main: pull it (git -C $SITE pull --ff-only), then deploy."
+  elif [ "$ORIGIN_READ" = 1 ] && [ "$_fa_h" != "$_fa_o" ] && ! git -C "$SITE" merge-base --is-ancestor origin/main "$H" 2>/dev/null; then
+    echo "This checkout has diverged from origin/main (commits here that origin/main does not have): save what you need, reset it to origin/main, then deploy."
+  elif [ "$ORIGIN_READ" = 1 ] && [ "$FROZEN_SRC" = "$H" ]; then
+    # Behind and diverged are caught above, so this checkout is ahead of origin/main, which has no marker.
+    echo "This checkout is ahead of origin/main, and origin/main is not frozen: this freeze was never pushed (or it was lifted there since). If it should stand, run tools/pointer-freeze.sh on --mac $FROZEN_AT (it pushes); if not, reset this checkout to origin/main. Then deploy."
+  else
+    _fa_fc="$(pointer_freeze_commit "$SITE" "$FROZEN_SRC" 2>/dev/null)"
+    [ "$ORIGIN_READ" = 1 ] || printf '%s' "(Decided on this checkout alone: origin/main was not read.) "
+    echo "A release file was committed on top of the freeze: do NOT lift the freeze to get past this, that would publish it. Put those files back as the freeze commit has them, in a new commit: git -C $SITE checkout ${_fa_fc:-<the freeze commit>} -- <the files named above>, commit and push, then deploy. Only as a last resort re-pin (tools/pointer-freeze.sh off, then on --mac $FROZEN_AT): between the two every release tool may move the pointers."
+  fi
+}
+if ! git -C "$SITE" remote get-url origin >/dev/null 2>&1; then FROZEN_SRC="$H_FROZEN"   # no origin at all: $H decides
+elif pointer_freeze_fetch "$SITE"; then
+  ORIGIN_READ=1
+  if git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then FROZEN_SRC="origin/main"; else FROZEN_SRC="$H_FROZEN"; fi
+elif [ "${KOSMOS_POINTER_FREEZE_OFFLINE:-}" = 1 ]; then
+  echo "deploy-site: could not fetch origin/main; KOSMOS_POINTER_FREEZE_OFFLINE=1, so deciding the pointer freeze on $H (kosmos#6620)"
+  FROZEN_SRC="$H_FROZEN"
+else
+  echo "deploy-site: could not fetch origin/main to check the pointer freeze (kosmos#6620) -- refusing; nothing was deployed. Try again, or set KOSMOS_POINTER_FREEZE_OFFLINE=1 to decide on $H. (exit 75: try again later, #5589)"; exit 75
+fi
+if [ -n "$FROZEN_SRC" ]; then
+  FROZEN_AT=$(git -C "$SITE" show "$FROZEN_SRC:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^mac=//p' | head -1)
+  [ -n "$FROZEN_AT" ] || { echo "deploy-site: $FROZEN_SRC carries dist/POINTER_FROZEN but it names no version -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
+  [ "$(ptr_version "$CJ")" = "$FROZEN_AT" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (dist/POINTER_FROZEN) but the committed dist/latest.json names $(ptr_version "$CJ") -- refusing (kosmos#6620); nothing was deployed. $(freeze_advice)"; exit 1; }
+  [ -z "$CSJ" ] || [ "$(ptr_version "$CSJ")" = "$FROZEN_AT" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT but the committed dist/latest-staging.json names $(ptr_version "$CSJ") -- refusing (kosmos#6620); nothing was deployed. $(freeze_advice)"; exit 1; }
+  # The marker records the pinned pointer's ARTIFACT sha256 (its sha256 field, tools/pointer-freeze.sh): the same version
+  # naming another artifact (a re-cut) is not the frozen build. The pointer files' own bytes (every other field) are
+  # held by pointer_freeze_moved below, which is not redundant with this.
+  FROZEN_SHA=$(git -C "$SITE" show "$FROZEN_SRC:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^sha256=//p' | head -1)
+  if [ -n "$FROZEN_SHA" ]; then
+    [ "$(ptr_sha "$CJ")" = "$FROZEN_SHA" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (sha256 $FROZEN_SHA) but the committed dist/latest.json names another artifact (sha256 $(ptr_sha "$CJ")) -- refusing (kosmos#6620); nothing was deployed. $(freeze_advice)"; exit 1; }
+    [ -z "$CSJ" ] || [ "$(ptr_sha "$CSJ")" = "$FROZEN_SHA" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT but the committed dist/latest-staging.json names another artifact -- refusing (kosmos#6620); nothing was deployed. $(freeze_advice)"; exit 1; }
+  else
+    echo "deploy-site: the freeze marker records no sha256 (not written by tools/pointer-freeze.sh), so only the version was checked, not the artifact's sha256"
+  fi
+  # Nothing that releases may have moved since the freeze commit: every release pointer (the Windows ones too, which
+  # publish-kosmos-windows.sh will not change while frozen) and the installer pair the freeze pinned. A hand commit on
+  # top of the pin would otherwise ship under it.
+  FROZEN_MOVED="$(pointer_freeze_moved "$SITE" "$FROZEN_SRC" "$H")" || { echo "deploy-site: could not compare $H with the commit that froze the pointers in $FROZEN_SRC -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
+  if [ -n "$FROZEN_MOVED" ]; then
+    echo "deploy-site: the pointers are FROZEN at $FROZEN_AT, and since the freeze commit $H changes $(printf '%s' "$FROZEN_MOVED" | tr '\n' ' ')-- refusing (kosmos#6620); nothing was deployed. $(freeze_advice)"
+    exit 1
+  fi
+  echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (dist/POINTER_FROZEN); the committed Mac pointers name it, and no release pointer or installer moved since the freeze"
+fi
 
 # #2571: DERIVE the current Windows versioned zip name from latest-win.json, the same way ART is
 # learned from latest.json above -- replacing the stale hardcoded $WINZIP (kosmos-0.6.24, while
@@ -829,6 +910,7 @@ DROP=$(pkg_upload_filter_excludes "$EXPORT/.vercelignore") || { echo "deploy-sit
 if [ "$PUBLISH" != 1 ]; then
   echo "DRY RUN complete. The export carried Kosmos.pkg, the current tarball ($ART)${STAGED_ART:+, the staged Mac build ($STAGED_ART)}, tmux-arm64, the unversioned alias, the Windows zip, and an honest marker, and the .vercelignore guard passed. Re-run with --publish to deploy (or --promote to publish a moved pointer)."
   rm -rf "$EXPORT"   # a dry run leaves no temp dir behind; the summary above is the artifact
+  _DS_FINISHED=1
   exit 0
 fi
 
@@ -839,7 +921,70 @@ fi
 LIVE_PTRS_NOW=$(live_pointer_snapshot)
 case "$LIVE_PTRS_NOW" in *" 000 "*) echo "deploy-site: could not re-read the live pointers right before deploying -- refusing; nothing has been deployed (#5589)"; rm -rf "$EXPORT"; exit 75 ;; esac
 [ "$LIVE_PTRS_NOW" = "$LIVE_PTRS_BEFORE" ] || { echo "deploy-site: a live pointer changed while this run was building (a release cut published?) -- refusing; nothing has been deployed. Update the site checkout to origin/main and run again (#5589)."; echo "  before: $LIVE_PTRS_BEFORE"; echo "  now:    $LIVE_PTRS_NOW"; rm -rf "$EXPORT"; exit 75; }
-( cd "$EXPORT" && vercel deploy --prod --yes ) || { echo "deploy-site: vercel deploy --prod failed"; rm -rf "$EXPORT"; exit 1; }
+# kosmos#6620: asked again just before vercel (the fetches above take minutes): a freeze pushed meanwhile from another
+# machine, at a version or bytes other than what this deploy carries, stops it. This narrows the window to the deploy
+# itself; it does not close it (a freeze landing while vercel uploads is not seen here).
+if ! pointer_freeze_fetch "$SITE"; then
+  echo "deploy-site: could not fetch origin/main to re-check the pointer freeze just before deploying (kosmos#6620); going on (the early check passed minutes ago)"
+elif git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then
+  _late_v=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^mac=//p' | head -1)
+  _late_sha=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^sha256=//p' | head -1)
+  if [ "$(ptr_version "$CJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CJ")" != "$_late_sha" ]; } \
+    || { [ -n "$CSJ" ] && { [ "$(ptr_version "$CSJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CSJ")" != "$_late_sha" ]; }; }; }; then
+    echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy carries $(ptr_version "$CJ")$( [ "$(ptr_version "$CJ")" = "$_late_v" ] && echo " naming another artifact than the pinned build (sha256 $(ptr_sha "$CJ"), the freeze names ${_late_sha})") -- refusing (kosmos#6620); nothing was deployed"
+    rm -rf "$EXPORT"; exit 1
+  fi
+  # And the rest of what the freeze holds still (the early check's list, against the freeze that landed meanwhile).
+  if ! _late_moved="$(pointer_freeze_moved "$SITE" origin/main "$H")"; then
+    echo "deploy-site: the pointers were FROZEN on origin/main while this ran, and $H could not be compared with the freeze commit -- refusing (kosmos#6620); nothing was deployed"
+    rm -rf "$EXPORT"; exit 1
+  elif [ -n "$_late_moved" ]; then
+    echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy changes $(printf '%s' "$_late_moved" | tr '\n' ' ')since the freeze commit -- refusing (kosmos#6620); nothing was deployed"
+    rm -rf "$EXPORT"; exit 1
+  fi
+fi
+# kosmos#6771: the CLI says only "Not authorized" when its sign-in or token is refused, which on the Mortals autodeploy
+# read as a site problem. Its output is kept (and still shown as it runs), and that refusal is said in full: whether a
+# token was given (VERCEL_TOKEN, which the CLI reads from the environment, so it is never on a command line). Through
+# tee the CLI has no terminal: a by-hand run shows plain output, and a signed-out CLI fails instead of offering a
+# login, which the message below then names.
+# POSIX sh, under set -e: the exit code is written from inside an && || list (which set -e leaves alone), because a
+# pipeline's status is tee's. The function's $? is the subshell's own (measured under sh and dash).
+VOUT=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel.XXXXXX") && VRC=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel-rc.XXXXXX") \
+  || { echo "deploy-site: could not make temp files for the deploy's output"; rm -rf "$EXPORT"; exit 1; }
+vercel_deploy_rc() {
+  ( cd "$EXPORT" && if [ -n "$_vercel_token" ]; then VERCEL_TOKEN="$_vercel_token" vercel deploy --prod --yes; else vercel deploy --prod --yes; fi ) \
+    && echo 0 > "$VRC" || echo $? > "$VRC"
+}
+# A person at a terminal gets the CLI exactly as before (its own progress display and prompts, and its own plain
+# failure: the explanation below needs the output, so it appears only when output is not a terminal, as in the
+# autodeploy). (A release cut's step 8 calls vercel itself, not this script: release.sh.)
+if [ -t 1 ]; then
+  vercel_deploy_rc; : > "$VOUT"
+  [ "$(cat "$VRC" 2>/dev/null)" = 0 ] || echo "deploy-site: if the CLI said 'Not authorized', see kosmos#6771 (sign the CLI in here, or give a VERCEL_TOKEN)"
+else vercel_deploy_rc 2>&1 | tee "$VOUT"; fi
+vrc=$(cat "$VRC"); rm -f "$VRC"
+case "$vrc" in ''|*[!0-9]*) vrc=1 ;; esac   # no code written is a failure, never a pass
+if [ "$vrc" != 0 ]; then
+  # Only the CLI's own error lines (colour codes removed first), so a build line that happens to say "not authorized"
+  # is not read as one. Exit 77 (EX_NOPERM) for that refusal, so the autodeploy can tell it from a failed deploy and
+  # not park the site on it: a new token is then the whole fix.
+  _esc=$(printf '\033')
+  # Any line where the CLI says error and one of its three refusals (wording from its own code), whatever it puts in front.
+  # And only when the CLI never made a deployment (no Inspect: or Production: URL before it gave up): a refusal after
+  # one was made is an ordinary failure, counted, so the autodeploy's "already live" shortcut cannot bless it later.
+  if sed "s/${_esc}\[[0-9;]*m//g" "$VOUT" | grep -qiE '(^|[^a-z])error[^a-z].*(not authorized|token .*is not valid|no existing credentials found)' \
+     && ! sed "s/${_esc}\[[0-9;]*m//g" "$VOUT" | grep -qiE '(inspect|production|preview):[[:space:]]*https://'; then
+    if [ -n "$_vercel_token" ]; then
+      echo "deploy-site: Vercel REFUSED the token in VERCEL_TOKEN (expired, revoked, or not for this project). Make a new scoped token for the chaoskosmos-site project and file it again for the secrets target vercel-chaoskosmos-site; a VERCEL_TOKEN set in this job's environment wins over the map, so check that first (kosmos#6771). The CLI refused before deploying."
+    else
+      echo "deploy-site: the Vercel CLI on this machine is not signed in for this project, and no VERCEL_TOKEN was given. On the autodeploy box: file a scoped project token for the secrets target vercel-chaoskosmos-site (kosmos#6771). Elsewhere: sign the CLI in. The CLI refused before deploying."
+    fi
+    rm -f "$VOUT"; echo "deploy-site: vercel deploy --prod refused (rc $vrc): exiting 77"; rm -rf "$EXPORT"; exit 77
+  fi
+  rm -f "$VOUT"; echo "deploy-site: vercel deploy --prod failed (rc $vrc)"; rm -rf "$EXPORT"; exit 1
+fi
+rm -f "$VOUT"
 rm -rf "$EXPORT"
 
 # --- 6) verify the SERVED bytes against WHAT WE DEPLOYED, by FETCHING them --------------------
@@ -1276,4 +1421,5 @@ fi
 # exit non-zero. Baron saw DEPLOY_EXIT=128 (a git-fatal code) trail a verified 0.6.55 publish; a
 # deploy script that exits non-zero on success is a latent false-alarm trap for any runner or CI
 # gate reading DEPLOY_EXIT. Make success unambiguous and immune to a trailing command.
+_DS_FINISHED=1
 exit 0

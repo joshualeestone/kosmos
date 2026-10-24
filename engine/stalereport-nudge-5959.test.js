@@ -292,3 +292,32 @@ test('#5959 slice 3: a question re-reported since is one run: aged from when it 
   const fresh = { [ray.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3600e3), by: 'agent' } };
   assert.equal(run([ray], fresh, { reminded: memReminded() }).sent.length, 0);
 });
+
+/* kosmos#6683: a blocked report that says until when is not re-raised at a fixed age. */
+test('kosmos#6683: a report until a time is told only once that time has passed; until words, never; a digit it cannot read, as before; no until, as before', () => {
+  const [d1, d2, w1, n1, z1] = cardsFor([['dora', 'blocked'], ['dex', 'blocked'], ['wren', 'blocked'], ['nell', 'blocked'], ['zed', 'blocked']]);
+  const old = iso(NOW - 12 * DAY);
+  const reports = {
+    [d1.sessionName]: { found: true, state: 'blocked', at: old, by: 'agent', until: '2026-10-20' },              // a date to come
+    [d2.sessionName]: { found: true, state: 'blocked', at: old, by: 'agent', until: '2026-10-11T09:00:00Z' },    // a time gone
+    [w1.sessionName]: { found: true, state: 'blocked', at: old, by: 'agent', until: 'the owner says' },         // words
+    [n1.sessionName]: { found: true, state: 'blocked', at: old, by: 'agent' },                                   // CONTROL: none
+    // Review 1: a deadline in a form it cannot read falls back to the age rule, never switches the reminder off.
+    [z1.sessionName]: { found: true, state: 'blocked', at: old, by: 'agent', until: '2026-10-20 09:30' },
+  };
+  const { sent } = run([d1, d2, w1, n1, z1], reports);
+  assert.deepEqual(sent.map((x) => x.s).sort(), [d2.sessionName, n1.sessionName, z1.sessionName].sort(),
+    'a report until a time to come, or until words, was re-raised at its age; or a gone time, an unreadable one, or none was not');
+  // The date's day counts: told after the end of 2026-10-20 (UTC), not during it.
+  const late = (ms) => run([d1], reports, { now: ms }).sent.length;
+  assert.equal(late(Date.parse('2026-10-20T23:59:00Z')), 0, 'told before the date\'s day was over');
+  assert.equal(late(Date.parse('2026-10-21T00:01:00Z')), 1, 'not told once the date had passed');
+});
+
+test('kosmos#6683: untilTimeOf reads only an exact time or date', () => {
+  assert.equal(nudge.untilTimeOf('2026-10-20'), Date.parse('2026-10-21T00:00:00Z'));
+  assert.equal(nudge.untilTimeOf('2026-10-20T09:30Z'), Date.parse('2026-10-20T09:30:00Z'));
+  for (const not of ['1', '2026', 'Friday', 'next week', '10/20/2026', '2026-10-20 09:30', 'the owner says']) {
+    assert.equal(nudge.untilTimeOf(not), null, not);
+  }
+});

@@ -27,10 +27,11 @@ const RUNNER_SRC = fs.readFileSync(RUNNER, 'utf8');
 /* Read, never run, to see whether this runner knows --only: running one that does not starts the whole suite. */
 const KNOWS_ONLY = /\[ "\$\{1:-\}" = --only \]/.test(RUNNER_SRC);
 const DIR = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'filetimeout-6668-')));
+test.after(() => { try { fs.rmSync(DIR, { recursive: true, force: true }); } catch { /* best effort */ } });
 /* What run-tests.sh exports, or what a queue turn or node --test hands down: none of it may reach the inner runs. */
 const RUNNER_SET = ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL', 'AGENT_WORKFORCE_COMMUNITY_URL',
   'KOSMOS_CATALOGUE_BASE', 'AGENT_WORKFORCE_GH_BIN', 'AGENT_WORKFORCE_VERCEL_BIN', 'KOSMOS_NO_LEGACY_MIGRATION',
-  'KOSMOS_TEST_PART', 'KOSMOS_TEST_PART_LOCAL', 'KOSMOS_SHELL_SHARD', 'KOSMOS_MACHINE_CLAIM_COOKIE',
+  'KOSMOS_TEST_PART', 'KOSMOS_TEST_PART_LOCAL', 'KOSMOS_SHELL_SHARD', 'KOSMOS_SHELL_PLATFORM', 'KOSMOS_MACHINE_CLAIM_COOKIE',
   'KOSMOS_LIGHT_SIDE_COOKIE', 'NODE_TEST_CONTEXT', 'KOSMOS_TEST_FILE_TIMEOUT_MIN', 'KOSMOS_TEST_FILE_TIMEOUT_S',
   'KOSMOS_TEST_TIMEOUT_MS',
   'TMUX', 'TMUX_PANE'];
@@ -298,24 +299,47 @@ function childrenOf(pid) {
 function commandOf(pid) {
   return (spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).stdout || '').trim();
 }
+/* node --test by the runner's own rule (its watchdog's case: "node --test "* or *"/node --test "*): by name, or by full
+   path. Under `yarn test` (how Mortals runs the suite), yarn puts a `node` first on PATH that execs node by its full
+   path, so the runner's node --test reads /opt/homebrew/Cellar/node/<v>/bin/node --test ... and a bare-name match
+   never finds it. */
+const isNodeTest = (cmd) => cmd.startsWith('node --test ') || cmd.includes('/node --test ');
+/* For a red only: the runner and every process under it, with its state and command line. */
+function treeOf(root) {
+  const rows = (spawnSync('ps', ['-A', '-ww', '-o', 'pid=,ppid=,stat=,command='], { encoding: 'utf8' }).stdout || '').split('\n')
+    .map((l) => /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(l)).filter(Boolean).map((m) => ({ pid: +m[1], ppid: +m[2], line: m[0].trim() }));
+  const keep = new Set([root]);
+  for (let grew = true; grew;) { grew = false; for (const r of rows) if (keep.has(r.ppid) && !keep.has(r.pid)) { keep.add(r.pid); grew = true; } }
+  return rows.filter((r) => keep.has(r.pid)).map((r) => '  ' + r.line).join('\n') || '  (none: the runner is gone)';
+}
 
 /* The runner is stopped the way a queue timeout (TERM to the runner) or a person (Ctrl-C: INT to the whole
    foreground group) stops it, at a 60 s limit, so the loop's tick is 5 s. Then the watchdog must be gone within
-   WINDOW ms of the runner's exit. Returns how long it took. */
-async function stoppedRunnerLeavesNoWatchdog(how, windowMs) {
+   WINDOW ms of the runner's exit. label: names this arm's output file. extra: more env for the runner. Returns how
+   long it took and node --test's command line as the runner's child. */
+async function stoppedRunnerLeavesNoWatchdog(label, how, windowMs, extra = {}) {
   assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
-  const child = spawn('bash', [RUNNER, '--only', SLOW], { env: env({ KOSMOS_TEST_FILE_TIMEOUT_S: '60' }), detached: true, stdio: 'ignore' });
+  /* The runner's output goes to a file, read into any red below: a runner that refused or failed before node is
+     then named by its own words, never only by "no watchdog". */
+  const log = path.join(DIR, `stopped-${label}.log`);
+  const fd = fs.openSync(log, 'w');
+  let child;
+  try { child = spawn('bash', [RUNNER, '--only', SLOW], { env: env({ KOSMOS_TEST_FILE_TIMEOUT_S: '60', ...extra }), detached: true, stdio: ['ignore', fd, fd] }); } finally { fs.closeSync(fd); }
   const exited = new Promise((r) => child.on('exit', r));
+  const said = () => { try { return fs.readFileSync(log, 'utf8').slice(-1500); } catch { return '(no output file)'; } };
   try {
     /* The watchdog is the runner's child (by parent pid) that is not node --test and that persists: a $(...) the
        runner forks is gone within milliseconds, so a pid present in three snapshots a scaled 300 ms apart, with the
        runner's own command line (a subshell copies it), is the loop. Retried until one candidate remains. */
     let watchdog = null;
     let last = [];
+    let nodeCmd = '';
     const runnerCmd = () => commandOf(child.pid);
     const candidates = () => {
       const kids = childrenOf(child.pid);
-      if (!kids.some((k) => commandOf(k).startsWith('node --test '))) return null;
+      const node = kids.map(commandOf).find(isNodeTest);
+      if (!node) return null;
+      nodeCmd = node;
       const own = runnerCmd();
       return kids.filter((k) => commandOf(k) === own);
     };
@@ -331,15 +355,17 @@ async function stoppedRunnerLeavesNoWatchdog(how, windowMs) {
       if (seen && seen.length === 1) watchdog = seen[0];
       else await nap(100);
     }
-    assert.ok(watchdog, 'no single persistent watchdog under the runner (node --test not started, or candidates: ' + last.join(' ') + ')');
+    assert.ok(watchdog, 'no single persistent watchdog under the runner (node --test not started, or candidates: ' + last.join(' ') +
+      ')\nthe runner\'s processes:\n' + treeOf(child.pid) + '\nthe runner said:\n' + said());
     if (how === 'TERM') process.kill(child.pid, 'SIGTERM');
     else process.kill(-child.pid, 'SIGINT');
     await Promise.race([exited, nap(scaleBudget(10000))]);
     const from = Date.now();
     while (alive(watchdog) && Date.now() - from < windowMs) await nap(20);
     const took = Date.now() - from;
-    assert.equal(alive(watchdog), false, `${how}: the watchdog (pid ${watchdog}) was still running ${windowMs} ms after the runner stopped`);
-    return took;
+    assert.equal(alive(watchdog), false, `${how}: the watchdog (pid ${watchdog}) was still running ${windowMs} ms after the runner stopped` +
+      '\nthe runner\'s processes:\n' + treeOf(child.pid) + '\nthe runner said:\n' + said());
+    return { took, nodeCmd };
   } finally {
     try { process.kill(-child.pid, 'SIGKILL'); } catch { /* the group is gone */ }
   }
@@ -372,10 +398,21 @@ test('#6668 a watchdog stopped while it is stopping one file does not go on to t
 
 /* Liveness at any scale: the watchdog is gone after a TERM (the exit trap or the loop's own next look at its parent,
    as a pair; the exit trap alone is not proven by a test). */
-test('#6668 a runner sent TERM leaves no watchdog', async () => { await stoppedRunnerLeavesNoWatchdog('TERM', scaleBudget(7000)); });
+test('#6668 a runner sent TERM leaves no watchdog', async () => { await stoppedRunnerLeavesNoWatchdog('term', 'TERM', scaleBudget(7000)); });
 /* This arm guards the PAIR (the exit trap or the normal stop after node): on a Ctrl-C bash outlives node and stops
    the watchdog normally, so it stays green with the trap's stop removed. */
-test('#6668 a runner stopped by Ctrl-C (INT to its group) leaves no watchdog', async () => { await stoppedRunnerLeavesNoWatchdog('INT', scaleBudget(1000)); });
+test('#6668 a runner stopped by Ctrl-C (INT to its group) leaves no watchdog', async () => { await stoppedRunnerLeavesNoWatchdog('int', 'INT', scaleBudget(1000)); });
+/* The same, with yarn's own `node` first on PATH (an exec of node by its full path, as `yarn test` puts there), so
+   node --test reads by its full path. The arm proves the wrapper was in the path: the runner's child is node by the
+   full path this test's node runs from. */
+const EXEC_DIR = fs.mkdtempSync(path.join(DIR, 'execnode-'));
+/* The path in single quotes, each ' in it written as '\\'' (sh expands nothing inside single quotes). */
+const shQuote = (v) => "'" + String(v).replace(/'/g, "'\\''") + "'";
+fs.writeFileSync(path.join(EXEC_DIR, 'node'), `#!/bin/sh\n\nexec ${shQuote(process.execPath)} "$@"\n`, { mode: 0o755 });
+test('#6668 behind yarn\'s node (an exec by full path), a runner sent TERM still leaves no watchdog', async () => {
+  const { nodeCmd } = await stoppedRunnerLeavesNoWatchdog('term-execnode', 'TERM', scaleBudget(7000), { PATH: EXEC_DIR + ':' + process.env.PATH });
+  assert.ok(nodeCmd.startsWith(process.execPath + ' --test '), 'node --test did not run by its full path, so this arm tested no wrapper: ' + nodeCmd);
+});
 
 test('#6668 the node --test line carries --test-timeout for async hangs, before the files where node applies it', () => {
   const line = RUNNER_SRC.split('\n').find((l) => /^node --test /.test(l));

@@ -458,7 +458,14 @@ function prepare(label) {
      while a refused prepare would be a worse failure for a smaller cause.
      The field in the return is what lets a screen say which happened.
      Reused spots get this free: the connect route re-runs prepare. */
-  const hooks = reporthook.ensureWired(path.join(dir, 'settings.json'), reporthook.hookScriptPath(), { claudeVersion: claudeVersionForFolder(dir) });
+  /* kosmos#6713: a board that is not the installed Kosmos (a source checkout, a worktree, a test install elsewhere, or
+     on Windows a build in the updater's folder) leaves an account in the real home alone: the hook script it would
+     name is its own throwaway one (installroot.js has the rule). It says so in hooksBecause. */
+  let leave = null;
+  try { leave = require('./installroot').leaveAlone(path.join(dir, 'settings.json')); }
+  catch { leave = 'this board could not tell whether it is an installed Kosmos, so it leaves this account\'s Claude settings alone'; }   // its own copy: installroot.js may be what failed to load
+  const hooks = leave ? { wired: false, because: leave }
+    : reporthook.ensureWired(path.join(dir, 'settings.json'), reporthook.hookScriptPath(), { claudeVersion: claudeVersionForFolder(dir) });
   /* #3946: and with the statusline that records its weekly usage, so a swarm
      on it can be limited in "% of weekly allowance". Same fail-soft posture:
      an account that already has its own statusline keeps it and simply has
@@ -470,7 +477,8 @@ function prepare(label) {
      hooks down with it. */
   try { weekly = require('./allowance').ensureStatusLine(path.join(dir, 'settings.json')); }
   catch { /* fail soft: no weekly reading for this account */ }
-  return { ok: true, dir, label: clean, memoryShared, hooksWired: hooks.wired === true, weeklyWired: weekly.wired === true,
+  return { ok: true, dir, label: clean, memoryShared, hooksWired: hooks.wired === true, hooksBecause: hooks.wired === true ? null : (hooks.because || null),
+    weeklyWired: weekly.wired === true,
     weeklyBecause: weekly.wired === true ? null : (weekly.because || null) };
 }
 

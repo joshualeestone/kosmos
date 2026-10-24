@@ -166,6 +166,13 @@ test('returns {ok:false} on a bad folder and never throws', () => {
 
 test('managedSettingsPresent is false off darwin, and refreshTokenOnlyGuards warns when the belt is absent', () => {
   assert.equal(setup.managedSettingsPresent('linux'), false);
+  // #4491: either managed file counts (the base file or the drop-in), and only the ones given.
+  const present = path.join(os.tmpdir(), 'managed-present-' + process.pid + '.json');
+  fs.writeFileSync(present, '{}\n');
+  try {
+    assert.equal(setup.managedSettingsPresent('darwin', [path.join(os.tmpdir(), 'no-such-' + process.pid), present]), true);
+    assert.equal(setup.managedSettingsPresent('darwin', [path.join(os.tmpdir(), 'no-such-' + process.pid)]), false);
+  } finally { fs.rmSync(present, { force: true }); }
   // list two agents via the real token-only file (store.ROOT-based) + stub workerDir; managed belt absent.
   const listFile = sendertoken.tokenOnlyFile();
   fs.writeFileSync(listFile, JSON.stringify({ agents: ['echo', 'two'] }) + '\n');
@@ -174,7 +181,7 @@ test('managedSettingsPresent is false off darwin, and refreshTokenOnlyGuards war
   process.stderr.write = (s) => { warned.push(String(s)); return true; };
   let out;
   try {
-    out = setup.refreshTokenOnlyGuards({ ...DEPS, workerDir: (n) => agentDir('refresh-' + n) });
+    out = setup.refreshTokenOnlyGuards({ ...DEPS, managedPaths: [path.join(os.tmpdir(), 'no-such-managed-' + process.pid + '.json')], workerDir: (n) => agentDir('refresh-' + n) });
   } finally { process.stderr.write = realWrite; }
   assert.deepEqual(out.guarded.sort(), ['echo', 'two'], 'not every listed agent was guarded: ' + JSON.stringify(out));
   assert.equal(out.managed, false);

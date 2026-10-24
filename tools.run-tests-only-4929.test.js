@@ -35,7 +35,7 @@ const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'only-4929-'));
    pass if the run under test set it up. TMPDIR is a plain folder here, so a kt<pid> under it is the inner run's own. */
 const RUNNER_SET = ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL', 'AGENT_WORKFORCE_COMMUNITY_URL',
   'KOSMOS_CATALOGUE_BASE', 'AGENT_WORKFORCE_GH_BIN', 'AGENT_WORKFORCE_VERCEL_BIN', 'KOSMOS_NO_LEGACY_MIGRATION',
-  'KOSMOS_TEST_PART', 'KOSMOS_TEST_PART_LOCAL', 'KOSMOS_SHELL_SHARD',
+  'KOSMOS_TEST_PART', 'KOSMOS_TEST_PART_LOCAL', 'KOSMOS_SHELL_SHARD', 'KOSMOS_SHELL_PLATFORM',
   // A queue turn or a cut runs this file holding a machine claim; its cookie would make the test's own claims ours.
   'KOSMOS_MACHINE_CLAIM_COOKIE',
   // #4911: likewise a light run's side-turn cookie; run inside a side turn, every inner run would refuse with exit 2.

@@ -75,7 +75,8 @@ function constSource(name) {
    echo the state they were handed, so the test reads which state the pill was painted from. */
 function pillFor(card, spokeLearnedAt, lastAt) {
   const els = {};
-  const doc = { getElementById: (id) => (els[id] = els[id] || { className: '', innerHTML: '', textContent: '', hidden: false, dataset: {} }) };
+  const doc = { activeElement: null, getElementById: (id) => (els[id] = els[id] || { id, className: '', innerHTML: '', textContent: '', hidden: false, dataset: {},
+    contains(x) { return x === this || (!!x && x.parent === this); }, focus() { doc.activeElement = this; } }) };
   // eslint-disable-next-line no-new-func
   const run = new Function('document', 'DM_SPOKE_AT', 'LAST_AT', [
     'const esc = (s) => String(s);',
@@ -89,11 +90,13 @@ function pillFor(card, spokeLearnedAt, lastAt) {
     RAW.match(/^const HEALTH_READ_STATES = [^\n]*/m)[0],
     pageFnSource('seenAtWords'),
     pageFnSource('healthLine'),
+    RAW.match(/^const SAID_STATES = [^\n]*/m)[0],   // #6716: which states show their screen line
     pageFnSource('paintDetailState'),
     'return paintDetailState;',
   ].join('\n'))(doc, new Map(spokeLearnedAt === null ? [] : [[card.sessionName, { at: 1, learnedAt: spokeLearnedAt }]]), lastAt);
   run(card);
   pillFor.els = els;
+  pillFor.doc = doc;
   pillFor.repaint = run;
   return els['d-state'].className;
 }
@@ -116,7 +119,7 @@ test('#3958: a working sample older than the reply on screen paints the pill idl
   }
 });
 
-test('#3958: a stale working sample is dropped whole: its evidence line does not stay beside the Idle pill', () => {
+test('#3958 / #6716: a working sample\'s screen line is never shown, stale or fresh; a waiting state\'s is', () => {
   /* A working card that DOES carry evidence: Claude Code's live retry line (engine/status.js #3410). */
   const board = fleet.install([fleet.agent('beatrix', { state: 'working',
     screen: 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n' })]);
@@ -124,11 +127,21 @@ test('#3958: a stale working sample is dropped whole: its evidence line does not
     const card = board.agents.find((x) => x.name === 'beatrix');
     assert.ok(card && card.state === 'working' && /Retrying in 5s/.test(String(card.stateEvidence || '')),
       'the fixture did not produce a working card with evidence: ' + JSON.stringify(card && [card.state, card.stateEvidence]));
+    const saidOf = () => pillFor.els['d-said'].innerHTML + pillFor.els['d-said'].textContent;
+    /* #6716 (Josh, 2026-10-20): a working agent's screen line is never shown, fresh or stale: it is the CLI's own
+       chrome. The control is the same card's line in a waiting state, which IS shown, folded, so the arms below can
+       red. (Spread from the real card: only the state differs.) */
+    pillFor({ ...card, state: 'needs_you' }, null, 1000);
+    assert.match(saidOf(), /Retrying in 5s/, 'control: a waiting state shows its screen line (else the arms prove nothing)');
+    assert.equal(pillFor.els['d-said-box'].hidden, false, 'control: the fold around it is shown');
     pillFor(card, null, 1000);
-    assert.match(pillFor.els['d-said'].innerHTML + pillFor.els['d-said'].textContent, /Retrying in 5s/,
-      'control: a sample that stands shows its evidence (else the arm below proves nothing)');
+    assert.doesNotMatch(saidOf(), /Retrying in 5s/, 'a working agent showed its raw screen line (#6716)');
+    assert.equal(pillFor.els['d-said-box'].hidden, true, 'a working agent showed the screen-line fold (#6716)');
+    /* The stale sample still paints Idle (#3958). Its line is now hidden twice over (idle is not in SAID_STATES either),
+       so the assertion after it cannot fail on its own; kept as the #3958 record, not as the guard. The guard is the
+       working arm above. */
     assert.match(pillFor(card, 2000, 1000), /\bst-idle\b/);
-    assert.doesNotMatch(pillFor.els['d-said'].innerHTML + pillFor.els['d-said'].textContent, /Retrying in 5s/,
+    assert.doesNotMatch(saidOf(), /Retrying in 5s/,
       'the Idle pill kept the working sample\'s evidence line beside it');
   } finally {
     fleet.restore();
@@ -172,12 +185,95 @@ test('#3991: the dot\'s trust exception reads needsTrust (the board poll\'s own 
   }
 });
 
+test('#6716: the screen-line fold starts closed each time it appears, and a poll leaves an opened one open', () => {
+  const screen = 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n';
+  const board = fleet.install([fleet.agent('beatrix', { state: 'working', screen }), fleet.agent('cora', { state: 'working', screen })]);
+  try {
+    const card = board.agents.find((x) => x.name === 'beatrix');
+    const waiting = { ...card, state: 'needs_you' };
+    pillFor(waiting, null, 1000);
+    const box = pillFor.els['d-said-box'];
+    assert.equal(box.hidden, false, 'control: the fold shows for a waiting agent');
+    assert.equal(box.open, false, 'the fold did not start closed');
+    box.open = true;   // the person opens it
+    pillFor.repaint(waiting);
+    assert.equal(box.open, true, 'a poll for the same agent closed the fold the person opened');
+    pillFor.repaint({ ...waiting, stateEvidence: '' });   // still waiting, its screen text empty for one poll
+    assert.equal(box.hidden, true, 'control: an empty line hides the fold');
+    pillFor.repaint(waiting);
+    assert.equal(box.open, true, 'one poll with no screen text closed the fold during the same wait (review 11)');
+    pillFor.repaint({ ...waiting, state: 'auth_failed' });   // a different wait, with different words
+    assert.equal(box.open, false, 'a move to another waiting state kept the fold open over its new words (review 12)');
+    box.open = true;
+    pillFor.repaint({ ...waiting, state: 'auth_failed' });
+    assert.equal(box.open, true, 'control: the same waiting state on the next poll leaves it open');
+    pillFor.repaint(card);   // back to working: hidden
+    assert.equal(box.hidden, true);
+    pillFor.repaint(waiting);   // waiting on something again
+    assert.equal(box.open, false, 'the fold came back already open for a new wait');
+    box.open = true;
+    pillFor.repaint({ ...board.agents.find((x) => x.name === 'cora'), state: 'needs_you' });   // another agent, from the fleet
+    assert.equal(box.open, false, 'another agent\'s quote opened already expanded');
+  } finally {
+    fleet.restore();
+  }
+});
+
+test('#6716: opening a page closes the fold, even for the agent whose quote was open', () => {
+  /* openDetail runs on every real open and never on the poll; it must reset the fold so the next paint counts as an
+     appearance. Read from the real function's source, then replayed against the real paint. */
+  const src = pageFnSource('openDetail');
+  const reset = src.match(/const saidFold = document\.getElementById\('d-said-box'\);\n\s*if \(saidFold\) \{[^\n]*\}/);
+  assert.ok(reset, 'openDetail no longer resets the screen-line fold (#6716 review 6)');
+  assert.match(reset[0], /delete saidFold\.dataset\.for;[^\n]*delete saidFold\.dataset\.waiting;/, 'openDetail clears only one of the fold\'s two keys (review 13)');
+  const board = fleet.install([fleet.agent('beatrix', { state: 'working', screen: 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n' })]);
+  try {
+    const waiting = { ...board.agents.find((x) => x.name === 'beatrix'), state: 'needs_you' };
+    pillFor(waiting, null, 1000);
+    const box = pillFor.els['d-said-box'];
+    box.open = true;
+    pillFor.repaint(waiting);
+    assert.equal(box.open, true, 'control: without an open, the poll leaves it open');
+    // eslint-disable-next-line no-new-func
+    new Function('document', reset[0])(pillFor.doc);   // the person goes back to the grid and reopens Beatrix
+    pillFor.repaint(waiting);
+    assert.equal(box.open, false, 'reopening the same waiting agent showed the fold already open');
+  } finally {
+    fleet.restore();
+  }
+});
+
+test('#6716: when the fold hides under the keyboard, focus moves to the state line, not the top of the page', () => {
+  const board = fleet.install([fleet.agent('beatrix', { state: 'working', screen: 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n' })]);
+  try {
+    const card = board.agents.find((x) => x.name === 'beatrix');
+    const waiting = { ...card, state: 'needs_you' };
+    pillFor(waiting, null, 1000);
+    const box = pillFor.els['d-said-box'];
+    const summary = { parent: box };
+    pillFor.doc.activeElement = { parent: null };   // CONTROL: focus elsewhere is left alone
+    pillFor.repaint(card);
+    assert.notEqual(pillFor.doc.activeElement && pillFor.doc.activeElement.id, 'd-state', 'focus was moved though it was not in the fold');
+    pillFor.repaint(waiting);
+    pillFor.doc.activeElement = summary;   // the keyboard is on the summary
+    pillFor.repaint(card);   // back to working: the fold hides
+    assert.equal(box.hidden, true);
+    assert.equal(pillFor.doc.activeElement && pillFor.doc.activeElement.id, 'd-state', 'focus was left on the hidden fold');
+    assert.equal(pillFor.els['d-state'].tabIndex, -1, 'the state line became a Tab stop');
+  } finally {
+    fleet.restore();
+  }
+});
+
 test('#3958: the poll does not rewrite an unchanged pill, task or said label (a selection survives)', () => {
-  const board = fleet.install([fleet.agent('beatrix', { state: 'working' })]);
+  /* #6716 review 14: a WAITING agent, since only a waiting state shows the quote now; a working one paints the label and
+     quote empty on both polls, so this test could not fail for them. */
+  const board = fleet.install([fleet.agent('beatrix', { state: 'auth_failed' })]);
   try {
     const card = board.agents.find((x) => x.name === 'beatrix');
     pillFor(card, null, 1000);
     const els = pillFor.els;
+    assert.ok(els['d-said-lab'].textContent && els['d-said'].textContent, 'control: the label and the quote are painted, so their rewrites are watched');
     /* Count writes from here on, on the same elements, across a second identical paint. */
     const counted = {};
     for (const id of ['d-state', 'd-task', 'd-said', 'd-said-lab']) {

@@ -90,9 +90,10 @@ case "$(KOSMOS_RECLAIM_BUSY=1 start_as unreachable 3)" in *"rc=1 marker=back"*) 
 case "$(KOSMOS_RECLAIM_BUSY=1 start_as busy 3)" in *"Reclaiming it."*) ok "reclaim busy during the wait reaches the reclaim" ;; *) bad "reclaim busy: $(KOSMOS_RECLAIM_BUSY=1 start_as busy 3)" ;; esac
 X=down; AT=1000; N=0; printf '%s' "$LIVE_PID" > "$PIDFILE"
 case "$( ( cmd_start ) 2>&1; echo "rc=$?" )" in *"is not answering on port"*"rc=1"*) ok "a board that never binds is still called stuck after one wait" ;; *) bad "never-binding board not called stuck" ;; esac
-# A stand-in board: a sleep orphaned at once, so launchd reaps it when it ends. (A child of this shell would stay a
-# zombie inside a command substitution, and a zombie still answers kill -0, so its exit would go unseen.)
-victim() { local v; v="$( ( command sleep 60 >/dev/null 2>&1 & echo $! ) )"; VICTIMS="$VICTIMS $v"; printf '%s' "$v"; }
+# A stand-in board: a 60 s wait orphaned at once, so launchd reaps it when it ends. (A child of this shell would stay a
+# zombie inside a command substitution, and a zombie still answers kill -0, so its exit would go unseen.) Not a
+# `sleep`: on a shared machine a `pkill -f "sleep 6"` aimed at something else would end it mid-test (#6671).
+victim() { local v; v="$( ( command perl -e 'select(undef, undef, undef, 60)' >/dev/null 2>&1 & echo $! ) )"; VICTIMS="$VICTIMS $v"; printf '%s' "$v"; }
 # End one and return only once it is gone (bounded: about 5 s).
 end_board() { local i=0; command kill "$1" 2>/dev/null
   while command kill -0 "$1" 2>/dev/null && [ "$i" -lt 100 ]; do command sleep 0.05; i=$((i + 1)); done; }
@@ -113,7 +114,8 @@ case "$ctl|$race" in *"Kosmos is running at"*"rc=0|"*"exited while starting."*"K
 # for the one board: the first look, its 31, and the second pass's. On a mismatch, the start's own words are shown.
 LOOKS="$SANDBOX/looks"; : > "$LOOKS"
 healthy() { echo look >> "$LOOKS"; HEALTH_STATE=down; return 1; }
-printf '%s' "$LIVE_PID" > "$PIDFILE"; said="$( ( cmd_start ) 2>&1; echo "rc=$?" )"; looks="$(wc -l < "$LOOKS" | tr -d ' ')"
+printf '%s' "$LIVE_PID" > "$PIDFILE"; said="$( ( cmd_start ) 2>&1; echo "rc=$?" )"
+looks="$(wc -l < "$LOOKS" | tr -d ' ')"
 case "$looks|$said" in "33|"*"is not answering on port"*"rc=1") ok "a board that never answers gets one wait, then the stuck refusal ($looks looks)" ;;
   *) bad "a silent board: $looks looks, and the start said: $said" ;; esac
 

@@ -1539,8 +1539,11 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   if (sameMsg && sameMsg.state === HELD_STATE) {
     const typed = log.find((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
     const keptCopy = typed ? null : require('./limitqueue').list(qName).find((e) => e.id === sameMsg.id);
-    if (keptCopy) {
-      return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true, keptCopy.behind === true, keptCopy.signin === true);
+    /* #6774: a copy kept for a stuck input box folds only while the two have not spoken since (#4580): unlike an agent
+       out of usage, one whose box is stuck can still answer, and the same words after that answer are a new message. */
+    if (keptCopy && (keptCopy.input !== true || quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName))))) {
+      return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true, keptCopy.behind === true, keptCopy.signin === true,
+        { input: keptCopy.input === true, behindInput: keptCopy.behind === true && keptCopy.input === true });
     }
     // Typed after the reset: the same send again is that delivery. Dropped: nothing reached them, so it goes as new.
     // As the fold below: only while the two have not spoken since (#4580); after that the same words are a new message.
@@ -1561,8 +1564,13 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   if (keptEarly && require('./limitqueue').isDone(keptEarly.id)) {
     const typedRow = log.find((r) => r && r.kind === 'held-delivered' && r.of === keptEarly.id);
     if (typedRow) return { state: typedRow.state, because: null, id: keptEarly.id, at: keptEarly.at, duplicate: true };
-  } else if (keptEarly) {
-    return heldReceipt(toName, keptEarly.id, keptEarly.at, !keptEarly.behind && Date.parse(keptEarly.reset) > Date.parse(at) ? keptEarly.reset : null, true, keptEarly.behind === true, keptEarly.signin === true);
+  } else if (keptEarly && (keptEarly.input !== true || (() => {
+    // #6774: as the fold above, a copy kept for the box only while the two have not spoken since its own row.
+    const row = log.find((r) => r && r.kind === 'message' && r.id === keptEarly.id);
+    return !row || quietSince(log, row, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)));
+  })())) {
+    return heldReceipt(toName, keptEarly.id, keptEarly.at, !keptEarly.behind && Date.parse(keptEarly.reset) > Date.parse(at) ? keptEarly.reset : null, true, keptEarly.behind === true, keptEarly.signin === true,
+      { input: keptEarly.input === true, behindInput: keptEarly.behind === true && keptEarly.input === true });
   }
 
   /* THE VALVE, split per the person's control (limits.js): crossing the
@@ -1651,10 +1659,12 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
        otherwise drop the message at the next sweep). */
     const dropFrom = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : at;
     const why = limitqueue.addOrWhy(qName, { id, from, envelope, at, reset: dropFrom, key: msgKey, spill: spillFile, behind: limitHold.behind === true,
+      input: limitHold.behind === true && waiting.some((e) => e.input === true),   // #6774: behind messages kept for the box
       signin: limitHold.heldFor === 'signin' && limitHold.behind !== true });
     if (why) {
       unspill(spillFile);
-      const situation = limitHold.behind ? 'still has messages kept from while it was out of usage'
+      const situation = limitHold.behind ? (waiting.some((e) => e.input === true)
+        ? 'still has messages kept while its input box held text not yet sent' : 'still has messages kept from while it was out of usage')
         : limitHold.heldFor === 'signin' ? 'is signed out' : 'is out of usage';   // #5948
       return refuse(toName, toName + ' ' + situation + ', and Kosmos ' + (why === 'sender-cap'
         ? 'is already keeping ' + limitqueue.MAX_PER_SENDER + ' messages from you for it; wait for those to arrive before sending more'
@@ -1664,10 +1674,27 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     // The printed reset while it is ahead; past it (the card still reads capped) no time is promised.
     const until = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : null;
     appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: HELD_STATE, heldUntil: until });
-    return heldReceipt(toName, id, at, until, false, limitHold.behind === true, limitHold.heldFor === 'signin');
+    return heldReceipt(toName, id, at, until, false, limitHold.behind === true, limitHold.heldFor === 'signin',
+      { behindInput: limitHold.behind === true && waiting.some((e) => e.input === true) });   // the same rule as the flag
   }
 
   const finish = (sent) => {
+    /* #6774: refused because its input box holds text not yet sent (#6249, before anything was typed): kept, and typed
+       by the minute sweep once the box reads empty, so the sender need not notice and send it again. Could not keep it
+       (a cap, the queue unreadable): refused as before, with that reason added. */
+    if (sent && sent.state === chat.DELIVERY.COULD_NOT && sent.inputHeld === true) {
+      const limitqueue = require('./limitqueue');
+      const why = limitqueue.addOrWhy(qName, { id, from, envelope, at, reset: at, key: msgKey, spill: spillFile, input: true });
+      if (!why) {
+        appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: HELD_STATE, heldUntil: null });
+        return heldReceipt(toName, id, at, null, false, false, false, { input: true });
+      }
+      unspill(spillFile);
+      return refuse(toName, sent.because + ', and Kosmos ' + (why === 'sender-cap'
+        ? 'is already keeping ' + limitqueue.MAX_PER_SENDER + ' messages from you for it; wait for those to arrive before sending more'
+        : why === 'agent-cap' ? 'is already keeping ' + limitqueue.MAX_KEPT + ' messages for it; try again once its input box is clear'
+          : 'could not keep this one for it (its queue could not be read or written); try again in a minute'));
+    }
     if (sent.state === chat.DELIVERY.COULD_NOT) {
     // A refused delivery must not orphan its spill.
       unspill(spillFile);
@@ -1704,14 +1731,22 @@ function send(input, roster) {
 /* #5805 slice 2a: a `kosmos msg` message kept for an agent out of usage. Its row's state, and the sender's answer:
    nothing was typed (could_not), it is held (the chat held shape, heldBy 'limit'), and when it will be typed. */
 const HELD_STATE = 'held';
-function heldReceipt(toName, id, at, heldUntil, duplicate, behind, signin) {
+/* #6774: `more.input`, kept because its input box held text not yet sent; `more.behindInput`, kept behind messages any
+   of which were kept for that reason (so the sentence names the real one). */
+function heldReceipt(toName, id, at, heldUntil, duplicate, behind, signin, more) {
+  more = more || {};   // no default in the signature: web.task-say-outcome-5842.test.js reads this body from its first brace
+  const input = more.input === true && !behind;
   return {
-    state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: (!behind && !signin && heldUntil) || null, id, at,
+    state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: (!behind && !signin && !input && heldUntil) || null, id, at,
     because: behind
-      ? 'held: ' + toName + ' still has messages kept from while it was out of usage; Kosmos types this one after them'
+      ? 'held: ' + toName + (more.behindInput === true ? ' still has messages kept while its input box held text not yet sent'
+        : ' still has messages kept from while it was out of usage') + '; Kosmos types this one after them'
+      : input ? 'held: ' + toName + "'s input box holds text not yet sent; Kosmos types it once the box is clear"   // #6774
       : signin ? 'held: ' + toName + ' is signed out; Kosmos types it once it is signed in again'   // #5948
       : 'held: ' + toName + ' is out of usage' + (heldUntil ? ' until ' + heldUntil : '') + '; Kosmos types it after the reset',
     ...(!behind && signin ? { heldFor: 'signin' } : {}),
+    ...(input ? { heldFor: 'input' } : {}),
+    ...(behind && more.behindInput === true ? { behindFor: 'input' } : {}),
     ...(behind ? { behind: true } : {}),
     ...(duplicate ? { duplicate: true } : {}),
   };
@@ -1751,6 +1786,7 @@ function keepTaskLine(toName, line, roster, from, about, where) {
   let decided = false;   // a hold was found: from here a failure must not fall through to typing
   let behindNow = false;
   let signinNow = false;   // #5948: decided on a sign-in hold, for the catch below
+  let behindInputNow = false;   // #6774: decided behind a backlog kept for the box, for the catch below
   try {
     const limitqueue = require('./limitqueue');
     /* The delivery's free refusals first: a line it refuses whenever it is typed (not sendable, the agent not
@@ -1773,6 +1809,9 @@ function keepTaskLine(toName, line, roster, from, about, where) {
     decided = true;
     const behind = hold.behind === true;
     behindNow = behind;
+    // #6774: behind messages any of which were kept for a stuck input box: flagged and told so, as `kosmos msg` is.
+    const behindInput = behind && limitqueue.readEntries(qName).entries.some((e) => e.input === true && !limitqueue.isDone(e.id));
+    behindInputNow = behindInput;
     signinNow = !behind && hold.heldFor === 'signin';
     // The drop clock: the printed reset, or now when that is already past (as for `kosmos msg`).
     const dropFrom = Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : at;
@@ -1789,20 +1828,20 @@ function keepTaskLine(toName, line, roster, from, about, where) {
       }
     }
     const id = 'k' + crypto.randomBytes(6).toString('hex');
-    const why = limitqueue.addOrWhy(qName, { id, kind: limitqueue.TASK_KIND, from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind, signin: !behind && hold.heldFor === 'signin',
+    const why = limitqueue.addOrWhy(qName, { id, kind: limitqueue.TASK_KIND, from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind, signin: !behind && hold.heldFor === 'signin', input: behindInput,
       projectId: where && where.projectId, task: where && where.task, person: !!(where && where.person === true),
       built: !!(where && where.kind === 'built') });
     if (why) {
       const cause = why === 'sender-cap' ? limitqueue.MAX_PER_SENDER + ' messages from this sender are kept for it already'
         : why === 'agent-cap' ? limitqueue.MAX_KEPT + ' messages are kept for it already' : 'its queue could not be read or written';
-      return { state: chat.DELIVERY.COULD_NOT, because: toName + (behind ? ' still has messages kept from while it was out of usage' : hold.heldFor === 'signin' ? ' is signed out' : ' is out of usage')
+      return { state: chat.DELIVERY.COULD_NOT, because: toName + (behind ? (behindInput ? ' still has messages kept while its input box held text not yet sent' : ' still has messages kept from while it was out of usage') : hold.heldFor === 'signin' ? ' is signed out' : ' is out of usage')
         + ', and Kosmos could not keep this one for it (' + cause + '), so it was not told' };
     }
     const until = !behind && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
     // heldReceipt is `kosmos msg`'s answer (could_not, held: true); the task route reports the row state instead.
-    return { ...heldReceipt(toName, id, at, until, false, behind, hold.heldFor === 'signin'), state: HELD_STATE };
+    return { ...heldReceipt(toName, id, at, until, false, behind, hold.heldFor === 'signin', { behindInput }), state: HELD_STATE };
   } catch {
-    return decided ? { state: chat.DELIVERY.COULD_NOT, because: toName + (behindNow ? ' still has messages kept from while it was out of usage' : signinNow ? ' is signed out' : ' is out of usage')
+    return decided ? { state: chat.DELIVERY.COULD_NOT, because: toName + (behindNow ? (behindInputNow ? ' still has messages kept while its input box held text not yet sent' : ' still has messages kept from while it was out of usage') : signinNow ? ' is signed out' : ' is out of usage')
       + ', and Kosmos could not keep this one for it, so it was not told' } : null;
   }
 }
@@ -2381,7 +2420,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   // sum is ARRIVALS (each post costs its recipient count), and this
   // post's own arrivals are charged up front: a nine-arrival post at
   // thirty-nine is over the budget, not under it.
-  const arrivals = log.filter((m) => m && m.kind === 'post' && !m.operator
+  const arrivals = log.filter((m) => m && m.kind === 'post' && !m.operator && m.closing !== true   // #6920: not charged
     && m.project === projectId && Date.parse(m.at) >= countFrom)
     .reduce((n, m) => n + (Array.isArray(m.to) ? m.to.length : 0), 0);
   const cleaned = chat.cleanMessage(text);
@@ -2591,7 +2630,30 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     }
   }
 
-  if (operator !== true && arrivals + charged > allowed) {
+  /* #6920 (agent feedback, 2026-10-22): a held room also held the coordinator's one summarizing post, the post a hold
+     exists to bring about. While the volume valve holds the room, a member this hold has already refused (its
+     ROOM_HELD_REFUSAL row since countFrom, so the post that tips the room over is held as before and the member learns of
+     the hold first) may land ONE post of CLOSING_POST_MIN characters or more of its one-line form (the length decides:
+     chat.acknowledgementOnly is false above its own 200 characters, so that check is only a floor),
+     per window (countFrom: rolling, reset by the person's post or a reopen, as the arrival budget is).
+     It is stored with `closing: true`, which is how a second one is found and held (#6925: the refusal says
+     `closingEligible` when the board will take one, which is what the CLIs key on; `closingUsed` stays as a fact).
+     It is NOT charged to the room: arrivals here and roomHeldRead's count skip it,
+     so a summary does not push the lift later. It is otherwise an ordinary post: delivered to every member and stored.
+     The refused row may be from an EARLIER hold in the same window (a room that lifted and was held again): the refused
+     row is written once per member per window (#315), so keying it to the latest hold would leave that member never
+     eligible in the second one. It still knew of a hold, and the one-per-window bound is unchanged.
+     Rejected: one closing post per ROOM (another member's long post landing first would hold the coordinator's), and
+     any long post (a loop of long posts would never be stopped). */
+  const closingUsed = arrivals + charged > allowed && typeof from === 'string' && from !== ''
+    && log.some((m) => m && m.kind === 'post' && m.closing === true && m.from === from
+      && m.project === projectId && Date.parse(m.at) >= countFrom);
+  const closing = lim.on && operator !== true && arrivals + charged > allowed
+    && typeof from === 'string' && from !== '' && !closingUsed
+    && cleaned.length >= CLOSING_POST_MIN && !chat.acknowledgementOnly(stored)
+    && log.some((m) => m && m.kind === 'refused' && m.from === from && m.project === projectId
+      && m.because === ROOM_HELD_REFUSAL && Date.parse(m.at) >= countFrom);
+  if (!closing && operator !== true && arrivals + charged > allowed) {
     const because = lim.on
       ? 'This conversation went back and forth for a while without landing, '
         + 'so Kosmos stopped it and asked everyone to bring you in.'
@@ -2613,6 +2675,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       appendLog({ kind: 'valve', from, to: projectId, project: projectId, at, because, stopped: lim.on });
     }
     if (lim.on) {
+      let refusalRecorded = false;
       /* 🔑 WHO WAS REFUSED, not only that the room was stopped (#315). The
          valve notice above is deduped per room, correctly -- so every agent
          blocked after the first vanished silently, and read from the outside
@@ -2632,6 +2695,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         if (!already) {
           appendLog({ kind: 'refused', from, to: projectId, project: projectId, because: ROOM_HELD_REFUSAL, at });
         }
+        refusalRecorded = true;   // #6925: the closing post keys on this row; true when it was in this snapshot or written now
       } catch { /* the record is best-effort; the verdict is not */ }
       // #4934: a code, so the CLI can tell the agent what this refusal means for its text (nothing was kept; do not send
       // it another way) without reading the person-facing sentence above.
@@ -2648,7 +2712,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       const heldNow = roomHeldRead(projectId, now, lim, log, charged, progressFrom, recipients.length);
       const clearsAt = heldNow && heldNow.until ? heldNow.until : null;
       const clears = clearsAt === null ? {} : { clearsAt, clearsInMinutes: Math.max(1, Math.ceil((Date.parse(clearsAt) - now) / 60000)) };
-      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, ...clears, id: null, at, outcomes: null };
+      /* #6925: closingEligible says the board will let this member's one summary through (its refusal is recorded and it
+         has not used one), if the window has not moved on before the next post; the CLI offers the exception only then,
+         and an older board never sends it, so it is never offered there. */
+      const eligible = refusalRecorded && !closingUsed && typeof from === 'string' && from !== '';
+      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, ...clears, ...(closingUsed ? { closingUsed: true } : {}),
+        ...(eligible ? { closingEligible: true } : {}),
+        id: null, at, outcomes: null };
     }
   }
 
@@ -2945,6 +3015,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     appendLog({ kind: 'post', id, project: projectId, from, to: recipients.filter((n) => !offHere.has(n)), text: stored, at, outcomes,
       ...(Object.keys(heldUntil).length ? { heldUntil } : {}),
       ...(quotes.length ? { quotes } : {}),
+      ...(closing ? { closing: true } : {}),   // #6920: this member's one post through a held room
       /* #185: the tokenizer's verdict, persisted at the one moment it runs.
          The unanswered state keys on WHO WAS ASKED, and re-deriving that at
          render time would be a second tokenizer that can drift from this
@@ -2984,6 +3055,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
     return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
+      ...(closing ? { closing: true } : {}),   // #6920: landed as this member's one post through a held room
       /* #6254: whether this post answers one the PERSON wrote (operator), the one signal the phone-notify
          `posted` seam needs from here (the route has no other way to know; the person is never an @mention).
          A boolean, never the posts' words. Only present on a reply, so an ordinary post's answer is unchanged. */
@@ -3462,6 +3534,114 @@ function reactionsFor(of, rows, youReactor) {
   return out;
 }
 
+/* #6946: a room request is CLAIMED with the raised-hand reaction, so the second agent to answer it sees the first
+   before it posts "taking this". Any 🙋 counts (skin tones and the gendered sequences start with the same codepoint),
+   and react() stores every one of them as the plain 🙋, so a claim is one pill and one release takes it back.
+   react() refuses an agent's 🙋 on a post another agent holds. The person's 🙋 is an ordinary reaction (agreeing),
+   never a claim. A claim ends when its holder gives it back or leaves the project. */
+const CLAIM_EMOJI = '\u{1F64B}';
+// 🙋 followed only by the pieces that change how it LOOKS (a skin tone, ZWJ, the gender signs, a presentation selector):
+// every raised hand a pill can show is a claim, and 🙋 followed by another emoji (🙋🔥) is not.
+const CLAIM_FORM = /^\u{1F64B}[\u{1F3FB}-\u{1F3FF}\u200D\u2640\u2642\uFE0E\uFE0F]*$/u;
+function isClaimEmoji(e) { return typeof e === 'string' && CLAIM_FORM.test(e); }
+
+/* Every reactor with a live 🙋 on post `of`: Map(reactor -> {at, emojis}) in the order each one's claim began. A
+   reactor stays live while any 🙋 form of theirs is (rows from before react() stored them plain can hold several);
+   `at` is when that run began. `members`, when given, is the room's current members: an agent not among them is not
+   a claimant. The person's own 🙋 rows are never a claim, and neither is an add without the `claim: true` mark. */
+function claimantsOf(of, rows, members) {
+  const postId = String(of == null ? '' : of);
+  const inRoom = Array.isArray(members) ? new Set(members) : null;
+  const live = new Map();
+  for (const m of rows) {
+    if (!m || m.kind !== 'reaction' || String(m.of) !== postId || !isClaimEmoji(m.emoji)) continue;
+    if (m.operator === true) continue;   // the person's 🙋 agrees; it never claims (see react)
+    const reactor = typeof m.from === 'string' && m.from ? m.from : null;
+    if (!reactor || (inRoom && !inRoom.has(reactor))) continue;
+    const cur = live.get(reactor);
+    if (m.op === 'remove') {
+      if (cur) { cur.emojis.delete(m.emoji); if (!cur.emojis.size) live.delete(reactor); }
+      continue;
+    }
+    // Round 6: only a 🙋 written as a claim (react() marks it) is one. A raised hand from before this rule, perhaps
+    // meaning "I am free", stays an ordinary reaction instead of becoming a claim of whatever age it is.
+    if (m.claim !== true) continue;
+    if (cur) cur.emojis.add(m.emoji);
+    else live.set(reactor, { at: typeof m.at === 'string' ? m.at : null, emojis: new Set([m.emoji]) });
+  }
+  return live;
+}
+
+/* The holder of the claim on post `of`: the earliest live claimant (see claimantsOf). {by, at} or null. */
+function claimOf(of, rows, members) {
+  for (const [by, c] of claimantsOf(of, rows, members)) return { by, at: c.at };
+  return null;
+}
+
+/* The members a room's claims are read against (the room route passes them to claimOf): `names` is the project's
+   stored members, less any removed agent (the same filter react() uses), so the room and the refusal agree on who
+   holds a post. Worked out ONCE per room read, so many claimed posts read the removed list once. If the removed list
+   cannot be read the stored members are used as they are, and with no member list at all (the registry could not be
+   read) it is null and nobody is filtered, since showing a held post as free is the worse mistake. */
+function claimMembers(names) {
+  if (!Array.isArray(names)) return null;   // registry unreadable: never show a held post as free
+  const listed = names.filter((n) => typeof n === 'string' && n);
+  const room = _roomMembers(listed);
+  return room.ok ? room.members : listed;
+}
+
+/* How long ago a claim began, in words: agents quote it back to the person, and a relative age needs no timezone
+   and still reads right three days later, which a bare clock time does not. */
+function claimAge(at, now) {
+  const t = Date.parse(at);
+  if (!Number.isFinite(t)) return 'at a time we cannot read';
+  const min = Math.floor(Math.max(0, (now == null ? Date.now() : now) - t) / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return min === 1 ? '1 minute ago' : min + ' minutes ago';
+  const h = Math.floor(min / 60);
+  if (h < 24) return h === 1 ? '1 hour ago' : h + ' hours ago';
+  const d = Math.floor(h / 24);
+  return d === 1 ? '1 day ago' : d + ' days ago';
+}
+
+/* #6949: the PERSON frees the claim on post `of`, for a holder that went quiet (stopped, stuck, or moved on without
+   giving it back). Its caller must be the person's route: nothing here checks who is asking. react() never lets
+   the person's 🙋 take a claim over (#6946 round 3). `by` is the holder the page showed: if the claim has changed hands since (released, or someone else holds
+   it now) nothing is written and the answer says who holds it, so a stale page cannot free the wrong agent.
+   Every 🙋 pill the holder has, in any form and marked as a claim or not, is removed (react()'s dropPills does the
+   same), with `takenBy: 'you'` and `because: 'freed'`, and an agents-only room note names the post and the old holder,
+   so the holder's next `kosmos room` read says it was freed (while the note is within the rows that read shows).
+   `members` is the project's stored members, filtered by claimMembers as the room read does, so the holder freed is the
+   one the room shows. */
+function freeClaim({ project, of, by, members }) {
+  const projectId = String(project == null ? '' : project).trim();
+  const postId = messageIdOf(of);
+  const shown = typeof by === 'string' ? by.trim() : '';
+  if (!projectId) return { ok: false, because: 'we could not tell which project this post is in' };
+  if (!postId) return { ok: false, because: 'we could not tell which post to free' };
+  if (!shown) return { ok: false, because: 'we could not tell whose claim to free' };
+  const rows = record().rows;
+  const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
+  if (!post) return { ok: false, because: 'there is no post by that id in this room' };
+  const room = claimMembers(members);
+  const holder = claimOf(postId, rows, room);
+  if (!holder) return { ok: true, op: 'none', of: postId };   // already free: what the person asked for is true
+  if (holder.by !== shown) return { ok: false, claimedBy: holder.by, claimedAt: holder.at, of: postId,
+    because: shown + ' no longer holds that post; ' + holder.by + ' does, so nothing was freed' };
+  const at = new Date().toISOString();
+  for (const r of reactionsFor(postId, rows)) {
+    if (!isClaimEmoji(r.emoji) || !r.who.includes(holder.by)) continue;
+    appendLog({ kind: 'reaction', project: projectId, of: postId, at, emoji: r.emoji, op: 'remove', from: holder.by, takenBy: 'you', because: 'freed' });
+  }
+  // claimantsOf can hold more than one live claimant; the next one holds the post now.
+  const next = claimOf(postId, record().rows, room);
+  roomNote(projectId, 'The person freed the claim ' + holder.by + ' held on [' + postId + '], so '
+    + (next ? next.by + ' holds it now.' : 'another agent can claim it now.')
+    + ' ' + holder.by + ', if you are still working on it, say so in the room before you claim it again.',
+  { audience: NOTE_AUDIENCE_AGENTS });
+  return { ok: true, op: 'freed', of: postId, freed: holder.by, ...(next ? { claimedBy: next.by } : {}) };
+}
+
 /* #4631: a message id as a PERSON may write it. Ids are stored as 'm' + a number, one sequence for the whole
    Kosmos, so the number alone names the message. A person copies "message 530 in Kosmos Growth" (the page's
    Copy message reference, #5312: Copy message id) and pastes it to an agent, or types "530"; each input point runs its value
@@ -3492,9 +3672,50 @@ const ROOM_HELD_REFUSAL = 'the room was going back and forth without landing, so
 // the loop a user's Windows room hit (eleven "agreed"/"acknowledged" posts before the volume
 // valve fired). Reversible constant.
 const ACK_RUN_LIMIT = 4;
+/* #6920: how long a post must be to land as a member's one closing post in a held room. Agreement replies run well under
+   100 characters; a summary that closes a thread runs to several sentences. */
+const CLOSING_POST_MIN = 400;
 // #6608 review 2: words that ask the whole room for an answer, so a hand-off that also says them is not left to its owner
 // alone. Deliberately wide (a missed ask drops an answer someone wanted; a false one only lets an acknowledgement through).
 const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|confirm|let (me|us) know|reply|respond|thumbs up)\b/i;
+/* #6952: a request put to the room, for the claim rule. A room word counts only where it is the one being asked to do
+   the work: at the start of a clause ("can someone review...", "who can write the notes?"), as the subject offered
+   the work ("whoever can...", "any takers", a bare "anyone?", and "anyone free to..." where a clause, so/but/then or a
+   question to the room leads it, #6974), or anywhere as "can/could someone
+   ELSE <do it>" (#6957), since "else" excludes whoever was named. Not in passing ("@bob please fix
+   the bug someone reported", "@bob ping the person who can approve it", "@bob does anyone still call this?" all ask
+   bob). Not ROOM_ASK, which is about who must ANSWER ("confirm", "reply" ask the named member too), and not "?":
+   "@bob can you do X?" asks bob. A pattern always misses some phrasings, which is why the asked members hold a post only
+   for CLAIM_ASKED_MINUTES (react): a wrong lock costs at most that long. */
+const CLAIM_ASKED_MINUTES = 30;   // #6952: how long a post's asked members have first call on it
+// The start of a clause: the text's start, or after . ! ? ; : , a new line, a dash or an opening parenthesis (#6957 review 2).
+const CLAIM_LEAD = "(?:^|[.!?;:,(\\n\\u2013\\u2014-]\\s*)(?:(?:now|so|and|but|ok|okay|also|then|great|thanks)[,!]?\\s+)?";
+/* #6974: what follows a room word when the post asks for help FOR the named member ("who can help you?", "can someone
+   help him?", "anyone around to help @bob?"): the helper invited is not who the work is for, so the post stays theirs. */
+const CLAIM_HELP_FOR = '(?!\\s+(?:(?:to|come|please|pls|also|maybe|just|quickly|else|here)\\s+)*help\\s+(?:(?:you(?!\\s+(?:guys|all|folks)\\b)|him|her|them)\\b|@))';
+const CLAIM_ROOM_ASK = new RegExp(
+  CLAIM_LEAD + '(?:can|could|would|will|is there)\\s+(?:someone|somebody|anyone|anybody)\\b' + CLAIM_HELP_FOR   // "can someone review..."
+  // "someone please <do it>" is an imperative to the room wherever it sits ("@bob is swamped so somebody else please grab it")
+  + '|\\b(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+please\\b' + CLAIM_HELP_FOR
+  // ...but "free", "has time", "around to" and the like, with or without "else", only at a clause start or in a question to
+  // the room ("is anyone around to review it?", "If anyone else has time, please grab it", "@bob is out, and anyone free can
+  // take it"), so a passing mention is bob's: "@bob ask
+  // anyone around to review it", "@bob let me know if anyone else has time", and after a bare and/or, "@bob ask Ann or
+  // anyone free to pair on it" (#6974 review 3; ", or anyone free" after a comma still asks the room)
+  + '|(?:' + CLAIM_LEAD + '(?:if\\s+)?|,\\s*or\\s+|\\b(?:so|but|then|can|could|is there|does|do|(?<!\\bthere\\s+)(?:is|are))\\s+)(?:someone|somebody|anyone|anybody)(?:\\s+else)?\\s+(?:free|available|around to|able|willing|up for|have time|has time)\\b' + CLAIM_HELP_FOR
+  // "someone ELSE" plainly excludes whoever was named, so "can someone else take it?" asks the room even right after the
+  // names ("Thanks @bob! Can someone else take the login bug?"), wherever it sits (#6957 review 4)
+  // ...and only before a hand-off verb, so "could someone else have changed this?" or "can anyone else reproduce this?" ask bob
+  + '|\\b(?:can|could)\\s+(?:someone|somebody|anyone|anybody)\\s+else\\s+(?:take|grab|pick|handle|own|cover|do|look|jump|step)\\b'   // only before a hand-off verb (review 7); not help: "can someone else help you?" asks for help FOR bob (review 8)
+  // "who can write the notes?", "Who's free to take this?" (straight or curly apostrophe), "who has time for this?"
+  + '|' + CLAIM_LEAD + "who(?:\\s+|'s\\s+|\u2019s\\s+)(?:can|could|wants|will|is free|free|is available|available|has time|is around|around)\\b" + CLAIM_HELP_FOR + "[^.!?]*\\?"
+  + '|\\bwhoever\\s+(?:can|is free|has time|wants|picks|takes|gets)\\b' + CLAIM_HELP_FOR
+  + '|\\b(?:any takers|any volunteers|need (?:a )?volunteers?)\\b' + CLAIM_HELP_FOR
+  // a bare "anyone?" or "anyone else?" as its own clause ("If you cannot, anyone else?"), not "broken for anyone else?"
+  + '|' + CLAIM_LEAD + '(?:anyone|anybody|someone|somebody)(?:\\s+else)?\\s*\\?', 'i');
+/* "One of you" and the like put it to a group: on a post that @-names members that group is THEM ("@ann @bob can one of
+   you review this?"), so it counts only on a post that names nobody. */
+const CLAIM_GROUP_ASK = /\b(?:(?:one|any|either|each) of you|all of you|the rest of you|you all|y'?all)\b/i;
 function logRoomRefusal({ from, project, because, at, doing, addable }) {
   if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway
   const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
@@ -3525,11 +3746,16 @@ const NOT_ON_PROJECT_FIX = "; ask the person to add this agent with the + beside
    its own name and must be on the project (`members` is the project's member
    sessionNames, the caller's derivation, same as sendPost -- the operator is
    exempt, being in every room they own). Returns {ok, op, emoji, of} or
-   {ok:false, because}. */
-function react({ project, of, emoji, from, operator, members }) {
+   {ok:false, because}.
+   #6946: a 🙋 from an agent is a CLAIM (see the claim rule below): `claim` 'claim' never toggles and can answer op
+   'already', 'release' can answer op 'none', and a refusal or a no-op also carries `claimedBy` (and `claimedAt`). */
+function react({ project, of, emoji, from, operator, members, claim }) {
   const projectId = String(project == null ? '' : project).trim();
   const postId = messageIdOf(of);   // #4631: '530' and 'message 530' name m530 too
-  const e = normalizeReactionEmoji(emoji);
+  // #6946: `claim` is 'claim' (never takes it back) or 'release' (only takes it back); either one means 🙋.
+  if (claim !== undefined && claim !== 'claim' && claim !== 'release') return { ok: false, because: 'we could not tell whether to claim that post or give it back' };
+  const typed = claim ? CLAIM_EMOJI : normalizeReactionEmoji(emoji);
+  const e = isClaimEmoji(typed) ? CLAIM_EMOJI : typed;   // #6946: every 🙋 form is stored as the plain one
   if (!projectId) return { ok: false, because: 'we could not tell which project this post is in' };
   if (!postId) return { ok: false, because: 'we could not tell which post to react to' };
   if (!e) return { ok: false, because: 'that is not an emoji we can react with' };
@@ -3540,8 +3766,10 @@ function react({ project, of, emoji, from, operator, members }) {
      named 'you' (a legal tmux session name) would otherwise have its reactions
      replay as the operator's own and render `mine`. Reserve the name, the same
      operator-vs-agent care sendPost takes with the `operator` flag. */
-  if (operator !== true && reactor === 'you') {
-    return { ok: false, because: 'that name is reserved, so this reaction could not be attributed' };
+  /* #6952: 'operator' too. The room's text view names the person 'operator', so an agent with that name would read as
+     the person on a reactions or claim line. */
+  if (operator !== true && (reactor === 'you' || reactor.toLowerCase() === 'operator')) {
+    return { ok: false, because: 'that name is reserved, so this reaction could not be attributed; an agent cannot be renamed, so ask the person to make a new agent under another name' };
   }
   /* #2255: the room is its members. An AGENT reacting into a room it is not on
      is the same cross-room write the post model refuses (sendPost's membership
@@ -3551,6 +3779,7 @@ function react({ project, of, emoji, from, operator, members }) {
      lookup so a non-member's refusal is uniform whether or not the id they
      named happens to exist -- the post lookup below would otherwise leak
      "no such post" vs "not on that project" as a (minor) id-enumeration tell. */
+  let roomNow = null;
   if (operator !== true) {
     if (!Array.isArray(members) || !members.every((m) => typeof m === 'string' && m)) {
       return { ok: false, because: 'we could not read who is on that project, so nothing was reacted' };
@@ -3563,6 +3792,7 @@ function react({ project, of, emoji, from, operator, members }) {
     if (!room.ok) {
       return { ok: false, because: 'we could not check which agents have been removed, so nothing was reacted' };
     }
+    roomNow = room.members;   // #6946: a claim counts only while its holder is still in the room
     if (!room.members.includes(reactor)) {
       // kosmos#5752 round 2: a removed agent still on the record is not told to get added (it would not help).
       return { ok: false, because: 'you are not on that project, so this room is not yours to react in' + (members.includes(reactor) ? '' : NOT_ON_PROJECT_FIX) };
@@ -3574,11 +3804,126 @@ function react({ project, of, emoji, from, operator, members }) {
   if (!post) return { ok: false, because: 'there is no post by that id in this room' };
   const cur = reactionsFor(postId, rows).find((r) => r.emoji === e);
   const has = !!(cur && cur.who.includes(reactor));
-  const op = has ? 'remove' : 'add';
-  appendLog({ kind: 'reaction', project: projectId, of: postId, emoji: e, op,
-    at: new Date().toISOString(),
-    ...(operator === true ? { operator: true } : { from: reactor }) });
-  return { ok: true, op, emoji: e, of: postId };
+  const stamp = (extra) => ({ kind: 'reaction', project: projectId, of: postId, at: new Date().toISOString(), ...extra });
+  const as = (who) => (who === 'you' ? { operator: true } : { from: who });
+  if (!isClaimEmoji(e)) {
+    const op = has ? 'remove' : 'add';
+    appendLog(stamp({ emoji: e, op, ...as(reactor) }));
+    return { ok: true, op, emoji: e, of: postId };
+  }
+  /* #6946: the claim rule. Checked and written in this one synchronous call, so of two agents racing on one request
+     the second is refused here, with the first one's name, before it can post that it is taking it. */
+  /* Every 🙋 pill a reactor has live, in any form, marked as a claim or not (round 7: a raised hand from before the
+     claim mark is a pill too, and taking yours off must take it off, not claim the post). */
+  const pillsOf = (who) => reactionsFor(postId, rows).filter((r) => isClaimEmoji(r.emoji) && r.who.includes(who)).map((r) => r.emoji);
+  // A remove the holder did not make itself carries `takenBy` (the agent whose claim ended it) and `because`, so the
+  // log says who acted and why; replay reads it as that holder's remove all the same.
+  const dropPills = (who, ended) => { for (const em of pillsOf(who)) appendLog(stamp({ emoji: em, op: 'remove', ...as(who), ...(ended || {}) })); };
+  /* Round 3: the person's 🙋 is an ordinary reaction, never a claim. Their picker has no 🙋, so the only way they make
+     one is by clicking an agent's 🙋 pill, which says "yes, you do it", not "it is mine now". A click takes off any 🙋
+     of theirs, whatever its form, or adds the plain one. */
+  if (operator === true) {
+    if (pillsOf('you').length) { dropPills('you'); return { ok: true, op: 'remove', emoji: e, of: postId }; }
+    appendLog(stamp({ emoji: e, op: 'add', ...as('you') }));
+    return { ok: true, op: 'add', emoji: e, of: postId };
+  }
+  const claimants = claimantsOf(postId, rows, roomNow);
+  const holder = claimOf(postId, rows, roomNow);
+  const holds = !!(claimants.get(reactor) && holder && holder.by === reactor);
+  const pills = pillsOf(reactor).length > 0;   // a 🙋 of this agent's, whether or not it is the claim
+  const refuse = () => ({ ok: false, claimedBy: holder.by, claimedAt: holder.at,
+    because: holder.by + ' claimed that post ' + claimAge(holder.at)
+      + ', so do not post that you are taking it: read the room, and ask ' + holder.by + ' if you can help' });
+  if (claim === 'release') {
+    if (holds) { dropPills(reactor); return { ok: true, op: 'remove', emoji: e, of: postId, released: true }; }
+    // Nothing of yours is held: a retried release, or a 🙋 of yours that was never the claim (taken off, so no pill
+    // of yours is left). What you asked for is already true, so it is not a failure; who holds the post, if anyone,
+    // is said with it.
+    if (pills) dropPills(reactor);
+    return { ok: true, op: 'none', emoji: e, of: postId, ...(holder ? { claimedBy: holder.by } : {}) };
+  }
+  if (holds) {
+    if (claim === 'claim') return { ok: true, op: 'already', emoji: e, of: postId };
+    dropPills(reactor);   // the holder's own toggle off
+    return { ok: true, op: 'remove', emoji: e, of: postId, released: true };
+  }
+  // A plain 🙋 toggle by an agent with a pill that is not the claim takes that pill off, as any reaction would.
+  if (claim !== 'claim' && pills) { dropPills(reactor); return { ok: true, op: 'remove', emoji: e, of: postId }; }
+  if (holder && holder.by !== reactor) return refuse();
+  /* #6952: a post that ASKS particular members is theirs. Another agent's claim would tell the asked one to stand down,
+     so it is refused, naming who was asked. Asked is narrow on purpose (each wider version locked real requests to the
+     wrong agent in review):
+     - the members the post @-named (`mentioned`, recorded when it was sent, #185; never `to`, the delivery list, which
+       can be every member), unless an @-word was ambiguous (`ambiguousMentions`, as the #6608 owner rule) or the post
+       asks the room ("can someone review what @bob shipped?");
+     - for a post that names nobody and answers an agent's post (`replyTo`), that post's author ("yes, go ahead" to
+       bob), unless the replier is that author or the reply asks the room.
+     A hand-off, by an agent or by the person, is a post of its own ("@ann please take this"), which asks ann, and that is
+     the post ann claims. Only those still in the room count, so a post asking only someone who has left is open. */
+  /* A run of @-names at the start of any clause, after an optional greeting ("@bob, who has time...?", "Morning @bob, who
+     can...?", "The deploy failed. @bob - who can look?"), addresses them: the comma, colon, dash or "!" after the names is
+     not a clause start (reviews 2, 3 and 7). Each run is replaced by a word, not removed, so the text after it does not
+     read as the start of a clause either. "Need someone
+     to..." is no room ask at all: said to bob, or in a reply to his post, it is bob's (review 2), and a post naming
+     nobody is open anyway. */
+  const asksRoom = (text, names) => {
+    if (typeof text !== 'string') return false;
+    const t = text.replace(/(^|[.!?;:\n]\s*)(?:(?:hey|hi there|hi|hello|thanks so much|thanks|thank you|ok|okay|so|now|and|but|also|then|great|good morning|morning|yo)[,!]?\s+)?(?:@[\w-]+(?:\.[\w-]+)*[\s,:!\u2013\u2014-]*)+/gi, '$1NAMED ');
+    return CLAIM_ROOM_ASK.test(t) || (!names && CLAIM_GROUP_ASK.test(t));
+  };
+  const askedSet = new Set();
+  const named = Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : [];
+  const unclear = Array.isArray(post.ambiguousMentions) && post.ambiguousMentions.length > 0;
+  if (named.length) {
+    if (!unclear && !asksRoom(post.text, true)) for (const n of named) askedSet.add(n);
+  } else if (typeof post.replyTo === 'string' && !asksRoom(post.text, false)) {
+    const answered = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === post.replyTo);
+    // The person's post has no session author ('you' is never a room member), so only an agent's post asks its author.
+    if (answered && answered.operator !== true && typeof answered.from === 'string' && answered.from && answered.from !== post.from) askedSet.add(answered.from);
+  }
+  const asked = [...askedSet].filter((n) => !Array.isArray(roomNow) || roomNow.includes(n));
+  /* The asked members have first call, for CLAIM_ASKED_MINUTES from the post (review 7). After that, with none of them
+     holding it, anyone may claim it: a request the pattern misread, or one its asked member never got to, is not held
+     forever. */
+  /* A post dated ahead of this clock (a clock stepped back) is open: its age cannot be read, and holding it until the
+     clock catches up could be hours (#6957 review 1). Fails open, as a post before #6952 did. */
+  const windowMs = CLAIM_ASKED_MINUTES * 60000;
+  // Up to a minute ahead is a small clock adjustment, read as just posted; more than that cannot be read (review 3).
+  const age = Date.now() - Date.parse(post.at);   // NaN for an unreadable time, which then fails open below
+  const leftMs = age < -60000 ? 0 : windowMs - Math.max(0, age);
+  /* #6957: an asked member who claimed the post and then gave it back has let it go ("out of usage, someone else
+     please"), so once every asked member still here has done that, the post is open. */
+  /* Gave back: n's 🙋 rows replayed in log order end in a remove n made THEMSELVES (no takenBy) after a marked claim.
+     Order matters (review 2): react() itself removes an old unmarked pill just before a claim, and a claim later ended
+     for n by a newer one is not n letting go. */
+  const gaveBack = (n) => {
+    let claimed = false; let released = false;
+    for (const m of rows) {
+      if (!m || m.kind !== 'reaction' || String(m.of) !== postId || m.from !== n || !isClaimEmoji(m.emoji)) continue;
+      if (m.op === 'add') { if (m.claim === true) claimed = true; continue; }
+      released = claimed && !m.takenBy;
+    }
+    return released;
+  };
+  const released = asked.length > 0 && asked.every(gaveBack);
+  /* No author exemption (#6957 review 4): an author holding its own request ("@bob can you take the login bug?") would
+     lock bob out of it with no time limit, since a claim, unlike the asked window, does not end on its own. An author
+     who means to do the work says so in its post, and the window lets it claim after 30 minutes at most. */
+  if (asked.length && !asked.includes(reactor) && !released && leftMs > 0) {
+    const who = asked.length === 1 ? asked[0] : asked.slice(0, -1).join(', ') + ' or ' + asked[asked.length - 1];
+    const mins = Math.max(1, Math.ceil(leftMs / 60000));
+    return { ok: false, askedOf: asked,
+      because: 'that post asks ' + who + ', so it is theirs to take for ' + mins + ' more minute' + (mins === 1 ? '' : 's')
+        + ': read the room, and ask them if you can help (if they hand it to you, claim the post where they do)' };
+  }
+  /* Round 2: a claimant who has left the room no longer holds anything, so a new claim ENDS theirs in the log too.
+     Otherwise re-adding them to the project would bring their old claim back above this one. */
+  if (Array.isArray(roomNow)) {
+    for (const [who] of claimantsOf(postId, rows, null)) { if (!roomNow.includes(who)) dropPills(who, { takenBy: reactor, because: 'left-the-room' }); }
+  }
+  if (pills) dropPills(reactor);   // an old unmarked 🙋 of yours goes, so the claim is your one pill
+  appendLog(stamp({ emoji: e, op: 'add', claim: true, ...as(reactor) }));
+  return { ok: true, op: 'add', emoji: e, of: postId };
 }
 
 /* #2710: reopen a held room. The valve stops a room going back and forth
@@ -3693,7 +4038,7 @@ function roomHeldRead(projectId, at, lim, rows, charge, progressFrom, roomRecipi
     const t = Date.parse(m.at);
     if (!Number.isFinite(t) || t > at || t < countFrom) continue;
     if (m.kind === 'valve' && (!band || t >= band.t)) band = { t, at: m.at, because: m.because || null };
-    else if (m.kind === 'post' && !m.operator) counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
+    else if (m.kind === 'post' && !m.operator && m.closing !== true) counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
   }
   counted.sort((a, b) => a.t - b.t);
   const size = Number.isInteger(charge) && charge > 0 ? charge : Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
@@ -3924,6 +4269,7 @@ module.exports = {
   nudgeOwnComputerPost, ownPostNudges, OWN_POST_NUDGE_GAP_MS, reopenForOwnPost,   // #5902
   _resetOwnPostNudgesForTests: resetOwnPostNudgesForTests,   // #5732
   staleHeld, memberAfter, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS, ROOM_READ_ROWS, ROOM_READ_KINDS,
+  CLOSING_POST_MIN,   // #6925: the room's text view states it
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
   _sendWithDelivery: sendWithDelivery,
@@ -3935,7 +4281,7 @@ module.exports = {
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
-  react, reactionsFor, normalizeReactionEmoji,
+  react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji, freeClaim,
   messageIdOf, // #4631
   operatorDirect, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,

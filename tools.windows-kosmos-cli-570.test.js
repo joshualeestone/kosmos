@@ -244,6 +244,49 @@ test('#4934 parity: a loop-guard refusal (code room_held) says nothing was kept 
   assert.match(r.err, /Here it is to keep:\n *a long substantive update/);
 });
 
+test('#6920 / #6925 parity: a room_held refusal offers the one closing summary only when the board says it will take it', async () => {
+  const held = (extra) => () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'x', ...extra } } });
+  const offered = await run(['post', 'proj-1', 'a long substantive update'], held({ closingEligible: true }));
+  assert.match(offered.err, /The one exception: a summary that settles the thread can go through now, once: 400 characters or more\./);
+  const used = await run(['post', 'proj-1', 'a long substantive update'], held({ closingUsed: true }));
+  assert.doesNotMatch(used.err, /The one exception: a summary/, 'a member that used its closing post was offered it again');
+  // The number the CLI says is the board's own minimum (engine/messages.js CLOSING_POST_MIN), read from the source.
+  const min = (require('fs').readFileSync(require('path').join(__dirname, 'engine', 'messages.js'), 'utf8').match(/^const CLOSING_POST_MIN = (\d+);/m) || [])[1];
+  assert.ok(min, 'CLOSING_POST_MIN not found in engine/messages.js');
+  assert.ok(offered.err.includes(min + ' characters or more'), 'the CLI offers a different length than the board requires (' + min + ')');
+  assert.ok(offered.err.indexOf('Do not send it another way') < offered.err.indexOf('The one exception'),
+    'the exception was said before the wait, so the two read as opposite instructions');
+  assert.match(used.err, /Not posted: this room went back and forth/, 'CONTROL: the refusal itself is still said');
+  // #6925: an older board sends neither flag and cannot honour a summary, so nothing is offered.
+  const older = await run(['post', 'proj-1', 'a long substantive update'], held({}));
+  assert.doesNotMatch(older.err, /The one exception: a summary/, 'offered a summary the board did not say it would take');
+});
+
+test('#6925 parity: after a cut-reply retry the refusal does not offer the summary (the first try may have been it)', async () => {
+  let n = 0;
+  const cutThenHeld = () => {
+    n += 1;
+    if (n === 1) { const e = new Error('socket hang up'); e.code = 'ECONNRESET'; throw e; }
+    return { body: { delivery: { state: 'could_not', code: 'room_held', because: 'x', closingEligible: true } } };
+  };
+  const r = await run(['post', 'proj-1', 'a long summary'], cutThenHeld, { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_RETRY_PAUSE_MS: '0' });
+  assert.equal(n, 2, 'the cut reply was not asked once more');
+  assert.match(r.err, /Not posted this time: this room went back and forth/, 'CONTROL: the retried refusal wording');
+  assert.doesNotMatch(r.err, /The one exception: a summary/, 'offered the summary after a retry whose first try may have been it');
+});
+
+test('#6925 parity: a post that went through a held room as the one summary says so; an ordinary post does not', async () => {
+  const landed = await run(['post', 'proj-1', 'a long summary'], () => ({ body: { delivery: { state: 'placed', closing: true } } }));
+  assert.equal(landed.code, 0);
+  assert.match(landed.out, /This went through as your one summary while the room is held; anything more is not posted until the hold lifts\./);
+  const plain = await run(['post', 'proj-1', 'a post'], () => ({ body: { delivery: { state: 'placed' } } }));
+  assert.doesNotMatch(plain.out, /your one summary/, 'an ordinary post was called the one summary');
+  const named = await run(['post', 'proj-1', 'a post'], () => ({ body: { delivery: { state: 'placed', outcomes: { closing: 'placed' } } } }));
+  assert.doesNotMatch(named.out, /your one summary/, 'an agent named closing made an ordinary post the one summary');
+  const unconf = await run(['post', 'proj-1', 'a long summary'], () => ({ body: { delivery: { state: 'unconfirmed', closing: true } } }));
+  assert.match(unconf.err, /This went through as your one summary while the room is held/, 'an unconfirmed summary was not called the one summary');
+});
+
 test('#3224: post --new sends new_post:true (not held to ask which room); without it no field; combines with the other leading flags; non-leading is text', async () => {
   const ok = () => ({ body: { delivery: { state: 'placed' } } });
   const a = await run(['post', '--new', 'proj-1', 'a new post'], ok);
@@ -476,6 +519,9 @@ test('#6330 slice 2: task built --file sends the file\'s sha256 and keeps the pa
     assert.equal(ok.calls[0].body.note, 'merged', 'the path leaked into the note');
     const none = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true } }));
     assert.equal('fingerprint' in none.calls[0].body, false, 'CONTROL: a mark without --file sent a fingerprint');
+    // #6761: the fingerprint sent is printed, whole, under the mark's sentence; a mark without --file prints none.
+    assert.equal(ok.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark.\nFingerprint sent: ' + want + ' for ' + file);
+    assert.doesNotMatch(none.out, /Fingerprint sent/);
     for (const [argv, said] of [[['--file', path.join(dir, 'missing')], /cannot read that file/], [['--file'], /--file needs the path/], [['--file', ''], /cannot read that file/], [['--clear', '--file', file], /takes no file/]]) {
       const r = await run(['task', 'built', 'proj/1', '4', ...argv]);
       assert.equal(r.code, 2, argv.join(' ') + ': ' + r.err);
@@ -785,4 +831,26 @@ test('#3878: a Windows feedback pull whose engine module cannot load says so pla
     fetch: async () => { throw new Error('feedback reached the network'); } });
   assert.equal(code, 1);
   assert.equal(err.join('\n'), 'could not pull the collected feedback');
+});
+
+test('#6849: task built --file and kosmos fingerprint give a PDF the fingerprint without its own dates', async () => {
+  const fileprint = require('./engine/fileprint');
+  const fix = path.join(__dirname, 'test-support', 'fileprint-6849');
+  const a = path.join(fix, 'chrome-a.pdf'), b = path.join(fix, 'chrome-b.pdf');
+  const want = fileprint.fingerprint(a);
+  const plain = (p) => 'sha256:' + require('node:crypto').createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+  assert.ok(want !== plain(a) && plain(a) !== plain(b), 'CONTROL: the fixtures no longer drift, so this test cannot tell the two apart');
+  const ok = await run(['task', 'built', 'proj/1', '4', 'delivered', '--file', b], () => ({ body: { task: { number: 4 }, changed: true } }));
+  assert.equal(ok.code, 0, ok.err);
+  assert.equal(ok.calls[0].body.fingerprint, want, 'the second render was sent another fingerprint than the first');
+  const printed = await run(['fingerprint', a]);
+  assert.equal(printed.code, 0, printed.err);
+  assert.equal(printed.out, want);
+  assert.equal(printed.calls.length, 0, 'fingerprint reached the board');
+  const bare = await run(['fingerprint']);
+  assert.equal(bare.code, 2);
+  assert.match(bare.err, /Usage: kosmos fingerprint <file>/);
+  const missing = await run(['fingerprint', path.join(fix, 'nope.pdf')]);
+  assert.equal(missing.code, 2);
+  assert.match(missing.err, /missing \(no such file\)/);
 });

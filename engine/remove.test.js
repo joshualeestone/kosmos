@@ -280,16 +280,22 @@ function blockListRead() {
    shells out to a live tmux, which throws on a boardless CI runner, so a test
    that classifies an agent fails even with a synthetic roster. An empty readable
    board is the right default here; the tests that need a populated or throwing
-   board set their own seams in-body (running after this), and the afterEach resets. */
+   board set their own seams in-body (running after this), and the afterEach resets.
+   #7000: and the session list (setSessionSource). A restart tells the agent its community block, which reads when
+   its session started from a real `tmux list-sessions` (5 s timeout, a failed read not cached). On a Mac with a
+   live board that tmux can be slow, and the #4964 tests that bound a restart's time then measured tmux, not the
+   restart: 5651 ms in a full Mortals run, and which test paid depended on order (a 2 s cache). */
 test.beforeEach(() => {
   status.setPaneSource(() => '');
   status.setPaneCapture(() => '');
+  status.setSessionSource(() => '');
 });
 test.afterEach(() => {
   remove.setRunner(null);
   create.setRunner(null);
   status.setPaneSource(null);
   status.setPaneCapture(null);
+  status.setSessionSource(null);
   try { fs.rmSync(remove.REMOVED_FILE, { force: true }); } catch { /* best effort */ }
 });
 

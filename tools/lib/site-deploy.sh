@@ -45,6 +45,53 @@
 # ready.
 _SITE_NL="$(printf '\nx')"; _SITE_NL="${_SITE_NL%x}"
 _SITE_CARRIED=""
+# kosmos#6738: the site's admin view decides "a version not yet served" from api/_servedversions.js, a table the site's
+# tools/served-versions.sh builds from the git history of dist/latest*.json. Nothing rebuilt it when a pointer moved,
+# so a just-released version counted as served from the table's last row on, and its release-test pings as real
+# installs. This rebuilds it INSIDE THE EXPORT from the history of the very commit being deployed, so every deploy
+# (a release, deploy-site.sh, a promote) serves a table that includes its own pointers. A commit cannot record
+# itself, which is why this is not done as a commit. It never writes the shared site checkout: the generator runs
+# from the export with the site's own .git named by GIT_DIR, and writes the export's copy. A commit from before the
+# generator existed has none, and keeps its table. A generator that fails WARNS and leaves the committed table in
+# place: a stale admin count is not a reason to refuse a deploy. Known limit (the site generator's, not this): a row's
+# time is the pointer's COMMIT time, so a pointer committed hours before its deploy counts as served from the commit.
+_site_served_versions() {
+  # Review 2: safe under a caller's `set -e` on every line (a bare call, or inside $(...)): each command that can exit
+  # non-zero for an expected reason (grep -c counting 0, a failed cp, mktemp) is guarded, so this can only ever warn.
+  local site="$1" out="$2" sha="$3" gd tab tmp rows want lost grc=0 why
+  tab="$out/api/_servedversions.js"   # its own line: bash expands every word of one `local` before assigning any (set -u)
+  _SITE_SERVED_REBUILT=0
+  [ -f "$out/tools/served-versions.sh" ] || return 0
+  gd="$(git -C "$site" rev-parse --absolute-git-dir 2>/dev/null)" || { echo "   ⚠️ served-versions table NOT rebuilt (cannot find $site's .git); the committed one ships" >&2; return 0; }
+  # Review 1: the committed table is kept aside and comes back on ANY doubt (a failed run, or fewer rows than it had:
+  # a shallow clone's short history would otherwise turn older versions' real installs into "pre-release"), so this
+  # never ships a worse table than the commit's, whatever the generator writes in place before it fails.
+  tmp="$(mktemp -d "$out.served.XXXXXX" 2>/dev/null)" || { echo "   ⚠️ served-versions table NOT rebuilt (no temp dir beside $out); the committed one ships" >&2; return 0; }
+  if [ -f "$tab" ]; then cp -p "$tab" "$tmp/keep" 2>/dev/null || { rm -rf "$tmp"; echo "   ⚠️ served-versions table NOT rebuilt (could not keep the committed one aside); the committed one ships" >&2; return 0; }; fi
+  want="$(grep -c "^  \['" "$tmp/keep" 2>/dev/null || true)"; want="${want:-0}"
+  rm -f "$tab"   # review 4: so a run that exits 0 without writing cannot pass as a rebuild of the commit's own table
+  GIT_DIR="$gd" bash "$out/tools/served-versions.sh" "$sha" >/dev/null 2>"$tmp/err" || grc=$?
+  rows="$(grep -c "^  \['" "$tab" 2>/dev/null || true)"; rows="${rows:-0}"
+  # Review 5: EVERY committed row must still be there, not just as many rows: a cut-off history could drop the oldest
+  # rows and add as many new ones, and those dropped rows are exactly the versions whose installs would turn "pre-release".
+  lost=0; [ -f "$tmp/keep" ] && [ -f "$tab" ] && lost="$(grep "^  \['" "$tmp/keep" | grep -cvxFf "$tab" 2>/dev/null || true)"; lost="${lost:-0}"
+  # Review 3: a whole module (its opening and its closing line), not just a header, or the admin API would fail to parse.
+  if [ "$grc" = 0 ] && grep -q '^export const SERVED' "$tab" 2>/dev/null && grep -q '^]);$' "$tab" 2>/dev/null && [ "$rows" -ge "$want" ] && [ "$lost" = 0 ]; then
+    _SITE_SERVED_REBUILT=1
+    echo "   rebuilt api/_servedversions.js from the history of $(printf '%.8s' "$sha") ($rows rows; the commit had $want)"
+  else
+    # The reason is read from what the generator left, BEFORE the committed table is put back over it.
+    if [ "$grc" != 0 ]; then why="the generator failed, exit $grc: $( [ -s "$tmp/err" ] && tail -1 "$tmp/err" || echo 'no message')"
+    elif ! grep -q '^export const SERVED' "$tab" 2>/dev/null || ! grep -q '^]);$' "$tab" 2>/dev/null; then why="the generator wrote no whole table"
+    elif [ "$rows" -lt "$want" ]; then why="it gave $rows rows, fewer than the commit's $want"
+    else why="$lost of the commit's rows are missing from it"; fi
+    if [ -f "$tmp/keep" ]; then cp -p "$tmp/keep" "$tab" 2>/dev/null || true; else rm -f "$tab"; fi
+    echo "   ⚠️ served-versions table NOT rebuilt ($why); the committed one ships" >&2
+  fi
+  rm -rf "$tmp"
+  return 0
+}
+
 site_deploy_export() {
   local site="${1:?site_deploy_export needs the site checkout}" out="${2:?site_deploy_export needs an output dir}" want="${3:-HEAD}"
   local head f n bytes tarf
@@ -69,6 +116,10 @@ site_deploy_export() {
   if ! git -C "$site" archive --format=tar "$head" > "$tarf"; then echo "site_deploy_export: git archive of $head failed" >&2; rm -f "$tarf"; rm -rf "$out"; return 1; fi
   if ! tar -x -C "$out" -f "$tarf"; then echo "site_deploy_export: could not extract the archive of $head" >&2; rm -f "$tarf"; rm -rf "$out"; return 1; fi
   rm -f "$tarf"
+  # kosmos#6620: the pointer-freeze marker is for the tools, not the public: its reason may name a live incident.
+  # Removed before the served-versions table is written (kosmos#6738), so the table never lists it.
+  rm -f "$out/dist/POINTER_FROZEN"
+  _site_served_versions "$site" "$out" "$head"
   # The named artifact classes, from the working tree, because that is
   # where the release puts them and git does not carry them.
   mkdir -p "$out/dist" "$out/.vercel"
@@ -107,7 +158,7 @@ site_deploy_export() {
   fi
   cp -R "$site/.vercel/." "$out/.vercel/" || { rm -rf "$out"; return 1; }
   echo "   carried: .vercel/ (project link)"
-  echo "   pages:   commit $head"
+  echo "   pages:   commit $head$( [ "${_SITE_SERVED_REBUILT:-0}" = 1 ] && echo ', except api/_servedversions.js (rebuilt from its history, above)')"
   # What the working tree holds that this export does NOT ship, named, so a
   # person who expected a file to go live sees why it did not.
   _site_left_behind "$site" "$out" || { rm -rf "$out"; return 1; }

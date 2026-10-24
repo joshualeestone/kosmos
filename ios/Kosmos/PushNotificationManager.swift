@@ -20,6 +20,13 @@ final class PushNotificationManager: NSObject, ObservableObject {
     // lock still showing); the WebView loads it and clears it when it can.
     @Published var boardToOpen: BoardRequest?
 
+    // kosmos#7008: bumped by a sign-out or a sign-in as someone else, so the Agents tab drops its chats at once. A
+    // Keychain read that briefly finds no session is not one of these and keeps them.
+    @Published private(set) var accountChanges = 0
+    // kosmos#7042 review round 6: whether the last account change was a sign-out, as the message said (not read back
+    // from the keychain, which a failed save leaves empty while the app is signed in for the launch).
+    private(set) var lastChangeSignedOut = false
+
     // MARK: - Configuration
 
     // Register the notification-center delegate and the categories
@@ -135,7 +142,38 @@ final class PushNotificationManager: NSObject, ObservableObject {
             NSLog("[Push] ignored a malformed kosmosSession post")
             return
         }
+        take(message)
+    }
+
+    // kosmos#7042: the native sign-in's session, from Kosmos+ itself (SignInClient asked the coordinator directly), so
+    // there is no frame to check: it takes the same path as the sign-in page's post.
+    func signedInNatively(_ token: String) {
+        guard !token.isEmpty else { return }
+        take(.signedIn(token))
+    }
+
+    // kosmos#7042: the person backed out of a session the native sign-in had issued.
+    func signedOutNatively() { take(.signedOut) }
+
+    private func take(_ message: PushBridge.SessionMessage) {
+        // kosmos#6838: a sign-out, or a sign-in as someone else, also makes the Agents tab forget its kept Mac session,
+        // at once rather than at the next visit. (Forgotten on this iPhone; the Mac ends the session on its own
+        // schedule, as for the web view.) Read before the registrar stores the new session.
+        let before = SessionKeychain.live.load()
+        // kosmos#7042 review round 8: held in the registrar's memory too, which keeps a session the keychain could not
+        // save (for the launch).
+        let held = registrar.session ?? before
         registrar.didReceive(message)
+        var changed = message == .signedOut
+        if case .signedIn(let session) = message, session != before { changed = true }
+        if changed {
+            SessionKeychain.macSession.delete()
+            UserDefaults.standard.removeObject(forKey: Board.rememberedMacKey)
+            // A sign-out of a session the app held: one that arrives with nothing held (the page clearing a session
+            // the app had already dropped) brings nothing back (review round 7).
+            lastChangeSignedOut = message == .signedOut && held != nil
+            accountChanges += 1
+        }
     }
 }
 
@@ -152,9 +190,8 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         completionHandler([.banner, .sound, .badge])
     }
 
-    // Handle a response to a notification. The categories register no actions
-    // and no .customDismissAction (#3870), so the plain tap is the only response
-    // iOS delivers here.
+    // Handle a response to a notification: the plain tap, Reply, and Allow and Deny (#7017), the only actions any category registers.
+    // No .customDismissAction (#3870), so a dismiss never arrives here.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
@@ -174,9 +211,120 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             } else {
                 NSLog("[Push] tapped notification had no usable address; staying put")
             }
+        case NotificationAction.replyAction:
+            // kosmos#7017: Reply from the notification. iOS gives the app a short while in the background; the
+            // completion handler is called only once the send has an answer.
+            let content = response.notification.request.content
+            let text = (response as? UNTextInputNotificationResponse)?.userText ?? ""
+            Task {
+                await self.sendReply(text: text, userInfo: content.userInfo, agent: content.title)
+                completionHandler()
+            }
+            return
+        case NotificationAction.allowAction, NotificationAction.denyAction:
+            // kosmos#7017 part 2: Allow or Deny from the notification (iOS has already asked to unlock the phone).
+            let content = response.notification.request.content
+            let action = response.actionIdentifier
+            Task {
+                await self.sendPress(action: action, userInfo: content.userInfo, agent: content.title)
+                completionHandler()
+            }
+            return
         default:
             break
         }
         completionHandler()
+    }
+
+    // An Allow or Deny goes only after the chat, read just now, still shows the very request the notice was about (its
+    // fingerprint); a minutes-old notice must never answer a different command asking the same question.
+    private func sendPress(action: String, userInfo: [AnyHashable: Any], agent: String) async {
+        let stored = SessionKeychain.macSession.load(), session = SessionKeychain.live.load()
+        guard let press = NotificationAction.permissionPress(userInfo, action: action) else {
+            tell(NotificationAction.cannotPress(agent: agent), about: userInfo, kind: "press-")
+            return
+        }
+        guard let request = NotificationAction.pressRequest(
+            userInfo: userInfo, press: press, stored: stored, session: session, coordinator: KosmosConfig.coordinatorOrigin
+        ), let check = NotificationAction.checkRequest(
+            userInfo: userInfo, stored: stored, session: session, coordinator: KosmosConfig.coordinatorOrigin
+        ) else {
+            tell(NotificationAction.cannotPress(agent: agent), about: userInfo, kind: "press-")
+            return
+        }
+        let read = try? await Self.readHTTP.data(for: check)
+        switch NotificationAction.permissionVerdict(status: (read?.1 as? HTTPURLResponse)?.statusCode ?? 0, data: read?.0, press: press, agent: agent) {
+        case .changed:
+            tell(NotificationAction.changedNotice(agent: agent, allow: press.allow), about: userInfo, kind: "press-")
+            return
+        case .unreadable(let said):
+            tell(said, about: userInfo, kind: "press-")
+            return
+        case .go:
+            break
+        }
+        let answer = try? await Self.sendHTTP.data(for: request)
+        let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
+        let result = Board.pressResult(status: status, body: answer?.0)
+        NSLog("[Push] \(press.allow ? "allow" : "deny") from a notification: \(result)")
+        tell(NotificationAction.pressNotice(after: result, agent: agent, allow: press.allow), about: userInfo, kind: "press-")
+    }
+
+    // Two sessions for replies, refusing redirects as the app's own client does (so the computer's cookie never goes to
+    // another host), each with a hard total limit: the read 8 s, the send 14 s. Together they end inside the short
+    // time iOS gives a notification action, so the person always hears what happened.
+    private static func replySession(total: TimeInterval) -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForResource = total
+        return URLSession(configuration: config, delegate: RefuseReplyRedirects(), delegateQueue: nil)
+    }
+    private static let readHTTP = replySession(total: 8)
+    private static let sendHTTP = replySession(total: 14)
+
+    private func sendReply(text: String, userInfo: [AnyHashable: Any], agent: String) async {
+        let stored = SessionKeychain.macSession.load(), session = SessionKeychain.live.load()
+        guard let request = NotificationAction.replyRequest(
+            userInfo: userInfo, text: text, stored: stored, session: session, coordinator: KosmosConfig.coordinatorOrigin
+        ), let check = NotificationAction.checkRequest(
+            userInfo: userInfo, stored: stored, session: session, coordinator: KosmosConfig.coordinatorOrigin
+        ) else {
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { tell(NotificationAction.cannotSend(agent: agent), about: userInfo) }
+            return
+        }
+        // Read the chat first: while the agent is asking, a reply could answer a menu the person never saw, so it is
+        // not sent; nor when the chat cannot be read (NotificationAction.verdict).
+        let read = try? await Self.readHTTP.data(for: check)
+        switch NotificationAction.verdict(status: (read?.1 as? HTTPURLResponse)?.statusCode ?? 0, data: read?.0, agent: agent) {
+        case .asking:
+            tell(NotificationAction.askingNotice(agent: agent), about: userInfo)
+            return
+        case .unreadable(let said):
+            tell(said, about: userInfo)
+            return
+        case .go:
+            break
+        }
+        let answer = try? await Self.sendHTTP.data(for: request)
+        let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
+        let result = Board.sendResult(status: status, body: answer?.0)
+        NSLog("[Push] reply from a notification: \(result)")
+        if let said = NotificationAction.notice(after: result, agent: agent, body: answer?.0) { tell(said, about: userInfo) }
+    }
+
+    // A local notification saying what happened to a reply that did not plainly go, or to an Allow or Deny (always). It carries the original notice's
+    // address and agent, so a tap opens that chat, as the notice it answers did (PushBridge.boardURL).
+    private func tell(_ text: String, about userInfo: [AnyHashable: Any], kind: String = "reply-") {
+        let content = UNMutableNotificationContent()
+        content.title = "Kosmos"
+        content.body = text
+        content.userInfo = NotificationAction.followUpInfo(userInfo)
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: kind + UUID().uuidString, content: content, trigger: nil))
+    }
+}
+
+private final class RefuseReplyRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

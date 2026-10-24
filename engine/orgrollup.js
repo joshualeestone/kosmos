@@ -75,6 +75,63 @@ function scanUsageOnce() {
   return pendingScan;
 }
 const USAGE_ROWS_PER_DAY = 40;
+/* kosmos#6842 slice 3: per-project token use, from the receipts of tasks closed in the last USAGE_DAYS days (the same
+   receipts the task pages show). At most PROJECT_USAGE_ROWS rows, costliest first; the read is waited for at most
+   PROJECT_USAGE_READ_MS, and a read that does not finish sends no projectUsage at all (not reported), never [] (none). */
+const PROJECT_USAGE_ROWS = 200;
+const PROJECT_USAGE_READ_MS = 60 * 1000;
+/* The most tasks read per tick, newest first; more marks the read incomplete (the body's truncated). */
+const PROJECT_USAGE_TASKS = 200;
+/**
+ * kosmos#6842 slice 3: tokens per (project name, close day, model), summed over every agent on every task of `projects`
+ * ([{ id, name }]) closed in the last `days` UTC days. Answers { byProject: { name: { day: { model: buckets } } }, complete }:
+ * complete is false when any receipt failed, was read in part, or names an agent whose work could not be read, and the
+ * body then says truncated. A few receipts at a time, as engine/receipt.js forAgent works them out.
+ */
+async function projectUsageByDay(projects, { days = USAGE_DAYS, now = Date.now(), receiptOf, readAll } = {}) {
+  const receipt = require('./receipt');
+  const workOut = receiptOf || receipt.forTask;
+  const t = new Date(now);
+  const from = Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate() - (days - 1));
+  const byId = new Map((Array.isArray(projects) ? projects : []).filter((p) => p && p.id && p.name).map((p) => [p.id, p.name]));
+  const all = (readAll || (() => require('./projects').readAll()))() || [];
+  const jobs = [];
+  let complete = true;
+  for (const proj of all) {
+    if (!proj || !byId.has(proj.id)) continue;
+    for (const task of proj.tasks || []) {
+      // A task whose close cannot be read is left out and marks the read incomplete, never fails the whole read.
+      let at = NaN;
+      try { at = Date.parse(receipt.closedAtOf(task) || ''); } catch { complete = false; continue; }
+      if (Number.isFinite(at) && at >= from && at <= now) jobs.push({ id: proj.id, name: byId.get(proj.id), task, at, day: new Date(at).toISOString().slice(0, 10) });
+    }
+  }
+  const byProject = {};
+  jobs.sort((x, y) => y.at - x.at);
+  if (jobs.length > PROJECT_USAGE_TASKS) { complete = false; jobs.length = PROJECT_USAGE_TASKS; }
+  const AT_ONCE = 3;
+  for (let i = 0; i < jobs.length; i += AT_ONCE) {
+    await Promise.all(jobs.slice(i, i + AT_ONCE).map(async (j) => {
+      let r = null;
+      try { r = await workOut(j.id, j.task, { now }); } catch { r = null; }
+      if (!r || !Array.isArray(r.agents)) { complete = false; return; }
+      for (const a of r.agents) {
+        if (!a || typeof a !== 'object') continue;
+        // A provider with no receipt (Grok, Antigravity, Muse) is not counted, by design, as on the task page: it is not
+        // an incomplete read, which would mark every daily body truncated for as long as such tasks keep closing.
+        if (a.available === false && a.because === 'provider') continue;
+        if (!a.available || a.complete === false) complete = false;
+        for (const [m, b] of Object.entries((a.available && a.models) || {})) {
+          if (!b || typeof b !== 'object') continue;
+          const day = ((byProject[j.name] || (byProject[j.name] = {}))[j.day] || (byProject[j.name][j.day] = {}));
+          const into = day[m] || (day[m] = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 });
+          for (const f of ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']) into[f] += Number(b[f]) || 0;
+        }
+      }
+    }));
+  }
+  return { byProject, complete };
+}
 /** Bytes, measured on the serialized body: under the coordinator's 60 KB refusal with room for the signature. */
 const BODY_MAX = 56 * 1024;
 
@@ -239,6 +296,41 @@ function build(input) {
     usage.push(...rows.slice(0, USAGE_ROWS_PER_DAY));
   }
 
+  /* kosmos#6842 slice 3: per-project rows, only when the tick read them (under words naming them, daily sends only).
+     A project's name is cleaned as the projects list cleans it, and a row goes only for a project that list sends, so
+     the company never holds usage for a name it was not told about. Rows that clean to one key are added together. */
+  let projectUsage = null;
+  if (i.projectUsage && plainMap(i.projectUsage)) {
+    const sent = new Set(projects.map((p) => p.name));
+    const keyed = new Map();
+    for (const [rawName, perDay] of Object.entries(i.projectUsage)) {
+      const project = clean(rawName);
+      if (!project || !sent.has(project) || !plainMap(perDay)) { if (plainMap(perDay) && Object.keys(perDay).length) truncated = true; continue; }
+      for (const [d, models] of Object.entries(perDay)) {
+        if (!realDay(d) || !plainMap(models)) { truncated = true; continue; }
+        for (const [model, b] of Object.entries(models)) {
+          if (!MODEL_ID.test(String(model)) || !providerOfModel(model)) {
+            // As the per-day rows: an unnamed model with tokens is a real trim; one with none drops nothing.
+            if (count(b && b.input_tokens) || count(b && b.output_tokens) || count(b && b.cache_creation_input_tokens) || count(b && b.cache_read_input_tokens)) truncated = true;
+            continue;
+          }
+          const k = project + '\0' + d + '\0' + model;
+          const row = keyed.get(k) || { project, day: d, provider: providerOfModel(model), model, input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
+          row.input += count(b && b.input_tokens); row.output += count(b && b.output_tokens);
+          row.cacheWrite += count(b && b.cache_creation_input_tokens); row.cacheRead += count(b && b.cache_read_input_tokens);
+          keyed.set(k, row);
+        }
+      }
+    }
+    projectUsage = [...keyed.values()].filter((r) => r.input || r.output || r.cacheWrite || r.cacheRead).map((r) => {
+      let costUsd = usageprice.costOf(r.model, { input_tokens: r.input, output_tokens: r.output, cache_creation_input_tokens: r.cacheWrite, cache_read_input_tokens: r.cacheRead });
+      if (costUsd != null) costUsd = Math.round(costUsd * 1e6) / 1e6;
+      return { project: r.project, day: r.day, provider: r.provider, model: r.model, input: r.input, output: r.output, cacheWrite: r.cacheWrite, cacheRead: r.cacheRead, costUsd };
+    });
+    projectUsage.sort((x, y) => (y.costUsd || 0) - (x.costUsd || 0) || (y.input + y.output) - (x.input + x.output));
+    if (projectUsage.length > PROJECT_USAGE_ROWS) { truncated = true; projectUsage = projectUsage.slice(0, PROJECT_USAGE_ROWS); }
+  }
+
   const body = {
     v: VERSION,
     world: typeof i.world === 'string' ? i.world : null,
@@ -257,22 +349,27 @@ function build(input) {
     lastActive: notAfterTomorrow(day(i.lastActive), nowMs),   // the day only: "when you were last active", not a timeline (review 5)
     backup: { lastOk: iso(i.backupLastOk) },
     agents, projects, usage,
+    ...(projectUsage ? { projectUsage } : {}),   // kosmos#6842: absent means not reported, [] means none
     /* Contract v1.1 (PigeonPete): while usage is not read (the words do not name it, or no reader scoped to this world),
        usage is [] and usageWithheld says so, and the console shows "usage not reported yet", never 0. truncated means a
        real trim, a partial read, or a usage count the reader said was incomplete (usageIncomplete, kosmos#5532). */
     usageWithheld: i.usageWithheld === true,
-    truncated: truncated || i.partial === true || i.usageIncomplete === true,   // a partial read is said, never sent as the whole picture
+    truncated: truncated || i.partial === true || i.usageIncomplete === true || (projectUsage !== null && i.projectUsageIncomplete === true),   // a partial read is said, never sent as the whole picture
   };
   return fit(body);
 }
 
-/* Trim until the serialized body fits BODY_MAX: the oldest usage day's rows first, then projects from the end, then
-   agents from the end. Each trim sets truncated. */
+/* Trim until the serialized body fits BODY_MAX: per-project rows from the end (the cheapest) first (kosmos#6842), then
+   the oldest usage day's rows, then projects from the end, then agents from the end. Each trim sets truncated. */
 function fit(body) {
   const size = () => Buffer.byteLength(JSON.stringify(body), 'utf8');
   while (size() > BODY_MAX) {
     body.truncated = true;
-    if (body.usage.length) {
+    if (body.projectUsage && body.projectUsage.length) {
+      body.projectUsage.pop();
+      // Trimmed to nothing is not reported, never [] (none): [] would replace the company's stored week with none.
+      if (!body.projectUsage.length) delete body.projectUsage;
+    } else if (body.usage.length) {
       const oldest = body.usage[body.usage.length - 1].day;
       body.usage = body.usage.filter((r) => r.day !== oldest);
     } else if (body.projects.length) body.projects.pop();
@@ -309,6 +406,8 @@ function defaultSources() {
        counts. Answers { byDay, complete }; an incomplete count marks the body truncated (usageIncomplete), not
        partial. */
     usageByDay: scanUsageOnce,
+    /* kosmos#6842 slice 3: per-project token use from task receipts, for the records gather kept. */
+    projectUsage: (records) => projectUsageByDay(records),
     lastActiveOf: (sessionName) => { const r = activity.read(sessionName, 'working'); return r.found ? r.at : null; },
     /* Known runners and providers only (rollup review 22): create's maps fall back to claude/anthropic for anything else,
        which would send a guess as the provider. */
@@ -345,6 +444,24 @@ function defaultSources() {
    then change nothing), so a test starts from none; module state outlives a test. */
 function _resetUsageScanForTests() { lastScan = null; slowSaid = false; pendingScan = null; scanGeneration += 1; abandoned = new Set(); }
 function plainMap(x) { return !!x && typeof x === 'object' && !Array.isArray(x); }
+/* kosmos#6842 slice 3: fills out.projectUsage (and projectUsageIncomplete) from the sources' reader, waited for at most
+   PROJECT_USAGE_READ_MS. A reader that is missing, throws, answers the wrong shape or is too slow leaves projectUsage out
+   of the body (not reported); it is never sent as [] (none). Never throws. */
+async function readProjectUsage(s, out, waitMs) {
+  delete out.projectUsage; delete out.projectUsageIncomplete;
+  // Projects that could not be listed leave nothing to sum: not reported, never [] (none), which would clear the week.
+  if (out.projectsUnreadable === true) return;
+  if (typeof s.projectUsage !== 'function') return;
+  let timer = null;
+  const slow = new Promise((res) => { timer = setTimeout(() => res(SLOW), Number.isFinite(waitMs) ? waitMs : PROJECT_USAGE_READ_MS); });
+  try {
+    const u = await Promise.race([Promise.resolve(s.projectUsage(out.projectRecords || [])), slow]);
+    if (u === SLOW || !u || !plainMap(u.byProject) || typeof u.complete !== 'boolean') return;
+    out.projectUsage = u.byProject;
+    if (!u.complete) out.projectUsageIncomplete = true;
+  } catch { /* not reported */ } finally { clearTimeout(timer); }
+}
+
 /* kosmos#5532: fills out.usageByDay from the sources' scoped reader, or says usageWithheld when there is none. The
    board's reader answers { byDay, complete }; a plain day map is also taken (test sources). A short count sets
    usageIncomplete (the body's truncated), never `partial`: partial holds the daily and blocks change sends, and a count
@@ -394,7 +511,7 @@ async function readUsage(s, out, waitMs) {
 async function gather(src, opts) {
   const s = src || defaultSources();
   const wantUsage = !!(opts && opts.usage === true);   // opt-in: a caller that does not ask scans nothing
-  const out = { agents: [], projects: [], usageByDay: {}, lastActive: null, partial: false };
+  const out = { agents: [], projects: [], usageByDay: {}, lastActive: null, partial: false, projectRecords: [] };
   let snap = { agents: [], counts: {} };
   let snapFailed = false;
   try { snap = s.snapshot() || snap; } catch { out.partial = true; snapFailed = true; }
@@ -460,8 +577,9 @@ async function gather(src, opts) {
       if (linked) continue;   // another Kosmos's project, joined here (review 7)
       const members = (Array.isArray(p.agents) ? p.agents : []).filter((n) => nameOf.has(n)).map((n) => nameOf.get(n));
       out.projects.push({ name: p.name, agents: members });
+      out.projectRecords.push({ id: p.id, name: p.name });   // kosmos#6842: which records the usage read may sum (never sent)
     }
-  } catch { out.partial = true; }   // projects unreadable: say so rather than send "no projects"
+  } catch { out.partial = true; out.projectsUnreadable = true; }   // projects unreadable: say so rather than send "no projects"
   if (wantUsage) await readUsage(s, out, opts && opts.usageReadMs);
   else out.usageWithheld = true;   // not consented: say so, never read it
   out.lastActive = latest;
@@ -937,6 +1055,9 @@ async function tick(opts) {
   if (!due && !(changed && (!st.lastAt || now - st.lastAt >= CHANGE_MIN_MS)))   // no last send on record: long ago (review 16)
     return { sent: false, because: 'nothing due' };
   if (accepted.usageConsented === true) { delete g.usageWithheld; await readUsage(src, g, o.usageReadMs); }   // usageReadMs: tests only
+  /* kosmos#6842 slice 3: per-project use, on the daily send only (a change send would say when work finished), under words
+     naming it. */
+  if (due && accepted.projectUsageConsented === true) await readProjectUsage(src, g, o.projectUsageReadMs);
   const body = build(Object.assign({ world: rec.world, at: new Date(now).toISOString(), reason: due ? 'daily' : 'change', nowMs: now }, g));
   /* #5532 (v1.5): the computer print pinned at enroll, made from this world's own record. Once a print is pinned the
      company refuses a rollup without it (a copy would just leave it out), so a read still retrying waits for the next
@@ -1096,6 +1217,7 @@ function waitingForPrint(root) {
 
 module.exports = {
   _resetUsageScanForTests, CHILD_USAGE_READ_MS,
+  projectUsageByDay, readProjectUsage, PROJECT_USAGE_ROWS, PROJECT_USAGE_READ_MS, PROJECT_USAGE_TASKS,   // kosmos#6842
   waitingForPrint, KNOWN_RUNNERS, KNOWN_PROVIDERS,
   DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, RETAKE_EVERY_MS, RECHECK_NO_REPORTS_MS, STATE_FILE, RETAKE_FILE, signature, tick,
   ROUTE, VERSION, NAME_MAX, AGENTS_MAX, PROJECTS_MAX, NAMES_MAX, USAGE_DAYS, USAGE_ROWS_PER_DAY, BODY_MAX,

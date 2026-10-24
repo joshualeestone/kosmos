@@ -91,7 +91,13 @@ else
 fi
 
 STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE"' EXIT
+# kosmos#6831: one EXIT guard for the whole build. It removes $STAGE, and $TMP only once this script has made it
+# (TMP is a common environment variable; an inherited one is never removed). It also turns a death after it (a
+# missing library, an unset variable) into a failure, which bash 3.2 would otherwise report as exit 0.
+. "$REPO/tools/lib/exit-guard.sh"
+_win_tmp_made=0
+_cleanup() { rm -rf "$STAGE"; [ "$_win_tmp_made" != 1 ] || rm -rf "$TMP"; }
+kosmos_exit_guard _cleanup build-kosmos-windows
 mkdir -p "$STAGE/app" "$STAGE/runtime"
 
 # ---- the app ---------------------------------------------------------------
@@ -262,7 +268,7 @@ BASE="https://nodejs.org/dist/v$NODE_VERSION"
 # platform, can put scratch into the artifact. A guard that depends on deletion
 # winning a race is weaker than not putting the file there.
 TMP="$(mktemp -d)"
-trap 'rm -rf "$STAGE" "$TMP"' EXIT
+_win_tmp_made=1   # the guard's cleanup now removes it too (kosmos#6831)
 curl -fsSL "$BASE/$ZIP" -o "$TMP/$ZIP"
 curl -fsSL "$BASE/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt"
 WANT="$(grep " $ZIP\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')"
@@ -469,6 +475,12 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 # why the README's first instruction is where to extract it. The example is
 # %LOCALAPPDATA%\Programs\Kosmos, the per-user program folder, and NOT
 # C:\Users\<name>\Kosmos, which is where Kosmos keeps the person's Projects.
+# After the first run the README sends people to the Start menu, never back to
+# Kosmos.exe: it has just told them they can delete the zip (and so the folder
+# they extracted), and the Start menu shortcut runs the installed Kosmos.exe, the
+# same program, so it also signs an open window in again (tools/windows/README.md).
+# The one exception it names is a first run that never got as far as the Start
+# menu (the person pressed "Don't run"): then the extracted Kosmos.exe is the way.
 {
   printf 'Kosmos for Windows\r\n'
   printf '\r\n'
@@ -500,7 +512,7 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'Kosmos opens in its own window. Closing that window does not stop\r\n'
   printf 'Kosmos: it keeps running in the background and starts by itself when\r\n'
   printf 'you sign in to Windows. Your agents do too. To open Kosmos again\r\n'
-  printf 'later, double-click Kosmos.exe again.\r\n'
+  printf 'later, open it from the Start menu.\r\n'
   printf '\r\n'
   printf 'Agents need Claude Code on this computer, signed in. If it is\r\n'
   printf 'missing, the board shows you the command that installs it. If it is\r\n'
@@ -515,8 +527,10 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'Task Scheduler Library, then the Kosmos folder.\r\n'
   printf '\r\n'
   printf 'If Kosmos does not open, or the board says it is not signed in,\r\n'
-  printf 'double-click Kosmos.exe again. Bookmarks to Kosmos don\047t stay\r\n'
-  printf 'signed in. Always open Kosmos from Kosmos.exe.\r\n'
+  printf 'open Kosmos from the Start menu again. If Kosmos is not in the\r\n'
+  printf 'Start menu yet, double-click Kosmos.exe in the extracted folder once\r\n'
+  printf 'more. Bookmarks to Kosmos don\047t stay signed in. Always open\r\n'
+  printf 'Kosmos from the Start menu.\r\n'
 } > "$STAGE/! READ ME FIRST - Windows will warn you.txt"
 
 # ---- the manifest ----------------------------------------------------------
@@ -674,3 +688,4 @@ else
   echo "      pwsh tools/windows/publish-r2.ps1 -Zip $ZIPOUT -ForSigning"
   echo "    then send the key holder the version and manifest sha256 it prints. publish-r2.ps1 refuses to stage this build without the .sig."
 fi
+kosmos_finished
