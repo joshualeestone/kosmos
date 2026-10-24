@@ -1740,6 +1740,10 @@ section("native board loop: connecting")
         c.show(BoardClient.agentsViewer)
         _ = await settle { isLive(c) }
         check(c.waitingCount == 3, "the badge is the Mac's counts.waiting")
+        // Two more reads, and time for anything they would start in the background to run, before looking.
+        await c.refreshNow(); await c.refreshNow()
+        for _ in 0..<50 { await Task.yield() }
+        check(w.count("/api/status") >= 3, "CONTROL: the reads happened")
         check(w.count("/api/tasks") == 0 && c.readyTasks == nil, "no tasks read while only Agents is on screen")
         c.show(BoardClient.todayViewer)
         let read = await settle { c.readyTasks != nil }

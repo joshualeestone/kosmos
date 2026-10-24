@@ -107,3 +107,25 @@ Today, Answer/Open into the native chat, Check it into the task page in the boar
 ### Open, decided for now
 - Starred agents first (#6719): the phone does not read /api/agent-stars yet (the Agents list does not either). Left
   for a follow-up so both lists gain it together; Today orders by waitingSince, then name.
+
+## Part 2 design review (Mona Lisa, 2026-10-24 03:30): approved with one change, made
+- The subhead sits directly under the title (the first section's header, not a row). Her three calls stand: a press on
+  Today always shows the native screen; starred-first is a follow-up for Agents and Today together (filed #7034); the
+  order is held while on screen, reset on a pull or a return.
+
+## Part 2 review round 1
+- Fixed (major): Today flipped to the board when Tasks came or went (select() set todayBoard). Now only a real change of
+  tab moves anything, and the app sending the person under Today goes through showBoardToday().
+- Fixed (major): another Mac's tasks stayed on screen. forgetToday() on another Mac, account, sign-out (start and the
+  Kosmos+ 401) and refusal.
+- Fixed (minor): a failed tasks read now drops the old list, so the "could not read" line replaces it; the subhead makes
+  no claim when nobody needs you and the tasks are unknown.
+- Fixed (minor): the hidden board page moving no longer moves the bar off the native Today.
+- Fixed (minor): the board under Today opens at its home (pressBoardSection(.today)), as the old press did.
+- Fixed (minor): a tasks answer with rosterUnreadable is unknown, never a list.
+- Tests: badge parsing; rosterUnreadable with a control; a client test against the fake Mac (no tasks read with only
+  Agents on screen, Today arriving reads them, a failed read drops the list, another account clears the badge and the
+  tasks). Mutants for each go red.
+- Noted, not changed: the badge updates only while Agents or the native Today is on screen (the loop's rule); on other
+  tabs it holds its last value. Check it ends up lit under Projects once the board rewrites the address to its project
+  page, which is the board's own rule for a task page.
