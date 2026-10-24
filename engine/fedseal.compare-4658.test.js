@@ -64,3 +64,77 @@ test('#4658: a missing or malformed input gives no code, so no Allow can be offe
   assert.strictEqual(seal.compareCode(ROOM, MAC, 'not-a-key'), null);
   assert.strictEqual(seal.compareCode(ROOM, MAC, pub.slice(0, -2)), null, 'a truncated key');
 });
+
+/* ---- own-share ---- */
+
+function ownShare() {
+  const owner = seal.newKeyPair();
+  const waiting = seal.newKeyPair();
+  const roomKey = seal.randomSecret();
+  const code = seal.compareCode(ROOM, MAC, waiting.pub);   // what the waiting computer's screen shows
+  const frame = seal.ownShareFrame(owner, waiting.pub, MAC, code, roomKey, 2, ROOM);
+  return { owner, waiting, roomKey, code, frame };
+}
+
+test('#4658: the waiting computer opens the own-share and pins the sealing board\'s key', () => {
+  const { owner, waiting, roomKey, frame } = ownShare();
+  assert.deepStrictEqual(seal.openOwnShare(waiting, MAC, frame, ROOM), { ownerPub: owner.pub, epoch: 2, roomKey });
+});
+
+test('#4658: Allow refuses when the code the person confirmed is for a different key (the swapped-key attack)', () => {
+  const owner = seal.newKeyPair();
+  const real = seal.newKeyPair();
+  const swapped = seal.newKeyPair();   // the key a coordinator substituted on the allowing board's list
+  const onWaitingScreen = seal.compareCode(ROOM, MAC, real.pub);
+  assert.throws(() => seal.ownShareFrame(owner, swapped.pub, MAC, onWaitingScreen, seal.randomSecret(), 0, ROOM), /not the one that computer shows/);
+});
+
+test('#4658: Allow refuses a code for another room or another computer, and a missing code', () => {
+  const owner = seal.newKeyPair();
+  const w = seal.newKeyPair();
+  const rk = seal.randomSecret();
+  assert.throws(() => seal.ownShareFrame(owner, w.pub, MAC, seal.compareCode('room-other', MAC, w.pub), rk, 0, ROOM));
+  assert.throws(() => seal.ownShareFrame(owner, w.pub, MAC, seal.compareCode(ROOM, 'mac-2', w.pub), rk, 0, ROOM));
+  assert.throws(() => seal.ownShareFrame(owner, w.pub, MAC, undefined, rk, 0, ROOM));
+  assert.throws(() => seal.ownShareFrame(owner, w.pub, MAC, '', rk, 0, ROOM));
+});
+
+test('#4658: the confirmed code is compared without case, spaces or the dash', () => {
+  const owner = seal.newKeyPair();
+  const w = seal.newKeyPair();
+  const code = seal.compareCode(ROOM, MAC, w.pub);
+  const loose = ' ' + code.toLowerCase().replace('-', ' ') + ' ';
+  const frame = seal.ownShareFrame(owner, w.pub, MAC, loose, seal.randomSecret(), 0, ROOM);
+  assert.ok(seal.openOwnShare(w, MAC, frame, ROOM));
+  assert.strictEqual(seal.sameCompareCode(code, code.replace(/.$/, (c) => (c === '2' ? '3' : '2'))), false, 'one symbol off is not the same');
+});
+
+test('#4658: nobody but the waiting computer opens it, and not in another room or for another computer', () => {
+  const { frame } = ownShare();
+  const { waiting } = ownShare();
+  assert.strictEqual(seal.openOwnShare(seal.newKeyPair(), MAC, frame, ROOM), null, 'another key');
+  const mine = ownShare();
+  assert.strictEqual(seal.openOwnShare(mine.waiting, MAC, mine.frame, 'room-other'), null, 'another room');
+  assert.strictEqual(seal.openOwnShare(mine.waiting, 'mac-2', mine.frame, ROOM), null, 'another computer id');
+  assert.strictEqual(seal.openOwnShare(waiting, MAC, frame, ROOM), null, 'another waiting computer\'s share');
+});
+
+test('#4658: a tampered own-share, a renamed computer field or a guest frame opens to null and never throws', () => {
+  const { owner, waiting, frame } = ownShare();
+  const flip = (b64s) => { const b = Buffer.from(b64s, 'base64url'); b[0] ^= 1; return b.toString('base64url'); };
+  assert.strictEqual(seal.openOwnShare(waiting, MAC, Object.assign({}, frame, { ct: flip(frame.ct) }), ROOM), null, 'ciphertext');
+  assert.strictEqual(seal.openOwnShare(waiting, MAC, Object.assign({}, frame, { epoch: 3 }), ROOM), null, 'epoch');
+  assert.strictEqual(seal.openOwnShare(waiting, MAC, Object.assign({}, frame, { owner: seal.newKeyPair().pub }), ROOM), null, 'owner key');
+  assert.strictEqual(seal.openOwnShare(waiting, 'mac-2', Object.assign({}, frame, { mac: 'mac-2' }), ROOM), null, 'computer id');
+  // A guest's key-share or a rotation, sealed between the same two keys, is a different purpose.
+  const rot = seal.rotateFrame(owner, waiting.pub, seal.randomSecret(), 1, ROOM, 0);
+  assert.strictEqual(seal.openOwnShare(waiting, MAC, Object.assign({}, rot, { t: 'own-share', mac: MAC, owner: frame.owner }), ROOM), null, 'a rotate relabelled');
+  for (const junk of [null, undefined, 7, 'x', {}, { t: 'own-share' }, Object.assign({}, frame, { nonce: 5 }), Object.assign({}, frame, { v: 2 })]) {
+    assert.strictEqual(seal.openOwnShare(waiting, MAC, junk, ROOM), null);
+  }
+});
+
+test('#4658: an own-share key does not open as a rotate from the same board (purposes stay apart)', () => {
+  const { owner, waiting, frame } = ownShare();
+  assert.strictEqual(seal.openRotate(waiting, owner.pub, Object.assign({}, frame, { t: 'key-rotate', epoch: 2 }), ROOM), null);
+});

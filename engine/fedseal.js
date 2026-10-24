@@ -261,6 +261,42 @@ function compareCode(roomId, macId, sealPub) {
   return out.slice(0, 5) + '-' + out.slice(5);
 }
 
+/** The code a person typed or confirmed, compared without case, spaces or the dash. */
+function sameCompareCode(a, b) {
+  const norm = (c) => String(c).toUpperCase().replace(/[\s-]/g, '');
+  return typeof a === 'string' && typeof b === 'string' && norm(a) === norm(b);
+}
+
+/* ---- own-share (seal owner -> an owner's computer that arrived after a guest, kosmos#4658) ---- */
+
+/** The room key sealed to a waiting own computer's key. There is no `s` on this path: the
+    person comparing the two screens is the authentication, so this REFUSES unless
+    `confirmedCode` is the compare code for exactly this room, computer and key. Only the
+    board holding the room's seal-owner state calls it (decided on the card 10-24 02:0x),
+    so the waiting computer pins the key that rotations come from. */
+function ownShareFrame(owner, waitingPub, macId, confirmedCode, roomKey, epoch, roomId) {
+  const expected = compareCode(roomId, macId, waitingPub);
+  if (!expected || !sameCompareCode(confirmedCode, expected)) throw new Error('the code confirmed is not the one that computer shows');
+  const rk = unb64(roomKey, 32);
+  const k = pairKey(owner, waitingPub, roomId, owner.pub, waitingPub, 'own-share');
+  if (!rk || !k || !Number.isInteger(epoch) || epoch < 0) throw new Error('we could not seal the room key for that computer');
+  const box = aeadSeal(k, aad('own-share', roomId, macId, epoch), rk);
+  return { t: 'own-share', v: V, mac: macId, owner: owner.pub, epoch, nonce: box.nonce, ct: box.ct };
+}
+/** { ownerPub, epoch, roomKey } when the share was sealed to THIS board's key for this
+    computer and room, else null. The caller pins ownerPub. NOT CLAIMED (one-directional,
+    card 10-24 01:4x): nothing here proves who sealed it, so a coordinator could hand this
+    computer a forged room key; genuine room traffic then fails to open, and the board
+    already reports messages it cannot open. */
+function openOwnShare(me, macId, frame, roomId) {
+  if (!frame || frame.t !== 'own-share' || frame.v !== V || frame.mac !== macId || typeof macId !== 'string' || !macId) return null;
+  if (!Number.isInteger(frame.epoch) || frame.epoch < 0 || !publicKeyObject(frame.owner)) return null;
+  const k = pairKey(me, frame.owner, roomId, frame.owner, me.pub, 'own-share');
+  if (!k) return null;
+  const rk = aeadOpen(k, aad('own-share', roomId, macId, frame.epoch), frame.nonce, frame.ct);
+  return rk && rk.length === 32 ? { ownerPub: frame.owner, epoch: frame.epoch, roomKey: b64(rk) } : null;
+}
+
 /* ---- messages ---- */
 
 /** A room message sealed under the room key for `epoch`. Inside the seal it carries a
@@ -384,7 +420,7 @@ function splitInviteCode(pasted) {
 module.exports = {
   KEY_FILE, ROOMS_FILE, sealingKey, newKeyPair, randomSecret,
   helloFrame, checkHello, shareFrame, openShare, rotateFrame, openRotate,
-  compareCode,
+  compareCode, sameCompareCode, ownShareFrame, openOwnShare,
   seal, open, isSealed,
   stashInvite, pendingInvites, spendInvite, isSealedRef, roomState, setRoomState, forgetRoom, splitInviteCode,
 };
