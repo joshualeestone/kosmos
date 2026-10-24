@@ -35,3 +35,11 @@ That `Symbol.for('undici.globalDispatcher.2')` stays where Node keeps fetch's ag
 - A focused run through tools/run-tests.sh --only (queued turn): the two files that reset tonight, server.test.js,
   engine/agykeep-5812 (tracks its sockets), the run-tests pins (tools.run-tests-only-4929, create.launch-refuse-3605),
   test-support.tool-guard-4326, and the new test.
+
+## Review round 1 (2026-10-23)
+- Fixed: the in-process check passed without the preload. Back to back, request 2 raced the socket's return to the
+  pool and always opened a second connection. Requests now go N=5, a tick apart; 8/8 runs fail 2 without the
+  preload and pass 4/4 with it.
+- macOS TIME_WAIT leak: REASONED, not measured. With the preload undici sends `Connection: close`, so the server
+  closes first and holds the TIME_WAIT on its listening port, not on a port from the client's pool. netstat on this
+  Mac shows zero sockets of any state (control: zero ESTABLISHED with 16 agents running), so it cannot measure it.
