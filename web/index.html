@@ -25245,12 +25245,14 @@ let PJ_ADDMENU_AGENT = null;
    sheet). Declared here, early, for the same reason: paintAgentList and fedGateStamp read them. */
 let FED_MEMBERS = null;          // { project, ok, body }: the last members answer, for the project it was asked for
 // kosmos#4658: the sealed-room key section's state (fedOwnHtml), here for the same reason as the members state.
-let FED_OWN = null;          // { project, waiting: [{ pub, mac, code }], code: string | null, at }
+let FED_OWN = null;          // { project, waiting: [{ pub, code }], code: string | null, at } (the route's mac is not shown)
 let FED_OWN_ASKING = null;   // the project an ask is in flight for
 let FED_OWN_MSG = null;      // { text, project, sig }: the last press's sentence, kept while the section shows what it did
 let FED_OWN_BUSY = null;     // the project a press is being asked for
 let FED_OWN_SEQ = 0;         // a load answered after a newer one (or a project switch) is dropped
 let FED_OWN_GEN = 0;         // a press answered after the project was entered again is dropped (fedMembersReset bumps it)
+let FED_OWN_CONFIRMED = null;   // { project, code }: the code this computer's person confirmed (own-compare goes on
+                                // answering it until the other computer's Allow lands, so it is not offered twice)
 let FED_MEMBERS_SEQ = 0;         // a reply for an older ask (or another project) is dropped
 let FED_MEMBERS_ASKING = null;   // the project an ask is in flight for (fedGateMembers asks once)
 let FED_MSGS = {};               // row key -> the sentence a Withdraw or Remove left, kept across repaints
@@ -25382,7 +25384,13 @@ function paintAgentListNow() {
      focused one is found again by its row key after the rebuild instead of dropping to <body>. */
   const ae = document.activeElement;
   const fedFocusKey = (ae && ae.closest && ae.closest('#alist .fedout-act[data-fed-key]')) ? ae.dataset.fedKey : null;
+  // kosmos#4658: the sealed-room section's buttons too, found again by what they do and whose row they are.
+  const ownFocus = (ae && ae.closest && ae.closest('#alist-fed-own [data-own-act]')) ? { act: ae.dataset.ownAct, pub: ae.dataset.ownPub || '' } : null;
   const fedRefocusRail = () => {
+    if (ownFocus) {
+      const o = [...alist.querySelectorAll('#alist-fed-own [data-own-act]')].find((x) => x.dataset.ownAct === ownFocus.act && (x.dataset.ownPub || '') === ownFocus.pub);
+      if (o) o.focus();
+    }
     if (!fedFocusKey) return;
     const b = [...alist.querySelectorAll('.fedout-act[data-fed-key]')].find((x) => x.dataset.fedKey === fedFocusKey);
     if (b) b.focus();
@@ -81385,7 +81393,13 @@ function fedOwnHtml() {
   if (!o || o.project !== PJ_CURRENT || !PJ_CURRENT || !fedShow()) return '';
   const busy = (FED_OWN_BUSY === o.project ? ' aria-disabled="true"' : '') + ' data-own-project="' + esc(o.project) + '"';
   let h = '';
-  if (o.code) {
+  const confirmed = o.code && FED_OWN_CONFIRMED && FED_OWN_CONFIRMED.project === o.project && FED_OWN_CONFIRMED.code === o.code;
+  if (confirmed) {
+    // Confirmed here, not yet allowed there: the code stays to compare, with nothing left to press on this computer.
+    h += '<h4 class="fedout-h">This room is sealed</h4>'
+      + '<p class="fhint">You confirmed this code. This computer reads the room once the other computer has allowed it.</p>'
+      + fedOwnCodeHtml(o.code, '');
+  } else if (o.code) {
     h += '<h4 class="fedout-h">This room is sealed</h4>'
       + '<p class="fhint">To read it here, open this project on the computer that first shared it. A code appears there beside this computer. If it is the same as this one, press It matches here and Allow there.</p>'
       + fedOwnCodeHtml(o.code, '')
@@ -81530,7 +81544,7 @@ async function fedOwnPress(btn) {
   // that fails then keeps this, not the state from before the press).
   if (ok && FED_OWN && FED_OWN.project === project) {
     if (act === 'allow') FED_OWN = Object.assign({}, FED_OWN, { waiting: FED_OWN.waiting.filter((w) => w.pub !== body.pub) });
-    else if (act === 'match') FED_OWN = Object.assign({}, FED_OWN, { code: null });
+    else if (act === 'match') FED_OWN_CONFIRMED = { project, code: body.code };
   }
   FED_OWN_MSG = { text: said, project, sig: null };
   if (said$) setTimeout(() => { if (FED_OWN_GEN === gen) said$.textContent = said; }, 60);   // one persistent live region
@@ -81555,6 +81569,7 @@ function fedMembersReset() {
   // kosmos#4658: the sealed-room key section starts over too, and is emptied now, so the last project's rows and
   // buttons never show under this one while its own answer is asked for.
   fedOwnPaint.rail = undefined;   // the rail's copy repaints for the next answer, as fedOutsidePaint.rail
+  FED_OWN_CONFIRMED = null;
   FED_OWN = null; FED_OWN_MSG = null; FED_OWN_ASKING = null; FED_OWN_BUSY = null; FED_OWN_SEQ++; FED_OWN_GEN++; fedOwnPaint();
   const said$ = document.getElementById('pj-fed-own-said'); if (said$) said$.textContent = '';
   FED_MEMBERS = null; FED_MSGS = {}; FED_GEN++;
