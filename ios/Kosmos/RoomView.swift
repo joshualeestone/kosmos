@@ -88,6 +88,10 @@ struct RoomView: View {
             start(); takeReturned(); applyKept()
         }
         .onDisappear { visible = false; loop?.cancel(); loop = nil }
+        // kosmos#7072: a hold that appears while the room is on screen is said aloud, as the board's paint does.
+        .onChange(of: store.held[project.id] != nil) { now in
+            if now && visible { UIAccessibility.post(notification: .announcement, argument: Board.heldAnnouncement) }
+        }
         // kosmos#7062: a post's file in the system's Quick Look; closed, it is removed from the phone (the chat's rule).
         .quickLookPreview($previewURL)
         .onChange(of: previewURL) { now in
@@ -197,8 +201,6 @@ struct RoomView: View {
         if let url = parts.url { openPage(url) }
     }
 
-    // "<Name> needs you on this project." pinned under the header (the board's block, which a phone would put out of
-    // reach under the conversation; the spec pins it). Open goes to that agent's chat.
     // kosmos#7072: a held room (#5800), as the board's notice at the top of its composer (pjHeldNotice): why, how it
     // ends, when it lifts on its own, and Reopen the room. A quiet band, as the board's msg-valve. While the person
     // types, the words keep to about four lines and scroll (the board's kosmos-keyboard-up rule), so the box stays.
@@ -224,8 +226,10 @@ struct RoomView: View {
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.separator, lineWidth: 0.5))
             .padding(.horizontal, 16).padding(.top, 6)
             .accessibilityElement(children: .contain)
-            // A refusal said for one hold is not carried into the next.
+            // A refusal said for one hold is not carried into the next, nor past a change in it (the board rewrites its
+            // notice then).
             .onDisappear { reopenNote = nil }
+            .onChange(of: until) { _ in reopenNote = nil }
         }
     }
 
@@ -234,17 +238,24 @@ struct RoomView: View {
         reopenNote = nil
         let id = project.id
         Task {
-            let refusal = await store.reopen(id)
+            let outcome = await store.reopen(id)
             reopening = false
-            reopenNote = refusal
-            if refusal == nil {
-                // Focus goes to the box, as the board's: the button it was on has just gone.
-                typing = true
-                UIAccessibility.post(notification: .announcement, argument: Board.reopenedAnnouncement)
+            // Said only while this room is on screen (the board returns when the room changed, review 1). The keyboard is
+            // not raised: on a phone that is more than the desktop board's focus, so the person taps the box themselves.
+            switch outcome {
+            case .reopened:
+                if visible { UIAccessibility.post(notification: .announcement, argument: Board.reopenedAnnouncement) }
+            case .refused(let sentence):
+                reopenNote = sentence
+                if visible { UIAccessibility.post(notification: .announcement, argument: sentence) }   // the board's role=status
+            case .dropped:
+                break
             }
         }
     }
 
+    // "<Name> needs you on this project." pinned under the header (the board's block, which a phone would put out of
+    // reach under the conversation; the spec pins it). Open goes to that agent's chat.
     @ViewBuilder private var needsLine: some View {
         let waiting = store.waitingMembers(project)
         if !waiting.isEmpty {

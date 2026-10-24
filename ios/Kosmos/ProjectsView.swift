@@ -16,6 +16,10 @@ final class RoomStore: ObservableObject {
     @Published private(set) var roomFailed: Set<String> = []
     // kosmos#7072: the rooms held at their last newest-page read, with when each should lift (nil: it did not say).
     @Published private(set) var held: [String: Date?] = [:]
+    // Each room's newest-page reads in the order they started, and the read count when a reopen landed: a read started
+    // before the reopen never writes the hold back (review 1: an older poll landing late brought the notice back).
+    private var roomReads: [String: Int] = [:]
+    private var reopenedAt: [String: Int] = [:]
     @Published private(set) var loadingOlder: Set<String> = []
     // Rooms whose last older-page read failed: the top of the room offers it again rather than spinning.
     @Published private(set) var olderFailed: Set<String> = []
@@ -51,6 +55,7 @@ final class RoomStore: ObservableObject {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
         returned = [:]; kept = [:]; drafts = [:]
+        held = [:]; roomReads = [:]; reopenedAt = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
     private var listReads = 0
@@ -92,17 +97,21 @@ final class RoomStore: ObservableObject {
         #if DEBUG
         if Self.sample {
             rows[project] = Board.parseRoom(Data(Self.sampleRoom.utf8), names: names)?.rows ?? []
+            // kosmos#7072: KOSMOS_SAMPLE_HELD=1 shows the sample room held, for its screenshots (a Debug build only).
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HELD"] == "1" { held[project] = .some(Date().addingTimeInterval(40 * 60)) }
             older[project] = (0, nil); return true
         }
         #endif
         let epoch = client.chatEpoch
+        roomReads[project, default: 0] += 1
+        let read = roomReads[project]!
         let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize) }
         guard same(epoch), !Task.isCancelled else { return false }
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
             roomFailed.insert(project); return false
         }
         roomFailed.remove(project)
-        if page.held { held[project] = .some(page.heldUntil) } else { held[project] = nil }
+        if Board.readMayWriteHold(read: read, reopenedAt: reopenedAt[project]) { if page.held { held[project] = .some(page.heldUntil) } else { held[project] = nil } }
         let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)
         rows[project] = fresh.rows
         older[project] = fresh.older
@@ -197,20 +206,20 @@ final class RoomStore: ObservableObject {
         }
     }
 
-    // kosmos#7072: the board's Reopen the room. nil when it reopened (the notice goes now, before the re-read, so a
-    // re-read that fails cannot leave a held notice with a dead button: pjHeldReopenClick); otherwise the board's
-    // sentence for the refusal.
-    func reopen(_ project: String) async -> String? {
+    // kosmos#7072: the board's Reopen the room. On a reopen the notice goes now, before the re-read, so a re-read that
+    // fails cannot leave a held notice with a dead button (pjHeldReopenClick); a refusal carries the board's sentence.
+    func reopen(_ project: String) async -> Board.ReopenOutcome {
         #if DEBUG
-        if Self.sample { held[project] = nil; return nil }
+        if Self.sample { held[project] = nil; return .reopened }
         #endif
         let epoch = client.chatEpoch
         let answer = await client.throughMac { Board.reopenRequest(mac: $0, project: project) }
-        guard same(epoch) else { return nil }
-        if let refusal = Board.reopenRefusal(status: answer?.1.statusCode, answer?.0) { return refusal }
+        guard same(epoch) else { return .dropped }
+        if let refusal = Board.reopenRefusal(status: answer?.1.statusCode, answer?.0) { return .refused(refusal) }
         held[project] = nil
+        reopenedAt[project] = roomReads[project] ?? 0
         await loadRoom(project)
-        return nil
+        return .reopened
     }
 
     // A pending or not-confirmed post the room now shows is dropped: the room's row replaces it. A refused one never

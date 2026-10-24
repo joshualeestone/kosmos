@@ -22,4 +22,11 @@ shows the board's sentence; the room suite covers it against the real route's an
 ## Steps
 1. Model, store, view, suite, builds. DONE (room 150/150, run 1085, actions 97, settings 41, tasks 90; Debug and
    KOSMOS_STORE_SHOTS Release SUCCEEDED; control: the until parse removed goes red).
-2. Review loop. 3. Validation, PR.
+2. Review loop. Round 1: 0 blockers, 6 warnings, 5 nits. Fixed: holds cleared on sign-out or another computer;
+   a reopen answered after that is dropped, never announced as a success (ReopenOutcome); a read started before the
+   last reopen never writes the hold back (readMayWriteHold, tested); the announcements only while the room is on
+   screen; a refusal is announced (the board's role=status); a hold that appears is announced (the board's paint);
+   any 2xx ok is a reopen; a DEBUG sample (KOSMOS_SAMPLE_HELD=1); a refusal note cleared when the hold changes; the
+   needsLine comment moved back. Decided: the keyboard is NOT raised after a reopen (the board focuses its box; on a
+   phone that pops the keyboard unasked). Reversible; one line.
+3. Validation, PR.

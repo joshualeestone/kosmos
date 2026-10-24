@@ -320,6 +320,7 @@ for phrase in ["This room has reached its limit for agent posts, because it kept
                "without a result. Your agents\\' posts will most likely not go through until you post something yourself or reopen the room.",
                " Otherwise it should lift on its own by ", " An agent whose post was held can still send one summary to wrap things up.",
                ">Reopen the room</button>", "pjRoomAnnounce('Reopened the room. Your agents can post here again.')",
+               "pjRoomAnnounce('" + Board.heldAnnouncement + "')",
                "msg.textContent = 'We could not reopen the room' + (because ? ': ' + because : '') + '. Try again, or post in the room.'"] {
     check(boardPage.contains(phrase), "the board still says: \(phrase.prefix(60))")
 }
@@ -335,6 +336,12 @@ check(Board.reopenRefusal(status: noAnswer.0, noAnswer.1) == "We could not reope
       "a refusal, with the computer's reason, in the board's sentence")
 check(Board.reopenRefusal(status: nil, nil) == "We could not reopen the room. Try again, or post in the room.", "no answer at all is a refusal, never a reopen")
 check(Board.reopenRefusal(status: 200, Data("<html>sign in</html>".utf8)) != nil, "CONTROL: a 200 that is not the board's answer is never a reopen")
+check(Board.reopenRefusal(status: 204, okAnswer.1) == nil && Board.reopenRefusal(status: 302, okAnswer.1) != nil, "any 2xx with ok is a reopen (the board's res.ok); a redirect is not")
+// A read started before a reopen landed (numbered 4 when the reopen landed after read 4 started) never writes the hold;
+// the reopen's own re-read (5) does. With no reopen yet, every read does.
+check(!Board.readMayWriteHold(read: 4, reopenedAt: 4) && !Board.readMayWriteHold(read: 3, reopenedAt: 4)
+      && Board.readMayWriteHold(read: 5, reopenedAt: 4) && Board.readMayWriteHold(read: 1, reopenedAt: nil),
+      "only a read started after the last reopen may write the hold")
 let reopenReq = Board.reopenRequest(mac: URL(string: "https://studio.kosmosplus.com/")!, project: "springcatalogue")
 check(reopenReq?.httpMethod == "POST" && reopenReq?.url?.path == "/api/project/springcatalogue/room/reopen", "Reopen is the board's POST /api/project/<id>/room/reopen")
 check(Board.reopenRequest(mac: URL(string: "https://studio.kosmosplus.com/")!, project: "../x") == nil, "an id that is not a project's makes no request")

@@ -101,6 +101,14 @@ extension Board {
     }
     static let reopenButton = "Reopen the room"
     static let reopenedAnnouncement = "Reopened the room. Your agents can post here again."
+    // Said when the notice first appears while the room is on screen (the board's paint, review 1).
+    static let heldAnnouncement = "This room has reached its limit for agent posts. Post something yourself or reopen the room to let them through."
+    // What a Reopen came to: reopened, refused (the board's sentence), or dropped because the person signed out or the
+    // computer changed while it was on its way (nothing is said then: review 1).
+    enum ReopenOutcome: Equatable { case reopened, refused(String), dropped }
+    // Whether a newest-page read may write the room's hold: only one started after the last reopen landed, so an
+    // older read that lands late never brings a lifted hold back (review 1). Reads are numbered as they start.
+    static func readMayWriteHold(read: Int, reopenedAt: Int?) -> Bool { read > (reopenedAt ?? 0) }
 
     // The board's own Reopen (pjHeldReopenClick): POST /api/project/<id>/room/reopen, which answers {ok, at} or
     // {ok: false, because}.
@@ -117,7 +125,7 @@ extension Board {
     // this build cannot read is a refusal, never taken for a reopen.
     static func reopenRefusal(status: Int?, _ data: Data?) -> String? {
         let obj = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        if status == 200, let obj, isTrue(obj["ok"]) { return nil }
+        if let status, (200...299).contains(status), let obj, isTrue(obj["ok"]) { return nil }   // the board's res.ok
         let because = (obj?["because"] as? String).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         return "We could not reopen the room" + (because.map { ": " + $0 } ?? "") + ". Try again, or post in the room."
     }
