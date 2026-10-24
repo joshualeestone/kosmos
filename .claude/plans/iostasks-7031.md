@@ -21,7 +21,7 @@ AppTabs.isNative, `ContentView.swift`, `ios/LogicTests/main.swift`) are touched 
    cannot-tell group, pull to refresh, accessibility labels and custom action).
 3. `BoardClient`: a tasks viewer (show/hide, as Angel's todayViewer), reading all states.
 4. Shell: Tasks native in AppTabs.isNative; ContentView's Tasks tab page; a row pushes the board's task page.
-5. `ios/LogicTests/run-tasks.sh` + `ios/LogicTests/tasks/main.swift`, its own suite, wired in .github/workflows/ios.yml.
+5. `ios/LogicTests/run-tasks.sh` + `ios/LogicTests/tasks/main.swift`, its own suite, wired in .github/workflows/ios.yml (from code review 1, W1).
    The tests read the board's words from web/index.html where they can (TSK_GROUPS labels, TSK_DECISION_UNKNOWN), so
    the phone cannot drift from the board silently.
 
@@ -73,3 +73,18 @@ display names (tskAgentName). The logic takes both in, and the tests pin the wor
 - [CHECK] the end of the list clears the floating tab bar --> shots scrolled to the end (light, dark, Completed open),
   through two Debug-only sample switches (KOSMOS_SAMPLE_SCROLL=end, KOSMOS_SAMPLE_COMPLETED=open).
 - My own look before the review, also fixed: the dot sat between the two lines of a wrapped label.
+
+## Code review 1 (sonnet, 2026-10-24 09:53 CDT): 0 BLOCKER, 7 WARNING, all taken
+- W1: run-tasks.sh was NOT wired into CI, though Scope said it was (my error). Now a step in ios.yml, VERDICT: PASS grep.
+- W2/W3: a row's lines stack as tskRow stacks them; ready-to-check appended (logic, 0ec034eed6).
+- W4: subtasks nest under a parent in the same group, indented 16 pt per level, two levels; one whose parent is not in
+  the group shows "Part of #N ..." above its sentence and says it to VoiceOver (taskNest + tskRow's partOf).
+  DECIDED, left out of the phone row: Replaced by, project paused, due, not on this project, has not reported. Each is
+  a board line about the task page's context; the phone row opens that page, which says them. What would change it:
+  a design review asking for one of them on the list.
+- W5: a picked project that leaves the read (deleted, emptied) goes back to All projects on the next live read.
+- W6: a read that goes away (another Mac, signed out) clears the layout and the picked project, so a new read is laid
+  out afresh rather than keeping the old Mac's places.
+- W7: "Pull down to try again" is now true: the failed-read screen is a refreshable scroll view.
+- The end-of-list sample scroll ran on appear, before the rows were drawn, and went nowhere (the 10:12 shots showed
+  the top). It now runs once after the first layout, to the last row.

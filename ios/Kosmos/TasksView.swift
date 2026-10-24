@@ -68,6 +68,7 @@ struct TasksView: View {
     @State private var shown: [Tasks.Section] = []
     @State private var laidOutFor: String? = "\u{0}"   // the project the layout was made for (never a real id at first)
     @State private var completedOpen = false
+    @State private var sampleScrolled = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -89,7 +90,14 @@ struct TasksView: View {
                 list(read)
             }
         } else if failed {
-            centred(title: "Kosmos could not read your tasks just now.", detail: "Pull down to try again.")
+            // A scroll view so "Pull down to try again" is true: the pull is the retry.
+            GeometryReader { g in
+                ScrollView {
+                    centred(title: "Kosmos could not read your tasks just now.", detail: "Pull down to try again.")
+                        .frame(minHeight: g.size.height)
+                }
+                .refreshable { await refresh(); layOut() }
+            }
         } else {
             VStack(spacing: 8) {
                 ProgressView()
@@ -111,7 +119,7 @@ struct TasksView: View {
                 if s.group.key == "closed" {
                     Section {
                         DisclosureGroup(isExpanded: $completedOpen) {
-                            ForEach(s.rows) { t in row(t, projectShown: projectShown) }
+                            rows(s.rows, projectShown: projectShown)
                         } label: {
                             Text("Completed (\(s.rows.count))").font(.callout).foregroundColor(Palette.primary)
                         }
@@ -124,7 +132,7 @@ struct TasksView: View {
                             Text(Tasks.decisionUnknown).font(.footnote).foregroundColor(Palette.secondary)
                                 .listRowBackground(Palette.card)
                         }
-                        ForEach(s.rows) { t in row(t, projectShown: projectShown) }
+                        rows(s.rows, projectShown: projectShown)
                     } header: { header(s, read: read) }
                 }
             }
@@ -133,7 +141,12 @@ struct TasksView: View {
         .scrollContentBackground(.hidden)
         .background(Palette.ground)
         .refreshable { await refresh(); layOut() }
-        .onAppear { if Self.sampleScrollToEnd, let last = shown.last { scroller.scrollTo(last.group.key, anchor: .bottom) } }
+        // After the layout, not on appear: on appear `shown` may not be drawn yet and the scroll goes nowhere.
+        .onChange(of: shown) { now in
+            guard Self.sampleScrollToEnd, !sampleScrolled, let last = now.last else { return }
+            sampleScrolled = true
+            DispatchQueue.main.async { scroller.scrollTo(last.rows.last?.id ?? last.group.key, anchor: .bottom) }
+        }
         }
     }
 
@@ -172,14 +185,20 @@ struct TasksView: View {
         .accessibilityAddTraits(.isHeader)
     }
 
-    private func row(_ t: Board.TaskRow, projectShown: Bool) -> some View {
+    // A group's rows as taskNest places them: under their parent when it is in the same group, else with a crumb.
+    private func rows(_ list: [Board.TaskRow], projectShown: Bool) -> some View {
+        ForEach(Tasks.nest(list), id: \.row.id) { p in row(p.row, depth: p.depth, crumb: p.crumb, projectShown: projectShown) }
+    }
+
+    private func row(_ t: Board.TaskRow, depth: Int, crumb: Bool, projectShown: Bool) -> some View {
         let line = Tasks.rowLine(t, now: Date(), name: agentName)
         let large = typeSize >= .accessibility1
         let decision = t.state == "decision" && !t.waitingOn.isEmpty
         return VStack(alignment: .leading, spacing: 6) {
-            Button { open(t) } label: { rowText(t, line: line, projectShown: projectShown, large: large) }
+            Button { open(t) } label: { rowText(t, line: line, crumb: crumb, projectShown: projectShown, large: large) }
                 .buttonStyle(.plain)
-                .accessibilityLabel(Tasks.spoken(t, line: line, projectShown: projectShown))
+                .accessibilityLabel(Tasks.spoken(t, line: line, projectShown: projectShown)
+                    + (crumb ? ", " + Tasks.partOf(t) : ""))
                 .accessibilityHint("Opens the task")
                 .modifier(AnswerAction(on: decision) { answer(t) })
             if decision {
@@ -193,12 +212,17 @@ struct TasksView: View {
             }
         }
         .padding(.vertical, 4)
+        .padding(.leading, CGFloat(depth) * 16)
         .listRowBackground(Palette.card)
         .listRowSeparatorTint(Palette.separator)
     }
 
-    private func rowText(_ t: Board.TaskRow, line: String, projectShown: Bool, large: Bool) -> some View {
+    private func rowText(_ t: Board.TaskRow, line: String, crumb: Bool, projectShown: Bool, large: Bool) -> some View {
         VStack(alignment: .leading, spacing: 3) {
+            if crumb {
+                Text(Tasks.partOf(t)).font(.footnote).foregroundColor(Palette.secondary)
+                    .lineLimit(large ? nil : 1)
+            }
             if projectShown {
                 Text(Tasks.chainText(Tasks.chain(t))).font(.footnote).foregroundColor(Palette.secondary)
                     .lineLimit(large ? nil : 1)
@@ -248,8 +272,11 @@ struct TasksView: View {
         laidOutFor = project
     }
     // A live read: rows change in place and keep their group until the next layout (slice 1's rule).
+    // A read that is gone (another Mac, signed out) carries nothing over: the next one is laid out afresh, All projects.
+    // A project that left the read (deleted, emptied) goes back to All projects rather than an empty list.
     private func update() {
-        guard let read else { return }
+        guard let read else { laidOutFor = "\u{0}"; project = nil; shown = []; return }
+        if let p = project, !Tasks.pickerProjects(read).contains(where: { $0.id == p }) { project = nil; layOut(); return }
         if laidOutFor != project || shown.isEmpty { layOut(); return }
         shown = Tasks.keepingPlaces(shown, with: read, project: project)
     }
