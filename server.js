@@ -4121,37 +4121,30 @@ const PHONE_PERM_DOES = {
 };
 /* kosmos#7017 part 2: what the lock screen says a permission request is. The phone has no Show details, so it shows
    the WHOLE request or offers no buttons: a request cut short can look harmless while Allow approves all of it. Only
-   the measured shapes: a command whose request is exactly one line, or a new file by its name AND its whole text (a
-   file's text can be code that runs later: a hook, a shell profile). A change to a file (a diff), a multi-line command
+   one measured shape: a command whose request is exactly one line. A file (new or changed: its text is read back out of
+   the terminal's drawing, where a line Claude Code wraps itself can lose or gain words, review 5), a multi-line command
    (a continued line, a heredoc), a fetch's address and any other tool's arguments get no buttons; the chat has them.
    Claude Code's reason comes FIRST, so a warning such as a dangerous rm is the first thing read. Then "Wants to
-   <what>:" with the command or file name on its own line (no full stop added to a command), the file's text, then the
-   agent's own words about it. Empty, so no buttons, when nothing measured can be named; when the whole does not fit
-   the notice's words (phonenotice.TEXT_MAX) uncut; when it holds a character that draws differently on a phone than
-   in the terminal (format controls such as bidi overrides and zero-width marks, line and paragraph separators, other
-   control characters), so the screen could read as something it is not; or when it holds anything shaped like a
-   secret (engine/secretmask.js), which a lock screen and Notification Center would show to anyone holding the phone. */
+   <what>:" with the command on its own line (no full stop added), then the agent's own words about it. Empty, so no
+   buttons, when the whole does not fit the notice's words (phonenotice.TEXT_MAX) uncut; when it holds a character that
+   draws differently on a phone than in the terminal (format controls such as bidi overrides and zero-width marks, line
+   and paragraph separators, other control characters), so the screen could read as something it is not; or when it
+   holds anything shaped like a secret (engine/secretmask.js) or a password given as a command flag (PHONE_PASSWORD_FLAG),
+   which a lock screen and Notification Center would show to anyone holding the phone. */
+const PHONE_PASSWORD_FLAG = /(^|\s)(--password\b|--passwd\b|sshpass\b|-u\s+[^\s:]+:\S|--user[=\s][^\s:]+:\S)|\b(mysql|mysqldump|mariadb)\b.*\s-p\S|\bpass(word)?=\S/i;
 function phonePermissionShown(perm) {
-  const isCommand = perm.kind === 'command' || perm.kind === 'delete';
+  if (perm.kind !== 'command' && perm.kind !== 'delete') return '';
+  const lines = String(perm.detail || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length !== 1) return '';
   const out = [];
   if (perm.reason) out.push(String(perm.reason).trim());
-  if (isCommand) {
-    const lines = String(perm.detail || '').split('\n').map((l) => l.trim()).filter(Boolean);
-    if (lines.length !== 1) return '';
-    out.push('Wants to ' + PHONE_PERM_DOES[perm.kind] + ':', lines[0]);
-  } else if (perm.kind === 'create') {
-    const name = String(perm.target || '').trim();
-    const body = String(perm.detail || '').replace(/\s+$/, '');
-    if (!name || !body.trim()) return '';
-    out.push('Wants to ' + PHONE_PERM_DOES.create + ':', name, 'With this text:', body);
-  } else {
-    return '';
-  }
+  out.push('Wants to ' + PHONE_PERM_DOES[perm.kind] + ':', lines[0]);
   if (perm.says) out.push('It says: ' + String(perm.says).trim());
   const text = out.filter(Boolean).join('\n');
   if (text.length > require('./engine/phonenotice').TEXT_MAX) return '';
   // eslint-disable-next-line no-control-regex
   if (/[\p{Cf}\u2028\u2029\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u.test(text)) return '';
+  if (PHONE_PASSWORD_FLAG.test(lines[0])) return '';
   try { if (require('./engine/secretmask').mask(text).fired.length) return ''; } catch { return ''; }
   return text;
 }

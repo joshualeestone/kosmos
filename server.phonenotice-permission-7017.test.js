@@ -83,7 +83,7 @@ async function withPrompt(screen, fn, state = 'needs_you') {
 }
 
 test('#7017 a permission prompt\'s notice carries Allow and Deny: its own Yes and No, and the identity the board presses with', async () => {
-  for (const [name, screen] of [['bash', BASH], ['edit', EDIT]]) {
+  for (const [name, screen] of [['bash', BASH]]) {   // review 5: a file gets no lock-screen buttons (controls below)
     await withPrompt(screen, async () => {
       const r = await notice(reportId());
       assert.equal(r.status, 200, name + ': ' + JSON.stringify(r.json));
@@ -98,8 +98,7 @@ test('#7017 a permission prompt\'s notice carries Allow and Deny: its own Yes an
       assert.equal(p.asked, thread.asked, name + ': the phone would press with a different identity than the board');
       assert.match(p.request, /^[0-9a-f]{64}$/, name + ': no fingerprint');
       // Reviews 1 and 2: the lock screen shows the whole request: the reason first, then the command or file name.
-      const expected = { bash: 'This command requires approval\nWants to run a command:\n/usr/bin/uuidgen\nIt says: Generate a UUID with uuidgen',
-        edit: 'Wants to create a file:\nedit-probe.txt\nWith this text:\nhello' }[name];
+      const expected = { bash: 'This command requires approval\nWants to run a command:\n/usr/bin/uuidgen\nIt says: Generate a UUID with uuidgen' }[name];
       assert.equal(p.shown, expected, name);
       const row = (thread.messages || []).find((m) => m && m.kind === 'question');
       assert.equal(row && row.permission && row.permission.request, p.request, name + ': the thread card and the notice disagree on the fingerprint the phone checks');
@@ -189,6 +188,12 @@ const variants = [
   // Review 4: a harmless body, so the missing name is the only reason (a key would be refused on its own).
   ['a file with no name line', EDIT.replace(/^(\s*)edit-probe\.txt\s*$/m, '').replace(DASHED, '$1   1 hello$2')],
   ['a new file holding a key', EDIT.replace(DASHED, '$1   1 OPENAI_API_KEY=sk-live-abcdef123$2')],
+  // Review 5: a file's text is read back out of the terminal's drawing, so no file gets lock-screen buttons.
+  ['a new file (its text read off the drawing)', EDIT],
+  ['a new file with a line Claude Code wrapped before a number', EDIT.replace(DASHED, '$1   1 #!/bin/sh\n   2 chmod -R\n 777 /etc\n   3 echo 2$2')],
+  ['a password given as a flag (curl -u)', BASH.replace(DASHED, '$1 curl -u admin:S3cretPass https://example.invalid$2')],
+  ['a password given as a flag (mysql -p)', BASH.replace(DASHED, '$1 mysql -u root -phunter2secret$2')],
+  ['a password given to sshpass', BASH.replace(DASHED, '$1 sshpass -p Pa55word ssh host$2')],
   // Review 3:
   ['a change to a file (a diff the lock screen cannot show whole)', EDIT.replace(/^ Create file$/m, ' Edit file')],
   ['a new file whose text does not fit uncut', EDIT.replace(DASHED, '$1' + Array.from({ length: 40 }, (_, i) => '  line ' + i + ' of the hook').join('\n') + '$2')],
@@ -204,18 +209,16 @@ test('#7017 reviews 2 to 4: CONTROL: a request the lock screen cannot show whole
       const r = await notice(reportId());
       assert.equal(r.status, 200, name + ': premise, the words are served');
       if ('permission' in r.json) wrong.push(name + ': buttons offered: ' + JSON.stringify(r.json.permission.shown));
-      if (/sk-live|ghp_|\u202e/.test(JSON.stringify(r.json))) wrong.push(name + ': the request text reached the notice');
+      if (/sk-live|ghp_|\u202e|S3cret|hunter2|Pa55/.test(JSON.stringify(r.json))) wrong.push(name + ': the request text reached the notice');
     });
   }
   assert.deepEqual(wrong, []);
 });
 
-test('#7017 review 4: a new file with a blank line shows its text, not the line numbers Claude Code draws beside it', async () => {
-  const screen = EDIT.replace(DASHED, '$1   1 #!/bin/sh\n   2 \n   3 echo hi$2');
-  assert.equal(chat.permissionCard(screen).detail, '#!/bin/sh\n\necho hi', 'the card read the gutter as text');
-  await withPrompt(screen, async () => {
-    const p = (await notice(reportId())).json.permission;
-    assert.ok(p, 'premise: buttons offered');
-    assert.equal(p.shown, 'Wants to create a file:\nedit-probe.txt\nWith this text:\n#!/bin/sh\n\necho hi');
-  });
+test('#7017 reviews 4 and 5: the card reads a file\'s gutter only when it numbers every line in order', () => {
+  const blank = chat.permissionCard(EDIT.replace(DASHED, '$1   1 #!/bin/sh\n   2 \n   3 echo hi$2'));
+  assert.equal(blank.detail, '#!/bin/sh\n\necho hi', 'a blank line ("  2 ") broke the gutter');
+  const wrapped = chat.permissionCard(EDIT.replace(DASHED, '$1   1 #!/bin/sh\n   2 chmod -R\n 777 /etc\n   3 echo 2$2'));
+  assert.ok(wrapped.detail.includes('777'), 'a wrapped continuation lost the number that was its text: ' + JSON.stringify(wrapped.detail));
+  assert.ok(wrapped.detail.includes('1 #!/bin/sh'), 'a broken run was still read as a gutter: ' + JSON.stringify(wrapped.detail));
 });

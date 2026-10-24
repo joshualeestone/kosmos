@@ -15,8 +15,9 @@ final class NotificationService: UNNotificationServiceExtension {
     private var work: Task<Void, Never>?
 
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
-        // kosmos#7017 review 4: Allow and Deny only ever come from this extension's own reading of the computer's answer,
-        // so whatever a push arrived with is cleared first, on every path (the time limit's and a failed fetch's too).
+        // kosmos#7017 review 4: whatever Allow and Deny a push arrived with is cleared first, on every path this extension
+        // takes (the time limit's and a failed fetch's too). iOS runs it only for a push marked mutable-content, so this
+        // is defence in depth: what protects a press is the app's live check of `asked` and the fingerprint.
         let arrived = Self.withoutPermission(request.content)
         lock.lock()
         handler = contentHandler
