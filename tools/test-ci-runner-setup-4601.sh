@@ -82,7 +82,7 @@ case "$me" in
         [ -f "$lk" ] && printf '\tsemaphores = {\n\t\tsuccessful exit => 0\n\t}\n'
         # FX_LOADED_ALWAYS=1: the loaded job has KeepAlive true, as launchd prints it (measured, macOS 27, 2026-10-23).
         [ "${FX_LOADED_ALWAYS:-0}" = 1 ] && printf '\tproperties = keepalive | runatload | inferred program\n'
-        printf '\tminimum runtime = %s\n' "$( [ -s "$(dirname "$CALL_LOG")/loaded-thr" ] && cat "$(dirname "$CALL_LOG")/loaded-thr" || echo 10)"
+        [ "${FX_NO_MINRUNTIME:-0}" = 1 ] || printf '\tminimum runtime = %s\n' "$( [ -s "$(dirname "$CALL_LOG")/loaded-thr" ] && cat "$(dirname "$CALL_LOG")/loaded-thr" || echo 10)"
         printf '\texit timeout = %s\n' "$( [ -s "$lk" ] && cat "$lk" || echo 5)"
         printf '}\n'; exit 0 ;; esac
     [ "$1 ${2%%/*}" = "print gui" ] || exit 1
@@ -734,6 +734,7 @@ sleep 30 & jsp=$!
 ka_fresh; rm -f "$T/relay-worker-up"; run ka-relayoutlived "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_RELAY_WORKER_AFTER_KILL=1 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
 [ "$(rc ka-relayoutlived)" = 0 ] && grep -q '^launchctl bootout ' "$T/ka-relayoutlived.calls" && ! has ka-relayoutlived "refused" \
+  && ! has ka-relayoutlived "a job of this runner is still up" && ! has ka-relayoutlived "reloading anyway" \
   && pass "keepalive --apply: a relay job while the old runner is still stopping does not veto this runner's reload" || fail "keepalive relay job outlived: rc $(rc ka-relayoutlived): $(tail -1 "$T/ka-relayoutlived.out")"
 rm -f "$T/relay-worker-up"
 # The old runner has ended, then a Worker appears: it is the relay's (this runner has no Listener), so the reload goes on.
@@ -776,13 +777,13 @@ ka_fresh; run ka-nonew "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH
   && pass "keepalive --apply: the old Listener still listed after the bootstrap is not taken for a new one" || fail "keepalive no new Listener: rc $(rc ka-nonew): $(tail -1 "$T/ka-nonew.out")"
 # The dry run predicts --apply's pid and Listener refusals.
 ka_fresh; run ka-nopid-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_PID=1 -- keepalive
-[ "$(rc ka-nopid-dry)" = 1 ] && has ka-nopid-dry "shows no pid for" && has ka-nopid-dry "so --apply would refuse" && ! has ka-nopid-dry "WOULD: launchctl bootout" \
+cmp -s "$KA" "$T/ka.before" && [ "$(rc ka-nopid-dry)" = 1 ] && has ka-nopid-dry "shows no pid for" && has ka-nopid-dry "so --apply would refuse" && ! has ka-nopid-dry "WOULD: launchctl bootout" \
   && pass "keepalive dry run: no pid while its Listener runs is refused there, as --apply refuses" || fail "keepalive nopid dry: rc $(rc ka-nopid-dry): $(tail -1 "$T/ka-nopid-dry.out")"
 ka_fresh; run ka-busy-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER=1 -- keepalive
-[ "$(rc ka-busy-dry)" = 1 ] && has ka-busy-dry "so --apply would refuse until idle" && ! has ka-busy-dry "WOULD: launchctl bootout" \
+cmp -s "$KA" "$T/ka.before" && [ "$(rc ka-busy-dry)" = 1 ] && has ka-busy-dry "so --apply would refuse until idle" && ! has ka-busy-dry "WOULD: launchctl bootout" \
   && pass "keepalive dry run: a running job is refused there, as --apply refuses" || fail "keepalive busy dry: rc $(rc ka-busy-dry): $(tail -1 "$T/ka-busy-dry.out")"
 ka_fresh; run ka-between-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LISTENER=0 -- keepalive
-[ "$(rc ka-between-dry)" = 1 ] && has ka-between-dry "so --apply would refuse now" && ! has ka-between-dry "WOULD: launchctl bootout" \
+cmp -s "$KA" "$T/ka.before" && [ "$(rc ka-between-dry)" = 1 ] && has ka-between-dry "so --apply would refuse now" && ! has ka-between-dry "WOULD: launchctl bootout" \
   && pass "keepalive dry run: between Listeners is refused there, as --apply refuses" || fail "keepalive between dry: rc $(rc ka-between-dry): $(tail -1 "$T/ka-between-dry.out")"
 # A process that only mentions the Listener's path is not this runner's Listener.
 ka_fresh; run ka-lookalike "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LISTENER=0 FX_LOOKALIKE=1 -- --apply keepalive
@@ -814,7 +815,7 @@ ka_fresh; run ka-pdfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$K
 # Dry run of a loaded job with no process: no SIGTERM promised (--apply sends none).
 ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"
 run ka-loadedstopped-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE=waiting FX_NO_PID=1 -- keepalive
-[ "$(rc ka-loadedstopped-dry)" = 0 ] && has ka-loadedstopped-dry "has no process, so no SIGTERM first" && ! has ka-loadedstopped-dry "WOULD: launchctl kill" && has ka-loadedstopped-dry "WOULD: launchctl bootstrap" \
+cmp -s "$KA" "$T/ka.before" && [ "$(rc ka-loadedstopped-dry)" = 0 ] && has ka-loadedstopped-dry "has no process, so no SIGTERM first" && ! has ka-loadedstopped-dry "WOULD: launchctl kill" && has ka-loadedstopped-dry "WOULD: launchctl bootstrap" \
   && pass "keepalive dry run: a loaded job with no process is not promised a SIGTERM" || fail "keepalive loaded stopped dry: rc $(rc ka-loadedstopped-dry): $(tail -2 "$T/ka-loadedstopped-dry.out")"
 # kosmos#7001 round 24. A <string>false</string> SuccessfulExit reads "false" through raw but launchd ignores it: not
 # done, and --apply replaces it and converges.
@@ -833,6 +834,14 @@ run ka-extrakey "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --
   && pass "keepalive --apply: a KeepAlive with extra keys is replaced by the exact dict, and said" || fail "keepalive extra key: rc $(rc ka-extrakey): $(grep -i replacing "$T/ka-extrakey.out")"
 # Outlives the wait: it goes on (refusing would leave a SIGTERMed runner under its old definition) and says so.
 sleep 30 & sp=$!
+# A launchctl print without the "minimum runtime" line (another macOS format): refuse before stopping anything.
+ka_fresh; run ka-noformat "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_MINRUNTIME=1 -- --apply keepalive
+[ "$(rc ka-noformat)" = 1 ] && has ka-noformat "no 'exit timeout' or 'minimum runtime' line" && cmp -s "$KA" "$T/ka.before" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-noformat.calls" \
+  && pass "keepalive --apply: an unmeasured print format is refused before anything is written or stopped" || fail "keepalive no format: rc $(rc ka-noformat): $(tail -1 "$T/ka-noformat.out")"
+# The dry run says --apply writes the plist even when it then refuses.
+ka_fresh; run ka-writesfirst "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER=1 -- keepalive
+has ka-writesfirst "--apply writes KeepAlive into the plist first" && has ka-writesfirst "so --apply would refuse until idle" \
+  && pass "keepalive dry run: a refusal says --apply writes the plist first" || fail "keepalive writes first: $(tail -3 "$T/ka-writesfirst.out")"
 ka_fresh; run ka-outlives "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null
 [ "$(rc ka-outlives)" = 0 ] && has ka-outlives "had not ended 1s after SIGTERM" && grep -qx 'bootout-while-alive' "$T/ka-outlives.calls" \
@@ -841,7 +850,7 @@ ka_fresh; run ka-killfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="
 [ "$(rc ka-killfail)" = 1 ] && has ka-killfail "launchctl kill SIGTERM" && ! grep -q '^launchctl boot' "$T/ka-killfail.calls" \
   && pass "keepalive --apply: a failed SIGTERM refuses before the bootout" || fail "keepalive kill fail: rc $(rc ka-killfail): $(tail -1 "$T/ka-killfail.out")"
 ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-downdry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 -- keepalive
-[ "$(rc ka-downdry)" = 1 ] && has ka-downdry "DOWN:" && ! changed ka-downdry >/dev/null && pass "keepalive dry run on a runner that is not loaded: DOWN, exit 1, nothing changed" || fail "keepalive down dry: rc $(rc ka-downdry): $(cat "$T/ka-downdry.out")"
+cmp -s "$KA" "$T/ka.before" && [ "$(rc ka-downdry)" = 1 ] && has ka-downdry "DOWN:" && ! changed ka-downdry >/dev/null && pass "keepalive dry run on a runner that is not loaded: DOWN, exit 1, nothing changed" || fail "keepalive down dry: rc $(rc ka-downdry): $(cat "$T/ka-downdry.out")"
 ka_fresh; run ka-stucksent "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID=999999 FX_BOOTOUT_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 [ "$(rc ka-stucksent)" = 1 ] && has ka-stucksent "the runner is STOPPED (SIGTERM ended it" && ! has ka-stucksent "it is still loaded from the OLD definition" \
   && pass "keepalive --apply: a stuck bootout after SIGTERM says the runner is STOPPED, not running" || fail "keepalive stuck after sigterm: rc $(rc ka-stucksent): $(tail -1 "$T/ka-stucksent.out")"
@@ -858,7 +867,7 @@ ka_fresh; run ka-disabled "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="
 [ "$(rc ka-disabled)" = 1 ] && has ka-disabled "is disabled in gui/777" && has ka-disabled "launchctl enable gui/777/" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-disabled.calls" \
   && pass "keepalive --apply: a disabled label refuses before anything is stopped, and names launchctl enable" || fail "keepalive disabled: rc $(rc ka-disabled): $(tail -1 "$T/ka-disabled.out")"
 ka_fresh; run ka-disabled-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_DISABLED=1 -- keepalive
-[ "$(rc ka-disabled-dry)" = 1 ] && has ka-disabled-dry "is disabled in gui/777, so --apply would refuse" && ! has ka-disabled-dry "WOULD: launchctl bootout" && ! changed ka-disabled-dry >/dev/null \
+cmp -s "$KA" "$T/ka.before" && [ "$(rc ka-disabled-dry)" = 1 ] && has ka-disabled-dry "is disabled in gui/777, so --apply would refuse" && ! has ka-disabled-dry "WOULD: launchctl bootout" && ! changed ka-disabled-dry >/dev/null \
   && pass "keepalive dry run: a disabled label is refused there too, not promised a reload" || fail "keepalive disabled dry: rc $(rc ka-disabled-dry): $(tail -2 "$T/ka-disabled-dry.out")"
 # A LOADED KeepAlive true restarts the clean stop the SIGTERM causes, and the bootout could cut that new Listener.
 ka_fresh; run ka-always "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LOADED_ALWAYS=1 -- --apply keepalive
@@ -866,7 +875,7 @@ ka_fresh; run ka-always "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$K
   && [ "$(ka_of "$KA")" = false ] \
   && pass "keepalive --apply: a loaded KeepAlive true refuses before the SIGTERM (it would restart into the bootout)" || fail "keepalive loaded always: rc $(rc ka-always): $(tail -1 "$T/ka-always.out")"
 ka_fresh; run ka-always-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LOADED_ALWAYS=1 -- keepalive
-[ "$(rc ka-always-dry)" = 1 ] && has ka-always-dry "so --apply would refuse to reload it" && ! changed ka-always-dry >/dev/null \
+cmp -s "$KA" "$T/ka.before" && [ "$(rc ka-always-dry)" = 1 ] && has ka-always-dry "so --apply would refuse to reload it" && ! changed ka-always-dry >/dev/null \
   && pass "keepalive dry run: a loaded KeepAlive true is refused there too" || fail "keepalive loaded always dry: rc $(rc ka-always-dry): $(tail -1 "$T/ka-always-dry.out")"
 # ThrottleInterval below 10 with the other two keys right is not done: it is named and raised.
 ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$KA"; plutil -insert ExitTimeOut -integer 35 "$KA"; plutil -insert ThrottleInterval -integer 1 "$KA"
@@ -988,6 +997,11 @@ vcase keepalive 0 "has KeepAlive SuccessfulExit false"
 # As the owner in production: ~/Library closed, .service readable. A note saying KeepAlive was NOT checked, and the exit
 # is left alone (an exit 3 on every owner run would hide the checks that really could not be made).
 chmod 000 "$VCI/Library"; vcase ka-library-closed 0 "note:   KeepAlive NOT checked: $VCI/actions-runner/.service names no LaunchAgent of this runner under $VCI/Library/LaunchAgents that $(id -un) can see"; chmod 755 "$VCI/Library"
+# Readable ~/Library, but .service names a plist that is not there: that is a PROBLEM, not the "cannot see" note.
+mv "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist" "$T/vci.plist.aside"
+vcase ka-plist-missing 1 "names no LaunchAgent of this runner (actions.runner.*.plist directly under"
+! has v-ka-plist-missing "KeepAlive NOT checked" && pass "verify: a missing plist it can look for is not called unchecked" || fail "verify plist missing read as unchecked"
+mv "$T/vci.plist.aside" "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 chmod 000 "$VCI/actions-runner/.service"; vcase ka-service-unreadable 3 "cannot read $VCI/actions-runner/.service as $(id -un), so KeepAlive is not checked here"; chmod 644 "$VCI/actions-runner/.service"
 rm -rf "$VCI/Library" "$VCI/actions-runner/.service"
 grep -q 'no tmux or node left' "$T/v-clear.out" && pass "verify: an idle runner's own node (RunnerService.js) is not a leftover" || fail "verify idle runner: $(grep -E 'REFUSE|ok' "$T/v-clear.out" | tail -2)"
