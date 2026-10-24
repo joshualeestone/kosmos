@@ -73,3 +73,13 @@ Today, Answer/Open into the native chat, Check it into the task page in the boar
   by the agent stays 'question'. The reviewer notes it also covers Codex hook screens and the safeguards menu, which are
   not questions; the board's own sentence for an unattributed needs-you is "Waiting for you. It did not say which
   project." Her call on the wording.
+
+## Review round 3 (converged: minors only)
+- Ruled (Mona Lisa, 10-24 02:54): a needs_you read off the screen with no agent report and no permission prompt is
+  'waiting', "Waiting for you. Open it to see what it shows." with Open (the board's own_bound words for a screen it
+  cannot name). The agent's own question keeps "Waiting for your answer." with Answer. Done, with a mutant.
+- Decided: a card that is not running and keeps crashing reads "Not running" with the crash-loop sentence, which says
+  why; pinned in a test on the route's offline shape.
+- Not changed: stateProjectName through the route. The fake fleet cannot give a row a stateProject (it comes from the
+  agent's own report), so the route's use of the projects read is pinned by source (server.statusword-7004) and the
+  name logic by withCardWords directly, with the unreadable path through the route.
