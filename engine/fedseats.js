@@ -184,6 +184,9 @@ function handleEvent(projectId, line, heldAt) {
   // The backoff resets only once a connection has lasted (see the exit handler),
   // so a seat that connects and drops at once still backs off.
   if (ev.event === 'connected') {
+    // kosmos#7028: the connector says connected again after each ticket renewal (about every four minutes); only a
+    // seat coming up from not connected restarts an own computer's rejoin clock.
+    if (s.status !== 'connected') s.upSince = Date.now();
     setStatus(projectId, 'connected'); s.connectedAt = Date.now(); s.macNoted = false; s.endedNoted = false;
     // #3728: the room id both ends share (the coordinator derives it per project); it is bound into every seal.
     s.room = typeof ev.room === 'string' && ev.room ? ev.room : null;
@@ -269,7 +272,7 @@ function handleEvent(projectId, line, heldAt) {
           s.behindArmedAt = sealed.epoch;
           s.behind = { epoch: ev.data.epoch, until: now + BEHIND_HOLD_MS, at: now };
         } else if (sealed.ownComputer === true && s.behind && Number.isFinite(s.behind.at)
-          && now - Math.max(s.behind.at, Number.isFinite(s.connectedAt) ? s.connectedAt : 0) >= OWN_REJOIN_MS) {
+          && now - Math.max(s.behind.at, Number.isFinite(s.upSince) ? s.upSince : 0) >= OWN_REJOIN_MS) {
           sealStep(projectId, () => ownRejoin(projectId, s, sealed.epoch));   // kosmos#7028: taken out of the key
           return;
         }
@@ -998,6 +1001,7 @@ async function ownRemove(projectId, pub) {
   let r;
   try { r = await revokeCheck(projectId, link, undefined, [pub]); } catch { r = undefined; }
   const after = roomSeal(projectId);
+  if (after === undefined) return { ok: false, because: 'the room\'s records could not be read, so this computer may not have been taken out; try again' };
   if (after && after.own && Object.prototype.hasOwnProperty.call(after.own, pub)) return { ok: false, because: r && r.unreadable ? 'the room\'s records could not be written' : 'the room\'s key could not be changed right now; try again' };
   return { ok: true, because: null };
 }

@@ -161,6 +161,16 @@ test('#7028: the screen lists the pinned computers and removes one, which moves 
   assert.deepStrictEqual(fedseats.ownAllowed('rm-5').map((c) => c.mac), ['mac-a']);
 });
 
+test('#7028: a remove whose save fails and whose record then cannot be read says it did not happen', async (t) => {
+  const { b } = await ownerWithTwo('rm-8', 'room-rm-8', { computers: rows('mac-a', 'mac-b') });
+  const read = fedseal.roomState;
+  let broken = false;
+  t.mock.method(fedseal, 'setRoomState', () => { broken = true; throw new Error('disk full'); });
+  t.mock.method(fedseal, 'roomState', (id) => { if (broken) throw new Error('unreadable'); return read(id); });
+  const r = await fedseats.ownRemove('rm-8', b.pub);
+  assert.strictEqual(r.ok, false, 'a remove that may not have happened was reported done');
+});
+
 test('#7028: a remove goes even when the guests\' edges cannot be read', async () => {
   const id = 'rm-6';
   const { b } = await ownerWithTwo(id, 'room-' + id, { computers: rows('mac-a', 'mac-b') });
@@ -251,6 +261,8 @@ test('#7028: time away does not count: a reconnect restarts the ten minutes', as
   say(seat, ahead('room-rj-3'));
   await settle();
   t.mock.timers.tick(9 * 60 * 1000);
+  say(seat, { event: 'disconnected' });
+  await settle();
   say(seat, { event: 'connected', room: 'room-rj-3', expires_at: 9 });   // it was away, and is back
   await settle();
   t.mock.timers.tick(2 * 60 * 1000);
@@ -262,6 +274,21 @@ test('#7028: time away does not count: a reconnect restarts the ten minutes', as
   say(seat, ahead('room-rj-3'));
   await settle();
   assert.deepStrictEqual(fedseal.roomState('rj-3').keys, {}, 'ten connected minutes behind did not rejoin');
+});
+
+test('#7028: a ticket renewal (connected again with no drop) does not restart the ten minutes', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  const { seat } = await adoptedOwn('rj-5', 'room-rj-5');
+  say(seat, ahead('room-rj-5'));
+  await settle();
+  for (let i = 0; i < 3; i++) {
+    t.mock.timers.tick(4 * 60 * 1000);
+    say(seat, { event: 'connected', room: 'room-rj-5', expires_at: 9 });   // renewal: never disconnected
+    await settle();
+  }
+  say(seat, ahead('room-rj-5'));
+  await settle();
+  assert.deepStrictEqual(fedseal.roomState('rj-5').keys, {}, 'renewals kept a removed computer from ever asking again');
 });
 
 test('#7028: a computer that caught up on a rotation and then falls behind again starts its ten minutes over', async (t) => {

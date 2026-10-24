@@ -145,3 +145,16 @@ Also since round 1: the owner trusts a list only if exactly one row is this comp
    forging ahead frames, which can train a person to press "It matches" without looking. It reveals nothing on its
    own, and those senders can already stop every post. Would change it: an owner-signed "you were removed" frame
    in place of the timer.
+
+## Review round 5 (blind, 05:3x)
+1. [BLOCKER] Round 4's fix switched the rejoin off: the connector says "connected" again after every ticket renewal
+   (kosmos-relay fedroom.rs:35 and :694, about every four minutes with the 5-minute FED_ROOM_TICKET), so counting
+   from the last connected meant ten minutes never passed. I recorded round 4 as fixed without a renewal in any
+   test. FIXED: the clock restarts only when a seat comes up from not connected (s.upSince); renewal test added.
+   Mutants U1, U2.
+2. [RESIDUAL] The rejoin needs a newer-key frame to arrive: in a room where nobody else posts after the remove, the
+   removed computer is not told until someone does. RECORDED: its posts are refused by the owner meanwhile (it
+   reveals nothing new), and the owner removing it is the person's own act on their other computer. Would change
+   it: an owner-signed "you were removed" frame.
+3. [SHOULD-FIX] ownRemove reported success when the room record could not be read afterwards. FIXED: unreadable is
+   "not removed, try again". Test + mutant U3.
