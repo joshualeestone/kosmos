@@ -21,11 +21,7 @@ coordinator. What does:
 2. **Removed from the screen.** `GET /api/federation/own-allowed` lists the computers in `st.own`;
    `POST /api/federation/own-remove {pid, pub}` drops one and rotates (same guards as own-allow). The screen button
    itself waits for the own-computer screen, which #4658 has not built yet (routes only there too).
-3. **Forged envelope.** After an own computer records keyless own seal state (noteOwnSealed), it asks the edges.
-   If Kosmos+ answers and lists no edge of any status for this project, the room was never sealed: the keyless
-   state is cleared, new posts go out, and sealed-looking frames are not shown for 10 minutes so one source cannot
-   flap it. A post held meanwhile is told and NOT sent (decided 04:3x: sendPost's sealedHeld rule, a post written
-   while the room read sealed never leaves in the clear). Any other answer keeps the state (held, as today).
+3. **Forged envelope: DECIDED NOT BUILT (review round 2, 05:2x).** See "Part 3" below. noteOwnSealed is as on main.
 4. Relay: `account-computers` rows carry `mac_id` (separate kosmos-relay PR). Not secret: the own-hello frame and
    the match code already expose it to the account's computers.
 
@@ -90,3 +86,31 @@ fixture updated. 14 mutants, all caught (mutant list: scratchpad mut7028.py, res
    something routine (billing) rather than "not yet allowed" on the coordinator.
 5. [LOW] A removed own computer's old-key posts open for the 90 s grace (no relay-stamped account to refuse).
    DECIDED, documented as NOT CLAIMED on ownRemove; it reads nothing after the remove.
+
+## Part 3 (forged envelope): decided not built, 05:2x 10-24
+**The call:** an own computer that sees a sealed-looking frame keeps holding its posts, as on main; nothing from
+outside undoes it. The auto-clear built in rounds 0 and 1 is removed.
+**Why:** on main a self-shared project refuses guest invites (federation.js invite, reason self-shared) and a
+guest-sealed owner project refuses own codes (ownCodeRefusal 'sealed'). So in an own room the only senders are this
+account's computers and the relay. Both can already deny service (the relay can drop every post), so a forged
+frame gives them nothing new. Clearing a seal on a Kosmos+ answer (no edge, no offer within 10 s) rests on facts the
+coordinator controls, and would let a dishonest coordinator downgrade a REAL seal so the own computer posts
+readable words to the relay: the one party sealing exists to defend against. Round 2 also showed the clear was
+either permanent on a blip or restart (a failed answer kept the record and nothing asked again) or defeatable by
+any repeated frame, and silent when nothing was held.
+**Rejected:** keeping the clear with more guards (each round found the next hole, and the trade is wrong at the
+root); a manual "this room is not sealed" button (the same downgrade, by talking the person into it).
+**Weakest premise:** that guests and own computers stay mutually exclusive in one room. #4658's later parts may lift
+that (own computers in a guest-sealed room); then a guest could forge, and this should be re-decided, preferring a
+signal the owner's key signs over anything the coordinator says.
+**What would change it:** an owner-signed "this room is unsealed" statement own computers can verify.
+
+## Review round 2 (blind, 05:1x)
+1. [BLOCKER-class] the clear trusts the coordinator (above) --> part 3 removed.
+2. [SHOULD-FIX] a failed answer or restart makes a forged seal permanent --> moot (no clear; holding is main's behaviour).
+3. [SHOULD-FIX] a repeated frame keeps the lock --> moot.
+4. [SHOULD-FIX] a computers list cached from before an Allow drops the new computer --> FIXED: only a list asked
+   after the pin (own[pub].at < askedAt) can drop it. Test + mutant M23.
+5. [SHOULD-FIX] the clear is silent --> moot.
+Also since round 1: the owner trusts a list only if exactly one row is this computer and carries its own id
+(M21, M22).
