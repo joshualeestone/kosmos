@@ -152,6 +152,9 @@ struct TasksView: View {
                 guard let last = shown.last else { return }
                 let closedShut = last.group.key == "closed" && !completedOpen
                 scroller.scrollTo(closedShut ? "closed-label" : (last.rows.last?.id ?? last.group.key), anchor: .bottom)
+                // scrollTo lines the row up with the visible edge, which stops short of the bottom inset a person's
+                // own scroll ends at (Mona Lisa's review: the open shot sat flush on the tab bar). Then the true end.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { Self.sampleScrollToVeryEnd() }
             }
         }
         }
@@ -164,9 +167,22 @@ struct TasksView: View {
         && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_COMPLETED"] == "open"
     private static let sampleScrollToEnd = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1"
         && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLL"] == "end"
+    // The list's own scroll view, at its largest offset (content height plus the bottom inset the tab bar asks for).
+    private static func sampleScrollToVeryEnd() {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        func find(_ v: UIView) -> UIScrollView? {
+            if let s = v as? UICollectionView, s.window != nil, !s.isHidden, s.bounds.height > 0 { return s }
+            for c in v.subviews { if let s = find(c) { return s } }
+            return nil
+        }
+        guard let s = windows.lazy.compactMap(find).first else { return }
+        let end = s.contentSize.height - s.bounds.height + s.adjustedContentInset.bottom
+        s.setContentOffset(CGPoint(x: 0, y: max(-s.adjustedContentInset.top, end)), animated: false)
+    }
     #else
     private static let sampleCompletedOpen = false
     private static let sampleScrollToEnd = false
+    private static func sampleScrollToVeryEnd() {}
     #endif
 
     private func header(_ s: Tasks.Section, read: Board.TasksRead) -> some View {
