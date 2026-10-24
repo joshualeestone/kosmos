@@ -639,8 +639,11 @@ STDIN_FILE="$T/token" run rg-noplist "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH"
 # --- keepalive (kosmos#7001) ------------------------------------------------------------------------------------
 KH="$T/ka-home"; KA="$KH/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 KR="$KH/Library/LaunchAgents/actions.runner.joshualeestone-kosmos-relay.agent1s-relay.plist"
+# standin <seconds>: a stand-in for the old runner that lives <seconds> AFTER the stub's SIGTERM (it waits for $T/killed),
+# however slow startup was; 120 s cap if no SIGTERM comes. Not a bare sleep (#6710).
+standin() { perl -e 'my $t = 0; until (-e $ARGV[0] or $t > 1200) { select(undef, undef, undef, 0.1); $t++ } select(undef, undef, undef, $ARGV[1])' "$T/killed" "$1"; }
 ka_fresh() {   # an installed runner as svc.sh leaves it: started, its plist without KeepAlive
-  rm -rf "$KH"; rm -f "$T/loaded-ka" "$T/loaded-thr"; mkdir -p "$KH/actions-runner" "$KH/Library/LaunchAgents"
+  rm -rf "$KH"; rm -f "$T/loaded-ka" "$T/loaded-thr" "$T/killed"; mkdir -p "$KH/actions-runner" "$KH/Library/LaunchAgents"
   cp "$BIN/_stub" "$KH/actions-runner/svc.sh"; chmod +x "$KH/actions-runner/svc.sh"
   (cd "$KH/actions-runner" && HOME="$KH" CALL_LOG=/dev/null ./svc.sh install && echo started > .svc-state && echo 4343 > .svc-pid)
   # The kosmos-relay runner under the same user (#6245): its plist sorts BEFORE this repo's ('-' before '.').
@@ -697,9 +700,9 @@ ka_fresh; run ka-relayrespawn "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HO
   && pass "keepalive --apply: a relay Listener respawning during the reload is not taken for this runner coming back" || fail "keepalive relay respawn: rc $(rc ka-relayrespawn): $(tail -1 "$T/ka-relayrespawn.out")"
 # A bootout that reports failure while the job is still listed may still be unloading: it waits, and says both outcomes.
 ka_fresh; run ka-bootoutfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_FAIL=1 FX_NO_PID=1 FX_LISTENER=0 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
-[ "$(rc ka-bootoutfail)" = 1 ] && has ka-bootoutfail "(exit 5) had not unloaded it" && has ka-bootoutfail "may still be unloading" && has ka-bootoutfail "the runner is DOWN" \
-  && ! has ka-bootoutfail "the runner is STOPPED" && ! grep -q '^launchctl bootstrap' "$T/ka-bootoutfail.calls" \
-  && pass "keepalive --apply: a failed bootout with the job still listed is not called running: it may be unloading, both outcomes named" || fail "keepalive bootout fail: rc $(rc ka-bootoutfail): $(tail -1 "$T/ka-bootoutfail.out")"
+[ "$(rc ka-bootoutfail)" = 1 ] && has ka-bootoutfail "(exit 5) had not unloaded it" && has ka-bootoutfail "started it again under the OLD definition" \
+  && grep -q '^launchctl kickstart ' "$T/ka-bootoutfail.calls" && ! grep -q '^launchctl bootstrap' "$T/ka-bootoutfail.calls" \
+  && pass "keepalive --apply: a failed bootout of a job with no process is kickstarted under the old definition, not left down" || fail "keepalive bootout fail: rc $(rc ka-bootoutfail): $(tail -1 "$T/ka-bootoutfail.out")"
 ka_fresh; run ka-baselinefail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LISTENER_PGREP_FAIL=1 -- --apply keepalive
 [ "$(rc ka-baselinefail)" = 1 ] && has ka-baselinefail "to note the running Listener" && ! grep -q '^launchctl boot' "$T/ka-baselinefail.calls" \
   && pass "keepalive --apply refuses before the bootout when it cannot note the running Listener" || fail "keepalive baseline pgrep fail: rc $(rc ka-baselinefail): $(tail -1 "$T/ka-baselinefail.out")"
@@ -737,7 +740,7 @@ wait "$sp" 2>/dev/null
   && pass "keepalive --apply waits for the old runner to end after SIGTERM before booting it out" || fail "keepalive waits: rc $(rc ka-waits): $(grep bootout- "$T/ka-waits.calls")"
 # A job of this runner up while the old runner outlived the SIGTERM wait: a second wait, then the reload anyway (refusing
 # would leave a SIGTERMed runner down).
-perl -e 'select(undef, undef, undef, 30)' & jsp=$!   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
+standin 30 & jsp=$!
 ka_fresh; rm -f "$T/worker-up"; run ka-jobduring "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_WORKER_AFTER_KILL=1 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
 [ "$(rc ka-jobduring)" = 0 ] && has ka-jobduring "a job of this runner is still up while the old runner (pid $jsp) stops" && has ka-jobduring "reloading anyway" \
@@ -745,7 +748,7 @@ kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
   && pass "keepalive --apply: a job up while the old runner is still stopping: waits again, then reloads (never left down)" || fail "keepalive job during stop: rc $(rc ka-jobduring): $(tail -1 "$T/ka-jobduring.out")"
 # (The test's bash reaps the killed perl stand-in while it waits on the script, so kill -0 sees it gone, not a zombie.)
 # The job ends during that second wait: it is waited for (several -P reads), then the reload, with no "anyway".
-perl -e 'select(undef, undef, undef, 30)' & jsp=$!   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
+standin 30 & jsp=$!
 ka_fresh; rm -f "$T/worker-up"; run ka-jobends "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=10 FX_WORKER_AFTER_KILL=1 FX_WORKER_ENDS_AFTER=2 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
 [ "$(rc ka-jobends)" = 0 ] && has ka-jobends "Waiting up to 10s more" && [ "$(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls")" -ge 3 ] && ! has ka-jobends "reloading anyway" \
@@ -753,10 +756,10 @@ kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
   && pass "keepalive --apply: the second wait polls this runner's job until it ends, then reloads" || fail "keepalive job ends: rc $(rc ka-jobends): -P reads $(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls"): $(tail -1 "$T/ka-jobends.out")"
 rm -f "$T/worker-up"
 # The old runner outlived the wait and a RELAY job starts: not this runner's, so no veto; the reload goes on.
-perl -e 'select(undef, undef, undef, 30)' & jsp=$!   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
+standin 30 & jsp=$!
 ka_fresh; rm -f "$T/relay-worker-up"; run ka-relayoutlived "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_RELAY_WORKER_AFTER_KILL=1 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
-[ "$(rc ka-relayoutlived)" = 0 ] && grep -q '^launchctl bootout ' "$T/ka-relayoutlived.calls" && ! has ka-relayoutlived "refused" \
+[ "$(rc ka-relayoutlived)" = 0 ] && has ka-relayoutlived "had not ended" && grep -q '^launchctl bootout ' "$T/ka-relayoutlived.calls" && ! has ka-relayoutlived "refused" \
   && ! has ka-relayoutlived "a job of this runner is still up" && ! has ka-relayoutlived "reloading anyway" \
   && pass "keepalive --apply: a relay job while the old runner is still stopping does not veto this runner's reload" || fail "keepalive relay job outlived: rc $(rc ka-relayoutlived): $(tail -1 "$T/ka-relayoutlived.out")"
 rm -f "$T/relay-worker-up"
@@ -882,6 +885,18 @@ run ka-fileonly "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --
   && [ "$(rc ka-fileonly)" = 0 ] && has ka-fileonly "no reload needed" && [ "$(plutil -extract ThrottleInterval raw -o - "$KA")" = 10 ] \
   && ! grep -q '^launchctl \(kill\|bootout\|bootstrap\)' "$T/ka-fileonly.calls" \
   && pass "keepalive: a file missing only what the loaded job already has is written, with no reload" || fail "keepalive file only: rc $(rc ka-fileonly-dry)/$(rc ka-fileonly): $(tail -1 "$T/ka-fileonly.out")"
+# File only, but the runner is not running (it exited 0): not "ok", it is DOWN, in --apply and the dry run.
+ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$KA"; plutil -insert ExitTimeOut -integer 35 "$KA"
+echo 35 > "$T/loaded-ka"; echo stopped > "$KH/actions-runner/.svc-state"
+run ka-fileonlydown "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE=waiting FX_NO_PID=1 KOSMOS_CI_STATE_WAIT_S=1 -- --apply keepalive
+[ "$(rc ka-fileonlydown)" = 1 ] && has ka-fileonlydown "has KeepAlive loaded but has not been running" && [ "$(plutil -extract ThrottleInterval raw -o - "$KA")" = 10 ] \
+  && pass "keepalive --apply: file only, but the runner is down: the file is written and it says DOWN, not ok" || fail "keepalive file only down: rc $(rc ka-fileonlydown): $(tail -1 "$T/ka-fileonlydown.out")"
+# The old runner outlives the first wait, ends in the second, and the bootout is stuck: kickstarted, not left down.
+ka_fresh; rm -f "$T/worker-up"; standin 30 & jsp=$!
+run ka-stuckoutlived "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=3 FX_WORKER_AFTER_KILL=1 FX_WORKER_ENDS_AFTER=2 FX_BOOTOUT_STUCK=1 -- --apply keepalive
+kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null; rm -f "$T/worker-up"
+[ "$(rc ka-stuckoutlived)" = 1 ] && has ka-stuckoutlived "had not ended" && grep -q '^launchctl kickstart ' "$T/ka-stuckoutlived.calls" && has ka-stuckoutlived "it runs WITHOUT KeepAlive" \
+  && pass "keepalive --apply: outlived, then ended, then a stuck bootout: kickstarted (decided from the state, not a flag)" || fail "keepalive stuck after outlived: rc $(rc ka-stuckoutlived): $(tail -1 "$T/ka-stuckoutlived.out")"
 # A launchctl print without the "minimum runtime" line (another macOS format): refuse before stopping anything.
 ka_fresh; run ka-noformat "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_MINRUNTIME=1 -- --apply keepalive
 [ "$(rc ka-noformat)" = 1 ] && has ka-noformat "no 'exit timeout' or 'minimum runtime' line" && cmp -s "$KA" "$T/ka.before" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-noformat.calls" \
@@ -905,7 +920,7 @@ run ka-intlate-nopid "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" 
 ka_fresh; run ka-intlate "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_INTERRUPT_LATE=1 -- --apply keepalive
 [ "$(rc ka-intlate)" = 0 ] && grep -q '^launchctl bootstrap ' "$T/ka-intlate.calls" && has ka-intlate "Ctrl-C is ignored until it is loaded again" \
   && pass "keepalive --apply: a Ctrl-C after the SIGTERM does not leave the runner down; the reload completes" || fail "keepalive late interrupt: rc $(rc ka-intlate): $(tail -1 "$T/ka-intlate.out")"
-ka_fresh; perl -e 'select(undef, undef, undef, 30)' & sp=$!   # started here, beside its case (#6710: not a bare sleep)
+ka_fresh; standin 30 & sp=$!
 run ka-outlives "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null
 [ "$(rc ka-outlives)" = 0 ] && has ka-outlives "had not ended 1s after SIGTERM" && grep -qx 'bootout-while-alive' "$T/ka-outlives.calls" \
@@ -919,7 +934,7 @@ ka_fresh; run ka-stucksent "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME=
 [ "$(rc ka-stucksent)" = 1 ] && has ka-stucksent "started it again under the OLD definition (launchctl kickstart): it runs WITHOUT KeepAlive" && grep -q '^launchctl kickstart ' "$T/ka-stucksent.calls" && ! has ka-stucksent "the runner is STOPPED" \
   && pass "keepalive --apply: a stuck bootout after SIGTERM starts the runner again (without KeepAlive) rather than leave it down" || fail "keepalive stuck after sigterm: rc $(rc ka-stucksent): $(tail -1 "$T/ka-stucksent.out")"
 ka_fresh; run ka-stuckkickfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID=999999 FX_BOOTOUT_STUCK=1 FX_KICKSTART_FAIL=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
-[ "$(rc ka-stuckkickfail)" = 1 ] && has ka-stuckkickfail "the runner is STOPPED (SIGTERM ended it" \
+[ "$(rc ka-stuckkickfail)" = 1 ] && has ka-stuckkickfail "the runner is STOPPED (not running" \
   && pass "keepalive --apply: a stuck bootout whose kickstart fails says the runner is STOPPED" || fail "keepalive stuck, kickstart fails: rc $(rc ka-stuckkickfail): $(tail -1 "$T/ka-stuckkickfail.out")"
 ka_fresh; run ka-nopid "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_PID=1 -- --apply keepalive
 [ "$(rc ka-nopid)" = 1 ] && has ka-nopid "shows no pid" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-nopid.calls" \
@@ -987,10 +1002,14 @@ run ka-loadedstopped "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" 
 ka_fresh; run ka-noka "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
 [ "$(rc ka-noka)" = 1 ] && has ka-noka "shows no 'successful exit => 0' semaphore" \
   && pass "keepalive --apply: a reload that leaves no KeepAlive in the loaded job fails" || fail "keepalive no ka loaded: rc $(rc ka-noka): $(tail -1 "$T/ka-noka.out")"
-ka_fresh; run ka-stuck "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_STUCK=1 FX_NO_PID=1 FX_LISTENER=0 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
-[ "$(rc ka-stuck)" = 1 ] && has ka-stuck "had not unloaded it" && has ka-stuck "may still be unloading" && ! grep -q '^launchctl bootstrap' "$T/ka-stuck.calls" \
-  && pass "keepalive --apply: a bootout that does not unload says so and does not bootstrap" || fail "keepalive stuck: rc $(rc ka-stuck): $(tail -1 "$T/ka-stuck.out")"
-ka_fresh; chmod 000 "$KH/actions-runner/.service"; run ka-other "$KH" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$KH" -- keepalive; chmod 644 "$KH/actions-runner/.service"
+# The old runner is STILL alive (outlived both waits) and the bootout is stuck: no kickstart over a live runner; it says
+# the job may still be unloading.
+ka_fresh; standin 60 & jsp=$!
+run ka-stuck "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" FX_BOOTOUT_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
+kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
+[ "$(rc ka-stuck)" = 1 ] && has ka-stuck "had not unloaded it" && has ka-stuck "may still be unloading" && ! grep -q '^launchctl \(bootstrap\|kickstart\)' "$T/ka-stuck.calls" \
+  && pass "keepalive --apply: a stuck bootout with the old runner still alive says it may be unloading; no kickstart, no bootstrap" || fail "keepalive stuck: rc $(rc ka-stuck): $(tail -1 "$T/ka-stuck.out")"
+ka_fresh; run ka-other "$KH" FX_CI_EXISTS=1 KOSMOS_CI_HOME="$KH" -- keepalive
 [ "$(rc ka-other)" = 3 ] && has ka-other "cannot read kosmos-ci's runner" && ! has ka-other "register first" \
   && pass "keepalive dry run as another user that cannot read the runner: says so, not \"register first\"" || fail "keepalive as other: rc $(rc ka-other): $(cat "$T/ka-other.out")"
 # As another user who CAN read the plist: still the note, never a verdict read from that user's own launchd and processes.
