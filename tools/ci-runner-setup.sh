@@ -31,8 +31,8 @@
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
 #                             Give KOSMOS_CI_GUARD_SHA (the install pin), or the guard counts as unchecked.
 #                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail).
-#                             As the owner on a default Mac it ends at 3 by design: $CI_USER's ~/Library is mode 700, so
-#                             the KeepAlive check is not made there; as $CI_USER, the keepalive dry run makes it.
+#                             As the owner on a default Mac it does NOT check KeepAlive ($CI_USER's ~/Library is mode
+#                             700; it says so in a note): as $CI_USER, the keepalive dry run is that check.
 #   machine-settings          prints the settings that need an admin in System Settings
 #   jq-programs               prints the jq programs handed to gh --jq; reads nothing (the test runs them through jq)
 #
@@ -712,6 +712,9 @@ keepalive() {
       if loaded_always "$dom/$label"; then
         echo "refused: the LOADED $label restarts even a clean stop (KeepAlive true), so --apply would refuse to reload it; reload it by hand while idle: launchctl bootout $dom/$label, then launchctl bootstrap $dom $plist" >&2; exit 1
       fi
+      # A job running now: --apply refuses until idle (after writing the plist), so say it here.
+      local dwrc=0; pgrep -u "$ciuid" -x Runner.Worker >/dev/null || dwrc=$?
+      [ "$dwrc" = 1 ] || { echo "refused: a job is running under $CI_USER now (Runner.Worker is up, or pgrep exit $dwrc), so --apply would refuse until idle" >&2; exit 1; }
       # The same two refusals --apply makes about the pid and the Listener (see there).
       local dpid dprc=0; dpid="$(launchctl print "$dom/$label" 2>/dev/null | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
       pgrep -u "$ciuid" -f "$own_re" >/dev/null || dprc=$?
@@ -804,19 +807,18 @@ keepalive() {
       trap - INT TERM; exit 1
     fi
   fi
-  # The job check again, at the bootout itself: the SIGTERM wait can last up to the unload limit, and a Listener may take
-  # a job in that window. Refuse rather than boot out.
-  prc=0; pgrep -u "$ciuid" -x Runner.Worker >/dev/null || prc=$?
-  if [ "$prc" != 1 ]; then
-    if [ "$sent" = 1 ]; then
+  # The job check again, at the bootout itself, only while the old runner is still alive (it outlived the wait): it may
+  # have taken a job in that window. Once it has ended, or never ran, it has no Listener, so a Worker seen now is the
+  # relay's (#6245, same user), and refusing would leave THIS runner stopped with nothing to restart it.
+  if [ "$outlived" = 1 ]; then
+    prc=0; pgrep -u "$ciuid" -x Runner.Worker >/dev/null || prc=$?
+    if [ "$prc" != 1 ]; then
       # Not measured: the runner turns the SIGTERM into SIGINT to its Listener, which (actions/runner) cancels a running
       # job with "The runner has received a shutdown signal", so the job is most likely already lost; skipping the
       # bootout only avoids making the state worse.
-      echo "refused: a job started during the stop (Runner.Worker is up, or pgrep exit $prc); nothing was booted out. $label was sent SIGTERM, which most likely cancels that job too; the runner then stays stopped (still the OLD definition): run this again once it is idle, which reloads and starts it" >&2
-    else
-      echo "refused: a job started during the stop (Runner.Worker is up, or pgrep exit $prc); nothing was booted out, KeepAlive is in the plist, not yet loaded: run this again when idle" >&2
+      echo "refused: a job is running while the old runner (pid $opid) is still stopping (Runner.Worker is up, or pgrep exit $prc); nothing was booted out. $label was sent SIGTERM, which most likely cancels that job too; the runner then stays stopped (still the OLD definition): run this again once it is idle, which reloads and starts it" >&2
+      trap - INT TERM; exit 1
     fi
-    trap - INT TERM; exit 1
   fi
   local bo=0; launchctl bootout "$dom/$label" || bo=$?
   # A failed bootout still waits: launchd can report an error while the job is still shutting down (the Listener ends
@@ -952,7 +954,9 @@ EOF
     if keepalive_set "$plist"; then ok "$plist has KeepAlive SuccessfulExit false (whether the LOADED runner has it: as $CI_USER, tools/ci-runner-setup.sh keepalive)"
     else problem "$plist lacks $(keepalive_missing "$plist"): a killed runner may stay offline; as $CI_USER: tools/ci-runner-setup.sh --apply keepalive"; fi
   elif [ -r "$RUNNER_DIR/.service" ] && [ -z "$plist" ]; then
-    unchecked "$RUNNER_DIR/.service names no LaunchAgent under $CI_HOME/Library/LaunchAgents that $(id -un) can see (its ~/Library is closed to other users), so KeepAlive is not checked here; as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether it is set and loaded"
+    # A note, not UNCHECKED: on a default Mac this is every owner run, and an exit 3 that is always there would hide the
+    # checks that really could not be made. The header says verify as the owner does not cover KeepAlive.
+    echo "note:   KeepAlive NOT checked: $RUNNER_DIR/.service names no LaunchAgent under $CI_HOME/Library/LaunchAgents that $(id -un) can see (its ~/Library is closed to other users); as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether it is set and loaded"
   elif [ -e "$RUNNER_DIR/.service" ]; then
     unchecked "cannot read $RUNNER_DIR/.service as $(id -un), so KeepAlive is not checked here; as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether it is set and loaded"
   else

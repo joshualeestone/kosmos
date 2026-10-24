@@ -675,11 +675,18 @@ el=$((SECONDS - t0)); wait "$sp" 2>/dev/null
   && pass "keepalive --apply waits for the old runner to end after SIGTERM before booting it out" || fail "keepalive waits: rc $(rc ka-waits): $(grep bootout- "$T/ka-waits.calls")"
 # Outlives the wait: it goes on (refusing would leave a SIGTERMed runner under its old definition) and says so.
 sleep 30 & sp=$!
-# A job taken while the stop was under way: the bootout would cancel it, so the second job check refuses before it.
-ka_fresh; rm -f "$T/worker-up"; run ka-jobduring "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER_AFTER_KILL=1 -- --apply keepalive
-[ "$(rc ka-jobduring)" = 1 ] && has ka-jobduring "a job started during the stop" && has ka-jobduring "was sent SIGTERM, which most likely cancels that job too" \
+# A job up while the old runner outlived the SIGTERM wait (it may be that runner's): the bootout is refused.
+sleep 30 & jsp=$!
+ka_fresh; rm -f "$T/worker-up"; run ka-jobduring "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_WORKER_AFTER_KILL=1 -- --apply keepalive
+kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
+[ "$(rc ka-jobduring)" = 1 ] && has ka-jobduring "a job is running while the old runner (pid $jsp) is still stopping" && has ka-jobduring "which most likely cancels that job too" \
   && grep -q '^launchctl kill SIGTERM' "$T/ka-jobduring.calls" && ! grep -q '^launchctl bootout' "$T/ka-jobduring.calls" \
-  && pass "keepalive --apply: a job taken during the stop is not booted out, and the message says the runner will stay stopped" || fail "keepalive job during stop: rc $(rc ka-jobduring): $(tail -1 "$T/ka-jobduring.out")"
+  && pass "keepalive --apply: a job up while the old runner is still stopping is not booted out" || fail "keepalive job during stop: rc $(rc ka-jobduring): $(tail -1 "$T/ka-jobduring.out")"
+rm -f "$T/worker-up"
+# The old runner has ended, then a Worker appears: it is the relay's (this runner has no Listener), so the reload goes on.
+ka_fresh; rm -f "$T/worker-up"; run ka-relayjob "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER_AFTER_KILL=1 -- --apply keepalive
+[ "$(rc ka-relayjob)" = 0 ] && grep -q '^launchctl bootout ' "$T/ka-relayjob.calls" && grep -q '^launchctl bootstrap ' "$T/ka-relayjob.calls" && ! has ka-relayjob "refused" \
+  && pass "keepalive --apply: a relay job starting after this runner ended does not leave this runner stopped" || fail "keepalive relay job after stop: rc $(rc ka-relayjob): $(tail -1 "$T/ka-relayjob.out")"
 rm -f "$T/worker-up"
 # A real SIGHUP inside the stop window (a dropped ssh session): ignored, so the reload completes.
 ka_fresh; run ka-hup "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_HUP=1 -- --apply keepalive
@@ -703,6 +710,9 @@ ka_fresh; run ka-nonew "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH
 ka_fresh; run ka-nopid-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_PID=1 -- keepalive
 [ "$(rc ka-nopid-dry)" = 1 ] && has ka-nopid-dry "shows no pid for" && has ka-nopid-dry "so --apply would refuse" && ! has ka-nopid-dry "WOULD: launchctl bootout" \
   && pass "keepalive dry run: no pid while its Listener runs is refused there, as --apply refuses" || fail "keepalive nopid dry: rc $(rc ka-nopid-dry): $(tail -1 "$T/ka-nopid-dry.out")"
+ka_fresh; run ka-busy-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER=1 -- keepalive
+[ "$(rc ka-busy-dry)" = 1 ] && has ka-busy-dry "so --apply would refuse until idle" && ! has ka-busy-dry "WOULD: launchctl bootout" \
+  && pass "keepalive dry run: a running job is refused there, as --apply refuses" || fail "keepalive busy dry: rc $(rc ka-busy-dry): $(tail -1 "$T/ka-busy-dry.out")"
 ka_fresh; run ka-between-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LISTENER=0 -- keepalive
 [ "$(rc ka-between-dry)" = 1 ] && has ka-between-dry "so --apply would refuse now" && ! has ka-between-dry "WOULD: launchctl bootout" \
   && pass "keepalive dry run: between Listeners is refused there, as --apply refuses" || fail "keepalive between dry: rc $(rc ka-between-dry): $(tail -1 "$T/ka-between-dry.out")"
@@ -861,7 +871,7 @@ sed "s#$KH/actions-runner<#$VCI/actions-runner<#" "$T/ka.after" > "$VCI/Library/
 [ "$(plutil -extract WorkingDirectory raw -o - "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist")" = "$VCI/actions-runner" ] || fail "fixture: the verify plist does not name $VCI/actions-runner"
 vcase keepalive 0 "has KeepAlive SuccessfulExit false"
 # As the owner in production: ~/Library closed, .service readable. Not checked is a check not made (3), never clear.
-chmod 000 "$VCI/Library"; vcase ka-library-closed 3 "under $VCI/Library/LaunchAgents that $(id -un) can see (its ~/Library is closed to other users), so KeepAlive is not checked here"; chmod 755 "$VCI/Library"
+chmod 000 "$VCI/Library"; vcase ka-library-closed 0 "note:   KeepAlive NOT checked: $VCI/actions-runner/.service names no LaunchAgent under $VCI/Library/LaunchAgents that $(id -un) can see"; chmod 755 "$VCI/Library"
 chmod 000 "$VCI/actions-runner/.service"; vcase ka-service-unreadable 3 "cannot read $VCI/actions-runner/.service as $(id -un), so KeepAlive is not checked here"; chmod 644 "$VCI/actions-runner/.service"
 rm -rf "$VCI/Library" "$VCI/actions-runner/.service"
 grep -q 'no tmux or node left' "$T/v-clear.out" && pass "verify: an idle runner's own node (RunnerService.js) is not a leftover" || fail "verify idle runner: $(grep -E 'REFUSE|ok' "$T/v-clear.out" | tail -2)"

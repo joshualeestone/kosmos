@@ -293,3 +293,19 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - Test harness: $T no longer has "//" ($PWD collapses it, so svc.sh's WorkingDirectory differed); the pgrep stub
   dispatches on Runner*Listener (the pattern now spells Runner[.]Listener).
 - DEFERRED: NIT4 (wait_for_listener by name: follow-up card b), NIT5 (loaded ThrottleInterval is not printed by launchd).
+
+## Review round 22 (sonnet, blind, HEAD ca4c9b5b49)
+- W1 FIXED, A REGRESSION I MADE IN ROUND 20: the job check at the bootout ran whenever SIGTERM was sent. Once the old
+  runner has ended it has no Listener, so a Worker then is the relay's, and refusing left THIS runner stopped with
+  nothing to restart it. The check now runs only when the old runner outlived the wait. ka-jobduring (outlived, refused)
+  and ka-relayjob (ended, reload goes on); mutants for both directions red.
+- W2 FIXED: the dry run did not predict --apply's busy refusal (ka-busy-dry; mutant red).
+- W3 REVERSED MY ROUND-21 CALL: an exit 3 that every owner run shows hides the checks that really could not be made, and
+  makes "clear" unreachable. Back to a note, now worded "KeepAlive NOT checked", and the header says verify as the
+  owner does not cover KeepAlive (round 20's W2 offered exactly that as its second fix). An unreadable .service stays
+  UNCHECKED (unusual, not the default). ka-library-closed expects 0 and the note; mutant red.
+- NIT2 already true: the state/pid regexes take ONE leading whitespace character, not [[:space:]]*, so nested lines
+  cannot match.
+- DEFERRED NITs: 1 (cross-user dry-run wording), 3 (a real-typed key larger than ours is replaced by ours), 4 (ka-waits on
+  a very slow host passes rather than fails), 5 (PIPE half of the trap: source order only), 6 (a TMPDIR with a space
+  fails the CI-home check in the suite).
