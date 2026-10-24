@@ -50,3 +50,11 @@ That `Symbol.for('undici.globalDispatcher.2')` stays where Node keeps fetch's ag
   now skip unless KOSMOS_TEST_RUN is set (run-tests.sh always sets it). Measured three ways: suite shape 4 pass;
   marker without the preload 2 fail; bare 2 pass, 2 skipped.
 - Fixed: the probe's spawn timeout goes through scaleBudget like the suite's other budgets.
+
+## Review round 3
+- Fixed: the gate keyed on KOSMOS_TEST_RUN, which only stands in for the preload being asked for; a process with
+  the variable and no preload failed both checks. It now keys on the preload being on this process's command line
+  (process.execArgv). Measured: preload 4 pass; marker without preload 2 pass 2 skipped; a dud file of the same
+  name required (asked for, installs nothing) 2 FAIL, so a broken preload still goes red rather than skipping.
+- Documented in the preload's header: in-process fetch callers no longer have their keep-alive reuse covered.
+- TIME_WAIT: still reasoned only (see round 1); the reviewer could not measure it either.
