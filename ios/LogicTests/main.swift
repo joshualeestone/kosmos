@@ -1241,6 +1241,72 @@ do {
           && Board.attachmentRequest(mac: mac, path: "//evil.example/api/x") == nil, "a file is fetched only from the connected Mac")
 }
 
+section("native chat: sending a photo or a file (kosmos#7071)")
+do {
+    let mac = URL(string: "https://studio.kosmosplus.com")!
+    let up = Board.uploadRequest(mac: mac, session: "dana", name: "Q3 report (final) \u{00FC}.pdf", type: "application/pdf")
+    check(up?.httpMethod == "PUT" && up?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/dana/attachment",
+          "an upload is a PUT to the agent's own attachment route on the connected Mac")
+    check(up?.value(forHTTPHeaderField: "Content-Type") == "application/pdf", "with the file's type")
+    check(up?.value(forHTTPHeaderField: "X-Attachment-Name") == "Q3%20report%20(final)%20%C3%BC.pdf",
+          "and its name as encodeURIComponent writes it (the Mac decodes it with decodeURIComponent)")
+    check(Board.headerName("a&b+c/d#e?f=g") == "a%26b%2Bc%2Fd%23e%3Ff%3Dg" && Board.headerName("it's!~*()-_.") == "it's!~*()-_.",
+          "encodeURIComponent's own set: reserved characters escaped, its unreserved ones kept")
+    check(Board.uploadRequest(mac: mac, session: "dana", name: "x", type: "")?.value(forHTTPHeaderField: "Content-Type") == "application/octet-stream",
+          "no type: the board's octet-stream")
+    check(Board.uploadRequest(mac: mac, session: "../status", name: "x", type: "text/plain") == nil, "a name the app does not accept: no request")
+
+    check(Board.uploadRefusal(size: 100 * 1024 * 1024, waiting: 9) == nil, "exactly 100 MB, and a tenth file: allowed")
+    check(Board.uploadRefusal(size: 100 * 1024 * 1024 + 1, waiting: 0) == "That file is over 100 MB, which is the most a message can carry.",
+          "one byte over: the board's sentence, before any byte is sent")
+    check(Board.uploadRefusal(size: 10, waiting: 10) == "A message can carry 10 files; send these first.", "an eleventh file: the board's sentence")
+    check(Board.uploadRefusal(size: nil, waiting: 0) == nil, "a size the phone could not read is left to the Mac")
+
+    func res(_ status: Int, _ body: String?, size: Int? = 1000) -> Board.UploadResult {
+        Board.uploadResult(status: status, body: body.map { Data($0.utf8) }, name: "deck.pdf", size: size)
+    }
+    let id = "0123456789abcdef01234567"
+    check(res(200, #"{"attachment":{"id":"\#(id)","name":"deck (1).pdf"}}"#) == .added(Board.Attached(id: id, name: "deck (1).pdf")),
+          "added: the Mac's id and the name it kept")
+    check(res(200, #"{"attachment":{"id":"\#(id)"}}"#) == .added(Board.Attached(id: id, name: "deck.pdf")), "no name back: the one sent")
+    check(res(200, #"{"attachment":{"id":"../../x"}}"#) == .refused("We could not add that file (status 200)."),
+          "an id that is not the Mac's shape is never sent on (control for the shape check)")
+    check(res(200, "{}") == .refused("We could not add that file (status 200)."), "a 200 with no attachment is not added")
+    check(res(408, #"{"error":"it took too long"}"#) == .refused("We could not finish adding deck.pdf: it took too long to arrive. Try again on a faster connection."),
+          "408: too slow, in the board's words (before the Mac's own)")
+    check(res(413, #"{"error":"that file is over 100 MB"}"#) == .refused("that file is over 100 MB"), "a refusal: the Mac's own words")
+    check(res(502, nil, size: 30 * 1024 * 1024) == .refused("We could not reach Kosmos to add deck.pdf. If your connection is slow, a file this large can take longer than Kosmos waits for one."),
+          "a relay's 502 on a large file: maybe too slow")
+    check(res(502, nil) == .refused("We could not add that file (status 502)."), "the same 502 on a small file: the status")
+    check(res(0, nil) == .refused("We could not reach Kosmos to add that file."), "no answer: not reached")
+    check(res(0, nil, size: 30 * 1024 * 1024) == .refused("We could not reach Kosmos to add deck.pdf. If your connection is slow, a file this large can take longer than Kosmos waits for one."),
+          "no answer on a large file: maybe too slow")
+
+    let files = [Board.Attached(id: id, name: "a.pdf"), Board.Attached(id: id, name: "b.png")]
+    check(Board.sendWords("  see these \n", files: files) == "see these", "words typed: the words")
+    check(Board.sendWords("  \n", files: files) == "a.pdf, b.png", "no words: the files' names, as the board sends them")
+    check(Board.wordsShown("a.pdf, b.png", names: ["a.pdf", "b.png"]) == "" && Board.wordsShown("see these", names: ["a.pdf"]) == "see these",
+          "a bubble on its way draws no words that are only its files' names")
+
+    let withFiles = Board.sendRequest(mac: mac, session: "dana", text: "a.pdf", attachments: [id])
+    let sent = withFiles?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(sent?["text"] as? String == "a.pdf" && sent?["attachments"] as? [String] == [id], "a send with files carries their ids")
+    let plain = Board.sendRequest(mac: mac, session: "dana", text: "hi")?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(plain?["attachments"] == nil, "and one with none carries no attachments key (the board's own shape)")
+    check(Board.sendRequest(mac: mac, session: "dana", text: "x", attachments: Array(repeating: id, count: 11)) == nil, "eleven files: not sent")
+    check(Board.sendRequest(mac: mac, session: "dana", text: "x", attachments: ["nope"]) == nil, "an id not of the Mac's shape: not sent")
+
+    check(Board.mimeType(forName: "deck.pdf") == "application/pdf" && Board.mimeType(forName: "Photo.jpg") == "image/jpeg"
+          && Board.mimeType(forName: "notes") == "application/octet-stream", "the type from the name, octet-stream when there is none")
+    check(Board.photoName(at: Date(timeIntervalSince1970: 1_761_330_605), ext: "jpg", zone: TimeZone(identifier: "UTC")!) == "Photo 2025-10-24 at 18.30.05.jpg",
+          "a photo is named by when it was added, with no slash or colon")
+    check(Board.imageExtension(Data([0xFF, 0xD8, 0xFF, 0xE0])) == "jpg" && Board.imageExtension(Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])) == "png"
+          && Board.imageExtension(Data([0, 0, 0, 24] + Array("ftypheic".utf8))) == "heic" && Board.imageExtension(Data("GIF89a".utf8)) == "gif"
+          && Board.imageExtension(Data("RIFF\0\0\0\0WEBP".utf8)) == "webp" && Board.imageExtension(Data("hello".utf8)) == nil,
+          "the image type from its own bytes")
+    check(Board.filesSpoken(["a.pdf"]) == "1 file: a.pdf" && Board.filesSpoken(["a.pdf", "b.png"]) == "2 files: a.pdf, b.png", "VoiceOver names the files")
+}
+
 section("native chat: earlier messages (kosmos#7016 part 3)")
 do {
     let mac = URL(string: "https://studio.kosmosplus.com")!
@@ -1458,9 +1524,26 @@ final class FakeBoardWorld {
     var threadYields = 0
     // Runs as a status read is answered (taken once), for a change that lands while a read is in flight.
     var onStatusRead: (() -> Void)?
+    // kosmos#7071: uploads (each takes the first queued answer; nil is no answer; empty queue: a new id each time), what
+    // each carried (path, type, name header, the bytes read from the file), and each post's `attachments`.
+    var uploadQueue: [(Int, String)?] = []
+    var uploads: [(path: String, type: String, name: String, bytes: Data)] = []
+    var uploadYields = 0
+    var postedAttachments: [[String]] = []
     let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage!
 
     func count(_ path: String) -> Int { requests.filter { $0.hasSuffix(path) }.count }
+
+    func upload(_ r: URLRequest, _ file: URL) -> (Data, HTTPURLResponse)? {
+        let url = r.url!
+        requests.append("\(r.httpMethod ?? "GET") \(url.host ?? "")\(url.path)")
+        uploads.append((url.path, r.value(forHTTPHeaderField: "Content-Type") ?? "", r.value(forHTTPHeaderField: "X-Attachment-Name") ?? "",
+                        (try? Data(contentsOf: file)) ?? Data()))
+        let next: (Int, String)? = uploadQueue.isEmpty
+            ? (200, #"{"attachment":{"id":"\#(String(format: "%024lx", uploads.count))","name":"\#(r.value(forHTTPHeaderField: "X-Attachment-Name")?.removingPercentEncoding ?? "")"}}"#)
+            : uploadQueue.removeFirst()
+        return next.map { (Data($0.1.utf8), HTTPURLResponse(url: url, statusCode: $0.0, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!) }
+    }
 
     func send(_ r: URLRequest) -> (Data, HTTPURLResponse)? {
         let url = r.url!
@@ -1493,6 +1576,7 @@ final class FakeBoardWorld {
                     let body = r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                     posted.append(body?["text"] as? String ?? "")
                     postedRequests.append(body?["request"] as? String ?? "")
+                    postedAttachments.append(body?["attachments"] as? [String] ?? [])
                     if let hook = onPost { onPost = nil; hook() }
                     let next: (Int, String)? = sendQueue.isEmpty ? (200, #"{"delivery":{"state":"placed","at":"2026-10-23T20:00:00.000Z"},"recorded":true}"#) : sendQueue.removeFirst()
                     return next.map { answer($0.0, $0.1) }
@@ -1545,7 +1629,11 @@ func boardLoopTests() async {
                                             sleep: { world.clock += $0; await Task.yield() },
                                             now: { world.clock },
                                             defaults: defaults,
-                                            files: testFiles))
+                                            files: testFiles,
+                                            upload: { r, file in
+                                                for _ in 0..<world.uploadYields { await Task.yield() }
+                                                return world.upload(r, file)
+                                            }))
         return (client, world, sessions, macs)
     }
     func settle(_ cond: () -> Bool) async -> Bool {
@@ -1723,6 +1811,100 @@ section("native board loop: connecting")
         check(ok3, "a kept session the Mac has ended is replaced and the list comes back")
         check(w.count("/v1/account/handoff") == 1, "by one fresh sign-in, not by restoring the ended record again")
         check(Board.usableSaved(macs.value, session: "kst1", coordinator: coordinator)?.cookie == "fresh-1", "and the new session is the one kept")
+        c.stop()
+    }
+
+    section("native chat: adding files and sending them, against a fake Mac (kosmos#7071)")
+    do {
+        let (c, w, _, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        let dana = c.agents.first { $0.session == "dana" }!
+        func pending() -> [Board.PendingSend] { c.pending["dana"] ?? [] }
+        func attached() -> [Board.Attached] { c.attached["dana"] ?? [] }
+        func picked(_ name: String, _ bytes: String = "bytes") -> URL {
+            let folder = testFiles.appendingPathComponent("picked-\(UUID().uuidString)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let file = folder.appendingPathComponent(name)
+            try? Data(bytes.utf8).write(to: file)
+            return file
+        }
+
+        let a = picked("deck.pdf", "%PDF-1.4 deck")
+        await c.attach(file: a, name: "deck.pdf", type: "application/pdf", size: 13, to: dana)
+        check(w.uploads.count == 1 && w.uploads[0].path == "/api/agent/dana/attachment" && w.uploads[0].type == "application/pdf"
+              && w.uploads[0].name == "deck.pdf" && w.uploads[0].bytes == Data("%PDF-1.4 deck".utf8),
+              "a picked file goes up at once: the agent's route, its type, its name and its bytes")
+        check(attached().map(\.name) == ["deck.pdf"] && c.uploading["dana"] == 0, "and waits on the composer")
+        check(!FileManager.default.fileExists(atPath: a.path), "the phone's copy is removed once sent")
+
+        w.uploadQueue = [(413, #"{"error":"that file is over 100 MB"}"#)]
+        let b = picked("big.mov")
+        await c.attach(file: b, name: "big.mov", type: "video/quicktime", size: 5000, to: dana)
+        check(attached().count == 1 && c.attachLine["dana"] == "that file is over 100 MB", "a refused file is not added, and the line says the Mac's words")
+        check(!FileManager.default.fileExists(atPath: b.path), "its copy is removed too")
+
+        let uploadsBefore = w.uploads.count
+        await c.attach(file: picked("huge.mov"), name: "huge.mov", type: "video/quicktime", size: Board.maxFileBytes + 1, to: dana)
+        check(w.uploads.count == uploadsBefore && c.attachLine["dana"] == "That file is over 100 MB, which is the most a message can carry.",
+              "too large: refused before a byte is sent")
+
+        await c.attach(file: picked("notes.txt"), name: "notes.txt", type: "text/plain", size: 5, to: dana)
+        check(attached().map(\.name) == ["deck.pdf", "notes.txt"] && c.attachLine["dana"] == nil, "a file that goes up clears the last line")
+        c.unattach(attached()[1].id, for: "dana")
+        check(attached().map(\.name) == ["deck.pdf"], "the x takes one off the composer")
+
+        // Sent with no words: the names are the words, the ids ride along, and the composer is free again.
+        let deckId = attached()[0].id
+        await c.post("  ", files: attached(), to: dana)
+        check(w.posted.last == "deck.pdf" && w.postedAttachments.last == [deckId], "files with no words: their names as the words, and their ids")
+        check(attached().isEmpty && pending().last?.files.map(\.id) == [deckId], "the files leave the composer and ride the bubble")
+
+        // A failed send keeps its files on the bubble, and the retry sends them again.
+        await c.attach(file: picked("shot.png"), name: "shot.png", type: "image/png", size: 5, to: dana)
+        let shot = attached()
+        w.sendQueue = [(409, #"{"error":"Dana is at its trust prompt"}"#), (200, #"{"delivery":{"state":"placed","at":"2026-10-23T21:00:00.000Z"},"recorded":true}"#)]
+        await c.post("look at this", files: shot, to: dana)
+        check(pending().last?.failed == true && pending().last?.files == shot, "a refused send keeps its files")
+        await c.retry(pending().last!.id, to: dana)
+        check(w.postedAttachments.suffix(2) == [shot.map(\.id), shot.map(\.id)] && w.posted.last == "look at this",
+              "the retry sends the same words and the same files")
+
+        // Ten waiting: the eleventh is refused before it is sent.
+        for i in 0..<10 { await c.attach(file: picked("f\(i).txt"), name: "f\(i).txt", type: "text/plain", size: 1, to: dana) }
+        let tenth = w.uploads.count
+        await c.attach(file: picked("f10.txt"), name: "f10.txt", type: "text/plain", size: 1, to: dana)
+        check(attached().count == 10 && w.uploads.count == tenth && c.attachLine["dana"] == "A message can carry 10 files; send these first.",
+              "an eleventh file is refused, and nothing is sent")
+        for f in attached() { c.unattach(f.id, for: "dana") }
+
+        // A send with files waits while another file is still on its way (it would go without it).
+        w.uploadYields = 50
+        let going = Task { await c.attach(file: picked("slow.pdf"), name: "slow.pdf", type: "application/pdf", size: 1, to: dana) }
+        _ = await settle { c.uploading["dana"] == 1 }
+        let postsBefore = w.posted.count
+        await c.post("now", files: [Board.Attached(id: deckId, name: "deck.pdf")], to: dana)
+        check(w.posted.count == postsBefore, "a send with files is not made while a file is still going up")
+        await going.value
+        w.uploadYields = 0
+        check(attached().map(\.name) == ["slow.pdf"] && c.uploading["dana"] == 0, "and the file that was going up lands on the composer")
+
+        // Not sent, sent again: its files go again with it.
+        var lost = Board.ChatRow(id: "y", atRaw: "T9", at: nil, text: "deck.pdf", who: .person, notSent: "Not sent", resendable: true)
+        lost.attachments = [Board.Attachment(id: deckId, name: "deck.pdf", type: "application/pdf", size: 13, kind: "pdf",
+                                             url: "/api/attachment/" + deckId, preview: nil)]
+        await c.sendAgain(lost, to: dana)
+        check(w.posted.last == "deck.pdf" && w.postedAttachments.last == [deckId], "a not-sent message with a file is sent again with that file")
+        check(attached().map(\.name) == ["slow.pdf"], "and the files waiting on the composer stay there")
+
+        // Another account meanwhile: an upload that answers late adds nothing to the new account's chat.
+        w.uploadYields = 50
+        let late = Task { await c.attach(file: picked("late.pdf"), name: "late.pdf", type: "application/pdf", size: 1, to: dana) }
+        _ = await settle { c.uploading["dana"] == 1 }
+        c.accountChanged()
+        await late.value
+        w.uploadYields = 0
+        check(c.attached.isEmpty && c.uploading.isEmpty && c.attachLine.isEmpty, "a sign-out drops the waiting files, and a late answer adds nothing")
         c.stop()
     }
 

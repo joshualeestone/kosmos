@@ -41,6 +41,9 @@ final class BoardClient: ObservableObject {
         // Where an opened file is saved for Quick Look (#7016): the app's temporary folder, which iOS clears, and a
         // folder of their own in ios/LogicTests so they never touch this Mac's.
         var files: URL = FileManager.default.temporaryDirectory.appendingPathComponent("chat-files", isDirectory: true)
+        // kosmos#7071: a request whose body is the file on disk at that address, read as it goes (never held in
+        // memory: a file may be 100 MB). nil when no answer came.
+        var upload: (URLRequest, URL) async -> (Data, HTTPURLResponse)? = { _, _ in nil }
     }
 
     @Published private(set) var phase: Phase = .starting
@@ -385,13 +388,70 @@ final class BoardClient: ObservableObject {
     // Published: a retry still reading counts as a send in the air, so the question's buttons are drawn off meanwhile.
     @Published private var retrying: Set<String> = []
 
-    func post(_ text: String, to agent: Board.Agent) async {
-        let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    // `files` are the ones it carries (kosmos#7071): taken off the composer here, so they ride the bubble and a retry
+    // sends them again. With no words, their names are the words, as on the board.
+    func post(_ text: String, files: [Board.Attached] = [], to agent: Board.Agent) async {
+        let said = Board.sendWords(text, files: files)
         // Not while a press to this agent is in the air: one key and one paste never overlap (dmChoiceBlocksSend).
-        guard Board.fitsBoard(said), !pressing.contains(agent.session) else { return }
-        let item = Board.PendingSend(id: UUID().uuidString, text: said, at: env.now(), after: newestSeen[agent.session])
+        // Not while a file for it is still on its way either: the message would go without it.
+        guard Board.fitsBoard(said), files.count <= Board.maxFiles, !pressing.contains(agent.session),
+              files.isEmpty || uploading[agent.session, default: 0] == 0 else { return }
+        let ids = Set(files.map(\.id))
+        if !ids.isEmpty { attached[agent.session]?.removeAll { ids.contains($0.id) } }
+        let item = Board.PendingSend(id: UUID().uuidString, text: said, at: env.now(), after: newestSeen[agent.session], files: files)
         pending[agent.session, default: []].append(item)
         await deliver(item.id, to: agent)
+    }
+
+    // MARK: Adding files (kosmos#7071, the board's attachUpload)
+
+    // Files on the Mac waiting to go with the next message, by agent; files still on their way; and the line under the
+    // composer about the last one that could not be added. Dropped with the chats (another account or Mac).
+    @Published private(set) var attached: [String: [Board.Attached]] = [:]
+    @Published private(set) var uploading: [String: Int] = [:]
+    @Published var attachLine: [String: String] = [:]
+
+    // Sends the file at `file` to the Mac for this agent's next message. The file is the caller's copy: it is removed
+    // once sent (or refused), so nothing picked is left on the phone.
+    func attach(file: URL, name: String, type: String, size: Int?, to agent: Board.Agent) async {
+        defer { try? FileManager.default.removeItem(at: file) }
+        let session = agent.session
+        if let refusal = Board.uploadRefusal(size: size, waiting: (attached[session]?.count ?? 0) + uploading[session, default: 0]) {
+            attachLine[session] = refusal
+            return
+        }
+        attachLine[session] = nil
+        let epoch = chatEpoch
+        uploading[session, default: 0] += 1
+        let result: Board.UploadResult
+        #if DEBUG
+        let sample = sampleThreads[session] != nil
+        #else
+        let sample = false
+        #endif
+        if sample {
+            // The sample chats (a Debug build only): added at once, so a screenshot never shows a real Mac's file.
+            result = .added(Board.Attached(id: String(format: "%024lx", (attached[session]?.count ?? 0) + 1), name: name))
+        } else if let held = admitted, let request = Board.uploadRequest(mac: held.url, session: session, name: name, type: type) {
+            let answer = await env.upload(request, file)
+            result = Board.uploadResult(status: answer?.1.statusCode ?? 0, body: answer?.0, name: name, size: size)
+        } else {
+            result = Board.uploadResult(status: 0, body: nil, name: name, size: size)
+        }
+        // The chats were forgotten meanwhile (another account or Mac): the file belongs to the one before.
+        guard epoch == chatEpoch else { return }
+        uploading[session] = max(0, uploading[session, default: 0] - 1)
+        switch result {
+        case .added(let a):
+            if attached[session]?.contains(where: { $0.id == a.id }) != true { attached[session, default: []].append(a) }
+        case .refused(let why):
+            attachLine[session] = why
+        }
+    }
+
+    // Taken off the composer. The Mac keeps the file until it clears unsent ones itself, as with the board's x.
+    func unattach(_ id: String, for session: String) {
+        attached[session]?.removeAll { $0.id == id }
     }
 
     // Again, for one that was not taken, only while the agent is running (the spec: no retry until the status changes).
@@ -421,7 +481,8 @@ final class BoardClient: ObservableObject {
         // Not while a press is in the air: post would refuse it, and the row would read as sent again.
         guard row.canSendAgain, isRunning(agent), !resent.contains(key), Board.fitsBoard(row.text), !pressing.contains(agent.session) else { return }
         resent.insert(key)
-        await post(row.text, to: agent)
+        // Its files go again with it (kosmos#7071): the Mac keeps them under this agent, so the same ids are good.
+        await post(row.text, files: row.attachments.map { Board.Attached(id: $0.id, name: $0.name) }, to: agent)
     }
 
     func wasSentAgain(_ row: Board.ChatRow, for session: String) -> Bool { resent.contains(session + "|" + row.id) }
@@ -596,6 +657,9 @@ final class BoardClient: ObservableObject {
         // Files opened under the account or Mac before are not left on the phone.
         try? FileManager.default.removeItem(at: env.files)
         drafts = [:]
+        attached = [:]
+        uploading = [:]
+        attachLine = [:]
         resent = []
         newestSeen = [:]
         // An open chat is showing what was forgotten: it resets when this moves (ChatView, AgentsView).
@@ -629,20 +693,20 @@ final class BoardClient: ObservableObject {
         let result: Board.SendResult
         #if DEBUG
         if sampleThreads[agent.session] != nil {
-            result = sampleSend(item.text, to: agent.session)
+            result = sampleSend(item.text, files: item.files, to: agent.session)
         } else {
-            result = await send(item.text, to: agent.session)
+            result = await send(item.text, files: item.files, to: agent.session)
         }
         #else
-        result = await send(item.text, to: agent.session)
+        result = await send(item.text, files: item.files, to: agent.session)
         #endif
         guard let i = pending[agent.session]?.firstIndex(where: { $0.id == id }) else { return }
         pending[agent.session]?[i].state = Board.pendingState(after: result)
     }
 
-    private func send(_ text: String, to session: String) async -> Board.SendResult {
+    private func send(_ text: String, files: [Board.Attached], to session: String) async -> Board.SendResult {
         guard let held = admitted else { return .noAnswer }
-        guard let request = Board.sendRequest(mac: held.url, session: session, text: text) else { return .refused(nil) }
+        guard let request = Board.sendRequest(mac: held.url, session: session, text: text, attachments: files.map(\.id)) else { return .refused(nil) }
         let result = await env.send(request)
         return Board.sendResult(status: result?.1.statusCode ?? 0, body: result?.0)
     }
@@ -650,10 +714,12 @@ final class BoardClient: ObservableObject {
     #if DEBUG
     // The sample chats (KOSMOS_SAMPLE_AGENTS=1, a Debug build only): Mona Lisa's 19 October design conversation.
     private var sampleThreads: [String: Board.Thread] = [:]
-    private func sampleSend(_ text: String, to session: String) -> Board.SendResult {
+    private func sampleSend(_ text: String, files: [Board.Attached], to session: String) -> Board.SendResult {
         guard let sample = sampleThreads[session] else { return .noAnswer }
         let at = ISO8601DateFormatter().string(from: env.now())
-        let row = Board.ChatRow(id: "sample-\(sample.rows.count)", atRaw: at, at: env.now(), text: text, who: .person)
+        var row = Board.ChatRow(id: "sample-\(sample.rows.count)", atRaw: at, at: env.now(), text: text, who: .person)
+        row.attachments = files.map { Board.Attachment(id: $0.id, name: $0.name, type: "", size: nil, kind: "other",
+                                                       url: "/api/attachment/" + $0.id, preview: nil) }
         sampleThreads[session] = Board.Thread(rows: sample.rows + [row], olderCount: sample.olderCount)
         return .kept(at: at)
     }

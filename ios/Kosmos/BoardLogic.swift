@@ -457,16 +457,20 @@ enum Board {
         s.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
 
-    // A plain message, as the board's own composer posts it ({text}). nil for a name the app does not accept or a
-    // message the board would not take.
-    static func sendRequest(mac: URL, session: String, text: String) -> URLRequest? {
+    // A message, as the board's own composer posts it ({text}, and `attachments` with the ids of the files it carries,
+    // kosmos#7071). nil for a name the app does not accept, a message the board would not take, or more files than a
+    // message can carry.
+    static func sendRequest(mac: URL, session: String, text: String, attachments: [String] = []) -> URLRequest? {
         let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isAgentSession(session), fitsBoard(said) else { return nil }
+        guard isAgentSession(session), fitsBoard(said), attachments.count <= maxFiles,
+              attachments.allSatisfy(isAttachmentId) else { return nil }
         var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.httpBody = try? JSONSerialization.data(withJSONObject: ["text": said])
+        var body: [String: Any] = ["text": said]
+        if !attachments.isEmpty { body["attachments"] = attachments }
+        r.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return r
     }
 
@@ -579,9 +583,10 @@ enum Board {
 
     // A post made with no words carries the file names as its text; the cards say them, so the text is not drawn too
     // (pjWords).
-    static func wordsShown(_ text: String, files: [Attachment]) -> String {
-        let names = files.map(\.name)
-        return !names.isEmpty && text.trimmingCharacters(in: .whitespacesAndNewlines) == names.joined(separator: ", ") ? "" : text
+    static func wordsShown(_ text: String, files: [Attachment]) -> String { wordsShown(text, names: files.map(\.name)) }
+    // kosmos#7071: the same for a message still on its way, by the names of the files it carries.
+    static func wordsShown(_ text: String, names: [String]) -> String {
+        !names.isEmpty && text.trimmingCharacters(in: .whitespacesAndNewlines) == names.joined(separator: ", ") ? "" : text
     }
 
     // A file Quick Look would draw as a web page or a markup document, which can load from elsewhere. Judged by its name
@@ -615,6 +620,108 @@ enum Board {
         case "image": return "photo"
         default: return "doc"
         }
+    }
+
+    // MARK: Sending files (kosmos#7071; the board's attachUpload, ATTACH_AGENT, ATTACH_MAX, ATTACH_MAX_BYTES)
+
+    // A file added to the composer: the Mac has it, and the message that carries it names it by this id.
+    struct Attached: Equatable, Identifiable {
+        let id: String
+        let name: String
+    }
+
+    static let maxFiles = 10
+    static let maxFileBytes = 100 * 1024 * 1024
+    // #6734: a file this large may outlast the Mac's or a relay's wait on a slow connection.
+    static let slowFileBytes = 25 * 1024 * 1024
+
+    static func isAttachmentId(_ id: String) -> Bool { attachmentId("/api/attachment/" + id) == id }
+
+    // encodeURIComponent, as the board names the file in its header (the Mac decodes it with decodeURIComponent).
+    static func headerName(_ name: String) -> String {
+        var allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+        allowed.insert(charactersIn: "-_.!~*'()")
+        return name.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+    }
+
+    // The bytes of one file for an agent's conversation: PUT /api/agent/<name>/attachment with its type and name.
+    static func uploadRequest(mac: URL, session: String, name: String, type: String) -> URLRequest? {
+        guard isAgentSession(session) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/attachment", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "PUT"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue(type.isEmpty ? "application/octet-stream" : type, forHTTPHeaderField: "Content-Type")
+        r.setValue(headerName(name), forHTTPHeaderField: "X-Attachment-Name")
+        return r
+    }
+
+    // Said before a byte is sent, as the board does: too large, or already as many as a message carries (counting
+    // files still on their way).
+    static func uploadRefusal(size: Int?, waiting: Int) -> String? {
+        if let size, size > maxFileBytes { return "That file is over \(maxFileBytes / 1048576) MB, which is the most a message can carry." }
+        if waiting >= maxFiles { return "A message can carry \(maxFiles) files; send these first." }
+        return nil
+    }
+
+    enum UploadResult: Equatable { case added(Attached), refused(String) }
+
+    // The Mac's answer to an upload (status 0: no answer came), in the board's own sentences.
+    static func uploadResult(status: Int, body: Data?, name: String, size: Int?) -> UploadResult {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let slow = (size ?? 0) > slowFileBytes
+        let notReached = slow
+            ? "We could not reach Kosmos to add \(name). If your connection is slow, a file this large can take longer than Kosmos waits for one."
+            : "We could not reach Kosmos to add that file."
+        if status == 0 { return .refused(notReached) }
+        if (200...299).contains(status), let a = obj?["attachment"] as? [String: Any], let id = a["id"] as? String, isAttachmentId(id) {
+            let said = (a["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return .added(Attached(id: id, name: said.isEmpty ? name : said))
+        }
+        if status == 408 { return .refused("We could not finish adding \(name): it took too long to arrive. Try again on a faster connection.") }
+        if let error = obj?["error"] as? String, !error.isEmpty { return .refused(error) }
+        if (status == 502 || status == 504) && slow { return .refused(notReached) }
+        return .refused("We could not add that file (status \(status)).")
+    }
+
+    // The type the Mac is told, from the name (it keeps whatever it is given, and judges a file by it).
+    static func mimeType(forName name: String) -> String {
+        let ext = (name as NSString).pathExtension
+        return (ext.isEmpty ? nil : UTType(filenameExtension: ext)?.preferredMIMEType) ?? "application/octet-stream"
+    }
+
+    // A photo has no name of its own: "Photo 2026-10-24 at 18.30.05.jpg", in the phone's own time.
+    static func photoName(at date: Date, ext: String, zone: TimeZone = .current) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = zone
+        f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        return "Photo \(f.string(from: date)).\(ext)"
+    }
+
+    // The image type the bytes themselves say, so the name never claims JPEG for a PNG the picker kept as it was.
+    static func imageExtension(_ data: Data) -> String? {
+        let b = [UInt8](data.prefix(12))
+        if b.count >= 3, b[0] == 0xFF, b[1] == 0xD8, b[2] == 0xFF { return "jpg" }
+        if b.count >= 8, b[0..<8] == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] { return "png" }
+        if b.count >= 6, String(bytes: b[0..<6], encoding: .ascii).map({ $0 == "GIF87a" || $0 == "GIF89a" }) == true { return "gif" }
+        if b.count >= 12, String(bytes: b[0..<4], encoding: .ascii) == "RIFF", String(bytes: b[8..<12], encoding: .ascii) == "WEBP" { return "webp" }
+        if b.count >= 12, String(bytes: b[4..<8], encoding: .ascii) == "ftyp" {
+            let brand = String(bytes: b[8..<12], encoding: .ascii) ?? ""
+            if ["heic", "heix", "heim", "heis", "mif1", "msf1"].contains(brand) { return "heic" }
+        }
+        return nil
+    }
+
+    // "1 file: a.pdf" / "2 files: a.pdf, b.png", for VoiceOver on a message still on its way.
+    static func filesSpoken(_ names: [String]) -> String {
+        (names.count == 1 ? "1 file: " : "\(names.count) files: ") + names.joined(separator: ", ")
+    }
+
+    // The words a message goes with: what was typed, or with nothing typed, the names of its files (the board's
+    // attachment-only send, which wordsShown then leaves undrawn).
+    static func sendWords(_ text: String, files: [Attached]) -> String {
+        let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return said.isEmpty ? files.map(\.name).joined(separator: ", ") : said
     }
 
     // A GET for one of the Mac's file routes, through the client's own session.
@@ -1185,6 +1292,8 @@ enum Board {
         // The newest row time the conversation had already shown when it was sent: a row that clears it must be newer,
         // so an earlier "ok" never stands in for one that was never sent.
         var after: String? = nil
+        // kosmos#7071: the files it carries, sent again with it by a retry.
+        var files: [Attached] = []
         var failed: Bool { if case .failed = state { return true } else { return false } }
         var shownAsSent: Bool { switch state { case .kept, .taken: return true; default: return false } }
         // What the person can do with it by hand: delete one that failed, or one taken that no read has matched yet.

@@ -7,7 +7,8 @@ import SwiftUI
 // Where one card is: ready to open, fetching, or the last fetch failed (the tap tries again).
 enum FileCardState: Equatable { case ready, loading, failed }
 
-// The agent's words (when there are any beyond the file names) and one card per file, in one agent bubble.
+// The agent's words (when there are any beyond the file names) and one card per file, in one agent bubble; or the
+// person's own, in theirs on the right (kosmos#7071).
 struct FilesBubble: View {
     let text: String
     let files: [Board.Attachment]
@@ -15,6 +16,7 @@ struct FilesBubble: View {
     let states: [String: FileCardState]
     let widthShare: CGFloat
     let open: (Board.Attachment) -> Void
+    var mine = false
 
     // One file at a time: while one is on its way, the others are drawn off.
     private var busy: Bool { states.values.contains(.loading) }
@@ -31,7 +33,51 @@ struct FilesBubble: View {
                          waiting: busy && states[f.id] != .loading, open: { open(f) })
             }
         }
-        .modifier(AgentBubbleBackground(widthShare: widthShare))
+        .modifier(FilesBubbleBackground(widthShare: widthShare, mine: mine))
+    }
+}
+
+// The agent's bubble look (AgentBubbleBackground), or the person's: their colour, on the right (kosmos#7071).
+struct FilesBubbleBackground: ViewModifier {
+    let widthShare: CGFloat
+    let mine: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if mine {
+            content
+                .padding(.vertical, 10).padding(.horizontal, 12)
+                .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Palette.personBubble))
+                .frame(maxWidth: UIScreen.main.bounds.width * max(widthShare, 0.85), alignment: .trailing)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            content.modifier(AgentBubbleBackground(widthShare: widthShare))
+        }
+    }
+}
+
+// kosmos#7071: a file waiting on the composer, with its x, or carried by a message still on its way (no x).
+struct FileChip: View {
+    let name: String
+    var faded = false
+    var remove: (() -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "doc").font(.system(size: 13)).foregroundColor(Palette.secondary)
+            Text(name).font(.footnote).foregroundColor(Palette.primary.opacity(faded ? 0.6 : 1))
+                .lineLimit(1).truncationMode(.middle)
+            if let remove {
+                Button(action: remove) {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 15)).foregroundColor(Palette.secondary)
+                        // A 44 pt place to tap around the glyph.
+                        .frame(width: 44, height: 44).contentShape(Rectangle()).padding(-12)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove \(name)")
+            }
+        }
+        .padding(.vertical, 6).padding(.horizontal, 10)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.separator, lineWidth: 0.5))
     }
 }
 

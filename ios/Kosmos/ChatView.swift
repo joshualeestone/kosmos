@@ -1,5 +1,7 @@
 import SwiftUI
 import QuickLook
+import PhotosUI
+import UniformTypeIdentifiers
 
 // kosmos#7008 (the iPhone plan's slice 3, first part): one agent's conversation, native, built to Mona Lisa's slice 3a
 // spec (~/work/workers/monalisa/ios-design-2026-10-19/slice3a/SPEC.md, on the card). Reads and sends through
@@ -58,6 +60,10 @@ struct ChatView: View {
     @State private var openedFile: URL?
     // Bumped when the arm window or the answered lock ends, so the buttons redraw then.
     @State private var tick = 0
+    // kosmos#7071: the + beside the composer (Photo Library or Files).
+    @State private var photoPicks: [PhotosPickerItem] = []
+    @State private var showPhotos = false
+    @State private var showFiles = false
 
     // The agent as the list shows it now (its word and tone move with the board), or as it was tapped.
     private var shown: Board.Agent { client.agents.first { $0.session == agent.session } ?? agent }
@@ -76,8 +82,8 @@ struct ChatView: View {
                 conversation
                 if unseenNew { newMessagesCapsule }
             }
-            if let line = composerNote ?? pressLine {
-                Text(line).font(.footnote).foregroundColor(composerNote == nil ? Palette.dangerWord : Palette.secondary)
+            if let line = composerNote ?? attachLine ?? pressLine {
+                Text(line).font(.footnote).foregroundColor(composerNote == nil && attachLine == nil ? Palette.dangerWord : Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     // Mona Lisa's spec: 16 pt side margins, 6 pt above the composer.
                     .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 6)
@@ -321,16 +327,27 @@ struct ChatView: View {
         case .row(let row, let first, let last):
             if let thread, let choices = Board.choices(for: row, in: thread) {
                 choicesView(row, choices).padding(.top, 10)
-            } else if row.who == .agent, row.wayThrough == .attachment, !row.attachments.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+            } else if row.who != .kosmos, row.wayThrough == .attachment, !row.attachments.isEmpty {
+                // The person's own files too (kosmos#7071), on the right in their colour, with the not-sent line.
+                let mine = row.who == .person
+                VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     FilesBubble(text: Board.wordsShown(row.text, files: row.attachments), files: row.attachments,
-                                thumbnails: client.thumbnails, states: fileStates, widthShare: widthShare, open: openFile)
-                    // The time on the last of a run, as on every bubble (3a).
-                    if last, let at = row.at {
-                        Text(at, style: .time).font(.caption2).foregroundColor(Palette.tertiary).padding(.horizontal, 4)
+                                thumbnails: client.thumbnails, states: fileStates, widthShare: widthShare, open: openFile, mine: mine)
+                    if mine, row.canSendAgain, !client.wasSentAgain(row, for: agent.session) {
+                        let line = Board.notSentLine(agentRunning: running, name: shown.name)
+                        NotSentLine(text: line.text, canRetry: line.canRetry,
+                                    action: { sendWhenFree { await client.sendAgain(row, to: agent) } })
+                    } else if (last && row.at != nil) || row.notSent != nil {
+                        // The time on the last of a run, as on every bubble (3a), and the Mac's word for one not sent.
+                        HStack(spacing: 6) {
+                            if last, let at = row.at { Text(at, style: .time).foregroundColor(Palette.tertiary) }
+                            if let notSent = row.notSent { Text(notSent + (row.because.map { ": " + $0 } ?? "")).foregroundColor(Palette.secondary) }
+                        }
+                        .font(.caption2)
+                        .padding(.horizontal, 4)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
                 .padding(.top, first ? 10 : 2)
                 .task { for f in row.attachments { await client.loadThumbnail(f) } }
             } else if let way = row.wayThrough {
@@ -594,40 +611,169 @@ struct ChatView: View {
     // MARK: - Sending
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField("", text: $draftText, prompt: Text("Message \(shown.name)").foregroundColor(Palette.secondary), axis: .vertical)
-                .accessibilityLabel("Message \(shown.name)")
-                .font(.body)
-                .foregroundColor(Palette.primary)
-                .lineLimit(1...5)
-                .padding(.vertical, 9)
-                .padding(.horizontal, 14)
-                .background(Palette.card)
-                .clipShape(RoundedRectangle(cornerRadius: 20))
-                .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator, lineWidth: 0.5))
-            Button(action: send) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(Palette.sendGlyph)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(Palette.sendFill))
-                    .opacity(canSend ? 1 : 0.35)
-                    // A 44 pt place to tap (Apple's minimum) around the 34 pt circle, laid out as the circle alone.
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-                    .padding(-5)
+        VStack(alignment: .leading, spacing: 6) {
+            if !attachedHere.isEmpty || uploadingHere > 0 { chips }
+            HStack(alignment: .bottom, spacing: 8) {
+                addButton
+                field
+                sendButton
             }
-            .disabled(!canSend)
-            .accessibilityLabel("Send")
-            .padding(.bottom, 2)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Palette.ground)
         .overlay(Rectangle().fill(Palette.separator).frame(height: 0.5), alignment: .top)
+        .photosPicker(isPresented: $showPhotos, selection: $photoPicks, maxSelectionCount: max(1, Board.maxFiles - attachedHere.count - uploadingHere),
+                      matching: .images, preferredItemEncoding: .compatible)
+        .onChange(of: photoPicks) { picks in
+            guard !picks.isEmpty else { return }
+            photoPicks = []
+            Task { await addPhotos(picks) }
+        }
+        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            if case .success(let urls) = result { Task { await addFiles(urls) } }
+        }
     }
 
-    private var canSend: Bool { Board.fitsBoard(draftText) }
+    // MARK: - Adding files (kosmos#7071, the board's + and attachUpload)
+
+    private var attachedHere: [Board.Attached] { client.attached[agent.session] ?? [] }
+    private var uploadingHere: Int { client.uploading[agent.session] ?? 0 }
+    private var attachLine: String? { client.attachLine[agent.session] }
+
+    private var addButton: some View {
+        Menu {
+            Button { showPhotos = true } label: { Label("Photo Library", systemImage: "photo.on.rectangle") }
+            Button { showFiles = true } label: { Label("Files", systemImage: "folder") }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(Palette.primary)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(Palette.card))
+                .overlay(Circle().stroke(Palette.separator, lineWidth: 0.5))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                .padding(-5)
+        }
+        .accessibilityLabel("Add a photo or file")
+        .padding(.bottom, 2)
+    }
+
+    private var chips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(attachedHere) { a in
+                    FileChip(name: a.name, remove: { client.unattach(a.id, for: agent.session) })
+                }
+                if uploadingHere > 0 {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text(uploadingHere == 1 ? "Adding a file\u{2026}" : "Adding \(uploadingHere) files\u{2026}")
+                            .font(.footnote).foregroundColor(Palette.secondary)
+                    }
+                    .padding(.horizontal, 6)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+    }
+
+    // One at a time, in the order picked, as the board adds them. A photo is the picker's JPEG (or its own image type),
+    // written to a file of its own that the client removes once sent.
+    private func addPhotos(_ picks: [PhotosPickerItem]) async {
+        for item in picks {
+            let data: Data
+            do {
+                guard let loaded = try await item.loadTransferable(type: Data.self) else { continue }
+                data = loaded
+            } catch {
+                client.attachLine[agent.session] = "We could not read that photo."
+                continue
+            }
+            let type = item.supportedContentTypes.first { $0.conforms(to: .image) } ?? .jpeg
+            let name = Board.photoName(at: Date(), ext: Board.imageExtension(data) ?? type.preferredFilenameExtension ?? "jpg")
+            guard let file = Self.uploadCopy(named: name, data: data) else {
+                client.attachLine[agent.session] = "We could not read that photo."
+                continue
+            }
+            await client.attach(file: file, name: name, type: Board.mimeType(forName: name), size: data.count, to: agent)
+        }
+    }
+
+    // A file from Files is copied first (only after its size is known to fit), so the client removes the copy, never
+    // the person's own file.
+    private func addFiles(_ urls: [URL]) async {
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let name = url.lastPathComponent
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+            if let refusal = Board.uploadRefusal(size: size, waiting: attachedHere.count + uploadingHere) {
+                client.attachLine[agent.session] = refusal
+                continue
+            }
+            guard let copy = Self.uploadCopy(named: name, from: url) else {
+                client.attachLine[agent.session] = "We could not read \(name)."
+                continue
+            }
+            await client.attach(file: copy, name: name, type: Board.mimeType(forName: name), size: size, to: agent)
+        }
+    }
+
+    // A folder of its own per file, under the app's temporary folder (which iOS clears).
+    private static func uploadFolder() -> URL? {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("chat-uploads", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        return (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil ? folder : nil
+    }
+
+    private static func uploadCopy(named name: String, data: Data) -> URL? {
+        guard let folder = uploadFolder() else { return nil }
+        let file = folder.appendingPathComponent(Board.savedName(name))
+        return (try? data.write(to: file)) != nil ? file : nil
+    }
+
+    private static func uploadCopy(named name: String, from url: URL) -> URL? {
+        guard let folder = uploadFolder() else { return nil }
+        let file = folder.appendingPathComponent(Board.savedName(name))
+        return (try? FileManager.default.copyItem(at: url, to: file)) != nil ? file : nil
+    }
+
+    private var field: some View {
+        TextField("", text: $draftText, prompt: Text("Message \(shown.name)").foregroundColor(Palette.secondary), axis: .vertical)
+            .accessibilityLabel("Message \(shown.name)")
+            .font(.body)
+            .foregroundColor(Palette.primary)
+            .lineLimit(1...5)
+            .padding(.vertical, 9)
+            .padding(.horizontal, 14)
+            .background(Palette.card)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator, lineWidth: 0.5))
+    }
+
+    private var sendButton: some View {
+        Button(action: send) {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundColor(Palette.sendGlyph)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(Palette.sendFill))
+                .opacity(canSend ? 1 : 0.35)
+                // A 44 pt place to tap (Apple's minimum) around the 34 pt circle, laid out as the circle alone.
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                .padding(-5)
+        }
+        .disabled(!canSend)
+        .accessibilityLabel("Send")
+        .padding(.bottom, 2)
+    }
+
+    // Words, or files with no words (their names go as the words); never while a file is still on its way.
+    private var canSend: Bool { Board.fitsBoard(Board.sendWords(draftText, files: attachedHere)) && uploadingHere == 0 }
 
     // The bubble appears at once (60% while it sends) and the field clears (spec, "while it sends").
     private func send() {
@@ -637,11 +783,13 @@ struct ChatView: View {
         composerNote = nil
         // The composer line goes on the next send or press (Mona Lisa's spec, section 1).
         pressLine = nil
+        client.attachLine[agent.session] = nil
         let text = draftText
+        let files = attachedHere
         draftText = ""
         client.drafts[agent.session] = nil
         Task {
-            await client.post(text, to: agent)
+            await client.post(text, files: files, to: agent)
             await read()
         }
     }
@@ -789,14 +937,21 @@ struct PendingBubble: View {
         return item.state == .unconfirmed ? "Not confirmed" : nil
     }
 
+    // kosmos#7071: with no words of its own, the names of its files are its words, and only the files are drawn.
+    private var words: String { Board.wordsShown(item.text, names: item.files.map(\.name)) }
+
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            BubbleText(text: item.text, mine: true, tail: true, widthShare: widthShare, faded: !item.shownAsSent)
-                .modifier(TapWhen(enabled: item.failed && line.canRetry, action: retry))
-                .contextMenu {
-                    Button { UIPasteboard.general.string = item.text } label: { Label("Copy", systemImage: "doc.on.doc") }
-                    if item.deletable { Button(role: .destructive, action: delete) { Label("Delete", systemImage: "trash") } }
-                }
+            if !words.isEmpty {
+                BubbleText(text: words, mine: true, tail: item.files.isEmpty, widthShare: widthShare, faded: !item.shownAsSent)
+                    .modifier(TapWhen(enabled: item.failed && line.canRetry, action: retry))
+                    .contextMenu { menu }
+            }
+            ForEach(Array(item.files.enumerated()), id: \.offset) { _, f in
+                FileChip(name: f.name, faded: !item.shownAsSent)
+                    .modifier(TapWhen(enabled: item.failed && line.canRetry, action: retry))
+                    .contextMenu { menu }
+            }
             if item.failed {
                 NotSentLine(text: line.text, canRetry: line.canRetry, action: retry)
                 // The Mac's own words for why, when it gave them.
@@ -815,9 +970,15 @@ struct PendingBubble: View {
         .accessibilityActions { deleteAction }
     }
 
+    @ViewBuilder private var menu: some View {
+        Button { UIPasteboard.general.string = item.text } label: { Label("Copy", systemImage: "doc.on.doc") }
+        if item.deletable { Button(role: .destructive, action: delete) { Label("Delete", systemImage: "trash") } }
+    }
+
     // Split out of body so the compiler type-checks each part on its own (CI's Xcode timed out on the whole chain).
     private var spokenLabel: String {
-        var said = ChatBubble.spoken(who: "You", at: item.shownAsSent ? item.at : nil, text: item.text)
+        var said = ChatBubble.spoken(who: "You", at: item.shownAsSent ? item.at : nil, text: words)
+        if !item.files.isEmpty { said += (words.isEmpty ? "" : ", ") + Board.filesSpoken(item.files.map(\.name)) }
         if item.failed {
             said += line.canRetry ? ", not sent, double-tap to try again" : ", not sent"
             if let reason { said += ". " + reason }

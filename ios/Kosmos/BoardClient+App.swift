@@ -25,7 +25,14 @@ extension BoardClient {
                 },
                 sleep: { seconds in try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) },
                 now: { Date() },
-                defaults: .standard
+                defaults: .standard,
+                // kosmos#7071: the file read from disk as it goes, through the same session (its Mac cookie).
+                upload: { request, file in
+                    guard let (data, response) = try? await http.upload(for: request, fromFile: file),
+                          let answer = response as? HTTPURLResponse
+                    else { return nil }
+                    return (data, answer)
+                }
             )
         )
     }
