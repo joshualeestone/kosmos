@@ -40,3 +40,21 @@ Today, Answer/Open into the native chat, Check it into the task page in the boar
 - stuck_rate stays its own reason with the board's PJ_NEEDS_WHY words and Open (Mona Lisa, 2026-10-24 02:45 CDT):
   #6341 keeps out-of-usage off a PROJECT, Today is per agent, so folding it into "other" would hide a reason the board
   can name. Her spec table is updated.
+
+## Review round 1
+- Fixed (blocker, measured by the reviewer on real rows): needsYouReason requires `present` and `tied`, which only
+  project member rows carry, so on real /api/status rows every reason but question and permission was 'other'. A
+  status row is now present by being listed and tied by isNamedOurs, as tasks.js waitingOnOf reads it.
+- Fixed (blocker, tests): the hand-built cards supplied that premise. Every reason test now starts from a real status
+  row, with a premise test that real rows carry no present/tied and are isNamedOurs (it goes stale loudly if that
+  changes). Mutants: dropping the fix, or tying a card the board does not call ours, both go red.
+- Fixed (major): a failed restart (a needs_you row with no question behind it) read as a question. New code
+  'restart_failed', board words "Kosmos restarted it, and it did not come back." (pjAlsoWhy), Open.
+- Fixed (major): the board's order. Failed restart, crash loop, offline trust, then the needs_you state, so the sentence
+  never contradicts the card's word ("Keeps stopping"). An agent-reported wait reads Question even on a permission
+  prompt, as labelOf words it.
+- Fixed (minor): needsYouReasonPastUsage, so a rate limit never hides a real reason.
+- Fixed (minor, existing since #7004): an offline card on its trust prompt had a quiet tone, so it would never reach
+  Today; its tone is now needs_you and its reason 'trust'. This also turns it red in the phone's Agents list.
+- Decided: a needs_you read off the screen with no reporter and no permission prompt is 'question' ("Waiting for your
+  answer.", Answer). The chat draws that screen's question with buttons (slice 3b), so Answer leads somewhere true.
