@@ -901,11 +901,64 @@ function serviceKeys() { return serviceKeyFiles.serviceKeyCheck(STATE_DIR(), { p
    KOSMOS_EXPECT_COORDINATOR_KEYS inherited from the launcher (a developer's export, say) is removed in every spelling:
    the board decided "no check", and an inherited list would refuse every registration on another coordinator. Set
    and removed through win32env, so a Windows child never gets two spellings (#5386). */
-function setupEnv() {
+function setupEnv(accepted = null) {
   const keys = serviceKeyFiles.expectedCoordinatorKeys({ production: COORDINATOR() === DEFAULT_COORDINATOR });
-  if (keys) return envSet({ ...process.env }, 'KOSMOS_EXPECT_COORDINATOR_KEYS', keys);
+  // kosmos#6596 step 8: a key the person accepted vouches for itself at the registration it was taken for.
+  if (keys || accepted) return envSet({ ...process.env }, 'KOSMOS_EXPECT_COORDINATOR_KEYS', [keys, accepted].filter(Boolean).join(','));
   const inherited = Object.keys(process.env).some((k) => k.toUpperCase() === 'KOSMOS_EXPECT_COORDINATOR_KEYS');
   return inherited ? envDelete({ ...process.env }, 'KOSMOS_EXPECT_COORDINATOR_KEYS') : null;
+}
+
+/* kosmos#6596 step 8, slice 2: the connector refuses a registration whose coordinator key differs from the one this
+   computer trusts when nothing vouches for it (kosmos-relay PinMismatch), and names the key it was offered after
+   OFFERED_KEY_LABEL (its own copy is setup.rs OFFERED_KEY_LABEL), in the pin's spelling: 43 base64url characters,
+   no padding, for 32 bytes. The person may accept it. The sign-in code is spent by the refused attempt, so the
+   acceptance is held for the NEXT registration run, which names it in KOSMOS_EXPECT_COORDINATOR_KEYS. It is held in
+   this process only, used once, voided by Forget, and ignored after an hour. Not by Start over or Sign out (the
+   sign-in epoch): Start over is how the person gets the new code that the accepted key is for. */
+const OFFERED_KEY_LABEL = 'the key it offered: ';
+const ACCEPTED_KEY_MS = 60 * 60 * 1000;
+let acceptedKey = null;
+function pinSpelledKey(text) {
+  if (typeof text !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(text)) return null;
+  const raw = Buffer.from(text, 'base64url');
+  // Canonical only, as the connector's decoder: the spare bits of the last character are zero.
+  return raw.length === 32 && raw.toString('base64url') === text ? text : null;
+}
+/* The key a refusal names, from anywhere in the text (the connector's message can arrive wrapped in context), or
+   null. A text naming two is not trusted to mean either. */
+function offeredKeyIn(text) {
+  if (typeof text !== 'string') return null;
+  const at = text.indexOf(OFFERED_KEY_LABEL);
+  if (at < 0 || text.indexOf(OFFERED_KEY_LABEL, at + 1) >= 0) return null;
+  const m = /^([A-Za-z0-9_-]+)\)/.exec(text.slice(at + OFFERED_KEY_LABEL.length));
+  return m ? pinSpelledKey(m[1]) : null;
+}
+/* Whether this computer holds a service key set file, usable or not. The connector never asks a person to accept a
+   key that contradicts a set signed by the recovery key (accepting would forget the set); the board keeps to that
+   even if a message names a key, and errs to "held" for a file it cannot judge. */
+function serviceKeySetHeld() {
+  try { fs.lstatSync(path.join(STATE_DIR(), trustkeys.STORE_FILE)); return true; } catch (e) { return !(e && e.code === 'ENOENT'); }
+}
+/* A failed registration that named the key it was offered, while no set is held: the page can offer to accept it. */
+function withKeyChange(result) {
+  if (!result || result.ok !== false || serviceKeySetHeld()) return result;
+  const offered = offeredKeyIn(String(result.stderr || '')) || offeredKeyIn(String(result.because || ''));
+  return offered ? { ...result, keyChanged: { offered } } : result;
+}
+function acceptOfferedKey(key) {
+  const k = pinSpelledKey(key);
+  if (!k) return { ok: false, because: 'that is not a key Kosmos+ offered' };
+  if (serviceKeySetHeld()) return { ok: false, because: 'this computer holds a signed list of Kosmos+ keys, so a different key cannot be accepted here' };
+  acceptedKey = { key: k, at: Date.now() };
+  return { ok: true, because: null };
+}
+/* The accepted key for the registration run starting now, once: taken, so a second run does not reuse it. */
+function takeAcceptedKey() {
+  const a = acceptedKey;
+  acceptedKey = null;
+  if (!a || Date.now() - a.at > ACCEPTED_KEY_MS || Date.now() < a.at) return null;
+  return a.key;
 }
 
 /** The switch. Turning on does not start anything by itself unless setup
@@ -1252,7 +1305,8 @@ function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
       resolve(result);
     };
     try {
-      const env = setupEnv();
+      // Only a registration run takes an accepted key (opts.register): no other verb registers.
+      const env = setupEnv(opts && opts.register ? takeAcceptedKey() : null);
       spawned = setupSpawn(BIN(), args, connectorSpawnOptions({ stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) }));
     } catch (err) {
       finish({ ok: false, because: 'the tunnel program could not be started: ' + (err && err.message) });
@@ -1473,6 +1527,7 @@ async function forget({ anyway = false } = {}) {
   // gets the first one's answer instead of retiring the same Mac beside it. kosmos#6389: except that a second
   // asking `anyway` does not settle for a first one's kept: it runs once the first has ended.
   if (forgetInFlight) return anyway ? forgetInFlight.then((got) => (got && got.kept ? forget({ anyway: true }) : got)) : forgetInFlight;
+  acceptedKey = null;   // kosmos#6596 step 8: an accepted key belonged to the trust being forgotten
   signinEpoch += 1;
   signinSession = null;
   companySetup = null;   // kosmos#5628 review 1: a forgotten Mac keeps no half-made company setup (nor its secret)
@@ -1675,7 +1730,7 @@ async function runSetupComplete(args, stdin, name) {
     const half = await clearHalfIdentity();
     if (half && half.kept) return KEPT_HALF(half.kept);
     if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
-    return explainStranded(await setupRun(args, stdin, registerTimeoutMs()), half, name);
+    return explainStranded(await setupRun(args, stdin, registerTimeoutMs(), { register: true }), half, name);
   })();
   registerInFlight = running;
   // A Forget or Sign out that lands while this waits: the Settings page must not
@@ -1697,7 +1752,7 @@ async function runSetupComplete(args, stdin, name) {
      until then. ttlMs 0 asks now. Not awaited: single-flighted, never throws, and the setup answer does not wait
      on a second network call. */
   if (result.ok) refreshStandingIfStale({ ttlMs: 0 });
-  return result;
+  return withKeyChange(result);
 }
 
 
@@ -4077,7 +4132,7 @@ async function signinRegister(name) {
     // not been sent yet, so it is not sent at all.
     if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
     return explainStranded(await setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
-      '--name', name, '--state-dir', STATE_DIR()], token, registerTimeoutMs()), half, name);
+      '--name', name, '--state-dir', STATE_DIR()], token, registerTimeoutMs(), { register: true }), half, name);
   })();
   registerInFlight = running;
   const offAt = offEpoch;
@@ -4089,7 +4144,7 @@ async function signinRegister(name) {
   if (epoch !== signinEpoch) return cancelledAfter(r, before, addressBefore, startedAt);
   if (!r.ok) {
     abandonChangedIdentity(before, addressBefore, startedAt);
-    return r;
+    return withKeyChange(r);
   }
   signinSession = null;   // the token is spent; it must not linger in this process
   /* #3827 (Josh's live test: registered, then the relay never heard from this Mac): ensure() starts the
@@ -4121,7 +4176,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { clearStateDir /* kosmos#6596 step 8 */, connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+module.exports = { clearStateDir, offeredKeyIn, acceptOfferedKey, OFFERED_KEY_LABEL /* kosmos#6596 step 8 */, connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,
@@ -4200,7 +4255,7 @@ module.exports = { clearStateDir /* kosmos#6596 step 8 */, connectorCapabilities
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   bumpSelfEpochForTests: () => { selfEpoch += 1; },
-  resetForTests: () => { tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; flushWaiting(); waitingInFlight = null; stopChild(); },
+  resetForTests: () => { acceptedKey = null; tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; flushWaiting(); waitingInFlight = null; stopChild(); },
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
