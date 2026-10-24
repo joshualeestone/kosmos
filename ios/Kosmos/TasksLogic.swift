@@ -166,6 +166,33 @@ enum Tasks {
         }
     }
 
+    // A live update while the list is on screen (slice 1's rule): every row keeps the group and place it was drawn in,
+    // with its fresh words; a row that is gone goes; a new row joins its own group, at the end. A row that changed
+    // group moves only when the list is laid out again (on appearing, or a pull to refresh), never under the thumb.
+    static func keepingPlaces(_ shown: [Section], with fresh: Board.TasksRead, project: String?) -> [Section] {
+        let rows = scoped(fresh.tasks, project: project)
+        var byId: [String: Board.TaskRow] = [:]
+        for t in rows where Tasks.groups.contains(where: { $0.key == t.state }) { byId[t.id] = t }
+        var placed = Set<String>()
+        var kept: [String: [Board.TaskRow]] = [:]
+        for s in shown {
+            kept[s.group.key] = s.rows.compactMap { old in
+                guard let t = byId[old.id], placed.insert(old.id).inserted else { return nil }
+                return t
+            }
+        }
+        for t in sortNewest(rows) where byId[t.id] != nil && !placed.contains(t.id) {
+            kept[t.state, default: []].append(t)
+            placed.insert(t.id)
+        }
+        return groups.compactMap { g in
+            let ts = kept[g.key] ?? []
+            let unknown = g.key == "decision" && fresh.rosterUnknown
+            if ts.isEmpty && !unknown { return nil }
+            return Section(group: g, rows: ts, unknown: unknown)
+        }
+    }
+
     // tskScoped, without the board's search and Created window (the phone has neither; both default to off).
     static func scoped(_ all: [Board.TaskRow], project: String?) -> [Board.TaskRow] {
         guard let project else { return all }

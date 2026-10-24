@@ -93,6 +93,19 @@ check(blindSections.first?.group.key == "decision" && blindSections.first?.unkno
       "agents unread: Needs Your Decision shows that it cannot tell, even empty, never a zero")
 check(Tasks.sections(few, project: nil).allSatisfy { !$0.unknown }, "control: agents read, no cannot-tell group")
 
+section("a live update keeps every row where it was drawn")
+let first = Board.TasksRead(tasks: [row(1, "working", created: 10), row(2, "nobody", created: 20), row(3, "working", created: 30)], rosterUnknown: false)
+let drawn = Tasks.sections(first, project: nil)
+let moved = Board.TasksRead(tasks: [row(1, "built", created: 10) { $0.builtAt = iso(5) }, row(2, "nobody", created: 20), row(4, "working", created: 1)], rosterUnknown: false)
+let live = Tasks.keepingPlaces(drawn, with: moved, project: nil)
+check(live.first { $0.group.key == "working" }?.rows.map(\.number) == [1, 4], "a row that changed group stays in place (with its fresh state); a new one joins its own group at the end")
+check(live.first { $0.group.key == "working" }?.rows.first?.state == "built", "the kept row carries its fresh words")
+check(!live.flatMap(\.rows).contains { $0.number == 3 }, "a row that is gone goes")
+check(live.flatMap(\.rows).filter { $0.number == 1 }.count == 1, "never twice")
+check(Tasks.sections(moved, project: nil).first { $0.group.key == "built" }?.rows.map(\.number) == [1], "control: laid out again, it moves to its new group")
+let emptied = Tasks.keepingPlaces(drawn, with: Board.TasksRead(tasks: [row(1, "working", created: 10)], rosterUnknown: true), project: nil)
+check(emptied.map(\.group.key) == ["decision", "working"] && emptied[0].unknown, "an emptied group goes; the cannot-tell group appears when the agents go unread")
+
 section("the dot")
 let decision = Tasks.groups[0]
 check(Tasks.dotToken(decision, count: 2, rosterUnknown: false) == "--tsk-decision", "red with something waiting")
