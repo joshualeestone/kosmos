@@ -81455,15 +81455,19 @@ function fedOwnWhen(at, withTime) {
   const n = Number(at);
   if (!Number.isFinite(n) || n <= 0) return '';
   const d = new Date(n);
+  if (Number.isNaN(d.getTime())) return '';   // out of Date's range: toLocaleString would say "Invalid Date"
   const o = { day: 'numeric', month: 'short' };
   if (d.getFullYear() !== new Date().getFullYear()) o.year = 'numeric';
   if (withTime) { o.hour = 'numeric'; o.minute = '2-digit'; }
   try { return d.toLocaleString(undefined, o); } catch { return ''; }
 }
-// Each allowed row's day, with the time where two rows share a day, so no two Remove buttons have the same name.
+/* Each allowed row's day, with the time where two rows share a day, and its place in the list ("2 of 3", oldest first)
+   where two still read the same (let in the same minute), so no two Remove buttons or dialogs name the same thing.
+   '' for a row the board gave no time. */
 function fedOwnWhens(allowed) {
   const day = allowed.map((a) => fedOwnWhen(a.at, false));
-  return allowed.map((a, i) => (day[i] && day.some((x, j) => j !== i && x === day[i]) ? fedOwnWhen(a.at, true) : day[i]));
+  const when = allowed.map((a, i) => (day[i] && day.some((x, j) => j !== i && x === day[i]) ? fedOwnWhen(a.at, true) : day[i]));
+  return when.map((w, i) => (w && when.some((x, j) => j !== i && x === w) ? w + ', ' + (i + 1) + ' of ' + allowed.length : w));
 }
 function fedOwnSpelled(code) { return String(code).replace('-', '').split('').join(' '); }
 function fedOwnCodeHtml(code, extra) {
@@ -81568,8 +81572,12 @@ async function fedOwnLoad(project, fromPress) {
   const pend = MEM_PENDING && MEM_PENDING.own;
   if (pend && pend.project === project && pend.gen === FED_OWN_GEN && FED_OWN_BUSY !== project
     && allowedAns && Array.isArray(allowedAns.computers) && !allowed.some((a) => a.pub === pend.pub)) {
+    /* Only that it is no longer listed: the board also lists nothing when the room's records cannot be read or this
+       computer is no longer the room's owner, so it is NOT said to be removed. A refusal the dialog was showing is
+       kept, since it is still the board's word on the press. */
+    const refused = (document.getElementById('mem-msg') || {}).textContent || '';
     fedOwnDialogDrop();
-    FED_OWN_MSG = { text: 'That computer is no longer listed here, so it does not read this room\'s new messages.', project, sig: fedOwnSig(FED_OWN), act: null };
+    FED_OWN_MSG = { text: 'That computer is no longer listed here.' + (refused && refused !== 'Removing…' ? ' ' + refused : ''), project, sig: fedOwnSig(FED_OWN), act: null };
     const said$ = document.getElementById('pj-fed-own-said');
     if (said$) { said$.textContent = ''; setTimeout(() => { if (FED_OWN_GEN === pend.gen) said$.textContent = FED_OWN_MSG ? FED_OWN_MSG.text : ''; }, 60); }
     fedOwnPaint();
@@ -81728,7 +81736,7 @@ async function fedOwnRemoveGo() {
   document.getElementById('mem-keep').focus();
   go.disabled = true;
   dlgLine.textContent = 'Removing…';
-  FED_OWN_SEQ++;   // a refresh already in flight answers from before the remove: it is dropped
+  FED_OWN_SEQ++; FED_OWN_ASKING = null;   // a refresh already in flight answers from before the remove: it is dropped
   FED_OWN_BUSY = f.project; FED_OWN_MSG = null; fedOwnPaint();
   const said$ = document.getElementById('pj-fed-own-said');
   if (said$) said$.textContent = '';
