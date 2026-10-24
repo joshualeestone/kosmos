@@ -1060,13 +1060,16 @@ do {
     check(web("report.html", "text/plain") && web("report.HTM", "application/octet-stream") && web("pic.svg", "image/png")
           && web("page", "text/html") && web("feed", "application/xhtml+xml") && web("a.webarchive", "") && web("data.xml", "")
           && web("saved.mht", "") && web("saved.mhtml", "application/octet-stream")
-          && web("page.html.", "application/octet-stream") && web("pic.svg. ", "") && web("x.webarchive..", ""),
+          && web("page.html.", "application/octet-stream") && web("pic.svg. ", "") && web("x.webarchive..", "")
+          && web("page.html\u{0}", "application/octet-stream") && web("page.html\u{0}\u{0}", "") && web("page.ht\u{200B}ml", ""),
           "a page or markup document, by its name or its type, whatever type the sender gave")
     check(!web("plan.pdf", "application/pdf") && !web("notes.txt", "text/plain") && !web("photo.png", "image/png") && !web("deck.pptx", "")
           && !web("noext", "application/octet-stream"), "CONTROL: ordinary files are not")
     check(Board.fileSymbol(r.attachments[0]) == "doc.richtext" && Board.fileSymbol(r.attachments[1]) == "doc", "the symbol for a file with no picture")
     check(Board.savedName("../etc/passwd") == "-etc-passwd" && Board.savedName(".hidden") == "hidden" && Board.savedName("  ") == "file"
           && Board.savedName("a:b.pdf") == "a-b.pdf", "a saved name is never a path, never hidden, never empty")
+    check(Board.savedName("page.html\u{0}") == "page.html" && Board.savedName("a\u{202E}b.pdf") == "ab.pdf" && Board.savedName("x\u{7}y.txt") == "xy.txt",
+          "control and format characters never reach the saved name")
     check(Board.savedName("Q3.final", type: "application/pdf") == "Q3.final.pdf" && Board.savedName("v1.2 report", type: "application/pdf") == "v1.2 report.pdf",
           "a dot in the name is not an extension unless an app knows it")
     check(Board.savedName("report", type: "application/pdf") == "report.pdf" && Board.savedName("report.txt", type: "application/pdf") == "report.txt"
@@ -1670,6 +1673,20 @@ section("native board loop: connecting")
         w.attachmentAnswer = (200, "image/png", big)
         await c.loadThumbnail(gone)
         check(w.attachmentAsks.count == after404 && c.thumbnails[gone.id] == nil, "a picture the Mac does not have (404) is not asked again")
+        let svg = Board.Attachment(id: "9999999999999999999999cc", name: "logo.svg", type: "image/svg+xml", size: 1, kind: "image",
+                                   url: "/api/attachment/9999999999999999999999cc", preview: "/api/attachment/9999999999999999999999cc/preview")
+        w.attachmentAnswer = (200, "image/svg+xml", Data("<svg/>".utf8))
+        await c.loadThumbnail(svg)
+        let afterSvg = w.attachmentAsks.count
+        await c.loadThumbnail(svg)
+        check(w.attachmentAsks.count == afterSvg && c.thumbnails[svg.id] == nil, "a picture the phone cannot draw is not downloaded again")
+        let signIn = Board.Attachment(id: "9999999999999999999999dd", name: "p.pdf", type: "application/pdf", size: 1, kind: "pdf",
+                                    url: "/api/attachment/9999999999999999999999dd", preview: "/api/attachment/9999999999999999999999dd/preview")
+        w.attachmentAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
+        await c.loadThumbnail(signIn)
+        w.attachmentAnswer = (200, "image/png", big)
+        await c.loadThumbnail(signIn)
+        check(c.thumbnails[signIn.id] != nil, "the gate's sign-in page in place of a picture is asked again")
         let asks = w.attachmentAsks.count
         await c.loadThumbnail(pdf2)
         check(w.attachmentAsks.count == asks, "and is asked for once")

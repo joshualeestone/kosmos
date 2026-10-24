@@ -582,7 +582,12 @@ enum Board {
     // The name the file is saved under for Quick Look: its own name, never a path, never hidden, never empty, and with
     // an extension Quick Look can pick a viewer by (from its type, when the name has none).
     static func savedName(_ name: String, type: String = "") -> String {
-        let cleaned = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        // No control or format characters (a NUL ends a path where it stands, so "page.html\u{0}" would be written as
+        // page.html), as the Mac's own safeName strips them.
+        let visible = String(String.UnicodeScalarView(name.unicodeScalars.filter {
+            $0.properties.generalCategory != .control && $0.properties.generalCategory != .format
+        }))
+        let cleaned = visible.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
             .trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
         var base = cleaned.isEmpty ? "file" : String(cleaned.prefix(160))
         // No extension, or one no app knows ("Q3.final", "v1.2 report"): Apple's lookup makes up a dynamic type for those.
