@@ -22,4 +22,9 @@ the room suite covers it against the real route's answer, and it is merged.
 ## Steps
 1. Model, view, suite, builds. DONE (room 129/129, run 1065, actions 97, settings 41, tasks 90; Debug and the
    KOSMOS_STORE_SHOTS Release build SUCCEEDED; control: roomWords returning the raw text goes red).
-2. Review loop. 3. Validation, PR.
+2. Review loop. Round 1: 0 blockers, 3 warnings, 5 nits. Fixed: the chat's chatEpoch guard and reset on files;
+   cards hidden inside the post's combined VoiceOver element so each file is offered once (its action says when it
+   failed); the single-attachment test made able to fail (a hand-made row); a source check that the bubble draws
+   roomWords; the chat's 6pt card spacing; the unnamed-file difference from pjWords noted. Left as is (inherited
+   from the chat, stated): watching the whole client; Quick Look state lost if the room is replaced.
+3. Validation, PR.

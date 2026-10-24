@@ -89,6 +89,13 @@ struct RoomView: View {
         .onChange(of: previewURL) { now in
             if let was = openedFile, was != now { client.closed(was); openedFile = now }
         }
+        // Signed out, another account or another Mac: the files this room showed belong to the one before (the chat's
+        // reset, review 1).
+        .onChange(of: client.chatEpoch) { _ in
+            fileStates = [:]
+            previewURL = nil
+            openedFile = nil
+        }
         .onChange(of: scenePhase) { phase in
             if phase == .background { loop?.cancel(); loop = nil } else if phase == .active && visible && loop == nil { start() }
         }
@@ -165,8 +172,12 @@ struct RoomView: View {
         if Board.isWebDocument(name: f.name, type: f.type) { openBoardPage(); return }
         guard !fileStates.values.contains(.loading), previewURL == nil else { return }
         fileStates[f.id] = .loading
+        let opened = client.chatEpoch
         Task {
             let file = await client.fetchFile(f)
+            // Signed out, another account or another Mac while it came: the file belongs to the one before (review 1,
+            // the chat's guard).
+            guard opened == client.chatEpoch else { if let file { client.closed(file) }; return }
             fileStates[f.id] = file == nil ? .failed : .ready
             guard let file else { return }
             // Left the room while it came: nothing will show it, so it goes now.
@@ -425,9 +436,10 @@ struct RoomBubble: View {
                 Button("Reply", action: reply)
             }
             Button("Copy") { UIPasteboard.general.string = row.text }
-            // The post is read as one element, so its file cards are reached as actions on it (kosmos#7062).
+            // The post is read as one element and its cards are hidden from it, so each file is an action on it
+            // (kosmos#7062), with what the card would have said while it opens or after it fails.
             ForEach(Array(row.attachments.enumerated()), id: \.offset) { _, f in
-                Button("Open \(f.name)") { openFile(f) }
+                Button(fileStates[f.id] == .failed ? "Open \(f.name) again (it could not be opened)" : "Open \(f.name)") { openFile(f) }
             }
         }
     }
@@ -465,10 +477,17 @@ struct RoomBubble: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             // One card per file, by position as well as id (a post that names one file twice draws two). While one is
-            // on its way the others wait, as in the chat.
-            ForEach(Array(row.attachments.enumerated()), id: \.offset) { _, f in
-                FileCard(file: f, thumbnail: thumbnails[f.id], state: fileStates[f.id] ?? .ready,
-                         waiting: fileStates.values.contains(.loading) && fileStates[f.id] != .loading, open: { openFile(f) })
+            // on its way the others wait, as in the chat. The post is one VoiceOver element, so the cards are hidden from
+            // it and each file is offered once, as the post's "Open <name>" action (review 1: never twice).
+            if !row.attachments.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(row.attachments.enumerated()), id: \.offset) { _, f in
+                        FileCard(file: f, thumbnail: thumbnails[f.id], state: fileStates[f.id] ?? .ready,
+                                 waiting: fileStates.values.contains(.loading) && fileStates[f.id] != .loading, open: { openFile(f) })
+                    }
+                }
+                .padding(.top, words.isEmpty ? 0 : 2)
+                .accessibilityHidden(true)
             }
         }
         .padding(.vertical, 8).padding(.horizontal, 12)
