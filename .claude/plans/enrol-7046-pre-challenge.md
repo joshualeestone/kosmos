@@ -25,3 +25,16 @@ Every round is in `.claude/plans/enrol-7046.md`.
 - iOS logic tests: run.sh 920/920 (8 new on main's 912), run-actions.sh 97/97, run-settings.sh 41/41.
 - Simulator build clean. Shots (light, dark, largest text): ~/work/design-shots/kosmos-7046/.
 - Both browser-check gates: 0 (no web change).
+
+#### Iteration 1
+- [WARNING] the copied key sat on the clipboard with no expiry and went to other devices --> FIXED (local-only, 2 min)
+- [WARNING] a second submit in flight hid a success the server had made --> FIXED (no press while busy)
+- [WARNING] an expired setup kept the person on the code screen --> FIXED (start again goes to the email)
+- [NIT] "Use text messages instead" shown when texts cannot be sent --> FIXED
+- [NIT] no test of confirm's real answer --> FIXED
+- [STRENGTH] the enrol-only token can never be taken as a session; only otpauth://totp/ links are opened
+#### Iteration 2
+- [WARNING] the start-again handling covered confirm, not setup --> FIXED
+- [NIT] account-gone sentences kept the person on the screen --> FIXED
+#### Iteration 3
+- [NIT] signed-out-since sentences ("sign in again") kept the person on the screen --> FIXED, tested
