@@ -35,6 +35,18 @@ and route), which is stacked on orgkeys-6596. Lands after both.
 - Arms ($S/as-arms.py, the page mutated in place and restored): M1 Do not accept live during Accept, M2 the company
   flag dropped, M3 the primary moved off Do not accept, M4 the sign-in title kept: each red on its own check.
 
+## Review 2: no real bug; design approved at bbe0d76ae1 (Mona Lisa)
+- Mona Lisa kept the neutral title and gave the first sentence: "This computer does not recognise it, so it did not
+  sign in." (the page's own copy spells it "recognise"); no reshoot needed for it.
+- Taken from review 2's low notes: the decline message said the computer trusts "its own key" (it trusts the Kosmos+
+  key it had); a refused Accept now puts the focus back on Do not accept (the pressed button was disabled under it);
+  the check's refused arm fails with a message, not a TypeError, if the Accept never reaches the route.
+- Kept: the typed-name register is not driven by the check (the owned-address and company paths are; all three share
+  plusSiPost's epoch check and the same one-line call); the offered key stays in a hidden panel after Start over (the
+  next refusal overwrites it and the engine accepts only the last offer); the inset colours are fixed values on the
+  always-navy card, as the sibling rules are.
+- Checks after: sign-in 206 pass 0 fail, company 22 pass 0 fail; divs 37/37.
+
 ## Rejected
 - Showing a short fingerprint: the person compares against what an administrator tells them, and a shortened key
   invites a match on the part shown. The whole key costs two lines at phone width.
@@ -54,4 +66,5 @@ web.plus-connect-5787.test.js: its control on the step list now allows steps aft
 
 ## Progress
 - [x] page, browser check
-- [ ] design review (design-shots), challenge-loop, validation, PR
+- [x] design review (approved at bbe0d76ae1), challenge-loop (2 rounds, the last with no real bug)
+- [ ] validation, PR (after acceptkey-6596 merges)
