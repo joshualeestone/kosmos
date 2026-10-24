@@ -429,14 +429,16 @@ final class BoardWeb: ObservableObject {
     /// kosmos#7042 review round 7: sessions the app dropped (backed out of, or ended) this launch. The page may hold one
     /// (it was stored there), and its restore() would hand it back; each document's start removes it, and the page
     /// showing now is cleared at once.
-    private var forgotten: [String] = []
+    private(set) var forgotten: [String] = []
 
+    /// A dropped session also lives in the page's own memory (its `session`, its Allow watch, which can open the Mac
+    /// signed in as it), which no script reaches, so the hidden web view starts a fresh document on the sign-in page,
+    /// whose start removes it (review round 8). Only ever from the native sign-in, which covers the screen, so no page
+    /// the person is using is lost.
     func forget(_ token: String) {
         forgotten.append(token)
         sessionChanged()
-        guard let webView, webView.url?.host == AppTabs.signInHost, let origin = SignIn.pageOrigin(KosmosConfig.coordinatorOrigin),
-              let source = SignIn.sessionScript(token: nil, forget: [token], origin: origin) else { return }
-        webView.evaluateJavaScript(source)
+        webView?.load(URLRequest(url: KosmosConfig.boardURL))
     }
 
     /// A NATIVE sign-in just finished while the page left showing is the sign-in page (signed out on it earlier in the
@@ -600,7 +602,7 @@ struct WebView: UIViewRepresentable {
         )
         // Every page knows it is inside the app's tab bar, so the board hides its own (#6846 part c). kosmos#7042: and the
         // sign-in page starts with the app's session (BoardWeb.userScripts).
-        BoardWeb.userScripts(session: SessionKeychain.live.load()).forEach(config.userContentController.addUserScript)
+        BoardWeb.userScripts(session: SessionKeychain.live.load(), forget: web.forgotten).forEach(config.userContentController.addUserScript)
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = web.coordinator

@@ -160,6 +160,9 @@ final class PushNotificationManager: NSObject, ObservableObject {
         // at once rather than at the next visit. (Forgotten on this iPhone; the Mac ends the session on its own
         // schedule, as for the web view.) Read before the registrar stores the new session.
         let before = SessionKeychain.live.load()
+        // kosmos#7042 review round 8: held in the registrar's memory too, which keeps a session the keychain could not
+        // save (for the launch).
+        let held = registrar.session ?? before
         registrar.didReceive(message)
         var changed = message == .signedOut
         if case .signedIn(let session) = message, session != before { changed = true }
@@ -168,7 +171,7 @@ final class PushNotificationManager: NSObject, ObservableObject {
             UserDefaults.standard.removeObject(forKey: Board.rememberedMacKey)
             // A sign-out of a session the app held: one that arrives with nothing held (the page clearing a session
             // the app had already dropped) brings nothing back (review round 7).
-            lastChangeSignedOut = message == .signedOut && before != nil
+            lastChangeSignedOut = message == .signedOut && held != nil
             accountChanges += 1
         }
     }

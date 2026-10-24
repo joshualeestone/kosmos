@@ -132,3 +132,11 @@ Parity: restart clears the previous address, as the page does.
 2. [LOW-MEDIUM] After "This sign-in ended", the web route bounced back to the native screen (the page's 401 posted
    signed-out, and round 5's restart fired). FIXED: an ended session is dropped like one backed out of (which also
    closes round 1's residual 5), and the restart fires only on a sign-out of a session the app held.
+
+## Review round 8 (blind, 07:3x)
+1. [MEDIUM-LOW] Removing a dropped session from storage did not stop the hidden page still running with it in
+   memory (its own Allow watch could open the Mac signed in as the account left). FIXED: forget() also loads a fresh
+   document on the sign-in page, whose start removes it. Only ever from the native sign-in, which covers the screen.
+2. [LOW] A web view rebuilt after a drop did not carry the forgotten list. FIXED: makeWebView passes it.
+3. [LOW] "A session the app held" was read from the keychain only; a session it could not save is held by the
+   registrar for the launch. FIXED: the registrar's session first, the keychain second.
