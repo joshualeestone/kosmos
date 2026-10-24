@@ -39,6 +39,7 @@ function harness({ edges = [], computers = null } = {}) {
     spawnSeat: (edge) => { const c = fakeChild(); c.edge = edge; h.spawned.push(c); return c; },
     macRequest: async (method, route) => {
       h.asked.push(route);
+      if (h.gate) await h.gate;   // a test holds the answer back
       if (route === COMPUTERS) return answer(computers) || { ok: false, because: 'no answer' };
       return { ok: true, data: { as_owner: answer(edges), as_member: [] } };
     },
@@ -182,14 +183,27 @@ async function ownComputer(id, room, opts) {
 }
 const forged = (room) => ({ event: 'message', data: fedseal.seal(fedseal.randomSecret(), 0, room, { from: 'x', kind: 'person', text: 'forged' }) });
 
-test('#7028: Kosmos+ lists no edge for the project, so a sealed-looking frame is forged: the record clears and held posts go', async () => {
+test('#7028: Kosmos+ lists no edge for the project, so a sealed-looking frame is forged: the record clears, and a post held meanwhile is told, never sent in the clear', async () => {
   const { h, seat } = await ownComputer('fg-1', 'room-fg-1', { edges: [{ id: 'other', project_ref: 'ref-somewhere-else', status: 'active' }] });
+  let release;
+  h.gate = new Promise((r) => { release = r; });
   say(seat, forged('room-fg-1'));
   await settle();
+  // The answer is still out: the room reads sealed with no key, so the post is held, not sent.
   fedseats.post('fg-1', { from: 'Josh', kind: 'person', text: 'held then sent' });
   await settle();
+  assert.ok(!seat.written.join('').includes('held then sent'), 'a post went out while the room read sealed');
+  h.gate = null;
+  release();
+  await settle();
   assert.strictEqual(fedseal.roomState('fg-1'), null, 'the keyless record survived a "never sealed" answer');
-  assert.ok(seat.written.join('').includes('held then sent'), 'the post stayed held');
+  // Written while the room read sealed, so it never leaves in the clear (sendPost's sealedHeld rule); the person is
+  // told now, not after the hour a held post waits.
+  assert.ok(!seat.written.join('').includes('held then sent'), 'a post written for a sealed room went out in the clear');
+  assert.ok(h.notes.some((n) => n.projectId === 'fg-1' && /held message was not sent/.test(n.text)), 'the held post was not told');
+  fedseats.post('fg-1', { from: 'Josh', kind: 'person', text: 'after the clear' });
+  await settle();
+  assert.ok(seat.written.join('').includes('after the clear'), 'a new post after the clear did not go');
   // A second forged frame within the cooldown records nothing and asks nothing.
   const asked = h.asked.length;
   say(seat, forged('room-fg-1'));
