@@ -55,9 +55,13 @@ extension Board {
     }
 
     struct Refusal: Equatable {
+        // The agent's session name (what a fold dedupes by) and its shown name.
+        var key: String? = nil
         let who: String?
         let doing: String?
         let because: String?
+        // The board draws an Add button on it, so it never folds (pjFoldRoomRows).
+        var addable = false
     }
 
     struct RoomPage: Equatable {
@@ -84,15 +88,17 @@ extension Board {
 
     // The board's words for Kosmos's lines in a room (web/index.html pjRoomRow, the room's text view in server.js).
     static let valveFallback = "This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in."
+    // One refusal (web/index.html pjRoomRow 'refused'), or a folded run of them ('refused-group': "stopped them").
     static func refusedLine(_ names: [String], doing: String?, because: String?) -> String {
         let who: String
         switch names.count {
         case 0: who = "An agent"
         case 1: who = names[0]
-        case 2: who = names[0] + " and " + names[1]
         default: who = names.dropLast().joined(separator: ", ") + " and " + names.last!
         }
-        return "\(who) tried to \(doing ?? "post") here and Kosmos stopped it: \(because ?? "no reason recorded")"
+        let reason = sentence(because.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? "no reason was recorded")
+        if names.count > 1 { return "\(who) tried to post here and Kosmos stopped them: \(reason)" }
+        return "\(who) tried to \(doing ?? "post") here and Kosmos stopped it: \(reason)"
     }
 
     // A page of the room route. nil for an answer that is not a room (the caller says it could not read it).
@@ -140,9 +146,10 @@ extension Board {
                 let who = (r["from"] as? String).map(shown)
                 let because = r["because"] as? String
                 let doing = r["doing"] as? String
+                let doingWord = doing.flatMap { $0.isEmpty ? nil : $0 }
                 var row = RoomRow(id: "r|" + fallbackId, atRaw: at, at: isoDate(at), kind: .kosmos, from: nil, byPerson: false,
-                                  text: refusedLine(who.map { [$0] } ?? [], doing: doing, because: because))
-                row.refusal = Refusal(who: who, doing: doing, because: because)
+                                  text: refusedLine(who.map { [$0] } ?? [], doing: doingWord, because: because))
+                row.refusal = Refusal(key: r["from"] as? String, who: who, doing: doingWord, because: because, addable: isTrue(r["addable"]))
                 rows.append(row)
             default:
                 continue   // a kind this build does not know is left out, never drawn as something it is not
@@ -153,22 +160,36 @@ extension Board {
                         held: obj["held"] is [String: Any])
     }
 
-    // Consecutive refusals for the same reason fold into one line naming everyone (Josh 09-10: "It's just a string of
-    // notifications"), keyed on the run's first row. Run on the merged rows, so a run split across pages is still one.
+    // Consecutive refusals for the same reason fold into one line naming every agent once (Josh 09-10: "It's just a
+    // string of notifications"), as the board's pjFoldRoomRows: never one that says what was tried (`doing`) or carries
+    // an Add, and only when at least two agents are in the run (one agent held twice keeps its rows). The line takes
+    // the run's first row's id and its last row's time. Run on the merged rows, so a run split across pages is one.
     static func foldRefusals(_ rows: [RoomRow]) -> [RoomRow] {
+        func foldable(_ r: RoomRow) -> Refusal? {
+            guard let f = r.refusal, !f.addable, f.doing == nil else { return nil }
+            return f
+        }
         var out: [RoomRow] = []
-        var names: [String] = []
-        for r in rows {
-            if let f = r.refusal, let last = out.last, let lf = last.refusal, lf.because == f.because, let who = f.who, !names.isEmpty {
-                if !names.contains(who) { names.append(who) }
-                var folded = RoomRow(id: last.id, atRaw: last.atRaw, at: last.at, kind: .kosmos, from: nil, byPerson: false,
-                                     text: refusedLine(names, doing: lf.doing, because: lf.because))
-                folded.refusal = lf
-                out[out.count - 1] = folded
-                continue
+        var i = 0
+        while i < rows.count {
+            guard let first = foldable(rows[i]) else { out.append(rows[i]); i += 1; continue }
+            var keys: [String] = []
+            var names: [String] = []
+            var j = i
+            while j < rows.count, let f = foldable(rows[j]), (f.because ?? "") == (first.because ?? "") {
+                let k = f.key ?? f.who ?? ""
+                if !keys.contains(k) { keys.append(k); names.append(f.who ?? k) }
+                j += 1
             }
-            names = r.refusal?.who.map { [$0] } ?? []
-            out.append(r)
+            if keys.count > 1 {
+                var folded = RoomRow(id: rows[i].id, atRaw: rows[j - 1].atRaw, at: rows[j - 1].at, kind: .kosmos, from: nil,
+                                     byPerson: false, text: refusedLine(names, doing: nil, because: first.because))
+                folded.refusal = first
+                out.append(folded)
+            } else {
+                out.append(contentsOf: rows[i..<j])
+            }
+            i = j
         }
         return out
     }
@@ -184,10 +205,12 @@ extension Board {
             byId[r.id] = r
         }
         let merged = order.compactMap { byId[$0] }
-        // Stable by time: rows with no time keep their place relative to each other.
+        // Stable by time: rows with no time keep their place relative to each other. Parsed times are compared when
+        // both have one (a time kept without milliseconds, "…:00Z", sorts after "…:00.500Z" as text); text otherwise.
         return merged.enumerated().sorted { a, b in
+            if let x = a.element.at, let y = b.element.at, x != y { return x < y }
             switch (a.element.atRaw, b.element.atRaw) {
-            case let (x?, y?) where x != y: return x < y
+            case let (x?, y?) where x != y && (a.element.at == nil || b.element.at == nil): return x < y
             default: return a.offset < b.offset
             }
         }.map { $0.element }

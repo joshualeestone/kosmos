@@ -32,10 +32,10 @@ struct ContentView: View {
     // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
     // The App Store screenshot build
     // (ios/store/shoot-app.sh) photographs board screens in the web view, opened by address, so it lights the tab
-    // that address belongs to (a project room under Projects).
+    // the bar gives that page (kosmos#7032: Projects is native now, so a project room's page shows under Today).
     #if KOSMOS_STORE_SHOTS
-    @State private var tab = AppTabs.keep(AppTabs.tab(forBoardURL: KosmosConfig.shotsOrigin),
-                                          tasksTab: UserDefaults.standard.bool(forKey: AppTabs.rememberedTasksKey))
+    @State private var tab = AppTabs.barTab(forPage: AppTabs.tab(forBoardURL: KosmosConfig.shotsOrigin),
+                                            tasksTab: UserDefaults.standard.bool(forKey: AppTabs.rememberedTasksKey))
     #else
     // Not signed in yet (a first launch): open on Today, the board, where the sign-in is (the spec's "today's sign-in
     // flow"). Read once per launch (a static), not on every redraw. A launch before first unlock reads no session and
@@ -176,8 +176,8 @@ struct ContentView: View {
         .onChange(of: web.answeredTab) { back in
             guard let back = back else { return }
             web.answeredTab = nil
-            // The board can be on a Tasks section the bar does not offer (a project's View all): it lights Projects,
-            // and the page stays.
+            // The board can be on a Tasks section the bar does not offer (a project's View all): it lights Today
+            // (Projects is native, kosmos#7032), and the page stays.
             let shown = AppTabs.barTab(forPage: back, tasksTab: web.tasksTab)
             // kosmos#7030: a board page that lights Today shows under it, not behind the native screen.
             if shown == .today { todayBoard = true }
@@ -196,6 +196,9 @@ struct ContentView: View {
         }
         // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing. Only a real change of tab
         // moves anything (review 1: Tasks coming or going while the native Today shows must not swap it for the board).
+        // kosmos#7032: with Projects native, no tab hosts the board page until Tasks is earned, so the bar also learns
+        // it from the native status poll (the engine's flag; once shown it stays, so this only ever adds the tab).
+        .onChange(of: board.tasksTab) { earned in if earned == true { web.earnTasks() } }
         .onChange(of: web.tasksTab) { shown in
             let kept = AppTabs.keep(tab, tasksTab: shown)
             guard kept != tab else { return }
@@ -548,6 +551,12 @@ final class BoardWeb: ObservableObject {
                 self.readTasks()
             }
         }
+    }
+
+    // The status poll says Tasks is earned (BoardClient.tasksTab): shown and remembered, as a page read would.
+    func earnTasks() {
+        UserDefaults.standard.set(true, forKey: AppTabs.rememberedTasksKey)
+        if !tasksTab { tasksTab = true }
     }
 
     private func readTasks() {

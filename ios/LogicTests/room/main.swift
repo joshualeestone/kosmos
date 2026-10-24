@@ -36,9 +36,10 @@ check(rows[safe: 1]?.mentioned == ["cleo"], "the agents a post addressed")
 check(rows[safe: 4]?.replyTo == "m2", "a reply names the post it answers")
 check(rows[safe: 4]?.reactions == [Board.Reaction(emoji: "🔥", count: 2, mine: true)], "a reaction pill, with the person's own marked")
 check(rows[safe: 5]?.externalAgent == true && rows[safe: 5]?.from == "Maple", "an outside agent's message")
-check(rows[safe: 6]?.refusal == Board.Refusal(who: "Dana", doing: nil, because: "it is not on this project"), "a refusal keeps who, and why")
+check(rows[safe: 6]?.refusal == Board.Refusal(key: "dana", who: "Dana", doing: nil, because: "it is not on this project"), "a refusal keeps who, and why")
+check(rows[safe: 6]?.text == "Dana tried to post here and Kosmos stopped it: It is not on this project.", "one refusal, in the board's words (its reason as a sentence)")
 let folded = Board.foldRefusals(rows)
-check(folded.count == rows.count - 1 && folded[safe: 6]?.text == "Dana and Gus tried to post here and Kosmos stopped it: it is not on this project",
+check(folded.count == rows.count - 1 && folded[safe: 6]?.text == "Dana and Gus tried to post here and Kosmos stopped them: It is not on this project.",
       "consecutive refusals for one reason are one line naming everyone, in the board's words")
 check(rows[safe: 8]?.text == "This went back and forth for a while, so Kosmos stopped it.", "a valve's own reason")
 check(page?.olderCount == 0 && page?.olderCursor == nil, "the whole room fit: no older page")
@@ -77,11 +78,31 @@ let fromGus = Array(rows.suffix(3))
 check(fromGus.first?.refusal?.who == "Gus", "premise: this page begins at the run's second refusal")
 let splitItems = Board.roomItems(Board.mergeRoom(fromGus, with: rows), now: now, calendar: cal)
 let refusalLines = splitItems.compactMap { i -> String? in if case let .row(r, _, _) = i.kind, r.refusal != nil { return r.text } else { return nil } }
-check(refusalLines == ["Dana and Gus tried to post here and Kosmos stopped it: it is not on this project"], "a run split across pages is one line: \(refusalLines)")
-var otherReason = rows; otherReason[7].refusal = Board.Refusal(who: "Gus", doing: nil, because: "quiet hours")
+check(refusalLines == ["Dana and Gus tried to post here and Kosmos stopped them: It is not on this project."], "a run split across pages is one line: \(refusalLines)")
+var otherReason = rows; otherReason[7].refusal = Board.Refusal(key: "gus", who: "Gus", doing: nil, because: "quiet hours")
 check(Board.foldRefusals(otherReason).count == rows.count, "CONTROL: refusals for different reasons stay two lines")
+var tried = rows; tried[7].refusal = Board.Refusal(key: "gus", who: "Gus", doing: "react", because: "it is not on this project")
+check(Board.foldRefusals(tried).count == rows.count, "a refusal that says what was tried keeps its own line (pjFoldRoomRows)")
+var addable = rows; addable[6].refusal?.addable = true
+check(Board.foldRefusals(addable).count == rows.count, "an addable refusal keeps its own line")
+var twice = rows; twice[7].refusal = Board.Refusal(key: "dana", who: "Dana", doing: nil, because: "it is not on this project")
+check(Board.foldRefusals(twice).count == rows.count, "one agent held twice is not a group: two lines, as the board")
+check(Board.refusedLine(["Dana"], doing: nil, because: nil) == "Dana tried to post here and Kosmos stopped it: No reason was recorded.", "no reason, in the board's words")
+let boardPage = (try? String(contentsOf: URL(fileURLWithPath: ProcessInfo.processInfo.environment["KOSMOS_REPO"] ?? ".").appendingPathComponent("web/index.html"), encoding: .utf8)) ?? ""
+check(boardPage.contains("' here and Kosmos stopped it: '") && boardPage.contains("' tried to post here and Kosmos stopped them: '") && boardPage.contains("'no reason was recorded'"),
+      "the board still draws these words (web/index.html pjRoomRow), so a change there fails here")
 let late = Board.RoomRow(id: "m9", atRaw: "2026-10-22T15:02:30.000Z", at: nil, kind: .post, from: "dana", byPerson: false, text: "late")
 check(Board.mergeRoom(rows, with: [late]).map { $0.id }.firstIndex(of: "m9") == 3, "a post written late lands in its time place")
+
+let whole = Board.RoomRow(id: "m60", atRaw: "2026-10-22T15:02:00Z", at: Board.isoDate("2026-10-22T15:02:00Z"), kind: .post, from: "eli", byPerson: false, text: "a")
+let half = Board.RoomRow(id: "m61", atRaw: "2026-10-22T15:02:00.500Z", at: Board.isoDate("2026-10-22T15:02:00.500Z"), kind: .post, from: "eli", byPerson: false, text: "b")
+check(whole.at != nil && half.at != nil, "premise: both times parse")
+check(Board.mergeRoom([half], with: [whole]).map { $0.id } == ["m60", "m61"], "a time kept without milliseconds sorts by when it was, not as text")
+
+section("Tasks earned from the status poll (no board page needed)")
+check(AppTabs.tasksTab(fromStatus: Data(#"{"agents":[],"tasksTab":true}"#.utf8)) == true, "the engine's flag on, read")
+check(AppTabs.tasksTab(fromStatus: Data(#"{"agents":[],"tasksTab":false}"#.utf8)) == false, "CONTROL: off reads off")
+check(AppTabs.tasksTab(fromStatus: Data(#"{"agents":[]}"#.utf8)) == nil, "an older Mac that does not say: nothing")
 
 section("a re-read after more than a page arrived")
 let away = Board.RoomPage(rows: [Board.RoomRow(id: "m80", atRaw: "2026-10-22T17:00:00.000Z", at: nil, kind: .post, from: "eli", byPerson: false, text: "later")],

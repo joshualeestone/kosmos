@@ -28,11 +28,29 @@ final class RoomStore: ObservableObject {
     private let client: BoardClient
     init(client: BoardClient) { self.client = client }
 
+    // Sign-out, another account or another Mac (the client's chatEpoch): nothing of the one before is kept, and a read
+    // that was in the air when it moved is dropped (each read checks `same`).
+    func reset() {
+        list = nil; listState = .reaching
+        rows = [:]; older = [:]; roomFailed = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
+    }
+    private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
+
     func loadList() async {
         #if DEBUG
         if Self.sample { list = Board.parseProjects(Data(Self.sampleProjects.utf8)); listState = .shown; return }
         #endif
+        // Not connected yet (a cold start, or the Mac asking for Allow): still reaching, never "we cannot read your
+        // projects". Signed out, no Mac, or unreachable is a real "cannot read".
+        if client.macURL == nil {
+            switch client.phase {
+            case .starting, .connecting, .waitingForAllow: return
+            default: if list == nil { listState = .failed }; return
+            }
+        }
+        let epoch = client.chatEpoch
         let answer = await client.throughMac { Board.projectsRequest(mac: $0) }
+        guard same(epoch) else { return }
         if let answer, answer.1.statusCode == 200, let parsed = Board.parseProjects(answer.0) {
             list = parsed; listState = .shown
         } else if list == nil {
@@ -48,7 +66,9 @@ final class RoomStore: ObservableObject {
             older[project] = (0, nil); return
         }
         #endif
+        let epoch = client.chatEpoch
         let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize) }
+        guard same(epoch) else { return }
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
             roomFailed.insert(project); return
         }
@@ -65,7 +85,9 @@ final class RoomStore: ObservableObject {
         loadingOlder.insert(project)
         olderFailed.remove(project)
         defer { loadingOlder.remove(project) }
+        let epoch = client.chatEpoch
         let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, cursor: cursor) }
+        guard same(epoch) else { return }
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
             olderFailed.insert(project); return
         }
@@ -84,7 +106,9 @@ final class RoomStore: ObservableObject {
         #if DEBUG
         if Self.sample { pending[project]?.removeAll { $0.id == item.id }; return nil }
         #endif
+        let epoch = client.chatEpoch
         let answer = await client.throughMac { Board.roomPostRequest(mac: $0, project: project, text: item.text, replyTo: replyTo) }
+        guard same(epoch) else { return nil }
         let result = Board.roomPostResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
         if case let .posted(note) = result {
             notes[project] = note
@@ -98,7 +122,8 @@ final class RoomStore: ObservableObject {
 
     func discard(_ id: String, in project: String) { pending[project]?.removeAll { $0.id == id } }
 
-    // A refused post whose words went back in the box: its bubble goes, and the refusal stays under the box.
+    // A refused or not-confirmed post whose words went back in the box: its bubble goes, and its line stays under the
+    // box.
     func takeBack(_ id: String, in project: String) {
         guard let p = pending[project]?.first(where: { $0.id == id }) else { return }
         notes[project] = p.line
@@ -175,6 +200,8 @@ struct ProjectsView: View {
     let openPage: (URL) -> Void
     @AppStorage("kosmos.projects.sort") private var sortRaw = Board.ProjectSort.newest.rawValue
     @State private var openProject: Board.ProjectRow?
+    // A notification's room was not in the list: it has had its one fresh read.
+    @State private var listReread = false
     @State private var showArchived = false
 
     init(client: BoardClient, roomRequest: Binding<String?>, openPage: @escaping (URL) -> Void) {
@@ -204,9 +231,11 @@ struct ProjectsView: View {
         .navigationViewStyle(.stack)
         .onAppear { client.show(BoardClient.projectsViewer) }
         .onDisappear { client.hide(BoardClient.projectsViewer) }
-        // The list is read once the connection is live (a cold start reaches the Mac first), and on pull to refresh.
-        .onChange(of: client.phase) { phase in if case .live = phase { Task { await store.loadList(); openRequested() } } }
+        // The list is read again whenever the connection changes (a cold start reaches the Mac first), and on pull to refresh.
+        .onChange(of: client.phase) { _ in Task { await store.loadList(); openRequested() } }
         .onChange(of: roomRequest) { _ in openRequested() }
+        // Sign-out, another account or another Mac: the room open and every room read go with it (as AgentsView).
+        .onChange(of: client.chatEpoch) { _ in openProject = nil; store.reset() }
         // Back from a room: its unread bubble and the other rooms' words are read again.
         .onChange(of: openProject?.id) { id in if id == nil { Task { await store.loadList() } } }
         .onChange(of: store.list) { _ in openRequested() }
@@ -230,10 +259,21 @@ struct ProjectsView: View {
     // or archived) opens the board's own room page instead, so a tap never lands nowhere.
     private func openRequested() {
         guard let id = roomRequest, let list = store.list else { return }
-        roomRequest = nil
         if let p = list.projects.first(where: { $0.id == id && !$0.archived }) {
+            roomRequest = nil
+            listReread = false
             openProject = p
-        } else if let mac = store.macURL, var parts = URLComponents(url: mac, resolvingAgainstBaseURL: false) {
+            return
+        }
+        // Not in the list as read: a room made since gets one fresh read before the board's page is the answer.
+        if !listReread {
+            listReread = true
+            Task { await store.loadList(); openRequested() }
+            return
+        }
+        listReread = false
+        roomRequest = nil
+        if let mac = store.macURL, var parts = URLComponents(url: mac, resolvingAgainstBaseURL: false) {
             parts.queryItems = [URLQueryItem(name: "tab", value: "projects"), URLQueryItem(name: "project", value: id)]
             if let url = parts.url { openPage(url) }
         }

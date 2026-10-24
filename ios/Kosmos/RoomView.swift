@@ -13,6 +13,9 @@ struct RoomView: View {
     @State private var replying: Board.RoomRow?
     @State private var loop: Task<Void, Never>?
     @State private var chatAgent: Board.Agent?
+    // Whether the end of the room is on screen: a new row follows only then, so a reader who scrolled up is never
+    // pulled down by the 5-second re-read (the spec, and the board's room).
+    @State private var atBottom = true
     @FocusState private var typing: Bool
 
     private var rows: [Board.RoomRow] { store.rows[project.id] ?? [] }
@@ -44,7 +47,11 @@ struct RoomView: View {
         }
         .background(
             NavigationLink(isActive: Binding(get: { chatAgent != nil }, set: { if !$0 { chatAgent = nil } })) {
-                if let a = chatAgent { ChatView(client: store.clientForChat, agent: a, openOnBoard: {}) }
+                if let a = chatAgent {
+                    ChatView(client: store.clientForChat, agent: a, openOnBoard: {
+                        if let url = store.clientForChat.chatURL(for: a) { openPage(url) }
+                    })
+                }
             } label: { EmptyView() }.hidden()
         )
         .onAppear { start() }
@@ -61,8 +68,8 @@ struct RoomView: View {
             var lastCount = -1
             while !Task.isCancelled {
                 await store.loadRoom(project.id)
-                let count = (store.rows[project.id] ?? []).count
-                if count != lastCount { lastCount = count; await store.markSeen(project.id) }
+                // Seen only once the room has really been read: a failed first read is not the person seeing it.
+                if let shown = store.rows[project.id], shown.count != lastCount { lastCount = shown.count; await store.markSeen(project.id) }
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
         }
@@ -114,10 +121,14 @@ struct RoomView: View {
                             .font(.footnote).foregroundColor(Palette.secondary).frame(maxWidth: .infinity).padding(.top, 8)
                     }
                     Color.clear.frame(height: 1).id("bottom")
+                        .onAppear { atBottom = true }
+                        .onDisappear { atBottom = false }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
             }
-            .onChange(of: rows.last?.id) { _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: rows.last?.id) { _ in if atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+            // The person's own post always shows: pressing Post is asking to see it.
+            .onChange(of: store.pending[project.id]?.count ?? 0) { n in if n > 0 { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
             .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
         }
     }
@@ -205,15 +216,15 @@ struct RoomView: View {
         .background(Palette.ground)
     }
 
-    // The box clears at once, so the person can keep typing. A refused post's words come back to the box (the board
-    // clears it only on success), with the reply it was, unless the person has started something else since; then its
-    // bubble keeps the refusal and a Delete.
+    // The box clears at once, so the person can keep typing. A refused or not-confirmed post's words come back to the
+    // box (the board clears it only on success; its restoreUnsent), with the reply it was, unless the person has started
+    // something else since; then its bubble keeps the line and a Delete.
     private func send() {
         let text = draft
         let reply = replying
         draft = ""; replying = nil
         Task {
-            guard let sent = await store.post(text, to: project.id, replyTo: reply?.id), case .refused = sent.result,
+            guard let sent = await store.post(text, to: project.id, replyTo: reply?.id), Board.roomPostLine(sent.result) != nil,
                   draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, replying == nil else { return }
             draft = text
             replying = reply

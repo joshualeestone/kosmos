@@ -385,6 +385,13 @@ enum AppTabs {
 
     // The app's own memory of the flag, so a launch shows the bar it last had.
     static let rememberedTasksKey = "kosmos.app.tasksTab"
+
+    // kosmos#7032: the engine's own Tasks flag on GET /api/status (`tasksTab`, server.js; the board page's tskTabGate
+    // reads the same), so the bar can earn Tasks when no tab hosts the board page. nil when it is not there.
+    static func tasksTab(fromStatus data: Data) -> Bool? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return obj["tasksTab"] as? Bool
+    }
 }
 
 // The bookkeeping behind the app's presses and its Tasks reads (kosmos#6846), apart from WebKit so LogicTests can

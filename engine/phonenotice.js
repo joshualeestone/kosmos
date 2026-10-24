@@ -122,7 +122,9 @@ function wordsFor(id, deps = {}) {
     try { raw = deps.mask(p.session, raw); } catch { return null; }   // a mask that fails must not serve the words unmasked
     if (typeof raw !== 'string') return null;
   }
-  return { kind: p.kind, session: p.session, text: shorten(raw), ...(p.project ? { project: p.project } : {}) };
+  const out = { kind: p.kind, session: p.session, text: shorten(raw) };
+  if (p.project) out.project = p.project;
+  return out;
 }
 
 module.exports = { TEXT_MAX, REPORT_TAIL_BYTES, parseId, shorten, reportNote, replyText, postWords, wordsFor };

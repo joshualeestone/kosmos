@@ -85,11 +85,11 @@ test('#6487: an agent with no name is "An agent", as the Wording section says', 
   assert.equal(notificationFor({ kind: 'needs_you', agent: '' }).title, 'An agent needs you');
 });
 
-test('#6487: the iPhone rows ask about exactly the two events the computer answers', () => {
+test('#6487: the iPhone rows ask about exactly the three events the computer answers', () => {
   const { head, body } = tableUnder('## On an iPhone: the message itself');
   assert.deepEqual(head, ['Event', 'Title', 'Subtitle', 'Text', 'Picture']);
-  assert.deepEqual(body.map((r) => r[0]), ['An agent needs you (its report)', 'An agent answered you']);
-  // The iPhone asks only about report:/reply: ids: the WHOLE isAskable body, so a third prefix or a dropped one fails.
+  assert.deepEqual(body.map((r) => r[0]), ['An agent needs you (its report)', 'An agent answered you', 'An agent posted in a room']);
+  // The iPhone asks only about report:/reply:/post: ids: the WHOLE isAskable body, so a fourth prefix or a dropped one fails.
   const logic = read('ios/KosmosNotice/NoticeLogic.swift');
   const askable = logic.match(/static func isAskable\(id: String\) -> Bool \{([\s\S]*?)\n    \}/);
   assert.ok(askable, 'NoticeLogic.isAskable is gone; update the page');
