@@ -125,6 +125,22 @@ check(Board.projectTree([orphan, underArchived, archivedParent], sort: .az).map 
 let x = proj(name: "X", parent: "y", id: "x"), y = proj(name: "Y", parent: "x", id: "y")
 check(Board.projectTree([x, y], sort: .az).map { $0.project.name } == ["X", "Y"], "a cycle shows each project once and hides none")
 
+section("posting: the board's reading of the answer")
+let pr = Board.roomPostRequest(mac: mac, project: "spring-catalogue", text: "  @dana how are pages 9 to 12?  ", replyTo: "m4")
+let prBody = pr?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+check(pr?.httpMethod == "POST" && pr?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room", "a POST to that project's room")
+check(prBody?["text"] as? String == "@dana how are pages 9 to 12?" && prBody?["reply_to"] as? String == "m4", "the words, trimmed, and the post it answers")
+check(Board.roomPostRequest(mac: mac, project: "p", text: "   ") == nil, "nothing to post: nothing sent")
+check(Board.roomPostRequest(mac: mac, project: "p", text: String(repeating: "a", count: 10001)) == nil, "over the board's limit: nothing sent")
+func post(_ status: Int, _ json: String?) -> Board.RoomPostResult { Board.roomPostResult(status: status, body: json.map { Data($0.utf8) }) }
+check(post(200, #"{"delivery":{"state":"placed","outcomes":{"dana":"placed"}}}"#) == .posted(note: nil), "kept")
+check(post(200, #"{"delivery":{"state":"placed","outcomes":{},"ambiguousNote":"@da matched Dana and Dawn, so neither got it as a request."}}"#) == .posted(note: "@da matched Dana and Dawn, so neither got it as a request."), "kept, with the ambiguous @word's sentence")
+check(post(200, #"{"delivery":{"state":"could_not","because":"there is no project by that name, so there is no room to post into"}}"#) == .refused("There is no project by that name, so there is no room to post into."), "refused: the computer's own sentence")
+check(post(400, #"{"error":"that is not a name we can read"}"#) == .refused("That is not a name we can read."), "an error status: its sentence")
+check(post(502, nil) == .unsure && post(0, nil) == .unsure, "no answer, or a server error with no sentence: it may have gone, never said to have failed")
+check(post(503, #"{"error":"the board is restarting"}"#) == .refused("The board is restarting."), "a server error WITH its own sentence is the board's refusal")
+check(Board.roomPostLine(.refused("It is quiet hours.")) == "Not posted. It is quiet hours." && Board.roomPostLine(.unsure) == "Not confirmed. We could not tell whether it was posted." && Board.roomPostLine(.posted(note: nil)) == nil, "the bubble's words")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")

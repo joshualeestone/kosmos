@@ -379,3 +379,58 @@ extension Board {
         return r
     }
 }
+
+// MARK: Posting to a room (POST /api/project/<id>/room; the board's pjPostSend)
+
+extension Board {
+    // The board refuses empty posts and ones over its limit (the composer's maxlength, 10000).
+    static func roomPostRequest(mac: URL, project: String, text: String, replyTo: String? = nil) -> URLRequest? {
+        let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isProjectId(project), !said.isEmpty, said.count <= 10000 else { return nil }
+        var r = URLRequest(url: URL(string: "/api/project/\(project)/room", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["text": said]
+        if let replyTo, !replyTo.isEmpty { body["reply_to"] = replyTo }
+        r.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return r
+    }
+
+    enum RoomPostResult: Equatable {
+        // Kept. `note` is the computer's sentence when an @word named two agents (it reached neither as a request).
+        case posted(note: String?)
+        // Not kept: the computer's own sentence. The words go back in the box.
+        case refused(String)
+        // It may have gone: no answer, or a server error with no sentence of its own. Never said to have failed.
+        case unsure
+    }
+
+    static let roomUnsureLine = "We could not tell whether that was posted. Check the room before posting it again."
+
+    // The board's reading of a post's answer (pjPostSend): no answer or a 5xx with no sentence is unsure; a refusal
+    // (an error status, or delivery.state could_not) carries the computer's own words; anything else was kept.
+    static func roomPostResult(status: Int, body: Data?) -> RoomPostResult {
+        if status == 0 { return .unsure }
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let error = (obj?["error"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let d = obj?["delivery"] as? [String: Any]
+        let state = d?["state"] as? String
+        if !(200...299).contains(status) || state == nil {
+            if status >= 500 && error == nil { return .unsure }
+            return .refused(sentence(error ?? "we could not post that"))
+        }
+        if state == "could_not" { return .refused(sentence((d?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "we could not post that")) }
+        return .posted(note: (d?["ambiguousNote"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+    }
+
+    // What a post that did not go says under its bubble, in the board's words (the longer roomUnsureLine goes under the
+    // box, as the board writes both).
+    static func roomPostLine(_ r: RoomPostResult) -> String? {
+        switch r {
+        case .posted: return nil
+        case .refused(let why): return "Not posted. " + why
+        case .unsure: return "Not confirmed. We could not tell whether it was posted."
+        }
+    }
+}
