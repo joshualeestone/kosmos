@@ -4,7 +4,8 @@ import AuthenticationServices
 
 // kosmos#7042 (iPhone slice 5a, #6838): the native sign-in. Email, the code, the second step, then "Allow this iPhone on
 // your Mac" with the match code until the Mac answers. The steps are SignIn.next (SignInLogic.swift, proven in
-// ios/LogicTests). What it does not do yet goes to the web sign-in page (`useWeb`) with one line saying why.
+// ios/LogicTests). What it cannot do (a company sign-in before iOS 17.4, a device key it cannot keep, a texted second
+// step to set up) goes to the web sign-in page (`useWeb`) with one line saying why.
 @MainActor
 final class SignInModel: ObservableObject {
     @Published var step: SignIn.Step = .email
@@ -21,6 +22,8 @@ final class SignInModel: ObservableObject {
     /// it stays false and no passkey is offered.
     @Published private(set) var passkeys = false
     private var passkeysAsked = false
+    /// Bumped by a sign-out: an availability answer asked before it is dropped.
+    private var passkeysGen = 0
     /// The session Kosmos+ issued, once: ContentView hands it to the app (the web bridge's own path).
     @Published private(set) var issued: String?
     /// Bumped when an issued session is dropped (backed out of, or ended): ContentView signs it out, and the web page
@@ -47,7 +50,10 @@ final class SignInModel: ObservableObject {
     func checkPasskeys() async {
         guard let client, !passkeysAsked else { return }
         passkeysAsked = true
-        switch try? await client.passkeyOffer() {
+        let gen = passkeysGen
+        let begun = try? await client.passkeyOffer()
+        guard gen == passkeysGen else { return }   // signed out meanwhile: restart() asks again
+        switch begun {
         case .offer?: passkeys = true
         case .off?: passkeys = false
         case .unusable?, nil: passkeys = false; passkeysAsked = false
@@ -60,6 +66,7 @@ final class SignInModel: ObservableObject {
         let typed = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard SignIn.looksLikeEmail(typed) else { error = "That does not look like an email address."; return }
         guard let client else { return }
+        client.cancelPasskey()   // kosmos#7050: a passkey sheet still open is closed; this press takes over
         attempt += 1; let mine = attempt
         busy = true; error = nil
         Task {
@@ -259,7 +266,7 @@ final class SignInModel: ObservableObject {
     func restart() {
         // The address goes too: the next sign-in here may be another person's (the web page clears it the same way).
         attempt += 1; busy = false; watch?.cancel(); email = ""; code = ""; error = nil; issued = nil; step = .email
-        passkeysAsked = false; passkeys = false   // asked again when the email step shows: it may have changed
+        passkeysAsked = false; passkeys = false; passkeysGen += 1   // asked again when the email step shows: it may have changed
         client?.cancelPasskey()
     }
 
@@ -372,7 +379,6 @@ struct SignInView: View {
         }
         .background(Palette.ground.ignoresSafeArea())
         .scrollDismissesKeyboard(.interactively)
-
     }
 
     @ViewBuilder private var content: some View {
