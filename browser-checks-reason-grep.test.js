@@ -439,6 +439,7 @@ const SITE_COUNTS = {
   'render-orgchart-phone-718.js': [1, 0],
   'render-otheraccounts-6178.js': [1, 0],
   'render-owncode-4649.js': [1, 1],
+  'render-ownremove-4658.js': [1, 1],
   'render-ownseal-4658.js': [1, 1],
   'render-permcard-6727.js': [1, 1],
   'render-permission-slider-2620.js': [2, 2],

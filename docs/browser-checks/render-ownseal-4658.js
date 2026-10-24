@@ -274,7 +274,8 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
           await page.evaluate(async () => { await fedOwnLoad(PJ_CURRENT); });
           failReads = false;
           const kept = await page.evaluate(() => document.querySelectorAll('#pj-fed-own [data-own-act="allow"]').length);
-          chk(failsServed - servedBefore === 2 && kept === 2, `${E} a refresh whose reads fail keeps the rows on screen`, JSON.stringify({ kept, failed: failsServed - servedBefore }));
+          chk(failsServed - servedBefore === 3 && kept === 2,   // a load's three reads (own-allowed since #7028's rows) all failed
+             `${E} a refresh whose reads fail keeps the rows on screen`, JSON.stringify({ kept, failed: failsServed - servedBefore }));
           failReads = true;
           const rowsThrough = await page.evaluate(async () => {
             const seen = [];
