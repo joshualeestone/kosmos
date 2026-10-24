@@ -26,7 +26,9 @@
 #                             installed runner's LaunchAgent and reloads it while idle; a dry run says whether it is
 #                             set and loaded: "ok: ... restarts after a SIGKILL or a crash" only when it is. Exit 1
 #                             when the runner is not running as it should, and 0 both when it is done and when it
-#                             WOULD change something (read the ok line, not the exit code). This repo's runner
+#                             WOULD change something (read the ok line, not the exit code). A dry run also exits 1
+#                             with "refused: ... --apply would refuse" when --apply would refuse NOW (a job running,
+#                             disabled, between Listeners, a loaded KeepAlive true). This repo's runner
 #                             only ($CI_HOME/actions-runner); a kosmos-relay runner under the same user is not touched.
 #                             Waits, in seconds: KOSMOS_CI_UNLOAD_WAIT_S (45), KOSMOS_CI_START_WAIT_S (30),
 #                             KOSMOS_CI_STATE_WAIT_S (12)
@@ -839,14 +841,21 @@ keepalive() {
   # Only a Worker that is a CHILD of this runner's Listener (the Listener spawns it): a relay job (#6245, same user)
   # starting now must not veto the reload, which would leave this SIGTERMed runner stopped with nothing to restart it.
   # (The first job check, before anything is stopped, stays user-wide: refusing there costs only a rerun.)
+  # Not a refusal: refusing would leave a SIGTERMed runner to end by itself with exit 0 under its OLD definition, so it
+  # would stay down, the defect this stage exists to fix. And it would save nothing (not measured: the SIGTERM becomes
+  # SIGINT to the Listener, which in actions/runner cancels a running job with "The runner has received a shutdown
+  # signal"). So wait once more, up to the limit, for that job and the old runner to end, then reload as before.
   if [ "$outlived" = 1 ]; then
-    prc=0; pgrep -P "$(printf '%s\n' "$before" | paste -s -d , -)" -x Runner.Worker >/dev/null || prc=$?
+    local lp w5=0; lp="$(printf '%s\n' "$before" | paste -s -d , -)"
+    prc=0; pgrep -P "$lp" -x Runner.Worker >/dev/null || prc=$?
     if [ "$prc" != 1 ]; then
-      # Not measured: the runner turns the SIGTERM into SIGINT to its Listener, which (actions/runner) cancels a running
-      # job with "The runner has received a shutdown signal", so the job is most likely already lost; skipping the
-      # bootout only avoids making the state worse.
-      echo "refused: a job of this runner is running while the old runner (pid $opid) is still stopping (its Runner.Worker is up, or pgrep exit $prc); nothing was booted out. $label was sent SIGTERM, which most likely cancels that job too; the runner then stays stopped (still the OLD definition): run this again once it is idle, which reloads and starts it" >&2
-      trap - INT TERM; exit 1
+      echo "note:   a job of this runner is still up while the old runner (pid $opid) stops (its Runner.Worker, or pgrep exit $prc); the SIGTERM most likely cancels it. Waiting up to ${limit}s more for it and the old runner to end, then reloading" || true
+      while [ "$w5" -lt "$limit" ]; do
+        prc=0; pgrep -P "$lp" -x Runner.Worker >/dev/null || prc=$?
+        [ "$prc" = 1 ] && ! kill -0 "$opid" 2>/dev/null && break
+        sleep 1; w5=$((w5 + 1))
+      done
+      [ "$w5" -lt "$limit" ] || echo "note:   after ${w5}s more the job or the old runner is still up; reloading anyway (left alone, it would stop under its OLD definition and stay down)" || true
     fi
   fi
   local bo=0; launchctl bootout "$dom/$label" || bo=$?
@@ -858,7 +867,7 @@ keepalive() {
     if [ "$sent" = 1 ] && [ "$outlived" = 0 ]; then
       echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; the runner is STOPPED (SIGTERM ended it; still loaded from the OLD definition, or unloading). Run this again: it boots out and bootstraps. If it is no longer listed: launchctl bootstrap $dom $plist" >&2; exit 1
     fi
-    echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; it may still be unloading. Check: launchctl print $dom/$label. Loaded: it runs the OLD definition, without KeepAlive (run this again). Not loaded: the runner is DOWN (launchctl bootstrap $dom $plist)" >&2; exit 1
+    echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; it may still be unloading. Check: launchctl print $dom/$label. Loaded: it is still loaded from the OLD definition, without KeepAlive (run this again). Not loaded: the runner is DOWN (launchctl bootstrap $dom $plist)" >&2; exit 1
   fi
   # Up to three tries: a bootstrap right after a bootout can fail once (5: Input/output error).
   local ba=1 bok=0

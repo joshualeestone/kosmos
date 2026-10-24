@@ -372,3 +372,20 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - NIT2 FIXED: dots in RUNNER_DIR are escaped in own_re.
 - NIT1 NOT A DEFECT: the dry run prints "WOULD: add KeepAlive ..." before the loaded-job checks, so a busy refusal
   follows that line (read in the dry-run block).
+
+## Review round 27 (opus, blind, HEAD f515c42905)
+- W FIXED: refusing the bootout when this runner's job was up while the old runner outlived the wait left a SIGTERMed
+  runner to end with exit 0 under its OLD definition: down, the defect this card is about, and it saved nothing (the
+  SIGTERM most likely cancels the job). Now: a note, a second wait (up to the limit) for that job and the old runner
+  to end, then the reload in every case ("reloading anyway" when still up). Stub FX_WORKER_ENDS_AFTER; ka-jobduring
+  (waits, then reloads), ka-jobends (polls until it ends; >= 3 -P reads); mutants (no wait, the old refusal) red.
+- C FIXED (doc): the header now says a dry run also exits 1 with "refused: ... --apply would refuse" when --apply would
+  refuse now.
+- NIT FIXED: with no process, the failed-bootout message says "still loaded from the OLD definition", not "runs".
+  CAUGHT MYSELF this time: ka-stucksent's negative named the old phrase; repointed, and a mutant printing the new phrase
+  turns it red. (The grep-every-reader rule, run before review rather than after.)
+- NIT FIXED: ka-waits could pass if setup outran the 4 s sleeper. The kill stub now logs whether FX_JOB_PID was alive at
+  the SIGTERM; ka-waits needs kill-while-alive AND bootout-after-exit (mutant removing the SIGTERM wait: red).
+- NIT FIXED: ka-dry asserts the "WOULD: launchctl kill SIGTERM" line (mutant red).
+- DEFERRED NIT: a busy relay can delay this runner's reload (the first job check is user-wide on purpose: refusing there
+  stops nothing, and the plist alone covers the next login).
