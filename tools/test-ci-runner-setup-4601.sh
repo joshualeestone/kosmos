@@ -35,6 +35,7 @@ case "$me" in
     out="$(dirname "$CALL_LOG")/booted-out"
     case "$1" in
       kill) [ "${FX_KILL_FAIL:-0}" = 1 ] && exit 3
+        [ -z "${FX_JOB_PID:-}" ] || { kill -0 "$FX_JOB_PID" 2>/dev/null && echo "kill-while-alive" >> "$CALL_LOG" || echo "kill-after-exit" >> "$CALL_LOG"; }
         [ "${FX_INTERRUPT:-0}" = 1 ] && kill -INT "$PPID"   # an operator's Ctrl-C, inside the stop window
         [ "${FX_HUP:-0}" = 1 ] && kill -HUP "$PPID"         # a dropped ssh session, inside the stop window
         [ "${FX_WORKER_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/worker-up"   # a job taken during the stop
@@ -109,8 +110,11 @@ case "$me" in
     # -P <Listener pids>: only this runner's job (worker-up), never the relay's (relay-worker-up).
     # The -P list must be this runner's Listener pid (what the -f branch printed), or it sees nothing: a wrong or empty
     # list is caught as a missed job.
-    case "$*" in *"-P "*Runner.Worker*) pl="$(printf '%s\n' "$@" | sed -n '/^-P$/{n;p;}')"
-      [ "$pl" = "$(cat .svc-pid 2>/dev/null || echo 4343)" ] && [ -f "$(dirname "$CALL_LOG")/worker-up" ] && { echo 4242; exit 0; }; exit 1 ;; esac
+    # FX_WORKER_ENDS_AFTER=N: this runner's job ends after N more -P reads (worker-up then goes away).
+    case "$*" in *"-P "*Runner.Worker*) pl="$(printf '%s\n' "$@" | sed -n '/^-P$/{n;p;}')"; wu="$(dirname "$CALL_LOG")/worker-up"
+      if [ -n "${FX_WORKER_ENDS_AFTER:-}" ] && [ -f "$wu" ]; then n="$(cat "$wu" 2>/dev/null)"; n="${n:-$FX_WORKER_ENDS_AFTER}"
+        if [ "$n" -le 0 ]; then rm -f "$wu"; else echo $((n - 1)) > "$wu"; fi; fi
+      [ "$pl" = "$(cat .svc-pid 2>/dev/null || echo 4343)" ] && [ -f "$wu" ] && { echo 4242; exit 0; }; exit 1 ;; esac
     case "$*" in *Runner.Worker*) { [ "${FX_WORKER:-0}" = 1 ] || [ -f "$(dirname "$CALL_LOG")/worker-up" ] || [ -f "$(dirname "$CALL_LOG")/relay-worker-up" ]; } || exit 1; case "$*" in *"-x Runner.Worker"*) echo 4242; exit 0 ;; esac; exit 1 ;; esac
     [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
   df) [ "${FX_DF_NOROW:-0}" = 1 ] && { echo "Filesystem 1024-blocks Used Available Capacity Mounted"; exit 0; }
@@ -610,6 +614,7 @@ ka_fresh
   && pass "control: the keepalive fixture starts with no KeepAlive, and the relay's plist sorts first" || fail "keepalive fixture: $(ls -la "$KH/Library/LaunchAgents" 2>&1)"
 run ka-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
 [ "$(rc ka-dry)" = 0 ] && has ka-dry "lacks KeepAlive {SuccessfulExit: false}" && has ka-dry "WOULD: launchctl bootout gui/777/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" \
+  && has ka-dry "WOULD: launchctl kill SIGTERM gui/777/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" \
   && ! changed ka-dry >/dev/null && cmp -s "$KA" "$T/ka.before" \
   && pass "keepalive dry run: says KeepAlive is missing and what it would do, changes nothing" || fail "keepalive dry run: rc $(rc ka-dry): $(cat "$T/ka-dry.out")"
 # Over ssh (launchctl managername reads Background there): allowed, as it names gui/<uid> and does not use svc.sh.
@@ -685,15 +690,24 @@ sleep 4 & sp=$!; t0=$SECONDS
 ka_fresh; run ka-waits "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" -- --apply keepalive
 el=$((SECONDS - t0)); wait "$sp" 2>/dev/null
 # The run took most of the 4 s: it did wait (a process already gone before the loop would also read "after exit").
-[ "$(rc ka-waits)" = 0 ] && grep -qx 'bootout-after-exit' "$T/ka-waits.calls" && ! has ka-waits "had not ended" && [ "$el" -ge 3 ] \
+# kill-while-alive: the process was still up at the SIGTERM, so "after exit" at the bootout means the script waited.
+[ "$(rc ka-waits)" = 0 ] && grep -qx 'kill-while-alive' "$T/ka-waits.calls" && grep -qx 'bootout-after-exit' "$T/ka-waits.calls" && ! has ka-waits "had not ended" && [ "$el" -ge 3 ] \
   && pass "keepalive --apply waits for the old runner to end after SIGTERM before booting it out" || fail "keepalive waits: rc $(rc ka-waits): $(grep bootout- "$T/ka-waits.calls")"
 # A job up while the old runner outlived the SIGTERM wait (it may be that runner's): the bootout is refused.
 sleep 30 & jsp=$!
 ka_fresh; rm -f "$T/worker-up"; run ka-jobduring "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_WORKER_AFTER_KILL=1 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
-[ "$(rc ka-jobduring)" = 1 ] && has ka-jobduring "a job of this runner is running while the old runner (pid $jsp) is still stopping" && has ka-jobduring "which most likely cancels that job too" \
-  && grep -q '^launchctl kill SIGTERM' "$T/ka-jobduring.calls" && ! grep -q '^launchctl bootout' "$T/ka-jobduring.calls" \
-  && pass "keepalive --apply: a job up while the old runner is still stopping is not booted out" || fail "keepalive job during stop: rc $(rc ka-jobduring): $(tail -1 "$T/ka-jobduring.out")"
+[ "$(rc ka-jobduring)" = 0 ] && has ka-jobduring "a job of this runner is still up while the old runner (pid $jsp) stops" && has ka-jobduring "reloading anyway" \
+  && grep -q '^launchctl bootout' "$T/ka-jobduring.calls" && grep -q '^launchctl bootstrap' "$T/ka-jobduring.calls" \
+  && pass "keepalive --apply: a job up while the old runner is still stopping: waits again, then reloads (never left down)" || fail "keepalive job during stop: rc $(rc ka-jobduring): $(tail -1 "$T/ka-jobduring.out")"
+# The job ends during that second wait: it is waited for (several -P reads), then the reload, with no "anyway".
+sleep 30 & jsp=$!
+ka_fresh; rm -f "$T/worker-up"; run ka-jobends "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=3 FX_WORKER_AFTER_KILL=1 FX_WORKER_ENDS_AFTER=2 -- --apply keepalive
+kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
+[ "$(rc ka-jobends)" = 0 ] && has ka-jobends "Waiting up to 3s more" && [ "$(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls")" -ge 3 ] \
+  && grep -q '^launchctl bootstrap' "$T/ka-jobends.calls" \
+  && pass "keepalive --apply: the second wait polls this runner's job until it ends, then reloads" || fail "keepalive job ends: rc $(rc ka-jobends): -P reads $(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls"): $(tail -1 "$T/ka-jobends.out")"
+rm -f "$T/worker-up"
 rm -f "$T/worker-up"
 # The old runner outlived the wait and a RELAY job starts: not this runner's, so no veto; the reload goes on.
 sleep 30 & jsp=$!
@@ -799,7 +813,7 @@ ka_fresh; run ka-killfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="
 ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-downdry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 -- keepalive
 [ "$(rc ka-downdry)" = 1 ] && has ka-downdry "DOWN:" && ! changed ka-downdry >/dev/null && pass "keepalive dry run on a runner that is not loaded: DOWN, exit 1, nothing changed" || fail "keepalive down dry: rc $(rc ka-downdry): $(cat "$T/ka-downdry.out")"
 ka_fresh; run ka-stucksent "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID=999999 FX_BOOTOUT_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
-[ "$(rc ka-stucksent)" = 1 ] && has ka-stucksent "the runner is STOPPED (SIGTERM ended it" && ! has ka-stucksent "it runs the OLD definition" \
+[ "$(rc ka-stucksent)" = 1 ] && has ka-stucksent "the runner is STOPPED (SIGTERM ended it" && ! has ka-stucksent "it is still loaded from the OLD definition" \
   && pass "keepalive --apply: a stuck bootout after SIGTERM says the runner is STOPPED, not running" || fail "keepalive stuck after sigterm: rc $(rc ka-stucksent): $(tail -1 "$T/ka-stucksent.out")"
 ka_fresh; run ka-nopid "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_PID=1 -- --apply keepalive
 [ "$(rc ka-nopid)" = 1 ] && has ka-nopid "shows no pid" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-nopid.calls" \
