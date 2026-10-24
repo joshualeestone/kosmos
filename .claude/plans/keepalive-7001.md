@@ -464,3 +464,12 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
     INTERRUPTED message names the recovery); one variable bounds several waits (the note says "a few minutes"); ka-waits
     could false-FAIL (never false-pass) under heavy load; own_listener_re rests on the measured argv (a change fails
     safe, as a refusal).
+
+## 6j final validation (after round 32): FAILED, fixed
+- [BLOCKER] final-validation: tools/test-sleep-control-guard-6710.sh flagged five bare `sleep N &` stand-ins I added
+  to test-ci-runner-setup-4601.sh (a stray `pkill -f sleep` on this shared box can end them, #6710/#6671). Converted to
+  `perl -e 'select(undef, undef, undef, N)'` bounded waits; the guard passes.
+- CAUGHT IN THE FIX: my first conversion put the comment before `; t0=$SECONDS`, commenting it out. The suite then died
+  on `t0: unbound variable` AND EXITED 0, with no verdict line. Only checking the verdict line caught it (the rc said
+  green). Fixed; the suite prints "all passed" (245 ok).
+- Per the loop: one more blind round (33) after the 6j rerun.
