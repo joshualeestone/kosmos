@@ -63,6 +63,18 @@ service key rotation leaves the tunnel working and the board refusing every poli
   text now, so the plan's "never file content" holds. Arms ($S/ok-arms-r3.sh): K0 control green; K1 no surrogate
   check, K2 the reason appended again: each red on its own test.
 
+## Review 4: no real finding; recorded
+- With no pin (or a pin that does not decode) and a store that verifies, the board trusts the set's keys, where the
+  tunnel's trusted_keys needs a pin first. Kept: every key trusted is one the recovery key signed, so it is not
+  fail-open; the tunnel cannot be running in that state; and Forget, the one path that leaves a store without a pin,
+  wipes the policy bundle in the same step. Mirroring it would refuse a policy for want of a key the set already
+  vouches for.
+- The surrogate-in-signature arm cannot tell the signature half of the check from the base64 check. Kept: a
+  signature holding a surrogate cannot pass that base64 check either way, so the half is defence in depth; the
+  document half, which is the one that mattered, has its own discriminating arm (K1).
+- Node's crypto.verify is not Rust's verify_strict (small-order R only): unforgeable without the key, and predates
+  this change.
+
 ## Weakest premise
 RECOVERY_KEYS (kosmos) and SERVICE_KEY_ROOTS (relay) are activated together with the same value. If only one is
 set, board and tunnel disagree about which keys are trusted. Both files say so; activation is one paired change.
