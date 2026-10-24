@@ -21,7 +21,7 @@ test('#5787: the signed-in landing is gone, so it cannot come back unnoticed', (
   assert.equal(/PLUS_SI_LANDED/.test(PAGE), false, 'the flag that held the pane for it');
   assert.equal(PAGE.includes("You're signed in to Kosmos+"), false, 'its heading');
   // CONTROL: the step list the landing sat in is still there, so the first check above is not vacuous.
-  assert.match(PAGE, /const PLUS_SI_STEPS = \['plus-si-email'[^\]]*'plus-si-expired'\];/);
+  assert.match(PAGE, /const PLUS_SI_STEPS = \['plus-si-email'[^\]]*'plus-si-expired'[^\]]*\];/);   // kosmos#6596: steps may follow
 });
 
 test('#5787: an owned address ends like a typed one, on the connected pane', () => {

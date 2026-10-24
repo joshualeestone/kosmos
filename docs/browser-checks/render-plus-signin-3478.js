@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-si-child plus-state1 plus-state2 plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status otp-boxes otp-cell otp-cells otp-fit plus-si-code-change plus-si-code-late plus-si-code-join
+// Browser-check-surface: plus-si-child plus-state1 plus-state2 plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status otp-boxes otp-cell otp-cells otp-fit plus-si-code-change plus-si-code-late plus-si-code-join plus-si-keychanged
 'use strict';
 /**
  * #3478: the Kosmos+ sign-in links open the IN-APP wizard, not the web.
@@ -619,6 +619,82 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.screenshot({ path: path.join(OUT, `plus-signin-${key}.png`), fullPage: false });
 
       chk(errs.length === 0, `[${key}] no page errors`, errs.join(' | '));
+      await page.close();
+    }
+    /* kosmos#6596 step 8: a sign-in refused because Kosmos+ offered a different key shows that key and two choices,
+       and nothing else of the wizard. Accept holds it for the next sign-in (POST /api/remote/accept-key with that key,
+       once) and starts over; Do not accept starts over and sends nothing. The key fits the card at phone width. */
+    for (const choice of ['accept', 'decline']) {
+      const k = 'key-changed ' + choice;
+      const KEY = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE';
+      const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: 'light' });
+      await page.addInitScript(() => { window.__kosmosRestartHoldMs = 0; });   // #5785: no K-loader hold on a register
+      page.__url = URL;
+      const errs = [];
+      page.on('pageerror', (e) => errs.push(e.message));
+      const accepts = [];
+      await openPlusState1(page);
+      await page.route('**/api/remote/accept-key', (route, req) => {
+        accepts.push(req.postDataJSON());
+        route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+      });
+      await page.route('**/api/remote/signin-**', (route, req) => {
+        const p = req.url().replace(/^.*\/api\/remote\//, '');
+        if (p === 'signin-verify') { route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'session', account_address: 'quiet-heron.kosmosplus.com' }) }); return; }
+        if (p === 'signin-register') {
+          route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the Kosmos+ service offered a different key from the one this computer trusts', keyChanged: { offered: KEY } }) });
+          return;
+        }
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
+      });
+      await page.click('#plus-signin-top');
+      await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
+      await page.fill('#plus-signin-email', 'you@example.com');
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      await page.fill('#plus-si-code-in', '123456');   // #3942: auto-submits; the owned address registers at once
+      await page.waitForSelector('#plus-si-keychanged', { state: 'visible', timeout: 8000 });
+      const shown = await page.evaluate(() => ({
+        key: document.getElementById('plus-si-keychanged-key').textContent,
+        focus: document.activeElement ? document.activeElement.id : '',
+        others: PLUS_SI_STEPS.filter((s) => s !== 'plus-si-keychanged' && !document.getElementById(s).hidden),
+        foot: (() => { const a = document.getElementById('plus-si-cancel'); return !!a && a.getClientRects().length > 0; })(),
+        msg: document.getElementById('plus-signin-msg').textContent.trim(),
+      }));
+      chk(shown.key === KEY && shown.focus === 'plus-si-keychanged-no' && shown.others.length === 0 && !shown.foot && shown.msg === '',
+        `[${k}] kosmos#6596 the refusal shows the offered key, focuses Do not accept, and shows no other step, no foot link, no raw error`, JSON.stringify(shown));
+      if (choice === 'accept') {
+        for (const theme of ['light', 'dark']) {
+          await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
+          for (const w of [1400, 390]) {
+            await page.setViewportSize({ width: w, height: 950 });
+            await page.waitForTimeout(200);
+            const fit = await page.evaluate(() => {
+              const c = document.getElementById('plus-state2').getBoundingClientRect();
+              const key = document.getElementById('plus-si-keychanged-key').getBoundingClientRect();
+              const btns = ['plus-si-keychanged-accept', 'plus-si-keychanged-no'].map((id) => document.getElementById(id).getBoundingClientRect());
+              return { inside: key.left >= c.left - 1 && key.right <= c.right + 1 && btns.every((b) => b.left >= c.left - 1 && b.right <= c.right + 1),
+                page: document.documentElement.scrollWidth <= window.innerWidth + 1 };
+            });
+            chk(fit.inside && fit.page, `[${k}] kosmos#6596 the key and both buttons stay inside the card, no sideways scroll (${theme}, ${w}px)`, JSON.stringify(fit));
+            await page.screenshot({ path: path.join(OUT, `plus-keychanged-${theme}-${w}.png`), fullPage: false });
+          }
+        }
+        await page.setViewportSize({ width: 1400, height: 950 });
+        await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
+      }
+      await page.click(choice === 'accept' ? '#plus-si-keychanged-accept' : '#plus-si-keychanged-no');
+      await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
+      await page.waitForTimeout(200);
+      const after = await page.evaluate(() => ({ msg: document.getElementById('plus-signin-msg').textContent.trim(), email: document.getElementById('plus-signin-email').value, panel: !document.getElementById('plus-si-keychanged').hidden }));
+      if (choice === 'accept') {
+        chk(accepts.length === 1 && accepts[0] && accepts[0].key === KEY && /accepted for your next sign-in/.test(after.msg) && after.email === 'you@example.com' && !after.panel,
+          `[${k}] kosmos#6596 Accept sends that key once, starts over with the email kept, and says what happens next`, JSON.stringify({ accepts, after }));
+      } else {
+        chk(accepts.length === 0 && /Nothing was changed/.test(after.msg) && after.email === 'you@example.com' && !after.panel,
+          `[${k}] kosmos#6596 Do not accept sends nothing and starts over with the email kept`, JSON.stringify({ accepts, after }));
+      }
+      chk(errs.length === 0, `[${k}] no page errors`, errs.join(' | '));
       await page.close();
     }
     /* #3841 (review): the same separation, in WebKit too. The card's colours come back through
