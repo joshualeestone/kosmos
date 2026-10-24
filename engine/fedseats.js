@@ -784,7 +784,7 @@ function sayOwnHello(projectId, s) {
   if (typeof macId !== 'string' || !macId || !s.room) return;
   if (!s.ownRun || s.ownRun.room !== s.room || s.ownRun.mac !== macId) {
     const nW = fedseal.randomSecret();
-    s.ownRun = { room: s.room, mac: macId, nW, commit: fedseal.ownCommit(nW), offer: null, confirmed: false, share: null };
+    s.ownRun = { room: s.room, mac: macId, nW, commit: fedseal.ownCommit(nW), offer: null, confirmed: false, got: null };
   }
   try { sendFrame(s, fedseal.ownHelloFrame(me, macId, s.ownRun.nW)); } catch { /* the next connect says it again */ }
   noteOnce(projectId, s, 'ownWaiting', 'This shared room is sealed. To read it on this computer, open this project on the computer that first shared it: a code appears on both screens, and once they match, press Allow there and "It matches" here.');
@@ -838,17 +838,25 @@ function ownStartOver(projectId) {
   sayOwnHello(projectId, s);
   return true;
 }
-/** Own computer: take the share once BOTH hold: the person confirmed, and a share from the confirmed owner key
-    arrived. Either can come first. */
+/** Own computer: a share is opened as it arrives (it is sealed to this computer) and only one that opens, from the
+    offer's owner key for this run, is kept: a forged share cannot displace a genuine one. */
+function waitingShare(projectId, s, frame) {
+  const run = s.ownRun;
+  if (!run || !run.offer || run.got) return;
+  let me;
+  try { me = fedseal.sealingKey(); } catch { return; }
+  const got = fedseal.openOwnShare(me, run.mac, run.offer.ownerPub, run.nW, run.offer.nO, frame, run.room);
+  if (!got) return;
+  run.got = got;
+  adoptOwnShare(projectId, s);
+}
+/** Own computer: take the key once BOTH hold: the person confirmed, and a genuine share arrived. Either can come
+    first. */
 function adoptOwnShare(projectId, s) {
   const run = s.ownRun;
   const st = roomSeal(projectId);
-  if (!run || !run.confirmed || !run.share || !run.offer || !st || st.own !== true || hasKey(st)) return;
-  let me;
-  try { me = fedseal.sealingKey(); } catch { return; }
-  const got = fedseal.openOwnShare(me, run.mac, run.offer.ownerPub, run.nW, run.offer.nO, run.share, run.room);
-  run.share = null;
-  if (!got) return;   // not sealed to this key for this run
+  if (!run || !run.confirmed || !run.got || !st || st.own !== true || hasKey(st)) return;
+  const got = run.got;
   fedseal.setRoomState(projectId, Object.assign({}, st, { peer: got.ownerPub, epoch: got.epoch, keys: { [got.epoch]: got.roomKey } }));
   s.ownRun = null;
   say(projectId, SEALED_LINE);
@@ -1178,16 +1186,7 @@ function onKeyFrame(projectId, s, frame) {
   if (frame.t === 'key-own-hello' && link.role === 'owner') { sealStep(projectId, () => ownerOwnHello(projectId, s, frame, me)); return; }
   if (frame.t === 'key-own-reveal' && link.role === 'owner') { sealStep(projectId, () => ownerOwnReveal(projectId, s, frame, me)); return; }
   if (frame.t === 'key-own-offer' && link.role === 'self') { sealStep(projectId, () => waitingOffer(projectId, s, frame)); return; }
-  if (frame.t === 'key-own-share' && link.role === 'self') {
-    // Kept until the person confirms; only a share from the confirmed offer's owner key is ever kept.
-    sealStep(projectId, () => {
-      const run = s.ownRun;
-      if (!run || !run.offer || frame.owner !== run.offer.ownerPub || frame.mac !== run.mac) return;
-      run.share = frame;
-      adoptOwnShare(projectId, s);
-    });
-    return;
-  }
+  if (frame.t === 'key-own-share' && link.role === 'self') { sealStep(projectId, () => waitingShare(projectId, s, frame)); return; }
   try {
     if (frame.t === 'key-share' && link.role === 'member') {
       const st = roomSeal(projectId);

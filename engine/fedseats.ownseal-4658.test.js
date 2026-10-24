@@ -383,3 +383,22 @@ test('#4658: a guest member who sees an unopenable room is not turned into an ow
   assert.strictEqual(fedseal.roomState('own-g1'), null, 'a guest got own seal state');
   assert.deepStrictEqual(sent(h.spawned[0], 'key-own-hello'), []);
 });
+
+test('#4658: a forged share relabelled with the owner\'s key cannot displace a genuine one waiting for the confirm', async () => {
+  const { seat } = await ownComputer('own-s8', 'room-s8');
+  const roomKey = fedseal.randomSecret();
+  const hello = await sealedNow(seat, 'room-s8', roomKey);
+  const o = handOwner('room-s8', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit);
+  say(seat, { event: 'message', data: o.share(nW, roomKey) });
+  await settle();
+  const attacker = fedseal.newKeyPair();
+  const forged = fedseal.ownShareFrame(attacker, { mac: MY_MAC, pub: hello.pub, nW, nO: o.nO },
+    fedseal.compareCode('room-s8', MY_MAC, hello.pub, attacker.pub, nW, o.nO), fedseal.randomSecret(), 0, 'room-s8');
+  say(seat, { event: 'message', data: Object.assign({}, forged, { owner: o.owner.pub }) });
+  await settle();
+  assert.strictEqual((await fedseats.confirmOwn('own-s8', fedseats.ownCode('own-s8'))).ok, true);
+  assert.strictEqual(fedseal.roomState('own-s8').keys[0], roomKey, 'the genuine share was displaced');
+});
