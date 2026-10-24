@@ -43,7 +43,7 @@ final class SignInModel: ObservableObject {
 
     /// Whether Kosmos+ offers passkeys, asked the first time the email step shows (not at launch: a signed-in person
     /// never sees this step, and the store screenshots never show it). Only a clear answer is kept (an offer, or a 404
-    /// for passkeys off); a server error or no answer at all is asked again the next time the step shows.
+    /// for passkeys off); after a server error or no answer at all, the next time the email step appears asks again.
     func checkPasskeys() async {
         guard let client, !passkeysAsked else { return }
         passkeysAsked = true
@@ -203,8 +203,11 @@ final class SignInModel: ObservableObject {
             defer { if mine == attempt { busy = false } }
             do {
                 // A fresh challenge for every press: each is good for one sign-in only.
-                guard case .offer(let offer) = try await client.passkeyOffer() else {
-                    if mine == attempt { error = SignIn.passkeyWords.failed }
+                let begun = try await client.passkeyOffer()
+                guard case .offer(let offer) = begun else {
+                    guard mine == attempt else { return }
+                    // Switched off since the screen asked: the link goes, and the sentence says to use the code.
+                    if case .off = begun { passkeys = false; error = SignIn.passkeyWords.off } else { error = SignIn.passkeyWords.failed }
                     return
                 }
                 guard mine == attempt else { return }

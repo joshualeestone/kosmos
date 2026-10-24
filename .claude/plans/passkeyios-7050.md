@@ -10,7 +10,9 @@ With the coordinator's passkeys on, the native email step shows "Sign in with a 
 a challenge, opens Apple's passkey sheet for the coordinator's host (the app's webcredentials association, relay #584),
 sends the assertion to finish with this iPhone's device id, and spends the grant at verify exactly as a company
 sign-in's grant is spent, so the second step and the Allow follow as for a code. With passkeys off (begin 404) no
-passkey link shows. Logic tests prove the offer, the finish body and the finish answer, with a broken-copy control.
+passkey link shows. Logic tests prove the offer, the finish body and the finish answer. Broken-copy control, run
+2026-10-24 on this branch (ios/LogicTests/run.sh against a copy with the relying-party check removed): exactly the
+other-host and lookalike-host cases failed (2 of 1081), then passed again on the real sources.
 
 ## Design
 
