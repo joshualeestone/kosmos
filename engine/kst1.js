@@ -28,7 +28,8 @@ function publicKeyFrom(pinned) {
 
 /**
  * @param {string} token   the KST1 token
- * @param {string} pinned  the pinned coordinator public key (base64url, 32 bytes)
+ * @param {string|string[]} pinned  the pinned coordinator public key (base64url, 32 bytes), or the list of keys this
+ *   computer trusts (kosmos#6596 step 8, engine/trustkeys.js): any one of them verifying the signature is enough
  * @param {string} typ     the one typ this caller accepts
  * @param {number} [now]   unix seconds (tests pass it)
  */
@@ -36,12 +37,12 @@ function verify(token, pinned, typ, now = Math.floor(Date.now() / 1000)) {
   if (typeof token !== 'string') return { ok: false, why: 'not a token' };
   const parts = token.trim().split('.');
   if (parts.length !== 3 || parts[0] !== 'KST1') return { ok: false, why: 'not a KST1 token' };
-  const key = publicKeyFrom(pinned);
-  if (!key) return { ok: false, why: 'no pinned coordinator key' };
+  const keys = (Array.isArray(pinned) ? pinned : [pinned]).map(publicKeyFrom).filter(Boolean);
+  if (!keys.length) return { ok: false, why: 'no pinned coordinator key' };
   const sig = fromB64url(parts[2]);
   if (!sig || sig.length !== 64) return { ok: false, why: 'the signature is malformed' };
-  let good = false;
-  try { good = crypto.verify(null, Buffer.from(parts[0] + '.' + parts[1], 'ascii'), key, sig); } catch { good = false; }
+  const signed = Buffer.from(parts[0] + '.' + parts[1], 'ascii');
+  const good = keys.some((key) => { try { return crypto.verify(null, signed, key, sig); } catch { return false; } });
   if (!good) return { ok: false, why: 'the signature does not verify' };
   const body = fromB64url(parts[1]);
   let payload = null;

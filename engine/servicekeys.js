@@ -256,4 +256,4 @@ function pinnedIsListed(pinned, verified) {
   return !!spki && verified.keys.some((k) => k && k.pub === spki);
 }
 
-module.exports = { SERVICE_KEYS_TYPE, MAX_SEQ, MAX_SERVICE_KEYS, verifyServiceKeySet, pinnedIsListed, pinnedSpki, kidOf, rawKey };
+module.exports = { SERVICE_KEYS_TYPE, MAX_SEQ, MAX_SERVICE_KEYS, verifyServiceKeySet, pinnedIsListed, pinnedSpki, kidOf, rawKey, scan };
