@@ -20,3 +20,12 @@ Text-message setup goes to the web sign-in page. Logic tests; shots light, dark,
 ## Weakest premise
 That an authenticator app on the phone handles the otpauth link. If none is installed the button does nothing, and the
 key is there to type.
+
+## Review round 1 (blind, 08:2x): no safety defect; fixed
+1. The copied key (the second step itself) sat on the clipboard forever and went to other devices: now local-only,
+   two minutes.
+2. A second submit in flight hid a success the server had already made: a press while busy does nothing (setup,
+   confirm, and the email-code and second-step verifies on main too).
+3. A refusal that says "start again" (expired) kept the person on the code screen: it goes back to the email.
+4. "Use text messages instead" showed when texts cannot be sent: shown only when sms_available.
+5. Tests: confirm's real answer shape, and which refusals leave the code screen.
