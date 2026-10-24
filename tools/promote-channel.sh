@@ -317,7 +317,7 @@ fi
 if [ -n "$NAMED_VERSION" ]; then
   # What prod serves is origin's latest.json (fetched above when the site has an origin); a checkout behind origin,
   # or holding a promote not yet deployed, would give a wrong baseline. Without an origin, the checkout's is all there is.
-  if git -C "$SITE" rev-parse -q --verify "origin/main:dist/$PROD_NAME" >/dev/null 2>&1; then
+  if [ -n "$_has_origin" ] && git -C "$SITE" rev-parse -q --verify "origin/main:dist/$PROD_NAME" >/dev/null 2>&1; then
     git -C "$SITE" show "origin/main:dist/$PROD_NAME" > "$NAMED_DIR/prod.json" 2>/dev/null
     _prodv="$(read_pointer_field "$NAMED_DIR/prod.json" version)"; _prods="$(read_pointer_field "$NAMED_DIR/prod.json" sha256)"; _prodsrc="the site's origin/main"
   else
@@ -329,7 +329,7 @@ if [ -n "$NAMED_VERSION" ]; then
   _cmp=0
   # A prod pointer that is there but names no version cannot be compared: only no pointer at all is a first promote.
   if [ -z "$_prodv" ]; then
-    if [ -f "$SITE/dist/$PROD_NAME" ] || git -C "$SITE" rev-parse -q --verify "origin/main:dist/$PROD_NAME" >/dev/null 2>&1; then _cmp=2; _prodv="(no version)"; fi
+    if [ -f "$SITE/dist/$PROD_NAME" ] || { [ -n "$_has_origin" ] && git -C "$SITE" rev-parse -q --verify "origin/main:dist/$PROD_NAME" >/dev/null 2>&1; }; then _cmp=2; _prodv="(no version)"; fi
   else node -e 'const a=process.argv[1].split(".").map(Number),b=process.argv[2].split(".").map(Number);if(a.concat(b).some(Number.isNaN))process.exit(2);for(let i=0;i<Math.max(a.length,b.length);i++){const d=(a[i]||0)-(b[i]||0);if(d)process.exit(d>0?0:1)}process.exit(0)' "$V" "$_prodv" 2>/dev/null || _cmp=$?
   fi
   case "$_cmp" in
@@ -508,7 +508,8 @@ if [ "$FAMILY" = mac ]; then
   # experience gate alone would PASS a #2129 build. This second gate creates a Claude and an
   # OpenAI agent, confirms each comes ONLINE and answers a first message, and removes them (kosmos#6906: so it runs on
   # a populated board). Same exit contract: 0 online -> promote; 1 a
-  # trust wedge / auth / never-online (#2129 class) -> refuse, never forceable; 2 cannot-tell
+  # trust wedge / auth / never-online (#2129 class) -> refuse, never forceable (one exception, kosmos#7005: with
+  # --version, on a board the experience gate READ as another version, it is cannot-tell, below); 2 cannot-tell
   # (no enforcing board, a provider not signed in, or no answer in time) -> HOLD, forceable
   # only after a HAND check. Override the command via KOSMOS_PROMOTE_AGENT_GATE_CMD.
   # kosmos#6906: the gate creates real agents, and a launchd job file made during someone's full validation reds that
@@ -554,7 +555,7 @@ if [ "$FAMILY" = mac ]; then
   # cannot-tell for $V (a HOLD, which a hand check of $V can --force). A version it could not read (a dev box, a wrong
   # port) may be $V itself, so there, as in default mode, a FAIL still refuses.
   if [ -n "$BOARD_OTHER" ] && { [ "$AGENT_RC" = 1 ] || [ "$AGENT_RC" = 3 ]; }; then
-    echo "promote-channel: the agent-spawn gate answered $AGENT_RC on a board running $BOARD_OTHER, not $V, so it says nothing about $V - treating it as cannot-tell." >&2
+    echo "promote-channel: the agent-spawn gate answered $AGENT_RC on a board running $BOARD_OTHER, not $V, so it says nothing about $V's build - treating it as cannot-tell. A cause on this machine rather than in the build (a sign-in, a trust prompt) would hit $V too: check that by hand before any --force." >&2
     AGENT_RC=2
   fi
   case "$AGENT_RC" in

@@ -245,6 +245,8 @@ AFAIL="$T/stub-agent-fail.sh"; printf '#!/usr/bin/env bash\nexit 1\n' > "$AFAIL"
 HOLD_OTHER="$T/stub-hold-other.sh"; printf '#!/usr/bin/env bash\necho "cannot-tell: the board on :16180 runs 9.9.9, not 9.9.8: this check would test another release, not the one being promoted."\nexit 2\n' > "$HOLD_OTHER"; chmod +x "$HOLD_OTHER"
 grep -qF 'say "cannot-tell: the board on :$PORT runs $BOARD_VERSION, not $KOSMOS_GATE_EXPECT_VERSION: this check would test another release' "$HERE/staging-experience-check.sh" \
   && pass "pin: the experience gate still prints the line the named promote reads" || bad "pin: staging-experience-check.sh no longer prints 'the board on :PORT runs W, not V'"
+# ...and prints it on stdout, which is all the named promote captures (its stderr is left alone).
+grep -q '^say() { printf .%s\\n. "\$\*"; }$' "$HERE/staging-experience-check.sh" && pass "pin: the gate's say() writes to stdout" || bad "pin: the gate's say() is no longer a plain stdout printf"
 S="$(newsite)"; s98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")"
 out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD_OTHER" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "on a board running 9.9.9, not 9.9.8, so it says nothing about 9.9.8" \
