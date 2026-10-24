@@ -6,50 +6,61 @@ The Mac promote (`tools/promote-channel.sh`) copies whatever `dist/latest-stagin
 can run: it would replace the approved build. Measured 10-23: 0.7.64 approved-pending, ~20 merges behind,
 Josh away until about Monday.
 
-## Change
-`--version <V>` (Mac only). The pointer and the installer pair come from the newest site commit on HEAD
-whose `dist/latest-staging.json` names V (each staging cut commits its pointer + installer together).
-Every existing check then runs unchanged on that snapshot and installer: artifact present + sidecar +
-pointer sha, manifest + signature checks, installer sha + floor, all gates (experience gate expects V).
-Skipped in named mode, by construction: the live working-tree `setup-staging` committed/unmodified checks
-(the pair is read from a commit) and the staging-moved-during-gates check (the source is immutable).
-Without `--version`, nothing changes.
+## Change (final state; the iteration sections below record how it got here)
+`tools/promote-channel.sh <site> [port] --version <V> [--sha <prefix>] [--commit <sha>] [--allow-older] [--force]`
+(Mac only). Without `--version` the promote behaves as before, with ONE deliberate default-path output change:
+the post-force advice printed the port twice (`${PORT:+..}${PORT:-..}` is not an if/else), now once.
+
+With `--version`:
+- **Selection.** Commits on the site's HEAD whose `latest-staging.json` names V (narrowed by `--sha` and
+  `--commit`) must agree on sha256, artifact and manifest, else it refuses with advice that fits the shape.
+  The one used is the newest whose committed `setup-staging` hashes to its pointer's `setup_sha256` (the
+  cut's own commit), else the newest. A later kept commit whose pointer differs in more than its installer
+  refuses until `--commit` names the right one; one that matches is reported in a NOTE.
+- **Publication and baseline.** With an origin: the commit must be on origin/main, and the checkout's
+  `latest.json` must be origin's (one prod baseline for the rollback guard, signature checks and tunnel
+  control). The fetch is bounded (`pointer_freeze_fetch`).
+- **Checks.** Every existing check runs on the commit's pointer and installer and on the dist/ files they
+  name; the installer pair comes from the commit; the moved-staging check does not apply, and instead the
+  artifact is re-verified right before the first write.
+- **Guards.** `--force` needs `--sha`. V older than prod's, or not comparable (including a prod pointer with no
+  version), needs `--allow-older`.
+- **Messages.** Named-mode messages name the commit, the HOLD and post-force advice point at a board on V,
+  and hand-fix advice reads the commit only when that commit carries V's installer.
 
 ## Tests
-`tools/test-promote-named-7005.sh` (wired into test:shell): fixture site with committed cuts 9.9.8 then
-9.9.9; named promote of 9.9.8 while staging names 9.9.9; controls on the default path; refusals.
-Four mutants each red (installer from the working tree; no installer sha check; no version match; the
-moved check left on). Neighbour tests green: 5032, 2036 channel/wire, 6149 floor, pointer-freeze,
-deploy-site-promote, promote-channel-win.
+`tools/test-promote-named-7005.sh` (wired into test:shell after the #5032 test): a fixture site with committed
+cuts 9.9.8 then 9.9.9 and many variants; every refusal asserts prod and /setup untouched and has a control.
+Each fix in every iteration was shown red-capable by a mutant (the iteration sections name them). Neighbours
+green: 5032, 2036 channel/wire, 6149 floor, pointer-freeze, deploy-site-promote, promote-channel-win.
 
 ## Rejected
 - A pinned per-version pointer file written by the cut: needs a cut change and only helps future builds;
-  git already holds every cut's pointer + installer.
-- Reading origin/main instead of HEAD: the deploy serves the committed checkout; the promote recipe pulls
-  the site first.
+  git already holds every cut's pointer and installer.
+- Taking the commit from origin/main instead of HEAD: the commit is read from HEAD, and must ALSO be on
+  origin/main (iteration 2), which together with the baseline check covers a checkout ahead of origin.
+- Comparing the manifest pair against V's commit: a legitimate re-sign after the cut would refuse; the docs
+  say the manifest pair is the dist/ copy, as for any promote.
 
 ## Not done (stated on the card)
 The experience and agent-spawn gates still need a board running V. After a later staging cut moves the
-cut box's board, the gate says cannot-tell and the promote HOLDS (forceable after a hand check, as today).
+cut box's board, the gate says cannot-tell and the promote HOLDS (forceable after a hand check, with --sha).
 
 ## Merge hold
 Do not merge before the 0.7.64 prod promote lands (Splinter 17:59): Baron's prepped promote scripts call
-promote-channel.sh.
-
-## Commit selection (revised after challenge iteration 1)
-My first version took the newest commit naming V and claimed a hand republish "carries the same pointer
-fields". That was wrong: publish-staging-pointer.sh keeps setup_sha256 only for the same build, so a staging
-rollback to V after a later cut commits V's pointer with NO installer, beside the later cut's setup-staging.
-Now: every commit on HEAD naming V must name the same sha256 (else refuse); the one used is the newest whose
-committed setup-staging hashes to its pointer's setup_sha256, else the newest naming V.
-
-## Rollback guard (added after challenge iteration 1)
-A named V older than prod's current version refuses unless --allow-older: with the gates holding on a moved
-board, --force is this mode's usual path, and a mistyped version must not downgrade prod.
+promote-channel.sh. Not enforced by anything; stated in the PR body.
 
 ## Weakest premise
-That the cut box's dist/ still holds V's tarball when the promote runs. True for every past cut, but a
-fresh cut box would not have it; the promote then refuses (artifact missing), as the default path does.
+That the cut box's dist/ still holds V's tarball when the promote runs. True for every past cut, but nothing
+protects it from a manual retention prune once staging moves on; the promote then refuses (artifact missing).
+
+## Iteration 1 (challenge) changes
+- My first version took the newest commit naming V and claimed a hand republish "carries the same pointer
+  fields". That was wrong: publish-staging-pointer.sh keeps setup_sha256 only for the same build, so a staging
+  rollback to V after a later cut commits V's pointer with NO installer, beside the later cut's setup-staging.
+  Fixed: agreement across commits naming V, and the paired (cut) commit preferred.
+- Added the rollback guard (--allow-older): with the gates holding on a moved board, --force is this mode's
+  usual path, and a mistyped version must not downgrade prod.
 
 ## Iteration 2 (challenge) changes
 - The two named-mode messages used `${X:+A}${X:-B}` as an if/else; `:-` yields X itself when set, so both
@@ -139,3 +150,11 @@ in more than its installer (with the --commit to use it).
 - Not changed (NIT): only the newest kept commit is compared with the chosen one, not a middle republish;
   the pointer writer emits fixed fields, so that needs a hand-edited pointer.
 - Merge hold (process, stated in the PR): not before the 0.7.64 prod promote lands.
+
+## Iteration 11 (challenge) changes
+- Docs step 4 split into parts, and it says the manifest pair is the checkout's dist/ copy (the commit pins
+  the artifact's sha, not the manifest's), as for any promote.
+- The plan's top sections rewritten to the final state (they described the first version).
+- Not changed: comparing the manifest pair against V's commit (a re-sign after the cut is legitimate); a
+  middle republish is not compared (needs a hand-edited pointer); an ambiguous 7-char --commit prefix is
+  resolved by the agreement logic.
