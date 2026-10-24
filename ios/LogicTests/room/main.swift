@@ -135,10 +135,18 @@ check(Board.roomPostRefusedBeforeSending(text: "hi", connected: false) != nil, "
 check(Board.roomPostRefusedBeforeSending(text: String(repeating: "a", count: 10000), connected: true) == nil, "CONTROL: at the limit, connected: it is sent")
 
 section("Reply's @name")
-check(Board.replyMention(draft: "", from: "monalisa") == "@monalisa ", "the session name, which the engine reads as one @word (never \"@Mona Lisa\")")
-check(Board.replyMention(draft: "see this", from: "eli") == "@eli see this", "the person's words are kept, after the name")
-check(Board.replyMention(draft: "thanks @Eli.", from: "eli") == "thanks @Eli.", "already named: nothing added")
-check(Board.replyMention(draft: "@elijah hi", from: "eli") == "@eli @elijah hi", "CONTROL: @elijah is not @eli")
+func mention(_ d: String, _ f: String?, _ p: String? = nil) -> String { Board.replyMention(draft: d, from: f, previous: p).text }
+check(mention("", "monalisa") == "@monalisa ", "the session name, which the engine reads as one @word (never \"@Mona Lisa\")")
+check(mention("see this", "eli") == "@eli see this", "the person's words are kept, after the name")
+check(mention("thanks @Eli.", "eli") == "thanks @Eli.", "already named: nothing added")
+check(mention("@elijah hi", "eli") == "@eli @elijah hi", "CONTROL: @elijah is not @eli")
+let first = Board.replyMention(draft: "", from: "cleo", previous: nil)
+check(first.mention == "@cleo ", "the mention Reply inserted is handed back, to swap next time")
+check(mention(first.text, "dana", first.mention) == "@dana ", "a second Reply swaps the name, never \"@dana @cleo\" (which would ask both)")
+check(mention("@cleo see this", "dana", nil) == "@dana @cleo see this", "CONTROL: a name the person typed themselves is never taken off")
+check(mention(first.text + "thanks", nil, first.mention) == "thanks", "Reply on the person's own post takes the earlier name off and adds none")
+check(Board.isOnlyMention("@cleo ", mention: "@cleo ") && Board.isOnlyMention(" @Cleo", mention: "@cleo "), "a box holding only the mention is not a post (#4359)")
+check(!Board.isOnlyMention("@cleo hi", mention: "@cleo ") && !Board.isOnlyMention("@cleo", mention: nil), "CONTROL: words after it, or a name the person typed, are a post")
 check(Board.mentionRanges("@eli and @elijah", "eli").count == 1, "highlighting lights whole names only")
 check(Board.mentionRanges("@eli.x", "eli").isEmpty, "CONTROL: a dot inside a longer name is not the end of the name")
 

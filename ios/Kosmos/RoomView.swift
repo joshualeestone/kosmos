@@ -11,6 +11,8 @@ struct RoomView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
     @State private var replying: Board.RoomRow?
+    // The @name the last Reply put at the front of the box, so the next Reply swaps it and Post refuses it alone.
+    @State private var replyMention: String?
     @State private var loop: Task<Void, Never>?
     @State private var chatAgent: Board.Agent?
     // Whether the end of the room is on screen: a new row follows only then, so a reader who scrolled up is never
@@ -69,9 +71,9 @@ struct RoomView: View {
         .onChange(of: scenePhase) { phase in
             if phase == .background { loop?.cancel(); loop = nil } else if phase == .active && visible && loop == nil { start() }
         }
+        // Handed-back words go in when they arrive, if the box is empty then (the board's restoreUnsent); otherwise they
+        // wait for the room's next opening, never for the box to empty (that is the moment Post is pressed).
         .onChange(of: store.returned[project.id]) { _ in takeReturned() }
-        // Handed-back words waiting for an empty box take it as soon as it is.
-        .onChange(of: draft) { _ in if store.returned[project.id] != nil { takeReturned() } }
         // A not-confirmed post the room now shows kept: a box still holding exactly its words is cleared.
         .onChange(of: store.kept[project.id]) { words in
             guard let words else { return }
@@ -84,13 +86,18 @@ struct RoomView: View {
     private func start() {
         loop?.cancel()
         loop = Task {
-            var lastCount = -1
+            var seenOnce = false
+            var lastSeen: String?
             while !Task.isCancelled {
                 await store.loadRoom(project.id)
                 // Seen only once the room has really been read, and only while it is still open: a failed first read,
                 // or one that finished after the person left, is not the person seeing it.
                 if Task.isCancelled { break }
-                if let shown = store.rows[project.id], shown.count != lastCount { lastCount = shown.count; await store.markSeen(project.id) }
+                // By the newest row, not the count: a re-read that replaced 50 rows with 50 newer ones is still new.
+                if let shown = store.rows[project.id], !seenOnce || shown.last?.id != lastSeen {
+                    seenOnce = true; lastSeen = shown.last?.id
+                    await store.markSeen(project.id)
+                }
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
         }
@@ -167,7 +174,12 @@ struct RoomView: View {
                             .font(.footnote).foregroundColor(Palette.secondary).frame(maxWidth: .infinity).padding(.top, 8)
                     }
                     Color.clear.frame(height: 1).id("bottom")
-                        .onAppear { atBottom = true }
+                        .onAppear {
+                            atBottom = true
+                            // The end of the room is really on screen: only now may the top ask for older pages (the
+                            // spinner at the top has had its chance to leave the screen in the same layout).
+                            if !settledAtBottom && !rows.isEmpty { DispatchQueue.main.async { settledAtBottom = true } }
+                        }
                         .onDisappear { atBottom = false }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
@@ -176,7 +188,6 @@ struct RoomView: View {
                 if !settledAtBottom {
                     // The first page: straight to the newest row, then the top may ask for older ones.
                     proxy.scrollTo("bottom", anchor: .bottom)
-                    DispatchQueue.main.async { settledAtBottom = true }
                 } else if atBottom {
                     withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
@@ -191,7 +202,7 @@ struct RoomView: View {
             .onAppear {
                 proxy.scrollTo("bottom", anchor: .bottom)
                 // A room opened again with its rows already read: the last row will not change, so settle here.
-                if !rows.isEmpty { DispatchQueue.main.async { settledAtBottom = true } }
+                // (settled by the end of the room appearing, above)
             }
         }
     }
@@ -220,7 +231,9 @@ struct RoomView: View {
                            react: { emoji in Task { await store.react(emoji, to: row, in: project.id) } },
                            reply: {
                                replying = row
-                               if !row.byPerson, let from = row.from { draft = Board.replyMention(draft: draft, from: from) }
+                               let next = Board.replyMention(draft: draft, from: row.byPerson ? nil : row.from, previous: replyMention)
+                               draft = next.text
+                               replyMention = next.mention
                                typing = true
                            },
                            openAgent: { if let a = store.agent(row.from) { chatAgent = a } },
@@ -232,6 +245,8 @@ struct RoomView: View {
 
     private func displayName(_ row: Board.RoomRow) -> String {
         if row.byPerson { return "You" }
+        // An outside sender's own words, never mapped to a local agent's name (the board's pjRoomRow, #3851).
+        if row.kind == .external { return row.from.flatMap { $0.isEmpty ? nil : $0 } ?? "Someone outside" }
         return row.from.map { store.names[$0] ?? $0 } ?? "Kosmos"
     }
 
@@ -246,6 +261,11 @@ struct RoomView: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
+    // Words to post: not empty, and not only the @name Reply put there.
+    private var canPost: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !Board.isOnlyMention(draft, mention: replyMention)
+    }
+
     private var composer: some View {
         VStack(spacing: 0) {
             if let r = replying {
@@ -253,7 +273,12 @@ struct RoomView: View {
                     Text("Replying to \(displayName(r)): \(r.text.components(separatedBy: "\n").first ?? "")")
                         .font(.footnote).foregroundColor(Palette.secondary).lineLimit(1)
                     Spacer()
-                    Button { replying = nil } label: { Image(systemName: "xmark") }.frame(minWidth: 44, minHeight: 44)
+                    Button {
+                        // A box holding nothing but the @name Reply put there goes back to empty (the board's
+                        // pj-replying-x, #4359); words the person typed stay as they are.
+                        if Board.isOnlyMention(draft, mention: replyMention) { draft = "" }
+                        replying = nil; replyMention = nil
+                    } label: { Image(systemName: "xmark") }.frame(minWidth: 44, minHeight: 44)
                         .accessibilityLabel("Stop replying")
                 }
                 .padding(.horizontal, 16)
@@ -270,8 +295,8 @@ struct RoomView: View {
                     Image(systemName: "arrow.up").font(.body.weight(.bold)).foregroundColor(Palette.sendGlyph)
                         .frame(width: 44, height: 44).background(Circle().fill(Palette.sendFill))
                 }
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
+                .disabled(!canPost)
+                .opacity(canPost ? 1 : 0.5)
                 .accessibilityLabel("Post")
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
@@ -282,9 +307,10 @@ struct RoomView: View {
     // The box clears at once, so the person can keep typing. A refused or not-confirmed post's words come back through
     // the store (RoomStore.returned), which keeps them if the person has left the room or typed something since.
     private func send() {
+        guard canPost else { return }
         let text = draft
         let reply = replying
-        draft = ""; replying = nil
+        draft = ""; replying = nil; replyMention = nil
         Task { await store.post(text, to: project.id, replyTo: reply) }
     }
 }

@@ -251,11 +251,24 @@ extension Board {
 
     // Reply on an agent's post puts "@<its session name> " in front of what the box already holds (the board's
     // pjReplyMention): the session name, because the engine reads an @word as [A-Za-z0-9._-]+ and a display name like
-    // "Mona Lisa" would stop at the space. Nothing is added when the words already @-name that agent.
-    static func replyMention(draft: String, from: String) -> String {
-        guard !from.isEmpty else { return draft }
-        if mentionsWord(draft, from) { return draft }
-        return "@" + from + " " + draft
+    // "Mona Lisa" would stop at the space. The mention an earlier Reply put there (`previous`) is taken off the front
+    // first, so replying to Dana after Cleo swaps the name rather than asking both. Nothing is added when the words
+    // already @-name that agent. Returns the box and the mention inserted (nil when none), to pass as `previous` next.
+    static func replyMention(draft: String, from: String?, previous: String?) -> (text: String, mention: String?) {
+        var text = draft
+        if let previous, !previous.isEmpty, text.hasPrefix(previous) { text = String(text.dropFirst(previous.count)) }
+        guard let from, !from.isEmpty else { return (text, nil) }
+        if mentionsWord(text, from) { return (text, nil) }
+        let mention = "@" + from + " "
+        return (mention + text, mention)
+    }
+
+    // A box holding nothing but the mention Reply put there is not a post (the board's pjPostSend, #4359: "Say
+    // something first."): it would hand that agent a request with no words.
+    static func isOnlyMention(_ draft: String, mention: String?) -> Bool {
+        let said = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let m = mention?.trimmingCharacters(in: .whitespacesAndNewlines), !m.isEmpty else { return false }
+        return said.caseInsensitiveCompare(m) == .orderedSame
     }
 
     // Whether `text` holds @word as a whole token (the engine's rule: not inside a longer name), without case.

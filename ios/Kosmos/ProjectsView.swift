@@ -47,6 +47,8 @@ final class RoomStore: ObservableObject {
         returned = [:]; kept = [:]
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
+    private var listReads = 0
+    private var listApplied = 0
 
     func loadList() async {
         #if DEBUG
@@ -61,8 +63,13 @@ final class RoomStore: ObservableObject {
             }
         }
         let epoch = client.chatEpoch
+        listReads += 1
+        let read = listReads
         let answer = await client.throughMac { Board.projectsRequest(mac: $0) }
-        guard same(epoch) else { return }
+        // An older read landing after a newer one never replaces it (the 5-second poll and a notification's re-read
+        // overlap).
+        guard same(epoch), read > listApplied else { return }
+        listApplied = read
         if let answer, answer.1.statusCode == 200, let parsed = Board.parseProjects(answer.0) {
             list = parsed; listState = .shown
         } else if list == nil {
@@ -129,7 +136,10 @@ final class RoomStore: ObservableObject {
         } else {
             let answer = await client.throughMac { Board.roomPostRequest(mac: $0, project: project, text: item.text, replyTo: replyTo?.id) }
             guard same(epoch) else { return }
-            result = Board.roomPostResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
+            // No answer because the connection went between the check and the send: nothing left, so Not posted.
+            result = answer == nil && client.macURL == nil
+                ? (Board.roomPostRefusedBeforeSending(text: item.text, connected: false) ?? .unsure)
+                : Board.roomPostResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
         }
         switch result {
         case let .posted(note):
@@ -193,7 +203,8 @@ final class RoomStore: ObservableObject {
 
     // A reaction toggles (the board's route adds it, or takes the person's own back); the room is re-read after.
     func react(_ emoji: String, to row: Board.RoomRow, in project: String) async {
-        guard row.kind == .post, Board.isProjectId(project) else { return }
+        // Post ids are the room's m<digits>; anything else is never put into a path.
+        guard row.kind == .post, Board.isProjectId(project), row.id.range(of: #"^m\d{1,15}$"#, options: .regularExpression) != nil else { return }
         #if DEBUG
         if Self.sample { return }
         #endif
@@ -298,7 +309,7 @@ struct ProjectsView: View {
 
     // A room a notification asked for opens once the list has it. A project the list does not have (removed since,
     // or archived) opens the board's own room page instead, so a tap never lands nowhere.
-    private func openRequested() {
+    private func openRequested(afterReread: Bool = false) {
         guard let target = roomRequest else { return }
         let id = target.project
         // The list cannot be read: the board's own room page now, rather than a room that pushes itself much later.
@@ -312,12 +323,14 @@ struct ProjectsView: View {
             openProject = p
             return
         }
-        // Not in the list as read: a room made since gets one fresh read before the board's page is the answer.
+        // Not in the list as read: a room made since gets one fresh read before the board's page is the answer, and
+        // only that read decides (a poll read that lands first is not it).
         if !listReread {
             listReread = true
-            Task { await store.loadList(); openRequested() }
+            Task { await store.loadList(); openRequested(afterReread: true) }
             return
         }
+        guard afterReread else { return }
         listReread = false
         roomRequest = nil
         openBoardRoom(target)
