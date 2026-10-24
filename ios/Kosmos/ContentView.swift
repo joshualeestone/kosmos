@@ -219,6 +219,8 @@ struct ContentView: View {
             // Back at the front after a real background: the bar may take Tasks now. Mona Lisa: the bar changes at
             // launch or on a return, not on each poll (a launch's first read can still land while it is on screen).
             if newPhase == .background { tabsBackgrounded = true }
+            // kosmos#7050 slice C: here, not on the sign-in screen, so it runs even when the lock takes the screen away.
+            if newPhase == .background { signIn.appLeft() }
             // kosmos#7042 review round 2: a launch before the phone's first unlock reads no session, so the sign-in may
             // be showing to someone signed in. Still on its first step, it goes once the session can be read.
             if newPhase == .active, nativeSignIn, signIn.step == .email, signIn.issued == nil,
