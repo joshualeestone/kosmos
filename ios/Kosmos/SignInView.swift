@@ -13,6 +13,8 @@ final class SignInModel: ObservableObject {
     @Published var busy = false
     /// kosmos#7045: Kosmos+ offered this address its company's own sign-in beside the code (a link on the code step).
     @Published private(set) var companyURL: URL?
+    /// Whether this iPhone opens a company's sign-in in Apple's sheet (iOS 17.4+); earlier, the web page has it.
+    var companySheet: Bool { client?.canUseCompanySheet ?? false }
     /// The session Kosmos+ issued, once: ContentView hands it to the app (the web bridge's own path).
     @Published private(set) var issued: String?
     /// Bumped when an issued session is dropped (backed out of, or ended): ContentView signs it out, and the web page
@@ -304,7 +306,8 @@ struct SignInView: View {
                 .onChange(of: model.email) { _ in model.error = nil }
             errorLine
             primary("Send code", action: model.sendCode)
-            link("Sign in with a passkey", action: useWeb)
+            // Where Apple's sheet cannot take a company's sign-in (before iOS 17.4), the web page has it: say so here.
+            link(model.companySheet ? "Sign in with a passkey" : "Sign in with your company or a passkey", action: useWeb)
             footnote("New to Kosmos+? Make your account on your computer.")
         case .code(let email):
             title("Check your email")

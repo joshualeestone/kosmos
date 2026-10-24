@@ -51,3 +51,7 @@ would not send app=1). Fixed here meanwhile: busy no longer drops while the shee
   path, http, and the old custom scheme are all refused.
 - Weakest premise now: that the sheet's https callback completes on the 302 to /signin (Apple's docs: the session
   completes when it navigates to a URL matching the callback). Not seen on a device yet.
+
+## Review (blind, 08:3x, both repos): nothing real on security
+1. [NIT] Before iOS 17.4 the email link said only "passkey" though it is also the company sign-in: FIXED (old wording there).
+2. [NOTE] Shipping: the profile carries the capability (Baron, GL45W8GF57); Apple caches the association file, so a first device test may lag.
