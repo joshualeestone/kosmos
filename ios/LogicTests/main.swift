@@ -2743,6 +2743,28 @@ do {
           "the coordinator's origin is written as location.origin writes it (no slash, no default port)")
 }
 
+section("sign-in: a company's own sign-in in Apple's sheet (kosmos#7045)")
+do {
+    let begin = SignIn.companySignInURL(json: jsonBody(#"{"ok":true,"sso_url":"/v1/sso/begin?email=ann%40acme.test&device_id=k1.abc"}"#), coordinator: coordinator)
+    check(begin?.absoluteString == "https://login.kosmosplus.com/v1/sso/begin?email=ann%40acme.test&device_id=k1.abc&app=1", "Kosmos+'s begin address, on the coordinator, with app=1")
+    check(SignIn.companySignInURL(json: jsonBody(#"{"sso_url":"/v1/sso/begin?email=ann%2Bwork%40acme.test&device_id=k1.abc"}"#), coordinator: coordinator)?.absoluteString
+          == "https://login.kosmosplus.com/v1/sso/begin?email=ann%2Bwork%40acme.test&device_id=k1.abc&app=1", "an address with a + is kept exactly as Kosmos+ encoded it")
+    check(SignIn.companySignInURL(json: jsonBody(#"{"sso_url":"/v1/sso/begin?email=a%40b.co&app=0"}"#), coordinator: coordinator) == nil
+          && SignIn.companySignInURL(json: jsonBody(#"{"sso_url":"/v1/sso/begin?app&email=a%40b.co"}"#), coordinator: coordinator) == nil, "one that already names app is not Kosmos+'s: not opened")
+    for bad in [#"{"sso_url":"https://evil.example/v1/sso/begin?x"}"#, #"{"sso_url":"//evil.example/v1/sso/begin?x"}"#, #"{"sso_url":"/v1/other?x"}"#, #"{"ok":true}"#, #"{"sso_url":7}"#] {
+        check(SignIn.companySignInURL(json: jsonBody(bad), coordinator: coordinator) == nil, "not opened: \(bad)")
+    }
+    check(SignIn.companyReturn(URL(string: "kosmos-signin://sso#sso_grant=ksso1_abc&email=ann%40acme.test")!) == .grant("ksso1_abc", email: "ann@acme.test"), "the grant and the vouched email")
+    check(SignIn.companyReturn(URL(string: "kosmos-signin://sso?sso_error=not_member")!) == .refused(SignIn.companyWords["not_member"]!), "a refusal, in the page's sentence")
+    check(SignIn.companyReturn(URL(string: "kosmos-signin://sso?sso_error=whatever")!) == .refused(SignIn.companyWords["failed"]!), "a word not known: the general sentence")
+    for bad in ["kosmos-signin://sso#sso_grant=abc&email=ann%40acme.test", "kosmos-signin://sso#sso_grant=ksso1_abc", "kosmos-signin://other#sso_grant=ksso1_abc&email=a%40b.co",
+                "https://login.kosmosplus.com/signin#sso_grant=ksso1_abc&email=a%40b.co", "kosmos-signin://sso#sso_grant=ksso1_abc&email=not-an-email"] {
+        check(SignIn.companyReturn(URL(string: bad)!) == nil, "nothing taken from \(bad)")
+    }
+    check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"agree first","code":"terms_required"}"#)) == .needsTerms && SignIn.next(after: .needsTerms, email: "e").step == .web(reason: SignIn.webForTerms), "a first company sign-in needs the terms: the web page")
+    check(SignIn.appReturnScheme == "kosmos-signin" && SignIn.grantPrefix == "ksso1_", "the return and the grant, as kosmos-relay sso.rs writes them")
+}
+
 await boardLoopTests()
 
 print("")
