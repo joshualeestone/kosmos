@@ -232,14 +232,19 @@ final class BoardClient: ObservableObject {
     static let todayViewer = "today"
     // kosmos#7032: the Projects tab and a room keep the connection (and the agents' names and pictures) going too.
     static let projectsViewer = "projects"
+    static let tasksViewer = "tasks"   // kosmos#7031: the native Tasks tab reads the same list, every state
     private var viewers: Set<String> = []
+    private var readsTasks: Bool { viewers.contains(Self.todayViewer) || viewers.contains(Self.tasksViewer) }
     func show(_ viewer: String) {
         let first = viewers.isEmpty
         viewers.insert(viewer)
         // Review 2: tasks last read longer ago than a tick are not shown as current when Today arrives (Agents can have
         // kept the loop going for a long time without reading them); unknown until the read now answers.
-        if viewer == Self.todayViewer, let at = tasksAt, env.now().timeIntervalSince(at) >= Self.tasksEvery { readyTasks = nil; tasksFailed = false }
-        if first { start() } else if viewer == Self.todayViewer, case .live = phase, tasksTask == nil {
+        let tasksTab = viewer == Self.todayViewer || viewer == Self.tasksViewer
+        if tasksTab, let at = tasksAt, env.now().timeIntervalSince(at) >= Self.tasksEvery {
+            readyTasks = nil; tasksFailed = false; tasksList = nil; tasksListFailed = false
+        }
+        if first { start() } else if tasksTab, case .live = phase, tasksTask == nil {
             // Today arriving while Agents keeps the loop going: its tasks are read now, not at the next tick.
             startTasksRead()
         }
@@ -258,6 +263,10 @@ final class BoardClient: ObservableObject {
     // answer with tasks, which Today says in place of the section, never as zero.
     @Published private(set) var readyTasks: [Board.ReadyTask]?
     @Published private(set) var tasksFailed = false
+    // kosmos#7031: the same read, every state, for the Tasks tab. An answer whose agents could not be read is still a
+    // read here (Needs Your Decision says it cannot tell); tasksListFailed only when no list came back.
+    @Published private(set) var tasksList: Board.TasksRead?
+    @Published private(set) var tasksListFailed = false
     private var tasksAt: Date?
     private var tasksTask: Task<Void, Never>?
     static let tasksEvery: TimeInterval = 30
@@ -283,6 +292,8 @@ final class BoardClient: ObservableObject {
         projectsUnread = nil
         readyTasks = nil
         tasksFailed = false
+        tasksList = nil
+        tasksListFailed = false
         tasksAt = nil
     }
 
@@ -292,29 +303,38 @@ final class BoardClient: ObservableObject {
         let result = await env.send(Board.readyTasksRequest(mac: held.url))
         guard gen == generation, !Task.isCancelled else { return }
         tasksAt = env.now()
-        if let answer = result?.1, (200...299).contains(answer.statusCode), let data = result?.0, let ready = Board.readyTasks(data) {
+        let ok = (result?.1).map { (200...299).contains($0.statusCode) } ?? false
+        if ok, let data = result?.0, let ready = Board.readyTasks(data) {
             readyTasks = ready
             tasksFailed = false
         } else {
             tasksFailed = true
             readyTasks = nil   // review 1: an old list is never shown as current after a failed read
         }
+        if ok, let data = result?.0, let list = Board.parseTasks(data) {
+            tasksList = list
+            tasksListFailed = false
+        } else {
+            tasksListFailed = true
+            tasksList = nil
+        }
     }
 
     // The task's page in the board (?project=&task=, read at boot by web/index.html), on the Mac the list came from.
-    func taskURL(for task: Board.ReadyTask) -> URL? {
-        guard let mac = shownMac, let base = Board.macURL(address: mac.address, coordinator: coordinator),
-              var parts = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return nil }
-        parts.path = "/"
-        parts.queryItems = [URLQueryItem(name: "project", value: task.projectId), URLQueryItem(name: "task", value: String(task.number))]
-        return parts.url
+    func taskURL(for task: Board.ReadyTask) -> URL? { taskURL(project: task.projectId, number: task.number) }
+    func taskURL(for task: Board.TaskRow) -> URL? { taskURL(project: task.projectId, number: task.number) }   // kosmos#7031
+    private func taskURL(project: String, number: Int) -> URL? {
+        guard let mac = shownMac, let base = Board.macURL(address: mac.address, coordinator: coordinator) else { return nil }
+        return Tasks.taskPageURL(board: base, project: project, number: number)
     }
 
     // The tapped agent's chat under Today (the same link a notification tap opens); also from a list shown as not
     // updating, which still names the Mac it came from.
-    func chatURL(for agent: Board.Agent) -> URL? {
+    func chatURL(for agent: Board.Agent) -> URL? { chatURL(session: agent.session) }
+    // kosmos#7031: by session, for a task row whose agent the roster does not list yet.
+    func chatURL(session: String) -> URL? {
         guard let mac = shownMac else { return nil }
-        return PushBridge.boardURL(fromNotification: ["address": mac.address, "session": agent.session], coordinator: coordinator)
+        return PushBridge.boardURL(fromNotification: ["address": mac.address, "session": session], coordinator: coordinator)
     }
 
     // MARK: - One agent's conversation (kosmos#7008)
@@ -956,7 +976,7 @@ final class BoardClient: ObservableObject {
             }
             // kosmos#7030: the tasks Today shows, read only while Today is on screen, at most every 30 s (the board's Tasks
             // view read is not cheap); pull to refresh reads them at once.
-            if viewers.contains(Self.todayViewer), tasksTask == nil, tasksAt.map({ env.now().timeIntervalSince($0) >= Self.tasksEvery }) ?? true {
+            if readsTasks, tasksTask == nil, tasksAt.map({ env.now().timeIntervalSince($0) >= Self.tasksEvery }) ?? true {
                 startTasksRead()
             }
             return true

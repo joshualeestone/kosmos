@@ -2,12 +2,64 @@ import SwiftUI
 
 // The native Tasks tab (kosmos#7031, slice 7 of #6838; Mona Lisa's slice7/SPEC.md). It draws what TasksLogic decides,
 // which is the board's Tasks view: its groups in Josh's order, its title words and its project picker. A row opens the
-// board's task page in the board view until a native task page has its own slice; Answer opens the agent's chat.
+// board's task page (openPage: under Today in the board view, as Today's Check it does, until a native task page has
+// its own slice); Answer opens that agent's native chat, as Today's Answer does.
+struct TasksTab: View {
+    @ObservedObject var client: BoardClient
+    let openPage: (URL) -> Void
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var visible = false
+    @State private var wasBackground = false
+    @State private var openAgent: Board.Agent?
+
+    var body: some View {
+        NavigationView {
+            TasksView(read: client.tasksList, failed: client.tasksListFailed, agentName: name,
+                      open: { t in if let url = client.taskURL(for: t) { openPage(url) } },
+                      answer: answer,
+                      refresh: { await client.refreshTasks() })
+                .background(chatLink)
+        }
+        .navigationViewStyle(.stack)
+        .onChange(of: client.chatEpoch) { _ in openAgent = nil }
+        .onAppear { visible = true; client.show(BoardClient.tasksViewer) }
+        .onDisappear { visible = false; wasBackground = false; client.hide(BoardClient.tasksViewer) }
+        .onChange(of: scenePhase) { phase in
+            guard visible else { return }
+            if phase == .background { wasBackground = true; client.stop() }
+            else if phase == .active && wasBackground { wasBackground = false; client.start() }
+        }
+    }
+
+    // tskAgentName: the roster's name for a session, else the session name itself.
+    private func name(_ session: String) -> String { client.agents.first { $0.session == session }?.name ?? session }
+    // The agent the decision row waits on (the first named), in its native chat; one the roster does not list yet opens
+    // its chat on the board instead.
+    private func answer(_ t: Board.TaskRow) {
+        guard let who = t.waitingOn.first?.who else { return }
+        if let agent = client.agents.first(where: { $0.session == who }) { openAgent = agent; return }
+        if let url = client.chatURL(session: who) { openPage(url) }
+    }
+    // Built in typed steps, as Today's (a single expression type-checks slowly on CI's Xcode).
+    private var chatOpen: Binding<Bool> {
+        Binding(get: { openAgent != nil }, set: { if !$0 { openAgent = nil } })
+    }
+    private var chatLink: some View {
+        NavigationLink(isActive: chatOpen, destination: chatDestination, label: { EmptyView() }).hidden()
+    }
+    @ViewBuilder private func chatDestination() -> some View {
+        if let agent = openAgent { chat(for: agent) }
+    }
+    private func chat(for agent: Board.Agent) -> ChatView {
+        let onBoard: () -> Void = { if let url = client.chatURL(for: agent) { openPage(url) } }
+        return ChatView(client: client, agent: agent, openOnBoard: onBoard)
+    }
+}
+
 struct TasksView: View {
     let read: Board.TasksRead?
     let failed: Bool
-    let earned: Bool                       // the board shows Tasks (counts.tasksTab); before that, "No tasks yet"
-    let agentName: (String) -> String      // tskAgentName: the roster's name for a session, else the session name
+    let agentName: (String) -> String      // tskAgentName
     let open: (Board.TaskRow) -> Void
     let answer: (Board.TaskRow) -> Void
     let refresh: () async -> Void
@@ -19,22 +71,23 @@ struct TasksView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        NavigationStack {
-            content
-                .navigationTitle("Tasks")
-                .toolbar { if read != nil && earned { ToolbarItem(placement: .topBarTrailing) { picker } } }
-                .background(Palette.ground.ignoresSafeArea())
-        }
-        .onAppear { completedOpen = false; layOut() }
-        .onChange(of: read) { _, _ in update() }
-        .onChange(of: project) { _, _ in layOut() }
+        content
+            .navigationTitle("Tasks")
+            .toolbar { if let read, !read.tasks.isEmpty { ToolbarItem(placement: .navigationBarTrailing) { picker } } }
+            .background(Palette.ground.ignoresSafeArea())
+            .onAppear { completedOpen = false; layOut() }
+            .onChange(of: read) { _ in update() }
+            .onChange(of: project) { _ in layOut() }
     }
 
     @ViewBuilder private var content: some View {
-        if !earned {
-            centred(title: "No tasks yet", detail: "Tasks are made on your computer, or by your agents.")
-        } else if let read {
-            list(read)
+        if let read {
+            // The board's own empty line, as slice 1's empty state.
+            if read.tasks.isEmpty && !read.rosterUnknown {
+                centred(title: "No tasks yet", detail: "Tasks are made on your computer, or by your agents.")
+            } else {
+                list(read)
+            }
         } else if failed {
             centred(title: "Kosmos could not read your tasks just now.", detail: "Pull down to try again.")
         } else {
@@ -84,9 +137,9 @@ struct TasksView: View {
 
     private func header(_ s: Tasks.Section, read: Board.TasksRead) -> some View {
         let count = s.unknown ? "?" : String(s.rows.count)
+        let token = Tasks.dotToken(s.group, count: s.rows.count, rosterUnknown: read.rosterUnknown)
         return HStack(spacing: 6) {
-            Circle().fill(TasksPalette.dot(Tasks.dotToken(s.group, count: s.rows.count, rosterUnknown: read.rosterUnknown)))
-                .frame(width: 8, height: 8)
+            Circle().fill(TasksPalette.dot(token)).frame(width: 8, height: 8)
             Text(s.group.label).foregroundColor(Palette.primary)
             Text(count).foregroundColor(Palette.secondary)
         }
@@ -100,30 +153,14 @@ struct TasksView: View {
     private func row(_ t: Board.TaskRow, projectShown: Bool) -> some View {
         let line = Tasks.rowLine(t, now: Date(), name: agentName)
         let large = typeSize >= .accessibility1
-        return VStack(alignment: .leading, spacing: 4) {
-            Button { open(t) } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    if projectShown {
-                        Text(Tasks.chainText(Tasks.chain(t))).font(.footnote).foregroundColor(Palette.secondary)
-                            .lineLimit(large ? nil : 1)
-                    }
-                    Text(t.sentence).font(.callout.weight(.semibold)).foregroundColor(Palette.primary)
-                        .lineLimit(large ? nil : 2).multilineTextAlignment(.leading)
-                    if !line.isEmpty {
-                        Text(line).font(.footnote).foregroundColor(Palette.secondary)
-                            .lineLimit(large ? nil : 2).multilineTextAlignment(.leading)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Tasks.spoken(t, line: line, projectShown: projectShown))
-            .accessibilityHint("Opens the task")
-            .accessibilityActions {
-                if t.state == "decision" { Button("Answer") { answer(t) } }
-            }
-            if t.state == "decision" && !t.waitingOn.isEmpty {
+        let decision = t.state == "decision" && !t.waitingOn.isEmpty
+        return VStack(alignment: .leading, spacing: 6) {
+            Button { open(t) } label: { rowText(t, line: line, projectShown: projectShown, large: large) }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Tasks.spoken(t, line: line, projectShown: projectShown))
+                .accessibilityHint("Opens the task")
+                .modifier(AnswerAction(on: decision) { answer(t) })
+            if decision {
                 Button { answer(t) } label: {
                     Text("Answer").font(.footnote.weight(.semibold)).foregroundColor(Palette.card)
                         .padding(.horizontal, 14).padding(.vertical, 6)
@@ -136,6 +173,23 @@ struct TasksView: View {
         .padding(.vertical, 4)
         .listRowBackground(Palette.card)
         .listRowSeparatorTint(Palette.separator)
+    }
+
+    private func rowText(_ t: Board.TaskRow, line: String, projectShown: Bool, large: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if projectShown {
+                Text(Tasks.chainText(Tasks.chain(t))).font(.footnote).foregroundColor(Palette.secondary)
+                    .lineLimit(large ? nil : 1)
+            }
+            Text(t.sentence).font(.callout.weight(.semibold)).foregroundColor(Palette.primary)
+                .lineLimit(large ? nil : 2).multilineTextAlignment(.leading)
+            if !line.isEmpty {
+                Text(line).font(.footnote).foregroundColor(Palette.secondary)
+                    .lineLimit(large ? nil : 2).multilineTextAlignment(.leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private var picker: some View {
@@ -176,6 +230,15 @@ struct TasksView: View {
         guard let read else { return }
         if laidOutFor != project || shown.isEmpty { layOut(); return }
         shown = Tasks.keepingPlaces(shown, with: read, project: project)
+    }
+}
+
+// A decision row's Answer, also as a custom accessibility action (the spec), only on a row that has one.
+private struct AnswerAction: ViewModifier {
+    let on: Bool
+    let run: () -> Void
+    @ViewBuilder func body(content: Content) -> some View {
+        if on { content.accessibilityAction(named: Text("Answer"), run) } else { content }
     }
 }
 

@@ -435,10 +435,11 @@ enum Tasks {
 
     // The board's task page for a row, opened in the board view until a native task page has its own slice: the board
     // reads ?project=&task= at boot (web/index.html), as Today's Check it opens it (#7030).
-    static func taskPageURL(board: URL, _ t: Board.TaskRow) -> URL? {
+    // The one helper: Today's Check it and a Tasks row both open a task page through it (BoardClient.taskURL).
+    static func taskPageURL(board: URL, project: String, number: Int) -> URL? {
         guard var parts = URLComponents(url: board, resolvingAgainstBaseURL: false) else { return nil }
         parts.path = "/"
-        parts.queryItems = [URLQueryItem(name: "project", value: t.projectId), URLQueryItem(name: "task", value: String(t.number))]
+        parts.queryItems = [URLQueryItem(name: "project", value: project), URLQueryItem(name: "task", value: String(number))]
         return parts.url
     }
 }

@@ -280,8 +280,8 @@ struct ContentView: View {
         web.pressBoardSection(.today)
     }
 
-    // Agents, Projects (kosmos#7032) and Settings are native, and Today when nothing was sent under it (kosmos#7030);
-    // the rest show the board.
+    // Agents, Projects (kosmos#7032), Tasks (kosmos#7031) and Settings are native, and Today when nothing was sent
+    // under it (kosmos#7030); the rest show the board.
     @ViewBuilder private func tabPage(_ which: Tab) -> some View {
         if which == .today && !todayBoard {
             TodayView(client: board, openPage: { url in
@@ -295,6 +295,12 @@ struct ContentView: View {
             // kosmos#7032: the native Projects list and a project's room; the board's own project page (the room's info
             // button) opens under Today, as an agent's chat does from Agents.
             ProjectsView(client: board, roomRequest: $roomRequest, openPage: { url in
+                pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+            })
+        } else if which == .tasks {
+            // kosmos#7031: native Tasks. A task's page opens under Today in the board view, as Today's Check it does,
+            // until a native task page has its own slice; a press on Tasks brings the list back.
+            TasksTab(client: board, openPage: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             })
         } else if which == .settings {

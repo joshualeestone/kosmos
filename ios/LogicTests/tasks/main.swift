@@ -190,7 +190,7 @@ check(Tasks.rowLine(told, now: now, name: name) == "Repeats daily. Last run 60 s
 section("a row, spoken and opened")
 check(Tasks.spoken(built, line: "Marked built by Rex 2 hours ago", projectShown: true) == "Task 1. Launch. Marked built by Rex 2 hours ago.", "one element: title, project, line")
 check(Tasks.spoken(ask, line: "a\nb", projectShown: false) == "Task 1. a b.", "a two-line row reads as one, with no project when the header names it")
-let url = Tasks.taskPageURL(board: URL(string: "https://studio.kosmosplus.com")!, row(7, "working", project: "book a"))
+let url = Tasks.taskPageURL(board: URL(string: "https://studio.kosmosplus.com")!, project: "book a", number: 7)
 check(url?.absoluteString == "https://studio.kosmosplus.com/?project=book%20a&task=7", "the board's task page, by ?project=&task=")
 
 print("")
