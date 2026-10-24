@@ -64,6 +64,7 @@ case "$me" in
         [ "${FX_BOOTOUT_FAIL:-0}" = 1 ] && exit 5; [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
       bootstrap) bc="$(dirname "$CALL_LOG")/bootstrap-tries"; echo $(( $(cat "$bc" 2>/dev/null || echo 0) + 1 )) > "$bc"
         [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5
+        [ "${FX_BOOTSTRAP_ERR_OLD_LOADED:-0}" = 1 ] && { rm -f "$out" "$(dirname "$CALL_LOG")/loaded-ka"; exit 5; }   # loaded, without KeepAlive
         [ -n "${FX_BOOTSTRAP_FAIL_TIMES:-}" ] && [ "$(cat "$bc")" -le "$FX_BOOTSTRAP_FAIL_TIMES" ] && exit 5; rm -f "$out" "$(dirname "$CALL_LOG")/exited"; touch "$(dirname "$CALL_LOG")/bootstrapped"
         [ "${FX_LISTENER:-1}" = 1 ] && echo started > .svc-state
         [ "${FX_NO_LISTENER_AFTER:-0}" = 1 ] && echo stopped > .svc-state   # this runner's Listener never comes back
@@ -1011,6 +1012,14 @@ ka_fresh; rm -f "$T/bootstrap-tries"; run ka-bootretry "$KH" FX_CI_EXISTS=1 FX_W
 [ "$(rc ka-bootretry)" = 0 ] && [ "$(cat "$T/bootstrap-tries")" = 4 ] && ! has ka-bootretry "STOPPED" \
   && pass "keepalive --apply: a bootstrap that fails three times and then works leaves the runner loaded" || fail "keepalive bootstrap retry: rc $(rc ka-bootretry), tries $(cat "$T/bootstrap-tries" 2>/dev/null): $(tail -1 "$T/ka-bootretry.out")"
 rm -f "$T/bootstrap-tries"
+# The bootstrap errors, yet a job is loaded, and that job lacks KeepAlive (the old definition): FAILED at once, not "ok".
+ka_fresh; run ka-booterrold "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_ERR_OLD_LOADED=1 -- --apply keepalive
+[ "$(rc ka-booterrold)" = 1 ] && has ka-booterrold "does not show KeepAlive (loaded some other way?)" && ! has ka-booterrold "the runner is running again" \
+  && pass "keepalive --apply: a bootstrap error with a KeepAlive-less job loaded is FAILED, not taken as the reload" || fail "keepalive bootstrap error, old loaded: rc $(rc ka-booterrold): $(tail -1 "$T/ka-booterrold.out")"
+# The no-process path also says Ctrl-C is ignored.
+ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"
+run ka-nopidnote "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE=waiting FX_NO_PID=1 -- --apply keepalive
+has ka-nopidnote "Ctrl-C is ignored until it is loaded again" && pass "keepalive --apply: the no-process path says Ctrl-C is ignored too" || fail "keepalive no-pid note: $(tail -2 "$T/ka-nopidnote.out")"
 ka_fresh; run ka-bootfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_FAIL=1 -- --apply keepalive
 [ "$(rc ka-bootfail)" = 1 ] && has ka-bootfail "the runner is STOPPED" && pass "keepalive --apply says the runner is stopped when bootstrap fails" || fail "keepalive bootstrap fail: rc $(rc ka-bootfail): $(tail -1 "$T/ka-bootfail.out")"
 ka_fresh; rm -f "$KA" "$KH/actions-runner/.service"; run ka-none "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive

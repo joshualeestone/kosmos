@@ -548,3 +548,14 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - DEFERRED: NIT1 (the first job check stays user-wide: -P there rests on the unmeasured parent premise; refusing there
   costs a rerun), NIT4 (a floor on the unload wait: the suite runs it at 1 s), NIT5 (two notes as another user), NIT6
   (about a minute of deterministic sleeping in the suite).
+
+## Review round 38 (sonnet, blind, READ ONLY, HEAD 0057bbc913)
+- The reviewer listed two items under WARNING while saying it would not hold the merge for them. Counted as WARNINGs
+  (not shrunk to NITs to converge), and fixed:
+  - A bootstrap that errors while a job reads as loaded was taken as the reload; after the unload wait that job may be
+    the OLD definition or a copy loaded another way. It is now checked with loaded_keepalive at once and FAILS with
+    that reason (stub FX_BOOTSTRAP_ERR_OLD_LOADED; ka-booterrold; mutant red).
+  - The "Ctrl-C is ignored" note printed only on the SIGTERM path; it now prints just before the first stop action on
+    both paths (ka-nopidnote).
+- DEFERRED NITs: a 20-digit integer key prints a test error and is rewritten to the floor (harmless); rm a planted
+  <plist>.new before cp (a job already runs as this user, so no escalation).

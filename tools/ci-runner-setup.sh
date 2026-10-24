@@ -841,12 +841,12 @@ keepalive() {
   if [ -n "$opid" ] && [ -z "$before" ]; then
     echo "refused: $label runs but no Listener of $RUNNER_DIR does (restarting or self-updating); nothing was stopped, KeepAlive is in the plist, not yet loaded: run this again in a minute" >&2; exit 1
   fi
+  echo "note:   stopping and reloading $label; Ctrl-C is ignored until it is loaded again (this can take a few minutes)" || true
   [ -n "$opid" ] || echo "note:   $label has no process, so no SIGTERM first" || true
   if [ -n "$opid" ]; then
     launchctl kill SIGTERM "$dom/$label" \
       || { echo "refused: launchctl kill SIGTERM $dom/$label failed; nothing was stopped, KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
     sent=1
-    echo "note:   the runner is stopping; Ctrl-C is ignored until it is loaded again (this can take a few minutes)" || true
     while kill -0 "$opid" 2>/dev/null && [ "$w4" -lt "$limit" ]; do sleep 1; w4=$((w4 + 1)); done
     # Still alive: it was told to stop, so going on is the lesser harm (refusing now would leave a runner that may yet
     # stop under its OLD definition, with nothing to restart it). Said, so an offline runner afterwards has a reason.
@@ -925,7 +925,7 @@ keepalive() {
   local ba=1 bok=0
   while :; do
     if launchctl bootstrap "$dom" "$plist"; then bok=1; break; fi
-    launchctl print "$dom/$label" >/dev/null 2>&1 && { bok=1; break; }   # an error, yet loaded: that load stands
+    launchctl print "$dom/$label" >/dev/null 2>&1 && { bok=2; break; }   # an error, yet loaded: checked below
     [ "$ba" -lt 5 ] || break
     sleep "$ba"; ba=$((ba + 1))
   done
@@ -934,6 +934,11 @@ keepalive() {
       echo "FAILED: launchctl bootstrap $dom $plist reported an error, but $label is loaded; check it runs (launchctl print $dom/$label), then run this again" >&2; exit 1
     fi
     echo "FAILED: launchctl bootstrap $dom $plist; the runner is STOPPED (not loaded): launchctl bootstrap $dom $plist, or ./svc.sh start in $CI_USER's session" >&2; exit 1
+  fi
+  # An error, yet loaded: after the unload wait above, something else may have loaded it (the OLD definition, or a copy
+  # loaded another way). Say so now if what is loaded lacks KeepAlive, rather than after the Listener wait.
+  if [ "$bok" = 2 ] && ! loaded_keepalive "$dom/$label"; then
+    echo "FAILED: launchctl bootstrap $dom $plist reported an error, and the $label that is loaded does not show KeepAlive (loaded some other way?); check launchctl print $dom/$label, then run this again" >&2; exit 1
   fi
   trap - INT TERM HUP PIPE   # loaded again: an interrupt or a hangup from here on leaves a runner launchd keeps alive
   # A new Listener of THIS runner (its own dir), not any Listener of the user: the relay's can respawn meanwhile. The
