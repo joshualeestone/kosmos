@@ -34,13 +34,14 @@ let v2 = true;
 let computers = new Set();
 const real = {
   devicesWaiting: remote.devicesWaiting, deviceAllowCode: remote.deviceAllowCode, deviceDropWaiting: remote.deviceDropWaiting,
-  devicesClearWaiting: remote.devicesClearWaiting, deviceAllow: remote.deviceAllow, deviceDeny: remote.deviceDeny,
+  devicesClearWaiting: remote.devicesClearWaiting, deviceCtAck: remote.deviceCtAck, deviceAllow: remote.deviceAllow, deviceDeny: remote.deviceDeny,
   boardV2: remote.boardV2, listedAsComputer: remote.listedAsComputer,
 };
 remote.devicesWaiting = async () => { calls.push('waiting'); return { ok: true, because: null, data: { v2: true, count: 0, waiting: [], ctAlarm: false, ctFinding: null } }; };
 remote.deviceAllowCode = async (k, c) => { calls.push('allow-code ' + k + ' ' + c); return { ok: false, because: 'That is not the code that browser shows. 2 more tries for it.', triesLeft: 2 }; };
 remote.deviceDropWaiting = async (k) => { calls.push('drop ' + k); return { ok: true, because: null, data: { dropped: 1, allowed: false, device_id: null } }; };
 remote.devicesClearWaiting = async () => { calls.push('clear'); return { ok: true, because: null, data: { cleared: 3 } }; };
+remote.deviceCtAck = async (f) => { calls.push('ct-ack ' + f); return { ok: true, because: null, data: { acknowledged: true } }; };
 remote.deviceAllow = async (id) => { calls.push('allow ' + id); return { ok: true, data: {} }; };
 remote.deviceDeny = async (id) => { calls.push('deny ' + id); return { ok: true, data: {} }; };
 remote.boardV2 = () => v2;
@@ -87,6 +88,7 @@ test('allow, Not me and clear: only made on this computer, by a person at the sc
     ['/api/remote/waiting/allow', { knockId: KNOCK, code: 'ABC-DEF' }, 'allow-code ' + KNOCK + ' ABC-DEF'],
     ['/api/remote/waiting/drop', { knockId: KNOCK }, 'drop ' + KNOCK],
     ['/api/remote/waiting/clear', {}, 'clear'],
+    ['/api/remote/waiting/ct-ack', { finding: 'f'.repeat(64) }, 'ct-ack ' + 'f'.repeat(64)],   // kosmos#6590 (c4)
   ]) {
     calls.length = 0;
     let r = await post(route, { ...SCREEN, origin, ...VIA_PLUS }, body);

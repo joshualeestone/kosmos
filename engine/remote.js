@@ -2814,6 +2814,29 @@ async function deviceDropWaiting(knockId) {
   }
   return { ok: true, because: null, data: { dropped: Number(d.dropped) || 0, allowed: d.allowed === true, device_id: device } };
 }
+/** kosmos#6590 (c4): the person has looked at the certificate warning the tunnel is pausing new browsers for. Only the
+    finding the board showed (`ctFinding` from the same waiting answer) is acknowledged: a newer one is not. The board's
+    own lost-report acknowledgement is written only after the tunnel's, so the two never disagree (design review 3). */
+async function deviceCtAck(finding) {
+  { const b = busy(); if (b) return b; }
+  if (!boardV2()) return { ok: false, because: 'this computer does not take typed codes yet' };
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  if (typeof finding !== 'string' || !CT_FINDING.test(finding)) return { ok: false, because: 'The warning changed. Look at it again.' };
+  // The lost report as it stands now, read BEFORE the tunnel call, so the board notes only the report that was shown;
+  // ackLostIn refuses a different one (review 1).
+  const shown = certWatch();
+  const r = parseSaid(await tracked(setupRun(['devices', 'ct-ack', '--state-dir', STATE_DIR(), '--finding', finding], null, retireTimeoutMs())));
+  flushWaiting();
+  if (!r.ok) return r;
+  const d = r.data || {};
+  if (d.changed === true) return { ok: false, because: 'A new certificate finding came in since this was shown. Look at the warning again.', changed: true };
+  if (d.acknowledged !== true) return { ok: false, because: 'There is no certificate warning to acknowledge now.' };
+  if (shown.lost && shown.lostAt) {
+    const a = certWatchFiles.ackLostIn(STATE_DIR(), shown.lostAt);
+    if (!a.ok) process.stderr.write('kosmos+: the certificate warning is acknowledged, but this computer could not note the lost report: ' + a.because + '\n');
+  }
+  return { ok: true, because: null, data: { acknowledged: true } };
+}
 /** Drop every waiting browser, and forget the browsers turned away today (the undo for a mistaken Not me). */
 async function devicesClearWaiting() {
   { const b = busy(); if (b) return b; }
@@ -4173,7 +4196,7 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   recentlyVouchedForTests: (settings) => recentlyVouched(settings),
   vouchPatchForTests: (patch) => { if (vouchState && patch) Object.assign(vouchState, patch); },   // kosmos#6599
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
-  boardV2, listedAsComputer, devicesWaiting, deviceAllowCode, deviceDropWaiting, devicesClearWaiting,   // kosmos#6590 branch c
+  boardV2, listedAsComputer, devicesWaiting, deviceAllowCode, deviceDropWaiting, devicesClearWaiting, deviceCtAck,   // kosmos#6590 branch c
   deviceAckSelfForTests: deviceAckSelf, allowSelfQuietlyForTests: allowSelfQuietly,   // kosmos#6590 c2
   startVouchForTests: () => { startVouch(); return vouchState ? vouchState.secret : null; },   // kosmos#6590 c3
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },

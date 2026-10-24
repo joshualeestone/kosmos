@@ -11839,7 +11839,7 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 500, { error: 'we could not read the waiting browsers', v2: true }));
     return;
   }
-  const waitingVerb = /^\/api\/remote\/waiting\/(allow|drop|clear)$/.exec(pathname);
+  const waitingVerb = /^\/api\/remote\/waiting\/(allow|drop|clear|ct-ack)$/.exec(pathname);
   if (waitingVerb && req.method === 'POST') {
     if (isRemoteRequest(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.typedAllow); return; }
     readBody(req)
@@ -11857,7 +11857,8 @@ const server = http.createServer(async (req, res) => {
         const verb = waitingVerb[1];
         const got = verb === 'allow' ? await remote.deviceAllowCode(knockId, body.code)
           : verb === 'drop' ? await remote.deviceDropWaiting(knockId)
-            : await remote.devicesClearWaiting();
+            : verb === 'ct-ack' ? await remote.deviceCtAck(body.finding)   // kosmos#6590 (c4): never from a remote session
+              : await remote.devicesClearWaiting();
         if (!got.ok) {
           sendJson(res, 400, { error: got.because, ...(got.paused ? { paused: true } : {}), ...(Number.isInteger(got.triesLeft) ? { triesLeft: got.triesLeft } : {}) });
           return;

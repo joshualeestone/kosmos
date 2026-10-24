@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-waiting plus-waiting-title waitcodein plus-asks askcard
+// Browser-check-surface: plus-waiting plus-waiting-title waitcodein plus-asks askcard waitct-head
 'use strict';
 /**
  * kosmos#6590 (S-7d branch c, c1b): the browsers waiting to connect, on Settings > Kosmos+. A browser that opened this
@@ -11,13 +11,15 @@
  *   T4  a wrong code: the tunnel's sentence (tries left) under that row, and what was typed survives the next poll with
  *       focus kept in the field;
  *   T5  Enter presses Allow; the right code sends knockId and code and says Connected;
- *   T6  Not me sends drop with only the knockId, and says how to undo it; Clear waiting browsers sends clear;
+ *   T6  Not me sends drop with only the knockId, and says how to undo it; Turn all of these away sends clear;
  *   T7  the list could not be read: the sentence and Clear, and no rows;
  *   T8  away from Kosmos+, the compact notice names the waiting browsers;
  *   T6b a row the tunnel drops (five wrong codes) keeps its sentence as the note, with focus on it;
  *   T6c a 200 whose body does not read is never said as Connected;
  *   T6d (c3) a Not me that met the automatic Allow says it was taken back out (and, as the control, one that was not);
  *   T10 away from Kosmos+, x puts away the waiting browsers it named and a new one brings the notice back;
+ *   T11 (c4) the certificate pause: said with nothing waiting, one button that sends the finding shown, then cleared;
+ *   T11b the lost-report Got it, while the pause stands, goes through ct-ack and never straight to ack-lost;
  *   T9  no page errors.
  *
  *   HEADED=0 NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-typed-allow-6590.js [shotsDir]
@@ -64,7 +66,8 @@ async function open(browser, waitingAnswer, opts = {}) {
   const posts = [];
   const json = (o, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(o) });
   const state = { answer: waitingAnswer, post: opts.post || (() => json({ ok: true })) };
-  await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? REMOTE : { ok: true })));
+  await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? (opts.remote || REMOTE) : { ok: true })));
+  await page.route('**/api/remote/cert-watch/ack-lost', (route) => { posts.push({ verb: 'ack-lost', body: null }); route.fulfill(json({ certWatch: { on: true, state: 'clear', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, lostAt: null, key: null, checkedAt: now(), failing: false } })); });
   await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com' })));
   await page.route('**/api/remote/devices', (route) => route.fulfill(json({ on: true, allowed: [], pending: [] })));
   await page.route('**/api/remote/waiting', (route) => { const a = state.answer(); route.fulfill(json(a.body, a.status || 200)); });
@@ -157,9 +160,11 @@ const read = (page) => page.evaluate(() => {
     let v = await read(page);
     chk(v.shown && /Browsers waiting to connect \(2\)/.test(v.title), 'T2 the section and its title, with the count', JSON.stringify({ shown: v.shown, title: v.title }));
     chk(v.rows.length === 2 && v.fields === 2, 'T2 one row and one code field per waiting browser', JSON.stringify(v.rows));
-    chk(/It says it is: iPhone or iPad/.test(v.rows[0]) && /203\.0\.113\.0/.test(v.rows[0]) && /It says it is: Windows/.test(v.rows[1]), 'T2 each row says what the tunnel saw, the browser class as its own claim', JSON.stringify(v.rows));
+    chk(/It says it is an iPhone or iPad/.test(v.rows[0]) && /203\.0\.113\.0/.test(v.rows[0]) && /It says it is on a Windows computer/.test(v.rows[1]), 'T2 each row says what the tunnel saw, the browser class as its own claim', JSON.stringify(v.rows));
+    // Design review: no sample code in the field (it read as a code already typed).
+    chk(await page.evaluate(() => [...document.querySelectorAll('#plus-waiting .waitcodein')].every((f) => !f.placeholder)), 'T2 the code field carries no sample code');
     chk(v.rows.every((r) => /^A browser wants to connect/.test(r)) && v.rows.every((r) => r.includes(ADDR)), 'T2 the heading claims nothing, and the line names this computer\'s address', JSON.stringify(v.rows));
-    chk(v.codeBig === 0 && !/[A-Z0-9]{3}-[A-Z0-9]{3}/.test(v.text.replace('ABC-DEF', '')), 'T2 no code is shown on this computer', v.text);
+    chk(v.codeBig === 0 && !/[A-Z0-9]{3}-[A-Z0-9]{3}/.test(v.text), 'T2 no code is shown on this computer', v.text);
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, '6590-waiting-two.png'), fullPage: false }); }
 
     // T3: short of six characters.
@@ -202,10 +207,10 @@ const read = (page) => page.evaluate(() => {
     await page.waitForTimeout(400);
     v = await read(page);
     chk(posts[2] && posts[2].verb === 'drop' && JSON.stringify(posts[2].body) === JSON.stringify({ knockId: K2 }), 'T6 Not me sends only the knock id', JSON.stringify(posts[2]));
-    chk(/Turned away for today/.test(v.text) && /Clear waiting browsers/.test(v.text), 'T6 Not me says how to undo it', v.text);
+    chk(/Turned away for today/.test(v.text) && /Turn all of these away/.test(v.text), 'T6 Not me says how to undo it', v.text);
     await page.click('#plus-waiting [data-wait="clear"]');
     await page.waitForTimeout(400);
-    chk(posts[3] && posts[3].verb === 'clear', 'T6 Clear waiting browsers sends clear', JSON.stringify(posts[3]));
+    chk(posts[3] && posts[3].verb === 'clear', 'T6 Turn all of these away sends clear', JSON.stringify(posts[3]));
     allErrs.push(...errs);
     await page.close();
 
@@ -286,6 +291,83 @@ const read = (page) => page.evaluate(() => {
       chk(note.shown && /2 browsers want to connect/.test(note.text), 'T8 the compact notice names the waiting browsers', JSON.stringify(note));
       allErrs.push(...e8);
       await p8.close();
+    }
+
+    // T11 (c4): while the tunnel pauses new browsers for a certificate finding, the section says so with one button that
+    // sends exactly the finding shown; afterwards it says new browsers can ask again. No finding: the button is off.
+    {
+      const F = 'b'.repeat(64);
+      let alarm = true;
+      const post = (verb, body) => { if (verb === 'ct-ack') alarm = false; return { status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, acknowledged: true }) }; };
+      const { page: pa, errs: ea, posts: pp } = await open(browser, () => ({ body: { v2: true, count: 0, waiting: [], ctAlarm: alarm, ctFinding: alarm ? F : null } }), { base, post });
+      const before = await read(pa);
+      chk(before.shown && /New browsers are paused/.test(before.text), 'T11 the pause is said, with nothing waiting', before.text);
+      await pa.click('#plus-waiting [data-wait="ctack"]');
+      await pa.waitForTimeout(500);
+      const after = await read(pa);
+      chk(pp.length === 1 && pp[0].verb === 'ct-ack' && pp[0].body.finding === F, 'T11 Let new browsers ask again sends the finding shown', JSON.stringify(pp));
+      chk(!/New browsers are paused/.test(after.text) && /can ask to connect again/.test(after.text), 'T11 afterwards it says new browsers can ask again', after.text);
+      allErrs.push(...ea);
+      await pa.close();
+      const { page: pb, errs: eb } = await open(browser, () => ({ body: { v2: true, count: 0, waiting: [], ctAlarm: true, ctFinding: null } }), { base });
+      const off = await pb.evaluate(() => { const b = document.querySelector('#plus-waiting [data-wait="ctack"]'); return !!(b && b.disabled); });
+      chk(off, 'T11 with no finding to name, the button is off');
+      // T11c: a poll repaints only when waitSig changes (the c1 fix for CI's render-snav-head-4979), so whatever the
+      // pause draws must be in it: a finding that arrives turns the button on, and the check's own state changes why.
+      let finding = null;
+      await pb.unroute('**/api/remote/waiting');
+      await pb.route('**/api/remote/waiting', (route) => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ v2: true, count: 0, waiting: [], ctAlarm: true, ctFinding: finding }) }));
+      finding = F;
+      await pb.evaluate(() => pollWaiting());
+      const on = await pb.evaluate(() => { const b = document.querySelector('#plus-waiting [data-wait="ctack"]'); return !!(b && !b.disabled); });
+      chk(on, 'T11c a finding that arrives on a poll turns the button on');
+      const why = (cw) => pb.evaluate(async (c) => { WAIT.cw = c; await pollWaiting(); return document.getElementById('plus-waiting').innerText; }, cw);
+      const foreign = await why({ on: true, state: 'foreign', foreign: 1, lost: false });
+      const lost = await why({ on: true, state: 'clear', foreign: 0, lost: true });
+      chk(!/could not read its last check/.test(foreign) && /could not read its last check/.test(lost),
+        'T11c the reason follows the certificate check on a poll (a lost report says so; a foreign one does not)', JSON.stringify({ foreign, lost }));
+      allErrs.push(...eb);
+      await pb.close();
+    }
+
+    // T11b (c4 review 1): the lost-report Got it, pressed while the tunnel pauses new browsers, goes through ct-ack (the
+    // tunnel first) and never straight to the board's own ack-lost.
+    {
+      const F = 'c'.repeat(64);
+      let alarm = true;
+      const cw = { on: true, state: 'unknown', foreign: 0, earlier: 0, beforeRecord: 0, lost: true, lostAt: 1700000000, key: null, checkedAt: now(), failing: false };
+      const remote = { ...REMOTE, certWatch: cw };
+      const post = (verb) => { if (verb === 'ct-ack') alarm = false; return { status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, acknowledged: true }) }; };
+      const { page: pg, errs: eg, posts: pg2 } = await open(browser, () => ({ body: { v2: true, count: 0, waiting: [], ctAlarm: alarm, ctFinding: alarm ? F : null } }), { base, post, remote });
+      const shown = await pg.evaluate(() => { const b = document.getElementById('plus-cw-ack'); return !!(b && !b.hidden && b.getClientRects().length); });
+      chk(shown, 'T11b premise: the lost-report Got it is on screen');
+      if (shown) {
+        await pg.click('#plus-cw-ack');
+        await pg.waitForTimeout(600);
+      }
+      chk(pg2.filter((x) => x.verb === 'ct-ack').length === 1 && pg2[0].body && pg2[0].body.finding === F && !pg2.some((x) => x.verb === 'ack-lost'),
+        'T11b Got it sends one ct-ack with the finding shown, and no ack-lost of its own', JSON.stringify(pg2));
+      allErrs.push(...eg);
+      await pg.close();
+    }
+
+    // T11d (c4 delta review): the reason follows the board's real certWatch answer (paintPlus sets WAIT.cw), not only a
+    // value the check writes into the page: foreign first, then the same board reports a lost check.
+    {
+      const cwOf = (lost) => ({ on: true, state: lost ? 'unknown' : 'foreign', foreign: lost ? 0 : 1, earlier: 0, beforeRecord: 0,
+        lost, lostAt: lost ? 1700000000 : null, key: null, checkedAt: now(), failing: false });
+      const remote = { ...REMOTE, certWatch: cwOf(false) };
+      const { page: pd, errs: ed } = await open(browser, () => ({ body: { v2: true, count: 0, waiting: [], ctAlarm: true, ctFinding: 'd'.repeat(64) } }), { base, remote });
+      const text = () => pd.evaluate(() => document.getElementById('plus-waiting').innerText);
+      const first = await text();
+      remote.certWatch = cwOf(true);
+      await pd.evaluate(async () => { await paintPlus(); await pollWaiting(); });
+      const second = await text();
+      chk(/did not ask for/.test(first) && !/could not read its last check/.test(first) && /could not read its last check/.test(second),
+        'T11d the reason follows the board\'s own certWatch answer across a poll', JSON.stringify({ first, second }));
+      allErrs.push(...ed);
+      await pd.close();
     }
 
     // Shots for design review: light and dark, desktop and phone.
