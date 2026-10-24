@@ -139,6 +139,17 @@ final class PushNotificationManager: NSObject, ObservableObject {
             NSLog("[Push] ignored a malformed kosmosSession post")
             return
         }
+        take(message)
+    }
+
+    // kosmos#7042: the native sign-in's session, from Kosmos+ itself (SignInClient asked the coordinator directly), so
+    // there is no frame to check: it takes the same path as the sign-in page's post.
+    func signedInNatively(_ token: String) {
+        guard !token.isEmpty else { return }
+        take(.signedIn(token))
+    }
+
+    private func take(_ message: PushBridge.SessionMessage) {
         // kosmos#6838: a sign-out, or a sign-in as someone else, also makes the Agents tab forget its kept Mac session,
         // at once rather than at the next visit. (Forgotten on this iPhone; the Mac ends the session on its own
         // schedule, as for the web view.) Read before the registrar stores the new session.

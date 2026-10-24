@@ -43,6 +43,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         #if DEBUG
         // The same for the Agents tab's sample screenshots (kosmos#6838; a Debug build only).
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return true }
+        // And the native sign-in's (kosmos#7042).
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIGNIN"] != nil { return true }
         #endif
         pushManager.requestAuthorizationAndRegister()
         #endif
