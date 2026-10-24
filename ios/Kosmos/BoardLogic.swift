@@ -558,8 +558,15 @@ enum Board {
         return named || markup
     }
 
-    // The picture on the card: only an image or a PDF with a preview from the Mac (pjAttachmentCard).
-    static func hasThumbnail(_ a: Attachment) -> Bool { a.preview != nil && (a.kind == "image" || a.kind == "pdf") }
+    // The picture on the card: only an image or a PDF with a preview from the Mac (pjAttachmentCard). An image's preview
+    // is the whole image (the Mac's previewFile), so a large one draws the symbol instead of costing megabytes on
+    // cellular for a 64 pt square; a PDF's is a drawn first page.
+    static let thumbnailMaxImageBytes = 3 * 1024 * 1024
+    static func hasThumbnail(_ a: Attachment) -> Bool {
+        guard a.preview != nil else { return false }
+        if a.kind == "pdf" { return true }
+        return a.kind == "image" && (a.size ?? Int.max) <= thumbnailMaxImageBytes
+    }
 
     // The symbol when there is no picture (Mona Lisa's spec, section 3).
     static func fileSymbol(_ a: Attachment) -> String {
@@ -589,7 +596,9 @@ enum Board {
         }))
         let cleaned = visible.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
             .trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
-        var base = cleaned.isEmpty ? "file" : String(cleaned.prefix(160))
+        // Cut, then trimmed again, so the cut can never leave a trailing dot or space (review 5).
+        let cut = String(cleaned.prefix(160)).trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
+        var base = cut.isEmpty ? "file" : cut
         // No extension, or one no app knows ("Q3.final", "v1.2 report"): Apple's lookup makes up a dynamic type for those.
         let known = UTType(filenameExtension: (base as NSString).pathExtension).map { !$0.isDynamic } ?? false
         if (base as NSString).pathExtension.isEmpty || !known,

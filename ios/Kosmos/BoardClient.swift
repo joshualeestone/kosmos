@@ -363,10 +363,8 @@ final class BoardClient: ObservableObject {
         let folder = env.files.appendingPathComponent(a.id, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let saved = Board.savedName(a.name, type: a.type)
-            // Checked again on the very name written, whatever the Mac called it.
-            guard !Board.isWebDocument(name: saved, type: a.type) else { return nil }
-            let file = folder.appendingPathComponent(saved)
+            // The name written is savedName's, the same one isWebDocument judged before the fetch.
+            let file = folder.appendingPathComponent(Board.savedName(a.name, type: a.type))
             // Encrypted while the phone is locked. macOS refuses the option (ios/LogicTests run there), so iOS only.
             #if os(iOS)
             try data.write(to: file, options: [.atomic, .completeFileProtection])
