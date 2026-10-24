@@ -743,10 +743,10 @@ kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
   && pass "keepalive --apply: a relay job while the old runner is still stopping does not veto this runner's reload" || fail "keepalive relay job outlived: rc $(rc ka-relayoutlived): $(tail -1 "$T/ka-relayoutlived.out")"
 rm -f "$T/relay-worker-up"
 # The old runner has ended, then a Worker appears: it is the relay's (this runner has no Listener), so the reload goes on.
-ka_fresh; rm -f "$T/worker-up"; run ka-relayjob "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER_AFTER_KILL=1 -- --apply keepalive
+ka_fresh; rm -f "$T/relay-worker-up"; run ka-relayjob "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_RELAY_WORKER_AFTER_KILL=1 -- --apply keepalive
 [ "$(rc ka-relayjob)" = 0 ] && grep -q '^launchctl bootout ' "$T/ka-relayjob.calls" && grep -q '^launchctl bootstrap ' "$T/ka-relayjob.calls" && ! has ka-relayjob "refused" \
   && pass "keepalive --apply: a relay job starting after this runner ended does not leave this runner stopped" || fail "keepalive relay job after stop: rc $(rc ka-relayjob): $(tail -1 "$T/ka-relayjob.out")"
-rm -f "$T/worker-up"
+rm -f "$T/relay-worker-up"
 # A real SIGHUP inside the stop window (a dropped ssh session): ignored, so the reload completes.
 ka_fresh; run ka-hup "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_HUP=1 -- --apply keepalive
 [ "$(rc ka-hup)" = 0 ] && grep -q '^launchctl bootstrap ' "$T/ka-hup.calls" \
