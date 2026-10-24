@@ -71,6 +71,7 @@ cmp -s "$S/dist/kosmos-arm64.tar.gz" "$S/dist/kosmos-9.9.8-arm64.tar.gz" && pass
   && pass "named: staging still names 9.9.9, and setup-staging is untouched" || bad "named: staging was changed"
 [ "$(cat "$EXPECT_LOG")" = 9.9.8 ] && pass "named: the experience gate was asked to expect 9.9.8" || bad "named: the gate expected '$(cat "$EXPECT_LOG")'"
 has "$out" "committed in" && pass "named: says which commit it read" || bad "named: does not name the commit (out=$out)"
+has "$out" "manifest kosmos-9.9.8-arm64.manifest.json from dist/ (sha256 $(shasum -a 256 < "$S/dist/kosmos-9.9.8-arm64.manifest.json" | awk '{print $1}'))" && pass "named: records the manifest bytes it checked" || bad "named: manifest sha not recorded (out=$out)"
 ls -d "$TMPDIR"/promote-channel-named.* >/dev/null 2>&1 && bad "named: left a temp folder behind" || pass "named: no temp folder left behind"
 mkdir "$TMPDIR/promote-channel-named.control"   # CONTROL: the same glob sees a folder that is there
 ls -d "$TMPDIR"/promote-channel-named.* >/dev/null 2>&1 && pass "named: CONTROL the leftover check sees a planted folder" || bad "named: the leftover check cannot see a folder"
@@ -226,10 +227,17 @@ S="$(newsite)"; out="$(RECUT_SITE="$S" KOSMOS_PROMOTE_GATE_CMD="bash $RECUT" bas
 # ---- the agent-spawn gate on a board not shown to run V speaks for another build: cannot-tell, not a refusal ----
 AFAIL="$T/stub-agent-fail.sh"; printf '#!/usr/bin/env bash\nexit 1\n' > "$AFAIL"; chmod +x "$AFAIL"
 # (Without --force the experience gate's HOLD stops the promote before this gate runs; the --force path is where it matters.)
+# The experience gate's own #5084 line when it READ the board on another version (the real script, pinned below).
+HOLD_OTHER="$T/stub-hold-other.sh"; printf '#!/usr/bin/env bash\necho "cannot-tell: the board on :16180 runs 9.9.9, not 9.9.8: this check would test another release, not the one being promoted."\nexit 2\n' > "$HOLD_OTHER"; chmod +x "$HOLD_OTHER"
+grep -qF 'say "cannot-tell: the board on :$PORT runs $BOARD_VERSION, not $KOSMOS_GATE_EXPECT_VERSION: this check would test another release' "$HERE/staging-experience-check.sh" \
+  && pass "pin: the experience gate still prints the line the named promote reads" || bad "pin: staging-experience-check.sh no longer prints 'the board on :PORT runs W, not V'"
 S="$(newsite)"; s98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")"
-out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "so it says nothing about 9.9.8 - treating it as cannot-tell" \
-  && pass "named: an agent-spawn FAIL on a board not on V is cannot-tell, which a hand check of V can --force" || bad "named agent fail --force (rc=$rc, out=$out)"
+out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD_OTHER" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "on a board running 9.9.9, not 9.9.8, so it says nothing about 9.9.8" \
+  && pass "named: an agent-spawn FAIL on a board READ as another version is cannot-tell, which a hand check of V can --force" || bad "named agent fail on another version (rc=$rc, out=$out)"
+# A board whose version the gate could NOT read may be V itself: there an agent FAIL still refuses, as in default mode.
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
+[ "$rc" = 1 ] && untouched "$S" && has "$out" "agent-spawn gate FAILED (exit 1)" && ! has "$out" "says nothing about" && pass "named: an agent FAIL on a board of unread version still refuses (it may be V)" || bad "named agent fail unread version (rc=$rc, out=$out)"
 S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --force 2>&1)"; rc=$?
 [ "$rc" = 1 ] && untouched "$S" && has "$out" "agent-spawn gate FAILED (exit 1)" && pass "default: CONTROL the same agent FAIL still refuses the default promote" || bad "default agent fail (rc=$rc, out=$out)"
 S="$(newsite)"; out="$(KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?

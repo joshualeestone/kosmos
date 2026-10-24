@@ -395,6 +395,9 @@ if [ "$FAMILY" = mac ]; then
   MANIFEST="$(read_field manifest)"
   reject_pathy manifest "$MANIFEST"
   [ -n "$MANIFEST" ] && [ -f "$SITE/dist/$MANIFEST" ] || { echo "promote-channel: $PTR_WORDS advertises manifest '${MANIFEST:-<none>}', which is not in $SITE/dist - refusing to promote a pointer to a missing manifest" >&2; exit 1; }
+  # kosmos#7005: the commit pins the artifact's sha, not the manifest's; a named promote runs long after the cut, so
+  # it records which manifest bytes it checked.
+  [ -z "$NAMED_VERSION" ] || echo "promote-channel: --version $V: manifest $MANIFEST from dist/ (sha256 $(shasum -a 256 < "$SITE/dist/$MANIFEST" | awk '{print $1}'))"
   # #6468 ask 2: a prod install running a release that ships engine/manifest-verify.js refuses any update whose
   # manifest is not signed by a pinned key, so promoting such a version past those installs would strand them.
   # A .sig that is there must verify; a missing one refuses once the release prod serves NOW checks signatures
@@ -454,7 +457,16 @@ if [ "$FAMILY" = mac ]; then
   # operator toward --force. When no port is given the gate falls back to KOSMOS_PORT/16180.
   echo "promote-channel: running the experience gate: $GATE_CMD${PORT:+ (port $PORT)}"
   # #5084: the gate refuses to speak for $V from a board on another version (cannot-tell, exit 2).
-  KOSMOS_GATE_EXPECT_VERSION="$V" $GATE_CMD ${PORT:+"$PORT"}; GATE_RC=$?
+  BOARD_OTHER=""
+  if [ -n "$NAMED_VERSION" ]; then
+    # kosmos#7005: keep what the gate said, to learn whether it READ the board on another version (its #5084 line
+    # "the board on :<port> runs <W>, not <V>"), as against a version it could not read at all.
+    KOSMOS_GATE_EXPECT_VERSION="$V" $GATE_CMD ${PORT:+"$PORT"} 2>&1 | tee "$NAMED_DIR/experience-gate.log"; GATE_RC=${PIPESTATUS[0]}
+    BOARD_OTHER="$(sed -n 's/.*cannot-tell: the board on :[0-9]* runs \([^ ,]*\), not .*/\1/p' "$NAMED_DIR/experience-gate.log" | head -1)"
+    [ "$BOARD_OTHER" != "$V" ] || BOARD_OTHER=""
+  else
+    KOSMOS_GATE_EXPECT_VERSION="$V" $GATE_CMD ${PORT:+"$PORT"}; GATE_RC=$?
+  fi
   case "$GATE_RC" in
     0) echo "promote-channel: gate PASSED - a fresh session can use $V (the gate checked a board running $V)." ;;
     1) echo "promote-channel: gate FAILED (exit 1) - the board is broken for a fresh session (the #2023 class). REFUSING to promote; --force does not override a provably-broken board." >&2; exit 1 ;;
@@ -529,11 +541,12 @@ if [ "$FAMILY" = mac ]; then
       esac
     fi
   fi
-  # kosmos#7005: in named mode the board is usually on a later staging build. When the experience gate could not tie it
-  # to $V, this gate's FAIL or PARTIAL is a verdict about that other build, so it is cannot-tell for $V (a HOLD, which a
-  # hand check of $V can --force), not a refusal of $V. Default mode keeps its refusal.
-  if [ -n "$NAMED_VERSION" ] && [ "$GATE_RC" = 2 ] && { [ "$AGENT_RC" = 1 ] || [ "$AGENT_RC" = 3 ]; }; then
-    echo "promote-channel: the agent-spawn gate answered $AGENT_RC on a board not shown to run $V (the experience gate above could not tell), so it says nothing about $V - treating it as cannot-tell." >&2
+  # kosmos#7005: in named mode the board is usually on a later staging build. Only when the experience gate READ the
+  # board's version and it is another one is this gate's FAIL or PARTIAL a verdict about that other build, and so
+  # cannot-tell for $V (a HOLD, which a hand check of $V can --force). A version it could not read (a dev box, a wrong
+  # port) may be $V itself, so there, as in default mode, a FAIL still refuses.
+  if [ -n "$BOARD_OTHER" ] && { [ "$AGENT_RC" = 1 ] || [ "$AGENT_RC" = 3 ]; }; then
+    echo "promote-channel: the agent-spawn gate answered $AGENT_RC on a board running $BOARD_OTHER, not $V, so it says nothing about $V - treating it as cannot-tell." >&2
     AGENT_RC=2
   fi
   case "$AGENT_RC" in

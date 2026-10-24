@@ -46,7 +46,8 @@ green: 5032, 2036 channel/wire, 6149 floor, pointer-freeze, deploy-site-promote,
 The experience and agent-spawn gates still need a board running V. After a later staging cut moves the
 cut box's board, the experience gate says cannot-tell and the promote HOLDS (forceable after a hand check,
 with --sha). Under that cannot-tell, the agent-spawn gate's FAIL or PARTIAL is about the board's other build,
-so in named mode it is cannot-tell too (iteration 13), never a refusal of V. The tunnel gate runs V's tarball.
+so in named mode it is cannot-tell too, but only when the gate READ the board as another version (iteration
+14); a version it could not read may be V, so a FAIL there still refuses. The tunnel gate runs V's tarball.
 
 ## Merge hold
 Do not merge before the 0.7.64 prod promote lands (Splinter 17:59): Baron's prepped promote scripts call
@@ -177,3 +178,12 @@ in more than its installer (with the --commit to use it).
   unrelated unpublished commit.
 - Header: which filters shape the agreement set. One more message names the commit's pointer. Docs: which
   gates hold on a moved board; a pruned tarball can be fetched back only while a deploy still serves it.
+
+## Iteration 14 (challenge) changes: the agent-gate rule stops moving; the decision moves to evidence
+Iterations 13 and 14 pulled one rule apart (13: an agent FAIL on a moved board refuses V for another build's
+defect; 14: downgrading on any cannot-tell makes a real wedge on V forceable). Neither guess is right; the
+experience gate already says which case it is. Named mode keeps its output and downgrades an agent-spawn
+FAIL/PARTIAL only when it read the board as another version ("the board on :P runs W, not V"); a source-pin
+test keeps that sentence and the parser in step. An unread version keeps the refusal.
+- A named promote prints the sha256 of the manifest it checked (the commit pins only the artifact's sha).
+- Not changed (NIT): the header's selection paragraph stays prose; the test:shell entry has no bash -n line.

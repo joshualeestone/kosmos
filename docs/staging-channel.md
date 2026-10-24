@@ -111,10 +111,12 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      compared with it, is refused unless `--allow-older` is given. The same version as prod's with other
      bytes (a re-cut replacing it) is allowed, and the promote says so.
    - **The board gates still need a board on V.** Once the cut box's board has moved to a later staging
-     build, the experience gate answers cannot-tell, and so does the agent-spawn gate (whatever it saw was
-     another build's), so the promote HOLDS (exit 2), forceable only after a hand check of V; the board check
-     it could not run is then made after the deploy on a Mac that has updated to V. The tunnel gate runs V's
-     own tarball, so its verdict stands.
+     build, the experience gate answers cannot-tell, so the promote HOLDS (exit 2), forceable only after a
+     hand check of V; the board check it could not run is then made after the deploy on a Mac that has
+     updated to V. When the experience gate READ the board as another version, an agent-spawn FAIL there
+     is about that build and counts as cannot-tell too; when it could not read the version at all, an
+     agent-spawn FAIL still refuses, since that board may be running V. The tunnel gate runs V's own
+     tarball, so its verdict stands. A named promote prints the sha256 of the manifest it checked.
 5. **Deploy the promoted pointer to prod.** `promote-channel.sh` only rewrites `latest.json` in the
    LOCAL site checkout ("the next site deploy publishes the prod pointer. No rebuild happened.");
    prod keeps SERVING the old version until a deploy. **`deploy-site.sh --publish` does NOT do this**
