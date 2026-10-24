@@ -126,6 +126,8 @@ final class NotificationService: UNNotificationServiceExtension {
         // can reach it). Never on a needs-you: a question's or a permission prompt's answer belongs in the chat (or, for
         // a permission, its own Allow and Deny), and typed words there could answer a menu the person cannot see.
         if PhoneNotice.offersReply(words) { content.categoryIdentifier = PhoneNotice.replyCategory }
+        // kosmos#7032: a room post names its room, so a tap opens that room in the app's Projects tab.
+        content.userInfo = PhoneNotice.withRoom(words, userInfo: content.userInfo)
         // kosmos#7017 part 2: Allow and Deny, only when the computer sent them for a permission prompt still up. The
         // app presses with what rides here, after checking the request is still the one on screen.
         if let permission = PhoneNotice.offeredPermission(words) {
@@ -164,7 +166,7 @@ final class NotificationService: UNNotificationServiceExtension {
                               displayName: words.agent, image: image, contactIdentifier: nil, customIdentifier: words.session)
         // The body as set above (a permission's request, or the words): message style must never show other words.
         let intent = INSendMessageIntent(recipients: nil, outgoingMessageType: .outgoingMessageText, content: content.body,
-                                         speakableGroupName: nil, conversationIdentifier: words.session, serviceName: nil,
+                                         speakableGroupName: nil, conversationIdentifier: PhoneNotice.conversation(words), serviceName: nil,
                                          sender: sender, attachments: nil)
         if let image { intent.setImage(image, forParameterNamed: \.sender) }
         let interaction = INInteraction(intent: intent, response: nil)

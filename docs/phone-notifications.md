@@ -103,7 +103,7 @@ Built and merged 2026-10-22 and 10-23 (kosmos#6942 the iPhone's notification ext
 and an iPhone app build that carries the extension (TestFlight build 2, valid 2026-10-23). As of 2026-10-23 nobody has
 seen it on a real phone.
 
-When an iPhone notification for one of the two events below arrives, the iPhone asks the person's own computer, through
+When an iPhone notification for one of the three events below arrives, the iPhone asks the person's own computer, through
 Kosmos+ remote and the sign-in the app already keeps for that computer, for the words behind it. If the computer answers
 within 15 seconds, the notification shows them as a message from the agent:
 
@@ -111,10 +111,15 @@ within 15 seconds, the notification shows them as a message from the agent:
 |---|---|---|---|---|
 | An agent needs you (its report) | `<Agent>` | `<Agent> needs you, in <Project>`, or `<Agent> needs you` | the report's reason, shortened to about 400 characters: what the agent wrote (`kosmos report needs_you "..."`), or, when it stopped to ask permission, `asking permission to use <tool>`, with `: <command>` when there is one | the agent's picture, when it has one |
 | An agent answered you | `<Agent>` | `<Agent> replied` | the reply, shortened to about 400 characters | the agent's picture, when it has one |
+| An agent posted in a room | `<Agent>` | `<Agent> posted, in <Project>`, or `<Agent> posted` | the post, shortened to about 400 characters | the agent's picture, when it has one |
 
 The computer also answers a room post's id (`post:<post id>`, kosmos#7032): the post's text and its author, never the
-person's own post. The iPhone does not ask for it yet (slice 9 of #6838 adds that), so a room notice still shows as in
-Sent today.
+person's own post, and the iPhone asks for it, so a room notice shows what was said (with no Reply: answering a room
+is a post to everyone, made in the room). The answer also names the post's project (`project`), because the push
+does not: the iPhone's push carries no project, so the phone learns which room a tap opens from the computer. A tap
+opens that project's room in the iPhone's Projects tab, or the board's room page under Today when the notice came from
+another computer than the one the app keeps, or the project is archived. When the computer did not answer in time, the
+notice has no room in it and a tap opens the agent's page, as before.
 
 The words are never in the push: the coordinator's notification and Apple still carry only who and what, and the
 phone fetches the words from the computer over Kosmos+ remote. If the computer does not answer (asleep, offline, an older Kosmos, or a phone not signed in to that

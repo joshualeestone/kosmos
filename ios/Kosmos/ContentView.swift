@@ -26,13 +26,16 @@ struct ContentView: View {
     // Whether the app has really been in the background, for the bar's Tasks check on return (tracked apart from the
     // biometric gate's didBackground, which only runs when that gate is on).
     @State private var tabsBackgrounded = false
+    // kosmos#7032: a room the Projects tab should open (a tapped room notification), cleared once it is open. Outside the
+    // screenshot switch: both builds read it.
+    @State private var roomRequest: PushBridge.RoomTarget?
     // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
     // The App Store screenshot build
     // (ios/store/shoot-app.sh) photographs board screens in the web view, opened by address, so it lights the tab
-    // that address belongs to (a project room under Projects).
+    // the bar gives that page (kosmos#7032: Projects is native now, so a project room's page shows under Today).
     #if KOSMOS_STORE_SHOTS
-    @State private var tab = AppTabs.keep(AppTabs.tab(forBoardURL: KosmosConfig.shotsOrigin),
-                                          tasksTab: UserDefaults.standard.bool(forKey: AppTabs.rememberedTasksKey))
+    @State private var tab = AppTabs.barTab(forPage: AppTabs.tab(forBoardURL: KosmosConfig.shotsOrigin),
+                                            tasksTab: UserDefaults.standard.bool(forKey: AppTabs.rememberedTasksKey))
     #else
     // Not signed in yet (a first launch): open on Today, the board, where the sign-in is (the spec's "today's sign-in
     // flow"). Read once per launch (a static), not on every redraw. A launch before first unlock reads no session and
@@ -46,6 +49,8 @@ struct ContentView: View {
             switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TAB"] {
             case "settings": return .settings
             case "today": return .today
+            // kosmos#7032: KOSMOS_SAMPLE_TAB=projects opens the native Projects tab's samples.
+            case "projects": return .projects
             default: return .agents
             }
         }
@@ -122,7 +127,8 @@ struct ContentView: View {
                         tabPage(which)
                             .tabItem { Label(which.title, systemImage: which.symbol) }
                             // kosmos#7030: Today's badge is the board's one number, the Dock's (counts.waiting); none at 0 or off.
-                            .badge(which == .today ? (board.waitingCount ?? 0) : 0)
+                            // kosmos#7032: Projects' is the board's unread room posts (counts.projectsUnread).
+                            .badge(which == .today ? (board.waitingCount ?? 0) : which == .projects ? (board.projectsUnread ?? 0) : 0)
                             .tag(which)
                     }
                 }
@@ -137,6 +143,9 @@ struct ContentView: View {
         .onChange(of: pushManager.boardToOpen) { request in
             if request != nil { todayBoard = true; tab = .today }
         }
+        // kosmos#7032: a room notification from the computer this app keeps opens the room natively; from any other
+        // computer it opens the board's room page under Today, as a tap always did.
+        .onChange(of: pushManager.roomToOpen) { target in if let target { openRoom(target) } }
         // kosmos#7008: a sign-out or another account drops the chats now, not at the next visit to the tab.
         .onChange(of: pushManager.accountChanges) { _ in
             board.accountChanged(); web.sessionChanged()
@@ -168,8 +177,8 @@ struct ContentView: View {
         .onChange(of: web.answeredTab) { back in
             guard let back = back else { return }
             web.answeredTab = nil
-            // The board can be on a Tasks section the bar does not offer (a project's View all): it lights Projects,
-            // and the page stays.
+            // The board can be on a Tasks section the bar does not offer (a project's View all): it lights Today
+            // (Projects is native, kosmos#7032), and the page stays.
             let shown = AppTabs.barTab(forPage: back, tasksTab: web.tasksTab)
             // kosmos#7030: a board page that lights Today shows under it, not behind the native screen.
             if shown == .today { todayBoard = true }
@@ -188,6 +197,9 @@ struct ContentView: View {
         }
         // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing. Only a real change of tab
         // moves anything (review 1: Tasks coming or going while the native Today shows must not swap it for the board).
+        // kosmos#7032: with Projects native, no tab hosts the board page until Tasks is earned, so the bar also learns
+        // it from the native status poll (the engine's flag; once shown it stays, so this only ever adds the tab).
+        .onChange(of: board.tasksTab) { earned in if earned == true { web.earnTasks() } }
         .onChange(of: web.tasksTab) { shown in
             let kept = AppTabs.keep(tab, tasksTab: shown)
             guard kept != tab else { return }
@@ -196,6 +208,7 @@ struct ContentView: View {
         .onAppear {
             // A notification tapped on a cold launch can set boardToOpen before the first draw, which onChange misses.
             if pushManager.boardToOpen != nil { todayBoard = true; tab = .today }
+            if let target = pushManager.roomToOpen { openRoom(target) }
             // Cold launch: onChange does not fire for scenePhase's initial value,
             // so prompt here when we start locked.
             if !isUnlocked { unlock() }
@@ -251,13 +264,24 @@ struct ContentView: View {
     // kosmos#7030 review 1: the app sending the person to the board under Today (the sign-in, a Mac that did not answer,
     // Tasks leaving the bar), even when Today is already showing. Its home, as the old press took it there: a press on
     // Today no longer drives the board (Today is native), so the section is asked for directly.
+    private func openRoom(_ target: PushBridge.RoomTarget) {
+        let kept = Board.usableSaved(SessionKeychain.macSession.load(), session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin)
+        switch PushBridge.roomOpening(target, keptAddress: kept?.address) {
+        case .native(let t)?: roomRequest = t; tab = .projects
+        case .board(let url)?: pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+        case nil: break
+        }
+        pushManager.roomToOpen = nil
+    }
+
     private func showBoardToday() {
         todayBoard = true
         tab = .today
         web.pressBoardSection(.today)
     }
 
-    // Agents and Settings are native, and Today when nothing was sent under it (kosmos#7030); the rest show the board.
+    // Agents, Projects (kosmos#7032) and Settings are native, and Today when nothing was sent under it (kosmos#7030);
+    // the rest show the board.
     @ViewBuilder private func tabPage(_ which: Tab) -> some View {
         if which == .today && !todayBoard {
             TodayView(client: board, openPage: { url in
@@ -267,6 +291,12 @@ struct ContentView: View {
             AgentsView(client: board, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoard: { showBoardToday() })
+        } else if which == .projects {
+            // kosmos#7032: the native Projects list and a project's room; the board's own project page (the room's info
+            // button) opens under Today, as an agent's chat does from Agents.
+            ProjectsView(client: board, roomRequest: $roomRequest, openPage: { url in
+                pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+            })
         } else if which == .settings {
             // kosmos#7010: a Kosmos+ page (the account, the delete flow) opens under Today in the shared web view, as an
             // agent's chat does, and so does the board's own Settings.
@@ -521,6 +551,12 @@ final class BoardWeb: ObservableObject {
                 self.readTasks()
             }
         }
+    }
+
+    // The status poll says Tasks is earned (BoardClient.tasksTab): shown and remembered, as a page read would.
+    func earnTasks() {
+        UserDefaults.standard.set(true, forKey: AppTabs.rememberedTasksKey)
+        if !tasksTab { tasksTab = true }
     }
 
     private func readTasks() {

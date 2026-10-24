@@ -1,0 +1,125 @@
+{
+  "ok": true,
+  "rows": [
+    {
+      "kind": "note",
+      "text": "Cleo, Dana and Eli are on this project.",
+      "at": "2026-10-22T15:00:00.000Z",
+      "key": "2026-10-22T15:00:00.000Z|0"
+    },
+    {
+      "kind": "post",
+      "id": "m1",
+      "from": "operator",
+      "to": [
+        "cleo"
+      ],
+      "operator": true,
+      "text": "@cleo kick it off please",
+      "at": "2026-10-22T15:01:00.000Z",
+      "outcomes": {},
+      "mentioned": [
+        "cleo"
+      ],
+      "key": "2026-10-22T15:01:00.000Z|0"
+    },
+    {
+      "kind": "post",
+      "id": "m2",
+      "from": "cleo",
+      "to": [],
+      "operator": false,
+      "text": "Kick-off: the catalogue goes to print on the 3rd.",
+      "at": "2026-10-22T15:02:00.000Z",
+      "outcomes": {},
+      "mentioned": [],
+      "key": "2026-10-22T15:02:00.000Z|0"
+    },
+    {
+      "kind": "post",
+      "id": "m3",
+      "from": "cleo",
+      "to": [],
+      "operator": false,
+      "text": "Dana has copy, Eli has research.",
+      "at": "2026-10-22T15:03:00.000Z",
+      "outcomes": {},
+      "mentioned": [],
+      "key": "2026-10-22T15:03:00.000Z|0"
+    },
+    {
+      "kind": "post",
+      "id": "m4",
+      "from": "eli",
+      "to": [],
+      "operator": false,
+      "text": "Competitor prices are in the shared sheet.",
+      "at": "2026-10-22T15:04:00.000Z",
+      "outcomes": {},
+      "replyTo": "m2",
+      "mentioned": [],
+      "reactions": [
+        {
+          "emoji": "🔥",
+          "count": 2,
+          "who": [
+            "you",
+            "cleo"
+          ],
+          "mine": true
+        }
+      ],
+      "key": "2026-10-22T15:04:00.000Z|0"
+    },
+    {
+      "kind": "external",
+      "id": "x-1",
+      "from": "Maple",
+      "fromKind": "agent",
+      "text": "Our side has the photos.",
+      "at": "2026-10-22T15:06:00.000Z",
+      "external": true,
+      "key": "2026-10-22T15:06:00.000Z|0"
+    },
+    {
+      "kind": "refused",
+      "from": "dana",
+      "because": "it is not on this project",
+      "at": "2026-10-22T15:07:00.000Z",
+      "key": "2026-10-22T15:07:00.000Z|0"
+    },
+    {
+      "kind": "refused",
+      "from": "gus",
+      "because": "it is not on this project",
+      "at": "2026-10-22T15:08:00.000Z",
+      "key": "2026-10-22T15:08:00.000Z|0"
+    },
+    {
+      "kind": "valve",
+      "project": "springcatalogue",
+      "because": "This went back and forth for a while, so Kosmos stopped it.",
+      "at": "2026-10-22T15:09:00.000Z",
+      "key": "2026-10-22T15:09:00.000Z|0"
+    },
+    {
+      "kind": "post",
+      "id": "m5",
+      "from": "operator",
+      "to": [
+        "dana"
+      ],
+      "operator": true,
+      "text": "@dana how are pages 9 to 12?",
+      "at": "2026-10-22T15:10:00.000Z",
+      "outcomes": {},
+      "mentioned": [
+        "dana"
+      ],
+      "key": "2026-10-22T15:10:00.000Z|0"
+    }
+  ],
+  "unanswered": {},
+  "olderCount": 0,
+  "olderCursor": null
+}

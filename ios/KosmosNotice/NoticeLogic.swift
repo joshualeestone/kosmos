@@ -38,13 +38,16 @@ enum PhoneNotice {
         // kosmos#7017 part 2: present only on a needs-you raised by Claude Code's permission prompt still on screen,
         // where the board itself would draw Allow and Deny (server.js phonePermissionNow).
         var permission: Permission? = nil
+        // kosmos#7032: present only on a room post: the project it was posted in. The push does not carry it.
+        var project: String? = nil
 
-        init(kind: String, session: String, agent: String, text: String, picture: String?, permission: Permission? = nil) {
+        init(kind: String, session: String, agent: String, text: String, picture: String?, permission: Permission? = nil,
+             project: String? = nil) {
             self.kind = kind; self.session = session; self.agent = agent; self.text = text; self.picture = picture
-            self.permission = permission
+            self.permission = permission; self.project = project
         }
 
-        private enum CodingKeys: String, CodingKey { case kind, session, agent, text, picture, permission }
+        private enum CodingKeys: String, CodingKey { case kind, session, agent, text, picture, permission, project }
 
         // A permission this build cannot read (an older or newer computer) costs only the buttons, never the words.
         init(from decoder: Decoder) throws {
@@ -55,6 +58,7 @@ enum PhoneNotice {
             text = try c.decode(String.self, forKey: .text)
             picture = try c.decodeIfPresent(String.self, forKey: .picture)
             permission = (try? c.decodeIfPresent(Permission.self, forKey: .permission)) ?? nil
+            project = (try? c.decodeIfPresent(String.self, forKey: .project)) ?? nil
         }
     }
 
@@ -86,8 +90,9 @@ enum PhoneNotice {
     }
 
     // Only the push ids the computer answers (engine/phonenotice.js parseId); any other notice is left as it came.
+    // kosmos#7032: a room post's id (`post:<post id>`) too, so a room notice shows what was said.
     static func isAskable(id: String) -> Bool {
-        id.count <= 300 && (id.hasPrefix("report:") || id.hasPrefix("reply:"))
+        id.count <= 300 && (id.hasPrefix("report:") || id.hasPrefix("reply:") || id.hasPrefix("post:"))
     }
 
     // A host name and nothing else: the address goes into a URL's host, so no scheme, port, path or user part.
@@ -183,6 +188,27 @@ enum PhoneNotice {
         category == permissionCategory || userInfo[permissionInfoKey] != nil
     }
     static func cleanedCategory(_ category: String) -> String { category == permissionCategory ? "" : category }
+    // kosmos#7032: the key the app reads to open a room notification's room (PushBridge.roomToOpen). The extension
+    // writes it from the computer's answer, because the push itself never names the project.
+    static let roomInfoKey = "projectId"
+
+    // The notice's userInfo with the room named, for a room post's words; unchanged for anything else. The app checks
+    // the id's characters again before it uses it.
+    static func withRoom(_ w: Words, userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
+        guard w.kind == "post", (userInfo["kind"] as? String) == "posted", let project = w.project, !project.isEmpty
+        else { return userInfo }
+        var out = userInfo
+        out[roomInfoKey] = project
+        return out
+    }
+
+    // The conversation a notice joins: an agent's direct thread by its session, a room post by its room (kosmos#7032),
+    // so a room's posts never group into that agent's direct replies.
+    static func conversation(_ w: Words) -> String {
+        if w.kind == "post", let p = w.project, !p.isEmpty { return "room|" + p }
+        return w.session
+    }
+
     static func cleanedInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
         var out = userInfo
         out[permissionInfoKey] = nil

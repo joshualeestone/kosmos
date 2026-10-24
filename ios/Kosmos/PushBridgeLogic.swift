@@ -162,6 +162,40 @@ enum PushBridge {
         return parts.url
     }
 
+    // kosmos#7032: a room notification (kind `posted`) names the project it came from (`projectId`); the native Projects
+    // tab opens that room. The push itself never carries it: the notification extension writes it from the computer's
+    // answer for the words (PhoneNotice.withRoom), so a notice the extension could not fill opens the agent's page. Only for a plain host under the relay domain, as boardURL requires, and a project id of the
+    // board's own characters (engine/projects.js idFor). nil for every other notification, which opens as boardURL says.
+    struct RoomTarget: Equatable { let host: String; let project: String }
+    static func roomToOpen(fromNotification userInfo: [AnyHashable: Any], coordinator: URL) -> RoomTarget? {
+        guard (userInfo["kind"] as? String) == "posted",
+              let project = userInfo["projectId"] as? String, !project.isEmpty, project.count <= 80,
+              project.unicodeScalars.allSatisfy({ ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" || $0 == "_" }),
+              let raw = userInfo["address"] as? String, raw.unicodeScalars.allSatisfy({ $0.isASCII }),
+              isMacHost(raw.lowercased(), coordinator: coordinator)
+        else { return nil }
+        return RoomTarget(host: raw.lowercased(), project: project)
+    }
+
+    // Where a room notification opens: the native room when it came from the computer this app keeps (by its address,
+    // without case), else the board's own room page for that computer, under Today.
+    enum RoomOpening: Equatable { case native(RoomTarget), board(URL) }
+    static func roomOpening(_ t: RoomTarget, keptAddress: String?) -> RoomOpening? {
+        if let kept = keptAddress, kept.lowercased() == t.host { return .native(t) }
+        return roomBoardURL(t).map { .board($0) }
+    }
+
+    // The board's own page for that room, for when the native tab cannot open it (another computer than the kept one,
+    // or a project the list does not have): the board's ?tab=projects&project= deep link.
+    static func roomBoardURL(_ t: RoomTarget) -> URL? {
+        var parts = URLComponents()
+        parts.scheme = "https"
+        parts.host = t.host
+        parts.path = "/"
+        parts.queryItems = [URLQueryItem(name: "tab", value: "projects"), URLQueryItem(name: "project", value: t.project)]
+        return parts.url
+    }
+
     // The board's agent-name characters (engine/create.js NAME_RE): lowercase letters,
     // digits, hyphen and underscore, starting with a letter or digit. No dots,
     // slashes, colons, percent signs, spaces or Unicode. The LENGTH is deliberately

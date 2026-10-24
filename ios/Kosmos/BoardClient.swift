@@ -213,6 +213,8 @@ final class BoardClient: ObservableObject {
     // tab arriving had just started, whichever order SwiftUI reports them in.
     static let agentsViewer = "agents"
     static let todayViewer = "today"
+    // kosmos#7032: the Projects tab and a room keep the connection (and the agents' names and pictures) going too.
+    static let projectsViewer = "projects"
     private var viewers: Set<String> = []
     func show(_ viewer: String) {
         let first = viewers.isEmpty
@@ -232,6 +234,9 @@ final class BoardClient: ObservableObject {
 
     // counts.waiting, the board's one number (the Dock badge); nil when the person turned it off, or before a read.
     @Published private(set) var waitingCount: Int?
+    // The engine's Tasks flag from the same poll (nil when the Mac does not say).
+    @Published private(set) var tasksTab: Bool?
+    @Published private(set) var projectsUnread: Int?
     // The tasks an agent marked built, oldest first; nil until a read answers. tasksFailed: the last read did not
     // answer with tasks, which Today says in place of the section, never as zero.
     @Published private(set) var readyTasks: [Board.ReadyTask]?
@@ -257,6 +262,8 @@ final class BoardClient: ObservableObject {
         tasksTask?.cancel()
         tasksTask = nil
         waitingCount = nil
+        tasksTab = nil
+        projectsUnread = nil
         readyTasks = nil
         tasksFailed = false
         tasksAt = nil
@@ -304,6 +311,17 @@ final class BoardClient: ObservableObject {
         guard let held = admitted, let request = Board.threadRequest(mac: held.url, session: session) else { return .noAnswer }
         let result = await env.send(request)
         return Board.readThread(status: result?.1.statusCode ?? 0, data: result?.0)
+    }
+
+    // kosmos#7032: one request through this client's own session to the Mac it is connected to, for the Projects tab and
+    // a project's room (RoomStore), so they need no second session of their own. nil when not connected, when the request
+    // cannot be made, or when no answer came. The caller reads the answer itself.
+    // The Mac this client is connected to, for a link to its board (a room's info button); nil when not connected.
+    var macURL: URL? { admitted?.url }
+
+    func throughMac(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
+        guard let held = admitted, let request = build(held.url) else { return nil }
+        return await env.send(request)
     }
 
     // Messages sent from a chat that its conversation does not hold yet, by agent, and each chat's unsent words. Kept
@@ -875,6 +893,8 @@ final class BoardClient: ObservableObject {
         if (200...299).contains(status), let data = result?.0, let rows = Board.parseAgents(data) {
             agents = resortNext ? Board.sorted(rows) : Board.keepingOrder(agents, with: rows)
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
+            tasksTab = AppTabs.tasksTab(fromStatus: data)   // kosmos#7032: Tasks earned, with no board page loaded
+            projectsUnread = AppTabs.projectsUnread(fromStatus: data)     // kosmos#7032: the Projects tab's badge
             resortNext = false
             updatedAt = env.now()
             failedRefreshes = 0
