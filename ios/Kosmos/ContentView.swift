@@ -80,7 +80,7 @@ struct ContentView: View {
     typealias Tab = AppTabs.Tab
 
     // kosmos#7042: not signed in, the native sign-in shows instead of the board's sign-in page. "Use the sign-in page"
-    // (a company sign-in, a passkey, a second step to set up) turns it off for this launch, back to today's page.
+    // (what the native screens cannot do, such as a company sign-in before iOS 17.4) turns it off for this launch.
     @State private var nativeSignIn = ContentView.startsSignedOut
     @StateObject private var signIn = SignInModel(client: SignInClient())
     private static var startsSignedOut: Bool {

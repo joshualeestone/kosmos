@@ -2978,14 +2978,17 @@ do {
     let ok = #"{"challenge":"\#(SignIn.base64url(challenge))","rp_id":"login.kosmosplus.com","timeout_ms":300000,"user_verification":"required"}"#
     check(SignIn.passkeyOffer(status: 200, json: jsonBody(ok), coordinator: coordinator) == SignIn.PasskeyOffer(challenge: challenge, rpID: "login.kosmosplus.com"),
           "control: begin's offer for the coordinator's own host is taken, the challenge decoded")
-    check(SignIn.passkeyOffer(status: 200, json: jsonBody(ok.replacingOccurrences(of: "login.kosmosplus.com", with: "LOGIN.kosmosplus.com")), coordinator: coordinator) != nil,
-          "the host compared case aside")
+    check(SignIn.passkeyOffer(status: 200, json: jsonBody(ok.replacingOccurrences(of: "login.kosmosplus.com", with: "LOGIN.kosmosplus.com")), coordinator: coordinator)?.rpID == "login.kosmosplus.com",
+          "the host compared case aside, and the coordinator's own spelling handed on (it compares the origin byte for byte)")
     for (why, status, json) in [
         ("passkeys off (404)", 404, #"{}"#),
         ("another host's relying party", 200, ok.replacingOccurrences(of: "login.kosmosplus.com", with: "kosmosplus.com")),
         ("a lookalike host", 200, ok.replacingOccurrences(of: "login.kosmosplus.com", with: "login.kosmosplus.com.evil.example")),
         ("user verification not required", 200, ok.replacingOccurrences(of: "required", with: "preferred")),
         ("no challenge", 200, #"{"rp_id":"login.kosmosplus.com","user_verification":"required"}"#),
+        ("an empty challenge", 200, #"{"challenge":"","rp_id":"login.kosmosplus.com","user_verification":"required"}"#),
+        ("no relying party", 200, #"{"challenge":"AQID","user_verification":"required"}"#),
+        ("no user verification", 200, #"{"challenge":"AQID","rp_id":"login.kosmosplus.com"}"#),
         ("a challenge that is not base64url", 200, ok.replacingOccurrences(of: SignIn.base64url(challenge), with: "%%%")),
     ] {
         check(SignIn.passkeyOffer(status: status, json: jsonBody(json), coordinator: coordinator) == nil, "no passkey offered: \(why)")
