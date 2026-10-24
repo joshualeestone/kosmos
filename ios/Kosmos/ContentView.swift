@@ -58,8 +58,9 @@ struct ContentView: View {
     private var pressing: Binding<Tab> {
         Binding(get: { tab }, set: { new in
             tab = new
-            // kosmos#7010: the native Settings tab presses nothing, so the hidden page (an agent's chat) keeps its place.
-            if new != .settings { web.press(new) }
+            // A native tab (Agents, Settings #7010) runs nothing on the hidden page, so an agent's chat there keeps its
+            // place, and it ends any press still waiting (PressTracker.press).
+            web.press(new)
         })
     }
 
@@ -158,7 +159,7 @@ struct ContentView: View {
     private func select(_ new: Tab) {
         guard new != tab else { return }
         tab = new
-        if new != .settings { web.press(new) }
+        web.press(new)
     }
 
     // Agents and Settings are native; the other three show the shared board.
@@ -175,7 +176,7 @@ struct ContentView: View {
             }, openBoardSettings: {
                 // The board's own Settings, under Today (AppTabs.barTab: its Settings section lights Today).
                 tab = .today
-                web.press(.settings)
+                web.press(.settings, section: true)
             })
         } else {
             webBoard(which)
@@ -330,10 +331,10 @@ final class BoardWeb: ObservableObject {
     }
 
     // `ready` is given by a finished load (didFinish says the page is ready, whatever isLoading still reads).
-    func press(_ tab: AppTabs.Tab, ready: Bool = false) {
+    func press(_ tab: AppTabs.Tab, ready: Bool = false, section: Bool = false) {
         // The tracker decides from what the page is (PressTracker.Page); a press with no web view yet waits.
         let page: PressTracker.Page = webView.map { ready || !$0.isLoading ? .ready : .loading } ?? .noView
-        guard let run = tracker.press(tab, page: page), let webView = webView else { return }
+        guard let run = tracker.press(tab, page: page, section: section), let webView = webView else { return }
         webView.evaluateJavaScript(run.script) { [weak self] result, error in
             guard let self = self else { return }
             let answer = AppTabs.answer(result, error: error)
@@ -348,7 +349,9 @@ final class BoardWeb: ObservableObject {
     // A page finished loading: run a press that waited for it, and start a launch round of Tasks reads if no read has
     // answered this launch (PressTracker.launchReads). A later load replaces the round.
     func loaded() {
-        if let tab = tracker.pending { press(tab, ready: true) }
+        // What waits is a web tab or a section pressed on purpose (a native tab's press leaves nothing waiting), so it
+        // replays as a section press.
+        if let tab = tracker.pending { press(tab, ready: true, section: true) }
         if let round = tracker.loaded(host: webView?.url?.host) { schedule(round, at: PressTracker.launchReads) }
     }
 

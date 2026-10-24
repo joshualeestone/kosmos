@@ -266,6 +266,9 @@ enum AppTabs {
     // kosmos#7010: the Settings tab is native, so the board's own Settings section (its links into it, or the native
     // screen's "open the board's Settings" row) shows under Today, as an agent's chat does. Lighting the Settings tab
     // would put the native screen over the very section the person was sent to.
+    // The tabs the app draws itself. Pressing one ends any press still waiting, and a lock never replays one.
+    static func isNative(_ tab: Tab) -> Bool { tab == .agents || tab == .settings }
+
     static func barTab(forPage section: Tab, tasksTab: Bool) -> Tab {
         if section == .settings { return .today }
         return visible(tasksTab: tasksTab).contains(section) ? section : .projects
@@ -413,9 +416,11 @@ struct PressTracker {
 
     // A press: the script to run now and the number its answer must carry, or nil when there is nothing to run now
     // (the native tab, which also ends a waiting press; or a page not ready, when the press waits for its load).
-    mutating func press(_ tab: AppTabs.Tab, page: Page) -> (script: String, serial: Int)? {
+    // `section`: press the board's own section for a native tab on purpose (#7010, the Settings tab's row to the
+    // board's Settings); the bar is on Today by then.
+    mutating func press(_ tab: AppTabs.Tab, page: Page, section: Bool = false) -> (script: String, serial: Int)? {
         serial += 1
-        guard let script = AppTabs.pressScript(tab) else { pending = nil; running = false; return nil }
+        guard section || !AppTabs.isNative(tab), let script = AppTabs.pressScript(tab) else { pending = nil; running = false; return nil }
         pending = tab
         running = page == .ready
         return running ? (script, serial) : nil
@@ -487,7 +492,7 @@ struct PressTracker {
         serial += 1
         running = false
         generation += 1
-        pending = AppTabs.pressScript(selected) == nil ? nil : selected
+        pending = AppTabs.isNative(selected) || AppTabs.pressScript(selected) == nil ? nil : selected
         readThisLaunch = false
         launchAnswered = false
         launchHost = nil

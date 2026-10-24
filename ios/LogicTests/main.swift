@@ -1635,7 +1635,7 @@ section("app tabs: press bookkeeping")
 do {
     var t = PressTracker()
     check(t.press(.projects, page: .noView) == nil && t.pending == .projects, "with no web view yet (a signed-in launch on Agents) the tracker keeps the press (BoardWeb runs it at the load)")
-    check(t.press(.settings, page: .loading) == nil && t.pending == .settings, "a page still loading: the press waits")
+    check(t.press(.tasks, page: .loading) == nil && t.pending == .tasks, "a page still loading: the press waits")
     let serialBefore = t.serial
     let run = t.press(.projects, page: .ready)
     check(run != nil && run?.script == AppTabs.pressScript(.projects) && run?.serial == serialBefore + 1, "a ready page: the press runs, with a new number")
@@ -1648,16 +1648,24 @@ do {
 
     var u = PressTracker()
     let first = u.press(.projects, page: .ready)!
-    let second = u.press(.settings, page: .ready)!
-    check(u.answered(serial: first.serial, .refused, pageURL: roomURL) == nil && u.pending == .settings, "a late answer to an earlier press moves nothing and ends nothing")
+    let second = u.press(.tasks, page: .ready)!
+    check(u.answered(serial: first.serial, .refused, pageURL: roomURL) == nil && u.pending == .tasks, "a late answer to an earlier press moves nothing and ends nothing")
     check(u.answered(serial: second.serial, .refused, pageURL: roomURL) == .projects && u.pending == nil, "the latest press's refusal ends it and moves the bar to the page's tab")
 
     var v = PressTracker()
-    let shown = v.press(.settings, page: .ready)!
+    let shown = v.press(.tasks, page: .ready)!
     v.loadingOwnPage()
     check(v.pending == nil && v.answered(serial: shown.serial, .refused, pageURL: settingsURL) == nil, "an agent tap ends a press, and a late refusal of it cannot move the bar")
     _ = v.press(.projects, page: .loading)
     check(v.press(.agents, page: .ready) == nil && v.pending == nil, "the native tab ends a waiting press")
+    _ = v.press(.projects, page: .loading)
+    check(v.press(.settings, page: .ready) == nil && v.pending == nil, "#7010: the native Settings tab runs nothing and ends a waiting press too")
+    let section = v.press(.settings, page: .ready, section: true)
+    check(section?.script == AppTabs.pressScript(.settings) && v.pending == .settings, "#7010: the board's own Settings, pressed on purpose (the native screen's row), runs")
+    check(v.answered(serial: section!.serial, .opened, pageURL: nil) == .settings && AppTabs.barTab(forPage: .settings, tasksTab: true) == .today, "#7010: and the bar ends on Today, with the board's Settings showing")
+    var lockedOnSettings = PressTracker()
+    lockedOnSettings.drop(selected: .settings)
+    check(lockedOnSettings.pending == nil, "#7010: a lock on the native Settings tab replays nothing on the fresh page")
 
     var w = PressTracker()
     let before = w.press(.tasks, page: .ready)!
