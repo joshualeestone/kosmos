@@ -203,6 +203,13 @@ final class SignInModel: ObservableObject {
     /// so its press is answered (as not used) instead of leaving the screen busy.
     func appLeft() { client?.cancelPasskey() }
 
+    /// kosmos#7050 slice C: back in front (ContentView calls this). On the email step, an availability answer that
+    /// failed earlier (offline at launch, a server error) is asked again.
+    func appReturned() {
+        guard case .email = step else { return }
+        Task { await checkPasskeys() }
+    }
+
     /// kosmos#7050 slice C: sign in with a passkey, in Apple's passkey sheet. The grant finish brings back is spent at
     /// verify in place of the code, for the account's own email, with this iPhone's proof (as a company sign-in's is),
     /// so the second step and the Allow follow exactly as for a code.
@@ -235,6 +242,9 @@ final class SignInModel: ObservableObject {
                 guard mine == attempt else { return }
                 switch try await client.passkeyFinish(assertion) {
                 case .grant(let grant, let account):
+                    // Superseded while finish was out (Send code, a sign-out): the grant is not spent and the field is
+                    // not touched.
+                    guard mine == attempt else { return }
                     // The address first: changing it later clears the error line (the email field's onChange) and
                     // would wipe the sentence take() sets for a refused grant.
                     email = account
