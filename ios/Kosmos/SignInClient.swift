@@ -118,8 +118,6 @@ final class SignInClient {
 
     // MARK: - Passkey sign-in (kosmos#7050 slice C)
 
-    /// begin's offer, or nil when passkeys are off on the coordinator, it could not be reached, or the offer is not one a
-    /// passkey can answer here (SignIn.passkeyOffer). Asks for nothing and stores nothing on Kosmos+.
     /// What begin said: an offer a passkey can answer, passkeys switched off (a 404: the route is not there), or an
     /// answer that is neither (a server error, an offer for another host). Throws SignInError.unreachable when Kosmos+
     /// did not answer at all.
