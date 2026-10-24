@@ -27,7 +27,7 @@ order applies", stars kept by session name at GET /api/agent-stars ({ names, ok 
 - Stars read only on appear and pull: a star set on the board shows on the phone at the next re-sort, not at once.
   That matches how the phone treats every other order change.
 
-## Tests (ios/LogicTests, 817 checks after review 1)
+## Tests (ios/LogicTests, 878 checks with Today)
 order with and without stars, a star for an unlisted agent, a live update with stars, the parse (ok, not ok, other
 shape), the route; the client: starred first on connect, an unreadable pull keeps the last stars, a pull re-reads.
 
@@ -44,6 +44,15 @@ A4 the re-sort read late: each red on its named check.
 Today arms ($S/st-arms-today.sh): T0 control green; T1 Needs you ignores stars, T2 shownStars not keyed by Mac:
 each red on its named check. TodayView.swift is not in the logic build; CI's Simulator SDK build compiles it.
 
+## Review 2, deferred (with the reason)
+- A dropped older read skips the success bookkeeping (failedRefreshes, unauthorizedSince). Kept: the read it lost to
+  started later, so its answer (success or failure) is the newer evidence about the Mac; an older success does not
+  outrank it. A dropped read only ever follows a newer read that was applied or is still in the air.
+- A re-sort waits for the stars read: bounded by the 4 s timeout (review 1), and only on appear and pull.
+- The stale-read test was suspected of timing luck. Measured: 20 of 20 green as built, 20 of 20 red with the ticket
+  guard removed ($S/st-repeat.sh, one build, the binary run 20 times).
+
 ## Progress
 - [x] logic, client, tests, arms
-- [ ] validation, challenge-loop, PR; Today with #7030 part 2
+- [x] Today with #7030 part 2
+- [ ] validation, challenge-loop, PR
