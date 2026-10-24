@@ -95,7 +95,10 @@ final class SignInModel: ObservableObject {
                 guard mine == attempt else { return }
                 switch enrolled {
                 case .totp(let link, let secret): code = ""; step = .setupConfirm(token: token, otpauth: link, secret: secret)
-                case .refused(let sentence): error = sentence
+                case .refused(let sentence):
+                    // As confirm: a setup Kosmos+ says to start again (the token ran out) goes back to the email.
+                    if SignIn.startsOver(sentence) { step = .email }
+                    error = sentence
                 }
             } catch { if mine == attempt { fail(error) } }
         }

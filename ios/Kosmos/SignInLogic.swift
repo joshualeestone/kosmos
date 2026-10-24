@@ -283,10 +283,12 @@ enum SignIn {
     static let setupWords = "Your account needs a second sign-in step. Set up an authenticator app now: it shows a new six-digit code every 30 seconds."
     static let webForTexts = "Setting up text messages continues on the sign-in page."
 
-    /// A refusal no new code can fix: Kosmos+ says to start again (the enrol-only token expired, or nothing is being
-    /// set up any more; second.rs). The person goes back to the email rather than retrying here.
+    /// A refusal no new code can fix: Kosmos+ says to start again (the enrol-only token expired, nothing is being set
+    /// up any more, the setup is damaged) or the account is gone (second.rs). The person goes back to the email rather
+    /// than retrying here. A wrong code says neither, and stays.
     static func startsOver(_ message: String?) -> Bool {
-        (message ?? "").range(of: "start again", options: .caseInsensitive) != nil
+        let m = message ?? ""
+        return ["start again", "no such account", "no longer exists", "being deleted"].contains { m.range(of: $0, options: .caseInsensitive) != nil }
     }
 
     /// The second step's line, as the web page words it (secondWords). The authenticator shows "Kosmos" (the issuer
