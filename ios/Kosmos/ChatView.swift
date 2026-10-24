@@ -194,7 +194,9 @@ struct ChatView: View {
                                 // The top leaving after the first layout proves the jump to the newest message
                                 // happened, even if the end marker was not reached (estimated row heights). Not when
                                 // it leaves because a reset took the conversation away (review 4).
-                                if thread != nil { settledAtEnd = true }
+                                // self.thread, the chat's state: inside `if let thread` a bare `thread` is the
+                                // unwrapped copy and is never nil (review 7).
+                                if self.thread != nil { settledAtEnd = true }
                             }
                         if thread.rows.isEmpty && pending.isEmpty { empty }
                         ForEach(items) { item in
