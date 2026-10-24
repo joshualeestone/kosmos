@@ -135,6 +135,9 @@ let deps = null;
  *                                 gets no seat (#3851)
  *   note(projectId, text)         optional; Kosmos's own line in the room, used to
  *                                 say a post did not go out or messages were dropped
+ *   macId() -> string             optional; this computer's Kosmos+ id (#4658: an own
+ *                                 computer names itself in key-own-hello; without it
+ *                                 it never asks for a sealed room's key)
  */
 function configure(d) {
   deps = d;
@@ -266,6 +269,7 @@ function handleEvent(projectId, line, heldAt) {
         noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile. A post sent after that, before the new key arrives, may not be shown to the others.');
         return;
       }
+      if (!opened && !sealed && noteOwnSealed(projectId, s)) return;   // #4658: an own computer asks for the key
       if (!opened && !sealed) {
         // This computer joined before the owner sealed the room: it holds no key and never will from that code.
         noteOnce(projectId, s, 'sealedSince', 'The owner has sealed this shared room since this computer joined, so its messages cannot be read here. Ask the owner to remove you from the shared project and send you a new code.');
@@ -737,6 +741,7 @@ function sealStep(projectId, fn) {
 function sayHello(projectId, s) {
   const st = roomSeal(projectId);
   if (!st || st.role !== 'member' || hasKey(st) || !s.room) return;
+  if (st.own === true) { sayOwnHello(projectId, s); return; }
   try { sendFrame(s, fedseal.helloFrame(st.s, st.code, fedseal.sealingKey(), s.room)); } catch (err) {
     noteOnce(projectId, s, 'noKey', 'This computer could not use its sealing key, so this shared room cannot open yet: ' + String((err && err.message) || err));
   }
@@ -749,9 +754,87 @@ function sendRotates(projectId, s) {
   if (!hasKey(st) || st.role !== 'owner' || st.epoch < 1 || !s.room) return;
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
-  for (const pub of Object.keys(st.peers || {})) {
+  // #4658: the owner's own allowed computers too (kept apart from the guest peers, see ownWaiting).
+  for (const pub of Object.keys(st.peers || {}).concat(Object.keys(st.own || {}))) {
     try { sendFrame(s, fedseal.rotateFrame(me, pub, st.keys[st.epoch], st.epoch, s.room, Number.isSafeInteger(st.rotatedAt) ? st.rotatedAt : 0)); } catch { /* the next connect sends it again */ }
   }
+}
+
+/* ---- #4658: the owner's own computers in a sealed room ----
+   Decided on the card 10-24 (comments 6381074916, 6381262194, 6381275649):
+   - An own computer (a `self` link) that sees its room sealed records member seal state marked
+     own, with no key, so it holds its posts rather than speaking in the clear, and says
+     key-own-hello {mac, pub} in the room on each connect until it holds the key.
+   - Only the board holding the room's seal-OWNER state answers: it lists each hello with the
+     compare code, and a person's Allow (the code compared on both screens) sends key-own-share and
+     pins the computer in `st.own`, never in `st.peers` (every peers reader means a guest).
+   - The hello is unauthenticated; the person comparing the codes is the authentication. */
+
+/** Own computer: the room is sealed and this computer has no key yet. */
+function sayOwnHello(projectId, s) {
+  const macId = deps && typeof deps.macId === 'function' ? deps.macId() : null;
+  let me;
+  try { me = fedseal.sealingKey(); } catch { return; }
+  if (typeof macId !== 'string' || !macId || !s.room) return;
+  try { sendFrame(s, fedseal.ownHelloFrame(me, macId)); } catch { return; }
+  const code = fedseal.compareCode(s.room, macId, me.pub);
+  if (code) noteOnce(projectId, s, 'ownWaiting', 'This shared room is sealed. To read it on this computer, open this project on the computer that first shared it and press Allow beside this computer\'s name, once its code matches this one: ' + code + '.');
+}
+/** Own computer: the first sealed message tells it the room is sealed. True when it recorded so. */
+function noteOwnSealed(projectId, s) {
+  const link = safeLink(projectId);
+  if (!link || link.role !== 'self') return false;
+  try { fedseal.setRoomState(projectId, { role: 'member', own: true, keys: {} }); } catch { return false; }
+  sayOwnHello(projectId, s);
+  return true;
+}
+const OWN_WAITING_MAX = 16;
+/** Seal owner: a hello from one of this account's computers, kept in the seat's memory (hellos
+    repeat on every connect, so a restart loses nothing for long). A computer already allowed
+    is sent its key again (it may have lost it); its confirmation is the pin itself. */
+function ownerOwnHello(projectId, s, frame, me) {
+  const st = roomSeal(projectId);
+  const h = fedseal.checkOwnHello(frame);
+  if (!h || !hasKey(st) || st.role !== 'owner') return;
+  const own = st.own || {};
+  if (Object.prototype.hasOwnProperty.call(own, h.pub)) {
+    if (own[h.pub] && own[h.pub].mac === h.mac) {
+      try { sendFrame(s, fedseal.ownShareFrame(me, h.pub, h.mac, fedseal.compareCode(s.room, h.mac, h.pub), st.keys[st.epoch], st.epoch, s.room)); } catch { /* the next hello */ }
+    }
+    return;
+  }
+  if (!s.ownWaiting) s.ownWaiting = new Map();
+  s.ownWaiting.delete(h.pub);
+  s.ownWaiting.set(h.pub, { mac: h.mac, at: Date.now() });
+  while (s.ownWaiting.size > OWN_WAITING_MAX) s.ownWaiting.delete(s.ownWaiting.keys().next().value);
+}
+/** Seal owner: the computers waiting for this room's key, newest last, each with the code its own
+    screen shows. Empty when this board does not hold the room's seal-owner state. */
+function ownWaiting(projectId) {
+  const s = seats.get(projectId);
+  const st = roomSeal(projectId);
+  if (!s || !s.room || !s.ownWaiting || !hasKey(st) || st.role !== 'owner') return [];
+  return [...s.ownWaiting].map(([pub, w]) => ({ pub, mac: w.mac, at: w.at, code: fedseal.compareCode(s.room, w.mac, pub) }));
+}
+/** Seal owner: a person compared the codes and pressed Allow. Resolves { ok, because }. */
+function allowOwn(projectId, pub, confirmedCode) {
+  return sealStep(projectId, async () => {
+    const s = seats.get(projectId);
+    const w = s && s.ownWaiting ? s.ownWaiting.get(pub) : null;
+    if (!s || !s.room || !w) return { ok: false, because: 'that computer is no longer waiting for this room\'s key' };
+    const st = roomSeal(projectId);
+    if (!hasKey(st) || st.role !== 'owner') return { ok: false, because: 'only the computer that first shared this room can let another computer read it' };
+    let me;
+    try { me = fedseal.sealingKey(); } catch { return { ok: false, because: 'this computer could not use its sealing key' }; }
+    let frame;
+    try { frame = fedseal.ownShareFrame(me, pub, w.mac, confirmedCode, st.keys[st.epoch], st.epoch, s.room); } catch (err) {
+      return { ok: false, because: String((err && err.message) || err) };
+    }
+    fedseal.setRoomState(projectId, Object.assign({}, st, { own: Object.assign({}, st.own || {}, { [pub]: { mac: w.mac, at: Date.now() } }) }));
+    s.ownWaiting.delete(pub);
+    sendFrame(s, frame);
+    return { ok: true, because: null };
+  }).then((r) => r || { ok: false, because: 'the room\'s records could not be written' });
 }
 /** Owner: a pinned member whose edge the coordinator reports as not active has been
     revoked. The room moves to a new key only the remaining members get, so the revoked
@@ -1017,7 +1100,19 @@ function onKeyFrame(projectId, s, frame) {
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
   if (frame.t === 'key-hello' && link.role === 'owner') { sealStep(projectId, () => ownerHello(projectId, s, link, frame, me)); return; }
+  if (frame.t === 'key-own-hello' && link.role === 'owner') { sealStep(projectId, () => ownerOwnHello(projectId, s, frame, me)); return; }
   try {
+    if (frame.t === 'key-own-share' && link.role === 'self') {
+      const st = roomSeal(projectId);
+      if (!st || st.role !== 'member' || st.own !== true || hasKey(st)) return;
+      const macId = deps && typeof deps.macId === 'function' ? deps.macId() : null;
+      const got = fedseal.openOwnShare(me, macId, frame, s.room);
+      if (!got) return;   // another computer's share, or not sealed to this key
+      fedseal.setRoomState(projectId, Object.assign({}, st, { peer: got.ownerPub, epoch: got.epoch, keys: { [got.epoch]: got.roomKey } }));
+      say(projectId, SEALED_LINE);
+      flushHeld(projectId, s);
+      return;
+    }
     if (frame.t === 'key-share' && link.role === 'member') {
       const st = roomSeal(projectId);
       if (!st || st.role !== 'member' || hasKey(st)) return;
@@ -1028,7 +1123,7 @@ function onKeyFrame(projectId, s, frame) {
       flushHeld(projectId, s);
       return;
     }
-    if (frame.t === 'key-rotate' && link.role === 'member') {
+    if (frame.t === 'key-rotate' && (link.role === 'member' || link.role === 'self')) {
       const st = roomSeal(projectId);
       if (!hasKey(st) || !st.peer) return;
       const got = fedseal.openRotate(me, st.peer, frame, s.room);
@@ -1669,4 +1764,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { contactStopped, contactState, contactReason, contactStops, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
+module.exports = { ownWaiting, allowOwn, contactStopped, contactState, contactReason, contactStops, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };

@@ -24488,6 +24488,7 @@ const server = http.createServer(async (req, res) => {
  */
 fedseats.configure({
   spawnSeat: (edge) => remote.spawnFedSeat(edge),
+  macId: () => remote.macIdHere(),   // #4658: an own computer names itself when it asks for a sealed room's key
   macRequest: (method, route, body) => remote.macRequest(method, route, body),
   /* #5732: a post the relay stamps as this account's own (another of the person's computers) tells the project's
      agents to read the room, with no post text. Whether it does is messages.ownPostNudges (a person's own post, on by
