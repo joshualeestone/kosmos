@@ -359,7 +359,8 @@ final class BoardClient: ObservableObject {
               (200...299).contains(answer.statusCode) else { return nil }
         // Never a page: the gate's sign-in page can stand in for the file, and a web page in Quick Look could load
         // from elsewhere. An agent's own HTML file is opened on the board.
-        if (answer.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("text/html") { return nil }
+        let answered = (answer.value(forHTTPHeaderField: "Content-Type") ?? "").split(separator: ";").first.map(String.init) ?? ""
+        if answered.lowercased().hasPrefix("text/html") || Board.isWebDocument(name: "", type: answered) { return nil }
         let folder = env.files.appendingPathComponent(a.id, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
