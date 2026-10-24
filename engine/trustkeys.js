@@ -52,9 +52,13 @@ function topNames(text) {
   return names;
 }
 
+// A lone surrogate (only an escape makes one: the bytes were strict UTF-8), as servicekeys.scan refuses it.
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?:^|[^\ud800-\udbff])[\udc00-\udfff]/;
+
 /* service-keys.json as the tunnel's serde reads StoredKeySet: an object with `document` and `signature` text (any
    other member ignored, even one named twice; `document` or `signature` twice refused), or the two as a list of
-   exactly two strings. null otherwise. */
+   exactly two strings. null otherwise. serde refuses a lone surrogate in either text, so this does too: JSON.parse keeps
+   it, and the signature check would then read it as U+FFFD and trust a set the tunnel refuses. */
 function readStored(text) {
   let v;
   try { v = JSON.parse(text); } catch { return null; }
@@ -68,6 +72,7 @@ function readStored(text) {
     ({ document, signature } = v);
   } else return null;
   if (typeof document !== 'string' || typeof signature !== 'string') return null;
+  if (LONE_SURROGATE.test(document) || LONE_SURROGATE.test(signature)) return null;
   return { document, signature };
 }
 
@@ -100,7 +105,8 @@ function trustedKeys(stateDir, pinned, opts = {}) {
   const stored = readStored(text);
   if (!stored) return unusable('does not parse');
   const v = servicekeys.verifyServiceKeySet({ bytes: stored.document, sig: stored.signature, recoveryKeys, held: null });
-  if (!v.ok) return unusable('no longer verifies: ' + v.why);
+  // Fixed text: a check's reason can quote a member name from the document, and this can reach the page.
+  if (!v.ok) return unusable('no longer verifies');
   const keys = v.keys.map((k) => pinSpelling(k.pub)).filter(Boolean);
   return { keys, fault: null };
 }
