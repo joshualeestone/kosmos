@@ -43,6 +43,7 @@ case "$me" in
         [ "${FX_RESPAWN_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/respawned"  # launchd restarted it
         [ "${FX_SPAWN_SCHEDULED_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/spawn-scheduled"   # restart pending
         [ "${FX_EXIT_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/exited"   # it ended with exit 0 (a stop)
+        [ "${FX_SPAWN_LATE_AFTER_KILL:-0}" = 1 ] && echo 1 > "$(dirname "$CALL_LOG")/spawn-late"   # shown one read later
         exit 0 ;;
       print-disabled) [ "${FX_PD_FAIL:-0}" = 1 ] && exit 1; printf 'disabled services = {\n'
         [ "${FX_DISABLED:-0}" = 1 ] && printf '\t"actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" => disabled\n'
@@ -71,8 +72,10 @@ case "$me" in
     esac
     case "$1 $2" in "print gui/"*/*) { [ -f "$out" ] || [ "${FX_NOT_LOADED:-0}" = 1 ]; } && exit 113
         # A nested block first, as launchd prints coalitions (two tabs): only one-tab lines are the job's own.
+        sl="$(dirname "$CALL_LOG")/spawn-late"
+        if [ -f "$sl" ]; then if [ "$(cat "$sl")" -le 0 ]; then rm -f "$sl"; touch "$(dirname "$CALL_LOG")/spawn-scheduled"; else echo $(( $(cat "$sl") - 1 )) > "$sl"; touch "$(dirname "$CALL_LOG")/exited"; fi; fi
         jst="${FX_JOB_STATE:-running}"; [ -f "$(dirname "$CALL_LOG")/spawn-scheduled" ] && jst="spawn scheduled"
-        [ -f "$(dirname "$CALL_LOG")/exited" ] && jst="not running"
+        [ -f "$(dirname "$CALL_LOG")/exited" ] && [ ! -f "$(dirname "$CALL_LOG")/spawn-scheduled" ] && jst="not running"
         printf '%s = {\n\tresource coalition = {\n\t\tstate = active\n\t\tpid = 1\n\t}\n\tstate = %s\n' "$2" "$jst"
         # A running job shows its pid (999999 by default: a pid that cannot exist, so a wait on it ends at once).
         if [ -f "$(dirname "$CALL_LOG")/spawn-scheduled" ] || [ -f "$(dirname "$CALL_LOG")/exited" ]; then :   # no pid (measured)
@@ -771,6 +774,17 @@ ka_fresh; rm -f "$T/spawn-scheduled"; run ka-spawnsched "$KH" FX_CI_EXISTS=1 FX_
 [ "$(rc ka-spawnsched)" = 1 ] && has ka-spawnsched "state = spawn scheduled after the SIGTERM" && grep -q '^launchctl kill SIGTERM' "$T/ka-spawnsched.calls" && ! grep -q '^launchctl bootout' "$T/ka-spawnsched.calls" \
   && pass "keepalive --apply: a restart launchd has scheduled after the SIGTERM is refused before the bootout" || fail "keepalive spawn scheduled: rc $(rc ka-spawnsched): $(tail -1 "$T/ka-spawnsched.out")"
 rm -f "$T/spawn-scheduled"
+# launchd shows the scheduled restart only one read later: still refused (the check re-reads).
+ka_fresh; rm -f "$T/spawn-scheduled" "$T/spawn-late" "$T/exited"; run ka-spawnlate "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_SPAWN_LATE_AFTER_KILL=1 -- --apply keepalive
+[ "$(rc ka-spawnlate)" = 1 ] && has ka-spawnlate "state = spawn scheduled after the SIGTERM" && ! grep -q '^launchctl bootout' "$T/ka-spawnlate.calls" \
+  && pass "keepalive --apply: a restart launchd shows a moment late is still refused before the bootout" || fail "keepalive spawn late: rc $(rc ka-spawnlate): $(tail -1 "$T/ka-spawnlate.out")"
+rm -f "$T/spawn-scheduled" "$T/spawn-late" "$T/exited"
+# A loaded throttle longer than the state wait: a crashed runner waiting out its throttle is not called DOWN early.
+# (Loaded throttle 10, the floor, against a 1 s KOSMOS_CI_STATE_WAIT_S: the wait must be 15 s, not 1.)
+ka_fresh; cp "$T/ka.after" "$KA"; echo 35 > "$T/loaded-ka"; echo 10 > "$T/loaded-thr"
+run ka-longthrottle "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE="spawn scheduled" FX_NO_PID=1 KOSMOS_CI_STATE_WAIT_S=1 -- keepalive
+grep -q 'has KeepAlive loaded but has not been running for 15s' "$T/ka-longthrottle.out" \
+  && pass "keepalive: the state wait covers the loaded throttle plus 5 s, not only KOSMOS_CI_STATE_WAIT_S" || fail "keepalive long throttle: $(tail -1 "$T/ka-longthrottle.out")"
 # The bootstrap starts no new Listener (the old one is still the only one listed): FAILED, not running again.
 ka_fresh; run ka-nonew "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_SAME_PID=1 KOSMOS_CI_START_WAIT_S=1 -- --apply keepalive
 [ "$(rc ka-nonew)" = 1 ] && has ka-nonew "no new Listener of $KH/actions-runner is running after" && ! has ka-nonew "the runner is running again" \
