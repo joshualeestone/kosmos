@@ -68,8 +68,9 @@ standing / unpaid notes, a notification tap waiting on sign-in.
 ## Review round 2 (blind, 06:4x)
 1. [SHOULD-FIX] The session waiting for the web page lived only in memory: an app restart before any web tab opened
    lost it, the page asked again, and signing in there made a second device. FIXED: no copy in memory. Whenever the
-   sign-in page loads holding no session while the keychain holds one, it is stored there (storeScript now writes
-   only into an empty slot). A sign-out on the page deletes the keychain's copy first, so it cannot come back.
+   sign-in page loads holding no session while the keychain holds one, it is stored there. (Round 3 corrected both
+   halves of this line: the heal now overwrites any other value, and the page's sign-out removes its own copy FIRST,
+   then tells the app over the bridge.)
 2. [SHOULD-FIX] The store reloaded "/" and threw away the page it ran on (Settings' account page). FIXED: reload().
 3. [SHOULD-FIX] "denied" at verify is not final on the server (signin.rs turns it back into a fresh Allow), but the
    screen stopped there. FIXED: Step.denied(asking:) keeps watching; only the Mac's second no stops it.
@@ -77,3 +78,16 @@ standing / unpaid notes, a notification tap waiting on sign-in.
 5. [LOW] A launch before first unlock reads no session and may show the sign-in to a signed-in person. FIXED: on
    becoming active, still on the first step with nothing issued, a session now readable closes the sign-in.
 Design (Mona Lisa, approved): links stacked with no extra space; the address starts on its own line.
+
+## Review round 3 (blind, 06:5x)
+1. [SHOULD-FIX] A dead token left on the page (a session revoked while the app stayed on native tabs) was kept by the
+   empty-slot rule, and the page's restore() then got a 401 and signed out the fresh native session. FIXED: the
+   keychain is the source; any other value on the page is overwritten (every session the page makes it hands to the
+   app). A same value changes nothing, so no reload loop. Tests: replaced, unchanged, another origin untouched.
+2. [LOW-MEDIUM] With no computer at sign-in, a computer connected later never showed its match code. FIXED: the Allow
+   poll reads addresses and match_code from /v1/account/me (signin.rs session_view) and moves "no computer" to the
+   code screen (never the other way).
+3. [LOW] The host was checked before the script ran, not inside it. FIXED: the script checks location.origin itself,
+   from SignIn.pageOrigin (tested to write it as browsers do).
+4. [PLAN] Sign-out order worded wrong: corrected above. Residual recorded in ContentView: a bridge sign-out lost while
+   the app locks (BoardWeb.drop) would be healed back once.

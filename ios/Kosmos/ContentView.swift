@@ -394,10 +394,12 @@ final class BoardWeb: ObservableObject {
     init() { coordinator.web = self }
 
     // kosmos#7042: the sign-in page keeps its own copy of the session (localStorage). After a native sign-in it has
-    // none, so each time it loads with none while the app holds one, the app's is stored there (SignIn.storeScript)
-    // and the page reloads signed in. Read from the keychain each time, not held in memory, so a restart before any web
-    // tab opened still heals (review round 2); a sign-out on the page deletes the keychain's copy first, so it never
-    // comes back. A load anywhere else (a notification's chat on the Mac) is left alone.
+    // none, or a dead one left from before, so each time it loads holding anything but the app's session, the app's is
+    // stored there (SignIn.storeScript) and the page reloads signed in. Read from the keychain each time, not held in
+    // memory, so a restart before any web tab opened still heals (review round 2). A sign-out on the page removes its
+    // copy and then tells the app over the bridge, which deletes the keychain's before any later load; the residual is
+    // a bridge message lost while the app locks (BoardWeb.drop), which would heal it back once. A load anywhere else
+    // (a notification's chat on the Mac) is left alone.
     func signInPage(with token: String) {
         if let webView = webView, !webView.isLoading { storeSession(webView) }
     }
@@ -406,7 +408,8 @@ final class BoardWeb: ObservableObject {
     private func storeSession(_ webView: WKWebView) {
         // Only on the sign-in page's own origin: its storage is the page's, and nowhere else may hold the token.
         guard webView.url?.host == AppTabs.signInHost, let token = SessionKeychain.live.load(),
-              let script = SignIn.storeScript(token: token) else { return }
+              let origin = SignIn.pageOrigin(KosmosConfig.coordinatorOrigin),
+              let script = SignIn.storeScript(token: token, origin: origin) else { return }
         webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
             // Stored: reload the page it ran on (Settings' account page stays the account page; review round 2).
             // Not stored (the page has its own session, or could not keep it): nothing to do.

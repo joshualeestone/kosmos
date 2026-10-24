@@ -2674,7 +2674,8 @@ check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"That code is not rig
 check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"x","code":"device_proof_refused"}"#)) == .refused(message: "x", proofRefused: true), "a refused proof is told apart")
 check(SignIn.answer(status: 200, json: jsonBody(#"{}"#)) == .unknown && SignIn.answer(status: 500, json: nil) == .refused(message: nil, proofRefused: false), "no token, or no body")
 check(SignIn.companySignInRequired(json: jsonBody(#"{"ok":true,"sso_required":true}"#)) && !SignIn.companySignInRequired(json: jsonBody(#"{"ok":true,"sso_url":"https://x"}"#)), "a company sign-in only when it is required")
-check(SignIn.allowRead(status: 200, json: jsonBody(#"{"device_status":"acked"}"#)) == .status(.acked), "the Allow, from an answer that is ok")
+check(SignIn.allowRead(status: 200, json: jsonBody(#"{"device_status":"acked"}"#)) == .status(.acked, matchCode: nil, hasComputer: false), "the Allow, from an answer that is ok")
+check(SignIn.allowRead(status: 200, json: jsonBody(#"{"device_status":"pending","match_code":"K7Q2","addresses":["mini.kosmosplus.com"]}"#)) == .status(.pending, matchCode: "K7Q2", hasComputer: true), "a computer connected meanwhile, and its code")
 check(SignIn.allowRead(status: 401, json: jsonBody(#"{"device_status":"acked"}"#)) == .ended, "a refused session ends the watch, whatever else the answer says")
 check(SignIn.allowRead(status: 503, json: nil) == .unknown && SignIn.allowRead(status: nil, json: nil) == .unknown && SignIn.allowRead(status: 200, json: jsonBody(#"{"device_status":"new"}"#)) == .unknown, "no answer, a server error, or a status not known: asked again")
 
@@ -2692,18 +2693,27 @@ check(SignIn.webTitle(reason: SignIn.webForCompany) == "Your company signs you i
 
 section("sign-in: the store script puts the token where the sign-in page keeps it, as a string, never as script")
 do {
+    let origin = "https://login.kosmosplus.com"
+    func page(_ at: String) -> JSContext {
+        let ctx = JSContext()!
+        ctx.evaluateScript("var location = { origin: " + "'" + at + "'" + " }; var store = {}; var localStorage = { setItem: function (k, v) { store[k] = String(v); }, getItem: function (k) { return store.hasOwnProperty(k) ? store[k] : null; } };")
+        return ctx
+    }
+    func run(_ ctx: JSContext, _ token: String) -> Bool? { ctx.evaluateScript("(function () { " + (SignIn.storeScript(token: token, origin: origin) ?? "") + " })()")?.toBool() }
     let evil = #"t"]; localStorage.setItem("x", "pwned"); var b = [" "#
-    let script = SignIn.storeScript(token: evil) ?? ""
-    let ctx = JSContext()!
-    ctx.evaluateScript("var store = {}; var localStorage = { setItem: function (k, v) { store[k] = String(v); }, getItem: function (k) { return store.hasOwnProperty(k) ? store[k] : null; } };")
-    let result = ctx.evaluateScript("(function () { " + script + " })()")
-    check(ctx.exception == nil && result?.toBool() == true, "it runs, and says the session is stored")
+    let ctx = page(origin)
+    check(run(ctx, evil) == true && ctx.exception == nil, "it runs, and says the session is stored")
     check(ctx.evaluateScript("store['kosmos_session']")?.toString() == evil, "the token arrives exactly, under the page's own key")
     check(ctx.evaluateScript("Object.keys(store).join(',')")?.toString() == "kosmos_session", "nothing else is written: a quote in the token is not script")
     check(SignIn.pageSessionKey == "kosmos_session", "the key signin.html restore() reads (kosmos-relay, localStorage only)")
-    ctx.evaluateScript("store['kosmos_session'] = 'theirs';")
-    let again = ctx.evaluateScript("(function () { " + (SignIn.storeScript(token: "mine") ?? "") + " })()")
-    check(again?.toBool() == false && ctx.evaluateScript("store['kosmos_session']")?.toString() == "theirs", "a page that holds a session already is left as it is")
+    check(run(ctx, evil) == false, "the same session again changes nothing (no reload, so no loop)")
+    ctx.evaluateScript("store['kosmos_session'] = 'dead-token-from-before';")
+    check(run(ctx, "fresh") == true && ctx.evaluateScript("store['kosmos_session']")?.toString() == "fresh", "a different session left on the page is replaced by the app's")
+    check(SignIn.pageOrigin(coordinator) == origin && SignIn.pageOrigin(URL(string: "https://LOGIN.kosmosplus.com:443/x?y")!) == origin
+          && SignIn.pageOrigin(URL(string: "https://login.kosmosplus.com:8443/")!) == "https://login.kosmosplus.com:8443",
+          "the coordinator's origin is written as location.origin writes it (no slash, no default port)")
+    let other = page("https://mac-mini.kosmosplus.com")
+    check(run(other, "fresh") == false && other.evaluateScript("Object.keys(store).length")?.toInt32() == 0, "on another origin nothing is written")
 }
 
 await boardLoopTests()
