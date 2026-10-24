@@ -2,20 +2,22 @@
 pre_challenge: true
 method: challenge-loop
 branch: faildeliver-6720
-diff_hash: d4371c586e067241997acffda683e41d5e6e8283ea2c5f042efc2d59d5fcbb54
-validation: passed-after-a-one-line-list-fix-rerun-targeted
+diff_hash: 6add834b7c5801d67016c01164b6daf30a436f6f9cd46c5e3abb9b0d24ba5f48
+validation: passed
 subdir_audit: passed
-timestamp: 2026-10-20T21:02:57Z
-iterations: 4
-converged: true
+timestamp: 2026-10-24T08:47:56Z
+iterations: 5
+converged: false
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 4 blind rounds (opus, sonnet, opus, sonnet), converged at round 4. Every finding is in
+**Iterations:** 4 blind rounds on the original branch (opus, sonnet, opus, sonnet), converged at round 4; then, after the rebase onto main and the merge with #6774 (2026-10-24), a 5th blind delta review of that merge (opus): 1 BLOCKER, 1 WARNING, 1 NIT, the BLOCKER and WARNING fixed with tests, NOT re-reviewed. **Converged: no**, for that reason. Every finding is in
 .claude/plans/faildeliver-6720.md. The hard rule throughout: a message must never be sent twice.
 
-**Validation, stated exactly.** Validation 1 (956795c5): 2 failures, both mine (the retryable check called a helper
+**Validation of THIS diff:** the Mortals full suite on head 86b564ee9f: **23660 tests, 0 failed** (hash 6add834b7c58, the diff this proof hashes). Earlier runs tonight: 433b0bbdaf failed only the surface gate (the squash had dropped the per-check trailers; all 17 checks re-run and passed, trailers in 6b1ce11283), and 6b1ce11283 passed 23657/0 before the delta review.
+
+**Validation of the original branch, stated exactly.** Validation 1 (956795c5): 2 failures, both mine (the retryable check called a helper
 that starts link-preview fetches; the new browser check was not wired). Fixed. Validation 2 (e06eeb3e, tree
 untouched, AUDIT_RC 0): 22537 tests, 2 failures, both the same line of mine (the gated list entry carried .js); fixed
 in one line, and tools.browser-checks-wired.test.js passes 11/11 alone. diff_hash computed, never typed.
