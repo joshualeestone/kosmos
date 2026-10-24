@@ -214,9 +214,12 @@ final class BoardClient: ObservableObject {
     func show(_ viewer: String) {
         let first = viewers.isEmpty
         viewers.insert(viewer)
+        // Review 2: tasks last read longer ago than a tick are not shown as current when Today arrives (Agents can have
+        // kept the loop going for a long time without reading them); unknown until the read now answers.
+        if viewer == Self.todayViewer, let at = tasksAt, env.now().timeIntervalSince(at) >= Self.tasksEvery { readyTasks = nil }
         if first { start() } else if viewer == Self.todayViewer, case .live = phase, tasksTask == nil {
             // Today arriving while Agents keeps the loop going: its tasks are read now, not at the next tick.
-            tasksTask = Task { await self.refreshTasks(); self.tasksTask = nil }
+            startTasksRead()
         }
     }
     func hide(_ viewer: String) {
@@ -233,6 +236,18 @@ final class BoardClient: ObservableObject {
     private var tasksAt: Date?
     private var tasksTask: Task<Void, Never>?
     static let tasksEvery: TimeInterval = 30
+
+    // One tasks read at a time. Review 2: a read from before a reset still finishes (its generation guard stops it
+    // writing), and it must not clear the handle of the read started after it, or a second read could overlap it.
+    private var tasksToken = UUID()
+    private func startTasksRead() {
+        let token = UUID()
+        tasksToken = token
+        tasksTask = Task {
+            await self.refreshTasks()
+            if self.tasksToken == token { self.tasksTask = nil }
+        }
+    }
 
     // Another account, another Mac, signed out or refused: the count and the tasks were the old one's (review 1).
     private func forgetToday() {
@@ -878,7 +893,7 @@ final class BoardClient: ObservableObject {
             // kosmos#7030: the tasks Today shows, read only while Today is on screen, at most every 30 s (the board's Tasks
             // view read is not cheap); pull to refresh reads them at once.
             if viewers.contains(Self.todayViewer), tasksTask == nil, tasksAt.map({ env.now().timeIntervalSince($0) >= Self.tasksEvery }) ?? true {
-                tasksTask = Task { await self.refreshTasks(); self.tasksTask = nil }
+                startTasksRead()
             }
             return true
         }

@@ -122,7 +122,7 @@ struct TodayView: View {
                     ForEach(ready) { task in
                         let agent = task.builtBy.flatMap { s in client.agents.first { $0.session == s } }
                         ReadyCard(task: task, agentName: agent?.name ?? task.builtBy, picture: agent.flatMap(picture),
-                                  tone: agent.map { stale ? .quiet : Board.tone($0) }) {
+                                  tone: agent.map { stale ? .quiet : Board.tone($0) }, stale: stale) {
                             if let url = client.taskURL(for: task) { openPage(url) }
                         }
                         .cardRow()
@@ -295,6 +295,7 @@ private struct ReadyCard: View {
     let agentName: String?
     let picture: UIImage?
     let tone: Board.Tone?
+    var stale = false
     let check: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -302,6 +303,13 @@ private struct ReadyCard: View {
     private var marked: String {
         let who = task.byPerson ? " by you" : agentName.map { " by " + $0 } ?? ""
         return "Marked built" + who + (ago(task.builtAt).map { " \u{00B7} " + $0 } ?? "")
+    }
+    private var spoken: String {
+        let at = [task.projectName.isEmpty ? nil : task.projectName, "Task \(task.number)", task.sentence].compactMap { $0 }
+        let who = task.byPerson ? " by you" : agentName.map { " by " + $0 } ?? ""
+        let when = ago(task.builtAt).map { " " + $0 } ?? ""
+        return at.joined(separator: ", ") + ", marked built" + who + when + "." + (task.note.map { " " + $0 } ?? "")
+            + (stale ? " Not updating." : "")
     }
 
     var body: some View {
@@ -335,8 +343,8 @@ private struct ReadyCard: View {
         .onTapGesture(perform: check)
         // "Task 4, Pages 1 to 8, marked built by Dana 20 minutes ago."
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(place + ", " + task.sentence + ", " + marked.lowercased().replacingOccurrences(of: " \u{00B7} ", with: " ")
-                            + "." + (task.note.map { " " + $0 } ?? ""))
+        // Review 2: names keep their case, and the parts are joined with commas, not the middle dot.
+        .accessibilityLabel(spoken)
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens the task")
         .accessibilityAction(named: Text("Check it"), check)
