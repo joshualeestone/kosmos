@@ -818,6 +818,10 @@ do {
           "a name the Mac refuses says the Mac's words")
     check(read(0, nil) == .noAnswer && read(502, "<html>") == .noAnswer && read(200, "<html>") == .noAnswer,
           "no answer, a gateway error or a page that is not the conversation are no answer")
+    check(read(200, #"{"messages":[],"historyUnfilable":true,"historyBecause":"this conversation cannot be filed"}"#) == .refused("this conversation cannot be filed"),
+          "a conversation the Mac cannot file says why, not that there are no messages")
+    let draft = Board.parseThread(Data(#"{"messages":[{"at":"T","text":"git push --force","from":null,"kind":"kosmos","draft":true,"draftId":"d1"}]}"#.utf8))?.rows.first
+    check(draft?.wayThrough == .draft, "words that sat unsent in the agent's box are a way-through row, never drawn as Kosmos speaking")
 }
 
 section("native chat: runs, times and day lines (Mona Lisa's slice 3a spec)")
@@ -928,6 +932,11 @@ do {
     let exact = Board.PendingSend(id: "e", text: "ok", at: Board.isoDate("2026-10-23T15:00:40Z")!, state: .kept(at: "2026-10-23T15:00:41.000Z"))
     let one = Board.Thread(rows: [person("2026-10-23T15:00:41.000Z", "ok")], olderCount: 0)
     check(Board.settled([fuzzy, exact], with: one).map(\.id) == ["f"], "the kept one takes its own row; the never-sent one stays")
+    // Delivered but never written down: dropped once a read holds a newer row and still not it.
+    var unrecorded = Board.PendingSend(id: "u", text: "done", at: Board.isoDate("2026-10-23T15:01:00Z")!, state: .taken); unrecorded.after = "2026-10-23T15:00:41.000Z"
+    check(Board.settled([unrecorded], with: one).map(\.id) == ["u"], "no newer row yet: it stays")
+    let newer = Board.Thread(rows: [person("2026-10-23T15:00:41.000Z", "ok"), Board.ChatRow(id: "r", atRaw: "2026-10-23T15:02:00.000Z", at: Board.isoDate("2026-10-23T15:02:00.000Z"), text: "reply", who: .agent)], olderCount: 0)
+    check(Board.settled([unrecorded], with: newer).isEmpty, "a newer row and still not it: it goes, as the board never shows it")
 }
 
 section("native board: the Mac's session kept between launches")

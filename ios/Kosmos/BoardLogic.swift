@@ -392,7 +392,7 @@ enum Board {
         enum Who: Equatable { case person, agent, kosmos }
         // What this first part does not draw, so the chat shows Mona Lisa's way-through row in its place
         // (slice 3a spec, "The way through").
-        enum WayThrough: Equatable { case question, permission, attachment }
+        enum WayThrough: Equatable { case question, permission, attachment, draft }
         let id: String
         // The Mac's own time for the row, as it sent it: a sent message is matched to its row by it.
         let atRaw: String?
@@ -454,7 +454,7 @@ enum Board {
                 let wire = (row["wire"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 resendable = state == "could_not" && d["duplicateOf"] == nil && wire == nil
             }
-            let way: ChatRow.WayThrough? = row["permission"] != nil ? .permission
+            let way: ChatRow.WayThrough? = (row["draft"] as? Bool) == true ? .draft : row["permission"] != nil ? .permission
                 : kind == "question" ? .question
                 : (row["attachment"] != nil || (row["attachments"] as? [Any])?.isEmpty == false) ? .attachment : nil
             return ChatRow(id: base + "#\(n)", atRaw: at, at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way,
@@ -471,6 +471,8 @@ enum Board {
     static func readThread(status: Int, data: Data?) -> ThreadRead {
         let obj = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if (200...299).contains(status) {
+            // A conversation the Mac cannot file says so (historyUnfilable), rather than reading as an empty one.
+            if obj?["historyUnfilable"] as? Bool == true, let why = obj?["historyBecause"] as? String, !why.isEmpty { return .refused(why) }
             if let data, let t = parseThread(data) { return .thread(t) }
             if let why = obj?["historyBecause"] as? String, !why.isEmpty { return .refused(why) }
             return .noAnswer
@@ -624,6 +626,10 @@ enum Board {
                     return r.at.map { $0 >= p.at.addingTimeInterval(-60) } ?? true
                 }
                 if let i = unused.firstIndex(where: { sameWords($0.text) == words && newer($0) }) { unused.remove(at: i); gone.insert(p.id) }
+                // Delivered but never written down (the Mac said so: recorded false): once a read holds a row newer than
+                // the send and still not this one, it never will. It goes, as it is absent from the board's own chat too,
+                // rather than sitting under every later reply.
+                else if p.state == .taken, p.after != nil, thread.rows.contains(where: newer) { gone.insert(p.id) }
             default: break
             }
         }

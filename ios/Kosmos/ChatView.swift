@@ -257,6 +257,7 @@ struct ChatView: View {
         case .question: return name + Text(" asked you something. Answer on your computer's board \u{203A}")
         case .permission: return name + Text(" needs your permission. Answer on your computer's board \u{203A}")
         case .attachment: return Text("A file. Open on your computer's board \u{203A}")
+        case .draft: return Text("Words sat unsent in ") + name + Text("'s input box. See them on your computer's board \u{203A}")
         }
     }
 

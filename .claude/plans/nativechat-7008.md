@@ -28,12 +28,11 @@ Checked in the simulator; logic in ios/LogicTests. The real-iPhone check joins #
 ## Decided
 - The Mac keeps a row for every message it is sent (delivered, held or refused). A send waits for THAT row (by the time
   the Mac answers with) instead of drawing a copy of its own: held reads Waiting to send with nothing to retry (a retry
-  would queue it twice), refused reads Not sent and is sent again from its row, once. Only a send with no answer keeps
-  its own Not sent, and a read holding the same words (whitespace folded as the board folds it) clears it. Rejected: a
+  would queue it twice), refused reads Not sent and is sent again from its row, once. X  its own Not sent, and a read holding the same words (whitespace folded as the board folds it) clears it. Rejected: a
   local copy that is marked sent or failed (iteration 1 found it duplicated rows and could send twice).
 - The status word and the working line come from the Agents list's own status poll, which keeps running while the chat
   is open (the list's stop is on the navigation view, which stays on screen).
-- No pull to refresh (the spec); the chat reads every 3 seconds while open and stops in the background.
+- No pull to refresh (the spec); the chat reads every 5 seconds while open (the web chat's cadence) and stops in the background.
 - iOS 27's glass back button shows the chevron only; kept (Mona Lisa's ruling), its VoiceOver label stays "Agents".
 
 ## Weakest premise

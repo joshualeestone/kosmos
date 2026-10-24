@@ -4,7 +4,7 @@ import UIKit
 // kosmos#6838 slice 1: the native Agents tab, built to Mona Lisa's slice 1 spec (#6838, 21 Oct): one inset list of
 // agents with picture, status dot, name, role and the board's own status word, the board's light and dark colours,
 // rows that hold still during live updates, and the states for reaching, no agents and not updating. Tapping an
-// agent opens its chat under Today until Chat is native.
+// agent opens its chat natively (ChatView, kosmos#7008).
 struct AgentsView: View {
     @ObservedObject var client: BoardClient
     let openChat: (URL) -> Void
