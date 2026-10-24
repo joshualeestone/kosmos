@@ -10467,7 +10467,9 @@ html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #a
 .ownseal-code { display: block; font: 600 1.375rem/1.25 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .12em;
                 color: var(--label); white-space: nowrap; margin: 6px 0; }
 .ownseal-code-sm { font-size: 1.0625rem; margin: 2px 0 0; }
-.ownseal-acts { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
+.ownseal-acts { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin: 4px 0 2px; }
+/* The confirm is the card's own full-width quiet button (as Team map); declining is the card's quiet link (as Allow). */
+.ownseal-go { width: 100%; font-size: .875rem; padding: 6px 12px; }
 /* The shared #761 remove dialog's error line (slice B: a failed outside removal keeps the dialog
    open and says why). Empty for every other caller, so it takes no room there. */
 #mem-msg:empty { display: none; }
@@ -81363,8 +81365,8 @@ function fedOwnHtml() {
     h += '<h4 class="fedout-h">This room is sealed</h4>'
       + '<p class="fhint">To read it here, open this project on the computer that first shared it. A code appears there beside this computer. If it is the same as this one, press It matches here and Allow there.</p>'
       + '<span class="ownseal-code" aria-label="Code ' + esc(o.code.replace('-', '').split('').join(' ')) + '">' + esc(o.code) + '</span>'
-      + '<div class="ownseal-acts"><button class="btn" type="button" data-own-act="match" data-own-code="' + esc(o.code) + '"' + busy + '>It matches</button>'
-      + '<button class="btn-quiet" type="button" data-own-act="nomatch"' + busy + '>Does not match</button></div>';
+      + '<div class="ownseal-acts"><button class="btn-quiet ownseal-go" type="button" data-own-act="match" data-own-code="' + esc(o.code) + '"' + busy + '>It matches</button>'
+      + '<button class="fedout-act" type="button" data-own-act="nomatch"' + busy + '>Does not match</button></div>';
   }
   if (o.waiting.length) {
     h += '<h4 class="fedout-h">Your computers waiting for this room</h4>'
