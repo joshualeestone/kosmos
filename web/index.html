@@ -25245,8 +25245,8 @@ let PJ_ADDMENU_AGENT = null;
    sheet). Declared here, early, for the same reason: paintAgentList and fedGateStamp read them. */
 let FED_MEMBERS = null;          // { project, ok, body }: the last members answer, for the project it was asked for
 // kosmos#4658: the sealed-room key section's state (fedOwnHtml), here for the same reason as the members state.
-let FED_OWN = null;          // { project, waiting: [{ pub, code }], code: string | null, missed, at } (missed: failed reads of
-                             // this computer's code in a row; the route's mac is not shown)
+let FED_OWN = null;          // { project, waiting: [{ pub, code }], code: string | null, missed, rowsMissed, at } (missed and
+                             // rowsMissed: failed reads in a row of each side; the route's mac is not shown)
 let FED_OWN_ASKING = null;   // { project, seq }: the load in flight; a superseded one (seq behind) no longer counts
 let FED_OWN_MSG = null;      // { text, project, sig }: the last press's sentence, kept while the section shows what it did
 let FED_OWN_BUSY = null;     // the project a press is being asked for
@@ -81444,13 +81444,16 @@ function fedOwnPaint() {
   const ae = document.activeElement;
   const box = ae && ae.closest ? ae.closest('#pj-fed-own, #alist-fed-own') : null;
   const was = box && ae.dataset ? { box: box.id, act: ae.dataset.ownAct, pub: ae.dataset.ownPub || '', code: ae.dataset.ownCode || '' } : null;
-  if (el && el.__ownHtml !== html) { el.__ownHtml = html; el.innerHTML = html; }
+  const changed = !!el && el.__ownHtml !== html;
+  if (changed) { el.__ownHtml = html; el.innerHTML = html; }
   /* The consolidated rail hides the Members card and draws its own copy (paintAgentList, as #alist-fed-outside):
      repaint it only when the markup changed. */
+  let railChanged = false;
   if (typeof layoutConsolidated === 'function' && layoutConsolidated() && typeof paintAgentList === 'function' && fedOwnPaint.rail !== html) {
-    fedOwnPaint.rail = html; paintAgentList();
+    fedOwnPaint.rail = html; paintAgentList(); railChanged = true;
   }
-  if (was) {
+  // Only after a rebuild: a paint that changed nothing leaves focus where the person put it.
+  if (was && (was.box === 'pj-fed-own' ? changed : railChanged)) {
     const host = document.getElementById(was.box);
     /* Only the same button (same act, same row) gets focus back. Never another one: on the owner's side the next button
        is another computer's Allow, whose code this person has not compared, and on the waiting side after It matches it
@@ -81461,7 +81464,8 @@ function fedOwnPaint() {
       && (x.dataset.ownPub || '') === was.pub && (x.dataset.ownCode || '') === was.code);
     if (again) { if (again !== document.activeElement) again.focus(); }
     else if (host) {
-      const spot = host.querySelector('.fmsg') || host.querySelector('.fedout-h');
+      // The section emptied (the key taken, say): the Members card's heading, the nearest stable place.
+      const spot = host.querySelector('.fmsg') || host.querySelector('.fedout-h') || document.querySelector('.pjcard-members .dlab');
       if (spot) { spot.tabIndex = -1; spot.focus(); }
     }
   }
@@ -81504,20 +81508,18 @@ async function fedOwnLoad(project, fromPress) {
   // A read that failed (an error, a timeout) keeps that side as it was, rather than wiping the rows or the code the
   // person may be comparing; only an answer replaces it.
   const prev = FED_OWN && FED_OWN.project === project ? FED_OWN : null;
+  // The owner's rows likewise, up to two misses: past that the page cannot say those codes are still current.
+  const rowsMissed = waiting ? 0 : (prev ? (prev.rowsMissed || 0) + 1 : 1);
   const rows = waiting && Array.isArray(waiting.computers) ? waiting.computers.filter((w) => w && typeof w.pub === 'string' && typeof w.code === 'string')
-    : (prev ? prev.waiting : []);
+    : (prev && rowsMissed < 3 ? prev.waiting : []);
   // This computer's own code is kept through at most two failed reads in a row: past that it is dropped, since the page
   // can no longer say it is the code this computer shows.
   const missed = mine ? 0 : (prev ? (prev.missed || 0) + 1 : 1);
   const code = mine ? (typeof mine.code === 'string' ? mine.code : null) : (prev && missed < 3 ? prev.code : null);
-  FED_OWN = { project, waiting: rows, code, missed, at: Date.now() };
+  FED_OWN = { project, waiting: rows, code, missed, rowsMissed, at: Date.now() };
   const m = FED_OWN_MSG;
   if (m && m.project === project) {
-    if (fromPress) {
-      // The reload says which order it was: a confirmed code already gone means the other computer had allowed first.
-      if (m.act === 'match' && !FED_OWN.code) m.text = 'Confirmed. This computer reads the room now.';
-      m.sig = fedOwnSig(FED_OWN);          // what the press left on screen
-    }
+    if (fromPress) m.sig = fedOwnSig(FED_OWN);          // what the press left on screen
     else if (m.sig === null) m.sig = fedOwnSig(FED_OWN);   // the press's own reload was superseded: this is its state
     else if (m.sig !== fedOwnSig(FED_OWN)) FED_OWN_MSG = null;   // the section moved on: the sentence no longer describes it
   }

@@ -268,6 +268,15 @@ const MSG = (page) => page.evaluate(() => (document.querySelector('#pj-fed-own .
           failReads = false;
           const kept = await page.evaluate(() => document.querySelectorAll('#pj-fed-own [data-own-act="allow"]').length);
           chk(failsServed - servedBefore === 2 && kept === 2, `${E} a refresh whose reads fail keeps the rows on screen`, JSON.stringify({ kept, failed: failsServed - servedBefore }));
+          failReads = true;
+          const rowsThrough = await page.evaluate(async () => {
+            const seen = [];
+            for (let i = 0; i < 2; i++) { await fedOwnLoad(PJ_CURRENT); seen.push(document.querySelectorAll('#pj-fed-own [data-own-act="allow"]').length); }
+            return seen;
+          });
+          failReads = false;
+          chk(rowsThrough.join(',') === '2,0', `${E} the owner's rows are kept through two failed reads and dropped at the third`, JSON.stringify(rowsThrough));
+          await page.evaluate(async () => { await fedOwnLoad(PJ_CURRENT); });
           // A button drawn for another project acts on nothing here.
           const before = posted.length;
           await page.evaluate((other) => {
