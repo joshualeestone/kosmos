@@ -30,5 +30,5 @@ That moving the two functions changed nothing: they are copied word for word (re
 
 ## Validation
 - ios/LogicTests pass; mutants for the dedupe rule and for each non-web-link filter go red.
-- The bubbles' accessibility actions are as on main.
+- The bubbles' accessibility actions are as on main (only a comment is added above the default action).
 - Debug simulator build with -warn-long-expression-type-checking=100: no warnings (CI runs an older Xcode).
