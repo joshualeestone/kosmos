@@ -40,3 +40,14 @@ which needs the Associated Domains capability and an apple-app-site-association 
 needs no change. This branch's parsing, refusal sentences and terms hand-over carry over; only the return address
 changes (companyReturn would accept https://login.kosmosplus.com/signin#sso_grant=... from the sheet, and begin
 would not send app=1). Fixed here meanwhile: busy no longer drops while the sheet is open.
+
+## RESUMED 08:4x: the safe version (Baron added Associated Domains, profile GL45W8GF57, #7045 comment 6384749125)
+- The app's entitlement: `webcredentials:login.kosmosplus.com` (Baron: safe to merge now).
+- Kosmos+ serves /.well-known/apple-app-site-association, webcredentials only (kosmos-relay branch aasa-7045).
+- Apple's sheet finishes on Kosmos+'s existing /signin https return (ASWebAuthenticationSession `.https(host:path:)`,
+  iOS 17.4+), which it hands only to the associated app. No `app=1`, no coordinator change to sign-in.
+- Below iOS 17.4 the company sign-in is the web page's (the app offers no sheet there).
+- companyReturn accepts only https on the coordinator's host and port, path /signin. Tests: another host, another
+  path, http, and the old custom scheme are all refused.
+- Weakest premise now: that the sheet's https callback completes on the 302 to /signin (Apple's docs: the session
+  completes when it navigates to a URL matching the callback). Not seen on a device yet.

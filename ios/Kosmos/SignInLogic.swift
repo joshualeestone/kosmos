@@ -151,23 +151,21 @@ enum SignIn {
 
     // MARK: - A company's own sign-in (kosmos#7045), in Apple's sign-in sheet
 
-    /// The fixed address Kosmos+ returns an app-started company sign-in to (kosmos-relay sso.rs APP_RETURN). Apple's
-    /// sheet is told this scheme and hands the return only to itself.
-    static let appReturnScheme = "kosmos-signin"
-    static let appReturnHost = "sso"
+    /// Where Kosmos+ returns a company sign-in (kosmos-relay sso.rs callback): its own /signin page, the grant in the
+    /// fragment. Apple's sheet finishes there (an https callback, iOS 17.4+) only for an app associated with the host
+    /// (webcredentials, the app's entitlement and Kosmos+'s apple-app-site-association), so no other app can receive
+    /// it. (A custom-scheme return was built first and abandoned: any app can register a scheme; #7045.)
+    static let returnPath = "/signin"
     /// What a company sign-in's grant starts with (sso.rs GRANT_PREFIX); it is spent at verify in place of the code.
     static let grantPrefix = "ksso1_"
 
-    /// start's company sign-in address (`sso_url`), as the page to open in Apple's sheet with `app=1`, so it returns
-    /// to the app. Only Kosmos+'s own begin path on the coordinator: an address anywhere else is never opened. Kosmos+'s
-    /// address is kept byte for byte (rebuilding its query would decode `%2B` in an address like ann+work@ into a `+`,
-    /// which the server reads as a space); `&app=1` is appended. One that already names `app` is not one Kosmos+
-    /// makes (sso.rs begin_url), so it is not opened.
+    /// start's company sign-in address (`sso_url`), as the page to open in Apple's sheet. Only Kosmos+'s own begin path
+    /// on the coordinator: an address anywhere else is never opened. Kept byte for byte (rebuilding its query would
+    /// decode `%2B` in an address like ann+work@ into a `+`, which the server reads as a space).
     static func companySignInURL(json: Any?, coordinator: URL) -> URL? {
         guard let path = (json as? [String: Any])?["sso_url"] as? String, path.hasPrefix("/v1/sso/begin?"),
               !path.contains("#"),
-              !path.dropFirst("/v1/sso/begin?".count).split(separator: "&").contains(where: { $0 == "app" || $0.hasPrefix("app=") }),
-              let url = URL(string: path + "&app=1", relativeTo: coordinator)?.absoluteURL,
+              let url = URL(string: path, relativeTo: coordinator)?.absoluteURL,
               url.scheme == coordinator.scheme, url.host == coordinator.host, url.port == coordinator.port else { return nil }
         return url
     }
@@ -180,10 +178,11 @@ enum SignIn {
         case refused(String)
     }
 
-    /// Only the app's own return (`kosmos-signin://sso`), the grant in the fragment, a refusal in the query. Nil for
-    /// anything else (nothing is guessed).
-    static func companyReturn(_ url: URL) -> CompanyReturn? {
-        guard url.scheme?.lowercased() == appReturnScheme, url.host?.lowercased() == appReturnHost else { return nil }
+    /// Only Kosmos+'s own /signin on the coordinator, the grant in the fragment, a refusal in the query. Nil for anything
+    /// else (nothing is guessed).
+    static func companyReturn(_ url: URL, coordinator: URL) -> CompanyReturn? {
+        guard url.scheme?.lowercased() == "https", url.host?.lowercased() == coordinator.host?.lowercased(),
+              url.port == coordinator.port, url.path == returnPath else { return nil }
         let pairs = { (text: String?) -> [String: String] in
             var out: [String: String] = [:]
             for kv in (text ?? "").split(separator: "&") {

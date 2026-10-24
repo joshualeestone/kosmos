@@ -150,7 +150,7 @@ final class SignInModel: ObservableObject {
         Task {
             defer { if mine == attempt { busy = false } }
             guard let back = await client.openCompanySignIn(url), mine == attempt else { return }   // closed: nothing changes
-            switch SignIn.companyReturn(back) {
+            switch SignIn.companyReturn(back, coordinator: KosmosConfig.coordinatorOrigin) {
             case .grant(let grant, let vouched)?:
                 do {
                     let answer = try await client.verify(email: vouched, code: grant)
@@ -262,7 +262,7 @@ final class SignInModel: ObservableObject {
         case "setup": step = .setup(token: "t", sms: true)
         case "setupconfirm": step = .setupConfirm(token: "t", otpauth: "otpauth://totp/Kosmos:ada%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Kosmos", secret: "JBSWY3DPEHPK3PXP")
         // kosmos#7045: the code step with the company's own sign-in offered beside it, and a company refusal.
-        case "company": step = .code(email: email); companyURL = URL(string: "https://login.kosmosplus.com/v1/sso/begin?app=1")
+        case "company": step = .code(email: email); companyURL = URL(string: "https://login.kosmosplus.com/v1/sso/begin?email=x")
         case "companyerror": step = .email; error = SignIn.companyWords["not_provisioned"]
         default: step = .email
         }
