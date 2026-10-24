@@ -2995,6 +2995,8 @@ do {
 
     let body = SignIn.passkeyFinishBody(credentialID: Data([9, 9]), authenticatorData: Data([1]), clientDataJSON: Data("{}".utf8),
                                         signature: Data([2, 3]), userHandle: Data("acct".utf8), deviceID: "k1.dev")
+    check(body["authenticator_data"] as? String == SignIn.base64url(Data([1])) && body["signature"] as? String == SignIn.base64url(Data([2, 3])),
+          "finish's body: authenticator data and signature each in their own field (a swap would fail every assertion)")
     check(body["credential_id"] as? String == SignIn.base64url(Data([9, 9])) && body["client_data_json"] as? String == SignIn.base64url(Data("{}".utf8))
           && body["user_handle"] as? String == SignIn.base64url(Data("acct".utf8)) && body["device_id"] as? String == "k1.dev",
           "finish's body: the assertion in base64url and this iPhone's device id")

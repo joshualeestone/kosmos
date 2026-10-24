@@ -7,8 +7,8 @@ import CryptoKit
 //   POST /v1/signin/verify  { email, device_id, device_name, code, device_key, device_sig }
 //   POST /v1/signin/second  { challenge, code }
 //   GET  /v1/account/me     the Allow, watched every 3 s while it is pending (as the web sign-in page does)
-// A company's own sign-in (kosmos#7045), a second step not set up yet (kosmos#7046) and passkeys (kosmos#7050) are native
-// too; the web sign-in page is the fallback for what this app cannot do, such as a company sign-in before iOS 17.4.
+// A company's own sign-in (kosmos#7045), an authenticator app as the second step to set up (kosmos#7046) and passkeys
+// (kosmos#7050) are native too; the web sign-in page is the fallback for what this app cannot do, such as a company sign-in before iOS 17.4.
 enum SignIn {
     static let startPath = "/v1/signin/start"
     static let verifyPath = "/v1/signin/verify"
