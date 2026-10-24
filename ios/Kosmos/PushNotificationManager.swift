@@ -244,7 +244,7 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
         let result = Board.pressResult(status: status, body: answer?.0)
         NSLog("[Push] \(press.allow ? "allow" : "deny") from a notification: \(result)")
-        tell(NotificationAction.pressNotice(after: result, status: status, agent: agent, allow: press.allow), about: userInfo, kind: "press-")
+        tell(NotificationAction.pressNotice(after: result, agent: agent, allow: press.allow), about: userInfo, kind: "press-")
     }
 
     // Two sessions for replies, refusing redirects as the app's own client does (so the computer's cookie never goes to

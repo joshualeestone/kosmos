@@ -4120,31 +4120,39 @@ const PHONE_PERM_DOES = {
 };
 /* kosmos#7017 part 2: what the lock screen says a permission request is. The phone has no Show details, so it shows
    the WHOLE request or offers no buttons: a request cut short can look harmless while Allow approves all of it. Only
-   the measured shapes (chat.permissionCard review 2: a request's arguments never reach the headline): a command whose
-   request is exactly one line, or a file by its name. A file's text, a multi-line command (a continued line, a
-   heredoc), a fetch's address and any other tool's arguments are never shown, and get no buttons; the chat has them.
+   the measured shapes: a command whose request is exactly one line, or a new file by its name AND its whole text (a
+   file's text can be code that runs later: a hook, a shell profile). A change to a file (a diff), a multi-line command
+   (a continued line, a heredoc), a fetch's address and any other tool's arguments get no buttons; the chat has them.
    Claude Code's reason comes FIRST, so a warning such as a dangerous rm is the first thing read. Then "Wants to
-   <what>:" with the command or file name on its own line (no full stop added to a command), then the agent's own words
-   about it. Empty, so no buttons, when nothing measured can be named or the whole does not fit the notice's words
-   (phonenotice.TEXT_MAX) uncut. */
+   <what>:" with the command or file name on its own line (no full stop added to a command), the file's text, then the
+   agent's own words about it. Empty, so no buttons, when nothing measured can be named; when the whole does not fit
+   the notice's words (phonenotice.TEXT_MAX) uncut; when it holds a character that draws differently on a phone than
+   in the terminal (format controls such as bidi overrides and zero-width marks, line and paragraph separators, other
+   control characters), so the screen could read as something it is not; or when it holds anything shaped like a
+   secret (engine/secretmask.js), which a lock screen and Notification Center would show to anyone holding the phone. */
 function phonePermissionShown(perm) {
   const isCommand = perm.kind === 'command' || perm.kind === 'delete';
-  const isFile = perm.kind === 'create' || perm.kind === 'edit';
-  let target = '';
+  const out = [];
+  if (perm.reason) out.push(String(perm.reason).trim());
   if (isCommand) {
     const lines = String(perm.detail || '').split('\n').map((l) => l.trim()).filter(Boolean);
     if (lines.length !== 1) return '';
-    target = lines[0];
-  } else if (isFile) {
-    target = String(perm.target || '').trim();
+    out.push('Wants to ' + PHONE_PERM_DOES[perm.kind] + ':', lines[0]);
+  } else if (perm.kind === 'create') {
+    const name = String(perm.target || '').trim();
+    const body = String(perm.detail || '').replace(/\s+$/, '');
+    if (!name || !body.trim()) return '';
+    out.push('Wants to ' + PHONE_PERM_DOES.create + ':', name, 'With this text:', body);
+  } else {
+    return '';
   }
-  if (!target) return '';
-  const out = [];
-  if (perm.reason) out.push(String(perm.reason).trim());
-  out.push('Wants to ' + (PHONE_PERM_DOES[perm.kind] || PHONE_PERM_DOES.other) + ':', target);
   if (perm.says) out.push('It says: ' + String(perm.says).trim());
   const text = out.filter(Boolean).join('\n');
-  return text.length <= require('./engine/phonenotice').TEXT_MAX ? text : '';
+  if (text.length > require('./engine/phonenotice').TEXT_MAX) return '';
+  // eslint-disable-next-line no-control-regex
+  if (/[\p{Cf}\u2028\u2029\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u.test(text)) return '';
+  try { if (require('./engine/secretmask').mask(text).fired.length) return ''; } catch { return ''; }
+  return text;
 }
 
 /** kosmos#5841: one page of earlier messages; the same size as the thread route's tail. */
@@ -7566,16 +7574,16 @@ const server = http.createServer(async (req, res) => {
      shown name, its picture's address when it has one, and the message's words, shortened. 404 when the id is not ours
      or its words are not here; the phone then shows the plain notification. */
   if (pathname === '/api/phone/notice' && req.method === 'GET') {
-    let asked = null;
-    try { asked = new URL(req.url, ROUTING_BASE).searchParams.get('id'); } catch { asked = null; }
-    const got = require('./engine/phonenotice').wordsFor(asked, { mask: guideMasked });   // #3769: rows kept before the write-side mask
+    let noticeId = null;
+    try { noticeId = new URL(req.url, ROUTING_BASE).searchParams.get('id'); } catch { noticeId = null; }
+    const got = require('./engine/phonenotice').wordsFor(noticeId, { mask: guideMasked });   // #3769: rows kept before the write-side mask
     if (!got || borrowedName(got.session)) { sendJson(res, 404, { error: 'we have no words for that notification' }); return; }
     const roster = safeRoster();
     const card = ourCardByName(roster, got.session);   // as the thread readers find it: any spelling, tied only
     let picture = null;
     try { picture = store.avatarPath(got.session) ? '/api/agent/' + encodeURIComponent(got.session) + '/avatar' : null; } catch { picture = null; }
     /* kosmos#7017 part 2: a needs_you raised by a permission prompt still on screen carries Allow and Deny. */
-    const permission = got.kind === 'report' ? phonePermissionNow(got.session, (require('./engine/phonenotice').parseId(asked) || {}).at, roster) : null;
+    const permission = got.kind === 'report' ? phonePermissionNow(got.session, (require('./engine/phonenotice').parseId(noticeId) || {}).at, roster) : null;
     sendJson(res, 200, { kind: got.kind, session: got.session, agent: (card && card.name) || got.session, text: got.text, picture,
       ...(permission ? { permission } : {}) });
     return;

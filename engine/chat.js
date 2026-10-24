@@ -3229,7 +3229,9 @@ function permissionCard(text) {
    the question line cannot tell two requests apart; this can. The phone checks a lock-screen press against the card's
    fingerprint read again just before it sends, so a notice minutes old never answers a different command with the same
    words. The same text on a pane redrawn at another width may wrap differently and read as another request: that refuses
-   an honest press, the safe direction. Null for anything that is not an object (pass only permissionCard's result). */
+   an honest press, the safe direction. The same words asked again later (from another folder, say) read as the same
+   request: the person did read those exact words. Null for anything that is not an object (pass only permissionCard's
+   result). */
 function permissionRequestId(card) {
   if (!card || typeof card !== 'object') return null;
   const parts = ['kind', 'title', 'says', 'target', 'detail', 'reason'].map((k) => String(card[k] == null ? '' : card[k]));

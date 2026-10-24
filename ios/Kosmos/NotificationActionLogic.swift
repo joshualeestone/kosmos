@@ -186,9 +186,10 @@ enum NotificationAction {
 
     // What the person is told after an Allow or Deny (Board.pressResult). Never nothing: iOS takes the notice away on
     // the press, so silence would read the same as a press that was lost. A sure press says so quietly ("Allowed for
-    // Ada."). `status` 409 is the board refusing because the question changed under the press: said in the notification's
-    // own words, not the chat page's ("What is on this page now ...").
-    static func pressNotice(after result: Board.PressResult, status: Int, agent: String, allow: Bool) -> String {
+    // Ada."). A refusal carries the board's own reason, whatever it is: the board refuses a press for many reasons (quiet
+    // hours, the usage cap, another press in the air, a screen it could not read, the question having changed), so no
+    // one sentence here can stand in for them.
+    static func pressNotice(after result: Board.PressResult, agent: String, allow: Bool) -> String {
         let who = agent.isEmpty ? "your agent" : agent
         let verb = allow ? "allowed" : "denied"
         switch result {
@@ -197,7 +198,6 @@ enum NotificationAction {
         case .notSure:
             return "Kosmos could not confirm that was \(verb) for \(who). Open the chat to check before pressing again."
         case .refused(let why):
-            if status == 409 { return changedNotice(agent: agent, allow: allow) }
             let w = why.trimmingCharacters(in: .whitespaces)
             return w.isEmpty ? "Nothing was \(verb) for \(who). Open the chat to answer."
                 : "Nothing was \(verb) for \(who). \(w)\(w.hasSuffix(".") ? "" : ".")"

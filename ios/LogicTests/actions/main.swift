@@ -92,7 +92,7 @@ check(permCat?.actions.map { $0.identifier } == [NotificationCategories.allowAct
 check(permCat?.actions.map { $0.title } == ["Allow", "Deny"], "worded Allow and Deny, as the chat's card")
 check(permCat?.actions.allSatisfy { $0.options == [.authenticationRequired] } == true, "both ask to unlock, and neither is marked destructive (equal weight)")
 let fp = String(repeating: "a1", count: 32)
-func permJSON(kind: String = "report", allow: Int = 1, deny: Int = 3, request: String = fp, asked: String = "Do you want to proceed?", shown: String = "Wants to run a command: uuidgen.") -> PhoneNotice.Words? {
+func permJSON(kind: String = "report", allow: Int = 1, deny: Int = 3, request: String = fp, asked: String = "Do you want to proceed?", shown: String = "Wants to run a command:\\n/usr/bin/uuidgen") -> PhoneNotice.Words? {
     let body = #"{"kind":"\#(kind)","session":"ada","agent":"Ada","text":"Claude needs your permission to use Bash","picture":null,"permission":{"kind":"command","allow":{"n":\#(allow),"label":"Yes"},"deny":{"n":\#(deny),"label":"No"},"asked":"\#(asked)","request":"\#(request)","shown":"\#(shown)"}}"#
     return PhoneNotice.words(status: 200, contentType: "application/json", data: Data(body.utf8), userInfo: ["session": "ada"])
 }
@@ -104,7 +104,7 @@ check(permJSON(deny: 1).flatMap(PhoneNotice.offeredPermission) == nil, "CONTROL:
 check(permJSON(request: "short").flatMap(PhoneNotice.offeredPermission) == nil, "CONTROL: no fingerprint, no buttons")
 check(permJSON(asked: "").flatMap(PhoneNotice.offeredPermission) == nil, "CONTROL: no question identity, no buttons")
 check(permJSON(shown: " ").flatMap(PhoneNotice.offeredPermission) == nil, "CONTROL: nothing to show the person, no buttons (review 1)")
-check(pw?.permission?.shown == "Wants to run a command: uuidgen.", "the request's words ride with it")
+check(pw?.permission?.shown == "Wants to run a command:\n/usr/bin/uuidgen", "the request's words ride with it, in the server's shape")
 let oddPerm = Data(#"{"kind":"report","session":"ada","agent":"Ada","text":"Claude needs your permission to use Bash","picture":null,"permission":{"kind":"command","request":null}}"#.utf8)
 let oddWords = PhoneNotice.words(status: 200, contentType: "application/json", data: oddPerm, userInfo: ["session": "ada"])
 check(oddWords?.text == "Claude needs your permission to use Bash" && oddWords?.permission == nil, "a permission this build cannot read costs only the buttons, never the words (review 1)")
@@ -147,11 +147,11 @@ check(prBody?["text"] as? String == "1" && prBody?["chose"] as? String == "Yes" 
 check(prBody?["lasting"] == nil, "never a lasting choice")
 check(pr?.value(forHTTPHeaderField: "Cookie") == "__Host-kosmos_tunnel_session=c00kie" && pr?.httpShouldHandleCookies == false && pr?.timeoutInterval == 13, "the kept cookie by hand, the send's idle limit")
 check(NotificationAction.pressRequest(userInfo: pinfoNotice, press: pAllow!, stored: kept(owner: Board.owner(of: "someone-else")), session: session, coordinator: coordinator) == nil, "another account's computer: nothing sent")
-check(NotificationAction.pressNotice(after: .sent, status: 200, agent: "Ada", allow: true) == "Allowed for Ada.", "sent: says so (iOS took the notice away, so silence would look like a lost press; review 2)")
-check(NotificationAction.pressNotice(after: .sent, status: 200, agent: "Ada", allow: false) == "Denied for Ada.", "sent Deny: says so")
-check(NotificationAction.pressNotice(after: .notSure("x"), status: 0, agent: "Ada", allow: true).contains("check before pressing again"), "not sure: look before pressing again")
-check(NotificationAction.pressNotice(after: .refused("Ada is not running"), status: 200, agent: "Ada", allow: false) == "Nothing was denied for Ada. Ada is not running.", "refused: the computer's reason")
-check(NotificationAction.pressNotice(after: .refused("What is on this page now is current"), status: 409, agent: "Ada", allow: true) == NotificationAction.changedNotice(agent: "Ada", allow: true), "a 409 (the question changed) in the notification's words, not the page's (review 2)")
+check(NotificationAction.pressNotice(after: .sent, agent: "Ada", allow: true) == "Allowed for Ada.", "sent: says so (iOS took the notice away, so silence would look like a lost press; review 2)")
+check(NotificationAction.pressNotice(after: .sent, agent: "Ada", allow: false) == "Denied for Ada.", "sent Deny: says so")
+check(NotificationAction.pressNotice(after: .notSure("x"), agent: "Ada", allow: true).contains("check before pressing again"), "not sure: look before pressing again")
+check(NotificationAction.pressNotice(after: .refused("Ada is not running"), agent: "Ada", allow: false) == "Nothing was denied for Ada. Ada is not running.", "refused: the computer's reason")
+check(NotificationAction.pressNotice(after: .refused("It is quiet hours, so nothing was answered"), agent: "Ada", allow: true) == "Nothing was allowed for Ada. It is quiet hours, so nothing was answered.", "any refusal carries the board's own reason (a 409 is not always a changed question; review 3)")
 check(manager.contains("case NotificationAction.allowAction, NotificationAction.denyAction:") && manager.contains("NotificationAction.permissionVerdict(") && manager.contains("NotificationAction.pressRequest("), "the app handles Allow and Deny, checking the request before it sends (no dead buttons, #3870)")
 if let a = manager.range(of: "NotificationAction.permissionVerdict("), let b = manager.range(of: "Self.sendHTTP.data(for: request)\n        let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0\n        let result = Board.pressResult") {
     check(a.lowerBound < b.lowerBound, "the check comes before the send")
