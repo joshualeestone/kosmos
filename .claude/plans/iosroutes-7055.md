@@ -23,5 +23,8 @@ the Swift line that calls it.
 
 ## Steps
 1. Test + controls (a renamed board route goes red, naming BoardLogic.swift:357). DONE.
-2. Review loop (round 1: 0 blockers, 3 warnings, 5 nits, all addressed). 3. Validation, PR. 4. Part 2 (light, dark, accessibility) after coordinating View files; Angel
+2. Review loop (round 1: 0 blockers, 3 warnings, 5 nits, all addressed; round 2: 0 blockers, 3 warnings, 4 nits,
+   all addressed: brace-depth request scope, one claim per line, a variable method only on a declared route with its
+   callers matched exactly, comments and raw strings stripped, nested interpolations, the per-route sibling control,
+   the extension's avatar declared, sandbox parity). 3. Validation, PR. 4. Part 2 (light, dark, accessibility) after coordinating View files; Angel
    keeps SignInView/SignInClient/SignInLogic.swift (#7050 slice C).

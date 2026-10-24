@@ -30,6 +30,9 @@ process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+// The accounts and Claude config the board reads, in the sandbox too (review 2: parity with the sibling tests).
+process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 
 const { start, server } = require('./server');
 
@@ -45,60 +48,111 @@ function swiftFiles(dir = IOS) {
 // Today's app calls 15 distinct board routes by literal; a parser that finds far fewer has stopped matching.
 const FLOOR = 10;
 // The one route whose method is a variable at the request site: SettingsLogic reads with GET and writes with PUT.
-// Each method is checked against the exact caller below, so a renamed or removed caller fails here.
+// Its callers are matched exactly below (no more and no fewer), so a new, renamed or removed caller fails here.
 const VARIABLE_METHODS = {
-  '/api/phone-notify': { file: 'ios/Kosmos/SettingsLogic.swift', callers: { GET: 'request(mac, method: "GET")', PUT: 'request(mac, method: "PUT"' } },
+  '/api/phone-notify': { file: 'ios/Kosmos/SettingsLogic.swift', caller: /\brequest\(mac, method: "([A-Z]+)"/g, methods: ['GET', 'PUT'] },
 };
-/* Routes the app calls whose full path comes from the board, so no literal names them (review 1): a chat file and
-   its thumbnail, fetched from the attachment's own url (BoardLogic.attachmentId and the preview == url + "/preview"
-   rule). Declared with the source text that pins them; the id is a 24-hex placeholder, as attachmentId requires. */
+/* Routes the app calls whose full path comes from the board, so no literal names them. Each is pinned to the source
+   text that accepts that path (not the fetch itself, which takes whatever path it is given):
+   - a chat file and its thumbnail (review 1): BoardLogic.attachmentId and its preview == url + "/preview" rule, then
+     Board.attachmentRequest; the id is a 24-hex placeholder, as attachmentId requires;
+   - an agent's picture in the notification extension (review 2): NoticeLogic accepts only /api/agent/<x>/avatar. */
 const DECLARED = [
   { route: 'GET /api/attachment/000000000000000000000000', file: 'ios/Kosmos/BoardLogic.swift', pin: 'let prefix = "/api/attachment/"' },
   { route: 'GET /api/attachment/000000000000000000000000/preview', file: 'ios/Kosmos/BoardLogic.swift', pin: '$0 == url + "/preview"' },
+  { route: 'GET /api/agent/x/avatar', file: 'ios/KosmosNotice/NoticeLogic.swift', pin: 'path.hasPrefix("/api/agent/"), path.hasSuffix("/avatar")' },
 ];
 
-/* Every "/api/..." string literal that names a whole route, with the method set on the same request. A literal used
-   only as a prefix ("/api/", "/api/attachment/") ends in a slash and is not a route; one inside a test fixture's raw
-   JSON (#"..."#) is skipped. Interpolations become a placeholder, and the query string is kept. The method is the
-   first `httpMethod = "X"` before the request builder ends (its return, or the next URL), not a fixed line window
-   (review 1); every such line in a file that calls the board must be claimed by a route (checked below). */
+/* One line of Swift with its comments removed and its raw-string spans (#"..."#, a test fixture's JSON) blanked, so
+   neither can name a route or claim a method. Strings are followed character by character, interpolations included,
+   so a "//" inside a string is not taken for a comment. */
+function codeOf(line) {
+  let out = '';
+  for (let i = 0, inStr = false, depth = 0; i < line.length; i++) {
+    const c = line[i];
+    if (!inStr && line.startsWith('#"', i)) { const end = line.indexOf('"#', i + 2); i = end < 0 ? line.length : end + 1; out += ' '; continue; }
+    if (!inStr && line.startsWith('//', i)) break;
+    if (inStr && c === '\\' && line[i + 1] === '(') { depth++; out += '\\('; i++; continue; }
+    if (inStr && depth > 0 && c === ')') depth--;
+    if (inStr && depth === 0 && c === '\\') { out += c + (line[i + 1] || ''); i++; continue; }
+    if (c === '"' && depth === 0) inStr = !inStr;
+    out += c;
+  }
+  return out;
+}
+
+/* The board-route literals on a line of code: each "/api/..." string, its interpolations (balanced, nested parens and
+   strings inside them included) replaced by the placeholder x, its query string kept. A literal used only as a prefix
+   ("/api/", "/api/attachment/") ends in a slash and is not a route. */
+function routeLiterals(code) {
+  const out = [];
+  for (let i = code.indexOf('"/api/'); i >= 0; i = code.indexOf('"/api/', i + 1)) {
+    let lit = '';
+    let j = i + 1;
+    for (; j < code.length && code[j] !== '"'; j++) {
+      if (code[j] === '\\' && code[j + 1] === '(') {
+        let depth = 1, k = j + 2, str = false;
+        for (; k < code.length && depth > 0; k++) {
+          if (code[k] === '"') str = !str;
+          else if (!str && code[k] === '(') depth++;
+          else if (!str && code[k] === ')') depth--;
+        }
+        lit += 'x';
+        j = k - 1;
+      } else lit += code[j];
+    }
+    if (!lit.endsWith('/')) out.push(lit);
+    i = j;
+  }
+  return out;
+}
+
+const FUNC = /^\s*(@\w+(\([^)]*\))?\s+)*((static|private|fileprivate|public|internal|mutating|override|final|nonisolated|class)\s+)*func\s/;
+
+/* Every board route the app calls by literal, with the method set on the same request, and the problems found. The
+   method is the first `httpMethod = ...` inside the same block as the URL (tracked by brace depth, so a neighbouring
+   function's or closure's request is never read), before the next URL or function. A line is claimed once. In every
+   file that calls the board, each httpMethod line must be claimed, and a variable method is allowed only on a route
+   in VARIABLE_METHODS (review 2: it would otherwise read as GET without a word). */
 function routesFromSwift() {
   const found = new Map();
-  const unclaimed = [];
+  const problems = [];
   for (const file of swiftFiles()) {
     const rel = path.relative(__dirname, file);
-    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    const code = fs.readFileSync(file, 'utf8').split('\n').map(codeOf);
     const claimed = new Set();
     let callsBoard = false;
-    // The method set on the request built from line i, claiming that httpMethod line.
-    const methodAfter = (i) => {
-      for (let j = i; j < Math.min(lines.length, i + 25); j++) {
-        if (j > i && /URL\(string:|^\s*(static |private )*func /.test(lines[j])) break;
-        const set = lines[j].match(/httpMethod = "([A-Z]+)"/);
-        if (set) { claimed.add(j); return set[1]; }
-        if (/\bhttpMethod = [a-z]/.test(lines[j])) { claimed.add(j); return 'GET'; }
-        if (/^\s*return\b/.test(lines[j])) break;
+    const methodAfter = (i, route) => {
+      let depth = 0;
+      for (let j = i; j < Math.min(code.length, i + 40); j++) {
+        if (j > i && (/URL\(string:/.test(code[j]) || FUNC.test(code[j]))) break;
+        const set = code[j].match(/\bhttpMethod = ("([A-Z]+)"|\w+)/);
+        if (set && !claimed.has(j)) {
+          claimed.add(j);
+          if (set[2]) return set[2];
+          if (!(route && VARIABLE_METHODS[route])) problems.push(`${rel}:${j + 1}: a variable method on ${route || 'a request'} that VARIABLE_METHODS does not name`);
+          return 'GET';
+        }
+        for (const c of j === i ? code[j].slice(code[j].indexOf('"')) : code[j]) { if (c === '{') depth++; else if (c === '}') depth--; }
+        if (depth < 0) break;
       }
       return 'GET';
     };
-    lines.forEach((line, i) => {
-      if (/#"/.test(line)) return;
+    code.forEach((line, i) => {
       // A request to another service (the coordinator's /v1, the relay gate's /_kosmos) claims its own method line.
-      for (const m of line.matchAll(/URL\(string: "(\/(?!api\/)[^"]*)"/g)) methodAfter(i);
-      for (const m of line.matchAll(/"(\/api\/[^"]*)"/g)) {
-        if (m[1].endsWith('/')) continue;
+      if (/URL\(string: "\/(?!api\/)/.test(line)) methodAfter(i, null);
+      for (const p of routeLiterals(line)) {
         callsBoard = true;
-        const p = m[1].replace(/\\\([^)]*\)/g, 'x');
-        const method = methodAfter(i);
         const bare = p.split('?')[0];
-        const methods = VARIABLE_METHODS[bare] ? Object.keys(VARIABLE_METHODS[bare].callers) : [method];
-        for (const mm of methods) if (!found.has(`${mm} ${p}`)) found.set(`${mm} ${p}`, `${rel}:${i + 1}`);
+        const method = methodAfter(i, bare);
+        const methods = VARIABLE_METHODS[bare] ? VARIABLE_METHODS[bare].methods : [method];
+        for (const m of methods) if (!found.has(`${m} ${p}`)) found.set(`${m} ${p}`, `${rel}:${i + 1}`);
       }
     });
-    if (callsBoard) lines.forEach((l, j) => { if (/httpMethod = /.test(l) && !claimed.has(j)) unclaimed.push(`${rel}:${j + 1}`); });
+    if (callsBoard) code.forEach((l, j) => { if (/\bhttpMethod = /.test(l) && !claimed.has(j)) problems.push(`${rel}:${j + 1}: an httpMethod no request claimed`); });
   }
-  for (const d of DECLARED) found.set(d.route, d.file + ' (declared)');
-  return { found, unclaimed };
+  for (const d of DECLARED) if (!found.has(d.route)) found.set(d.route, d.file + ' (declared)');
+  return { found, problems };
 }
 
 let base;
@@ -127,13 +181,14 @@ async function isAnswered(method, p) {
 }
 
 test('the parser finds the routes the app calls, with each method set on its request', () => {
-  const { found, unclaimed } = routesFromSwift();
+  const { found, problems } = routesFromSwift();
   assert.ok(found.size >= FLOOR + DECLARED.length, `found only ${found.size} routes in the Swift source: ${[...found.keys()].join(', ')}`);
-  assert.deepEqual(unclaimed, [], 'an httpMethod line no route claimed (a method set too far from its URL is read as GET)');
-  for (const [p, { file, callers }] of Object.entries(VARIABLE_METHODS)) {
+  assert.deepEqual(problems, [], 'methods the parser could not attribute to a request');
+  for (const [p, { file, caller, methods }] of Object.entries(VARIABLE_METHODS)) {
     const src = fs.readFileSync(path.join(__dirname, file), 'utf8');
     assert.ok(src.includes(`"${p}"`), `${file} no longer names ${p}: update VARIABLE_METHODS`);
-    for (const [m, caller] of Object.entries(callers)) assert.ok(src.includes(caller), `${file} no longer calls ${p} with ${m} (${caller}): update VARIABLE_METHODS`);
+    const used = [...new Set([...src.matchAll(caller)].map((m) => m[1]))].sort();
+    assert.deepEqual(used, [...methods].sort(), `${file} calls ${p} with ${used.join(', ')}: update VARIABLE_METHODS`);
   }
   for (const d of DECLARED) {
     assert.ok(fs.readFileSync(path.join(__dirname, d.file), 'utf8').includes(d.pin), `${d.file} no longer has ${d.pin}: update DECLARED for ${d.route}`);
@@ -153,19 +208,17 @@ test('the board answers every route the iPhone app calls (not its reply to a rou
   assert.deepEqual(gone, [], 'routes the phone calls that the board no longer answers:\n' + gone.join('\n'));
 });
 
-test('CONTROL: the board gives every route it does not have the same reply, at every method and depth the app uses', async () => {
-  const { found } = routesFromSwift();
-  const methods = [...new Set([...found.keys()].map((k) => k.split(' ')[0]))];
-  const depths = [...new Set([...found.keys()].map((k) => k.split(' ')[1].split('?')[0].split('/').length))];
-  for (const m of methods) {
-    for (const d of depths) {
-      const stem = '/api' + '/x'.repeat(d - 3);
-      const a = await ask(m, stem + '/no-such-route-7055');
-      const b = await ask(m, stem + '/also-not-a-route-7055');
-      // Byte for byte: a reply that quoted the path back would make every gone route look answered.
-      assert.equal(a, b, `${m} at depth ${d}: two unknown routes got different replies, so the comparison means nothing`);
-    }
+test('CONTROL: at the prefix, method and query of each route, two made-up siblings get the same reply', async () => {
+  // Byte for byte, aimed at exactly the comparison each verdict uses (review 2): a reply that quoted the path back,
+  // or a catch-all under a real prefix that echoed the last segment, would make every gone route look answered.
+  const differ = [];
+  for (const key of routesFromSwift().found.keys()) {
+    const [method, p] = key.split(' ');
+    const a = await ask(method, madeUp(p, 'no-such-route-7055a'));
+    const b = await ask(method, madeUp(p, 'no-such-route-7055b'));
+    if (a !== b) differ.push(`${key}: "${a.slice(0, 60)}" vs "${b.slice(0, 60)}"`);
   }
+  assert.deepEqual(differ, [], 'made-up siblings answered differently, so the comparison means nothing for these');
 });
 
 test('CONTROL: a route the board does not have is reported as gone, and a real one as answered', async () => {
