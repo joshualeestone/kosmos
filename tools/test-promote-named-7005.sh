@@ -135,6 +135,11 @@ S="$(newsite)"; republish "$S" 9.9.8
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$S/setup")" = "INSTALLER-9.9.8 KOSMOS_READONLY_APP" ] && pass "named: a later republish naming no installer does not hide the cut's own installer" || bad "named after an installer-less republish (rc=$rc, setup: $(cat "$S/setup"), out=$out)"
 has "$out" "a later commit naming it, points at the same build" && pass "named: says a later commit names V, and that it points at the same build" || bad "named same-build NOTE (out=$out)"
+# The same build under a later commit that names ANOTHER installer (its tree's setup-staging does not match it): said.
+S="$(newsite)"; republish "$S" 9.9.8 "$(printf 'OTHER-INSTALLER\n' | shasum -a 256 | awk '{print $1}')"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$S/setup")" = "INSTALLER-9.9.8 KOSMOS_READONLY_APP" ] && has "$out" "points at the same build but names installer" \
+  && pass "named: a later commit naming another installer for the same build is said, not hidden" || bad "named installer-differs NOTE (rc=$rc, out=$out)"
 # A later commit naming V whose pointer differs in another field: the NOTE says so and how to use it.
 S="$(newsite)"; node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.version="9.9.8";p.sha256=require("fs").readFileSync(process.argv[2],"utf8").split(" ")[0];p.artifact="kosmos-9.9.8-arm64.tar.gz";p.manifest="kosmos-9.9.8-arm64.manifest.json";delete p.setup_sha256;p.extra="corrected";require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$S/dist/latest-staging.json" "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256"
 git -C "$S" commit -qm "9.9.8 republished with another field" -- dist/latest-staging.json
@@ -235,6 +240,12 @@ S="$(newsite)"; s98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha25
 out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD_OTHER" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "on a board running 9.9.9, not 9.9.8, so it says nothing about 9.9.8" \
   && pass "named: an agent-spawn FAIL on a board READ as another version is cannot-tell, which a hand check of V can --force" || bad "named agent fail on another version (rc=$rc, out=$out)"
+# PARTIAL (exit 3) is downgraded the same way on a board READ as another version, and stands on an unread one.
+APART="$T/stub-agent-partial.sh"; printf '#!/usr/bin/env bash\nexit 3\n' > "$APART"; chmod +x "$APART"
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD_OTHER" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $APART" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "answered 3 on a board running 9.9.9, not 9.9.8" && pass "named: an agent-spawn PARTIAL on a board READ as another version is cannot-tell too" || bad "named agent partial on another version (rc=$rc, out=$out)"
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $APART" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "agent-spawn gate PARTIAL (exit 3, Claude online / OpenAI-Codex arm failed) and --force was given" && ! has "$out" "says nothing about" && pass "named: CONTROL a PARTIAL on a board of unread version stands as PARTIAL" || bad "named agent partial unread (rc=$rc, out=$out)"
 # A board whose version the gate could NOT read may be V itself: there an agent FAIL still refuses, as in default mode.
 S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $HOLD" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $AFAIL" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${s98:0:12}" --force 2>&1)"; rc=$?
 [ "$rc" = 1 ] && untouched "$S" && has "$out" "agent-spawn gate FAILED (exit 1)" && ! has "$out" "says nothing about" && pass "named: an agent FAIL on a board of unread version still refuses (it may be V)" || bad "named agent fail unread version (rc=$rc, out=$out)"
@@ -303,6 +314,7 @@ republish "$S" 9.9.8 "" "$(printf '%064d' 5)"   # committed here only
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" sha256)" = "$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")" ] && ! has "$out" "disagree" \
   && pass "named: a never-pushed commit naming V with other bytes is ignored, not a disagreement" || bad "named unpushed re-cut (rc=$rc, out=$out)"
+has "$out" "NOTE ignoring commits naming 9.9.8 that are not on the site's origin/main" && pass "named: ...and says it ignored it" || bad "named unpushed NOTE (out=$out)"
 # With an unpublished commit naming V present, a --sha that matches nothing still points at the --sha, not at it.
 S="$(newsite)"; O4="$T/origin4.git"; git init -q --bare "$O4"; git -C "$S" remote add origin "$O4"; git -C "$S" push -q origin HEAD:main
 republish "$S" 9.9.8 "" "$(printf '%064d' 6)"

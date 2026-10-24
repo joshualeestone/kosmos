@@ -187,3 +187,12 @@ FAIL/PARTIAL only when it read the board as another version ("the board on :P ru
 test keeps that sentence and the parser in step. An unread version keeps the refusal.
 - A named promote prints the sha256 of the manifest it checked (the commit pins only the artifact's sha).
 - Not changed (NIT): the header's selection paragraph stays prose; the test:shell entry has no bash -n line.
+
+## Iteration 15 (challenge) changes
+- The same-build NOTE says when the later commit names another installer than the one copied to /setup.
+- Named mode tees only the experience gate's stdout (where its #5084 line is printed), so its stderr stays on
+  stderr as in default mode.
+- The agent-spawn downgrade's PARTIAL arm is tested (and its unread-version control); docs name PARTIAL.
+- A NOTE names never-pushed commits naming V that were ignored; IFS is explicit for the deliberate word split.
+- The plan file is renamed to the folder's <branch>.md shape; one docs line rewrapped.
+- Not changed (NIT): "this checkout (origin's main has none)" is reachable only on a first-ever prod pointer.
