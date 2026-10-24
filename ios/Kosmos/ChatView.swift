@@ -1,4 +1,5 @@
 import SwiftUI
+import QuickLook
 
 // kosmos#7008 (the iPhone plan's slice 3, first part): one agent's conversation, native, built to Mona Lisa's slice 3a
 // spec (~/work/workers/monalisa/ios-design-2026-10-19/slice3a/SPEC.md, on the card). Reads and sends through
@@ -41,6 +42,9 @@ struct ChatView: View {
     // The question that line is about: it goes when a read shows that question gone.
     @State private var pressLineKey: String?
     @State private var composerNote: String?
+    // kosmos#7016 part 2: each file card's state, and the file open in Quick Look.
+    @State private var fileStates: [String: FileCardState] = [:]
+    @State private var previewURL: URL?
     // Bumped when the arm window or the answered lock ends, so the buttons redraw then.
     @State private var tick = 0
 
@@ -74,6 +78,7 @@ struct ChatView: View {
         .background(Palette.ground.ignoresSafeArea())
         // Mona Lisa's review: the tab bar would stack under the composer and take about 170pt, so it hides here.
         .toolbar(.hidden, for: .tabBar)
+        .quickLookPreview($previewURL)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) { title }
@@ -104,6 +109,8 @@ struct ChatView: View {
         .onChange(of: client.chatEpoch) { now in
             epoch = now
             thread = nil
+            fileStates = [:]
+            previewURL = nil
             armed = nil
             unsureKey = nil
             pressLine = nil
@@ -255,6 +262,18 @@ struct ChatView: View {
         case .row(let row, let first, let last):
             if let thread, let choices = Board.choices(for: row, in: thread) {
                 choicesView(row, choices).padding(.top, 10)
+            } else if row.who == .agent, row.wayThrough == .attachment, !row.attachments.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    FilesBubble(text: Board.wordsShown(row.text, files: row.attachments), files: row.attachments,
+                                thumbnails: client.thumbnails, states: fileStates, widthShare: widthShare, open: openFile)
+                    // The time on the last of a run, as on every bubble (3a).
+                    if last, let at = row.at {
+                        Text(at, style: .time).font(.caption2).foregroundColor(Palette.tertiary).padding(.horizontal, 4)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, first ? 10 : 2)
+                    .task { for f in row.attachments { await client.loadThumbnail(f) } }
             } else if let way = row.wayThrough {
                 VStack(alignment: .leading, spacing: 4) {
                     // A file that came with words: the words as a bubble, then the way through for the file.
@@ -279,6 +298,21 @@ struct ChatView: View {
                            sendAgain: { sendWhenFree { await client.sendAgain(row, to: agent) } })
                     .padding(.top, first ? 10 : 2)
             }
+        }
+    }
+
+    // MARK: - Files (kosmos#7016 part 2)
+
+    // Fetched from the Mac through the kept sign-in, then shown in the system's Quick Look (share, save and print).
+    private func openFile(_ f: Board.Attachment) {
+        guard fileStates[f.id] != .loading else { return }
+        fileStates[f.id] = .loading
+        let opened = epoch
+        Task {
+            let file = await client.fetchFile(f)
+            guard opened == client.chatEpoch else { return }
+            fileStates[f.id] = file == nil ? .failed : .ready
+            if let file { previewURL = file }
         }
     }
 
