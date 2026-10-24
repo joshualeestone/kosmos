@@ -158,3 +158,12 @@ Also since round 1: the owner trusts a list only if exactly one row is this comp
    it: an owner-signed "you were removed" frame.
 3. [SHOULD-FIX] ownRemove reported success when the room record could not be read afterwards. FIXED: unreadable is
    "not removed, try again". Test + mutant U3.
+
+## Review round 6 (blind, 05:3x): no defects, CONVERGED
+Low notes, recorded:
+1. A screen remove also waits for the account-computers request inside revokeCheck (bounded by macRequest's
+   timeout; never blocks or reverses the remove).
+2. A removed computer whose connection drops more often than every ten minutes never rejoins until it holds one
+   that long (the cost of counting connected time, round 4; the trade is kept).
+3. The rejoin fires only on a newer epoch; an owner that lost its record and restarted at the same or a lower
+   epoch is outside this card (not known to be reachable on main).
