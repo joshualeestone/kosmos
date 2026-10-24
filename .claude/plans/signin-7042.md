@@ -64,3 +64,16 @@ side only; nothing cross-repo pins it).
    session stays handed over until the app's next 401 elsewhere signs it out.
 Recorded, not built (the web page does them at sign-in, none safety-related): the optional second-step offer, the
 standing / unpaid notes, a notification tap waiting on sign-in.
+
+## Review round 2 (blind, 06:4x)
+1. [SHOULD-FIX] The session waiting for the web page lived only in memory: an app restart before any web tab opened
+   lost it, the page asked again, and signing in there made a second device. FIXED: no copy in memory. Whenever the
+   sign-in page loads holding no session while the keychain holds one, it is stored there (storeScript now writes
+   only into an empty slot). A sign-out on the page deletes the keychain's copy first, so it cannot come back.
+2. [SHOULD-FIX] The store reloaded "/" and threw away the page it ran on (Settings' account page). FIXED: reload().
+3. [SHOULD-FIX] "denied" at verify is not final on the server (signin.rs turns it back into a fresh Allow), but the
+   screen stopped there. FIXED: Step.denied(asking:) keeps watching; only the Mac's second no stops it.
+4. [LOW-MEDIUM] Backing out of an issued session kept it. FIXED: it is signed out (signedOutNatively).
+5. [LOW] A launch before first unlock reads no session and may show the sign-in to a signed-in person. FIXED: on
+   becoming active, still on the first step with nothing issued, a session now readable closes the sign-in.
+Design (Mona Lisa, approved): links stacked with no extra space; the address starts on its own line.

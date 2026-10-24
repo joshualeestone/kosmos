@@ -145,6 +145,9 @@ struct ContentView: View {
             pushManager.signedInNatively(token)
             web.signInPage(with: token)
         }
+        // The person backed out of a session already issued (Use a different email, Sign in again): it is signed out,
+        // so neither the app nor the web page keeps it (review round 2).
+        .onChange(of: signIn.abandoned) { _ in pushManager.signedOutNatively() }
         .onChange(of: signIn.step) { step in
             if step == .done { nativeSignIn = false; todayBoard = false; tab = .today }
         }
@@ -189,6 +192,10 @@ struct ContentView: View {
             // Back at the front after a real background: the bar may take Tasks now. Mona Lisa: the bar changes at
             // launch or on a return, not on each poll (a launch's first read can still land while it is on screen).
             if newPhase == .background { tabsBackgrounded = true }
+            // kosmos#7042 review round 2: a launch before the phone's first unlock reads no session, so the sign-in may
+            // be showing to someone signed in. Still on its first step, it goes once the session can be read.
+            if newPhase == .active, nativeSignIn, signIn.step == .email, signIn.issued == nil,
+               SessionKeychain.live.load() != nil { nativeSignIn = false }
             if newPhase == .active && tabsBackgrounded {
                 tabsBackgrounded = false
                 web.returned()
@@ -386,28 +393,25 @@ final class BoardWeb: ObservableObject {
 
     init() { coordinator.web = self }
 
-    // kosmos#7042: a session the native sign-in made, waiting to be stored where the sign-in page keeps its own
-    // (SignIn.storeScript, run on that page), so the web tabs open signed in and never ask again. It waits for the
-    // sign-in page itself; a load anywhere else (a notification's chat on the Mac) is left alone (review round 1).
-    private var pendingSession: String?
-
+    // kosmos#7042: the sign-in page keeps its own copy of the session (localStorage). After a native sign-in it has
+    // none, so each time it loads with none while the app holds one, the app's is stored there (SignIn.storeScript)
+    // and the page reloads signed in. Read from the keychain each time, not held in memory, so a restart before any web
+    // tab opened still heals (review round 2); a sign-out on the page deletes the keychain's copy first, so it never
+    // comes back. A load anywhere else (a notification's chat on the Mac) is left alone.
     func signInPage(with token: String) {
-        pendingSession = token
-        if let webView = webView, !webView.isLoading, webView.url?.host == AppTabs.signInHost { storePending(webView) }
+        if let webView = webView, !webView.isLoading { storeSession(webView) }
     }
 
-    /// True when it ran (the page then reloads itself signed in).
-    @discardableResult private func storePending(_ webView: WKWebView) -> Bool {
+    /// True when it stored the session (the page is then reloaded where it was).
+    private func storeSession(_ webView: WKWebView) {
         // Only on the sign-in page's own origin: its storage is the page's, and nowhere else may hold the token.
-        guard let token = pendingSession, webView.url?.host == AppTabs.signInHost,
-              let script = SignIn.storeScript(token: token) else { return false }
-        pendingSession = nil
+        guard webView.url?.host == AppTabs.signInHost, let token = SessionKeychain.live.load(),
+              let script = SignIn.storeScript(token: token) else { return }
         webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
-            if case .success(let stored as Bool) = result, stored {} else { NSLog("[SignIn] the sign-in page did not keep the session") }
-            // Either way the page loads again: signed in, or showing its own sign-in (the slice's fallback).
-            webView.load(URLRequest(url: KosmosConfig.boardURL))
+            // Stored: reload the page it ran on (Settings' account page stays the account page; review round 2).
+            // Not stored (the page has its own session, or could not keep it): nothing to do.
+            if case .success(let stored as Bool) = result, stored { webView.reload() }
         }
-        return true
     }
 
     // Each change of the page's address (replaceState too), with the one before, so the bar can follow the page's own
@@ -465,7 +469,7 @@ final class BoardWeb: ObservableObject {
     // A page finished loading: run a press that waited for it, and start a launch round of Tasks reads if no read has
     // answered this launch (PressTracker.launchReads). A later load replaces the round.
     func loaded() {
-        if pendingSession != nil, let webView = webView, storePending(webView) { return }
+        if let webView = webView { storeSession(webView) }
         // What waits is a web tab or a section pressed on purpose (a native tab's press leaves nothing waiting), so it
         // replays as a section press.
         if let tab = tracker.pending { press(tab, ready: true, section: true) }
