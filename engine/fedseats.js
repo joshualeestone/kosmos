@@ -267,7 +267,10 @@ function handleEvent(projectId, line, heldAt) {
       if (!opened && ahead) {
         if (s.behindArmedAt !== sealed.epoch) {
           s.behindArmedAt = sealed.epoch;
-          s.behind = { epoch: ev.data.epoch, until: now + BEHIND_HOLD_MS };
+          s.behind = { epoch: ev.data.epoch, until: now + BEHIND_HOLD_MS, at: now };
+        } else if (sealed.ownComputer === true && s.behind && Number.isFinite(s.behind.at) && now - s.behind.at >= OWN_REJOIN_MS) {
+          sealStep(projectId, () => ownRejoin(projectId, s, sealed.epoch));   // kosmos#7028: taken out of the key
+          return;
         }
         noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile. A post sent after that, before the new key arrives, may not be shown to the others.');
         return;
@@ -622,6 +625,10 @@ const HELD_MAX = INBOUND_PER_WINDOW;
    (nothing resends a refused post). Holding until the key arrives would let a forger pause
    a member indefinitely. */
 const BEHIND_HOLD_MS = 3 * 60 * 1000;
+/** kosmos#7028: an own computer still behind on the key this long after it first saw a newer one was most likely taken
+    out of the room (retired, held, or removed on the owner's screen; a missed rotation is re-sent within seconds once
+    both are connected). It then asks to be let back in (ownRejoin). */
+const OWN_REJOIN_MS = 10 * 60 * 1000;
 
 /** This room's seal state, null for a room with none, undefined when the record
     cannot be read (then nothing is sent or shown: we cannot tell). */
@@ -857,6 +864,24 @@ function confirmOwn(projectId, confirmedCode) {
     adoptOwnShare(projectId, s);
     return { ok: true, because: null };
   }).then((r) => r || { ok: false, because: 'the room\'s records could not be read' });
+}
+/** kosmos#7028: an own computer the owner took out of the key still holds the old one, so it would never say hello
+    again and its posts would go where nobody can read them. It goes back to the keyless record noteOwnSealed makes and
+    asks again: the owner answers any own hello with a new code to compare. Only the key this computer holds goes, so
+    no epoch changes and it is no rotation (#5191 WRITERS). A wrong rejoin (an ahead frame forged by the relay or one
+    of this account's computers, the only senders in an own room) costs one code compare and reveals nothing: posts
+    are held until the key comes back. */
+function ownRejoin(projectId, s, epoch) {
+  if (seats.get(projectId) !== s || s.stopped) return;
+  const link = safeLink(projectId);
+  const st = roomSeal(projectId);
+  if (!link || link.role !== 'self' || !st || st.role !== 'member' || st.ownComputer !== true || !hasKey(st) || st.epoch !== epoch) return;
+  try { fedseal.setRoomState(projectId, { role: 'member', ownComputer: true, keys: {} }); } catch { return; }
+  s.behind = null;
+  s.behindArmedAt = undefined;
+  s.ownRun = null;
+  say(projectId, 'This computer no longer has this sealed room\'s key: it may have been taken out on your other computer. To get back in, compare the code on this screen with the one on that computer.');
+  sayOwnHello(projectId, s);
 }
 /** Own computer: the person said the codes do not match. The run ends and a new one starts with a new code. */
 function ownStartOver(projectId) {

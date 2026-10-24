@@ -16,6 +16,8 @@
  *    kosmos#7028: fedseal.forgetRoom removes a room's state and is a writer too. Its engine callers are fedmembers.js
  *    inviteNow and ownerLinkOf (a project's first invite, or a link left by an earlier project of the same id, starts
  *    with no room keys). Neither changes an epoch or makes a key; a new caller is a new way a room's keys can go.
+ *    kosmos#7028 also adds ownRejoin: an own computer still behind long after the owner took it out of the key drops the
+ *    key it holds and goes back to noteOwnSealed's keyless record. It removes a key and advances no epoch.
  * 2. HOW THE EPOCH ADVANCES. Exactly one advance spelled "epoch + 1" / "+= 1" / "++", inside revokeCheck. Exactly
  *    one, not "at least one": zero means that spelling is gone and this guard went blind.
  */
@@ -26,7 +28,7 @@ const path = require('node:path');
 
 const ENGINE = __dirname;
 const WRITERS = {
-  'fedseats.js': ['revokeCheck', 'ownerHello', 'onKeyFrame', 'noteOwnSealed', 'allowOwn', 'adoptOwnShare'],
+  'fedseats.js': ['revokeCheck', 'ownerHello', 'onKeyFrame', 'noteOwnSealed', 'allowOwn', 'adoptOwnShare', 'ownRejoin'],
   'fedmembers.js': ['inviteNow', 'ownerLinkOf'],
 };
 const FED_FILES = ['fedseats.js', 'fedseal.js', 'federation.js', 'fedmembers.js'];
