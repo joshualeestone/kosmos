@@ -10,6 +10,9 @@
  *  - the computer that first shared the room lists each waiting computer with the code from GET own-waiting, and
  *    Allow sends exactly that row's key and code to POST /api/federation/own-allow;
  *  - a refusal's own words are shown; a project that never sees either answer shows nothing;
+ *  - Mona's review (card comment 6382874566): the answers are bordered buttons at least 44 px tall, It matches and
+ *    Does not match at equal weight (same background and border), Allow the same style; the separator is a plain
+ *    ASCII hyphen; where Members sits under the room (390), one line above the room says the room is sealed;
  *  - 390 wide with no sideways scroll, the code never wraps, chromium and webkit, no page errors.
  * The engine and routes are tested in engine/fedseats.ownseal-4658.test.js and server.ownallow-4658.test.js; here
  * the routes are answered by the page's own fake, so what is measured is what the page sends and shows.
@@ -115,6 +118,17 @@ const ROWS = [{ pub: 'pub-laptop', mac: 'mac-1', code: 'ABCDE-FGHJK', at: 1 }, {
           chk(w && w.code === WAITING_CODE, `${E} the waiting computer shows its own code`, JSON.stringify(w));
           chk(w && w.oneLine, `${E} the code stays on one line`, JSON.stringify(w));
           chk(w && w.acts.join('|') === 'It matches|Does not match', `${E} It matches and Does not match are offered`, JSON.stringify(w && w.acts));
+          const look = await page.evaluate(() => {
+            const bs = [...document.querySelectorAll('#pj-fed-own [data-own-act]')];
+            const st = bs.map((b) => { const c = getComputedStyle(b); return { h: b.getBoundingClientRect().height, bg: c.backgroundColor, bd: c.borderTopColor + ' ' + c.borderTopWidth }; });
+            const sep = document.querySelector('#pj-fed-own .ownseal-sep');
+            const line = document.getElementById('pj-fed-own-phone');
+            return { st, sep: sep ? sep.textContent.charCodeAt(0) : null, line: !!line && !line.hidden && line.getBoundingClientRect().height > 0 };
+          });
+          chk(look.st.length === 2 && look.st.every((x) => x.h >= 44), `${E} both answers are at least 44 px tall`, JSON.stringify(look.st));
+          chk(look.st.length === 2 && look.st[0].bg === look.st[1].bg && look.st[0].bd === look.st[1].bd, `${E} It matches and Does not match are equal weight`, JSON.stringify(look.st));
+          chk(look.sep === 0x2d, `${E} the separator is a plain hyphen`, String(look.sep));
+          chk(look.line === (width < 600), `${E} the line above the room shows only where Members sits under it`, JSON.stringify({ width, line: look.line }));
           await page.click('#pj-fed-own [data-own-act="match"]');
           await page.waitForFunction(() => /Confirmed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
           const conf = posted.find((p) => p.path.endsWith('/own-confirm'));
@@ -133,6 +147,10 @@ const ROWS = [{ pub: 'pub-laptop', mac: 'mac-1', code: 'ABCDE-FGHJK', at: 1 }, {
             mine: !!document.querySelector('#pj-fed-own [data-own-act="match"]'),
             wide: document.documentElement.scrollWidth > innerWidth }));
           chk(o.codes.join('|') === ROWS.map((r) => r.code).join('|'), `${E} the owner lists each waiting computer with its code`, JSON.stringify(o));
+          const allowH = await page.evaluate(() => [...document.querySelectorAll('#pj-fed-own [data-own-act="allow"]')].map((b) => b.getBoundingClientRect().height));
+          chk(allowH.length === 2 && allowH.every((x) => x >= 44), `${E} each Allow is a button at least 44 px tall`, JSON.stringify(allowH));
+          const ownerLine = await page.evaluate(() => { const l = document.getElementById('pj-fed-own-phone'); return !!l && !l.hidden; });
+          chk(!ownerLine, `${E} the sealed line is not shown on the computer that shared the room`);
           chk(!o.mine, `${E} another project does not show the waiting project's code`, JSON.stringify(o));
           await page.click('#pj-fed-own [data-own-pub="pub-desk"]');
           await page.waitForFunction(() => /Allowed/.test((document.querySelector('#pj-fed-own .fmsg') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => null);
