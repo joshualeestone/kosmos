@@ -272,7 +272,6 @@ function handleEvent(projectId, line, heldAt) {
         noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile. A post sent after that, before the new key arrives, may not be shown to the others.');
         return;
       }
-      if (!opened) s.sealedSeenMono = mono();   // kosmos#7028: a clear judged on an answer asked before this is not made
       if (!opened && !sealed && noteOwnSealed(projectId, s)) return;   // #4658: an own computer asks for the key
       if (!opened && !sealed) {
         // This computer joined before the owner sealed the room: it holds no key and never will from that code.
@@ -808,56 +807,7 @@ function noteOwnSealed(projectId, s) {
     return true;   // handled: the guest's "ask the owner for a new code" line is not this computer's
   }
   sayOwnHello(projectId, s);
-  checkNeverSealed(projectId, s, link);
   return true;
-}
-/** kosmos#7028: after Kosmos+ says a room was never sealed, how long the own computer waits for the owner's offer
-    before clearing. */
-const OWNER_OFFER_WAIT_MS = 10 * 1000;
-/** kosmos#7028: anyone in the room can send a sealed-looking frame, and noteOwnSealed then holds this computer's posts
-    for a key that will never come. The owner board seals a room only for a hello matched to an active edge for its
-    project, and the account's edges are listed with every status (revoked ones too), so a fresh answer with no edge
-    for this project says the room was never sealed. Asked fresh (notBeforeMono): an answer from before the frame can
-    miss an edge made since.
-    That answer is not enough alone: an edge goes when its guest deletes their account, so a room sealed for that
-    guest reads the same. The owner's offer settles it. Only this account's computers can send a key-own offer (the
-    relay stamps same_account, onKeyFrame refuses any other), and the owner board sends one only for a sealed room
-    it holds, so once one arrives the room is never cleared (s.ownerOffered). Without one, the record is cleared only
-    after OWNER_OFFER_WAIT_MS more with none, so an owner board that is online answers the hello first. An owner that
-    is offline then leaves the room cleared until its next sealed frame, which records the seal again: recording is the
-    safe side, so every sealed-looking frame records it. The asking needs no limit of its own: a room is asked only
-    while it holds no record, and a record is cleared only OWNER_OFFER_WAIT_MS after its answer, so a forger gets at
-    most one ask per room per OWNER_OFFER_WAIT_MS. Any other answer (failed, unreadable, an edge of any status)
-    keeps the record. */
-function checkNeverSealed(projectId, s, link) {
-  if (!deps || typeof deps.macRequest !== 'function' || s.ownerOffered) return;
-  const now = Date.now();
-  const askedMono = mono();
-  let ask;
-  try { ask = sharedEdges(now, askedMono); } catch { return; }
-  ask.promise.then((r) => {
-    if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return;
-    if (r.data.as_owner.some((e) => e && e.project_ref === link.ref)) return;
-    const t = setTimeout(() => { forgetOwnSealed(projectId, s, link, askedMono); }, OWNER_OFFER_WAIT_MS);
-    if (t.unref) t.unref();
-  }).catch(() => {});
-}
-/** kosmos#7028: clear an own computer's keyless sealed record (noteOwnSealed's), under the room's sealing step, unless
-    the owner's offer has arrived. It holds no key and changes no epoch, so it is no rotation (#5191 WRITERS). Only
-    that record: one holding a key is kept. New posts then go as in any unsealed room; one held meanwhile was written
-    for a sealed room, so it is told and not sent in the clear (sendPost's sealedHeld rule). */
-function forgetOwnSealed(projectId, s, link0, askedMono) {
-  return sealStep(projectId, () => {
-    if (seats.get(projectId) !== s || s.stopped || s.ownerOffered) return;
-    // A sealed-looking frame since the answer was asked may be a seal made after it: asked again, not cleared.
-    if (typeof s.sealedSeenMono === 'bigint' && s.sealedSeenMono > askedMono) { checkNeverSealed(projectId, s, link0); return; }
-    const link = safeLink(projectId);
-    const st = roomSeal(projectId);
-    if (!link || link.role !== 'self' || !st || st.role !== 'member' || st.ownComputer !== true || hasKey(st)) return;
-    try { fedseal.forgetRoom(projectId); } catch { return; }
-    s.ownRun = null;
-    flushHeld(projectId, s);
-  });
 }
 /** Own computer: the owner's offer for this run's commitment. nW is revealed to ONE offer only. The same offer
     again (the owner answering a repeated hello) gets the same reveal again, in case the first was lost. A
@@ -871,7 +821,6 @@ function waitingOffer(projectId, s, frame) {
   try { me = fedseal.sealingKey(); } catch { return; }
   const offer = fedseal.checkOwnOffer(frame, run.mac, run.commit, me.pub);
   if (!offer) return;
-  s.ownerOffered = true;   // kosmos#7028: the owner holds this room sealed, so it is never cleared as forged
   if (run.offer && (run.offer.ownerPub !== offer.ownerPub || run.offer.nO !== offer.nO)) {
     // Confirmed or not: a run still waiting for its share ends (the owner's board may have restarted and lost it),
     // and the new run's code needs a new confirm. A run holding a genuine share keeps it.
@@ -1075,7 +1024,8 @@ function revokeCheck(projectId, link, edges, dropOwn) {
     // kosmos#7028: the account's computers are asked only when an own computer is pinned, and their
     // answer never decides whether the room counts as checked: a failed one would otherwise hold
     // every guest's post for it. A failed or incomplete answer drops no own computer.
-    const macsAsk = hasOwn ? sharedComputers(Date.now()).promise.catch(() => null) : Promise.resolve(null);
+    const macs = hasOwn ? sharedComputers(Date.now()) : null;
+    const macsAsk = macs ? macs.promise.catch(() => null) : Promise.resolve(null);
     let r = null;
     if (hasPeers) {
       try { r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {})); } catch { r = null; }
@@ -1097,7 +1047,10 @@ function revokeCheck(projectId, link, edges, dropOwn) {
     const gone = Object.keys(peers).filter((pub) => peers[pub] && status.has(peers[pub].edge) && status.get(peers[pub].edge) !== 'active');
     // kosmos#7028: an own computer leaves the key when the screen removes it, or when a complete list of
     // the account's computers no longer has its mac (retired, held, moved to another account).
-    const ownGone = Object.keys(own).filter((pub) => drop.includes(pub) || (onAccount && !(own[pub] && onAccount.has(own[pub].mac))));
+    // Only a list asked after the computer was pinned can drop it: the list is shared for EDGE_FRESH_MS, and one asked
+    // before an Allow may predate that computer joining (or being let back on) the account.
+    const listedBefore = (o) => !!o && Number.isFinite(o.at) && macs && o.at < macs.askedAt;
+    const ownGone = Object.keys(own).filter((pub) => drop.includes(pub) || (onAccount && listedBefore(own[pub]) && !onAccount.has(own[pub].mac)));
     if (!gone.length && !ownGone.length) return { checked, rotated: false };
     const epoch = st.epoch + 1;
     const keep = {};
