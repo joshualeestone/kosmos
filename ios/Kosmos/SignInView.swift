@@ -177,9 +177,9 @@ final class SignInModel: ObservableObject {
             switch SignIn.companyReturn(back, coordinator: KosmosConfig.coordinatorOrigin) {
             case .grant(let grant, let vouched)?:
                 do {
+                    email = vouched   // first, as passkeySignIn does: a later change would clear take()'s sentence
                     let answer = try await client.verify(email: vouched, code: grant)
                     guard mine == attempt else { return }
-                    email = vouched
                     take(answer, email: vouched)
                     // A refused grant is not a wrong code to retype: back to the email, with the sentence.
                     if case .code = step { step = .email }
@@ -192,8 +192,8 @@ final class SignInModel: ObservableObject {
         }
     }
 
-    /// kosmos#7050 slice C: the app left the screen (to the background): a passkey sheet still open is closed, so its
-    /// press is answered (as not used) instead of leaving the screen busy.
+    /// kosmos#7050 slice C: the app went to the background (ContentView calls this): a passkey sheet still open is closed,
+    /// so its press is answered (as not used) instead of leaving the screen busy.
     func appLeft() { client?.cancelPasskey() }
 
     /// kosmos#7050 slice C: sign in with a passkey, in Apple's passkey sheet. The grant finish brings back is spent at
@@ -211,7 +211,11 @@ final class SignInModel: ObservableObject {
                 guard case .offer(let offer) = begun else {
                     guard mine == attempt else { return }
                     // Switched off since the screen asked: the link goes, and the sentence says to use the code.
-                    if case .off = begun { passkeys = false; error = SignIn.passkeyWords.off } else { error = SignIn.passkeyWords.failed }
+                    switch begun {
+                    case .off: passkeys = false; error = SignIn.passkeyWords.off
+                    case .unusable(let sentence): error = sentence ?? SignIn.passkeyWords.failed
+                    case .offer: break
+                    }
                     return
                 }
                 guard mine == attempt else { return }
@@ -224,9 +228,11 @@ final class SignInModel: ObservableObject {
                 guard mine == attempt else { return }
                 switch try await client.passkeyFinish(assertion) {
                 case .grant(let grant, let account):
+                    // The address first: changing it later clears the error line (the email field's onChange) and
+                    // would wipe the sentence take() sets for a refused grant.
+                    email = account
                     let answer = try await client.verify(email: account, code: grant)
                     guard mine == attempt else { return }
-                    email = account
                     take(answer, email: account)
                     // A refused grant is not a wrong code to retype: back to the email, with the sentence.
                     if case .code = step { step = .email }
@@ -253,7 +259,7 @@ final class SignInModel: ObservableObject {
     func restart() {
         // The address goes too: the next sign-in here may be another person's (the web page clears it the same way).
         attempt += 1; busy = false; watch?.cancel(); email = ""; code = ""; error = nil; issued = nil; step = .email
-        passkeysAsked = false   // asked again when the email step shows: the coordinator's answer may have changed
+        passkeysAsked = false; passkeys = false   // asked again when the email step shows: it may have changed
         client?.cancelPasskey()
     }
 
@@ -353,7 +359,6 @@ struct SignInView: View {
     let useWeb: () -> Void
     @FocusState private var focused: Bool
     @Environment(\.openURL) private var openURL
-    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ScrollView {
@@ -367,7 +372,7 @@ struct SignInView: View {
         }
         .background(Palette.ground.ignoresSafeArea())
         .scrollDismissesKeyboard(.interactively)
-        .onChange(of: scenePhase) { phase in if phase == .background { model.appLeft() } }
+
     }
 
     @ViewBuilder private var content: some View {

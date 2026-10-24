@@ -121,12 +121,13 @@ final class SignInClient {
     /// What begin said: an offer a passkey can answer, passkeys switched off (a 404: the route is not there), or an
     /// answer that is neither (a server error, an offer for another host). Throws SignInError.unreachable when Kosmos+
     /// did not answer at all.
-    enum PasskeyBegin { case offer(SignIn.PasskeyOffer), off, unusable }
+    enum PasskeyBegin { case offer(SignIn.PasskeyOffer), off, unusable(String?) }
 
     func passkeyOffer() async throws -> PasskeyBegin {
         let (status, json) = try await post(SignIn.passkeyBeginPath, [:])
         if status == 404 { return .off }
-        return SignIn.passkeyOffer(status: status, json: json, coordinator: coordinator).map(PasskeyBegin.offer) ?? .unusable
+        if let offer = SignIn.passkeyOffer(status: status, json: json, coordinator: coordinator) { return .offer(offer) }
+        return .unusable(SignIn.cleanMessage((json as? [String: Any])?["error"]))
     }
 
     /// What Apple's passkey sheet said.
@@ -172,9 +173,8 @@ final class SignInClient {
             controller.performRequests()
             // A sheet that never answers (the system tearing it down without a callback) is closed after six minutes,
             // past the challenge's five, so the screen is never left busy for good.
-            let mine = asker
-            DispatchQueue.main.asyncAfter(deadline: .now() + 360) { [weak self] in
-                if let self, self.passkeyAsker === mine { self.cancelPasskey() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 360) { [weak self, weak asker] in
+                if let self, let asker, self.passkeyAsker === asker { self.cancelPasskey() }
             }
         }
     }
