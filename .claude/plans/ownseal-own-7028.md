@@ -37,7 +37,9 @@ coordinator. What does:
   reason (changes no epoch, removes a state that holds no key).
 
 ## Rejected
-- Waiting for the relay branch: stale for 24 days with no owner on it.
+- Waiting for the relay branch: the 09-30 ownseal-4658 was stale. (Correction 05:04, Baron: it was revived as
+  kosmos-relay ownseal-4658-v2 on current main, own-seat-requests included, PR to follow. #7028 still uses only what
+  main has; Baron takes "learn sealed before the first post" after both land.)
 - Matching st.own to account-computers by NAME: names are not unique and change; a rename would revoke.
 - Asking before recording (the card's first option): needs a second "held while asking" state; record then clear
   holds posts the same way and keeps one path.
@@ -71,8 +73,9 @@ fixture updated. 14 mutants, all caught (mutant list: scratchpad mut7028.py, res
 
 ## Review round 1 (blind, 04:2x) and what changed
 1. [SHOULD-FIX] The 10-minute cooldown ignored a real seal that came inside it, so posts went in the clear. FIXED:
-   no cooldown. Every sealed-looking frame records the seal (the safe side); only the asking is limited (one per
-   room per 10 s, a frame inside the window is checked when it ends).
+   no cooldown. Every sealed-looking frame records the seal (the safe side). The asking is bounded by the wait
+   itself: a room is asked only while it holds no record, and one is cleared only 10 s after its answer (an
+   explicit per-room limit was written, found unreachable by mutants M19/M20, and removed).
 2. [SHOULD-FIX] The weakest premise was worse than written: a room sealed for a guest who deleted their account
    looped forever (clear, re-record, clear) and killed every code exchange. FIXED: a same-account key-own offer
    (only this account's computers can send one) proves the owner holds the room sealed, and then it is never
