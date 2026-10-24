@@ -367,6 +367,42 @@ enum Board {
         return !(url.host ?? "").isEmpty
     }
 
+    // A message's text as a bubble draws it: what iOS reads as inline Markdown, with the message's own line breaks kept,
+    // and plain web links made tappable (links only: not phone numbers or dates).
+    static func messageText(_ s: String) -> AttributedString {
+        var out = (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+        // A Markdown link can put any address behind friendly words (a phone call, another app), so only web addresses
+        // stay links; the words stay as text.
+        let hidden = out.runs.compactMap { run in run.link.flatMap { isWebLink($0) ? nil : run.range } }
+        for range in hidden { out[range].link = nil }
+        let plain = String(out.characters)
+        if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+            for match in detector.matches(in: plain, range: NSRange(plain.startIndex..., in: plain)) {
+                guard let url = match.url, isWebLink(url), let range = Range(match.range, in: plain),
+                      let lower = AttributedString.Index(range.lowerBound, within: out),
+                      let upper = AttributedString.Index(range.upperBound, within: out),
+                      out[lower..<upper].link == nil else { continue }
+                out[lower..<upper].link = url
+            }
+        }
+        return out
+    }
+
+    // The links a message's bubble shows, in order, for VoiceOver's actions.
+    static func messageLinks(_ s: String) -> [URL] { links(in: messageText(s)) }
+
+    // One link split into runs by its styling counts once. Foundation's Markdown leaves addresses and link words
+    // unstyled today (measured), so no message reaches this yet; it holds if that changes.
+    static func links(in text: AttributedString) -> [URL] {
+        var out: [URL] = []
+        var last: URL?
+        for run in text.runs {
+            if let url = run.link, url != last { out.append(url) }
+            last = run.link
+        }
+        return out
+    }
+
     // The board's own longest message (engine/chat.js MAX_MESSAGE), counted as it counts: UTF-16 units of the message
     // with its runs of spaces and line breaks made single spaces (cleanMessage).
     static let maxMessage = 10000
