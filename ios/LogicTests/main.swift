@@ -922,6 +922,88 @@ do {
     check(links("[site](https://example.com) and http://b.example/x") == ["https://example.com", "http://b.example/x"], "links in order")
 }
 
+section("native chat: a question's buttons and a permission card (kosmos#7016)")
+do {
+    func thread(_ json: String) -> Board.Thread? { Board.parseThread(Data(json.utf8)) }
+    let q = #"{"messages":[{"at":null,"text":"Tuesday or Wednesday?","from":"cleo","kind":"question"}],"question":{"text":"Launch email\nTuesday or Wednesday?\n❯ 1. Tuesday"},"asking":true,"asked":"Tuesday or Wednesday?","presence":"on","options":[{"n":1,"label":"Tuesday"},{"n":2,"label":"Wednesday","lasting":true},{"n":"3","label":"bad"}]}"#
+    let t = thread(q)!
+    check(t.choices?.options == [Board.ChoiceOption(n: 1, label: "Tuesday", lasting: false), Board.ChoiceOption(n: 2, label: "Wednesday", lasting: true)]
+          && t.choices?.asked == "Tuesday or Wednesday?", "the options and the question's identity, an unreadable option dropped")
+    check(Board.choices(for: t.rows[0], in: t) != nil, "the question row takes the buttons")
+    check(thread(q.replacingOccurrences(of: #""asking":true"#, with: #""asking":false"#))?.choices == nil, "not asking now: no buttons")
+    check(thread(q.replacingOccurrences(of: #""presence":"on""#, with: #""presence":"off""#))?.choices == nil, "composer closed: no buttons")
+    check(thread(q.replacingOccurrences(of: #""presence":"on""#, with: #""presence":"unsure""#))?.choices != nil, "CONTROL: presence unsure keeps them")
+    check(thread(q.replacingOccurrences(of: #""asked":"Tuesday or Wednesday?""#, with: #""asked":"""#))?.choices == nil, "no identity: no buttons")
+    let reported = thread(q.replacingOccurrences(of: #""kind":"question"}"#, with: #""kind":"question","reported":true}"#))!
+    check(Board.choices(for: reported.rows[0], in: reported) == nil, "the agent's own reported words take no buttons")
+    // The key: the same words with other options, or another header, are a new question.
+    let other = thread(q.replacingOccurrences(of: #""label":"Wednesday""#, with: #""label":"Thursday""#))!
+    let header = thread(q.replacingOccurrences(of: "Launch email", with: "Newsletter"))!
+    let cursor = thread(q.replacingOccurrences(of: "❯ 1. Tuesday", with: "  1. Tuesday"))!
+    check(other.choices!.key != t.choices!.key && header.choices!.key != t.choices!.key, "other options or another header: a new question")
+    check(cursor.choices!.key == t.choices!.key, "a highlight moving below the question line is the same question")
+    check(Board.choiceHead("Launch email\nTuesday or Wednesday?\n 1. Tuesday", asked: "Tuesday or Wednesday?") == "Launch email\nTuesday or Wednesday?",
+          "the head is the lines up to the question line")
+
+    // The permission card.
+    let p = #"{"messages":[{"at":null,"text":"Do you want to proceed?","from":"eli","kind":"question","permission":{"kind":"delete","says":"Clear the export","target":"rm -rf exports","detail":"Bash command","reason":"Deletes always ask.","allow":1,"deny":3}}],"asking":true,"asked":"Do you want to proceed?","presence":"on","options":[{"n":3,"label":"No"},{"n":2,"label":"Yes, and don't ask again","lasting":true},{"n":1,"label":"Yes"}]}"#
+    let pt = thread(p)!
+    let perm = pt.rows[0].permission!
+    check(perm == Board.Permission(kind: "delete", says: "Clear the export", target: "rm -rf exports", detail: "Bash command", reason: "Deletes always ask.", allow: 1, deny: 3),
+          "the Mac's reading of the prompt")
+    check(Board.permissionAsk(perm) == "Wants to run a command that deletes files: rm -rf exports.", "the ask, in the board's words")
+    let noTarget = Board.Permission(kind: "mystery", says: nil, target: nil, detail: nil, reason: nil, allow: 1, deny: 2)
+    check(Board.permissionAsk(noTarget) == "Wants to do something that needs your permission.", "an unknown kind and no target")
+    let card = Board.cardButtons(pt.choices!, perm)
+    check(card?.allow.label == "Yes" && card?.deny.label == "No" && card?.more.map(\.n) == [2],
+          "Allow and Deny are the prompt's own options by number; the rest are under Show details")
+    let noDeny = Board.Permission(kind: "edit", says: nil, target: nil, detail: nil, reason: nil, allow: 1, deny: 9)
+    check(Board.cardButtons(pt.choices!, noDeny) == nil, "no card unless both Allow and Deny are among the options")
+    check(thread(#"{"messages":[{"at":null,"text":"x","from":"eli","permission":{"allow":1,"deny":2}}]}"#)?.rows[0].permission == nil,
+          "a permission only on a question row")
+
+    // A press, as the board sends it.
+    let mac = URL(string: "https://studio.kosmosplus.com")!
+    let plain = Board.pressRequest(mac: mac, session: "cleo", option: .init(n: 1, label: "Tuesday", lasting: false), asked: "Q?")!
+    let body = try! JSONSerialization.jsonObject(with: plain.httpBody!) as! [String: Any]
+    check(plain.httpMethod == "POST" && plain.url?.path == "/api/agent/cleo/thread" && body["text"] as? String == "1" && body["chose"] as? String == "Tuesday"
+          && body["asked"] as? String == "Q?" && body["lasting"] == nil && plain.value(forHTTPHeaderField: "Content-Type") == "application/json",
+          "the digit typed, the option's words, the question it answers; no lasting")
+    let lasting = Board.pressRequest(mac: mac, session: "cleo", option: .init(n: 2, label: "W", lasting: true), asked: "Q?")!
+    check((try! JSONSerialization.jsonObject(with: lasting.httpBody!) as! [String: Any])["lasting"] as? Bool == true, "a lasting choice confirms it")
+    check(Board.pressRequest(mac: mac, session: "../x", option: .init(n: 1, label: "a", lasting: false), asked: "Q") == nil, "not an agent's name: no request")
+
+    // What its answer means.
+    let res = { (s: Int, b: String?) in Board.pressResult(status: s, body: b.map { Data($0.utf8) }) }
+    check(res(200, #"{"delivery":{"state":"placed"}}"#) == .sent, "placed is sent")
+    check(res(200, #"{"delivery":{"state":"could_not","because":"a message is being typed to it right now"}}"#)
+          == .refused("A message is being typed to it right now."), "could_not typed nothing: the Mac's reason, as a sentence")
+    check(res(200, #"{"delivery":{"state":"unconfirmed","because":"its question was still on its screen"}}"#)
+          == .notSure(Board.choiceUnsure + " Its question was still on its screen."), "unconfirmed may have gone: the board's sentence and its reason")
+    check(res(200, #"{}"#) == .notSure(Board.choiceUnsure) && res(0, nil) == .notSure(Board.choiceUnsure) && res(502, #"{"error":"x"}"#) == .notSure(Board.choiceUnsure),
+          "a 200 with no verdict, no answer, or a 5xx may have gone")
+    check(res(409, #"{"error":"its question is no longer on its screen, so we did not send the answer."}"#)
+          == .refused("Its question is no longer on its screen, so we did not send the answer."), "a refusal keeps the Mac's words")
+    check(res(409, nil) == .refused("That did not go; try again."), "a refusal with no words")
+    check(Board.PressResult.sent.mayHaveSent && Board.PressResult.notSure("x").mayHaveSent && !Board.PressResult.refused("x").mayHaveSent, "which may have gone")
+    check(Board.sentence("ok!") == "Ok!" && Board.sentence("  ") == "" && Board.sentence(nil) == "", "a sentence keeps its own stop")
+
+    // Arm and confirm (#6172).
+    let t0 = Date(timeIntervalSince1970: 1000)
+    let last = Board.ChoiceOption(n: 2, label: "W", lasting: true)
+    check(Board.armStep(nil, option: .init(n: 1, label: "T", lasting: false), key: "k", now: t0) == .send, "an ordinary choice sends at once")
+    let armed = Board.Armed(key: "k", n: 2, at: t0)
+    check(Board.armStep(nil, option: last, key: "k", now: t0) == .arm(armed), "a lasting choice's first press arms it")
+    check(Board.armStep(armed, option: last, key: "k", now: t0 + 0.3) == .ignore, "a second press inside 0.6 s is the same tap: nothing")
+    check(Board.armStep(armed, option: last, key: "k", now: t0 + 2) == .send, "the second press sends it")
+    check(Board.armStep(armed, option: last, key: "k", now: t0 + 15) == .arm(Board.Armed(key: "k", n: 2, at: t0 + 15)), "after 15 s it arms again")
+    check(Board.armStep(armed, option: last, key: "other", now: t0 + 2) == .arm(Board.Armed(key: "other", n: 2, at: t0 + 2)), "another question: arms again")
+    check(Board.armStep(armed, option: .init(n: 4, label: "Z", lasting: true), key: "k", now: t0 + 2) == .arm(Board.Armed(key: "k", n: 4, at: t0 + 2)),
+          "another lasting option: arms that one")
+    check(Board.isArmed(armed, n: 2, key: "k", now: t0 + 14.9) && !Board.isArmed(armed, n: 2, key: "k", now: t0 + 15)
+          && !Board.isArmed(armed, n: 1, key: "k", now: t0 + 1) && !Board.isArmed(armed, n: 2, key: "x", now: t0 + 1), "what shows as armed")
+}
+
 section("native chat: a sent message until the conversation holds it")
 do {
     let t0 = Board.isoDate("2026-10-23T15:00:00Z")!

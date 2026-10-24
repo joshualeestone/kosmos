@@ -452,12 +452,168 @@ enum Board {
         // (duplicateOf), and not a menu answer (its words are not what was typed).
         var resendable = false
         var canSendAgain: Bool { who == .person && notSent == "Not sent" && resendable }
+        // kosmos#7016: the Mac's reading of a permission prompt on a question row, and whether a question is the agent's
+        // own reported words (which take no buttons, as on the board).
+        var permission: Permission? = nil
+        var reported = false
     }
 
     struct Thread: Equatable {
         let rows: [ChatRow]
         // Older messages kept on the Mac that this read did not bring (the chat says so and links to the board).
         let olderCount: Int
+        // The question's buttons, when the Mac says they can be pressed now (#7016).
+        var choices: Choices? = nil
+    }
+
+    // MARK: Answering a question (kosmos#7016; the board's dmChoicesFrom, dmChoicesHtml and dmChoicePress)
+
+    struct ChoiceOption: Equatable { let n: Int; let label: String; let lasting: Bool }
+
+    struct Choices: Equatable {
+        let options: [ChoiceOption]
+        // The question's identity, sent back with a press; the Mac answers only the question it names.
+        let asked: String
+        // The question, its header lines and its options as one value: a question repeated word for word with other
+        // choices, or another header, is a new question (dmChoiceSig, dmChoiceHead), so an armed or answered state for
+        // the old one never carries over.
+        let key: String
+    }
+
+    struct Permission: Equatable {
+        let kind: String
+        let says: String?
+        let target: String?
+        let detail: String?
+        let reason: String?
+        let allow: Int
+        let deny: Int
+    }
+
+    // dmChoicesFrom: buttons only where the agent asks now (`asking`), the Mac named the question (`asked`), and its
+    // composer is not closed (presence off: it cannot be typed into).
+    static func parseChoices(_ obj: [String: Any]) -> Choices? {
+        let opts: [ChoiceOption] = (obj["options"] as? [[String: Any]] ?? []).compactMap { o in
+            guard let n = o["n"] as? Int, let label = o["label"] as? String else { return nil }
+            return ChoiceOption(n: n, label: label, lasting: o["lasting"] as? Bool == true)
+        }
+        guard !opts.isEmpty, obj["asking"] as? Bool == true, let asked = obj["asked"] as? String, !asked.isEmpty,
+              obj["presence"] as? String != "off" else { return nil }
+        let question = (obj["question"] as? [String: Any])?["text"] as? String ?? ""
+        let sig = opts.map { "\($0.n)\u{1}\($0.label)" }.joined(separator: "\u{2}")
+        return Choices(options: opts, asked: asked, key: asked + "\u{3}" + choiceHead(question, asked: asked) + "\u{3}" + sig)
+    }
+
+    // dmChoiceHead: the question's lines up to the line that holds `asked` (the option lines below it carry a highlight
+    // that moves without the question changing).
+    static func choiceHead(_ question: String, asked: String) -> String {
+        let lines = question.components(separatedBy: "\n")
+        let at = lines.firstIndex { $0.trimmingCharacters(in: .whitespaces) == asked } ?? lines.lastIndex { $0.contains(asked) }
+        guard let at else { return "" }
+        return lines[...at].map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: "\n")
+    }
+
+    static func parsePermission(_ any: Any?) -> Permission? {
+        guard let p = any as? [String: Any], let allow = p["allow"] as? Int, let deny = p["deny"] as? Int else { return nil }
+        func text(_ k: String) -> String? { (p[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        return Permission(kind: p["kind"] as? String ?? "other", says: text("says"), target: text("target"), detail: text("detail"),
+                          reason: text("reason"), allow: allow, deny: deny)
+    }
+
+    // A question row takes the buttons only when it is not the agent's own reported words (dmChoicesHtml).
+    static func choices(for row: ChatRow, in thread: Thread) -> Choices? {
+        row.wayThrough == .question || row.wayThrough == .permission ? (row.reported ? nil : thread.choices) : nil
+    }
+
+    // DM_PERM_DOES.
+    static func permissionDoes(_ kind: String) -> String {
+        switch kind {
+        case "delete": return "run a command that deletes files"
+        case "command": return "run a command"
+        case "create": return "create a file"
+        case "edit": return "change a file"
+        case "fetch": return "fetch something from the web"
+        default: return "do something that needs your permission"
+        }
+    }
+
+    // "Wants to <what>: <target>." (dmPermissionHtml); the what-words are drawn in the danger colour for a delete.
+    static func permissionAsk(_ p: Permission) -> String {
+        "Wants to " + permissionDoes(p.kind) + (p.target.map { ": " + $0 } ?? "") + "."
+    }
+
+    // The card's buttons: Allow then Deny (the prompt's own options by number), and every other option for Show
+    // details. No card at all unless both Allow and Deny are among the options (dmChoicesHtml review 5).
+    static func cardButtons(_ c: Choices, _ p: Permission) -> (allow: ChoiceOption, deny: ChoiceOption, more: [ChoiceOption])? {
+        guard p.allow != p.deny, let allow = c.options.first(where: { $0.n == p.allow }),
+              let deny = c.options.first(where: { $0.n == p.deny }) else { return nil }
+        return (allow, deny, c.options.filter { $0.n != p.allow && $0.n != p.deny }.sorted { $0.n < $1.n })
+    }
+
+    // pjSentence: the Mac's words as a sentence.
+    static func sentence(_ s: String?) -> String {
+        let said = (s ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = said.first else { return "" }
+        let tail = said.dropFirst()
+        return first.uppercased() + tail + (".!?".contains(said.last!) ? "" : ".")
+    }
+
+    static let choiceUnsure = "We could not confirm that it went (pressing again may answer twice)."
+    static let choiceArmNote = "This one changes what the agent may do from now on. Press it again to choose it."
+    static let choiceWaitLine = "Still sending your choice. Try again in a moment."
+
+    // The option's digit is the key typed; its words are checked against the screen; `lasting` confirms a lasting choice.
+    static func pressRequest(mac: URL, session: String, option: ChoiceOption, asked: String) -> URLRequest? {
+        guard isAgentSession(session) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["text": String(option.n), "chose": option.label, "asked": asked]
+        if option.lasting { body["lasting"] = true }
+        r.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return r
+    }
+
+    enum PressResult: Equatable {
+        case sent
+        // It may have gone: the buttons stay off for the answered lock, and the line says pressing again may answer twice.
+        case notSure(String)
+        // Nothing was typed: the buttons come back, with the Mac's reason.
+        case refused(String)
+        var mayHaveSent: Bool { if case .refused = self { return false }; return true }
+    }
+
+    // dmChoicePress's reading: only `placed` is sent; `could_not` typed nothing; a 5xx, no answer, or a 200 with any
+    // other verdict may have sent the key.
+    static func pressResult(status: Int, body: Data?) -> PressResult {
+        if status == 0 || status >= 500 { return .notSure(choiceUnsure) }
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        guard (200...299).contains(status) else { return .refused(sentence((obj?["error"] as? String) ?? "that did not go; try again")) }
+        let d = obj?["delivery"] as? [String: Any]
+        let state = d?["state"] as? String
+        let because = (d?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        if state == "placed" { return .sent }
+        if state == "could_not" { return .refused(sentence(because ?? "that did not go; try again")) }
+        return .notSure(choiceUnsure + (because.map { " " + sentence($0) } ?? ""))
+    }
+
+    // #6172 arm and confirm: a lasting choice's first press arms it; a second press on the same option of the same
+    // question within 15 s sends it; one sooner than 0.6 s is the same gesture (a double-tap) and does nothing.
+    struct Armed: Equatable { let key: String; let n: Int; let at: Date }
+    static let armWindow: TimeInterval = 15
+    static let armFloor: TimeInterval = 0.6
+    enum ArmStep: Equatable { case send, arm(Armed), ignore }
+    static func armStep(_ armed: Armed?, option: ChoiceOption, key: String, now: Date) -> ArmStep {
+        guard option.lasting else { return .send }
+        if let a = armed, a.key == key, a.n == option.n, now.timeIntervalSince(a.at) < armWindow {
+            return now.timeIntervalSince(a.at) < armFloor ? .ignore : .send
+        }
+        return .arm(Armed(key: key, n: option.n, at: now))
+    }
+    static func isArmed(_ armed: Armed?, n: Int, key: String, now: Date) -> Bool {
+        guard let a = armed else { return false }
+        return a.key == key && a.n == n && now.timeIntervalSince(a.at) < armWindow
     }
 
     static func isoDate(_ s: String?) -> Date? {
@@ -500,10 +656,12 @@ enum Board {
                 : kind == "question" ? .question
                 : (row["attachment"] != nil || (row["attachments"] as? [Any])?.isEmpty == false) ? .attachment : nil
             return ChatRow(id: base + "#\(n)", atRaw: at, at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way,
-                           because: because, resendable: resendable)
+                           because: because, resendable: resendable,
+                           permission: kind == "question" ? parsePermission(row["permission"]) : nil,
+                           reported: row["reported"] as? Bool == true)
         }
         let older = (obj["olderCount"] as? NSNumber)?.intValue ?? 0
-        return Thread(rows: parsed, olderCount: max(0, older))
+        return Thread(rows: parsed, olderCount: max(0, older), choices: parseChoices(obj))
     }
 
     // A read of the conversation: the conversation, the Mac's own reason it could not give one (a name it refuses, a
