@@ -34,44 +34,83 @@ let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(() => { try { server.close(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
-// Only the fields the reason reads (a present, tied agent, as the board's rows are): inputs to one function, not
-// stand-ins for board cards (fixture-discipline).
-const live = (fields) => ({ present: true, tied: true, ...fields });
+/* Review 1: every card below starts from a REAL /api/status row (an idle agent on a fake fleet, classified by the real
+   engine), with only the fields under test changed. Hand-built cards supplied `present` and `tied`, which real rows
+   never carry, and so passed on a premise production lacks: every reason but the question read 'other' for real. */
+let REAL = null;
+async function realRow() {
+  if (REAL) return REAL;
+  const board = fleet.install([fleet.agent('basil', { state: 'idle' })]);
+  try {
+    const s = await (await fetch(base + '/api/status')).json();
+    const row = s.agents.find((a) => a.sessionName === 'basil');
+    assert.ok(row, 'CONTROL: the agent is on the board');
+    const { cardWord, cardTone, needsReason, stateProjectName, ...card } = row;
+    REAL = card;
+    return REAL;
+  } finally { board.restore(); }
+}
 const reason = (card) => cardlabel.reasonOf(card, needsPerson(card));
 
-test('#7030 reasonOf: each reason the phone has a sentence for', () => {
-  assert.equal(reason(live({ state: 'needs_you', stateReportedBy: 'agent' })), 'question', 'its own question');
-  assert.equal(reason(live({ state: 'needs_you' })), 'question', 'a question read off its screen');
-  assert.equal(reason(live({ state: 'needs_you', awaitingApproval: true })), 'permission');
-  assert.equal(reason(live({ state: 'needs_trust' })), 'trust');
-  assert.equal(reason(live({ state: 'connection_lost', reconnect: { phase: 'gave_up' } })), 'gave_up');
-  assert.equal(reason(live({ state: 'idle', crashLoop: { looping: true } })), 'crash_loop');
-  assert.equal(reason(live({ state: 'auth_failed', stuckError: { stuck: true, state: 'auth_failed' } })), 'stuck_auth');
-  assert.equal(reason(live({ state: 'rate_limited', stuckError: { stuck: true, state: 'rate_limited' } })), 'stuck_rate');
-  assert.equal(reason(live({ state: 'idle', ownBound: { raised: true } })), 'own_bound');
+test('#7030 premise: a real status row carries no present or tied, and the board says it is ours', async () => {
+  const row = await realRow();
+  assert.equal('present' in row, false, 'real rows now carry present; the review-1 note is stale');
+  assert.equal('tied' in row, false, 'real rows now carry tied; the review-1 note is stale');
+  assert.equal(row.isNamedOurs, true);
+  assert.equal(reason(row), null, 'CONTROL: an idle agent is not on Today');
+});
+
+test('#7030 reasonOf on real rows: each reason the phone has a sentence for', async () => {
+  const r = await realRow();
+  const on = (fields) => reason({ ...r, ...fields });
+  assert.equal(on({ state: 'needs_you', stateReportedBy: 'agent' }), 'question', 'its own question');
+  assert.equal(on({ state: 'needs_you' }), 'question', 'a question read off its screen');
+  assert.equal(on({ state: 'needs_you', awaitingApproval: true }), 'permission');
+  assert.equal(on({ state: 'needs_you', disruption: { failed: true } }), 'restart_failed');
+  assert.equal(on({ state: 'needs_trust' }), 'trust');
+  assert.equal(on({ running: false, needsTrust: true }), 'trust', 'a trust prompt on a card that is not running');
+  assert.equal(on({ state: 'connection_lost', reconnect: { phase: 'gave_up' } }), 'gave_up');
+  assert.equal(on({ crashLoop: { looping: true } }), 'crash_loop');
+  assert.equal(on({ state: 'auth_failed', stuckError: { stuck: true, state: 'auth_failed' } }), 'stuck_auth');
+  assert.equal(on({ state: 'rate_limited', stuckError: { stuck: true, state: 'rate_limited' } }), 'stuck_rate');
+  assert.equal(on({ ownBound: { raised: true } }), 'own_bound');
   // On Today with no specific reason from the engine: worded generally.
-  assert.equal(reason(live({ state: 'idle', running: false })), 'other', 'not running');
-  assert.equal(reason(live({ state: 'rate_limited' })), 'other', 'a rate limit not counted as stuck');
-  assert.equal(reason(live({ state: 'blocked' })), 'other');
-  for (const r of ['question', 'permission', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate', 'own_bound', 'other']) {
-    assert.ok(cardlabel.NEEDS_REASONS.includes(r), r);
-  }
+  assert.equal(on({ running: false }), 'other', 'not running');
+  assert.equal(on({ state: 'rate_limited' }), 'other', 'a rate limit not counted as stuck');
+  assert.equal(on({ state: 'blocked' }), 'other');
+  assert.deepEqual([...cardlabel.NEEDS_REASONS].sort(), ['crash_loop', 'gave_up', 'other', 'own_bound', 'permission', 'question',
+    'restart_failed', 'stuck_auth', 'stuck_rate', 'trust']);
 });
 
-test('#7030 reasonOf: precedence, and no reason for an agent Today does not show', () => {
-  // A permission prompt is a permission even when the agent itself reported the wait.
-  assert.equal(reason(live({ state: 'needs_you', stateReportedBy: 'agent', awaitingApproval: true })), 'permission');
-  // The engine's order: a crash loop outranks a connection Kosmos gave up on.
-  assert.equal(reason(live({ state: 'connection_lost', reconnect: { phase: 'gave_up' }, crashLoop: { looping: true } })), 'crash_loop');
-  for (const quiet of [live({ state: 'working' }), live({ state: 'idle' }), live({ state: 'restarting' }),
-    live({ state: 'connection_lost', reconnect: { phase: 'waiting' } })]) {
-    assert.equal(reason(quiet), null, JSON.stringify(quiet));
+test('#7030 reasonOf on real rows: the board\'s order, and no reason for an agent Today does not show', async () => {
+  const r = await realRow();
+  const on = (fields) => reason({ ...r, ...fields });
+  // pjAlsoWhy's order: a failed restart, then a crash loop, before the question.
+  assert.equal(on({ state: 'needs_you', disruption: { failed: true }, crashLoop: { looping: true } }), 'restart_failed');
+  assert.equal(on({ state: 'needs_you', awaitingApproval: true, crashLoop: { looping: true } }), 'crash_loop',
+    'the card says Keeps stopping, so the sentence must not say it is waiting for an answer');
+  // labelOf's order: an agent-reported wait reads Question even on a permission prompt, so the sentence agrees.
+  assert.equal(on({ state: 'needs_you', stateReportedBy: 'agent', awaitingApproval: true }), 'question');
+  // A rate limit never hides a real reason (needsYouReasonPastUsage).
+  assert.equal(on({ state: 'connection_lost', reconnect: { phase: 'gave_up' }, stuckError: { stuck: true, state: 'rate_limited' } }), 'gave_up');
+  // A card the board does not say is ours gets no specific reason from the engine.
+  assert.equal(on({ state: 'needs_trust', isNamedOurs: false }), 'other');
+  for (const quiet of [{ state: 'working' }, { state: 'idle' }, { state: 'restarting' }, { state: 'connection_lost', reconnect: { phase: 'waiting' } }]) {
+    assert.equal(on(quiet), null, JSON.stringify(quiet));
   }
-  // CONTROL: the tone decides, so the same idle card with the board's needs-the-person verdict gets a reason.
-  assert.equal(cardlabel.reasonOf(live({ state: 'idle' }), true), 'other');
+  // The tone decides: the same idle row with the board's needs-the-person verdict gets a reason.
+  assert.equal(cardlabel.reasonOf({ ...r }, true), 'other');
 });
 
-test('#7030 withCardWords: the project name from the route\'s projects read; none when unknown, unnamed or unread', () => {
+test('#7030 toneOf: a trust prompt on a card that is not running needs the person (it was quiet, so never on Today)', () => {
+  assert.equal(cardlabel.toneOf({ state: 'idle', running: false, needsTrust: true }, false), 'needs_you');
+  assert.equal(cardlabel.toneOf({ state: 'idle', running: false }, false), 'needs_you', 'CONTROL: not running is needs_you too');
+  assert.equal(cardlabel.labelOf({ state: 'idle', running: false, needsTrust: true }), 'Waiting on a trust prompt', 'its word is unchanged');
+});
+
+test('#7030 withCardWords: the project name from the route\'s projects read; none when unknown, unnamed or unread', async () => {
+  const r = await realRow();
+  const live = (fields) => ({ ...r, ...fields });
   const list = [{ id: 'p-cat', name: 'Spring catalogue' }, { id: 'p-blank', name: '' }];
   const [named, unknown, blank, none] = withCardWords([
     live({ state: 'needs_you', stateReportedBy: 'agent', stateProject: 'p-cat' }),
