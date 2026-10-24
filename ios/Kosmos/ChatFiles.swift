@@ -43,7 +43,9 @@ struct FileCard: View {
     let waiting: Bool
     let open: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
-    private var lines: Int { typeSize.isAccessibilitySize ? 3 : 1 }
+    // One line at the default sizes (the spec); two from xLarge up, so "Try again" is never cut off; three at the
+    // accessibility sizes.
+    private var lines: Int { typeSize.isAccessibilitySize ? 3 : typeSize >= .xLarge ? 2 : 1 }
 
     // A page or markup file is opened on the computer's board, never here (Board.isWebDocument).
     private var onBoard: Bool { Board.isWebDocument(name: file.name, type: file.type) }

@@ -1049,6 +1049,13 @@ do {
     let lead = row(#"{"text":"x","from":"c","attachment":{"url":"/api/attachment/dddddddddddddddddddddddd","preview":"https://elsewhere.example/p.png","kind":"image"}}"#)!.attachments[0]
     check(lead.preview == nil && !Board.hasThumbnail(lead), "a preview at another address is no preview")
     check(Board.hasThumbnail(r.attachments[0]) && !Board.hasThumbnail(r.attachments[1]), "a picture only for an image or PDF with a preview")
+    func img(_ size: Int?) -> Board.Attachment {
+        Board.Attachment(id: "x", name: "p.jpg", type: "image/jpeg", size: size, kind: "image", url: "/api/attachment/x", preview: "/api/attachment/x/preview")
+    }
+    check(Board.hasThumbnail(img(3 * 1024 * 1024)) && !Board.hasThumbnail(img(3 * 1024 * 1024 + 1)) && !Board.hasThumbnail(img(nil)),
+          "an image's picture is the whole image, so one over 3 MB (or of unknown size) draws the symbol")
+    check(Board.savedName(String(repeating: "A", count: 154) + ".html..z") == String(repeating: "A", count: 154) + ".html",
+          "a name cut at 160 never ends in a dot")
     check(Board.attachmentMeta(r.attachments[0]) == "PDF \u{00B7} 2.4 MB" && Board.attachmentMeta(r.attachments[1]) == "Word document \u{00B7} 47 KB",
           "the kind word and size, as the board writes them")
     let fw = { (t: String, n: String, k: String) in Board.fileWord(type: t, name: n, kind: k) }
@@ -1615,6 +1622,8 @@ section("native board loop: connecting")
         w.attachmentAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
         let page = await c.fetchFile(pdf)
         check(page == nil, "the gate's sign-in page in place of the file is no file")
+        // The Mac answering with an ordinary type, so only the refusal up front can stop it.
+        w.attachmentAnswer = (200, "application/octet-stream", Data("<html>".utf8))
         let html = Board.Attachment(id: "444444444444444444444444", name: "page.html", type: "text/html", size: 1, kind: "other", url: "/api/attachment/444444444444444444444444", preview: nil)
         let htmlFile = await c.fetchFile(html)
         check(htmlFile == nil, "a web page is never opened here, even one the agent sent as HTML")
@@ -1695,6 +1704,17 @@ section("native board loop: connecting")
         let doc = Board.Attachment(id: "222222222222222222222222", name: "b.docx", type: "", size: nil, kind: "other", url: "/api/attachment/222222222222222222222222", preview: nil)
         await c.loadThumbnail(doc)
         check(w.attachmentAsks.count == asks && c.thumbnails["222222222222222222222222"] == nil, "no preview: no request")
+        // A sign-out while a picture is on its way: it lands in nobody's chat.
+        w.attachmentYields = 50
+        w.attachmentAnswer = (200, "image/png", big)
+        let latePic = Board.Attachment(id: "6666666666666666666666bb", name: "l.pdf", type: "application/pdf", size: 1, kind: "pdf",
+                                       url: "/api/attachment/6666666666666666666666bb", preview: "/api/attachment/6666666666666666666666bb/preview")
+        let picTask = Task { await c.loadThumbnail(latePic) }
+        _ = await settle { w.attachmentStarted.last == "/api/attachment/6666666666666666666666bb/preview" }
+        c.accountChanged()
+        await picTask.value
+        check(c.thumbnails[latePic.id] == nil, "a picture fetched across a sign-out is not kept for the next account")
+        _ = await settle { isLive(c) }
         // A sign-out while a file is on its way: nothing is written afterwards.
         w.attachmentYields = 50
         w.attachmentAnswer = (200, "application/pdf", Data("%PDF-1.4 late".utf8))
