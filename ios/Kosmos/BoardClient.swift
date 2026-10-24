@@ -560,7 +560,6 @@ final class BoardClient: ObservableObject {
             // restored once it answers again.
             if !listedThisRun, let held = admitted { keepMacSession(mac, url: url, session: held.session) }
             listedThisRun = true
-            if let was = shownMac, was.address != mac.address { forgetChats() }
             shownMac = mac
             fresh = true
             if let held = admitted { shownOwner = Board.owner(of: held.session) }
