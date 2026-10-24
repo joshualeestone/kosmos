@@ -2684,6 +2684,9 @@ check(SignIn.next(after: .needsSetup, email: "e").step == .web(reason: SignIn.we
 check(SignIn.next(after: .refused(message: nil, proofRefused: false), email: "e").step == .code(email: "e"), "a wrong code stays on the code")
 check(SignIn.next(after: .refused(message: nil, proofRefused: true), email: "e").step == .web(reason: SignIn.webForKey), "a refused key: the web page")
 check(SignIn.secondWords(kind: "sms", sentTo: nil).contains("your phone") && SignIn.secondWords(kind: "totp", sentTo: nil).contains("authenticator"), "the second step's words, as the web page's")
+check(SignIn.secondWords(kind: "sms", sentTo: "+1 *** *** 0123").contains("+1\u{00A0}***\u{00A0}***\u{00A0}0123"), "a masked number stays whole (no breaking space inside it)")
+check(SignIn.wrappable(email: "ada@example.com") == "ada@\u{200B}example.\u{200B}com" && SignIn.wrappable(email: "ada@example.com").replacingOccurrences(of: "\u{200B}", with: "") == "ada@example.com", "an address breaks only after @ or a dot, and reads unchanged")
+check(SignIn.webTitle(reason: SignIn.webForCompany) == "Your company signs you in" && !SignIn.webTitle(reason: SignIn.webForSetup).contains("-"), "the hand-over titles (none with a hyphen to break at)")
 
 section("sign-in: the adopt script carries the token as a string literal, never as script")
 do {
