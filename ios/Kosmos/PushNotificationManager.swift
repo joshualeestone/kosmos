@@ -23,6 +23,9 @@ final class PushNotificationManager: NSObject, ObservableObject {
     // kosmos#7008: bumped by a sign-out or a sign-in as someone else, so the Agents tab drops its chats at once. A
     // Keychain read that briefly finds no session is not one of these and keeps them.
     @Published private(set) var accountChanges = 0
+    // kosmos#7042 review round 6: whether the last account change was a sign-out, as the message said (not read back
+    // from the keychain, which a failed save leaves empty while the app is signed in for the launch).
+    private(set) var lastChangeSignedOut = false
 
     // MARK: - Configuration
 
@@ -163,6 +166,7 @@ final class PushNotificationManager: NSObject, ObservableObject {
         if changed {
             SessionKeychain.macSession.delete()
             UserDefaults.standard.removeObject(forKey: Board.rememberedMacKey)
+            lastChangeSignedOut = message == .signedOut
             accountChanges += 1
         }
     }

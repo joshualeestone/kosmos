@@ -108,7 +108,8 @@ struct ContentView: View {
     var body: some View {
         Group {
             if isUnlocked && nativeSignIn {
-                SignInView(model: signIn, useWeb: { nativeSignIn = false })
+                // The sign-in page itself, freshly loaded, whatever the tabs showed before (review round 6).
+                SignInView(model: signIn, useWeb: { nativeSignIn = false; showBoardToday() })
                     // Mona Lisa's spec: the app's tint is the board's ink, here as on the tabs.
                     .tint(Palette.primary)
             } else if isUnlocked {
@@ -143,7 +144,7 @@ struct ContentView: View {
             // the next sign-in is the native one too, or the web page's own device key would make this iPhone a second
             // device on the Mac. Recorded gap: the Mac's "fresh sign-in" link then lands here, not on the page.
             #if !KOSMOS_STORE_SHOTS
-            if !nativeSignIn && SessionKeychain.live.load() == nil { signIn.restart(); nativeSignIn = true }
+            if !nativeSignIn && pushManager.lastChangeSignedOut { signIn.restart(); nativeSignIn = true }
             #endif
         }
         // kosmos#7042: Kosmos+ issued a session: the app takes it as it takes the sign-in page's, and the web view is
@@ -151,7 +152,7 @@ struct ContentView: View {
         .onChange(of: signIn.issued) { token in
             guard let token = token else { return }
             pushManager.signedInNatively(token)
-            web.sessionChanged()
+            web.signedInNatively()
         }
         // The person backed out of a session already issued (Use a different email, Sign in again): it is signed out,
         // so neither the app nor the web page keeps it (review round 2).
@@ -420,6 +421,14 @@ final class BoardWeb: ObservableObject {
         guard let controller = webView?.configuration.userContentController else { return }
         controller.removeAllUserScripts()
         Self.userScripts(session: SessionKeychain.live.load()).forEach(controller.addUserScript)
+    }
+
+    /// A NATIVE sign-in just finished while the page left showing is the sign-in page (signed out on it earlier in the
+    /// launch): that page holds no session, so it is loaded again and starts with the app's (review round 6). Only
+    /// from the native path: after the page's own sign-in the page is mid-flow and is left alone.
+    func signedInNatively() {
+        sessionChanged()
+        if let webView, webView.url?.host == AppTabs.signInHost { webView.load(URLRequest(url: KosmosConfig.boardURL)) }
     }
 
     // Each change of the page's address (replaceState too), with the one before, so the bar can follow the page's own

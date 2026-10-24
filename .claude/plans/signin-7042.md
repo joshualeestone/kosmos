@@ -112,3 +112,14 @@ Design (Mona Lisa, approved): links stacked with no extra space; the address sta
    lands on the native screen, not the page's "open my Kosmos" continuation.
 2. [LOW] RECORDED: rebuilding the start scripts is removeAll then add, so a document starting in that gap gets neither
    (the tab-bar mark, the session). WebKit has no single-script remove; the page then falls back to its own copy.
+
+## Review round 6 (blind, 07:1x)
+1. [MEDIUM] After round 5's restart and a native sign-in, the web view still showed the signed-out sign-in page it
+   was left on (start scripts reach only the next document), and signing in there made a second device. FIXED:
+   BoardWeb.signedInNatively loads that page again (only from the native path; after the page's own sign-in it is
+   mid-flow and is left alone).
+2. [LOW-MEDIUM] The restart read the keychain, which a failed save leaves empty while the app is signed in, so it
+   could pull a person off a company sign-in they had just finished. FIXED: keyed on the message (lastChangeSignedOut).
+3. [LOW] "Sign in with your company or a passkey" after a restart could land on a native tab. FIXED: it opens the
+   board's sign-in page, freshly loaded (showBoardToday).
+Parity: restart clears the previous address, as the page does.

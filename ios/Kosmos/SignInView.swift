@@ -86,7 +86,8 @@ final class SignInModel: ObservableObject {
 
     /// Signed out later in the launch: the native sign-in starts over from the email (review round 5).
     func restart() {
-        attempt += 1; busy = false; watch?.cancel(); code = ""; error = nil; issued = nil; step = .email
+        // The address goes too: the next sign-in here may be another person's (the web page clears it the same way).
+        attempt += 1; busy = false; watch?.cancel(); email = ""; code = ""; error = nil; issued = nil; step = .email
     }
 
     /// Signed in already; the app opens without waiting for the Allow (its tabs say so until the Mac answers).
