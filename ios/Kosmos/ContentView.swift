@@ -176,7 +176,7 @@ struct ContentView: View {
             }, openBoardSettings: {
                 // The board's own Settings, under Today (AppTabs.barTab: its Settings section lights Today).
                 tab = .today
-                web.press(.settings, section: true)
+                web.pressBoardSection(.settings)
             })
         } else {
             webBoard(which)
@@ -344,6 +344,18 @@ final class BoardWeb: ObservableObject {
     }
 
     func loadingOwnPage() { tracker.loadingOwnPage() }
+
+    // kosmos#7010: the board's own section for a native tab, pressed on purpose (the Settings screen's row). When the
+    // shared page is a Kosmos+ page (the account page that screen opens), there is no board to press, so the board is
+    // loaded first and the press waits for it (it waits on the sign-in host, then runs once the board has loaded).
+    func pressBoardSection(_ tab: AppTabs.Tab) {
+        if let webView = webView, webView.url?.host == AppTabs.signInHost {
+            webView.load(URLRequest(url: KosmosConfig.boardURL))
+            _ = tracker.press(tab, page: .loading, section: true)
+            return
+        }
+        press(tab, section: true)
+    }
 
 
     // A page finished loading: run a press that waited for it, and start a launch round of Tasks reads if no read has
