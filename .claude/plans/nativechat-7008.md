@@ -15,18 +15,21 @@ Checked in the simulator; logic in ios/LogicTests. The real-iPhone check joins #
 ## Change
 - ios/Kosmos/BoardLogic.swift: `threadRequest`, `sendRequest` (the board chat's own route, {text}, trimmed, at most the
   board's 10000), `parseThread` (who spoke, the way-through kind, not-sent rows, olderCount, a live question),
-  `chatItems` (runs and day lines), `dayLine`, `PendingSend` and `settled`, `notSentLine`, `sendOutcome`.
-- ios/Kosmos/BoardClient.swift: `thread(for:)` and `send(_:to:)` through the client's own session to the connected Mac;
-  pending messages kept per agent while the app runs (`post`, `retry`, `discard`, `settle`); Debug-only sample chats.
+  `readThread` (the conversation, the Mac's own reason, or no answer), `chatItems` (runs and day lines), `dayLine`, `followKey`, `PendingSend` and `settled`, `sendResult` and `pendingState`, `notSentLine`, `sameWords` and `fitsBoard`.
+- ios/Kosmos/BoardClient.swift: `thread(for:)` through the client's own session to the connected Mac; `post`, `retry`,
+  `sendAgain`, `discard`, `settle` (sends are private); pending messages, drafts and sent-again marks per agent, dropped
+  on sign-out, another account or another Mac; Debug-only sample chats.
 - ios/Kosmos/ChatView.swift (new): the screen, the bubbles, the tail, the working line, the way-through row.
 - ios/Kosmos/AgentsView.swift: a row pushes the chat (it used to open the board's chat in the web view); Debug-only
   `KOSMOS_SAMPLE_OPEN=<agent>` opens one at launch for screenshots.
 - ios/LogicTests/main.swift: four sections (requests, reading, runs and day lines, sending).
 
 ## Decided
-- A send keeps the message in the client, not the screen: a message that was not sent is still there after leaving
-  the chat (the spec). An accepted one stays until a read of the conversation holds a message of the person's with the
-  same words written no earlier than a minute before it was sent, so it never blinks out between the send and the read.
+- The Mac keeps a row for every message it is sent (delivered, held or refused). A send waits for THAT row (by the time
+  the Mac answers with) instead of drawing a copy of its own: held reads Waiting to send with nothing to retry (a retry
+  would queue it twice), refused reads Not sent and is sent again from its row, once. Only a send with no answer keeps
+  its own Not sent, and a read holding the same words (whitespace folded as the board folds it) clears it. Rejected: a
+  local copy that is marked sent or failed (iteration 1 found it duplicated rows and could send twice).
 - The status word and the working line come from the Agents list's own status poll, which keeps running while the chat
   is open (the list's stop is on the navigation view, which stays on screen).
 - No pull to refresh (the spec); the chat reads every 3 seconds while open and stops in the background.
