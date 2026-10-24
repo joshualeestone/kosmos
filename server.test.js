@@ -666,6 +666,10 @@ const UNREAD_ON_PURPOSE = {
     + 'word from the same state through STATE_COPY, which cardlabel-5959 keeps equal',
   cardTone: '#7004: the tone of that word in the iPhone app\'s Agents list (cardlabel toneOf); the page colours its '
     + 'cards its own way',
+  needsReason: '#7030: why the iPhone app\'s Today shows the agent (cardlabel reasonOf); the page words its own '
+    + 'needs-you rows from projects.needsYouReason through PJ_NEEDS_WHY',
+  stateProjectName: '#7030: the name of the project stateProject names, ready-made for the iPhone app; the page '
+    + 'looks names up in its own projects list',
   isAgentPane: 'a classification the board uses to decide what IS an agent; it '
     + 'is an input to the list, never a thing to draw',
   reportedAt: 'the commitments timestamp. The restart dialog shows the age '

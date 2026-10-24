@@ -131,7 +131,8 @@ test('#7004 the status route runs withCardWords last, over rows that already car
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const lines = src.split('\n').filter((l) => /^\s*const rows = .*agents\.concat\(offline\)/.test(l));
   assert.equal(lines.length, 1, 'the status route\'s rows line moved; re-anchor this test');
-  assert.match(lines[0], /^\s*const rows = withCardWords\(withReplyChannel\(withTokenGuard\(withAgentSortFields\(agents\.concat\(offline\)\)\)\)\);$/,
+  // #7030: with the route's one read of the projects file as the second argument.
+  assert.match(lines[0], /^\s*const rows = withCardWords\(withReplyChannel\(withTokenGuard\(withAgentSortFields\(agents\.concat\(offline\)\)\)\), projectList\);$/,
     'withCardWords is not the outermost wrapper of the finished rows');
 });
 

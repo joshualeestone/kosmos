@@ -80,6 +80,22 @@ function toneOf(a, needsPerson) {
   return 'quiet';
 }
 
+/* #7030 (the iPhone plan's slice 4, #6838): why an agent on the phone's Today needs the person, as a code the phone turns
+   into the board's own sentence (web/index.html PJ_NEEDS_WHY), so the phone keeps no copy of the rule. Null unless the
+   card's tone puts it on Today (asked or needs_you). A needs_you state is the agent's question, or its permission prompt
+   (status.awaitingApprovalOf, the card's "Needs permission"). Anything else is the engine's own reason for a project's
+   needs-you block (projects.needsYouReason, whose needs_you branch is handled above), and 'other' where it has none: a
+   stopped agent, a rate limit not yet counted as stuck, or a state added later. */
+const NEEDS_REASONS = ['question', 'permission', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate', 'own_bound', 'other'];
+function reasonOf(a, needsPerson) {
+  const tone = toneOf(a, needsPerson);
+  if (tone !== 'asked' && tone !== 'needs_you') return null;
+  if (a.state === 'needs_you') return a.awaitingApproval === true ? 'permission' : 'question';
+  let why = null;
+  try { why = require('./projects').needsYouReason(a, null); } catch { why = null; }
+  return NEEDS_REASONS.includes(why) ? why : 'other';
+}
+
 /** The sentence `kosmos report show` leads with; a label that already ends in punctuation gets no second. */
 function cardLine(label) {
   return 'Your card on the board shows: ' + label + (/[.…]$/.test(label) ? '' : '.');
@@ -94,4 +110,4 @@ function standingFor(ageMs) {
   return days >= 2 ? days + ' days' : 'over a day';
 }
 
-module.exports = { labelOf, toneOf, cardLine, standingFor, STATE_COPY, NEEDS_YOU_WORDS };
+module.exports = { labelOf, toneOf, reasonOf, NEEDS_REASONS, cardLine, standingFor, STATE_COPY, NEEDS_YOU_WORDS };
