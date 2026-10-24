@@ -75,7 +75,7 @@ NAME="${KOSMOS_CI_RUNNER_NAME:-kosmos-ci-agent1s}"
 # NAME goes into a jq string literal (jq_busy, jq_row): only characters that need no escaping there.
 case "$NAME" in ''|*[!A-Za-z0-9._-]*) echo "refused: KOSMOS_CI_RUNNER_NAME '$NAME' may hold only letters, digits, '.', '_' and '-'" >&2; exit 2 ;; esac
 # CI_HOME goes into pgrep patterns (keepalive): no character there can do more than widen a match ('.').
-case "${KOSMOS_CI_HOME:-/Users/${KOSMOS_CI_USER:-kosmos-ci}}" in ''|*[!A-Za-z0-9/._-]*) echo "refused: the CI home may hold only letters, digits, '/', '.', '_' and '-'" >&2; exit 2 ;; esac
+case "$CI_HOME" in ''|*[!A-Za-z0-9/._-]*) echo "refused: the CI home may hold only letters, digits, '/', '.', '_' and '-'" >&2; exit 2 ;; esac
 for _w in KOSMOS_CI_UNLOAD_WAIT_S KOSMOS_CI_START_WAIT_S KOSMOS_CI_STATE_WAIT_S; do
   eval "_v=\${$_w-}"
   [ -z "$_v" ] || case "$_v" in *[!0-9]*) echo "refused: $_w is '$_v', not a number of seconds" >&2; exit 2 ;; esac
@@ -186,17 +186,37 @@ runner_plist() {
   case "$f" in "$CI_HOME"/Library/LaunchAgents/actions.runner.*.plist) [ -e "$f" ] && printf '%s\n' "$f" ;; esac
   return 0
 }
+# plist_int_ge <plist> <key> <min>: the key is an integer of at least min.
+plist_int_ge() {
+  local t; t="$(plutil -extract "$2" raw -o - "$1" 2>/dev/null || true)"
+  case "$t" in ''|*[!0-9]*) return 1 ;; esac; [ "$t" -ge "$3" ]
+}
 keepalive_set() {
-  [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$1" 2>/dev/null)" = false ] || return 1
-  local t; t="$(plutil -extract ExitTimeOut raw -o - "$1" 2>/dev/null || true)"
-  case "$t" in ''|*[!0-9]*) return 1 ;; esac; [ "$t" -ge 35 ]
+  [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$1" 2>/dev/null)" = false ] \
+    && plist_int_ge "$1" ExitTimeOut 35 && plist_int_ge "$1" ThrottleInterval 10
 }
 # keepalive_missing <plist>: what keepalive_set found missing, in words.
 keepalive_missing() {
   local m=""
   [ "$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$1" 2>/dev/null)" = false ] || m="KeepAlive {SuccessfulExit: false}"
-  keepalive_set "$1" || [ -n "$m" ] || m="ExitTimeOut 35 (it has KeepAlive)"
+  plist_int_ge "$1" ExitTimeOut 35 || m="${m:+$m, }ExitTimeOut 35"
+  plist_int_ge "$1" ThrottleInterval 10 || m="${m:+$m, }ThrottleInterval 10"
   printf '%s' "${m:-nothing}"
+}
+# loaded_always <domain/label>: the LOADED job restarts even a clean exit (an operator's KeepAlive true). launchctl print
+# lists it as "properties = keepalive | ..." with no "successful exit" semaphore (measured on macOS 27, 2026-10-23;
+# KeepAlive {SuccessfulExit: false} prints the semaphore and no keepalive property). A SIGTERM would then be followed by
+# a restart, and the bootout could cut that new Listener while it opens its GitHub session.
+loaded_always() {
+  local out; out="$(launchctl print "$1" 2>/dev/null)" || return 1
+  # Whole-input greps (no -q) under pipefail: an early-exiting grep can fail its writer with SIGPIPE.
+  printf '%s\n' "$out" | sed -n 's/^[[:space:]]properties = //p' | tr '|' '\n' | grep -x -E '[[:space:]]*keepalive[[:space:]]*' >/dev/null || return 1
+  ! printf '%s\n' "$out" | grep -x -E '[[:space:]]*successful exit => 0' >/dev/null
+}
+# label_disabled <domain> <label>: launchctl print-disabled lists it as "<label>" => disabled (or true).
+label_disabled() {
+  local dis; dis="$(launchctl print-disabled "$1" 2>/dev/null || true)"
+  printf '%s\n' "$dis" | grep -F "\"$2\"" | grep -E '=> (disabled|true)' >/dev/null
 }
 # loaded_keepalive <domain/label>: the LOADED job has it (launchd prints KeepAlive {SuccessfulExit: false} as the
 # semaphore "successful exit => 0", and ExitTimeOut as "exit timeout = N"; measured on macOS 27.0.1, the old Agent1s
@@ -675,6 +695,12 @@ keepalive() {
       # the point here (KeepAlive would not), so this is a change to make (exit 0), unlike a runner that is not loaded.
       local js; js="$(launchctl print "$dom/$label" 2>/dev/null | sed -n 's/^[[:space:]]state = //p' | head -n 1 || true)"
       [ "$js" = running ] || echo "note:   $label is loaded but not running now (state = ${js:-unknown}): the reload below starts it"
+      if label_disabled "$dom" "$label"; then
+        echo "refused: $label is disabled in $dom, so --apply would refuse to reload it. Enable it first: launchctl enable $dom/$label" >&2; exit 1
+      fi
+      if loaded_always "$dom/$label"; then
+        echo "refused: the LOADED $label restarts even a clean stop (KeepAlive true), so --apply would refuse to reload it; reload it by hand while idle: launchctl bootout $dom/$label, then launchctl bootstrap $dom $plist" >&2; exit 1
+      fi
       echo "WOULD: only while no job runs: stop $label with SIGTERM, then reload it"
       printf 'WOULD: launchctl kill SIGTERM %s\nWOULD: launchctl bootout %s\nWOULD: launchctl bootstrap %s %s\n' "$dom/$label" "$dom/$label" "$dom" "$plist"
     else echo "DOWN: $label is not loaded, so the runner is not running; --apply puts KeepAlive in the plist and does not start it" >&2; exit 1; fi
@@ -709,9 +735,11 @@ keepalive() {
   # KeepAlive {SuccessfulExit: false} does not restart; the bootout after it finds nothing left to kill.
   # A disabled override would let the bootout below succeed and the bootstrap fail (5: Input/output error), leaving the
   # runner stopped. launchctl print-disabled lists it as "<label>" => disabled (or true): refuse before stopping anything.
-  local dis; dis="$(launchctl print-disabled "$dom" 2>/dev/null || true)"
-  if printf '%s\n' "$dis" | grep -F "\"$label\"" | grep -q -E '=> (disabled|true)'; then
+  if label_disabled "$dom" "$label"; then
     echo "refused: $label is disabled in $dom, so it could be stopped but not loaded again; nothing was stopped. Enable it first: launchctl enable $dom/$label" >&2; exit 1
+  fi
+  if loaded_always "$dom/$label"; then
+    echo "refused: the LOADED $label restarts even a clean stop (KeepAlive true), so a SIGTERM here would be followed by a restart the bootout could cut; nothing was stopped, KeepAlive is in the plist, not yet loaded. Reload it by hand while idle: launchctl bootout $dom/$label, then launchctl bootstrap $dom $plist" >&2; exit 1
   fi
   # From here to the bootstrap the runner is being stopped: a dropped ssh session must not end the script in the middle.
   # SIGHUP and SIGPIPE are ignored and the window's one message cannot fail it; the launchctl calls' own output to a
