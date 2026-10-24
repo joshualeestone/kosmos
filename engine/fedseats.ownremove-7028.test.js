@@ -238,9 +238,44 @@ test('#7028: an own computer still behind ten minutes after it first saw a newer
   assert.deepStrictEqual({ role: st.role, ownComputer: st.ownComputer, keys: st.keys }, { role: 'member', ownComputer: true, keys: {} }, 'the old key was kept');
   assert.strictEqual(hellos(seat), 1, 'it did not ask to be let back in');
   assert.ok(h.notes.some((n) => n.projectId === 'rj-1' && /compare the code/.test(n.text)), 'the person was not told');
-  fedseats.post('rj-1', { from: 'Josh', kind: 'person', text: 'must not go in the clear' });
+  // Nothing goes out at all: neither in the clear nor sealed under the dropped key.
+  const before = lines(seat).length;
+  fedseats.post('rj-1', { from: 'Josh', kind: 'person', text: 'held after the rejoin' });
   await settle();
-  assert.ok(!seat.written.join('').includes('must not go in the clear'), 'a post went out in the clear after the rejoin');
+  assert.deepStrictEqual(lines(seat).slice(before).filter((f) => f.t !== 'key-own-hello'), [], 'a post went out after the rejoin');
+});
+
+test('#7028: time away does not count: a reconnect restarts the ten minutes', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  const { seat } = await adoptedOwn('rj-3', 'room-rj-3');
+  say(seat, ahead('room-rj-3'));
+  await settle();
+  t.mock.timers.tick(9 * 60 * 1000);
+  say(seat, { event: 'connected', room: 'room-rj-3', expires_at: 9 });   // it was away, and is back
+  await settle();
+  t.mock.timers.tick(2 * 60 * 1000);
+  say(seat, ahead('room-rj-3'));
+  await settle();
+  assert.strictEqual(fedseal.roomState('rj-3').epoch, 0, 'time before the reconnect counted toward giving up the key');
+  assert.strictEqual(hellos(seat), 0);
+  t.mock.timers.tick(8 * 60 * 1000);
+  say(seat, ahead('room-rj-3'));
+  await settle();
+  assert.deepStrictEqual(fedseal.roomState('rj-3').keys, {}, 'ten connected minutes behind did not rejoin');
+});
+
+test('#7028: a computer that caught up on a rotation and then falls behind again starts its ten minutes over', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+  const { seat } = await adoptedOwn('rj-4', 'room-rj-4');
+  say(seat, ahead('room-rj-4'));
+  await settle();
+  t.mock.timers.tick(11 * 60 * 1000);
+  // It catches up to epoch 1 (as a key-rotate adoption would), then sees epoch 2.
+  const st = fedseal.roomState('rj-4');
+  fedseal.setRoomState('rj-4', Object.assign({}, st, { epoch: 1, keys: Object.assign({}, st.keys, { 1: fedseal.randomSecret() }) }));
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 2, 'room-rj-4', { from: 'x', kind: 'person', text: 'newer' }) });
+  await settle();
+  assert.strictEqual(fedseal.roomState('rj-4').epoch, 1, 'a fresh fall-behind rejoined at once on the old clock');
 });
 
 test('#7028: a guest that is behind keeps its key (only an own computer rejoins)', async (t) => {

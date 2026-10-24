@@ -131,3 +131,17 @@ Also since round 1: the owner trusts a list only if exactly one row is this comp
    (an unenrolled board cannot ask the route at all). Plan wording above was unconditional: corrected here.
 5. [PROSE] Leftovers from part 3 in the test header and this plan: FIXED (header rewritten, plan lines marked
    SUPERSEDED).
+
+## Review round 4 (blind, 05:2x)
+1. [SHOULD-FIX] The ten minutes counted time the two computers were not both online, so a computer still in the key
+   could rejoin (a needless code compare, and a false "taken out" note). FIXED: counted from the later of the first
+   ahead frame and the last connect; the note now says "taken out, or that computer has been away". Residual: an
+   owner board away for the whole ten connected minutes still costs one code compare. Mutants C1, C2.
+2. [TEST GAP] (a) ownRejoin's epoch guard (a rotation adopted between queuing and running the rejoin): kept, not
+   test-pinned (mutant R6 survives; the window is one queued sealing step, which no harness here can interleave).
+   (b) re-arming after a catch-up: test added. (c) the after-rejoin post check now asserts nothing is sent at all,
+   not only nothing in the clear.
+3. [DESIGN NOTE] RECORDED: a relay (or an own computer) can force a code compare about every ten connected minutes by
+   forging ahead frames, which can train a person to press "It matches" without looking. It reveals nothing on its
+   own, and those senders can already stop every post. Would change it: an owner-signed "you were removed" frame
+   in place of the timer.

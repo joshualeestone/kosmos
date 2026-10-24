@@ -268,7 +268,8 @@ function handleEvent(projectId, line, heldAt) {
         if (s.behindArmedAt !== sealed.epoch) {
           s.behindArmedAt = sealed.epoch;
           s.behind = { epoch: ev.data.epoch, until: now + BEHIND_HOLD_MS, at: now };
-        } else if (sealed.ownComputer === true && s.behind && Number.isFinite(s.behind.at) && now - s.behind.at >= OWN_REJOIN_MS) {
+        } else if (sealed.ownComputer === true && s.behind && Number.isFinite(s.behind.at)
+          && now - Math.max(s.behind.at, Number.isFinite(s.connectedAt) ? s.connectedAt : 0) >= OWN_REJOIN_MS) {
           sealStep(projectId, () => ownRejoin(projectId, s, sealed.epoch));   // kosmos#7028: taken out of the key
           return;
         }
@@ -625,9 +626,11 @@ const HELD_MAX = INBOUND_PER_WINDOW;
    (nothing resends a refused post). Holding until the key arrives would let a forger pause
    a member indefinitely. */
 const BEHIND_HOLD_MS = 3 * 60 * 1000;
-/** kosmos#7028: an own computer still behind on the key this long after it first saw a newer one was most likely taken
-    out of the room (retired, held, or removed on the owner's screen; a missed rotation is re-sent within seconds once
-    both are connected). It then asks to be let back in (ownRejoin). */
+/** kosmos#7028: an own computer still behind on the key this long after it first saw a newer one, counted from its last
+    connect too (time it was away is not time the owner could re-send in), was most likely taken out of the room
+    (retired, held, or removed on the owner's screen): the owner's board re-sends the key to every computer it keeps on
+    each connect and each minute's pass. It then asks to be let back in (ownRejoin). If the owner's board was away the
+    whole time, the cost is one code compare. A wall-clock step forward while armed can bring it early (NOT CLAIMED). */
 const OWN_REJOIN_MS = 10 * 60 * 1000;
 
 /** This room's seal state, null for a room with none, undefined when the record
@@ -880,7 +883,7 @@ function ownRejoin(projectId, s, epoch) {
   s.behind = null;
   s.behindArmedAt = undefined;
   s.ownRun = null;
-  say(projectId, 'This computer no longer has this sealed room\'s key: it may have been taken out on your other computer. To get back in, compare the code on this screen with the one on that computer.');
+  say(projectId, 'This computer has not had this sealed room\'s new key for ten minutes: it may have been taken out on your other computer, or that computer has been away. To read and post here again, compare the code on this screen with the one on that computer.');
   sayOwnHello(projectId, s);
 }
 /** Own computer: the person said the codes do not match. The run ends and a new one starts with a new code. */
