@@ -81509,7 +81509,8 @@ async function fedOwnLoad(project, fromPress) {
   // person may be comparing; only an answer replaces it.
   const prev = FED_OWN && FED_OWN.project === project ? FED_OWN : null;
   // The owner's rows likewise, up to two misses: past that the page cannot say those codes are still current.
-  const rowsMissed = waiting ? 0 : (prev ? (prev.rowsMissed || 0) + 1 : 1);
+  // An answer with no list (not the route's shape) counts as a miss too, or the old rows would be kept for ever.
+  const rowsMissed = waiting && Array.isArray(waiting.computers) ? 0 : (prev ? (prev.rowsMissed || 0) + 1 : 1);
   const rows = waiting && Array.isArray(waiting.computers) ? waiting.computers.filter((w) => w && typeof w.pub === 'string' && typeof w.code === 'string')
     : (prev && rowsMissed < 3 ? prev.waiting : []);
   // This computer's own code is kept through at most two failed reads in a row: past that it is dropped, since the page
