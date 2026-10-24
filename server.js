@@ -11395,7 +11395,8 @@ const server = http.createServer(async (req, res) => {
            time: setupComplete(code, name), the email already held by the
            settings the start step wrote. */
         const got = await remote.setupComplete(code, name);
-        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        // kosmos#6596 step 8: a refusal that named a changed key carries it, for the page to offer Accept.
+        if (!got.ok) { sendJson(res, 400, { error: got.because, ...(got.keyChanged ? { keyChanged: got.keyChanged } : {}) }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
         phoneDefaultAfterConnect();
         sendJson(res, 200, { ok: true, status: remote.status() });
@@ -11461,7 +11462,8 @@ const server = http.createServer(async (req, res) => {
         const got = await remote.companyComplete(String(body.name || '').trim(),
           typeof body.acceptTerms === 'string' ? body.acceptTerms : null,
           typeof body.second === 'string' ? body.second : null);
-        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        // kosmos#6596 step 8: a refusal that named a changed key carries it, for the page to offer Accept.
+        if (!got.ok) { sendJson(res, 400, { error: got.because, ...(got.keyChanged ? { keyChanged: got.keyChanged } : {}) }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
         phoneDefaultAfterConnect();
         sendJson(res, 200, { ok: true, status: remote.status() });
@@ -11658,7 +11660,8 @@ const server = http.createServer(async (req, res) => {
         const name = String(body.name || '').trim();
         if (!name) { sendJson(res, 400, { error: 'pick a name for this computer' }); return; }
         const got = await remote.signinRegister(name);
-        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        // kosmos#6596 step 8: a refusal that named a changed key carries it, for the page to offer Accept.
+        if (!got.ok) { sendJson(res, 400, { error: got.because, ...(got.keyChanged ? { keyChanged: got.keyChanged } : {}) }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
         phoneDefaultAfterConnect();
         sendJson(res, 200, {

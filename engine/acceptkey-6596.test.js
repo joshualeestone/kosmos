@@ -18,6 +18,7 @@ process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-ak-
 const STATE = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-ak-state-'));
 process.env.AGENT_WORKFORCE_TUNNEL_STATE = STATE;
 process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-ak-home-'));
+process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';   // a registration that goes through starts nothing real
 delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
 for (const k of Object.keys(process.env)) if (k.toUpperCase() === 'KOSMOS_EXPECT_COORDINATOR_KEYS') delete process.env[k];
 const check = require('./servicekeys-check');
@@ -68,8 +69,8 @@ function connector({ refusal = 'that name is taken', shipped = null } = {}) {
     const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => {};
     const register = args[0] === 'setup' && args[1] === 'complete';
     setImmediate(() => {
-      if (register) child.stderr.emit('data', Buffer.from('Error: ' + c.refusal + '\n'));
-      const code = register ? 1 : 0;
+      if (register && c.refusal) child.stderr.emit('data', Buffer.from('Error: ' + c.refusal + '\n'));
+      const code = register && c.refusal ? 1 : 0;
       child.emit('exit', code); child.emit('close', code);
     });
     return child;
@@ -137,6 +138,18 @@ test('only the key the last refusal named can be accepted', async () => {
     assert.equal(remote.acceptOfferedKey(OTHER).ok, false, 'a key that was not offered');
     assert.equal(remote.acceptOfferedKey('not a key').ok, false);
     assert.equal(remote.acceptOfferedKey(K).ok, true, 'CONTROL: the offered key');
+    assert.equal(remote.acceptOfferedKey(K).ok, false, 'accepted once: a second Accept needs a second refusal');
+  } finally { c.done(); }
+});
+
+test('a registration that goes through ends the offer', async () => {
+  const c = connector();
+  try {
+    await offered(c, K);
+    c.refusal = null;
+    const r = await remote.setupComplete('123456', 'my-mac');
+    assert.equal(r.ok, true, 'CONTROL: the registration went through: ' + r.because);
+    assert.equal(remote.acceptOfferedKey(K).ok, false);
   } finally { c.done(); }
 });
 
@@ -201,7 +214,8 @@ test('an offer or an acceptance older than an hour is not used', async () => {
     let reg = c.registrations();
     assert.equal(reg[reg.length - 1].env, undefined, 'a stale acceptance is not named');
     Date.now = () => t;
-    remote.acceptOfferedKey(K);
+    await offered(c, K);
+    assert.equal(remote.acceptOfferedKey(K).ok, true, 'CONTROL: offered again and accepted');
     Date.now = () => t + 60 * 60 * 1000 - 1;
     await remote.setupComplete('123456', 'my-mac');
     reg = c.registrations();
@@ -218,11 +232,16 @@ test('Forget voids an offer and an acceptance; Start over (signinCancel) does no
     await remote.setupComplete('123456', 'my-mac');
     let reg = c.registrations();
     assert.equal(expectOf(reg[reg.length - 1]), K, 'Start over keeps it: it is how the new code is got');
-    remote.acceptOfferedKey(K);
+    // An offer, then a Forget: it can no longer be accepted.
+    await offered(c, K);
     await remote.forget({ anyway: true });
     assert.equal(remote.acceptOfferedKey(K).ok, false, 'the offer is gone after a Forget');
+    // An acceptance, then a Forget: the next registration does not name it.
+    await offered(c, K);
+    assert.equal(remote.acceptOfferedKey(K).ok, true, 'CONTROL: accepted before the Forget');
+    await remote.forget({ anyway: true });
     await signIn();
     reg = c.registrations();
-    assert.equal(reg[reg.length - 1].env, undefined, 'and so is the acceptance');
+    assert.equal(reg[reg.length - 1].env, undefined, 'the acceptance is gone after a Forget');
   } finally { c.done(); }
 });

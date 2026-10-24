@@ -29,7 +29,7 @@ const remote = require('./engine/remote');
 let base;
 let origin;
 const calls = [];
-const real = { acceptOfferedKey: remote.acceptOfferedKey };
+const real = { acceptOfferedKey: remote.acceptOfferedKey, setupComplete: remote.setupComplete, companyComplete: remote.companyComplete, signinRegister: remote.signinRegister };
 remote.acceptOfferedKey = (k) => { calls.push(k); return k === 'good' ? { ok: true, because: null } : { ok: false, because: 'that is not a key Kosmos+ offered' }; };
 test.before(async () => {
   await start(0);
@@ -88,4 +88,27 @@ test('with the board token enforced, only the app window\'s own session may acce
     assert.equal(r.status, 200, 'CONTROL: the session cookie: ' + JSON.stringify(r.body));
     assert.deepEqual(calls, ['good']);
   } finally { boardAuthState.on = false; boardAuthState.token = null; }
+});
+
+test('a refused sign-in on each of the three registration routes carries the offered key to the page', async () => {
+  const K = 'A'.repeat(43);
+  const refused = async () => ({ ok: false, because: 'the Kosmos+ service offered a different key', keyChanged: { offered: K } });
+  const other = async () => ({ ok: false, because: 'that name is taken' });
+  for (const [route, body, stub] of [
+    ['/api/remote/setup-complete', { code: '123456', name: 'my-mac' }, 'setupComplete'],
+    ['/api/remote/company/complete', { name: 'my-mac' }, 'companyComplete'],
+    ['/api/remote/signin-register', { name: 'my-mac' }, 'signinRegister'],
+  ]) {
+    remote[stub] = refused;
+    try {
+      const res = await fetch(base + route, { method: 'POST', headers: { ...SCREEN, origin }, body: JSON.stringify(body) });
+      const got = await res.json();
+      assert.equal(res.status, 400, route);
+      assert.equal(got.error, 'the Kosmos+ service offered a different key', route + ': CONTROL, the engine was asked');
+      assert.deepEqual(got.keyChanged, { offered: K }, route);
+      remote[stub] = other;
+      const plain = await (await fetch(base + route, { method: 'POST', headers: { ...SCREEN, origin }, body: JSON.stringify(body) })).json();
+      assert.deepEqual(plain, { error: 'that name is taken' }, route + ': another refusal carries no key');
+    } finally { remote[stub] = real[stub]; }
+  }
 });
