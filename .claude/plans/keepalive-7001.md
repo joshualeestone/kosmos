@@ -196,6 +196,15 @@ Mutants red: a broadened own-Listener pattern (two sites), no post-reload check,
 - The bootstrap retry re-reads launchd between tries (an error with the job loaded ends it); a pgrep failure while
   deciding whether the runner runs elsewhere refuses instead of saying DOWN.
 
+## Review round 16
+- An interrupt (INT/TERM) in the stop window prints the recovery and exits 130 (tested: the stub's launchctl kill
+  sends SIGINT to the script); disarmed once the job is loaded again.
+- runner_plist's guards tested: a .service naming a directory like actions.runner.d/ (the name glob spans '/') and a
+  non-actions.runner plist are refused. Mutant red.
+- An operator's existing KeepAlive is named when replaced; a ThrottleInterval of 10 or more is kept.
+- The wait test also asserts the run took most of the 4 s sleep (a pid gone before the loop would read "after exit").
+- Deferred: the plan-file naming convention (<branch>-<timestamp>); the branch-named file is what the proof gate reads.
+
 ## Weakest premise
 Third: that SIGKILL, not SIGTERM, is how a runner gets killed in practice (the 10-23 sender was a SIGKILL); a SIGTERM
 leaves it down, by design (KeepAlive true would restart it, at the cost of a 10 s loop on a removed registration).

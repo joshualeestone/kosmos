@@ -33,7 +33,9 @@ case "$me" in
     # svc.sh start does (cwd is the runner dir), so wait_for_listener sees a new Listener.
     out="$(dirname "$CALL_LOG")/booted-out"
     case "$1" in
-      kill) [ "${FX_KILL_FAIL:-0}" = 1 ] && exit 3; exit 0 ;;
+      kill) [ "${FX_KILL_FAIL:-0}" = 1 ] && exit 3
+        [ "${FX_INTERRUPT:-0}" = 1 ] && kill -INT "$PPID"   # an operator's Ctrl-C, inside the stop window
+        exit 0 ;;
       print-disabled) printf 'disabled services = {\n'
         [ "${FX_DISABLED:-0}" = 1 ] && printf '\t"actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" => disabled\n'
         printf '}\n'; exit 0 ;;
@@ -650,10 +652,11 @@ b="$(grep -n '^launchctl bootout ' "$T/ka-sigterm.calls" | head -n 1 | cut -d: -
   && pass "keepalive --apply stops the old job with SIGTERM, then boots it out (a bootout alone runs under the old 5 s exit timeout)" || fail "keepalive sigterm: rc $(rc ka-sigterm): kill at ${k:-none}, bootout at ${b:-none}"
 # The wait itself: a real process the test owns stands in for the old runsvc.sh. It ends by itself in 2 s, and the
 # bootout must come after that, not at once (under the old 5 s exit timeout an early bootout would SIGKILL the Listener).
-sleep 2 & sp=$!
+sleep 4 & sp=$!; t0=$SECONDS
 ka_fresh; run ka-waits "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" -- --apply keepalive
-wait "$sp" 2>/dev/null
-[ "$(rc ka-waits)" = 0 ] && grep -qx 'bootout-after-exit' "$T/ka-waits.calls" && ! has ka-waits "had not ended" \
+el=$((SECONDS - t0)); wait "$sp" 2>/dev/null
+# The run took most of the 4 s: it did wait (a process already gone before the loop would also read "after exit").
+[ "$(rc ka-waits)" = 0 ] && grep -qx 'bootout-after-exit' "$T/ka-waits.calls" && ! has ka-waits "had not ended" && [ "$el" -ge 3 ] \
   && pass "keepalive --apply waits for the old runner to end after SIGTERM before booting it out" || fail "keepalive waits: rc $(rc ka-waits): $(grep bootout- "$T/ka-waits.calls")"
 # Outlives the wait: it goes on (refusing would leave a SIGTERMed runner under its old definition) and says so.
 sleep 30 & sp=$!
@@ -686,6 +689,23 @@ ka_fresh; plutil -insert ExitTimeOut -float 3.5 "$KA"; et0="$(plutil -extract Ex
 case "$et0" in 3.5*) : ;; *) fail "control: the fixture holds no non-integer ExitTimeOut ($et0)" ;; esac
 [ "$(rc ka-real)" = 0 ] && [ "$(plutil -extract ExitTimeOut raw -o - "$KA")" = 35 ] \
   && pass "keepalive --apply replaces a non-integer ExitTimeOut (3.5) with 35" || fail "keepalive real timeout: rc $(rc ka-real): $(plutil -extract ExitTimeOut raw -o - "$KA" 2>&1); $(tail -1 "$T/ka-real.out")"
+ka_fresh; run ka-interrupt "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_INTERRUPT=1 -- --apply keepalive
+[ "$(rc ka-interrupt)" = 130 ] && has ka-interrupt "INTERRUPTED while reloading" && has ka-interrupt "launchctl bootstrap gui/777" \
+  && pass "keepalive --apply: an interrupt in the stop window exits 130 and says how to bring the runner back" || fail "keepalive interrupt: rc $(rc ka-interrupt): $(tail -2 "$T/ka-interrupt.out")"
+# .service is trusted only for an actions.runner plist directly in LaunchAgents.
+# A directory named like a plist (actions.runner.d/) matches the name pattern, whose * spans '/': only the
+# directly-in-LaunchAgents guard refuses it.
+ka_fresh; mkdir -p "$KH/Library/LaunchAgents/actions.runner.d"; cp "$KA" "$KH/Library/LaunchAgents/actions.runner.d/x.plist"
+echo "$KH/Library/LaunchAgents/actions.runner.d/x.plist" > "$KH/actions-runner/.service"
+run ka-nested "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+ka_fresh; cp "$KA" "$KH/Library/LaunchAgents/com.example.other.plist"; echo "$KH/Library/LaunchAgents/com.example.other.plist" > "$KH/actions-runner/.service"
+run ka-othername "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+[ "$(rc ka-nested)" = 1 ] && has ka-nested "register first" && [ "$(rc ka-othername)" = 1 ] && has ka-othername "register first" \
+  && ! grep -q '^launchctl' "$T/ka-nested.calls" "$T/ka-othername.calls" \
+  && pass "keepalive: a .service naming a nested path or a non-actions.runner plist is not trusted" || fail "keepalive .service guards: $(rc ka-nested)/$(rc ka-othername)"
+ka_fresh; plutil -insert KeepAlive -bool true "$KA"; run ka-katrue "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+[ "$(rc ka-katrue)" = 0 ] && has ka-katrue "note:   replacing KeepAlive <true/>" && [ "$(ka_of "$KA")" = false ] \
+  && pass "keepalive --apply: an operator's KeepAlive (true) is replaced and said so" || fail "keepalive KeepAlive true: rc $(rc ka-katrue): $(grep -i replacing "$T/ka-katrue.out")"
 ka_fresh; run ka-noka "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_NO_KA=1 -- --apply keepalive
 [ "$(rc ka-noka)" = 1 ] && has ka-noka "shows no 'successful exit => 0' semaphore" \
   && pass "keepalive --apply: a reload that leaves no KeepAlive in the loaded job fails" || fail "keepalive no ka loaded: rc $(rc ka-noka): $(tail -1 "$T/ka-noka.out")"
