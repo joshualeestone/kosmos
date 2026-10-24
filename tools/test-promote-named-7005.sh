@@ -135,6 +135,15 @@ S="$(newsite)"; republish "$S" 9.9.8
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$S/setup")" = "INSTALLER-9.9.8 KOSMOS_READONLY_APP" ] && pass "named: a later republish naming no installer does not hide the cut's own installer" || bad "named after an installer-less republish (rc=$rc, setup: $(cat "$S/setup"), out=$out)"
 has "$out" "a later commit naming it, points at the same build" && pass "named: says a later commit names V, and that it points at the same build" || bad "named same-build NOTE (out=$out)"
+# A difference nested inside a pointer field counts too (a JSON.stringify key allow-list would have hidden it). The
+# chosen commit re-pairs 9.9.8's pointer with its installer and nests extra.inner=first; a later one nests second.
+S="$(newsite)"; c98="$(git -C "$S" log --format=%H -1 --grep='^9\.9\.8: the staging pointer')"
+git -C "$S" show "$c98:setup-staging" > "$S/setup-staging"; git -C "$S" show "$c98:setup-staging.sha256" > "$S/setup-staging.sha256"
+git -C "$S" show "$c98:dist/latest-staging.json" > "$S/dist/latest-staging.json"
+nest() { node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.extra={inner:process.argv[2]};if(process.argv[3]==="drop")delete p.setup_sha256;require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$S/dist/latest-staging.json" "$1" "${2:-}"; }
+nest first; git -C "$S" commit -qm "9.9.8 re-paired, inner first" -- dist/latest-staging.json setup-staging setup-staging.sha256
+nest second drop; git -C "$S" commit -qm "9.9.8 republished, inner second" -- dist/latest-staging.json
+refused "a later pointer differing only inside a nested field" "$S" "have pointers that differ in more than the installer they name" --version 9.9.8
 # The same build under a later commit that names ANOTHER installer (its tree's setup-staging does not match it): said.
 S="$(newsite)"; republish "$S" 9.9.8 "$(printf 'OTHER-INSTALLER\n' | shasum -a 256 | awk '{print $1}')"
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
