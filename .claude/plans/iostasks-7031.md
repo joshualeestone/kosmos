@@ -41,8 +41,23 @@ AppTabs.isNative, `ContentView.swift`, `ios/LogicTests/main.swift`) are touched 
 - The phone has no search or Created window (the spec leaves out the board's filters), so the scope is the project
   picker alone, and the sort is the board's default ('new').
 
+- A row's task page opens UNDER TODAY in the board view (pushManager.boardToOpen), as Today's Check it does, not pushed
+  on the Tasks tab as the spec draws it. The app has one shared board view, and every page it sends there opens under
+  Today; a second web view for Tasks is more than this slice. A press on Tasks brings the native list back.
+  Rejected: a second WebView pushed on the Tasks tab. For Mona Lisa's design review.
+- The board's own Tasks section (a project's View all, a board link) stays under Projects now that Tasks is native
+  (AppTabs.barTab), as the board's Settings section shows under Today. Lighting Tasks would cover that section with
+  the native list. The hidden page moving never moves the bar off native Tasks (AppTabs.follow).
+- One read for both tabs: BoardClient reads GET /api/tasks?view=tasks while Today OR Tasks is on screen (tasksViewer),
+  keeping Today's readyTasks/tasksFailed as they were, and adding tasksList/tasksListFailed. An answer whose agents
+  could not be read is a good read for Tasks (Needs Your Decision says it cannot tell), though Today reads it as unknown.
+- "No tasks yet" shows when the board answers with no tasks. The tab itself is only in the bar once the board earns it
+  (counts.tasksTab), so the spec's "before the board shows Tasks" state is never on screen; an earned board with no
+  tasks is the same empty state the board shows.
+- The press tests in LogicTests/main.swift that used Tasks as their board-page tab now use Projects (Tasks is native).
+
 ## Done so far
-- TasksLogic.swift and LogicTests/tasks (73 checks, VERDICT PASS). The suite reads TSK_GROUPS, TSK_DECISION_UNKNOWN,
+- TasksLogic.swift and LogicTests/tasks (79 checks, VERDICT PASS). run.sh 858/858, run-settings 41/41, run-actions 97/97. The suite reads TSK_GROUPS, TSK_DECISION_UNKNOWN,
   PJ_NEEDS_WHY and the ready-to-check phrase from web/index.html. A copy with Built and On a schedule swapped fails 3.
 
 ## Weakest premise
