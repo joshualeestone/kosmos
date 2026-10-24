@@ -34,6 +34,16 @@ Logic is in BoardLogic.swift under ios/LogicTests; shots of spec states 1 to 4, 
 - The phone follows the board's code, not a reading of it: every rule above is a port of web/index.html (named in
   comments) so the two say and do the same.
 
+- No thread read, no buttons: a failed read drops them (the board's rule). Every permission prompt asks the same
+  question line, so a card kept across failed reads could approve the next command. The server-side gap that remains
+  (a press names its question line, not its command) is #7020.
+- Refusals and the not-sure line go on the conversation's own line above the composer, which stays when the next read
+  draws another question or none (the board's d-say-msg), and goes once its question does.
+- A retry, a Send again and a typed send all wait while a press is in the air, with the board's "Still sending your
+  choice" line; a retry still reading counts as a send in the air.
+- Parsing is as strict as the board's: options are whole numbers, flags are only true, a permission only on a question
+  row. A permission prompt the phone cannot read into Allow and Deny keeps its way-through row.
+
 ## Weakest premise
 That the GET's `asked` stays the question identity the server compares against. It is the same field the board page
 sends back, so a change on the Mac breaks both together.
