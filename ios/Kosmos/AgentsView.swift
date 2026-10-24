@@ -15,6 +15,9 @@ struct AgentsView: View {
     @State private var wasBackground = false
     // The agent whose chat is open (kosmos#7008), as it was tapped (the chat follows the list for its status).
     @State private var openAgent: Board.Agent?
+    #if DEBUG
+    private static var sampleOpened = false
+    #endif
 
     var body: some View {
         NavigationView {
@@ -39,8 +42,9 @@ struct AgentsView: View {
             visible = true
             client.start()
             #if DEBUG
-            // The sample chat's screenshots (a Debug build only): KOSMOS_SAMPLE_OPEN=<agent> opens that chat.
-            if let open = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OPEN"], !open.isEmpty {
+            // The sample chat's screenshots (a Debug build only): KOSMOS_SAMPLE_OPEN=<agent> opens that chat, once a launch.
+            if !Self.sampleOpened, let open = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OPEN"], !open.isEmpty {
+                Self.sampleOpened = true
                 openAgent = Board.Agent(session: open, name: open.prefix(1).uppercased() + open.dropFirst(), role: nil, state: "idle", task: nil, needsYou: false)
             }
             #endif

@@ -117,6 +117,7 @@ final class BoardClient: ObservableObject {
         // The kept Mac session is deleted by the sign-out itself (PushNotificationManager), not here, so a Keychain
         // that is briefly unreadable does not cost it.
         if session == nil {
+            forgetChats()
             admitted = nil
             agents = []
             updatedAt = nil
@@ -206,7 +207,11 @@ final class BoardClient: ObservableObject {
     // Messages sent from a chat that its conversation does not hold yet, by agent, and each chat's unsent words. Kept
     // while the app runs, so neither is lost by leaving the chat (Mona Lisa's slice 3a spec).
     @Published private(set) var pending: [String: [Board.PendingSend]] = [:]
-    @Published var drafts: [String: String] = [:]
+    // Not published: the chat keeps the words it is editing itself and puts them here when it goes, so typing redraws
+    // only the chat, not the Agents list under it.
+    var drafts: [String: String] = [:]
+    // Rows of the person's the Mac kept as not sent that were already sent again, so a second tap sends nothing.
+    @Published private(set) var resent: Set<String> = []
 
     func post(_ text: String, to agent: Board.Agent) async {
         let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -226,8 +231,20 @@ final class BoardClient: ObservableObject {
 
     // A message of the person's the Mac kept as not sent: sent again as a new message (the board's own chat does the same).
     func sendAgain(_ row: Board.ChatRow, to agent: Board.Agent) async {
-        guard row.canSendAgain, isRunning(agent) else { return }
+        let key = agent.session + "|" + row.id
+        guard row.canSendAgain, isRunning(agent), !resent.contains(key) else { return }
+        resent.insert(key)
         await post(row.text, to: agent)
+    }
+
+    func wasSentAgain(_ row: Board.ChatRow, for session: String) -> Bool { resent.contains(session + "|" + row.id) }
+
+    // What the chats hold belongs to one account on one Mac: dropped when either changes, so nothing typed or failed
+    // under one is shown, or sent, under another.
+    private func forgetChats() {
+        pending = [:]
+        drafts = [:]
+        resent = []
     }
 
     func discard(_ id: String, for session: String) {
@@ -321,6 +338,7 @@ final class BoardClient: ObservableObject {
 
     // Everything learned under the previous Kosmos+ session goes, cookies and the kept Mac session included.
     private func forget() {
+        forgetChats()
         admitted = nil
         shownMac = nil
         shownOwner = nil
@@ -498,6 +516,7 @@ final class BoardClient: ObservableObject {
             // restored once it answers again.
             if !listedThisRun, let held = admitted { keepMacSession(mac, url: url, session: held.session) }
             listedThisRun = true
+            if let was = shownMac, was.address != mac.address { forgetChats() }
             shownMac = mac
             fresh = true
             if let held = admitted { shownOwner = Board.owner(of: held.session) }
