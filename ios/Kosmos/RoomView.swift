@@ -217,7 +217,12 @@ struct RoomView: View {
                 let words = Text(Board.heldNotice(until: until)).font(.footnote).foregroundColor(Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if typing {
-                    ScrollView { words.frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: heldTypingMax)
+                    // A short notice takes only its own height; a long one scrolls inside the cap (review 4).
+                    ViewThatFits(in: .vertical) {
+                        words
+                        ScrollView { words.frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: heldTypingMax)
+                    }
+                    .frame(maxHeight: heldTypingMax)
                 } else {
                     words
                 }
@@ -270,9 +275,9 @@ struct RoomView: View {
             case .refused(let sentence):
                 // Only while this room is still held: a hold lifted while the reopen was on its way takes the notice
                 // away, and its refusal must not wait beside the next one (review 2).
-                guard store.held[id] != nil else { break }
+                guard store.held[id] != nil, visible else { break }   // nor after the person left (review 4)
                 reopenNote = sentence
-                if visible { Self.say(sentence) }   // the board's role=status
+                Self.say(sentence)   // the board's role=status
             case .dropped:
                 break
             }

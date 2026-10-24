@@ -38,4 +38,8 @@ shows the board's sentence; the room suite covers it against the real route's an
    box or by each other); the button may wrap at the largest text rather than overflow; the board-phrase checks use
    the phone's own constants; returning to a held room announces it; the Debug sample hold is set once and cleared by
    a reopen.
+   Round 4: 0 blockers, 1 warning (test strength), 3 nits; converged on correctness. Fixed: the board-parity checks
+   are built from the phone's own output (notice pieces, lift sentence, refusal), never a second copy; a refusal
+   that lands after the person left is not kept; a short notice takes only its own height while typing; the Debug
+   sample remembers reopened rooms one by one.
 3. Validation, PR.

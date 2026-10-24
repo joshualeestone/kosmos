@@ -315,14 +315,22 @@ let atFive = Board.heldNotice(until: Date(timeIntervalSince1970: 0), time: { _ i
 check(atFive == "This room has reached its limit for agent posts, because it kept going back and forth without a result. Your agents' posts will most likely not go through until you post something yourself or reopen the room. Otherwise it should lift on its own by 5:20 PM. An agent whose post was held can still send one summary to wrap things up.",
       "the notice, word for word, with the time it lifts")
 check(!Board.heldNotice(until: nil).contains("lift on its own"), "no time given: no lift sentence (the board's NaN rule)")
-// The board still says these words (pjHeldNotice), so the phone cannot drift from it unseen.
-for phrase in ["This room has reached its limit for agent posts, because it kept going back and forth ",
-               "without a result. Your agents\\' posts will most likely not go through until you post something yourself or reopen the room.",
-               " Otherwise it should lift on its own by ", " An agent whose post was held can still send one summary to wrap things up.",
+// The board still says what the PHONE says (review 4: built from the phone's own output, never a second copy, so a
+// rewording on either side goes red). The board writes the notice in three JS string pieces, with ' as \'; the lift
+// sentence is its own piece; the refusal is two pieces around its reason.
+let jsQuote = { (s: String) in s.replacingOccurrences(of: "'", with: "\\'") }
+let noticeNoTime = Board.heldNotice(until: nil)
+let splitAt = noticeNoTime.range(of: "without a result.")!.lowerBound, tailAt = noticeNoTime.range(of: " An agent whose")!.lowerBound
+let liftPiece = Board.heldNotice(until: Date(), time: { _ in "\u{1}" }).components(separatedBy: "\u{1}").first!
+    .components(separatedBy: "reopen the room.").last!
+let refusalBare = Board.reopenRefusal(status: nil, nil)!
+let refusalSplit = refusalBare.range(of: ". Try")!.lowerBound
+for phrase in [jsQuote(String(noticeNoTime[..<splitAt])), jsQuote(String(noticeNoTime[splitAt..<tailAt])),
+               jsQuote(String(noticeNoTime[tailAt...])), "'" + liftPiece + "'",
                ">" + Board.reopenButton + "</button>", "pjRoomAnnounce('" + Board.reopenedAnnouncement + "')",
                "pjRoomAnnounce('" + Board.heldAnnouncement + "')",
-               "msg.textContent = 'We could not reopen the room' + (because ? ': ' + because : '') + '. Try again, or post in the room.'"] {
-    check(boardPage.contains(phrase), "the board still says: \(phrase.prefix(60))")
+               "'" + String(refusalBare[..<refusalSplit]) + "' + (because ? ': ' + because : '') + '" + String(refusalBare[refusalSplit...]) + "'"] {
+    check(!phrase.isEmpty && boardPage.contains(phrase), "the board says what the phone says: \(phrase.prefix(60))")
 }
 func capturedAnswer(_ name: String) -> (Int?, Data?) {
     guard let d = try? Data(contentsOf: here.appendingPathComponent(name)),
