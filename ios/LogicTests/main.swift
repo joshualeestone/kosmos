@@ -2972,6 +2972,51 @@ do {
     check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"agree first","code":"terms_required"}"#)) == .needsTerms && SignIn.next(after: .needsTerms, email: "e").step == .web(reason: SignIn.webForTerms), "a first company sign-in needs the terms: the web page")
 }
 
+section("sign-in: passkey sign-in (kosmos#7050 slice C)")
+do {
+    let challenge = Data([1, 2, 3, 250, 251, 252])
+    let ok = #"{"challenge":"\#(SignIn.base64url(challenge))","rp_id":"login.kosmosplus.com","timeout_ms":300000,"user_verification":"required"}"#
+    check(SignIn.passkeyOffer(status: 200, json: jsonBody(ok), coordinator: coordinator) == SignIn.PasskeyOffer(challenge: challenge, rpID: "login.kosmosplus.com"),
+          "control: begin's offer for the coordinator's own host is taken, the challenge decoded")
+    for (why, status, json) in [
+        ("passkeys off (404)", 404, #"{}"#),
+        ("another host's relying party", 200, ok.replacingOccurrences(of: "login.kosmosplus.com", with: "kosmosplus.com")),
+        ("the host in another case (the coordinator would refuse every assertion)", 200, ok.replacingOccurrences(of: "login.kosmosplus.com", with: "LOGIN.kosmosplus.com")),
+        ("a lookalike host", 200, ok.replacingOccurrences(of: "login.kosmosplus.com", with: "login.kosmosplus.com.evil.example")),
+        ("user verification not required", 200, ok.replacingOccurrences(of: "required", with: "preferred")),
+        ("no challenge", 200, #"{"rp_id":"login.kosmosplus.com","user_verification":"required"}"#),
+        ("an empty challenge", 200, #"{"challenge":"","rp_id":"login.kosmosplus.com","user_verification":"required"}"#),
+        ("no relying party", 200, #"{"challenge":"AQID","user_verification":"required"}"#),
+        ("no user verification", 200, #"{"challenge":"AQID","rp_id":"login.kosmosplus.com"}"#),
+        ("a challenge that is not base64url", 200, ok.replacingOccurrences(of: SignIn.base64url(challenge), with: "%%%")),
+    ] {
+        check(SignIn.passkeyOffer(status: status, json: jsonBody(json), coordinator: coordinator) == nil, "no passkey offered: \(why)")
+    }
+
+    let body = SignIn.passkeyFinishBody(credentialID: Data([9, 9]), authenticatorData: Data([1]), clientDataJSON: Data("{}".utf8),
+                                        signature: Data([2, 3]), userHandle: Data("acct".utf8), deviceID: "k1.dev")
+    check(body["authenticator_data"] as? String == SignIn.base64url(Data([1])) && body["signature"] as? String == SignIn.base64url(Data([2, 3])),
+          "finish's body: authenticator data and signature each in their own field (a swap would fail every assertion)")
+    check(body["credential_id"] as? String == SignIn.base64url(Data([9, 9])) && body["client_data_json"] as? String == SignIn.base64url(Data("{}".utf8))
+          && body["user_handle"] as? String == SignIn.base64url(Data("acct".utf8)) && body["device_id"] as? String == "k1.dev",
+          "finish's body: the assertion in base64url and this iPhone's device id")
+    let noHandle = SignIn.passkeyFinishBody(credentialID: Data([9]), authenticatorData: Data([1]), clientDataJSON: Data([1]), signature: Data([1]),
+                                            userHandle: nil, deviceID: "k1.dev")
+    check(noHandle["user_handle"] == nil, "no user handle: none sent (the coordinator accepts its absence)")
+
+    check(SignIn.passkeyFinish(status: 200, json: jsonBody(#"{"email":"ada@example.com","code":"kpk1_abc"}"#)) == .grant("kpk1_abc", email: "ada@example.com"),
+          "control: the grant and the account's email")
+    check(SignIn.passkeyFinish(status: 200, json: jsonBody(#"{"email":"ada@example.com","code":"ksso1_abc"}"#)) == .refused(SignIn.passkeyWords.failed),
+          "a code that is not a passkey grant is not spent")
+    check(SignIn.passkeyFinish(status: 200, json: jsonBody(#"{"email":"not-an-email","code":"kpk1_abc"}"#)) == .refused(SignIn.passkeyWords.failed),
+          "a grant without a usable email is not spent")
+    check(SignIn.passkeyFinish(status: 403, json: jsonBody(#"{"error":"your company requires signing in through its own provider","code":"sso_required"}"#)) == .refused(SignIn.passkeyWords.company),
+          "a company that requires its own sign-in: the app's sentence, which says what to do here")
+    check(SignIn.passkeyFinish(status: 401, json: jsonBody(#"{"error":"that passkey sign-in did not work. Try again, or sign in with your email"}"#)) == .refused("that passkey sign-in did not work. Try again, or sign in with your email"),
+          "any other refusal: the coordinator's sentence, cleaned as every refusal is")
+    check(SignIn.passkeyFinish(status: 500, json: nil) == .refused(SignIn.passkeyWords.failed), "no words at all: the general sentence")
+}
+
 await boardLoopTests()
 
 print("")

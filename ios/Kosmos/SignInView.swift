@@ -1,9 +1,11 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import AuthenticationServices
 
 // kosmos#7042 (iPhone slice 5a, #6838): the native sign-in. Email, the code, the second step, then "Allow this iPhone on
 // your Mac" with the match code until the Mac answers. The steps are SignIn.next (SignInLogic.swift, proven in
-// ios/LogicTests). What it does not do yet goes to the web sign-in page (`useWeb`) with one line saying why.
+// ios/LogicTests). What it cannot do (a company sign-in before iOS 17.4, a device key it cannot keep, a texted second
+// step to set up) goes to the web sign-in page (`useWeb`) with one line saying why.
 @MainActor
 final class SignInModel: ObservableObject {
     @Published var step: SignIn.Step = .email
@@ -15,6 +17,13 @@ final class SignInModel: ObservableObject {
     @Published private(set) var companyURL: URL?
     /// Whether this iPhone opens a company's sign-in in Apple's sheet (iOS 17.4+); earlier, the web page has it.
     var companySheet: Bool { client?.canUseCompanySheet ?? false }
+    /// kosmos#7050 slice C: Kosmos+ offers passkey sign-in (its begin answered with an offer a passkey can use here).
+    /// Asked when the email step shows (checkPasskeys), and again after a sign-out; with passkeys off on the coordinator
+    /// it stays false and no passkey is offered.
+    @Published private(set) var passkeys = false
+    private var passkeysAsked = false
+    /// Bumped by a sign-out: an availability answer asked before it is dropped.
+    private var passkeysGen = 0
     /// The session Kosmos+ issued, once: ContentView hands it to the app (the web bridge's own path).
     @Published private(set) var issued: String?
     /// Bumped when an issued session is dropped (backed out of, or ended): ContentView signs it out, and the web page
@@ -30,15 +39,35 @@ final class SignInModel: ObservableObject {
     init(client: SignInClient?) {
         self.client = client
         #if DEBUG
-        // The sample screens (a Debug build only): KOSMOS_SAMPLE_SIGNIN=email|code|second|sms|allow|nomac|denied|web|error|company|companyerror.
-        if let sample = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIGNIN"] { show(sample: sample) }
+        // The sample screens (a Debug build only): KOSMOS_SAMPLE_SIGNIN=email|code|second|sms|allow|nomac|denied|web|error|company|companyerror|passkey|passkeyerror.
+        if let sample = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIGNIN"] { show(sample: sample); return }
         #endif
+    }
+
+    /// Whether Kosmos+ offers passkeys, asked the first time the email step shows (not at launch: a signed-in person
+    /// never sees this step, and the store screenshots never show it). Only a clear answer is kept (an offer, or a 404
+    /// for passkeys off); after a server error or no answer at all, the next time the email step appears asks again.
+    func checkPasskeys() async {
+        guard let client, !passkeysAsked else { return }
+        passkeysAsked = true
+        let gen = passkeysGen
+        let begun = try? await client.passkeyOffer()
+        guard gen == passkeysGen else { return }   // signed out meanwhile: restart() asks again
+        switch begun {
+        case .offer?: passkeys = true
+        case .off?: passkeys = false
+        case .unusable?, nil: passkeys = false; passkeysAsked = false
+        }
     }
 
     deinit { watch?.cancel() }
 
     func sendCode() {
         let typed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        // kosmos#7050: not while a sign-in is out (a passkey's finish or verify, a company sheet): the field's return key
+        // could otherwise drop an answer the coordinator already acted on, leaving a session nobody holds. Checked
+        // before the address, so a press then leaves no sentence behind either.
+        guard !busy else { return }
         guard SignIn.looksLikeEmail(typed) else { error = "That does not look like an email address."; return }
         guard let client else { return }
         attempt += 1; let mine = attempt
@@ -158,9 +187,9 @@ final class SignInModel: ObservableObject {
             switch SignIn.companyReturn(back, coordinator: KosmosConfig.coordinatorOrigin) {
             case .grant(let grant, let vouched)?:
                 do {
+                    email = vouched   // first, as passkeySignIn does: a later change would clear take()'s sentence
                     let answer = try await client.verify(email: vouched, code: grant)
                     guard mine == attempt else { return }
-                    email = vouched
                     take(answer, email: vouched)
                     // A refused grant is not a wrong code to retype: back to the email, with the sentence.
                     if case .code = step { step = .email }
@@ -173,7 +202,70 @@ final class SignInModel: ObservableObject {
         }
     }
 
+    /// kosmos#7050 slice C: the app went to the background (ContentView calls this): a passkey sheet still open is closed,
+    /// so its press is answered (as not used) instead of leaving the screen busy.
+    func appLeft() { client?.cancelPasskey() }
+
+    /// kosmos#7050 slice C: back in front (ContentView calls this). On the email step, an availability answer that
+    /// failed earlier (offline at launch, a server error) is asked again.
+    func appReturned() {
+        guard case .email = step else { return }
+        Task { await checkPasskeys() }
+    }
+
+    /// kosmos#7050 slice C: sign in with a passkey, in Apple's passkey sheet. The grant finish brings back is spent at
+    /// verify in place of the code, for the account's own email, with this iPhone's proof (as a company sign-in's is),
+    /// so the second step and the Allow follow exactly as for a code.
+    func passkeySignIn() {
+        guard let client, !busy else { return }
+        attempt += 1; let mine = attempt
+        busy = true; error = nil
+        Task {
+            defer { if mine == attempt { busy = false } }
+            do {
+                // A fresh challenge for every press: each is good for one sign-in only.
+                let begun = try await client.passkeyOffer()
+                guard case .offer(let offer) = begun else {
+                    guard mine == attempt else { return }
+                    // Switched off since the screen asked: the link goes, and the sentence says to use the code.
+                    switch begun {
+                    case .off: passkeys = false; error = SignIn.passkeyWords.off
+                    case .unusable(let sentence): error = sentence ?? SignIn.passkeyWords.failed
+                    default: break
+                    }
+                    return
+                }
+                guard mine == attempt else { return }
+                let assertion: ASAuthorizationPlatformPublicKeyCredentialAssertion
+                switch await client.passkeyAssert(offer) {
+                case .assertion(let got): assertion = got
+                case .cancelled: if mine == attempt { error = SignIn.passkeyWords.notUsed }; return
+                case .failed: if mine == attempt { error = SignIn.passkeyWords.failed }; return
+                }
+                guard mine == attempt else { return }
+                switch try await client.passkeyFinish(assertion) {
+                case .grant(let grant, let account):
+                    // Superseded while finish was out (Send code, a sign-out): the grant is not spent and the field is
+                    // not touched.
+                    guard mine == attempt else { return }
+                    // The address first: changing it later clears the error line (the email field's onChange) and
+                    // would wipe the sentence take() sets for a refused grant.
+                    email = account
+                    let answer = try await client.verify(email: account, code: grant)
+                    guard mine == attempt else { return }
+                    take(answer, email: account)
+                    // A refused grant is not a wrong code to retype: back to the email, with the sentence.
+                    if case .code = step { step = .email }
+                case .refused(let sentence):
+                    guard mine == attempt else { return }
+                    step = .email; error = sentence
+                }
+            } catch { if mine == attempt { fail(error) } }
+        }
+    }
+
     func differentEmail() {
+        client?.cancelPasskey()   // a passkey sheet still open is closed, never left waiting
         attempt += 1; busy = false; watch?.cancel(); code = ""; error = nil; step = .email
         drop()
     }
@@ -187,6 +279,8 @@ final class SignInModel: ObservableObject {
     func restart() {
         // The address goes too: the next sign-in here may be another person's (the web page clears it the same way).
         attempt += 1; busy = false; watch?.cancel(); email = ""; code = ""; error = nil; issued = nil; step = .email
+        passkeysAsked = false; passkeys = false; passkeysGen += 1   // asked again when the email step shows: it may have changed
+        client?.cancelPasskey()
     }
 
     /// Signed in already; the app opens without waiting for the Allow (its tabs say so until the Mac answers).
@@ -253,6 +347,7 @@ final class SignInModel: ObservableObject {
 
     #if DEBUG
     private func show(sample: String) {
+        passkeysAsked = true   // a sample screen never asks the live coordinator
         email = "ada@example.com"
         switch sample {
         case "code": step = .code(email: email)
@@ -262,6 +357,9 @@ final class SignInModel: ObservableObject {
         case "nomac": step = .allow(matchCode: nil, hasComputer: false)
         case "denied": step = .denied(asking: true)
         case "web": step = .web(reason: SignIn.webForCompany)
+        // kosmos#7050 slice C: the email step with passkey sign-in offered, and a passkey that was not used.
+        case "passkey": passkeys = true
+        case "passkeyerror": passkeys = true; error = SignIn.passkeyWords.notUsed
         case "error": step = .code(email: email); code = "48291"; error = "That code is not right or has expired."
         // kosmos#7046: setting up a required second step.
         case "setup": step = .setup(token: "t", sms: true)
@@ -299,7 +397,7 @@ struct SignInView: View {
     @ViewBuilder private var content: some View {
         switch model.step {
         case .email:
-            title("Sign in to Kosmos+")
+            title("Sign in to Kosmos+").task { await model.checkPasskeys() }
             line("Use the email address of your Kosmos+ account. We will send you a six-digit code.")
             TextField("Email address", text: $model.email)
                 .textContentType(.username).keyboardType(.emailAddress)
@@ -309,8 +407,10 @@ struct SignInView: View {
                 .onChange(of: model.email) { _ in model.error = nil }
             errorLine
             primary("Send code", action: model.sendCode)
+            // kosmos#7050 slice C: a passkey signs in here, natively, when Kosmos+ offers it.
+            if model.passkeys { link("Sign in with a passkey", action: model.passkeySignIn).disabled(model.busy) }
             // Where Apple's sheet cannot take a company's sign-in (before iOS 17.4), the web page has it: say so here.
-            link(model.companySheet ? "Sign in with a passkey" : "Sign in with your company or a passkey", action: useWeb)
+            if !model.companySheet { link("Sign in with your company's account", action: useWeb).disabled(model.busy) }
             footnote("New to Kosmos+? Make your account on your computer.")
         case .code(let email):
             title("Check your email")

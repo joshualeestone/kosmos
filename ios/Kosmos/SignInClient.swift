@@ -116,6 +116,84 @@ final class SignInClient {
         }
     }
 
+    // MARK: - Passkey sign-in (kosmos#7050 slice C)
+
+    /// What begin said: an offer a passkey can answer, passkeys switched off (a 404: the route is not there), or an
+    /// answer that is neither (a server error, an offer for another host). Throws SignInError.unreachable when Kosmos+
+    /// did not answer at all.
+    enum PasskeyBegin { case offer(SignIn.PasskeyOffer), off, unusable(String?) }
+
+    func passkeyOffer() async throws -> PasskeyBegin {
+        let (status, json) = try await post(SignIn.passkeyBeginPath, [:])
+        if status == 404 { return .off }
+        if let offer = SignIn.passkeyOffer(status: status, json: json, coordinator: coordinator) { return .offer(offer) }
+        return .unusable(SignIn.cleanMessage((json as? [String: Any])?["error"]))
+    }
+
+    /// What Apple's passkey sheet said.
+    enum PasskeyAnswer { case assertion(ASAuthorizationPlatformPublicKeyCredentialAssertion), cancelled, failed }
+
+    private var passkeyAsker: PasskeyAsker?
+    /// Kept until the sheet answers: the controller is not kept by anything else, and one released early answers
+    /// nobody (the company sheet's session is kept the same way).
+    private var passkeyController: ASAuthorizationController?
+
+    /// Closes an open passkey sheet (the person went back, or signed out): its ask answers `cancelled`, so nothing is
+    /// left waiting on a sheet that may never answer.
+    func cancelPasskey() {
+        // Cleared now, not when the answer arrives on the main queue: a press straight after must find no sheet open.
+        let asker = passkeyAsker, controller = passkeyController
+        passkeyAsker = nil
+        passkeyController = nil
+        controller?.cancel()
+        asker?.answer(.cancelled)
+    }
+
+    /// Apple's passkey sheet for this offer: the person's passkey for Kosmos+ (any saved on this iPhone or in their
+    /// iCloud Keychain, for the host this app is associated with), with Face ID, Touch ID or the passcode. One sheet at a
+    /// time: a second ask while one is open is answered `failed` at once (its continuation would otherwise be lost).
+    func passkeyAssert(_ offer: SignIn.PasskeyOffer) async -> PasskeyAnswer {
+        guard passkeyAsker == nil else { return .failed }
+        let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: offer.rpID)
+        let request = provider.createCredentialAssertionRequest(challenge: offer.challenge)
+        request.userVerificationPreference = .required
+        return await withCheckedContinuation { (done: CheckedContinuation<PasskeyAnswer, Never>) in
+            var asker: PasskeyAsker?
+            asker = PasskeyAsker { [weak self] got in
+                // PasskeyAsker hands back on the main queue, once. Only this sheet's own record is cleared: a cancel may
+                // already have cleared it and a newer sheet be open.
+                if let self, self.passkeyAsker === asker { self.passkeyAsker = nil; self.passkeyController = nil }
+                done.resume(returning: got)
+            }
+            passkeyAsker = asker
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            passkeyController = controller
+            controller.delegate = asker
+            controller.presentationContextProvider = asker
+            controller.performRequests()
+            // A sheet that never answers (the system tearing it down without a callback) is closed after six minutes,
+            // past the challenge's five, so the screen is never left busy for good.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 360) { [weak self, weak asker] in
+                if let self, let asker, self.passkeyAsker === asker { self.cancelPasskey() }
+            }
+        }
+    }
+
+    /// finish, with this iPhone's device id (the one verify proves next).
+    func passkeyFinish(_ assertion: ASAuthorizationPlatformPublicKeyCredentialAssertion) async throws -> SignIn.PasskeyFinish {
+        // The SDK declares these implicitly unwrapped; a missing one is a failed sign-in, never a crash.
+        let credentialID: Data? = assertion.credentialID, authenticatorData: Data? = assertion.rawAuthenticatorData
+        let clientData: Data? = assertion.rawClientDataJSON, signature: Data? = assertion.signature
+        guard let credentialID, let authenticatorData, let clientData, let signature else { return .refused(SignIn.passkeyWords.failed) }
+        let key = try deviceKey()
+        let userID: Data? = assertion.userID
+        let body = SignIn.passkeyFinishBody(credentialID: credentialID, authenticatorData: authenticatorData,
+                                            clientDataJSON: clientData, signature: signature,
+                                            userHandle: userID, deviceID: key.id)
+        let (status, json) = try await post(SignIn.passkeyFinishPath, body)
+        return SignIn.passkeyFinish(status: status, json: json)
+    }
+
     func verify(email: String, code: String) async throws -> SignIn.Answer {
         let key = try deviceKey()
         let (status, json) = try await post(SignIn.verifyPath, try SignIn.verifyBody(email: email, code: code, deviceName: deviceName, key: key))
@@ -162,6 +240,37 @@ final class SignInClient {
 /// Where Apple's sheet shows: over the app's own window.
 private final class SheetAnchor: NSObject, ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.first.map { ASPresentationAnchor(windowScene: $0) } ?? ASPresentationAnchor()
+    }
+}
+
+/// Apple's passkey sheet's answer, handed back once, on the main queue: the assertion, the person closing it, or any
+/// other failure. Shows over the app's own window, as SheetAnchor does.
+private final class PasskeyAsker: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    private var finish: ((SignInClient.PasskeyAnswer) -> Void)?
+    init(_ finish: @escaping (SignInClient.PasskeyAnswer) -> Void) { self.finish = finish }
+
+    /// Answers now (a cancel from the app); the sheet's own later answer, if any, is then ignored.
+    func answer(_ got: SignInClient.PasskeyAnswer) { done(got) }
+
+    private func done(_ got: SignInClient.PasskeyAnswer) {
+        DispatchQueue.main.async {
+            let f = self.finish
+            self.finish = nil
+            f?(got)
+        }
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        if let got = authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion { done(.assertion(got)) } else { done(.failed) }
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        done((error as? ASAuthorizationError)?.code == .canceled ? .cancelled : .failed)
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         return scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.first.map { ASPresentationAnchor(windowScene: $0) } ?? ASPresentationAnchor()
     }

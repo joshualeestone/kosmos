@@ -80,7 +80,7 @@ struct ContentView: View {
     typealias Tab = AppTabs.Tab
 
     // kosmos#7042: not signed in, the native sign-in shows instead of the board's sign-in page. "Use the sign-in page"
-    // (a company sign-in, a passkey, a second step to set up) turns it off for this launch, back to today's page.
+    // (what the native screens cannot do, such as a company sign-in before iOS 17.4) turns it off for this launch.
     @State private var nativeSignIn = ContentView.startsSignedOut
     @StateObject private var signIn = SignInModel(client: SignInClient())
     private static var startsSignedOut: Bool {
@@ -219,10 +219,15 @@ struct ContentView: View {
             // Back at the front after a real background: the bar may take Tasks now. Mona Lisa: the bar changes at
             // launch or on a return, not on each poll (a launch's first read can still land while it is on screen).
             if newPhase == .background { tabsBackgrounded = true }
+            // kosmos#7050 slice C: here, not on the sign-in screen, so it runs even when the lock takes the screen away.
+            if newPhase == .background { signIn.appLeft() }
             // kosmos#7042 review round 2: a launch before the phone's first unlock reads no session, so the sign-in may
             // be showing to someone signed in. Still on its first step, it goes once the session can be read.
             if newPhase == .active, nativeSignIn, signIn.step == .email, signIn.issued == nil,
                SessionKeychain.live.load() != nil { nativeSignIn = false }
+            // kosmos#7050 slice C: only while the native sign-in is on (after the line above may have turned it off for
+            // someone signed in), so a signed-in launch never asks Kosmos+ about passkeys.
+            if newPhase == .active, nativeSignIn { signIn.appReturned() }
             if newPhase == .active && tabsBackgrounded {
                 tabsBackgrounded = false
                 web.returned()
