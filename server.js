@@ -4055,6 +4055,130 @@ function isSetupGuide(name) {
   } catch { return false; }
 }
 
+/* #5406 slice C: may this screen's options be offered as buttons? Every condition must hold. kosmos#7017: one answer
+   for the thread route (the board's buttons) and the phone's notification (its Allow and Deny), never two. `options` is
+   chat.optionsIn(question.text); `view` the fresh capture the question was read from. */
+function dmPressable({ guideThread, card, options, question, view }) {
+  const cqNow = view && view.text ? require('./engine/status').claudeAnswerableMenu(view.text) : null;   // #6054: a permission prompt too
+  return !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude'
+    && Array.isArray(options) && Boolean(question) && typeof question.text === 'string'
+    && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry
+    && Boolean(cqNow)
+    // #6054 review 3: a permission prompt only with its whole box on screen (its identity must be the whole request).
+    && (!cqNow.permission || chat.permissionAnswerable(view.text))
+    // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
+    && cqNow.options.length === options.length
+    && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
+}
+
+/* kosmos#7017 part 2: Allow and Deny for a phone notification, only while the agent is stopped on Claude Code's
+   permission prompt and the board itself would draw that card's buttons (dmPressable, chat.permissionCard): the same
+   reading as the thread route, so the phone never offers a press the board would refuse. And only for the notice that
+   prompt raised: the report it is about (`at`) must be the agent's current one AND the permission hook's own wait
+   (selfreport.isAutoPermissionWait), so an agent's own question, or an older notice delivered late, never carries
+   buttons for whatever prompt happens to be up. Each choice is the prompt's own option ({ n, label }; the label as the
+   thread stores it, which the POST compares the same way). `request` is the request's fingerprint
+   (chat.permissionRequestId), the same one the thread route serves on the card, so the phone can refuse a press for a
+   request no longer up. `shown` is the whole request as the lock screen says it (phonePermissionShown): a person is
+   never asked to allow a command they cannot read in full. Never a lasting choice: Allow is the plain "Yes", and the "always allow"
+   kinds are not offered from a lock screen at all. Null whenever any of that does not hold. The 2000 cap on the
+   question's identity is a backstop that matches the phone's: while `shown` must fit 400 characters it cannot be
+   reached, since the identity is the same box plus a few lines. Never throws. */
+const PHONE_ASKED_MAX = 2000;
+function phonePermissionNow(name, at, roster) {
+  try {
+    const rep = selfreport.read(name);
+    if (!selfreport.isAutoPermissionWait(rep) || rep.at !== at) return null;
+    const card = ourCardByName(roster, name);
+    if (!card || card.state !== STATE.NEEDS_YOU || (card.disruption && card.disruption.failed === true)) return null;
+    const guideThread = isSetupGuide(name) || isSetupGuide(card.sessionName);
+    const view = chat.viewport(name, roster);
+    if (!view || typeof view.text !== 'string') return null;
+    const question = chat.questionIn(view.text, card.runner);
+    if (!question || typeof question.text !== 'string' || question.reported) return null;
+    const options = chat.optionsIn(question.text);
+    if (!dmPressable({ guideThread, card, options, question, view })) return null;
+    const perm = chat.permissionCard(view.text);
+    if (!perm) return null;
+    const pick = (n) => { const o = options.find((x) => x.n === n); return o && o.lasting !== true ? { n: o.n, label: chat.cleanMessage(o.label) } : null; };
+    const allow = pick(perm.allow);
+    const deny = pick(perm.deny);
+    const asked = chat.questionAbove(question.text);
+    const shown = phonePermissionShown(perm);
+    if (!allow || !deny || typeof asked !== 'string' || !asked || asked.length > PHONE_ASKED_MAX || !shown) return null;
+    return { kind: perm.kind, allow, deny, asked, request: chat.permissionRequestId(perm), shown };
+  } catch { return null; }
+}
+
+/* The board's words for what a permission card asks (web/index.html DM_PERM_DOES), for the lock screen. */
+const PHONE_PERM_DOES = {
+  delete: 'run a command that deletes files',
+  command: 'run a command',
+  create: 'create a file',
+  edit: 'change a file',
+  fetch: 'fetch something from the web',
+  other: 'do something that needs your permission',
+};
+/* kosmos#7017 part 2: what the lock screen says a permission request is. The phone has no Show details, so it shows
+   the WHOLE request or offers no buttons: a request cut short can look harmless while Allow approves all of it. Only
+   one measured shape: a command whose request is exactly one line. A file (new or changed: its text is read back out of
+   the terminal's drawing, where a line Claude Code wraps itself can lose or gain words, review 5), a multi-line command
+   (a continued line, a heredoc), a fetch's address and any other tool's arguments get no buttons; the chat has them.
+   Claude Code's reason comes FIRST, so a warning such as a dangerous rm is the first thing read. Then "Wants to
+   <what>:" with the command on its own line (no full stop added), then the agent's own words about it. Empty, so no
+   buttons, when the whole does not fit the notice's words (phonenotice.TEXT_MAX) uncut; when it holds a character that
+   draws differently on a phone than in the terminal (format controls such as bidi overrides and zero-width marks, line
+   and paragraph separators, other control characters), so the screen could read as something it is not; or when it
+   holds anything shaped like a secret (engine/secretmask.js) or a password given as a command flag (PHONE_PASSWORD_FLAG),
+   or a run that looks like a token (phoneTokenLike), which a lock screen and Notification Center would show to anyone
+   holding the phone. */
+const PHONE_PASSWORD_FLAG = new RegExp([
+  // Review 8: any flag NAMED like a credential (--password, --ftp-password, -storepass, --api-token, --body-secret),
+  // except a purely numeric value (--max-tokens=500).
+  String.raw`(^|\s)--?[\w-]*(pass|pwd|secret|token|api-?key)[\w-]*[=\s](?!\d+(\s|$))\S`,
+  String.raw`(^|\s)(sshpass\b|--user[=\s][^\s:]*[^\s:\d][^\s:]*:\S)`,
+  String.raw`(^|\s)-u\s*[^\s:]*[^\s:\d][^\s:]*:\S`,                                          // curl -u/-uX:Y (not docker -u 1000:1000)
+  String.raw`(^|\s)-U\s*\S+%\S`, String.raw`(^|\s)-u\s+[^\s,]+,\S`,                          // smbclient -U a%p, lftp -u a,p
+  String.raw`\bpass:\S`,                                                                      // openssl -passin pass:X
+  String.raw`\b(authorization|proxy-authorization|cookie)\s*:`,                             // a header carrying a credential
+  String.raw`\b(mysql|mysqldump|mariadb)\b.*\s-p\S`, String.raw`\bmongo(sh)?\b.*\s-p\s`, String.raw`\b(un)?(zip|7z)\b.*\s-[pP]`,
+  String.raw`\bopenssl\b.*\s-(k|pass)\s`, String.raw`\bredis-cli\b.*\s-a\s`, String.raw`\bdocker\s+login\b.*\s-p\b`,
+  String.raw`\bhtpasswd\b.*\s-\w*b`, String.raw`\bldap\w+\b.*\s-w\s`, String.raw`\bssh-keygen\b.*\s-N\s`,
+  String.raw`\bsudo\b.*\s-S\b`, String.raw`\bvault\s+login\b`, String.raw`\bgh\s+secret\s+set\b`,
+  String.raw`(^|[\s;&|"'])[A-Z_]*(PASS(WORD|WD)?|PWD|SECRET|TOKEN)[A-Z_]*=\S`,              // PGPASSWORD=, MYSQL_PWD=, API_TOKEN=
+].join('|'), 'i');
+/* Reviews 7 and 8: a list of credential shapes always misses one, so a backstop for long ones: a run of 20 or more
+   token characters that, split at - . _, has a piece of 16+ mixing letters and digits, or two or more mixed pieces (a
+   bare bearer token, a sha, a base64url key). An ordinary name with a number in it (fix-login-1234, app-v1.2.3.apk,
+   x-6727.test.js) is one mixed piece at most and passes. A short password the list misses is the stated residual: iOS
+   shows previews only when unlocked by default, and Allow asks to unlock. */
+function phoneTokenLike(text) {
+  const mixed = (p) => /[A-Za-z]/.test(p) && /\d/.test(p);
+  return (String(text).match(/[A-Za-z0-9_\-.+=]{20,}/g) || []).some((t) => {
+    const pieces = t.split(/[-._]/);
+    return pieces.some((p) => p.length >= 16 && mixed(p)) || pieces.filter(mixed).length >= 2;
+  });
+}
+function phonePermissionShown(perm) {
+  if (perm.kind !== 'command' && perm.kind !== 'delete') return '';
+  // Review 6: the measured title only. A title saying more ("Bash command (unsandboxed)", say) is not shown here, so a
+  // prompt carrying one gets no buttons rather than being approved without its qualifier.
+  if (perm.title !== 'Bash command') return '';
+  const lines = String(perm.detail || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length !== 1) return '';
+  const out = [];
+  if (perm.reason) out.push(String(perm.reason).trim());
+  out.push('Wants to ' + PHONE_PERM_DOES[perm.kind] + ':', lines[0]);
+  if (perm.says) out.push('It says: ' + String(perm.says).trim());
+  const text = out.filter(Boolean).join('\n');
+  if (text.length > require('./engine/phonenotice').TEXT_MAX) return '';
+  // eslint-disable-next-line no-control-regex
+  if (/[\p{Cf}\u2028\u2029\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u.test(text)) return '';
+  if (PHONE_PASSWORD_FLAG.test(text) || phoneTokenLike(text)) return '';   // the whole shown text, the agent's words too
+  try { if (require('./engine/secretmask').mask(text).fired.length) return ''; } catch { return ''; }
+  return text;
+}
+
 /** kosmos#5841: one page of earlier messages; the same size as the thread route's tail. */
 const DM_OLDER_PAGE = 200;
 /* kosmos#5841: what the person sees of a direct thread's rows, decided ONCE for both readers (the thread route's
@@ -7474,14 +7598,18 @@ const server = http.createServer(async (req, res) => {
      shown name, its picture's address when it has one, and the message's words, shortened. 404 when the id is not ours
      or its words are not here; the phone then shows the plain notification. */
   if (pathname === '/api/phone/notice' && req.method === 'GET') {
-    let asked = null;
-    try { asked = new URL(req.url, ROUTING_BASE).searchParams.get('id'); } catch { asked = null; }
-    const got = require('./engine/phonenotice').wordsFor(asked, { mask: guideMasked });   // #3769: rows kept before the write-side mask
+    let noticeId = null;
+    try { noticeId = new URL(req.url, ROUTING_BASE).searchParams.get('id'); } catch { noticeId = null; }
+    const got = require('./engine/phonenotice').wordsFor(noticeId, { mask: guideMasked });   // #3769: rows kept before the write-side mask
     if (!got || borrowedName(got.session)) { sendJson(res, 404, { error: 'we have no words for that notification' }); return; }
-    const card = ourCardByName(safeRoster(), got.session);   // as the thread readers find it: any spelling, tied only
+    const roster = safeRoster();
+    const card = ourCardByName(roster, got.session);   // as the thread readers find it: any spelling, tied only
     let picture = null;
     try { picture = store.avatarPath(got.session) ? '/api/agent/' + encodeURIComponent(got.session) + '/avatar' : null; } catch { picture = null; }
-    sendJson(res, 200, { kind: got.kind, session: got.session, agent: (card && card.name) || got.session, text: got.text, picture });
+    /* kosmos#7017 part 2: a needs_you raised by a permission prompt still on screen carries Allow and Deny. */
+    const permission = got.kind === 'report' ? phonePermissionNow(got.session, (require('./engine/phonenotice').parseId(noticeId) || {}).at, roster) : null;
+    sendJson(res, 200, { kind: got.kind, session: got.session, agent: (card && card.name) || got.session, text: got.text, picture,
+      ...(permission ? { permission } : {}) });
     return;
   }
 
@@ -18553,23 +18681,17 @@ const server = http.createServer(async (req, res) => {
     const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
     const guideName = guideThread ? ((card && card.sessionName) || name) : null;
     const servedRows = dmServeRows(servedMessages, name, card);   // kosmos#5841: shared with the older route
-    /* #5406 slice C: may this screen's options be offered as buttons (see `asked` below)? Every condition must hold. */
-    const cqNow = view && view.text ? require('./engine/status').claudeAnswerableMenu(view.text) : null;   // #6054: a permission prompt too
-    const pressable = !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude'
-      && Array.isArray(options) && Boolean(question) && typeof question.text === 'string'
-      && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry
-      && Boolean(cqNow)
-      // #6054 review 3: a permission prompt only with its whole box on screen (its identity must be the whole request).
-      && (!cqNow.permission || chat.permissionAnswerable(view.text))
-      // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
-      && cqNow.options.length === options.length
-      && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
+    /* #5406 slice C: may this screen's options be offered as buttons (see `asked` below)? kosmos#7017: decided by
+       dmPressable, which the phone's notification asks too, so a phone button is offered exactly where a board one is. */
+    const pressable = dmPressable({ guideThread, card, options, question, view });
     /* kosmos#6727: a permission prompt read off the screen is served as a short card (what the agent wants to do,
        Allow, Deny, the raw request under Show details), not as its screen. Only where its buttons are offered
        (`pressable`, which also keeps it out of the setup guide's masked thread, review 1): a card with no Allow or Deny
        would promise an action it cannot take, so there the old text stays. Only the live pane question. */
-    const permCard = (pressable && question === paneQuestion && view && typeof view.text === 'string')
+    const permRead = (pressable && question === paneQuestion && view && typeof view.text === 'string')
       ? chat.permissionCard(view.text) : null;
+    // kosmos#7017 part 2: with its fingerprint, which a phone's lock-screen press is checked against before it sends.
+    const permCard = permRead ? { ...permRead, request: chat.permissionRequestId(permRead) } : null;
     sendJson(res, 200, {
       messages: permCard
         ? servedRows.map((m) => (m && m.kind === 'question' && !m.reported ? { ...m, permission: permCard } : m))

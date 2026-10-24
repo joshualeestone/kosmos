@@ -122,6 +122,15 @@ reason names the tool and the command (up to 200 characters of it), and that is 
 picture is fetched after the words with its own 8 seconds; a notice whose picture is late shows without one. Whether
 iOS keeps the subtitle on a message-style notice is not yet seen on a real phone.
 
+**Allow and Deny on a permission request (kosmos#7017 part 2).** When the agent is stopped on Claude Code's permission
+prompt for a one-line command (title exactly "Bash command") and the board itself would show that card's buttons, the
+computer's answer also carries the request, and the text becomes the request in the board card's words: Claude Code's
+reason first, then `Wants to run a command:` and the command on its own line, then `It says: <the agent's words>`.
+The notification then offers Allow and Deny, both asking to unlock the phone. A press re-reads the chat first and goes
+only while the same request is still up; the person is always told the outcome. No buttons (the text stays as above)
+for a file, a multi-line command, any other tool, a request longer than about 400 characters, characters that draw
+differently on a phone, or anything shaped like a credential. Never an "always allow" choice.
+
 ## Built, not on
 
 | Event | When it would fire | Wording | Status |

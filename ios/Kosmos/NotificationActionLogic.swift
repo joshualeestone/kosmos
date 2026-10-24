@@ -3,6 +3,9 @@ import Foundation
 // kosmos#7017 (slice 8 of #6838): answering from the notification. UIKit-free, so ios/LogicTests/run-actions.sh runs
 // it on a Mac.
 //
+// Allow and Deny (part 2): on a permission prompt's notice, the prompt's own Yes or No goes to that agent's chat as the
+// chat's own press (Board.pressRequest), only after a fresh read shows the very request the notice named is still up.
+//
 // Reply: a text typed on the notification goes to that agent's chat through the request the native chat uses
 // (Board.sendRequest, Board.sendResult), to the computer the notification came from, with the sign-in the app keeps
 // for it, and only when that sign-in belongs to the Kosmos+ account signed in now. Nothing is ever sent twice: a reply
@@ -117,6 +120,108 @@ enum NotificationAction {
         if let a = userInfo["address"] as? String { out["address"] = a }
         if let s = userInfo["session"] as? String { out["session"] = s }
         return out
+    }
+
+    // MARK: kosmos#7017 part 2: Allow and Deny
+
+    static var permissionCategory: String { NotificationCategories.permissionCategory }
+    static var allowAction: String { NotificationCategories.allowAction }
+    static var denyAction: String { NotificationCategories.denyAction }
+
+    // What the extension put on the notice (PhoneNotice.permissionInfo), read back: the pressed option and what it checks.
+    struct PermissionPress: Equatable {
+        let n: Int
+        let label: String
+        let asked: String
+        let request: String
+        let allow: Bool
+    }
+
+    static func permissionPress(_ userInfo: [AnyHashable: Any], action: String) -> PermissionPress? {
+        guard action == allowAction || action == denyAction,
+              let p = userInfo[NotificationCategories.permissionInfoKey] as? [String: Any],
+              let asked = p["asked"] as? String, !asked.isEmpty,
+              let request = p["request"] as? String, request.count == 64, request.allSatisfy({ $0.isHexDigit })
+        else { return nil }
+        let allow = action == allowAction
+        guard let n = p[allow ? "allowN" : "denyN"] as? Int, (1...9).contains(n),
+              let label = p[allow ? "allowLabel" : "denyLabel"] as? String, !label.isEmpty
+        else { return nil }
+        return PermissionPress(n: n, label: label, asked: asked, request: request, allow: allow)
+    }
+
+    // The chat's read just before an Allow or Deny goes (GET /api/agent/<name>/thread). A notice can be minutes old, so
+    // the press goes only while the agent is still asking the same question (`asked`, the whole box, which the board
+    // checks again on the press) AND the board's card carries the notice's fingerprint (`request`), a second check on
+    // the card's reading of the request. A prompt still up whose buttons the board will not draw just now (`asked` null)
+    // cannot be answered from here; nothing is sent either way.
+    enum PermissionVerdict: Equatable { case go, changed, unreadable(String) }
+
+    static func permissionVerdict(status: Int, data: Data?, press: PermissionPress, agent: String) -> PermissionVerdict {
+        let who = agent.isEmpty ? "your agent" : agent
+        let verb = press.allow ? "allowed" : "denied"
+        guard status == 200, let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            if status == 0 { return .unreadable("Kosmos could not reach your computer, so nothing was \(verb) for \(who). Open the chat to answer.") }
+            if status == 401 || status == 403 {
+                return .unreadable("Your computer did not let this phone in just now, so nothing was \(verb) for \(who). Open the chat to answer.")
+            }
+            return .unreadable("Kosmos could not read your chat with \(who) just now, so nothing was \(verb). Open the chat to answer.")
+        }
+        guard obj["asking"] as? Bool == true else { return .changed }
+        // Still asking, but the board offers no buttons for it just now (`asked` null: its box top scrolled off, say).
+        guard let askedNow = obj["asked"] as? String else {
+            return .unreadable("Kosmos cannot answer \(who) from here just now, so nothing was \(verb). Open the chat to answer.")
+        }
+        guard askedNow == press.asked else { return .changed }
+        // Still asking the same question, but the computer could not read the chat's rows (messages null): the card
+        // cannot be compared, which is not the same as it having changed.
+        guard let rows = obj["messages"] as? [[String: Any]] else {
+            return .unreadable("Kosmos could not read your chat with \(who) just now, so nothing was \(verb). Open the chat to answer.")
+        }
+        let cards = rows.compactMap { ($0["kind"] as? String) == "question" ? $0["permission"] as? [String: Any] : nil }
+        // The same question still up, but no card with this fingerprint: its reading of the request differs from the
+        // notice's. Not "it changed" (the question did not): it cannot be answered from here now.
+        guard cards.contains(where: { $0["request"] as? String == press.request }) else {
+            return .unreadable("Kosmos cannot answer \(who) from here just now, so nothing was \(verb). Open the chat to answer.")
+        }
+        return .go
+    }
+
+    // The request for an Allow or Deny: exactly the chat's press (Board.pressRequest), never a lasting choice, to the kept
+    // computer the notice came from, or nil when there is nothing to send to.
+    static func pressRequest(userInfo: [AnyHashable: Any], press: PermissionPress, stored: String?, session: String?, coordinator: URL) -> URLRequest? {
+        guard let t = target(userInfo, stored: stored, session: session, coordinator: coordinator) else { return nil }
+        let option = Board.ChoiceOption(n: press.n, label: press.label, lasting: false)
+        return signed(Board.pressRequest(mac: t.mac, session: t.agent, option: option, asked: press.asked), cookie: t.cookie, idle: 13)
+    }
+
+    // What the person is told after an Allow or Deny (Board.pressResult). Never nothing: iOS takes the notice away on
+    // the press, so silence would read the same as a press that was lost. A sure press says so quietly ("Allowed for
+    // Ada."). A refusal carries the board's own reason, whatever it is: the board refuses a press for many reasons (quiet
+    // hours, the usage cap, another press in the air, a screen it could not read, the question having changed), so no
+    // one sentence here can stand in for them.
+    static func pressNotice(after result: Board.PressResult, agent: String, allow: Bool) -> String {
+        let who = agent.isEmpty ? "your agent" : agent
+        let verb = allow ? "allowed" : "denied"
+        switch result {
+        case .sent:
+            return "\(allow ? "Allowed" : "Denied") for \(who)."
+        case .notSure:
+            return "Kosmos could not confirm that was \(verb) for \(who). Open the chat to check before pressing again."
+        case .refused(let why):
+            let w = why.trimmingCharacters(in: .whitespaces)
+            return w.isEmpty ? "Nothing was \(verb) for \(who). Open the chat to answer."
+                : "Nothing was \(verb) for \(who). \(w)\(w.hasSuffix(".") || w.hasSuffix("!") || w.hasSuffix("?") ? "" : ".")"
+        }
+    }
+
+    static func changedNotice(agent: String, allow: Bool) -> String {
+        "\(agent.isEmpty ? "Your agent" : agent) is no longer asking that, or is asking something else now, so nothing was \(allow ? "allowed" : "denied"). Open the chat to see what it is asking."
+    }
+
+    // When an Allow or Deny could not even be made (no kept computer, or a notice without the computer's permission).
+    static func cannotPress(agent: String) -> String {
+        "Kosmos could not answer \(agent.isEmpty ? "your agent" : agent) from here, so nothing was allowed or denied. Open the chat to answer."
     }
 
     // When the reply could not even be made (no kept computer for this notification, or nothing typed).

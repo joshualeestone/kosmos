@@ -30,7 +30,7 @@ check(reply != nil, "the app registers the Reply category")
 check(reply?.actions.count == 1 && reply?.actions.first?.identifier == NotificationAction.replyAction, "it offers exactly one action, Reply")
 check(reply?.actions.first is UNTextInputNotificationAction, "Reply takes typed text")
 check(reply?.actions.first?.options == [], "Reply does not ask to unlock, and does not open the app")
-check(categories.first { $0.identifier == NotificationCategories.agentPermission }?.actions.isEmpty == true, "the permission category still offers no buttons (part 2, #7017)")
+check(categories.first { $0.identifier == NotificationCategories.agentPermission }?.actions.isEmpty == true, "the coordinator's permission category still offers no buttons: it rides pushes the computer was never asked about (#3870)")
 func words(_ kind: String) -> PhoneNotice.Words { PhoneNotice.Words(kind: kind, session: "ada", agent: "Ada", text: "Done.", picture: nil) }
 check(PhoneNotice.offersReply(words("reply")), "Reply is offered on an agent's own reply to the person")
 check(!PhoneNotice.offersReply(words("report")), "never on a needs-you (a question or a permission prompt): typed words there could answer a menu the person cannot see")
@@ -71,7 +71,9 @@ check(NotificationAction.checkRequest(userInfo: info, stored: kept(), session: s
 check(NotificationAction.askingNotice(agent: "Ada").contains("was not sent"), "the person is told the reply was not sent, and why")
 check(manager.contains("case .asking:\n            tell(NotificationAction.askingNotice(agent: agent), about: userInfo)\n            return"), "asking: the app tells the person and returns before any send")
 check(manager.contains("case .unreadable(let said):\n            tell(said, about: userInfo)\n            return"), "unreadable: the app tells the person and returns before any send")
-if let checkAt = manager.range(of: "NotificationAction.verdict("), let sendAt = manager.range(of: "Self.sendHTTP.data(for: request)") {
+// Inside sendReply only: the Allow and Deny handler has its own send (checked in its own section).
+let replyFn = manager.range(of: "private func sendReply(").map { String(manager[$0.lowerBound...]) } ?? ""
+if let checkAt = replyFn.range(of: "NotificationAction.verdict("), let sendAt = replyFn.range(of: "Self.sendHTTP.data(for: request)") {
     check(checkAt.lowerBound < sendAt.lowerBound, "the app reads the chat before it sends")
 } else { check(false, "the app reads the chat before it sends") }
 check(manager.contains("replySession(total: 8)") && manager.contains("replySession(total: 14)"), "the read and the send have hard total limits, together inside iOS's time for an action")
@@ -82,6 +84,89 @@ section("Reply: what the person is told, and nothing is ever sent twice")
 check(NotificationAction.notice(after: .kept(at: "t"), agent: "Ada") == nil, "kept: nothing to say, it is in the chat")
 check(NotificationAction.notice(after: .taken, agent: "Ada") == nil, "taken: nothing to say")
 check(NotificationAction.notice(after: .keptUndelivered(at: "t", note: "Waiting to send"), agent: "Ada") == nil, "held: it goes by itself once the agent is ready")
+section("Allow and Deny (part 2): only from the computer's own answer, never lasting, both ask to unlock")
+check(NotificationCategories.permissionCategory == PhoneNotice.permissionCategory, "the app and the extension name the same category")
+check(NotificationCategories.permissionInfoKey == PhoneNotice.permissionInfoKey, "the app reads Allow and Deny under the key the extension writes")
+let permCat = categories.first { $0.identifier == NotificationCategories.permissionCategory }
+check(permCat?.actions.map { $0.identifier } == [NotificationCategories.allowAction, NotificationCategories.denyAction], "it offers exactly Allow then Deny")
+check(permCat?.actions.map { $0.title } == ["Allow", "Deny"], "worded Allow and Deny, as the chat's card")
+check(permCat?.actions.allSatisfy { $0.options == [.authenticationRequired] } == true, "both ask to unlock, and neither is marked destructive (equal weight)")
+let fp = String(repeating: "a1", count: 32)
+func permJSON(kind: String = "report", allow: Int = 1, deny: Int = 3, request: String = fp, asked: String = "Do you want to proceed?", shown: String = "Wants to run a command:\\n/usr/bin/uuidgen") -> PhoneNotice.Words? {
+    let body = #"{"kind":"\#(kind)","session":"ada","agent":"Ada","text":"Claude needs your permission to use Bash","picture":null,"permission":{"kind":"command","allow":{"n":\#(allow),"label":"Yes"},"deny":{"n":\#(deny),"label":"No"},"asked":"\#(asked)","request":"\#(request)","shown":"\#(shown)"}}"#
+    return PhoneNotice.words(status: 200, contentType: "application/json", data: Data(body.utf8), userInfo: ["session": "ada"])
+}
+let pw = permJSON()
+check(pw?.permission?.allow == PhoneNotice.Choice(n: 1, label: "Yes") && pw?.permission?.request == fp, "the notice's permission decodes")
+check(pw.flatMap(PhoneNotice.offeredPermission) != nil, "a needs-you carrying a usable permission offers Allow and Deny")
+check(permJSON(kind: "reply").flatMap(PhoneNotice.offeredPermission) == nil, "CONTROL: never on an agent's reply")
+check(permJSON(deny: 1).flatMap(PhoneNotice.offeredPermission) == nil, "CONTROL: Allow and Deny on the same key")
+check(permJSON(request: "short").flatMap(PhoneNotice.offeredPermission) == nil, "CONTROL: no fingerprint, no buttons")
+check(permJSON(asked: "").flatMap(PhoneNotice.offeredPermission) == nil, "CONTROL: no question identity, no buttons")
+check(permJSON(shown: " ").flatMap(PhoneNotice.offeredPermission) == nil, "CONTROL: nothing to show the person, no buttons (review 1)")
+check(pw?.permission?.shown == "Wants to run a command:\n/usr/bin/uuidgen", "the request's words ride with it, in the server's shape")
+let oddPerm = Data(#"{"kind":"report","session":"ada","agent":"Ada","text":"Claude needs your permission to use Bash","picture":null,"permission":{"kind":"command","request":null}}"#.utf8)
+let oddWords = PhoneNotice.words(status: 200, contentType: "application/json", data: oddPerm, userInfo: ["session": "ada"])
+check(oddWords?.text == "Claude needs your permission to use Bash" && oddWords?.permission == nil, "a permission this build cannot read costs only the buttons, never the words (review 1)")
+check(service.contains("content.body = permission.shown") && service.contains("outgoingMessageType: .outgoingMessageText, content: content.body,"), "the extension shows the request as the notice's body, in message style too (review 6)")
+check(PhoneNotice.carriesPermission(category: PhoneNotice.permissionCategory, userInfo: [:]) && PhoneNotice.carriesPermission(category: "AGENT_PERMISSION", userInfo: [PhoneNotice.permissionInfoKey: [:]]), "a push arriving with the category or the press data is seen (review 4)")
+check(!PhoneNotice.carriesPermission(category: "AGENT_PERMISSION", userInfo: info), "CONTROL: the coordinator's own push is left as it came")
+check(PhoneNotice.cleanedCategory(PhoneNotice.permissionCategory) == "" && PhoneNotice.cleanedCategory("AGENT_PERMISSION") == "AGENT_PERMISSION", "only our category is cleared")
+check(PhoneNotice.cleanedInfo([PhoneNotice.permissionInfoKey: [:], "session": "ada"]).count == 1, "the press data is removed, the rest kept")
+check(service.contains("let arrived = Self.withoutPermission(request.content)") && !service.contains("finish(request.content)") && !service.contains("?? request.content"), "every path finishes with the cleaned notice, never the one as it arrived")
+check(words("report").permission == nil && PhoneNotice.offeredPermission(words("report")) == nil, "CONTROL: an older computer's answer with no permission offers nothing")
+let pinfo = pw.flatMap(PhoneNotice.offeredPermission).map(PhoneNotice.permissionInfo)
+check(pinfo?["allowN"] as? Int == 1 && pinfo?["denyLabel"] as? String == "No" && pinfo?["request"] as? String == fp, "it rides the notice as plist values")
+check(service.contains("PhoneNotice.offeredPermission(words)") && service.contains("content.categoryIdentifier = PhoneNotice.permissionCategory"), "the extension sets the category only through offeredPermission")
+
+section("Allow and Deny: the press, checked against the chat read just before it")
+var pinfoNotice = info
+pinfoNotice[PhoneNotice.permissionInfoKey] = pinfo ?? [:]
+let pAllow = NotificationAction.permissionPress(pinfoNotice, action: NotificationAction.allowAction)
+let pDeny = NotificationAction.permissionPress(pinfoNotice, action: NotificationAction.denyAction)
+check(pAllow == NotificationAction.PermissionPress(n: 1, label: "Yes", asked: "Do you want to proceed?", request: fp, allow: true), "Allow presses the prompt's own Yes")
+check(pDeny?.n == 3 && pDeny?.label == "No" && pDeny?.allow == false, "Deny presses the prompt's own No")
+check(NotificationAction.permissionPress(info, action: NotificationAction.allowAction) == nil, "CONTROL: a notice with no permission on it presses nothing")
+check(NotificationAction.permissionPress(pinfoNotice, action: NotificationAction.replyAction) == nil, "CONTROL: Reply is not a press")
+func thread(asking: Bool = true, asked: String = "Do you want to proceed?", request: String = fp) -> Data {
+    Data(#"{"asking":\#(asking),"asked":"\#(asked)","messages":[{"at":null,"text":"Do you want to proceed?","from":"ada","kind":"question","permission":{"kind":"command","allow":1,"deny":3,"request":"\#(request)"}}]}"#.utf8)
+}
+check(NotificationAction.permissionVerdict(status: 200, data: thread(), press: pAllow!, agent: "Ada") == .go, "the same request still up: it goes")
+if case .unreadable = NotificationAction.permissionVerdict(status: 200, data: thread(request: String(repeating: "b2", count: 32)), press: pAllow!, agent: "Ada") {
+    check(true, "CONTROL: the same question but another fingerprint: refused, as cannot-answer-from-here (review 6)")
+} else { check(false, "CONTROL: the same question but another fingerprint: refused, as cannot-answer-from-here (review 6)") }
+check(NotificationAction.permissionVerdict(status: 200, data: thread(asking: false), press: pAllow!, agent: "Ada") == .changed, "CONTROL: answered on the computer since: refused")
+check(NotificationAction.permissionVerdict(status: 200, data: thread(asked: "Something else?"), press: pAllow!, agent: "Ada") == .changed, "CONTROL: a different question: refused")
+check(NotificationAction.permissionVerdict(status: 200, data: Data(#"{"asking":true,"asked":"Do you want to proceed?","messages":[]}"#.utf8), press: pAllow!, agent: "Ada") != .go, "CONTROL: no card on the chat (an older computer, or the box scrolled): refused")
+if case .unreadable = NotificationAction.permissionVerdict(status: 200, data: Data(#"{"asking":true,"asked":null,"messages":[]}"#.utf8), press: pAllow!, agent: "Ada") {
+    check(true, "still asking but no buttons offered just now (asked null): cannot answer from here, not 'changed' (review 7)")
+} else { check(false, "still asking but no buttons offered just now (asked null): cannot answer from here, not 'changed' (review 7)") }
+if case .unreadable = NotificationAction.permissionVerdict(status: 200, data: Data(#"{"asking":true,"asked":"Do you want to proceed?","messages":null}"#.utf8), press: pAllow!, agent: "Ada") {
+    check(true, "still asking but the rows could not be read: says it could not read, not that it changed (review 1)")
+} else { check(false, "still asking but the rows could not be read: says it could not read, not that it changed (review 1)") }
+if case .unreadable(let said) = NotificationAction.permissionVerdict(status: 0, data: nil, press: pDeny!, agent: "Ada") {
+    check(said.contains("nothing was denied") && said.contains("Open the chat"), "no answer: says nothing was denied, and where to answer")
+} else { check(false, "no answer reads as unreadable") }
+check(NotificationAction.changedNotice(agent: "Ada", allow: true).contains("nothing was allowed"), "the refusal says nothing was allowed")
+
+section("Allow and Deny: the request is the chat's own press, and the app handles both buttons")
+let pr = NotificationAction.pressRequest(userInfo: pinfoNotice, press: pAllow!, stored: kept(), session: session, coordinator: coordinator)
+let prBody = pr?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+check(pr?.httpMethod == "POST" && pr?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/ada/thread", "a POST to that agent's chat on that computer")
+check(prBody?["text"] as? String == "1" && prBody?["chose"] as? String == "Yes" && prBody?["asked"] as? String == "Do you want to proceed?", "the body is the board's press: the digit, the option's own words, the question")
+check(prBody?["lasting"] == nil, "never a lasting choice")
+check(pr?.value(forHTTPHeaderField: "Cookie") == "__Host-kosmos_tunnel_session=c00kie" && pr?.httpShouldHandleCookies == false && pr?.timeoutInterval == 13, "the kept cookie by hand, the send's idle limit")
+check(NotificationAction.pressRequest(userInfo: pinfoNotice, press: pAllow!, stored: kept(owner: Board.owner(of: "someone-else")), session: session, coordinator: coordinator) == nil, "another account's computer: nothing sent")
+check(NotificationAction.pressNotice(after: .sent, agent: "Ada", allow: true) == "Allowed for Ada.", "sent: says so (iOS took the notice away, so silence would look like a lost press; review 2)")
+check(NotificationAction.pressNotice(after: .sent, agent: "Ada", allow: false) == "Denied for Ada.", "sent Deny: says so")
+check(NotificationAction.pressNotice(after: .notSure("x"), agent: "Ada", allow: true).contains("check before pressing again"), "not sure: look before pressing again")
+check(NotificationAction.pressNotice(after: .refused("Ada is not running"), agent: "Ada", allow: false) == "Nothing was denied for Ada. Ada is not running.", "refused: the computer's reason")
+check(NotificationAction.pressNotice(after: .refused("It is quiet hours, so nothing was answered"), agent: "Ada", allow: true) == "Nothing was allowed for Ada. It is quiet hours, so nothing was answered.", "any refusal carries the board's own reason (a 409 is not always a changed question; review 3)")
+check(manager.contains("case NotificationAction.allowAction, NotificationAction.denyAction:") && manager.contains("NotificationAction.permissionVerdict(") && manager.contains("NotificationAction.pressRequest("), "the app handles Allow and Deny, checking the request before it sends (no dead buttons, #3870)")
+if let a = manager.range(of: "NotificationAction.permissionVerdict("), let b = manager.range(of: "Self.sendHTTP.data(for: request)\n        let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0\n        let result = Board.pressResult") {
+    check(a.lowerBound < b.lowerBound, "the check comes before the send")
+} else { check(false, "the check and the send are both in the handler") }
+
 let couldNot = Data(#"{"delivery":{"state":"could_not","because":"Ada is not running","at":"t"},"recorded":true}"#.utf8)
 let refusedKept = Board.sendResult(status: 200, body: couldNot)
 check(NotificationAction.notice(after: refusedKept, agent: "Ada", body: couldNot) == "Kosmos could not send your reply to Ada: Ada is not running.", "kept but not typed (the board refused): never silent, with the board's reason")

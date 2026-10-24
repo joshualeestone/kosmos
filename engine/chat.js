@@ -3219,10 +3219,32 @@ function permissionCard(text) {
   if (!ruled) return null;
   const extra = ((isCommand || isFile) && subSure) ? '' : sub;
   // A file's text is drawn with a line-number gutter ("  1 hello"); the details show the text (review 2).
-  const gutter = isFile && detail && detail.split('\n').every((l) => !l.trim() || /^\s*\d+\s/.test(l));
+  // kosmos#7017 reviews 4 and 5: only a gutter that numbers EVERY line 1, 2, 3 with no gap is one. A blank line is drawn
+  // "  2 " (trimmed here to "2"); a line Claude Code wraps itself carries no number, so its continuation breaks the run
+  // and the text is kept as drawn, numbers and all, rather than losing a number that was part of the text ("777").
+  const gutterLines = detail ? detail.split('\n') : [];
+  // Review 6: the strict run is for a new file (drawn from line 1). A change is drawn as a diff from its own line
+  // numbers ("  41 -old"), which keeps the earlier reading.
+  const gutter = kind === 'create' ? (gutterLines.length > 0
+    && gutterLines.every((l, k) => { const m = l.match(/^\s*(\d+)(\s|$)/); return Boolean(m) && Number(m[1]) === k + 1; }))
+    : (isFile && Boolean(detail) && gutterLines.every((l) => !l.trim() || /^\s*\d+\s/.test(l)));
   const fileText = gutter ? detail.split('\n').map((l) => l.replace(/^\s*\d+\s?/, '')).join('\n') : detail;
   return { kind, title, says: isCommand && subSure ? sub : '', target: isFile && subSure ? sub : '',
     detail: [extra, fileText].filter(Boolean).join('\n'), reason, allow: allow.n, deny: deny.n };
+}
+/* kosmos#7017 part 2: one permission request's fingerprint, from its card (permissionCard): sha256 hex of what the card
+   says the request is, joined with U+001F. Every permission prompt asks "Do you want to proceed?" with "Yes" and "No", so
+   the question line alone cannot tell two commands apart. The press's `asked` (the whole box, #6054) is checked by
+   the phone and again by the board; this is a second check on the card's reading of it, not a replacement for that. The phone checks a lock-screen press against the card's
+   fingerprint read again just before it sends, so a notice minutes old never answers a different command with the same
+   words. The same text on a pane redrawn at another width may wrap differently and read as another request: that refuses
+   an honest press, the safe direction. The same words asked again later (from another folder, say) read as the same
+   request: the person did read those exact words. Null for anything that is not an object (pass only permissionCard's
+   result). */
+function permissionRequestId(card) {
+  if (!card || typeof card !== 'object') return null;
+  const parts = ['kind', 'title', 'says', 'target', 'detail', 'reason'].map((k) => String(card[k] == null ? '' : card[k]));
+  return require('node:crypto').createHash('sha256').update(parts.join('\u001f'), 'utf8').digest('hex');
 }
 function questionIn(text, runner) {
   const whole = String(text == null ? '' : text);
@@ -5072,7 +5094,7 @@ module.exports = {
   composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
   setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
   recoverStuckInput, setDraftSaver, withDraftRows, STUCK_INPUT_MS, stuckShrunk,   // kosmos#6717
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,

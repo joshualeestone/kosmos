@@ -15,28 +15,41 @@ final class NotificationService: UNNotificationServiceExtension {
     private var work: Task<Void, Never>?
 
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+        // kosmos#7017 review 4: whatever Allow and Deny a push arrived with is cleared first, on every path this extension
+        // takes (the time limit's and a failed fetch's too). iOS runs it only for a push marked mutable-content, so this
+        // is defence in depth: what protects a press is the app's live check of `asked` and the fingerprint.
+        let arrived = Self.withoutPermission(request.content)
         lock.lock()
         handler = contentHandler
-        original = request.content
+        original = arrived
         lock.unlock()
-        let info = request.content.userInfo
+        let info = arrived.userInfo
         let stored = Self.keptMacSession()
         guard let ask = PhoneNotice.wordsRequest(userInfo: info, stored: stored) else {
-            finish(request.content)
+            finish(arrived)
             return
         }
         let task = Task { [weak self] in
-            let shown = await Self.messageContent(original: request.content, ask: ask, info: info, stored: stored) { words in
+            let shown = await Self.messageContent(original: arrived, ask: ask, info: info, stored: stored) { words in
                 guard let self else { return }
                 self.lock.lock()
                 self.wordsOnly = words
                 self.lock.unlock()
             }
-            self?.finish(shown ?? request.content)
+            self?.finish(shown ?? arrived)
         }
         lock.lock()
         work = task
         lock.unlock()
+    }
+
+    // The notice without any Allow and Deny it arrived with: the permission category and the press data removed.
+    static func withoutPermission(_ content: UNNotificationContent) -> UNNotificationContent {
+        guard PhoneNotice.carriesPermission(category: content.categoryIdentifier, userInfo: content.userInfo),
+              let copy = content.mutableCopy() as? UNMutableNotificationContent else { return content }
+        copy.categoryIdentifier = PhoneNotice.cleanedCategory(content.categoryIdentifier)
+        copy.userInfo = PhoneNotice.cleanedInfo(content.userInfo)
+        return copy
     }
 
     // iOS is about to give up on this extension: show the words if they are in, else the notice as it came.
@@ -113,6 +126,16 @@ final class NotificationService: UNNotificationServiceExtension {
         // can reach it). Never on a needs-you: a question's or a permission prompt's answer belongs in the chat (or, for
         // a permission, its own Allow and Deny), and typed words there could answer a menu the person cannot see.
         if PhoneNotice.offersReply(words) { content.categoryIdentifier = PhoneNotice.replyCategory }
+        // kosmos#7017 part 2: Allow and Deny, only when the computer sent them for a permission prompt still up. The
+        // app presses with what rides here, after checking the request is still the one on screen.
+        if let permission = PhoneNotice.offeredPermission(words) {
+            content.categoryIdentifier = PhoneNotice.permissionCategory
+            // The request itself, not the hook's "needs your permission to use Bash": what Allow would allow.
+            content.body = permission.shown
+            var info = content.userInfo
+            info[PhoneNotice.permissionInfoKey] = PhoneNotice.permissionInfo(permission)
+            content.userInfo = info
+        }
         // The words are in: from here the time limit shows them, however long the picture takes.
         if let ready = content.copy() as? UNNotificationContent { wordsReady(ready) }
 
@@ -139,7 +162,8 @@ final class NotificationService: UNNotificationServiceExtension {
         let image = shown.map { INImage(imageData: $0.0) }
         let sender = INPerson(personHandle: INPersonHandle(value: words.session, type: .unknown), nameComponents: nil,
                               displayName: words.agent, image: image, contactIdentifier: nil, customIdentifier: words.session)
-        let intent = INSendMessageIntent(recipients: nil, outgoingMessageType: .outgoingMessageText, content: words.text,
+        // The body as set above (a permission's request, or the words): message style must never show other words.
+        let intent = INSendMessageIntent(recipients: nil, outgoingMessageType: .outgoingMessageText, content: content.body,
                                          speakableGroupName: nil, conversationIdentifier: words.session, serviceName: nil,
                                          sender: sender, attachments: nil)
         if let image { intent.setImage(image, forParameterNamed: \.sender) }

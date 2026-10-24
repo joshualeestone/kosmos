@@ -35,6 +35,46 @@ enum PhoneNotice {
         let agent: String
         let text: String
         let picture: String?
+        // kosmos#7017 part 2: present only on a needs-you raised by Claude Code's permission prompt still on screen,
+        // where the board itself would draw Allow and Deny (server.js phonePermissionNow).
+        var permission: Permission? = nil
+
+        init(kind: String, session: String, agent: String, text: String, picture: String?, permission: Permission? = nil) {
+            self.kind = kind; self.session = session; self.agent = agent; self.text = text; self.picture = picture
+            self.permission = permission
+        }
+
+        private enum CodingKeys: String, CodingKey { case kind, session, agent, text, picture, permission }
+
+        // A permission this build cannot read (an older or newer computer) costs only the buttons, never the words.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            kind = try c.decode(String.self, forKey: .kind)
+            session = try c.decode(String.self, forKey: .session)
+            agent = try c.decode(String.self, forKey: .agent)
+            text = try c.decode(String.self, forKey: .text)
+            picture = try c.decodeIfPresent(String.self, forKey: .picture)
+            permission = (try? c.decodeIfPresent(Permission.self, forKey: .permission)) ?? nil
+        }
+    }
+
+    // One of the prompt's own options: its number is the key typed, its words are checked against the screen.
+    struct Choice: Decodable, Equatable {
+        let n: Int
+        let label: String
+    }
+
+    // Allow and Deny for a permission prompt, and the question's identity a press names (the board's dmChoicePress body).
+    struct Permission: Decodable, Equatable {
+        let kind: String
+        let allow: Choice
+        let deny: Choice
+        let asked: String
+        // The request's fingerprint (chat.permissionRequestId): a press is sent only while the thread's card still has it.
+        let request: String
+        // What the request is, in the board card's words ("Wants to run a command: ..."), shown as the notice's body: a
+        // person is never asked to allow something they cannot read.
+        let shown: String
     }
 
     // A keychain group this build can hold: "<10-character team id>.<rest>". An unsigned build has no team, so its
@@ -118,6 +158,41 @@ enum PhoneNotice {
 
     // Reply is offered only on an agent's direct reply (the computer's `reply` kind), never on a needs-you `report`.
     static func offersReply(_ w: Words) -> Bool { w.kind == "reply" }
+
+    // kosmos#7017 part 2: the category that offers Allow and Deny, set once the words carry a usable permission. Must
+    // match NotificationCategories.permissionCategory (LogicTests checks the two are equal). Not the coordinator's
+    // AGENT_PERMISSION, which every permission push carries whether or not the computer could be asked.
+    static let permissionCategory = "KOSMOS_PERMISSION"
+    // Where the extension puts Allow and Deny on the notice, for the app to press with.
+    static let permissionInfoKey = "kosmosPermission"
+
+    // Allow and Deny only on a needs-you `report`, with two different keys, words a press can carry, and an identity.
+    static func offeredPermission(_ w: Words) -> Permission? {
+        guard w.kind == "report", let p = w.permission, p.allow.n != p.deny.n, (1...9).contains(p.allow.n), (1...9).contains(p.deny.n),
+              !p.allow.label.isEmpty, !p.deny.label.isEmpty, !p.asked.isEmpty,
+              p.request.count == 64, p.request.allSatisfy({ $0.isHexDigit }),
+              !p.shown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              p.allow.label.count <= 500, p.deny.label.count <= 500, p.asked.count <= 2000
+        else { return nil }
+        return p
+    }
+
+    // kosmos#7017 review 4: a push that arrives already carrying Allow and Deny (the category or the press data) did not
+    // get them from this extension; they are cleared before anything else.
+    static func carriesPermission(category: String, userInfo: [AnyHashable: Any]) -> Bool {
+        category == permissionCategory || userInfo[permissionInfoKey] != nil
+    }
+    static func cleanedCategory(_ category: String) -> String { category == permissionCategory ? "" : category }
+    static func cleanedInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
+        var out = userInfo
+        out[permissionInfoKey] = nil
+        return out
+    }
+
+    // The permission as the notice's userInfo carries it (plist types only).
+    static func permissionInfo(_ p: Permission) -> [String: Any] {
+        ["allowN": p.allow.n, "allowLabel": p.allow.label, "denyN": p.deny.n, "denyLabel": p.deny.label, "asked": p.asked, "request": p.request]
+    }
 
     // kosmos#6487: true needs Kosmos.entitlements to ask for Communication Notifications. False sends the picture as
     // the notice's attachment.
