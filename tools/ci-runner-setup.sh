@@ -814,7 +814,10 @@ keepalive() {
   # SIGHUP and SIGPIPE are ignored and the window's one message cannot fail it; the launchctl calls' own output to a
   # gone terminal is the residual. For a session you may lose, run the stage under nohup.
   trap '' HUP PIPE
-  # Before the SIGTERM nothing is stopped, so an interrupt there needs no handler: the default ends the script.
+  # INT and TERM too, from here (not only once a SIGTERM is sent): a job with no process is still booted out and
+  # bootstrapped below, and an interrupt between the two would leave it unloaded. Before the SIGTERM nothing is stopped,
+  # so ignoring early costs at most a rerun.
+  trap '' INT TERM
   local sent=0 outlived=0
   local jo2 opid w4=0; jo2="$(launchctl print "$dom/$label" 2>/dev/null || true)"
   opid="$(printf '%s\n' "$jo2" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
@@ -831,10 +834,6 @@ keepalive() {
   fi
   [ -n "$opid" ] || echo "note:   $label has no process, so no SIGTERM first" || true
   if [ -n "$opid" ]; then
-    # From the SIGTERM to the bootstrap an interrupt would leave a runner stopped under a definition with no KeepAlive
-    # (down for good), and the waits can add up to minutes, which is when someone presses Ctrl-C: ignore INT and TERM,
-    # set BEFORE the kill so a Ctrl-C during the kill call itself cannot end the script after the SIGTERM went out.
-    trap '' INT TERM
     launchctl kill SIGTERM "$dom/$label" \
       || { echo "refused: launchctl kill SIGTERM $dom/$label failed; nothing was stopped, KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
     sent=1
@@ -936,7 +935,7 @@ keepalive() {
   if ! loaded_keepalive "$dom/$label"; then
     local lo; lo="$(launchctl print "$dom/$label" 2>/dev/null || true)"
     if printf '%s\n' "$lo" | grep -x -E '[[:space:]]*successful exit => 0' >/dev/null; then
-      echo "FAILED: $label was reloaded and runs with KeepAlive, but launchctl print shows its 'exit timeout' as $(printf '%s\n' "$lo" | sed -n 's/^[[:space:]]*exit timeout = //p' | head -n 1 || true) (needs 35 or more) and its 'minimum runtime' as $(printf '%s\n' "$lo" | sed -n 's/^[[:space:]]*minimum runtime = //p' | head -n 1 || true) (needs 10 or more): check ExitTimeOut and ThrottleInterval in $plist" >&2; exit 1
+      echo "FAILED: $label was reloaded and runs with KeepAlive, but launchctl print shows its 'exit timeout' as $(printf '%s\n' "$lo" | sed -n 's/^[[:space:]]exit timeout = //p' | head -n 1 || true) (needs 35 or more) and its 'minimum runtime' as $(printf '%s\n' "$lo" | sed -n 's/^[[:space:]]minimum runtime = //p' | head -n 1 || true) (needs 10 or more): check ExitTimeOut and ThrottleInterval in $plist" >&2; exit 1
     fi
     echo "FAILED: $label was reloaded and runs, but launchctl print shows no 'successful exit => 0' semaphore, the wording this check keys on (measured on macOS 2026-10). If launchctl print $dom/$label shows KeepAlive some other way, the check is what is wrong, not the runner" >&2; exit 1
   fi

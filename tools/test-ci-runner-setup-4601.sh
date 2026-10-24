@@ -712,10 +712,11 @@ k="$(grep -n '^launchctl kill SIGTERM gui/777/actions.runner.joshualeestone-kosm
 b="$(grep -n '^launchctl bootout ' "$T/ka-sigterm.calls" | head -n 1 | cut -d: -f1)"
 [ "$(rc ka-sigterm)" = 0 ] && [ -n "$k" ] && [ -n "$b" ] && [ "$k" -lt "$b" ] \
   && pass "keepalive --apply stops the old job with SIGTERM, then boots it out (a bootout alone runs under the old 5 s exit timeout)" || fail "keepalive sigterm: rc $(rc ka-sigterm): kill at ${k:-none}, bootout at ${b:-none}"
-# The wait itself: a real process the test owns stands in for the old runsvc.sh. It ends by itself in 2 s, and the
-# bootout must come after that, not at once (under the old 5 s exit timeout an early bootout would SIGKILL the Listener).
-perl -e 'select(undef, undef, undef, 4)' & sp=$!; t0=$SECONDS   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
-ka_fresh; run ka-waits "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" -- --apply keepalive
+# The wait itself: a real process the test owns stands in for the old runsvc.sh. It ends by itself in 8 s (started
+# after ka_fresh, and long enough to outlive startup on a loaded box), and the bootout must come after that, not at once
+# (under the old 5 s exit timeout an early bootout would SIGKILL the Listener).
+ka_fresh; perl -e 'select(undef, undef, undef, 8)' & sp=$!; t0=$SECONDS   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
+run ka-waits "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" -- --apply keepalive
 el=$((SECONDS - t0)); wait "$sp" 2>/dev/null
 # The run took most of the 4 s: it did wait (a process already gone before the loop would also read "after exit").
 # kill-while-alive: the process was still up at the SIGTERM, so "after exit" at the bootout means the script waited.
@@ -852,7 +853,6 @@ run ka-extrakey "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --
 [ "$(rc ka-extrakey)" = 0 ] && has ka-extrakey "note:   replacing KeepAlive" && ! plutil -extract KeepAlive.Crashed raw -o - "$KA" >/dev/null 2>&1 \
   && pass "keepalive --apply: a KeepAlive with extra keys is replaced by the exact dict, and said" || fail "keepalive extra key: rc $(rc ka-extrakey): $(grep -i replacing "$T/ka-extrakey.out")"
 # Outlives the wait: it goes on (refusing would leave a SIGTERMed runner under its old definition) and says so.
-perl -e 'select(undef, undef, undef, 30)' & sp=$!   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
 # A launchctl print without the "minimum runtime" line (another macOS format): refuse before stopping anything.
 ka_fresh; run ka-noformat "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_MINRUNTIME=1 -- --apply keepalive
 [ "$(rc ka-noformat)" = 1 ] && has ka-noformat "no 'exit timeout' or 'minimum runtime' line" && cmp -s "$KA" "$T/ka.before" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-noformat.calls" \
@@ -862,10 +862,17 @@ ka_fresh; run ka-writesfirst "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOM
 has ka-writesfirst "--apply writes KeepAlive into the plist first" && has ka-writesfirst "so --apply would refuse until idle" \
   && pass "keepalive dry run: a refusal says --apply writes the plist first" || fail "keepalive writes first: $(tail -3 "$T/ka-writesfirst.out")"
 # A Ctrl-C after the SIGTERM (during the bootout) is ignored: the reload completes, the runner is not left down.
+# The same with NO process (loaded, exited): nothing gets a SIGTERM, but the bootout and bootstrap still run, and a
+# Ctrl-C between them must not leave the job unloaded.
+ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"
+run ka-intlate-nopid "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_STATE=waiting FX_NO_PID=1 FX_INTERRUPT_LATE=1 -- --apply keepalive
+[ "$(rc ka-intlate-nopid)" = 0 ] && grep -q '^launchctl bootstrap ' "$T/ka-intlate-nopid.calls" && ! grep -q '^launchctl kill' "$T/ka-intlate-nopid.calls" \
+  && pass "keepalive --apply: a Ctrl-C during the bootout of a job with no process does not leave it unloaded" || fail "keepalive late interrupt, no pid: rc $(rc ka-intlate-nopid): $(tail -1 "$T/ka-intlate-nopid.out")"
 ka_fresh; run ka-intlate "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_INTERRUPT_LATE=1 -- --apply keepalive
 [ "$(rc ka-intlate)" = 0 ] && grep -q '^launchctl bootstrap ' "$T/ka-intlate.calls" && has ka-intlate "Ctrl-C is ignored until it is loaded again" \
   && pass "keepalive --apply: a Ctrl-C after the SIGTERM does not leave the runner down; the reload completes" || fail "keepalive late interrupt: rc $(rc ka-intlate): $(tail -1 "$T/ka-intlate.out")"
-ka_fresh; run ka-outlives "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
+ka_fresh; perl -e 'select(undef, undef, undef, 30)' & sp=$!   # started here, beside its case (#6710: not a bare sleep)
+run ka-outlives "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null
 [ "$(rc ka-outlives)" = 0 ] && has ka-outlives "had not ended 1s after SIGTERM" && grep -qx 'bootout-while-alive' "$T/ka-outlives.calls" \
   && pass "keepalive --apply: an old runner that outlives the wait is booted out with a note naming the risk" || fail "keepalive outlives: rc $(rc ka-outlives): $(tail -2 "$T/ka-outlives.out")"

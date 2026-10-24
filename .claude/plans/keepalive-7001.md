@@ -496,3 +496,13 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - NIT2 FIXED: the dry-run note names all three loaded lines (semaphore, exit timeout, minimum runtime).
 - DEFERRED: NIT1 (unreadable plist in a readable LaunchAgents: same as round 31 NIT4), NIT3 (a helper process set up a
   few cases before ka-outlives: works).
+
+## Review round 34 (sonnet, blind, READ ONLY, HEAD 6a9286f466)
+- W1 FIXED: the INT/TERM ignore sat inside the has-a-process branch, so a job with no process (still booted out and
+  bootstrapped) could be interrupted between the two and left unloaded. The ignore now starts with HUP/PIPE, before
+  anything is stopped (an early ignore costs at most a rerun). ka-intlate-nopid; the mutant that puts it back in the
+  branch is red (rc 130).
+- W2 FIXED: two timing cases started their helper processes too early for a loaded box: ka-waits' helper started before
+  ka_fresh (now after it, 8 s), ka-outlives' 30 s helper several cases early (now beside its case).
+- NIT1 FIXED: the post-reload FAILED message read the values at any indent (the stub's nested 99s); one-tab now.
+- Stopped the queued 6j gate BEFORE editing this time (it had not started); no leftover processes.
