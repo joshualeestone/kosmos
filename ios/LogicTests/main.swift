@@ -1012,8 +1012,8 @@ do {
     check(st(.more, answered: (true, 2)).note == nil, "Show details says nothing after a press")
     check(st(.plain, answered: (false, 1), unsure: true) == Board.ChoicesState(off: true, note: Board.choiceUnsure, danger: true),
           "not sure: off for the lock, and the danger line")
-    check(st(.plain, armedN: 2).note == Board.choiceArmNote && st(.more, armedN: 2).note == Board.choiceArmNote && st(main, armedN: 2).note == nil,
-          "the arm note goes with the armed choice, never under Allow and Deny")
+    check(st(.plain, armedN: 2).note == Board.choiceArmNote && st(.more, armedN: 2).note == Board.choiceArmNote && st(main, armedN: 1).note == Board.choiceArmNote
+          && st(main).note == nil, "the arm note goes with the part that holds the armed choice")
     check(st(.plain, armedN: 2, unsure: true).note == Board.choiceArmNote, "a new arm outranks an old not-sure line")
     check(st(.more, unsure: true).note == nil, "Show details never says the not-sure line")
 

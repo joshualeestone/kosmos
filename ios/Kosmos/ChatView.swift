@@ -38,6 +38,8 @@ struct ChatView: View {
     // press that did not go or may have gone.
     @State private var unsureKey: String?
     @State private var pressLine: String?
+    // The question that line is about: it goes when a read shows that question gone.
+    @State private var pressLineKey: String?
     @State private var composerNote: String?
     // Bumped when the arm window or the answered lock ends, so the buttons redraw then.
     @State private var tick = 0
@@ -325,6 +327,7 @@ struct ChatView: View {
             case .notSure(let text): pressLine = text; unsureKey = choices.key
             case .refused(let text): pressLine = text
             }
+            pressLineKey = choices.key
             if result.mayHaveSent { redraw(after: BoardClient.answeredLock) }
             await read()
         }
@@ -339,7 +342,7 @@ struct ChatView: View {
         sampleApplied = true
         switch which {
         case "armed": if let o = c.options.first(where: \.lasting) { armed = Board.Armed(key: c.key, n: o.n, at: Date()) }
-        case "unsure": unsureKey = c.key; pressLine = Board.choiceUnsure
+        case "unsure": unsureKey = c.key; pressLine = Board.choiceUnsure; pressLineKey = c.key
         case "answered": client.sampleAnswer(agent.session, key: c.key, n: c.options[0].n)
         default: break
         }
@@ -466,6 +469,8 @@ struct ChatView: View {
         switch result {
         case .thread(let fresh):
             if fresh != thread { thread = fresh }
+            // A line about a question that is no longer the one up would read as a warning about the next one.
+            if pressLine != nil, fresh.choices?.key != pressLineKey { pressLine = nil }
             #if DEBUG
             applySampleChoice(fresh)
             #endif
