@@ -10,8 +10,9 @@
  *    of functions: revokeCheck (the rotation, and its clock clamp), ownerHello (the room's creation, epoch 0) and
  *    onKeyFrame (a member ADOPTING the owner's rotation from a frame verified against the pinned owner key, which
  *    creates no rotation of its own). A new caller is a new way the room's key can change: re-decide the graces.
- *    Re-decided for kosmos#4658: noteOwnSealed (an own computer records a sealed room with NO key) and allowOwn
- *    (the seal owner pins an own computer in st.own) write the record but change no key and no epoch.
+ *    Re-decided for kosmos#4658: noteOwnSealed (an own computer records a sealed room with NO key), allowOwn (the
+ *    seal owner pins an own computer in st.own) and adoptOwnShare (an own computer ADOPTING the owner's current key
+ *    from a share its person confirmed, as onKeyFrame adopts a guest's share) change no epoch and create no rotation.
  * 2. HOW THE EPOCH ADVANCES. Exactly one advance spelled "epoch + 1" / "+= 1" / "++", inside revokeCheck. Exactly
  *    one, not "at least one": zero means that spelling is gone and this guard went blind.
  */
@@ -21,7 +22,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ENGINE = __dirname;
-const WRITERS = { 'fedseats.js': ['revokeCheck', 'ownerHello', 'onKeyFrame', 'noteOwnSealed', 'allowOwn'] };
+const WRITERS = { 'fedseats.js': ['revokeCheck', 'ownerHello', 'onKeyFrame', 'noteOwnSealed', 'allowOwn', 'adoptOwnShare'] };
 const FED_FILES = ['fedseats.js', 'fedseal.js', 'federation.js', 'fedmembers.js'];
 const ADVANCE = /\bepoch\s*\+\s*1\b|\bepoch\s*\+=\s*1\b|\bepoch\+\+/;
 const TOP_FN = /^(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/;
@@ -40,7 +41,7 @@ function enclosing(src) {
 }
 const code = (line) => line.replace(/(^|[^:])\/\/.*$/, '$1');   // strip a // comment, not a URL's "://"
 
-test('#5191: only revokeCheck, ownerHello, onKeyFrame and the two #4658 own-computer writers write a room\'s key state', () => {
+test('#5191: only revokeCheck, ownerHello, onKeyFrame and the three #4658 own-computer writers write a room\'s key state', () => {
   const engineFiles = fs.readdirSync(ENGINE).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'));
   assert.ok(engineFiles.includes('fedseats.js') && engineFiles.includes('fedseal.js'), 'the federation engine files moved: update this guard');
   const found = {};

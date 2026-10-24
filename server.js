@@ -4658,8 +4658,9 @@ const REMOTE_STEP_UP_EXACT = new Set([
   // Federation: joining another Kosmos's project opens a room here that outsiders post into and agents act on;
   // inviting one, or sharing this project's own code, lets another Kosmos in. Removing and withdrawing take away.
   'POST /api/federation/join', 'POST /api/federation/invite', 'POST /api/federation/own-code',
-  // kosmos#4658: an Allow hands a sealed room's key to another computer of this account.
-  'POST /api/federation/own-allow',
+  // kosmos#4658: an Allow hands a sealed room's key to another computer of this account; a confirm decides whose key
+  // this computer seals its posts to.
+  'POST /api/federation/own-allow', 'POST /api/federation/own-confirm',
   // Signing this computer in to Kosmos+ anew, enrolling it, or forgetting its enrolment (review iteration 17): from a
   // stale remote session, someone could sign this computer in to THEIR account, then make a fresh sign-in of their
   // own and pass every gate here. The steps after a start (verify, second, enrol, confirm, cancel) follow it.
@@ -22264,6 +22265,40 @@ const server = http.createServer(async (req, res) => {
         const out = await fedseats.allowOwn(body.project, body.pub, body.code);
         if (!out.ok) { sendJson(res, 409, { error: 'That computer was not allowed: ' + out.because + '.' }); return; }
         sendJson(res, 200, { allowed: true });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* kosmos#4658, the waiting computer's half: the code this computer shows, and its person's answer. "It matches"
+     (code) lets it adopt the key the owner's computer sends; "does not match" (match:false) starts over with a new
+     code. Confirming decides who can read this computer's posts, so it is step-up gated and under the family policy
+     like the Allow. */
+  if (pathname === '/api/federation/own-code' && req.method === 'GET') {
+    if (!federationLiveNow()) { sendJson(res, 404, { error: FEDERATION_OFF }); return; }
+    if (!isViaScreen(req, {})) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can see this computer\'s code.' }); return; }
+    let pid = null;
+    try { pid = new URL(req.url, ROUTING_BASE).searchParams.get('project'); } catch { pid = null; }
+    if (!pid) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+    let code = null;
+    try { code = fedseats.ownCode(pid); } catch { code = null; }
+    sendJson(res, 200, { code });
+    return;
+  }
+  if (pathname === '/api/federation/own-confirm' && req.method === 'POST') {
+    if (!federationLiveNow()) { sendJson(res, 404, { error: FEDERATION_OFF }); return; }
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        const startOver = !!body && body.match === false;
+        if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.project !== 'string' || !body.project
+          || (!startOver && (typeof body.code !== 'string' || !body.code.trim()))) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can confirm this computer\'s code.' }); return; }
+        { const stop = federationPolicyStop(); if (stop) { sendJson(res, 403, { error: stop }); return; } }   // kosmos#6239: a room with another computer
+        if (startOver) { sendJson(res, 200, { started_over: fedseats.ownStartOver(body.project) }); return; }
+        const out = await fedseats.confirmOwn(body.project, body.code);
+        if (!out.ok) { sendJson(res, 409, { error: 'Not confirmed: ' + out.because + '.' }); return; }
+        sendJson(res, 200, { confirmed: true });
       })
       .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
     return;

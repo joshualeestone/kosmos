@@ -761,24 +761,33 @@ function sendRotates(projectId, s) {
 }
 
 /* ---- #4658: the owner's own computers in a sealed room ----
-   Decided on the card 10-24 (comments 6381074916, 6381262194, 6381275649):
-   - An own computer (a `self` link) that sees its room sealed records member seal state marked
-     own, with no key, so it holds its posts rather than speaking in the clear, and says
-     key-own-hello {mac, pub} in the room on each connect until it holds the key.
-   - Only the board holding the room's seal-OWNER state answers: it lists each hello with the
-     compare code, and a person's Allow (the code compared on both screens) sends key-own-share and
-     pins the computer in `st.own`, never in `st.peers` (every peers reader means a guest).
-   - The hello is unauthenticated; the person comparing the codes is the authentication. */
+   Decided on the card 10-24 (comments 6381074916, 6381275649, and 6381388572 for the exchange itself):
+   - An own computer (a `self` link) that sees its room sealed records member seal state marked own, with no key,
+     so it holds its posts rather than speaking in the clear, and runs the exchange in fedseal.js (hello with a
+     commitment, the owner's offer, its reveal) on each connect until it holds the key.
+   - Only the board holding the room's seal-OWNER state answers, and lists a computer once its reveal opens its
+     commitment. Allow there sends key-own-share and pins the computer in `st.own`, never in `st.peers` (every
+     peers reader means a guest). The new computer adopts that share only once its OWN person has confirmed the
+     same code (confirmOwn), and only from the owner key of the offer they confirmed.
+   - A run lives in the seat's memory: a reconnect before the person confirmed starts a new one. */
 
-/** Own computer: the room is sealed and this computer has no key yet. */
+/** This computer's Kosmos+ id, or null (never throws into the seat's handlers). */
+function myMacId() {
+  try { return deps && typeof deps.macId === 'function' ? deps.macId() : null; } catch { return null; }
+}
+/** Own computer: the room is sealed and this computer has no key yet. One run per connection: a new one only
+    when there is none, or the last ended without the person confirming. */
 function sayOwnHello(projectId, s) {
-  const macId = deps && typeof deps.macId === 'function' ? deps.macId() : null;
+  const macId = myMacId();
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
   if (typeof macId !== 'string' || !macId || !s.room) return;
-  try { sendFrame(s, fedseal.ownHelloFrame(me, macId)); } catch { return; }
-  const code = fedseal.compareCode(s.room, macId, me.pub);
-  if (code) noteOnce(projectId, s, 'ownWaiting', 'This shared room is sealed. To read it on this computer, open this project on the computer that first shared it and press Allow beside this computer\'s name, once its code matches this one: ' + code + '.');
+  if (!s.ownRun || s.ownRun.room !== s.room || s.ownRun.mac !== macId) {
+    const nW = fedseal.randomSecret();
+    s.ownRun = { room: s.room, mac: macId, nW, commit: fedseal.ownCommit(nW), offer: null, confirmed: false, share: null };
+  }
+  try { sendFrame(s, fedseal.ownHelloFrame(me, macId, s.ownRun.nW)); } catch { /* the next connect says it again */ }
+  noteOnce(projectId, s, 'ownWaiting', 'This shared room is sealed. To read it on this computer, open this project on the computer that first shared it: a code appears on both screens, and once they match, press Allow there and "It matches" here.');
 }
 /** Own computer: the first sealed message tells it the room is sealed. True when it recorded so. */
 function noteOwnSealed(projectId, s) {
@@ -788,46 +797,112 @@ function noteOwnSealed(projectId, s) {
   sayOwnHello(projectId, s);
   return true;
 }
+/** Own computer: the owner's offer for this run's commitment. The run takes the FIRST offer only, and reveals its
+    nonce once: a second offer (another key answering the same hello) is ignored, so nobody learns nW in time to
+    choose a nonce against it. A code that does not match starts a new run (ownStartOver). */
+function waitingOffer(projectId, s, frame) {
+  const run = s.ownRun;
+  const st = roomSeal(projectId);
+  if (!run || run.offer || run.room !== s.room || !st || st.own !== true || hasKey(st)) return;
+  const offer = fedseal.checkOwnOffer(frame, run.mac, run.commit);
+  if (!offer) return;
+  run.offer = offer;
+  try { sendFrame(s, fedseal.ownRevealFrame(run.mac, offer.ownerPub, run.nW)); } catch { /* the owner lists nothing; a reconnect starts again */ }
+}
+/** Own computer: the code this computer shows for its current run, or null. */
+function ownCode(projectId) {
+  const s = seats.get(projectId);
+  const run = s && s.ownRun;
+  if (!run || !run.offer) return null;
+  let me;
+  try { me = fedseal.sealingKey(); } catch { return null; }
+  return fedseal.compareCode(run.room, run.mac, me.pub, run.offer.ownerPub, run.nW, run.offer.nO);
+}
+/** Own computer: its person says the two codes match. Resolves { ok, because }. */
+function confirmOwn(projectId, confirmedCode) {
+  return sealStep(projectId, async () => {
+    const s = seats.get(projectId);
+    const code = ownCode(projectId);
+    if (!s || !code) return { ok: false, because: 'this computer is not waiting for a code right now' };
+    if (!fedseal.sameCompareCode(confirmedCode, code)) return { ok: false, because: 'that is not the code this computer shows' };
+    s.ownRun.confirmed = true;
+    adoptOwnShare(projectId, s);
+    return { ok: true, because: null };
+  }).then((r) => r || { ok: false, because: 'the room\'s records could not be read' });
+}
+/** Own computer: the person said the codes do not match. The run ends and a new one starts with a new code. */
+function ownStartOver(projectId) {
+  const s = seats.get(projectId);
+  if (!s || !s.ownRun) return false;
+  s.ownRun = null;
+  sayOwnHello(projectId, s);
+  return true;
+}
+/** Own computer: take the share once BOTH hold: the person confirmed, and a share from the confirmed owner key
+    arrived. Either can come first. */
+function adoptOwnShare(projectId, s) {
+  const run = s.ownRun;
+  const st = roomSeal(projectId);
+  if (!run || !run.confirmed || !run.share || !run.offer || !st || st.own !== true || hasKey(st)) return;
+  let me;
+  try { me = fedseal.sealingKey(); } catch { return; }
+  const got = fedseal.openOwnShare(me, run.mac, run.offer.ownerPub, run.nW, run.offer.nO, run.share, run.room);
+  run.share = null;
+  if (!got) return;   // not sealed to this key for this run
+  fedseal.setRoomState(projectId, Object.assign({}, st, { peer: got.ownerPub, epoch: got.epoch, keys: { [got.epoch]: got.roomKey } }));
+  s.ownRun = null;
+  say(projectId, SEALED_LINE);
+  flushHeld(projectId, s);
+}
 const OWN_WAITING_MAX = 16;
-/** Seal owner: a hello from one of this account's computers, kept in the seat's memory (hellos
-    repeat on every connect, so a restart loses nothing for long). A computer already allowed
-    is sent its key again (it may have lost it); its confirmation is the pin itself. */
+/** Seal owner: a hello from one of this account's computers. Answered with an offer (a fresh nonce for each new
+    commitment, the same offer again for a hello repeated on reconnect). A computer already pinned that says hello
+    lost its key, or came back under a new id: it runs the whole exchange again, Allow included. */
 function ownerOwnHello(projectId, s, frame, me) {
   const st = roomSeal(projectId);
   const h = fedseal.checkOwnHello(frame);
   if (!h || !hasKey(st) || st.role !== 'owner') return;
-  const own = st.own || {};
-  if (Object.prototype.hasOwnProperty.call(own, h.pub)) {
-    if (own[h.pub] && own[h.pub].mac === h.mac) {
-      try { sendFrame(s, fedseal.ownShareFrame(me, h.pub, h.mac, fedseal.compareCode(s.room, h.mac, h.pub), st.keys[st.epoch], st.epoch, s.room)); } catch { /* the next hello */ }
-    }
-    return;
-  }
   if (!s.ownWaiting) s.ownWaiting = new Map();
-  s.ownWaiting.delete(h.pub);
-  s.ownWaiting.set(h.pub, { mac: h.mac, at: Date.now() });
-  while (s.ownWaiting.size > OWN_WAITING_MAX) s.ownWaiting.delete(s.ownWaiting.keys().next().value);
+  let w = s.ownWaiting.get(h.pub);
+  if (!w || w.commit !== h.commit || w.mac !== h.mac) {
+    w = { mac: h.mac, commit: h.commit, nO: fedseal.randomSecret(), nW: null, at: Date.now() };
+    s.ownWaiting.delete(h.pub);
+    s.ownWaiting.set(h.pub, w);
+    while (s.ownWaiting.size > OWN_WAITING_MAX) s.ownWaiting.delete(s.ownWaiting.keys().next().value);
+  }
+  try { sendFrame(s, fedseal.ownOfferFrame(me, h, w.nO)); } catch { /* the next hello */ }
 }
-/** Seal owner: the computers waiting for this room's key, newest last, each with the code its own
-    screen shows. Empty when this board does not hold the room's seal-owner state. */
+/** Seal owner: the waiting computer's reveal opens its commitment, so its code can be shown. */
+function ownerOwnReveal(projectId, s, frame, me) {
+  if (!s.ownWaiting || !frame || typeof frame.mac !== 'string') return;
+  for (const w of s.ownWaiting.values()) {
+    if (w.mac !== frame.mac || w.nW) continue;
+    const nW = fedseal.checkOwnReveal(frame, w.mac, me.pub, w.commit);
+    if (nW) { w.nW = nW; return; }
+  }
+}
+/** Seal owner: the computers waiting for this room's key whose code can be shown, newest last. Empty when this
+    board does not hold the room's seal-owner state. */
 function ownWaiting(projectId) {
   const s = seats.get(projectId);
   const st = roomSeal(projectId);
   if (!s || !s.room || !s.ownWaiting || !hasKey(st) || st.role !== 'owner') return [];
-  return [...s.ownWaiting].map(([pub, w]) => ({ pub, mac: w.mac, at: w.at, code: fedseal.compareCode(s.room, w.mac, pub) }));
+  let me;
+  try { me = fedseal.sealingKey(); } catch { return []; }
+  return [...s.ownWaiting].filter(([, w]) => w.nW).map(([pub, w]) => ({ pub, mac: w.mac, at: w.at, code: fedseal.compareCode(s.room, w.mac, pub, me.pub, w.nW, w.nO) }));
 }
 /** Seal owner: a person compared the codes and pressed Allow. Resolves { ok, because }. */
 function allowOwn(projectId, pub, confirmedCode) {
   return sealStep(projectId, async () => {
     const s = seats.get(projectId);
     const w = s && s.ownWaiting ? s.ownWaiting.get(pub) : null;
-    if (!s || !s.room || !w) return { ok: false, because: 'that computer is no longer waiting for this room\'s key' };
+    if (!s || !s.room || !w || !w.nW) return { ok: false, because: 'that computer is no longer waiting for this room\'s key' };
     const st = roomSeal(projectId);
     if (!hasKey(st) || st.role !== 'owner') return { ok: false, because: 'only the computer that first shared this room can let another computer read it' };
     let me;
     try { me = fedseal.sealingKey(); } catch { return { ok: false, because: 'this computer could not use its sealing key' }; }
     let frame;
-    try { frame = fedseal.ownShareFrame(me, pub, w.mac, confirmedCode, st.keys[st.epoch], st.epoch, s.room); } catch (err) {
+    try { frame = fedseal.ownShareFrame(me, { mac: w.mac, pub, nW: w.nW, nO: w.nO }, confirmedCode, st.keys[st.epoch], st.epoch, s.room); } catch (err) {
       return { ok: false, because: String((err && err.message) || err) };
     }
     fedseal.setRoomState(projectId, Object.assign({}, st, { own: Object.assign({}, st.own || {}, { [pub]: { mac: w.mac, at: Date.now() } }) }));
@@ -1101,18 +1176,19 @@ function onKeyFrame(projectId, s, frame) {
   try { me = fedseal.sealingKey(); } catch { return; }
   if (frame.t === 'key-hello' && link.role === 'owner') { sealStep(projectId, () => ownerHello(projectId, s, link, frame, me)); return; }
   if (frame.t === 'key-own-hello' && link.role === 'owner') { sealStep(projectId, () => ownerOwnHello(projectId, s, frame, me)); return; }
+  if (frame.t === 'key-own-reveal' && link.role === 'owner') { sealStep(projectId, () => ownerOwnReveal(projectId, s, frame, me)); return; }
+  if (frame.t === 'key-own-offer' && link.role === 'self') { sealStep(projectId, () => waitingOffer(projectId, s, frame)); return; }
+  if (frame.t === 'key-own-share' && link.role === 'self') {
+    // Kept until the person confirms; only a share from the confirmed offer's owner key is ever kept.
+    sealStep(projectId, () => {
+      const run = s.ownRun;
+      if (!run || !run.offer || frame.owner !== run.offer.ownerPub || frame.mac !== run.mac) return;
+      run.share = frame;
+      adoptOwnShare(projectId, s);
+    });
+    return;
+  }
   try {
-    if (frame.t === 'key-own-share' && link.role === 'self') {
-      const st = roomSeal(projectId);
-      if (!st || st.role !== 'member' || st.own !== true || hasKey(st)) return;
-      const macId = deps && typeof deps.macId === 'function' ? deps.macId() : null;
-      const got = fedseal.openOwnShare(me, macId, frame, s.room);
-      if (!got) return;   // another computer's share, or not sealed to this key
-      fedseal.setRoomState(projectId, Object.assign({}, st, { peer: got.ownerPub, epoch: got.epoch, keys: { [got.epoch]: got.roomKey } }));
-      say(projectId, SEALED_LINE);
-      flushHeld(projectId, s);
-      return;
-    }
     if (frame.t === 'key-share' && link.role === 'member') {
       const st = roomSeal(projectId);
       if (!st || st.role !== 'member' || hasKey(st)) return;
@@ -1764,4 +1840,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { ownWaiting, allowOwn, contactStopped, contactState, contactReason, contactStops, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
+module.exports = { ownWaiting, allowOwn, ownCode, confirmOwn, ownStartOver, contactStopped, contactState, contactReason, contactStops, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
