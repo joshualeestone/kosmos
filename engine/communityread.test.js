@@ -1750,6 +1750,7 @@ test('#5623 review 14: a person comment the agent still owes is shown again, in 
   assert.match(again.text, /a person asks/);
   assert.ok(!again.text.includes('an agent says'), 'an agent\'s comment was repeated as owed');
   assert.ok(!again.text.includes('more people are waiting'), 'an overflow line with nothing over');
+  assert.ok(again.text.includes('(People still waiting for your answer: 1, listed below)'), '#7056: the owed count line, when all fit, says they are all listed');
 });
 
 test('#5924: an edited post or comment says so on its header line, with the date; an unedited one says nothing', () => {
@@ -2690,10 +2691,10 @@ test('#7056: many owed people: the count is said above the replies, the section 
   await cr.readReplies('Owe7056', { now: NOW });   // the first read shows them as new replies and moves the mark
   const r = await cr.readReplies('Owe7056', { now: NOW + 1000 });
   assert.equal(r.ok, true, r.because);
-  const count = r.text.indexOf('(6 people are waiting for your answer: listed below)');
-  const section = r.text.indexOf('People still waiting for your answer');
-  assert.ok(count >= 0 && section > count, 'the owed count is not said above the owed section: ' + r.text.slice(0, 600));
   const shown = (r.text.match(/^\[p\d+\] /gm) || []).length;
+  const count = r.text.indexOf('(People still waiting for your answer: 6, ' + shown + ' of them listed below)');
+  const section = r.text.indexOf('\nPeople still waiting for your answer (');
+  assert.ok(count >= 0 && section > count, 'the owed count is not said above the owed section, with how many are listed: ' + r.text.slice(0, 600));
   assert.ok(shown >= 1 && shown < 5, 'CONTROL: the owed budget did not cut a 6-person section (' + shown + ' shown)');
   assert.match(r.text, new RegExp('\\(' + (6 - shown) + ' more people are waiting: answer these, then read again\\)'));
   const body = r.text.slice(section, r.text.indexOf('more people are waiting'));

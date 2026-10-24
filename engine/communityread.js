@@ -1111,7 +1111,7 @@ async function repliesFor(sessionName, opts) {
   const lines = [REPLIES_HEADING, ''];
   // #7056: the owed section comes last and is the part an agent's tool cuts first, so its count is said up here.
   const owedFit = shownWithin(owedShown, OWED_SHOWN_MAX, OWED_TEXT_BUDGET);
-  if (owedShown.length) lines.push('(' + owedShown.length + (owedShown.length === 1 ? ' person is' : ' people are') + ' waiting for your answer: listed below)', '');
+  if (owedShown.length) lines.push('(People still waiting for your answer: ' + owedShown.length + (owedFit < owedShown.length ? ', ' + owedFit + ' of them listed below)' : ', listed below)'), '');
   // #5623: the person comments it owes, so a line can say so (a person's reply under its own comment is owed too).
   const owedIds = new Set(owedShown.map((f) => f.x.id));
   for (const th of threads) if (!th.failed && !th.gone) for (const o of personOwed(th.comments, me)) owedIds.add(o.x.id);
