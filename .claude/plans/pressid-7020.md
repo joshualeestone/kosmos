@@ -35,3 +35,19 @@ Stacked on Mona Lisa's #7017 part 2 (notifallow-7017, rebased onto main here), w
 ## Weakest premise
 That the card's fields read the same on two captures of one unchanged prompt. A pane redrawn at another width can wrap
 `detail` differently and refuse an honest press, which is the safe direction (Mona Lisa's premise too).
+
+## Review round 1
+- Fixed (major): the request was checked on the route's read only; answerQuestionMenu's own last look before the key
+  re-checked the identity, which is the same for the two folders. It now re-checks the request too, and after the key
+  another request under the same identity reads answered. Tests: direct (answerQuestionMenu) and through the route
+  (the screen swapped on exactly the last read before the key, measured on an honest press), each with a control that
+  the redraw gets through without the request.
+- Fixed (major): the lock-screen Allow/Deny press did not send the request. NotificationAction.pressRequest now passes
+  press.request (Mona Lisa told; her planned one-line follow-up is not needed).
+- Fixed (minor): the without-asked test was refused by a later check either way; it now asserts the request check's
+  own sentence.
+- Fixed (minor): an automatic message carrying `request` is refused like one carrying `chose` or `asked`.
+- Not fixed (minor, noted): if the live question row is deduplicated away, no row carries the card and the press falls
+  back to the asked-only checks. That loses only the new protection and refuses nothing honest.
+- Every change has a mutant that goes red (server check, last-look check, after-key check, route passing the request,
+  automatic guard, board send/lock/generation, iPhone body/key/reported filter, client wiring, notification wiring).
