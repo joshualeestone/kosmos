@@ -73,6 +73,9 @@ function toneOf(a, needsPerson) {
   const offline = Boolean(a) && a.running === false;
   const looping = Boolean(a && a.crashLoop && a.crashLoop.looping === true);
   if (!offline && !looping && !needsPerson && !known) return 'quiet';
+  // #7030: an agent waiting on its trust prompt before it can start needs the person (the board's 'trust' reason),
+  // running or not; offline, its word ("Waiting on a trust prompt") is not in the set below and needsPerson is false.
+  if (offline && a.needsTrust === true) return 'needs_you';
   const word = labelOf(a);
   if (word === STATE_COPY.question) return 'asked';
   if (NEEDS_YOU_WORDS.has(word) || needsPerson) return 'needs_you';
@@ -82,17 +85,31 @@ function toneOf(a, needsPerson) {
 
 /* #7030 (the iPhone plan's slice 4, #6838): why an agent on the phone's Today needs the person, as a code the phone turns
    into the board's own sentence (web/index.html PJ_NEEDS_WHY), so the phone keeps no copy of the rule. Null unless the
-   card's tone puts it on Today (asked or needs_you). A needs_you state is the agent's question, or its permission prompt
-   (status.awaitingApprovalOf, the card's "Needs permission"). Anything else is the engine's own reason for a project's
-   needs-you block (projects.needsYouReason, whose needs_you branch is handled above), and 'other' where it has none: a
-   stopped agent, a rate limit not yet counted as stuck, or a state added later. */
-const NEEDS_REASONS = ['question', 'permission', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate', 'own_bound', 'other'];
+   card's tone puts it on Today (asked or needs_you). In the board's own order (pjAlsoWhy, and labelOf for the word): a
+   restart that did not come back (a needs_you row with no question behind it, #4006), a crash loop, a trust prompt on
+   a card that is not running, then a needs_you state: the agent's own question, its permission prompt
+   (status.awaitingApprovalOf, the card's "Needs permission"), or a question read off its screen. Anything else is the
+   engine's own reason (projects.needsYouReasonPastUsage, so a rate limit never hides a real reason), and 'other' where
+   it has none: a stopped agent, a rate limit not yet counted as stuck, or a state added later.
+   ⚠️ A status row is not a project member row: it carries no `present` or `tied`, which needsYouReason requires. A row
+   is present by being on the roster and tied when the board says it is ours (isNamedOurs), as tasks.js waitingOnOf
+   reads it; without that every reason but the question fell to 'other' (review 1, measured on real rows). */
+const NEEDS_REASONS = ['question', 'permission', 'restart_failed', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate',
+  'own_bound', 'other'];
 function reasonOf(a, needsPerson) {
   const tone = toneOf(a, needsPerson);
   if (tone !== 'asked' && tone !== 'needs_you') return null;
-  if (a.state === 'needs_you') return a.awaitingApproval === true ? 'permission' : 'question';
+  if (a.disruption && a.disruption.failed === true) return 'restart_failed';
+  if (a.crashLoop && a.crashLoop.looping === true) return 'crash_loop';
+  if (a.running === false && a.needsTrust === true) return 'trust';
+  if (a.state === 'needs_you') {
+    if (a.stateReportedBy === 'agent') return 'question';   // labelOf's order: the card's word is Question
+    return a.awaitingApproval === true ? 'permission' : 'question';
+  }
   let why = null;
-  try { why = require('./projects').needsYouReason(a, null); } catch { why = null; }
+  try {
+    why = require('./projects').needsYouReasonPastUsage({ ...a, present: true, tied: a.isNamedOurs === true }, null);
+  } catch { why = null; }
   return NEEDS_REASONS.includes(why) ? why : 'other';
 }
 
