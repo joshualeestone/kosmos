@@ -106,8 +106,8 @@ const server = http.createServer((req, res) => {
     req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(health === 'cutheld' ? '{"delivery":{"state":"could_not","code":"room_held","because":"held","id":null}}' : '{"delivery":{"state":"placed","because":null,"id":"m1","duplicate":true}}'); });
     return;
   }
-  // Cuts EVERY request at once (curl 52: a busy reading that comes back fast), counting them.
-  if (health === 'fastcut') { require('node:fs').appendFileSync(firstFile + '.n', '.'); req.socket.destroy(); return; }
+  // Cuts EVERY request at once (curl 52: a busy reading that comes back fast), counting them and (#7053) when each came.
+  if (health === 'fastcut') { const fsm = require('node:fs'); fsm.appendFileSync(firstFile + '.n', '.'); fsm.appendFileSync(firstFile + '.t', Date.now() + '\\n'); req.socket.destroy(); return; }
   // Answers its health check, then gives an EMPTY 200 for the roles list (an answer, not a lost connection).
   if (health === 'emptyroles' && req.url.startsWith('/api/roles')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(''); return; }
   // #5723: the page is never answered; when the CLIENT gives up on it (its curl -m ends) is recorded, so the arm can
@@ -703,14 +703,25 @@ test('#4466 board-run strips the agent markers from the board it execs, like the
 });
 
 test('#4466 a busy reading that comes back FAST is not retried in a tight loop (the board is already overloaded)', () => withBoard('fastcut', async (port, firstFile) => {
-  const out = await runCli(['status'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3' }));
+  const wait = 8;
+  const t0 = Date.now();
+  const out = await runCli(['status'], baseEnv(port, { KOSMOS_BUSY_WAIT: String(wait) }));
   assert.equal(out.code, 4, out.stdout + out.stderr);
   const n = fs.existsSync(firstFile + '.n') ? fs.readFileSync(firstFile + '.n', 'utf8').length : 0;
   assert.ok(n >= 1, 'the stub must have been asked at least once (else the arm measures nothing)');
-  // Probes wait out their budget (2 s, then what is left): a handful of requests in 3 s, not hundreds.
-  assert.ok(n <= 8, `a 3 s busy window sent ${n} requests to a board that cut each one at once`);
-  // #6682: two fast refusals are two busy readings, so the line IS said (about 2 s in), unlike one slow answer.
-  if (n >= 2) assert.match(out.stderr, /Kosmos is busy, retrying/, 'two fast refusals did not say the busy line');
+  // Probes wait out their budget (2 s, then what is left): a handful of requests in the window, not hundreds.
+  assert.ok(n <= 8, `a ${wait} s busy window sent ${n} requests to a board that cut each one at once`);
+  // #6682: two fast refusals are two busy readings, so the line IS said, unlike one slow answer.
+  // #7053: but only when the second reading leaves budget to retry in. healthy() gives up before counting a reading
+  // that lands as the budget ends (it is not retrying, so it does not say so), and its clock is whole seconds, so
+  // that can happen up to a second early. Owed only for a second request well inside the window: one more second
+  // for the whole-second clock, one for the reading to come back under load. The 8 s budget makes that the
+  // normal case: the second request was measured about 3 s in, which a 3 s budget put right on the edge.
+  const times = fs.existsSync(firstFile + '.t') ? fs.readFileSync(firstFile + '.t', 'utf8').trim().split('\n').map(Number) : [];
+  assert.equal(times.length, n, 'CONTROL: every request the stub counted has its time');
+  if (n >= 2 && times[1] - t0 < (wait - 2) * 1000) {
+    assert.match(out.stderr, /Kosmos is busy, retrying/, `two fast refusals did not say the busy line (second at ${times[1] - t0} ms)`);
+  }
 }));
 
 test('#4466 an agent may not start a board the person stopped ON PURPOSE (board.stopped); a person still can', async () => {
