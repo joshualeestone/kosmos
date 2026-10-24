@@ -635,20 +635,30 @@ const visible = (page, sel) => page.evaluate((s) => {
       const accepts = [];
       await openPlusState1(page);
       let releaseAccept = null;
-      await page.route('**/api/remote/accept-key', (route, req) => {
-        accepts.push(req.postDataJSON());
-        // 'refused': held until the check has looked at the panel in flight, then refused.
-        if (choice === 'refused') { releaseAccept = () => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'that is not a key Kosmos+ offered' }) }); return; }
-        route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+      /* #6022: each answer inside a try, the held one too: it lands later and may find the page already closed. */
+      await page.route('**/api/remote/accept-key', async (route, req) => {
+        try {
+          accepts.push(req.postDataJSON());
+          // 'refused': held until the check has looked at the panel in flight, then refused.
+          if (choice === 'refused') {
+            releaseAccept = async () => {
+              try { await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'that is not a key Kosmos+ offered' }) }); } catch { /* the page closed first */ }
+            };
+            return;
+          }
+          await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+        } catch { await route.abort().catch(() => {}); }
       });
-      await page.route('**/api/remote/signin-**', (route, req) => {
-        const p = req.url().replace(/^.*\/api\/remote\//, '');
-        if (p === 'signin-verify') { route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'session', account_address: 'quiet-heron.kosmosplus.com' }) }); return; }
-        if (p === 'signin-register') {
-          route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the Kosmos+ service offered a different key from the one this computer trusts', keyChanged: { offered: KEY } }) });
-          return;
-        }
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
+      await page.route('**/api/remote/signin-**', async (route, req) => {
+        try {
+          const p = req.url().replace(/^.*\/api\/remote\//, '');
+          if (p === 'signin-verify') { await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'session', account_address: 'quiet-heron.kosmosplus.com' }) }); return; }
+          if (p === 'signin-register') {
+            await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the Kosmos+ service offered a different key from the one this computer trusts', keyChanged: { offered: KEY } }) });
+            return;
+          }
+          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
+        } catch { await route.abort().catch(() => {}); }
       });
       await page.click('#plus-signin-top');
       await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
@@ -703,7 +713,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(inFlight.accept && inFlight.no, `[${k}] kosmos#6596 while Accept is out, Do not accept cannot be pressed (it would report nothing changed after the key was taken)`, JSON.stringify(inFlight));
         for (let i = 0; i < 50 && !releaseAccept; i++) await page.waitForTimeout(50);
         chk(!!releaseAccept, `[${k}] CONTROL: the Accept request reached the route`);
-        if (releaseAccept) releaseAccept();
+        if (releaseAccept) await releaseAccept();
         await page.waitForFunction(() => !document.getElementById('plus-si-keychanged-no').disabled, null, { timeout: 5000 }).catch(() => {});
         const after = await page.evaluate(() => ({ panel: !document.getElementById('plus-si-keychanged').hidden, msg: document.getElementById('plus-signin-msg').textContent.trim(),
           accept: document.getElementById('plus-si-keychanged-accept').disabled, no: document.getElementById('plus-si-keychanged-no').disabled,
