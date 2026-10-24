@@ -906,13 +906,14 @@ keepalive() {
     fi
     echo "FAILED: launchctl bootout $dom/$label (exit $bo) had not unloaded it after ${waited}s; it may still be unloading. Check: launchctl print $dom/$label. Loaded: it is still loaded from the OLD definition, without KeepAlive (run this again). Not loaded: the runner is DOWN (launchctl bootstrap $dom $plist)" >&2; exit 1
   fi
-  # Up to three tries: a bootstrap right after a bootout can fail once (5: Input/output error).
+  # Up to five tries over about 10 s (waits of 1, 2, 3 and 4 s): a bootstrap right after a bootout can fail with
+  # "5: Input/output error" for a while, and giving up leaves the runner stopped, the outcome this stage exists to end.
   local ba=1 bok=0
   while :; do
     if launchctl bootstrap "$dom" "$plist"; then bok=1; break; fi
     launchctl print "$dom/$label" >/dev/null 2>&1 && { bok=1; break; }   # an error, yet loaded: that load stands
-    [ "$ba" -lt 3 ] || break
-    ba=$((ba + 1)); sleep 1
+    [ "$ba" -lt 5 ] || break
+    sleep "$ba"; ba=$((ba + 1))
   done
   if [ "$bok" = 0 ]; then
     if launchctl print "$dom/$label" >/dev/null 2>&1; then
