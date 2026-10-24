@@ -814,7 +814,9 @@ function waitingOffer(projectId, s, frame) {
   const run = s.ownRun;
   const st = roomSeal(projectId);
   if (!run || run.room !== s.room || !st || st.ownComputer !== true || hasKey(st)) return;
-  const offer = fedseal.checkOwnOffer(frame, run.mac, run.commit);
+  let me;
+  try { me = fedseal.sealingKey(); } catch { return; }
+  const offer = fedseal.checkOwnOffer(frame, run.mac, run.commit, me.pub);
   if (!offer) return;
   if (run.offer && (run.offer.ownerPub !== offer.ownerPub || run.offer.nO !== offer.nO)) {
     // Confirmed or not: a run still waiting for its share ends (the owner's board may have restarted and lost it),
@@ -830,7 +832,7 @@ function waitingOffer(projectId, s, frame) {
     return;
   }
   run.offer = offer;
-  try { sendFrame(s, fedseal.ownRevealFrame(run.mac, offer.ownerPub, run.nW)); } catch { /* sent again when the offer repeats */ }
+  try { sendFrame(s, fedseal.ownRevealFrame(run.mac, offer.ownerPub, run.nW, me.pub)); } catch { /* sent again when the offer repeats */ }
 }
 /** Own computer: the code this computer shows for its current run, or null. */
 function ownCode(projectId) {
@@ -885,7 +887,9 @@ function adoptOwnShare(projectId, s) {
   // A rotation that came between the Allow and this confirm (a guest removed meanwhile) is applied BEFORE the held
   // posts go, so none of them is sent under a key the removed guest still holds.
   const rot = run.rotates || {};
-  for (const ep of Object.keys(rot).map(Number).sort((a, b) => a - b)) onKeyFrame(projectId, s, rot[ep], true);
+  // Every kept rotation goes into the record first, and the held posts go once, under the newest key: a flush after
+  // each would send them under a middle key that a guest removed at a later rotation still holds.
+  for (const ep of Object.keys(rot).map(Number).sort((a, b) => a - b)) onKeyFrame(projectId, s, rot[ep], true, true);
   say(projectId, SEALED_LINE);
   flushHeld(projectId, s);
 }
@@ -924,12 +928,11 @@ function ownerOwnHello(projectId, s, frame, me) {
 }
 /** Seal owner: the waiting computer's reveal opens its commitment, so its code can be shown. */
 function ownerOwnReveal(projectId, s, frame, me) {
-  if (!s.ownWaiting || !frame || typeof frame.mac !== 'string') return;
-  for (const w of s.ownWaiting.values()) {
-    if (w.mac !== frame.mac || w.nW) continue;
-    const nW = fedseal.checkOwnReveal(frame, w.mac, me.pub, w.commit);
-    if (nW) w.nW = nW;   // every entry it opens: an entry that copied a commitment cannot take the reveal from the real one
-  }
+  if (!s.ownWaiting || !frame || typeof frame.pub !== 'string') return;
+  const w = s.ownWaiting.get(frame.pub);   // the reveal names its computer's key, so a copied commitment cannot take it
+  if (!w || w.nW) return;
+  const nW = fedseal.checkOwnReveal(frame, w.mac, me.pub, w.commit, frame.pub);
+  if (nW) w.nW = nW;
 }
 /** Seal owner: the computers waiting for this room's key whose code can be shown, newest last. Empty when this
     board does not hold the room's seal-owner state. */
@@ -1222,7 +1225,7 @@ async function ownerHello(projectId, s, link, frame, me) {
   if (firstKey) say(projectId, SEALED_LINE);   // #5195: the owner's side too, once, when the room first has its key
   flushHeld(projectId, s);
 }
-function onKeyFrame(projectId, s, frame, sameAccount) {
+function onKeyFrame(projectId, s, frame, sameAccount, noFlush) {
   const link = safeLink(projectId);
   if (!link || !s.room) return;
   let me;
@@ -1268,7 +1271,7 @@ function onKeyFrame(projectId, s, frame, sameAccount) {
       // a member whose clock runs behind the owner's it runs from receipt (fedseal.js NOT
       // CLAIMED).
       fedseal.setRoomState(projectId, Object.assign({}, st, { keys, epoch: got.epoch, rotatedAt: Math.min(got.rotatedAt, Date.now()) }));
-      flushHeld(projectId, s);
+      if (!noFlush) flushHeld(projectId, s);
     }
   } catch (err) {
     // A record that cannot be written: the handshake is retried on the next connect.
