@@ -45,6 +45,8 @@ struct ChatView: View {
     // kosmos#7016 part 2: each file card's state, and the file open in Quick Look.
     @State private var fileStates: [String: FileCardState] = [:]
     @State private var previewURL: URL?
+    // The file Quick Look was given, kept apart so its removal never depends on which value a closure captured.
+    @State private var openedFile: URL?
     // Bumped when the arm window or the answered lock ends, so the buttons redraw then.
     @State private var tick = 0
 
@@ -80,7 +82,9 @@ struct ChatView: View {
         .toolbar(.hidden, for: .tabBar)
         .quickLookPreview($previewURL)
         // Closed: the file it showed is removed from the phone (#7016 review 1).
-        .onChange(of: previewURL) { [previewURL] now in if let was = previewURL, was != now { client.closed(was) } }
+        .onChange(of: previewURL) { now in
+            if let was = openedFile, was != now { client.closed(was); openedFile = now }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) { title }
@@ -113,6 +117,7 @@ struct ChatView: View {
             thread = nil
             fileStates = [:]
             previewURL = nil
+            openedFile = nil
             armed = nil
             unsureKey = nil
             pressLine = nil
@@ -320,7 +325,7 @@ struct ChatView: View {
             fileStates[f.id] = file == nil ? .failed : .ready
             guard let file else { return }
             // Left the chat while it came: nothing will show it, so it goes now.
-            if visible { previewURL = file } else { client.closed(file) }
+            if visible { openedFile = file; previewURL = file } else { client.closed(file) }
         }
     }
 

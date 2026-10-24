@@ -326,9 +326,11 @@ final class BoardClient: ObservableObject {
         guard epoch == chatEpoch else { return }
         guard let (data, response) = answer else { thumbnailAsked.remove(a.id); return }
         let isImage = (response.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("image/")
-        if (200...299).contains(response.statusCode), isImage, let small = Self.smallPicture(data) { thumbnails[a.id] = small }
-        // A passing failure (a 5xx, the gate's sign-in page) is asked again on the next draw; a 404 is not.
-        else if response.statusCode != 404 { thumbnailAsked.remove(a.id) }
+        let ok = (200...299).contains(response.statusCode)
+        if ok, isImage { if let small = Self.smallPicture(data) { thumbnails[a.id] = small } }
+        // A passing failure (a 5xx, or the gate's sign-in page in place of a picture) is asked again on the next draw.
+        // A 404, or a picture the phone cannot draw (an SVG, say), is not: it would be downloaded again on every scroll.
+        else if response.statusCode >= 500 || (ok && !isImage) { thumbnailAsked.remove(a.id) }
     }
 
     // A picture drawn at most 192 px on its longer side (a 64 pt square at @3x), as PNG; nil for bytes that are not a picture.

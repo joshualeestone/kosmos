@@ -25,7 +25,8 @@ struct FilesBubble: View {
                 Text(BubbleText.formatted(text)).font(.body).foregroundColor(Palette.primary).tint(Palette.link)
                     .padding(.bottom, 4)
             }
-            ForEach(files, id: \.id) { f in
+            // By position as well as id: a row that names one file twice still draws two cards.
+            ForEach(Array(files.enumerated()), id: \.offset) { _, f in
                 FileCard(file: f, thumbnail: thumbnails[f.id], state: states[f.id] ?? .ready,
                          waiting: busy && states[f.id] != .loading, open: { open(f) })
             }
@@ -41,6 +42,8 @@ struct FileCard: View {
     // Another card's file is on its way.
     let waiting: Bool
     let open: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
+    private var lines: Int { typeSize.isAccessibilitySize ? 3 : 1 }
 
     // A page or markup file is opened on the computer's board, never here (Board.isWebDocument).
     private var onBoard: Bool { Board.isWebDocument(name: file.name, type: file.type) }
@@ -51,7 +54,7 @@ struct FileCard: View {
                 picture
                 VStack(alignment: .leading, spacing: 2) {
                     Text(file.name).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
-                        .lineLimit(1).truncationMode(.middle)
+                        .lineLimit(lines).truncationMode(.middle)
                     meta
                 }
                 Spacer(minLength: 0)
@@ -95,9 +98,9 @@ struct FileCard: View {
         case .loading:
             ProgressView().controlSize(.small)
         case .failed:
-            Text("Could not open it. Try again.").font(.caption).foregroundColor(Palette.dangerWord).lineLimit(1)
+            Text("Could not open it. Try again.").font(.caption).foregroundColor(Palette.dangerWord).lineLimit(lines)
         case .ready:
-            Text(onBoard ? "Opens on your computer's board" : Board.attachmentMeta(file)).font(.caption).foregroundColor(Palette.secondary).lineLimit(1)
+            Text(onBoard ? "Opens on your computer's board" : Board.attachmentMeta(file)).font(.caption).foregroundColor(Palette.secondary).lineLimit(lines)
         }
     }
 }
