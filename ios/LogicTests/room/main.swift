@@ -264,6 +264,41 @@ check(PushBridge.roomOpening(studio, keptAddress: "home.kosmosplus.com") == .boa
 check(PushBridge.roomOpening(studio, keptAddress: nil) == .board(URL(string: "https://studio.kosmosplus.com/?tab=projects&project=springcatalogue")!), "no kept computer: the board's room page")
 check(content.contains("PushBridge.roomOpening(target, keptAddress:"), "ContentView decides through roomOpening")
 
+section("files on a room post (kosmos#7062)")
+// room-files.json is the REAL route's answer too, captured from a sandboxed board: one post with a text file and a PDF,
+// then one posted with no words, which the board stores with the file's name as its text.
+let filesFixture = (try? Data(contentsOf: here.appendingPathComponent("room-files.json"))) ?? Data()
+check(!filesFixture.isEmpty, "premise: the captured page with files is there")
+let filesRows = Board.parseRoom(filesFixture, names: ["roo": "Roo"])?.rows ?? []
+check(filesRows.count == 2, "both posts parse: \(filesRows.count)")
+let two = filesRows[safe: 0]?.attachments ?? []
+check(two.map(\.name) == ["print-run-quotes.txt", "cover-draft.pdf"] && two.map(\.kind) == ["text", "pdf"], "a post's files, in order, with their kinds")
+check(two.allSatisfy { Board.attachmentId($0.url) == $0.id }, "each file's address is its own /api/attachment/<id>")
+check(two[safe: 1]?.preview == two[safe: 1].map { $0.url + "/preview" } && two[safe: 0]?.preview == nil,
+      "a PDF's picture is its /preview; a text file's preview (its words, not an address) is never taken for one")
+check(filesRows[safe: 0].map(Board.roomWords) == "Here are the quotes and the cover draft.", "words beside files are shown")
+check(filesRows[safe: 1].map(Board.roomWords) == "", "a post that is only its file's name shows the card, not the name twice (the board's pjWords)")
+check(filesRows[safe: 1]?.attachments.count == 1, "a post with one file")
+// By hand, not captured: a row carrying only the single `attachment` form (older rows), which the captured page never
+// reaches because the Mac now also sends `attachments` (review 1).
+let single = Board.parseRoom(Data(#"{"rows":[{"kind":"post","id":"s1","from":"roo","text":"brief.txt","at":"2026-10-24T15:00:00.000Z","attachment":{"id":"0123456789abcdef01234567","name":"brief.txt","type":"text/plain","kind":"text","url":"/api/attachment/0123456789abcdef01234567"}}]}"#.utf8))?.rows ?? []
+check(single.first?.attachments.map(\.name) == ["brief.txt"] && single.first.map(Board.roomWords) == "", "the single `attachment` form (made by hand) is read too")
+// Control: words that are not exactly the names stay, so the rule cannot hide a real message.
+check(Board.roomWords(Board.RoomRow(id: "x", atRaw: nil, at: nil, kind: .post, from: "roo", byPerson: false,
+      text: "print-run-quotes.txt is ready", attachments: two.prefix(1).map { $0 })) == "print-run-quotes.txt is ready",
+      "CONTROL: words that only mention a file name are kept")
+// The bubble draws what roomWords says, never the raw text (review 1: the tests above would pass if it went back).
+let roomView = (try? String(contentsOf: here.appendingPathComponent("../../Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
+// Review 2: aimed at the drawing itself, so a revert of either branch goes red.
+// Only RoomBubble's own source: Kosmos's lines (drawn elsewhere in the file, never with files) keep their raw text.
+let bubbleSource = roomView.components(separatedBy: "struct RoomBubble").dropFirst().first?.components(separatedBy: "\nstruct ").first ?? ""
+check(!bubbleSource.isEmpty && bubbleSource.contains("Board.roomWords(row)") && bubbleSource.contains("AttributedString(words)") && bubbleSource.contains("Board.messageText(words)")
+      && !bubbleSource.contains("AttributedString(row.text)") && !bubbleSource.contains("Board.messageText(row.text)") && !bubbleSource.contains("Text(row.text)"),
+      "RoomBubble shows roomWords, not the stored text")
+let filesItems = Board.roomItems(filesRows, now: now, calendar: cal)
+check(filesItems.compactMap { if case let .row(r, _, _) = $0.kind { return r.attachments.count } else { return nil } } == [2, 1],
+      "premise: the drawn rows are the parsed rows, files and all")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")

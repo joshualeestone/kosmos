@@ -339,6 +339,12 @@ extension Board {
         let kind: Kind
     }
 
+    // kosmos#7062: the words a post shows beside its files. A post made with no words carries its files' names as its
+    // text, and the cards already say them, so that text is hidden (the board's pjWords; the chat's wordsShown).
+    // One known difference: a file with no name is "a file" here (parseAttachments) and left out on the board, so a
+    // post with an unnamed file can show its words here and not there. The Mac names every file it keeps.
+    static func roomWords(_ row: RoomRow) -> String { wordsShown(row.text, files: row.attachments) }
+
     // Day lines as in the chat; a run is consecutive rows by the SAME sender on the same day, so two agents in a row are
     // two runs. Kosmos's lines stand alone.
     static func roomItems(_ rows: [RoomRow], now: Date, calendar: Calendar) -> [RoomItem] {

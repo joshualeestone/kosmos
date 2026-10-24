@@ -289,7 +289,7 @@ struct ProjectsView: View {
                     NavigationLink(isActive: Binding(get: { openProject != nil }, set: { if !$0 { openProject = nil } })) {
                         // One view per room: a notification for another room while one is open starts fresh, never
                         // with the first room's draft, reply or polling.
-                        if let p = openProject { RoomView(store: store, opened: p, openPage: openPage).id(p.id) }
+                        if let p = openProject { RoomView(store: store, client: store.clientForChat, opened: p, openPage: openPage).id(p.id) }
                     } label: { EmptyView() }
                     .hidden()
                 )

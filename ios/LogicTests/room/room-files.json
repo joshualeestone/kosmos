@@ -1,0 +1,89 @@
+{
+ "ok": true,
+ "rows": [
+  {
+   "kind": "post",
+   "id": "m1",
+   "from": "you",
+   "to": [
+    "roo"
+   ],
+   "operator": true,
+   "text": "Here are the quotes and the cover draft.",
+   "at": "2026-10-24T21:15:39.016Z",
+   "outcomes": {
+    "roo": "placed"
+   },
+   "attachment": {
+    "id": "ad344a881076a9b7d492f365",
+    "name": "print-run-quotes.txt",
+    "type": "text/plain",
+    "size": 24,
+    "kind": "text",
+    "url": "/api/attachment/ad344a881076a9b7d492f365",
+    "preview": "Two quotes from printers"
+   },
+   "attachments": [
+    {
+     "id": "ad344a881076a9b7d492f365",
+     "name": "print-run-quotes.txt",
+     "type": "text/plain",
+     "size": 24,
+     "kind": "text",
+     "url": "/api/attachment/ad344a881076a9b7d492f365",
+     "preview": "Two quotes from printers"
+    },
+    {
+     "id": "c343f1d29dcc04f35380c866",
+     "name": "cover-draft.pdf",
+     "type": "application/pdf",
+     "size": 17,
+     "kind": "pdf",
+     "url": "/api/attachment/c343f1d29dcc04f35380c866",
+     "preview": "/api/attachment/c343f1d29dcc04f35380c866/preview"
+    }
+   ],
+   "mentioned": [],
+   "key": "2026-10-24T21:15:39.016Z|0"
+  },
+  {
+   "kind": "post",
+   "id": "m2",
+   "from": "you",
+   "to": [
+    "roo"
+   ],
+   "operator": true,
+   "text": "print-run-quotes.txt",
+   "at": "2026-10-24T21:15:39.021Z",
+   "outcomes": {
+    "roo": "placed"
+   },
+   "attachment": {
+    "id": "ad344a881076a9b7d492f365",
+    "name": "print-run-quotes.txt",
+    "type": "text/plain",
+    "size": 24,
+    "kind": "text",
+    "url": "/api/attachment/ad344a881076a9b7d492f365",
+    "preview": "Two quotes from printers"
+   },
+   "attachments": [
+    {
+     "id": "ad344a881076a9b7d492f365",
+     "name": "print-run-quotes.txt",
+     "type": "text/plain",
+     "size": 24,
+     "kind": "text",
+     "url": "/api/attachment/ad344a881076a9b7d492f365",
+     "preview": "Two quotes from printers"
+    }
+   ],
+   "mentioned": [],
+   "key": "2026-10-24T21:15:39.021Z|0"
+  }
+ ],
+ "unanswered": {},
+ "olderCount": 0,
+ "olderCursor": null
+}
