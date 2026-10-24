@@ -483,3 +483,44 @@ test('#4658: a different offer after the reveal starts a new run (an owner board
   const again = fedseal.checkOwnHello(sent(seat, 'key-own-hello').pop());
   assert.notStrictEqual(again.commit, hello.commit, 'no new run started');
 });
+
+/* ---- iteration-3 review ---- */
+
+test('#4658: a confirmed run still waiting for its share ends when a different offer comes (the owner board restarted)', async () => {
+  const { seat } = await ownComputer('own-s12', 'room-s12');
+  const hello = await sealedNow(seat, 'room-s12');
+  const o = handOwner('room-s12', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  assert.strictEqual((await fedseats.confirmOwn('own-s12', fedseats.ownCode('own-s12'))).ok, true);
+  say(seat, { event: 'message', data: fedseal.ownOfferFrame(o.owner, hello, fedseal.randomSecret()) });
+  await settle();
+  const again = fedseal.checkOwnHello(sent(seat, 'key-own-hello').pop());
+  assert.notStrictEqual(again.commit, hello.commit, 'a confirmed run with no share never ended');
+  assert.strictEqual(fedseats.ownCode('own-s12'), null, 'the new run shows a code before any offer');
+  assert.strictEqual(sent(seat, 'key-own-reveal').length, 1, 'the old nonce was revealed again');
+});
+
+test('#4658: with every guest revoked, an allowed own computer keeps the old key\'s grace (its in-flight posts still open)', async () => {
+  const id = 'own-o11';
+  const { h, seat } = await sealOwner(id, 'room-o11');
+  const r = await waitingRun(seat, 'room-o11', 'mac-w11');
+  await r.reveal();
+  await fedseats.allowOwn(id, r.w.pub, r.code());
+  const guest = fedseal.newKeyPair();
+  const st = fedseal.roomState(id);
+  fedseal.setRoomState(id, Object.assign({}, st, { peers: { [guest.pub]: { edge: 'edge-gone', invite: 'inv-gone' } } }));
+  const link = federation.linkFor(id);
+  const rotated = await fedseats.rotateForRevoked(id, link, async () => ({ ok: true, data: { as_owner: [{ id: 'edge-gone', project_ref: link.ref, status: 'revoked' }] } }));
+  assert.strictEqual(rotated, true);
+  const after = fedseal.roomState(id);
+  assert.strictEqual(after.epoch, 1);
+  assert.strictEqual(typeof after.keys[0], 'string', 'the old key was dropped with an own computer still in the room');
+  assert.deepStrictEqual(Object.keys(after.own), [r.w.pub], 'the own computer was dropped by a guest revoke');
+  // A post the own computer sealed just before the rotation still opens on the owner.
+  const env = fedseal.seal(st.keys[0], 0, 'room-o11', { from: 'Josh', kind: 'person', text: 'in flight' });
+  say(seat, { event: 'message', data: env });
+  await settle();
+  // No guest is pinned now, so the owner opens it without an edge hold: recorded, not refused as retired.
+  assert.ok(h.recorded.some((x) => x.text === 'in flight'), 'the own computer\'s in-flight post was refused');
+});

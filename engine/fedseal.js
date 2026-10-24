@@ -240,7 +240,7 @@ function openRotate(me, pinnedOwnerPub, frame, roomId) {
      waiting -> room   key-own-reveal {mac, owner, nonce: nW}          only for an offer naming its commit
    Both screens then show compareCode over (room, mac, both keys, nW, nO). A man in the middle must fix its
    commitment toward the owner before it sees nO, and its nO toward the waiting computer before it sees nW, so
-   it gets one guess at the code per run and cannot grind. The person presses Allow on the owner (which sends
+   it gets one guess at the code per run. The person presses Allow on the owner (which sends
    key-own-share bound to that run) AND "It matches" on the waiting computer, which adopts a share only from
    the owner key of the offer its person confirmed. */
 
@@ -378,9 +378,7 @@ function isSealed(env) {
                                                        owner's own computers pinned by an Allow;
                                                        `ownComputer: true` (member only), a computer of
                                                        the owner's that holds or waits for the key
-                                                       through that Allow. Every writer spreads the
-                                                       record (Object.assign({}, st, ...)), so both survive
-                                                       a rotation.
+                                                       through that Allow.
    A file that exists but cannot be read or parsed THROWS and is never overwritten:
    losing it would lose every room key this board holds. */
 const PENDING_TTL_MS = 7 * 24 * 60 * 60 * 1000;   // an invite code lives 7 days
