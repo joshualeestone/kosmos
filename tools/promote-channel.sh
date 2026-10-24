@@ -193,10 +193,21 @@ if [ -n "$NAMED_VERSION" ]; then
   # changed V's pointer because the pointer is ONE line (tools/lib/write-latest-pointer.js), so any change to it
   # removes and adds the line holding the version; a hand-edited multi-line pointer would break that.
   git -C "$SITE" rev-parse --verify -q HEAD >/dev/null || { echo "promote-channel: $SITE is not a git checkout with a HEAD, so --version cannot read the commit that published $NAMED_VERSION - refusing; nothing was written." >&2; exit 1; }
+  # Only a commit the site has published was ever served to staging: with an origin, a commit that is not on
+  # origin/main is not a candidate at all (so a local, never-pushed one cannot cause a disagreement). A site with no
+  # origin (a local test site) cannot say, and the promote says so.
+  _has_origin=""; _unpub=""
+  if git -C "$SITE" remote get-url origin >/dev/null 2>&1; then
+    _has_origin=1
+    pointer_freeze_fetch "$SITE" || { echo "promote-channel: could not fetch the site to check which commits naming $NAMED_VERSION were published - refusing; nothing was written." >&2; exit 1; }
+  fi
   NAMED_COMMIT=""; _paired=""; _builds=""; _seen=""; _newest=""
   for _c in $(git -C "$SITE" log --format=%H -G "\"version\": *\"$NAMED_VERSION\"" HEAD -- "dist/$STAGING_NAME" 2>/dev/null); do
     git -C "$SITE" show "${_c}:dist/$STAGING_NAME" > "$NAMED_DIR/candidate.json" 2>/dev/null || continue
     [ "$(read_pointer_field "$NAMED_DIR/candidate.json" version)" = "$NAMED_VERSION" ] || continue
+    if [ -n "$_has_origin" ] && ! git -C "$SITE" merge-base --is-ancestor "$_c" origin/main 2>/dev/null; then
+      _unpub="${_unpub:+$_unpub }${_c:0:10}"; continue
+    fi
     case "$_c" in "$NAMED_PICK"*) ;; *) continue ;; esac   # --commit: only that commit (empty: every commit)
     _s="$(read_pointer_field "$NAMED_DIR/candidate.json" sha256)"
     [ -n "$_s" ] || continue   # no bytes named: not a usable pointer for V, so not a candidate
@@ -212,7 +223,13 @@ if [ -n "$NAMED_VERSION" ]; then
     if [ -z "$_paired" ] && [ -n "$_ps" ] \
        && [ "$(git -C "$SITE" show "${_c}:setup-staging" 2>/dev/null | shasum -a 256 | awk '{print $1}')" = "$_ps" ]; then _paired="$_c"; fi
   done
-  [ -n "$NAMED_COMMIT" ] || { echo "promote-channel: no commit on $SITE's HEAD has a $STAGING_NAME naming $NAMED_VERSION${NAMED_SHA:+ with a sha256 starting $NAMED_SHA}${NAMED_PICK:+ in a commit starting $NAMED_PICK} - refusing; nothing was written. (Pull the site, or check the version.)" >&2; exit 1; }
+  if [ -z "$NAMED_COMMIT" ]; then
+    _why="(Pull the site, or check the version.)"
+    { [ -n "$NAMED_SHA" ] || [ -n "$NAMED_PICK" ]; } && _why="(Check the version, and the --sha or --commit given.)"
+    [ -z "$_unpub" ] || _why="Commits naming it that are not on the site's origin/main, so staging never served them: $_unpub."
+    _pub=""; [ -z "$_has_origin" ] || _pub="published "
+    echo "promote-channel: no ${_pub}commit on $SITE's HEAD has a $STAGING_NAME naming $NAMED_VERSION${NAMED_SHA:+ with a sha256 starting $NAMED_SHA}${NAMED_PICK:+ in a commit starting $NAMED_PICK} - refusing; nothing was written. $_why" >&2; exit 1
+  fi
   case "$_builds" in *" "*)
     # What the operator can do depends on how they disagree: on the bytes (--sha picks one, or more of it does), or
     # only on the artifact or manifest name (--sha cannot separate them; --commit names the one to use).
@@ -240,12 +257,7 @@ if [ -n "$NAMED_VERSION" ]; then
     fi
     rm -f "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json"
   fi
-  # Only a commit the site has published was ever served to staging: it must be on origin/main. A site with no origin
-  # (a local test site) cannot say, and the promote says so.
-  if git -C "$SITE" remote get-url origin >/dev/null 2>&1; then
-    pointer_freeze_fetch "$SITE" || { echo "promote-channel: could not fetch the site to check that ${NAMED_COMMIT:0:10} was published - refusing; nothing was written." >&2; exit 1; }
-    git -C "$SITE" merge-base --is-ancestor "$NAMED_COMMIT" origin/main \
-      || { echo "promote-channel: ${NAMED_COMMIT:0:10} (the commit naming $NAMED_VERSION) is not on the site's origin/main, so staging never served it - refusing; nothing was written." >&2; exit 1; }
+  if [ -n "$_has_origin" ]; then
     # One baseline for "what prod serves": the rollback guard, the signature checks and the tunnel gate's control all
     # read prod's pointer, so the checkout's must be origin's (a checkout behind origin, or holding a promote that was
     # never deployed, would give each of them a wrong one).
@@ -273,7 +285,7 @@ if [ -n "$NAMED_VERSION" ]; then
   else
     SETUP_HAND_HINT="an installer, find it by hand: ${NAMED_COMMIT:0:10} did not commit one, so the setup-staging beside it may belong to another cut. Copy that cut's setup-staging (+ .sha256) onto setup (+ .sha256)"
   fi
-  echo "promote-channel: --version $NAMED_VERSION: the staging pointer and installer committed in $(git -C "$SITE" log -1 --format='%h (%s)' "$NAMED_COMMIT"), not what $STAGING_NAME names now"
+  echo "promote-channel: --version $NAMED_VERSION: the staging pointer committed in $(git -C "$SITE" log -1 --format='%h (%s)' "$NAMED_COMMIT"), and the installer in that commit's tree, not what $STAGING_NAME names now"
 fi
 V="$(read_field version)"; SHA="$(read_field sha256)"; ARTIFACT="$(read_field "$ARTIFACT_FIELD")"
 
@@ -298,9 +310,10 @@ if [ -n "$NAMED_VERSION" ]; then
   # or holding a promote not yet deployed, would give a wrong baseline. Without an origin, the checkout's is all there is.
   if git -C "$SITE" rev-parse -q --verify "origin/main:dist/$PROD_NAME" >/dev/null 2>&1; then
     git -C "$SITE" show "origin/main:dist/$PROD_NAME" > "$NAMED_DIR/prod.json" 2>/dev/null
-    _prodv="$(read_pointer_field "$NAMED_DIR/prod.json" version)"; _prodsrc="the site's origin/main"
+    _prodv="$(read_pointer_field "$NAMED_DIR/prod.json" version)"; _prods="$(read_pointer_field "$NAMED_DIR/prod.json" sha256)"; _prodsrc="the site's origin/main"
   else
-    _prodv="$(read_pointer_field "$SITE/dist/$PROD_NAME" version)"; _prodsrc="this checkout (no origin to read)"
+    _prodv="$(read_pointer_field "$SITE/dist/$PROD_NAME" version)"; _prods="$(read_pointer_field "$SITE/dist/$PROD_NAME" sha256)"
+    if [ -n "$_has_origin" ]; then _prodsrc="this checkout (origin's main has none)"; else _prodsrc="this checkout (no origin to read)"; fi
   fi
   echo "promote-channel: --version $V; $PROD_NAME on $_prodsrc names ${_prodv:-nothing}"
   # 0 V is not older, 1 V is older, anything else (2: a version that is not numbers; node failing) cannot tell.
@@ -311,7 +324,9 @@ if [ -n "$NAMED_VERSION" ]; then
   else node -e 'const a=process.argv[1].split(".").map(Number),b=process.argv[2].split(".").map(Number);if(a.concat(b).some(Number.isNaN))process.exit(2);for(let i=0;i<Math.max(a.length,b.length);i++){const d=(a[i]||0)-(b[i]||0);if(d)process.exit(d>0?0:1)}process.exit(0)' "$V" "$_prodv" 2>/dev/null || _cmp=$?
   fi
   case "$_cmp" in
-    0) : ;;
+    0) # The same version with other bytes is a replacement, not a rollback: allowed, and said.
+       [ "$_prodv" = "$V" ] && [ -n "$_prods" ] && [ "$_prods" != "$SHA" ] \
+         && echo "promote-channel: NOTE prod already serves $V as other bytes (sha256 ${_prods:0:12}); this promote replaces them with ${SHA:0:12}" >&2 ;;
     1) [ "$ALLOW_OLDER" = 1 ] || { echo "promote-channel: $V is older than $_prodv ($PROD_NAME on $_prodsrc) - refusing; nothing was written. A rollback needs --allow-older as well." >&2; exit 1; }
        echo "promote-channel: --allow-older: rolling prod back from $_prodv to $V" >&2 ;;
     *) [ "$ALLOW_OLDER" = 1 ] || { echo "promote-channel: $V cannot be compared with '$_prodv' ($PROD_NAME on $_prodsrc), so it may be a rollback - refusing; nothing was written. Pass --allow-older to replace it anyway." >&2; exit 1; }
