@@ -42,7 +42,10 @@ final class SignInModel: ObservableObject {
         attempt += 1; let mine = attempt
         busy = true; error = nil
         Task {
-            defer { if mine == attempt { busy = false } }
+            // The company's sheet keeps busy itself once it is opened (its own task, same attempt): not cleared here
+            // (review of #7045: the outer clear ran after it and let a second press throw the grant's answer away).
+            var handedOver = false
+            defer { if mine == attempt && !handedOver { busy = false } }
             do {
                 let started = try await client.start(email: typed)
                 guard mine == attempt else { return }
@@ -52,7 +55,7 @@ final class SignInModel: ObservableObject {
                 // page when the address Kosmos+ gave is not one this app opens.
                 guard let url = started.company else { step = .web(reason: SignIn.webForCompany); return }
                 email = typed
-                busy = false
+                handedOver = true
                 companySignIn(url, mine: mine)
             } catch { if mine == attempt { fail(error) } }
         }
