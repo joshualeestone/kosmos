@@ -631,7 +631,10 @@ struct ChatView: View {
             Task { await addPhotos(picks) }
         }
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { Task { await addFiles(urls) } }
+            switch result {
+            case .success(let urls): Task { await addFiles(urls) }
+            case .failure: client.attachLine[agent.session] = "We could not open that file."
+            }
         }
     }
 
@@ -663,9 +666,7 @@ struct ChatView: View {
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(attachedHere) { a in
-                    FileChip(name: a.name, remove: { client.unattach(a.id, for: agent.session) })
-                }
+                // First, so it is on screen however many files are already waiting.
                 if uploadingHere > 0 {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)
@@ -675,70 +676,32 @@ struct ChatView: View {
                     .padding(.horizontal, 6)
                     .accessibilityElement(children: .combine)
                 }
+                ForEach(attachedHere) { a in
+                    FileChip(name: a.name, remove: { client.unattach(a.id, for: agent.session) })
+                }
             }
             .padding(.horizontal, 2)
+            // As tall as the x's 44 pt place to tap: a scroll view takes no taps outside itself.
+            .frame(minHeight: 44)
         }
     }
 
-    // One at a time, in the order picked, as the board adds them. A photo is the picker's JPEG (or its own image type),
-    // written to a file of its own that the client removes once sent.
+    // One at a time, in the order picked, as the board adds them. Each is counted as on its way from the moment it is
+    // picked, and the client copies it (a photo's bytes as Apple's picker gives them, JPEG by default).
     private func addPhotos(_ picks: [PhotosPickerItem]) async {
+        let epoch = client.chatEpoch
         for item in picks {
-            let data: Data
-            do {
-                guard let loaded = try await item.loadTransferable(type: Data.self) else { continue }
-                data = loaded
-            } catch {
-                client.attachLine[agent.session] = "We could not read that photo."
-                continue
-            }
-            let type = item.supportedContentTypes.first { $0.conforms(to: .image) } ?? .jpeg
-            let name = Board.photoName(at: Date(), ext: Board.imageExtension(data) ?? type.preferredFilenameExtension ?? "jpg")
-            guard let file = Self.uploadCopy(named: name, data: data) else {
-                client.attachLine[agent.session] = "We could not read that photo."
-                continue
-            }
-            await client.attach(file: file, name: name, type: Board.mimeType(forName: name), size: data.count, to: agent)
+            await client.attach(.photo(load: {
+                guard let data = try? await item.loadTransferable(type: Data.self) else { return nil }
+                let type = item.supportedContentTypes.first { $0.conforms(to: .image) } ?? .jpeg
+                return (Board.photoName(at: Date(), ext: Board.imageExtension(data) ?? type.preferredFilenameExtension ?? "jpg"), data)
+            }), epoch: epoch, to: agent)
         }
     }
 
-    // A file from Files is copied first (only after its size is known to fit), so the client removes the copy, never
-    // the person's own file.
     private func addFiles(_ urls: [URL]) async {
-        for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            let name = url.lastPathComponent
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-            if let refusal = Board.uploadRefusal(size: size, waiting: attachedHere.count + uploadingHere) {
-                client.attachLine[agent.session] = refusal
-                continue
-            }
-            guard let copy = Self.uploadCopy(named: name, from: url) else {
-                client.attachLine[agent.session] = "We could not read \(name)."
-                continue
-            }
-            await client.attach(file: copy, name: name, type: Board.mimeType(forName: name), size: size, to: agent)
-        }
-    }
-
-    // A folder of its own per file, under the app's temporary folder (which iOS clears).
-    private static func uploadFolder() -> URL? {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("chat-uploads", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        return (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil ? folder : nil
-    }
-
-    private static func uploadCopy(named name: String, data: Data) -> URL? {
-        guard let folder = uploadFolder() else { return nil }
-        let file = folder.appendingPathComponent(Board.savedName(name))
-        return (try? data.write(to: file)) != nil ? file : nil
-    }
-
-    private static func uploadCopy(named name: String, from url: URL) -> URL? {
-        guard let folder = uploadFolder() else { return nil }
-        let file = folder.appendingPathComponent(Board.savedName(name))
-        return (try? FileManager.default.copyItem(at: url, to: file)) != nil ? file : nil
+        let epoch = client.chatEpoch
+        for url in urls { await client.attach(.file(url), epoch: epoch, to: agent) }
     }
 
     private var field: some View {
@@ -772,8 +735,11 @@ struct ChatView: View {
         .padding(.bottom, 2)
     }
 
-    // Words, or files with no words (their names go as the words); never while a file is still on its way.
-    private var canSend: Bool { Board.fitsBoard(Board.sendWords(draftText, files: attachedHere)) && uploadingHere == 0 }
+    // Words, or files with no words (their names go as the words). Not with files while another is still on its way
+    // (the message would go without it); words alone go, as on the board.
+    private var canSend: Bool {
+        Board.fitsBoard(Board.sendWords(draftText, files: attachedHere)) && (attachedHere.isEmpty || uploadingHere == 0)
+    }
 
     // The bubble appears at once (60% while it sends) and the field clears (spec, "while it sends").
     private func send() {
