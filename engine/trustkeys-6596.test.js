@@ -221,6 +221,35 @@ test('the store is read as the tunnel reads it: the list form, unknown members i
   assert.equal(keysOf(lone).fault, 'unusable', 'a lone surrogate in a field, which serde refuses');
 });
 
+test('a lone surrogate in the document is refused, as serde refuses it, though the signature would pass', () => {
+  // A signed set holding U+FFFD: the signature covers its UTF-8 bytes, EF BF BD.
+  const doc = setDoc([[NEW, 'current']]).replace(/}$/, ',"x":"\ufffd"}');
+  const s = signed(doc);
+  const text = JSON.stringify(s);
+  const keysOf = (t) => trustkeys.trustedKeys(stateWith(t), pinOf(OLD), ON);
+  assert.deepEqual(keysOf(text).keys, [pinOf(NEW)], 'CONTROL: the set spelled as signed verifies');
+  // The same character spelled as an escape of a lone surrogate: JSON.parse keeps it, and Buffer.from would turn it
+  // back into EF BF BD, so only the surrogate check stands between this and a trusted key.
+  const lone = text.replace('\ufffd', '\\ud800');
+  assert.notEqual(lone, text, 'CONTROL: the escape is in the store');
+  assert.equal(servicekeys.verifyServiceKeySet({ bytes: JSON.parse(lone).document, sig: s.signature, recoveryKeys: [ROOT_PUB] }).ok, true,
+    'CONTROL: without the surrogate check the signature passes');
+  const r = keysOf(lone);
+  assert.equal(r.fault, 'unusable');
+  assert.deepEqual(r.keys, []);
+});
+
+test('a set that does not verify gives a fixed reason, never text from the document', () => {
+  const plain = setDoc([[NEW, 'current']]).replace(/}$/, ',"x":{"SECRET-NAME":1}}');
+  assert.deepEqual(trustkeys.trustedKeys(stateWith(signed(plain)), pinOf(OLD), ON).keys, [pinOf(NEW)], 'CONTROL: the same set without the repeat verifies');
+  const twice = plain.replace('{"SECRET-NAME":1}', '{"SECRET-NAME":1,"SECRET-NAME":2}');
+  const why = servicekeys.verifyServiceKeySet({ bytes: twice, sig: signed(twice).signature, recoveryKeys: [ROOT_PUB] }).why;
+  assert.match(why, /SECRET-NAME/, 'CONTROL: the check itself names the member');
+  const r = trustkeys.trustedKeys(stateWith(signed(twice)), pinOf(OLD), ON);
+  assert.equal(r.fault, 'unusable');
+  assert.equal(r.why, 'the service key set this computer holds no longer verifies');
+});
+
 test('Forget removes a file where the tunnel folder should be', () => {
   const remote = require('./remote');
   const saved = process.env.AGENT_WORKFORCE_TUNNEL_STATE;

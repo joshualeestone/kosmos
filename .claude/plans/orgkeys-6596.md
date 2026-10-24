@@ -52,6 +52,17 @@ service key rotation leaves the tunnel working and the board refusing every poli
   every reader checks its files one by one, the folder is the tunnel's own, and its contents are what a wipe removes
   either way. Kept: removing the folder would take the trust files with it.
 
+## Review 3 (also fixed)
+- The plan said a lone surrogate in `document` is refused here as by serde. It was not: JSON.parse kept it, and the
+  signature check read it as U+FFFD, so a signed set holding U+FFFD, stored with that character escaped as a lone
+  surrogate, was trusted here and refused by the tunnel. The old test put the surrogate in `signature`, where the
+  base64 check refuses it anyway. readStored now refuses a lone surrogate in either text (servicekeys.scan's regex),
+  and the test puts it in `document`, with controls that the set verifies as signed and that the signature alone
+  would pass.
+- "no longer verifies" carried the check's reason, which can quote a member name from the document; it is fixed
+  text now, so the plan's "never file content" holds. Arms ($S/ok-arms-r3.sh): K0 control green; K1 no surrogate
+  check, K2 the reason appended again: each red on its own test.
+
 ## Weakest premise
 RECOVERY_KEYS (kosmos) and SERVICE_KEY_ROOTS (relay) are activated together with the same value. If only one is
 set, board and tunnel disagree about which keys are trusted. Both files say so; activation is one paired change.
