@@ -54,6 +54,14 @@ and route), which is stacked on orgkeys-6596. Lands after both.
   I had last run the guard tests before review 1 added that arm. Both handlers now answer inside a try, the held one
   catching its own late rejection; guards 154/0, sign-in check 206/0.
 
+## CI on the PR (#7063): render-fields
+- CI's browser-checks job (render-fields, which I had not run locally) failed on plus-si-keychanged-accept in the
+  light scheme: fill 1:1, border 1.01:1. That button became the transparent secondary in the design review's swap, and
+  render-fields measures the wizard's buttons off their real navy ground, which is why it already skips the wizard's
+  other secondary buttons by name (PLUS_WIZARD_BUTTONS). Added it there, with what covers it on its real ground
+  (render-plus-signin-3478's WIZ_SEP measures every secondary button's face and stroke against the navy card).
+- Run locally against a sandboxed board: the failure reproduces with the entry removed (control) and is gone with it.
+
 ## Rejected
 - Showing a short fingerprint: the person compares against what an administrator tells them, and a shortened key
   invites a match on the part shown. The whole key costs two lines at phone width.
