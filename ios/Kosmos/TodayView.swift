@@ -89,7 +89,8 @@ struct TodayView: View {
         return ScrollViewReader { proxy in List {
             // The subhead sits directly under the large title, as one header with it (Mona Lisa's review, 10-24): the
             // first section's header, not a row, which the list would pad as a row and push about 40pt down.
-            Section(header: Text(m.subhead)
+            // No line at all while nothing needs you and the tasks are not known (TodayModel.subhead).
+            Section(header: Text(m.subhead ?? "")
                 .font(.subheadline)
                 .foregroundColor(Palette.secondary)
                 .textCase(nil)

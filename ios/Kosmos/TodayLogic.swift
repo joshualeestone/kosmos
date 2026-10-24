@@ -54,6 +54,9 @@ extension Board {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let rows = obj["tasks"] as? [[String: Any]]
         else { return nil }
+        // Review 1: when the Mac could not read who is running, it cannot tell a task whose agent needs the person from
+        // one that is ready, so every marked task reads built. Not knowing is said as not knowing.
+        if isTrue(obj["rosterUnreadable"]) { return nil }
         let ready: [ReadyTask] = rows.compactMap { t in
             guard t["state"] as? String == "built", let pid = t["projectId"] as? String, !pid.isEmpty,
                   let number = integer(t["number"]), let sentence = t["sentence"] as? String
@@ -86,10 +89,12 @@ extension Board {
         let ready: [ReadyTask]?
         let working: [Agent]
 
-        // "1 thing needs you" / "N things need you" (needs-you cards plus ready cards), or nothing needs you.
-        var subhead: String {
+        // "1 thing needs you" / "N things need you" (needs-you cards plus ready cards), or nothing needs you. nil when
+        // nobody needs you and the tasks are not known (not read yet, or the read failed): "Nothing needs you" would be a
+        // claim about tasks nobody could see (review 1).
+        var subhead: String? {
             let n = needsYou.count + (ready?.count ?? 0)
-            if n == 0 { return "Nothing needs you right now." }
+            if n == 0 { return ready == nil ? nil : "Nothing needs you right now." }
             return n == 1 ? "1 thing needs you" : "\(n) things need you"
         }
     }

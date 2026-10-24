@@ -143,6 +143,7 @@ final class BoardClient: ObservableObject {
             shownOwner = nil
             pictures = [:]
             pictureVersions = [:]
+            forgetToday()   // kosmos#7030: no count or tasks while signed out
             cookies.removeCookies(since: .distantPast)
         }
         let stored = macStore.load()
@@ -233,6 +234,16 @@ final class BoardClient: ObservableObject {
     private var tasksTask: Task<Void, Never>?
     static let tasksEvery: TimeInterval = 30
 
+    // Another account, another Mac, signed out or refused: the count and the tasks were the old one's (review 1).
+    private func forgetToday() {
+        tasksTask?.cancel()
+        tasksTask = nil
+        waitingCount = nil
+        readyTasks = nil
+        tasksFailed = false
+        tasksAt = nil
+    }
+
     func refreshTasks() async {
         guard let held = admitted else { return }
         let gen = generation
@@ -244,6 +255,7 @@ final class BoardClient: ObservableObject {
             tasksFailed = false
         } else {
             tasksFailed = true
+            readyTasks = nil   // review 1: an old list is never shown as current after a failed read
         }
     }
 
@@ -680,10 +692,7 @@ final class BoardClient: ObservableObject {
         pictureVersions = [:]
         agents = []
         updatedAt = nil
-        waitingCount = nil   // kosmos#7030: another account's count and tasks are never shown
-        readyTasks = nil
-        tasksFailed = false
-        tasksAt = nil
+        forgetToday()   // kosmos#7030: another account's count and tasks are never shown
         env.defaults.removeObject(forKey: Board.rememberedMacKey)
         cookies.removeCookies(since: .distantPast)
         macStore.delete()
@@ -737,7 +746,7 @@ final class BoardClient: ObservableObject {
         guard let (mac, url, _) = admitted else { return }
         // Another Mac: its agents' pictures are its own, even for an agent of the same name.
         // Another Mac: its pictures and the chats (opened on the one before) go now, before any chat call reaches it.
-        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; forgetChats() }
+        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; forgetChats(); forgetToday() }
         failedRefreshes = 0
         while !Task.isCancelled && gen == generation {
             guard await refresh(url: url, mac: mac, gen) else { return }
@@ -753,9 +762,10 @@ final class BoardClient: ObservableObject {
             // The Kosmos+ session is dead, so the Mac session kept under it is useless: forgotten with it.
             macStore.delete()
             cookies.removeCookies(since: .distantPast)
+            forgetToday()   // kosmos#7030: a dead session's badge and tasks are not shown under "Sign in"
             set(.signedOut, gen)
         }
-        else if status == 403 { set(.kosmosPlusRefused, gen) }
+        else if status == 403 { forgetToday(); set(.kosmosPlusRefused, gen) }
         else { set(.kosmosPlusDown, gen) }
     }
 
