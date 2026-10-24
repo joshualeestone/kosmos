@@ -26,6 +26,9 @@ struct ContentView: View {
     // Whether the app has really been in the background, for the bar's Tasks check on return (tracked apart from the
     // biometric gate's didBackground, which only runs when that gate is on).
     @State private var tabsBackgrounded = false
+    // kosmos#7032: a room the Projects tab should open (a tapped room notification), cleared once it is open. Outside the
+    // screenshot switch: both builds read it.
+    @State private var roomRequest: String?
     // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
     // The App Store screenshot build
     // (ios/store/shoot-app.sh) photographs board screens in the web view, opened by address, so it lights the tab
@@ -55,8 +58,6 @@ struct ContentView: View {
         return .today
     }()
     @State private var tab = ContentView.startTab
-    // kosmos#7032: a room the Projects tab should open (a tapped room notification), cleared once it is open.
-    @State private var roomRequest: String?
     #endif
     // kosmos#7030: Today is native, and the board view still shows under it whatever the app sends there (a tapped
     // notification, Check it, the board's own Settings, the sign-in): true while it does. A person's press on Today

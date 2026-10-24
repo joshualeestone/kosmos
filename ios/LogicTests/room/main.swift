@@ -28,19 +28,21 @@ let names = ["cleo": "Cleo", "eli": "Eli", "dana": "Dana", "gus": "Gus"]
 let page = Board.parseRoom(fixture, names: names)
 check(page != nil, "the page parses")
 let rows = page?.rows ?? []
-check(rows.map { $0.kind } == [.kosmos, .post, .post, .post, .post, .external, .kosmos, .kosmos, .post],
-      "every kind, in order, with the two refusals for one reason folded into one line: \(rows.map { $0.kind })")
+check(rows.map { $0.kind } == [.kosmos, .post, .post, .post, .post, .external, .kosmos, .kosmos, .kosmos, .post],
+      "every kind, in order, each refusal its own row until the room is drawn: \(rows.map { $0.kind })")
 check(rows[safe: 1]?.byPerson == true && rows[safe: 1]?.from == nil, "the person's own post carries no sender")
 check(rows[safe: 2]?.from == "cleo" && rows[safe: 3]?.from == "cleo" && rows[safe: 4]?.from == "eli", "an agent's post names its sender")
 check(rows[safe: 1]?.mentioned == ["cleo"], "the agents a post addressed")
 check(rows[safe: 4]?.replyTo == "m2", "a reply names the post it answers")
 check(rows[safe: 4]?.reactions == [Board.Reaction(emoji: "🔥", count: 2, mine: true)], "a reaction pill, with the person's own marked")
 check(rows[safe: 5]?.externalAgent == true && rows[safe: 5]?.from == "Maple", "an outside agent's message")
-check(rows[safe: 6]?.text == "Dana and Gus tried to post here and Kosmos stopped it: it is not on this project",
+check(rows[safe: 6]?.refusal == Board.Refusal(who: "Dana", doing: nil, because: "it is not on this project"), "a refusal keeps who, and why")
+let folded = Board.foldRefusals(rows)
+check(folded.count == rows.count - 1 && folded[safe: 6]?.text == "Dana and Gus tried to post here and Kosmos stopped it: it is not on this project",
       "consecutive refusals for one reason are one line naming everyone, in the board's words")
-check(rows[safe: 7]?.text == "This went back and forth for a while, so Kosmos stopped it.", "a valve's own reason")
+check(rows[safe: 8]?.text == "This went back and forth for a while, so Kosmos stopped it.", "a valve's own reason")
 check(page?.olderCount == 0 && page?.olderCursor == nil, "the whole room fit: no older page")
-check(rows[safe: 0]?.id.hasPrefix("k|2026-10-22T15:00:00.000Z|") == true, "a Kosmos line's identity is the computer's key (its place), not this page's index")
+check(rows[safe: 0]?.id == "k|2026-10-22T15:00:00.000Z|0", "a Kosmos line's identity is the computer's key (its place), not this page's index (k|<at>|p0)")
 
 section("what is never drawn as something it is not")
 let odd = Data(#"{"rows":[{"kind":"reopen","at":"2026-10-22T15:00:00.000Z"},{"kind":"post","at":"2026-10-22T15:01:00.000Z"},{"kind":"note","text":"","at":"2026-10-22T15:02:00.000Z"}],"olderCount":3,"olderCursor":"2026-10-22T15:00:00.000Z|0"}"#.utf8)
@@ -62,15 +64,50 @@ check(items.first.map { if case .day("Today") = $0.kind { return true } else { r
 
 section("merging a re-read newest page")
 let shownBefore = Array(rows.prefix(5))
-var newer = Array(rows.suffix(6))
+var newer = Array(rows.suffix(7))
 if let i = newer.firstIndex(where: { $0.id == "m4" }) { newer[i].reactions = [Board.Reaction(emoji: "👍", count: 1, mine: true)] }   // m4's reactions changed since
 check(newer.first?.id == "m3" && shownBefore.last?.id == "m4", "premise: the two pages overlap on m3 and m4")
 let merged = Board.mergeRoom(shownBefore, with: newer)
 check(merged.map { $0.id } == rows.map { $0.id }, "rows already shown are kept once, new ones added, in time order")
 check(merged.first { $0.id == "m4" }?.reactions == [Board.Reaction(emoji: "👍", count: 1, mine: true)], "a row seen again takes its newer reading")
 check(Board.mergeRoom(rows, with: rows).count == rows.count, "re-reading the same page adds nothing, Kosmos lines included")
+// A page that begins inside a run of refusals (Gus's only), merged with one that has both: still one line, never
+// "Dana and Gus tried..." beside "Gus tried...".
+let fromGus = Array(rows.suffix(3))
+check(fromGus.first?.refusal?.who == "Gus", "premise: this page begins at the run's second refusal")
+let splitItems = Board.roomItems(Board.mergeRoom(fromGus, with: rows), now: now, calendar: cal)
+let refusalLines = splitItems.compactMap { i -> String? in if case let .row(r, _, _) = i.kind, r.refusal != nil { return r.text } else { return nil } }
+check(refusalLines == ["Dana and Gus tried to post here and Kosmos stopped it: it is not on this project"], "a run split across pages is one line: \(refusalLines)")
+var otherReason = rows; otherReason[7].refusal = Board.Refusal(who: "Gus", doing: nil, because: "quiet hours")
+check(Board.foldRefusals(otherReason).count == rows.count, "CONTROL: refusals for different reasons stay two lines")
 let late = Board.RoomRow(id: "m9", atRaw: "2026-10-22T15:02:30.000Z", at: nil, kind: .post, from: "dana", byPerson: false, text: "late")
 check(Board.mergeRoom(rows, with: [late]).map { $0.id }.firstIndex(of: "m9") == 3, "a post written late lands in its time place")
+
+section("a re-read after more than a page arrived")
+let away = Board.RoomPage(rows: [Board.RoomRow(id: "m80", atRaw: "2026-10-22T17:00:00.000Z", at: nil, kind: .post, from: "eli", byPerson: false, text: "later")],
+                          olderCount: 60, olderCursor: "2026-10-22T16:00:00.000Z|0", held: false)
+let gap = Board.refreshRoom(rows, older: (0, nil), page: away)
+check(gap.rows.map { $0.id } == ["m80"] && gap.older.cursor == "2026-10-22T16:00:00.000Z|0" && gap.older.count == 60,
+      "a page sharing no row with what is shown replaces it and takes its own cursor, so no gap is hidden")
+let overlapPage = Board.RoomPage(rows: Array(rows.suffix(3)), olderCount: 7, olderCursor: "c-new", held: false)
+let kept = Board.refreshRoom(rows, older: (2, "c-old"), page: overlapPage)
+check(kept.rows.count == rows.count && kept.older.cursor == "c-old", "CONTROL: an overlapping page merges and the older cursor stays")
+check(Board.refreshRoom(nil, older: nil, page: away).older.cursor == "2026-10-22T16:00:00.000Z|0", "a first read takes the page's cursor")
+
+section("a post in the air settles only on a NEW row")
+let ok1 = Board.RoomRow(id: "m50", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "ok")
+let ok2 = Board.RoomRow(id: "m51", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "ok")
+check(Board.settledPosts([("ok", ["m50"])], rows: [ok1]).isEmpty, "an earlier \"ok\" never settles a new \"ok\" still on its way")
+check(Board.settledPosts([("ok", ["m50"])], rows: [ok1, ok2]) == [0], "CONTROL: the new row settles it")
+check(Board.settledPosts([("ok", ["m50"]), ("ok", ["m50"])], rows: [ok1, ok2]) == [0], "one new row settles one post, not two")
+
+section("Reply's @name")
+check(Board.replyMention(draft: "", from: "monalisa") == "@monalisa ", "the session name, which the engine reads as one @word (never \"@Mona Lisa\")")
+check(Board.replyMention(draft: "see this", from: "eli") == "@eli see this", "the person's words are kept, after the name")
+check(Board.replyMention(draft: "thanks @Eli.", from: "eli") == "thanks @Eli.", "already named: nothing added")
+check(Board.replyMention(draft: "@elijah hi", from: "eli") == "@eli @elijah hi", "CONTROL: @elijah is not @eli")
+check(Board.mentionRanges("@eli and @elijah", "eli").count == 1, "highlighting lights whole names only")
+check(Board.mentionRanges("@eli.x", "eli").isEmpty, "CONTROL: a dot inside a longer name is not the end of the name")
 
 section("the request: the newest page, or the page before the computer's cursor")
 let mac = URL(string: "https://studio.kosmosplus.com")!
@@ -143,6 +180,8 @@ check(Board.roomPostLine(.refused("It is quiet hours.")) == "Not posted. It is q
 
 section("a room notification opens its room")
 let coordinator = URL(string: "https://login.kosmosplus.com")!
+// The notice as the extension leaves it: `projectId` is written there from the computer's answer (PhoneNotice.withRoom;
+// the relay's push never carries it, which ios/LogicTests/main.swift checks from the relay's own payload shape).
 let roomPush: [AnyHashable: Any] = ["kind": "posted", "projectId": "springcatalogue", "address": "Studio.KosmosPlus.com", "session": "eli", "id": "post:m4"]
 check(PushBridge.roomToOpen(fromNotification: roomPush, coordinator: coordinator) == PushBridge.RoomTarget(host: "studio.kosmosplus.com", project: "springcatalogue"), "a posted push names its computer and project")
 var other = roomPush; other["kind"] = "replied"

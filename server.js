@@ -7629,8 +7629,9 @@ const server = http.createServer(async (req, res) => {
     try { picture = store.avatarPath(got.session) ? '/api/agent/' + encodeURIComponent(got.session) + '/avatar' : null; } catch { picture = null; }
     /* kosmos#7017 part 2: a needs_you raised by a permission prompt still on screen carries Allow and Deny. */
     const permission = got.kind === 'report' ? phonePermissionNow(got.session, (require('./engine/phonenotice').parseId(noticeId) || {}).at, roster) : null;
+    /* kosmos#7032: a room post names its room, so a tap on the notice opens that room (the push itself does not say). */
     sendJson(res, 200, { kind: got.kind, session: got.session, agent: (card && card.name) || got.session, text: got.text, picture,
-      ...(permission ? { permission } : {}) });
+      ...(got.project ? { project: got.project } : {}), ...(permission ? { permission } : {}) });
     return;
   }
 

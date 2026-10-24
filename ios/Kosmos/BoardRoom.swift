@@ -41,6 +41,9 @@ extension Board {
         var attachments: [Attachment] = []
         // Agents this post addressed that have not answered here yet (the route's `unanswered`).
         var unanswered: [String] = []
+        // A refusal's parts, kept so consecutive refusals fold into one line when the room is drawn (roomItems), after
+        // every page is merged: folding per page made a second line whenever a page began inside a run.
+        var refusal: Refusal? = nil
         // The sender key a run is grouped by: the person, an agent, an outside sender, or Kosmos (which never groups).
         var sender: String {
             switch kind {
@@ -49,6 +52,12 @@ extension Board {
             case .post: return byPerson ? "person" : "agent|" + (from ?? "")
             }
         }
+    }
+
+    struct Refusal: Equatable {
+        let who: String?
+        let doing: String?
+        let because: String?
     }
 
     struct RoomPage: Equatable {
@@ -131,16 +140,10 @@ extension Board {
                 let who = (r["from"] as? String).map(shown)
                 let because = r["because"] as? String
                 let doing = r["doing"] as? String
-                // Consecutive refusals for the same reason fold into one line naming everyone (Josh 09-10: "It's just a
-                // string of notifications").
-                if let last = rows.last, last.kind == .kosmos, last.id.hasPrefix("r|"), last.id.hasSuffix("|" + (because ?? "")),
-                   case let names = refusedNames(last.text), let who, !names.contains(who) {
-                    rows[rows.count - 1] = RoomRow(id: last.id, atRaw: last.atRaw, at: last.at, kind: .kosmos, from: nil, byPerson: false,
-                                                   text: refusedLine(names + [who], doing: doing, because: because))
-                    continue
-                }
-                rows.append(RoomRow(id: "r|" + fallbackId + "|" + (because ?? ""), atRaw: at, at: isoDate(at), kind: .kosmos, from: nil,
-                                    byPerson: false, text: refusedLine(who.map { [$0] } ?? [], doing: doing, because: because)))
+                var row = RoomRow(id: "r|" + fallbackId, atRaw: at, at: isoDate(at), kind: .kosmos, from: nil, byPerson: false,
+                                  text: refusedLine(who.map { [$0] } ?? [], doing: doing, because: because))
+                row.refusal = Refusal(who: who, doing: doing, because: because)
+                rows.append(row)
             default:
                 continue   // a kind this build does not know is left out, never drawn as something it is not
             }
@@ -150,14 +153,24 @@ extension Board {
                         held: obj["held"] is [String: Any])
     }
 
-    // The names a folded refusal line already carries (it is rebuilt from them when one more joins).
-    private static func refusedNames(_ line: String) -> [String] {
-        guard let cut = line.range(of: " tried to ") else { return [] }
-        let head = String(line[..<cut.lowerBound])
-        if head == "An agent" { return [] }
-        let parts = head.components(separatedBy: " and ")
-        guard parts.count > 1 else { return [head] }
-        return parts[0].components(separatedBy: ", ") + [parts[1]]
+    // Consecutive refusals for the same reason fold into one line naming everyone (Josh 09-10: "It's just a string of
+    // notifications"), keyed on the run's first row. Run on the merged rows, so a run split across pages is still one.
+    static func foldRefusals(_ rows: [RoomRow]) -> [RoomRow] {
+        var out: [RoomRow] = []
+        var names: [String] = []
+        for r in rows {
+            if let f = r.refusal, let last = out.last, let lf = last.refusal, lf.because == f.because, let who = f.who, !names.isEmpty {
+                if !names.contains(who) { names.append(who) }
+                var folded = RoomRow(id: last.id, atRaw: last.atRaw, at: last.at, kind: .kosmos, from: nil, byPerson: false,
+                                     text: refusedLine(names, doing: lf.doing, because: lf.because))
+                folded.refusal = lf
+                out[out.count - 1] = folded
+                continue
+            }
+            names = r.refusal?.who.map { [$0] } ?? []
+            out.append(r)
+        }
+        return out
     }
 
     // The newest page merged into what is already shown: a row seen before is replaced by its newer reading (reactions,
@@ -180,6 +193,67 @@ extension Board {
         }.map { $0.element }
     }
 
+    // A re-read of the newest page onto rows already shown. When it overlaps them it is merged and the older cursor kept
+    // (it still points before the oldest row shown). When it shares no row with them and the computer says older rows
+    // exist, more than a page arrived while the room was away: merging would hide a gap no cursor can reach, so the
+    // page replaces what was shown and its own cursor takes over.
+    static func refreshRoom(_ shown: [RoomRow]?, older: (count: Int, cursor: String?)?, page: RoomPage)
+        -> (rows: [RoomRow], older: (count: Int, cursor: String?)) {
+        guard let shown, let older else { return (page.rows, (page.olderCount, page.olderCursor)) }
+        let ids = Set(shown.map { $0.id })
+        if page.olderCount > 0, !shown.isEmpty, !page.rows.contains(where: { ids.contains($0.id) }) {
+            return (page.rows, (page.olderCount, page.olderCursor))
+        }
+        return (mergeRoom(shown, with: page.rows), older)
+    }
+
+    // The person's posts in the air (or not confirmed) that the room now shows: a row by the person, with the same
+    // words, that was NOT in the room when they pressed Post (the board's #6168 rule). Each row settles one post, in
+    // order, so two "ok"s in a row need two new rows. Returns the indices into `posts` that settled.
+    static func settledPosts(_ posts: [(text: String, before: Set<String>)], rows: [RoomRow]) -> [Int] {
+        var used = Set<String>()
+        var out: [Int] = []
+        for (i, p) in posts.enumerated() {
+            if let r = rows.first(where: { $0.byPerson && $0.kind == .post && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == p.text
+                                       && !p.before.contains($0.id) && !used.contains($0.id) }) {
+                used.insert(r.id)
+                out.append(i)
+            }
+        }
+        return out
+    }
+
+    // Reply on an agent's post puts "@<its session name> " in front of what the box already holds (the board's
+    // pjReplyMention): the session name, because the engine reads an @word as [A-Za-z0-9._-]+ and a display name like
+    // "Mona Lisa" would stop at the space. Nothing is added when the words already @-name that agent.
+    static func replyMention(draft: String, from: String) -> String {
+        guard !from.isEmpty else { return draft }
+        if mentionsWord(draft, from) { return draft }
+        return "@" + from + " " + draft
+    }
+
+    // Whether `text` holds @word as a whole token (the engine's rule: not inside a longer name), without case.
+    static func mentionsWord(_ text: String, _ word: String) -> Bool {
+        mentionRanges(text, word).isEmpty == false
+    }
+
+    static func mentionRanges(_ text: String, _ word: String) -> [Range<String.Index>] {
+        guard !word.isEmpty else { return [] }
+        func isName(_ c: Character) -> Bool { c.isASCII && (c.isLetter || c.isNumber || c == "." || c == "_" || c == "-") }
+        var out: [Range<String.Index>] = []
+        var from = text.startIndex
+        while let r = text.range(of: "@" + word, options: [.caseInsensitive], range: from..<text.endIndex) {
+            let before = r.lowerBound == text.startIndex ? nil : text[text.index(before: r.lowerBound)]
+            // A trailing run of . _ - is punctuation, as the board reads it ("thanks @eli." names eli; pjMentionResolve).
+            var end = r.upperBound
+            while end < text.endIndex, ".-_".contains(text[end]) { end = text.index(after: end) }
+            let after = end == text.endIndex ? nil : text[end]
+            if !(before.map(isName) ?? false) && !(after.map(isName) ?? false) { out.append(r) }
+            from = r.upperBound
+        }
+        return out
+    }
+
     struct RoomItem: Equatable, Identifiable {
         enum Kind: Equatable {
             case day(String)
@@ -198,6 +272,7 @@ extension Board {
             if let x = a.at, let y = b.at { return calendar.isDate(x, inSameDayAs: y) }
             return true
         }
+        let rows = foldRefusals(rows)
         var out: [RoomItem] = []
         var shownDay: Date?
         for (i, r) in rows.enumerated() {

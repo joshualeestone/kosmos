@@ -15,8 +15,12 @@ final class RoomStore: ObservableObject {
     @Published private(set) var older: [String: (count: Int, cursor: String?)] = [:]
     @Published private(set) var roomFailed: Set<String> = []
     @Published private(set) var loadingOlder: Set<String> = []
-    // A post in the air or one that did not go, by project: its words, and the line under it once answered.
-    struct Pending: Equatable, Identifiable { let id: String; let text: String; var line: String? }
+    // Rooms whose last older-page read failed: the top of the room offers it again rather than spinning.
+    @Published private(set) var olderFailed: Set<String> = []
+    // A post in the air or one that did not go, by project: its words, the line under it once answered, and the ids of
+    // the person's posts already in the room when Post was pressed (so an earlier post with the same words never
+    // settles it).
+    struct Pending: Equatable, Identifiable { let id: String; let text: String; var line: String?; var before: Set<String> = [] }
     @Published private(set) var pending: [String: [Pending]] = [:]
     @Published private(set) var notes: [String: String] = [:]
     static let pageSize = 50
@@ -49,9 +53,9 @@ final class RoomStore: ObservableObject {
             roomFailed.insert(project); return
         }
         roomFailed.remove(project)
-        let wasEmpty = rows[project] == nil
-        rows[project] = Board.mergeRoom(rows[project] ?? [], with: page.rows)
-        if wasEmpty { older[project] = (page.olderCount, page.olderCursor) }
+        let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)
+        rows[project] = fresh.rows
+        older[project] = fresh.older
         settle(project)
     }
 
@@ -59,19 +63,26 @@ final class RoomStore: ObservableObject {
     func loadOlder(_ project: String) async {
         guard let cursor = older[project]?.cursor, !loadingOlder.contains(project) else { return }
         loadingOlder.insert(project)
+        olderFailed.remove(project)
         defer { loadingOlder.remove(project) }
         let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, cursor: cursor) }
-        guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else { return }
+        guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
+            olderFailed.insert(project); return
+        }
         rows[project] = Board.mergeRoom(page.rows, with: rows[project] ?? [])
         older[project] = (page.olderCount, page.olderCursor)
     }
 
-    func post(_ text: String, to project: String, replyTo: String?) async {
-        let item = Pending(id: UUID().uuidString, text: text.trimmingCharacters(in: .whitespacesAndNewlines), line: nil)
-        guard !item.text.isEmpty else { return }
+    // Posts the words; the answer says how it went. A refusal is left to the room to hand back (`takeBack`), because
+    // whether the words can go back in the box depends on what the person has typed since.
+    @discardableResult
+    func post(_ text: String, to project: String, replyTo: String?) async -> (id: String, result: Board.RoomPostResult)? {
+        let mine = Set((rows[project] ?? []).filter { $0.byPerson }.map { $0.id })
+        let item = Pending(id: UUID().uuidString, text: text.trimmingCharacters(in: .whitespacesAndNewlines), line: nil, before: mine)
+        guard !item.text.isEmpty else { return nil }
         pending[project, default: []].append(item)
         #if DEBUG
-        if Self.sample { pending[project]?.removeAll { $0.id == item.id }; return }
+        if Self.sample { pending[project]?.removeAll { $0.id == item.id }; return nil }
         #endif
         let answer = await client.throughMac { Board.roomPostRequest(mac: $0, project: project, text: item.text, replyTo: replyTo) }
         let result = Board.roomPostResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
@@ -82,9 +93,17 @@ final class RoomStore: ObservableObject {
         } else if let i = pending[project]?.firstIndex(where: { $0.id == item.id }) {
             pending[project]?[i].line = Board.roomPostLine(result)
         }
+        return (item.id, result)
     }
 
     func discard(_ id: String, in project: String) { pending[project]?.removeAll { $0.id == id } }
+
+    // A refused post whose words went back in the box: its bubble goes, and the refusal stays under the box.
+    func takeBack(_ id: String, in project: String) {
+        guard let p = pending[project]?.first(where: { $0.id == id }) else { return }
+        notes[project] = p.line
+        discard(id, in: project)
+    }
 
     // The room is seen while it is on screen (the board's pjMarkSeen).
     func markSeen(_ project: String) async {
@@ -100,10 +119,15 @@ final class RoomStore: ObservableObject {
         }
     }
 
-    // A pending post the room now shows (same words, by the person) is dropped: the room's row replaces it.
+    // A pending or not-confirmed post the room now shows is dropped: the room's row replaces it. A refused one never
+    // settles (it did not go).
     private func settle(_ project: String) {
-        let mine = Set((rows[project] ?? []).filter { $0.byPerson }.map { $0.text })
-        pending[project]?.removeAll { $0.line == nil && mine.contains($0.text) }
+        guard let list = pending[project], !list.isEmpty else { return }
+        let unsure = Board.roomPostLine(.unsure)
+        let open = list.enumerated().filter { $0.element.line == nil || $0.element.line == unsure }
+        let done = Board.settledPosts(open.map { ($0.element.text, $0.element.before) }, rows: rows[project] ?? [])
+        let gone = Set(done.map { open[$0].element.id })
+        if !gone.isEmpty { pending[project]?.removeAll { gone.contains($0.id) } }
     }
 
     // A reaction toggles (the board's route adds it, or takes the person's own back); the room is re-read after.
@@ -170,7 +194,9 @@ struct ProjectsView: View {
                 .background(Palette.ground.ignoresSafeArea())
                 .background(
                     NavigationLink(isActive: Binding(get: { openProject != nil }, set: { if !$0 { openProject = nil } })) {
-                        if let p = openProject { RoomView(store: store, project: p, openPage: openPage) }
+                        // One view per room: a notification for another room while one is open starts fresh, never
+                        // with the first room's draft, reply or polling.
+                        if let p = openProject { RoomView(store: store, project: p, openPage: openPage).id(p.id) }
                     } label: { EmptyView() }
                     .hidden()
                 )
@@ -181,6 +207,8 @@ struct ProjectsView: View {
         // The list is read once the connection is live (a cold start reaches the Mac first), and on pull to refresh.
         .onChange(of: client.phase) { phase in if case .live = phase { Task { await store.loadList(); openRequested() } } }
         .onChange(of: roomRequest) { _ in openRequested() }
+        // Back from a room: its unread bubble and the other rooms' words are read again.
+        .onChange(of: openProject?.id) { id in if id == nil { Task { await store.loadList() } } }
         .onChange(of: store.list) { _ in openRequested() }
         .task {
             await store.loadList()
@@ -203,7 +231,7 @@ struct ProjectsView: View {
     private func openRequested() {
         guard let id = roomRequest, let list = store.list else { return }
         roomRequest = nil
-        if let p = list.projects.first(where: { $0.id == id }) {
+        if let p = list.projects.first(where: { $0.id == id && !$0.archived }) {
             openProject = p
         } else if let mac = store.macURL, var parts = URLComponents(url: mac, resolvingAgainstBaseURL: false) {
             parts.queryItems = [URLQueryItem(name: "tab", value: "projects"), URLQueryItem(name: "project", value: id)]

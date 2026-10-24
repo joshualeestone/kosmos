@@ -60,6 +60,18 @@ test('#7032 a room post\'s words come back by the id the push carries, with its 
   assert.equal(r.json.session, 'dana');
   assert.equal(r.json.text, 'Copy for pages 1 to 8 is done. Pages 9 to 12 wait for the new photos.');
   assert.equal('permission' in r.json, false, 'a room post never carries Allow and Deny');
+  assert.equal(r.json.project, pid, 'the room it was posted in: the push does not carry it, so a tap learns it here');
+});
+
+test('#7032 CONTROL: a direct reply\'s answer names no project', async () => {
+  const pn = require('./engine/phonenotice');
+  const at = '2026-10-22T15:00:00.000Z';
+  const chat = { DIRECT: 'direct', readThread: () => ({ messages: [{ at, from: 'dana', text: 'Done.' }] }) };
+  const got = pn.wordsFor('reply:' + at + ':dana', { chat });
+  assert.equal(got.text, 'Done.', 'the stub is read (else this control would pass on a null)');
+  assert.equal('project' in got, false, JSON.stringify(got));
+  const post = pn.wordsFor('post:m901');
+  assert.equal(post.project, pid, 'the same reader, on a post, does name it');
 });
 
 test('#7032 CONTROL: the person\'s own post, an unknown post, a post with no words and malformed ids answer 404', async () => {

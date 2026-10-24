@@ -114,8 +114,11 @@ within 15 seconds, the notification shows them as a message from the agent:
 
 The computer also answers a room post's id (`post:<post id>`, kosmos#7032): the post's text and its author, never the
 person's own post, and the iPhone asks for it, so a room notice shows what was said (with no Reply: answering a room
-is a post to everyone, made in the room). A tap opens that project's room in the iPhone's Projects tab, or the board's
-room page under Today when the notice came from another computer than the one the app keeps.
+is a post to everyone, made in the room). The answer also names the post's project (`project`), because the push
+does not: the iPhone's push carries no project, so the phone learns which room a tap opens from the computer. A tap
+opens that project's room in the iPhone's Projects tab, or the board's room page under Today when the notice came from
+another computer than the one the app keeps, or the project is archived. When the computer did not answer in time, the
+notice has no room in it and a tap opens the agent's page, as before.
 
 The words are never in the push: the coordinator's notification and Apple still carry only who and what, and the
 phone fetches the words from the computer over Kosmos+ remote. If the computer does not answer (asleep, offline, an older Kosmos, or a phone not signed in to that

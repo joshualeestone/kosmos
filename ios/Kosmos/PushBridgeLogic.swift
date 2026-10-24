@@ -163,7 +163,8 @@ enum PushBridge {
     }
 
     // kosmos#7032: a room notification (kind `posted`) names the project it came from (`projectId`); the native Projects
-    // tab opens that room. Only for a plain host under the relay domain, as boardURL requires, and a project id of the
+    // tab opens that room. The push itself never carries it: the notification extension writes it from the computer's
+    // answer for the words (PhoneNotice.withRoom), so a notice the extension could not fill opens the agent's page. Only for a plain host under the relay domain, as boardURL requires, and a project id of the
     // board's own characters (engine/projects.js idFor). nil for every other notification, which opens as boardURL says.
     struct RoomTarget: Equatable { let host: String; let project: String }
     static func roomToOpen(fromNotification userInfo: [AnyHashable: Any], coordinator: URL) -> RoomTarget? {

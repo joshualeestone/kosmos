@@ -98,8 +98,13 @@ struct RoomView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     if store.older[project.id]?.cursor != nil {
-                        HStack { Spacer(); ProgressView(); Spacer() }
-                            .onAppear { Task { await store.loadOlder(project.id) } }
+                        if store.olderFailed.contains(project.id) {
+                            Button("We could not load earlier messages. Try again") { Task { await store.loadOlder(project.id) } }
+                                .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
+                        } else {
+                            HStack { Spacer(); ProgressView(); Spacer() }
+                                .onAppear { Task { await store.loadOlder(project.id) } }
+                        }
                     }
                     if store.rows[project.id] != nil && rows.isEmpty { emptyRoom }
                     ForEach(items) { item in itemView(item).id(item.id) }
@@ -134,12 +139,18 @@ struct RoomView: View {
                     .frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.vertical, 4)
             } else {
                 RoomBubble(row: row, first: first, last: last, name: displayName(row), picture: store.picture(row.from),
-                           replied: row.replyTo.flatMap { id in rows.first { $0.id == id } }, nameOf: { displayName($0) },
+                           replied: row.replyTo.flatMap { id in rows.first { $0.id == id } },
+                           // Only once the whole room is loaded can an original be said to be gone; before that it may
+                           // simply be on an older page.
+                           roomComplete: store.older[project.id]?.cursor == nil, nameOf: { displayName($0) },
                            react: { emoji in Task { await store.react(emoji, to: row, in: project.id) } },
-                           reply: { replying = row; if !row.byPerson, let from = row.from { draft = "@" + (store.names[from] ?? from) + " " }; typing = true },
+                           reply: {
+                               replying = row
+                               if !row.byPerson, let from = row.from { draft = Board.replyMention(draft: draft, from: from) }
+                               typing = true
+                           },
                            openAgent: { if let a = store.agent(row.from) { chatAgent = a } },
-                           mentionNames: row.mentioned.compactMap { store.names[$0] },
-                           unansweredName: { store.names[$0] ?? $0 })
+                           mentionNames: row.mentioned.compactMap { store.names[$0] })
                     .padding(.top, first ? 6 : 0)
             }
         }
@@ -194,11 +205,20 @@ struct RoomView: View {
         .background(Palette.ground)
     }
 
+    // The box clears at once, so the person can keep typing. A refused post's words come back to the box (the board
+    // clears it only on success), with the reply it was, unless the person has started something else since; then its
+    // bubble keeps the refusal and a Delete.
     private func send() {
         let text = draft
-        let reply = replying?.id
+        let reply = replying
         draft = ""; replying = nil
-        Task { await store.post(text, to: project.id, replyTo: reply) }
+        Task {
+            guard let sent = await store.post(text, to: project.id, replyTo: reply?.id), case .refused = sent.result,
+                  draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, replying == nil else { return }
+            draft = text
+            replying = reply
+            store.takeBack(sent.id, in: project.id)
+        }
     }
 }
 
@@ -211,12 +231,15 @@ struct RoomBubble: View {
     let name: String
     let picture: UIImage?
     let replied: Board.RoomRow?
+    let roomComplete: Bool
     let nameOf: (Board.RoomRow) -> String
     let react: (String) -> Void
     let reply: () -> Void
     let openAgent: () -> Void
 
     private var mine: Bool { row.byPerson }
+    // Reply and reactions only on a post of this room: the board's route takes neither for an outside message.
+    private var answerable: Bool { row.kind == .post }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
@@ -230,7 +253,8 @@ struct RoomBubble: View {
                 bubble
                 if !row.reactions.isEmpty { reactions }
                 if !row.unanswered.isEmpty {
-                    Text(row.unanswered.map { "\(unansweredName($0)) has not answered here yet." }.joined(separator: " "))
+                    // Already shown names (parseRoom maps them), so never mapped a second time here.
+                    Text(row.unanswered.map { "\($0) has not answered here yet." }.joined(separator: " "))
                         .font(.footnote).foregroundColor(Palette.tertiary)
                 }
                 if last, let at = row.at { Text(at, style: .time).font(.caption2).foregroundColor(Palette.tertiary).padding(.horizontal, 4) }
@@ -239,7 +263,7 @@ struct RoomBubble: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityActions {
-            Button("Reply", action: reply)
+            if answerable { Button("Reply", action: reply) }
             Button("Copy") { UIPasteboard.general.string = row.text }
         }
     }
@@ -268,7 +292,7 @@ struct RoomBubble: View {
                 Text("\(nameOf(replied)): \(replied.text.components(separatedBy: "\n").first ?? "")")
                     .font(.footnote).foregroundColor(Palette.secondary).lineLimit(2)
                     .padding(.leading, 8).overlay(Rectangle().fill(Palette.separator).frame(width: 2), alignment: .leading)
-            } else if row.replyTo != nil {
+            } else if row.replyTo != nil && roomComplete {
                 Text("Original message unavailable").font(.footnote).foregroundColor(Palette.tertiary)
             }
             Text(row.kind == .external ? AttributedString(row.text) : Self.withMentions(Board.messageText(row.text), mentioned: row.mentioned, names: mentionNames))
@@ -279,29 +303,29 @@ struct RoomBubble: View {
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(mine ? Palette.personBubble : Palette.agentBubble))
         .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
         .contextMenu {
-            Button { react("👍") } label: { Text("👍") }
-            Button { react("❤️") } label: { Text("❤️") }
-            Button { react("🔥") } label: { Text("🔥") }
-            Button(action: reply) { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+            if answerable {
+                Button { react("👍") } label: { Text("👍") }
+                Button { react("❤️") } label: { Text("❤️") }
+                Button { react("🔥") } label: { Text("🔥") }
+                Button(action: reply) { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+            }
             Button { UIPasteboard.general.string = row.text } label: { Label("Copy", systemImage: "doc.on.doc") }
         }
     }
 
     var mentionNames: [String] = []
-    var unansweredName: (String) -> String = { $0 }
 
     // @names in the mention blue, only for agents the post actually addressed (`mentioned`, the board's #4642).
     static func withMentions(_ text: AttributedString, mentioned: [String], names: [String]) -> AttributedString {
         guard !mentioned.isEmpty else { return text }
         var out = text
         let plain = String(out.characters)
+        // Whole @names only: @eli is not lit inside @elijah.
         for word in Set(mentioned + names) where !word.isEmpty {
-            var from = plain.startIndex
-            while let r = plain.range(of: "@" + word, options: [.caseInsensitive], range: from..<plain.endIndex) {
+            for r in Board.mentionRanges(plain, word) {
                 if let a = AttributedString.Index(r.lowerBound, within: out), let b = AttributedString.Index(r.upperBound, within: out) {
                     out[a..<b].foregroundColor = Palette.link
                 }
-                from = r.upperBound
             }
         }
         return out

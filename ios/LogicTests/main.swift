@@ -2577,6 +2577,23 @@ check(PhoneNotice.words(status: 200, contentType: json, data: answer, userInfo: 
 check(PhoneNotice.words(status: 200, contentType: json, data: Data(#"{"kind":"report","session":"irma","agent":"Irma","text":"  ","picture":null}"#.utf8), userInfo: pushed) == nil, "blank words: nothing")
 check(PhoneNotice.words(status: 200, contentType: json, data: Data(repeating: 0x20, count: PhoneNotice.maxAnswerBytes + 1), userInfo: pushed) == nil, "an oversized answer is not read")
 
+section("phone notice: a room post names its room (kosmos#7032)")
+// The push exactly as the relay sends it (kosmos-relay coordinator/src/apns.rs payload): no project in it.
+let postPush: [AnyHashable: Any] = ["aps": ["alert": ["title": "Dana posted"], "mutable-content": 1], "kind": "posted", "id": "post:m901", "address": "m-abc123.kosmosplus.com", "session": "dana"]
+check(PushBridge.roomToOpen(fromNotification: postPush, coordinator: coordinator) == nil, "CONTROL: the push alone opens no room (it never names one)")
+let postAnswer = Data(#"{"kind":"post","session":"dana","agent":"Dana","text":"Copy is done.","picture":null,"project":"springcatalogue"}"#.utf8)
+if let pw = PhoneNotice.words(status: 200, contentType: json, data: postAnswer, userInfo: postPush) {
+    check(pw.project == "springcatalogue", "the computer's answer names the room")
+    let filled = PhoneNotice.withRoom(pw, userInfo: postPush)
+    check(PushBridge.roomToOpen(fromNotification: filled, coordinator: coordinator) == PushBridge.RoomTarget(host: "m-abc123.kosmosplus.com", project: "springcatalogue"), "once the extension writes it, a tap opens that room")
+    var replied = postPush; replied["kind"] = "replied"
+    check(PhoneNotice.withRoom(pw, userInfo: replied)[PhoneNotice.roomInfoKey] == nil, "CONTROL: only a posted notice is given a room")
+} else { check(false, "a room post's answer is read") }
+if let rw = PhoneNotice.words(status: 200, contentType: json, data: Data(#"{"kind":"post","session":"dana","agent":"Dana","text":"Copy is done.","picture":null}"#.utf8), userInfo: postPush) {
+    check(PhoneNotice.withRoom(rw, userInfo: postPush)[PhoneNotice.roomInfoKey] == nil, "an older computer that names no room: the notice opens the agent, as before")
+} else { check(false, "an answer with no project is still read") }
+check(PhoneNotice.words(status: 200, contentType: json, data: Data(#"{"kind":"post","session":"dana","agent":"Dana","text":"Hi","picture":null,"project":7}"#.utf8), userInfo: postPush)?.text == "Hi", "a project this build cannot read costs only the room, never the words")
+
 section("phone notice: the agent's picture")
 if let w {
     check(PhoneNotice.pictureRequest(w, userInfo: pushed, stored: savedMac)?.url?.absoluteString == "https://m-abc123.kosmosplus.com/api/agent/irma/avatar", "the picture comes from the same computer's avatar route")
