@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: chatask-7016
-diff_hash: 3ca64bd7bad2badfedad07290712b43b3294ed55b25f8a47f46e2382f46c7eca
+diff_hash: f5f2389ce8174de9c469beeb9f703fd6ebdcc6a51ccbd1ac902b95a08caad467
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-24T02:44:46Z
@@ -23,6 +23,12 @@ Validation at c87d4bdb38 (origin/main not ahead):
 - Release simulator build: 0 KOSMOS_SAMPLE_ markers and no sample text; Debug has 8 (the control).
 - Simulator shots of spec states 1 to 4, light and dark: ~/work/design-shots/kosmos-7016/. Tapping is not exercised (no tool on this Mac drives the simulator); the states come from Debug-only switches.
 Subdirectory CLAUDE.md audit: none under ios/.
+
+After the proof, Mona Lisa's design review (approved, one change) at e2f02d0cf6:
+- the composer line clears on the next send or press, and sits 6 pt above the composer (her updated spec);
+- the not-sure Debug sample now holds the answered lock, as a real not-sure press does, so its shot draws the buttons
+  locked at 50% (the first shot set only the line).
+LogicTests 704/704 again; Debug build clean at 100 ms; shot 4 retaken, light and dark.
 
 ### Per-Iteration Breakdown
 
