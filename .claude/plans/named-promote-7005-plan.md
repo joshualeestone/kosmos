@@ -117,3 +117,14 @@ in more than its installer (with the --commit to use it).
   while testing this, comparing against a commit --sha had excluded (another build) refused wrongly.
 - Not changed (NIT): diff-tree reports nothing for a merge commit, which takes the cautious hand-fix branch
   (0 merges measured in the site's pointer history).
+
+## Iteration 9 (challenge) changes
+- A prod pointer that exists but names no version is cannot-compare (refused without --allow-older); only
+  no pointer at all passes as a first promote (it failed open).
+- One baseline: with an origin, named mode refuses unless the checkout's latest.json is origin's, so the
+  rollback guard, the #6468 signature checks and the tunnel gate's control read the same prod.
+- The named-mode fetch goes through pointer_freeze_fetch (bounded, one retry).
+- Named-mode messages name the commit instead of "staging" (artifact missing, sha mismatch, manifest, floor).
+- Test asserts the named HOLD sentence.
+- Not changed (NIT): a 7-character --commit prefix matching two commits is resolved by the agreement logic,
+  not refused as ambiguous (safe either way).

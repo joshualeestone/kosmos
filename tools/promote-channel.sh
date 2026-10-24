@@ -181,6 +181,7 @@ read_field() { read_pointer_field "$SNAP" "$1"; }
 SETUP_SRC="$SITE/setup-staging"
 SETUP_HAND="cp setup-staging setup && cp setup-staging.sha256 setup.sha256"
 SNAP_LABEL="$STAGING"
+PTR_WORDS="the staging pointer"; PTR_SUBJ="staging"; PTR_SHA_WORDS="staging pointer"   # named mode names its commit instead
 SETUP_MISMATCH_HINT="(A later staging cut replaced it, or the checkout is stale.)"
 SETUP_HAND_HINT="setup-staging, copy setup-staging (+ .sha256) onto setup (+ .sha256) by hand"
 if [ -n "$NAMED_VERSION" ]; then
@@ -242,15 +243,22 @@ if [ -n "$NAMED_VERSION" ]; then
   # Only a commit the site has published was ever served to staging: it must be on origin/main. A site with no origin
   # (a local test site) cannot say, and the promote says so.
   if git -C "$SITE" remote get-url origin >/dev/null 2>&1; then
-    git -C "$SITE" fetch -q origin main 2>/dev/null || { echo "promote-channel: could not fetch the site to check that ${NAMED_COMMIT:0:10} was published - refusing; nothing was written." >&2; exit 1; }
+    pointer_freeze_fetch "$SITE" || { echo "promote-channel: could not fetch the site to check that ${NAMED_COMMIT:0:10} was published - refusing; nothing was written." >&2; exit 1; }
     git -C "$SITE" merge-base --is-ancestor "$NAMED_COMMIT" origin/main \
       || { echo "promote-channel: ${NAMED_COMMIT:0:10} (the commit naming $NAMED_VERSION) is not on the site's origin/main, so staging never served it - refusing; nothing was written." >&2; exit 1; }
+    # One baseline for "what prod serves": the rollback guard, the signature checks and the tunnel gate's control all
+    # read prod's pointer, so the checkout's must be origin's (a checkout behind origin, or holding a promote that was
+    # never deployed, would give each of them a wrong one).
+    _orig_prod="$(git -C "$SITE" show "origin/main:dist/$PROD_NAME" 2>/dev/null)" || _orig_prod=""
+    [ "$_orig_prod" = "$(cat "$SITE/dist/$PROD_NAME" 2>/dev/null)" ] \
+      || { echo "promote-channel: this checkout's dist/$PROD_NAME is not origin's (behind it, or holding a promote that was never deployed) - refusing; nothing was written. Bring the site checkout to origin's main first." >&2; exit 1; }
   else
     echo "promote-channel: NOTE the site has no origin remote, so whether ${NAMED_COMMIT:0:10} was ever published cannot be checked" >&2
   fi
   git -C "$SITE" show "${NAMED_COMMIT}:dist/$STAGING_NAME" > "$SNAP" || { echo "promote-channel: could not read $STAGING_NAME from $NAMED_COMMIT - refusing; nothing was written." >&2; exit 1; }
   rm -f "$NAMED_DIR/candidate.json"
   SNAP_LABEL="the $STAGING_NAME committed in ${NAMED_COMMIT:0:10}"
+  PTR_WORDS="the pointer committed in ${NAMED_COMMIT:0:10}"; PTR_SUBJ="$PTR_WORDS"; PTR_SHA_WORDS="$PTR_WORDS"
   SETUP_MISMATCH_HINT="(The installer committed beside $SNAP_LABEL is not the one it names.)"
   SETUP_SRC="$NAMED_DIR/setup-staging"
   for _f in setup-staging setup-staging.sha256; do
@@ -280,7 +288,7 @@ if [ "$FAMILY" = mac ]; then
   . "$(dirname "$0")/lib/setup-floor.sh" || { echo "promote-channel: cannot load tools/lib/setup-floor.sh" >&2; exit 1; }
   # The snapshot's own bytes (what is copied to prod), so a doubled key is refused here too: readers of a doubled key
   # disagree about which build it names.
-  kosmos_setup_floor_pointer_ok "the staging pointer being promoted" "$(cat "$SNAP")" || exit 1
+  kosmos_setup_floor_pointer_ok "$PTR_WORDS being promoted" "$(cat "$SNAP")" || exit 1
 fi
 [ -n "$V" ] && [ -n "$SHA" ] && [ -n "$ARTIFACT" ] || { echo "promote-channel: $SNAP_LABEL is missing version/sha256/$ARTIFACT_FIELD - not a usable pointer" >&2; exit 1; }
 # kosmos#7005: a named V older than what prod serves is a rollback, and needs saying so (--allow-older): with the gates
@@ -297,7 +305,11 @@ if [ -n "$NAMED_VERSION" ]; then
   echo "promote-channel: --version $V; $PROD_NAME on $_prodsrc names ${_prodv:-nothing}"
   # 0 V is not older, 1 V is older, anything else (2: a version that is not numbers; node failing) cannot tell.
   _cmp=0
-  [ -z "$_prodv" ] || node -e 'const a=process.argv[1].split(".").map(Number),b=process.argv[2].split(".").map(Number);if(a.concat(b).some(Number.isNaN))process.exit(2);for(let i=0;i<Math.max(a.length,b.length);i++){const d=(a[i]||0)-(b[i]||0);if(d)process.exit(d>0?0:1)}process.exit(0)' "$V" "$_prodv" 2>/dev/null || _cmp=$?
+  # A prod pointer that is there but names no version cannot be compared: only no pointer at all is a first promote.
+  if [ -z "$_prodv" ]; then
+    if [ -f "$SITE/dist/$PROD_NAME" ] || git -C "$SITE" rev-parse -q --verify "origin/main:dist/$PROD_NAME" >/dev/null 2>&1; then _cmp=2; _prodv="(no version)"; fi
+  else node -e 'const a=process.argv[1].split(".").map(Number),b=process.argv[2].split(".").map(Number);if(a.concat(b).some(Number.isNaN))process.exit(2);for(let i=0;i<Math.max(a.length,b.length);i++){const d=(a[i]||0)-(b[i]||0);if(d)process.exit(d>0?0:1)}process.exit(0)' "$V" "$_prodv" 2>/dev/null || _cmp=$?
+  fi
   case "$_cmp" in
     0) : ;;
     1) [ "$ALLOW_OLDER" = 1 ] || { echo "promote-channel: $V is older than $_prodv ($PROD_NAME on $_prodsrc) - refusing; nothing was written. A rollback needs --allow-older as well." >&2; exit 1; }
@@ -311,12 +323,12 @@ fi
 # the staging pointer names must EXIST and its served sha must verify in place AND equal the
 # pointer's sha. This is the refusal that makes promote safe - it can only ever point prod at
 # bytes that are present and match what staging advertised. Not overridable by --force.
-[ -f "$SITE/dist/$ARTIFACT" ] || { echo "promote-channel: staging names $ARTIFACT, which is not in $SITE/dist - refusing to promote a missing artifact" >&2; exit 1; }
+[ -f "$SITE/dist/$ARTIFACT" ] || { echo "promote-channel: $PTR_SUBJ names $ARTIFACT, which is not in $SITE/dist - refusing to promote a missing artifact" >&2; exit 1; }
 [ -f "$SITE/dist/$ARTIFACT.sha256" ] || { echo "promote-channel: $ARTIFACT.sha256 sidecar is missing - cannot verify the bytes" >&2; exit 1; }
 ( cd "$SITE/dist" && shasum -a 256 --status -c "$ARTIFACT.sha256" ) \
   || { echo "promote-channel: $ARTIFACT does not verify against its sidecar - refusing to promote unverified bytes" >&2; exit 1; }
 DISK_SHA="$(awk '{print $1}' "$SITE/dist/$ARTIFACT.sha256")"
-[ "$DISK_SHA" = "$SHA" ] || { echo "promote-channel: staging pointer sha ($SHA) != the served artifact sha ($DISK_SHA) - refusing (the pointer does not describe the bytes on disk)" >&2; exit 1; }
+[ "$DISK_SHA" = "$SHA" ] || { echo "promote-channel: $PTR_SHA_WORDS sha ($SHA) != the served artifact sha ($DISK_SHA) - refusing (the pointer does not describe the bytes on disk)" >&2; exit 1; }
 
 # #5032: the installer moves with the pointer. A staging cut publishes /setup-staging and leaves /setup
 # (what prod installs and prod updates run) at the prior prod installer, and its pointer NAMES that
@@ -366,7 +378,7 @@ if [ "$FAMILY" = mac ]; then
   # promote a prod pointer to a manifest that has gone missing since publish.
   MANIFEST="$(read_field manifest)"
   reject_pathy manifest "$MANIFEST"
-  [ -n "$MANIFEST" ] && [ -f "$SITE/dist/$MANIFEST" ] || { echo "promote-channel: the staging pointer advertises manifest '${MANIFEST:-<none>}', which is not in $SITE/dist - refusing to promote a pointer to a missing manifest" >&2; exit 1; }
+  [ -n "$MANIFEST" ] && [ -f "$SITE/dist/$MANIFEST" ] || { echo "promote-channel: $PTR_WORDS advertises manifest '${MANIFEST:-<none>}', which is not in $SITE/dist - refusing to promote a pointer to a missing manifest" >&2; exit 1; }
   # #6468 ask 2: a prod install running a release that ships engine/manifest-verify.js refuses any update whose
   # manifest is not signed by a pinned key, so promoting such a version past those installs would strand them.
   # A .sig that is there must verify; a missing one refuses once the release prod serves NOW checks signatures

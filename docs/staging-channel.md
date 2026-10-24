@@ -92,7 +92,8 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    promote takes whatever `latest-staging.json` names, so a prod GO pending on one build used to freeze
    staging. `tools/promote-channel.sh <site-checkout> <port> --version <V>` reads V's pointer and
    installer from the site commit that published them (a commit on the checkout's HEAD that must also be
-   on origin's main, when the site has an origin), so staging can take later cuts while the GO waits. The same checks run on what that
+   on origin's main, when the site has an origin; the checkout's `latest.json` must then also be origin's,
+   so every check reads one prod baseline), so staging can take later cuts while the GO waits. The same checks run on what that
    commit holds, with two differences: the installer pair is read from the commit (so the working tree's
    `setup-staging` is neither checked nor used), and the staging-moved-during-the-gates refusal does not
    apply (a commit cannot move); instead the artifact is re-verified right before the write. V's tarball
