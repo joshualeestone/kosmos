@@ -248,7 +248,7 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           await page.waitForFunction(() => document.getElementById('mem-modal').hidden, null, { timeout: 4000 }).catch(() => null);
           const gone = await page.evaluate((box) => { const a = document.activeElement;
             return { open: !document.getElementById('mem-modal').hidden, msg: (document.querySelector(box + ' .fmsg') || {}).textContent || '', inBox: !!(a && a.closest && a.closest(box)) }; }, BOX);
-          chk(!gone.open && /no longer listed/.test(gone.msg) && gone.inBox, `${E} a dialog whose computer the list no longer has closes and says so`, JSON.stringify(gone));
+          chk(!gone.open && /^That computer is no longer listed here\.$/.test(gone.msg) && gone.inBox, `${E} a dialog whose computer the list no longer has closes and says only that`, JSON.stringify(gone));
           state.allowed = state.allowed.concat([{ pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }]);
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
           await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
@@ -267,6 +267,56 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           state.allowed = state.allowed.filter((x) => x.pub !== 'pub-desk').concat([{ pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }]);
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
           await page.waitForSelector(sel, { timeout: 8000 }).catch(() => null);
+
+          // A refusal, then a list without that computer (the board lists nothing when it cannot read the room's records):
+          // the dialog closes, the refusal is kept, and nothing says the computer was removed.
+          refuseNext = true;
+          await openOn('pub-desk');
+          await page.click('#mem-go');
+          await page.waitForFunction((t) => document.getElementById('mem-msg').textContent === t, REFUSAL, { timeout: 8000 }).catch(() => null);
+          await page.waitForTimeout(300);   // the refusal's own reload (which still lists it) lands first
+          state.allowed = state.allowed.filter((x) => x.pub !== 'pub-desk');
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForFunction(() => document.getElementById('mem-modal').hidden, null, { timeout: 4000 }).catch(() => null);
+          const rg = await page.evaluate((box) => ({ open: !document.getElementById('mem-modal').hidden, msg: (document.querySelector(box + ' .fmsg') || {}).textContent || '' }), BOX);
+          chk(!rg.open && rg.msg.includes(REFUSAL) && /no longer listed/.test(rg.msg) && !/Removed|does not read/.test(rg.msg), `${E} a refusal then an empty list: the refusal is kept, nothing claims a removal`, JSON.stringify(rg));
+          state.allowed = state.allowed.concat([{ pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }]);
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
+          // Failed reads under an open dialog are not an answer, even at the third, which drops the kept list: it stays open.
+          await openOn('pub-desk');
+          failReads = true;
+          for (let k = 0; k < 3; k++) await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          failReads = false;
+          const fr = await page.evaluate((box) => ({ open: !document.getElementById('mem-modal').hidden, rows: document.querySelectorAll(box + ' [data-own-act="remove"]').length }), BOX);
+          chk(fr.open && fr.rows === 0, `${E} three failed reads under an open dialog leave it open (the list dropped, not answered)`, JSON.stringify(fr));
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
+          // A list without the computer while its own remove is in flight does not close the dialog; the answer does.
+          release = held();
+          await page.click('#mem-go');
+          await page.waitForFunction(() => document.getElementById('mem-msg').textContent === 'Removing…', null, { timeout: 4000 }).catch(() => null);
+          state.allowed = state.allowed.filter((x) => x.pub !== 'pub-desk');
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          const mid = await page.evaluate(() => ({ open: !document.getElementById('mem-modal').hidden, line: document.getElementById('mem-msg').textContent }));
+          chk(mid.open && mid.line === 'Removing…', `${E} a list change while the remove is in flight leaves the dialog to the answer`, JSON.stringify(mid));
+          release();
+          await page.waitForFunction((box) => document.getElementById('mem-modal').hidden && /^Removed\./.test((document.querySelector(box + ' .fmsg') || {}).textContent || ''), BOX, { timeout: 8000 }).catch(() => null);
+          chk(/^Removed\./.test(await page.evaluate((box) => (document.querySelector(box + ' .fmsg') || {}).textContent || '', BOX)), `${E} then the answer closes it and says Removed`);
+          // Rows let in the same day carry the time, and the same minute their place too: no two labels alike.
+          const T2 = AT_DESK + 3 * 3600000;
+          state.allowed = [{ pub: 'pub-laptop', mac: 'mac-1', at: AT_LAPTOP }, { pub: 'pub-desk', mac: 'mac-2', at: AT_DESK },
+            { pub: 'pub-a', mac: 'mac-a', at: T2 }, { pub: 'pub-b', mac: 'mac-b', at: T2 + 1000 }];
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForSelector(BOX + ' [data-own-pub="pub-b"]', { timeout: 4000 }).catch(() => null);
+          const labels = await page.evaluate((box) => [...document.querySelectorAll(box + ' [data-own-act="remove"]')].map((b) => b.getAttribute('aria-label')), BOX);
+          const hhmm = (at) => new Date(at).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit' });
+          chk(labels.length === 4 && new Set(labels).size === 4, `${E} four computers, four different Remove names`, JSON.stringify(labels));
+          chk(labels.length === 4 && labels[1].includes(hhmm(AT_DESK)) && labels[2].includes('3 of 4') && labels[3].includes('4 of 4') && !labels[0].includes(' of '),
+            `${E} the same day adds the time, the same minute adds the place`, JSON.stringify(labels));
+          state.allowed = [{ pub: 'pub-laptop', mac: 'mac-1', at: AT_LAPTOP }, { pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }];
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
 
           // Entering another project closes an open dialog and posts nothing.
           const before = posted.length;
