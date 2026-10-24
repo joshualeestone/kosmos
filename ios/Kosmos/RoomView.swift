@@ -6,6 +6,9 @@ import UIKit
 // silence line, the grouped working line, and the board's composer (its placeholder, the gold Post, a reply strip).
 struct RoomView: View {
     @ObservedObject var store: RoomStore
+    // kosmos#7062: the client that fetches a post's files and their pictures (the chat's), watched so a picture shows
+    // when it arrives.
+    @ObservedObject var client: BoardClient
     // The project as the room opened; `project` reads the list's current row (members change while it is open).
     let opened: Board.ProjectRow
     private var project: Board.ProjectRow { store.list?.projects.first { $0.id == opened.id } ?? opened }
@@ -23,6 +26,11 @@ struct RoomView: View {
     // On screen (not covered by a member's chat or another tab): the re-read loop runs only then, so a hidden room is
     // never marked seen.
     @State private var visible = false
+    // kosmos#7062: each file card's state, and the file Quick Look shows (removed from the phone when it closes), as in
+    // the chat.
+    @State private var fileStates: [String: FileCardState] = [:]
+    @State private var previewURL: URL?
+    @State private var openedFile: URL?
     // The first scroll to the newest row has happened: only then may the top of the room ask for an older page (a
     // first layout from the top would otherwise load one at once and move the reader off the newest posts).
     @State private var settledAtBottom = false
@@ -76,6 +84,18 @@ struct RoomView: View {
             start(); takeReturned(); applyKept()
         }
         .onDisappear { visible = false; loop?.cancel(); loop = nil }
+        // kosmos#7062: a post's file in the system's Quick Look; closed, it is removed from the phone (the chat's rule).
+        .quickLookPreview($previewURL)
+        .onChange(of: previewURL) { now in
+            if let was = openedFile, was != now { client.closed(was); openedFile = now }
+        }
+        // Signed out, another account or another Mac: the files this room showed belong to the one before (the chat's
+        // reset, review 1).
+        .onChange(of: client.chatEpoch) { _ in
+            fileStates = [:]
+            previewURL = nil
+            openedFile = nil
+        }
         .onChange(of: scenePhase) { phase in
             if phase == .background { loop?.cancel(); loop = nil } else if phase == .active && visible && loop == nil { start() }
         }
@@ -144,6 +164,27 @@ struct RoomView: View {
               let back = store.takeReturned(project.id) else { return }
         draft = back.text
         replying = back.replyTo
+    }
+
+    // kosmos#7062: a post's file, fetched from the computer and shown in Quick Look, exactly as the chat opens one
+    // (ChatView.openFile): a page or markup file opens on the board's room instead, and one file at a time.
+    private func openFile(_ f: Board.Attachment) {
+        if Board.isWebDocument(name: f.name, type: f.type) { openBoardPage(); return }
+        guard !fileStates.values.contains(.loading), previewURL == nil else { return }
+        fileStates[f.id] = .loading
+        let opened = client.chatEpoch
+        Task {
+            let file = await client.fetchFile(f)
+            // Signed out, another account or another Mac while it came: the file belongs to the one before (review 1,
+            // the chat's guard).
+            guard opened == client.chatEpoch else { if let file { client.closed(file) }; return }
+            fileStates[f.id] = file == nil ? .failed : .ready
+            // A failure is said aloud by the card itself while it is on screen (FileCard's own announcement runs while it
+            // is hidden from VoiceOver), so nothing more is posted here, as in the chat (review 3: it was said twice).
+            guard let file else { return }
+            // Left the room while it came: nothing will show it, so it goes now.
+            if visible { openedFile = file; previewURL = file } else { client.closed(file) }
+        }
     }
 
     private func openBoardPage() {
@@ -262,8 +303,10 @@ struct RoomView: View {
                                typing = true
                            },
                            openAgent: { if let a = store.agent(row.from) { chatAgent = a } },
-                           mentionNames: row.mentioned.compactMap { store.names[$0] })
+                           mentionNames: row.mentioned.compactMap { store.names[$0] },
+                           thumbnails: client.thumbnails, fileStates: fileStates, openFile: openFile)
                     .padding(.top, first ? 6 : 0)
+                    .task { for f in row.attachments { await client.loadThumbnail(f) } }
             }
         }
     }
@@ -357,6 +400,8 @@ struct RoomBubble: View {
     let openAgent: () -> Void
 
     private var mine: Bool { row.byPerson }
+    // kosmos#7062: the words shown beside the post's files (Board.roomWords, tested).
+    private var words: String { Board.roomWords(row) }
     // Reply and reactions only on a post of this room: the board's route takes neither for an outside message.
     private var answerable: Bool { row.kind == .post }
 
@@ -393,6 +438,11 @@ struct RoomBubble: View {
                 Button("Reply", action: reply)
             }
             Button("Copy") { UIPasteboard.general.string = row.text }
+            // The post is read as one element and its cards are not buttons in it, so each file is an action on it
+            // (kosmos#7062), saying what the card would: opening, another file opening, failed, or opens on the board.
+            ForEach(Array(row.attachments.enumerated()), id: \.offset) { _, f in
+                Button(fileActionName(f)) { openFile(f) }
+            }
         }
     }
 
@@ -423,9 +473,26 @@ struct RoomBubble: View {
             } else if row.replyTo != nil && roomComplete {
                 Text("Original message unavailable").font(.footnote).foregroundColor(Palette.tertiary)
             }
-            Text(row.kind == .external ? AttributedString(row.text) : Self.withMentions(Board.messageText(row.text), mentioned: row.mentioned, names: mentionNames))
-                .font(.body).foregroundColor(Palette.primary).tint(Palette.link)
-                .fixedSize(horizontal: false, vertical: true)
+            if !words.isEmpty || row.attachments.isEmpty {
+                Text(row.kind == .external ? AttributedString(words) : Self.withMentions(Board.messageText(words), mentioned: row.mentioned, names: mentionNames))
+                    .font(.body).foregroundColor(Palette.primary).tint(Palette.link)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // One card per file, by position as well as id (a post that names one file twice draws two). While one is
+            // on its way the others wait, as in the chat. The post is one VoiceOver element, so the cards are read in it
+            // as plain words ("Files: ...", never as buttons, review 2: a files-only post is never an empty element) and
+            // each file is offered once, as the post's "Open <name>" action (review 1: never twice).
+            if !row.attachments.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(row.attachments.enumerated()), id: \.offset) { _, f in
+                        FileCard(file: f, thumbnail: thumbnails[f.id], state: fileStates[f.id] ?? .ready,
+                                 waiting: fileStates.values.contains(.loading) && fileStates[f.id] != .loading, open: { openFile(f) })
+                    }
+                }
+                .padding(.top, words.isEmpty ? 0 : 2)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Files: " + row.attachments.map(\.name).joined(separator: ", "))
+            }
         }
         .padding(.vertical, 8).padding(.horizontal, 12)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(mine ? Palette.personBubble : Palette.agentBubble))
@@ -442,6 +509,23 @@ struct RoomBubble: View {
     }
 
     var mentionNames: [String] = []
+    // kosmos#7062: the post's files as the chat's cards (ChatFiles.swift), inside the bubble under its words, as the
+    // board draws pjAttachmentCards after the post's body.
+    var thumbnails: [String: Data] = [:]
+    var fileStates: [String: FileCardState] = [:]
+    var openFile: (Board.Attachment) -> Void = { _ in }
+
+    // The VoiceOver action for one file, carrying the state its card shows (review 3).
+    private func fileActionName(_ f: Board.Attachment) -> String {
+        switch fileStates[f.id] {
+        case .loading: return "Opening \(f.name)"
+        case .failed: return "Open \(f.name) again (it could not be opened)"
+        default:
+            // A page or markup file opens on the board at once, even while another file loads (openFile checks it first).
+            if Board.isWebDocument(name: f.name, type: f.type) { return "Open \(f.name) on your computer's board" }
+            return fileStates.values.contains(.loading) ? "Open \(f.name) (another file is opening)" : "Open \(f.name)"
+        }
+    }
 
     // @names in the mention blue, only for agents the post actually addressed (`mentioned`, the board's #4642).
     static func withMentions(_ text: AttributedString, mentioned: [String], names: [String]) -> AttributedString {
