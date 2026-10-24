@@ -253,3 +253,19 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - DEFERRED NITs: 7 (exit 130 on TERM as well as INT: no caller distinguishes them), 8 (a deeper-indented state line in
   the stub), 9 (pid reuse in the new-Listener wait: fails safe), 10 (a stranger who can read the plist is told "not
   logged in": ~/Library is 700).
+
+## Review round 20 (sonnet, blind, HEAD 586ecd819e)
+- W1 FIXED: the job check ran once, before the SIGTERM; the wait after it can last the unload limit, and a Listener that
+  took a job in it would have the job cancelled by the bootout. The check now runs again at the bootout and refuses
+  (saying the runner will end after the job and stay stopped, then rerun). Stub FX_WORKER_AFTER_KILL; ka-jobduring;
+  mutant red. The trap-order source check now anchors on the first check's message (it took the last check).
+- W2 FIXED: as the owner in production (~/Library 700) verify printed a note and exited clear, so a runner without
+  KeepAlive verified clean. Both "cannot see" branches are now UNCHECKED (exit 3); the hidden-home branch stays a note
+  because that case is already counted once. Cases ka-library-closed, ka-service-unreadable; two mutants red.
+- C3 FIXED: ka-bootoutfail's negative "runs on" is a phrase the script never prints. It now checks "the runner is
+  STOPPED" (the text of the post-SIGTERM branch, wrong here); mutant red.
+- C4 FIXED: the HUP trap had only a source-order test. Stub FX_HUP sends a real SIGHUP inside the window; ka-hup asserts
+  the reload completes (mutant removing the trap: rc 129, red).
+- DEFERRED NITs: 5 (130 on TERM), 6 (ka-interrupt is red if the suite runs with SIGINT ignored, e.g. backgrounded; the
+  reviewer hit that; documented here, the suite is run in the foreground), 7 (20-digit waits), 8 (cross-user dry run
+  message), 9 (dry run as another user), 10 (two concurrent --apply runs: an operator runs it once).

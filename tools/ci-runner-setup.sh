@@ -774,6 +774,17 @@ keepalive() {
       echo "note:   the old runner (pid $opid) had not ended ${w4}s after SIGTERM; the bootout may cut its GitHub session short, and if it then reads offline (a session conflict), start it again with: launchctl kickstart $dom/$label" || true
     fi
   fi
+  # The job check again, at the bootout itself: the SIGTERM wait can last up to the unload limit, and a Listener that
+  # took a job in that window would have the job cancelled by the bootout. Refuse instead; nothing is booted out.
+  prc=0; pgrep -u "$(id -u)" -x Runner.Worker >/dev/null || prc=$?
+  if [ "$prc" != 1 ]; then
+    if [ "$sent" = 1 ]; then
+      echo "refused: a job started during the stop (Runner.Worker is up, or pgrep exit $prc); nothing was booted out. $label was sent SIGTERM, so it ends after that job and stays stopped (still the OLD definition): then run this again, which reloads and starts it" >&2
+    else
+      echo "refused: a job started during the stop (Runner.Worker is up, or pgrep exit $prc); nothing was booted out, KeepAlive is in the plist, not yet loaded: run this again when idle" >&2
+    fi
+    trap - INT TERM; exit 1
+  fi
   local bo=0; launchctl bootout "$dom/$label" || bo=$?
   # A failed bootout still waits: launchd can report an error while the job is still shutting down (the Listener ends
   # its GitHub session first), so "still loaded" cannot be told from "still unloading" at once.
@@ -908,9 +919,9 @@ EOF
     if keepalive_set "$plist"; then ok "$plist has KeepAlive SuccessfulExit false (whether the LOADED runner has it: as $CI_USER, tools/ci-runner-setup.sh keepalive)"
     else problem "$plist lacks $(keepalive_missing "$plist"): a killed runner may stay offline; as $CI_USER: tools/ci-runner-setup.sh --apply keepalive"; fi
   elif [ -r "$RUNNER_DIR/.service" ] && [ -z "$plist" ]; then
-    echo "note:   $RUNNER_DIR/.service names no LaunchAgent under $CI_HOME/Library/LaunchAgents that $(id -un) can see (its ~/Library is closed to other users); as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether KeepAlive is set and loaded"
+    unchecked "$RUNNER_DIR/.service names no LaunchAgent under $CI_HOME/Library/LaunchAgents that $(id -un) can see (its ~/Library is closed to other users), so KeepAlive is not checked here; as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether it is set and loaded"
   elif [ -e "$RUNNER_DIR/.service" ]; then
-    echo "note:   cannot read $RUNNER_DIR/.service as $(id -un); as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether KeepAlive is set and loaded"
+    unchecked "cannot read $RUNNER_DIR/.service as $(id -un), so KeepAlive is not checked here; as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether it is set and loaded"
   else
     echo "note:   no $RUNNER_DIR/.service: the runner is not registered as a service here, so there is no LaunchAgent to check"
   fi
