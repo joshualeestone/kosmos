@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 #if DEBUG && canImport(UIKit)
 import UIKit   // the sample chats draw their file pictures (Debug only)
 #endif
@@ -91,6 +92,8 @@ final class BoardClient: ObservableObject {
         self.macStore = macStore
         self.cookies = cookies
         self.env = env
+        // Files opened in an earlier run are not kept: whose they were is not known any more.
+        try? FileManager.default.removeItem(at: env.files)
     }
 
     // Starts (or resumes) the loop when the tab appears or the app comes back.
@@ -305,7 +308,8 @@ final class BoardClient: ObservableObject {
 
     // MARK: Files (kosmos#7016 part 2)
 
-    // First-page pictures for file cards, by attachment id (fetched once per run; nothing is kept on disk).
+    // First-page pictures for file cards, by attachment id: drawn small (128 px) once, never the file itself (an image's
+    // preview route answers with the whole image), fetched once per run, nothing kept on disk.
     @Published private(set) var thumbnails: [String: Data] = [:]
     private var thumbnailAsked: Set<String> = []
 
@@ -316,10 +320,26 @@ final class BoardClient: ObservableObject {
         if let sample = sampleThumbnail(a) { thumbnails[a.id] = sample; return }
         #endif
         let epoch = chatEpoch
-        guard let held = admitted, let request = Board.attachmentRequest(mac: held.url, path: path),
-              let (data, answer) = await env.send(request), epoch == chatEpoch else { thumbnailAsked.remove(a.id); return }
-        let isImage = (answer.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("image/")
-        if (200...299).contains(answer.statusCode), isImage, !data.isEmpty { thumbnails[a.id] = data }
+        guard let held = admitted, let request = Board.attachmentRequest(mac: held.url, path: path) else { thumbnailAsked.remove(a.id); return }
+        let answer = await env.send(request)
+        // After a reset the asked set is the new chat's: leave it alone.
+        guard epoch == chatEpoch else { return }
+        guard let (data, response) = answer else { thumbnailAsked.remove(a.id); return }
+        let isImage = (response.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("image/")
+        if (200...299).contains(response.statusCode), isImage, let small = Self.smallPicture(data) { thumbnails[a.id] = small }
+    }
+
+    // A picture drawn at most 128 px on its longer side, as PNG; nil for bytes that are not a picture.
+    static func smallPicture(_ data: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 128,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+              ] as CFDictionary) else { return nil }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, "public.png" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, nil)
+        return CGImageDestinationFinalize(dest) ? out as Data : nil
     }
 
     // The file, fetched from the Mac and saved where Quick Look can open it; nil when it could not be fetched.
@@ -331,12 +351,13 @@ final class BoardClient: ObservableObject {
         guard let held = admitted, let request = Board.attachmentRequest(mac: held.url, path: a.url),
               let (data, answer) = await env.send(request), epoch == chatEpoch,
               (200...299).contains(answer.statusCode) else { return nil }
-        // Not the gate's sign-in page in place of the file.
-        if (answer.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("text/html"), !a.type.lowercased().hasPrefix("text/html") { return nil }
-        let folder = env.files.appendingPathComponent(Board.savedName(a.id), isDirectory: true)
+        // Never a page: the gate's sign-in page can stand in for the file, and a web page in Quick Look could load
+        // from elsewhere. An agent's own HTML file is opened on the board.
+        if (answer.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("text/html") { return nil }
+        let folder = env.files.appendingPathComponent(a.id, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let file = folder.appendingPathComponent(Board.savedName(a.name))
+            let file = folder.appendingPathComponent(Board.savedName(a.name, type: a.type))
             // Encrypted while the phone is locked. macOS refuses the option (ios/LogicTests run there), so iOS only.
             #if os(iOS)
             try data.write(to: file, options: [.atomic, .completeFileProtection])
@@ -345,6 +366,14 @@ final class BoardClient: ObservableObject {
             #endif
             return file
         } catch { return nil }
+    }
+
+    // Quick Look closed: the file it showed goes (opened again, it is fetched again).
+    func closed(_ file: URL) {
+        // Only a file's own folder inside the files folder, never the files folder itself or anything outside it.
+        let folder = file.deletingLastPathComponent().standardizedFileURL
+        guard folder.deletingLastPathComponent().path == env.files.standardizedFileURL.path else { return }
+        try? FileManager.default.removeItem(at: folder)
     }
 
     // The answered lock for this question, while it lasts.
@@ -474,8 +503,9 @@ final class BoardClient: ObservableObject {
     private func sampleFile(_ a: Board.Attachment) -> URL? {
         guard sampleThreads.values.contains(where: { $0.rows.contains { $0.attachments.contains(a) } }) else { return nil }
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILE"] == "fail" { return nil }
-        let file = env.files.appendingPathComponent("sample-" + Board.savedName(a.name) + ".txt")
-        try? FileManager.default.createDirectory(at: env.files, withIntermediateDirectories: true)
+        let folder = env.files.appendingPathComponent(a.id, isDirectory: true)
+        let file = folder.appendingPathComponent("sample-" + Board.savedName(a.name) + ".txt")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try? Data("A sample file (Debug build), standing in for \(a.name).".utf8).write(to: file)
         return file
     }

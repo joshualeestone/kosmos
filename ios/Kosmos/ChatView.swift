@@ -79,6 +79,8 @@ struct ChatView: View {
         // Mona Lisa's review: the tab bar would stack under the composer and take about 170pt, so it hides here.
         .toolbar(.hidden, for: .tabBar)
         .quickLookPreview($previewURL)
+        // Closed: the file it showed is removed from the phone (#7016 review 1).
+        .onChange(of: previewURL) { [previewURL] now in if now == nil, let was = previewURL { client.closed(was) } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) { title }
@@ -373,10 +375,12 @@ struct ChatView: View {
     // Screenshots only (a Debug build with KOSMOS_SAMPLE_AGENTS=1): KOSMOS_SAMPLE_CHOICE=armed|unsure|answered sets the
     // question's state once, as a press would (nothing in the simulator can press here).
     @State private var sampleApplied = false
+    @State private var sampleFileApplied = false
     private func applySampleChoice(_ t: Board.Thread) {
         // KOSMOS_SAMPLE_FILESTATE=loading|failed: the first file card as a tap would leave it.
-        if !sampleApplied, let state = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILESTATE"],
+        if !sampleFileApplied, let state = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILESTATE"],
            let first = t.rows.lazy.flatMap(\.attachments).first {
+            sampleFileApplied = true
             fileStates[first.id] = state == "failed" ? .failed : .loading
         }
         guard !sampleApplied, let c = t.choices, let which = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_CHOICE"] else { return }
