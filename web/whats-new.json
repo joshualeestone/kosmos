@@ -1,6 +1,11 @@
 {
-  "version": "0.7.64",
+  "version": "0.7.65",
   "highlights": [
+    {
+      "icon": "chat",
+      "title": "A message that did not go can be sent again",
+      "line": "When a message to an agent could not be delivered, a line under it says so, and try again sends the same words once."
+    },
     {
       "icon": "tasks",
       "title": "A task can be closed as replaced",
@@ -23,11 +28,6 @@
       "icon": "swarm",
       "title": "A paused room says why",
       "line": "When Kosmos pauses a room whose agents kept going back and forth, a note above the message box says why and offers Reopen."
-    },
-    {
-      "icon": "list",
-      "title": "A project shows each member's role",
-      "line": "A project's member list now shows the role each member set for that project."
     }
   ]
 }
