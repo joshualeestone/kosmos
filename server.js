@@ -4055,6 +4055,51 @@ function isSetupGuide(name) {
   } catch { return false; }
 }
 
+/* #5406 slice C: may this screen's options be offered as buttons? Every condition must hold. kosmos#7017: one answer
+   for the thread route (the board's buttons) and the phone's notification (its Allow and Deny), never two. `options` is
+   chat.optionsIn(question.text); `view` the fresh capture the question was read from. */
+function dmPressable({ guideThread, card, options, question, view }) {
+  const cqNow = view && view.text ? require('./engine/status').claudeAnswerableMenu(view.text) : null;   // #6054: a permission prompt too
+  return !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude'
+    && Array.isArray(options) && Boolean(question) && typeof question.text === 'string'
+    && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry
+    && Boolean(cqNow)
+    // #6054 review 3: a permission prompt only with its whole box on screen (its identity must be the whole request).
+    && (!cqNow.permission || chat.permissionAnswerable(view.text))
+    // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
+    && cqNow.options.length === options.length
+    && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
+}
+
+/* kosmos#7017 part 2: Allow and Deny for a phone notification, only while the agent is stopped on Claude Code's
+   permission prompt and the board itself would draw that card's buttons (dmPressable, chat.permissionCard): the same
+   reading as the thread route, so the phone never offers a press the board would refuse. Each is the prompt's own
+   option ({ n, label }), so a press sends exactly what the board's dmChoicePress sends ({ text: n, chose: label, asked }),
+   checked against the screen again when it arrives. Never a lasting choice: Allow is the plain "Yes", and "always allow"
+   kinds are not offered from a lock screen at all. Null whenever any of that does not hold. Never throws. */
+function phonePermissionNow(name) {
+  try {
+    const roster = safeRoster();
+    const card = ourCardByName(roster, name);
+    if (!card || card.state !== STATE.NEEDS_YOU || (card.disruption && card.disruption.failed === true)) return null;
+    const guideThread = isSetupGuide(name) || isSetupGuide(card.sessionName);
+    const view = chat.viewport(name, roster);
+    if (!view || typeof view.text !== 'string') return null;
+    const question = chat.questionIn(view.text, card.runner);
+    if (!question || typeof question.text !== 'string' || question.reported) return null;
+    const options = chat.optionsIn(question.text);
+    if (!dmPressable({ guideThread, card, options, question, view })) return null;
+    const perm = chat.permissionCard(view.text);
+    if (!perm) return null;
+    const pick = (n) => { const o = options.find((x) => x.n === n); return o && o.lasting !== true ? { n: o.n, label: chat.cleanMessage(o.label) } : null; };
+    const allow = pick(perm.allow);
+    const deny = pick(perm.deny);
+    const asked = chat.questionAbove(question.text);
+    if (!allow || !deny || typeof asked !== 'string' || !asked) return null;
+    return { kind: perm.kind, allow, deny, asked };
+  } catch { return null; }
+}
+
 /** kosmos#5841: one page of earlier messages; the same size as the thread route's tail. */
 const DM_OLDER_PAGE = 200;
 /* kosmos#5841: what the person sees of a direct thread's rows, decided ONCE for both readers (the thread route's
@@ -7481,7 +7526,10 @@ const server = http.createServer(async (req, res) => {
     const card = ourCardByName(safeRoster(), got.session);   // as the thread readers find it: any spelling, tied only
     let picture = null;
     try { picture = store.avatarPath(got.session) ? '/api/agent/' + encodeURIComponent(got.session) + '/avatar' : null; } catch { picture = null; }
-    sendJson(res, 200, { kind: got.kind, session: got.session, agent: (card && card.name) || got.session, text: got.text, picture });
+    /* kosmos#7017 part 2: a needs_you raised by a permission prompt still on screen carries Allow and Deny. */
+    const permission = got.kind === 'report' ? phonePermissionNow(got.session) : null;
+    sendJson(res, 200, { kind: got.kind, session: got.session, agent: (card && card.name) || got.session, text: got.text, picture,
+      ...(permission ? { permission } : {}) });
     return;
   }
 
@@ -18553,17 +18601,9 @@ const server = http.createServer(async (req, res) => {
     const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
     const guideName = guideThread ? ((card && card.sessionName) || name) : null;
     const servedRows = dmServeRows(servedMessages, name, card);   // kosmos#5841: shared with the older route
-    /* #5406 slice C: may this screen's options be offered as buttons (see `asked` below)? Every condition must hold. */
-    const cqNow = view && view.text ? require('./engine/status').claudeAnswerableMenu(view.text) : null;   // #6054: a permission prompt too
-    const pressable = !guideThread && Boolean(card) && String(card.runner || 'claude') === 'claude'
-      && Array.isArray(options) && Boolean(question) && typeof question.text === 'string'
-      && options.every((o) => o && typeof o.label === 'string' && !chat.messageProblem(o.label))   // a label a press could never carry
-      && Boolean(cqNow)
-      // #6054 review 3: a permission prompt only with its whole box on screen (its identity must be the whole request).
-      && (!cqNow.permission || chat.permissionAnswerable(view.text))
-      // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
-      && cqNow.options.length === options.length
-      && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
+    /* #5406 slice C: may this screen's options be offered as buttons (see `asked` below)? kosmos#7017: decided by
+       dmPressable, which the phone's notification asks too, so a phone button is offered exactly where a board one is. */
+    const pressable = dmPressable({ guideThread, card, options, question, view });
     /* kosmos#6727: a permission prompt read off the screen is served as a short card (what the agent wants to do,
        Allow, Deny, the raw request under Show details), not as its screen. Only where its buttons are offered
        (`pressable`, which also keeps it out of the setup guide's masked thread, review 1): a card with no Allow or Deny
