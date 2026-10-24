@@ -80328,10 +80328,10 @@ document.addEventListener('keydown', (e) => {
   memConfirmClose();
 });
 /* kosmos#4649 slice B: an outside member's removal (MEM_PENDING.fed) goes to the board's remove route,
-   and the dialog stays open until it answers (a refusal is said in it, with the member still listed). */
+   and the dialog stays open until it answers (a refusal is said in it, with the member still listed). So does
+   one of the owner's own computers taken out of a sealed room (MEM_PENDING.own, kosmos#4658 with #7028). */
 document.getElementById('mem-go').addEventListener('click', () => {
-  if (MEM_PENDING && MEM_PENDING.fed) { fedRemoveGo(); return; }
-  if (MEM_PENDING && MEM_PENDING.own) { fedOwnRemoveGo(); return; }   // kosmos#4658/#7028: one of the owner's computers
+  if (MEM_PENDING && (MEM_PENDING.fed || MEM_PENDING.own)) { (MEM_PENDING.fed ? fedRemoveGo : fedOwnRemoveGo)(); return; }
   const p = MEM_PENDING;
   document.getElementById('mem-modal').hidden = true;
   MEM_PENDING = null;
