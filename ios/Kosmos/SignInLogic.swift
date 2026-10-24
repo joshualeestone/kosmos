@@ -218,7 +218,7 @@ enum SignIn {
         /// (signin.rs), so the screen still waits; false once the Mac has said no to that one too.
         case denied(asking: Bool)
         /// kosmos#7046: a second step must be set up before this sign-in finishes. `token` is the enrol-only one.
-        case setup(token: String)
+        case setup(token: String, sms: Bool)
         /// The authenticator's secret to add, then its first code to confirm.
         case setupConfirm(token: String, otpauth: String, secret: String)
         /// Over to the web sign-in page, with why (one line the screen shows first).
@@ -237,8 +237,8 @@ enum SignIn {
             }
         case .second(let kind, let challenge, let sentTo):
             return (.second(email: email, kind: kind, challenge: challenge, sentTo: sentTo), nil, nil)
-        case .needsSetup(let token, _):
-            return (.setup(token: token), nil, nil)
+        case .needsSetup(let token, let sms):
+            return (.setup(token: token, sms: sms), nil, nil)
         case .refused(let message, let proofRefused):
             return (proofRefused ? .web(reason: webForKey) : .code(email: email), nil,
                     proofRefused ? nil : (message ?? "That code is not right or has expired."))
@@ -282,6 +282,12 @@ enum SignIn {
 
     static let setupWords = "Your account needs a second sign-in step. Set up an authenticator app now: it shows a new six-digit code every 30 seconds."
     static let webForTexts = "Setting up text messages continues on the sign-in page."
+
+    /// A refusal no new code can fix: Kosmos+ says to start again (the enrol-only token expired, or nothing is being
+    /// set up any more; second.rs). The person goes back to the email rather than retrying here.
+    static func startsOver(_ message: String?) -> Bool {
+        (message ?? "").range(of: "start again", options: .caseInsensitive) != nil
+    }
 
     /// The second step's line, as the web page words it (secondWords). The authenticator shows "Kosmos" (the issuer
     /// in kosmos-relay totp.rs). A masked number stays whole on one line (non-breaking spaces; Mona Lisa's review).

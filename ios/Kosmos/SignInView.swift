@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // kosmos#7042 (iPhone slice 5a, #6838): the native sign-in. Email, the code, the second step, then "Allow this iPhone on
 // your Mac" with the match code until the Mac answers. The steps are SignIn.next (SignInLogic.swift, proven in
@@ -49,7 +50,7 @@ final class SignInModel: ObservableObject {
     }
 
     func verify() {
-        guard case .code(let email) = step else { return }
+        guard !busy, case .code(let email) = step else { return }
         guard let typed = SignIn.code(code) else { error = "The code is six digits."; return }
         guard let client else { return }
         attempt += 1; let mine = attempt
@@ -64,7 +65,7 @@ final class SignInModel: ObservableObject {
     }
 
     func verifySecond() {
-        guard case .second(let email, _, let challenge, _) = step else { return }
+        guard !busy, case .second(let email, _, let challenge, _) = step else { return }
         guard let typed = SignIn.code(code) else { error = "The code is six digits."; return }
         guard let client else { return }
         attempt += 1; let mine = attempt
@@ -84,7 +85,7 @@ final class SignInModel: ObservableObject {
     // MARK: - kosmos#7046: a required second step, set up here
 
     func startSetup() {
-        guard case .setup(let token) = step, let client else { return }
+        guard !busy, case .setup(let token, _) = step, let client else { return }
         attempt += 1; let mine = attempt
         busy = true; error = nil
         Task {
@@ -101,7 +102,7 @@ final class SignInModel: ObservableObject {
     }
 
     func confirmSetup() {
-        guard case .setupConfirm(let token, _, _) = step else { return }
+        guard !busy, case .setupConfirm(let token, _, _) = step else { return }
         guard let typed = SignIn.code(code) else { error = "The code is six digits."; return }
         guard let client else { return }
         attempt += 1; let mine = attempt
@@ -112,7 +113,12 @@ final class SignInModel: ObservableObject {
                 let answer = try await client.confirmSetup(token: token, code: typed)
                 guard mine == attempt else { return }
                 // A wrong code stays here: the authenticator is added already, only its code was early or late.
-                if case .refused(let message, false) = answer { error = message ?? "That code is not what the app shows right now."; return }
+                if case .refused(let message, false) = answer {
+                    // Kosmos+ says to start again (the setup expired): back to the email, with its sentence.
+                    if SignIn.startsOver(message) { code = ""; step = .email }
+                    error = message ?? "That code is not what the app shows right now."
+                    return
+                }
                 take(answer, email: email)
             } catch { if mine == attempt { fail(error) } }
         }
@@ -209,7 +215,7 @@ final class SignInModel: ObservableObject {
         case "web": step = .web(reason: SignIn.webForCompany)
         case "error": step = .code(email: email); code = "48291"; error = "That code is not right or has expired."
         // kosmos#7046: setting up a required second step.
-        case "setup": step = .setup(token: "t")
+        case "setup": step = .setup(token: "t", sms: true)
         case "setupconfirm": step = .setupConfirm(token: "t", otpauth: "otpauth://totp/Kosmos:ada%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Kosmos", secret: "JBSWY3DPEHPK3PXP")
         default: step = .email
         }
@@ -303,13 +309,13 @@ struct SignInView: View {
             line(reason)
             primary("Continue", action: useWeb)
             link("Use a different email", action: model.differentEmail)
-        case .setup:
+        case .setup(_, let sms):
             title("Set up a second step")
             line(SignIn.setupWords)
             errorLine
             primary("Set up an authenticator app", action: model.startSetup)
             VStack(spacing: 0) {
-                link("Use text messages instead", action: useWeb)
+                if sms { link("Use text messages instead", action: useWeb) }
                 link("Use a different email", action: model.differentEmail)
             }
         case .setupConfirm(_, let otpauth, let secret):
@@ -323,7 +329,12 @@ struct SignInView: View {
                 Text(SignIn.grouped(secret: secret)).font(.system(.body, design: .monospaced)).foregroundColor(Palette.primary)
                     .textSelection(.enabled).accessibilityLabel("Key: \(secret.map { String($0) }.joined(separator: " "))")
                 Spacer()
-                Button("Copy") { UIPasteboard.general.string = secret }.font(.subheadline).foregroundColor(Palette.link)
+                // The key is the second step itself: kept on this iPhone only (no Universal Clipboard) and for two
+                // minutes (review of #7046).
+                Button("Copy") {
+                    UIPasteboard.general.setItems([[UTType.plainText.identifier: secret]],
+                                                  options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+                }.font(.subheadline).foregroundColor(Palette.link)
             }
             codeField(submit: model.confirmSetup)
             errorLine
