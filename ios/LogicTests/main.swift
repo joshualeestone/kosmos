@@ -1691,7 +1691,10 @@ do {
     check(f(home, tasksURL, .today) == .projects, "and lights Projects from elsewhere")
     check(f(roomURL, tasksURL, .projects, tasks: true) == .tasks, "Tasks once the bar has it")
     check(f(signIn, home, .today) == nil && f(signIn, roomURL, .today) == .projects, "from the sign-in page to a Mac's page is a real move")
-    check(AppTabs.barTab(forPage: .tasks, tasksTab: false) == .projects && AppTabs.barTab(forPage: .settings, tasksTab: false) == .settings, "a hidden Tasks section belongs under Projects; any other section lights its own tab")
+    check(AppTabs.barTab(forPage: .tasks, tasksTab: false) == .projects && AppTabs.barTab(forPage: .projects, tasksTab: false) == .projects, "a hidden Tasks section belongs under Projects; any other web section lights its own tab")
+    check(AppTabs.barTab(forPage: .settings, tasksTab: true) == .today, "#7010: the board's Settings section shows under Today, since the Settings tab is native")
+    check(f(home, URL(string: "https://mac.kosmosplus.com/?tab=settings")!, .settings) == nil, "#7010: native Settings is not moved by the hidden page")
+    check(f(home, URL(string: "https://studio.kosmosplus.com/?tab=settings")!, .today) == nil, "#7010: a board link into its Settings (a chat's fix button) keeps the bar on Today, so the page shows")
 }
 
 section("app tabs: Tasks read rounds")

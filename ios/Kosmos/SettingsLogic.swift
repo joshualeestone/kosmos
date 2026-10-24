@@ -24,7 +24,7 @@ enum Settings {
 
         // Only the busy-room switch carries a line under it on the board.
         var hint: String? {
-            self == .postedRoom ? "Off to start with, so a busy room does not fill your phone." : nil
+            self == .postedRoom ? "Off to start with, so a busy room does not fill your phone. At most one buzz per room every few minutes." : nil
         }
     }
 
@@ -51,9 +51,7 @@ enum Settings {
     }
 
     static func keptMac(stored: String?, session: String?, coordinator: URL) -> Mac? {
-        guard let stored, let session, !session.isEmpty,
-              let saved = try? JSONDecoder().decode(Board.SavedMacSession.self, from: Data(stored.utf8)),
-              !saved.cookie.isEmpty, saved.owner == Board.owner(of: session),
+        guard let saved = Board.usableSaved(stored, session: session, coordinator: coordinator),
               let url = Board.macURL(address: saved.address, coordinator: coordinator)
         else { return nil }
         return Mac(name: saved.name, url: url, cookie: saved.cookie)
@@ -90,14 +88,26 @@ enum Settings {
         return try? JSONDecoder().decode(PhoneNotify.self, from: data)
     }
 
-    // The computer's own reason for a refusal (its `error`), or a plain fallback.
-    static func refusal(status: Int, data: Data) -> String {
-        if status == 401 || status == 403 { return "Your computer did not let this phone in. Open the Agents tab to connect again." }
+    // A sentence from the computer's words: a capital to start and a full stop to end.
+    static func sentence(_ said: String) -> String {
+        let t = said.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = t.first else { return "" }
+        let end = t.last.map { ".!?".contains($0) } ?? false
+        return first.uppercased() + t.dropFirst() + (end ? "" : ".")
+    }
+
+    // Why a read or a write did not work: the computer's own reason (its `error`), or a plain one for what happened.
+    // A 401 can also be the few seconds after the computer restarts, so it is not worded as final.
+    static func refusal(status: Int, data: Data, writing: Bool) -> String {
+        if status == 401 || status == 403 {
+            return "Your computer did not let this phone in just now. Try again in a moment, or open the Agents tab to connect again."
+        }
         if let any = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let said = any["error"] as? String, !said.trimmingCharacters(in: .whitespaces).isEmpty {
-            return said.prefix(1).uppercased() + said.dropFirst() + (said.hasSuffix(".") ? "" : ".")
+            return sentence(said)
         }
-        return status == 0 ? "Your computer is not answering. Try again in a moment." : "That did not save. Try again in a moment."
+        if status == 0 { return "Your computer is not answering. Try again in a moment." }
+        return writing ? "That did not save. Try again in a moment." : "Your computer did not send these settings. Try again in a moment."
     }
 
     // What the master row says under the switch. The board says the same (web/index.html #phone-notify).
@@ -105,12 +115,17 @@ enum Settings {
         if !s.available { return "Phone notifications are not available on this computer yet." }
         if !s.connected { return "This computer is not connected to Kosmos+, so nothing can reach your phone." }
         if s.on { return "Kosmos+ is told the agent's name, its project and the time, never what they said." }
-        if let why = s.defaultBecause, !why.isEmpty { return why }
+        // As the board says it (web/index.html, "Not on yet."), and always a whole sentence.
+        if let why = s.defaultBecause, !why.trimmingCharacters(in: .whitespaces).isEmpty { return "Not on yet. " + sentence(why) }
         return "Off. Nothing about your agents leaves your computer."
     }
 
     // The master switch can be pressed only when the computer could act on it.
     static func masterEnabled(_ s: PhoneNotify) -> Bool { s.available && (s.connected || s.on) }
+
+    // The per-kind switches show only while the board shows them (web/index.html paintKinds): on, available and
+    // connected, since otherwise nothing is sent whatever they say.
+    static func kindsShown(_ s: PhoneNotify) -> Bool { s.available && s.connected && s.on }
 
     // Kosmos+'s own pages, opened in the app's web view: the account page (where the person signs out) and the
     // delete-account flow (coordinator lib.rs serves both). Neither is called from here: the sign-out route accepts

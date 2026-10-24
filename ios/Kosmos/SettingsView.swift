@@ -2,27 +2,31 @@ import LocalAuthentication
 import SwiftUI
 
 // kosmos#7010 (slice 10 of #6838): the native Settings tab. The phone switches (the computer's own setting, read and
-// written as the board's Settings does), the computer this phone shows, Face ID (only while the app asks for it), and the Kosmos+
-// account (its own pages, opened in the app's web view). Everything about agents, models and connections stays on
-// the computer, as the Agents tab says. The logic is SettingsLogic.swift.
+// written as the board's Settings does), the computer this phone shows, Face ID (only while the app asks for it), the
+// Kosmos+ account (its own pages, opened in the app's web view), and a row to the board's own Settings for everything
+// else. The logic is SettingsLogic.swift.
 struct SettingsView: View {
     let coordinator: URL
     // A Kosmos+ page (the account, the delete flow), opened in the app's web view.
     let openPage: (URL) -> Void
-    // The app's choose-a-computer flow (Shell.otherComputer).
-    let chooseComputer: () -> Void
+    // The board's own Settings, shown under Today (AppTabs.barTab).
+    let openBoardSettings: () -> Void
 
     private enum Load: Equatable {
         case reading
+        case signedOut
         case noComputer
         case loaded(Settings.PhoneNotify)
         case failed(String)
     }
 
     @State private var load: Load = .reading
-    @State private var saving: String?
+    // The switch being saved and the value the person chose for it, shown until the computer answers.
+    @State private var saving: (key: String, on: Bool)?
     @State private var note: String?
     @State private var mac: Settings.Mac?
+    // Bumped by every write, so a read that started before it cannot paint the older state over the newer one.
+    @State private var generation = 0
 
     private static var sample: Bool {
         #if DEBUG
@@ -36,36 +40,31 @@ struct SettingsView: View {
     var body: some View {
         NavigationView {
             ScrollViewReader { scroller in
-            List {
-                notifications
-                computer
-                // Only while the app really asks for it: the lock is off by default (KosmosConfig.requireBiometricUnlock,
-                // a product decision still open, #718), and a line saying it is on would be untrue.
-                if KosmosConfig.requireBiometricUnlock { security }
-                account
-                Section {
-                    EmptyView()
-                } footer: {
-                    Text("Agents, AI models and connections are set up on your computer.")
-                        .font(.footnote).foregroundColor(Palette.secondary)
+                List {
+                    notifications
+                    computer
+                    // Only while the app really asks for it: the lock is off by default (KosmosConfig.requireBiometricUnlock,
+                    // a product decision still open, #718), and a line saying it is on would be untrue.
+                    if KosmosConfig.requireBiometricUnlock { security }
+                    account
+                    board
                 }
-            }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            // A switch that is on reads as on in both modes: the app's ink tint made it black in light and near-white
-            // on a white knob in dark. The system green is what the 19 Oct design drew (p6-settings).
-            .tint(Color(UIColor.systemGreen))
-            .background(Palette.ground.ignoresSafeArea())
-            .navigationTitle("Settings")
-            .refreshable { await read() }
-            .onAppear {
-                #if DEBUG
-                // Screenshots of the lower sections (KOSMOS_SAMPLE_SCROLL=account, a Debug build only).
-                if Self.sample && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLL"] == "account" {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { scroller.scrollTo("account", anchor: .top) }
+                .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
+                // A switch that is on reads as on in both modes: the app's ink tint made it black in light and
+                // near-white on a white knob in dark. The system green is what the 19 Oct design drew (p6-settings).
+                .tint(Color(UIColor.systemGreen))
+                .background(Palette.ground.ignoresSafeArea())
+                .navigationTitle("Settings")
+                .refreshable { await read() }
+                .onAppear {
+                    #if DEBUG
+                    // Screenshots of the lower sections (KOSMOS_SAMPLE_SCROLL=account, a Debug build only).
+                    if Self.sample && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLL"] == "account" {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { scroller.scrollTo("account", anchor: .top) }
+                    }
+                    #endif
                 }
-                #endif
-            }
             }
         }
         .navigationViewStyle(.stack)
@@ -82,8 +81,11 @@ struct SettingsView: View {
                     ProgressView()
                     Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
                 }
+            case .signedOut:
+                Text("Sign in on the Today tab, then your computer's phone settings show here.")
+                    .font(.subheadline).foregroundColor(Palette.secondary)
             case .noComputer:
-                Text("Open the Agents tab to connect to your computer, then the switches show here.")
+                Text("Open the Agents tab to connect to your computer, then its phone settings show here.")
                     .font(.subheadline).foregroundColor(Palette.secondary)
             case .failed(let why):
                 VStack(alignment: .leading, spacing: 8) {
@@ -91,25 +93,9 @@ struct SettingsView: View {
                     Button("Try again") { Task { await read() } }
                 }
             case .loaded(let s):
-                Toggle(isOn: binding(s, kind: nil)) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(Settings.masterLabel).foregroundColor(Palette.primary)
-                        Text(Settings.masterNote(s)).font(.footnote).foregroundColor(Palette.secondary)
-                    }
-                }
-                .disabled(!Settings.masterEnabled(s) || saving != nil)
-                if s.on {
-                    ForEach(Settings.Kind.allCases, id: \.self) { kind in
-                        Toggle(isOn: binding(s, kind: kind)) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(kind.label).foregroundColor(Palette.primary)
-                                if let hint = kind.hint {
-                                    Text(hint).font(.footnote).foregroundColor(Palette.secondary)
-                                }
-                            }
-                        }
-                        .disabled(saving != nil)
-                    }
+                switchRow(s, kind: nil)
+                if Settings.kindsShown(s) {
+                    ForEach(Settings.Kind.allCases, id: \.self) { kind in switchRow(s, kind: kind) }
                 }
             }
         } header: {
@@ -124,28 +110,46 @@ struct SettingsView: View {
         }
     }
 
-    private func binding(_ s: Settings.PhoneNotify, kind: Settings.Kind?) -> Binding<Bool> {
-        Binding(
-            get: { kind.map { s.isOn($0) } ?? s.on },
+    private func key(_ kind: Settings.Kind?) -> String { kind?.rawValue ?? "master" }
+
+    private func switchRow(_ s: Settings.PhoneNotify, kind: Settings.Kind?) -> some View {
+        let k = key(kind)
+        let chosen: Bool? = saving?.key == k ? saving?.on : nil
+        return Toggle(isOn: Binding(
+            // While it saves, the switch shows what the person chose; then what the computer says.
+            get: { chosen ?? (kind.map { s.isOn($0) } ?? s.on) },
             set: { on in Task { await write(kind: kind, on: on) } }
-        )
+        )) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(kind?.label ?? Settings.masterLabel).foregroundColor(Palette.primary)
+                    if chosen != nil { ProgressView().controlSize(.small) }
+                }
+                if kind == nil {
+                    Text(Settings.masterNote(s)).font(.footnote).foregroundColor(Palette.secondary)
+                } else if let hint = kind?.hint {
+                    Text(hint).font(.footnote).foregroundColor(Palette.secondary)
+                }
+            }
+        }
+        // One save at a time; the master also waits until the computer could act on it.
+        .disabled(saving != nil || (kind == nil && !Settings.masterEnabled(s)))
     }
 
     // MARK: Computer
 
     @ViewBuilder private var computer: some View {
-        Section {
-            HStack {
-                Text("Showing").foregroundColor(Palette.primary)
-                Spacer()
-                Text(mac?.name ?? "No computer yet").foregroundColor(Palette.secondary)
+        if let mac {
+            Section {
+                HStack {
+                    Text("Showing").foregroundColor(Palette.primary)
+                    Spacer()
+                    Text(mac.name).foregroundColor(Palette.secondary)
+                }
+                .accessibilityElement(children: .combine)
+            } header: {
+                Text("Computer")
             }
-            .accessibilityElement(children: .combine)
-            Button(action: chooseComputer) {
-                Text("Use another computer").foregroundColor(Palette.primary)
-            }
-        } header: {
-            Text("Computer")
         }
     }
 
@@ -154,7 +158,7 @@ struct SettingsView: View {
     @ViewBuilder private var security: some View {
         Section {
             HStack {
-                Label(Self.biometryName, systemImage: Self.biometrySymbol).foregroundColor(Palette.primary)
+                Label(Self.biometry.title, systemImage: Self.biometry.symbol).foregroundColor(Palette.primary)
                 Spacer()
                 Text("On").foregroundColor(Palette.secondary)
             }
@@ -162,24 +166,20 @@ struct SettingsView: View {
         } header: {
             Text("Security")
         } footer: {
-            Text("Kosmos asks for \(Self.biometryName) each time it opens, so only you can see your agents.")
+            Text("Kosmos asks for \(Self.biometry.inSentence) each time it opens, so only you can see your agents.")
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
     }
 
-    private static var biometryType: LABiometryType {
+    private static var biometry: (title: String, inSentence: String, symbol: String) {
         let context = LAContext()
         _ = context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
-        return context.biometryType
-    }
-    private static var biometryName: String {
-        switch biometryType {
-        case .touchID: return "Touch ID"
-        case .faceID: return "Face ID"
-        default: return "Your passcode"
+        switch context.biometryType {
+        case .touchID: return ("Touch ID", "Touch ID", "touchid")
+        case .faceID: return ("Face ID", "Face ID", "faceid")
+        default: return ("Passcode", "your passcode", "lock")
         }
     }
-    private static var biometrySymbol: String { biometryType == .touchID ? "touchid" : "faceid" }
 
     // MARK: Account
 
@@ -194,16 +194,27 @@ struct SettingsView: View {
         } header: {
             Text("Account").id("account")
         } footer: {
-            Text("Deleting your account takes a few steps on Kosmos+ and asks you to confirm by email.")
+            Text("Deleting your account takes a few steps on Kosmos+ and asks you to confirm with a code we email you.")
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
     }
 
-    private func row(_ title: String, detail: String) -> some View {
+    // MARK: The board's own Settings
+
+    @ViewBuilder private var board: some View {
+        Section {
+            Button(action: openBoardSettings) { row("Settings on your computer's board", detail: nil) }
+        } footer: {
+            Text("Agents, AI models, connections and the rest of your computer's settings are there.")
+                .font(.footnote).foregroundColor(Palette.secondary)
+        }
+    }
+
+    private func row(_ title: String, detail: String?) -> some View {
         HStack {
             Text(title).foregroundColor(Palette.primary)
             Spacer()
-            Text(detail).foregroundColor(Palette.secondary)
+            if let detail { Text(detail).foregroundColor(Palette.secondary) }
             Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundColor(Palette.tertiary)
         }
     }
@@ -217,44 +228,58 @@ struct SettingsView: View {
         return Settings.keptMac(stored: SessionKeychain.macSession.load(), session: SessionKeychain.live.load(), coordinator: coordinator)
     }
 
+    // One session for every request here, refusing redirects as the app's own client and the notice extension do, so
+    // the computer's cookie can never be carried to another host.
+    private static let http = URLSession(configuration: .ephemeral, delegate: RefuseRedirects(), delegateQueue: nil)
+
     private func send(_ request: URLRequest?) async -> (Int, Data) {
         guard let request else { return (0, Data()) }
         if Self.sample {
             let s = #"{"available":true,"on":true,"connected":true,"kinds":{"needsYou":true,"replied":true,"postedMention":true,"ready":true,"postedRoom":false},"offByChoice":false,"defaultBecause":null}"#
             return (200, Data(s.utf8))
         }
-        let config = URLSessionConfiguration.ephemeral
-        config.httpCookieStorage = nil
-        guard let (data, response) = try? await URLSession(configuration: config).data(for: request),
-              let http = response as? HTTPURLResponse
+        guard let (data, response) = try? await Self.http.data(for: request),
+              let answer = response as? HTTPURLResponse
         else { return (0, Data()) }
-        return (http.statusCode, data)
+        return (answer.statusCode, data)
     }
 
     @MainActor private func read() async {
+        let started = generation
+        if !Self.sample && SessionKeychain.live.load() == nil { mac = nil; load = .signedOut; return }
         mac = keptMac()
         guard let mac else { load = .noComputer; return }
         if case .loaded = load {} else { load = .reading }
         let (status, data) = await send(Settings.readRequest(mac))
+        // A write landed meanwhile: its answer is newer than this one.
+        guard started == generation else { return }
         if let s = Settings.phoneNotify(status: status, data: data) {
             load = .loaded(s)
             note = nil
         } else {
-            load = .failed(Settings.refusal(status: status, data: data))
+            load = .failed(Settings.refusal(status: status, data: data, writing: false))
         }
     }
 
     @MainActor private func write(kind: Settings.Kind?, on: Bool) async {
         guard let mac, saving == nil else { return }
-        saving = kind?.rawValue ?? "master"
+        generation += 1
+        saving = (key(kind), on)
         defer { saving = nil }
         let (status, data) = await send(Settings.writeRequest(mac, kind: kind, on: on))
         if let s = Settings.phoneNotify(status: status, data: data) {
             load = .loaded(s)
             note = nil
         } else {
-            // Nothing changed on the computer: the switch shows what it says, and why it did not save.
-            note = Settings.refusal(status: status, data: data)
+            // Nothing changed on the computer: the switch goes back to what it says, and the footer says why.
+            note = Settings.refusal(status: status, data: data, writing: true)
         }
+    }
+}
+
+private final class RefuseRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

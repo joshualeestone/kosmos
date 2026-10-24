@@ -37,11 +37,13 @@ test('#7010: the phone has a switch for exactly the kinds the computer keeps', (
 });
 
 test('#7010: each switch, and the master, says what the board says', () => {
+  // Each board row is "<div>label ..." then its own button's data-kind, so a label is checked against ITS row's
+  // switch: two labels swapped on either side fail.
   for (const [kind, label] of Object.entries(swiftLabels())) {
-    assert.ok(page.includes(`data-kind="${kind}"`), kind + ': the board has no switch for it');
-    // The board's row: <div>label</div> or <div>label followed by its hint on the next line.
-    const row = new RegExp('<div>' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(</div>|\\n)');
-    assert.match(page, row, kind + ': the phone says "' + label + '", the board says something else');
+    const at = page.indexOf('<div>' + label);
+    assert.ok(at > -1, kind + ': the phone says "' + label + '", the board says something else');
+    const own = page.slice(at, at + 600).match(/data-kind="([a-zA-Z]+)"/);
+    assert.equal(own && own[1], kind, kind + ': the board row with these words is another switch');
   }
   const master = swift.match(/static let masterLabel = "([^"]+)"/)[1];
   assert.ok(page.includes('<b>' + master + '</b>'), 'the master switch is worded differently on the board');

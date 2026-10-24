@@ -58,7 +58,8 @@ struct ContentView: View {
     private var pressing: Binding<Tab> {
         Binding(get: { tab }, set: { new in
             tab = new
-            web.press(new)
+            // kosmos#7010: the native Settings tab presses nothing, so the hidden page (an agent's chat) keeps its place.
+            if new != .settings { web.press(new) }
         })
     }
 
@@ -157,7 +158,7 @@ struct ContentView: View {
     private func select(_ new: Tab) {
         guard new != tab else { return }
         tab = new
-        web.press(new)
+        if new != .settings { web.press(new) }
     }
 
     // Agents and Settings are native; the other three show the shared board.
@@ -168,12 +169,13 @@ struct ContentView: View {
             }, openBoard: { select(.today) })
         } else if which == .settings {
             // kosmos#7010: a Kosmos+ page (the account, the delete flow) opens under Today in the shared web view, as an
-            // agent's chat does; choosing another computer is the load-failure page's own flow.
+            // agent's chat does, and so does the board's own Settings.
             SettingsView(coordinator: KosmosConfig.coordinatorOrigin, openPage: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, chooseComputer: {
-                shell.otherComputer()
-                select(.today)
+            }, openBoardSettings: {
+                // The board's own Settings, under Today (AppTabs.barTab: its Settings section lights Today).
+                tab = .today
+                web.press(.settings)
             })
         } else {
             webBoard(which)

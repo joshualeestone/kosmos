@@ -50,10 +50,12 @@ check(s?.on == true && s?.isOn(.needsYou) == true && s?.isOn(.ready) == false &&
 check(Settings.phoneNotify(status: 500, data: Data(body.utf8)) == nil, "a server error is not a setting")
 check(Settings.phoneNotify(status: 200, data: Data("<html>".utf8)) == nil, "a page that is not the setting is not one")
 
-section("refusals say why")
-check(Settings.refusal(status: 400, data: Data(#"{"error":"this computer is not connected to Kosmos+"}"#.utf8)) == "This computer is not connected to Kosmos+.", "the computer's own reason, as a sentence")
-check(Settings.refusal(status: 401, data: Data()).hasPrefix("Your computer did not let this phone in."), "a refused sign-in says how to connect again")
-check(Settings.refusal(status: 0, data: Data()) == "Your computer is not answering. Try again in a moment.", "no answer says so")
+section("refusals say why, and a read is not called a save")
+check(Settings.refusal(status: 400, data: Data(#"{"error":"this computer is not connected to Kosmos+"}"#.utf8), writing: true) == "This computer is not connected to Kosmos+.", "the computer's own reason, as a sentence")
+check(Settings.refusal(status: 401, data: Data(), writing: false).hasPrefix("Your computer did not let this phone in just now."), "a refused sign-in is not worded as final (a restart answers 401 for a few seconds)")
+check(Settings.refusal(status: 0, data: Data(), writing: true) == "Your computer is not answering. Try again in a moment.", "no answer says so")
+check(Settings.refusal(status: 404, data: Data("<html>".utf8), writing: false) == "Your computer did not send these settings. Try again in a moment.", "a failed read does not say 'did not save'")
+check(Settings.refusal(status: 500, data: Data("<html>".utf8), writing: true) == "That did not save. Try again in a moment.", "a failed write does")
 
 section("the master switch's line, and when it can be pressed")
 func status(available: Bool = true, on: Bool, connected: Bool, because: String? = nil) -> Settings.PhoneNotify {
@@ -61,19 +63,28 @@ func status(available: Bool = true, on: Bool, connected: Bool, because: String? 
 }
 check(Settings.masterNote(status(on: true, connected: true)).contains("never what they said"), "on: what is and is not sent")
 check(Settings.masterNote(status(on: false, connected: false)).contains("not connected to Kosmos+"), "not connected: says so")
-check(Settings.masterNote(status(on: false, connected: true, because: "It turns on once the phone app is signed in.")) == "It turns on once the phone app is signed in.", "the computer's own reason for not yet")
+check(Settings.masterNote(status(on: false, connected: true, because: "Kosmos on this computer needs an update before phone notifications can be turned on")) == "Not on yet. Kosmos on this computer needs an update before phone notifications can be turned on.", "the computer's reason, after 'Not on yet.' as the board says it, made a sentence")
 check(Settings.masterNote(status(available: false, on: false, connected: true)).contains("not available"), "not available on this computer")
 check(Settings.masterEnabled(status(on: false, connected: true)), "off and connected: can turn on")
 check(!Settings.masterEnabled(status(on: false, connected: false)), "off and not connected: nothing to turn on")
 check(Settings.masterEnabled(status(on: true, connected: false)), "on but not connected: can still turn off")
 check(!Settings.masterEnabled(status(available: false, on: false, connected: true)), "not available: no switch")
+check(Settings.kindsShown(status(on: true, connected: true)), "on and connected: the per-kind switches show")
+check(!Settings.kindsShown(status(on: true, connected: false)), "on but not connected: they do not (the board's paintKinds)")
+check(!Settings.kindsShown(status(on: false, connected: true)), "off: they do not")
 
 section("drift: the phone says what the computer says")
 let page = repoText("web/index.html")
 check(!page.isEmpty, "the board's page was read (KOSMOS_REPO)")
 check(page.contains("<b>\(Settings.masterLabel)</b>"), "the master label is the board's")
+// Each board row is "<div>label ... </div>" then its button with data-kind, so a label is checked against ITS OWN
+// row's kind, and two labels swapped fail.
 for kind in Settings.Kind.allCases {
-    check(page.contains("data-kind=\"\(kind.rawValue)\"") && (page.contains("<div>\(kind.label)</div>") || page.contains("<div>\(kind.label)\n")), "\(kind.rawValue): the board's switch and words")
+    let row = page.range(of: "<div>\(kind.label)")
+    let rest = row.map { String(page[$0.upperBound...].prefix(600)) } ?? ""
+    let ownKind = rest.range(of: #"data-kind="([a-zA-Z]+)""#, options: .regularExpression).map { String(rest[$0]).dropFirst(11).dropLast() }
+    check(ownKind.map(String.init) == kind.rawValue, "\(kind.rawValue): the board's row with these words is this switch")
+    if let hint = kind.hint { check(rest.contains(hint), "\(kind.rawValue): the hint is the board's") }
 }
 let engine = repoText("engine/phonenotify.js")
 if let r = engine.range(of: #"const KIND_DEFAULTS = \{([^}]*)\}"#, options: .regularExpression) {
