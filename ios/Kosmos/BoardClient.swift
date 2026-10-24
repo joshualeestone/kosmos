@@ -111,8 +111,10 @@ final class BoardClient: ObservableObject {
         self.macStore = macStore
         self.cookies = cookies
         self.env = env
-        // Files opened in an earlier run are not kept: whose they were is not known any more.
+        // Files opened in an earlier run are not kept: whose they were is not known any more. Nor are copies of picked
+        // files an earlier run never finished sending (kosmos#7071).
         try? FileManager.default.removeItem(at: env.files)
+        try? FileManager.default.removeItem(at: env.uploads)
     }
 
     // Starts (or resumes) the loop when the tab appears or the app comes back.
@@ -439,10 +441,10 @@ final class BoardClient: ObservableObject {
         let prepared: Board.Prepared
         switch pick {
         case .file(let url):
-            prepared = await Task.detached { Board.prepareUpload(from: url, root: root) }.value
+            prepared = await Self.offMain { Board.prepareUpload(from: url, root: root) }
         case .photo(let load):
             if let (name, data) = await load() {
-                prepared = await Task.detached { Board.prepareUpload(data: data, name: name, root: root) }.value
+                prepared = await Self.offMain { Board.prepareUpload(data: data, name: name, root: root) }
             } else {
                 prepared = .refused("We could not read that photo.")
             }
@@ -477,6 +479,14 @@ final class BoardClient: ObservableObject {
             if attached[session]?.contains(where: { $0.id == a.id }) != true { attached[session, default: []].append(a) }
         case .refused(let why):
             attachLine[session] = why
+        }
+    }
+
+    // A copy can wait on Files fetching a file from the cloud for as long as that takes: on a thread of its own, never
+    // one of the few Swift's tasks share.
+    nonisolated private static func offMain(_ work: @escaping @Sendable () -> Board.Prepared) async -> Board.Prepared {
+        await withCheckedContinuation { done in
+            DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: work()) }
         }
     }
 

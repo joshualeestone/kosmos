@@ -30,6 +30,8 @@ struct FilesBubble: View {
             if !text.isEmpty {
                 Text(BubbleText.formatted(text)).font(.body).foregroundColor(Palette.primary).tint(Palette.link)
                     .padding(.bottom, 4)
+                    // The bubble's own label already says the words (kosmos#7071), so they are not heard twice.
+                    .accessibilityHidden(spoken != nil)
             }
             // By position as well as id: a row that names one file twice still draws two cards.
             ForEach(Array(files.enumerated()), id: \.offset) { _, f in

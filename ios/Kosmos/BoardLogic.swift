@@ -712,16 +712,22 @@ enum Board {
         // provider) is fetched first rather than copied as a placeholder.
         var copied = false
         var coordinated: NSError?
+        var tooLarge: String?
         NSFileCoordinator().coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinated) { readable in
+            // Measured again here, where the file is really on the phone (the size Files gave first may have been a
+            // cloud placeholder's, or none), so nothing too large is ever copied.
+            if let refusal = uploadRefusal(size: (try? readable.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, waiting: 0) {
+                tooLarge = refusal
+                return
+            }
             copied = (try? FileManager.default.copyItem(at: readable, to: file)) != nil
         }
+        if let tooLarge { try? FileManager.default.removeItem(at: folder); return .refused(tooLarge) }
         guard copied, coordinated == nil,
               let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
             try? FileManager.default.removeItem(at: folder)
             return .refused("We could not read \(name).")
         }
-        // Measured again on the copy: the size Files gave may have been missing.
-        if let refusal = uploadRefusal(size: size, waiting: 0) { try? FileManager.default.removeItem(at: folder); return .refused(refusal) }
         return .ready(file: file, name: name, type: mimeType(forName: name), size: size)
     }
 
