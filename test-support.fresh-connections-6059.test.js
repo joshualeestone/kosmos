@@ -18,14 +18,23 @@ const assert = require('node:assert/strict');
 const ROOT = __dirname;
 const PRELOAD = path.join(ROOT, 'test-support', 'fresh-connections.js');
 
-// Three requests one after another against a server that counts connections; prints the count.
+// Requests go one after another with a tick between them, so a kept-alive socket is back in the pool before the
+// next request asks for it. Back to back, request 2 races that return and opens a second connection with or
+// without the fix, which made an earlier version of these checks pass without the preload.
+const N = 5;
+const tick = () => new Promise((r) => setImmediate(r));
+
+// N requests against a server that counts connections; prints the count.
 const PROBE = `
 const http = require('node:http');
 let n = 0;
 const srv = http.createServer((q, r) => r.end('ok')).on('connection', () => { n += 1; });
 srv.listen(0, '127.0.0.1', async () => {
   const base = 'http://127.0.0.1:' + srv.address().port;
-  for (let i = 0; i < 3; i += 1) await (await fetch(base)).text();
+  for (let i = 0; i < ${N}; i += 1) {
+    await (await fetch(base)).text();
+    await new Promise((r) => setImmediate(r));
+  }
   process.stdout.write(String(n));
   srv.close(); process.exit(0);
 });`;
@@ -50,19 +59,21 @@ test('#6059: this process has it (run through tools/run-tests.sh)', () => {
 
 test('#6059: with the preload every request has its own connection; without it they share one (the control)', () => {
   const without = connections([]);
-  assert.ok(without < 3, 'CONTROL: without the preload, fetch reuses a connection (' + without + ' for 3 requests)');
-  assert.equal(connections(['--require', PRELOAD]), 3, 'with the preload, 3 requests open 3 connections');
+  assert.ok(without < N, 'CONTROL: without the preload, fetch reuses a connection (' + without + ' for ' + N + ' requests)');
+  assert.equal(connections(['--require', PRELOAD]), N, 'with the preload, ' + N + ' requests open ' + N + ' connections');
 });
 
-test('#6059: in this very process, two requests open two connections', async () => {
+test('#6059: in this very process, every request opens its own connection', async () => {
   let n = 0;
   const srv = http.createServer((q, r) => r.end('ok')).on('connection', () => { n += 1; });
   await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
   try {
     const base = 'http://127.0.0.1:' + srv.address().port;
-    await (await fetch(base)).text();
-    await (await fetch(base)).text();
-    assert.equal(n, 2);
+    for (let i = 0; i < N; i += 1) {
+      await (await fetch(base)).text();
+      await tick();
+    }
+    assert.equal(n, N);
   } finally {
     srv.close();
   }
