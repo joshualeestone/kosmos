@@ -12,11 +12,16 @@ the Swift line that calls it.
   or project ("there is no project by that name").
 - The one variable-method site (SettingsLogic, GET and PUT /api/phone-notify) is declared, and the declaration is
   checked against the source.
-- Only board routes: /v1 (coordinator) and /_kosmos (relay gate) live in other repos.
+- Only board routes: /v1 (coordinator) and /_kosmos (relay gate) live in other repos. Out of scope too: the phone's
+  links into board pages (/?tab=detail&agent=, /?tab=projects&project=, /?project=&task=), a contract with what
+  web/index.html reads at boot, not a server.js route.
+- Review 1: the two attachment routes (full path from the board, so no literal) are declared and pinned to
+  BoardLogic.swift; the method is read to the end of its request builder and every httpMethod line in a file that
+  calls the board must be claimed; the unknown-route control is byte for byte at every method and depth used.
 - Weakest premise: a route that still exists but changed its reply SHAPE passes. The phone's parsers are tested
   against captured JSON in ios/LogicTests, which a shape change would not update; a shape check is a follow-up.
 
 ## Steps
 1. Test + controls (a renamed board route goes red, naming BoardLogic.swift:357). DONE.
-2. Review loop. 3. Validation, PR. 4. Part 2 (light, dark, accessibility) after coordinating View files; Angel
+2. Review loop (round 1: 0 blockers, 3 warnings, 5 nits, all addressed). 3. Validation, PR. 4. Part 2 (light, dark, accessibility) after coordinating View files; Angel
    keeps SignInView/SignInClient/SignInLogic.swift (#7050 slice C).
