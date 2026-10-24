@@ -41,12 +41,17 @@ final class SignInModel: ObservableObject {
         #endif
     }
 
-    /// Whether Kosmos+ offers passkeys, asked the first time the email step shows (not at launch: a signed-in person,
-    /// and a screenshot build, never see this step). A failed ask is asked again the next time the step shows.
+    /// Whether Kosmos+ offers passkeys, asked the first time the email step shows (not at launch: a signed-in person
+    /// never sees this step, and the store screenshots never show it). Only a clear answer is kept (an offer, or a 404
+    /// for passkeys off); a server error or no answer at all is asked again the next time the step shows.
     func checkPasskeys() async {
         guard let client, !passkeysAsked else { return }
         passkeysAsked = true
-        do { passkeys = try await client.passkeyOffer() != nil } catch { passkeysAsked = false }
+        switch try? await client.passkeyOffer() {
+        case .offer?: passkeys = true
+        case .off?: passkeys = false
+        case .unusable?, nil: passkeys = false; passkeysAsked = false
+        }
     }
 
     deinit { watch?.cancel() }
@@ -198,7 +203,7 @@ final class SignInModel: ObservableObject {
             defer { if mine == attempt { busy = false } }
             do {
                 // A fresh challenge for every press: each is good for one sign-in only.
-                guard let offer = try await client.passkeyOffer() else {
+                guard case .offer(let offer) = try await client.passkeyOffer() else {
                     if mine == attempt { error = SignIn.passkeyWords.failed }
                     return
                 }
@@ -227,6 +232,7 @@ final class SignInModel: ObservableObject {
     }
 
     func differentEmail() {
+        client?.cancelPasskey()   // a passkey sheet still open is closed, never left waiting
         attempt += 1; busy = false; watch?.cancel(); code = ""; error = nil; step = .email
         drop()
     }
@@ -241,6 +247,7 @@ final class SignInModel: ObservableObject {
         // The address goes too: the next sign-in here may be another person's (the web page clears it the same way).
         attempt += 1; busy = false; watch?.cancel(); email = ""; code = ""; error = nil; issued = nil; step = .email
         passkeysAsked = false   // asked again when the email step shows: the coordinator's answer may have changed
+        client?.cancelPasskey()
     }
 
     /// Signed in already; the app opens without waiting for the Allow (its tabs say so until the Mac answers).
@@ -307,6 +314,7 @@ final class SignInModel: ObservableObject {
 
     #if DEBUG
     private func show(sample: String) {
+        passkeysAsked = true   // a sample screen never asks the live coordinator
         email = "ada@example.com"
         switch sample {
         case "code": step = .code(email: email)
