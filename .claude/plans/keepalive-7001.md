@@ -179,6 +179,13 @@ Mutants red: a broadened own-Listener pattern (two sites), no post-reload check,
 - Bootstrap retried up to 3 times, then launchd is re-read. "SIGTERM ended it" only when the pid did not outlive the
   wait. The no-pid refusal names both causes. A higher operator ExitTimeOut is kept. The header lists the waits.
 
+## Review round 14
+- install's give-up message says the runner was told to stop and may still be stopping, and names ./svc.sh start
+  (asserted). The reload's final ok cannot fail the script after a good reload (|| true, as the window's note).
+- Deferred with evidence: "the semaphore wording is unconfirmed". It was measured on runner 1 itself (a real
+  KeepAlive job, macOS 27.0.1, 17:48) and found on com.apple.Dock.agent by the round-11 reviewer; the stub cites the
+  capture.
+
 ## Weakest premise
 Third: that SIGKILL, not SIGTERM, is how a runner gets killed in practice (the 10-23 sender was a SIGKILL); a SIGTERM
 leaves it down, by design (KeepAlive true would restart it, at the cost of a 10 s loop on a removed registration).

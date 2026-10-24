@@ -500,7 +500,7 @@ install_runner() {
         sleep 1; sw=$((sw + 1))
       done
       case "$(./svc.sh status 2>&1 || true)" in
-        *Started*) rm -f "$newg"; echo "refused: the runner did not stop in ${sw}s; nothing unpacked" >&2; exit 1 ;;
+        *Started*) rm -f "$newg"; echo "refused: the runner did not stop in ${sw}s; nothing unpacked. It was told to stop and may still be stopping: ./svc.sh start brings it back" >&2; exit 1 ;;
       esac
       # A tar that fails partway leaves old and new files mixed; the runner is started on that, and says so. A failure
       # after the unpack but before the hooks and .env are rewritten starts the new release on the OLD .env and hooks,
@@ -758,7 +758,7 @@ keepalive() {
     sleep 1; w2=$((w2 + 1))
   done
   loaded_keepalive "$dom/$label" || { echo "FAILED: $label was reloaded and runs, but launchctl print shows no 'successful exit => 0' semaphore, the wording this check keys on (measured on macOS 2026-10). If launchctl print $dom/$label shows KeepAlive some other way, the check is what is wrong, not the runner" >&2; exit 1; }
-  ok "the runner is running again, with KeepAlive loaded; it reads online on GitHub within a few minutes (verify, as $OWNER, checks)"
+  ok "the runner is running again, with KeepAlive loaded; it reads online on GitHub within a few minutes (verify, as $OWNER, checks)" || true
 }
 
 verify() {
