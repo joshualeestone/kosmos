@@ -1822,6 +1822,12 @@ const SCREENS = [
   { name: 'ownseal-waiting-4658', owner: 'Baron Draxum', noServiceWorker: true, go: async (page, data) => {
     await ownsealScreen(page, data, { code: 'K7M3P-Q9RXA' }, { computers: [] });
   } },
+  /* The line above the room on a phone (Mona's review): the waiting computer's project at the top of the page. */
+  { name: 'ownseal-room-line-4658', owner: 'Baron Draxum', noServiceWorker: true, phoneOnly: true, go: async (page, data) => {
+    await ownsealScreen(page, data, { code: 'K7M3P-Q9RXA' }, { computers: [] });
+    await page.waitForSelector('#pj-fed-own-phone:not([hidden])', { state: 'visible', timeout: 10000 });
+    await page.evaluate(() => document.getElementById('pj-fed-own-phone').scrollIntoView({ block: 'start' }));
+  } },
   { name: 'ownseal-allow-4658', owner: 'Baron Draxum', noServiceWorker: true, go: async (page, data) => {
     await ownsealScreen(page, data, { code: null }, { computers: [
       { pub: 'pub-sample-1', mac: 'mac-sample-1', code: 'ABCDE-FGHJK', at: 1 },
