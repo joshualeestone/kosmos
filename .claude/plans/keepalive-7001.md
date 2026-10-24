@@ -575,3 +575,17 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
   its purpose, no veto from a relay job, is proven by the user-wide mutant of round 25).
 - NITs FIXED: ka-other's no-op chmod dropped; the dry-run DOWN line names the plist write only when it would write.
 - DEFERRED: ka-loadeddown's 15 s (launchd's default throttle of 10 + 5 is the real floor).
+
+## Review round 40 (sonnet, blind, READ ONLY, HEAD 05f88ed36c)  PAUSE STOP-ITERATION-VALVE: iteration count = 40
+- W1 FIXED, MY ROUND-39 BUG: three stand-ins started BEFORE ka_fresh, which is what clears $T/killed, so a stale
+  marker started their countdown at once. ka_fresh now comes first in all four.
+- W2 FIXED (moved, not added): the user-wide job check ran several reads before the SIGTERM. It now sits immediately
+  before the first stop action (4 lines before the kill). The source-order test asserts HUP/PIPE < INT/TERM < job check
+  < kill.
+- NIT1 FIXED: `standin` execs perl, so $! is the perl pid and kill reaches it (no orphans).
+- DEFERRED: 20-digit integer stderr noise; ka-hup/ka-interrupt could also grep the note.
+- VALVE CALL (recorded on #7001): continue, under 6e's constraint (smallest change per finding, no new mechanism).
+  Reason: every round still finds something real, but the findings have narrowed from unsafe reloads to test-harness
+  timing and millisecond windows, and the recent ones are mostly SELF (in my own fixes: rounds 37, 39). Weakest
+  premise: that the loop is converging rather than circling; if the next two rounds are still SELF-only, stop adding
+  surface and ship with the residuals named.

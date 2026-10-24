@@ -641,7 +641,7 @@ KH="$T/ka-home"; KA="$KH/Library/LaunchAgents/actions.runner.joshualeestone-kosm
 KR="$KH/Library/LaunchAgents/actions.runner.joshualeestone-kosmos-relay.agent1s-relay.plist"
 # standin <seconds>: a stand-in for the old runner that lives <seconds> AFTER the stub's SIGTERM (it waits for $T/killed),
 # however slow startup was; 120 s cap if no SIGTERM comes. Not a bare sleep (#6710).
-standin() { perl -e 'my $t = 0; until (-e $ARGV[0] or $t > 1200) { select(undef, undef, undef, 0.1); $t++ } select(undef, undef, undef, $ARGV[1])' "$T/killed" "$1"; }
+standin() { exec perl -e 'my $t = 0; until (-e $ARGV[0] or $t > 1200) { select(undef, undef, undef, 0.1); $t++ } select(undef, undef, undef, $ARGV[1])' "$T/killed" "$1"; }
 ka_fresh() {   # an installed runner as svc.sh leaves it: started, its plist without KeepAlive
   rm -rf "$KH"; rm -f "$T/loaded-ka" "$T/loaded-thr" "$T/killed"; mkdir -p "$KH/actions-runner" "$KH/Library/LaunchAgents"
   cp "$BIN/_stub" "$KH/actions-runner/svc.sh"; chmod +x "$KH/actions-runner/svc.sh"
@@ -740,24 +740,24 @@ wait "$sp" 2>/dev/null
   && pass "keepalive --apply waits for the old runner to end after SIGTERM before booting it out" || fail "keepalive waits: rc $(rc ka-waits): $(grep bootout- "$T/ka-waits.calls")"
 # A job of this runner up while the old runner outlived the SIGTERM wait: a second wait, then the reload anyway (refusing
 # would leave a SIGTERMed runner down).
-standin 30 & jsp=$!
-ka_fresh; rm -f "$T/worker-up"; run ka-jobduring "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_WORKER_AFTER_KILL=1 -- --apply keepalive
+ka_fresh; standin 30 & jsp=$!
+rm -f "$T/worker-up"; run ka-jobduring "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_WORKER_AFTER_KILL=1 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
 [ "$(rc ka-jobduring)" = 0 ] && has ka-jobduring "a job of this runner is still up while the old runner (pid $jsp) stops" && has ka-jobduring "reloading anyway" \
   && grep -q '^launchctl bootout' "$T/ka-jobduring.calls" && grep -q '^launchctl bootstrap' "$T/ka-jobduring.calls" \
   && pass "keepalive --apply: a job up while the old runner is still stopping: waits again, then reloads (never left down)" || fail "keepalive job during stop: rc $(rc ka-jobduring): $(tail -1 "$T/ka-jobduring.out")"
 # (The test's bash reaps the killed perl stand-in while it waits on the script, so kill -0 sees it gone, not a zombie.)
 # The job ends during that second wait: it is waited for (several -P reads), then the reload, with no "anyway".
-standin 30 & jsp=$!
-ka_fresh; rm -f "$T/worker-up"; run ka-jobends "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=10 FX_WORKER_AFTER_KILL=1 FX_WORKER_ENDS_AFTER=2 -- --apply keepalive
+ka_fresh; standin 30 & jsp=$!
+rm -f "$T/worker-up"; run ka-jobends "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=10 FX_WORKER_AFTER_KILL=1 FX_WORKER_ENDS_AFTER=2 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
 [ "$(rc ka-jobends)" = 0 ] && has ka-jobends "Waiting up to 10s more" && [ "$(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls")" -ge 3 ] && ! has ka-jobends "reloading anyway" \
   && grep -q '^launchctl bootstrap' "$T/ka-jobends.calls" \
   && pass "keepalive --apply: the second wait polls this runner's job until it ends, then reloads" || fail "keepalive job ends: rc $(rc ka-jobends): -P reads $(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls"): $(tail -1 "$T/ka-jobends.out")"
 rm -f "$T/worker-up"
 # The old runner outlived the wait and a RELAY job starts: not this runner's, so no veto; the reload goes on.
-standin 30 & jsp=$!
-ka_fresh; rm -f "$T/relay-worker-up"; run ka-relayoutlived "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_RELAY_WORKER_AFTER_KILL=1 -- --apply keepalive
+ka_fresh; standin 30 & jsp=$!
+rm -f "$T/relay-worker-up"; run ka-relayoutlived "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_RELAY_WORKER_AFTER_KILL=1 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
 [ "$(rc ka-relayoutlived)" = 0 ] && has ka-relayoutlived "had not ended" && grep -q '^launchctl bootout ' "$T/ka-relayoutlived.calls" && ! has ka-relayoutlived "refused" \
   && ! has ka-relayoutlived "a job of this runner is still up" && ! has ka-relayoutlived "reloading anyway" \
@@ -939,12 +939,13 @@ ka_fresh; run ka-stuckkickfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_H
 ka_fresh; run ka-nopid "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_PID=1 -- --apply keepalive
 [ "$(rc ka-nopid)" = 1 ] && has ka-nopid "shows no pid" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-nopid.calls" \
   && pass "keepalive --apply: no pid in launchd's print while its Listener runs refuses before stopping anything" || fail "keepalive no pid: rc $(rc ka-nopid): $(tail -1 "$T/ka-nopid.out")"
-# The HUP/PIPE trap is in place for the whole stop: after the job check, before the SIGTERM (a source-order check; a
-# hang-up cannot be staged here).
-tl="$(grep -n "^  trap '' HUP PIPE\$" "$S" | cut -d: -f1)"; wl="$(grep -n -F 'refused: a job is running under $CI_USER (Runner.Worker is up' "$S" | head -n 1 | cut -d: -f1)"
+# Source order (ka-hup and the interrupt cases test the behaviour): HUP/PIPE, then INT/TERM, are ignored before the job
+# check, and the job check is the last read before the SIGTERM.
+tl="$(grep -n "^  trap '' HUP PIPE\$" "$S" | cut -d: -f1)"; il="$(grep -n "^  trap '' INT TERM\$" "$S" | head -n 1 | cut -d: -f1)"
+wl="$(grep -n -F 'refused: a job is running under $CI_USER (Runner.Worker is up' "$S" | head -n 1 | cut -d: -f1)"
 kl="$(grep -n 'launchctl kill SIGTERM "\$dom/\$label"' "$S" | head -n 1 | cut -d: -f1)"
-[ -n "$tl" ] && [ -n "$wl" ] && [ -n "$kl" ] && [ "$wl" -lt "$tl" ] && [ "$tl" -lt "$kl" ] \
-  && pass "keepalive: SIGHUP and SIGPIPE are ignored from after the job check to before the SIGTERM" || fail "keepalive trap order: job $wl, trap $tl, kill $kl"
+[ -n "$tl" ] && [ -n "$il" ] && [ -n "$wl" ] && [ -n "$kl" ] && [ "$tl" -lt "$il" ] && [ "$il" -lt "$wl" ] && [ "$wl" -lt "$kl" ] \
+  && pass "keepalive: signals are ignored before the job check, and the job check is the last read before the SIGTERM" || fail "keepalive trap order: hup $tl, int $il, job $wl, kill $kl"
 ka_fresh; run ka-disabled "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_DISABLED=1 -- --apply keepalive
 [ "$(rc ka-disabled)" = 1 ] && has ka-disabled "is disabled in gui/777" && has ka-disabled "launchctl enable gui/777/" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-disabled.calls" \
   && pass "keepalive --apply: a disabled label refuses before anything is stopped, and names launchctl enable" || fail "keepalive disabled: rc $(rc ka-disabled): $(tail -1 "$T/ka-disabled.out")"

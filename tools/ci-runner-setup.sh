@@ -796,16 +796,6 @@ keepalive() {
     # runner this stage left down (a bootout that finished late, a failed bootstrap), so it is said loudly and is not ok.
     echo "DOWN: $label is not loaded, so the runner is not running; KeepAlive is in its plist. To start it: launchctl bootstrap $dom $plist (or ./svc.sh start in $CI_USER's session)" >&2; exit 1
   fi
-  # Checked last, just before the bootout, to keep the window short: a job the Listener accepted but has not yet handed
-  # to a Worker is not seen and would be cancelled by the reload (as install's stop accepts too). -x, as install's check:
-  # after a self-update the Worker runs from bin.<version>, so a path match on bin/Runner.Worker would miss it.
-  prc=0; pgrep -u "$ciuid" -x Runner.Worker >/dev/null || prc=$?
-  [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc) to rule out a running job; KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
-  # Any Worker of this user, this runner's or the relay's (#6245): a name match cannot tell them apart, and a path match
-  # could miss a Worker started with a relative path, whose job the reload would then cancel. Refusing is the safe side.
-  [ "$prc" = 1 ] || { echo "refused: a job is running under $CI_USER (Runner.Worker is up, on this runner or the relay's); KeepAlive is in the plist, not yet loaded: run this again when both are idle" >&2; exit 1; }
-  # Accepted window: a job this runner takes between here and the SIGTERM is not seen unless the old runner outlives the
-  # wait (the check after it); the SIGTERM most likely cancels such a job.
   local before; prc=0; before="$(pgrep -u "$ciuid" -f "$own_re")" || prc=$?
   [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc) to note the running Listener; KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
   # Stop it with SIGTERM first and wait for it to end by itself: the LOADED job may still carry launchd's default 5 s exit
@@ -844,6 +834,15 @@ keepalive() {
   if [ -n "$opid" ] && [ -z "$before" ]; then
     echo "refused: $label runs but no Listener of $RUNNER_DIR does (restarting or self-updating); nothing was stopped, KeepAlive is in the plist, not yet loaded: run this again in a minute" >&2; exit 1
   fi
+  # Checked LAST, immediately before the first stop action, so the window a job can slip into is only this line and
+  # the kill: a job the Listener accepted but has not yet handed
+  # to a Worker is not seen and would be cancelled by the reload (as install's stop accepts too). -x, as install's check:
+  # after a self-update the Worker runs from bin.<version>, so a path match on bin/Runner.Worker would miss it.
+  prc=0; pgrep -u "$ciuid" -x Runner.Worker >/dev/null || prc=$?
+  [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc) to rule out a running job; KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
+  # Any Worker of this user, this runner's or the relay's (#6245): a name match cannot tell them apart, and a path match
+  # could miss a Worker started with a relative path, whose job the reload would then cancel. Refusing is the safe side.
+  [ "$prc" = 1 ] || { echo "refused: a job is running under $CI_USER (Runner.Worker is up, on this runner or the relay's); KeepAlive is in the plist, not yet loaded: run this again when both are idle" >&2; exit 1; }
   echo "note:   stopping and reloading $label; Ctrl-C is ignored until it is loaded again (this can take a few minutes)" || true
   [ -n "$opid" ] || echo "note:   $label has no process, so no SIGTERM first" || true
   if [ -n "$opid" ]; then
