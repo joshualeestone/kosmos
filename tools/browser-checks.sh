@@ -1484,6 +1484,7 @@ if boot_board "$sb7" "$P8"; then
   # #6192: a refused read's body is read, so no request stays open. Every GET under /api/ goes on to this board at a
   # path it does not have (its own 404, over the real network), so any board serves; headless-fine.
   run_one "render-refusedbody-6192" env KOSMOS_URL="$B8" node docs/browser-checks/render-refusedbody-6192.js
+  run_one "render-stepupask-6616" env KOSMOS_URL="$B8" node docs/browser-checks/render-stepupask-6616.js
   run_one "render-switch-states" env KOSMOS_URL="$B8" node docs/browser-checks/render-switch-states.js
   # #2020/#2047: the two restored telemetry opt-out switches are 403-safe (a gated
   # read draws could-not-read, never a false Off). The 403 arm is simulated with

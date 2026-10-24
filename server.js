@@ -4690,6 +4690,18 @@ const REMOTE_STEP_UP = Object.freeze({
   code: 'remote_step_up',
   error: 'From a remote session this needs a fresh sign-in. Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, sign in again with your email code and authenticator code, then try again within 10 minutes. Not using Kosmos+? Do this at the computer itself.',
 });
+/* kosmos#6616 (R01b): the same refusal when the connector also serves `/_kosmos/signin?fresh=1` (it lists
+   fresh-signin): the board page then offers a Sign in again button there, which ends the gate's session and asks the
+   sign-in site for a FRESH sign-in, so one press replaces signing out in two places. The button's address is fixed in
+   the page; this only says the connector serves it. The sentence keeps the two-place sign-out as its fallback (review
+   iteration 1): the capability is read from the connector BINARY, so a tunnel still running from before an update may
+   not serve the path yet (part 6 of #6616 reads the running tunnel instead), and the ask can be closed while the
+   page that asked still shows this sentence. */
+const REMOTE_STEP_UP_SIGNIN = Object.freeze({
+  code: 'remote_step_up',
+  error: 'From a remote session this needs a fresh sign-in. Press Sign in again at the foot of the page, sign in with your email code and authenticator code, then try again within 10 minutes. No Sign in again there? Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, then sign in again. Not using Kosmos+? Do this at the computer itself.',
+  signInAgain: true,
+});
 /* A sign-in that the gate says happened more than a minute AHEAD of this clock: signing in again cannot help, the
    clocks disagree, so it is told apart (review iteration 8). */
 const REMOTE_STEP_UP_CLOCK = Object.freeze({
@@ -4707,11 +4719,17 @@ const REMOTE_STEP_UP_CONNECTOR = Object.freeze({
 function remoteStepUpRefusal(req, pathname, nowSecs, caps) {
   if (!needsRemoteStepUp(pathname, req.method) || !isRemoteRequest(req)) return null;
   // Asked only for a remote request to a gated route, so no other request ever waits on the connector.
-  if (!(caps || remote.connectorCapabilities()).has('session-headers')) return REMOTE_STEP_UP_CONNECTOR;
+  const said = caps || remote.connectorCapabilities();
+  if (!said.has('session-headers')) return REMOTE_STEP_UP_CONNECTOR;
   if (remoteSessionFresh(req.headers, nowSecs)) return null;
   const { second, iat } = remoteSessionHeaders(req.headers);
   if (second && iat !== null && iat - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
-  return REMOTE_STEP_UP;
+  /* A UI hint, not a trust decision (anyone can write these headers; they only choose which sentence a refusal
+     carries). The button only for a request the Kosmos+ gate forwarded (it wrote a session header), not one through a proxy the
+     person put in front of the board, which never serves /_kosmos/signin (review iteration 3). A gate session from
+     before kosmos-relay sessioniat-6595 sends neither header and gets the fallback sentence, which still works. */
+  const viaGate = req.headers['x-kosmos-session-iat'] !== undefined || req.headers['x-kosmos-session-second'] !== undefined;
+  return said.has('fresh-signin') && viaGate ? REMOTE_STEP_UP_SIGNIN : REMOTE_STEP_UP;
 }
 /* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
    Kosmos+ reaches the board over loopback, which is why the header rule stays). */
@@ -26961,7 +26979,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   parseByteRange, // kosmos#6805: the Range parser, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
-  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up
+  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test

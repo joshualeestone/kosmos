@@ -1305,6 +1305,18 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    and so is consolidated, where the header is not sticky and the stack scrolls away (the padding then over-shoots). */
 @media (max-width: 720px) { html { scroll-padding-top: calc(165px + var(--topnotes-h, 0px)); } }
 @media (max-width: 440px) { html { scroll-padding-top: calc(187px + var(--topnotes-h, 0px)); } }
+/* kosmos#6616: the board's one "sign in again" ask. Above the first-run covers (they go to 70), because a key or a
+   sign-in is often asked for from inside them, and exempt from the inert they put on the page. Hidden while the
+   restart screen, the update overlay or the account-switch screen is up (review iterations 2 and 3): the board is
+   going away then, and an ask left over them could be seen and not pressed. */
+/* Centred by auto margins between a 16 px gutter, not left: 50% with a transform, which gave the box only half the
+   screen to size into (195 px wide on a phone, measured by its browser check). */
+.stepup-ask .stepup-form { display: contents; }   /* the form adds no box: its button lays out with the rest */
+.stepup-ask { position: fixed; left: 16px; right: 16px; margin: 0 auto; width: fit-content; z-index: 80;
+  max-width: 560px; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 11px; background: var(--bg-elevated); border: 1px solid var(--label-2);
+  box-shadow: 0 6px 22px rgba(20,22,26,.13); }
+body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display: none !important; }
 /* ⚠️ THE UPDATE NOTICE, ported from the frozen pack. The decisions it
    carries are the pack's, recorded there and not re-opened here: RED
    (Josh's call, twice, wanting it unmissable), and #b3261e specifically
@@ -20471,6 +20483,14 @@ window.kosmosMeasureScrollbarWidth();
      `role="alert"` also announces nothing from inside a hidden subtree, so the
      screen-reader half was silently gone too. -->
 <p class="removed-msg" id="removed-msg" role="alert" aria-live="assertive"></p>
+<!-- kosmos#6616 (R01b): from a remote session, a refusal that asks for a fresh sign-in, when this computer's Kosmos+
+     connector serves /_kosmos/signin?fresh=1. One place for every page, filled by the fetch wrapper below. The
+     address is fixed here, never read from a reply. A same-origin FORM POST, not a link: the gate's route is POST
+     only (like /_kosmos/logout, with the same cross-site guard), ends the gate session and answers 303 to the
+     sign-in site, which only a navigation follows (Renet's contract, kosmos-relay gatefresh-6616). -->
+<div class="stepup-ask" id="stepup-ask" hidden><span id="stepup-words" role="alert"></span>
+  <form class="stepup-form" id="stepup-form" method="post" action="/_kosmos/signin?fresh=1"><button type="submit" class="btn" id="stepup-go">Sign in again</button></form>
+  <button type="button" class="btn" id="stepup-close">Not now</button></div>
 <!-- ⚠️ THE FOOT, not the top (Josh, 2026-08-19). This line sat above the cards,
      under the New agent button, where the first thing a person met on their
      board was its version number. It belongs where a version belongs: at the
@@ -20514,12 +20534,79 @@ window.addEventListener('unhandledrejection', (e) => {
   window.fetch = function fetchReadingRefusals(...args) {
     return nativeFetch.apply(window, args).then((res) => {
       if (res && res.ok === false && typeof res.clone === 'function') {
-        try { res.clone().arrayBuffer().catch(() => {}); } catch { /* the caller's own read is unaffected */ }
+        // kosmos#6616: a 403 is read as JSON, which drains it just the same, to see whether it asks for a fresh sign-in.
+        // Every other refusal is drained as bytes, as before.
+        try {
+          const copy = res.clone();
+          // Only this board's own replies: the page also reads other computers' boards (credentialed, cross-origin), and
+          // their refusal must not raise an ask that links to THIS board's gate (review iteration 7).
+          if (res.status === 403 && sameOriginReply(res)) copy.json().then((b) => showStepUpAsk(b, requestKey(args, res))).catch(() => {});   // declared below; called later
+          else copy.arrayBuffer().catch(() => {});
+        } catch { /* the caller's own read is unaffected */ }
+      } else if (res && res.ok && writeRequest(args) && sameOriginReply(res)) {
+        // kosmos#6616: the SAME write that was refused now got through, so the fresh sign-in took and the ask goes. Not
+        // any write (review iteration 9): only a listed few are gated, and a chat message passes a stale session too.
+        const box = document.getElementById('stepup-ask');
+        if (box && !box.hidden && box.stepUpFor === requestKey(args, res)) hideStepUpAsk();
       }
       return res;
     });
   };
 })();
+/* kosmos#6616 (R01b): a remote session's refusal that says this computer's connector can take a fresh sign-in
+   (`signInAgain`, server.js REMOTE_STEP_UP_SIGNIN) shows the Sign in again ask, whichever page made the request. The
+   page that asked still shows the refusal its own way; this adds the one button. The words are the server's own
+   sentence for that code, and the form's address is fixed in the markup. Not now closes it until the next such
+   refusal; the sentence carries its own fallback, so it still reads right with the ask closed. */
+/* A fetch's method, from its init or from a Request passed as the first argument. */
+function requestMethod(args) {
+  const init = args[1] || {};
+  return String(init.method || (args[0] && typeof args[0] === 'object' && args[0].method) || 'GET').toUpperCase();
+}
+function writeRequest(args) {
+  const method = requestMethod(args);
+  return method !== 'GET' && method !== 'HEAD';
+}
+/* Which request this was, as the ask remembers the refused one: its method and its path on this board. A success
+   that comes back from another final address (a redirect) does not match, and the ask stays until Not now; the
+   sentence carries its own fallback, so that is a known limit, not a stuck page. */
+function requestKey(args, res) {
+  try { return requestMethod(args) + ' ' + new URL(res.url, location.href).pathname; } catch { return ''; }
+}
+/* Where focus goes when Not now closes the ask: back into a first-run screen when one is up (the rest of the page is
+   inert under it, so the K mark would take no focus and it would fall to the page; review iteration 11), else the K
+   mark, as the board's other notices do. */
+function stepUpFocusAway() {
+  for (const id of ['fr-choice', 'firstrun']) {
+    const screen = document.getElementById(id);
+    if (!screen || screen.hidden) continue;
+    const to = [...screen.querySelectorAll('button')].find((b) => !b.disabled && b.getClientRects().length);
+    if (to) { to.focus(); return; }
+  }
+  rebootFocusAway();
+}
+function hideStepUpAsk() {
+  const box = document.getElementById('stepup-ask');
+  if (box) box.hidden = true;
+}
+function sameOriginReply(res) {
+  try { return new URL(res.url, location.href).origin === location.origin; } catch { return false; }
+}
+function showStepUpAsk(body, key) {
+  if (!body || body.code !== 'remote_step_up' || body.signInAgain !== true || typeof body.error !== 'string') return;
+  const box = document.getElementById('stepup-ask');
+  if (!box) return;
+  /* Shown FIRST and the words written after (review iteration 3): an alert announces nothing from inside a hidden
+     element, and the same sentence written again changes nothing, so a second refusal would be silent. */
+  const words = document.getElementById('stepup-words');
+  box.stepUpFor = key || '';   // the refused request: only it, getting through later, takes the ask away
+  box.hidden = false;
+  words.textContent = '';
+  setTimeout(() => { words.textContent = body.error; }, 0);
+}
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.closest && e.target.closest('#stepup-close')) { hideStepUpAsk(); stepUpFocusAway(); }
+});
 
 /* ================= win32-board-copy: the platform copy layer =================
    ONE place decides whether this board speaks Windows, and ONE table holds every
@@ -24605,6 +24692,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   // Same rule as the first-run overlay: everything behind it goes inert, so
   // the keyboard cannot operate the dying board through the backdrop. No
   // un-inert path is needed; every exit from this state is a reload.
+  // #6616: the Sign in again ask is made inert here too, on purpose: CSS hides it under this overlay (.stepup-ask).
   document.querySelectorAll('body > *:not(.upd-back)').forEach((el) => { el.inert = true; });
   back.querySelector('.upd-msg').focus();   // announced, and the keyboard is off the dying board
   /* The board goes down and comes back; reload on the way back up OR the
@@ -25112,6 +25200,7 @@ let BOARD_NO_ANSWER_SINCE = null;
 let RESTART_SCREEN_INERTED = [];
 let RESTART_SCREEN_WATCH = null;    // inerts anything added to <body> while the screen is up
 let RESTART_SCREEN_RETURN = null;   // where focus was, to give it back on recovery
+// #6616: this inerts the Sign in again ask too, on purpose: CSS hides it under the restart screen (.stepup-ask).
 function restartScreenInert(el) {
   if (el.classList && el.classList.contains('restart-back')) return;
   if (!el.inert) { el.inert = true; RESTART_SCREEN_INERTED.push(el); }
@@ -86464,7 +86553,7 @@ function frOpen() {
    * through into tabs and cards a person has not been shown yet, and a screen
    * reader reads the whole board underneath the welcome message.
    */
-  document.querySelectorAll('body > *:not(#firstrun)').forEach((el) => { el.inert = true; });
+  document.querySelectorAll('body > *:not(#firstrun):not(#stepup-ask)').forEach((el) => { el.inert = true; });   // #6616: the Sign in again ask stays pressable
   frDots.boot();
   frGo(1);
   // The heading, not the button: frGo already focuses #fr-title per step
@@ -86479,7 +86568,7 @@ function frClose() {
   frKeyedHideAll();   // #3713/#3731: Gemini's and Grok's panels close with first run, and their watchers stop
   frMuseCollapse();   // #3939 3c-4: and Meta's sign-in is stopped by its id
   document.getElementById('firstrun').hidden = true;
-  document.querySelectorAll('body > *:not(#firstrun)').forEach((el) => { el.inert = false; });
+  document.querySelectorAll('body > *:not(#firstrun):not(#stepup-ask)').forEach((el) => { el.inert = false; });
   if (FR_RETURN && FR_RETURN.focus) FR_RETURN.focus();
   FR_RETURN = null;
 }
@@ -86619,7 +86708,11 @@ document.addEventListener('keydown', (e) => {
    * title. Wrapping here handles the ordinary case properly and leaves the
    * backstop for anything that gets past it.
    */
+  // kosmos#6616: the Sign in again ask, when it shows, is a stop in this cycle too (the last), so the keyboard can
+  // reach it over first run; it is the one thing outside the overlay that is not inert.
+  const ask = document.getElementById('stepup-ask');
   const stops = Array.from(overlay.querySelectorAll('button, [href], input, [tabindex]:not([tabindex="-1"])'))
+    .concat(ask && !ask.hidden ? Array.from(ask.querySelectorAll('button')) : [])
     .filter((el) => !el.hidden && !el.disabled && el.getClientRects().length);
   if (!stops.length) return;
   const first = stops[0];
@@ -86632,6 +86725,7 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('focusin', (e) => {
   const overlay = document.getElementById('firstrun');
   if (overlay.hidden || overlay.contains(e.target)) return;
+  if (e.target && e.target.closest && e.target.closest('#stepup-ask')) return;   // kosmos#6616: the ask is reachable over first run
   // install-flow-9screen: pull focus back to the ACTIVE pane's own <h2> (the
   // dialog's live accessible name), the shell #fr-title being retired.
   if (FR_ACTIVE_H2) FR_ACTIVE_H2.focus();
@@ -88417,7 +88511,7 @@ let FR_CHOICE_CONNECTING = false;   // Connect was chosen: the board is being st
 let FR_CHOICE_PENDING = false;      // the first screen is waiting for an answer (frChoose)
 let FR_CHOICE_HIDDEN_BY_RESTART = false;   // the restart screen hid it, and gives it back if it clears
 function frChoiceHold(n) {
-  if (n.nodeType !== 1 || n.id === 'fr-choice' || n.inert) return;
+  if (n.nodeType !== 1 || n.id === 'fr-choice' || n.id === 'stepup-ask' || n.inert) return;   // #6616: the ask stays pressable
   n.inert = true;
   FR_CHOICE_INERTED.push(n);
 }

@@ -128,7 +128,9 @@ const look = (page) => page.evaluate(() => {
     await page.waitForTimeout(4500);   // past the 3 s boot timer that starts the tips and the setup assistant
     // #4820: the Community notice is gone, so the tip is the one window that could open under the screen.
     chk(await page.evaluate(() => !TIP_OPEN), 'C1 no tip opens under the screen');
-    chk(await page.evaluate(() => [...document.querySelectorAll('body > *:not(#fr-choice)')].every((n) => n.inert)), 'C1 the rest of the page is inert');
+    chk(await page.evaluate(() => [...document.querySelectorAll('body > *:not(#fr-choice):not(#stepup-ask)')].every((n) => n.inert)), 'C1 the rest of the page is inert');
+    // kosmos#6616: the one exception is the Sign in again ask, kept pressable over first run, and it is hidden here.
+    chk(await page.evaluate(() => { const a = document.getElementById('stepup-ask'); return !!a && a.hidden && !a.inert; }), 'C1 the only exception, the Sign in again ask, is hidden');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'firstrun-choice-4356.png') });
 
     // C2: Run agents hands the app "run", hides the screen, first run carries on, and the address forgets ?mode=.

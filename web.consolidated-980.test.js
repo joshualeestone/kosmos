@@ -427,9 +427,9 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
   }
 
   // The 41-track headroom is a real number (#6722's picture editor made it 41: #cropmodal is a position:fixed dialog
-  // opened from the agent page, the new-agent page and Settings, so it cannot sit inside one section; #4812's #oa-wrap
-  // made it 40; #4356's #fr-choice made it 39: it is position:fixed and
-  // takes no row, but the count is headroom, kept honest): the 41st simultaneously
+  // opened from the agent page, the new-agent page and Settings, so it cannot sit inside one section; #6616's Sign in
+  // again ask is the 41st child, so the headroom is now all used (measured: main 40, with #6616 41); #4812's #oa-wrap made it 40; #4356's #fr-choice made it 39: they are position:fixed and
+  // take no row, but the count is headroom, kept honest): the 41st simultaneously
   // renderable auto-placed body child would spill into an implicit row
   // below the clipped viewport -- the same invisible-surface failure the
   // auto rows exist to prevent. Count the body's direct element children
