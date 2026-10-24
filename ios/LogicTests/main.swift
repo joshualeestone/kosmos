@@ -1121,6 +1121,8 @@ do {
           == .failed("We could not read all of the earlier messages just now. Try again in a moment."), "a failure in the Mac's own words")
     check(Board.readOlder(status: 0, data: nil, before: 5) == .failed(Board.olderFailed) && Board.readOlder(status: 200, data: Data("{}".utf8), before: 5) == .failed(Board.olderFailed),
           "no answer, or an answer with no messages, in the board's words")
+    check(Board.readOlder(status: 200, data: Data(#"{"messages":[],"olderCount":5}"#.utf8), before: 5) == .failed(Board.olderFailed),
+          "an empty page that makes no progress is a failure, not a page to ask again on every read")
     // Two pages never share an id, and neither shares the latest read's.
     let p1 = pageOf(Board.readOlder(status: 200, data: page(3, older: 0), before: 3)).rows
     let p2 = pageOf(Board.readOlder(status: 200, data: page(3, older: 3), before: 6)).rows
