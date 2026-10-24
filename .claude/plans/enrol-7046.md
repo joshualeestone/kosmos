@@ -33,3 +33,6 @@ key is there to type.
 ## Review round 2 (blind, 08:3x)
 1. The start-again check covered confirm only; an expired token at setup kept the person there. FIXED: setup too.
 2. Account-gone sentences (no such account, no longer exists, being deleted) also leave the screen now.
+
+## Review round 3 (blind, 08:3x)
+1. Two more dead-end sentences ("sign in again": signed out everywhere, or this device removed, since the setup began) kept the person on the screen. FIXED: one more phrase in the same list, tested, with a wrong-code control. Not reviewed again: Splinter asked for short reviews with the shared account at 95%, and the change is one phrase in a list round 3 had just checked end to end.

@@ -288,7 +288,8 @@ enum SignIn {
     /// than retrying here. A wrong code says neither, and stays.
     static func startsOver(_ message: String?) -> Bool {
         let m = message ?? ""
-        return ["start again", "no such account", "no longer exists", "being deleted"].contains { m.range(of: $0, options: .caseInsensitive) != nil }
+        // "sign in again": signed out everywhere, or this device removed, since the setup began (second.rs refuse_signed_out).
+        return ["start again", "sign in again", "no such account", "no longer exists", "being deleted"].contains { m.range(of: $0, options: .caseInsensitive) != nil }
     }
 
     /// The second step's line, as the web page words it (secondWords). The authenticator shows "Kosmos" (the issuer

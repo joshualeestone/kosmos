@@ -2693,6 +2693,7 @@ check(SignIn.answer(status: 200, json: jsonBody(#"{"ok":true,"kind":"totp","toke
       == .signedIn(.init(token: "real", deviceStatus: .pending, matchCode: "K7Q2", hasComputer: true)), "confirm's answer (a session with ok and kind) is the first real session")
 check(SignIn.startsOver("token invalid or expired; start again from the email") && SignIn.startsOver("nothing is being enrolled; Start again")
       && SignIn.startsOver("no such account") && SignIn.startsOver("this Kosmos+ account no longer exists")
+      && SignIn.startsOver("this account signed out everywhere since; sign in again") && !SignIn.startsOver("that code is not the one we texted")
       && !SignIn.startsOver("that code is not what the app shows right now; wait for the next one and try again") && !SignIn.startsOver(nil), "only a refusal that says start again, or that the account is gone, leaves the screen")
 check(SignIn.enrolBody()["kind"] as? String == "totp" && SignIn.confirmBody(code: "123456")["code"] as? String == "123456" && SignIn.confirmBody(code: "1").count == 1, "the setup requests carry only the kind, then only the code")
 check(SignIn.next(after: .refused(message: nil, proofRefused: false), email: "e").step == .code(email: "e"), "a wrong code stays on the code")
