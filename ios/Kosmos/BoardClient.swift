@@ -390,9 +390,9 @@ final class BoardClient: ObservableObject {
         sampleThreads[session] = Board.Thread(rows: sample.rows + [row], olderCount: sample.olderCount)
         return .kept(at: at)
     }
-    // KOSMOS_SAMPLE_CHOICE=answered: the question as just answered, held for an hour so a screenshot can catch it.
-    func sampleAnswer(_ session: String, key: String, n: Int) {
-        answered[session] = Answered(key: key, at: env.now().addingTimeInterval(3600 - Self.answeredLock), sure: true, n: n)
+    // KOSMOS_SAMPLE_CHOICE=answered|unsure: the question as just answered (or maybe answered), held for an hour so a screenshot can catch it.
+    func sampleAnswer(_ session: String, key: String, n: Int, sure: Bool) {
+        answered[session] = Answered(key: key, at: env.now().addingTimeInterval(3600 - Self.answeredLock), sure: sure, n: n)
     }
     // A press in the sample chats: the question goes, as the Mac's next read would say (KOSMOS_SAMPLE_PRESS=unsure
     // shows the not-sure line instead).
