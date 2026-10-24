@@ -27,6 +27,11 @@ gone.
 - Earlier messages belong to one open chat, as on the board (`EARLIER` is per agent and reset by another): leaving
   the chat and coming back starts closed.
 - The failure line uses the Mac's own words when it gave them (the spec), and the board's sentence otherwise.
+- "Near the top" is the top of what is loaded (the marker LazyVStack realises as the reader reaches it), as on the
+  board (EARLIER_NEAR_TOP, 120 px), rather than the spec's "within one screen". A fast scroll may stop at the top while
+  the page loads; matching the board keeps the two the same.
+- Settled means the newest message is really on screen, or the top has left it after the first layout (review 2 and 3:
+  a fixed delay both loaded on a slow open and missed the real scroll-up).
 - Rejected: loading on any appearance of the top. The first layout draws the top for a moment before the jump to the
   newest message, which would load a page on every open.
 
