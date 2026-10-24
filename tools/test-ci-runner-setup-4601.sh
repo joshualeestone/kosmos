@@ -35,6 +35,8 @@ case "$me" in
     case "$1" in
       kill) [ "${FX_KILL_FAIL:-0}" = 1 ] && exit 3
         [ "${FX_INTERRUPT:-0}" = 1 ] && kill -INT "$PPID"   # an operator's Ctrl-C, inside the stop window
+        [ "${FX_HUP:-0}" = 1 ] && kill -HUP "$PPID"         # a dropped ssh session, inside the stop window
+        [ "${FX_WORKER_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/worker-up"   # a job taken during the stop
         exit 0 ;;
       print-disabled) printf 'disabled services = {\n'
         [ "${FX_DISABLED:-0}" = 1 ] && printf '\t"actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" => disabled\n'
@@ -89,7 +91,7 @@ case "$me" in
       if [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ]; then [ -z "${FX_OLD_TOO:-}" ] || echo "$FX_OLD_TOO"; cat .svc-pid 2>/dev/null || echo 4343; exit 0; fi
       [ -n "${FX_OLD_TOO:-}" ] && { echo "$FX_OLD_TOO"; exit 0; }; exit 1 ;; esac
     # A self-updated runner's Worker runs from bin.<version>/Runner.Worker: a name match (-x) sees it, bin/Runner.Worker does not.
-    case "$*" in *Runner.Worker*) [ "${FX_WORKER:-0}" = 1 ] || exit 1; case "$*" in *"-x Runner.Worker"*) echo 4242; exit 0 ;; esac; exit 1 ;; esac
+    case "$*" in *Runner.Worker*) { [ "${FX_WORKER:-0}" = 1 ] || [ -f "$(dirname "$CALL_LOG")/worker-up" ]; } || exit 1; case "$*" in *"-x Runner.Worker"*) echo 4242; exit 0 ;; esac; exit 1 ;; esac
     [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
   df) [ "${FX_DF_NOROW:-0}" = 1 ] && { echo "Filesystem 1024-blocks Used Available Capacity Mounted"; exit 0; }
     printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/disk3s1 239362496 1 %s 50%% /\n' "${FX_FREE_KIB-31457280}" ;;
@@ -632,7 +634,7 @@ ka_fresh; run ka-relayrespawn "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HO
 # A bootout that reports failure while the job is still listed may still be unloading: it waits, and says both outcomes.
 ka_fresh; run ka-bootoutfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTOUT_FAIL=1 FX_NO_PID=1 FX_LISTENER=0 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 [ "$(rc ka-bootoutfail)" = 1 ] && has ka-bootoutfail "(exit 5) had not unloaded it" && has ka-bootoutfail "may still be unloading" && has ka-bootoutfail "the runner is DOWN" \
-  && ! has ka-bootoutfail "runs on" && ! grep -q '^launchctl bootstrap' "$T/ka-bootoutfail.calls" \
+  && ! has ka-bootoutfail "the runner is STOPPED" && ! grep -q '^launchctl bootstrap' "$T/ka-bootoutfail.calls" \
   && pass "keepalive --apply: a failed bootout with the job still listed is not called running: it may be unloading, both outcomes named" || fail "keepalive bootout fail: rc $(rc ka-bootoutfail): $(tail -1 "$T/ka-bootoutfail.out")"
 ka_fresh; run ka-baselinefail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_LISTENER_PGREP_FAIL=1 -- --apply keepalive
 [ "$(rc ka-baselinefail)" = 1 ] && has ka-baselinefail "to note the running Listener" && ! grep -q '^launchctl boot' "$T/ka-baselinefail.calls" \
@@ -666,6 +668,16 @@ el=$((SECONDS - t0)); wait "$sp" 2>/dev/null
   && pass "keepalive --apply waits for the old runner to end after SIGTERM before booting it out" || fail "keepalive waits: rc $(rc ka-waits): $(grep bootout- "$T/ka-waits.calls")"
 # Outlives the wait: it goes on (refusing would leave a SIGTERMed runner under its old definition) and says so.
 sleep 30 & sp=$!
+# A job taken while the stop was under way: the bootout would cancel it, so the second job check refuses before it.
+ka_fresh; rm -f "$T/worker-up"; run ka-jobduring "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_WORKER_AFTER_KILL=1 -- --apply keepalive
+[ "$(rc ka-jobduring)" = 1 ] && has ka-jobduring "a job started during the stop" && has ka-jobduring "was sent SIGTERM, so it ends after that job" \
+  && grep -q '^launchctl kill SIGTERM' "$T/ka-jobduring.calls" && ! grep -q '^launchctl bootout' "$T/ka-jobduring.calls" \
+  && pass "keepalive --apply: a job taken during the stop is not booted out, and the message says the runner will stay stopped" || fail "keepalive job during stop: rc $(rc ka-jobduring): $(tail -1 "$T/ka-jobduring.out")"
+rm -f "$T/worker-up"
+# A real SIGHUP inside the stop window (a dropped ssh session): ignored, so the reload completes.
+ka_fresh; run ka-hup "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_HUP=1 -- --apply keepalive
+[ "$(rc ka-hup)" = 0 ] && grep -q '^launchctl bootstrap ' "$T/ka-hup.calls" \
+  && pass "keepalive --apply: a SIGHUP during the stop does not end the script; the runner is reloaded" || fail "keepalive hup: rc $(rc ka-hup): $(tail -1 "$T/ka-hup.out")"
 ka_fresh; run ka-outlives "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null
 [ "$(rc ka-outlives)" = 0 ] && has ka-outlives "had not ended 1s after SIGTERM" && grep -qx 'bootout-while-alive' "$T/ka-outlives.calls" \
@@ -683,7 +695,7 @@ ka_fresh; run ka-nopid "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH
   && pass "keepalive --apply: no pid in launchd's print while its Listener runs refuses before stopping anything" || fail "keepalive no pid: rc $(rc ka-nopid): $(tail -1 "$T/ka-nopid.out")"
 # The HUP/PIPE trap is in place for the whole stop: after the job check, before the SIGTERM (a source-order check; a
 # hang-up cannot be staged here).
-tl="$(grep -n "^  trap '' HUP PIPE\$" "$S" | cut -d: -f1)"; wl="$(grep -n -- '-x Runner.Worker >/dev/null || prc' "$S" | tail -n 1 | cut -d: -f1)"
+tl="$(grep -n "^  trap '' HUP PIPE\$" "$S" | cut -d: -f1)"; wl="$(grep -n -F 'refused: a job is running under $CI_USER (Runner.Worker is up' "$S" | head -n 1 | cut -d: -f1)"
 kl="$(grep -n 'launchctl kill SIGTERM "\$dom/\$label"' "$S" | head -n 1 | cut -d: -f1)"
 [ -n "$tl" ] && [ -n "$wl" ] && [ -n "$kl" ] && [ "$wl" -lt "$tl" ] && [ "$tl" -lt "$kl" ] \
   && pass "keepalive: SIGHUP and SIGPIPE are ignored from after the job check to before the SIGTERM" || fail "keepalive trap order: job $wl, trap $tl, kill $kl"
@@ -809,6 +821,9 @@ echo "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-a
 vcase no-keepalive 1 "lacks KeepAlive {SuccessfulExit: false}"
 cp "$T/ka.after" "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 vcase keepalive 0 "has KeepAlive SuccessfulExit false"
+# As the owner in production: ~/Library closed, .service readable. Not checked is a check not made (3), never clear.
+chmod 000 "$VCI/Library"; vcase ka-library-closed 3 "under $VCI/Library/LaunchAgents that $(id -un) can see (its ~/Library is closed to other users), so KeepAlive is not checked here"; chmod 755 "$VCI/Library"
+chmod 000 "$VCI/actions-runner/.service"; vcase ka-service-unreadable 3 "cannot read $VCI/actions-runner/.service as $(id -un), so KeepAlive is not checked here"; chmod 644 "$VCI/actions-runner/.service"
 rm -rf "$VCI/Library" "$VCI/actions-runner/.service"
 grep -q 'no tmux or node left' "$T/v-clear.out" && pass "verify: an idle runner's own node (RunnerService.js) is not a leftover" || fail "verify idle runner: $(grep -E 'REFUSE|ok' "$T/v-clear.out" | tail -2)"
 cp "$VCI/actions-runner/.env" "$T/vci.env"
