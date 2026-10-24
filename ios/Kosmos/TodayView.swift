@@ -87,12 +87,14 @@ struct TodayView: View {
     private func screen(stale: Bool) -> some View {
         let m = model
         return ScrollViewReader { proxy in List {
-            Section {
-                Text(m.subhead)
-                    .font(.subheadline)
-                    .foregroundColor(Palette.secondary)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
-                    .listRowBackground(Color.clear)
+            // The subhead sits directly under the large title, as one header with it (Mona Lisa's review, 10-24): the
+            // first section's header, not a row, which the list would pad as a row and push about 40pt down.
+            Section(header: Text(m.subhead)
+                .font(.subheadline)
+                .foregroundColor(Palette.secondary)
+                .textCase(nil)
+                .padding(.leading, -16)
+                .padding(.top, -24)) {
                 if stale {
                     notUpdating
                         .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 0, trailing: 0))
