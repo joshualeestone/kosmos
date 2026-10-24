@@ -31,6 +31,12 @@ shows the post's words; the shell sends the board's project pages under Today.
   room (RoomPage.held). Both are on the board's room page, one tap away (the info button).
 - An addable refusal's Add button is not drawn (members stay on the board's page); the line itself is.
 - A read that started before a reaction toggle can show the old pill until the next 5-second re-read.
+- Spec items not built in this part (review 3; each is on the board's room page, one tap away by the info button):
+  the grouped "<Name> is working..." line; the @ member picker and the + for a file in the composer; a reply header
+  that scrolls to its original on tap; the provider tally beside "N agents"; slice 1's first-connect and
+  lost-while-open states on this tab (it shows Reaching your computer, or the last list it read).
+- Another computer that has not earned Tasks does not take the tab away until a board page is read (the status poll
+  only ever adds it).
 
 ## Steps
 1. Models + suite. DONE. 2. Screens + shell. DONE. 3. Notification routing. DONE. 4. Review loop, validation, PR.

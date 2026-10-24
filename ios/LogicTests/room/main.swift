@@ -99,6 +99,10 @@ let half = Board.RoomRow(id: "m61", atRaw: "2026-10-22T15:02:00.500Z", at: Board
 check(whole.at != nil && half.at != nil, "premise: both times parse")
 check(Board.mergeRoom([half], with: [whole]).map { $0.id } == ["m60", "m61"], "a time kept without milliseconds sorts by when it was, not as text")
 
+section("the Projects tab's badge")
+check(AppTabs.projectsUnread(fromStatus: Data(#"{"counts":{"waiting":2,"projectsUnread":3}}"#.utf8)) == 3, "the board's unread room posts")
+check(AppTabs.projectsUnread(fromStatus: Data(#"{"counts":{"projectsUnread":0}}"#.utf8)) == nil && AppTabs.projectsUnread(fromStatus: Data(#"{"counts":{}}"#.utf8)) == nil, "CONTROL: 0 or absent is no badge")
+
 section("Tasks earned from the status poll (no board page needed)")
 check(AppTabs.tasksTab(fromStatus: Data(#"{"agents":[],"tasksTab":true}"#.utf8)) == true, "the engine's flag on, read")
 check(AppTabs.tasksTab(fromStatus: Data(#"{"agents":[],"tasksTab":false}"#.utf8)) == false, "CONTROL: off reads off")

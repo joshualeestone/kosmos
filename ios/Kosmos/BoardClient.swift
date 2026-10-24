@@ -236,6 +236,7 @@ final class BoardClient: ObservableObject {
     @Published private(set) var waitingCount: Int?
     // The engine's Tasks flag from the same poll (nil when the Mac does not say).
     @Published private(set) var tasksTab: Bool?
+    @Published private(set) var projectsUnread: Int?
     // The tasks an agent marked built, oldest first; nil until a read answers. tasksFailed: the last read did not
     // answer with tasks, which Today says in place of the section, never as zero.
     @Published private(set) var readyTasks: [Board.ReadyTask]?
@@ -262,6 +263,7 @@ final class BoardClient: ObservableObject {
         tasksTask = nil
         waitingCount = nil
         tasksTab = nil
+        projectsUnread = nil
         readyTasks = nil
         tasksFailed = false
         tasksAt = nil
@@ -892,6 +894,7 @@ final class BoardClient: ObservableObject {
             agents = resortNext ? Board.sorted(rows) : Board.keepingOrder(agents, with: rows)
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
             tasksTab = AppTabs.tasksTab(fromStatus: data)   // kosmos#7032: Tasks earned, with no board page loaded
+            projectsUnread = AppTabs.projectsUnread(fromStatus: data)     // kosmos#7032: the Projects tab's badge
             resortNext = false
             updatedAt = env.now()
             failedRefreshes = 0

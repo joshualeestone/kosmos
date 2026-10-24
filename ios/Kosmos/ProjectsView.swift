@@ -23,6 +23,13 @@ final class RoomStore: ObservableObject {
     struct Pending: Equatable, Identifiable { let id: String; let text: String; var line: String?; var before: Set<String> = [] }
     @Published private(set) var pending: [String: [Pending]] = [:]
     @Published private(set) var notes: [String: String] = [:]
+    // Words a post that did not go hands back to the box, by project, kept here (the board's PJ_ROOM_DRAFTS) so they
+    // survive leaving the room before the answer comes; the room takes them when its box is empty.
+    struct Returned: Equatable { let text: String; let replyTo: Board.RoomRow?; let pendingId: String }
+    @Published private(set) var returned: [String: Returned] = [:]
+    // The words of a not-confirmed post the room now shows as kept: a box still holding exactly them is cleared, so
+    // the same post is not sent twice (the board's pend.onKept).
+    @Published private(set) var kept: [String: String] = [:]
     static let pageSize = 50
 
     private let client: BoardClient
@@ -33,6 +40,7 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
+        returned = [:]; kept = [:]
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
 
@@ -87,7 +95,7 @@ final class RoomStore: ObservableObject {
         defer { loadingOlder.remove(project) }
         let epoch = client.chatEpoch
         let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, cursor: cursor) }
-        guard same(epoch) else { return }
+        guard same(epoch), older[project]?.cursor == cursor else { return }   // a re-read replaced the room meanwhile
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
             olderFailed.insert(project); return
         }
@@ -95,40 +103,44 @@ final class RoomStore: ObservableObject {
         older[project] = (page.olderCount, page.olderCursor)
     }
 
-    // Posts the words; the answer says how it went. A refusal is left to the room to hand back (`takeBack`), because
-    // whether the words can go back in the box depends on what the person has typed since.
-    @discardableResult
-    func post(_ text: String, to project: String, replyTo: String?) async -> (id: String, result: Board.RoomPostResult)? {
+    // Posts the words. Kept: the room is re-read, then the bubble goes (so the post never blinks out). Otherwise, as the
+    // board's pjPostSend: the bubble stays, marked Not posted or Not confirmed (with Delete), the words go back to the
+    // box, and the sentence goes under it (the computer's own, or the board's unsure one). A not-confirmed post a read
+    // then shows kept settles, and a box still holding those words is cleared (`kept`).
+    func post(_ text: String, to project: String, replyTo: Board.RoomRow?) async {
         let mine = Set((rows[project] ?? []).filter { $0.byPerson }.map { $0.id })
         let item = Pending(id: UUID().uuidString, text: text.trimmingCharacters(in: .whitespacesAndNewlines), line: nil, before: mine)
-        guard !item.text.isEmpty else { return nil }
+        guard !item.text.isEmpty else { return }
+        notes[project] = nil   // the last post's line goes at the next press, as on the board
         pending[project, default: []].append(item)
         #if DEBUG
-        if Self.sample { pending[project]?.removeAll { $0.id == item.id }; return nil }
+        if Self.sample { pending[project]?.removeAll { $0.id == item.id }; return }
         #endif
         let epoch = client.chatEpoch
-        let answer = await client.throughMac { Board.roomPostRequest(mac: $0, project: project, text: item.text, replyTo: replyTo) }
-        guard same(epoch) else { return nil }
+        let answer = await client.throughMac { Board.roomPostRequest(mac: $0, project: project, text: item.text, replyTo: replyTo?.id) }
+        guard same(epoch) else { return }
         let result = Board.roomPostResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
-        if case let .posted(note) = result {
-            notes[project] = note
-            pending[project]?.removeAll { $0.id == item.id }
+        switch result {
+        case let .posted(note):
             await loadRoom(project)
-        } else if let i = pending[project]?.firstIndex(where: { $0.id == item.id }) {
+            pending[project]?.removeAll { $0.id == item.id }
+            notes[project] = note
+        case .refused, .unsure:
+            guard let i = pending[project]?.firstIndex(where: { $0.id == item.id }) else { return }   // already shown kept
             pending[project]?[i].line = Board.roomPostLine(result)
+            if case let .refused(because) = result { notes[project] = because } else { notes[project] = Board.roomUnsureLine }
+            returned[project] = Returned(text: item.text, replyTo: replyTo, pendingId: item.id)
         }
-        return (item.id, result)
     }
 
-    func discard(_ id: String, in project: String) { pending[project]?.removeAll { $0.id == id } }
-
-    // A refused or not-confirmed post whose words went back in the box: its bubble goes, and its line stays under the
-    // box.
-    func takeBack(_ id: String, in project: String) {
-        guard let p = pending[project]?.first(where: { $0.id == id }) else { return }
-        notes[project] = p.line
-        discard(id, in: project)
+    func discard(_ id: String, in project: String) {
+        pending[project]?.removeAll { $0.id == id }
+        if returned.values.contains(where: { $0.pendingId == id }) { returned = returned.filter { $0.value.pendingId != id } }
     }
+
+    // The room's box is empty and takes the handed-back words (once).
+    func takeReturned(_ project: String) -> Returned? { returned.removeValue(forKey: project) }
+    func clearKept(_ project: String) { kept[project] = nil }
 
     // The room is seen while it is on screen (the board's pjMarkSeen).
     func markSeen(_ project: String) async {
@@ -152,7 +164,14 @@ final class RoomStore: ObservableObject {
         let open = list.enumerated().filter { $0.element.line == nil || $0.element.line == unsure }
         let done = Board.settledPosts(open.map { ($0.element.text, $0.element.before) }, rows: rows[project] ?? [])
         let gone = Set(done.map { open[$0].element.id })
-        if !gone.isEmpty { pending[project]?.removeAll { gone.contains($0.id) } }
+        guard !gone.isEmpty else { return }
+        for p in list where gone.contains(p.id) && p.line != nil {
+            // A not-confirmed post that was kept: its words are not handed back, and a box holding them is cleared.
+            if returned[project]?.pendingId == p.id { returned[project] = nil }
+            kept[project] = p.text
+            if notes[project] == Board.roomUnsureLine { notes[project] = nil }
+        }
+        pending[project]?.removeAll { gone.contains($0.id) }
     }
 
     // A reaction toggles (the board's route adds it, or takes the person's own back); the room is re-read after.
@@ -202,6 +221,7 @@ struct ProjectsView: View {
     @State private var openProject: Board.ProjectRow?
     // A notification's room was not in the list: it has had its one fresh read.
     @State private var listReread = false
+    @State private var listShown = false
     @State private var showArchived = false
 
     init(client: BoardClient, roomRequest: Binding<String?>, openPage: @escaping (URL) -> Void) {
@@ -229,8 +249,8 @@ struct ProjectsView: View {
                 )
         }
         .navigationViewStyle(.stack)
-        .onAppear { client.show(BoardClient.projectsViewer) }
-        .onDisappear { client.hide(BoardClient.projectsViewer) }
+        .onAppear { listShown = true; client.show(BoardClient.projectsViewer) }
+        .onDisappear { listShown = false; client.hide(BoardClient.projectsViewer) }
         // The list is read again whenever the connection changes (a cold start reaches the Mac first), and on pull to refresh.
         .onChange(of: client.phase) { _ in Task { await store.loadList(); openRequested() } }
         .onChange(of: roomRequest) { _ in openRequested() }
@@ -239,6 +259,10 @@ struct ProjectsView: View {
         // Back from a room: its unread bubble and the other rooms' words are read again.
         .onChange(of: openProject?.id) { id in if id == nil { Task { await store.loadList() } } }
         .onChange(of: store.list) { _ in openRequested() }
+        .onChange(of: store.listState) { _ in openRequested() }
+        // While the list is the screen shown, it follows the client's 5-second poll (status words and unread bubbles),
+        // as the board's list repaints on its own.
+        .onChange(of: client.updatedAt) { _ in if listShown && openProject == nil { Task { await store.loadList() } } }
         .task {
             await store.loadList()
             #if DEBUG
@@ -258,7 +282,12 @@ struct ProjectsView: View {
     // A room a notification asked for opens once the list has it. A project the list does not have (removed since,
     // or archived) opens the board's own room page instead, so a tap never lands nowhere.
     private func openRequested() {
-        guard let id = roomRequest, let list = store.list else { return }
+        guard let id = roomRequest else { return }
+        // The list cannot be read: the board's own room page now, rather than a room that pushes itself much later.
+        guard let list = store.list else {
+            if store.listState == .failed { roomRequest = nil; listReread = false; openBoardRoom(id) }
+            return
+        }
         if let p = list.projects.first(where: { $0.id == id && !$0.archived }) {
             roomRequest = nil
             listReread = false
@@ -273,6 +302,10 @@ struct ProjectsView: View {
         }
         listReread = false
         roomRequest = nil
+        openBoardRoom(id)
+    }
+
+    private func openBoardRoom(_ id: String) {
         if let mac = store.macURL, var parts = URLComponents(url: mac, resolvingAgainstBaseURL: false) {
             parts.queryItems = [URLQueryItem(name: "tab", value: "projects"), URLQueryItem(name: "project", value: id)]
             if let url = parts.url { openPage(url) }
@@ -295,16 +328,26 @@ struct ProjectsView: View {
             let archived = Board.archivedProjects(list.projects)
             if tree.isEmpty && archived.isEmpty {
                 message("No projects yet.", "Point Kosmos at a folder you already have, and put an agent on it.")
-            } else if tree.isEmpty {
-                message("Nothing here right now.", "Everything you have is archived.")
             } else {
                 List {
-                    Section {
-                        ForEach(tree) { row in
-                            Button { openProject = row.project } label: {
-                                ProjectRowView(project: row.project, depth: row.depth, unreadable: list.agentsUnreadable, store: store)
+                    if tree.isEmpty {
+                        // Everything archived: the sentence, and the Archived fold under it so they can still be reached
+                        // (the board keeps its disclosure beside the same words).
+                        Section {
+                            VStack(spacing: 6) {
+                                Text("Nothing here right now.").font(.headline).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
+                                Text("Everything you have is archived.").font(.subheadline).foregroundColor(Palette.secondary)
                             }
-                            .buttonStyle(.plain)
+                            .frame(maxWidth: .infinity).padding(.vertical, 12)
+                        }
+                    } else {
+                        Section {
+                            ForEach(tree) { row in
+                                Button { openProject = row.project } label: {
+                                    ProjectRowView(project: row.project, depth: row.depth, unreadable: list.agentsUnreadable, store: store)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
                     if !archived.isEmpty {
@@ -363,7 +406,7 @@ struct ProjectRowView: View {
             }
         }
         .padding(.leading, CGFloat(depth) * 16)
-        .frame(minHeight: 44)
+        .frame(minHeight: 64)   // the spec's row: slice 1 geometry
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)

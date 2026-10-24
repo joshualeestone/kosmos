@@ -16,6 +16,12 @@ struct RoomView: View {
     // Whether the end of the room is on screen: a new row follows only then, so a reader who scrolled up is never
     // pulled down by the 5-second re-read (the spec, and the board's room).
     @State private var atBottom = true
+    // On screen (not covered by a member's chat or another tab): the re-read loop runs only then, so a hidden room is
+    // never marked seen.
+    @State private var visible = false
+    // The first scroll to the newest row has happened: only then may the top of the room ask for an older page (a
+    // first layout from the top would otherwise load one at once and move the reader off the newest posts).
+    @State private var settledAtBottom = false
     @FocusState private var typing: Bool
 
     private var rows: [Board.RoomRow] { store.rows[project.id] ?? [] }
@@ -54,10 +60,17 @@ struct RoomView: View {
                 }
             } label: { EmptyView() }.hidden()
         )
-        .onAppear { start() }
-        .onDisappear { loop?.cancel(); loop = nil }
+        .onAppear { visible = true; start(); takeReturned() }
+        .onDisappear { visible = false; loop?.cancel(); loop = nil }
         .onChange(of: scenePhase) { phase in
-            if phase == .background { loop?.cancel(); loop = nil } else if phase == .active && loop == nil { start() }
+            if phase == .background { loop?.cancel(); loop = nil } else if phase == .active && visible && loop == nil { start() }
+        }
+        .onChange(of: store.returned[project.id]) { _ in takeReturned() }
+        // A not-confirmed post the room now shows kept: a box still holding exactly its words is cleared.
+        .onChange(of: store.kept[project.id]) { words in
+            guard let words else { return }
+            if draft.trimmingCharacters(in: .whitespacesAndNewlines) == words { draft = ""; replying = nil }
+            store.clearKept(project.id)
         }
     }
 
@@ -73,6 +86,24 @@ struct RoomView: View {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
         }
+    }
+
+    // An older page goes in above; the row that was at the top stays where the reader is looking.
+    private func loadOlder(_ proxy: ScrollViewProxy) {
+        let anchor = items.first(where: { if case .row = $0.kind { return true } else { return false } })?.id
+        Task {
+            await store.loadOlder(project.id)
+            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+        }
+    }
+
+    // Words handed back by a post that did not go, taken only into an empty box (never over what the person has
+    // typed since); otherwise they wait in the store for the next empty box.
+    private func takeReturned() {
+        guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, replying == nil,
+              let back = store.takeReturned(project.id) else { return }
+        draft = back.text
+        replying = back.replyTo
     }
 
     private func openBoardPage() {
@@ -106,11 +137,11 @@ struct RoomView: View {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     if store.older[project.id]?.cursor != nil {
                         if store.olderFailed.contains(project.id) {
-                            Button("We could not load earlier messages. Try again") { Task { await store.loadOlder(project.id) } }
+                            Button("We could not load earlier messages. Try again") { loadOlder(proxy) }
                                 .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
                         } else {
                             HStack { Spacer(); ProgressView(); Spacer() }
-                                .onAppear { Task { await store.loadOlder(project.id) } }
+                                .onAppear { if settledAtBottom { loadOlder(proxy) } }
                         }
                     }
                     if store.rows[project.id] != nil && rows.isEmpty { emptyRoom }
@@ -126,10 +157,22 @@ struct RoomView: View {
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
             }
-            .onChange(of: rows.last?.id) { _ in if atBottom { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+            .onChange(of: rows.last?.id) { _ in
+                if !settledAtBottom {
+                    // The first page: straight to the newest row, then the top may ask for older ones.
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                    DispatchQueue.main.async { settledAtBottom = true }
+                } else if atBottom {
+                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+            }
             // The person's own post always shows: pressing Post is asking to see it.
             .onChange(of: store.pending[project.id]?.count ?? 0) { n in if n > 0 { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
-            .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
+            .onAppear {
+                proxy.scrollTo("bottom", anchor: .bottom)
+                // A room opened again with its rows already read: the last row will not change, so settle here.
+                if !rows.isEmpty { DispatchQueue.main.async { settledAtBottom = true } }
+            }
         }
     }
 
@@ -216,20 +259,13 @@ struct RoomView: View {
         .background(Palette.ground)
     }
 
-    // The box clears at once, so the person can keep typing. A refused or not-confirmed post's words come back to the
-    // box (the board clears it only on success; its restoreUnsent), with the reply it was, unless the person has started
-    // something else since; then its bubble keeps the line and a Delete.
+    // The box clears at once, so the person can keep typing. A refused or not-confirmed post's words come back through
+    // the store (RoomStore.returned), which keeps them if the person has left the room or typed something since.
     private func send() {
         let text = draft
         let reply = replying
         draft = ""; replying = nil
-        Task {
-            guard let sent = await store.post(text, to: project.id, replyTo: reply?.id), Board.roomPostLine(sent.result) != nil,
-                  draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, replying == nil else { return }
-            draft = text
-            replying = reply
-            store.takeBack(sent.id, in: project.id)
-        }
+        Task { await store.post(text, to: project.id, replyTo: reply) }
     }
 }
 

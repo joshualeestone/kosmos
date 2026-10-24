@@ -388,6 +388,16 @@ enum AppTabs {
 
     // kosmos#7032: the engine's own Tasks flag on GET /api/status (`tasksTab`, server.js; the board page's tskTabGate
     // reads the same), so the bar can earn Tasks when no tab hosts the board page. nil when it is not there.
+    // kosmos#7032: the Projects tab's badge, /api/status's counts.projectsUnread (unread room posts over every project;
+    // the board's own Projects tab count). nil or 0: no badge. Here, beside the Tasks flag, so every suite that builds
+    // BoardClient has it.
+    static func projectsUnread(fromStatus data: Data) -> Int? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let counts = obj["counts"] as? [String: Any], let n = counts["projectsUnread"] as? Int, n > 0
+        else { return nil }
+        return n
+    }
+
     static func tasksTab(fromStatus data: Data) -> Bool? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         return obj["tasksTab"] as? Bool

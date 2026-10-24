@@ -127,7 +127,8 @@ struct ContentView: View {
                         tabPage(which)
                             .tabItem { Label(which.title, systemImage: which.symbol) }
                             // kosmos#7030: Today's badge is the board's one number, the Dock's (counts.waiting); none at 0 or off.
-                            .badge(which == .today ? (board.waitingCount ?? 0) : 0)
+                            // kosmos#7032: Projects' is the board's unread room posts (counts.projectsUnread).
+                            .badge(which == .today ? (board.waitingCount ?? 0) : which == .projects ? (board.projectsUnread ?? 0) : 0)
                             .tag(which)
                     }
                 }
