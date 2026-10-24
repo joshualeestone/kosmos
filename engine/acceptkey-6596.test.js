@@ -68,11 +68,13 @@ function connector({ refusal = 'that name is taken', shipped = null } = {}) {
     c.runs.push({ args, env: opts.env });
     const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => {};
     const register = args[0] === 'setup' && args[1] === 'complete';
-    setImmediate(() => {
+    const end = () => {
       if (register && c.refusal) child.stderr.emit('data', Buffer.from('Error: ' + c.refusal + '\n'));
       const code = register && c.refusal ? 1 : 0;
       child.emit('exit', code); child.emit('close', code);
-    });
+    };
+    // `c.gate` (a promise) holds a registration open until it settles.
+    if (register && c.gate) c.gate.then(() => setImmediate(end)); else setImmediate(end);
     return child;
   });
   c.registrations = () => c.runs.filter((r) => r.args[1] === 'complete');
@@ -122,8 +124,16 @@ test('while a service key set is held no key is offered for acceptance, even whe
   const c = connector({ refusal: REFUSAL(K) });
   try {
     assert.equal('keyChanged' in await signIn(), false);
-    assert.equal(remote.acceptOfferedKey(K).ok, false, 'nor accepted');
   } finally { c.done(); fs.rmSync(STORE, { force: true }); }
+  // A set that arrives between the refusal and the Accept: the Accept itself is refused, for that reason.
+  const s2 = connector();
+  try {
+    await offered(s2, K);
+    fs.writeFileSync(STORE, '{}');
+    const a = remote.acceptOfferedKey(K);
+    assert.equal(a.ok, false);
+    assert.match(a.because, /holds a signed list of Kosmos\+ keys/, 'refused because of the set, not as never offered');
+  } finally { s2.done(); fs.rmSync(STORE, { force: true }); }
   const d = connector({ refusal: REFUSAL(K) });
   try {
     assert.deepEqual((await signIn()).keyChanged, { offered: K }, 'CONTROL: the same refusal with no set held');
@@ -243,5 +253,40 @@ test('Forget voids an offer and an acceptance; Start over (signinCancel) does no
     await signIn();
     reg = c.registrations();
     assert.equal(reg[reg.length - 1].env, undefined, 'the acceptance is gone after a Forget');
+  } finally { c.done(); }
+});
+
+test('a set that arrives after the Accept voids it: the next registration names no key', async () => {
+  const c = connector();
+  try {
+    await offered(c, K);
+    assert.equal(remote.acceptOfferedKey(K).ok, true);
+    fs.writeFileSync(STORE, '{}');
+    await remote.setupComplete('123456', 'my-mac');
+    const reg = c.registrations();
+    assert.equal(reg[reg.length - 1].env, undefined);
+  } finally { c.done(); fs.rmSync(STORE, { force: true }); }
+});
+
+test('an Accept made while a registration is out ends if that registration goes through', async () => {
+  const c = connector();
+  try {
+    await offered(c, K);
+    c.refusal = null;
+    let release;
+    c.gate = new Promise((ok) => { release = ok; });
+    const before = c.registrations().length;
+    const out = remote.setupComplete('123456', 'my-mac');
+    for (let i = 0; i < 200 && c.registrations().length === before; i++) await new Promise((ok) => setImmediate(ok));
+    assert.equal(c.registrations().length, before + 1, 'CONTROL: the registration is out');
+    assert.equal(c.registrations()[before].env, undefined, 'CONTROL: it started before the Accept, without the key');
+    assert.equal(remote.acceptOfferedKey(K).ok, true, 'accepted while it was out');
+    release();
+    assert.equal((await out).ok, true, 'CONTROL: it went through');
+    c.gate = null;
+    c.refusal = 'that name is taken';
+    await remote.setupComplete('123456', 'my-mac');
+    const reg = c.registrations();
+    assert.equal(reg[reg.length - 1].env, undefined, 'the acceptance ended with the registration that went through');
   } finally { c.done(); }
 });

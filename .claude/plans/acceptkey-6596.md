@@ -62,6 +62,23 @@ Today no recovery key ships, so the relay never refuses this way: the slice land
   the acceptance before the Forget). Split into two arms, an offer then Forget and an acceptance then Forget; A6 and
   B6 re-run red against the new test.
 
+## Review 3 (fixed)
+- A signed set arriving after the Accept (a ticket fetch stores one while the old registration still runs) did not
+  void it: the next run named the key, the connector took it as vouched and forgot the set, the one thing this
+  slice must never cause. takeAcceptedKey now re-checks for a held set when the run starts (arm D1).
+- The test line "nor accepted" passed for the wrong reason (no offer is recorded under a set, so the first check
+  refused). Now: refuse with a key, THEN write the set, then Accept, and assert the set-held refusal (arm D2, which
+  the old test could not see).
+- A registration that goes through now ends the acceptance as well as the offer, so an Accept made while a
+  registration was already out (that run spawned without the key) does not vouch at a later run nobody asked about
+  (arm D3; the test holds the fake registration open with a gate).
+- Deferred: a third key, offered while an acceptance is passed, is refused by the connector as "not on the signed list
+  this version of Kosmos came with", which names no key and so offers no Accept. That wording is the relay's
+  (expected_coordinator_key); the board cannot honestly rewrite it. Recovers at the next attempt. A relay follow-up
+  can name the key there too.
+- Corrected: review 1's "refused while forgetting" is defence in depth, not a reachable guard: Forget clears the offer
+  before it sets its flags, so the earlier "not a key Kosmos+ offered" check always answers first. Kept, untested.
+
 ## Rejected
 - The board writing coordinator_pubkey itself: bypasses the tunnel's store and floor discipline.
 - Parsing the key from any setup verb's error: a verb that echoes service text could show a forged prompt.
@@ -87,6 +104,6 @@ Not covered by a test: keyChanged on the in-app register path (signin register),
 session to reach; it is the same one-line withKeyChange call as the setup path, which is tested.
 
 ## Progress
-- [x] engine, route, tests, arms (12 engine + 3 route tests). Sweep after review 2 (load ~12, another suite running):
+- [x] engine, route, tests, arms (14 engine + 3 route tests). Sweep after review 2 (load ~12, another suite running):
   1,374 pass, 5 fail, all timing tests (a hung tunnel, the #988 end to end, a c3 offer); their 3 files alone: 110 pass.
 - [ ] validation, challenge-loop, PR
