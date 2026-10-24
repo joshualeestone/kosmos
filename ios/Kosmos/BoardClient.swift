@@ -418,7 +418,8 @@ final class BoardClient: ObservableObject {
         }
         guard let (mac, url, _) = admitted else { return }
         // Another Mac: its agents' pictures are its own, even for an agent of the same name.
-        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:] }
+        // Another Mac: its pictures and the chats (opened on the one before) go now, before any chat call reaches it.
+        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; forgetChats() }
         failedRefreshes = 0
         while !Task.isCancelled && gen == generation {
             guard await refresh(url: url, mac: mac, gen) else { return }
