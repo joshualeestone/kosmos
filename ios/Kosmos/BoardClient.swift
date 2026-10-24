@@ -216,7 +216,7 @@ final class BoardClient: ObservableObject {
     func post(_ text: String, to agent: Board.Agent) async {
         let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard Board.fitsBoard(said) else { return }
-        let item = Board.PendingSend(id: UUID().uuidString, text: said, at: env.now())
+        let item = Board.PendingSend(id: UUID().uuidString, text: said, at: env.now(), after: newestSeen[agent.session])
         pending[agent.session, default: []].append(item)
         await deliver(item.id, to: agent)
     }
@@ -229,7 +229,7 @@ final class BoardClient: ObservableObject {
         await deliver(id, to: agent)
     }
 
-    // A message of the person's the Mac kept as not sent: sent again as a new message (the board's own chat does the same).
+    // A message of the person's the Mac kept as not sent: sent again as a new message, once.
     func sendAgain(_ row: Board.ChatRow, to agent: Board.Agent) async {
         let key = agent.session + "|" + row.id
         guard row.canSendAgain, isRunning(agent), !resent.contains(key) else { return }
@@ -245,6 +245,9 @@ final class BoardClient: ObservableObject {
         pending = [:]
         drafts = [:]
         resent = []
+        newestSeen = [:]
+        // An open chat is showing what was forgotten: it resets when this moves (ChatView, AgentsView).
+        chatEpoch += 1
     }
 
     func discard(_ id: String, for session: String) {
@@ -252,7 +255,14 @@ final class BoardClient: ObservableObject {
     }
 
     // A read of the conversation: the pending messages it now holds stop being shown as pending (Board.settled).
+    // The newest row time each chat has shown, and the count of forgettings (sign-out, another account or Mac).
+    private var newestSeen: [String: String] = [:]
+    @Published private(set) var chatEpoch = 0
+
     func settle(_ thread: Board.Thread, for session: String) {
+        if let newest = thread.rows.compactMap({ r in r.atRaw.flatMap { raw in Board.isoDate(raw).map { (raw, $0) } } }).max(by: { $0.1 < $1.1 }) {
+            newestSeen[session] = newest.0
+        }
         guard let list = pending[session], !list.isEmpty else { return }
         let left = Board.settled(list, with: thread)
         if left != list { pending[session] = left }
