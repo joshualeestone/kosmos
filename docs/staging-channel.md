@@ -91,22 +91,27 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    **A build other than the one staging serves now: `--version <V>` (kosmos#7005).** By default the
    promote takes whatever `latest-staging.json` names, so a prod GO pending on one build used to freeze
    staging. `tools/promote-channel.sh <site-checkout> <port> --version <V>` reads V's pointer and
-   installer from the site commit that published them (a commit on the checkout's HEAD that must also be
-   on origin's main, when the site has an origin; the checkout's `latest.json` must then also be origin's,
-   so every check reads one prod baseline), so staging can take later cuts while the GO waits. The same checks run on what that
-   commit holds, with two differences: the installer pair is read from the commit (so the working tree's
-   `setup-staging` is neither checked nor used), and the staging-moved-during-the-gates refusal does not
-   apply (a commit cannot move); instead the artifact is re-verified right before the write. V's tarball
-   must still be in the checkout's `dist/`: once staging names a later build, nothing protects V's files
-   from a `tools/dist-retention.sh --prune` but its keep window, so do not prune while a GO is pending
-   (a pruned tarball can be fetched back from what installkosmos.com serves, as in releasing.md). If V was cut more than once, the promote refuses and lists
-   the builds: add `--sha <8+ characters of the approved build's sha256>`; where builds share the bytes
-   but name another artifact or manifest, `--commit <site sha>` picks the commit to use (it must still
-   name V, and every check still applies). `--force` with `--version` needs `--sha` too. A V older than
-   prod's, or one that cannot be compared with it, is refused unless `--allow-older` is given. The board gates
-   still need a board on V: once the cut box's board has moved to a later staging build they answer
-   cannot-tell, and the promote HOLDS (exit 2), forceable only after a hand check of V; the board check it
-   could not run is then made after the deploy on a Mac that has updated to V.
+   installer from the site commit that published them, so staging can take later cuts while the GO waits.
+   - **Which commit.** One on the checkout's HEAD whose `latest-staging.json` names V. When the site has
+     an origin, it must also be on origin's main, and the checkout's `latest.json` must be origin's, so
+     every check reads one prod baseline. If V was cut more than once, the promote refuses and lists the
+     builds: add `--sha <8+ characters of the approved build's sha256>`. Where builds share the bytes but
+     name another artifact or manifest, `--commit <site sha>` picks the commit (it must still name V, and
+     every check still applies).
+   - **What is checked.** The same checks as above, with two differences: the installer pair is read from
+     the commit (the working tree's `setup-staging` is neither checked nor used), and the
+     staging-moved-during-the-gates refusal does not apply (a commit cannot move); instead the artifact is
+     re-verified right before the write. The artifact, its sidecar, the manifest and its signature are the
+     checkout's `dist/` copies, as for any promote: the commit pins the artifact's sha, not the manifest's.
+   - **Keep V's tarball.** It must still be in the checkout's `dist/`. Once staging names a later build,
+     nothing protects V's files from a `tools/dist-retention.sh --prune` but its keep window, so do not
+     prune while a GO is pending (a pruned tarball can be fetched back from what installkosmos.com serves,
+     as in releasing.md).
+   - **Guards.** `--force` with `--version` needs `--sha`. A V older than prod's, or one that cannot be
+     compared with it, is refused unless `--allow-older` is given.
+   - **The board gates still need a board on V.** Once the cut box's board has moved to a later staging
+     build they answer cannot-tell, and the promote HOLDS (exit 2), forceable only after a hand check of V;
+     the board check it could not run is then made after the deploy on a Mac that has updated to V.
 5. **Deploy the promoted pointer to prod.** `promote-channel.sh` only rewrites `latest.json` in the
    LOCAL site checkout ("the next site deploy publishes the prod pointer. No rebuild happened.");
    prod keeps SERVING the old version until a deploy. **`deploy-site.sh --publish` does NOT do this**
