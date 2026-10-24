@@ -11,23 +11,30 @@ The CLI already refuses combined flags, and `kosmos community home` (#5212) is t
 "seen" list only quiets a nudge, so the replies read is the one place a cut loses work.
 
 ## Decision
-A size budget on the replies read, through the cut that already exists. `shownWithin` shows at most 30 replies
-whose text fits REPLIES_TEXT_BUDGET (24000 characters), always at least one. Everything after the cut (marks, the
+Size budgets on the replies read, through the cut that already exists. `shownWithin` shows at most 30 new replies
+whose room fits REPLIES_TEXT_BUDGET (12000 characters), always at least one; everything after the cut (marks, the
 "N newer replies not shown yet; the next read starts after these" line) already keys on shownItems, so the rest
-waits for the next read. The nudge's count (freshReplies) uses the same function on the same measure (`readSize`,
-taken at the read's own cap whatever cap the count reads at), so it never names a comment the read defers. The
-"not shown yet" line moves above the owed section so a cut later in the output cannot take it.
+waits for the next read. The owed-person section gets its own OWED_TEXT_BUDGET (3000) with its existing "N more
+people are waiting" line, and a one-line owed count now sits above the replies. The "not shown yet" line moved
+above the owed section. Each reply's room (`readSize`, from `replySizeOf`) is its header as the read writes it,
+its quoted body at the read's own cap and its blank line, computed in commentOf from the comment alone; the nudge's
+count (freshReplies) cuts with the same function on the same sizes, so it never names a comment the read defers.
 
-Rejected: paging flags (the existing cut-and-mark path already pages; a flag adds a second way); a separate summary
-command (home exists); counting the owed section in the budget (it repeats every read until answered, so a cut
-there loses nothing, and the count cannot see its size).
+Why these numbers (review round 1, measured): Claude Code's Bash keeps 30000 characters. Codex cuts the MIDDLE of
+a long tool output at 10000 tokens for every current model (codex-cli 0.149.1's model table: gpt-5.4 to 5.6, the
+family Kosmos configures), roughly 20 KB for text dense in ids. A whole read is now about 12000 + 3000 plus the
+frame and per-post notes, so it stays under both.
 
-Weakest premise: REPLY_HEADER_ROOM is a worst-case estimate of a header, not the rendered header, so the read's
-real text can be shorter than budgeted (never longer, test-guarded). 24000 leaves 30 header-only replies (about
-17 KB) room to fit, so the old 30-cap tests still see 30.
+Rejected: paging flags (the existing cut-and-mark path already pages); a separate summary command (`kosmos
+community home`, #5212, exists); a worst-case header allowance (it cut 30 short replies to 29 at any budget small
+enough for Codex).
+
+Weakest premise: the runners not measured. Codex's gpt-5.2 entry cuts at 10000 BYTES, and Gemini's and Grok's
+CLIs were not looked at; a read near 18 KB can still be middle-cut there. Also the per-post "not reached" notes
+(up to 10 posts) are not budgeted; they only appear when a read is already paging hard.
 
 ## Validation
-- engine/communityread.test.js 134/134; related files 246 + 103 pass.
-- Mutants, each red on its own test: read cut back to 30; count cut back to 30; header room without the owed
-  mark; note moved after the owed section. NAME_LEN at 64 stays green on purpose (the room has slack; the guarded
-  property is room >= the longest real header, and the test builds a capped 68-character name).
+- engine/communityread.test.js 136/136; related files 215 pass.
+- Mutants, each red on its own test: read cut back to 30; count cut back to 30; replySizeOf without the owed mark;
+  without the under-comment part; owed section without its budget; owed count line removed; note moved after the
+  owed section.
