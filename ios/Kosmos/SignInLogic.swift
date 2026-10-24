@@ -115,12 +115,16 @@ enum SignIn {
         case refused(message: String?, proofRefused: Bool)
         /// Not an answer this screen understands (a newer coordinator): the web sign-in page takes over.
         case unknown
+        /// kosmos#7045: a first company sign-in makes the account, and its terms are agreed on the sign-in page.
+        case needsTerms
     }
 
     static func answer(status: Int, json: Any?) -> Answer {
         let body = json as? [String: Any] ?? [:]
         guard (200..<300).contains(status) else {
             let code = body["code"] as? String
+            // kosmos#7045: a first company sign-in creates the account, and the terms are agreed on the page.
+            if code == "terms_required" { return .needsTerms }
             return .refused(message: cleanMessage(body["error"]), proofRefused: code == "device_proof_refused")
         }
         if body["enrol"] as? Bool == true {
@@ -144,6 +148,68 @@ enum SignIn {
     static func companySignInRequired(json: Any?) -> Bool {
         (json as? [String: Any])?["sso_required"] as? Bool == true
     }
+
+    // MARK: - A company's own sign-in (kosmos#7045), in Apple's sign-in sheet
+
+    /// The fixed address Kosmos+ returns an app-started company sign-in to (kosmos-relay sso.rs APP_RETURN). Apple's
+    /// sheet is told this scheme and hands the return only to itself.
+    static let appReturnScheme = "kosmos-signin"
+    static let appReturnHost = "sso"
+    /// What a company sign-in's grant starts with (sso.rs GRANT_PREFIX); it is spent at verify in place of the code.
+    static let grantPrefix = "ksso1_"
+
+    /// start's company sign-in address (`sso_url`), as the page to open in Apple's sheet with `app=1`, so it returns
+    /// to the app. Only Kosmos+'s own begin path on the coordinator: an address anywhere else is never opened. Kosmos+'s
+    /// address is kept byte for byte (rebuilding its query would decode `%2B` in an address like ann+work@ into a `+`,
+    /// which the server reads as a space); `&app=1` is appended. One that already names `app` is not one Kosmos+
+    /// makes (sso.rs begin_url), so it is not opened.
+    static func companySignInURL(json: Any?, coordinator: URL) -> URL? {
+        guard let path = (json as? [String: Any])?["sso_url"] as? String, path.hasPrefix("/v1/sso/begin?"),
+              !path.contains("#"),
+              !path.dropFirst("/v1/sso/begin?".count).split(separator: "&").contains(where: { $0 == "app" || $0.hasPrefix("app=") }),
+              let url = URL(string: path + "&app=1", relativeTo: coordinator)?.absoluteURL,
+              url.scheme == coordinator.scheme, url.host == coordinator.host, url.port == coordinator.port else { return nil }
+        return url
+    }
+
+    /// What Apple's sheet brought back.
+    enum CompanyReturn: Equatable {
+        /// The grant, and the email the provider vouched for (sign in with exactly this one, as the page does).
+        case grant(String, email: String)
+        /// The coordinator's one-word refusal, already in the page's sentence.
+        case refused(String)
+    }
+
+    /// Only the app's own return (`kosmos-signin://sso`), the grant in the fragment, a refusal in the query. Nil for
+    /// anything else (nothing is guessed).
+    static func companyReturn(_ url: URL) -> CompanyReturn? {
+        guard url.scheme?.lowercased() == appReturnScheme, url.host?.lowercased() == appReturnHost else { return nil }
+        let pairs = { (text: String?) -> [String: String] in
+            var out: [String: String] = [:]
+            for kv in (text ?? "").split(separator: "&") {
+                let p = kv.split(separator: "=", maxSplits: 1).map(String.init)
+                if p.count == 2, let v = p[1].removingPercentEncoding { out[p[0]] = v }
+            }
+            return out
+        }
+        let fragment = pairs(url.fragment), query = pairs(URLComponents(url: url, resolvingAgainstBaseURL: false)?.query)
+        if let word = query["sso_error"] { return .refused(companyWords[word] ?? companyWords["failed"]!) }
+        if let grant = fragment["sso_grant"], grant.hasPrefix(grantPrefix), let email = fragment["email"], looksLikeEmail(email) {
+            return .grant(grant, email: email)
+        }
+        return nil
+    }
+
+    /// The page's sentences for each refusal (kosmos-relay signin.html ssoReturn SSO_WORDS), word for word.
+    static let companyWords: [String: String] = [
+        "cancelled": "You did not finish signing in with your company's account. Try again, or use your email code.",
+        "expired": "That company sign-in took too long or was already used. Try again.",
+        "not_provisioned": "Your company has not given you access to Kosmos+. Ask the people who run your company's accounts.",
+        "not_member": "Your company's sign-in vouched for this address, but it is not a member of that company in Kosmos+. Sign in with your email code.",
+        "wrong_person": "Your company's sign-in said you are someone else. Sign in again with the account for this address.",
+        "unavailable": "Your company's sign-in is turned off right now. Sign in with your email code.",
+        "failed": "Signing in with your company's account did not work. Try again, or use your email code.",
+    ]
 
     /// The Allow, read from /v1/account/me.
     enum AllowRead: Equatable {
@@ -244,12 +310,15 @@ enum SignIn {
                     proofRefused ? nil : (message ?? "That code is not right or has expired."))
         case .unknown:
             return (.web(reason: webForUnknown), nil, nil)
+        case .needsTerms:
+            return (.web(reason: webForTerms), nil, nil)
         }
     }
 
     static let webForCompany = "This continues on the Kosmos+ sign-in page, where your company's own sign-in opens."
     static let webForSetup = "Your account needs its second sign-in step set up first. That continues on the sign-in page."
     static let webForKey = "This iPhone could not prove its key to Kosmos+, so this continues on the sign-in page."
+    static let webForTerms = "Your company's sign-in will make your Kosmos+ account, and that starts with agreeing to its terms on the sign-in page."
     static let webForUnknown = "Kosmos+ answered in a way this app does not know yet, so this continues on the sign-in page."
 
     // MARK: - Setting up a required second step (kosmos#7046)

@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import UIKit
+import AuthenticationServices
 
 // kosmos#7042: the native sign-in's calls to Kosmos+ and this iPhone's device key. The decisions are SignInLogic.swift's
 // (proven in ios/LogicTests); this file only carries them over the network and the keychain.
@@ -66,15 +67,43 @@ final class SignInClient {
 
     enum SignInError: Error { case keyNotKept, unreachable }
 
-    /// start: true when a code is on its way (or would be: the answer is the same for any address), false when this
-    /// address's company requires its own sign-in, which the web page has.
-    func start(email: String) async throws -> Bool {
+    /// What start said: a code is on its way (or would be: the answer is the same for any address), with the
+    /// company's own sign-in offered beside it or required instead (kosmos#7045). `company` nil with `required`:
+    /// the address Kosmos+ gave is not one this app opens, so the web page takes over.
+    struct Started { let codeComing: Bool; let company: URL? }
+
+    func start(email: String) async throws -> Started {
         let key = try deviceKey()
         let (status, json) = try await post(SignIn.startPath, SignIn.startBody(email: email, deviceID: key.id, deviceName: deviceName))
         guard (200..<300).contains(status) else {
             throw SignInRefusal(message: SignIn.cleanMessage((json as? [String: Any])?["error"]) ?? "Kosmos+ could not send a code just now. Try again in a minute.")
         }
-        return !SignIn.companySignInRequired(json: json)
+        return Started(codeComing: !SignIn.companySignInRequired(json: json), company: SignIn.companySignInURL(json: json, coordinator: coordinator))
+    }
+
+    // MARK: - A company's own sign-in, in Apple's sheet (kosmos#7045)
+
+    private var companySession: ASWebAuthenticationSession?
+    private let anchor = SheetAnchor()
+
+    /// Opens Kosmos+'s company sign-in in Apple's sheet and gives back where it returned (the app's own address), or nil
+    /// when the person closed the sheet or it could not open. Shares Safari's sign-ins, so a company account already
+    /// signed in there is not asked again.
+    func openCompanySignIn(_ url: URL) async -> URL? {
+        await withCheckedContinuation { (done: CheckedContinuation<URL?, Never>) in
+            var resumed = false
+            let finish: (URL?) -> Void = { url in
+                guard !resumed else { return }
+                resumed = true
+                done.resume(returning: url)
+            }
+            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: SignIn.appReturnScheme) { [weak self] back, _ in
+                DispatchQueue.main.async { self?.companySession = nil; finish(back) }
+            }
+            session.presentationContextProvider = anchor
+            companySession = session
+            if !session.start() { companySession = nil; finish(nil) }
+        }
     }
 
     func verify(email: String, code: String) async throws -> SignIn.Answer {
@@ -117,6 +146,14 @@ final class SignInClient {
             throw SignInError.unreachable
         }
         return (answer.statusCode, try? JSONSerialization.jsonObject(with: data))
+    }
+}
+
+/// Where Apple's sheet shows: over the app's own window.
+private final class SheetAnchor: NSObject, ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.first.map { ASPresentationAnchor(windowScene: $0) } ?? ASPresentationAnchor()
     }
 }
 
