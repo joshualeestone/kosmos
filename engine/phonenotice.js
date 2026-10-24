@@ -86,14 +86,14 @@ function replyText(session, at, { chat = require('./chat') } = {}) {
   return m && typeof m.text === 'string' && m.text.trim() ? m.text : null;
 }
 
-/** kosmos#7032: an agent's room post by its id: { session, text, project }, or null. Only an agent's post (`from`, not
- *  the person's own, `operator`), with words. */
+/** kosmos#7032: an agent's room post by its id: { session, text }, or null. Only an agent's post (`from`, not the
+ *  person's own, `operator`), with words. Post ids are one sequence across the whole log, so the id alone finds it. */
 function postWords(postId, { messages = require('./messages') } = {}) {
   let rows;
   try { rows = messages.record().rows; } catch { return null; }
   const m = (Array.isArray(rows) ? rows : []).find((x) => x && x.kind === 'post' && x.id === postId);
   if (!m || m.operator === true || typeof m.from !== 'string' || !m.from) return null;
-  return typeof m.text === 'string' && m.text.trim() ? { session: m.from, text: m.text, project: m.project || null } : null;
+  return typeof m.text === 'string' && m.text.trim() ? { session: m.from, text: m.text } : null;
 }
 
 /** What the phone shows for an event: { kind, session, text } with the words shortened, or null when the id is not

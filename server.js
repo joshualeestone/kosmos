@@ -21339,20 +21339,28 @@ const server = http.createServer(async (req, res) => {
     /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; messages.ROOM_READ_ROWS
        when not given or not a whole number in range, so an older CLI and a bad value both get what they always got). */
     let textRows = messages.ROOM_READ_ROWS;
-    /* kosmos#7032 (the iPhone's room): the JSON arm can be paged too. ?n=N (1 to 200) returns the room's last N rows,
-       and ?before=<a row's at> the last N older than that row, with `olderCount` (how many older rows are left) so a
-       phone reads a page at a time instead of the whole room every few seconds. Without ?n the JSON arm is unchanged
-       (the board reads the whole room). The cursor is a time, not a position, so posts arriving between two reads
-       never shift a page. */
+    /* kosmos#7032 (the iPhone's room): the JSON arm can be paged too. ?n=N (1 to 200) returns the room's last N rows
+       with `olderCount` (how many older rows are left), so a phone reads a page at a time instead of the whole room
+       every few seconds. The page before one already read: ?beforeId=<the id of its first row with an id>, every row
+       sorted before that exact row (ties on a time are exact: the sort is stable); or, for a page with no ids (only
+       Kosmos lines), ?before=<its first row's at, as stored>, every row older than that time. Without ?n the JSON arm is
+       unchanged (the board reads the whole room). A cursor names a row, so posts arriving between two reads never
+       shift a page's edge. What it cannot do: a post is dated when its send STARTS and written when delivery ends, so a
+       post written after a page was read can sort into it; it lands in the newest page unless more than N rows arrive
+       during its delivery, which is why the phone re-reads the newest page and merges by id. */
     let jsonRows = null;
     let jsonBefore = null;
+    let jsonBeforeId = null;
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       asText = q.get('as') === 'text';
       const n = q.get('n');
       if (n !== null && /^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200) { textRows = Number(n); jsonRows = Number(n); }
+      // As stored (toISOString), so the string compare below is a time compare; anything else is ignored.
       const before = q.get('before');
-      if (jsonRows !== null && before !== null && before.length <= 40 && !Number.isNaN(Date.parse(before))) jsonBefore = before;
+      if (jsonRows !== null && before !== null && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/.test(before)) jsonBefore = before;
+      const beforeId = q.get('beforeId');
+      if (jsonRows !== null && beforeId !== null && /^[A-Za-z0-9_-]{1,80}$/.test(beforeId)) jsonBeforeId = beforeId;
     } catch { asText = false; }
     /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
        do, instead of rendering it as an empty room -- a typo or a hyphenated-name
@@ -21664,16 +21672,22 @@ const server = http.createServer(async (req, res) => {
         res.end(shared + onHold + head + lines.join('\n') + (lines.length ? '\n' : ''));
         return;
       }
-      /* #185: which addressed agents have not answered which posts, from
-         the record alone; the page renders the small line from this and
-         never re-derives it. Best-effort like the room itself. */
-      if (jsonRows !== null) {
-        const pool = jsonBefore !== null ? rows.filter((r) => String((r && r.at) || '') < jsonBefore) : rows;
+      if (jsonRows !== null) {   // kosmos#7032: a page (see the cursor note where n is read)
+        let pool = rows;
+        if (jsonBeforeId !== null) {
+          const at = rows.findIndex((r) => r && r.id === jsonBeforeId);
+          pool = at >= 0 ? rows.slice(0, at) : (jsonBefore !== null ? rows.filter((r) => String((r && r.at) || '') < jsonBefore) : []);
+        } else if (jsonBefore !== null) {
+          pool = rows.filter((r) => String((r && r.at) || '') < jsonBefore);
+        }
         const page = pool.slice(-jsonRows);
         sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(page), unanswered: silent, olderCount: pool.length - page.length },
           held ? { held } : {}));
         return;
       }
+      /* #185: which addressed agents have not answered which posts, from
+         the record alone; the page renders the small line from this and
+         never re-derives it. Best-effort like the room itself. */
       sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(rows), unanswered: silent }, held ? { held } : {}));
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });

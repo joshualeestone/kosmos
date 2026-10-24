@@ -87,12 +87,31 @@ test('#7032 a post arriving between two reads does not shift the older page (the
 });
 
 test('#7032 CONTROL: a bad n or before is ignored as the text arm ignores a bad n (the whole room; before alone does nothing)', async () => {
-  for (const q of ['?n=0', '?n=201', '?n=abc', '?before=2026-01-01T00:00:00.000Z']) {
+  for (const q of ['?n=0', '?n=201', '?n=abc', '?before=2026-01-01T00:00:00.000Z', '?beforeId=m1']) {
     const r = await room(q);
     assert.equal(r.status, 200, q);
     assert.equal('olderCount' in r.json, false, q + ': paged on a bad request');
   }
-  const r = await room('?n=2&before=not-a-time');
-  assert.equal(r.status, 200);
-  assert.deepEqual(texts(r.json).length, 2, 'an unreadable before is dropped, the newest page served');
+  // Review 1: Date.parse takes "x 2026", "9" and "Oct 1", which compare as text against stored times; only the stored
+  // shape is a cursor, anything else is dropped and the newest page served.
+  for (const b of ['not-a-time', 'x 2026', '9', 'Oct 1', '1 Jan 3000']) {
+    const r = await room('?n=2&before=' + encodeURIComponent(b));
+    assert.equal(r.status, 200, b);
+    assert.deepEqual(texts(r.json), texts((await room('?n=2')).json), b + ': treated as a cursor');
+  }
+});
+
+test('#7032 review 1: beforeId pages by the exact row, so two posts at the same moment across a page edge are both kept', async () => {
+  const tie = new Date().toISOString();
+  const plant = (id, text) => fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id, project: pid, from: 'dana', to: [], outcomes: {}, text, at: tie }) + '\n');
+  plant('m7101', 'tie A');
+  plant('m7102', 'tie B');
+  await sleep(3);
+  messages.roomNote(pid, 'after the tie');
+  const newest = await room('?n=2');
+  assert.deepEqual(texts(newest.json), ['tie B', 'after the tie'], 'premise: the page edge falls between the two tied posts');
+  const older = await room('?n=1&beforeId=' + newest.json.rows[0].id);
+  assert.deepEqual(texts(older.json), ['tie A'], 'the tied post on the other side of the edge was skipped');
+  // CONTROL: the time cursor alone loses it, which is why the phone pages by id.
+  assert.notDeepEqual(texts((await room('?n=1&before=' + encodeURIComponent(tie))).json), ['tie A']);
 });

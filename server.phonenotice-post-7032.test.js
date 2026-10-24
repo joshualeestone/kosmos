@@ -2,8 +2,9 @@
 /**
  * kosmos#7032: the words behind a room notification. A `posted` push carries `post:<post id>` (server.js); the phone
  * asks GET /api/phone/notice for its words, and the computer answers with the post's text and its author, as it does
- * for a direct reply. CONTROLS: the person's own post, an unknown post, a post with no words, and an id that names an
- * author all answer 404 or name the post's real author, never the id's. Real post rows in the room log, real route.
+ * for a direct reply, the author read off the post row (the id names only the post). CONTROLS: the person's own post,
+ * an unknown post, a post with no words, and malformed ids (one naming an author too) answer 404. Real post rows in the
+ * room log, real route.
  *
  * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE (HOME included).
  */
