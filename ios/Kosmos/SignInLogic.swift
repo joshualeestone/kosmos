@@ -173,16 +173,6 @@ enum SignIn {
 
     // MARK: - The web view, signed in too
 
-    /// The script the app runs ON the sign-in page (login.kosmosplus.com, its main frame) so the page holds the session
-    /// the native sign-in made, where the page itself keeps it (localStorage, `pageSessionKey`). The page is reloaded
-    /// after, and its restore() opens signed in. The token goes in as a JSON string literal, never spliced as text.
-    /// Returns true once it is stored. (Review round 1: the first version used the server's adopt cookie, which this
-    /// page never reads.)
-    /// The app's keychain is the source: every session the page makes it hands to the app, so a page holding anything
-    /// else holds a session the app no longer has (revoked, signed out elsewhere) and is overwritten (review round 3;
-    /// round 2 only wrote an empty slot, and a dead token left there signed out a fresh native sign-in). Returns false
-    /// when nothing changed, so the page is not reloaded. `origin` is checked inside the script too: the page may have
-    /// moved between the app's host check and the script running (review round 3).
     /// A URL's origin as a browser's `location.origin` writes it: scheme://host, and :port only when it is not the
     /// scheme's default. Lowercased, as browsers give it.
     static func pageOrigin(_ url: URL) -> String? {
@@ -192,10 +182,17 @@ enum SignIn {
         return "\(scheme)://\(host)"
     }
 
-    static func storeScript(token: String, origin: String) -> String? {
+    /// A script for the start of every main-frame document (WKUserScript, atDocumentStart): on the sign-in page's own
+    /// origin it puts the app's session where the page keeps its own (localStorage, `pageSessionKey`; the page reads no
+    /// cookie, review round 1), BEFORE the page's restore() reads it. Run later (at didFinish, as rounds 1 to 3 did) it
+    /// loses to restore(), which has already sent the old value to /v1/account/me, and a dead old value then signs out
+    /// the fresh native session (review round 4). The app's keychain is the source: every session the page makes it
+    /// hands to the app, so a page holding anything else holds one the app no longer has and is overwritten. Nothing
+    /// reloads. The token goes in as a JSON string literal, never spliced as text.
+    static func sessionScript(token: String, origin: String) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: [token, pageSessionKey, origin], options: []),
               let array = String(data: data, encoding: .utf8) else { return nil }
-        return "var a = \(array); if (location.origin !== a[2]) return false; if (localStorage.getItem(a[1]) === a[0]) return false; localStorage.setItem(a[1], a[0]); return localStorage.getItem(a[1]) === a[0];"
+        return "(function () { var a = \(array); if (location.origin !== a[2]) return; try { if (localStorage.getItem(a[1]) !== a[0]) localStorage.setItem(a[1], a[0]); } catch (e) {} })();"
     }
 
     // MARK: - The screens' steps

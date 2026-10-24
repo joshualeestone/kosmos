@@ -137,13 +137,13 @@ struct ContentView: View {
             if request != nil { todayBoard = true; tab = .today }
         }
         // kosmos#7008: a sign-out or another account drops the chats now, not at the next visit to the tab.
-        .onChange(of: pushManager.accountChanges) { _ in board.accountChanged() }
+        .onChange(of: pushManager.accountChanges) { _ in board.accountChanged(); web.sessionChanged() }
         // kosmos#7042: Kosmos+ issued a session: the app takes it as it takes the sign-in page's, and the web view is
         // signed in with it too. The screen stays for the Mac's Allow, then opens on the native Today.
         .onChange(of: signIn.issued) { token in
             guard let token = token else { return }
             pushManager.signedInNatively(token)
-            web.signInPage(with: token)
+            web.sessionChanged()
         }
         // The person backed out of a session already issued (Use a different email, Sign in again): it is signed out,
         // so neither the app nor the web page keeps it (review round 2).
@@ -393,28 +393,25 @@ final class BoardWeb: ObservableObject {
 
     init() { coordinator.web = self }
 
-    // kosmos#7042: the sign-in page keeps its own copy of the session (localStorage). After a native sign-in it has
-    // none, or a dead one left from before, so each time it loads holding anything but the app's session, the app's is
-    // stored there (SignIn.storeScript) and the page reloads signed in. Read from the keychain each time, not held in
-    // memory, so a restart before any web tab opened still heals (review round 2). A sign-out on the page removes its
-    // copy and then tells the app over the bridge, which deletes the keychain's before any later load; the residual is
-    // a bridge message lost while the app locks (BoardWeb.drop), which would heal it back once. A load anywhere else
-    // (a notification's chat on the Mac) is left alone.
-    func signInPage(with token: String) {
-        if let webView = webView, !webView.isLoading { storeSession(webView) }
+    // kosmos#7042: the sign-in page keeps its own copy of the session (localStorage), read by its restore() as the
+    // page starts. Every document's start scripts carry the app's session for that page (SignIn.sessionScript), so it
+    // opens signed in as the app is: after a native sign-in, after a restart, and over a dead session left from before.
+    // Rebuilt whenever the app's session changes; a page already showing keeps what it has, and the next page the web
+    // view opens has the new one. Main frame only, and the script checks the page's origin itself.
+    static func userScripts(session: String?) -> [WKUserScript] {
+        var scripts = [WKUserScript(source: AppTabs.markScript, injectionTime: .atDocumentStart, forMainFrameOnly: true)]
+        if let session, let origin = SignIn.pageOrigin(KosmosConfig.coordinatorOrigin),
+           let source = SignIn.sessionScript(token: session, origin: origin) {
+            scripts.append(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
+        return scripts
     }
 
-    /// True when it stored the session (the page is then reloaded where it was).
-    private func storeSession(_ webView: WKWebView) {
-        // Only on the sign-in page's own origin: its storage is the page's, and nowhere else may hold the token.
-        guard webView.url?.host == AppTabs.signInHost, let token = SessionKeychain.live.load(),
-              let origin = SignIn.pageOrigin(KosmosConfig.coordinatorOrigin),
-              let script = SignIn.storeScript(token: token, origin: origin) else { return }
-        webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
-            // Stored: reload the page it ran on (Settings' account page stays the account page; review round 2).
-            // Not stored (the page has its own session, or could not keep it): nothing to do.
-            if case .success(let stored as Bool) = result, stored { webView.reload() }
-        }
+    /// The app's session changed (a native sign-in, the page's own sign-in or sign-out, another account).
+    func sessionChanged() {
+        guard let controller = webView?.configuration.userContentController else { return }
+        controller.removeAllUserScripts()
+        Self.userScripts(session: SessionKeychain.live.load()).forEach(controller.addUserScript)
     }
 
     // Each change of the page's address (replaceState too), with the one before, so the bar can follow the page's own
@@ -472,7 +469,6 @@ final class BoardWeb: ObservableObject {
     // A page finished loading: run a press that waited for it, and start a launch round of Tasks reads if no read has
     // answered this launch (PressTracker.launchReads). A later load replaces the round.
     func loaded() {
-        if let webView = webView { storeSession(webView) }
         // What waits is a web tab or a section pressed on purpose (a native tab's press leaves nothing waiting), so it
         // replays as a section press.
         if let tab = tracker.pending { press(tab, ready: true, section: true) }
@@ -569,10 +565,9 @@ struct WebView: UIViewRepresentable {
             SessionMessageProxy(target: pushManager),
             name: PushNotificationManager.sessionHandlerName
         )
-        // Every page knows it is inside the app's tab bar, so the board hides its own (#6846 part c).
-        config.userContentController.addUserScript(
-            WKUserScript(source: AppTabs.markScript, injectionTime: .atDocumentStart, forMainFrameOnly: true)
-        )
+        // Every page knows it is inside the app's tab bar, so the board hides its own (#6846 part c). kosmos#7042: and the
+        // sign-in page starts with the app's session (BoardWeb.userScripts).
+        BoardWeb.userScripts(session: SessionKeychain.live.load()).forEach(config.userContentController.addUserScript)
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = web.coordinator
