@@ -21,31 +21,31 @@ Validation, at a4a56ea1d6 (rebased on origin/main):
 - `bash ios/LogicTests/run.sh`: PASS 639/639. `run-actions.sh`: PASS 48/48. `run-settings.sh`: PASS 41/41.
 - xcodebuild simulator Debug with `-warn-long-expression-type-checking=100` (CI's Xcode is older than this Mac's): SUCCEEDED.
 
-## Round 1 findings (blind reviewer)
-- BLOCKER: Reply was offered on a needs-you notice too. Typed words there could answer a menu the person cannot
+## Iteration 1
+- [BLOCKER] Reply was offered on a needs-you notice too. Typed words there could answer a menu the person cannot
   see. Fixed: Reply only on an agent's own reply (PhoneNotice.offersReply, kind "reply").
-- WARNING: a reply the board kept but did not type (`could_not`) was silent. Fixed: the person is told, with the
+- [WARNING] a reply the board kept but did not type (`could_not`) was silent. Fixed: the person is told, with the
   board's own reason; only a held reply ("Waiting to send") stays quiet.
-- WARNING: the send had no hard limit inside iOS's short action window. Fixed with a total limit.
-- WARNING: the follow-up notice opened nothing when tapped. Fixed: it carries the original address and agent.
+- [WARNING] the send had no hard limit inside iOS's short action window. Fixed with a total limit.
+- [WARNING] the follow-up notice opened nothing when tapped. Fixed: it carries the original address and agent.
 - Mutation controls: both bugs put back each fail their test (29/29 restored).
 
-## Round 2 findings
-- BLOCKER: an agent can reply and then put up a menu; a lock-screen reply would answer or close it (a bare digit
+## Iteration 2
+- [BLOCKER] an agent can reply and then put up a menu; a lock-screen reply would answer or close it (a bare digit
   is taken as its key). Fixed: the app reads the chat first and sends only when no question is standing; an
   unreadable chat sends nothing and says why.
 - Two stale comments corrected. 37/37; 2 fail with the rule disabled.
 
-## Round 3 findings
-- BLOCKER: the "question is up" rule read only the live question row (last, undated). A question the agent
+## Iteration 3
+- [BLOCKER] the "question is up" rule read only the live question row (last, undated). A question the agent
   reported itself is dated and placed among the rows, and a menu the board cannot read gives no row at all.
   Fixed: the thread GET's own top-level `asking` is the signal; an older board without it falls back to the row.
 - My own wrong premise (the live row is always undated and last) disclosed on the card.
 
-## Round 4 findings
-- LOW: the read's and send's idle limits could fire before their totals and report a send that went as "may not
+## Iteration 4
+- [NIT] the read's and send's idle limits could fire before their totals and report a send that went as "may not
   have gone". Fixed: idle limits sit just under each total (read 7 of 8 s, send 13 of 14 s).
-- LOW: an older board's unreadable answer could be read as "not asking". Fixed: it fails closed.
+- [NIT] an older board's unreadable answer could be read as "not asking". Fixed: it fails closed.
 - No new BLOCKER or WARNING: converged.
 
 ## Not covered here (device checks, on #6838)
