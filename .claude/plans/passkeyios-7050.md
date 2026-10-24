@@ -28,6 +28,10 @@ real sources pass 1084/1084.
 
 ## Not in this slice
 
+A passkey on a hardware security key (only the platform provider is asked; the web page offers both). The email step
+on iOS 17.4+ has no manual link to the web page any more: the old one was the passkey link, and every case the native
+screens cannot do still reaches the web page through SignIn.next's .web steps.
+
 Adding a passkey from the app (the /account page in Safari does it). Turning the flag on (gated on #7050: a real
 Safari and iPhone check). On the iPhone that check also covers what no test here can reach (the model layer is UIKit,
 outside the logic tests): Send code (return key) while the sheet is open, going to the background with it open, Use a

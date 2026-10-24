@@ -181,10 +181,15 @@ final class SignInClient {
 
     /// finish, with this iPhone's device id (the one verify proves next).
     func passkeyFinish(_ assertion: ASAuthorizationPlatformPublicKeyCredentialAssertion) async throws -> SignIn.PasskeyFinish {
+        // The SDK declares these implicitly unwrapped; a missing one is a failed sign-in, never a crash.
+        let credentialID: Data? = assertion.credentialID, authenticatorData: Data? = assertion.rawAuthenticatorData
+        let clientData: Data? = assertion.rawClientDataJSON, signature: Data? = assertion.signature
+        guard let credentialID, let authenticatorData, let clientData, let signature else { return .refused(SignIn.passkeyWords.failed) }
         let key = try deviceKey()
-        let body = SignIn.passkeyFinishBody(credentialID: assertion.credentialID, authenticatorData: assertion.rawAuthenticatorData,
-                                            clientDataJSON: assertion.rawClientDataJSON, signature: assertion.signature,
-                                            userHandle: assertion.userID, deviceID: key.id)
+        let userID: Data? = assertion.userID
+        let body = SignIn.passkeyFinishBody(credentialID: credentialID, authenticatorData: authenticatorData,
+                                            clientDataJSON: clientData, signature: signature,
+                                            userHandle: userID, deviceID: key.id)
         let (status, json) = try await post(SignIn.passkeyFinishPath, body)
         return SignIn.passkeyFinish(status: status, json: json)
     }
