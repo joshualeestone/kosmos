@@ -13,14 +13,26 @@ struct AgentsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
     @State private var wasBackground = false
-    // The agent whose chat is open (kosmos#7008).
-    @State private var openSession: String?
+    // The agent whose chat is open (kosmos#7008), as it was tapped (the chat follows the list for its status).
+    @State private var openAgent: Board.Agent?
 
     var body: some View {
         NavigationView {
             content
                 .navigationTitle("Agents")
                 .background(Palette.ground.ignoresSafeArea())
+                // The link sits on the page, not on a row: a row (or the whole list) that stops being drawn, as when the
+                // Mac asks for Allow again, would otherwise close the chat under the person.
+                .background(
+                    NavigationLink(isActive: Binding(get: { openAgent != nil }, set: { if !$0 { openAgent = nil } })) {
+                        if let agent = openAgent {
+                            ChatView(client: client, agent: agent, openOnBoard: {
+                                if let url = client.chatURL(for: agent) { openChat(url) }
+                            })
+                        }
+                    } label: { EmptyView() }
+                    .hidden()
+                )
         }
         .navigationViewStyle(.stack)
         .onAppear {
@@ -28,7 +40,9 @@ struct AgentsView: View {
             client.start()
             #if DEBUG
             // The sample chat's screenshots (a Debug build only): KOSMOS_SAMPLE_OPEN=<agent> opens that chat.
-            if let open = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OPEN"], !open.isEmpty { openSession = open }
+            if let open = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OPEN"], !open.isEmpty {
+                openAgent = Board.Agent(session: open, name: open.prefix(1).uppercased() + open.dropFirst(), role: nil, state: "idle", task: nil, needsYou: false)
+            }
             #endif
         }
         .onDisappear { visible = false; wasBackground = false; client.stop() }
@@ -144,10 +158,8 @@ struct AgentsView: View {
             Section(footer: footer) {
                 ForEach(client.agents) { agent in
                     // kosmos#7008: the agent's chat, native; anything it does not draw opens the board's (openChat).
-                    NavigationLink(tag: agent.session, selection: $openSession) {
-                        ChatView(client: client, agent: agent, openOnBoard: {
-                            if let url = client.chatURL(for: agent) { openChat(url) }
-                        })
+                    Button {
+                        openAgent = agent
                     } label: {
                         // A picture the agent no longer has is not shown, whatever was fetched before.
                         AgentRow(agent: agent, picture: agent.hasAvatar ? client.pictures[agent.session].flatMap(UIImage.init(data:)) : nil, stale: stale)

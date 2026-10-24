@@ -775,27 +775,44 @@ do {
           "a send posts {text}, trimmed, to the same route")
     check(body?.count == 1, "nothing else rides with a plain message")
     check(Board.sendRequest(mac: mac, session: "dana", text: "   ") == nil, "a blank message is not sent")
-    check(Board.sendRequest(mac: mac, session: "dana", text: String(repeating: "a", count: Board.maxMessage + 1)) == nil
-          && Board.sendRequest(mac: mac, session: "dana", text: String(repeating: "a", count: Board.maxMessage)) != nil,
+    // Counted as the board counts: UTF-16 units of the words with whitespace runs made one space.
+    check(Board.fitsBoard(String(repeating: "a", count: Board.maxMessage)) && !Board.fitsBoard(String(repeating: "a", count: Board.maxMessage + 1)),
           "the board's own longest message, and not one character more")
+    check(!Board.fitsBoard(String(repeating: "\u{1F44D}", count: 6000)), "6000 emoji are 12000 UTF-16 units: too long for the board, so not sent")
+    check(Board.fitsBoard(String(repeating: "a      ", count: 2000)), "spaces the board folds away do not count against the length")
+    check(Board.sameWords(" Thanks,\n\n\n\nsee   you\tFriday ") == "Thanks, see you Friday", "words compared as the board compares them")
 }
 
 section("native chat: reading the conversation")
 do {
-    let json = #"{"messages":[{"at":"2026-10-23T13:32:00Z","text":"Morning","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:33:00Z","text":"Hi","from":"dana"},{"at":"2026-10-23T13:33:00Z","text":"And again","from":"dana"},{"at":"2026-10-23T13:40:00Z","text":"Paused","from":null,"kind":"kosmos"},{"at":"2026-10-23T13:41:00Z","text":"Tue or Wed?","from":"dana","kind":"question"},{"at":"2026-10-23T13:42:00Z","text":"May I run it?","from":"dana","kind":"question","permission":{"title":"x"}},{"at":"2026-10-23T13:43:00Z","text":"File","from":"dana","attachments":[{"id":"a"}]},{"at":"2026-10-23T13:44:00Z","text":"Lost","from":null,"delivery":{"state":"could_not"}},{"at":"2026-10-23T13:45:00Z","text":"Later","from":null,"delivery":{"state":"held"}},{"at":"2026-10-23T13:46:00Z","text":"Maybe","from":null,"delivery":{"state":"unconfirmed"}},{"from":"dana"}],"olderCount":12,"question":{"text":"Tue or Wed?"}}"#
+    let json = #"{"messages":[{"at":"2026-10-23T13:32:00Z","text":"Morning","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:33:00Z","text":"Hi","from":"dana"},{"at":"2026-10-23T13:33:00Z","text":"And again","from":"dana"},{"at":"2026-10-23T13:40:00Z","text":"Paused","from":null,"kind":"kosmos"},{"at":"2026-10-23T13:41:00Z","text":"Tue or Wed?","from":"dana","kind":"question","id":"q1"},{"at":"2026-10-23T13:42:00Z","text":"May I run it?","from":"dana","kind":"question","permission":{"title":"x"}},{"at":"2026-10-23T13:43:00Z","text":"File","from":"dana","attachments":[{"id":"a"}]},{"at":"2026-10-23T13:44:00Z","text":"Lost","from":null,"delivery":{"state":"could_not"}},{"at":"2026-10-23T13:45:00Z","text":"Later","from":null,"delivery":{"state":"held"}},{"at":"2026-10-23T13:46:00Z","text":"Maybe","from":null,"delivery":{"state":"unconfirmed"}},{"from":"dana"}],"olderCount":12}"#
     let t = Board.parseThread(Data(json.utf8))
     let rows = t?.rows ?? []
     check(rows.count == 10, "a row with no text is dropped")
     check(rows[0].who == .person && rows[1].who == .agent && rows[3].who == .kosmos, "no from is the person's, a from is the agent's, kind kosmos is Kosmos's own")
     check(rows[1].id != rows[2].id && Set(rows.map(\.id)).count == rows.count, "two rows at the same time keep different ids")
+    check(rows[4].id.hasPrefix("id|q1"), "the Mac's own id is used where it gives one")
+    check(rows[0].atRaw == "2026-10-23T13:32:00Z", "the Mac's own time is kept as sent, to match a sent message to its row")
     check(rows[4].wayThrough == .question && rows[5].wayThrough == .permission && rows[6].wayThrough == .attachment && rows[1].wayThrough == nil,
           "a question, a permission card and a file each get their way-through row")
     check(rows[0].notSent == nil && rows[7].notSent == "Not sent" && rows[8].notSent == "Waiting to send" && rows[9].notSent == nil,
           "placed and unconfirmed reached the agent; could_not and held did not")
-    check(t?.olderCount == 12 && t?.asking == true, "older messages and a live question are read")
+    check(rows[7].canSendAgain && !rows[8].canSendAgain && !rows[0].canSendAgain,
+          "only a message the Mac could not deliver can be sent again; one it holds goes by itself")
+    check(t?.olderCount == 12, "older messages are counted")
     check(Board.parseThread(Data("{}".utf8)) == nil && Board.parseThread(Data("not json".utf8)) == nil, "an answer that is not a conversation is nil")
-    let empty = Board.parseThread(Data(#"{"messages":[],"question":null}"#.utf8))
-    check(empty?.rows.isEmpty == true && empty?.asking == false && empty?.olderCount == 0, "an empty conversation is one, not a failure")
+    let empty = Board.parseThread(Data(#"{"messages":[]}"#.utf8))
+    check(empty?.rows.isEmpty == true && empty?.olderCount == 0, "an empty conversation is one, not a failure")
+
+    // What a read says: the conversation, the Mac's own reason, or no answer.
+    let read = { (s: Int, b: String?) in Board.readThread(status: s, data: b.map { Data($0.utf8) }) }
+    if case .thread = read(200, #"{"messages":[]}"#) { check(true, "a conversation") } else { check(false, "a conversation") }
+    check(read(200, #"{"messages":null,"historyBecause":"we could not read this conversation"}"#) == .refused("we could not read this conversation"),
+          "a history the Mac could not read says so, not that the Mac is not answering")
+    check(read(404, #"{"error":"that name belongs to another session"}"#) == .refused("that name belongs to another session"),
+          "a name the Mac refuses says the Mac's words")
+    check(read(0, nil) == .noAnswer && read(502, "<html>") == .noAnswer && read(200, "<html>") == .noAnswer,
+          "no answer, a gateway error or a page that is not the conversation are no answer")
 }
 
 section("native chat: runs, times and day lines (Mona Lisa's slice 3a spec)")
@@ -806,7 +823,7 @@ do {
     let at = { (s: String) in Board.isoDate(s)! }
     let now = at("2026-10-23T20:00:00Z")   // Friday 23 October, 3 pm in Chicago
     let row = { (id: String, when: String, who: Board.ChatRow.Who, way: Board.ChatRow.WayThrough?) in
-        Board.ChatRow(id: id, at: at(when), text: id, who: who, wayThrough: way)
+        Board.ChatRow(id: id, atRaw: when, at: at(when), text: id, who: who, wayThrough: way)
     }
     let rows = [
         row("old", "2026-10-21T15:00:00Z", .agent, nil),
@@ -834,34 +851,51 @@ do {
     check(Set(items.map(\.id)).count == items.count, "every item has its own id")
 }
 
-section("native chat: sending")
+section("native chat: what a send's answer means")
 do {
-    let ok = #"{"delivery":{"state":"placed"},"recorded":true}"#
-    let shown = #"{"delivery":{"state":"unconfirmed"},"recorded":true}"#
-    let couldNot = #"{"delivery":{"state":"could_not","because":"Dana is not running"},"recorded":true}"#
-    let held = #"{"delivery":{"state":"held"},"recorded":false}"#
-    let refused = #"{"error":"that message is empty"}"#
-    let out = { (s: Int, b: String?) in Board.sendOutcome(status: s, body: b.map { Data($0.utf8) }) }
-    check(out(200, ok) == .sent && out(200, shown) == .sent, "placed and unconfirmed are sent, as the board shows them")
-    check(out(200, couldNot) == .notSent("Dana is not running"), "could_not says the board's reason")
-    if case .notSent = out(200, held) { check(true, "held is not sent yet") } else { check(false, "held is not sent yet") }
-    check(out(400, refused) == .notSent("that message is empty") && out(0, nil) == .notSent("Your Mac isn't answering, so it was not sent."),
-          "a refusal says the board's words; no answer says the Mac is not answering")
+    let res = { (s: Int, b: String?) in Board.sendResult(status: s, body: b.map { Data($0.utf8) }) }
+    check(res(200, #"{"delivery":{"state":"placed","at":"T1"},"recorded":true}"#) == .kept(at: "T1"), "placed and kept: the row is at T1")
+    check(res(200, #"{"delivery":{"state":"held","at":"T2"},"recorded":true}"#) == .kept(at: "T2"),
+          "held is kept too: the Mac's own row says Waiting to send, so the app never offers to send it twice")
+    check(res(200, #"{"delivery":{"state":"could_not","at":"T3","because":"x"},"recorded":true}"#) == .kept(at: "T3"),
+          "could_not is kept as a row that says Not sent, which can be sent again from there")
+    check(res(200, #"{"delivery":{"state":"placed","at":"T4"},"recorded":false}"#) == .taken, "placed but no row kept: shown as sent until a read holds the words")
+    check(res(200, #"{"delivery":{"state":"held"},"recorded":false}"#) == .refused(nil), "held and not kept typed nothing")
+    check(res(409, #"{"error":"Dana is at its trust prompt"}"#) == .refused("Dana is at its trust prompt"), "a refusal keeps the Mac's words")
+    check(res(0, nil) == .noAnswer, "no answer is no answer")
+    check(Board.pendingState(after: .kept(at: "T")) == .kept(at: "T") && Board.pendingState(after: .noAnswer) == .failed(reason: nil)
+          && Board.pendingState(after: .refused("x")) == .failed(reason: "x"), "each answer's pending state")
     check(Board.notSentLine(agentRunning: true, name: "Dana") == ("Not sent. Tap to try again.", true)
           && Board.notSentLine(agentRunning: false, name: "Dana") == ("Not sent. Dana isn't running on your computer.", false),
           "the spec's not-sent line, with no retry while the agent is not running")
+}
 
-    // An accepted message stays until a read holds it; one Mac row stands for one pending message.
+section("native chat: a sent message until the conversation holds it")
+do {
     let t0 = Board.isoDate("2026-10-23T15:00:00Z")!
-    var a = Board.PendingSend(id: "a", text: "Hello", at: t0); a.accepted = true
-    var b = Board.PendingSend(id: "b", text: "Hello", at: t0); b.accepted = true
-    let sending = Board.PendingSend(id: "c", text: "Hello", at: t0)
-    let row = { (s: String, text: String) in Board.ChatRow(id: s, at: Board.isoDate(s), text: text, who: .person) }
-    let thread = Board.Thread(rows: [row("2026-10-23T15:00:01Z", " Hello\n"), row("2026-10-23T14:00:00Z", "Hello")], olderCount: 0, asking: false)
-    check(Board.settled([a, b, sending], with: thread).map(\.id) == ["b", "c"],
-          "one matching row clears one accepted message; an hour-old one with the same words does not; one still sending stays")
-    let agentSaid = Board.Thread(rows: [Board.ChatRow(id: "x", at: t0, text: "Hello", who: .agent)], olderCount: 0, asking: false)
-    check(Board.settled([a], with: agentSaid).map(\.id) == ["a"], "the agent saying the same words does not clear the person's message")
+    func p(_ id: String, _ text: String, _ state: Board.PendingSend.State) -> Board.PendingSend { Board.PendingSend(id: id, text: text, at: t0, state: state) }
+    func person(_ at: String, _ text: String, notSent: String? = nil) -> Board.ChatRow {
+        Board.ChatRow(id: at, atRaw: at, at: Board.isoDate(at), text: text, who: .person, notSent: notSent)
+    }
+    let thread = Board.Thread(rows: [person("2026-10-23T15:00:01.000Z", "Hello"), person("2026-10-23T15:00:02.000Z", "Thanks,\n\nsee you Friday"),
+                                     person("2026-10-23T14:00:00Z", "Old words")], olderCount: 0)
+    let kept = p("k", "Hello", .kept(at: "2026-10-23T15:00:01.000Z"))
+    let keptElsewhere = p("k2", "Hello", .kept(at: "2026-10-23T15:09:00.000Z"))
+    check(Board.settled([kept, keptElsewhere], with: thread).map(\.id) == ["k2"], "a kept message goes when its own row (by the Mac's time) is read, and only then")
+    let taken = p("t", "Thanks,\n\n\n\nsee you Friday", .taken)
+    check(Board.settled([taken], with: thread).isEmpty, "a taken message matches the row the Mac tidied (blank lines folded)")
+    let lost = p("n", "Thanks, see you   Friday", .failed(reason: nil))
+    check(Board.settled([lost], with: thread).isEmpty, "a send that got no answer but arrived is cleared by the read, never left as Not sent")
+    let refused = p("r", "Hello", .failed(reason: "Dana is at its trust prompt"))
+    check(Board.settled([refused], with: thread).map(\.id) == ["r"], "one the Mac refused with a reason kept no row, so it stays")
+    let sending = p("s", "Hello", .sending)
+    check(Board.settled([sending], with: thread).map(\.id) == ["s"], "one still sending stays")
+    let oldWords = p("o", "Old words", .taken)
+    check(Board.settled([oldWords], with: thread).map(\.id) == ["o"], "a row written long before the send does not clear it")
+    let twice = [p("a", "Hello", .taken), p("b", "Hello", .taken)]
+    check(Board.settled(twice, with: thread).map(\.id) == ["b"], "one row clears one pending message")
+    let agentSaid = Board.Thread(rows: [Board.ChatRow(id: "x", atRaw: nil, at: t0, text: "Hello", who: .agent)], olderCount: 0)
+    check(Board.settled([p("a", "Hello", .taken)], with: agentSaid).map(\.id) == ["a"], "the agent saying the same words does not clear the person's message")
 }
 
 section("native board: the Mac's session kept between launches")
@@ -903,6 +937,11 @@ final class FakeBoardWorld {
     var admitKeyedApart = false
     // Pictures: an image, or (pictureAsPage) the gate's sign-in page at 200, as an ended session would answer.
     var pictureAsPage = false
+    // kosmos#7008: one agent's conversation (GET) and the answers to sends (POST, each takes the first queued; nil is no
+    // answer at all), with the texts posted.
+    var threadAnswer: (Int, String)? = (200, #"{"messages":[],"olderCount":0}"#)
+    var sendQueue: [(Int, String)?] = []
+    var posted: [String] = []
     let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage!
 
     func count(_ path: String) -> Int { requests.filter { $0.hasSuffix(path) }.count }
@@ -928,6 +967,15 @@ final class FakeBoardWorld {
             let next: (Int, String)? = statusQueue.isEmpty ? statusDefault : statusQueue.removeFirst()
             return next.map { answer($0.0, $0.1) }
         default:
+            if url.path.hasPrefix("/api/agent/") && url.path.hasSuffix("/thread") {
+                if r.httpMethod == "POST" {
+                    let body = r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                    posted.append(body?["text"] as? String ?? "")
+                    let next: (Int, String)? = sendQueue.isEmpty ? (200, #"{"delivery":{"state":"placed","at":"2026-10-23T20:00:00.000Z"},"recorded":true}"#) : sendQueue.removeFirst()
+                    return next.map { answer($0.0, $0.1) }
+                }
+                return threadAnswer.map { answer($0.0, $0.1) }
+            }
             if url.path.hasPrefix("/api/agent/") && url.path.hasSuffix("/avatar") {
                 if pictureAsPage {
                     return (Data("<html>sign in</html>".utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/html"])!)
@@ -1018,6 +1066,97 @@ section("native board loop: connecting")
         check(w.count("/v1/account/handoff") == 1, "by one fresh sign-in, not by restoring the ended record again")
         check(Board.usableSaved(macs.value, session: "kst1", coordinator: coordinator)?.cookie == "fresh-1", "and the new session is the one kept")
         c.stop()
+    }
+
+    section("native chat: the client's sends and reads, against a fake Mac (kosmos#7008)")
+    do {
+        let (c, w, _, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        let dana = c.agents.first { $0.session == "dana" }!
+        func pending() -> [Board.PendingSend] { c.pending["dana"] ?? [] }
+
+        // Kept: shown until a read brings the Mac's own row for it, then gone with no copy left.
+        w.sendQueue = [(200, #"{"delivery":{"state":"placed","at":"2026-10-23T20:00:01.000Z"},"recorded":true}"#)]
+        await c.post("  Morning Dana \n", to: dana)
+        check(w.posted.last == "Morning Dana", "the trimmed words are posted")
+        check(pending().count == 1 && pending()[0].state == .kept(at: "2026-10-23T20:00:01.000Z"), "a kept send waits for its row")
+        w.threadAnswer = (200, #"{"messages":[{"at":"2026-10-23T20:00:01.000Z","text":"Morning Dana","from":null,"delivery":{"state":"placed"}}]}"#)
+        if case .thread(let t) = await c.thread(for: "dana") { c.settle(t, for: "dana") }
+        check(pending().isEmpty, "the read that holds its row clears it: one bubble, not two")
+
+        // Held: the Mac's row says Waiting to send; the app never offers to send it again (it would be typed twice).
+        w.sendQueue = [(200, #"{"delivery":{"state":"held","at":"2026-10-23T20:00:02.000Z"},"recorded":true}"#)]
+        await c.post("Pages 9 to 12?", to: dana)
+        check(pending().last?.state == .kept(at: "2026-10-23T20:00:02.000Z") && pending().last?.failed == false, "a held send is kept, not failed")
+        let before = w.posted.count
+        await c.retry(pending().last!.id, to: dana)
+        check(w.posted.count == before, "and a retry of it sends nothing")
+        w.threadAnswer = (200, #"{"messages":[{"at":"2026-10-23T20:00:02.000Z","text":"Pages 9 to 12?","from":null,"delivery":{"state":"held"}}]}"#)
+        if case .thread(let t) = await c.thread(for: "dana") {
+            c.settle(t, for: "dana")
+            check(pending().isEmpty && t.rows.first?.notSent == "Waiting to send" && t.rows.first?.canSendAgain == false,
+                  "its row reads Waiting to send, with nothing to tap")
+        } else { check(false, "the held row is read") }
+
+        // Refused with the Mac's words: failed, says why, and is tried again by a tap.
+        w.sendQueue = [(409, #"{"error":"Dana is at its trust prompt"}"#), (200, #"{"delivery":{"state":"placed","at":"2026-10-23T20:00:03.000Z"},"recorded":true}"#)]
+        await c.post("Go on", to: dana)
+        check(pending().last?.state == .failed(reason: "Dana is at its trust prompt"), "a refusal keeps the Mac's words")
+        await c.retry(pending().last!.id, to: dana)
+        check(w.posted.suffix(2) == ["Go on", "Go on"] && pending().last?.state == .kept(at: "2026-10-23T20:00:03.000Z"), "a tap tries again, and this time it is kept")
+        c.discard(pending().last!.id, for: "dana")
+
+        // No answer, but it arrived: the next read clears it instead of leaving "Not sent" for a message the agent has.
+        w.sendQueue = [nil]
+        await c.post("Thanks,\n\n\n\nsee you Friday", to: dana)
+        check(pending().last?.state == .failed(reason: nil), "no answer is not sent, for now")
+        w.threadAnswer = (200, #"{"messages":[{"at":"2026-10-23T20:00:04.000Z","text":"Thanks,\n\nsee you Friday","from":null,"delivery":{"state":"placed"}}]}"#)
+        if case .thread(let t) = await c.thread(for: "dana") { c.settle(t, for: "dana") }
+        check(pending().isEmpty, "a read that holds the same words (tidied by the Mac) clears it")
+
+        // A message the Mac kept as not sent is sent again as a new message.
+        let lostRow = Board.ChatRow(id: "x", atRaw: "T", at: nil, text: "Are you there?", who: .person, notSent: "Not sent")
+        await c.sendAgain(lostRow, to: dana)
+        check(w.posted.last == "Are you there?", "Not sent, tapped, posts the words again")
+
+        // Reads say the Mac's reason, or no answer.
+        w.threadAnswer = (404, #"{"error":"that name belongs to another session"}"#)
+        let refusedRead = await c.thread(for: "dana")
+        check(refusedRead == .refused("that name belongs to another session"), "a refused read keeps the Mac's words")
+        w.threadAnswer = nil
+        let silentRead = await c.thread(for: "dana")
+        check(silentRead == .noAnswer, "no answer is no answer")
+        c.stop()
+    }
+    do {
+        // An agent that is not running: a failed send cannot be retried until it runs again (the spec, state 5).
+        let (c, w, _, _) = make("kst1")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"gus","name":"Gus","state":"stopped","running":false}]}"#)
+        c.start()
+        _ = await settle { isLive(c) }
+        let gus = c.agents.first { $0.session == "gus" }!
+        w.sendQueue = [(409, #"{"error":"Gus is not running"}"#)]
+        await c.post("Hello", to: gus)
+        let sent = w.posted.count
+        await c.retry(c.pending["gus"]!.last!.id, to: gus)
+        check(w.posted.count == sent && !c.isRunning(gus), "no retry while it is not running")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"gus","name":"Gus","state":"idle"}]}"#)
+        _ = await settle { c.isRunning(gus) }
+        await c.retry(c.pending["gus"]!.last!.id, to: gus)
+        check(w.posted.count == sent + 1, "and once it runs, a tap sends it again")
+        c.stop()
+    }
+    do {
+        // Not connected: a read is no answer and a send is not sent, never a crash or a silent drop.
+        let (c, w, _, _) = make(nil)
+        let dana = Board.Agent(session: "dana", name: "Dana", role: nil, state: "working", task: nil, needsYou: false)
+        let noMacRead = await c.thread(for: "dana")
+        check(noMacRead == .noAnswer, "no Mac, no conversation")
+        await c.post("Hello", to: dana)
+        check(c.pending["dana"]?.first?.state == .failed(reason: nil) && w.posted.isEmpty, "no Mac: shown as not sent, nothing posted")
+        c.drafts["dana"] = "half a thought"
+        check(c.drafts["dana"] == "half a thought", "a chat's unsent words are kept by the client")
     }
 
     section("native board loop: a Mac that has just started")

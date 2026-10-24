@@ -361,14 +361,25 @@ enum Board {
         return r
     }
 
-    // The board's own longest message (engine/chat.js MAX_MESSAGE); its composer stops there too.
+    // The board's own longest message (engine/chat.js MAX_MESSAGE), counted as it counts: UTF-16 units of the message
+    // with its runs of spaces and line breaks made single spaces (cleanMessage).
     static let maxMessage = 10000
+    static func fitsBoard(_ text: String) -> Bool {
+        let said = sameWords(text)
+        return !said.isEmpty && said.utf16.count <= maxMessage
+    }
 
-    // A plain message, as the board's own composer posts it ({text}). nil for a name the app does not accept, an
-    // empty message, or one longer than the board takes.
+    // A message's words with every run of whitespace one space and the ends trimmed: how the board compares and counts
+    // (cleanMessage), and how a sent message is matched to the row the Mac kept (which keeps line breaks but tidies them).
+    static func sameWords(_ s: String) -> String {
+        s.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    // A plain message, as the board's own composer posts it ({text}). nil for a name the app does not accept or a
+    // message the board would not take.
     static func sendRequest(mac: URL, session: String, text: String) -> URLRequest? {
         let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isAgentSession(session), !said.isEmpty, said.count <= maxMessage else { return nil }
+        guard isAgentSession(session), fitsBoard(said) else { return nil }
         var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -383,20 +394,22 @@ enum Board {
         // (slice 3a spec, "The way through").
         enum WayThrough: Equatable { case question, permission, attachment }
         let id: String
+        // The Mac's own time for the row, as it sent it: a sent message is matched to its row by it.
+        let atRaw: String?
         let at: Date?
         let text: String
         let who: Who
-        // Under a message of the person's: why it did not reach the agent, or nil when it did.
+        // Under a message of the person's: "Not sent" (the Mac could not deliver it; it can be sent again) or "Waiting
+        // to send" (the Mac holds it and sends it itself); nil when it reached the agent.
         var notSent: String? = nil
         var wayThrough: WayThrough? = nil
+        var canSendAgain: Bool { who == .person && notSent == "Not sent" }
     }
 
     struct Thread: Equatable {
         let rows: [ChatRow]
         // Older messages kept on the Mac that this read did not bring (the chat says so and links to the board).
         let olderCount: Int
-        // The agent is asking something on its screen right now (answered on the board in this first part).
-        let asking: Bool
     }
 
     static func isoDate(_ s: String?) -> Date? {
@@ -408,9 +421,9 @@ enum Board {
         return f.date(from: s)
     }
 
-    // `{messages:[{at,text,from,kind,delivery,attachment(s),permission}], olderCount, question}`. A row with no
-    // `from` is the person's (engine/chat.js: absent means the operator), `kind: 'kosmos'` is Kosmos's own line,
-    // `kind: 'question'` the agent asking; anything else with a `from` is the agent's.
+    // `{messages:[{at,text,from,kind,delivery,attachment(s),permission}], olderCount}`. A row with no `from` is the
+    // person's (engine/chat.js: absent means the operator), `kind: 'kosmos'` is Kosmos's own line, `kind: 'question'`
+    // the agent asking; anything else with a `from` is the agent's.
     static func parseThread(_ data: Data) -> Thread? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let rows = obj["messages"] as? [[String: Any]]
@@ -422,8 +435,8 @@ enum Board {
             let kind = row["kind"] as? String
             let from = (row["from"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let who: ChatRow.Who = kind == "kosmos" ? .kosmos : (kind == "question" || from != nil) ? .agent : .person
-            // Two rows can share a time; the id stays unique and stable across reads.
-            let base = (at ?? "") + "|" + (from ?? "") + "|" + (kind ?? "")
+            // The Mac's own id where it gives one; otherwise a stable one from the row (two rows can share a time).
+            let base = (row["id"] as? String).flatMap { $0.isEmpty ? nil : "id|" + $0 } ?? ((at ?? "") + "|" + (from ?? "") + "|" + (kind ?? ""))
             let n = seen[base, default: 0]
             seen[base] = n + 1
             var notSent: String? = nil
@@ -434,11 +447,25 @@ enum Board {
             let way: ChatRow.WayThrough? = row["permission"] != nil ? .permission
                 : kind == "question" ? .question
                 : (row["attachment"] != nil || (row["attachments"] as? [Any])?.isEmpty == false) ? .attachment : nil
-            return ChatRow(id: base + "#\(n)", at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way)
+            return ChatRow(id: base + "#\(n)", atRaw: at, at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way)
         }
         let older = (obj["olderCount"] as? NSNumber)?.intValue ?? 0
-        let asking = obj["question"] is [String: Any]
-        return Thread(rows: parsed, olderCount: max(0, older), asking: asking)
+        return Thread(rows: parsed, olderCount: max(0, older))
+    }
+
+    // A read of the conversation: the conversation, the Mac's own reason it could not give one (a name it refuses, a
+    // history it could not read), or no answer at all.
+    enum ThreadRead: Equatable { case thread(Thread), refused(String), noAnswer }
+
+    static func readThread(status: Int, data: Data?) -> ThreadRead {
+        let obj = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if (200...299).contains(status) {
+            if let data, let t = parseThread(data) { return .thread(t) }
+            if let why = obj?["historyBecause"] as? String, !why.isEmpty { return .refused(why) }
+            return .noAnswer
+        }
+        if (400...499).contains(status), let error = obj?["error"] as? String, !error.isEmpty { return .refused(error) }
+        return .noAnswer
     }
 
     // MARK: Laying the conversation out (Mona Lisa's slice 3a spec: runs, times, day lines)
@@ -488,52 +515,81 @@ enum Board {
         return f.string(from: day)
     }
 
-    // A message the person sent from this chat that the thread does not hold yet: sending, or not sent.
+    // MARK: Sending
+
+    // A message the person sent from this chat, shown until the conversation holds the row the Mac kept for it.
     struct PendingSend: Equatable, Identifiable {
+        enum State: Equatable {
+            case sending
+            // The Mac answered and kept a row for it at this time (whatever became of it: sent, held or refused, the
+            // row says so); shown, full strength, until a read brings that row.
+            case kept(at: String)
+            // The Mac took it but kept no row (or did not say when): shown as sent until a read holds the same words.
+            case taken
+            // Not taken: the Mac's own reason when it gave one, or nil when no answer came (it may have arrived; a read
+            // that holds the same words, written after it was sent, clears it).
+            case failed(reason: String?)
+        }
         let id: String
         let text: String
         let at: Date
-        // nil while it sends; the line under the bubble once it was not accepted.
-        var failed: String? = nil
-        var canRetry = true
-        // The Mac took it; shown (full strength, with its time) until a read of the conversation holds it.
-        var accepted = false
+        var state: State = .sending
+        var failed: Bool { if case .failed = state { return true } else { return false } }
+        var shownAsSent: Bool { switch state { case .kept, .taken: return true; default: return false } }
     }
 
-    // The pending messages still to show once a read of the conversation is in: an accepted one goes when the thread
-    // holds a message of the person's with the same words, written no earlier than a minute before it was sent (the
-    // Mac's clock and the phone's can differ). Each thread row stands for one pending message at most.
-    static func settled(_ pending: [PendingSend], with thread: Thread) -> [PendingSend] {
-        var unused = thread.rows.filter { $0.who == .person }
-        let trim = { (s: String) in s.trimmingCharacters(in: .whitespacesAndNewlines) }
-        return pending.filter { p in
-            guard p.accepted else { return true }
-            if let i = unused.firstIndex(where: { trim($0.text) == trim(p.text) && ($0.at.map { $0 >= p.at.addingTimeInterval(-60) } ?? true) }) {
-                unused.remove(at: i)
-                return false
-            }
-            return true
-        }
-    }
+    // The Mac's answer to a send. POST /api/agent/<name>/thread answers 200 with `delivery` (its `at` is the row it
+    // kept) and `recorded` (whether it kept one); a refusal answers 4xx with `{error}`.
+    enum SendResult: Equatable { case kept(at: String), taken, refused(String?), noAnswer }
 
-    // The line under a message that was not accepted (the spec's wording). An agent that is not running cannot take it,
-    // so there is nothing to retry until its status changes.
-    static func notSentLine(agentRunning: Bool, name: String) -> (text: String, canRetry: Bool) {
-        agentRunning ? ("Not sent. Tap to try again.", true) : ("Not sent. \(name) isn't running on your computer.", false)
-    }
-
-    enum SendOutcome: Equatable { case sent, notSent(String) }
-
-    // POST /api/agent/<name>/thread answers 200 with `delivery`; only `placed` (and `unconfirmed`, which the board
-    // shows as sent) reached the agent. A refusal answers 4xx with `{error}`, said as it is.
-    static func sendOutcome(status: Int, body: Data?) -> SendOutcome {
+    static func sendResult(status: Int, body: Data?) -> SendResult {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if (200...299).contains(status), let d = obj?["delivery"] as? [String: Any], let state = d["state"] as? String {
-            if state == "placed" || state == "unconfirmed" { return .sent }
-            if state == "held" { return .notSent("Waiting to send. It goes once the agent can take it.") }
-            return .notSent((d["because"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Not sent.")
+            if obj?["recorded"] as? Bool == true, let at = d["at"] as? String, !at.isEmpty { return .kept(at: at) }
+            if state == "placed" || state == "unconfirmed" { return .taken }
+            return .refused((d["because"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         }
-        if let error = obj?["error"] as? String, !error.isEmpty { return .notSent(error) }
-        return status == 0 ? .notSent("Your Mac isn't answering, so it was not sent.") : .notSent("Not sent.")
+        if status == 0 { return .noAnswer }
+        return .refused((obj?["error"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+    }
+
+    static func pendingState(after result: SendResult) -> PendingSend.State {
+        switch result {
+        case .kept(let at): return .kept(at: at)
+        case .taken: return .taken
+        case .refused(let why): return .failed(reason: why)
+        case .noAnswer: return .failed(reason: nil)
+        }
+    }
+
+    // The pending messages still to show once a read of the conversation is in. One the Mac kept a row for goes when the
+    // read holds that row (by the Mac's own time). One taken without a row, or one that got no answer, goes when the
+    // read holds a message of the person's with the same words (sameWords) written no earlier than a minute before it
+    // was sent (the clocks can differ). Each thread row stands for one pending message at most. One still sending,
+    // or refused with the Mac's reason (which kept no row), stays.
+    static func settled(_ pending: [PendingSend], with thread: Thread) -> [PendingSend] {
+        var unused = thread.rows.filter { $0.who == .person }
+        func take(_ i: Int) -> Bool { unused.remove(at: i); return false }
+        return pending.filter { p in
+            switch p.state {
+            case .sending, .failed(reason: .some):
+                return true
+            case .kept(let at):
+                if let i = unused.firstIndex(where: { $0.atRaw == at }) { return take(i) }
+                return true
+            case .taken, .failed(reason: nil):
+                let words = sameWords(p.text)
+                if let i = unused.firstIndex(where: { sameWords($0.text) == words && ($0.at.map { $0 >= p.at.addingTimeInterval(-60) } ?? true) }) {
+                    return take(i)
+                }
+                return true
+            }
+        }
+    }
+
+    // The line under a message that was not taken (the spec's wording), decided when it is drawn: an agent that is not
+    // running cannot take it, so there is nothing to try again until it is.
+    static func notSentLine(agentRunning: Bool, name: String) -> (text: String, canRetry: Bool) {
+        agentRunning ? ("Not sent. Tap to try again.", true) : ("Not sent. \(name) isn't running on your computer.", false)
     }
 }
