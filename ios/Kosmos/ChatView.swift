@@ -47,6 +47,11 @@ struct ChatView: View {
     @State private var earlier = Board.Earlier()
     @State private var topVisible = false
     @State private var settledAtEnd = false
+    // The top has gone out of view at least once since the first scroll settled: from then on, reaching it is the
+    // person scrolling up.
+    @State private var topLeftOnce = false
+    // The row to keep at the top once a page has landed above it.
+    @State private var keepAnchor: String?
     // kosmos#7016 part 2: each file card's state, and the file open in Quick Look.
     @State private var fileStates: [String: FileCardState] = [:]
     @State private var previewURL: URL?
@@ -122,6 +127,7 @@ struct ChatView: View {
             thread = nil
             earlier = Board.Earlier()
             settledAtEnd = false
+            topLeftOnce = false
             fileStates = [:]
             previewURL = nil
             openedFile = nil
@@ -182,10 +188,10 @@ struct ChatView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         // Earlier messages load by themselves when the person reaches the top (the board's
                         // earlierNearTop); the line says only that a page is loading, or that one failed, with Try again.
-                        earlierLine(proxy)
+                        earlierFailedLine
                         Color.clear.frame(height: 1).id("top")
-                            .onAppear { topVisible = true; loadEarlier(proxy) }
-                            .onDisappear { topVisible = false }
+                            .onAppear { topVisible = true; loadEarlier() }
+                            .onDisappear { topVisible = false; topLeftOnce = settledAtEnd || topLeftOnce }
                         if thread.rows.isEmpty && pending.isEmpty { empty }
                         ForEach(items) { item in
                             itemView(item).id(item.id)
@@ -200,11 +206,21 @@ struct ChatView: View {
                     .padding(.vertical, 12)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
+                // (the board's paintOlderLine).
+                .overlay(alignment: .top) { earlierLoadingLine }
                 .onAppear {
                     proxy.scrollTo("end", anchor: .bottom)
-                    // Only now may reaching the top load a page: the first layout draws the top for a moment before
-                    // the jump to the newest message. A chat too short to scroll still shows the top, and loads.
-                    DispatchQueue.main.async { settledAtEnd = true; loadEarlier(proxy) }
+                    // Only after the jump to the newest message may reaching the top load a page: the first layout
+                    // draws the top for a moment first. A chat too short to scroll still shows the top and its end
+                    // together once laid out, and loads by itself (the board's earlierNearTop after a paint).
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { settledAtEnd = true; loadEarlier() }
+                }
+                // The place kept after a page lands above: the row that was first stays at the top.
+                .onChange(of: keepAnchor) { id in
+                    guard let id else { return }
+                    proxy.scrollTo(id, anchor: .top)
+                    keepAnchor = nil
                 }
                 .onChange(of: Board.followKey(thread)) { _ in follow(proxy) }
                 .onChange(of: working) { now in if now { follow(proxy) } }
@@ -324,19 +340,27 @@ struct ChatView: View {
 
     // MARK: - Earlier messages (kosmos#7016 part 3)
 
-    @ViewBuilder private func earlierLine(_ proxy: ScrollViewProxy) -> some View {
-        if earlier.loading {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("Loading earlier messages\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
+    private var earlierLoadingLine: some View {
+        Group {
+            if earlier.loading {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading earlier messages\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(Capsule().fill(Palette.ground.opacity(0.92)))
+                .padding(.top, 6)
+                .accessibilityElement(children: .combine)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 10)
-            .accessibilityElement(children: .combine)
-        } else if let why = earlier.because {
+        }
+    }
+
+    // A failure stands until Try again, in a row of its own so it lies over nothing.
+    @ViewBuilder private var earlierFailedLine: some View {
+        if let why = earlier.because, !earlier.loading {
             VStack(spacing: 4) {
                 Text(why).font(.footnote).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
-                Button("Try again") { earlier = Board.retryEarlier(earlier); loadEarlier(proxy) }
+                Button("Try again") { earlier = Board.retryEarlier(earlier); loadEarlier() }
                     .font(.footnote.weight(.semibold)).foregroundColor(Palette.primary)
                     .frame(minHeight: 44)
             }
@@ -345,45 +369,45 @@ struct ChatView: View {
         }
     }
 
-    // One page before what is loaded, then the place the person was reading is kept: the row that was at the top
-    // stays at the top (the board's setThread anchor).
-    private func loadEarlier(_ proxy: ScrollViewProxy) {
-        guard settledAtEnd, topVisible, let t = thread, Board.shouldLoadEarlier(earlier, olderCount: t.olderCount) else { return }
+    // One page before what is loaded, when the person is at the top of it (or the chat is too short to scroll), never
+    // while one loads, never after a failure until Try again. Called when the top appears, after every read, and on
+    // Try again (the board's earlierNearTop: on scroll, after a paint, and from its button).
+    private func loadEarlier() {
+        guard settledAtEnd, topVisible, topLeftOnce || atBottom, let t = thread,
+              Board.shouldLoadEarlier(earlier, olderCount: t.olderCount) else { return }
         let anchor = Board.shownRows(earlier, thread: t).first?.id
         let start = Board.startLoad(earlier, olderCount: t.olderCount)
         earlier = start
         let opened = epoch
         Task {
             guard let read = await client.olderPage(agent.session, before: start.before), opened == client.chatEpoch,
-                  earlier.loading else { return }
-            earlier = Board.finishLoad(earlier, with: read)
-            if case .page(let rows, _) = read, !rows.isEmpty, let anchor {
-                // Kept in place: the row that was first stays where the reader is; the new page sits above it.
-                DispatchQueue.main.async { proxy.scrollTo(anchor, anchor: .top) }
-            }
+                  let next = Board.finishLoad(earlier, with: read, opening: start.opening) else { return }
+            earlier = next
+            if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
 
     // earlierFillGap: messages that left the latest 200 while the chat was open are fetched into the loaded pages, so
-    // nothing falls between them and the latest read.
+    // nothing falls between them and the latest read. Dropped if a reset came while it ran.
     private func fillGap(_ t: Board.Thread) {
         guard earlier.open, !earlier.filling, !earlier.loading else { return }
         let pages = Board.gapPages(end: earlier.end, olderCount: t.olderCount)
         guard !pages.isEmpty else { return }
         earlier.filling = true
         let end = earlier.end
+        let token = earlier.opening
         let opened = epoch
         Task {
             var got: [Board.ChatRow] = []
             for before in pages {
                 let read = await client.olderPage(agent.session, before: before)
-                guard opened == client.chatEpoch else { return }
-                guard case .page(let rows, let start) = read, !rows.isEmpty else {
+                guard opened == client.chatEpoch, earlier.opening == token else { return }
+                guard case .page(let rows, let positions, _) = read, !rows.isEmpty else {
                     // Moved: start again (as the board does); failed or empty: the next read tries again.
-                    if read == .moved { earlier = Board.Earlier(moved: earlier.moved) } else { earlier.filling = false }
+                    if read == .moved { earlier = Board.resetEarlier(earlier) } else { earlier.filling = false }
                     return
                 }
-                got = Board.gapRows(rows, pageStart: start, end: end) + got
+                got = Board.gapRows(rows, positions: positions, end: end) + got
             }
             earlier.rows += got
             earlier.end = t.olderCount
@@ -476,7 +500,7 @@ struct ChatView: View {
         if !sampleOlderApplied, let state = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OLDER"], t.olderCount > 0 {
             sampleOlderApplied = true
             earlier = Board.startLoad(Board.Earlier(), olderCount: t.olderCount)
-            if state == "failed" { earlier = Board.finishLoad(earlier, with: .failed("We could not read all of the earlier messages just now. Try again in a moment.")) }
+            if state == "failed", let failed = Board.finishLoad(earlier, with: .failed("We could not read all of the earlier messages just now. Try again in a moment."), opening: earlier.opening) { earlier = failed }
         }
         // KOSMOS_SAMPLE_FILESTATE=loading|failed: the first file card as a tap would leave it.
         if !sampleFileApplied, let state = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILESTATE"],
@@ -620,6 +644,8 @@ struct ChatView: View {
         case .thread(let fresh):
             if fresh != thread { thread = fresh }
             fillGap(fresh)
+            // A moved reset leaves the top in view with nothing loading: the next read asks again.
+            loadEarlier()
             // A line about a question that is no longer the one up would read as a warning about the next one.
             if pressLine != nil, fresh.choices?.key != pressLineKey { pressLine = nil }
             #if DEBUG
