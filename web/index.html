@@ -10479,7 +10479,9 @@ html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #a
 .fedout-row .ownseal-btn { flex: none; margin-left: auto; }
 /* The code's separator in the reading font: the monospace hyphen is drawn as wide as a dash. */
 .ownseal-sep { font-family: var(--font-ui); padding: 0 .08em; }
-.ownseal-phone { margin: 0 0 8px; }
+/* The .fhint look, not the class: render-projects measures the first #pj-one-view .fhint, and this line is hidden
+   unless the room is sealed here. */
+.ownseal-phone { font: var(--text-callout) var(--font-ui); color: var(--label-3); margin: 0 0 8px; }
 /* The shared #761 remove dialog's error line (slice B: a failed outside removal keeps the dialog
    open and says why). Empty for every other caller, so it takes no room there. */
 #mem-msg:empty { display: none; }
@@ -17297,7 +17299,7 @@ window.kosmosMeasureScrollbarWidth();
            real delivery state -- a post to three that reaches two must
            never render as sent. -->
       <p class="vh" id="pj-fed-own-said" role="status" aria-live="polite"></p><!-- kosmos#4658: what a press did, heard once -->
-      <p class="fhint ownseal-phone" id="pj-fed-own-phone" hidden>This room is sealed on this computer. The code to compare is under Members.</p>
+      <p class="ownseal-phone" id="pj-fed-own-phone" hidden>This room is sealed on this computer. The code to compare is under Members.</p>
       <div class="thread" id="pj-room"></div>
       <!-- ⚠️ THE ROOM'S HALF OF THE SAME SIGNAL (#176), mounted where the agent
            page mounts its own: between the thread and the composer, so it sits
