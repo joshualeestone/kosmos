@@ -358,3 +358,17 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
   so the one-tab anchors are load-bearing; loosening either the state or the pid anchor turns cases red.
 - DEFERRED: NIT5 (install could add KeepAlive before its own restart: scope; the keepalive stage covers it), NIT6
   (register does not check the loaded job: register's start is svc.sh's, verified by the next keepalive dry run).
+
+## Review round 26 (sonnet, blind, HEAD 79a685e2cd)
+- W1 FIXED: three printf|sed|head assignments under pipefail had no || true (latent: needs two one-tab matches).
+- W2 FIXED: a restart launchd SCHEDULED after the SIGTERM (non-zero exit under a loaded KeepAlive, waiting out the
+  throttle) has no pid, so the pid comparison passed and the bootout could cut it. MEASURED on this Mac with a
+  throwaway job (exit 1, ThrottleInterval 10): "state = spawn scheduled", no pid line, for the whole throttle. The
+  stage now refuses on that state. Stub FX_SPAWN_SCHEDULED_AFTER_KILL; ka-spawnsched; mutant red.
+- W3 FIXED: the pgrep stub answered -P without reading the list. It now sees this runner's job only when the -P list
+  is this runner's Listener pid; mutants passing an empty list or the runsvc pid are red.
+- C (home-character check applies to every stage): kept, and to be NAMED in the PR body as a behaviour change outside
+  the stage (the reviewer's first fix). It is tested (top-home).
+- NIT2 FIXED: dots in RUNNER_DIR are escaped in own_re.
+- NIT1 NOT A DEFECT: the dry run prints "WOULD: add KeepAlive ..." before the loaded-job checks, so a busy refusal
+  follows that line (read in the dry-run block).

@@ -40,6 +40,7 @@ case "$me" in
         [ "${FX_WORKER_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/worker-up"   # a job taken during the stop
         [ "${FX_RELAY_WORKER_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/relay-worker-up"   # a relay job, then
         [ "${FX_RESPAWN_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/respawned"  # launchd restarted it
+        [ "${FX_SPAWN_SCHEDULED_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/spawn-scheduled"   # restart pending
         exit 0 ;;
       print-disabled) [ "${FX_PD_FAIL:-0}" = 1 ] && exit 1; printf 'disabled services = {\n'
         [ "${FX_DISABLED:-0}" = 1 ] && printf '\t"actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" => disabled\n'
@@ -64,9 +65,11 @@ case "$me" in
     esac
     case "$1 $2" in "print gui/"*/*) { [ -f "$out" ] || [ "${FX_NOT_LOADED:-0}" = 1 ]; } && exit 113
         # A nested block first, as launchd prints coalitions (two tabs): only one-tab lines are the job's own.
-        printf '%s = {\n\tresource coalition = {\n\t\tstate = active\n\t\tpid = 1\n\t}\n\tstate = %s\n' "$2" "${FX_JOB_STATE:-running}"
+        jst="${FX_JOB_STATE:-running}"; [ -f "$(dirname "$CALL_LOG")/spawn-scheduled" ] && jst="spawn scheduled"
+        printf '%s = {\n\tresource coalition = {\n\t\tstate = active\n\t\tpid = 1\n\t}\n\tstate = %s\n' "$2" "$jst"
         # A running job shows its pid (999999 by default: a pid that cannot exist, so a wait on it ends at once).
-        if [ -f "$(dirname "$CALL_LOG")/respawned" ]; then printf '\tpid = 888888\n'
+        if [ -f "$(dirname "$CALL_LOG")/spawn-scheduled" ]; then :   # no pid while the restart waits (measured)
+        elif [ -f "$(dirname "$CALL_LOG")/respawned" ]; then printf '\tpid = 888888\n'
         elif [ "${FX_NO_PID:-0}" != 1 ]; then printf '\tpid = %s\n' "${FX_JOB_PID:-999999}"; fi
         lk="$(dirname "$CALL_LOG")/loaded-ka"
         [ -f "$lk" ] && printf '\tsemaphores = {\n\t\tsuccessful exit => 0\n\t}\n'
@@ -104,7 +107,10 @@ case "$me" in
       [ -n "${FX_OLD_TOO:-}" ] && { echo "$FX_OLD_TOO"; exit 0; }; exit 1 ;; esac
     # A self-updated runner's Worker runs from bin.<version>/Runner.Worker: a name match (-x) sees it, bin/Runner.Worker does not.
     # -P <Listener pids>: only this runner's job (worker-up), never the relay's (relay-worker-up).
-    case "$*" in *"-P "*Runner.Worker*) [ -f "$(dirname "$CALL_LOG")/worker-up" ] && { echo 4242; exit 0; }; exit 1 ;; esac
+    # The -P list must be this runner's Listener pid (what the -f branch printed), or it sees nothing: a wrong or empty
+    # list is caught as a missed job.
+    case "$*" in *"-P "*Runner.Worker*) pl="$(printf '%s\n' "$@" | sed -n '/^-P$/{n;p;}')"
+      [ "$pl" = "$(cat .svc-pid 2>/dev/null || echo 4343)" ] && [ -f "$(dirname "$CALL_LOG")/worker-up" ] && { echo 4242; exit 0; }; exit 1 ;; esac
     case "$*" in *Runner.Worker*) { [ "${FX_WORKER:-0}" = 1 ] || [ -f "$(dirname "$CALL_LOG")/worker-up" ] || [ -f "$(dirname "$CALL_LOG")/relay-worker-up" ]; } || exit 1; case "$*" in *"-x Runner.Worker"*) echo 4242; exit 0 ;; esac; exit 1 ;; esac
     [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
   df) [ "${FX_DF_NOROW:-0}" = 1 ] && { echo "Filesystem 1024-blocks Used Available Capacity Mounted"; exit 0; }
@@ -715,6 +721,11 @@ ka_fresh; rm -f "$T/respawned"; run ka-respawn "$KH" FX_CI_EXISTS=1 FX_WHO=kosmo
 [ "$(rc ka-respawn)" = 1 ] && has ka-respawn "launchd restarted" && has ka-respawn "now 888888" && grep -q '^launchctl kill SIGTERM' "$T/ka-respawn.calls" && ! grep -q '^launchctl bootout' "$T/ka-respawn.calls" \
   && pass "keepalive --apply: a restart by launchd after the SIGTERM is refused before the bootout" || fail "keepalive respawn: rc $(rc ka-respawn): $(tail -1 "$T/ka-respawn.out")"
 rm -f "$T/respawned"
+# Exited non-zero under a loaded KeepAlive: launchd shows "spawn scheduled" with no pid; the bootout would cut the restart.
+ka_fresh; rm -f "$T/spawn-scheduled"; run ka-spawnsched "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_SPAWN_SCHEDULED_AFTER_KILL=1 -- --apply keepalive
+[ "$(rc ka-spawnsched)" = 1 ] && has ka-spawnsched "state = spawn scheduled after the SIGTERM" && grep -q '^launchctl kill SIGTERM' "$T/ka-spawnsched.calls" && ! grep -q '^launchctl bootout' "$T/ka-spawnsched.calls" \
+  && pass "keepalive --apply: a restart launchd has scheduled after the SIGTERM is refused before the bootout" || fail "keepalive spawn scheduled: rc $(rc ka-spawnsched): $(tail -1 "$T/ka-spawnsched.out")"
+rm -f "$T/spawn-scheduled"
 # The bootstrap starts no new Listener (the old one is still the only one listed): FAILED, not running again.
 ka_fresh; run ka-nonew "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_BOOTSTRAP_SAME_PID=1 KOSMOS_CI_START_WAIT_S=1 -- --apply keepalive
 [ "$(rc ka-nonew)" = 1 ] && has ka-nonew "no new Listener of $KH/actions-runner is running after" && ! has ka-nonew "the runner is running again" \
