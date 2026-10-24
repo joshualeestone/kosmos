@@ -146,8 +146,11 @@ case "$me" in
           '<key>ProgramArguments</key><array><string>runsvc.sh</string></array><key>RunAtLoad</key><true/></dict></plist>' \
           > "$HOME/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
         echo "$HOME/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist" > "$(dirname "$0")/.service" ;;
-      status) if [ "${FX_SVC_STUCK:-0}" = 1 ] || [ "$(cat "$st" 2>/dev/null)" = started ]; then echo "Started"; else echo "Stopped"; fi ;;
-      stop) echo stopped > "$st" ;;
+      # FX_SVC_STOP_LAG=N: a stop still in progress reads Started for N more status calls (kosmos#7001).
+      status) lag="$(dirname "$0")/.svc-lag"; n="$(cat "$lag" 2>/dev/null || echo 0)"
+        if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$lag"; echo "Started"
+        elif [ "${FX_SVC_STUCK:-0}" = 1 ] || [ "$(cat "$st" 2>/dev/null)" = started ]; then echo "Started"; else echo "Stopped"; fi ;;
+      stop) echo stopped > "$st"; [ -z "${FX_SVC_STOP_LAG:-}" ] || echo "$FX_SVC_STOP_LAG" > "$(dirname "$0")/.svc-lag" ;;
       start) [ "${FX_SVC_START_FAIL:-0}" = 1 ] && exit 1; echo started > "$st"
         [ "${FX_SAME_PID:-0}" = 1 ] || echo $(( $(cat "$(dirname "$0")/.svc-pid" 2>/dev/null || echo 4343) + 1 )) > "$(dirname "$0")/.svc-pid" ;;
     esac ;;
@@ -421,6 +424,17 @@ run in-stuck "$R3" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R3" FX_SVC_STUCK=1 KOSMOS_C
 [ "$(rc in-stuck)" = 1 ] && has in-stuck "did not stop" && ! grep -q '^tar ' "$T/in-stuck.calls" \
   && pass "install --apply refuses to unpack when the runner did not stop" || fail "install stuck stop: rc $(rc in-stuck)"
 R5="$T/run5"; svc_home "$R5"
+# A stop still in progress (Started for 2 more reads): install waits for it rather than refusing (kosmos#7001: with
+# ExitTimeOut 35 a stop can take up to ~30 s).
+R7="$T/r7"; svc_home "$R7"; echo started > "$R7/actions-runner/.svc-state"
+run in-slowstop "$R7" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R7" FX_SVC_STOP_LAG=2 KOSMOS_CI_UNLOAD_WAIT_S=10 -- --apply install "$C" "$G"
+[ "$(rc in-slowstop)" = 0 ] && ! has in-slowstop "did not stop" && grep -q '^tar ' "$T/in-slowstop.calls" \
+  && pass "install --apply waits for a stop that is still in progress, then unpacks" || fail "install slow stop: rc $(rc in-slowstop): $(tail -1 "$T/in-slowstop.out")"
+# The inputs checked at the top, for every stage.
+run top-home "$H" "KOSMOS_CI_HOME=/Users/kosmos ci" -- verify
+[ "$(rc top-home)" = 2 ] && has top-home "the CI home may hold only" && pass "every stage refuses a CI home with a character a pgrep pattern would read" || fail "top home: rc $(rc top-home): $(cat "$T/top-home.out")"
+run top-wait "$H" KOSMOS_CI_UNLOAD_WAIT_S=abc -- verify
+[ "$(rc top-wait)" = 2 ] && has top-wait "KOSMOS_CI_UNLOAD_WAIT_S is 'abc', not a number of seconds" && pass "every stage refuses a wait that is not a number" || fail "top wait: rc $(rc top-wait): $(cat "$T/top-wait.out")"
 run in-tarfail "$R5" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R5" FX_TAR_FAIL=1 -- --apply install "$C" "$G"
 [ "$(rc in-tarfail)" != 0 ] && grep -q '^svc.sh stop' "$T/in-tarfail.calls" && grep -q '^svc.sh start' "$T/in-tarfail.calls" \
   && pass "install --apply starts the runner again when it fails after stopping it" || fail "install fail after stop: rc $(rc in-tarfail), calls: $(grep svc "$T/in-tarfail.calls" | tr '\n' ' ')"

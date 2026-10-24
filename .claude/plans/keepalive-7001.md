@@ -32,7 +32,7 @@ a per-service print. New cases: register adds KeepAlive and keeps the rest; regi
 keepalive dry run changes nothing; --apply over ssh (managername Background) adds it, boots out before bootstrapping,
 and sees a new Listener; refusals for a running job, an unlistable process table, no GUI domain, no plist, the wrong
 user; a failed bootstrap says the runner is stopped; verify's note, problem and ok. (`bootout` already counted as a
-change on main; the extra alternation I added is redundant and harmless.)
+change on main; my extra alternation was removed in round 5.)
 Mutants, each red: register without the add, no job check, keepalive_set always true, no ssh-ok, no bootout.
 
 ## Not done here
@@ -169,7 +169,19 @@ Mutants red: a broadened own-Listener pattern (two sites), no post-reload check,
 - A source-order test: the HUP/PIPE trap sits after the job check and before the SIGTERM.
 - The header says the stage touches this repo's runner only, not a relay runner under the same user.
 
+## Review round 13
+- Documented: a SIGTERM or SIGINT to runsvc.sh or node (any kill tool's default signal) is handled as a stop, exits 0
+  and is NOT restarted; only a SIGKILL or a crash is (10-23 was a SIGKILL). Decided against KeepAlive true, which would
+  restart that too but loop every 10 s on a removed registration (listener exit 1); recorded as a premise below.
+- All three waits (UNLOAD 45, START 30, STATE 12) validated at the top; tests for that and for the CI-home check.
+- install's stop poll is tested with a stop still in progress (Started for 2 more reads), mutant red. Its premise, that
+  `launchctl unload` can return before the job has exited, is not measured; the poll is harmless if it cannot.
+- Bootstrap retried up to 3 times, then launchd is re-read. "SIGTERM ended it" only when the pid did not outlive the
+  wait. The no-pid refusal names both causes. A higher operator ExitTimeOut is kept. The header lists the waits.
+
 ## Weakest premise
+Third: that SIGKILL, not SIGTERM, is how a runner gets killed in practice (the 10-23 sender was a SIGKILL); a SIGTERM
+leaves it down, by design (KeepAlive true would restart it, at the cost of a 10 s loop on a removed registration).
 That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it
 stops, keepalive refuses rather than guessing). Second: that the runner keeps ending the launchd job with exit 0 on
 every deliberate stop. If a future runner version
