@@ -35,5 +35,14 @@ the Swift line that calls it.
    Round 4: 1 blocker (a board route not written as one literal was skipped silently), 2 warnings, 2 nits, all
    addressed: partial board paths, + joins, joins onto unknown bases, unknown paths and board paths in raw or
    multi-line strings are problems; other services only on positive evidence; every httpMethod in the app claimed;
-   the variable-method callers matched loosely and counted. No false red on today's tree (17 routes, 0 problems). 3. Validation, PR. 4. Part 2 (light, dark, accessibility) after coordinating View files; Angel
-   keeps SignInView/SignInClient/SignInLogic.swift (#7050 slice C).
+   the variable-method callers matched loosely and counted. No false red on today's tree (17 routes, 0 problems).
+   Round 5: 2 blockers (a method taken from the next request bound to another variable; a request whose URL is
+   built elsewhere neither read nor reported) and a warning (false reds on ordinary Swift). Five rounds of route-
+   string heuristics kept missing shapes, so the parser was redesigned to count REQUESTS: every URLRequest or
+   URLSession-from-URL in the app is a board route in place, another service, a web view page load, or declared in
+   SITES; a method is read only from the request's own variable; every httpMethod must belong to a request. The
+   string heuristics (partial paths, joins, helpers) are gone, and a permanent control test feeds the parser the
+   shapes that once slipped through and ordinary non-board Swift.
+3. Validation, PR.
+4. Part 2 (light, dark, accessibility) after coordinating View files; Angel keeps SignInView, SignInClient and
+   SignInLogic.swift (#7050 slice C).

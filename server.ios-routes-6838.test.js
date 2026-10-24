@@ -5,18 +5,23 @@
  *
  * Once screens are native, the phone reads the board's routes directly, so renaming or dropping one breaks the phone
  * silently: nothing on the board side calls the route any more, and the phone's own suites read captured JSON, not a
- * live board. This test reads each route the app and its notification extension send to the board straight from the
- * Swift source (every file under ios/ but the logic suites'), with the method it uses, boots a sandboxed board, and asks it for
- * each one. A route counts as answered when the board's reply differs from its reply to a path that does not exist,
- * measured here rather than assumed, so a route that exists but 404s for an unknown agent ("no such agent") still
- * counts, and a route that has gone does not.
+ * live board. This test finds every route the app and its notification extension send to the board, with the method
+ * each uses, boots a sandboxed board, and asks it for each one. A route counts as answered when the board's reply
+ * differs from its reply to a made-up sibling path, measured here rather than assumed, so a route that exists but
+ * 404s for an unknown agent ("no such agent") still counts, and a route that has gone does not.
  *
- * Only board routes count: the coordinator's (/v1/...) and the relay gate's (/_kosmos/...) live in other repos.
- * The convention it enforces: a board request names its whole route as one "/api/..." string in URL(string:), or
- * goes through a declared helper. A new route written that way is picked up by itself. Anything else that could be a
- * board request (a partial path, a + join, a path joined onto an unknown base, an unknown path, a route hidden in a
- * raw or multi-line string, a method no request claims) fails the test with a message saying what to change, so a
- * route is never skipped or read as GET without a word. A floor fails a parser that silently stops matching.
+ * How routes are found (review 5: heuristics over route strings kept missing new shapes, so this counts REQUESTS):
+ * every place the app builds a request (URLRequest(, or a URLSession fetch straight from a URL) must account for
+ * itself, in one of four ways:
+ *   1. a board route: its whole "/api/..." route is in URL(string: on the same line; read automatically;
+ *   2. another service: the coordinator's /v1 paths or account pages, the relay gate's /_kosmos, an https URL, or a
+ *      path joined onto the coordinator, on the same line; skipped;
+ *   3. a web view navigation (.load(URLRequest(...))): a page, not an API call; skipped;
+ *   4. anything else: declared in SITES below, with the routes it sends and source text that pins them.
+ * A request that fits none of these fails the test, however its URL was built. A method is read only from the
+ * request's own variable (r.httpMethod for var r = URLRequest(...)), and every httpMethod in the app must belong to a
+ * request, so a method can never be credited to the wrong request. The coordinator's and relay's routes live in other
+ * repos; the phone's links into board PAGES (/?tab=...) are a contract with web/index.html, not with server.js.
  */
 
 const test = require('node:test');
@@ -48,30 +53,109 @@ function swiftFiles(dir = IOS) {
     return e.name.endsWith('.swift') ? [p] : [];
   });
 }
-// Today the app calls 12 board paths by literal, 15 method-and-path pairs; far fewer means the parser stopped matching.
+// Today: 12 requests name their board route in place; far fewer means the parser stopped matching.
 const FLOOR = 10;
-// The one route whose method is a variable at the request site: SettingsLogic reads with GET and writes with PUT.
-// Its callers are matched exactly below (no more and no fewer, each with a literal method), so a new, renamed or
-// removed caller fails here.
-const VARIABLE_METHODS = {
-  '/api/phone-notify': { file: 'ios/Kosmos/SettingsLogic.swift', caller: /\brequest\(\s*[^,()]+,\s*method:\s*([^,)]+)/g, calls: /\brequest\(/g, methods: ['GET', 'PUT'] },
-};
-/* Routes the app calls whose full path comes from the board, so no literal names them. Each is pinned to the source
-   text that accepts that path (not the fetch itself, which takes whatever path it is given):
-   - a chat file and its thumbnail (review 1): BoardLogic.attachmentId and its preview == url + "/preview" rule, then
-     Board.attachmentRequest; the id is a 24-hex placeholder, as attachmentId requires;
-   - an agent's picture in the notification extension (review 2): NoticeLogic accepts only /api/agent/<x>/avatar. */
-const DECLARED = [
-  { route: 'GET /api/attachment/000000000000000000000000', file: 'ios/Kosmos/BoardLogic.swift', pin: 'let prefix = "/api/attachment/"' },
-  { route: 'GET /api/attachment/000000000000000000000000/preview', file: 'ios/Kosmos/BoardLogic.swift', pin: '$0 == url + "/preview"' },
-  { route: 'GET /api/agent/x/avatar', file: 'ios/KosmosNotice/NoticeLogic.swift', pin: 'path.hasPrefix("/api/agent/"), path.hasSuffix("/avatar")' },
+
+/* Requests whose URL is built away from the request (category 4), one entry per request, matched by its text. Each
+   names the routes it sends; pins are source text (comments excluded) that ties those routes to the code. method is
+   what the request sets: a literal, none (GET), or 'variable', in which case callers lists every caller's method. */
+const SITES = [
+  { file: 'ios/Kosmos/BoardRoom.swift', text: 'var r = URLRequest(url: url)', method: 'GET',
+    routes: ['GET /api/project/x/room'], pins: ['URLComponents(url: URL(string: "/api/project/\\(project)/room"'] },
+  // A chat file and its thumbnail: the path comes from the board, accepted only as /api/attachment/<24 hex>[/preview].
+  { file: 'ios/Kosmos/BoardLogic.swift', text: 'var r = URLRequest(url: url)', method: 'GET',
+    routes: ['GET /api/attachment/000000000000000000000000', 'GET /api/attachment/000000000000000000000000/preview'],
+    pins: ['let prefix = "/api/attachment/"', '$0 == url + "/preview"'] },
+  // The phone's notification switches: read with GET, written with PUT, through request(_:method:).
+  { file: 'ios/Kosmos/SettingsLogic.swift', text: 'var r = URLRequest(url: url, cachePolicy', method: 'variable',
+    routes: ['GET /api/phone-notify', 'PUT /api/phone-notify'], pins: ['URL(string: "/api/phone-notify"'],
+    callers: { pattern: /\brequest\(\s*[^,()]+,\s*method:\s*([^,)]+)/g, every: /\brequest\(/g, skip: /\bfunc\s+request\(/ } },
+  // The notification extension: a notification's words, and an agent's picture (a board path, /api/agent/<x>/avatar).
+  { file: 'ios/KosmosNotice/NoticeLogic.swift', text: 'var r = URLRequest(url: url, cachePolicy', method: 'GET',
+    routes: ['GET /api/phone/notice', 'GET /api/agent/x/avatar'],
+    pins: ['path: "/api/phone/notice"', 'path.hasPrefix("/api/agent/"), path.hasSuffix("/avatar")'] },
 ];
-/* Helpers that take a route as an argument and build the request themselves (review 3). A route literal passed to
-   anything else is a problem, because the method is set where this parser cannot see it. Each helper's own body is
-   checked to still set the method named here ("GET" means it sets none). */
-const HELPERS = [
-  { file: 'ios/KosmosNotice/NoticeLogic.swift', call: 'request(host:', def: 'private static func request(host:', method: 'GET' },
-];
+
+const REQUEST = /\bURLRequest\(|\.(data|download|bytes)\(from:/g;
+const OTHER_SERVICE = /URL\(string: "(\/(v1\/|_kosmos\/|account"|delete-account"|")|https?:\/\/)|\bcoordinator\.appendingPathComponent\(/;
+const PAGE_LOAD = /\.load\(URLRequest\(/;
+const SETS_METHOD = /\bhttpMethod\s*=/;
+const FUNC = /^\s*(@\w+(\([^)]*\))?\s+)*((static|private|fileprivate|public|internal|open|mutating|override|final|nonisolated|class|required|convenience)\s+)*func\s/;
+
+/* The method a request at (line i, column at) sets: read only from its own variable, inside its scope (brace depth on
+   string-blanked code), before the variable is bound again or a function starts. Claims the method line. */
+function methodOf(code, bare, i, at, claimed) {
+  const bound = code[i].slice(0, at).match(/\b(?:var|let)\s+(\w+)\s*=\s*$/);
+  if (!bound) return 'GET';
+  const name = bound[1];
+  const sets = new RegExp(`\\b${name}\\.httpMethod\\s*=\\s*("([A-Z]+)"|(\\w+))`);
+  let depth = 0;
+  for (let j = i; j < Math.min(bare.length, i + 60); j++) {
+    const line = j === i ? bare[j].slice(at) : bare[j];
+    if (j > i && (FUNC.test(line) || new RegExp(`\\b(var|let)\\s+${name}\\s*=`).test(line))) break;
+    if (new RegExp(`\\b${name}\\.httpMethod\\s*=`).test(line)) {
+      claimed.add(j);
+      const m = (j === i ? code[j].slice(at) : code[j]).match(sets);
+      return m && m[2] ? m[2] : 'variable';
+    }
+    for (const ch of line) { if (ch === '{') depth++; else if (ch === '}') depth--; }
+    if (depth < 0) break;
+  }
+  return 'GET';
+}
+
+/* Every board route the app sends, from the given Swift files ({ rel, text }), and every problem found. */
+function routesFrom(files) {
+  const found = new Map();
+  const problems = [];
+  const matchedSites = new Set();
+  let inPlace = 0;
+  for (const { rel, text } of files) {
+    const { code, bare } = scanSwift(text);
+    const claimed = new Set();
+    bare.forEach((line, i) => {
+      for (const site of line.matchAll(REQUEST)) {
+        const at = site.index;
+        const where = `${rel}:${i + 1}`;
+        const method = methodOf(code, bare, i, at, claimed);
+        const lits = routeLiterals(code[i]);
+        if (PAGE_LOAD.test(code[i].slice(Math.max(0, at - 6)))) continue;
+        if (lits.length > 1) { problems.push(`${where}: ${lits.length} board routes on one line; give each request its own line`); continue; }
+        if (lits.length === 1) {
+          const { lit, at: litAt } = lits[0];
+          if (!/URL\(string:\s*$/.test(code[i].slice(0, litAt))) { problems.push(`${where}: ${lit} is not built with URL(string:) on the request's line; write it that way or add the request to SITES`); continue; }
+          if (method === 'variable') { problems.push(`${where}: ${lit} sets its method from a variable; add the request to SITES with its callers`); continue; }
+          inPlace++;
+          if (!found.has(`${method} ${lit}`)) found.set(`${method} ${lit}`, where);
+          continue;
+        }
+        if (OTHER_SERVICE.test(code[i])) continue;
+        const decl = SITES.filter((d) => d.file === rel && code[i].includes(d.text));
+        if (decl.length !== 1) { problems.push(`${where}: a request this test cannot read (its URL is built elsewhere); add it to SITES with the routes it sends, or name its service in OTHER_SERVICE`); continue; }
+        const d = decl[0];
+        if (matchedSites.has(d)) { problems.push(`${where}: a second request matches the SITES entry for ${d.text}; make each entry's text unique`); continue; }
+        matchedSites.add(d);
+        const joined = code.join('\n');
+        for (const pin of d.pins) if (!joined.includes(pin)) problems.push(`${rel}: no longer has ${pin}; update SITES for ${d.routes.join(', ')}`);
+        if (d.method === 'variable') {
+          if (method !== 'variable') problems.push(`${where}: SITES says this request's method is a variable, but it sets ${method}`);
+          const calls = code.filter((l) => !d.callers.skip.test(l)).join('\n');
+          const read = [...calls.matchAll(d.callers.pattern)];
+          const used = [...new Set(read.map((m) => m[1].trim().replace(/^"|"$/g, '')))].sort();
+          const declared = [...new Set(d.routes.map((r) => r.split(' ')[0]))].sort();
+          if (used.join() !== declared.join()) problems.push(`${rel}: its callers use ${used.join(', ')}, SITES says ${declared.join(', ')}`);
+          if (read.length !== [...calls.matchAll(d.callers.every)].length) problems.push(`${rel}: a caller the pattern could not read; update SITES`);
+        } else if (method !== d.method) problems.push(`${where}: sets ${method}, SITES says ${d.method}`);
+        for (const r of d.routes) if (!found.has(r)) found.set(r, `${where} (SITES)`);
+      }
+    });
+    // Every method line belongs to a request, so none is credited to the wrong one or set where nobody reads it.
+    bare.forEach((l, j) => { if (SETS_METHOD.test(l) && !claimed.has(j)) problems.push(`${rel}:${j + 1}: an httpMethod set on no request this test found`); });
+  }
+  return { found, problems, inPlace, unmatched: SITES.filter((d) => files.some((f) => f.rel === d.file) && !matchedSites.has(d)) };
+}
+
+const appFiles = () => swiftFiles().map((f) => ({ rel: path.relative(__dirname, f), text: fs.readFileSync(f, 'utf8') }));
 
 /* A whole Swift file as two per-line views, scanned once so state carries across lines (review 3):
    - code: comments removed (line comments and nested block comments), raw strings (#"..."#) and multi-line strings blanked, ordinary
@@ -155,91 +239,6 @@ function routeLiterals(code) {
   return out;
 }
 
-// The places a "/api/" text is a prefix to test or strip, not a request (review 4): every other partial board path
-// (one ending in a slash, one joined with +, an "api/" fragment) is a problem.
-const PREFIX_SITES = [/\bhasPrefix\("\/api\//, /\blet prefix = "\/api\/attachment\/"/];
-// A request is to another service only on positive evidence: the coordinator's paths, the relay gate's, the site root.
-const OTHER_SERVICE = /URL\(string: "\/(v1\/|_kosmos\/|account"|delete-account"|")/;
-// A path joined onto a base is fine only on these bases (the coordinator, and local file folders).
-const JOIN = /\.(appendingPathComponent|appending\(path:)/;
-const JOIN_OK = /\b(coordinator|temporaryDirectory|folder|files)\s*\.\s*(appendingPathComponent|appending\(path:)/;
-
-const FUNC = /^\s*(@\w+(\([^)]*\))?\s+)*((static|private|fileprivate|public|internal|open|mutating|override|final|nonisolated|class|required|convenience)\s+)*func\s/;
-const HTTP_METHOD = /\bhttpMethod\s*=\s*("([A-Z]+)"|\w+)/;
-const SETS_METHOD = /\bhttpMethod\s*=/;   // presence, tested on the string-blanked line
-// A request that builds its own URL: the next request's start, and a non-board one's (the coordinator, the relay gate).
-const OWN_URL = /URL\(string:|URLRequest\([^)]*appendingPathComponent/;
-
-/* Every board route the app calls by literal, with the method set on the same request, and the problems found.
-   Anything the parser cannot attribute with certainty is a problem, never a silent GET. The method is the first
-   httpMethod inside the same block as the URL (brace depth on string-blanked code, so a neighbouring function's or
-   closure's request is never read), before the next request that builds its own URL (OWN_URL) or function. A line is claimed once.
-   Problems: an httpMethod no request claimed (in a file that calls the board); a variable method on a route not in
-   VARIABLE_METHODS; two route literals on one line; a route literal passed to anything but URL(string: or a
-   declared helper. */
-function routesFromSwift() {
-  const found = new Map();
-  const problems = [];
-  for (const file of swiftFiles()) {
-    const rel = path.relative(__dirname, file);
-    const { code, bare, hidden } = scanSwift(fs.readFileSync(file, 'utf8'));
-    const claimed = new Set();
-    const methodAfter = (i, from, route) => {
-      let depth = 0;
-      for (let j = i; j < Math.min(bare.length, i + 40); j++) {
-        const line = j === i ? bare[j].slice(from) : bare[j];
-        if (j > i && (OWN_URL.test(line) || FUNC.test(line))) break;
-        // Found on the string-blanked line (so never inside a string), read from the code line (where the value is).
-        const set = SETS_METHOD.test(line) ? (j === i ? code[j].slice(from) : code[j]).match(HTTP_METHOD) : null;
-        if (set && !claimed.has(j)) {
-          claimed.add(j);
-          if (set[2]) return set[2];
-          if (!(route && VARIABLE_METHODS[route])) problems.push(`${rel}:${j + 1}: a variable method on ${route || 'a request'} that VARIABLE_METHODS does not name`);
-          return 'GET';
-        }
-        for (const ch of line) { if (ch === '{') depth++; else if (ch === '}') depth--; }
-        if (depth < 0) break;
-      }
-      return 'GET';
-    };
-    hidden.forEach((j) => problems.push(`${rel}:${j + 1}: a board path inside a raw or multi-line string; write it as a plain "/api/..." string`));
-    code.forEach((line, i) => {
-      const lits = routeLiterals(line);
-      const where = `${rel}:${i + 1}`;
-      // Partial board paths (review 4): any string holding "/api" or "api/" that is not a whole route read above.
-      if (!PREFIX_SITES.some((re) => re.test(line))) {
-        for (const m of line.matchAll(/"((?:[^"\\]|\\.)*)"/g)) {
-          const t = m[1];
-          const whole = t.startsWith('/api/') && !t.endsWith('/');
-          if (/(^|\/)api(\/|$)/.test(t) && !whole) problems.push(`${where}: "${t}" is part of a board path; write the whole route as one "/api/..." string`);
-          if (whole && /^\s*\+/.test(line.slice(m.index + m[0].length))) problems.push(`${where}: "${t}" is joined onto with +; write the whole route as one string`);
-        }
-      }
-      if (JOIN.test(line) && !JOIN_OK.test(line)) problems.push(`${where}: a path joined onto a base this test does not know; if it is a board route, write it as one "/api/..." string`);
-      if (lits.length === 0) {
-        if (OTHER_SERVICE.test(line) || /URLRequest\(url: (coordinator)\.appendingPathComponent/.test(line)) methodAfter(i, 0, null);
-        else if (/URL\(string: "\//.test(line)) problems.push(`${where}: a request to a path this test does not know; name it in OTHER_SERVICE if it is not the board`);
-      }
-      if (lits.length > 1) problems.push(`${where}: ${lits.length} route literals on one line; give each request its own`);
-      for (const { lit: p, at } of lits) {
-        const bareP = p.split('?')[0];
-        const before = line.slice(0, at);
-        const helper = HELPERS.find((h) => h.file === rel && before.includes(h.call));
-        if (!helper && !/URL\(string:\s*$/.test(before)) {
-          problems.push(`${where}: ${p} is not built with URL(string:) or a declared helper, so its method cannot be read`);
-        }
-        const method = helper ? helper.method : methodAfter(i, at, bareP);
-        const methods = VARIABLE_METHODS[bareP] ? VARIABLE_METHODS[bareP].methods : [method];
-        for (const m of methods) if (!found.has(`${m} ${p}`)) found.set(`${m} ${p}`, where);
-      }
-    });
-    // Every method line in the app is claimed by some request (no per-file gate, review 4).
-    bare.forEach((l, j) => { if (SETS_METHOD.test(l) && !claimed.has(j)) problems.push(`${rel}:${j + 1}: an httpMethod no request claimed`); });
-  }
-  for (const d of DECLARED) if (!found.has(d.route)) found.set(d.route, d.file + ' (declared)');
-  return { found, problems };
-}
-
 let base;
 test.before(async () => {
   await start(0);
@@ -265,40 +264,38 @@ async function isAnswered(method, p) {
   return (await ask(method, p)) !== (await ask(method, madeUp(p)));
 }
 
-test('the parser finds the routes the app calls, with each method set on its request', () => {
-  const { found, problems } = routesFromSwift();
-  assert.ok(found.size >= FLOOR + DECLARED.length, `found only ${found.size} routes in the Swift source: ${[...found.keys()].join(', ')}`);
-  assert.deepEqual(problems, [], 'methods the parser could not attribute to a request');
-  for (const [p, { file, caller, methods }] of Object.entries(VARIABLE_METHODS)) {
-    // The helper's own definition (func request(... method: String ...)) is not a caller.
-    const code = scanSwift(fs.readFileSync(path.join(__dirname, file), 'utf8')).code.filter((l) => !/\bfunc\s+request\(/.test(l)).join('\n');
-    assert.ok(code.includes(`"${p}"`), `${file} no longer names ${p}: update VARIABLE_METHODS`);
-    const matched = [...code.matchAll(caller)];
-    const used = [...new Set(matched.map((m) => m[1].trim()))].sort();
-    assert.deepEqual(used, methods.map((m) => `"${m}"`).sort(), `${file} calls ${p} with ${used.join(', ')}: update VARIABLE_METHODS`);
-    // Every call of the helper is one the pattern read, so an unusual spelling goes red.
-    assert.equal(matched.length, [...code.matchAll(VARIABLE_METHODS[p].calls)].length, `${file} has a request( call the caller pattern did not read`);
-  }
-  for (const h of HELPERS) {
-    const src = fs.readFileSync(path.join(__dirname, h.file), 'utf8');
-    const at = src.indexOf(h.def);
-    assert.ok(at >= 0, `${h.file} no longer defines ${h.def}: update HELPERS`);
-    const body = src.slice(at, src.indexOf('\n    }', at));
-    const set = body.match(HTTP_METHOD);
-    assert.equal(set ? set[2] || set[1] : 'GET', h.method, `${h.def} now sets its method to ${set && set[1]}: update HELPERS`);
-  }
-  for (const d of DECLARED) {
-    assert.ok(fs.readFileSync(path.join(__dirname, d.file), 'utf8').includes(d.pin), `${d.file} no longer has ${d.pin}: update DECLARED for ${d.route}`);
-  }
+test('every request the app builds is read, skipped for a reason, or declared, with its method', () => {
+  const { found, problems, inPlace, unmatched } = routesFrom(appFiles());
+  assert.deepEqual(problems, [], 'requests this test could not account for');
+  assert.deepEqual(unmatched.map((d) => `${d.file}: ${d.text}`), [], 'SITES entries that match no request any more');
+  assert.ok(inPlace >= FLOOR, `only ${inPlace} requests name their board route in place: ${[...found.keys()].join(', ')}`);
   // Pinned so a broken method reading cannot pass: the chat send is a POST, the status read a GET, the seen mark a POST.
   for (const k of ['POST /api/agent/x/thread', 'GET /api/status', 'POST /api/project/x/seen', 'GET /api/tasks?view=tasks']) {
     assert.ok(found.has(k), `${k} missing from: ${[...found.keys()].join(', ')}`);
   }
 });
 
+test('CONTROL: shapes that once slipped through silently are now reported', () => {
+  const one = (text) => routesFrom([{ rel: 'ios/Kosmos/Probe.swift', text }]);
+  // A route built away from its request (review 5).
+  assert.match(one('func a(mac: URL) -> URLRequest {\n  let url = URL(string: feed, relativeTo: mac)!\n  return URLRequest(url: url)\n}').problems.join(), /cannot read/);
+  // A neighbour's method is never credited to the request above it (review 5).
+  const n = one('func b(mac: URL, reply: URL) {\n  let room = URLRequest(url: URL(string: "/api/p/x/room", relativeTo: mac)!)\n  var answer = URLRequest(url: reply)\n  answer.httpMethod = "POST"\n}');
+  assert.ok(n.found.has('GET /api/p/x/room') && !n.found.has('POST /api/p/x/room'), [...n.found.keys()].join());
+  assert.match(n.problems.join(), /cannot read/);
+  // A route joined together, or hidden in a raw string, is a request this test cannot read (review 4).
+  assert.match(one('let r = URLRequest(url: URL(string: "/api/agent/" + s, relativeTo: mac)!)').problems.join(), /not built with URL\(string:\)|cannot read/);
+  assert.match(one('let r = URLRequest(url: URL(string: #"/api/x"#, relativeTo: mac)!)').problems.join(), /cannot read/);
+  // A method set on a variable that is not the request's own is never read as the request's.
+  assert.match(one('var r = URLRequest(url: URL(string: "/api/x", relativeTo: mac)!)\nq.httpMethod = "POST"').problems.join(), /no request this test found/);
+  // Ordinary non-board Swift is not a problem: a file path, a web link, a log line, an https request.
+  const quiet = one('let f = dir.appendingPathComponent("threads.json")\nlet link = "https://example.com/api/docs"\nprint("GET /api/status")\nvar h = URLRequest(url: URL(string: "https://hooks.example.com/n")!)\nh.httpMethod = "POST"');
+  assert.deepEqual(quiet.problems, []);
+});
+
 test('the board answers every route the iPhone app calls (not its reply to a route that does not exist)', async () => {
   const gone = [];
-  for (const [key, where] of routesFromSwift().found) {
+  for (const [key, where] of routesFrom(appFiles()).found) {
     const [method, p] = key.split(' ');
     if (!(await isAnswered(method, p))) gone.push(`${key} (called at ${where}): the board answers "${(await ask(method, p)).slice(0, 80)}"`);
   }
@@ -309,7 +306,7 @@ test('CONTROL: at the prefix, method and query of each route, two made-up siblin
   // Byte for byte, aimed at exactly the comparison each verdict uses (review 2): a reply that quoted the path back,
   // or a catch-all under a real prefix that echoed the last segment, would make every gone route look answered.
   const differ = [];
-  for (const key of routesFromSwift().found.keys()) {
+  for (const key of routesFrom(appFiles()).found.keys()) {
     const [method, p] = key.split(' ');
     const a = await ask(method, madeUp(p, 'no-such-route-7055a'));
     const b = await ask(method, madeUp(p, 'no-such-route-7055b'));
