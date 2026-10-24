@@ -20718,9 +20718,12 @@ const server = http.createServer(async (req, res) => {
       withArchived = q.get('withArchived') || null;
     } catch { projectScope = null; }
     /* #4491 slice 4: a caller that came through on its agent token alone reads ONE project's tasks, a project it
-       is on, in the list form `kosmos task list` prints. Never the global set, and never the Tasks view's arm (a
+       is on (or, with kosmos#7057's all=1, each project it is on, just below), in the list form `kosmos task list`
+       prints. Never the global set, and never the Tasks view's arm (a
        board snapshot and a transcript read per task; the page's). See AGENT_TOKEN_ROUTES. */
     if (allProjects && projectScope) { sendJson(res, 400, { error: 'name one project or ask for all of them, not both' }); return; }
+    /* Review 1 (nit 2): all and quietDays are the list's, never the Tasks view's; refused there rather than ignored. */
+    if (forTasksView && (allProjects || quietRaw !== null)) { sendJson(res, 400, { error: 'all and quietDays are for the task list, not the Tasks view' }); return; }
     const tokenOnly = agentTokenOnlyCaller(req);
     /* kosmos#7057: on its token alone, all=1 is every project the agent is on, each by the per-project rule below (every
        stored record with the id lists it). Never the global set: the projects it could read one at a time, at once. */

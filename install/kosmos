@@ -5534,6 +5534,8 @@ cmd_task() {
       [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built | --stale [<days>]]   (or --all)"; exit 2; }
       # kosmos#7057: --all (every project) and --stale [<days>]; the days are checked here, so only a number reaches the URL.
       if [ "${1:-}" = "--all" ]; then
+        # Review 1 (nit 4), as the Windows CLI: an empty word after --all is not "nothing after it".
+        [ "$#" -lt 2 ] || [ -n "${2}" ] || { say "After --all: nothing (open tasks), --blocked, --built, or --stale [<days>]."; exit 2; }
         case "${2:-}" in
           ''|--open|--blocked|--built) [ "$#" -le 2 ] || { say "${2} takes nothing after it: kosmos task list --all ${2}"; exit 2; } ;;
           --stale) _task_stale_days "${3:-}"; [ "$#" -le 3 ] || { say "--stale takes one number of days at most: kosmos task list --all --stale [<days>]"; exit 2; } ;;
@@ -5764,11 +5766,15 @@ cmd_task() {
     [ "$_xrc" -eq 0 ] || { say_unreached "list tasks" "$_xrc"; exit 1; }
     case "$_xbody" in '{"error":'*)
       local _xwhy; _xwhy=$(printf '%s' "$_xbody" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+      # Review 1 (warning 4): a board older than all=1 refuses an agent's own token with "say which project"; that is
+      # the board's age, not a missing project, so say so as every other older-board case does.
+      case "$_xproj:$_xwhy" in ':say which project'*) say "This board is older than --all, so it did not list what was asked. Update Kosmos."; exit 1 ;; esac
       say "Kosmos refused that: ${_xwhy:-it did not say why}."; exit 1 ;;
     esac
     _xnode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print that list." >&2; exit 1; }
     _xmod="$(kosmos_engine_module tasklist).js"
-    [ -f "$_xmod" ] || { say "This install of Kosmos cannot list tasks that way yet; update Kosmos." >&2; exit 1; }
+    # Review 1 (nit 1), as the Windows CLI's acrossLines check: a module from before kosmos#7057 has no `across` verb.
+    { [ -f "$_xmod" ] && grep -q 'acrossLines' "$_xmod"; } || { say "This install of Kosmos cannot list tasks that way yet; update Kosmos." >&2; exit 1; }
     printf '%s' "$_xbody" | "$_xnode" "$_xmod" across "$_xflag" "$_xproj" "$_xdays"
     exit $?
   fi

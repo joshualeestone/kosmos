@@ -163,6 +163,11 @@ test('Mac: the same forms print the same lines as Windows, from the real board',
   const stale = await mac(['task', 'list', '--all', '--stale', '007']);
   assert.equal(stale.code, 0, stale.out);
   assert.equal(stale.out.trim(), 'No open task in any project has been quiet for 7 days or more.', 'leading zeros were not read as 7');
+  /* Review 1 (warning 3): the one-project --stale against the real board, so a URL that lost quietDays would show here
+     (the stub board below ignores the URL). */
+  const oneStale = await mac(['task', 'list', A, '--stale']);
+  assert.equal(oneStale.code, 0, oneStale.out);
+  assert.equal(oneStale.out.trim(), 'No open task in ' + A + ' has been quiet for 7 days or more.');
   /* CONTROL: the one-project long list is unchanged. */
   const long = await mac(['task', 'list', A]);
   assert.match(long.out, /Task a-open/);
@@ -177,6 +182,7 @@ test('both: the same malformed forms are refused with the same words, before the
     [['--all', '--open', 'more'], /--open takes nothing after it/],
     [['--all', '--state', 'done'], /After --all: nothing \(open tasks\), --blocked, --built, or --stale/],
     [[A, '--stale', '-3'], /--stale takes a whole number of days, 1 to 3650/],
+    [['--all', '', 'x'], /After --all: nothing \(open tasks\), --blocked, --built, or --stale/],   // review 1 (nit 4)
   ];
   for (const [args, re] of cases) {
     const w = await win(['task', 'list', ...args], 'http://127.0.0.1:9');   // nothing listens: a refusal must come first
@@ -189,12 +195,12 @@ test('both: the same malformed forms are refused with the same words, before the
   }
 });
 
-/* An older board: answers every request with one project's plain list (no all, no quietDays). */
-async function stubBoard(body) {
+/* An older board: answers every request with one project's plain list (no all, no quietDays), or `status`. */
+async function stubBoard(body, status = 200) {
   const srv = http.createServer((req, res) => {
     req.resume();
     req.on('end', () => {
-      res.writeHead(200, { 'content-type': 'application/json' });
+      res.writeHead(req.url.startsWith('/api/health') ? 200 : status, { 'content-type': 'application/json' });
       res.end(req.url.startsWith('/api/health') ? '{"ok":true,"app":"kosmos"}' : JSON.stringify(body));
     });
   });
@@ -216,4 +222,35 @@ test('both: an older board that ignored all=1 or quietDays is refused, and nothi
       assert.doesNotMatch(m.out, /Task from one project/);
     }
   } finally { old.close(); }
+});
+
+test('review 1 (warning 4): an older board\'s "say which project" to an agent\'s own token is said as the board\'s age', async () => {
+  const old = await stubBoard({ error: 'say which project: an agent reads the tasks of a project it is on' }, 403);
+  try {
+    const port = old.address().port;
+    const w = await win(['task', 'list', '--all'], `http://127.0.0.1:${port}`);
+    const m = await mac(['task', 'list', '--all'], port);
+    const said = 'This board is older than --all, so it did not list what was asked. Update Kosmos.';
+    assert.equal(w.code, 1, w.err);
+    assert.equal(m.code, 1, m.out);
+    assert.equal(w.err, said);
+    assert.equal(m.out.trim(), said);
+    /* CONTROL: any other refusal is still said as the board said it. */
+    const w2 = await win(['task', 'list', 'p1', '--stale'], `http://127.0.0.1:${port}`);
+    assert.match(w2.err, /^Kosmos refused that: say which project/, 'a one-project refusal was rewritten as an older board');
+  } finally { old.close(); }
+});
+
+test('review 1 (nit 1): a Mac install whose engine predates --all says to update, not to drop a flag', async () => {
+  const oldHome = path.join(SANDBOX, 'kosmos-home-oldmodule');
+  fs.mkdirSync(path.join(oldHome, 'runtime', 'bin'), { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(oldHome, 'runtime', 'bin', 'node'));
+  fs.mkdirSync(path.join(oldHome, 'app', 'engine'), { recursive: true });
+  /* The module as it was before kosmos#7057: compactLines only. */
+  fs.writeFileSync(path.join(oldHome, 'app', 'engine', 'tasklist.js'), "'use strict';\nmodule.exports = { COMPACT: {}, compactLines() {} };\n");
+  const r = await mac(['task', 'list', '--all'], server.address().port, oldHome);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /cannot list tasks that way yet; update Kosmos/);
+  /* CONTROL: the real module, same command, lists. */
+  assert.equal((await mac(['task', 'list', '--all'])).code, 0);
 });

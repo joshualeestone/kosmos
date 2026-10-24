@@ -964,7 +964,12 @@ async function taskListAcross(ctx, args) {
   const only = flag === 'stale' ? 'state=open&quietDays=' + days : 'state=' + tasklist.COMPACT[flag];
   const r = await ctx.call('GET', '/api/tasks?' + (project ? 'project=' + projectSlug(project) : 'all=1') + '&order=state&' + only);
   if (!r.reached) return ctx.unreachable('list tasks');
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (ctx.refusedBy(r)) {
+    /* Review 1 (warning 4), as install/kosmos: a board older than all=1 refuses an agent's own token with "say which
+       project"; that is the board's age, not a missing project. */
+    if (!project && /^say which project/.test(ctx.refusedBy(r))) { ctx.err('This board is older than --all, so it did not list what was asked. Update Kosmos.'); return 1; }
+    ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1;
+  }
   const shown = tasklist.acrossLines(r.json, flag, { project, days });
   for (const line of shown.lines) (shown.rc ? ctx.err : ctx.out)(line);
   return shown.rc;
