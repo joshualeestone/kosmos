@@ -306,6 +306,23 @@ final class BoardClient: ObservableObject {
         return Board.pressResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
     }
 
+    // MARK: Earlier messages (kosmos#7016 part 3)
+
+    // A page of earlier messages ending before `before`; nil when the chats were forgotten meanwhile (the page belongs
+    // to the chat before).
+    func olderPage(_ session: String, before: Int) async -> Board.OlderRead? {
+        let epoch = chatEpoch
+        #if DEBUG
+        if let sample = sampleOlder(session, before: before) { return sample }
+        #endif
+        guard let held = admitted, let request = Board.olderRequest(mac: held.url, session: session, before: before) else {
+            return .failed(Board.olderFailed)
+        }
+        let answer = await env.send(request)
+        guard epoch == chatEpoch else { return nil }
+        return Board.readOlder(status: answer?.1.statusCode ?? 0, data: answer?.0, before: before)
+    }
+
     // MARK: Files (kosmos#7016 part 2)
 
     // First-page pictures for file cards, by attachment id: drawn small (192 px) once, never the file itself (an image's
@@ -517,6 +534,16 @@ final class BoardClient: ObservableObject {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try? Data("A sample file (Debug build), standing in for \(a.name).".utf8).write(to: file)
         return file
+    }
+    // Cleo's earlier messages in the sample (KOSMOS_SAMPLE_OLDER=loading holds the first page back, for the shot).
+    private func sampleOlder(_ session: String, before: Int) -> Board.OlderRead? {
+        guard session == "cleo", sampleThreads[session] != nil else { return nil }
+        let rows = (0..<before).map { i -> [String: Any] in
+            ["at": "2026-10-2\(i % 2)T1\(i % 10):0\(i % 6):00Z", "text": i % 3 == 0 ? "Checking the venue list, item \(i + 1)." : "Noted.",
+             "from": i % 2 == 0 ? "cleo" : NSNull()]
+        }
+        let data = try? JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": 0])
+        return Board.readOlder(status: 200, data: data, before: before)
     }
     private func loadSampleThreads() {
         let json = #"{"messages":[{"at":"2026-10-23T13:32:00Z","text":"Morning Dana. How is the catalogue copy coming along?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:33:00Z","text":"Pages 1 to 8 are written and checked against the price sheet.","from":"dana"},{"at":"2026-10-23T13:34:00Z","text":"Great. What is left?","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:35:00Z","text":"Pages 9 to 12 need the new photos before I can caption them. The shoot is on Thursday, so I will have the full draft to you on Friday morning.","from":"dana"}],"olderCount":0,"question":null}"#

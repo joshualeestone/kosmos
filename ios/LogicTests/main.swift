@@ -1097,6 +1097,63 @@ do {
           && Board.attachmentRequest(mac: mac, path: "//evil.example/api/x") == nil, "a file is fetched only from the connected Mac")
 }
 
+section("native chat: earlier messages (kosmos#7016 part 3)")
+do {
+    let mac = URL(string: "https://studio.kosmosplus.com")!
+    let r = Board.olderRequest(mac: mac, session: "cleo", before: 412)!
+    check(r.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/cleo/thread/older?before=412" && r.httpMethod == "GET",
+          "a page before a position counted from the oldest message")
+    check(Board.olderRequest(mac: mac, session: "cleo", before: 0) == nil && Board.olderRequest(mac: mac, session: "../x", before: 5) == nil,
+          "no page before the first message, and only an agent's name")
+    func page(_ n: Int, older: Int) -> Data {
+        let rows = (0..<n).map { i in ["at": "2026-10-2\(i % 3)T10:00:00Z", "text": "m\(older + i)", "from": "cleo"] }
+        return try! JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": older])
+    }
+    func pageOf(_ r: Board.OlderRead) -> (rows: [Board.ChatRow], older: Int) {
+        if case .page(let rows, let older) = r { return (rows, older) }
+        return ([], -1)
+    }
+    let (rows, older) = pageOf(Board.readOlder(status: 200, data: page(200, older: 212), before: 412))
+    check(older == 212 && rows.count == 200 && rows[0].text == "m212" && rows[0].id.hasPrefix("older|212|"), "the page, oldest first, ids by its position")
+    check(Board.readOlder(status: 200, data: page(200, older: 200), before: 412) == .moved, "a range that is not the one asked for: the thread moved")
+    check(Board.readOlder(status: 503, data: Data(#"{"error":"we could not read all of the earlier messages just now. Try again in a moment."}"#.utf8), before: 5)
+          == .failed("We could not read all of the earlier messages just now. Try again in a moment."), "a failure in the Mac's own words")
+    check(Board.readOlder(status: 0, data: nil, before: 5) == .failed(Board.olderFailed) && Board.readOlder(status: 200, data: Data("{}".utf8), before: 5) == .failed(Board.olderFailed),
+          "no answer, or an answer with no messages, in the board's words")
+    // Two pages never share an id, and neither shares the latest read's.
+    let p1 = pageOf(Board.readOlder(status: 200, data: page(3, older: 0), before: 3)).rows
+    let p2 = pageOf(Board.readOlder(status: 200, data: page(3, older: 3), before: 6)).rows
+    check(p1.count == 3 && p2.count == 3, "CONTROL: both pages read")
+    let latest = Board.parseThread(page(3, older: 6))!.rows
+    check(Set((p1 + p2 + latest).map(\.id)).count == 9, "ids are unique across pages and the latest read")
+
+    // Loading, as the board does.
+    var e = Board.Earlier()
+    check(!Board.shouldLoadEarlier(e, olderCount: 0) && Board.shouldLoadEarlier(e, olderCount: 12), "only when there is something before")
+    e = Board.startLoad(e, olderCount: 12)
+    check(e.open && e.before == 12 && e.end == 12 && e.loading && !Board.shouldLoadEarlier(e, olderCount: 12), "the first load opens at the read's olderCount; one at a time")
+    e = Board.finishLoad(e, with: .page(rows: p2, olderCount: 3))
+    check(!e.loading && e.before == 3 && e.rows == p2 && Board.shouldLoadEarlier(e, olderCount: 12), "a page is prepended, and the next one can load")
+    e = Board.finishLoad(Board.startLoad(e, olderCount: 12), with: .page(rows: p1, olderCount: 0))
+    check(e.rows == p1 + p2 && e.before == 0 && !Board.shouldLoadEarlier(e, olderCount: 12), "down to the first message, then nothing more")
+    var f = Board.finishLoad(Board.startLoad(Board.Earlier(), olderCount: 12), with: .failed("No."))
+    check(f.because == "No." && !Board.shouldLoadEarlier(f, olderCount: 12), "a failure stops the loading until Try again")
+    f = Board.retryEarlier(f)
+    check(f.because == nil && Board.shouldLoadEarlier(f, olderCount: 12), "Try again lets it load")
+    var m = Board.finishLoad(Board.startLoad(Board.Earlier(), olderCount: 12), with: .moved)
+    check(!m.open && m.moved == 1 && Board.shouldLoadEarlier(m, olderCount: 12), "the thread moved: start again, once")
+    m = Board.finishLoad(Board.startLoad(m, olderCount: 12), with: .moved)
+    check(m.because == Board.olderFailed && !Board.shouldLoadEarlier(m, olderCount: 12), "moved twice running is a failure, so it is not asked for ever")
+    check(Board.retryEarlier(m).moved == 0, "Try again starts the count over")
+
+    // The gap: messages that left the latest 200 while the chat was open.
+    check(Board.gapPages(end: 12, olderCount: 12) == [] && Board.gapPages(end: 12, olderCount: 15) == [15] && Board.gapPages(end: 12, olderCount: 450) == [450, 250, 50],
+          "the pages to fetch, newest first")
+    check(Board.gapRows(p2, pageStart: 3, end: 4).map(\.text) == ["m4", "m5"] && Board.gapRows(p2, pageStart: 3, end: 3) == p2, "only the rows at or after the gap's start")
+    let t = Board.Thread(rows: latest, olderCount: 6)
+    check(Board.shownRows(e, thread: t) == p1 + p2 + latest && Board.shownRows(Board.Earlier(), thread: t) == latest, "earlier rows, then the latest read")
+}
+
 section("native chat: a sent message until the conversation holds it")
 do {
     let t0 = Board.isoDate("2026-10-23T15:00:00Z")!
