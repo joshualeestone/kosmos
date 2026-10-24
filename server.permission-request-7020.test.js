@@ -186,6 +186,44 @@ test('#7020: the last look before the key refuses another request under the same
   } finally { chat.resetForTests(); board.restore(); }
 });
 
+/* Through the route: every read up to the last one shows the prompt drawn for, and the last look before the key (the
+   one answerQuestionMenu takes) shows the other folder's. Which read that is, is measured on an honest press first. */
+async function pressWithLastLook(lastLook, request) {
+  const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: TWO_SPACES })]);
+  let reads = 0; let swapAt = Infinity; let keyedAfter = -1;
+  const calls = [];
+  chat.setRunner((args) => {
+    calls.push(args);
+    if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.296\t\t0\n', err: '' };
+    if (args[0] === 'capture-pane') { reads += 1; return { ran: true, spawnFailed: false, status: 0, out: keyedAfter >= 0 ? IDLE : (reads >= swapAt ? lastLook : TWO_SPACES), err: '' }; }
+    if (args[0] === 'send-keys' && /^\d$/.test(args[args.length - 1])) keyedAfter = reads;
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  chat.setDryRun(false);
+  chat.setPauser(() => {});
+  try {
+    const d = await drawn();
+    const body = { text: String(d.allow), chose: 'Yes', asked: d.asked, ...(request ? { request: d.request } : {}) };
+    reads = 0;   // count the press's reads only (the second run has no thread read before it)
+    const measure = await post(body);
+    assert.equal(measure.status, 200, 'premise: the honest press is typed: ' + JSON.stringify(measure.json));
+    const lastBeforeKey = keyedAfter;
+    assert.ok(lastBeforeKey > 0, 'premise: the key followed a read');
+    // Again, with the screen changing on exactly that read.
+    calls.length = 0; reads = 0; keyedAfter = -1; swapAt = lastBeforeKey;
+    const r = await post(body);
+    return { r, keys: calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]) };
+  } finally { chat.resetForTests(); board.restore(); }
+}
+
+test('#7020: through the route, a redraw just before the key is refused when the press named its request', async () => {
+  const control = await pressWithLastLook(ONE_SPACE, false);
+  assert.deepEqual([control.r.status, control.keys], [200, ['1']], 'CONTROL: without request the redraw is not caught, so the case below would not show the check: ' + JSON.stringify(control.r.json));
+  const named = await pressWithLastLook(ONE_SPACE, true);
+  assert.equal(named.r.status, 409, JSON.stringify(named.r.json));
+  assert.deepEqual(named.keys, [], 'Yes went to a request the person never saw');
+});
+
 test('#7020: an automatic message carrying a request is refused (a menu answer is always the person\'s own act)', async () => {
   await withPane(TWO_SPACES, async (calls) => {
     const d = await drawn();
