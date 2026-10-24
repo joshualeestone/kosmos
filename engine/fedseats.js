@@ -1097,7 +1097,7 @@ function revokeCheck(projectId, link, edges, dropOwn) {
     // #5191: the accounts dropped, each from the peer's own record (pinned with its edge) or, for a
     // peer pinned before that was kept, from this answer by its edge id; recorded at the epoch they
     // held. An account a kept peer also has (one account, two edges) is not recorded.
-    const accountOf = new Map(r.data.as_owner.filter((e) => e && e.project_ref === link.ref && typeof e.member_account_id === 'string' && e.member_account_id).map((e) => [e.id, e.member_account_id]));
+    const accountOf = new Map((r ? r.data.as_owner : []).filter((e) => e && e.project_ref === link.ref && typeof e.member_account_id === 'string' && e.member_account_id).map((e) => [e.id, e.member_account_id]));
     const accountOfPeer = (p) => (p && typeof p.account === 'string' && p.account) || (p && accountOf.get(p.edge)) || null;
     const keptList = Object.values(keep).map(accountOfPeer);
     const keptAccounts = new Set(keptList.filter(Boolean));
