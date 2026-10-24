@@ -152,9 +152,10 @@ final class RoomStore: ObservableObject {
         }
         switch result {
         case let .posted(note):
-            // The bubble goes when a read shows the post (settle, inside loadRoom); a re-read that failed leaves it,
-            // so a kept post never disappears while the room cannot be read. The next good read settles it.
-            _ = await loadRoom(project)
+            // A read that shows the post settles its bubble (inside loadRoom). Once a re-read has landed, the bubble
+            // goes even if it did not match (the board's #6168: kept is kept); a re-read that failed leaves it, so a
+            // kept post never disappears while the room cannot be read.
+            if await loadRoom(project) { pending[project]?.removeAll { $0.id == item.id } }
             notes[project] = note
         case .refused, .unsure:
             if pending[project]?.contains(where: { $0.id == item.id }) != true {

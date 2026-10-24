@@ -138,6 +138,11 @@ let ok2 = Board.RoomRow(id: "m51", atRaw: nil, at: nil, kind: .post, from: nil, 
 check(Board.settledPosts([("ok", ["m50"], nil)], rows: [ok1]).isEmpty, "an earlier \"ok\" never settles a new \"ok\" still on its way")
 check(Board.settledPosts([("ok", ["m50"], nil)], rows: [ok1, ok2]) == [0], "CONTROL: the new row settles it")
 check(Board.settledPosts([("ok", ["m50"], nil), ("ok", ["m50"], nil)], rows: [ok1, ok2]) == [0], "one new row settles one post, not two")
+// What the computer stores (engine/chat.js storeText, measured: "Pages 9  to 12\nare done   \n\n\nthanks" is kept as
+// "Pages 9 to 12\nare done\n\nthanks").
+let storedRow = Board.RoomRow(id: "m95", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "Pages 9 to 12\nare done\n\nthanks")
+check(Board.settledPosts([("Pages 9  to 12\nare done   \n\n\nthanks", [], nil)], rows: [storedRow]) == [0], "a post the computer re-spaced still settles its bubble")
+check(Board.settledPosts([("Pages 9 to 11", [], nil)], rows: [storedRow]).isEmpty, "CONTROL: different words never do")
 let pressAt = Board.isoDate("2026-10-24T10:00:00.000Z")
 let lastWeek = Board.RoomRow(id: "m7", atRaw: "2026-10-17T10:00:00.000Z", at: Board.isoDate("2026-10-17T10:00:00.000Z"), kind: .post, from: nil, byPerson: true, text: "Thanks")
 let justNow = Board.RoomRow(id: "m90", atRaw: "2026-10-24T10:00:02.000Z", at: Board.isoDate("2026-10-24T10:00:02.000Z"), kind: .post, from: nil, byPerson: true, text: "Thanks")
@@ -186,6 +191,8 @@ check(plist?.projects.first { $0.name == "Spring catalogue" }.map { Board.projec
       "nothing running: no word at all (#4730)")
 check(plist?.projects.first { $0.name == "Spring catalogue" }?.description == "The print catalogue for March.", "the description")
 check(plist?.projects.allSatisfy { $0.folderProblem == nil } == true, "a readable folder has no problem line")
+let folders = Board.parseProjects(Data(#"{"projects":[{"id":"a","name":"A","folderState":{"state":"missing","because":"the folder is gone"}},{"id":"b","name":"B","folderState":{"state":"unreadable"}},{"id":"c","name":"C","folderState":{"state":"readable"}}]}"#.utf8))?.projects ?? []
+check(folders.map { $0.folderProblem } == ["the folder is gone", "we cannot read this folder", nil], "an unreadable folder has a line, its own reason or the board's sentence: \(folders.map { $0.folderProblem })")
 
 section("the status word, ranked as the board ranks it")
 func proj(_ needs: Int = 0, q: Int = 0, working: Int = 0, restarting: Int = 0, paused: Bool = false, archived: Bool = false, name: String = "P", created: String? = nil, parent: String? = nil, id: String? = nil) -> Board.ProjectRow {

@@ -128,7 +128,7 @@ struct RoomView: View {
 
     private func applyKept() {
         guard let words = store.kept[project.id] else { return }
-        if draft.trimmingCharacters(in: .whitespacesAndNewlines) == words { draft = ""; replying = nil; replyMention = nil }
+        if Board.flatText(draft) == Board.flatText(words) { draft = ""; replying = nil; replyMention = nil }
         store.clearKept(project.id)
     }
 
@@ -209,8 +209,10 @@ struct RoomView: View {
             }
             .onChange(of: rows.last?.id) { _ in
                 if !settledAtBottom {
-                    // The first page: straight to the newest row, then the top may ask for older ones.
+                    // The first page: straight to the newest row, then the top may ask for older ones. A page that fits
+                    // on one screen moves neither marker, so settle here when the end is already showing.
                     proxy.scrollTo("bottom", anchor: .bottom)
+                    DispatchQueue.main.async { if atBottom && !rows.isEmpty { settledAtBottom = true } }
                 } else if atBottom {
                     withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }

@@ -259,6 +259,13 @@ extension Board {
         return (of, pills)
     }
 
+    // Words compared as the board compares them (pjRoomPendingKept): every run of whitespace one space, ends trimmed.
+    // The computer stores a post reformatted (engine/chat.js storeText folds double spaces, line-end spaces, runs of
+    // blank lines and tabs), so an exact comparison never matches a post with any of those.
+    static func flatText(_ s: String) -> String {
+        s.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
     // The person's posts in the air (or not confirmed) that the room now shows: a row by the person, with the same
     // words, that was NOT in the room when they pressed Post (the board's #6168 rule) and is dated after the newest row
     // shown then (`after`): the phone holds only the pages it has read, so an older same-words post loaded later is
@@ -268,7 +275,7 @@ extension Board {
         var used = Set<String>()
         var out: [Int] = []
         for (i, p) in posts.enumerated() {
-            if let r = rows.first(where: { $0.byPerson && $0.kind == .post && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == p.text
+            if let r = rows.first(where: { $0.byPerson && $0.kind == .post && flatText($0.text) == flatText(p.text)
                                        && !p.before.contains($0.id) && !used.contains($0.id)
                                        && (p.after == nil || $0.at == nil || $0.at! > p.after!) }) {
                 used.insert(r.id)
@@ -405,7 +412,10 @@ extension Board {
                                      hasAvatar: isTrue(a["hasAvatar"]), provider: a["provider"] as? String)
             }
             let folder = p["folderState"] as? [String: Any]
-            let folderProblem = (folder?["state"] as? String).flatMap { $0 == "readable" ? nil : (folder?["because"] as? String) }
+            // The board's pjFolderLine: any state but readable (an absent one included) has a line, its own reason or
+            // the board's sentence.
+            let folderProblem: String? = (folder?["state"] as? String) == "readable" ? nil
+                : ((folder?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "we cannot read this folder")
             return ProjectRow(id: id, name: name, description: p["description"] as? String ?? "",
                               unread: integer(p["unread"]), parent: (p["parent"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                               archived: isTrue(p["archived"]), archivedAt: isoDate(p["archivedAt"] as? String),
