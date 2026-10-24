@@ -387,6 +387,7 @@ struct ChatBubble: View {
     let name: String
     let line: (text: String, canRetry: Bool)?
     let sendAgain: () -> Void
+    @Environment(\.openURL) private var openURL
 
     private var mine: Bool { row.who == .person }
 
@@ -414,6 +415,12 @@ struct ChatBubble: View {
         .accessibilityLabel(Self.spoken(who: mine ? "You" : name, at: row.at, text: row.text)
             + (line.map { $0.canRetry ? ", not sent, double-tap to try again" : ", not sent" } ?? (row.notSent.map { ", " + $0.lowercased() } ?? "")))
         .accessibilityAction { if line?.canRetry == true { sendAgain() } }
+        // The bubble is read as one element, so its links are offered as actions (one per link, named by its site).
+        .accessibilityActions {
+            ForEach(Array(BubbleText.links(in: row.text).enumerated()), id: \.offset) { _, url in
+                Button("Open link to \(url.host ?? url.absoluteString)") { openURL(url) }
+            }
+        }
     }
 
     static func spoken(who: String, at: Date?, text: String) -> String {
@@ -461,7 +468,8 @@ struct PendingBubble: View {
             + (item.failed ? (line.canRetry ? ", not sent, double-tap to try again" : ", not sent") + (reason.map { ". " + $0 } ?? "") : "")
             + (undelivered.map { ", " + $0.lowercased() } ?? ""))
         .accessibilityAction { if item.failed && line.canRetry { retry() } }
-        .accessibilityAction(named: "Delete") { if item.deletable { delete() } }
+        // Delete only where the long-press menu offers it.
+        .accessibilityActions { if item.deletable { Button("Delete", action: delete) } }
     }
 }
 
@@ -514,6 +522,17 @@ struct BubbleText: View {
 
     // What iOS reads as inline Markdown, with the message's own line breaks kept, and plain web links made tappable
     // (links only: not phone numbers or dates).
+    // The links a message's bubble shows, in order (one link split into runs by its styling counts once).
+    static func links(in s: String) -> [URL] {
+        var out: [URL] = []
+        var last: URL?
+        for run in formatted(s).runs {
+            if let url = run.link, url != last { out.append(url) }
+            last = run.link
+        }
+        return out
+    }
+
     static func formatted(_ s: String) -> AttributedString {
         var out = (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
         // A Markdown link can put any address behind friendly words (a phone call, another app), so only web addresses

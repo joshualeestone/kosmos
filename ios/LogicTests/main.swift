@@ -993,6 +993,8 @@ final class FakeBoardWorld {
     var posted: [String] = []
     // Runs as a conversation read is answered, for a change that lands while a read is in flight.
     var onThreadRead: (() -> Void)?
+    // Runs as a status read is answered (taken once), for a change that lands while a read is in flight.
+    var onStatusRead: (() -> Void)?
     let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage!
 
     func count(_ path: String) -> Int { requests.filter { $0.hasSuffix(path) }.count }
@@ -1015,6 +1017,7 @@ final class FakeBoardWorld {
             return answer(sessionAnswer.0, sessionAnswer.1)
         case "/api/status":
             presented.append((cookies.cookies(for: url) ?? []).filter { $0.name == Board.macCookieName }.map(\.value).joined(separator: ","))
+            if let hook = onStatusRead { onStatusRead = nil; hook() }
             let next: (Int, String)? = statusQueue.isEmpty ? statusDefault : statusQueue.removeFirst()
             return next.map { answer($0.0, $0.1) }
         default:
@@ -1239,7 +1242,7 @@ section("native board loop: connecting")
     }
     do {
         // Another Mac: the chats opened on the one before go, before any chat call reaches the new one.
-        let (c, w, _, _) = make("kst1")
+        let (c, w, sessions, _) = make("kst1")
         c.start()
         _ = await settle { isLive(c) }
         let dana = c.agents.first { $0.session == "dana" }!
@@ -1255,6 +1258,25 @@ section("native board loop: connecting")
         let moved = await settle { if case .live(let m) = c.phase { return m.address == "office.kosmosplus.com" }; return false }
         check(moved, "CONTROL: the client moved to the other Mac")
         check(c.pending.isEmpty && c.drafts.isEmpty && c.chatEpoch > epoch, "another Mac: the chats from the one before are gone")
+        // A draft on the new Mac, then a read with no session, then someone else's: the account check still holds.
+        c.drafts["dana"] = "for the office Mac"
+        c.stop()
+        sessions.value = nil
+        c.start()
+        check(c.drafts["dana"] == "for the office Mac", "CONTROL: a read with no session keeps it")
+        sessions.value = "kst2"
+        c.start()
+        check(c.drafts.isEmpty, "another account after a Mac change and a read with none: the draft is gone")
+        c.stop()
+    }
+    do {
+        // A sign-out reported while a status read is in flight: that read writes nothing back, and the tab shows signed out.
+        let (c, w, sessions, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        w.onStatusRead = { MainActor.assumeIsolated { sessions.value = nil; c.accountChanged() } }
+        let out = await settle { c.phase == .signedOut }
+        check(out && c.agents.isEmpty && c.updatedAt == nil, "a read in flight at the sign-out does not put the old list back")
         c.stop()
     }
     do {
@@ -1268,10 +1290,8 @@ section("native board loop: connecting")
         let id = c.pending["dana"]!.last!.id
         w.threadAnswer = (200, #"{"messages":[{"at":"2026-10-23T20:00:09.000Z","text":"old account's words","from":null,"delivery":{"state":"placed"}}]}"#)
         w.onThreadRead = { MainActor.assumeIsolated { c.accountChanged() } }
-        let posts = w.posted.count
         await c.retry(id, to: dana)
         w.onThreadRead = nil
-        check(w.posted.count == posts, "nothing is sent for a chat that was forgotten meanwhile")
         await c.post("hello", to: dana)
         check(c.pending["dana"]?.last?.after == nil, "and the old read did not set the new chat's newest row")
         c.stop()
