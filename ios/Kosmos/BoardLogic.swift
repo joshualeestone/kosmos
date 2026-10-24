@@ -741,13 +741,14 @@ enum Board {
         return (ext.isEmpty ? nil : UTType(filenameExtension: ext)?.preferredMIMEType) ?? "application/octet-stream"
     }
 
-    // A photo has no name of its own: "Photo 2026-10-24 at 18.30.05.jpg", in the phone's own time.
-    static func photoName(at date: Date, ext: String, zone: TimeZone = .current) -> String {
+    // A photo has no name of its own: "Photo 2026-10-24 at 18.30.05.jpg", in the phone's own time, and " (2)" on the
+    // second of one pick.
+    static func photoName(at date: Date, ext: String, number: Int = 1, zone: TimeZone = .current) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = zone
         f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        return "Photo \(f.string(from: date)).\(ext)"
+        return "Photo \(f.string(from: date))\(number > 1 ? " (\(number))" : "").\(ext)"
     }
 
     // The image type the bytes themselves say, so the name never claims JPEG for a PNG the picker kept as it was.

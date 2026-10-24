@@ -434,7 +434,6 @@ final class BoardClient: ObservableObject {
             attachLine[session] = refusal
             return
         }
-        attachLine[session] = nil
         uploading[session, default: 0] += 1
         let root = env.uploads
         let prepared: Board.Prepared

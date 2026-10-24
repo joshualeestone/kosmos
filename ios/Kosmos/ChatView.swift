@@ -623,18 +623,24 @@ struct ChatView: View {
         .padding(.vertical, 8)
         .background(Palette.ground)
         .overlay(Rectangle().fill(Palette.separator).frame(height: 0.5), alignment: .top)
-        .photosPicker(isPresented: $showPhotos, selection: $photoPicks, maxSelectionCount: max(1, Board.maxFiles - attachedHere.count - uploadingHere),
-                      matching: .images, preferredItemEncoding: .compatible)
+        // Each picker on a host of its own: two presentations on one view can leave one that never opens (iOS 16).
+        .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
+                                             maxSelectionCount: max(1, Board.maxFiles - attachedHere.count - uploadingHere),
+                                             matching: .images, preferredItemEncoding: .compatible))
         .onChange(of: photoPicks) { picks in
             guard !picks.isEmpty else { return }
             photoPicks = []
             Task { await addPhotos(picks) }
         }
-        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+        .background(Color.clear.fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): Task { await addFiles(urls) }
             case .failure: client.attachLine[agent.session] = "We could not open that file."
             }
+        })
+        // A file that lands is heard, as the line above the composer is when one does not.
+        .onChange(of: attachedHere.count) { [was = attachedHere.count] now in
+            if now > was, let name = attachedHere.last?.name { UIAccessibility.post(notification: .announcement, argument: "Added \(name)") }
         }
     }
 
@@ -688,19 +694,24 @@ struct ChatView: View {
 
     // One at a time, in the order picked, as the board adds them. Each is counted as on its way from the moment it is
     // picked, and the client copies it (a photo's bytes as Apple's picker gives them, JPEG by default).
+    // The line above the composer is cleared once per pick, so a refusal of one file stays while the rest go up.
+    // The photos of one pick share one time, numbered after the first, so no two carry the same name.
     private func addPhotos(_ picks: [PhotosPickerItem]) async {
         let epoch = client.chatEpoch
-        for item in picks {
+        let at = Date()
+        client.attachLine[agent.session] = nil
+        for (i, item) in picks.enumerated() {
             await client.attach(.photo(load: {
                 guard let data = try? await item.loadTransferable(type: Data.self) else { return nil }
                 let type = item.supportedContentTypes.first { $0.conforms(to: .image) } ?? .jpeg
-                return (Board.photoName(at: Date(), ext: Board.imageExtension(data) ?? type.preferredFilenameExtension ?? "jpg"), data)
+                return (Board.photoName(at: at, ext: Board.imageExtension(data) ?? type.preferredFilenameExtension ?? "jpg", number: i + 1), data)
             }), epoch: epoch, to: agent)
         }
     }
 
     private func addFiles(_ urls: [URL]) async {
         let epoch = client.chatEpoch
+        client.attachLine[agent.session] = nil
         for url in urls { await client.attach(.file(url), epoch: epoch, to: agent) }
     }
 
@@ -755,7 +766,8 @@ struct ChatView: View {
         draftText = ""
         client.drafts[agent.session] = nil
         Task {
-            await client.post(text, files: files, to: agent)
+            // Not sent (a press or another file landed meanwhile): the words go back in an empty box, so none are lost.
+            if !(await client.post(text, files: files, to: agent)), draftText.isEmpty { draftText = text }
             await read()
         }
     }
