@@ -2674,7 +2674,9 @@ check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"That code is not rig
 check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"x","code":"device_proof_refused"}"#)) == .refused(message: "x", proofRefused: true), "a refused proof is told apart")
 check(SignIn.answer(status: 200, json: jsonBody(#"{}"#)) == .unknown && SignIn.answer(status: 500, json: nil) == .refused(message: nil, proofRefused: false), "no token, or no body")
 check(SignIn.companySignInRequired(json: jsonBody(#"{"ok":true,"sso_required":true}"#)) && !SignIn.companySignInRequired(json: jsonBody(#"{"ok":true,"sso_url":"https://x"}"#)), "a company sign-in only when it is required")
-check(SignIn.allowStatus(status: 200, json: jsonBody(#"{"device_status":"acked"}"#)) == .acked && SignIn.allowStatus(status: 401, json: jsonBody(#"{"device_status":"acked"}"#)) == nil, "the Allow, read only from an answer that is ok")
+check(SignIn.allowRead(status: 200, json: jsonBody(#"{"device_status":"acked"}"#)) == .status(.acked), "the Allow, from an answer that is ok")
+check(SignIn.allowRead(status: 401, json: jsonBody(#"{"device_status":"acked"}"#)) == .ended, "a refused session ends the watch, whatever else the answer says")
+check(SignIn.allowRead(status: 503, json: nil) == .unknown && SignIn.allowRead(status: nil, json: nil) == .unknown && SignIn.allowRead(status: 200, json: jsonBody(#"{"device_status":"new"}"#)) == .unknown, "no answer, a server error, or a status not known: asked again")
 
 section("sign-in: the steps")
 let s1 = SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "AB12", hasComputer: true)
@@ -2688,21 +2690,17 @@ check(SignIn.secondWords(kind: "sms", sentTo: "+1 *** *** 0123").contains("+1\u{
 check(SignIn.wrappable(email: "ada@example.com") == "ada@\u{200B}example.\u{200B}com" && SignIn.wrappable(email: "ada@example.com").replacingOccurrences(of: "\u{200B}", with: "") == "ada@example.com", "an address breaks only after @ or a dot, and reads unchanged")
 check(SignIn.webTitle(reason: SignIn.webForCompany) == "Your company signs you in" && !SignIn.webTitle(reason: SignIn.webForSetup).contains("-"), "the hand-over titles (none with a hyphen to break at)")
 
-section("sign-in: the adopt script carries the token as a string literal, never as script")
+section("sign-in: the store script puts the token where the sign-in page keeps it, as a string, never as script")
 do {
-    let evil = #"t"});alert(1);//"#
-    let script = SignIn.adoptScript(token: evil) ?? ""
-    check(script.contains(#"\"#) && !script.contains(#"+ "t"});alert"#), "a quote in the token is escaped")
-    check(script.contains("\"x-kosmos-web\": \"1\"") && script.contains(SignIn.adoptPath) && script.contains("same-origin"), "the site's own header, the adopt route, same-origin")
+    let evil = #"t"]; localStorage.setItem("x", "pwned"); var b = [" "#
+    let script = SignIn.storeScript(token: evil) ?? ""
     let ctx = JSContext()!
-    var sentAuth: String?
-    let fetchFn: @convention(block) (String, JSValue) -> JSValue = { _, opts in
-        sentAuth = opts.objectForKeyedSubscript("headers")?.objectForKeyedSubscript("authorization")?.toString()
-        return ctx.evaluateScript("Promise.resolve({ ok: true })")
-    }
-    ctx.setObject(fetchFn, forKeyedSubscript: "fetch" as NSString)
-    ctx.evaluateScript("function run() { " + script + " }; run();")
-    check(ctx.exception == nil && sentAuth == "Bearer " + evil, "run in a script engine, the token arrives exactly, and nothing else runs")
+    ctx.evaluateScript("var store = {}; var localStorage = { setItem: function (k, v) { store[k] = String(v); }, getItem: function (k) { return store.hasOwnProperty(k) ? store[k] : null; } };")
+    let result = ctx.evaluateScript("(function () { " + script + " })()")
+    check(ctx.exception == nil && result?.toBool() == true, "it runs, and says the session is stored")
+    check(ctx.evaluateScript("store['kosmos_session']")?.toString() == evil, "the token arrives exactly, under the page's own key")
+    check(ctx.evaluateScript("Object.keys(store).join(',')")?.toString() == "kosmos_session", "nothing else is written: a quote in the token is not script")
+    check(SignIn.pageSessionKey == "kosmos_session", "the key signin.html restore() reads (kosmos-relay, localStorage only)")
 }
 
 await boardLoopTests()

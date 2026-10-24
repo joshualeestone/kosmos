@@ -14,6 +14,9 @@ final class SignInModel: ObservableObject {
     @Published private(set) var issued: String?
     private let client: SignInClient?
     private var watch: Task<Void, Never>?
+    /// Bumped by every new attempt and every way back: an answer for an older one changes nothing (the web page's
+    /// `mine !== attempt`; review round 1).
+    private var attempt = 0
 
     init(client: SignInClient?) {
         self.client = client
@@ -29,13 +32,15 @@ final class SignInModel: ObservableObject {
         let typed = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard SignIn.looksLikeEmail(typed) else { error = "That does not look like an email address."; return }
         guard let client else { return }
+        attempt += 1; let mine = attempt
         busy = true; error = nil
         Task {
-            defer { busy = false }
+            defer { if mine == attempt { busy = false } }
             do {
-                if try await client.start(email: typed) { email = typed; code = ""; step = .code(email: typed) }
-                else { step = .web(reason: SignIn.webForCompany) }
-            } catch let refusal as SignInRefusal { error = refusal.message } catch { self.error = Self.unreachable }
+                let codeComing = try await client.start(email: typed)
+                guard mine == attempt else { return }
+                if codeComing { email = typed; code = ""; step = .code(email: typed) } else { step = .web(reason: SignIn.webForCompany) }
+            } catch { if mine == attempt { fail(error) } }
         }
     }
 
@@ -43,10 +48,14 @@ final class SignInModel: ObservableObject {
         guard case .code(let email) = step else { return }
         guard let typed = SignIn.code(code) else { error = "The code is six digits."; return }
         guard let client else { return }
+        attempt += 1; let mine = attempt
         busy = true; error = nil
         Task {
-            defer { busy = false }
-            do { take(try await client.verify(email: email, code: typed), email: email) } catch { self.error = Self.unreachable }
+            defer { if mine == attempt { busy = false } }
+            do {
+                let answer = try await client.verify(email: email, code: typed)
+                if mine == attempt { take(answer, email: email) }
+            } catch { if mine == attempt { fail(error) } }
         }
     }
 
@@ -54,22 +63,32 @@ final class SignInModel: ObservableObject {
         guard case .second(let email, _, let challenge, _) = step else { return }
         guard let typed = SignIn.code(code) else { error = "The code is six digits."; return }
         guard let client else { return }
+        attempt += 1; let mine = attempt
         busy = true; error = nil
         Task {
-            defer { busy = false }
+            defer { if mine == attempt { busy = false } }
             do {
                 let answer = try await client.second(challenge: challenge, code: typed)
+                guard mine == attempt else { return }
                 // A wrong second code stays on the second step (the challenge is still good), never back to the email code.
                 if case .refused(let message, false) = answer { error = message ?? "That code is not right."; return }
                 take(answer, email: email)
-            } catch { self.error = Self.unreachable }
+            } catch { if mine == attempt { fail(error) } }
         }
     }
 
-    func differentEmail() { watch?.cancel(); code = ""; error = nil; step = .email }
+    func differentEmail() { attempt += 1; busy = false; watch?.cancel(); code = ""; error = nil; step = .email }
 
     /// Signed in already; the app opens without waiting for the Allow (its tabs say so until the Mac answers).
-    func continueToApp() { watch?.cancel(); step = .done }
+    func continueToApp() { attempt += 1; watch?.cancel(); step = .done }
+
+    /// A call that did not get an answer. A device key this iPhone cannot keep is not a network problem and would fail
+    /// the same way every time, so that goes to the web sign-in page (review round 1).
+    private func fail(_ error: Error) {
+        if let refusal = error as? SignInRefusal { self.error = refusal.message; return }
+        if case SignInClient.SignInError.keyNotKept = error { step = .web(reason: SignIn.webForKey); return }
+        self.error = Self.unreachable
+    }
 
     private func take(_ answer: SignIn.Answer, email: String) {
         let (next, session, message) = SignIn.next(after: answer, email: email)
@@ -88,14 +107,22 @@ final class SignInModel: ObservableObject {
     /// The Allow, asked every few seconds while this screen shows it, as the web sign-in page does.
     private func watchAllow(_ token: String) {
         watch?.cancel()
+        let mine = attempt
         watch = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(SignIn.allowPollSeconds * 1_000_000_000))
                 guard let self, !Task.isCancelled, let client = self.client else { return }
-                switch await client.allowStatus(token: token) {
-                case .acked?: self.step = .done; return
-                case .denied?: self.step = .denied; return
-                default: continue
+                let read = await client.allowRead(token: token)
+                // Re-checked after the wait: a way back pressed while the answer was coming wins (review round 1).
+                guard !Task.isCancelled, mine == self.attempt else { return }
+                switch read {
+                case .status(.acked): self.step = .done; return
+                case .status(.denied): self.step = .denied; return
+                case .ended:
+                    self.step = .email
+                    self.error = "This sign-in ended before your Mac answered. Sign in again."
+                    return
+                case .status(.pending), .unknown: continue
                 }
             }
         }

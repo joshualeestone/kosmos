@@ -386,26 +386,28 @@ final class BoardWeb: ObservableObject {
 
     init() { coordinator.web = self }
 
-    // kosmos#7042: a session the native sign-in made, waiting to be put in the sign-in page's own cookie (SignIn.adoptScript,
-    // run on that page), so the web tabs open signed in and never ask again. Kept until the page is there to run it on.
+    // kosmos#7042: a session the native sign-in made, waiting to be stored where the sign-in page keeps its own
+    // (SignIn.storeScript, run on that page), so the web tabs open signed in and never ask again. It waits for the
+    // sign-in page itself; a load anywhere else (a notification's chat on the Mac) is left alone (review round 1).
     private var pendingSession: String?
 
     func signInPage(with token: String) {
         pendingSession = token
-        if let webView = webView, !webView.isLoading { adoptPending(webView) }
+        if let webView = webView, !webView.isLoading, webView.url?.host == AppTabs.signInHost { storePending(webView) }
     }
 
-    private func adoptPending(_ webView: WKWebView) {
-        guard let token = pendingSession else { return }
-        // Only on the sign-in page itself: anywhere else the fetch is not the site's own (and the cookie is not its).
-        guard webView.url?.host == AppTabs.signInHost else { webView.load(URLRequest(url: KosmosConfig.boardURL)); return }
-        guard let script = SignIn.adoptScript(token: token) else { pendingSession = nil; return }
+    /// True when it ran (the page then reloads itself signed in).
+    @discardableResult private func storePending(_ webView: WKWebView) -> Bool {
+        // Only on the sign-in page's own origin: its storage is the page's, and nowhere else may hold the token.
+        guard let token = pendingSession, webView.url?.host == AppTabs.signInHost,
+              let script = SignIn.storeScript(token: token) else { return false }
         pendingSession = nil
         webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
-            if case .success(let took as Bool) = result, took {} else { NSLog("[SignIn] the sign-in page did not take the session") }
+            if case .success(let stored as Bool) = result, stored {} else { NSLog("[SignIn] the sign-in page did not keep the session") }
             // Either way the page loads again: signed in, or showing its own sign-in (the slice's fallback).
             webView.load(URLRequest(url: KosmosConfig.boardURL))
         }
+        return true
     }
 
     // Each change of the page's address (replaceState too), with the one before, so the bar can follow the page's own
@@ -463,7 +465,7 @@ final class BoardWeb: ObservableObject {
     // A page finished loading: run a press that waited for it, and start a launch round of Tasks reads if no read has
     // answered this launch (PressTracker.launchReads). A later load replaces the round.
     func loaded() {
-        if pendingSession != nil, let webView = webView { adoptPending(webView); return }
+        if pendingSession != nil, let webView = webView, storePending(webView) { return }
         // What waits is a web tab or a section pressed on purpose (a native tab's press leaves nothing waiting), so it
         // replays as a section press.
         if let tab = tracker.pending { press(tab, ready: true, section: true) }
