@@ -783,7 +783,11 @@ function sayOwnHello(projectId, s) {
   const macId = myMacId();
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
-  if (typeof macId !== 'string' || !macId || !s.room) return;
+  if (typeof macId !== 'string' || !macId) {
+    noteOnce(projectId, s, 'ownNoId', 'This shared room is sealed, and this computer is not signed in to Kosmos+, so it cannot ask for the room\'s key yet. Its messages wait here until it can.');
+    return;
+  }
+  if (!s.room) return;
   if (!s.ownRun || s.ownRun.room !== s.room || s.ownRun.mac !== macId) {
     const nW = fedseal.randomSecret();
     s.ownRun = { room: s.room, mac: macId, nW, commit: fedseal.ownCommit(nW), offer: null, confirmed: false, got: null };
@@ -795,7 +799,10 @@ function sayOwnHello(projectId, s) {
 function noteOwnSealed(projectId, s) {
   const link = safeLink(projectId);
   if (!link || link.role !== 'self') return false;
-  try { fedseal.setRoomState(projectId, { role: 'member', ownComputer: true, keys: {} }); } catch { return false; }
+  try { fedseal.setRoomState(projectId, { role: 'member', ownComputer: true, keys: {} }); } catch {
+    noteOnce(projectId, s, 'ownSealUnsaved', 'This shared room is sealed, and this computer could not record that, so it cannot ask for the room\'s key yet. Kosmos tries again with the next message.');
+    return true;   // handled: the guest's "ask the owner for a new code" line is not this computer's
+  }
   sayOwnHello(projectId, s);
   return true;
 }
@@ -812,7 +819,11 @@ function waitingOffer(projectId, s, frame) {
   if (run.offer && (run.offer.ownerPub !== offer.ownerPub || run.offer.nO !== offer.nO)) {
     // Confirmed or not: a run still waiting for its share ends (the owner's board may have restarted and lost it),
     // and the new run's code needs a new confirm. A run holding a genuine share keeps it.
-    if (!run.got) { s.ownRun = null; sayOwnHello(projectId, s); }
+    if (!run.got && underRunLimit(s, 'ownResets')) {
+      if (run.confirmed) say(projectId, 'The other computer started over, so the code on this screen changed. Compare the new code with the one on the other computer, and confirm again.');
+      s.ownRun = null;
+      sayOwnHello(projectId, s);
+    }
     return;
   }
   run.offer = offer;
@@ -876,6 +887,18 @@ function adoptOwnShare(projectId, s) {
   flushHeld(projectId, s);
 }
 const OWN_WAITING_MAX = 16;
+/* A run a man in the middle abandons costs it nothing, so the number of runs bounds its guesses at the code: the
+   seal owner starts at most this many new runs (fresh commitments) in a room an hour, and a waiting computer restarts
+   its own run without its person at most this many times an hour. Past it, new commitments and different offers are
+   ignored until the hour has room again. */
+const OWN_RUNS_PER_HOUR = 12;
+/** Count one run against the seat's hourly limit for `key`. False (nothing counted) when the limit is reached. */
+function underRunLimit(s, key, now = Date.now()) {
+  const kept = (s[key] || []).filter((t) => now - t < 60 * 60 * 1000);
+  if (kept.length >= OWN_RUNS_PER_HOUR) { s[key] = kept; return false; }
+  s[key] = kept.concat([now]);
+  return true;
+}
 /** Seal owner: a hello from one of this account's computers. Answered with an offer (a fresh nonce for each new
     commitment, the same offer again for a hello repeated on reconnect). A computer already pinned that says hello
     lost its key, or came back under a new id: it runs the whole exchange again, Allow included. */
@@ -884,9 +907,11 @@ function ownerOwnHello(projectId, s, frame, me) {
   const h = fedseal.checkOwnHello(frame);
   if (!h || !hasKey(st) || st.role !== 'owner') return;
   if (st.peers && Object.prototype.hasOwnProperty.call(st.peers, h.pub)) return;   // a guest's key is never an own computer
+  if (h.pub === me.pub) return;   // nor this board's own key
   if (!s.ownWaiting) s.ownWaiting = new Map();
   let w = s.ownWaiting.get(h.pub);
   if (!w || w.commit !== h.commit || w.mac !== h.mac) {
+    if (!underRunLimit(s, 'ownOffers')) return;
     w = { mac: h.mac, commit: h.commit, nO: fedseal.randomSecret(), nW: null, at: Date.now() };
     s.ownWaiting.delete(h.pub);
     s.ownWaiting.set(h.pub, w);
@@ -924,6 +949,7 @@ function allowOwn(projectId, pub, confirmedCode) {
     if (st.peers && Object.prototype.hasOwnProperty.call(st.peers, pub)) return { ok: false, because: 'that key belongs to someone you invited, not to one of your computers' };
     let me;
     try { me = fedseal.sealingKey(); } catch { return { ok: false, because: 'this computer could not use its sealing key' }; }
+    if (pub === me.pub) return { ok: false, because: 'that is this computer\'s own key' };
     let frame;
     try { frame = fedseal.ownShareFrame(me, { mac: w.mac, pub, nW: w.nW, nO: w.nO }, confirmedCode, st.keys[st.epoch], st.epoch, s.room); } catch (err) {
       return { ok: false, because: String((err && err.message) || err) };
@@ -1865,4 +1891,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { ownWaiting, allowOwn, ownCode, confirmOwn, ownStartOver, contactStopped, contactState, contactReason, contactStops, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
+module.exports = { ownWaiting, allowOwn, ownCode, confirmOwn, ownStartOver, OWN_RUNS_PER_HOUR, contactStopped, contactState, contactReason, contactStops, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };

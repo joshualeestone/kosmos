@@ -99,3 +99,22 @@ test('#4658: own-compare and own-confirm (the waiting computer\'s half) are behi
     assert.deepEqual((await call('POST', '/api/federation/own-confirm', { project: 'p1', match: false }, SCREEN)).json, { started_over: false });
   } finally { live(false); }
 });
+
+test('#4658: own-allow and own-confirm hand the engine exactly the project, key and code the person pressed', async (t) => {
+  const fedseats = require('./engine/fedseats');
+  const calls = [];
+  t.mock.method(fedseats, 'allowOwn', async (...a) => { calls.push(['allow', ...a]); return { ok: true, because: null }; });
+  t.mock.method(fedseats, 'confirmOwn', async (...a) => { calls.push(['confirm', ...a]); return { ok: true, because: null }; });
+  t.mock.method(fedseats, 'ownStartOver', (...a) => { calls.push(['over', ...a]); return true; });
+  t.mock.method(fedseats, 'ownWaiting', () => [{ pub: 'pub-w', mac: 'mac-w', code: 'ABCDE-FGHJK', at: 5, extra: 'not shown' }]);
+  t.mock.method(fedseats, 'ownCode', () => 'KLMNP-QRSTU');
+  live(true);
+  try {
+    assert.deepEqual((await call('POST', '/api/federation/own-allow', { project: 'p1', pub: 'pub-w', code: 'ABCDE-FGHJK' }, SCREEN)).json, { allowed: true });
+    assert.deepEqual((await call('POST', '/api/federation/own-confirm', { project: 'p1', code: 'KLMNP-QRSTU' }, SCREEN)).json, { confirmed: true });
+    assert.deepEqual((await call('POST', '/api/federation/own-confirm', { project: 'p1', match: false }, SCREEN)).json, { started_over: true });
+    assert.deepEqual(calls, [['allow', 'p1', 'pub-w', 'ABCDE-FGHJK'], ['confirm', 'p1', 'KLMNP-QRSTU'], ['over', 'p1']]);
+    assert.deepEqual((await call('GET', '/api/federation/own-waiting?project=p1', undefined, SCREEN)).json, { computers: [{ pub: 'pub-w', mac: 'mac-w', code: 'ABCDE-FGHJK', at: 5 }] });
+    assert.deepEqual((await call('GET', '/api/federation/own-compare?project=p1', undefined, SCREEN)).json, { code: 'KLMNP-QRSTU' });
+  } finally { live(false); }
+});
