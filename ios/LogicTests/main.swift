@@ -1300,6 +1300,8 @@ do {
           && Board.mimeType(forName: "notes") == "application/octet-stream", "the type from the name, octet-stream when there is none")
     check(Board.photoName(at: Date(timeIntervalSince1970: 1_761_330_605), ext: "jpg", zone: TimeZone(identifier: "UTC")!) == "Photo 2025-10-24 at 18.30.05.jpg",
           "a photo is named by when it was added, with no slash or colon")
+    check(Board.photoName(at: Date(timeIntervalSince1970: 1_761_330_605), ext: "png", number: 2, zone: TimeZone(identifier: "UTC")!) == "Photo 2025-10-24 at 18.30.05 (2).png",
+          "the second photo of one pick is numbered, so no two share a name")
     check(Board.imageExtension(Data([0xFF, 0xD8, 0xFF, 0xE0])) == "jpg" && Board.imageExtension(Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])) == "png"
           && Board.imageExtension(Data([0, 0, 0, 24] + Array("ftypheic".utf8))) == "heic" && Board.imageExtension(Data("GIF89a".utf8)) == "gif"
           && Board.imageExtension(Data("RIFF\0\0\0\0WEBP".utf8)) == "webp" && Board.imageExtension(Data("hello".utf8)) == nil,
@@ -1867,7 +1869,9 @@ section("native board loop: connecting")
         await c.attach(.photo(load: { ("Photo 2026-10-24 at 18.30.05.jpg", Data([0xFF, 0xD8, 0xFF, 0xE0])) }), epoch: c.chatEpoch, to: dana)
         check(w.uploads.last?.type == "image/jpeg" && w.uploads.last?.name == "Photo%202026-10-24%20at%2018.30.05.jpg" && w.uploads.last?.bytes == Data([0xFF, 0xD8, 0xFF, 0xE0]),
               "a photo goes up as a JPEG under its own name")
-        check(attached().count == 2 && c.attachLine["dana"] == nil, "a file that goes up clears the last line")
+        check(attached().count == 2 && c.attachLine["dana"] == "Report.pages is a folder, so it cannot go in a message. Add the files inside it, or a zip of it.",
+              "a refusal stays while the next file goes up (the screen clears the line once per pick)")
+        c.attachLine["dana"] = nil
         await c.attach(.photo(load: { nil }), epoch: c.chatEpoch, to: dana)
         check(c.attachLine["dana"] == "We could not read that photo." && c.uploading["dana"] == 0, "a photo that cannot be read is said, and nothing waits")
         c.unattach(attached()[1].id, for: "dana")
