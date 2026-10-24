@@ -106,7 +106,7 @@ refused() {   # label site expected-phrase args...
   if [ "$rc" = 1 ] && untouched "$site" && has "$out" "$phrase"; then pass "named: refuses $label, nothing written"
   else bad "named $label (rc=$rc, latest.json: $(cat "$site/dist/latest.json"), out=$out)"; fi
 }
-refused "a version no commit names" "$(newsite)" "no commit on" --version 9.9.7
+refused "a version no commit names" "$(newsite)" "has a latest-staging.json naming 9.9.7 - refusing; nothing was written. (Pull the site, or check the version.)" --version 9.9.7
 S="$(newsite)"; rm -f "$S/dist/kosmos-9.9.8-arm64.tar.gz"
 refused "a named build whose artifact is not on disk" "$S" "the pointer committed in" --version 9.9.8
 S="$(newsite)"; printf 'OTHER\n' > "$S/dist/kosmos-9.9.8-arm64.tar.gz"
@@ -155,7 +155,7 @@ real98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")"
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --sha "${real98:0:8}" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" sha256)" = "$real98" ] && [ "$(cat "$S/setup")" = "INSTALLER-9.9.8 KOSMOS_READONLY_APP" ] \
   && pass "named: --sha picks the approved build among commits that disagree" || bad "named --sha (rc=$rc, out=$out)"
-S="$(newsite)"; refused "--sha naming no build of V" "$S" "with a sha256 starting deadbeef" --version 9.9.8 --sha deadbeef
+S="$(newsite)"; refused "--sha naming no build of V" "$S" "with a sha256 starting deadbeef - refusing; nothing was written. (Check the version, and the --sha or --commit given.)" --version 9.9.8 --sha deadbeef
 # Two builds of V whose sha256 share the prefix given: it asks for more of the sha, not for --sha.
 S="$(newsite)"; real98="$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")"
 republish "$S" 9.9.8 "" "${real98:0:8}$(printf '%056d' 0)"
@@ -269,13 +269,25 @@ O="$T/origin.git"; git init -q --bare "$O"
 S="$(newsite)"; git -C "$S" remote add origin "$O"; git -C "$S" push -q origin HEAD:main
 mkcut "$S" 9.9.12   # committed here, never pushed
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.12 2>&1)"; rc=$?
-[ "$rc" = 1 ] && untouched "$S" && has "$out" "is not on the site's origin/main" && pass "named: refuses a commit the site never published, nothing written" || bad "named unpublished (rc=$rc, out=$out)"
+[ "$rc" = 1 ] && untouched "$S" && has "$out" "not on the site's origin/main, so staging never served them" && pass "named: refuses a commit the site never published, nothing written" || bad "named unpublished (rc=$rc, out=$out)"
 git -C "$S" push -q origin HEAD:main
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.12 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.12 ] && ! has "$out" "no origin remote" && pass "named: CONTROL once pushed, the same commit promotes" || bad "named published (rc=$rc, out=$out)"
 S="$(newsite)"; git -C "$S" remote add origin "$T/no-such-origin.git"
 # (The pointer-freeze guard fetches origin first and refuses on its own; offline, it lets this check be the one that answers.)
-KOSMOS_POINTER_FREEZE_OFFLINE=1 refused "a site whose origin cannot be fetched" "$S" "could not fetch the site to check that" --version 9.9.8
+KOSMOS_POINTER_FREEZE_OFFLINE=1 refused "a site whose origin cannot be fetched" "$S" "could not fetch the site to check which commits naming 9.9.8 were published" --version 9.9.8
+# A local, never-pushed re-cut of V with other bytes is not a candidate: the published one promotes, no disagreement.
+O3="$T/origin3.git"; git init -q --bare "$O3"
+S="$(newsite)"; git -C "$S" remote add origin "$O3"; git -C "$S" push -q origin HEAD:main
+republish "$S" 9.9.8 "" "$(printf '%064d' 5)"   # committed here only
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" sha256)" = "$(awk '{print $1}' "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256")" ] && ! has "$out" "disagree" \
+  && pass "named: a never-pushed commit naming V with other bytes is ignored, not a disagreement" || bad "named unpushed re-cut (rc=$rc, out=$out)"
+# Prod already serving V as other bytes: a replacement, allowed and said.
+S="$(newsite)"; printf '{"version":"9.9.8","sha256":"%064d"}\n' 3 > "$S/dist/latest.json"; git -C "$S" commit -qm "prod 9.9.8 as other bytes" -- dist/latest.json
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "prod already serves 9.9.8 as other bytes (sha256 000000000000)" && pass "named: replacing prod's own version with other bytes is allowed and said" || bad "named same-version replacement (rc=$rc, out=$out)"
+has "$(bash "$HERE/promote-channel.sh" "$(newsite)" --version 9.9.8 2>&1)" "prod already serves" && bad "named: the replacement NOTE fired on an upgrade" || pass "named: CONTROL no replacement NOTE on an ordinary upgrade"
 has "$(bash "$HERE/promote-channel.sh" "$(newsite)" --version 9.9.8 2>&1)" "has no origin remote" && pass "named: a site with no origin says it cannot check publication" || bad "named no-origin note missing"
 
 # ---- the first Kosmos+ sign-in gate is handed the named pointer, not the live staging one ----

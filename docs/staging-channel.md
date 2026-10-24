@@ -93,7 +93,7 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    staging. `tools/promote-channel.sh <site-checkout> <port> --version <V>` reads V's pointer and
    installer from the site commit that published them, so staging can take later cuts while the GO waits.
    - **Which commit.** One on the checkout's HEAD whose `latest-staging.json` names V. When the site has
-     an origin, it must also be on origin's main, and the checkout's `latest.json` must be origin's, so
+     an origin, it must also be on origin's main (a commit that is not is ignored), and the checkout's `latest.json` must be origin's, so
      every check reads one prod baseline. If V was cut more than once, the promote refuses and lists the
      builds: add `--sha <8+ characters of the approved build's sha256>`. Where builds share the bytes but
      name another artifact or manifest, `--commit <site sha>` picks the commit (it must still name V, and
@@ -108,7 +108,8 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      prune while a GO is pending (a pruned tarball can be fetched back from what installkosmos.com serves,
      as in releasing.md).
    - **Guards.** `--force` with `--version` needs `--sha`. A V older than prod's, or one that cannot be
-     compared with it, is refused unless `--allow-older` is given.
+     compared with it, is refused unless `--allow-older` is given. The same version as prod's with other
+     bytes (a re-cut replacing it) is allowed, and the promote says so.
    - **The board gates still need a board on V.** Once the cut box's board has moved to a later staging
      build they answer cannot-tell, and the promote HOLDS (exit 2), forceable only after a hand check of V;
      the board check it could not run is then made after the deploy on a Mac that has updated to V.

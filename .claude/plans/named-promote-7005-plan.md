@@ -80,7 +80,7 @@ protects it from a manual retention prune once staging moves on; the promote the
   (still refused without --allow-older).
 - docs/staging-channel.md step 4 documents --version / --sha / --allow-older and the hold on a moved board.
 - The -G comment states why it finds every commit: the pointer is one line.
-- Not changed: in named mode with the key-list check on, origin main is fetched twice (harmless).
+- Not changed: in named mode origin main is fetched up to three times (the pointer-freeze guard, the publication check, and the #6609 key list when on); harmless, each bounded.
 
 ## Iteration 4 (challenge) changes
 - After a forced cannot-tell, named mode sends the post-deploy experience check to a board on V (a Mac
@@ -158,3 +158,11 @@ in more than its installer (with the --commit to use it).
 - Not changed: comparing the manifest pair against V's commit (a re-sign after the cut is legitimate); a
   middle republish is not compared (needs a hand-edited pointer); an ambiguous 7-char --commit prefix is
   resolved by the agreement logic.
+
+## Iteration 12 (challenge) changes
+- The origin/main check runs inside the selection loop: a never-pushed commit naming V is not a candidate, so
+  it cannot cause a "cut more than once" refusal; when only unpublished commits name V, the refusal lists them.
+- The same version as prod's with other bytes (a re-cut replacing it) passes the rollback guard, as intended,
+  and now prints a NOTE; documented.
+- Wording: the announce line no longer says the commit carries the installer; the baseline source says when
+  origin's main has no latest.json; the no-candidate refusal points at --sha/--commit when they filtered.
