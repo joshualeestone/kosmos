@@ -39,6 +39,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 const kst1 = require('./kst1');
+const trustkeys = require('./trustkeys');
 
 const TYP = 'org_policy';
 // The tunnel's state folder: the same derivation as remote.js's STATE_DIR, read live rather than frozen at load (so a
@@ -126,13 +127,17 @@ function capShapeOk(u) {
  * Read the tunnel's bundle and apply it if it verifies. Never throws. Returns what is in force:
  * { applied: <record or null>, refused: <why or null>, stale?: true (the policy in force merely expired), local?: true
  * (a fault on this computer: no pinned key, or the record could not be saved) }. A missing bundle with nothing applied is "no policy".
- * `now` and `pinned` are for tests.
+ * `now`, `pinned` and `recoveryKeys` are for tests.
  */
-function refresh({ now, pinned } = {}) {
+function refresh({ now, pinned, recoveryKeys } = {}) {
   const applied = readApplied();
   const token = readText(BUNDLE());
   if (token === null) return { applied, refused: null };
-  const key = pinned !== undefined ? pinned : readText(PINNED());
+  // kosmos#6596 step 8: the keys the connector trusts (the service key set it holds, or the pin alone), not only the pin.
+  const trusted = pinned !== undefined ? { keys: pinned, fault: null } : trustkeys.trustedKeys(stateDir(), readText(PINNED()), { recoveryKeys });
+  // A trust store this computer cannot use is a fault here, as a missing pin is: nothing the company sent was refused.
+  if (trusted.fault) return { applied, refused: 'no coordinator key is trusted: ' + trusted.why, local: true };
+  const key = trusted.keys;
   const v = kst1.verify(token, key, TYP, now);
   if (!v.ok) {
     /* #5534 slice 2: `stale` when the only fault is that the bundle in force has expired (its signature verifies, and

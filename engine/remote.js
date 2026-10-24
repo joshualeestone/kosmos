@@ -76,6 +76,7 @@ let setupSpawn = spawn;
 const SETUP_CLOSE_GRACE_MS = 2000;
 const os = require('node:os');
 const store = require('./store');
+const trustkeys = require('./trustkeys');   // kosmos#6596 step 8: the tunnel's trust files, which no wipe here removes
 const childenv = require('./childenv');   // kosmos#5889: what a desktop opener is started with
 
 // #1848: route through store.ROOT (= store.dataRootFor(platform, home, env)) rather
@@ -411,6 +412,19 @@ const { allowWaitSentence } = require('./allowwait');
     creates the dir, so this states and enforces the assumption on our side
     rather than relying on it unsaid. Best-effort: a perms failure must not
     block the switch. */
+/* Empty the tunnel's state folder entry by entry, leaving `keep` and the tunnel's trust files (kosmos#6596 step 8:
+   trustkeys.KEEP). The tunnel forgets a held service key set itself at the next registration and writes its floor
+   first; removing the floor here would let a forgotten set be taken again, and removing the lock while the tunnel
+   holds it would let two writers in. Best effort: whatever cannot be removed, the register writes again. */
+function clearStateDir(keep) {
+  const skip = new Set([...keep, ...trustkeys.KEEP]);
+  let entries = [];
+  try { entries = fs.readdirSync(STATE_DIR()); } catch { return; }   // no folder: nothing to clear
+  for (const name of entries) {
+    if (skip.has(name)) continue;
+    try { fs.rmSync(path.join(STATE_DIR(), name), { recursive: true, force: true }); } catch { /* the register writes it again */ }
+  }
+}
 function secureStateDir() {
   try {
     fs.mkdirSync(STATE_DIR(), { recursive: true, mode: 0o700 });
@@ -1522,7 +1536,7 @@ async function forgetNow(anyway) {
       return { ok: false, kept: true, retired: false, address: was.address, because: keptBecause };
     }
   }
-  try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* best effort; enrolled() re-reads */ }
+  clearStateDir([]);   // best effort; enrolled() re-reads
   try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
   const r = read();
   /* Fed gate: CLEAR the cached standing on forget. This account is gone from this
@@ -3866,13 +3880,8 @@ async function clearHalfIdentity() {
      device the person just signed in as. The folder is emptied entry by entry around it, so finishing a sign-in does
      not make this computer another device next time; the key file itself is never rewritten (a rewrite would lose
      the tunnel's Windows ACL). */
-  const keyName = path.basename(DEVICE_KEY_FILE());
-  let entries = [];
-  try { entries = fs.readdirSync(STATE_DIR()); } catch { /* no folder: nothing to clear */ }
-  for (const name of entries) {
-    if (name === keyName) continue;   // never touched: its contents and its owner-only protection (on Windows an ACL) stay
-    try { fs.rmSync(path.join(STATE_DIR(), name), { recursive: true, force: true }); } catch { /* the register writes it again */ }
-  }
+  // The key file is never touched: its contents and its owner-only protection (on Windows an ACL) stay.
+  clearStateDir([path.basename(DEVICE_KEY_FILE())]);
   secureStateDir();
   return r.ok ? null : { stranded: retireReason(r) };
 }
@@ -4108,7 +4117,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+module.exports = { clearStateDir /* kosmos#6596 step 8 */, connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,
