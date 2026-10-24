@@ -1059,13 +1059,16 @@ do {
     let web = { (n: String, t: String) in Board.isWebDocument(name: n, type: t) }
     check(web("report.html", "text/plain") && web("report.HTM", "application/octet-stream") && web("pic.svg", "image/png")
           && web("page", "text/html") && web("feed", "application/xhtml+xml") && web("a.webarchive", "") && web("data.xml", "")
-          && web("saved.mht", "") && web("saved.mhtml", "application/octet-stream"),
+          && web("saved.mht", "") && web("saved.mhtml", "application/octet-stream")
+          && web("page.html.", "application/octet-stream") && web("pic.svg. ", "") && web("x.webarchive..", ""),
           "a page or markup document, by its name or its type, whatever type the sender gave")
     check(!web("plan.pdf", "application/pdf") && !web("notes.txt", "text/plain") && !web("photo.png", "image/png") && !web("deck.pptx", "")
           && !web("noext", "application/octet-stream"), "CONTROL: ordinary files are not")
     check(Board.fileSymbol(r.attachments[0]) == "doc.richtext" && Board.fileSymbol(r.attachments[1]) == "doc", "the symbol for a file with no picture")
     check(Board.savedName("../etc/passwd") == "-etc-passwd" && Board.savedName(".hidden") == "hidden" && Board.savedName("  ") == "file"
           && Board.savedName("a:b.pdf") == "a-b.pdf", "a saved name is never a path, never hidden, never empty")
+    check(Board.savedName("Q3.final", type: "application/pdf") == "Q3.final.pdf" && Board.savedName("v1.2 report", type: "application/pdf") == "v1.2 report.pdf",
+          "a dot in the name is not an extension unless an app knows it")
     check(Board.savedName("report", type: "application/pdf") == "report.pdf" && Board.savedName("report.txt", type: "application/pdf") == "report.txt"
           && Board.savedName("notes", type: "") == "notes", "a name with no extension takes one from its type, so Quick Look can open it")
     check(Board.attachmentId("/api/attachment/" + String(repeating: "a", count: 24)) != nil && Board.attachmentId("/api/attachment/AAAAAAAAAAAAAAAAAAAAAAAA") == nil
@@ -1649,9 +1652,24 @@ section("native board loop: connecting")
                                     url: "/api/attachment/333333333333333333333333", preview: "/api/attachment/333333333333333333333333/preview")
         await c.loadThumbnail(pdf2)
         let kept = c.thumbnails["333333333333333333333333"].flatMap { CGImageSourceCreateWithData($0 as CFData, nil) }.flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
-        check(kept.map { max($0.width, $0.height) } == 128 && (c.thumbnails["333333333333333333333333"]?.count ?? .max) < big.count,
-              "the picture kept is drawn at 128 px, never the whole file")
+        check(kept.map { max($0.width, $0.height) } == 192 && (c.thumbnails["333333333333333333333333"]?.count ?? .max) < big.count,
+              "the picture kept is drawn at 192 px (a 64 pt square at @3x), never the whole file")
         check(w.attachmentAsks.last == "/api/attachment/333333333333333333333333/preview", "the picture comes from its preview route")
+        let flaky = Board.Attachment(id: "9999999999999999999999aa", name: "f.pdf", type: "application/pdf", size: 1, kind: "pdf",
+                                     url: "/api/attachment/9999999999999999999999aa", preview: "/api/attachment/9999999999999999999999aa/preview")
+        w.attachmentAnswer = (503, "application/json", Data("{}".utf8))
+        await c.loadThumbnail(flaky)
+        w.attachmentAnswer = (200, "image/png", big)
+        await c.loadThumbnail(flaky)
+        check(c.thumbnails[flaky.id] != nil, "a picture that failed with a 5xx is asked again")
+        let gone = Board.Attachment(id: "9999999999999999999999bb", name: "g.pdf", type: "application/pdf", size: 1, kind: "pdf",
+                                    url: "/api/attachment/9999999999999999999999bb", preview: "/api/attachment/9999999999999999999999bb/preview")
+        w.attachmentAnswer = (404, "application/json", Data("{}".utf8))
+        await c.loadThumbnail(gone)
+        let after404 = w.attachmentAsks.count
+        w.attachmentAnswer = (200, "image/png", big)
+        await c.loadThumbnail(gone)
+        check(w.attachmentAsks.count == after404 && c.thumbnails[gone.id] == nil, "a picture the Mac does not have (404) is not asked again")
         let asks = w.attachmentAsks.count
         await c.loadThumbnail(pdf2)
         check(w.attachmentAsks.count == asks, "and is asked for once")
