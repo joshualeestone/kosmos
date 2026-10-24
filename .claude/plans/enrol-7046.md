@@ -29,3 +29,7 @@ key is there to type.
 3. A refusal that says "start again" (expired) kept the person on the code screen: it goes back to the email.
 4. "Use text messages instead" showed when texts cannot be sent: shown only when sms_available.
 5. Tests: confirm's real answer shape, and which refusals leave the code screen.
+
+## Review round 2 (blind, 08:3x)
+1. The start-again check covered confirm only; an expired token at setup kept the person there. FIXED: setup too.
+2. Account-gone sentences (no such account, no longer exists, being deleted) also leave the screen now.
