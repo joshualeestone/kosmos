@@ -36,7 +36,10 @@ case "$me" in
     case "$1" in
       kill) [ "${FX_KILL_FAIL:-0}" = 1 ] && exit 3
         [ -z "${FX_JOB_PID:-}" ] || { kill -0 "$FX_JOB_PID" 2>/dev/null && echo "kill-while-alive" >> "$CALL_LOG" || echo "kill-after-exit" >> "$CALL_LOG"; }
-        [ "${FX_INTERRUPT:-0}" = 1 ] && kill -INT "$PPID"   # an operator's Ctrl-C, inside the stop window
+        # A terminal Ctrl-C reaches the whole foreground group: the script AND this command. bash, waiting on a child,
+        # exits on SIGINT only when the child dies of it too, so the stub signals itself as well (an ignored SIGINT is
+        # inherited, so with the script ignoring it this command survives too, as launchctl would).
+        [ "${FX_INTERRUPT:-0}" = 1 ] && { kill -INT "$PPID"; kill -INT $$; }   # an operator's Ctrl-C during the kill call
         [ "${FX_HUP:-0}" = 1 ] && kill -HUP "$PPID"         # a dropped ssh session, inside the stop window
         [ "${FX_WORKER_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/worker-up"   # a job taken during the stop
         [ "${FX_RELAY_WORKER_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/relay-worker-up"   # a relay job, then
@@ -48,7 +51,7 @@ case "$me" in
       print-disabled) [ "${FX_PD_FAIL:-0}" = 1 ] && exit 1; printf 'disabled services = {\n'
         [ "${FX_DISABLED:-0}" = 1 ] && printf '\t"actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" => disabled\n'
         printf '}\n'; exit 0 ;;
-      bootout) [ "${FX_INTERRUPT_LATE:-0}" = 1 ] && kill -INT "$PPID"   # a Ctrl-C after the SIGTERM
+      bootout) [ "${FX_INTERRUPT_LATE:-0}" = 1 ] && { kill -INT "$PPID"; kill -INT $$; }   # a Ctrl-C after the SIGTERM
         # Whether the old job's process (FX_JOB_PID) was still alive when the bootout came: the test asserts it.
         [ -z "${FX_JOB_PID:-}" ] || { kill -0 "$FX_JOB_PID" 2>/dev/null && echo "bootout-while-alive" >> "$CALL_LOG" || echo "bootout-after-exit" >> "$CALL_LOG"; }
         [ "${FX_BOOTOUT_FAIL:-0}" = 1 ] && exit 5; [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
@@ -860,7 +863,7 @@ has ka-writesfirst "--apply writes KeepAlive into the plist first" && has ka-wri
   && pass "keepalive dry run: a refusal says --apply writes the plist first" || fail "keepalive writes first: $(tail -3 "$T/ka-writesfirst.out")"
 # A Ctrl-C after the SIGTERM (during the bootout) is ignored: the reload completes, the runner is not left down.
 ka_fresh; run ka-intlate "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_INTERRUPT_LATE=1 -- --apply keepalive
-[ "$(rc ka-intlate)" = 0 ] && grep -q '^launchctl bootstrap ' "$T/ka-intlate.calls" && ! has ka-intlate "INTERRUPTED" && has ka-intlate "Ctrl-C is ignored until it is loaded again" \
+[ "$(rc ka-intlate)" = 0 ] && grep -q '^launchctl bootstrap ' "$T/ka-intlate.calls" && has ka-intlate "Ctrl-C is ignored until it is loaded again" \
   && pass "keepalive --apply: a Ctrl-C after the SIGTERM does not leave the runner down; the reload completes" || fail "keepalive late interrupt: rc $(rc ka-intlate): $(tail -1 "$T/ka-intlate.out")"
 ka_fresh; run ka-outlives "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
 kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null
@@ -911,8 +914,8 @@ case "$et0" in 3.5*) : ;; *) fail "control: the fixture holds no non-integer Exi
 [ "$(rc ka-real)" = 0 ] && [ "$(plutil -extract ExitTimeOut raw -o - "$KA")" = 35 ] \
   && pass "keepalive --apply replaces a non-integer ExitTimeOut (3.5) with 35" || fail "keepalive real timeout: rc $(rc ka-real): $(plutil -extract ExitTimeOut raw -o - "$KA" 2>&1); $(tail -1 "$T/ka-real.out")"
 ka_fresh; run ka-interrupt "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_INTERRUPT=1 -- --apply keepalive
-[ "$(rc ka-interrupt)" = 130 ] && has ka-interrupt "INTERRUPTED while reloading" && has ka-interrupt "launchctl bootstrap gui/777" \
-  && pass "keepalive --apply: an interrupt in the stop window exits 130 and says how to bring the runner back" || fail "keepalive interrupt: rc $(rc ka-interrupt): $(tail -2 "$T/ka-interrupt.out")"
+[ "$(rc ka-interrupt)" = 0 ] && grep -q '^launchctl bootstrap ' "$T/ka-interrupt.calls" \
+  && pass "keepalive --apply: a Ctrl-C during the SIGTERM call itself is ignored; the reload completes, the runner is not left down" || fail "keepalive interrupt: rc $(rc ka-interrupt): $(tail -2 "$T/ka-interrupt.out")"
 # .service is trusted only for an actions.runner plist directly in LaunchAgents.
 # A directory named like a plist (actions.runner.d/) matches the name pattern, whose * spans '/': only the
 # directly-in-LaunchAgents guard refuses it.

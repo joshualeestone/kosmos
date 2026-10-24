@@ -481,3 +481,18 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
   retried in a tight loop", 2.3 s under the full run's load). This branch does not touch that file (diff: two shell
   files and this plan). Run alone at 1a602f45ce three times: 55 pass, 0 fail each time. Read as contention, not this
   change; gate rerun. If it reds again in the gate, run it on origin/main under load before going further.
+
+## Review round 33 (opus, blind, READ ONLY: the box was held by queued validations; HEAD 4aa78eb747)
+- W FIXED: INT/TERM were ignored only AFTER `launchctl kill SIGTERM` returned, so a Ctrl-C during the kill call ran the
+  exit-130 handler with the SIGTERM already sent: runner left down. ka-interrupt asserted exactly that. Now the ignore
+  is set BEFORE the kill, and the INTERRUPTED handler is gone (before the SIGTERM nothing is stopped; the default ends
+  the script). ka-interrupt now asserts the reload completes.
+  CAUGHT IN THE FIX: the mutant that moves the ignore back after the kill SURVIVED. bash waiting on a child does not
+  exit on SIGINT unless the child dies of it too, and the stub only signalled its parent. The stub now signals itself
+  as well (a terminal Ctrl-C reaches the whole group; an ignored INT is inherited). Both mutants (after, none) red.
+  Two `! has "INTERRUPTED"` negatives became vacuous with the handler gone; removed.
+  ALSO MY ERROR: I edited the worktree while the 6j gate was queued on it. It had not started; stopped it (no leftover
+  processes) and it reruns on the new HEAD.
+- NIT2 FIXED: the dry-run note names all three loaded lines (semaphore, exit timeout, minimum runtime).
+- DEFERRED: NIT1 (unreadable plist in a readable LaunchAgents: same as round 31 NIT4), NIT3 (a helper process set up a
+  few cases before ka-outlives: works).

@@ -735,7 +735,7 @@ keepalive() {
     # --apply writes the plist BEFORE any of the refusals below, so say that with them.
     [ "$in_file" = 1 ] || echo "note:   --apply writes KeepAlive into the plist first, even when it then refuses to reload"
     [ "$in_file" = 1 ] || echo "note:   $plist lacks $(keepalive_missing "$plist"): a killed runner may stay offline"
-    [ "$in_file" = 1 ] && [ "$loaded" = 1 ] && echo "note:   $plist has KeepAlive but the LOADED $label does not show it (this reads launchctl print's 'successful exit => 0' and 'exit timeout' lines): it needs a reload"
+    [ "$in_file" = 1 ] && [ "$loaded" = 1 ] && echo "note:   $plist has KeepAlive but the LOADED $label does not show all of it (launchctl print's 'successful exit => 0', 'exit timeout' of 35 or more and 'minimum runtime' of 10 or more): it needs a reload"
     [ "$in_file" = 1 ] || echo "WOULD: add KeepAlive {SuccessfulExit: false}, ThrottleInterval 10 and ExitTimeOut 35 to $plist"
     # Exit 1 for a runner that is not running as it should (as --apply does), 0 for a change it would make.
     if [ "$own" = 1 ]; then echo "refused: its Listener runs but $label is not loaded in $dom: reload it there by hand" >&2; exit 1
@@ -814,8 +814,7 @@ keepalive() {
   # SIGHUP and SIGPIPE are ignored and the window's one message cannot fail it; the launchctl calls' own output to a
   # gone terminal is the residual. For a session you may lose, run the stage under nohup.
   trap '' HUP PIPE
-  # An interrupt (Ctrl-C, a kill of this script) in the window says what state it may have left, then exits 130.
-  trap 'echo "INTERRUPTED while reloading $label: the runner may be stopped. If launchctl print $dom/$label lists it: launchctl kickstart $dom/$label; if not: launchctl bootstrap $dom $plist" >&2 || true; trap - EXIT; exit 130' INT TERM
+  # Before the SIGTERM nothing is stopped, so an interrupt there needs no handler: the default ends the script.
   local sent=0 outlived=0
   local jo2 opid w4=0; jo2="$(launchctl print "$dom/$label" 2>/dev/null || true)"
   opid="$(printf '%s\n' "$jo2" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
@@ -832,12 +831,13 @@ keepalive() {
   fi
   [ -n "$opid" ] || echo "note:   $label has no process, so no SIGTERM first" || true
   if [ -n "$opid" ]; then
+    # From the SIGTERM to the bootstrap an interrupt would leave a runner stopped under a definition with no KeepAlive
+    # (down for good), and the waits can add up to minutes, which is when someone presses Ctrl-C: ignore INT and TERM,
+    # set BEFORE the kill so a Ctrl-C during the kill call itself cannot end the script after the SIGTERM went out.
+    trap '' INT TERM
     launchctl kill SIGTERM "$dom/$label" \
       || { echo "refused: launchctl kill SIGTERM $dom/$label failed; nothing was stopped, KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
     sent=1
-    # From here to the bootstrap an interrupt would leave a runner stopped under a definition with no KeepAlive (down
-    # for good), and the waits can add up to minutes, which is when someone presses Ctrl-C: ignore INT and TERM too.
-    trap '' INT TERM
     echo "note:   the runner is stopping; Ctrl-C is ignored until it is loaded again (this can take a few minutes)" || true
     while kill -0 "$opid" 2>/dev/null && [ "$w4" -lt "$limit" ]; do sleep 1; w4=$((w4 + 1)); done
     # Still alive: it was told to stop, so going on is the lesser harm (refusing now would leave a runner that may yet
