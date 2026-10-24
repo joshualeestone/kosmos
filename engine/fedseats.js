@@ -109,6 +109,8 @@ const RESTART_MAX_MS = 60000;
 /* A connection that lasted this long resets the restart backoff. */
 const STABLE_MS = 30000;
 const MAC_EDGES = '/v1/mac/federation/edges';
+// kosmos#7028: the account's computers (unretired, unheld), each naming its mac id.
+const MAC_COMPUTERS = '/v1/mac/account-computers';
 
 /* projectId -> { child, edge, status, backoff, timer, ended, stopped, starting, inbound, inday }
    inbound: this minute's { since, count, bytes }; inday: this UTC day's { day, bytes, rows, noted, minuteNoted } */
@@ -142,6 +144,7 @@ let deps = null;
 function configure(d) {
   deps = d;
   macEdges = null;   // an answer from the previous wiring is not this one's
+  macComputers = null;   // kosmos#7028: likewise
 }
 
 /** Whether the board wired an optional dependency (a test's check that server.js
@@ -978,7 +981,8 @@ function rotateForRevoked(projectId, link, edges) {
     { checked, rotated, unreadable? } (unreadable: the rooms record could not be read), or
     undefined when the step threw. A room with no pinned member
     has nothing to revoke, so it counts as checked without asking. */
-function revokeCheck(projectId, link, edges) {
+function revokeCheck(projectId, link, edges, dropOwn) {
+  const drop = Array.isArray(dropOwn) ? dropOwn.filter((p) => typeof p === 'string' && p) : [];
   return sealStep(projectId, async () => {
     const first = roomSeal(projectId);
     // A record that cannot be read is not a check (nothing could have been rotated).
@@ -988,27 +992,46 @@ function revokeCheck(projectId, link, edges) {
     if (hasKey(first) && first.role === 'owner' && Number.isFinite(first.rotatedAt) && first.rotatedAt > Date.now()) {
       try { fedseal.setRoomState(projectId, Object.assign({}, first, { rotatedAt: Date.now() - REVOKE_GRACE_MS })); } catch { /* next check */ }
     }
-    if (!hasKey(first) || first.role !== 'owner' || !Object.keys(first.peers || {}).length) return { checked: true, rotated: false };
-    let r;
-    try { r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {})); } catch { return { checked: false, rotated: false }; }
-    if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return { checked: false, rotated: false };
-    const status = new Map(r.data.as_owner.filter((e) => e && e.project_ref === link.ref).map((e) => [e.id, e.status]));
+    const hasPeers = !!Object.keys(first.peers || {}).length;
+    const hasOwn = !!Object.keys(first.own || {}).length;
+    if (!hasKey(first) || first.role !== 'owner' || (!hasPeers && !hasOwn)) return { checked: true, rotated: false };
+    // kosmos#7028: the account's computers are asked only when an own computer is pinned, and their
+    // answer never decides whether the room counts as checked: a failed one would otherwise hold
+    // every guest's post for it. A failed or incomplete answer drops no own computer.
+    const macsAsk = hasOwn ? sharedComputers(Date.now()).promise.catch(() => null) : Promise.resolve(null);
+    let r = null;
+    if (hasPeers) {
+      try { r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {})); } catch { r = null; }
+      if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) r = null;
+    }
+    // An own computer the screen removes goes even when the edges could not be read; the room is then
+    // still not checked for its guests.
+    const checked = !hasPeers || !!r;
+    if (!checked && !drop.length && !hasOwn) return { checked: false, rotated: false };
+    const onAccount = accountMacs(await macsAsk);
+    const status = new Map(r ? r.data.as_owner.filter((e) => e && e.project_ref === link.ref).map((e) => [e.id, e.status]) : []);
     const st = roomSeal(projectId);   // re-read: a hello may have pinned someone during the await
     if (st === undefined) return { checked: false, rotated: false, unreadable: true };
     if (!hasKey(st) || st.role !== 'owner') return { checked: true, rotated: false };
     const peers = st.peers || {};
+    const own = st.own || {};
     // Only an edge the coordinator names as no longer active counts; an edge it does not
     // list is not taken as revoked (a partial answer must not lock a member out).
     const gone = Object.keys(peers).filter((pub) => peers[pub] && status.has(peers[pub].edge) && status.get(peers[pub].edge) !== 'active');
-    if (!gone.length) return { checked: true, rotated: false };
+    // kosmos#7028: an own computer leaves the key when the screen removes it, or when a complete list of
+    // the account's computers no longer has its mac (retired, held, moved to another account).
+    const ownGone = Object.keys(own).filter((pub) => drop.includes(pub) || (onAccount && !(own[pub] && onAccount.has(own[pub].mac))));
+    if (!gone.length && !ownGone.length) return { checked, rotated: false };
     const epoch = st.epoch + 1;
     const keep = {};
     for (const pub of Object.keys(peers)) if (!gone.includes(pub)) keep[pub] = peers[pub];
+    const ownKeep = {};
+    for (const pub of Object.keys(own)) if (!ownGone.includes(pub)) ownKeep[pub] = own[pub];
     const keys = Object.assign({}, st.keys, { [epoch]: fedseal.randomSecret() });
     // #5191: with nobody left, the revoked key is dropped from the record, so a member pinned
     // later (which brings graceAfter back to REVOKE_GRACE_MS) cannot reopen it. kosmos#4658: an allowed own
     // computer is somebody left.
-    if (!Object.keys(keep).length && !Object.keys(st.own || {}).length) delete keys[st.epoch];
+    if (!Object.keys(keep).length && !Object.keys(ownKeep).length) delete keys[st.epoch];
     // #5191: the accounts dropped, each from the peer's own record (pinned with its edge) or, for a
     // peer pinned before that was kept, from this answer by its edge id; recorded at the epoch they
     // held. An account a kept peer also has (one account, two edges) is not recorded.
@@ -1027,12 +1050,12 @@ function revokeCheck(projectId, link, edges) {
     }
     // A revoke found but not saved is not a check: the posts it holds stay held (the pass must
     // not show them unchecked under the key the revoked member still holds).
-    try { fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, epoch, rotatedAt: Date.now(), keys, revokedAccounts: Object.fromEntries(revoked) })); } catch {
+    try { fedseal.setRoomState(projectId, Object.assign({}, st, { peers: keep, own: ownKeep, epoch, rotatedAt: Date.now(), keys, revokedAccounts: Object.fromEntries(revoked) })); } catch {
       return { checked: false, rotated: false, unreadable: true };
     }
     const s = seats.get(projectId);
     if (s) sendRotates(projectId, s);
-    return { checked: true, rotated: true };
+    return { checked, rotated: true };
   });
 }
 /** #5191: one edges answer for the whole Mac, shared by every owner room's post-triggered
@@ -1083,6 +1106,26 @@ async function memberEdgeCheck(projectId, ask, seat) {
   if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_member)) return;
   const e = r.data.as_member.find((x) => x && x.id === link.edge_id);
   if (e && e.status === 'revoked') endRevokedMember(projectId, s, link, e.revoked_at);
+}
+/** kosmos#7028: the mac ids in an account-computers answer, or null when the answer is not complete:
+    not ok, no list, a row without a mac id (a coordinator too old to name them), or no row for this
+    computer (every real answer has one). Null drops nothing. */
+function accountMacs(r) {
+  if (!r || !r.ok || !r.data || !Array.isArray(r.data.computers) || !r.data.computers.length) return null;
+  const rows = r.data.computers;
+  if (!rows.every((c) => c && typeof c.mac_id === 'string' && c.mac_id)) return null;
+  if (!rows.some((c) => c.this === true)) return null;
+  return new Set(rows.map((c) => c.mac_id));
+}
+/** kosmos#7028: one account-computers answer for the whole Mac per EDGE_FRESH_MS, as sharedEdges. */
+let macComputers = null;
+function sharedComputers(now) {
+  if (macComputers && isFresh(macComputers.askedAt, now)) return macComputers;
+  const ask = { askedAt: now, promise: null };
+  try { ask.promise = Promise.resolve(deps.macRequest('POST', MAC_COMPUTERS, {})); } catch (err) { ask.promise = Promise.reject(err); }
+  ask.promise.catch(() => {});
+  macComputers = ask;
+  return ask;
 }
 function sharedEdges(now, notBeforeMono) {
   // #5285: `notBeforeMono` refuses a cached answer asked before then (it cannot know of a later join).
