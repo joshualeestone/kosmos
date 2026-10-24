@@ -36,6 +36,8 @@ struct ChatView: View {
             composer
         }
         .background(Palette.ground.ignoresSafeArea())
+        // Mona Lisa's review: the tab bar would stack under the composer and take about 170pt, so it hides here.
+        .toolbar(.hidden, for: .tabBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) { title }
@@ -452,6 +454,8 @@ struct WayThroughRow: View {
                 .multilineTextAlignment(.leading)
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
+                // White on the light ground barely shows (Mona Lisa's review): a hairline in light mode only.
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.pillStroke, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
     }
@@ -464,4 +468,5 @@ extension Palette {
     static let sendFill = pair(0xe3b341, 0xe3b341)
     static let sendGlyph = pair(0x14161a, 0x14161a)
     static let link = pair(0x2457c5, 0x9db8ff)
+    static let pillStroke = pair(0xe3e1dc, 0x000000, lightAlpha: 1, darkAlpha: 0)
 }
