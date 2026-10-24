@@ -206,3 +206,11 @@ test keeps that sentence and the parser in step. An unread version keeps the ref
 - Every HOLD/PARTIAL message that offers --force names --sha in named mode (FORCE_WORDS; default unchanged).
 - diff-tree --root, so a V pointer in a root commit still finds its installer; docs: --commit must name a
   commit that changed V's pointer.
+
+## Iteration 17 (challenge) changes
+- The pointer comparison used JSON.stringify with Object.keys(p).sort() as a replacer, which is a key
+  allow-list at EVERY level, so a nested difference was invisible. Now util.isDeepStrictEqual. The test isolates
+  a nested-only difference (my first version of it differed at the top level too and passed on the old code;
+  rebuilt, it is red on the old comparison).
+- Not changed (NITs, disclosed already): the manifest is the dist/ copy (its sha is printed); /setup in the
+  no-installer branch is compared with HEAD, as in default mode; the final PROMOTED line is the default one.
