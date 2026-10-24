@@ -72,7 +72,7 @@ const STEP_UP_ROUTES = [
   '/api/register/hide',   // #6714: closing a restart notice silences a warning
   '/api/agents', '/api/team', '/api/connect-agent', '/api/worlds', '/api/worlds/import', '/api/agent/scout/restore',
   '/api/register', '/api/remote/second-reset', '/api/project/p1/webhooks', '/api/org/enroll',
-  '/api/federation/join', '/api/federation/invite', '/api/federation/own-code',
+  '/api/federation/join', '/api/federation/invite', '/api/federation/own-code', '/api/federation/own-allow',
   '/api/remote/signin-start', '/api/remote/signin-register', '/api/remote/setup-start', '/api/remote/setup-complete',
   '/api/remote/company/start', '/api/remote/forget',
 ];

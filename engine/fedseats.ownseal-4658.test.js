@@ -238,3 +238,24 @@ test('#4658: a guest member who sees an unopenable room is not turned into an ow
   assert.strictEqual(fedseal.roomState('own-g1'), null, 'a guest got own seal state');
   assert.deepStrictEqual(lines(h.spawned[0]).filter((f) => f.t === 'key-own-hello'), []);
 });
+
+test('#4658: an own computer accepts a rotation from the board it pinned, and not from any other key', async () => {
+  const { seat } = await ownComputer('own-s4', 'room-s4');
+  const roomKey = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.seal(roomKey, 0, 'room-s4', { from: 'Ada', kind: 'person', text: 'x' }) });
+  await settle();
+  const owner = fedseal.newKeyPair();
+  const me = fedseal.sealingKey();
+  say(seat, { event: 'message', data: fedseal.ownShareFrame(owner, me.pub, MY_MAC, fedseal.compareCode('room-s4', MY_MAC, me.pub), roomKey, 0, 'room-s4') });
+  await settle();
+  const forged = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.rotateFrame(fedseal.newKeyPair(), me.pub, forged, 1, 'room-s4', Date.now()) });
+  await settle();
+  assert.strictEqual(fedseal.roomState('own-s4').epoch, 0, 'a rotation from an unpinned key was taken');
+  const next = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, me.pub, next, 1, 'room-s4', Date.now()) });
+  await settle();
+  const st = fedseal.roomState('own-s4');
+  assert.strictEqual(st.epoch, 1);
+  assert.strictEqual(st.keys[1], next);
+});
