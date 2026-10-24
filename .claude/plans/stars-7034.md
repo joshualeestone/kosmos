@@ -95,6 +95,18 @@ each red on its named check. TodayView.swift is not in the logic build; CI's Sim
 - TodayView now type-checks locally against the iPhoneSimulator 27.0 SDK (all 26 app files); a control copy with a
   type error in TodayView fails that check (tc=1).
 
+## Review 6: no blocking finding; deferred (with the reason)
+- A tab return's re-sort can be lost when the person pulls while that read is in the air and the pull's own read then
+  fails (resortFrom moves past the earlier read). Kept: the window is a fraction of a second, the cost is a stale
+  order, and the person is already pulling, so the next pull fixes it. Widening resortFrom back to the earlier read
+  reopens review 3's case (an older read spending a newer pull's re-sort), which is the worse error.
+- Two reads both wanting a re-sort, the later landing first with its stars read timed out: the stars stay one pull
+  stale. Needs a 4 s stars timeout inside a pull; same cost and same remedy.
+- TodayView's three wiring lines (sortEpoch onChange, pullStarted, pullEnded) are covered by the type-check and CI's
+  build, not by a logic test. A source-text pin would check that the words are present, not what they do, and the
+  view has no test host. The rules themselves are tested in Board.TodayOrder.
+- The order of the two onAppear handlers predates this card (as review 6 noted) and is not changed here.
+
 ## Validation it2 (e0cf46ef): 23,430 pass, 3 fail, all contention
 - cli.refused-retry-6968 (2) and server.attachment-stream-6734 (1), files this diff cannot reach (it touches only
   ios/ and this plan). Run alone through the light lane at the same HEAD: 44 of 44 pass. Load 4.37 during the run.
