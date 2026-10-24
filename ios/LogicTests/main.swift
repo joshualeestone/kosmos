@@ -1377,6 +1377,8 @@ final class FakeBoardWorld {
     var tasksAnswer: (Int, String)? = (200, #"{"tasks":[{"projectId":"p1","projectName":"Catalogue","number":4,"sentence":"Pages 1 to 8","state":"built","builtBy":"dana"}]}"#)
     // #7034: the board's starred agents (GET /api/agent-stars); nil answers nothing, as before the route.
     var starsAnswer: (Int, String)? = nil
+    // Each stars read waits the first count's yields before it answers; empty: none.
+    var starsYields: [Int] = []
     var admitted = 0
     // The Mac cookie each status request carried, as the real session would send it from the jar.
     var presented: [String] = []
@@ -1491,6 +1493,7 @@ func boardLoopTests() async {
                                  env: .init(send: { r in
                                                 if r.httpMethod == "POST" { for _ in 0..<world.postYields { await Task.yield() } }
                                                 else if r.url?.path.hasSuffix("/thread") == true { for _ in 0..<world.threadYields { await Task.yield() } }
+                                                else if r.url?.path == "/api/agent-stars", !world.starsYields.isEmpty { for _ in 0..<world.starsYields.removeFirst() { await Task.yield() } }
                                                 else if r.url?.path.hasPrefix("/api/attachment/") == true { world.attachmentStarted.append(r.url!.path); for _ in 0..<world.attachmentYields { await Task.yield() } }
                                                 return world.send(r)
                                             },
@@ -1538,6 +1541,7 @@ do {
     check(Board.parseStars(Data(#"{"names":["dana"],"ok":false}"#.utf8)) == nil, "an answer the board could not read its list for is no stars")
     check(Board.parseStars(Data(#"{"names":"dana","ok":true}"#.utf8)) == nil && Board.parseStars(Data("not json".utf8)) == nil, "nor is one in another shape")
     check(Board.starsRequest(mac: URL(string: "https://studio.kosmosplus.com/")!).url?.absoluteString == "https://studio.kosmosplus.com/api/agent-stars", "from the board's own route")
+    check(Board.starsRequest(mac: URL(string: "https://studio.kosmosplus.com/")!).timeoutInterval == Board.starsTimeout && Board.starsTimeout < 15, "and gives up sooner than the session's 15 s, since the list waits for it")
     let mac = URL(string: "https://studio.kosmosplus.com/")!
     check(Board.avatarRequest(mac: mac, session: "dana")?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/dana/avatar", "an agent's picture comes from its Mac")
     check(Board.avatarRequest(mac: mac, session: "../x") == nil && Board.avatarRequest(mac: mac, session: "a/b") == nil, "never for a name outside the agent-name characters")
@@ -1560,6 +1564,37 @@ section("native board loop: connecting")
         w.starsAnswer = (200, #"{"names":["dana"],"ok":true}"#)
         await c.refreshNow()
         check(c.agents.map(\.session) == ["dana", "wes"], "a pull reads the stars again")
+        c.stop()
+    }
+    do {
+        // #7034: one Mac's stars never order another's list.
+        let (c, w, _, _) = make("kst1")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"},{"sessionName":"wes","name":"Wes","state":"working"}]}"#)
+        w.starsAnswer = (200, #"{"names":["wes"],"ok":true}"#)
+        c.start()
+        let okA = await settle { isLive(c) }
+        check(okA && c.agents.map(\.session) == ["wes", "dana"], "CONTROL: the first Mac's star orders its list")
+        w.starsAnswer = nil
+        w.macsBody = #"{"macs":[{"name":"Office","address":"office.kosmosplus.com","last_seen":100}]}"#
+        c.retry()
+        let moved = await settle { if case .live(let m) = c.phase { return m.address == "office.kosmosplus.com" }; return false }
+        check(moved && c.agents.map(\.session) == ["dana", "wes"], "another Mac whose stars cannot be read is listed without the first Mac's")
+        c.stop()
+    }
+    do {
+        // #7034: a read that started before the list now shown never puts its older rows back over it.
+        let (c, w, _, _) = make("kst1")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"idle"}]}"#)
+        w.starsAnswer = (200, #"{"names":[],"ok":true}"#)
+        c.start()
+        _ = await settle { isLive(c) }
+        let reads = w.requests.filter { $0.hasSuffix("/api/status") }.count
+        w.statusQueue = [(200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"needs_you"}]}"#)]
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
+        w.starsYields = [2000]
+        await c.refreshNow()
+        check(w.requests.filter { $0.hasSuffix("/api/status") }.count >= reads + 2, "CONTROL: a newer read answered while the pull waited for its stars")
+        check(c.agents.first?.state == "working", "the pull's older rows are not put back over the newer list")
         c.stop()
     }
     do {
