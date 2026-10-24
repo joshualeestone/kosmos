@@ -28,7 +28,8 @@
 #                             when the runner is not running as it should, and 0 both when it is done and when it
 #                             WOULD change something (read the ok line, not the exit code). A dry run also exits 1
 #                             with "refused: ... --apply would refuse" when --apply would refuse NOW (a job running,
-#                             disabled, between Listeners, a loaded KeepAlive true). This repo's runner
+#                             disabled, between Listeners, a loaded KeepAlive true). As any user but $CI_USER it
+#                             reads nothing and exits 3 (a check it could not make). This repo's runner
 #                             only ($CI_HOME/actions-runner); a kosmos-relay runner under the same user is not touched.
 #                             Waits, in seconds: KOSMOS_CI_UNLOAD_WAIT_S (45), KOSMOS_CI_START_WAIT_S (30),
 #                             KOSMOS_CI_STATE_WAIT_S (12)
@@ -246,11 +247,11 @@ label_disabled() {
 loaded_keepalive() {
   local out t; out="$(launchctl print "$1" 2>/dev/null)" || return 1
   printf '%s\n' "$out" | grep -x -E '[[:space:]]*successful exit => 0' >/dev/null || return 1
-  t="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*exit timeout = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
+  t="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]exit timeout = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
   [ -n "$t" ] && [ "$t" -ge 35 ] || return 1
   # ThrottleInterval, loaded: launchd prints it as "minimum runtime = N" (measured on macOS 27, 2026-10-23: 23 in, 23
   # out; 10 when the key is unset), so a stale loaded throttle after a hand edit is seen too.
-  t="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*minimum runtime = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
+  t="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]minimum runtime = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
   [ -n "$t" ] && [ "$t" -ge 10 ]
 }
 # add_keepalive <plist>: written beside it and renamed in, as put does, so a failure leaves the old file whole.
@@ -674,7 +675,7 @@ keepalive() {
   mode_line
   # Another user (the owner, say) cannot read the CI user's launchd domain or its processes' arguments, and usually not
   # its ~/Library: any answer past here would be about the wrong account. Say so, not "register first" or "not logged in".
-  if [ "$(id -un)" != "$CI_USER" ]; then echo "note:   cannot read $CI_USER's runner as $(id -un) (its launchd jobs and processes are its own); run this as $CI_USER"; return 0; fi
+  if [ "$(id -un)" != "$CI_USER" ]; then echo "note:   cannot read $CI_USER's runner as $(id -un) (its launchd jobs and processes are its own); run this as $CI_USER"; exit 3; fi
   local plist label dom; plist="$(runner_plist)"
   if [ -z "$plist" ]; then
     echo "refused: $RUNNER_DIR/.service names no LaunchAgent of this runner (actions.runner.*.plist directly under $CI_HOME/Library/LaunchAgents, WorkingDirectory $RUNNER_DIR); register first" >&2; exit 1
@@ -703,7 +704,7 @@ keepalive() {
   if [ "$loaded" = 1 ] && [ "$in_job" = 0 ]; then
     local pf; pf="$(launchctl print "$dom/$label" 2>/dev/null || true)"
     if ! printf '%s\n' "$pf" | grep -E '^[[:space:]]exit timeout = [0-9]+$' >/dev/null || ! printf '%s\n' "$pf" | grep -E '^[[:space:]]minimum runtime = [0-9]+$' >/dev/null; then
-      echo "refused: launchctl print $dom/$label has no 'exit timeout' or 'minimum runtime' line (the format this check was measured on, macOS 27), so a reload could never be confirmed; nothing was changed" >&2; exit 1
+      echo "refused: launchctl print $dom/$label has no 'exit timeout' or 'minimum runtime' line (the format this check was measured on, macOS 27), so a reload could never be confirmed (--apply would refuse too); nothing was changed" >&2; exit 1
     fi
   fi
   if [ "$in_file" = 1 ] && [ "$in_job" = 1 ]; then
@@ -834,6 +835,10 @@ keepalive() {
     launchctl kill SIGTERM "$dom/$label" \
       || { echo "refused: launchctl kill SIGTERM $dom/$label failed; nothing was stopped, KeepAlive is in the plist, not yet loaded: run this again" >&2; exit 1; }
     sent=1
+    # From here to the bootstrap an interrupt would leave a runner stopped under a definition with no KeepAlive (down
+    # for good), and the waits can add up to minutes, which is when someone presses Ctrl-C: ignore INT and TERM too.
+    trap '' INT TERM
+    echo "note:   the runner is stopping; Ctrl-C is ignored until it is loaded again (this can take a few minutes)" || true
     while kill -0 "$opid" 2>/dev/null && [ "$w4" -lt "$limit" ]; do sleep 1; w4=$((w4 + 1)); done
     # Still alive: it was told to stop, so going on is the lesser harm (refusing now would leave a runner that may yet
     # stop under its OLD definition, with nothing to restart it). Said, so an offline runner afterwards has a reason.
@@ -841,29 +846,6 @@ keepalive() {
       outlived=1
       echo "note:   the old runner (pid $opid) had not ended ${w4}s after SIGTERM; the bootout may cut its GitHub session short, and if it then reads offline (a session conflict), start it again with: launchctl kickstart $dom/$label" || true
     fi
-  fi
-  # launchd restarted it after the SIGTERM (a loaded KeepAlive that restarts a clean stop in some way loaded_always
-  # does not name): the bootout would cut that new Listener while it opens its GitHub session. Refuse.
-  if [ "$sent" = 1 ]; then
-    # Three reads a second apart, not one: right after the exit launchd may not yet show what it will do next.
-    local jo3 npid nst ns=0
-    while [ "$ns" -lt 3 ]; do
-      [ "$ns" = 0 ] || sleep 1
-      ns=$((ns + 1))
-      jo3="$(launchctl print "$dom/$label" 2>/dev/null || true)"
-      npid="$(printf '%s\n' "$jo3" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
-      nst="$(printf '%s\n' "$jo3" | sed -n 's/^[[:space:]]state = //p' | head -n 1 || true)"
-      # It exited non-zero under a loaded KeepAlive and launchd waits out the throttle before the restart: measured on
-      # macOS 27 (2026-10-23, a throwaway job) as "state = spawn scheduled" with no pid line, for the whole throttle.
-      if [ "$nst" = "spawn scheduled" ]; then
-        echo "refused: launchd will restart $label (state = spawn scheduled after the SIGTERM: it exited non-zero under its loaded KeepAlive); nothing was booted out, KeepAlive is in the plist, not yet loaded. Run this again once it is running and idle" >&2
-        trap - INT TERM; exit 1
-      fi
-      if [ -n "$npid" ] && [ "$npid" != "$opid" ]; then
-        echo "refused: launchd restarted $label after the SIGTERM (pid $opid, now $npid: its loaded definition restarts a clean stop); nothing was booted out, KeepAlive is in the plist, not yet loaded. Reload it by hand while idle: launchctl bootout $dom/$label, then launchctl bootstrap $dom $plist" >&2
-        trap - INT TERM; exit 1
-      fi
-    done
   fi
   # The job check again, at the bootout itself, only while the old runner is still alive (it outlived the wait): it may
   # have taken a job in that window. Once it has ended, or never ran, it has no Listener, so a Worker seen now is the
@@ -889,6 +871,30 @@ keepalive() {
       done
       [ "$w5" -lt "$limit" ] || echo "note:   after ${w5}s more the job or the old runner is still up; reloading anyway (left alone, it would stop under its OLD definition and stay down)" || true
     fi
+  fi
+  # After the second wait too: the old runner may have ended in it, non-zero under a loaded KeepAlive.
+  # launchd restarted it after the SIGTERM (a loaded KeepAlive that restarts a clean stop in some way loaded_always
+  # does not name): the bootout would cut that new Listener while it opens its GitHub session. Refuse.
+  if [ "$sent" = 1 ]; then
+    # Three reads a second apart, not one: right after the exit launchd may not yet show what it will do next.
+    local jo3 npid nst ns=0
+    while [ "$ns" -lt 3 ]; do
+      [ "$ns" = 0 ] || sleep 1
+      ns=$((ns + 1))
+      jo3="$(launchctl print "$dom/$label" 2>/dev/null || true)"
+      npid="$(printf '%s\n' "$jo3" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
+      nst="$(printf '%s\n' "$jo3" | sed -n 's/^[[:space:]]state = //p' | head -n 1 || true)"
+      # It exited non-zero under a loaded KeepAlive and launchd waits out the throttle before the restart: measured on
+      # macOS 27 (2026-10-23, a throwaway job) as "state = spawn scheduled" with no pid line, for the whole throttle.
+      if [ "$nst" = "spawn scheduled" ]; then
+        echo "refused: launchd will restart $label (state = spawn scheduled after the SIGTERM: it exited non-zero under its loaded KeepAlive); nothing was booted out, KeepAlive is in the plist, not yet loaded. Run this again once it is running and idle" >&2
+        trap - INT TERM; exit 1
+      fi
+      if [ -n "$npid" ] && [ "$npid" != "$opid" ]; then
+        echo "refused: launchd restarted $label after the SIGTERM (pid $opid, now $npid: its loaded definition restarts a clean stop); nothing was booted out, KeepAlive is in the plist, not yet loaded. Reload it by hand while idle: launchctl bootout $dom/$label, then launchctl bootstrap $dom $plist" >&2
+        trap - INT TERM; exit 1
+      fi
+    done
   fi
   local bo=0; launchctl bootout "$dom/$label" || bo=$?
   # A failed bootout still waits: launchd can report an error while the job is still shutting down (the Listener ends

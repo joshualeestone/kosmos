@@ -437,3 +437,21 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
   (comment already says so); children inherit the HUP/PIPE ignore (harmless, guarded).
 - MEASUREMENT: the comm-column watcher saw NO relay Worker in 60 min, so "Runner.Worker is a direct child of
   Runner.Listener" stays the unmeasured premise (round 25), stated in the PR.
+
+## Review round 31 (opus, blind, HEAD 23602276f5)
+- W1 FIXED, A VACUOUS TEST I WROTE IN ROUND 27: ka-jobends' old-runner stand-in lived through the whole second wait, so
+  the early exit could never be taken and "reloading anyway" was printed while the case passed. The stub now ends the
+  stand-in when this runner's job ends; the case asserts no "reloading anyway"; a mutant removing the early exit is red.
+- W2 FIXED: a Ctrl-C (or TERM) between the SIGTERM and the bootstrap exited 130 and left a runner stopped under a
+  definition without KeepAlive: down for good. Once the SIGTERM is sent, INT and TERM are ignored too (said in a note)
+  until the job is loaded again. Stub FX_INTERRUPT_LATE (SIGINT during the bootout); ka-intlate; mutant red.
+  ka-interrupt (SIGINT during the kill call itself, before it is ignored) still exits 130 with the INTERRUPTED text.
+- NIT1 FIXED: the restart check now runs AFTER the second wait (the old runner may end in it, non-zero, under a loaded
+  KeepAlive), not before.
+- NIT3 FIXED: keepalive as another user exits 3 (a check it could not make), not 0; header says so; ka-other cases updated.
+- NIT5 FIXED: the unmeasured-format refusal says "--apply would refuse too".
+- NIT6 FIXED: loaded_keepalive reads exit timeout / minimum runtime as one-tab lines; the print stub's nested block now
+  holds "exit timeout = 99" and "minimum runtime = 99", so an any-indent read is red.
+- DEFERRED: NIT2 (the first job check stays user-wide: -P rests on the unmeasured parent premise, and a refusal there
+  stops nothing), NIT4 (unreadable plist in a traversable LaunchAgents: unusual mode), NIT7 (cmp in the modified-fixture
+  dry-run cases: the one write site sits after the dry-run return and ka-dry covers it).
