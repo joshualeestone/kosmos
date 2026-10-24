@@ -1060,7 +1060,8 @@ do {
           "a post whose words are only the file names draws no words")
     let web = { (n: String, t: String) in Board.isWebDocument(name: n, type: t) }
     check(web("report.html", "text/plain") && web("report.HTM", "application/octet-stream") && web("pic.svg", "image/png")
-          && web("page", "text/html") && web("feed", "application/xhtml+xml") && web("a.webarchive", "") && web("data.xml", ""),
+          && web("page", "text/html") && web("feed", "application/xhtml+xml") && web("a.webarchive", "") && web("data.xml", "")
+          && web("saved.mht", "") && web("saved.mhtml", "application/octet-stream"),
           "a page or markup document, by its name or its type, whatever type the sender gave")
     check(!web("plan.pdf", "application/pdf") && !web("notes.txt", "text/plain") && !web("photo.png", "image/png") && !web("deck.pptx", "")
           && !web("noext", "application/octet-stream"), "CONTROL: ordinary files are not")
