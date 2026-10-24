@@ -179,8 +179,8 @@ struct RoomView: View {
             // the chat's guard).
             guard opened == client.chatEpoch else { if let file { client.closed(file) }; return }
             fileStates[f.id] = file == nil ? .failed : .ready
-            // A failure is said aloud by the card itself (FileCard's own announcement runs while it is hidden from
-            // VoiceOver), so nothing more is posted here, as in the chat (review 3: it was said twice).
+            // A failure is said aloud by the card itself while it is on screen (FileCard's own announcement runs while it
+            // is hidden from VoiceOver), so nothing more is posted here, as in the chat (review 3: it was said twice).
             guard let file else { return }
             // Left the room while it came: nothing will show it, so it goes now.
             if visible { openedFile = file; previewURL = file } else { client.closed(file) }
@@ -521,8 +521,9 @@ struct RoomBubble: View {
         case .loading: return "Opening \(f.name)"
         case .failed: return "Open \(f.name) again (it could not be opened)"
         default:
-            if fileStates.values.contains(.loading) { return "Open \(f.name) (another file is opening)" }
-            return Board.isWebDocument(name: f.name, type: f.type) ? "Open \(f.name) on your computer's board" : "Open \(f.name)"
+            // A page or markup file opens on the board at once, even while another file loads (openFile checks it first).
+            if Board.isWebDocument(name: f.name, type: f.type) { return "Open \(f.name) on your computer's board" }
+            return fileStates.values.contains(.loading) ? "Open \(f.name) (another file is opening)" : "Open \(f.name)"
         }
     }
 

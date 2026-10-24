@@ -31,9 +31,13 @@ the room suite covers it against the real route's answer, and it is merged.
    files-only post is never an empty VoiceOver element); the source check aimed at the
    drawing; a page or markup file's action says it opens on the board. Stated: the captured page has only the person's
    posts (the parse is the same for an agent's; the agent bubble is the same RoomBubble); one file id shared by two
-   posts shows its opening or failed state on both cards, as in the chat; a post with a card fills the bubble's 78%
+   posts (the board reuses an id when the same file is posted again) shows its opening or failed state on both
+   cards, as in the chat; a post with a card fills the bubble's 78%
    width, as in the chat, unverified by a screenshot.
    Round 3: 0 blockers, 1 warning, 2 nits. Fixed: round 2's extra failure announcement removed (the hidden card
    still announces its own failure, so it was said twice; now as in the chat); each file's action says opening,
    another file opening, failed, or opens on the board; a loose check renamed as the premise it is.
+   Round 4: 0 blockers, 0 warnings, 4 nits (converged). Fixed: a page or markup file's action names the board even
+   while another file loads; the failure comment says "while it is on screen". Stated: Copy copies the stored text,
+   as the board's own copy does.
 3. Validation, PR.
