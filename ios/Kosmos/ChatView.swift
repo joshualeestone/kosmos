@@ -187,7 +187,12 @@ struct ChatView: View {
                         earlierFailedLine
                         Color.clear.frame(height: 1).id("top")
                             .onAppear { topVisible = true; loadEarlier() }
-                            .onDisappear { topVisible = false }
+                            .onDisappear {
+                                topVisible = false
+                                // The top leaving after the first layout proves the jump to the newest message
+                                // happened, even if the end marker was not reached (estimated row heights).
+                                settledAtEnd = true
+                            }
                         if thread.rows.isEmpty && pending.isEmpty { empty }
                         ForEach(items) { item in
                             itemView(item).id(item.id)
@@ -382,15 +387,17 @@ struct ChatView: View {
     // while one loads, never after a failure until Try again. Called when the top appears, after every read, and on
     // Try again (the board's earlierNearTop: on scroll, after a paint, and from its button).
     private func loadEarlier() {
-        guard settledAtEnd, topVisible, let t = thread,
-              Board.shouldLoadEarlier(earlier, olderCount: t.olderCount) else { return }
-        let anchor = Board.shownRows(earlier, thread: t).first?.id
+        guard let t = thread, Board.shouldAsk(settled: settledAtEnd, topVisible: topVisible, earlier: earlier, olderCount: t.olderCount)
+        else { return }
         let start = Board.startLoad(earlier, olderCount: t.olderCount)
         earlier = start
         let opened = epoch
         Task {
             guard let read = await client.olderPage(agent.session, before: start.before), opened == client.chatEpoch,
                   let next = Board.finishLoad(earlier, with: read, opening: start.opening) else { return }
+            // The row kept in place is the one first on screen as the page lands (a read meanwhile may have moved the
+            // latest 200 on), so it is always there to keep (the board's setThread anchor).
+            let anchor = thread.map { Board.shownRows(earlier, thread: $0) }?.first?.id
             earlier = next
             if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }

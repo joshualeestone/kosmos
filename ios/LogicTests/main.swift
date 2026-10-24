@@ -1162,6 +1162,13 @@ do {
           "an answer that belongs to a reset before is dropped")
     check(Board.finishLoad(Board.Earlier(open: true, before: 3, end: 12), with: page1, opening: 0) == nil, "and so is one when no load is in flight")
 
+    // The chat's gate.
+    let closed = Board.Earlier()
+    check(!Board.shouldAsk(settled: false, topVisible: true, earlier: closed, olderCount: 12), "not before the first scroll has settled (the first layout shows the top)")
+    check(!Board.shouldAsk(settled: true, topVisible: false, earlier: closed, olderCount: 12), "not while the top is off screen")
+    check(Board.shouldAsk(settled: true, topVisible: true, earlier: closed, olderCount: 12), "at the top after settling: it asks")
+    check(!Board.shouldAsk(settled: true, topVisible: true, earlier: Board.startLoad(closed, olderCount: 12), olderCount: 12), "never while one is loading")
+
     // The gap: messages that left the latest 200 while the chat was open.
     check(Board.gapPages(end: 12, olderCount: 12) == [] && Board.gapPages(end: 12, olderCount: 15) == [15] && Board.gapPages(end: 12, olderCount: 450) == [450, 250, 50],
           "the pages to fetch, newest first")

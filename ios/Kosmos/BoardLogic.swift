@@ -952,6 +952,12 @@ enum Board {
         return olderCount > 0
     }
 
+    // The chat's gate: only once the first scroll to the newest message has settled (or the chat is too short to
+    // scroll), only with the top on screen, and only when shouldLoadEarlier allows.
+    static func shouldAsk(settled: Bool, topVisible: Bool, earlier: Earlier, olderCount: Int) -> Bool {
+        settled && topVisible && shouldLoadEarlier(earlier, olderCount: olderCount)
+    }
+
     // The state as a load starts (opening it at the read's olderCount the first time).
     static func startLoad(_ e: Earlier, olderCount: Int) -> Earlier {
         var next = e.open ? e : Earlier(open: true, before: olderCount, end: olderCount, moved: e.moved, opening: e.opening + 1)
