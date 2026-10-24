@@ -74,9 +74,11 @@ final class SignInModel: ObservableObject {
     private func take(_ answer: SignIn.Answer, email: String) {
         let (next, session, message) = SignIn.next(after: answer, email: email)
         if case .refused(_, true) = answer { client?.forgetDeviceKey() }   // a new key, allowed once, next time
-        code = ""
-        error = message
+        // The typed code stays when the step does (a wrong code is fixed in place); clearing it would also clear the
+        // error just set, since a keystroke clears it.
+        if next != step { code = "" }
         step = next
+        error = message
         if let session {
             issued = session.token
             if case .allow = next { watchAllow(session.token) }
@@ -129,10 +131,6 @@ struct SignInView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 content
-                if let error = model.error {
-                    Text(error).font(.footnote).foregroundColor(Palette.dangerWord)
-                        .accessibilityLabel("Error: \(error)")
-                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 48)
@@ -153,44 +151,49 @@ struct SignInView: View {
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                 .submitLabel(.send).onSubmit(model.sendCode)
                 .focused($focused).field()
+                .onChange(of: model.email) { _ in model.error = nil }
+            errorLine
             primary("Send code", action: model.sendCode)
-            Button("Sign in with your company or a passkey", action: useWeb).font(.subheadline)
+            link("Sign in with your company or a passkey", action: useWeb)
             footnote("New to Kosmos+? Make your account on your computer.")
         case .code(let email):
             title("Check your email")
-            line("We sent a six-digit code to \(email).")
+            line("We sent a six-digit code to \(SignIn.wrappable(email: email)).")
             codeField(submit: model.verify)
+            errorLine
             primary("Sign in", action: model.verify)
-            Button("Send the code again", action: model.sendCode).font(.subheadline).disabled(model.busy)
-            Button("Use a different email", action: model.differentEmail).font(.subheadline)
+            link("Send the code again", action: model.sendCode).disabled(model.busy)
+            link("Use a different email", action: model.differentEmail)
         case .second(_, let kind, _, let sentTo):
             title("One more step")
             line(SignIn.secondWords(kind: kind, sentTo: sentTo))
             codeField(submit: model.verifySecond)
+            errorLine
             primary("Sign in", action: model.verifySecond)
-            Button("Use a different email", action: model.differentEmail).font(.subheadline)
+            link("Use a different email", action: model.differentEmail)
         case .allow(let matchCode, let hasComputer):
             title(hasComputer ? "Allow this iPhone on your Mac" : "Signed in")
             if hasComputer {
-                line("Your Mac is asking whether to let this iPhone in. Allow it there if it shows this code:")
+                // The one thing to match comes first, at every text size (Mona Lisa's review).
                 if let matchCode {
                     Text(matchCode).font(.system(.largeTitle, design: .monospaced).weight(.semibold))
                         .foregroundColor(Palette.primary).accessibilityLabel("Code \(matchCode.map { String($0) }.joined(separator: " "))")
                 }
+                line("Your Mac is asking whether to let this iPhone in. Allow it there if it shows this code.")
                 HStack(spacing: 8) { ProgressView(); Text("Waiting for your Mac").font(.footnote).foregroundColor(Palette.secondary) }
             } else {
                 line("No computer is connected to this account yet. Set up Kosmos on your Mac, and this iPhone will be asked about there.")
             }
-            Button("Continue to the app", action: model.continueToApp).font(.subheadline)
+            link("Continue to the app", action: model.continueToApp)
         case .denied:
             title("Your Mac said no")
             line("Your Mac did not let this iPhone in. If that was a mistake, sign in again and it will ask again.")
             primary("Sign in again", action: model.differentEmail)
         case .web(let reason):
-            title("Continue on the sign-in page")
+            title(SignIn.webTitle(reason: reason))
             line(reason)
             primary("Continue", action: useWeb)
-            Button("Use a different email", action: model.differentEmail).font(.subheadline)
+            link("Use a different email", action: model.differentEmail)
         case .done:
             HStack(spacing: 8) { ProgressView(); Text("Signed in").font(.footnote).foregroundColor(Palette.secondary) }
         }
@@ -206,10 +209,31 @@ struct SignInView: View {
         Text(text).font(.footnote).foregroundColor(Palette.tertiary).fixedSize(horizontal: false, vertical: true)
     }
     private func codeField(submit: @escaping () -> Void) -> some View {
+        // Mono only for the typed digits; the placeholder is body text (Mona Lisa's review). oneTimeCode offers the code
+        // from Mail or Messages above the keyboard.
         TextField("Six-digit code", text: $model.code)
             .textContentType(.oneTimeCode).keyboardType(.numberPad)
-            .font(.system(.title2, design: .monospaced))
+            .font(model.code.isEmpty ? .body : .system(.title2, design: .monospaced))
             .focused($focused).onSubmit(submit).field()
+            .onChange(of: model.code) { _ in model.error = nil }
+    }
+    /// The error, directly under the field it is about, in the danger colour; VoiceOver reads it when it appears.
+    @ViewBuilder private var errorLine: some View {
+        if let error = model.error {
+            Text(error).font(.footnote).foregroundColor(Palette.dangerWord)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel("Error: \(error)")
+                .id(error)   // a new error is a new line, so it is announced too
+                .onAppear { UIAccessibility.post(notification: .announcement, argument: error) }
+        }
+    }
+    /// A tappable line: the link colour, no underline, leading-aligned, a 44pt row (Mona Lisa's review).
+    private func link(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label).font(.subheadline).foregroundColor(Palette.link).multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
+        .buttonStyle(.plain)
     }
     private func primary(_ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {

@@ -204,14 +204,27 @@ enum SignIn {
         }
     }
 
-    static let webForCompany = "Your company signs you in to Kosmos+ itself, so this continues on the sign-in page."
+    static let webForCompany = "This continues on the Kosmos+ sign-in page, where your company's own sign-in opens."
     static let webForSetup = "Your account needs its second sign-in step set up first. That continues on the sign-in page."
     static let webForKey = "This iPhone could not prove its key to Kosmos+, so this continues on the sign-in page."
     static let webForUnknown = "Kosmos+ answered in a way this app does not know yet, so this continues on the sign-in page."
 
-    /// The second step's line, as the web page words it (secondWords).
+    /// The second step's line, as the web page words it (secondWords). The authenticator shows "Kosmos" (the issuer
+    /// in kosmos-relay totp.rs). A masked number stays whole on one line (non-breaking spaces; Mona Lisa's review).
     static func secondWords(kind: String, sentTo: String?) -> String {
-        kind == "sms" ? "Type the six-digit code we texted to \(sentTo ?? "your phone"). It is good for ten minutes."
+        let to = sentTo.map { $0.replacingOccurrences(of: " ", with: "\u{00A0}") } ?? "your phone"
+        return kind == "sms" ? "Type the six-digit code we texted to \(to). It is good for ten minutes."
             : "Type the six-digit code your authenticator app shows for Kosmos."
+    }
+
+    /// An email address that wraps only after its @ or a dot, never inside a word with an inserted hyphen (an inserted
+    /// hyphen reads as part of the address; Mona Lisa's review). Zero-width spaces give the line those breaks.
+    static func wrappable(email: String) -> String {
+        email.replacingOccurrences(of: "@", with: "@\u{200B}").replacingOccurrences(of: ".", with: ".\u{200B}")
+    }
+
+    /// The hand-over screen's title: a company sign-in names itself; the others say what happens next.
+    static func webTitle(reason: String) -> String {
+        reason == webForCompany ? "Your company signs you in" : "Finish signing in on the next page"
     }
 }
