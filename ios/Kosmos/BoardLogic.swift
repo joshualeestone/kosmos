@@ -545,6 +545,17 @@ enum Board {
         return !names.isEmpty && text.trimmingCharacters(in: .whitespacesAndNewlines) == names.joined(separator: ", ") ? "" : text
     }
 
+    // A file Quick Look would draw as a web page or a markup document, which can load from elsewhere. Judged by its name
+    // as well as its type: the Mac keeps whatever type the sender gave (engine/attachments.js), and Quick Look picks
+    // its viewer by the extension. Such a file is opened on the board, never here.
+    static func isWebDocument(name: String, type: String) -> Bool {
+        let ext = (name as NSString).pathExtension.lowercased()
+        let named = ["html", "htm", "xhtml", "shtml", "svg", "svgz", "xml", "webarchive", "mht", "mhtml"].contains(ext)
+        let types = [UTType(mimeType: type.lowercased()), ext.isEmpty ? nil : UTType(filenameExtension: ext)].compactMap { $0 }
+        let markup = types.contains { $0.conforms(to: .html) || $0.conforms(to: .xml) || $0.conforms(to: .svg) || $0.conforms(to: .webArchive) }
+        return named || markup
+    }
+
     // The picture on the card: only an image or a PDF with a preview from the Mac (pjAttachmentCard).
     static func hasThumbnail(_ a: Attachment) -> Bool { a.preview != nil && (a.kind == "image" || a.kind == "pdf") }
 

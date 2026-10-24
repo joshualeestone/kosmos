@@ -1058,6 +1058,12 @@ do {
     check(Board.sizeText(512) == "512 B" && Board.sizeText(1536) == "2 KB" && Board.sizeText(nil) == "" && Board.sizeText(-1) == "", "pjSize")
     check(Board.wordsShown("a.pdf, b.docx", files: r.attachments) == "" && Board.wordsShown("Here it is", files: r.attachments) == "Here it is",
           "a post whose words are only the file names draws no words")
+    let web = { (n: String, t: String) in Board.isWebDocument(name: n, type: t) }
+    check(web("report.html", "text/plain") && web("report.HTM", "application/octet-stream") && web("pic.svg", "image/png")
+          && web("page", "text/html") && web("feed", "application/xhtml+xml") && web("a.webarchive", "") && web("data.xml", ""),
+          "a page or markup document, by its name or its type, whatever type the sender gave")
+    check(!web("plan.pdf", "application/pdf") && !web("notes.txt", "text/plain") && !web("photo.png", "image/png") && !web("deck.pptx", "")
+          && !web("noext", "application/octet-stream"), "CONTROL: ordinary files are not")
     check(Board.fileSymbol(r.attachments[0]) == "doc.richtext" && Board.fileSymbol(r.attachments[1]) == "doc", "the symbol for a file with no picture")
     check(Board.savedName("../etc/passwd") == "-etc-passwd" && Board.savedName(".hidden") == "hidden" && Board.savedName("  ") == "file"
           && Board.savedName("a:b.pdf") == "a-b.pdf", "a saved name is never a path, never hidden, never empty")
@@ -1605,6 +1611,12 @@ section("native board loop: connecting")
         let html = Board.Attachment(id: "444444444444444444444444", name: "page.html", type: "text/html", size: 1, kind: "other", url: "/api/attachment/444444444444444444444444", preview: nil)
         let htmlFile = await c.fetchFile(html)
         check(htmlFile == nil, "a web page is never opened here, even one the agent sent as HTML")
+        let disguised = Board.Attachment(id: "8888888888888888888888aa", name: "report.html", type: "text/plain", size: 1, kind: "text",
+                                         url: "/api/attachment/8888888888888888888888aa", preview: nil)
+        let asksBefore = w.attachmentAsks.count
+        w.attachmentAnswer = (200, "text/plain", Data("<html>".utf8))
+        let disguisedFile = await c.fetchFile(disguised)
+        check(disguisedFile == nil && w.attachmentAsks.count == asksBefore, "a page sent under another type is not even fetched")
         // Quick Look closed: that file goes, and only its own folder.
         w.attachmentAnswer = (200, "application/pdf", Data("%PDF-1.4 sample".utf8))
         let opened = await c.fetchFile(pdf)!
