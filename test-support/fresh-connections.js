@@ -21,6 +21,8 @@
  * already passes agent: false), and child processes a test starts are not touched.
  * The trade: product code a test runs in-process also gets a fresh connection per fetch, where production
  * pools, so the suite no longer covers how in-process fetch callers handle a reused keep-alive socket.
+ * Under NODE_USE_ENV_PROXY Node's fetch keeps its own proxy-aware agent and this has no effect (measured; the
+ * 6059 test goes red). Nothing in the repo or CI sets it.
  */
 
 const KEY = Symbol.for('undici.globalDispatcher.2');

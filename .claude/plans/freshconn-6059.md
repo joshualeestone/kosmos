@@ -58,3 +58,12 @@ That `Symbol.for('undici.globalDispatcher.2')` stays where Node keeps fetch's ag
   name required (asked for, installs nothing) 2 FAIL, so a broken preload still goes red rather than skipping.
 - Documented in the preload's header: in-process fetch callers no longer have their keep-alive reuse covered.
 - TIME_WAIT: still reasoned only (see round 1); the reviewer could not measure it either.
+
+## Review round 4 (converged: 0 blockers, 0 majors)
+- Documented in the preload's header: under NODE_USE_ENV_PROXY fetch keeps its own agent and the preload has no
+  effect (the 6059 test goes red, so it is not silent). Nothing in the repo or CI sets it.
+- Declined: also running the in-process checks when KOSMOS_TEST_RUN is set. That is round 3's false red (a process
+  with the marker and no preload) back again. What it would add, a suite-only red the bare rerun dismisses, is
+  covered by the spawned check, which runs in the rerun too and goes red on the likely cause (a Node change).
+- Not actionable: the older undici.globalDispatcher.1 slot is read only by an installed undici package, and the
+  repo has none.
