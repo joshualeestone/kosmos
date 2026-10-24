@@ -95,6 +95,13 @@ jobs:
           ios/LogicTests/run-room.sh | tee "$RUNNER_TEMP/room.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/room.log"
 
+      # kosmos#7031: the Tasks tab's logic, its own suite like Settings'.
+      - name: Tasks logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-tasks.sh | tee "$RUNNER_TEMP/tasks.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/tasks.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

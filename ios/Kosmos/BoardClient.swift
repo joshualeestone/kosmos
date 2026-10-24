@@ -124,6 +124,19 @@ final class BoardClient: ObservableObject {
             let iso = { (minutes: Double) in ISO8601DateFormatter().string(from: Date().addingTimeInterval(-minutes * 60)) }
             let tasks = #"{"tasks":[{"projectId":"p-cat","projectName":"Spring catalogue","number":4,"sentence":"Pages 1 to 8","state":"built","builtAt":""# + iso(20) + #"","builtBy":"dana","builtNote":"Ready for a look. The captions on page 6 are placeholders."},{"projectId":"p-site","projectName":"Website","number":11,"sentence":"Shipping page copy","state":"built","builtAt":""# + iso(95) + #"","builtByPerson":true}]}"#
             readyTasks = Board.readyTasks(Data(tasks.utf8))
+            // kosmos#7031: the Tasks tab's samples, one or more in every group, through the real parser.
+            let all = #"{"rosterUnreadable":false,"tasks":["# + [
+                #"{"projectId":"p-cat","projectName":"Spring catalogue","number":7,"sentence":"Choose the cover photo","state":"decision","waitingOn":[{"who":"cleo","reason":"question"}],"waitingSince":""# + iso(3) + #"","createdAt":""# + iso(40) + #""}"#,
+                #"{"projectId":"p-cat","projectName":"Spring catalogue","number":8,"sentence":"Pages 9 to 12","state":"working","whoNames":["dana"],"createdAt":""# + iso(30) + #""}"#,
+                #"{"projectId":"p-mkt","projectName":"Market study","number":2,"sentence":"Summarise the three competitor price lists","state":"assigned","whoNames":["eli"],"createdAt":""# + iso(300) + #""}"#,
+                #"{"projectId":"p-print","projectName":"Print run","projectPath":["Spring catalogue"],"number":1,"sentence":"Get two quotes from printers","state":"nobody","createdAt":""# + iso(600) + #""}"#,
+                #"{"projectId":"p-cat","projectName":"Spring catalogue","number":4,"sentence":"Pages 1 to 8","state":"built","builtAt":""# + iso(20) + #"","builtBy":"dana","builtNote":"Ready for a look. The captions on page 6 are placeholders.","createdAt":""# + iso(900) + #""}"#,
+                #"{"projectId":"p-site","projectName":"Website","number":12,"sentence":"Check the shop for broken links","state":"scheduled","repeat":{"every":"week"},"repeatWords":"every Monday at 9am","repeatNextWords":"Monday at 9am","lastRunAt":""# + iso(4000) + #"","lastRunBy":"farah","lastRunNote":"none found","createdAt":""# + iso(20000) + #""}"#,
+                #"{"projectId":"p-site","projectName":"Website","number":9,"sentence":"New photos for the about page","state":"held","createdAt":""# + iso(30000) + #""}"#,
+                #"{"projectId":"p-site","projectName":"Website","number":11,"sentence":"Shipping page copy","state":"closed","createdAt":""# + iso(40000) + #""}"#,
+                #"{"projectId":"p-cat","projectName":"Spring catalogue","number":2,"sentence":"Collect last year's sales figures","state":"closed","createdAt":""# + iso(50000) + #""}"#,
+            ].joined(separator: ",") + "]}"
+            tasksList = Board.parseTasks(Data(all.utf8))
             let sample = #"{"counts":{"waiting":4},"agents":[{"sessionName":"cleo","name":"Cleo","role":"Project manager","state":"needs_you","stateReportedBy":"agent","cardWord":"Question","cardTone":"asked","needsReason":"question","stateProjectName":"Spring catalogue","waitingSince":""# + iso(3) + #""},{"sessionName":"dana","name":"Dana","role":"Writer","state":"working","task":"Pages 9 to 12","cardWord":"Working","cardTone":"working"},{"sessionName":"eli","name":"Eli","role":"Researcher","state":"needs_you","awaitingApproval":true,"cardWord":"Needs permission","cardTone":"needs_you","needsReason":"permission","stateProjectName":"Market study","waitingSince":""# + iso(12) + #""},{"sessionName":"farah","name":"Farah","role":"Bookkeeper","state":"idle","cardWord":"Idle","cardTone":"quiet"},{"sessionName":"hana","name":"Hana","role":"Support","state":"auth_failed","stuckError":{"stuck":true,"state":"auth_failed"},"cardWord":"Sign-in Issue","cardTone":"needs_you","needsReason":"stuck_auth"},{"sessionName":"ivy","name":"Ivy","role":"Editor","state":"restarting","cardWord":"Switching to Opus","cardTone":"quiet"},{"sessionName":"gus","name":"Gus","role":"Social media","state":"stopped","running":false,"cardWord":"Not running","cardTone":"needs_you","needsReason":"other"}]}"#
             agents = Board.sorted(Board.parseAgents(Data(sample.utf8)) ?? [])
             waitingCount = Board.waitingCount(Data(sample.utf8))
@@ -232,14 +245,19 @@ final class BoardClient: ObservableObject {
     static let todayViewer = "today"
     // kosmos#7032: the Projects tab and a room keep the connection (and the agents' names and pictures) going too.
     static let projectsViewer = "projects"
+    static let tasksViewer = "tasks"   // kosmos#7031: the native Tasks tab reads the same list, every state
     private var viewers: Set<String> = []
+    private var readsTasks: Bool { viewers.contains(Self.todayViewer) || viewers.contains(Self.tasksViewer) }
     func show(_ viewer: String) {
         let first = viewers.isEmpty
         viewers.insert(viewer)
         // Review 2: tasks last read longer ago than a tick are not shown as current when Today arrives (Agents can have
         // kept the loop going for a long time without reading them); unknown until the read now answers.
-        if viewer == Self.todayViewer, let at = tasksAt, env.now().timeIntervalSince(at) >= Self.tasksEvery { readyTasks = nil; tasksFailed = false }
-        if first { start() } else if viewer == Self.todayViewer, case .live = phase, tasksTask == nil {
+        let tasksTab = viewer == Self.todayViewer || viewer == Self.tasksViewer
+        if tasksTab, let at = tasksAt, env.now().timeIntervalSince(at) >= Self.tasksEvery {
+            readyTasks = nil; tasksFailed = false; tasksList = nil; tasksListFailed = false
+        }
+        if first { start() } else if tasksTab, case .live = phase, tasksTask == nil {
             // Today arriving while Agents keeps the loop going: its tasks are read now, not at the next tick.
             startTasksRead()
         }
@@ -258,6 +276,10 @@ final class BoardClient: ObservableObject {
     // answer with tasks, which Today says in place of the section, never as zero.
     @Published private(set) var readyTasks: [Board.ReadyTask]?
     @Published private(set) var tasksFailed = false
+    // kosmos#7031: the same read, every state, for the Tasks tab. An answer whose agents could not be read is still a
+    // read here (Needs Your Decision says it cannot tell); tasksListFailed only when no list came back.
+    @Published private(set) var tasksList: Board.TasksRead?
+    @Published private(set) var tasksListFailed = false
     private var tasksAt: Date?
     private var tasksTask: Task<Void, Never>?
     static let tasksEvery: TimeInterval = 30
@@ -283,6 +305,8 @@ final class BoardClient: ObservableObject {
         projectsUnread = nil
         readyTasks = nil
         tasksFailed = false
+        tasksList = nil
+        tasksListFailed = false
         tasksAt = nil
     }
 
@@ -292,29 +316,38 @@ final class BoardClient: ObservableObject {
         let result = await env.send(Board.readyTasksRequest(mac: held.url))
         guard gen == generation, !Task.isCancelled else { return }
         tasksAt = env.now()
-        if let answer = result?.1, (200...299).contains(answer.statusCode), let data = result?.0, let ready = Board.readyTasks(data) {
+        let ok = (result?.1).map { (200...299).contains($0.statusCode) } ?? false
+        if ok, let data = result?.0, let ready = Board.readyTasks(data) {
             readyTasks = ready
             tasksFailed = false
         } else {
             tasksFailed = true
             readyTasks = nil   // review 1: an old list is never shown as current after a failed read
         }
+        if ok, let data = result?.0, let list = Board.parseTasks(data) {
+            tasksList = list
+            tasksListFailed = false
+        } else {
+            tasksListFailed = true
+            tasksList = nil
+        }
     }
 
     // The task's page in the board (?project=&task=, read at boot by web/index.html), on the Mac the list came from.
-    func taskURL(for task: Board.ReadyTask) -> URL? {
-        guard let mac = shownMac, let base = Board.macURL(address: mac.address, coordinator: coordinator),
-              var parts = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return nil }
-        parts.path = "/"
-        parts.queryItems = [URLQueryItem(name: "project", value: task.projectId), URLQueryItem(name: "task", value: String(task.number))]
-        return parts.url
+    func taskURL(for task: Board.ReadyTask) -> URL? { taskURL(project: task.projectId, number: task.number) }
+    func taskURL(for task: Board.TaskRow) -> URL? { taskURL(project: task.projectId, number: task.number) }   // kosmos#7031
+    private func taskURL(project: String, number: Int) -> URL? {
+        guard let mac = shownMac, let base = Board.macURL(address: mac.address, coordinator: coordinator) else { return nil }
+        return Tasks.taskPageURL(board: base, project: project, number: number)
     }
 
     // The tapped agent's chat under Today (the same link a notification tap opens); also from a list shown as not
     // updating, which still names the Mac it came from.
-    func chatURL(for agent: Board.Agent) -> URL? {
+    func chatURL(for agent: Board.Agent) -> URL? { chatURL(session: agent.session) }
+    // kosmos#7031: by session, for a task row whose agent the roster does not list yet.
+    func chatURL(session: String) -> URL? {
         guard let mac = shownMac else { return nil }
-        return PushBridge.boardURL(fromNotification: ["address": mac.address, "session": agent.session], coordinator: coordinator)
+        return PushBridge.boardURL(fromNotification: ["address": mac.address, "session": session], coordinator: coordinator)
     }
 
     // MARK: - One agent's conversation (kosmos#7008)
@@ -956,7 +989,7 @@ final class BoardClient: ObservableObject {
             }
             // kosmos#7030: the tasks Today shows, read only while Today is on screen, at most every 30 s (the board's Tasks
             // view read is not cheap); pull to refresh reads them at once.
-            if viewers.contains(Self.todayViewer), tasksTask == nil, tasksAt.map({ env.now().timeIntervalSince($0) >= Self.tasksEvery }) ?? true {
+            if readsTasks, tasksTask == nil, tasksAt.map({ env.now().timeIntervalSince($0) >= Self.tasksEvery }) ?? true {
                 startTasksRead()
             }
             return true

@@ -269,14 +269,17 @@ enum AppTabs {
     // The tabs the app draws itself. Pressing one ends any press still waiting, and a lock never replays one.
     // kosmos#7030: Today too. A page the app sends under Today (ContentView todayBoard) is loaded by the app itself, so
     // a press on Today never drives the board: it brings back the native screen.
-    // kosmos#7032: Projects too (the native list and a project's room).
-    static func isNative(_ tab: Tab) -> Bool { tab == .agents || tab == .settings || tab == .today || tab == .projects }
+    // kosmos#7032: Projects too (the native list and a project's room). kosmos#7031: Tasks too.
+    static func isNative(_ tab: Tab) -> Bool {
+        tab == .agents || tab == .settings || tab == .today || tab == .projects || tab == .tasks
+    }
 
     // kosmos#7032: with Projects native, the board's own project pages (a room's info button, a link into a project) and
     // a Tasks section the bar does not offer show under Today, as the board's Settings does: lighting Projects would put
-    // the native list over the very page the person was sent to.
+    // the native list over the very page the person was sent to. kosmos#7031: with Tasks native as well, the board's own
+    // Tasks section (a project's View all, a board link) shows under Today too, whether or not the bar offers Tasks.
     static func barTab(forPage section: Tab, tasksTab: Bool) -> Tab {
-        if section == .settings || section == .projects { return .today }
+        if section == .settings || section == .projects || section == .tasks { return .today }
         return visible(tasksTab: tasksTab).contains(section) ? section : .today
     }
 
@@ -332,8 +335,9 @@ enum AppTabs {
     // decides), never from Agents, the native tab, which shows no page, and never on the sign-in page. It never
     // presses: the page stays where the person took it.
     static func follow(from previous: URL?, to pageURL: URL?, selected: Tab, barHeld: Bool, tasksTab: Bool) -> Tab? {
-        // A native tab (Agents, Settings #7010, Projects #7032) is not moved by the hidden page.
-        guard !barHeld, selected != .agents, selected != .settings, selected != .projects, let pageURL = pageURL, pageURL.host != signInHost else { return nil }
+        // A native tab (Agents, Settings #7010, Projects #7032, Tasks #7031) is not moved by the hidden page.
+        guard !barHeld, selected != .agents, selected != .settings, selected != .projects, selected != .tasks,
+              let pageURL = pageURL, pageURL.host != signInHost else { return nil }
         let now = tab(forBoardURL: pageURL)
         if let previous = previous, previous.host == pageURL.host, tab(forBoardURL: previous) == now { return nil }
         let next = barTab(forPage: now, tasksTab: tasksTab)
