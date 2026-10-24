@@ -126,7 +126,9 @@ test('#4658: a tampered own-share, a renamed computer field or a guest frame ope
   assert.strictEqual(seal.openOwnShare(waiting, MAC, Object.assign({}, frame, { epoch: 3 }), ROOM), null, 'epoch');
   assert.strictEqual(seal.openOwnShare(waiting, MAC, Object.assign({}, frame, { owner: seal.newKeyPair().pub }), ROOM), null, 'owner key');
   assert.strictEqual(seal.openOwnShare(waiting, 'mac-2', Object.assign({}, frame, { mac: 'mac-2' }), ROOM), null, 'computer id');
-  // A guest's key-share or a rotation, sealed between the same two keys, is a different purpose.
+  // A rotation sealed between the same two keys does not open as an own-share. The associated data
+  // (frame type, room, computer, epoch) is what keeps them apart; the 'own-share' HKDF purpose is a
+  // second wall that no test here isolates (a mutant using 'rotate' stays green).
   const rot = seal.rotateFrame(owner, waiting.pub, seal.randomSecret(), 1, ROOM, 0);
   assert.strictEqual(seal.openOwnShare(waiting, MAC, Object.assign({}, rot, { t: 'own-share', mac: MAC, owner: frame.owner }), ROOM), null, 'a rotate relabelled');
   for (const junk of [null, undefined, 7, 'x', {}, { t: 'own-share' }, Object.assign({}, frame, { nonce: 5 }), Object.assign({}, frame, { v: 2 })]) {
@@ -134,7 +136,7 @@ test('#4658: a tampered own-share, a renamed computer field or a guest frame ope
   }
 });
 
-test('#4658: an own-share key does not open as a rotate from the same board (purposes stay apart)', () => {
+test('#4658: an own-share does not open as a rotate from the same board (the associated data differs)', () => {
   const { owner, waiting, frame } = ownShare();
   assert.strictEqual(seal.openRotate(waiting, owner.pub, Object.assign({}, frame, { t: 'key-rotate', epoch: 2 }), ROOM), null);
 });
