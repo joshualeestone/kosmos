@@ -14,6 +14,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { scaleBudget } = require('./test-support/eventually');
 
 const ROOT = __dirname;
 const PRELOAD = path.join(ROOT, 'test-support', 'fresh-connections.js');
@@ -23,6 +24,12 @@ const PRELOAD = path.join(ROOT, 'test-support', 'fresh-connections.js');
 // without the fix, which made an earlier version of these checks pass without the preload.
 const N = 5;
 const tick = () => new Promise((r) => setImmediate(r));
+
+// The two checks of THIS process need the preload, which only tools/run-tests.sh gives (it sets KOSMOS_TEST_RUN).
+// A bare `node --test <file>` (a developer, or the cut's isolation rerun in tools/lib/cut-rerun-guard.sh) skips
+// them rather than failing every time, so a contention red in this file can still be dismissed. The spawned check
+// below covers the preload either way.
+const SUITE = process.env.KOSMOS_TEST_RUN ? {} : { skip: 'needs the preload from tools/run-tests.sh (KOSMOS_TEST_RUN is not set)' };
 
 // N requests against a server that counts connections; prints the count.
 const PROBE = `
@@ -40,7 +47,7 @@ srv.listen(0, '127.0.0.1', async () => {
 });`;
 
 function connections(args) {
-  const r = spawnSync(process.execPath, [...args, '-e', PROBE], { encoding: 'utf8', timeout: 30000 });
+  const r = spawnSync(process.execPath, [...args, '-e', PROBE], { encoding: 'utf8', timeout: scaleBudget(30000) });
   assert.equal(r.status, 0, 'the probe ran: ' + r.stderr);
   return Number(r.stdout);
 }
@@ -52,7 +59,7 @@ test('#6059: the suite preloads fresh-connections.js on its node --test line', (
   assert.match(line, /--require "\$REPO\/test-support\/fresh-connections\.js"/);
 });
 
-test('#6059: this process has it (run through tools/run-tests.sh)', () => {
+test('#6059: this process has it (run through tools/run-tests.sh)', SUITE, () => {
   assert.equal(globalThis.__kosmosFreshConnections, true,
     'fresh-connections.js did not install here: run this file through tools/run-tests.sh, or Node moved its fetch agent (see the stderr line)');
 });
@@ -63,7 +70,7 @@ test('#6059: with the preload every request has its own connection; without it t
   assert.equal(connections(['--require', PRELOAD]), N, 'with the preload, ' + N + ' requests open ' + N + ' connections');
 });
 
-test('#6059: in this very process, every request opens its own connection', async () => {
+test('#6059: in this very process, every request opens its own connection', SUITE, async () => {
   let n = 0;
   const srv = http.createServer((q, r) => r.end('ok')).on('connection', () => { n += 1; });
   await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));

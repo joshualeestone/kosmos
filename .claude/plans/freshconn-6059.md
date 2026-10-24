@@ -6,8 +6,8 @@ in server.agent-files-3614 and server.projects, files it did not change. 239 of 
 
 ## Finished looks like
 Every node test process started by tools/run-tests.sh uses a global fetch that opens a new connection per request,
-so no test can be handed a pooled socket the server or the runner has closed. A test proves it: three requests open
-three connections with the preload, and the same three share a connection without it (the control). The suite line
+so no test can be handed a pooled socket the server or the runner has closed. A test proves it: five requests, a tick
+apart, open five connections with the preload, and the same five share a connection without it (the control). The suite line
 carries the preload, and that is pinned.
 
 ## Change
@@ -43,3 +43,10 @@ That `Symbol.for('undici.globalDispatcher.2')` stays where Node keeps fetch's ag
 - macOS TIME_WAIT leak: REASONED, not measured. With the preload undici sends `Connection: close`, so the server
   closes first and holds the TIME_WAIT on its listening port, not on a port from the client's pool. netstat on this
   Mac shows zero sockets of any state (control: zero ESTABLISHED with 16 agents running), so it cannot measure it.
+
+## Review round 2
+- Fixed: the two in-process checks always failed under a bare `node --test <file>`, which is how the cut's isolation
+  rerun (tools/lib/cut-rerun-guard.sh) re-runs a red file, so a contention red here could never be dismissed. They
+  now skip unless KOSMOS_TEST_RUN is set (run-tests.sh always sets it). Measured three ways: suite shape 4 pass;
+  marker without the preload 2 fail; bare 2 pass, 2 skipped.
+- Fixed: the probe's spawn timeout goes through scaleBudget like the suite's other budgets.
