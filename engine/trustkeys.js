@@ -30,6 +30,46 @@ const pinSpelling = (spki) => {
   return raw ? raw.toString('base64url') : null;
 };
 
+/* The top-level member names of a JSON object's text, in order (called only on text JSON.parse accepted). */
+function topNames(text) {
+  const names = [];
+  let i = text.indexOf('{') + 1;
+  const ws = () => { while (' \t\n\r'.includes(text[i]) && i < text.length) i += 1; };
+  const str = () => { const s = i; i += 1; while (i < text.length && text[i] !== '"') i += text[i] === '\\' ? 2 : 1; i += 1; return JSON.parse(text.slice(s, i)); };
+  for (ws(); i < text.length && text[i] !== '}';) {
+    names.push(str());
+    ws(); i += 1; ws();   // the colon
+    for (let depth = 0; i < text.length;) {
+      const c = text[i];
+      if (c === '"') { str(); continue; }
+      if (depth === 0 && (c === ',' || c === '}')) break;
+      if (c === '{' || c === '[') depth += 1;
+      if (c === '}' || c === ']') depth -= 1;
+      i += 1;
+    }
+    if (text[i] === ',') { i += 1; ws(); }
+  }
+  return names;
+}
+
+/* service-keys.json as the tunnel's serde reads StoredKeySet: an object with `document` and `signature` text (any
+   other member ignored, a top-level name twice refused), or the two as a list of exactly two strings. null otherwise. */
+function readStored(text) {
+  let v;
+  try { v = JSON.parse(text); } catch { return null; }
+  let document; let signature;
+  if (Array.isArray(v)) {
+    if (v.length !== 2) return null;
+    [document, signature] = v;
+  } else if (v && typeof v === 'object') {
+    const names = topNames(text);
+    if (new Set(names).size !== names.length) return null;
+    ({ document, signature } = v);
+  } else return null;
+  if (typeof document !== 'string' || typeof signature !== 'string') return null;
+  return { document, signature };
+}
+
 /**
  * The keys a token from the coordinator may be signed by: { keys: [<pin spelling>, ...], fault: null } or, when the
  * store is there and cannot be used, { keys: [], fault: 'unreadable' | 'unusable', why }. `pinned` is the pin's text
@@ -40,6 +80,10 @@ function trustedKeys(stateDir, pinned, opts = {}) {
   const pin = pinned == null ? [] : [String(pinned)];
   // Off: as the tunnel with no root, nothing is read.
   if (Array.isArray(recoveryKeys) && recoveryKeys.length === 0) return { keys: pin, fault: null };
+  // As the tunnel (proxy.rs trusted_keys over trust::roots): one root that does not decode trusts no key at all.
+  if (!Array.isArray(recoveryKeys) || !recoveryKeys.every((k) => servicekeys.rawKey(k))) {
+    return { keys: [], fault: 'unusable', why: 'a recovery key built into this Kosmos does not decode' };
+  }
   const file = path.join(stateDir, STORE_FILE);
   let bytes;
   try {
@@ -52,17 +96,12 @@ function trustedKeys(stateDir, pinned, opts = {}) {
   const unusable = (why) => ({ keys: [], fault: 'unusable', why: 'the service key set this computer holds ' + why });
   let text;
   try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { return unusable('is not text'); }
-  let stored;
-  try { stored = JSON.parse(text); } catch { return unusable('does not parse'); }
-  // serde reads it as a struct: two members of one name, or a field that is not text, is refused there too.
-  try { servicekeys.scan(text); } catch (e) { return unusable(e.message); }
-  if (!stored || typeof stored !== 'object' || Array.isArray(stored) || typeof stored.document !== 'string' || typeof stored.signature !== 'string') {
-    return unusable('does not parse');
-  }
+  const stored = readStored(text);
+  if (!stored) return unusable('does not parse');
   const v = servicekeys.verifyServiceKeySet({ bytes: stored.document, sig: stored.signature, recoveryKeys, held: null });
   if (!v.ok) return unusable('no longer verifies: ' + v.why);
   const keys = v.keys.map((k) => pinSpelling(k.pub)).filter(Boolean);
   return { keys, fault: null };
 }
 
-module.exports = { trustedKeys, KEEP, STORE_FILE, FLOOR_FILE, LOCK_FILE };
+module.exports = { trustedKeys, readStored, KEEP, STORE_FILE, FLOOR_FILE, LOCK_FILE };
