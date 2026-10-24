@@ -105,6 +105,9 @@ const USAGE = {
   task: [
     'Usage: kosmos task <list|add|assign|close|reopen|message|activity|built|done-when|hold|unhold|repeat|ran|told>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
+    '  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each',
+    '  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first',
+    '  kosmos task list <project-id> --stale [<days>]               the same for one project',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
     '      --who <agent>                                            give it to that agent (--who me: to you)',
@@ -923,9 +926,54 @@ async function roomReopen(ctx, args) {
   return 1;
 }
 
+/* kosmos#7057, as install/kosmos: --stale's days are empty (7) or a whole number 1 to 3650. Returns the number, or null. */
+const STALE_DAYS_WORDS = '--stale takes a whole number of days, 1 to 3650 (or none, for 7).';
+function staleDays(v) {
+  if (v === undefined || v === '') return 7;
+  if (!/^[0-9]{1,4}$/.test(v)) return null;
+  const n = Number(v);
+  return n >= 1 && n <= 3650 ? n : null;
+}
+/* kosmos#7057, as install/kosmos: `--all [--open|--blocked|--built|--stale [<days>]]` (every project; on an agent's own
+   token, the projects it is on) and `<project> --stale [<days>]`, printed by engine/tasklist.js acrossLines. */
+async function taskListAcross(ctx, args) {
+  let project = '';
+  let flag = 'open';
+  let days;
+  if (args[0] === '--all') {
+    const f = args[1];
+    if (f === undefined || f === '--open' || f === '--blocked' || f === '--built') {
+      if (args.length > 2) { ctx.err(f + ' takes nothing after it: kosmos task list --all ' + f); return 2; }
+      if (f) flag = f.slice(2);
+    } else if (f === '--stale') {
+      days = staleDays(args[2]);
+      if (days === null) { ctx.err(STALE_DAYS_WORDS); return 2; }
+      if (args.length > 3) { ctx.err('--stale takes one number of days at most: kosmos task list --all --stale [<days>]'); return 2; }
+      flag = 'stale';
+    } else { ctx.err('After --all: nothing (open tasks), --blocked, --built, or --stale [<days>].'); return 2; }
+  } else {
+    project = args[0];
+    days = staleDays(args[2]);
+    if (days === null) { ctx.err(STALE_DAYS_WORDS); return 2; }
+    if (args.length > 3) { ctx.err('--stale takes one number of days at most: kosmos task list <project-id> --stale [<days>]'); return 2; }
+    flag = 'stale';
+  }
+  let tasklist;
+  try { tasklist = require(path.join(engineDir(), 'tasklist.js')); } catch { tasklist = null; }
+  if (!tasklist || typeof tasklist.acrossLines !== 'function') { ctx.err('This install of Kosmos cannot list tasks that way yet; update Kosmos.'); return 1; }
+  const only = flag === 'stale' ? 'state=open&quietDays=' + days : 'state=' + tasklist.COMPACT[flag];
+  const r = await ctx.call('GET', '/api/tasks?' + (project ? 'project=' + projectSlug(project) : 'all=1') + '&order=state&' + only);
+  if (!r.reached) return ctx.unreachable('list tasks');
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
+  const shown = tasklist.acrossLines(r.json, flag, { project, days });
+  for (const line of shown.lines) (shown.rc ? ctx.err : ctx.out)(line);
+  return shown.rc;
+}
+
 async function taskList(ctx, args) {
   const project = args[0];
-  if (!project) { ctx.err('Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built]'); return 2; }
+  if (!project) { ctx.err('Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built | --stale [<days>]]   (or --all)'); return 2; }
+  if (project === '--all' || args[1] === '--stale') return taskListAcross(ctx, args);
   /* #5705, as install/kosmos: grouped (open, built, on hold, done); --state keeps one group, checked here. */
   let only = '';
   if (args[1] === '--state') {
