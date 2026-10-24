@@ -1,8 +1,8 @@
 ---
 method: challenge-loop
 branch: acceptscreen-6596
-diff_hash: 65fb0e9acb94350eb01173a324305b1004082c2aded6df6361f78f166ba8ef96
-timestamp: 2026-10-24T21:22:10Z
+diff_hash: 2c7fe07dbb696c0d4e90d3ae0f5575fa4a2766f16cb05a52f8e54b45ac5eca9e
+timestamp: 2026-10-24T21:55:23Z
 iterations: 2
 converged: true
 ---
@@ -26,3 +26,5 @@ that fails clearly), the rest recorded with reasons in the plan.
 ### Final Ledger
 - Converged at iteration 2; design approved.
 - Validation at a52728dc86: 23,825 tests, 0 fail. Browser checks: sign-in 206/0, company 22/0; both gates green.
+- After CI: render-fields skips the panel's secondary button off its real ground (a control reproduces the failure
+  without the entry); a check-only change, so the validation above stands for the product code.
