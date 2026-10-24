@@ -727,6 +727,12 @@ keepalive() {
   if [ -z "$opid" ] && [ -n "$before" ]; then
     echo "refused: launchctl print shows no pid for $label, though a Listener of $RUNNER_DIR runs (started another way, by hand or orphaned, or launchd's print format changed); nothing was stopped, KeepAlive is in the plist, not yet loaded" >&2; exit 1
   fi
+  # The service runs but no Listener of this runner does: it is between Listeners (RunnerService.js relaunches one 5 s
+  # after an exit, and a self-update moves bin/ while none runs). A SIGTERM now could end the updater half way and leave
+  # the install without bin/: refuse.
+  if [ -n "$opid" ] && [ -z "$before" ]; then
+    echo "refused: $label runs but no Listener of $RUNNER_DIR does (restarting or self-updating); nothing was stopped, KeepAlive is in the plist, not yet loaded: run this again in a minute" >&2; exit 1
+  fi
   [ -n "$opid" ] || echo "note:   $label has no process, so no SIGTERM first" || true
   if [ -n "$opid" ]; then
     launchctl kill SIGTERM "$dom/$label" \

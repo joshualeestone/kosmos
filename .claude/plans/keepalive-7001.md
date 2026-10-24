@@ -205,7 +205,16 @@ Mutants red: a broadened own-Listener pattern (two sites), no post-reload check,
 - The wait test also asserts the run took most of the 4 s sleep (a pid gone before the loop would read "after exit").
 - Deferred: the plan-file naming convention (<branch>-<timestamp>); the branch-named file is what the proof gate reads.
 
+## Review round 17
+- The service up with no Listener of this runner (between Listeners: RunnerService.js's 5 s relaunch, or a self-update
+  moving bin/) refuses before the SIGTERM, which could end the updater half way. Case and mutant.
+- Deferred NITs: print-disabled read fails open (an unreadable list reads as not disabled; the bootstrap failure
+  message still names the state); the dry run does not preview a disabled label; a plist missing keys under a loaded
+  job that has them is reloaded rather than only written.
+
 ## Weakest premise
+Fourth: actions/runner's self-update rewrites the RUNNING runsvc.sh in place (`cat bin/runsvc.sh > runsvc.sh`); bash
+reads the rest at its old offset when the stop arrives. Safe while the template changes only a same-length line.
 Third: that SIGKILL, not SIGTERM, is how a runner gets killed in practice (the 10-23 sender was a SIGKILL); a SIGTERM
 leaves it down, by design (KeepAlive true would restart it, at the cost of a 10 s loop on a removed registration).
 That svc.sh keeps recording the plist path in .service (true of actions/runner today, measured on both boxes; if it
