@@ -275,7 +275,7 @@ struct ChatView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, first ? 10 : 2)
-                    .task { for f in row.attachments { await client.loadThumbnail(f) } }
+                .task { for f in row.attachments { await client.loadThumbnail(f) } }
             } else if let way = row.wayThrough {
                 VStack(alignment: .leading, spacing: 4) {
                     // A file that came with words: the words as a bubble, then the way through for the file.
@@ -309,6 +309,8 @@ struct ChatView: View {
     // One file at a time: a second tap while one is on its way does nothing, so a fetched file is never replaced
     // before it is shown (and removed when it closes).
     private func openFile(_ f: Board.Attachment) {
+        // A page or markup file goes to the board's chat, where the board opens it.
+        if Board.isWebDocument(name: f.name, type: f.type) { openOnBoard(); return }
         guard !fileStates.values.contains(.loading), previewURL == nil else { return }
         fileStates[f.id] = .loading
         let opened = epoch

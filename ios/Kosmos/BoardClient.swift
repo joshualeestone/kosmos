@@ -308,7 +308,7 @@ final class BoardClient: ObservableObject {
 
     // MARK: Files (kosmos#7016 part 2)
 
-    // First-page pictures for file cards, by attachment id: drawn small (128 px) once, never the file itself (an image's
+    // First-page pictures for file cards, by attachment id: drawn small (192 px) once, never the file itself (an image's
     // preview route answers with the whole image), fetched once per run, nothing kept on disk.
     @Published private(set) var thumbnails: [String: Data] = [:]
     private var thumbnailAsked: Set<String> = []
@@ -327,13 +327,15 @@ final class BoardClient: ObservableObject {
         guard let (data, response) = answer else { thumbnailAsked.remove(a.id); return }
         let isImage = (response.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("image/")
         if (200...299).contains(response.statusCode), isImage, let small = Self.smallPicture(data) { thumbnails[a.id] = small }
+        // A passing failure (a 5xx, the gate's sign-in page) is asked again on the next draw; a 404 is not.
+        else if response.statusCode != 404 { thumbnailAsked.remove(a.id) }
     }
 
-    // A picture drawn at most 128 px on its longer side, as PNG; nil for bytes that are not a picture.
+    // A picture drawn at most 192 px on its longer side (a 64 pt square at @3x), as PNG; nil for bytes that are not a picture.
     static func smallPicture(_ data: Data) -> Data? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 128,
+                kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 192,
                 kCGImageSourceCreateThumbnailWithTransform: true,
               ] as CFDictionary) else { return nil }
         let out = NSMutableData()
@@ -359,7 +361,10 @@ final class BoardClient: ObservableObject {
         let folder = env.files.appendingPathComponent(a.id, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let file = folder.appendingPathComponent(Board.savedName(a.name, type: a.type))
+            let saved = Board.savedName(a.name, type: a.type)
+            // Checked again on the very name written, whatever the Mac called it.
+            guard !Board.isWebDocument(name: saved, type: a.type) else { return nil }
+            let file = folder.appendingPathComponent(saved)
             // Encrypted while the phone is locked. macOS refuses the option (ios/LogicTests run there), so iOS only.
             #if os(iOS)
             try data.write(to: file, options: [.atomic, .completeFileProtection])

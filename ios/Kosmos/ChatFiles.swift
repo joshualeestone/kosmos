@@ -16,6 +16,9 @@ struct FilesBubble: View {
     let widthShare: CGFloat
     let open: (Board.Attachment) -> Void
 
+    // One file at a time: while one is on its way, the others are drawn off.
+    private var busy: Bool { states.values.contains(.loading) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if !text.isEmpty {
@@ -23,7 +26,8 @@ struct FilesBubble: View {
                     .padding(.bottom, 4)
             }
             ForEach(files, id: \.id) { f in
-                FileCard(file: f, thumbnail: thumbnails[f.id], state: states[f.id] ?? .ready, open: { open(f) })
+                FileCard(file: f, thumbnail: thumbnails[f.id], state: states[f.id] ?? .ready,
+                         waiting: busy && states[f.id] != .loading, open: { open(f) })
             }
         }
         .modifier(AgentBubbleBackground(widthShare: widthShare))
@@ -34,7 +38,12 @@ struct FileCard: View {
     let file: Board.Attachment
     let thumbnail: Data?
     let state: FileCardState
+    // Another card's file is on its way.
+    let waiting: Bool
     let open: () -> Void
+
+    // A page or markup file is opened on the computer's board, never here (Board.isWebDocument).
+    private var onBoard: Bool { Board.isWebDocument(name: file.name, type: file.type) }
 
     var body: some View {
         Button(action: open) {
@@ -56,12 +65,16 @@ struct FileCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
-        .disabled(state == .loading)
+        .disabled(state == .loading || waiting)
+        .opacity(waiting ? 0.5 : 1)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(file.name + ", " + Board.attachmentMeta(file))
         .accessibilityValue(state == .loading ? "Opening" : state == .failed ? "Could not open it" : "")
-        .accessibilityHint(state == .failed ? "Tries again." : "Opens the file.")
+        .accessibilityHint(onBoard ? "Opens it on your computer's board." : state == .failed ? "Tries again." : "Opens the file.")
+        .onChange(of: state) { now in
+            if now == .failed { UIAccessibility.post(notification: .announcement, argument: "Could not open " + file.name + ".") }
+        }
     }
 
     // A 64 pt picture for an image or a PDF with a preview; otherwise a symbol in a 40 pt rounded square.
@@ -84,7 +97,7 @@ struct FileCard: View {
         case .failed:
             Text("Could not open it. Try again.").font(.caption).foregroundColor(Palette.dangerWord).lineLimit(1)
         case .ready:
-            Text(Board.attachmentMeta(file)).font(.caption).foregroundColor(Palette.secondary).lineLimit(1)
+            Text(onBoard ? "Opens on your computer's board" : Board.attachmentMeta(file)).font(.caption).foregroundColor(Palette.secondary).lineLimit(1)
         }
     }
 }

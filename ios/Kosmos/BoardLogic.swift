@@ -548,8 +548,10 @@ enum Board {
     // A file Quick Look would draw as a web page or a markup document, which can load from elsewhere. Judged by its name
     // as well as its type: the Mac keeps whatever type the sender gave (engine/attachments.js), and Quick Look picks
     // its viewer by the extension. Such a file is opened on the board, never here.
+    // Judged on the name the file is saved under (savedName), since that is what Quick Look sees: "page.html." is saved
+    // as "page.html" (#7016 review 3).
     static func isWebDocument(name: String, type: String) -> Bool {
-        let ext = (name as NSString).pathExtension.lowercased()
+        let ext = (savedName(name, type: type) as NSString).pathExtension.lowercased()
         let named = ["html", "htm", "xhtml", "shtml", "svg", "svgz", "xml", "webarchive", "mht", "mhtml"].contains(ext)
         let types = [UTType(mimeType: type.lowercased()), ext.isEmpty ? nil : UTType(filenameExtension: ext)].compactMap { $0 }
         let markup = types.contains { $0.conforms(to: .html) || $0.conforms(to: .xml) || $0.conforms(to: .svg) || $0.conforms(to: .webArchive) }
@@ -583,7 +585,10 @@ enum Board {
         let cleaned = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
             .trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
         var base = cleaned.isEmpty ? "file" : String(cleaned.prefix(160))
-        if !base.contains("."), let ext = UTType(mimeType: type.lowercased())?.preferredFilenameExtension { base += "." + ext }
+        // No extension, or one no app knows ("Q3.final", "v1.2 report"): Apple's lookup makes up a dynamic type for those.
+        let known = UTType(filenameExtension: (base as NSString).pathExtension).map { !$0.isDynamic } ?? false
+        if (base as NSString).pathExtension.isEmpty || !known,
+           let ext = UTType(mimeType: type.lowercased())?.preferredFilenameExtension { base += "." + ext }
         return base
     }
 
