@@ -802,12 +802,6 @@ function sayOwnHello(projectId, s) {
 function noteOwnSealed(projectId, s) {
   const link = safeLink(projectId);
   if (!link || link.role !== 'self') return false;
-  // kosmos#7028: Kosmos+ said this room was never sealed, so a sealed-looking frame is not shown and records
-  // nothing for a while (one source cannot flip the room back and forth).
-  if (Number.isFinite(s.neverSealedUntil) && Date.now() < s.neverSealedUntil) {
-    noteOnce(projectId, s, 'neverSealed', 'A sealed-looking message arrived in a shared room that Kosmos+ says was never sealed, so it was not shown.');
-    return true;
-  }
   try { fedseal.setRoomState(projectId, { role: 'member', ownComputer: true, keys: {} }); } catch {
     noteOnce(projectId, s, 'ownSealUnsaved', 'This shared room is sealed, and this computer could not record that, so it cannot ask for the room\'s key yet. Kosmos tries again with the next message.');
     return true;   // handled: the guest's "ask the owner for a new code" line is not this computer's
@@ -816,36 +810,58 @@ function noteOwnSealed(projectId, s) {
   checkNeverSealed(projectId, s, link);
   return true;
 }
-/** kosmos#7028: how long an own computer ignores sealed-looking frames after Kosmos+ said the room was never sealed. */
-const NEVER_SEALED_MS = 10 * 60 * 1000;
+/** kosmos#7028: after Kosmos+ says a room was never sealed, how long the own computer waits for the owner's offer
+    before clearing; and the least time between two asks for one room. */
+const OWNER_OFFER_WAIT_MS = 10 * 1000;
 /** kosmos#7028: anyone in the room can send a sealed-looking frame, and noteOwnSealed then holds this computer's posts
     for a key that will never come. The owner board seals a room only for a hello matched to an active edge for its
     project, and the account's edges are listed with every status (revoked ones too), so a fresh answer with no edge
-    for this project means the room was never sealed: the keyless record is cleared and new posts go. One held
-    meanwhile was written for a sealed room, so it is told and not sent in the clear (sendPost's sealedHeld rule). Any other answer
-    (failed, unreadable, an edge listed) keeps the record. Asked fresh (notBeforeMono), never from an answer asked
-    before the frame: an edge made since would be missing from it. */
+    for this project says the room was never sealed. Asked fresh (notBeforeMono): an answer from before the frame can
+    miss an edge made since.
+    That answer is not enough alone: an edge goes when its guest deletes their account, so a room sealed for that
+    guest reads the same. The owner's offer settles it. Only this account's computers can send a key-own offer (the
+    relay stamps same_account, onKeyFrame refuses any other), and the owner board sends one only for a sealed room
+    it holds, so once one arrives the room is never cleared (s.ownerOffered). Without one, the record is cleared only
+    after OWNER_OFFER_WAIT_MS more with none, so an owner board that is online answers the hello first. An owner that
+    is offline then leaves the room cleared until its next sealed frame, which records the seal again: recording is the
+    safe side, so every sealed-looking frame records it, and only the asking is limited (one per room per
+    OWNER_OFFER_WAIT_MS; a frame inside that is checked once the window ends). Any other answer (failed, unreadable,
+    an edge of any status) keeps the record. */
 function checkNeverSealed(projectId, s, link) {
-  if (!deps || typeof deps.macRequest !== 'function') return;
+  if (!deps || typeof deps.macRequest !== 'function' || s.ownerOffered) return;
+  const now = Date.now();
+  if (Number.isFinite(s.neverSealedAskedAt) && now >= s.neverSealedAskedAt && now - s.neverSealedAskedAt < OWNER_OFFER_WAIT_MS) {
+    if (!s.neverSealedTimer) {
+      s.neverSealedTimer = setTimeout(() => {
+        s.neverSealedTimer = null;
+        if (seats.get(projectId) === s && !s.stopped) checkNeverSealed(projectId, s, link);
+      }, OWNER_OFFER_WAIT_MS - (now - s.neverSealedAskedAt));
+      if (s.neverSealedTimer.unref) s.neverSealedTimer.unref();
+    }
+    return;
+  }
+  s.neverSealedAskedAt = now;
   let ask;
-  try { ask = sharedEdges(Date.now(), mono()); } catch { return; }
+  try { ask = sharedEdges(now, mono()); } catch { return; }
   ask.promise.then((r) => {
     if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return;
     if (r.data.as_owner.some((e) => e && e.project_ref === link.ref)) return;
-    return forgetOwnSealed(projectId, s);
+    const t = setTimeout(() => { forgetOwnSealed(projectId, s); }, OWNER_OFFER_WAIT_MS);
+    if (t.unref) t.unref();
   }).catch(() => {});
 }
-/** kosmos#7028: clear an own computer's keyless sealed record (noteOwnSealed's), under the room's sealing step. It holds
-    no key and changes no epoch, so it is no rotation (#5191 WRITERS). Only that record: one holding a key is kept. */
+/** kosmos#7028: clear an own computer's keyless sealed record (noteOwnSealed's), under the room's sealing step, unless
+    the owner's offer has arrived. It holds no key and changes no epoch, so it is no rotation (#5191 WRITERS). Only
+    that record: one holding a key is kept. New posts then go as in any unsealed room; one held meanwhile was written
+    for a sealed room, so it is told and not sent in the clear (sendPost's sealedHeld rule). */
 function forgetOwnSealed(projectId, s) {
   return sealStep(projectId, () => {
-    if (seats.get(projectId) !== s) return;
+    if (seats.get(projectId) !== s || s.stopped || s.ownerOffered) return;
     const link = safeLink(projectId);
     const st = roomSeal(projectId);
     if (!link || link.role !== 'self' || !st || st.role !== 'member' || st.ownComputer !== true || hasKey(st)) return;
     try { fedseal.forgetRoom(projectId); } catch { return; }
     s.ownRun = null;
-    s.neverSealedUntil = Date.now() + NEVER_SEALED_MS;
     flushHeld(projectId, s);
   });
 }
@@ -861,6 +877,7 @@ function waitingOffer(projectId, s, frame) {
   try { me = fedseal.sealingKey(); } catch { return; }
   const offer = fedseal.checkOwnOffer(frame, run.mac, run.commit, me.pub);
   if (!offer) return;
+  s.ownerOffered = true;   // kosmos#7028: the owner holds this room sealed, so it is never cleared as forged
   if (run.offer && (run.offer.ownerPub !== offer.ownerPub || run.offer.nO !== offer.nO)) {
     // Confirmed or not: a run still waiting for its share ends (the owner's board may have restarted and lost it),
     // and the new run's code needs a new confirm. A run holding a genuine share keeps it.
