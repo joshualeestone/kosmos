@@ -45,9 +45,9 @@ AppTabs.isNative, `ContentView.swift`, `ios/LogicTests/main.swift`) are touched 
   on the Tasks tab as the spec draws it. The app has one shared board view, and every page it sends there opens under
   Today; a second web view for Tasks is more than this slice. A press on Tasks brings the native list back.
   Rejected: a second WebView pushed on the Tasks tab. For Mona Lisa's design review.
-- The board's own Tasks section (a project's View all, a board link) stays under Projects now that Tasks is native
-  (AppTabs.barTab), as the board's Settings section shows under Today. Lighting Tasks would cover that section with
-  the native list. The hidden page moving never moves the bar off native Tasks (AppTabs.follow).
+- SUPERSEDED at the rebase onto main (2026-10-24 14:05): this said the board's own Tasks section stays under
+  Projects. #7032 made Projects native too, so that section now shows under TODAY (AppTabs.barTab), as the board's
+  Settings and project pages already do. Lighting Tasks or Projects would cover the section with a native list.
 - One read for both tabs: BoardClient reads GET /api/tasks?view=tasks while Today OR Tasks is on screen (tasksViewer),
   keeping Today's readyTasks/tasksFailed as they were, and adding tasksList/tasksListFailed. An answer whose agents
   could not be read is a good read for Tasks (Needs Your Decision says it cannot tell), though Today reads it as unknown.
@@ -88,3 +88,15 @@ display names (tskAgentName). The logic takes both in, and the tests pin the wor
 - W7: "Pull down to try again" is now true: the failed-read screen is a refreshable scroll view.
 - The end-of-list sample scroll ran on appear, before the rows were drawn, and went nowhere (the 10:12 shots showed
   the top). It now runs once after the first layout, to the last row.
+
+## Rebase onto main (2026-10-24 14:05 CDT, 52 commits: #7032 native Projects, #7034, #7042)
+Conflicts in ShellLogic, BoardClient, ContentView, LogicTests/main.swift, ios.yml; each resolved keeping both sides.
+- Every tab in the bar is native now, so: a board press in the tests is a SECTION press (section: true, as a native
+  screen opens the board's own section); a lock (drop) replays no tab; and AppTabs.follow can no longer move the bar
+  from any tab (every board section maps to Today, and the board's "agents" section IS Today). No control can show a
+  move because none exists, so the test sweeps every section x every tab x Tasks offered or not and asserts nothing
+  moves. Mutant (Tasks lights its own tab again): 5+ checks red by name. DECIDED: follow stays in the code, inert,
+  since the next web tab would use it; deleting it is a separate change.
+- run-room.sh (#7032's suite) compiles BoardClient.swift, which now needs TasksLogic.swift: added to its list. The
+  other runners that compile BoardClient already had it (checked all five).
+- Suites after the rebase: run.sh 1065/1065, run-tasks 90/90, run-settings 41/41, run-actions 97/97, run-room 119/119.
