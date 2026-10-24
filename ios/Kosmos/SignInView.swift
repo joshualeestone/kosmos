@@ -138,6 +138,9 @@ final class SignInModel: ObservableObject {
                 }
                 take(answer, email: email)
             } catch { if mine == attempt { fail(error) } }
+        }
+    }
+
     /// kosmos#7045: the company's own sign-in, in Apple's sheet. The grant it brings back is spent at verify in place of
     /// the code, for the email the provider vouched for, with this iPhone's own proof.
     func companySignIn() {
