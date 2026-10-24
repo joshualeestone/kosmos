@@ -199,7 +199,7 @@ test('a recovery key that does not decode trusts no key, as the tunnel; the ship
   for (const k of RECOVERY_KEYS) assert.ok(servicekeys.rawKey(k), 'a shipped recovery key decodes: ' + k);
 });
 
-test('the store is read as the tunnel reads it: the list form, unknown members ignored, a top-level name twice refused', () => {
+test('the store is read as the tunnel reads it: the list form, unknown members ignored, document or signature twice refused', () => {
   const s = signed(setDoc([[NEW, 'current']]));
   const want = [pinOf(NEW)];
   const keysOf = (text) => trustkeys.trustedKeys(stateWith(text), pinOf(OLD), ON);
@@ -208,6 +208,10 @@ test('the store is read as the tunnel reads it: the list form, unknown members i
   assert.equal(keysOf(JSON.stringify([s.document, s.signature, 'x'])).fault, 'unusable', 'a list of three');
   const extra = '{"note":{"k":1,"k":2},"document":' + JSON.stringify(s.document) + ',"signature":' + JSON.stringify(s.signature) + '}';
   assert.deepEqual(keysOf(extra).keys, want, 'a name twice inside an unknown member is ignored');
+  const unknownTwice = '{"note":1,"note":2,"document":' + JSON.stringify(s.document) + ',"signature":' + JSON.stringify(s.signature) + '}';
+  assert.deepEqual(keysOf(unknownTwice).keys, want, 'an unknown member named twice is ignored, as serde does');
+  const sigTwice = '{"document":' + JSON.stringify(s.document) + ',"signature":' + JSON.stringify(s.signature) + ',"signature":' + JSON.stringify(s.signature) + '}';
+  assert.equal(keysOf(sigTwice).fault, 'unusable', 'signature named twice');
   const twice = '{"document":' + JSON.stringify(s.document) + ',"document":' + JSON.stringify(s.document) + ',"signature":' + JSON.stringify(s.signature) + '}';
   assert.equal(keysOf(twice).fault, 'unusable', 'document named twice at the top');
   assert.equal(keysOf(twice).why, 'the service key set this computer holds does not parse', 'with a fixed reason, never a name from the file');

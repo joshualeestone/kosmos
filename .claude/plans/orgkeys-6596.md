@@ -19,8 +19,11 @@ service key rotation leaves the tunnel working and the board refusing every poli
    - a store that verifies (servicekeys.verifyServiceKeySet over its `document` text and `signature`, held null,
      as read_store): exactly that set's keys (the pin is trusted only if the set lists it);
    - a store that is there and cannot be used: no key, with why (fault `unusable`). Read as serde reads the
-     StoredKeySet struct (review 1): an object with `document` and `signature` text, other members ignored with
-     whatever they hold, a top-level name twice refused; or the two as a list of exactly two strings. Not text, or
+     StoredKeySet struct (reviews 1, 2): an object with `document` and `signature` text, other members ignored with
+     whatever they hold (even named twice), `document` or `signature` named twice refused; or the two as a list of
+     exactly two strings. Measured against serde_json 1.0.151 itself (a throwaway crate, review 2): an unknown name
+     twice, a lone surrogate or 1e999 inside an unknown member are all accepted, as here; a known field twice, a
+     lone surrogate in `document`, and a list of three are refused, as here. Not text, or
      anything else, is unusable; so is a store that does not verify. The reason is fixed text, never file content.
    - a store that cannot be read (any error but ENOENT): no key (fault `unreadable`).
    Keys are returned in the pin's spelling (base64url of the raw 32 bytes) so kst1 reads them unchanged.
@@ -41,6 +44,13 @@ service key rotation leaves the tunnel working and the board refusing every poli
 - Doc comments in kst1.js and orgpolicy.js name the trusted keys and the store fault.
 - Residual, not mirrored: V8's JSON.parse recurses, so a store nested thousands deep in an unknown member throws here
   while serde's ignore path does not. Only a hand-made file reaches it, and the board then refuses (fails closed).
+
+## Review 2, deferred (with the reason)
+- "serde parses unknown members, so a lone surrogate or 1e999 there is refused by the tunnel and accepted here":
+  measured against serde_json 1.0.151, the tunnel accepts both too, so the two agree.
+- Forget now empties the state folder instead of removing it, and through a symlinked folder empties the target:
+  every reader checks its files one by one, the folder is the tunnel's own, and its contents are what a wipe removes
+  either way. Kept: removing the folder would take the trust files with it.
 
 ## Weakest premise
 RECOVERY_KEYS (kosmos) and SERVICE_KEY_ROOTS (relay) are activated together with the same value. If only one is

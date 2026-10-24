@@ -53,7 +53,8 @@ function topNames(text) {
 }
 
 /* service-keys.json as the tunnel's serde reads StoredKeySet: an object with `document` and `signature` text (any
-   other member ignored, a top-level name twice refused), or the two as a list of exactly two strings. null otherwise. */
+   other member ignored, even one named twice; `document` or `signature` twice refused), or the two as a list of
+   exactly two strings. null otherwise. */
 function readStored(text) {
   let v;
   try { v = JSON.parse(text); } catch { return null; }
@@ -63,7 +64,7 @@ function readStored(text) {
     [document, signature] = v;
   } else if (v && typeof v === 'object') {
     const names = topNames(text);
-    if (new Set(names).size !== names.length) return null;
+    if (names.filter((n) => n === 'document').length > 1 || names.filter((n) => n === 'signature').length > 1) return null;
     ({ document, signature } = v);
   } else return null;
   if (typeof document !== 'string' || typeof signature !== 'string') return null;
