@@ -163,7 +163,11 @@ enum NotificationAction {
             return .unreadable("Kosmos could not read your chat with \(who) just now, so nothing was \(verb). Open the chat to answer.")
         }
         guard obj["asking"] as? Bool == true, obj["asked"] as? String == press.asked else { return .changed }
-        let rows = obj["messages"] as? [[String: Any]] ?? []
+        // Still asking the same question, but the computer could not read the chat's rows (messages null): the card
+        // cannot be compared, which is not the same as it having changed.
+        guard let rows = obj["messages"] as? [[String: Any]] else {
+            return .unreadable("Kosmos could not read your chat with \(who) just now, so nothing was \(verb). Open the chat to answer.")
+        }
         let cards = rows.compactMap { ($0["kind"] as? String) == "question" ? $0["permission"] as? [String: Any] : nil }
         guard cards.contains(where: { $0["request"] as? String == press.request }) else { return .changed }
         return .go

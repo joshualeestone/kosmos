@@ -117,6 +117,8 @@ final class NotificationService: UNNotificationServiceExtension {
         // app presses with what rides here, after checking the request is still the one on screen.
         if let permission = PhoneNotice.offeredPermission(words) {
             content.categoryIdentifier = PhoneNotice.permissionCategory
+            // The request itself, not the hook's "needs your permission to use Bash": what Allow would allow.
+            content.body = permission.shown
             var info = content.userInfo
             info[PhoneNotice.permissionInfoKey] = PhoneNotice.permissionInfo(permission)
             content.userInfo = info

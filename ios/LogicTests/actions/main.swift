@@ -92,8 +92,8 @@ check(permCat?.actions.map { $0.identifier } == [NotificationCategories.allowAct
 check(permCat?.actions.map { $0.title } == ["Allow", "Deny"], "worded Allow and Deny, as the chat's card")
 check(permCat?.actions.allSatisfy { $0.options == [.authenticationRequired] } == true, "both ask to unlock, and neither is marked destructive (equal weight)")
 let fp = String(repeating: "a1", count: 32)
-func permJSON(kind: String = "report", allow: Int = 1, deny: Int = 3, request: String = fp, asked: String = "Do you want to proceed?") -> PhoneNotice.Words? {
-    let body = #"{"kind":"\#(kind)","session":"ada","agent":"Ada","text":"Claude needs your permission to use Bash","picture":null,"permission":{"kind":"command","allow":{"n":\#(allow),"label":"Yes"},"deny":{"n":\#(deny),"label":"No"},"asked":"\#(asked)","request":"\#(request)"}}"#
+func permJSON(kind: String = "report", allow: Int = 1, deny: Int = 3, request: String = fp, asked: String = "Do you want to proceed?", shown: String = "Wants to run a command: uuidgen.") -> PhoneNotice.Words? {
+    let body = #"{"kind":"\#(kind)","session":"ada","agent":"Ada","text":"Claude needs your permission to use Bash","picture":null,"permission":{"kind":"command","allow":{"n":\#(allow),"label":"Yes"},"deny":{"n":\#(deny),"label":"No"},"asked":"\#(asked)","request":"\#(request)","shown":"\#(shown)"}}"#
     return PhoneNotice.words(status: 200, contentType: "application/json", data: Data(body.utf8), userInfo: ["session": "ada"])
 }
 let pw = permJSON()
@@ -103,6 +103,12 @@ check(permJSON(kind: "reply").flatMap(PhoneNotice.offeredPermission) == nil, "CO
 check(permJSON(deny: 1).flatMap(PhoneNotice.offeredPermission) == nil, "CONTROL: Allow and Deny on the same key")
 check(permJSON(request: "short").flatMap(PhoneNotice.offeredPermission) == nil, "CONTROL: no fingerprint, no buttons")
 check(permJSON(asked: "").flatMap(PhoneNotice.offeredPermission) == nil, "CONTROL: no question identity, no buttons")
+check(permJSON(shown: " ").flatMap(PhoneNotice.offeredPermission) == nil, "CONTROL: nothing to show the person, no buttons (review 1)")
+check(pw?.permission?.shown == "Wants to run a command: uuidgen.", "the request's words ride with it")
+let oddPerm = Data(#"{"kind":"report","session":"ada","agent":"Ada","text":"Claude needs your permission to use Bash","picture":null,"permission":{"kind":"command","request":null}}"#.utf8)
+let oddWords = PhoneNotice.words(status: 200, contentType: "application/json", data: oddPerm, userInfo: ["session": "ada"])
+check(oddWords?.text == "Claude needs your permission to use Bash" && oddWords?.permission == nil, "a permission this build cannot read costs only the buttons, never the words (review 1)")
+check(service.contains("content.body = permission.shown"), "the extension shows the request as the notice's body")
 check(words("report").permission == nil && PhoneNotice.offeredPermission(words("report")) == nil, "CONTROL: an older computer's answer with no permission offers nothing")
 let pinfo = pw.flatMap(PhoneNotice.offeredPermission).map(PhoneNotice.permissionInfo)
 check(pinfo?["allowN"] as? Int == 1 && pinfo?["denyLabel"] as? String == "No" && pinfo?["request"] as? String == fp, "it rides the notice as plist values")
@@ -125,6 +131,9 @@ check(NotificationAction.permissionVerdict(status: 200, data: thread(request: St
 check(NotificationAction.permissionVerdict(status: 200, data: thread(asking: false), press: pAllow!, agent: "Ada") == .changed, "CONTROL: answered on the computer since: refused")
 check(NotificationAction.permissionVerdict(status: 200, data: thread(asked: "Something else?"), press: pAllow!, agent: "Ada") == .changed, "CONTROL: a different question: refused")
 check(NotificationAction.permissionVerdict(status: 200, data: Data(#"{"asking":true,"asked":"Do you want to proceed?","messages":[]}"#.utf8), press: pAllow!, agent: "Ada") == .changed, "CONTROL: no card on the chat (an older computer, or the box scrolled): refused")
+if case .unreadable = NotificationAction.permissionVerdict(status: 200, data: Data(#"{"asking":true,"asked":"Do you want to proceed?","messages":null}"#.utf8), press: pAllow!, agent: "Ada") {
+    check(true, "still asking but the rows could not be read: says it could not read, not that it changed (review 1)")
+} else { check(false, "still asking but the rows could not be read: says it could not read, not that it changed (review 1)") }
 if case .unreadable(let said) = NotificationAction.permissionVerdict(status: 0, data: nil, press: pDeny!, agent: "Ada") {
     check(said.contains("nothing was denied") && said.contains("Open the chat"), "no answer: says nothing was denied, and where to answer")
 } else { check(false, "no answer reads as unreadable") }

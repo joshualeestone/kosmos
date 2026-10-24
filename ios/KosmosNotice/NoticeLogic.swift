@@ -38,6 +38,24 @@ enum PhoneNotice {
         // kosmos#7017 part 2: present only on a needs-you raised by Claude Code's permission prompt still on screen,
         // where the board itself would draw Allow and Deny (server.js phonePermissionNow).
         var permission: Permission? = nil
+
+        init(kind: String, session: String, agent: String, text: String, picture: String?, permission: Permission? = nil) {
+            self.kind = kind; self.session = session; self.agent = agent; self.text = text; self.picture = picture
+            self.permission = permission
+        }
+
+        private enum CodingKeys: String, CodingKey { case kind, session, agent, text, picture, permission }
+
+        // A permission this build cannot read (an older or newer computer) costs only the buttons, never the words.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            kind = try c.decode(String.self, forKey: .kind)
+            session = try c.decode(String.self, forKey: .session)
+            agent = try c.decode(String.self, forKey: .agent)
+            text = try c.decode(String.self, forKey: .text)
+            picture = try c.decodeIfPresent(String.self, forKey: .picture)
+            permission = (try? c.decodeIfPresent(Permission.self, forKey: .permission)) ?? nil
+        }
     }
 
     // One of the prompt's own options: its number is the key typed, its words are checked against the screen.
@@ -54,6 +72,9 @@ enum PhoneNotice {
         let asked: String
         // The request's fingerprint (chat.permissionRequestId): a press is sent only while the thread's card still has it.
         let request: String
+        // What the request is, in the board card's words ("Wants to run a command: ..."), shown as the notice's body: a
+        // person is never asked to allow something they cannot read.
+        let shown: String
     }
 
     // A keychain group this build can hold: "<10-character team id>.<rest>". An unsigned build has no team, so its
@@ -150,6 +171,7 @@ enum PhoneNotice {
         guard w.kind == "report", let p = w.permission, p.allow.n != p.deny.n, (1...9).contains(p.allow.n), (1...9).contains(p.deny.n),
               !p.allow.label.isEmpty, !p.deny.label.isEmpty, !p.asked.isEmpty,
               p.request.count == 64, p.request.allSatisfy({ $0.isHexDigit }),
+              !p.shown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               p.allow.label.count <= 500, p.deny.label.count <= 500, p.asked.count <= 2000
         else { return nil }
         return p

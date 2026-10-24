@@ -4073,14 +4073,21 @@ function dmPressable({ guideThread, card, options, question, view }) {
 
 /* kosmos#7017 part 2: Allow and Deny for a phone notification, only while the agent is stopped on Claude Code's
    permission prompt and the board itself would draw that card's buttons (dmPressable, chat.permissionCard): the same
-   reading as the thread route, so the phone never offers a press the board would refuse. Each is the prompt's own
-   option ({ n, label }), so a press sends exactly what the board's dmChoicePress sends ({ text: n, chose: label, asked }),
-   checked against the screen again when it arrives. `request` is the request's fingerprint (chat.permissionRequestId),
-   the same one the thread route serves on the card, so the phone can refuse a press for a request no longer up. Never a lasting choice: Allow is the plain "Yes", and "always allow"
-   kinds are not offered from a lock screen at all. Null whenever any of that does not hold. Never throws. */
-function phonePermissionNow(name) {
+   reading as the thread route, so the phone never offers a press the board would refuse. And only for the notice that
+   prompt raised: the report it is about (`at`) must be the agent's current one AND the permission hook's own wait
+   (selfreport.isAutoPermissionWait), so an agent's own question, or an older notice delivered late, never carries
+   buttons for whatever prompt happens to be up. Each choice is the prompt's own option ({ n, label }; the label as the
+   thread stores it, which the POST compares the same way). `request` is the request's fingerprint
+   (chat.permissionRequestId), the same one the thread route serves on the card, so the phone can refuse a press for a
+   request no longer up. `shown` is what the lock screen says the request is (phonePermissionShown): a person is never
+   asked to allow a command they cannot read. Never a lasting choice: Allow is the plain "Yes", and the "always allow"
+   kinds are not offered from a lock screen at all. Null whenever any of that does not hold, or when the question's
+   identity is longer than the phone carries (2000). Never throws. */
+const PHONE_ASKED_MAX = 2000;
+function phonePermissionNow(name, at, roster) {
   try {
-    const roster = safeRoster();
+    const rep = selfreport.read(name);
+    if (!selfreport.isAutoPermissionWait(rep) || rep.at !== at) return null;
     const card = ourCardByName(roster, name);
     if (!card || card.state !== STATE.NEEDS_YOU || (card.disruption && card.disruption.failed === true)) return null;
     const guideThread = isSetupGuide(name) || isSetupGuide(card.sessionName);
@@ -4096,9 +4103,33 @@ function phonePermissionNow(name) {
     const allow = pick(perm.allow);
     const deny = pick(perm.deny);
     const asked = chat.questionAbove(question.text);
-    if (!allow || !deny || typeof asked !== 'string' || !asked) return null;
-    return { kind: perm.kind, allow, deny, asked, request: chat.permissionRequestId(perm) };
+    const shown = phonePermissionShown(perm);
+    if (!allow || !deny || typeof asked !== 'string' || !asked || asked.length > PHONE_ASKED_MAX || !shown) return null;
+    return { kind: perm.kind, allow, deny, asked, request: chat.permissionRequestId(perm), shown };
   } catch { return null; }
+}
+
+/* The board's words for what a permission card asks (web/index.html DM_PERM_DOES), for the lock screen. */
+const PHONE_PERM_DOES = {
+  delete: 'run a command that deletes files',
+  command: 'run a command',
+  create: 'create a file',
+  edit: 'change a file',
+  fetch: 'fetch something from the web',
+  other: 'do something that needs your permission',
+};
+/* kosmos#7017 part 2: what the lock screen says a permission request is, in the board card's words: "Wants to <what>:
+   <target>." with the target a file's name or, for anything else, the request's first line (a command); then the agent's
+   own words about it ("It says: ..."); then Claude Code's reason (a dangerous rm says so here). Shortened as the notice's
+   words are. Empty when there is nothing to name, and then no buttons are offered. */
+function phonePermissionShown(perm) {
+  const first = String(perm.detail || '').split('\n').map((l) => l.trim()).find(Boolean) || '';
+  const target = perm.target || first;
+  if (!target) return '';
+  const lines = ['Wants to ' + (PHONE_PERM_DOES[perm.kind] || PHONE_PERM_DOES.other) + ': ' + target + '.'];
+  if (perm.says) lines.push('It says: ' + perm.says);
+  if (perm.reason) lines.push(perm.reason);
+  return require('./engine/phonenotice').shorten(lines.join('\n'));
 }
 
 /** kosmos#5841: one page of earlier messages; the same size as the thread route's tail. */
@@ -7524,11 +7555,12 @@ const server = http.createServer(async (req, res) => {
     try { asked = new URL(req.url, ROUTING_BASE).searchParams.get('id'); } catch { asked = null; }
     const got = require('./engine/phonenotice').wordsFor(asked, { mask: guideMasked });   // #3769: rows kept before the write-side mask
     if (!got || borrowedName(got.session)) { sendJson(res, 404, { error: 'we have no words for that notification' }); return; }
-    const card = ourCardByName(safeRoster(), got.session);   // as the thread readers find it: any spelling, tied only
+    const roster = safeRoster();
+    const card = ourCardByName(roster, got.session);   // as the thread readers find it: any spelling, tied only
     let picture = null;
     try { picture = store.avatarPath(got.session) ? '/api/agent/' + encodeURIComponent(got.session) + '/avatar' : null; } catch { picture = null; }
     /* kosmos#7017 part 2: a needs_you raised by a permission prompt still on screen carries Allow and Deny. */
-    const permission = got.kind === 'report' ? phonePermissionNow(got.session) : null;
+    const permission = got.kind === 'report' ? phonePermissionNow(got.session, (require('./engine/phonenotice').parseId(asked) || {}).at, roster) : null;
     sendJson(res, 200, { kind: got.kind, session: got.session, agent: (card && card.name) || got.session, text: got.text, picture,
       ...(permission ? { permission } : {}) });
     return;

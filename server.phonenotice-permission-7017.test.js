@@ -55,9 +55,11 @@ const post = async (body) => {
 };
 const getThread = async () => (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
 
-/* The permission hook's needs_you, as recorded; its id is what phonenotify sends. */
-function reportId() {
-  const kept = selfreport.record('casey', { state: 'needs_you', because: 'Claude needs your permission to use Bash' });
+/* The permission hook's needs_you (auto), or an agent's own (auto=false), as recorded; its id is what phonenotify sends. */
+function reportId(auto = true, because = 'Claude needs your permission to use Bash') {
+  // A working report first: an automatic wait never overwrites an agent's own needs_you (selfreport), as in life.
+  selfreport.record('casey', { state: 'working', because: 'on it' });
+  const kept = selfreport.record('casey', { state: 'needs_you', because, ...(auto ? { auto: true } : {}) });
   assert.ok(kept && kept.at, 'premise: the report was recorded: ' + JSON.stringify(kept));
   return 'report:' + kept.at + ':casey';
 }
@@ -95,6 +97,11 @@ test('#7017 a permission prompt\'s notice carries Allow and Deny: its own Yes an
       const thread = await getThread();
       assert.equal(p.asked, thread.asked, name + ': the phone would press with a different identity than the board');
       assert.match(p.request, /^[0-9a-f]{64}$/, name + ': no fingerprint');
+      // Review 1: the lock screen names the request, in the board card's words.
+      const first = card.detail.split('\n').map((l) => l.trim()).find(Boolean);
+      assert.ok(p.shown.startsWith('Wants to '), name + ': ' + p.shown);
+      assert.ok(p.shown.includes(card.target || first), name + ': the request is not named: ' + p.shown);
+      if (card.reason) assert.ok(p.shown.includes(card.reason.slice(0, 40)), name + ': Claude Code\'s reason is missing: ' + p.shown);
       const row = (thread.messages || []).find((m) => m && m.kind === 'question');
       assert.equal(row && row.permission && row.permission.request, p.request, name + ': the thread card and the notice disagree on the fingerprint the phone checks');
       const offered = (thread.options || []).filter((o) => o.lasting === true).map((o) => o.n);
@@ -155,4 +162,33 @@ test('#7017 the fingerprint tells two requests with the same question and option
   assert.equal(chat.permissionRequestId(a), chat.permissionRequestId(chat.permissionCard(BASH)), 'not stable across two reads');
   assert.notEqual(chat.permissionRequestId(a), chat.permissionRequestId(b), 'two different commands share a fingerprint');
   assert.equal(chat.permissionRequestId(null), null);
+});
+
+test('#7017 review 1: CONTROL: the buttons belong to the notice the prompt raised. An agent\'s own question, or an older report, carries none', async () => {
+  await withPrompt(BASH, async () => {
+    const own = await notice(reportId(false, 'Should I drop the staging table?'));
+    assert.equal(own.status, 200, 'premise: the agent\'s words are served: ' + JSON.stringify(own.json));
+    assert.equal('permission' in own.json, false, 'an agent\'s own question carried buttons for the prompt on screen');
+    const older = reportId();
+    await new Promise((r) => setTimeout(r, 5));   // a later millisecond: report times are the ids
+    const newer = reportId();
+    assert.notEqual(older, newer, 'premise: two different reports');
+    assert.ok('permission' in (await notice(newer)).json, 'premise: the current automatic wait carries them');
+    const late = await notice(older);
+    assert.equal(late.status, 200, 'premise: the older words are still served');
+    assert.equal('permission' in late.json, false, 'an older notice carried buttons for the prompt up now');
+  });
+});
+
+test('#7017 review 1: CONTROL: a question identity longer than the phone carries gets no buttons (both sides use one cap)', async () => {
+  const body = Array.from({ length: 120 }, (_, i) => '  line ' + i + ' of a long file').join('\n');
+  const big = EDIT.replace(/(╌{8,}\n)/, '$1' + body + '\n');
+  assert.ok(chat.permissionCard(big), 'premise: the long prompt still reads as a card');
+  await withPrompt(big, async () => {
+    const thread = await getThread();
+    assert.ok(thread.asked && thread.asked.length > 2000, 'premise: the identity is over 2000: ' + (thread.asked || '').length);
+    const r = await notice(reportId());
+    assert.equal(r.status, 200);
+    assert.equal('permission' in r.json, false, 'buttons offered with an identity the phone refuses');
+  });
 });
