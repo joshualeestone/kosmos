@@ -23,8 +23,9 @@ coordinator. What does:
    itself waits for the own-computer screen, which #4658 has not built yet (routes only there too).
 3. **Forged envelope.** After an own computer records keyless own seal state (noteOwnSealed), it asks the edges.
    If Kosmos+ answers and lists no edge of any status for this project, the room was never sealed: the keyless
-   state is cleared, held posts go out, and sealed-looking frames are ignored (logged unreadable) for a cooldown
-   so one source cannot flap it. Any other answer keeps the state (held, as today).
+   state is cleared, new posts go out, and sealed-looking frames are not shown for 10 minutes so one source cannot
+   flap it. A post held meanwhile is told and NOT sent (decided 04:3x: sendPost's sealedHeld rule, a post written
+   while the room read sealed never leaves in the clear). Any other answer keeps the state (held, as today).
 4. Relay: `account-computers` rows carry `mac_id` (separate kosmos-relay PR). Not secret: the own-hello frame and
    the match code already expose it to the account's computers.
 
@@ -49,3 +50,21 @@ outside member left. What would change it: the coordinator keeping a seal fact t
 
 ## Tests (planned)
 engine/fedseats.ownremove-7028.test.js, server route test, guard update; mutants for each.
+
+## Decided while building (04:2x-04:4x 10-24)
+- **Held posts after a forged seal are told, not sent.** The plan said "held posts go out"; the existing rule says a
+  post written for a sealed room never leaves in the clear. The person saw "this room is sealed" when they wrote it,
+  so the rule wins. Rejected: sending them (privacy promise broken for the sake of one hour's delay).
+  Would change it: a ruling that the own computer's seal note is not a privacy promise.
+- **own-remove is not step-up gated.** The gated route list's own comment says removes are not gated (they only
+  take access away), and no other remove is. Rejected: gating it like own-allow.
+- **The never-sealed check asks fresh** (sharedEdges with notBeforeMono): a cached answer from before an edge was
+  made would clear a real seal. Costs one request per sealed-looking frame outside the cooldown.
+- **forgetRoom is now in the #5191 writer guard**, with fedmembers' two existing callers named, rather than
+  leaving forgetOwnSealed outside it under another spelling.
+- **Found by the tests:** revokeCheck read the edges answer for revoked accounts even with no guest pinned; that
+  threw for an own-only room. Fixed.
+
+## Tests (done)
+engine/fedseats.ownremove-7028.test.js (17), server.ownremove-7028.test.js (4), the #5191 guard and the #4658
+fixture updated. 14 mutants, all caught (mutant list: scratchpad mut7028.py, restated in the PR).
