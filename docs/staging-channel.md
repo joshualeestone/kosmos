@@ -97,8 +97,10 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    `setup-staging` is neither checked nor used), and the staging-moved-during-the-gates refusal does not
    apply (a commit cannot move); instead the artifact is re-verified right before the write. V's tarball
    must still be in the checkout's `dist/`. If V was cut more than once, the promote refuses and lists
-   the builds: add `--sha <8+ characters of the approved build's sha256>`. `--force` with `--version`
-   needs `--sha` too. A V older than prod's is refused unless `--allow-older` is given. The board gates
+   the builds: add `--sha <8+ characters of the approved build's sha256>`; where builds share the bytes
+   but name another artifact or manifest, `--commit <site sha>` picks the commit to use (it must still
+   name V, and every check still applies). `--force` with `--version` needs `--sha` too. A V older than
+   prod's, or one that cannot be compared with it, is refused unless `--allow-older` is given. The board gates
    still need a board on V: once the cut box's board has moved to a later staging build they answer
    cannot-tell, and the promote HOLDS (exit 2), forceable only after a hand check of V; the board check it
    could not run is then made after the deploy on a Mac that has updated to V.
