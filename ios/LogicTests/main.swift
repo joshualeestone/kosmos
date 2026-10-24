@@ -1052,8 +1052,10 @@ do {
     }
     check(Board.hasThumbnail(img(3 * 1024 * 1024)) && !Board.hasThumbnail(img(3 * 1024 * 1024 + 1)) && !Board.hasThumbnail(img(nil)),
           "an image's picture is the whole image, so one over 3 MB (or of unknown size) draws the symbol")
-    check(Board.savedName(String(repeating: "A", count: 154) + ".html..z") == String(repeating: "A", count: 154) + ".html",
-          "a name cut at 160 never ends in a dot")
+    check(!Board.savedName(String(repeating: "A", count: 190) + ".html..z").hasSuffix("."), "a cut name never ends in a dot")
+    let cjk = Board.savedName(String(repeating: "報", count: 100) + ".pdf")
+    check(cjk.utf8.count <= 200 && cjk.hasSuffix(".pdf") && cjk.hasPrefix("報報"), "a long name in Japanese fits iOS's 255 bytes and keeps its extension")
+    check(Board.savedName("short.pdf") == "short.pdf" && Board.savedName(String(repeating: "x", count: 300)).utf8.count == 200, "short names unchanged; long ones cut to 200 bytes")
     check(Board.attachmentMeta(r.attachments[0]) == "PDF \u{00B7} 2.4 MB" && Board.attachmentMeta(r.attachments[1]) == "Word document \u{00B7} 47 KB",
           "the kind word and size, as the board writes them")
     let fw = { (t: String, n: String, k: String) in Board.fileWord(type: t, name: n, kind: k) }
@@ -1625,6 +1627,11 @@ section("native board loop: connecting")
         let html = Board.Attachment(id: "444444444444444444444444", name: "page.html", type: "text/html", size: 1, kind: "other", url: "/api/attachment/444444444444444444444444", preview: nil)
         let htmlFile = await c.fetchFile(html)
         check(htmlFile == nil, "a web page is never opened here, even one the agent sent as HTML")
+        // The Mac's answer is itself markup, under an ordinary name and type.
+        w.attachmentAnswer = (200, "image/svg+xml; charset=utf-8", Data("<svg/>".utf8))
+        let svgAnswer = await c.fetchFile(Board.Attachment(id: "aaaaaaaaaaaaaaaaaaaaaa01", name: "chart.png", type: "image/png", size: 1, kind: "image",
+                                                           url: "/api/attachment/aaaaaaaaaaaaaaaaaaaaaa01", preview: nil))
+        check(svgAnswer == nil, "an answer that is markup is no file, whatever the row said")
         let disguised = Board.Attachment(id: "8888888888888888888888aa", name: "report.html", type: "text/plain", size: 1, kind: "text",
                                          url: "/api/attachment/8888888888888888888888aa", preview: nil)
         let asksBefore = w.attachmentAsks.count

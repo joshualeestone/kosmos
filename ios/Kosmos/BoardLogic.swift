@@ -597,7 +597,20 @@ enum Board {
         let cleaned = visible.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
             .trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
         // Cut, then trimmed again, so the cut can never leave a trailing dot or space (review 5).
-        let cut = String(cleaned.prefix(160)).trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
+        // A file name on iOS is at most 255 bytes of UTF-8, so the cut is by bytes (200, leaving room for an added
+        // extension), at a whole character: a 100-character Japanese name is about 300 bytes (review 6).
+        // The extension is kept whole (Quick Look picks its viewer by it); the rest is cut to fit.
+        let ext = (cleaned as NSString).pathExtension
+        let keepExt = !ext.isEmpty && ext.utf8.count <= 16
+        let stem = keepExt ? (cleaned as NSString).deletingPathExtension : cleaned
+        let room = 200 - (keepExt ? ext.utf8.count + 1 : 0)
+        var kept = ""
+        for ch in stem {
+            if kept.utf8.count + String(ch).utf8.count > room { break }
+            kept.append(ch)
+        }
+        let cut = (keepExt && !kept.isEmpty ? kept + "." + ext : kept)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
         var base = cut.isEmpty ? "file" : cut
         // No extension, or one no app knows ("Q3.final", "v1.2 report"): Apple's lookup makes up a dynamic type for those.
         let known = UTType(filenameExtension: (base as NSString).pathExtension).map { !$0.isDynamic } ?? false
