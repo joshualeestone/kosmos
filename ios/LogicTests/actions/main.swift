@@ -42,7 +42,8 @@ section("Reply: the request goes only to the computer the notice came from, with
 let r = NotificationAction.replyRequest(userInfo: info, text: "  On it, thanks  ", stored: kept(), session: session, coordinator: coordinator)
 check(r?.httpMethod == "POST" && r?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/ada/thread", "a POST to that agent's chat on that computer")
 check(r?.value(forHTTPHeaderField: "Cookie") == "__Host-kosmos_tunnel_session=c00kie" && r?.httpShouldHandleCookies == false, "with the kept cookie, by hand")
-check(r?.timeoutInterval == 10, "an idle limit under the sessions' total limits")
+check(r?.timeoutInterval == 13, "the send's idle limit sits just under its 14 s total")
+check(NotificationAction.checkRequest(userInfo: info, stored: kept(), session: session, coordinator: coordinator)?.timeoutInterval == 7, "the read's idle limit sits just under its 8 s total")
 let sent = r.flatMap { $0.httpBody }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
 check(sent?["text"] as? String == "On it, thanks", "the text, trimmed, as the chat sends it (Board.sendRequest)")
 var other = info; other["address"] = "office.kosmosplus.com"
@@ -61,6 +62,8 @@ check(v(200, #"{"messages":[{"at":"2026-10-23T11:00:00.000Z","text":"Pick one","
 check(v(200, #"{"messages":null,"olderCount":0,"asking":false}"#) == .go, "a history it could not read, the agent not asking: the reply goes (the send itself can work)")
 check(v(200, #"{"messages":[{"at":"2026-10-23T12:00:00.000Z","text":"hi","from":"ada"},{"text":"Pick one","from":"ada","kind":"question"}],"olderCount":0}"#) == .asking, "an older board with no asking field: its live question row (last, no time) still stops it")
 check(v(200, #"{"messages":[{"at":"2026-10-23T12:00:00.000Z","text":"Done.","from":"ada"}],"olderCount":0}"#) == .go, "an older board, nothing asked: the reply goes")
+if case .unreadable = v(200, #"{"olderCount":0}"#) { check(true, "an older board's answer that is not a chat: fails closed") } else { check(false, "an older board's answer that is not a chat: fails closed") }
+if case .unreadable = v(200, "<html>") { check(true, "a 200 that is not JSON: fails closed") } else { check(false, "a 200 that is not JSON: fails closed") }
 if case .unreadable(let said) = v(0, nil) { check(said.hasPrefix("Kosmos could not reach your computer"), "no answer: 'could not reach'") } else { check(false, "no answer: unreadable") }
 if case .unreadable(let said) = v(401, #"{"error":"x"}"#) { check(said.hasPrefix("Your computer did not let this phone in"), "a 401: the sign-in, not 'could not reach'") } else { check(false, "a 401: unreadable") }
 if case .unreadable(let said) = v(404, #"{"error":"x"}"#) { check(said.hasPrefix("Kosmos could not read your chat with Ada"), "a 404: 'could not read', not 'could not reach'") } else { check(false, "a 404: unreadable") }

@@ -24,27 +24,28 @@ enum NotificationAction {
         return (mac, saved.cookie, agent)
     }
 
-    private static func signed(_ request: URLRequest?, cookie: String) -> URLRequest? {
+    private static func signed(_ request: URLRequest?, cookie: String, idle: TimeInterval) -> URLRequest? {
         guard var r = request else { return nil }
         // The cookie goes by hand on this one request; nothing here keeps a cookie jar.
         r.httpShouldHandleCookies = false
         r.setValue("\(Board.macCookieName)=\(cookie)", forHTTPHeaderField: "Cookie")
-        // The read and the send each have a hard total limit (PushNotificationManager's sessions), together inside the
-        // short time iOS gives a notification action; this is only the idle limit under them.
-        r.timeoutInterval = 10
+        // The read and the send each have a hard total limit (PushNotificationManager's sessions, 8 s and 14 s), together
+        // inside the short time iOS gives a notification action; this idle limit sits just under each, so a slow send
+        // that did go is not cut off early and reported as "may not have gone".
+        r.timeoutInterval = idle
         return r
     }
 
     // The chat's read, made before a reply is sent (see verdict).
     static func checkRequest(userInfo: [AnyHashable: Any], stored: String?, session: String?, coordinator: URL) -> URLRequest? {
         guard let t = target(userInfo, stored: stored, session: session, coordinator: coordinator) else { return nil }
-        return signed(Board.threadRequest(mac: t.mac, session: t.agent), cookie: t.cookie)
+        return signed(Board.threadRequest(mac: t.mac, session: t.agent), cookie: t.cookie, idle: 7)
     }
 
     // The request for a reply, or nil when there is nothing to send to, or text the board would refuse.
     static func replyRequest(userInfo: [AnyHashable: Any], text: String, stored: String?, session: String?, coordinator: URL) -> URLRequest? {
         guard let t = target(userInfo, stored: stored, session: session, coordinator: coordinator) else { return nil }
-        return signed(Board.sendRequest(mac: t.mac, session: t.agent, text: text), cookie: t.cookie)
+        return signed(Board.sendRequest(mac: t.mac, session: t.agent, text: text), cookie: t.cookie, idle: 13)
     }
 
     // Whether a reply may go, from the chat read just before it (GET /api/agent/<name>/thread).
@@ -66,8 +67,11 @@ enum NotificationAction {
             return .unreadable("Kosmos could not read your chat with \(who) just now, so your reply was not sent. Open the chat to send it.")
         }
         if let asking = obj["asking"] as? Bool { return asking ? .asking : .go }
-        if let thread = Board.parseThread(data), let last = thread.rows.last, last.atRaw == nil,
-           last.wayThrough == .question || last.wayThrough == .permission { return .asking }
+        // An older board's answer that cannot be read as a chat fails closed: nothing is sent blind.
+        guard let thread = Board.parseThread(data) else {
+            return .unreadable("Kosmos could not read your chat with \(who) just now, so your reply was not sent. Open the chat to send it.")
+        }
+        if let last = thread.rows.last, last.atRaw == nil, last.wayThrough == .question || last.wayThrough == .permission { return .asking }
         return .go
     }
 
