@@ -234,13 +234,14 @@ if [ -n "$NAMED_VERSION" ]; then
   case "$_builds" in *" "*)
     # What the operator can do depends on how they disagree: on the bytes (--sha picks one, or more of it does), or
     # only on the artifact or manifest name (--sha cannot separate them; --commit names the one to use).
-    _nshas="$(printf '%s\n' $_builds | cut -d'|' -f1 | sort -u | wc -l | tr -d ' ')"
+    _nshas="$(IFS=' '; printf '%s\n' $_builds | cut -d'|' -f1 | sort -u | wc -l | tr -d ' ')"
     if [ "$_nshas" = 1 ]; then _way="They name the same bytes but a different artifact or manifest, which --sha cannot separate: name the commit whose pointer is right with --commit <its sha>."
     elif [ -n "$NAMED_SHA" ]; then _way="More than one build's sha256 starts with $NAMED_SHA: give more of the approved build's sha256."
     else _way="$NAMED_VERSION was cut more than once: name the build that was approved with --sha <its sha256, 8 or more characters>."; fi
     echo "promote-channel: commits naming $NAMED_VERSION disagree on its build ($_seen) - refusing; nothing was written. $_way" >&2; exit 1 ;;
   esac
   _newest="$NAMED_COMMIT"
+  [ -z "$_unpub" ] || echo "promote-channel: NOTE ignoring commits naming $NAMED_VERSION that are not on the site's origin/main (never served to staging): $_unpub" >&2
   [ -z "$_paired" ] || NAMED_COMMIT="$_paired"
   # The cut's own commit can win over a later commit naming the same build (--sha and --commit have already narrowed
   # the set). Say so when the two pointers match apart from the installer; refuse when they differ in more, since a
@@ -249,7 +250,12 @@ if [ -n "$NAMED_VERSION" ]; then
     git -C "$SITE" show "${_newest}:dist/$STAGING_NAME" > "$NAMED_DIR/newest.json" 2>/dev/null
     git -C "$SITE" show "${NAMED_COMMIT}:dist/$STAGING_NAME" > "$NAMED_DIR/chosen.json" 2>/dev/null
     if node -e 'const r=f=>{const p=JSON.parse(require("fs").readFileSync(f,"utf8"));delete p.setup_sha256;return JSON.stringify(p,Object.keys(p).sort())};process.exit(r(process.argv[1])===r(process.argv[2])?0:1)' "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json" 2>/dev/null; then
-      echo "promote-channel: NOTE using ${NAMED_COMMIT:0:10} for $NAMED_VERSION; ${_newest:0:10}, a later commit naming it, points at the same build" >&2
+      _ns="$(read_pointer_field "$NAMED_DIR/newest.json" setup_sha256)"; _cs="$(read_pointer_field "$NAMED_DIR/chosen.json" setup_sha256)"
+      if [ "$_ns" = "$_cs" ] || [ -z "$_ns" ]; then
+        echo "promote-channel: NOTE using ${NAMED_COMMIT:0:10} for $NAMED_VERSION; ${_newest:0:10}, a later commit naming it, points at the same build" >&2
+      else
+        echo "promote-channel: NOTE using ${NAMED_COMMIT:0:10} for $NAMED_VERSION; ${_newest:0:10}, a later commit naming it, points at the same build but names installer ${_ns:0:12}, not the ${_cs:0:12} this promote checks and copies to /setup (its setup-staging does not match it; --commit ${_newest:0:10} would refuse on that)" >&2
+      fi
     else
       # Which of two different pointers for V is the right one is not this script's to guess: a later one may carry a
       # correction, the earlier one is the cut's own. The operator names it.
@@ -461,7 +467,7 @@ if [ "$FAMILY" = mac ]; then
   if [ -n "$NAMED_VERSION" ]; then
     # kosmos#7005: keep what the gate said, to learn whether it READ the board on another version (its #5084 line
     # "the board on :<port> runs <W>, not <V>"), as against a version it could not read at all.
-    KOSMOS_GATE_EXPECT_VERSION="$V" $GATE_CMD ${PORT:+"$PORT"} 2>&1 | tee "$NAMED_DIR/experience-gate.log"; GATE_RC=${PIPESTATUS[0]}
+    KOSMOS_GATE_EXPECT_VERSION="$V" $GATE_CMD ${PORT:+"$PORT"} | tee "$NAMED_DIR/experience-gate.log"; GATE_RC=${PIPESTATUS[0]}   # stdout only: stderr stays where default mode leaves it
     BOARD_OTHER="$(sed -n 's/.*cannot-tell: the board on :[0-9]* runs \([^ ,]*\), not .*/\1/p' "$NAMED_DIR/experience-gate.log" | head -1)"
     [ "$BOARD_OTHER" != "$V" ] || BOARD_OTHER=""
   else

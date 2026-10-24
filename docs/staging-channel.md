@@ -93,7 +93,8 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    staging. `tools/promote-channel.sh <site-checkout> <port> --version <V>` reads V's pointer and
    installer from the site commit that published them, so staging can take later cuts while the GO waits.
    - **Which commit.** One on the checkout's HEAD whose `latest-staging.json` names V. When the site has
-     an origin, it must also be on origin's main (a commit that is not is ignored), and the checkout's `latest.json` must be origin's, so
+     an origin, it must also be on origin's main (a commit that is not is ignored), and the
+     checkout's `latest.json` must be origin's, so
      every check reads one prod baseline. If V was cut more than once, the promote refuses and lists the
      builds: add `--sha <8+ characters of the approved build's sha256>`. Where builds share the bytes but
      name another artifact or manifest, `--commit <site sha>` picks the commit (it must still name V, and
@@ -113,9 +114,9 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    - **The board gates still need a board on V.** Once the cut box's board has moved to a later staging
      build, the experience gate answers cannot-tell, so the promote HOLDS (exit 2), forceable only after a
      hand check of V; the board check it could not run is then made after the deploy on a Mac that has
-     updated to V. When the experience gate READ the board as another version, an agent-spawn FAIL there
-     is about that build and counts as cannot-tell too; when it could not read the version at all, an
-     agent-spawn FAIL still refuses, since that board may be running V. The tunnel gate runs V's own
+     updated to V. When the experience gate READ the board as another version, an agent-spawn FAIL or
+     PARTIAL there is about that build and counts as cannot-tell too; when it could not read the version
+     at all, they stand as in default mode, since that board may be running V. The tunnel gate runs V's own
      tarball, so its verdict stands. A named promote prints the sha256 of the manifest it checked.
 5. **Deploy the promoted pointer to prod.** `promote-channel.sh` only rewrites `latest.json` in the
    LOCAL site checkout ("the next site deploy publishes the prod pointer. No rebuild happened.");
