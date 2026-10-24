@@ -44,5 +44,9 @@ joins #6838's list.
 - ios/LogicTests pass, with mutants for the range check, the moved-twice rule, the failure stop, the gap pages and rows,
   and the reset guard.
 - Debug simulator build with -warn-long-expression-type-checking=100; Release has no sample code.
-- Simulator: the sample chat loads its earlier page by itself and keeps "Yesterday" in view (shot
-  6-older-auto-light.png); the loading line (6-older-loading-*) and the failed line (6b-older-failed-*), light and dark.
+- Simulator (Debug samples; no tool here taps or scrolls, so KOSMOS_SAMPLE_SCROLLTOP=1 scrolls in code):
+  - a short chat loads its earlier page by itself and keeps "Yesterday" in view (6-older-auto-light);
+  - a 260-message chat opens at the newest message and loads nothing (6c-long-chat-opens-at-newest-light);
+  - scrolled to the top, it loads the earlier page (6d-long-chat-scrolled-up-loaded-light);
+  - a page ending on the same day keeps "Message 41" at the top as it lands (6e-page-lands-place-kept-light);
+  - the loading line (6-older-loading-*) and the failed line (6b-older-failed-*), light and dark.
