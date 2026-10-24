@@ -150,9 +150,11 @@ enum NotificationAction {
         return PermissionPress(n: n, label: label, asked: asked, request: request, allow: allow)
     }
 
-    // The chat's read just before an Allow or Deny goes (GET /api/agent/<name>/thread). A notice can be minutes old, and
-    // every permission prompt asks the same question with the same Yes and No, so the press goes only while the agent
-    // is still asking AND the board's card is the very request this notice was about (its fingerprint, `request`).
+    // The chat's read just before an Allow or Deny goes (GET /api/agent/<name>/thread). A notice can be minutes old, so
+    // the press goes only while the agent is still asking the same question (`asked`, the whole box, which the board
+    // checks again on the press) AND the board's card carries the notice's fingerprint (`request`), a second check on
+    // the card's reading of the request. A prompt still up whose buttons the board will not draw just now (its box top
+    // scrolled off) reads as changed too: nothing is sent either way.
     enum PermissionVerdict: Equatable { case go, changed, unreadable(String) }
 
     static func permissionVerdict(status: Int, data: Data?, press: PermissionPress, agent: String) -> PermissionVerdict {
@@ -200,7 +202,7 @@ enum NotificationAction {
         case .refused(let why):
             let w = why.trimmingCharacters(in: .whitespaces)
             return w.isEmpty ? "Nothing was \(verb) for \(who). Open the chat to answer."
-                : "Nothing was \(verb) for \(who). \(w)\(w.hasSuffix(".") ? "" : ".")"
+                : "Nothing was \(verb) for \(who). \(w)\(w.hasSuffix(".") || w.hasSuffix("!") || w.hasSuffix("?") ? "" : ".")"
         }
     }
 

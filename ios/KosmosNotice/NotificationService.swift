@@ -15,28 +15,40 @@ final class NotificationService: UNNotificationServiceExtension {
     private var work: Task<Void, Never>?
 
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+        // kosmos#7017 review 4: Allow and Deny only ever come from this extension's own reading of the computer's answer,
+        // so whatever a push arrived with is cleared first, on every path (the time limit's and a failed fetch's too).
+        let arrived = Self.withoutPermission(request.content)
         lock.lock()
         handler = contentHandler
-        original = request.content
+        original = arrived
         lock.unlock()
-        let info = request.content.userInfo
+        let info = arrived.userInfo
         let stored = Self.keptMacSession()
         guard let ask = PhoneNotice.wordsRequest(userInfo: info, stored: stored) else {
-            finish(request.content)
+            finish(arrived)
             return
         }
         let task = Task { [weak self] in
-            let shown = await Self.messageContent(original: request.content, ask: ask, info: info, stored: stored) { words in
+            let shown = await Self.messageContent(original: arrived, ask: ask, info: info, stored: stored) { words in
                 guard let self else { return }
                 self.lock.lock()
                 self.wordsOnly = words
                 self.lock.unlock()
             }
-            self?.finish(shown ?? request.content)
+            self?.finish(shown ?? arrived)
         }
         lock.lock()
         work = task
         lock.unlock()
+    }
+
+    // The notice without any Allow and Deny it arrived with: the permission category and the press data removed.
+    static func withoutPermission(_ content: UNNotificationContent) -> UNNotificationContent {
+        guard PhoneNotice.carriesPermission(category: content.categoryIdentifier, userInfo: content.userInfo),
+              let copy = content.mutableCopy() as? UNMutableNotificationContent else { return content }
+        copy.categoryIdentifier = PhoneNotice.cleanedCategory(content.categoryIdentifier)
+        copy.userInfo = PhoneNotice.cleanedInfo(content.userInfo)
+        return copy
     }
 
     // iOS is about to give up on this extension: show the words if they are in, else the notice as it came.

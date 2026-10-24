@@ -4081,8 +4081,9 @@ function dmPressable({ guideThread, card, options, question, view }) {
    (chat.permissionRequestId), the same one the thread route serves on the card, so the phone can refuse a press for a
    request no longer up. `shown` is the whole request as the lock screen says it (phonePermissionShown): a person is
    never asked to allow a command they cannot read in full. Never a lasting choice: Allow is the plain "Yes", and the "always allow"
-   kinds are not offered from a lock screen at all. Null whenever any of that does not hold, or when the question's
-   identity is longer than the phone carries (2000). Never throws. */
+   kinds are not offered from a lock screen at all. Null whenever any of that does not hold. The 2000 cap on the
+   question's identity is a backstop that matches the phone's: while `shown` must fit 400 characters it cannot be
+   reached, since the identity is the same box plus a few lines. Never throws. */
 const PHONE_ASKED_MAX = 2000;
 function phonePermissionNow(name, at, roster) {
   try {

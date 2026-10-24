@@ -177,6 +177,18 @@ enum PhoneNotice {
         return p
     }
 
+    // kosmos#7017 review 4: a push that arrives already carrying Allow and Deny (the category or the press data) did not
+    // get them from this extension; they are cleared before anything else.
+    static func carriesPermission(category: String, userInfo: [AnyHashable: Any]) -> Bool {
+        category == permissionCategory || userInfo[permissionInfoKey] != nil
+    }
+    static func cleanedCategory(_ category: String) -> String { category == permissionCategory ? "" : category }
+    static func cleanedInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
+        var out = userInfo
+        out[permissionInfoKey] = nil
+        return out
+    }
+
     // The permission as the notice's userInfo carries it (plist types only).
     static func permissionInfo(_ p: Permission) -> [String: Any] {
         ["allowN": p.allow.n, "allowLabel": p.allow.label, "denyN": p.deny.n, "denyLabel": p.deny.label, "asked": p.asked, "request": p.request]

@@ -3219,14 +3219,16 @@ function permissionCard(text) {
   if (!ruled) return null;
   const extra = ((isCommand || isFile) && subSure) ? '' : sub;
   // A file's text is drawn with a line-number gutter ("  1 hello"); the details show the text (review 2).
-  const gutter = isFile && detail && detail.split('\n').every((l) => !l.trim() || /^\s*\d+\s/.test(l));
+  // kosmos#7017 review 4: a blank line is drawn "  2 " and reaches here trimmed to "2", so the number may end the line.
+  const gutter = isFile && detail && detail.split('\n').every((l) => !l.trim() || /^\s*\d+(\s|$)/.test(l));
   const fileText = gutter ? detail.split('\n').map((l) => l.replace(/^\s*\d+\s?/, '')).join('\n') : detail;
   return { kind, title, says: isCommand && subSure ? sub : '', target: isFile && subSure ? sub : '',
     detail: [extra, fileText].filter(Boolean).join('\n'), reason, allow: allow.n, deny: deny.n };
 }
 /* kosmos#7017 part 2: one permission request's fingerprint, from its card (permissionCard): sha256 hex of what the card
    says the request is, joined with U+001F. Every permission prompt asks "Do you want to proceed?" with "Yes" and "No", so
-   the question line cannot tell two requests apart; this can. The phone checks a lock-screen press against the card's
+   the question line alone cannot tell two commands apart. The press's `asked` (the whole box, #6054) is checked by
+   the phone and again by the board; this is a second check on the card's reading of it, not a replacement for that. The phone checks a lock-screen press against the card's
    fingerprint read again just before it sends, so a notice minutes old never answers a different command with the same
    words. The same text on a pane redrawn at another width may wrap differently and read as another request: that refuses
    an honest press, the safe direction. The same words asked again later (from another folder, say) read as the same
