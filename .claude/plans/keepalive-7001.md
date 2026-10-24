@@ -389,3 +389,20 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - NIT FIXED: ka-dry asserts the "WOULD: launchctl kill SIGTERM" line (mutant red).
 - DEFERRED NIT: a busy relay can delay this runner's reload (the first job check is user-wide on purpose: refusing there
   stops nothing, and the plist alone covers the next login).
+
+## Review round 28 (sonnet, blind, HEAD d3762689a8)
+- W1 FIXED (and with it the follow-up card (b) I had planned, raised in rounds 23, 25 and 28): register and install
+  waited for any new Runner.Listener of the user BY NAME, so the relay's respawning Listener could read as this runner
+  started. One own_listener_re() (anchored, dots escaped) now serves register, install, wait_for_listener and keepalive.
+  The pgrep stub's -x branch now lists the relay's Listener (as a real name match would), its -f branch knows
+  FX_OLD_TOO, svc.sh start can respawn the relay (FX_RELAY_RESPAWN_ON_START). rg-relayrespawn; mutant (back to -x) red.
+  Three tests read the reworded "no new Runner.Listener of" message; updated (grep of every reader before running).
+- W2 FIXED, MEASURED: the loaded ThrottleInterval was never checked. launchd prints it as "minimum runtime = N" (23 in,
+  23 out; 10 when unset), so loaded_keepalive now needs it >= 10, and the post-reload FAILED message names both values.
+  Stub prints minimum runtime from the plist at bootstrap; ka-oldthrottle; mutant red.
+- W3 FIXED: the print stub never modelled the realistic SIGTERM (exit 0: no pid, "not running"). FX_EXIT_AFTER_KILL;
+  ka-exited (booted out and reloaded); a mutant refusing on no pid is red.
+- NITs FIXED: ka-jobduring's comment said "refused"; a duplicated cleanup line.
+- DEFERRED NITs: verify's message when the plist exists but is unreadable (needs an unusual directory permission);
+  plist_int_ge on a dict/array holding an integer (hand-mangled plist only); the trap-order test is source order (the
+  HUP case sends a real signal).

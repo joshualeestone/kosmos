@@ -42,6 +42,7 @@ case "$me" in
         [ "${FX_RELAY_WORKER_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/relay-worker-up"   # a relay job, then
         [ "${FX_RESPAWN_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/respawned"  # launchd restarted it
         [ "${FX_SPAWN_SCHEDULED_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/spawn-scheduled"   # restart pending
+        [ "${FX_EXIT_AFTER_KILL:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/exited"   # it ended with exit 0 (a stop)
         exit 0 ;;
       print-disabled) [ "${FX_PD_FAIL:-0}" = 1 ] && exit 1; printf 'disabled services = {\n'
         [ "${FX_DISABLED:-0}" = 1 ] && printf '\t"actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" => disabled\n'
@@ -49,7 +50,7 @@ case "$me" in
       bootout) # Whether the old job's process (FX_JOB_PID) was still alive when the bootout came: the test asserts it.
         [ -z "${FX_JOB_PID:-}" ] || { kill -0 "$FX_JOB_PID" 2>/dev/null && echo "bootout-while-alive" >> "$CALL_LOG" || echo "bootout-after-exit" >> "$CALL_LOG"; }
         [ "${FX_BOOTOUT_FAIL:-0}" = 1 ] && exit 5; [ "${FX_BOOTOUT_STUCK:-0}" = 1 ] && exit 0; touch "$out"; exit 0 ;;
-      bootstrap) [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; rm -f "$out"; touch "$(dirname "$CALL_LOG")/bootstrapped"
+      bootstrap) [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; rm -f "$out" "$(dirname "$CALL_LOG")/exited"; touch "$(dirname "$CALL_LOG")/bootstrapped"
         [ "${FX_LISTENER:-1}" = 1 ] && echo started > .svc-state
         [ "${FX_NO_LISTENER_AFTER:-0}" = 1 ] && echo stopped > .svc-state   # this runner's Listener never comes back
         # The loaded job has KeepAlive exactly when the plist it was loaded from does (state kept across runs). The printed
@@ -61,21 +62,27 @@ case "$me" in
             *"<integer>"*) plutil -extract ExitTimeOut raw -o - "$3" > "$(dirname "$CALL_LOG")/loaded-ka" ;;
             *) echo 5 > "$(dirname "$CALL_LOG")/loaded-ka" ;; esac
         else rm -f "$(dirname "$CALL_LOG")/loaded-ka"; fi
+        # ThrottleInterval, as launchd shows it ("minimum runtime"; 10 when unset or not an <integer>).
+        case "$(plutil -extract ThrottleInterval xml1 -o - "$3" 2>/dev/null)" in
+          *"<integer>"*) plutil -extract ThrottleInterval raw -o - "$3" > "$(dirname "$CALL_LOG")/loaded-thr" ;;
+          *) echo 10 > "$(dirname "$CALL_LOG")/loaded-thr" ;; esac
         # FX_BOOTSTRAP_SAME_PID=1: the old Listener is still the only one listed (launchd started no new one).
         [ "${FX_BOOTSTRAP_SAME_PID:-0}" = 1 ] || echo $(( $(cat .svc-pid 2>/dev/null || echo 4343) + 1 )) > .svc-pid; exit 0 ;;
     esac
     case "$1 $2" in "print gui/"*/*) { [ -f "$out" ] || [ "${FX_NOT_LOADED:-0}" = 1 ]; } && exit 113
         # A nested block first, as launchd prints coalitions (two tabs): only one-tab lines are the job's own.
         jst="${FX_JOB_STATE:-running}"; [ -f "$(dirname "$CALL_LOG")/spawn-scheduled" ] && jst="spawn scheduled"
+        [ -f "$(dirname "$CALL_LOG")/exited" ] && jst="not running"
         printf '%s = {\n\tresource coalition = {\n\t\tstate = active\n\t\tpid = 1\n\t}\n\tstate = %s\n' "$2" "$jst"
         # A running job shows its pid (999999 by default: a pid that cannot exist, so a wait on it ends at once).
-        if [ -f "$(dirname "$CALL_LOG")/spawn-scheduled" ]; then :   # no pid while the restart waits (measured)
+        if [ -f "$(dirname "$CALL_LOG")/spawn-scheduled" ] || [ -f "$(dirname "$CALL_LOG")/exited" ]; then :   # no pid (measured)
         elif [ -f "$(dirname "$CALL_LOG")/respawned" ]; then printf '\tpid = 888888\n'
         elif [ "${FX_NO_PID:-0}" != 1 ]; then printf '\tpid = %s\n' "${FX_JOB_PID:-999999}"; fi
         lk="$(dirname "$CALL_LOG")/loaded-ka"
         [ -f "$lk" ] && printf '\tsemaphores = {\n\t\tsuccessful exit => 0\n\t}\n'
         # FX_LOADED_ALWAYS=1: the loaded job has KeepAlive true, as launchd prints it (measured, macOS 27, 2026-10-23).
         [ "${FX_LOADED_ALWAYS:-0}" = 1 ] && printf '\tproperties = keepalive | runatload | inferred program\n'
+        printf '\tminimum runtime = %s\n' "$( [ -s "$(dirname "$CALL_LOG")/loaded-thr" ] && cat "$(dirname "$CALL_LOG")/loaded-thr" || echo 10)"
         printf '\texit timeout = %s\n' "$( [ -s "$lk" ] && cat "$lk" || echo 5)"
         printf '}\n'; exit 0 ;; esac
     [ "$1 ${2%%/*}" = "print gui" ] || exit 1
@@ -98,13 +105,18 @@ case "$me" in
       pat="${*: -1}"; own="$kh/actions-runner/bin/Runner.Listener run --startuptype service"
       rel="$kh/actions-runner-relay/bin/Runner.Listener run --startuptype service"; hit=1
       if [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] && printf '%s\n' "$own" | grep -q -E -e "$pat"; then cat .svc-pid 2>/dev/null || echo 4343; hit=0; fi
+      # FX_OLD_TOO: another Listener of THIS runner dir (an old one, or one started by hand with ./run.sh), listed first.
+      if [ -n "${FX_OLD_TOO:-}" ] && printf '%s\n' "$kh/actions-runner/bin/Runner.Listener run" | grep -q -E -e "$pat"; then echo "$FX_OLD_TOO"; hit=0; fi
       # FX_LOOKALIKE=1: a process that only MENTIONS this runner's Listener path (a tail of it).
       if [ "${FX_LOOKALIKE:-0}" = 1 ] && printf '%s\n' "tail -f $own" | grep -q -E -e "$pat"; then echo 6161; hit=0; fi
       if [ "${FX_RELAY_LISTENER:-0}" = 1 ] && printf '%s\n' "$rel" | grep -q -E -e "$pat"; then
         [ -f "$(dirname "$CALL_LOG")/bootstrapped" ] && echo 5556 || echo 5555; hit=0; fi
       exit "$hit" ;; esac
     case "$*" in *Runner.Listener*) [ "${FX_LISTENER_PGREP_FAIL:-0}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] && [ -e .svc-pid ] && exit 3; # FX_OLD_TOO: another Listener (an old one, or one started by hand) listed first whatever the service's state.
+      # By name (-x), the relay's Listener is a Runner.Listener too (#6245): a name match cannot tell them apart.
+      if [ "${FX_RELAY_LISTENER:-0}" = 1 ]; then [ -f "$(dirname "$CALL_LOG")/bootstrapped" ] && echo 5556 || echo 5555; fi
       if [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ]; then [ -z "${FX_OLD_TOO:-}" ] || echo "$FX_OLD_TOO"; cat .svc-pid 2>/dev/null || echo 4343; exit 0; fi
+      [ "${FX_RELAY_LISTENER:-0}" = 1 ] && exit 0
       [ -n "${FX_OLD_TOO:-}" ] && { echo "$FX_OLD_TOO"; exit 0; }; exit 1 ;; esac
     # A self-updated runner's Worker runs from bin.<version>/Runner.Worker: a name match (-x) sees it, bin/Runner.Worker does not.
     # -P <Listener pids>: only this runner's job (worker-up), never the relay's (relay-worker-up).
@@ -188,7 +200,9 @@ case "$me" in
         if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$lag"; echo "Started"
         elif [ "${FX_SVC_STUCK:-0}" = 1 ] || [ "$(cat "$st" 2>/dev/null)" = started ]; then echo "Started"; else echo "Stopped"; fi ;;
       stop) echo stopped > "$st"; [ -z "${FX_SVC_STOP_LAG:-}" ] || echo "$FX_SVC_STOP_LAG" > "$(dirname "$0")/.svc-lag" ;;
-      start) [ "${FX_SVC_START_FAIL:-0}" = 1 ] && exit 1; echo started > "$st"
+      start) [ "${FX_SVC_START_FAIL:-0}" = 1 ] && exit 1
+        [ "${FX_LISTENER:-1}" = 1 ] && echo started > "$st"
+        [ "${FX_RELAY_RESPAWN_ON_START:-0}" = 1 ] && touch "$(dirname "$CALL_LOG")/bootstrapped"   # the relay's pid changes
         # What launchd loads at this start: the plist as it is NOW (kosmos#7001: KeepAlive must be in it before start).
         echo "start-ka=$(plutil -extract KeepAlive.SuccessfulExit raw -o - "$(head -n 1 "$(dirname "$0")/.service" 2>/dev/null)" 2>/dev/null)" >> "$CALL_LOG"
         [ "${FX_SAME_PID:-0}" = 1 ] || echo $(( $(cat "$(dirname "$0")/.svc-pid" 2>/dev/null || echo 4343) + 1 )) > "$(dirname "$0")/.svc-pid" ;;
@@ -520,11 +534,11 @@ run in-ssh "$R9" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R9" FX_MANAGER=Background -- 
 [ "$(rc in-ssh)" = 2 ] && has in-ssh "Screen Sharing session" && ! changed in-ssh >/dev/null && pass "install --apply refuses outside the GUI session (svc.sh would misread)" || fail "install over ssh: rc $(rc in-ssh)"
 R10="$T/run10"; svc_home "$R10"
 run in-nolistener "$R10" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R10" FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply install "$C" "$G"
-[ "$(rc in-nolistener)" = 1 ] && has in-nolistener "no new Runner.Listener is running" && ! has in-nolistener "runner started again" \
+[ "$(rc in-nolistener)" = 1 ] && has in-nolistener "no new Runner.Listener of" && ! has in-nolistener "runner started again" \
   && pass "install --apply fails when the runner loads but no Listener comes up" || fail "install no listener: rc $(rc in-nolistener): $(tail -1 "$T/in-nolistener.out")"
 R11="$T/run11"; svc_home "$R11"; echo 5000 > "$R11/actions-runner/.svc-pid"
 run in-oldlistener "$R11" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R11" FX_SAME_PID=1 KOSMOS_CI_START_WAIT_S=1 -- --apply install "$C" "$G"
-[ "$(rc in-oldlistener)" = 1 ] && has in-oldlistener "no new Runner.Listener is running" && pass "install --apply does not take the old Listener for a restarted one" || fail "install old listener: rc $(rc in-oldlistener): $(tail -1 "$T/in-oldlistener.out")"
+[ "$(rc in-oldlistener)" = 1 ] && has in-oldlistener "no new Runner.Listener of" && pass "install --apply does not take the old Listener for a restarted one" || fail "install old listener: rc $(rc in-oldlistener): $(tail -1 "$T/in-oldlistener.out")"
 R12="$T/run12"; svc_home "$R12"
 run in-sudo-iu "$R12" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R12" FX_MANAGERUID=501 -- --apply install "$C" "$G"
 [ "$(rc in-sudo-iu)" = 2 ] && has in-sudo-iu "belongs to another user" && ! changed in-sudo-iu >/dev/null && pass "install --apply refuses inside another user's GUI session (sudo -iu)" || fail "install sudo -iu: rc $(rc in-sudo-iu)"
@@ -572,7 +586,13 @@ has rg-dry "WOULD: add KeepAlive {SuccessfulExit: false}" && pass "register dry 
 echo stopped > "$CH/actions-runner/.svc-state"
 rm -f "$CH/actions-runner/.runner" "$CH/actions-runner/.service"   # rg-apply configured and registered it; this case is about the Listener
 STDIN_FILE="$T/token" run rg-nolistener "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply register
-[ "$(rc rg-nolistener)" = 1 ] && has rg-nolistener "no new Runner.Listener is running" && pass "register --apply fails when no Listener comes up" || fail "register no listener: rc $(rc rg-nolistener): $(tail -1 "$T/rg-nolistener.out")"
+[ "$(rc rg-nolistener)" = 1 ] && has rg-nolistener "no new Runner.Listener of" && pass "register --apply fails when no Listener comes up" || fail "register no listener: rc $(rc rg-nolistener): $(tail -1 "$T/rg-nolistener.out")"
+# The relay's Listener respawns while this runner's never comes up: a name match would call that started.
+echo stopped > "$CH/actions-runner/.svc-state"; rm -f "$T/bootstrapped" "$CH/actions-runner/.runner" "$CH/actions-runner/.service"
+STDIN_FILE="$T/token" run rg-relayrespawn "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_LISTENER=0 FX_RELAY_LISTENER=1 FX_RELAY_RESPAWN_ON_START=1 KOSMOS_CI_START_WAIT_S=1 -- --apply register
+rm -f "$T/bootstrapped"
+[ "$(rc rg-relayrespawn)" = 1 ] && has rg-relayrespawn "no new Runner.Listener of $CH/actions-runner" \
+  && pass "register --apply: the relay's Listener respawning is not taken for this runner starting" || fail "register relay respawn: rc $(rc rg-relayrespawn): $(tail -1 "$T/rg-relayrespawn.out")"
 RS="$T/rg-service"; svc_home "$RS"; cp "$BIN/_stub" "$RS/actions-runner/config.sh"; chmod +x "$RS/actions-runner/config.sh"
 mkdir -p "$RS/.kosmos-ci"; printf 'ACTIONS_RUNNER_HOOK_JOB_STARTED=%s\nACTIONS_RUNNER_HOOK_JOB_COMPLETED=%s\n' "$RS/.kosmos-ci/job-started.sh" "$RS/.kosmos-ci/job-completed.sh" > "$RS/actions-runner/.env"
 for f in job-guard.sh job-started.sh job-completed.sh job-cleanup.sh; do printf '#!/bin/bash\n' > "$RS/.kosmos-ci/$f"; chmod 755 "$RS/.kosmos-ci/$f"; done
@@ -602,7 +622,7 @@ STDIN_FILE="$T/token" run rg-noplist "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH"
 KH="$T/ka-home"; KA="$KH/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 KR="$KH/Library/LaunchAgents/actions.runner.joshualeestone-kosmos-relay.agent1s-relay.plist"
 ka_fresh() {   # an installed runner as svc.sh leaves it: started, its plist without KeepAlive
-  rm -rf "$KH"; rm -f "$T/loaded-ka"; mkdir -p "$KH/actions-runner" "$KH/Library/LaunchAgents"
+  rm -rf "$KH"; rm -f "$T/loaded-ka" "$T/loaded-thr"; mkdir -p "$KH/actions-runner" "$KH/Library/LaunchAgents"
   cp "$BIN/_stub" "$KH/actions-runner/svc.sh"; chmod +x "$KH/actions-runner/svc.sh"
   (cd "$KH/actions-runner" && HOME="$KH" CALL_LOG=/dev/null ./svc.sh install && echo started > .svc-state && echo 4343 > .svc-pid)
   # The kosmos-relay runner under the same user (#6245): its plist sorts BEFORE this repo's ('-' before '.').
@@ -693,7 +713,8 @@ el=$((SECONDS - t0)); wait "$sp" 2>/dev/null
 # kill-while-alive: the process was still up at the SIGTERM, so "after exit" at the bootout means the script waited.
 [ "$(rc ka-waits)" = 0 ] && grep -qx 'kill-while-alive' "$T/ka-waits.calls" && grep -qx 'bootout-after-exit' "$T/ka-waits.calls" && ! has ka-waits "had not ended" && [ "$el" -ge 3 ] \
   && pass "keepalive --apply waits for the old runner to end after SIGTERM before booting it out" || fail "keepalive waits: rc $(rc ka-waits): $(grep bootout- "$T/ka-waits.calls")"
-# A job up while the old runner outlived the SIGTERM wait (it may be that runner's): the bootout is refused.
+# A job of this runner up while the old runner outlived the SIGTERM wait: a second wait, then the reload anyway (refusing
+# would leave a SIGTERMed runner down).
 sleep 30 & jsp=$!
 ka_fresh; rm -f "$T/worker-up"; run ka-jobduring "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_WORKER_AFTER_KILL=1 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
@@ -707,7 +728,6 @@ kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
 [ "$(rc ka-jobends)" = 0 ] && has ka-jobends "Waiting up to 3s more" && [ "$(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls")" -ge 3 ] \
   && grep -q '^launchctl bootstrap' "$T/ka-jobends.calls" \
   && pass "keepalive --apply: the second wait polls this runner's job until it ends, then reloads" || fail "keepalive job ends: rc $(rc ka-jobends): -P reads $(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls"): $(tail -1 "$T/ka-jobends.out")"
-rm -f "$T/worker-up"
 rm -f "$T/worker-up"
 # The old runner outlived the wait and a RELAY job starts: not this runner's, so no veto; the reload goes on.
 sleep 30 & jsp=$!
@@ -735,6 +755,16 @@ ka_fresh; rm -f "$T/respawned"; run ka-respawn "$KH" FX_CI_EXISTS=1 FX_WHO=kosmo
 [ "$(rc ka-respawn)" = 1 ] && has ka-respawn "launchd restarted" && has ka-respawn "now 888888" && grep -q '^launchctl kill SIGTERM' "$T/ka-respawn.calls" && ! grep -q '^launchctl bootout' "$T/ka-respawn.calls" \
   && pass "keepalive --apply: a restart by launchd after the SIGTERM is refused before the bootout" || fail "keepalive respawn: rc $(rc ka-respawn): $(tail -1 "$T/ka-respawn.out")"
 rm -f "$T/respawned"
+# The realistic SIGTERM: the job ends with exit 0, so launchd shows no pid and "not running": the reload goes on.
+ka_fresh; rm -f "$T/exited"; run ka-exited "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_EXIT_AFTER_KILL=1 -- --apply keepalive
+[ "$(rc ka-exited)" = 0 ] && grep -q '^launchctl kill SIGTERM' "$T/ka-exited.calls" && grep -q '^launchctl bootout ' "$T/ka-exited.calls" && grep -q '^launchctl bootstrap ' "$T/ka-exited.calls" && ! has ka-exited "refused" \
+  && pass "keepalive --apply: a runner that ends with exit 0 after the SIGTERM (no pid, not running) is booted out and reloaded" || fail "keepalive exited after SIGTERM: rc $(rc ka-exited): $(tail -1 "$T/ka-exited.out")"
+rm -f "$T/exited"
+# A plist with ThrottleInterval 10 under a loaded job whose throttle (minimum runtime) is 1: not done, it needs a reload.
+ka_fresh; cp "$T/ka.after" "$KA"; echo 35 > "$T/loaded-ka"; echo 1 > "$T/loaded-thr"
+run ka-oldthrottle "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
+[ "$(rc ka-oldthrottle)" = 0 ] && ! has ka-oldthrottle "restarts after a SIGKILL or a crash" && has ka-oldthrottle "it needs a reload" \
+  && pass "keepalive dry run: a loaded throttle under 10 is not done (launchd's minimum runtime)" || fail "keepalive old throttle: rc $(rc ka-oldthrottle): $(tail -2 "$T/ka-oldthrottle.out")"
 # Exited non-zero under a loaded KeepAlive: launchd shows "spawn scheduled" with no pid; the bootout would cut the restart.
 ka_fresh; rm -f "$T/spawn-scheduled"; run ka-spawnsched "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_SPAWN_SCHEDULED_AFTER_KILL=1 -- --apply keepalive
 [ "$(rc ka-spawnsched)" = 1 ] && has ka-spawnsched "state = spawn scheduled after the SIGTERM" && grep -q '^launchctl kill SIGTERM' "$T/ka-spawnsched.calls" && ! grep -q '^launchctl bootout' "$T/ka-spawnsched.calls" \

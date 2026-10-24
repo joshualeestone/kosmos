@@ -246,8 +246,12 @@ label_disabled() {
 loaded_keepalive() {
   local out t; out="$(launchctl print "$1" 2>/dev/null)" || return 1
   printf '%s\n' "$out" | grep -x -E '[[:space:]]*successful exit => 0' >/dev/null || return 1
-  t="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*exit timeout = \([0-9][0-9]*\)$/\1/p' | head -n 1)"
-  [ -n "$t" ] && [ "$t" -ge 35 ]
+  t="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*exit timeout = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
+  [ -n "$t" ] && [ "$t" -ge 35 ] || return 1
+  # ThrottleInterval, loaded: launchd prints it as "minimum runtime = N" (measured on macOS 27, 2026-10-23: 23 in, 23
+  # out; 10 when the key is unset), so a stale loaded throttle after a hand edit is seen too.
+  t="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*minimum runtime = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
+  [ -n "$t" ] && [ "$t" -ge 10 ]
 }
 # add_keepalive <plist>: written beside it and renamed in, as put does, so a failure leaves the old file whole.
 add_keepalive() {
@@ -538,7 +542,7 @@ install_runner() {
   if [ -x ./svc.sh ]; then
     sv="$(./svc.sh status 2>&1 || true)"
     # The Listener that runs now, so the wait after the restart can require a new one.
-    old_listener="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"
+    old_listener="$(pgrep -u "$(id -u)" -f "$(own_listener_re)" || true)"
     case "$sv" in *Started*) was_running=1; ./svc.sh stop >/dev/null 2>&1 || true ;; esac
     if [ "$was_running" = 1 ]; then
       # kosmos#7001: with ExitTimeOut 35 a stop can take up to ~30 s (the Listener ends its GitHub session), so it is
@@ -630,7 +634,7 @@ register() {
   [ -n "$plist" ] || { echo "FAILED: svc.sh install wrote no actions.runner LaunchAgent under $CI_HOME/Library/LaunchAgents" >&2; exit 1; }
   add_keepalive "$plist" || { echo "FAILED: could not add KeepAlive to $plist (a killed runner would stay offline); the runner is registered but not started: as $CI_USER, tools/ci-runner-setup.sh --apply keepalive, then ./svc.sh start" >&2; exit 1; }
   # A Listener already running (a runner started by hand with ./run.sh) must not count as the service's.
-  local before_start; before_start="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"
+  local before_start; before_start="$(pgrep -u "$(id -u)" -f "$(own_listener_re)" || true)"
   ./svc.sh start
   wait_for_listener "$before_start"
   ./svc.sh status
@@ -639,14 +643,19 @@ register() {
 # wait_for_listener <pid before>: svc.sh start is a launchctl load, which succeeds for a service that dies at once.
 # A Listener other than <pid before> (the old one may still be shutting down) must appear, or this fails.
 # <pids before> may hold several (one per line): the old Listener can outlive the stop, so any pid not among them counts.
+# own_listener_re: THIS runner's Listener, by its absolute argv start: not the relay's (its dir is actions-runner-relay,
+# #6245, same user), not a tail or grep that merely mentions the path. bin[^/]* also matches bin.<version> after an update.
+own_listener_re() {
+  printf '^%s/bin[^/]*/Runner[.]Listener( |$)' "$(printf '%s' "$RUNNER_DIR" | sed 's/[.]/[.]/g')"
+}
 wait_for_listener() {
   local before="$1" now waited=0 limit="${KOSMOS_CI_START_WAIT_S:-30}"
   case "$limit" in ''|*[!0-9]*) echo "FAILED: KOSMOS_CI_START_WAIT_S is '$limit', not a number of seconds" >&2; exit 1 ;; esac
   local prc
-  while prc=0; now="$(pgrep -u "$(id -u)" -x Runner.Listener)" || prc=$?
+  while prc=0; now="$(pgrep -u "$(id -u)" -f "$(own_listener_re)")" || prc=$?
         [ "$prc" -lt 2 ] || { echo "FAILED: could not list processes (pgrep exit $prc) to see whether the runner started" >&2; exit 1; }
         [ -z "$(printf '%s\n' "$now" | grep -v -x -F -e "${before:-none}" || true)" ]; do
-    [ "$waited" -lt "$limit" ] || { echo "FAILED: the runner was loaded but no new Runner.Listener is running after ${waited}s; see ~/Library/Logs/actions.runner.*/stderr.log" >&2; exit 1; }
+    [ "$waited" -lt "$limit" ] || { echo "FAILED: the runner was loaded but no new Runner.Listener of $RUNNER_DIR is running after ${waited}s; see ~/Library/Logs/actions.runner.*/stderr.log" >&2; exit 1; }
     sleep 1; waited=$((waited + 1))
   done
 }
@@ -681,7 +690,7 @@ keepalive() {
   cd "$RUNNER_DIR" || { echo "refused: no runner in $RUNNER_DIR" >&2; exit 1; }
   # THIS runner's Listener, by its absolute argv start (not the relay's: its dir is actions-runner-relay; not a tail or
   # grep that merely mentions the path). Processes are the CI user's, whoever runs a dry run.
-  local own_re; own_re="^$(printf '%s' "$RUNNER_DIR" | sed 's/[.]/[.]/g')/bin[^/]*/Runner[.]Listener( |\$)"
+  local own_re; own_re="$(own_listener_re)"
   local limit="${KOSMOS_CI_UNLOAD_WAIT_S:-45}"   # over the old job's own exit timeout; a number: checked at the top
   launchctl print "$dom" >/dev/null 2>&1 || { echo "refused: no $dom domain ($CI_USER is not logged in, so its runner cannot run); log in, then run this again" >&2; exit 1; }
   # Three facts: the plist has it, the job is loaded, the LOADED job has it. Only all three mean a kill is survived.
@@ -898,7 +907,7 @@ keepalive() {
   if ! loaded_keepalive "$dom/$label"; then
     local lo; lo="$(launchctl print "$dom/$label" 2>/dev/null || true)"
     if printf '%s\n' "$lo" | grep -x -E '[[:space:]]*successful exit => 0' >/dev/null; then
-      echo "FAILED: $label was reloaded and runs with KeepAlive, but launchctl print shows its exit timeout under 35 ($(printf '%s\n' "$lo" | sed -n 's/^[[:space:]]*exit timeout = //p' | head -n 1)): check ExitTimeOut in $plist" >&2; exit 1
+      echo "FAILED: $label was reloaded and runs with KeepAlive, but launchctl print shows exit timeout $(printf '%s\n' "$lo" | sed -n 's/^[[:space:]]*exit timeout = //p' | head -n 1 || true) (needs 35 or more) and minimum runtime $(printf '%s\n' "$lo" | sed -n 's/^[[:space:]]*minimum runtime = //p' | head -n 1 || true) (needs 10 or more): check ExitTimeOut and ThrottleInterval in $plist" >&2; exit 1
     fi
     echo "FAILED: $label was reloaded and runs, but launchctl print shows no 'successful exit => 0' semaphore, the wording this check keys on (measured on macOS 2026-10). If launchctl print $dom/$label shows KeepAlive some other way, the check is what is wrong, not the runner" >&2; exit 1
   fi
