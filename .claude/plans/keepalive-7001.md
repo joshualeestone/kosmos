@@ -599,3 +599,10 @@ moving (recent findings were in my own fixes: rounds 37, 39, 40). Round 41 was s
 - Ships as: the keepalive stage, register/install by this runner's own Listener, and verify's plist check.
 - To follow-up cards (not blockers): the deferred NITs of rounds 30-40 (listed in each round above), relay runners'
   KeepAlive, and the SIGTERM-is-a-stop decision.
+
+## PR #7043 CI: suite (shell macOS) red, fixed
+- Two verify cases I added (ka-library-closed, ka-service-unreadable) expected text built from the TEST's own
+  `$(id -un)`, while the script runs under the stubbed `id` (agent1 unless FX_WHO). Here both are agent1, so it never
+  showed; the CI Mac runs the job as the runner's own user. Now pinned to the stub's agent1; no expected text in the
+  file reads the real identity. Lesson: a fixture value that comes from the host matches only on the host it was
+  written on.

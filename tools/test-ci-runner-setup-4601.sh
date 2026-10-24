@@ -1096,7 +1096,7 @@ sed "s#$KH/actions-runner<#$VCI/actions-runner<#" "$T/ka.after" > "$VCI/Library/
 vcase keepalive 0 "has KeepAlive SuccessfulExit false"
 # As the owner in production: ~/Library closed, .service readable. A note saying KeepAlive was NOT checked, and the exit
 # is left alone (an exit 3 on every owner run would hide the checks that really could not be made).
-chmod 000 "$VCI/Library"; vcase ka-library-closed 0 "note:   KeepAlive NOT checked: $VCI/actions-runner/.service names no LaunchAgent of this runner under $VCI/Library/LaunchAgents that $(id -un) can see"; chmod 755 "$VCI/Library"
+chmod 000 "$VCI/Library"; vcase ka-library-closed 0 "note:   KeepAlive NOT checked: $VCI/actions-runner/.service names no LaunchAgent of this runner under $VCI/Library/LaunchAgents that agent1 can see"; chmod 755 "$VCI/Library"
 # Readable ~/Library, but .service names a plist that is not there: that is a PROBLEM, not the "cannot see" note.
 mv "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist" "$T/vci.plist.aside"
 vcase ka-plist-missing 1 "names no LaunchAgent of this runner (actions.runner.*.plist directly under"
@@ -1105,7 +1105,7 @@ mv "$T/vci.plist.aside" "$VCI/Library/LaunchAgents/actions.runner.joshualeestone
 chmod 000 "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 vcase ka-plist-unreadable 0 "KeepAlive NOT checked: $VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist cannot be read"
 chmod 644 "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
-chmod 000 "$VCI/actions-runner/.service"; vcase ka-service-unreadable 3 "cannot read $VCI/actions-runner/.service as $(id -un), so KeepAlive is not checked here"; chmod 644 "$VCI/actions-runner/.service"
+chmod 000 "$VCI/actions-runner/.service"; vcase ka-service-unreadable 3 "cannot read $VCI/actions-runner/.service as agent1, so KeepAlive is not checked here"; chmod 644 "$VCI/actions-runner/.service"
 rm -rf "$VCI/Library" "$VCI/actions-runner/.service"
 grep -q 'no tmux or node left' "$T/v-clear.out" && pass "verify: an idle runner's own node (RunnerService.js) is not a leftover" || fail "verify idle runner: $(grep -E 'REFUSE|ok' "$T/v-clear.out" | tail -2)"
 cp "$VCI/actions-runner/.env" "$T/vci.env"
