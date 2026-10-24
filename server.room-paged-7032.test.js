@@ -82,7 +82,7 @@ test('#7032 the server-made cursor walks back a page at a time to the start, eac
   assert.equal(r.json.olderCursor, null, 'the start of the room has no cursor');
 });
 
-test('#7032 a post arriving between two reads does not shift the older page', async () => {
+test('#7032 a post arriving between two reads does not shift the older page (its edge is a row, not a count)', async () => {
   const first = await room('?n=3');
   messages.roomNote(pid, 'row 8');
   await sleep(3);
@@ -171,4 +171,30 @@ test('#7032 review 3: a room whose log could not be read is a 503 when paged, ne
     assert.equal(whole.status, 200, 'CONTROL: the unpaged read keeps its own behaviour (ok:false, the board says it could not read)');
     assert.equal(whole.json.ok, false);
   } finally { messages.record = real; }
+});
+
+test('#7032 review 4: every paged row carries its exact place, the cursor is the first row\'s, and an empty cursor is the newest page', async () => {
+  const r = await room('?n=4');
+  for (const row of r.json.rows) assert.match(row.key, /\|\d+$/, JSON.stringify(row));
+  assert.equal(r.json.olderCursor, r.json.rows[0].key);
+  assert.equal(new Set(r.json.rows.map((x) => x.key)).size, r.json.rows.length, 'two rows share a key');
+  const empty = await room('?n=4&cursor=');
+  assert.equal(empty.status, 200);
+  assert.deepEqual(empty.json.rows.map((x) => x.key), r.json.rows.map((x) => x.key));
+  assert.equal('key' in ((await room()).json.rows[0] || {}), false, 'CONTROL: the board\'s unpaged rows are unchanged (no key)');
+});
+
+test('#7032 review 4: a post dated inside the newest page but written after it was read is in the newest page when re-read', async () => {
+  const own = projects.create({ name: 'Late Post Room' }).id;
+  const put = (row) => fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', project: own, from: 'dana', to: [], outcomes: {}, ...row }) + '\n');
+  put({ id: 'm7411', text: 'one', at: '2026-02-01T10:00:00.000Z' });
+  put({ id: 'm7412', text: 'two', at: '2026-02-01T10:00:02.000Z' });
+  put({ id: 'm7413', text: 'three', at: '2026-02-01T10:00:04.000Z' });
+  const read = async (q) => (await fetch(`${base}/api/project/${own}/room${q}`)).json();
+  const before = await read('?n=3');
+  put({ id: 'm7401', text: 'late', at: '2026-02-01T10:00:03.000Z' });   // dated between two rows already read, written after
+  const again = await read('?n=4');
+  assert.ok(again.rows.some((x) => x.text === 'late'), 'the late-written post is not in the re-read newest page');
+  assert.deepEqual(again.rows.map((x) => x.text), ['one', 'two', 'late', 'three'], 'not in its time place');
+  assert.deepEqual(before.rows.map((x) => x.text), ['one', 'two', 'three'], 'premise: the first read did not have it');
 });

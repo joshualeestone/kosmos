@@ -282,7 +282,9 @@ first row, as its stored time and how many rows share that time ahead of it), so
 paged as exactly as posts. A cursor that names no row of the room is a 400 with an error, and a room the computer could
 not read just now is a 503, never an empty page. A post is
 dated when its send starts and written when delivery ends, so it can land after a page was read: re-read the newest
-page and merge by row, rather than trusting a page read once. Without `n` the route is what the computer's board reads:
+page and merge by each row's `key` (its exact place, the cursor's own form, which Kosmos lines carry too), rather than
+trusting a page read once. A `replyTo`, a claim or an `unanswered` entry can name a post on an older page: that post is
+not gone, it is not loaded yet. An empty `cursor` is the newest page. Without `n` the route is what the computer's board reads:
 the whole room.
 
 ## Not in scope

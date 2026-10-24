@@ -21355,7 +21355,7 @@ const server = http.createServer(async (req, res) => {
       asText = q.get('as') === 'text';
       const n = q.get('n');
       if (n !== null && /^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200) { textRows = Number(n); jsonRows = Number(n); }
-      if (jsonRows !== null) jsonCursor = q.get('cursor');
+      if (jsonRows !== null) jsonCursor = q.get('cursor') || null;   // an empty cursor is no cursor (the newest page)
     } catch { asText = false; }
     /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
        do, instead of rendering it as an empty room -- a typo or a hyphenated-name
@@ -21688,16 +21688,17 @@ const server = http.createServer(async (req, res) => {
           }
           pool = rows.slice(0, at);
         }
-        const page = pool.slice(-jsonRows);
+        // Each row on a page carries `key`, its exact place ("<at>|<k>", the cursor's own form), so the phone can merge
+        // a re-read page row by row, Kosmos lines (which carry no id) included.
+        const firstOfTime = new Map();
+        rows.forEach((r, i) => { if (r && typeof r.at === 'string' && !firstOfTime.has(r.at)) firstOfTime.set(r.at, i); });
+        const page = pool.slice(-jsonRows).map((r, j) => {
+          const i = pool.length - Math.min(jsonRows, pool.length) + j;
+          return r && typeof r.at === 'string' && firstOfTime.has(r.at) ? { ...r, key: r.at + '|' + (i - firstOfTime.get(r.at)) } : r;
+        });
         const olderCount = pool.length - page.length;
         // The next older page's cursor: the first row's time and how many rows of that time sit ahead of it.
-        let olderCursor = null;
-        const first = page[0];
-        if (olderCount > 0 && first && typeof first.at === 'string' && first.at) {
-          const firstAt = pool.length - page.length;
-          const k = firstAt - rows.findIndex((r) => r && r.at === first.at);
-          olderCursor = first.at + '|' + k;
-        }
+        const olderCursor = olderCount > 0 && page[0] && typeof page[0].key === 'string' ? page[0].key : null;
         sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(page), unanswered: silent, olderCount, olderCursor },
           held ? { held } : {}));
         return;
