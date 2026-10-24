@@ -1375,6 +1375,8 @@ final class FakeBoardWorld {
     var statusDefault: (Int, String)? = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
     // kosmos#7030: the tasks read (GET /api/tasks?view=tasks); nil is no answer at all.
     var tasksAnswer: (Int, String)? = (200, #"{"tasks":[{"projectId":"p1","projectName":"Catalogue","number":4,"sentence":"Pages 1 to 8","state":"built","builtBy":"dana"}]}"#)
+    // #7034: the board's starred agents (GET /api/agent-stars); nil answers nothing, as before the route.
+    var starsAnswer: (Int, String)? = nil
     var admitted = 0
     // The Mac cookie each status request carried, as the real session would send it from the jar.
     var presented: [String] = []
@@ -1432,6 +1434,8 @@ final class FakeBoardWorld {
             return answer(sessionAnswer.0, sessionAnswer.1)
         case "/api/tasks":
             return tasksAnswer.map { answer($0.0, $0.1) }
+        case "/api/agent-stars":
+            return starsAnswer.map { answer($0.0, $0.1) }
         case "/api/status":
             presented.append((cookies.cookies(for: url) ?? []).filter { $0.name == Board.macCookieName }.map(\.value).joined(separator: ","))
             if let hook = onStatusRead { onStatusRead = nil; hook() }
@@ -1524,6 +1528,16 @@ do {
     check(kept.map(\.session) == ["w", "i", "z", "b"], "a live update keeps the shown order and adds new agents at the end, sorted among themselves")
     check(kept[1].state == "needs_you", "while each kept row takes its new state")
     check(Board.keepingOrder(shown, with: [a("i", "Ivy", state: "idle")]).map(\.session) == ["i"], "an agent that is gone is dropped")
+    // #7034: the person's starred agents first, each group in its own order.
+    check(Board.sorted(mixed, stars: ["i", "q"]).map(\.session) == ["q", "i", "p", "w"], "starred first, then the rest, each in the tone order")
+    check(Board.sorted(mixed, stars: nil).map(\.session) == ["p", "q", "w", "i"] && Board.sorted(mixed, stars: []).map(\.session) == ["p", "q", "w", "i"], "no stars known, or none, change no order")
+    check(Board.sorted(mixed, stars: ["nobody"]).map(\.session) == ["p", "q", "w", "i"], "a star for an agent not listed changes no order")
+    let keptStarred = Board.keepingOrder(shown, with: fresh, stars: ["i", "b"])
+    check(keptStarred.map(\.session) == ["w", "i", "b", "z"], "a live update never moves a shown row for a star; new agents come starred first among themselves")
+    check(Board.parseStars(Data(#"{"names":["dana","wes"],"ok":true}"#.utf8)) == ["dana", "wes"], "the stars are read from the board's answer")
+    check(Board.parseStars(Data(#"{"names":["dana"],"ok":false}"#.utf8)) == nil, "an answer the board could not read its list for is no stars")
+    check(Board.parseStars(Data(#"{"names":"dana","ok":true}"#.utf8)) == nil && Board.parseStars(Data("not json".utf8)) == nil, "nor is one in another shape")
+    check(Board.starsRequest(mac: URL(string: "https://studio.kosmosplus.com/")!).url?.absoluteString == "https://studio.kosmosplus.com/api/agent-stars", "from the board's own route")
     let mac = URL(string: "https://studio.kosmosplus.com/")!
     check(Board.avatarRequest(mac: mac, session: "dana")?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/dana/avatar", "an agent's picture comes from its Mac")
     check(Board.avatarRequest(mac: mac, session: "../x") == nil && Board.avatarRequest(mac: mac, session: "a/b") == nil, "never for a name outside the agent-name characters")
@@ -1532,6 +1546,22 @@ do {
 }
 
 section("native board loop: connecting")
+    do {
+        // #7034: the list comes starred first; an unreadable answer on a later pull keeps the order; a pull re-reads.
+        let (c, w, _, _) = make("kst1")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"},{"sessionName":"wes","name":"Wes","state":"working"}]}"#)
+        w.starsAnswer = (200, #"{"names":["wes"],"ok":true}"#)
+        c.start()
+        let okS = await settle { isLive(c) }
+        check(okS && c.agents.map(\.session) == ["wes", "dana"], "a starred agent comes first in the list")
+        w.starsAnswer = (200, #"{"names":[],"ok":false}"#)
+        await c.refreshNow()
+        check(c.agents.map(\.session) == ["wes", "dana"], "a pull while the stars cannot be read keeps the last ones")
+        w.starsAnswer = (200, #"{"names":["dana"],"ok":true}"#)
+        await c.refreshNow()
+        check(c.agents.map(\.session) == ["dana", "wes"], "a pull reads the stars again")
+        c.stop()
+    }
     do {
         let (c, w, _, macs) = make("kst1")
         c.start()
