@@ -7,7 +7,8 @@ import CryptoKit
 //   POST /v1/signin/verify  { email, device_id, device_name, code, device_key, device_sig }
 //   POST /v1/signin/second  { challenge, code }
 //   GET  /v1/account/me     the Allow, watched every 3 s while it is pending (as the web sign-in page does)
-// A company's own sign-in, a second step not set up yet, and passkeys stay on the web sign-in page (slices 5b, 5c).
+// A company's own sign-in (kosmos#7045), a second step not set up yet (kosmos#7046) and passkeys (kosmos#7050) are native
+// too; the web sign-in page is the fallback for what this app cannot do (a company sign-in before iOS 17.4, the terms).
 enum SignIn {
     static let startPath = "/v1/signin/start"
     static let verifyPath = "/v1/signin/verify"
@@ -226,14 +227,15 @@ enum SignIn {
     }
 
     /// begin's answer, only when a passkey can work here: a 200 with a challenge, user verification required, and the
-    /// relying party exactly the coordinator's host (the app's webcredentials association is for that host, and the
-    /// coordinator compares the origin byte for byte). Anything else: no passkey offered.
+    /// relying party the coordinator's host (the app's webcredentials association is for that host). The relying party
+    /// handed on is the coordinator's own spelling of the host, not the answer's, because the coordinator compares the
+    /// origin byte for byte. Anything else: no passkey offered.
     static func passkeyOffer(status: Int, json: Any?, coordinator: URL) -> PasskeyOffer? {
         guard status == 200, let body = json as? [String: Any],
               let challenge = (body["challenge"] as? String).flatMap(fromBase64url), !challenge.isEmpty,
               let rp = body["rp_id"] as? String, let host = coordinator.host, rp.lowercased() == host.lowercased(),
               body["user_verification"] as? String == "required" else { return nil }
-        return PasskeyOffer(challenge: challenge, rpID: rp)
+        return PasskeyOffer(challenge: challenge, rpID: host)
     }
 
     /// finish's body: the assertion as the page sends it (base64url), and this iPhone's device id, which the grant is

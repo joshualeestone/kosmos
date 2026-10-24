@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import AuthenticationServices
 
 // kosmos#7042 (iPhone slice 5a, #6838): the native sign-in. Email, the code, the second step, then "Allow this iPhone on
 // your Mac" with the match code until the Mac answers. The steps are SignIn.next (SignInLogic.swift, proven in
@@ -16,8 +17,10 @@ final class SignInModel: ObservableObject {
     /// Whether this iPhone opens a company's sign-in in Apple's sheet (iOS 17.4+); earlier, the web page has it.
     var companySheet: Bool { client?.canUseCompanySheet ?? false }
     /// kosmos#7050 slice C: Kosmos+ offers passkey sign-in (its begin answered with an offer a passkey can use here).
-    /// Asked once when the screen opens; with passkeys off on the coordinator it stays false and no passkey is offered.
+    /// Asked when the email step shows (checkPasskeys), and again after a sign-out; with passkeys off on the coordinator
+    /// it stays false and no passkey is offered.
     @Published private(set) var passkeys = false
+    private var passkeysAsked = false
     /// The session Kosmos+ issued, once: ContentView hands it to the app (the web bridge's own path).
     @Published private(set) var issued: String?
     /// Bumped when an issued session is dropped (backed out of, or ended): ContentView signs it out, and the web page
@@ -36,7 +39,14 @@ final class SignInModel: ObservableObject {
         // The sample screens (a Debug build only): KOSMOS_SAMPLE_SIGNIN=email|code|second|sms|allow|nomac|denied|web|error|company|companyerror|passkey|passkeyerror.
         if let sample = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIGNIN"] { show(sample: sample); return }
         #endif
-        if let client { Task { [weak self] in let on = await client.passkeyOffer() != nil; self?.passkeys = on } }
+    }
+
+    /// Whether Kosmos+ offers passkeys, asked the first time the email step shows (not at launch: a signed-in person,
+    /// and a screenshot build, never see this step). A failed ask is asked again the next time the step shows.
+    func checkPasskeys() async {
+        guard let client, !passkeysAsked else { return }
+        passkeysAsked = true
+        do { passkeys = try await client.passkeyOffer() != nil } catch { passkeysAsked = false }
     }
 
     deinit { watch?.cancel() }
@@ -181,22 +191,25 @@ final class SignInModel: ObservableObject {
     /// verify in place of the code, for the account's own email, with this iPhone's proof (as a company sign-in's is),
     /// so the second step and the Allow follow exactly as for a code.
     func passkeySignIn() {
-        guard let client else { return }
+        guard let client, !busy else { return }
         attempt += 1; let mine = attempt
         busy = true; error = nil
         Task {
             defer { if mine == attempt { busy = false } }
-            // A fresh challenge for every press: each is good for one sign-in only.
-            guard let offer = await client.passkeyOffer() else {
-                if mine == attempt { error = SignIn.passkeyWords.failed }
-                return
-            }
-            guard mine == attempt else { return }
-            guard let assertion = await client.passkeyAssert(offer), mine == attempt else {
-                if mine == attempt { error = SignIn.passkeyWords.notUsed }
-                return
-            }
             do {
+                // A fresh challenge for every press: each is good for one sign-in only.
+                guard let offer = try await client.passkeyOffer() else {
+                    if mine == attempt { error = SignIn.passkeyWords.failed }
+                    return
+                }
+                guard mine == attempt else { return }
+                let assertion: ASAuthorizationPlatformPublicKeyCredentialAssertion
+                switch await client.passkeyAssert(offer) {
+                case .assertion(let got): assertion = got
+                case .cancelled: if mine == attempt { error = SignIn.passkeyWords.notUsed }; return
+                case .failed: if mine == attempt { error = SignIn.passkeyWords.failed }; return
+                }
+                guard mine == attempt else { return }
                 switch try await client.passkeyFinish(assertion) {
                 case .grant(let grant, let account):
                     let answer = try await client.verify(email: account, code: grant)
@@ -227,6 +240,7 @@ final class SignInModel: ObservableObject {
     func restart() {
         // The address goes too: the next sign-in here may be another person's (the web page clears it the same way).
         attempt += 1; busy = false; watch?.cancel(); email = ""; code = ""; error = nil; issued = nil; step = .email
+        passkeysAsked = false   // asked again when the email step shows: the coordinator's answer may have changed
     }
 
     /// Signed in already; the app opens without waiting for the Allow (its tabs say so until the Mac answers).
@@ -342,7 +356,7 @@ struct SignInView: View {
     @ViewBuilder private var content: some View {
         switch model.step {
         case .email:
-            title("Sign in to Kosmos+")
+            title("Sign in to Kosmos+").task { await model.checkPasskeys() }
             line("Use the email address of your Kosmos+ account. We will send you a six-digit code.")
             TextField("Email address", text: $model.email)
                 .textContentType(.username).keyboardType(.emailAddress)

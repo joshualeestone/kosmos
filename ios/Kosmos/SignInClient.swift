@@ -120,21 +120,26 @@ final class SignInClient {
 
     /// begin's offer, or nil when passkeys are off on the coordinator, it could not be reached, or the offer is not one a
     /// passkey can answer here (SignIn.passkeyOffer). Asks for nothing and stores nothing on Kosmos+.
-    func passkeyOffer() async -> SignIn.PasskeyOffer? {
-        guard let (status, json) = try? await post(SignIn.passkeyBeginPath, [:]) else { return nil }
+    /// Throws SignInError.unreachable when Kosmos+ did not answer at all (not the same as passkeys being off).
+    func passkeyOffer() async throws -> SignIn.PasskeyOffer? {
+        let (status, json) = try await post(SignIn.passkeyBeginPath, [:])
         return SignIn.passkeyOffer(status: status, json: json, coordinator: coordinator)
     }
+
+    /// What Apple's passkey sheet said.
+    enum PasskeyAnswer { case assertion(ASAuthorizationPlatformPublicKeyCredentialAssertion), cancelled, failed }
 
     private var passkeyAsker: PasskeyAsker?
 
     /// Apple's passkey sheet for this offer: the person's passkey for Kosmos+ (any saved on this iPhone or in their
-    /// iCloud Keychain, for the host this app is associated with), with Face ID, Touch ID or the passcode. Nil when they
-    /// closed it or it could not open.
-    func passkeyAssert(_ offer: SignIn.PasskeyOffer) async -> ASAuthorizationPlatformPublicKeyCredentialAssertion? {
+    /// iCloud Keychain, for the host this app is associated with), with Face ID, Touch ID or the passcode. One sheet at a
+    /// time: a second ask while one is open is answered `failed` at once (its continuation would otherwise be lost).
+    func passkeyAssert(_ offer: SignIn.PasskeyOffer) async -> PasskeyAnswer {
+        guard passkeyAsker == nil else { return .failed }
         let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: offer.rpID)
         let request = provider.createCredentialAssertionRequest(challenge: offer.challenge)
         request.userVerificationPreference = .required
-        return await withCheckedContinuation { (done: CheckedContinuation<ASAuthorizationPlatformPublicKeyCredentialAssertion?, Never>) in
+        return await withCheckedContinuation { (done: CheckedContinuation<PasskeyAnswer, Never>) in
             let asker = PasskeyAsker { [weak self] got in
                 self?.passkeyAsker = nil   // PasskeyAsker hands back on the main queue
                 done.resume(returning: got)
@@ -208,13 +213,13 @@ private final class SheetAnchor: NSObject, ASWebAuthenticationPresentationContex
     }
 }
 
-/// Apple's passkey sheet's answer, handed back once, on the main queue: the assertion, or nil for anything else (closed,
-/// refused, an error). Shows over the app's own window, as SheetAnchor does.
+/// Apple's passkey sheet's answer, handed back once, on the main queue: the assertion, the person closing it, or any
+/// other failure. Shows over the app's own window, as SheetAnchor does.
 private final class PasskeyAsker: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
-    private var finish: ((ASAuthorizationPlatformPublicKeyCredentialAssertion?) -> Void)?
-    init(_ finish: @escaping (ASAuthorizationPlatformPublicKeyCredentialAssertion?) -> Void) { self.finish = finish }
+    private var finish: ((SignInClient.PasskeyAnswer) -> Void)?
+    init(_ finish: @escaping (SignInClient.PasskeyAnswer) -> Void) { self.finish = finish }
 
-    private func done(_ got: ASAuthorizationPlatformPublicKeyCredentialAssertion?) {
+    private func done(_ got: SignInClient.PasskeyAnswer) {
         DispatchQueue.main.async {
             let f = self.finish
             self.finish = nil
@@ -223,11 +228,11 @@ private final class PasskeyAsker: NSObject, ASAuthorizationControllerDelegate, A
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-        done(authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion)
+        if let got = authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion { done(.assertion(got)) } else { done(.failed) }
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-        done(nil)
+        done((error as? ASAuthorizationError)?.code == .canceled ? .cancelled : .failed)
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
