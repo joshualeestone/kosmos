@@ -130,8 +130,8 @@ test('#4658: a tampered own-share, a renamed computer field or a guest frame ope
   // (frame type, room, computer, epoch) is what keeps them apart; the 'own-share' HKDF purpose is a
   // second wall that no test here isolates (a mutant using 'rotate' stays green).
   const rot = seal.rotateFrame(owner, waiting.pub, seal.randomSecret(), 1, ROOM, 0);
-  assert.strictEqual(seal.openOwnShare(waiting, MAC, Object.assign({}, rot, { t: 'own-share', mac: MAC, owner: frame.owner }), ROOM), null, 'a rotate relabelled');
-  for (const junk of [null, undefined, 7, 'x', {}, { t: 'own-share' }, Object.assign({}, frame, { nonce: 5 }), Object.assign({}, frame, { v: 2 })]) {
+  assert.strictEqual(seal.openOwnShare(waiting, MAC, Object.assign({}, rot, { t: 'key-own-share', mac: MAC, owner: frame.owner }), ROOM), null, 'a rotate relabelled');
+  for (const junk of [null, undefined, 7, 'x', {}, { t: 'key-own-share' }, Object.assign({}, frame, { nonce: 5 }), Object.assign({}, frame, { v: 2 })]) {
     assert.strictEqual(seal.openOwnShare(waiting, MAC, junk, ROOM), null);
   }
 });
@@ -139,4 +139,29 @@ test('#4658: a tampered own-share, a renamed computer field or a guest frame ope
 test('#4658: an own-share does not open as a rotate from the same board (the associated data differs)', () => {
   const { owner, waiting, frame } = ownShare();
   assert.strictEqual(seal.openRotate(waiting, owner.pub, Object.assign({}, frame, { t: 'key-rotate', epoch: 2 }), ROOM), null);
+});
+
+/* ---- own-hello ---- */
+
+test('#4658: an own computer\'s hello carries its id and key, and reads back as exactly those', () => {
+  const me = seal.newKeyPair();
+  const f = seal.ownHelloFrame(me, MAC);
+  assert.strictEqual(f.t, 'key-own-hello', 'a key- frame, so fedseats routes it to the sealing handler');
+  assert.deepStrictEqual(seal.checkOwnHello(f), { mac: MAC, pub: me.pub });
+});
+
+test('#4658: the own-share frame is a key- frame too', () => {
+  assert.strictEqual(ownShare().frame.t, 'key-own-share');
+});
+
+test('#4658: a malformed hello reads as null and never throws; a hello cannot be made without an id or key', () => {
+  const f = seal.ownHelloFrame(seal.newKeyPair(), MAC);
+  for (const junk of [null, undefined, 'x', {}, Object.assign({}, f, { v: 2 }), Object.assign({}, f, { t: 'key-hello' }),
+    Object.assign({}, f, { mac: '' }), Object.assign({}, f, { mac: 7 }), Object.assign({}, f, { mac: 'm'.repeat(129) }),
+    Object.assign({}, f, { pub: 'not-a-key' })]) {
+    assert.strictEqual(seal.checkOwnHello(junk), null);
+  }
+  assert.ok(seal.checkOwnHello(Object.assign({}, f, { mac: 'm'.repeat(128) })), '128 is the bound, not past it');
+  assert.throws(() => seal.ownHelloFrame(seal.newKeyPair(), ''));
+  assert.throws(() => seal.ownHelloFrame({ pub: 'nope' }, MAC));
 });
