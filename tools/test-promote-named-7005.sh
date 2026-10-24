@@ -137,7 +137,7 @@ has "$out" "a later commit naming it, points at the same build" && pass "named: 
 # A later commit naming V whose pointer differs in another field: the NOTE says so and how to use it.
 S="$(newsite)"; node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.version="9.9.8";p.sha256=require("fs").readFileSync(process.argv[2],"utf8").split(" ")[0];p.artifact="kosmos-9.9.8-arm64.tar.gz";p.manifest="kosmos-9.9.8-arm64.manifest.json";delete p.setup_sha256;p.extra="corrected";require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$S/dist/latest-staging.json" "$S/dist/kosmos-9.9.8-arm64.tar.gz.sha256"
 git -C "$S" commit -qm "9.9.8 republished with another field" -- dist/latest-staging.json
-refused "a later commit naming V whose pointer differs, without --commit" "$S" "have pointers that differ in more than the installer they name" --version 9.9.8
+refused "a later commit naming V whose pointer differs, without --commit" "$S" "(9.9.8's cut) and" --version 9.9.8
 cl="$(git -C "$S" log --format=%H -1)"
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --commit "${cl:0:10}" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" extra)" = corrected ] && pass "named: --commit promotes the later pointer when it is the right one" || bad "named --commit later pointer (rc=$rc, out=$out)"
@@ -231,7 +231,9 @@ out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --allow-older 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "rolling prod back" && pass "named: CONTROL --allow-older rolls prod back to it" || bad "named --allow-older (rc=$rc, out=$out)"
 # 9.9.10 against 9.9.9 compares as numbers, not as text (as text 9.9.10 < 9.9.9).
-S="$(newsite)"; bash "$HERE/promote-channel.sh" "$S" >/dev/null 2>&1; mkcut "$S" 9.9.10
+S="$(newsite)"; bash "$HERE/promote-channel.sh" "$S" >/dev/null 2>&1
+[ "$(field "$S/dist/latest.json" version)" = 9.9.9 ] && pass "numeric fixture: prod serves 9.9.9 before 9.9.10 is named" || bad "numeric fixture: prod is $(cat "$S/dist/latest.json")"
+mkcut "$S" 9.9.10
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.10 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.10 ] && pass "named: CONTROL 9.9.10 is newer than 9.9.9 (compared by number)" || bad "named 9.9.10 vs 9.9.9 (rc=$rc, out=$out)"
 out="$(bash "$HERE/promote-channel.sh" "$(newsite)" --allow-older 2>&1)"; rc=$?
@@ -275,6 +277,13 @@ S="$(newsite)"; git -C "$S" remote add origin "$T/no-such-origin.git"
 # (The pointer-freeze guard fetches origin first and refuses on its own; offline, it lets this check be the one that answers.)
 KOSMOS_POINTER_FREEZE_OFFLINE=1 refused "a site whose origin cannot be fetched" "$S" "could not fetch the site to check that" --version 9.9.8
 has "$(bash "$HERE/promote-channel.sh" "$(newsite)" --version 9.9.8 2>&1)" "has no origin remote" && pass "named: a site with no origin says it cannot check publication" || bad "named no-origin note missing"
+
+# ---- the first Kosmos+ sign-in gate is handed the named pointer, not the live staging one ----
+PLUS="$T/stub-plus-gate.sh"; printf '#!/usr/bin/env bash\ngrep -o "\\"version\\":\\"[^\\"]*\\"" "$1" > "%s"\nexit 0\n' "$T/plus.log" > "$PLUS"; chmod +x "$PLUS"
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_PLUS_GATE_CMD="bash $PLUS" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$T/plus.log")" = '"version":"9.9.8"' ] && pass "named: the Kosmos+ gate reads the named pointer (9.9.8), not staging's 9.9.9" || bad "named plus gate (rc=$rc, saw '$(cat "$T/plus.log" 2>/dev/null)', out=$out)"
+S="$(newsite)"; out="$(KOSMOS_PROMOTE_PLUS_GATE_CMD="bash $PLUS" bash "$HERE/promote-channel.sh" "$S" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$T/plus.log")" = '"version":"9.9.9"' ] && pass "default: CONTROL the Kosmos+ gate reads staging's 9.9.9" || bad "default plus gate (rc=$rc, saw '$(cat "$T/plus.log" 2>/dev/null)')"
 
 # ---- the port the usage line advertises reaches the gate in named mode ----
 PGATE="$T/stub-port-gate.sh"; printf '#!/usr/bin/env bash\nprintf "%%s %%s\\n" "$KOSMOS_GATE_EXPECT_VERSION" "$1" > "%s"\nexit 0\n' "$T/port.log" > "$PGATE"; chmod +x "$PGATE"

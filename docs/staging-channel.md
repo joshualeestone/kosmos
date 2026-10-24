@@ -97,7 +97,9 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    commit holds, with two differences: the installer pair is read from the commit (so the working tree's
    `setup-staging` is neither checked nor used), and the staging-moved-during-the-gates refusal does not
    apply (a commit cannot move); instead the artifact is re-verified right before the write. V's tarball
-   must still be in the checkout's `dist/`. If V was cut more than once, the promote refuses and lists
+   must still be in the checkout's `dist/`: once staging names a later build, nothing protects V's files
+   from a `tools/dist-retention.sh --prune` but its keep window, so do not prune while a GO is pending
+   (a pruned tarball can be fetched back from what installkosmos.com serves, as in releasing.md). If V was cut more than once, the promote refuses and lists
    the builds: add `--sha <8+ characters of the approved build's sha256>`; where builds share the bytes
    but name another artifact or manifest, `--commit <site sha>` picks the commit to use (it must still
    name V, and every check still applies). `--force` with `--version` needs `--sha` too. A V older than
