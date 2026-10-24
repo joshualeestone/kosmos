@@ -123,7 +123,9 @@ test('#6487: the iPhone shows the agent as the title, the original line as the s
     'subtitle = original.body.isEmpty ? original.title : "\\(original.title), \\(original.body)"',
     'title = words.agent',
     'body = words.text',
+    'body = permission.shown',   // kosmos#7017 part 2: a permission request's text (the page's Allow and Deny paragraph)
   ], 'the iPhone words are set differently now; update the page');
+  assert.match(DOC, /\*\*Allow and Deny on a permission request \(kosmos#7017 part 2\)\.\*\*/, 'the page does not say how a permission request is shown');
   // "shortened to about 400 characters", by behaviour: the words the computer answers with.
   for (const r of rows) assert.match(r[3], /shortened to about 400 characters/, r[0] + ': text');
   const { shorten } = require('./engine/phonenotice');
@@ -137,7 +139,7 @@ test('#6487: the iPhone shows the agent as the title, the original line as the s
   // The board answers at the route the page names, and its answer carries the picture it computed.
   const server = read('server.js');
   assert.match(server, /if \(pathname === '\/api\/phone\/notice' && req\.method === 'GET'\)/, 'the route moved; update the page');
-  assert.match(server, /sendJson\(res, 200, \{ kind: got\.kind, session: got\.session, agent: [^}]*text: got\.text, picture \}\);/,
+  assert.match(server, /sendJson\(res, 200, \{ kind: got\.kind, session: got\.session, agent: [^}]*text: got\.text, picture(,| \}\);)/,
     'the answer no longer carries the picture; update the page');
   // "within 15 seconds" for the words, "its own 8 seconds" for the picture.
   assert.match(PROSE, /within 15 seconds, the notification shows them/);
