@@ -66,7 +66,7 @@ final class SignInModel: ObservableObject {
         let typed = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard SignIn.looksLikeEmail(typed) else { error = "That does not look like an email address."; return }
         guard let client else { return }
-        client.cancelPasskey()   // kosmos#7050: a passkey sheet still open is closed; this press takes over
+        client.cancelPasskey()   // kosmos#7050: a passkey sheet still open is closed (reached by the field's return key)
         attempt += 1; let mine = attempt
         busy = true; error = nil
         Task {
@@ -228,7 +228,7 @@ final class SignInModel: ObservableObject {
                     switch begun {
                     case .off: passkeys = false; error = SignIn.passkeyWords.off
                     case .unusable(let sentence): error = sentence ?? SignIn.passkeyWords.failed
-                    case .offer: break
+                    default: break
                     }
                     return
                 }
