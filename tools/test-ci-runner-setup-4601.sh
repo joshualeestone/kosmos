@@ -8,6 +8,11 @@
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 S="$HERE/ci-runner-setup.sh"
+# Started with SIGINT ignored (backgrounded by a non-interactive shell), bash cannot undo it and the interrupt cases could
+# not test anything: re-exec once through perl, which can reset it to the default.
+if [ -z "${CI_RUNNER_SETUP_TEST_SIGINT_RESET:-}" ] && [ -n "$(bash -c 'kill -INT $$; echo alive' 2>/dev/null)" ]; then
+  CI_RUNNER_SETUP_TEST_SIGINT_RESET=1 exec perl -e '$SIG{INT} = "DEFAULT"; exec @ARGV' bash "$0" "$@"
+fi
 # Several cases make a dir mode 000 and expect it unreadable, which root ignores: say so rather than red for that.
 if [ "$(id -u)" = 0 ]; then echo "skip test-ci-runner-setup-4601: run as root, where mode 000 does not block reads"; exit 0; fi
 _td="${TMPDIR:-/tmp}"   # without a trailing /: a "//" in $T is collapsed by $PWD, which svc.sh writes as WorkingDirectory
@@ -52,6 +57,7 @@ case "$me" in
       print-disabled) [ "${FX_PD_FAIL:-0}" = 1 ] && exit 1; printf 'disabled services = {\n'
         [ "${FX_DISABLED:-0}" = 1 ] && printf '\t"actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s" => disabled\n'
         printf '}\n'; exit 0 ;;
+      kickstart) [ "${FX_KICKSTART_FAIL:-0}" = 1 ] && exit 3; exit 0 ;;
       bootout) [ "${FX_INTERRUPT_LATE:-0}" = 1 ] && { kill -INT "$PPID"; kill -INT $$; }   # a Ctrl-C after the SIGTERM
         # Whether the old job's process (FX_JOB_PID) was still alive when the bootout came: the test asserts it.
         [ -z "${FX_JOB_PID:-}" ] || { kill -0 "$FX_JOB_PID" 2>/dev/null && echo "bootout-while-alive" >> "$CALL_LOG" || echo "bootout-after-exit" >> "$CALL_LOG"; }
@@ -736,6 +742,7 @@ kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
 [ "$(rc ka-jobduring)" = 0 ] && has ka-jobduring "a job of this runner is still up while the old runner (pid $jsp) stops" && has ka-jobduring "reloading anyway" \
   && grep -q '^launchctl bootout' "$T/ka-jobduring.calls" && grep -q '^launchctl bootstrap' "$T/ka-jobduring.calls" \
   && pass "keepalive --apply: a job up while the old runner is still stopping: waits again, then reloads (never left down)" || fail "keepalive job during stop: rc $(rc ka-jobduring): $(tail -1 "$T/ka-jobduring.out")"
+# (The test's bash reaps the killed perl stand-in while it waits on the script, so kill -0 sees it gone, not a zombie.)
 # The job ends during that second wait: it is waited for (several -P reads), then the reload, with no "anyway".
 perl -e 'select(undef, undef, undef, 30)' & jsp=$!   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
 ka_fresh; rm -f "$T/worker-up"; run ka-jobends "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=10 FX_WORKER_AFTER_KILL=1 FX_WORKER_ENDS_AFTER=2 -- --apply keepalive
@@ -864,6 +871,16 @@ ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/>
 run ka-extrakey "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
 [ "$(rc ka-extrakey)" = 0 ] && has ka-extrakey "note:   replacing KeepAlive" && ! plutil -extract KeepAlive.Crashed raw -o - "$KA" >/dev/null 2>&1 \
   && pass "keepalive --apply: a KeepAlive with extra keys is replaced by the exact dict, and said" || fail "keepalive extra key: rc $(rc ka-extrakey): $(grep -i replacing "$T/ka-extrakey.out")"
+# The file lacks only the ThrottleInterval key, and the LOADED job already has all of it (launchd shows its default
+# throttle of 10): the file is written and the idle runner is not reloaded.
+ka_fresh; plutil -insert KeepAlive -xml '<dict><key>SuccessfulExit</key><false/></dict>' "$KA"; plutil -insert ExitTimeOut -integer 35 "$KA"
+echo 35 > "$T/loaded-ka"
+run ka-fileonly-dry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- keepalive
+run ka-fileonly "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --apply keepalive
+[ "$(rc ka-fileonly-dry)" = 0 ] && has ka-fileonly-dry "so no reload: only the file is written" && ! has ka-fileonly-dry "WOULD: launchctl" \
+  && [ "$(rc ka-fileonly)" = 0 ] && has ka-fileonly "no reload needed" && [ "$(plutil -extract ThrottleInterval raw -o - "$KA")" = 10 ] \
+  && ! grep -q '^launchctl \(kill\|bootout\|bootstrap\)' "$T/ka-fileonly.calls" \
+  && pass "keepalive: a file missing only what the loaded job already has is written, with no reload" || fail "keepalive file only: rc $(rc ka-fileonly-dry)/$(rc ka-fileonly): $(tail -1 "$T/ka-fileonly.out")"
 # A launchctl print without the "minimum runtime" line (another macOS format): refuse before stopping anything.
 ka_fresh; run ka-noformat "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_MINRUNTIME=1 -- --apply keepalive
 [ "$(rc ka-noformat)" = 1 ] && has ka-noformat "no 'exit timeout' or 'minimum runtime' line" && cmp -s "$KA" "$T/ka.before" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-noformat.calls" \
@@ -898,8 +915,11 @@ ka_fresh; run ka-killfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="
 ka_fresh; echo stopped > "$KH/actions-runner/.svc-state"; run ka-downdry "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NOT_LOADED=1 -- keepalive
 cmp -s "$KA" "$T/ka.before" && [ "$(rc ka-downdry)" = 1 ] && has ka-downdry "DOWN:" && ! changed ka-downdry >/dev/null && pass "keepalive dry run on a runner that is not loaded: DOWN, exit 1, nothing changed" || fail "keepalive down dry: rc $(rc ka-downdry): $(cat "$T/ka-downdry.out")"
 ka_fresh; run ka-stucksent "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID=999999 FX_BOOTOUT_STUCK=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
-[ "$(rc ka-stucksent)" = 1 ] && has ka-stucksent "the runner is STOPPED (SIGTERM ended it" && ! has ka-stucksent "it is still loaded from the OLD definition" \
-  && pass "keepalive --apply: a stuck bootout after SIGTERM says the runner is STOPPED, not running" || fail "keepalive stuck after sigterm: rc $(rc ka-stucksent): $(tail -1 "$T/ka-stucksent.out")"
+[ "$(rc ka-stucksent)" = 1 ] && has ka-stucksent "started it again under the OLD definition (launchctl kickstart): it runs WITHOUT KeepAlive" && grep -q '^launchctl kickstart ' "$T/ka-stucksent.calls" && ! has ka-stucksent "the runner is STOPPED" \
+  && pass "keepalive --apply: a stuck bootout after SIGTERM starts the runner again (without KeepAlive) rather than leave it down" || fail "keepalive stuck after sigterm: rc $(rc ka-stucksent): $(tail -1 "$T/ka-stucksent.out")"
+ka_fresh; run ka-stuckkickfail "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID=999999 FX_BOOTOUT_STUCK=1 FX_KICKSTART_FAIL=1 KOSMOS_CI_UNLOAD_WAIT_S=1 -- --apply keepalive
+[ "$(rc ka-stuckkickfail)" = 1 ] && has ka-stuckkickfail "the runner is STOPPED (SIGTERM ended it" \
+  && pass "keepalive --apply: a stuck bootout whose kickstart fails says the runner is STOPPED" || fail "keepalive stuck, kickstart fails: rc $(rc ka-stuckkickfail): $(tail -1 "$T/ka-stuckkickfail.out")"
 ka_fresh; run ka-nopid "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_PID=1 -- --apply keepalive
 [ "$(rc ka-nopid)" = 1 ] && has ka-nopid "shows no pid" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-nopid.calls" \
   && pass "keepalive --apply: no pid in launchd's print while its Listener runs refuses before stopping anything" || fail "keepalive no pid: rc $(rc ka-nopid): $(tail -1 "$T/ka-nopid.out")"

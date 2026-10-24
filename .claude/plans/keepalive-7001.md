@@ -533,3 +533,18 @@ exits non-zero on, say, a session conflict, KeepAlive would restart it into the 
 - NITs FIXED: verify notes an existing but unreadable plist as NOT checked instead of PROBLEM (raised in rounds 31, 33,
   34 and 36; ka-plist-unreadable; mutant red); ka-jobends gets a 10 s window (it breaks as soon as both end); unused
   el/t0 and a stray comment removed. DEFERRED: the 15 s cost of the throttle-floor cases (launchd's real default is 10).
+
+## Review round 37 (opus, blind, READ ONLY, HEAD c094b08c28)
+- W1 FIXED: a bootout that never unloads after the SIGTERM ended the runner exited with it DOWN (still loaded, old
+  definition, nothing restarts it). It now `launchctl kickstart`s it under the old definition (up, without KeepAlive)
+  and FAILS saying so; only a failed kickstart says STOPPED. Stub kickstart (FX_KICKSTART_FAIL); ka-stucksent,
+  ka-stuckkickfail; mutant red.
+- W2 FIXED: the SIGINT control would red a suite merely started in the background. The suite now re-execs itself once
+  through perl with SIGINT reset to default when it finds it ignored. Measured: started backgrounded, it passes (the
+  control passes); with the re-exec removed, backgrounded, the control fails.
+- NIT2 FIXED: a file missing only what the loaded job already has (e.g. no ThrottleInterval key; launchd shows its
+  default 10) is written with no reload, in --apply and the dry run (ka-fileonly, ka-fileonly-dry; mutant red).
+- NIT3 FIXED: verify's sf is local. NIT7: a comment on why the killed stand-in reads as gone.
+- DEFERRED: NIT1 (the first job check stays user-wide: -P there rests on the unmeasured parent premise; refusing there
+  costs a rerun), NIT4 (a floor on the unload wait: the suite runs it at 1 s), NIT5 (two notes as another user), NIT6
+  (about a minute of deterministic sleeping in the suite).
