@@ -138,8 +138,11 @@ struct TasksView: View {
     private func header(_ s: Tasks.Section, read: Board.TasksRead) -> some View {
         let count = s.unknown ? "?" : String(s.rows.count)
         let token = Tasks.dotToken(s.group, count: s.rows.count, rosterUnknown: read.rosterUnknown)
-        return HStack(spacing: 6) {
+        // First-baseline aligned, the dot resting on it, so a label wrapped at the largest text sizes keeps its dot beside
+        // the first line, not between the lines.
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Circle().fill(TasksPalette.dot(token)).frame(width: 8, height: 8)
+                .alignmentGuide(.firstTextBaseline) { d in d[.bottom] }
             Text(s.group.label).foregroundColor(Palette.primary)
             Text(count).foregroundColor(Palette.secondary)
         }
