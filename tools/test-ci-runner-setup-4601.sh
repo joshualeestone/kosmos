@@ -711,7 +711,7 @@ b="$(grep -n '^launchctl bootout ' "$T/ka-sigterm.calls" | head -n 1 | cut -d: -
   && pass "keepalive --apply stops the old job with SIGTERM, then boots it out (a bootout alone runs under the old 5 s exit timeout)" || fail "keepalive sigterm: rc $(rc ka-sigterm): kill at ${k:-none}, bootout at ${b:-none}"
 # The wait itself: a real process the test owns stands in for the old runsvc.sh. It ends by itself in 2 s, and the
 # bootout must come after that, not at once (under the old 5 s exit timeout an early bootout would SIGKILL the Listener).
-sleep 4 & sp=$!; t0=$SECONDS
+perl -e 'select(undef, undef, undef, 4)' & sp=$!; t0=$SECONDS   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
 ka_fresh; run ka-waits "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$sp" -- --apply keepalive
 el=$((SECONDS - t0)); wait "$sp" 2>/dev/null
 # The run took most of the 4 s: it did wait (a process already gone before the loop would also read "after exit").
@@ -720,14 +720,14 @@ el=$((SECONDS - t0)); wait "$sp" 2>/dev/null
   && pass "keepalive --apply waits for the old runner to end after SIGTERM before booting it out" || fail "keepalive waits: rc $(rc ka-waits): $(grep bootout- "$T/ka-waits.calls")"
 # A job of this runner up while the old runner outlived the SIGTERM wait: a second wait, then the reload anyway (refusing
 # would leave a SIGTERMed runner down).
-sleep 30 & jsp=$!
+perl -e 'select(undef, undef, undef, 30)' & jsp=$!   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
 ka_fresh; rm -f "$T/worker-up"; run ka-jobduring "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_WORKER_AFTER_KILL=1 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
 [ "$(rc ka-jobduring)" = 0 ] && has ka-jobduring "a job of this runner is still up while the old runner (pid $jsp) stops" && has ka-jobduring "reloading anyway" \
   && grep -q '^launchctl bootout' "$T/ka-jobduring.calls" && grep -q '^launchctl bootstrap' "$T/ka-jobduring.calls" \
   && pass "keepalive --apply: a job up while the old runner is still stopping: waits again, then reloads (never left down)" || fail "keepalive job during stop: rc $(rc ka-jobduring): $(tail -1 "$T/ka-jobduring.out")"
 # The job ends during that second wait: it is waited for (several -P reads), then the reload, with no "anyway".
-sleep 30 & jsp=$!
+perl -e 'select(undef, undef, undef, 30)' & jsp=$!   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
 ka_fresh; rm -f "$T/worker-up"; run ka-jobends "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=3 FX_WORKER_AFTER_KILL=1 FX_WORKER_ENDS_AFTER=2 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
 [ "$(rc ka-jobends)" = 0 ] && has ka-jobends "Waiting up to 3s more" && [ "$(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls")" -ge 3 ] && ! has ka-jobends "reloading anyway" \
@@ -735,7 +735,7 @@ kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
   && pass "keepalive --apply: the second wait polls this runner's job until it ends, then reloads" || fail "keepalive job ends: rc $(rc ka-jobends): -P reads $(grep -c '^pgrep .*-P ' "$T/ka-jobends.calls"): $(tail -1 "$T/ka-jobends.out")"
 rm -f "$T/worker-up"
 # The old runner outlived the wait and a RELAY job starts: not this runner's, so no veto; the reload goes on.
-sleep 30 & jsp=$!
+perl -e 'select(undef, undef, undef, 30)' & jsp=$!   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
 ka_fresh; rm -f "$T/relay-worker-up"; run ka-relayoutlived "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_JOB_PID="$jsp" KOSMOS_CI_UNLOAD_WAIT_S=1 FX_RELAY_WORKER_AFTER_KILL=1 -- --apply keepalive
 kill "$jsp" 2>/dev/null; wait "$jsp" 2>/dev/null
 [ "$(rc ka-relayoutlived)" = 0 ] && grep -q '^launchctl bootout ' "$T/ka-relayoutlived.calls" && ! has ka-relayoutlived "refused" \
@@ -849,7 +849,7 @@ run ka-extrakey "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" -- --
 [ "$(rc ka-extrakey)" = 0 ] && has ka-extrakey "note:   replacing KeepAlive" && ! plutil -extract KeepAlive.Crashed raw -o - "$KA" >/dev/null 2>&1 \
   && pass "keepalive --apply: a KeepAlive with extra keys is replaced by the exact dict, and said" || fail "keepalive extra key: rc $(rc ka-extrakey): $(grep -i replacing "$T/ka-extrakey.out")"
 # Outlives the wait: it goes on (refusing would leave a SIGTERMed runner under its old definition) and says so.
-sleep 30 & sp=$!
+perl -e 'select(undef, undef, undef, 30)' & sp=$!   # not a bare sleep: a stray pkill -f sleep must not end it (#6710)
 # A launchctl print without the "minimum runtime" line (another macOS format): refuse before stopping anything.
 ka_fresh; run ka-noformat "$KH" FX_CI_EXISTS=1 FX_WHO=kosmos-ci KOSMOS_CI_HOME="$KH" FX_NO_MINRUNTIME=1 -- --apply keepalive
 [ "$(rc ka-noformat)" = 1 ] && has ka-noformat "no 'exit timeout' or 'minimum runtime' line" && cmp -s "$KA" "$T/ka.before" && ! grep -q '^launchctl \(kill\|bootout\)' "$T/ka-noformat.calls" \
