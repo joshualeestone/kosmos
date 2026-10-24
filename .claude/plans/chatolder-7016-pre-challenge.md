@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: chatolder-7016
-diff_hash: 502cede3442e79f5958d4d309afb1d830d9c18bec9a41de40a07c726da877c40
+diff_hash: 7fa6da5e410ae0f833817305e5f621fc7c7cfb6c7e2c922dbed76ed38eac7080
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-24T04:26:13Z
@@ -23,6 +23,8 @@ Validation at 5f2b3a29dc (origin/main not ahead):
 - Release simulator build: 0 KOSMOS_SAMPLE_ markers and no sample text; Debug has 13 (the control).
 - Simulator checks with Debug samples (KOSMOS_SAMPLE_SCROLLTOP=1 scrolls in code; nothing here taps): a long chat opens at the newest message and loads nothing; scrolled up, it loads; a page ending on the same day keeps the reader's row; a short chat loads by itself. Shots in ~/work/design-shots/kosmos-7016/ (6, 6b, 6c, 6d, 6e).
 Subdirectory CLAUDE.md audit: none under ios/.
+
+After the proof, at cda5e99faf: CI's Xcode 26.6 timed out type-checking two Debug-only sample literals in BoardClient.swift (here they took 52 ms and under 50 ms). They are now built in typed steps; nothing in the chat files reaches 20 ms locally. LogicTests 791/791 again. Mona Lisa approved the design at 2b91f86144 with no changes.
 
 ### Per-Iteration Breakdown
 
