@@ -12,15 +12,26 @@ struct TasksTab: View {
     @State private var wasBackground = false
     @State private var openAgent: Board.Agent?
     @State private var openTask: TaskPageRef?
+    // kosmos#7078: the New task sheet (its project, picked in the list) and the line it leaves after a create.
+    @State private var newTaskFor: NewTaskStart?
+    @State private var notice: String?
 
     var body: some View {
         NavigationView {
             TasksView(read: client.tasksList, failed: client.tasksListFailed, agentName: name,
                       open: { t in openTask = TaskPageRef(project: t.projectId, number: t.number) },
                       answer: answer,
-                      refresh: { await client.refreshTasks() })
+                      refresh: { await client.refreshTasks() },
+                      newTask: { picked in notice = nil; newTaskFor = NewTaskStart(picked: picked) },
+                      notice: notice)
                 .background(chatLink)
                 .background(taskLink)
+                .sheet(item: $newTaskFor) { start in
+                    NewTaskView(client: client, tasks: client.tasksList, picked: start.picked) { line in
+                        notice = line
+                        Task { await client.refreshTasks() }
+                    }
+                }
         }
         .navigationViewStyle(.stack)
         .onChange(of: client.chatEpoch) { _ in openAgent = nil; openTask = nil }
@@ -74,6 +85,10 @@ struct TasksView: View {
     let open: (Board.TaskRow) -> Void
     let answer: (Board.TaskRow) -> Void
     let refresh: () async -> Void
+    // kosmos#7078: the New task sheet, opened with the project picked here (nil on All projects), and the line the
+    // sheet leaves after a create ("Added task 12 to Launch."). Both optional, so the samples and checks need neither.
+    var newTask: ((String?) -> Void)? = nil
+    var notice: String? = nil
 
     @State private var project: String? = nil
     @State private var shown: [Tasks.Section] = []
@@ -85,7 +100,15 @@ struct TasksView: View {
     var body: some View {
         content
             .navigationTitle("Tasks")
-            .toolbar { if let read, !read.tasks.isEmpty { ToolbarItem(placement: .navigationBarTrailing) { picker } } }
+            .toolbar {
+                if let read, !read.tasks.isEmpty { ToolbarItem(placement: .navigationBarTrailing) { picker } }
+                if read != nil, let newTask {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button { newTask(project) } label: { Image(systemName: "plus") }
+                            .accessibilityLabel("New task")
+                    }
+                }
+            }
             .background(Palette.ground.ignoresSafeArea())
             .onAppear { completedOpen = Self.sampleCompletedOpen; layOut() }
             .onChange(of: read) { _ in update() }
@@ -96,7 +119,8 @@ struct TasksView: View {
         if let read {
             // The board's own empty line, as slice 1's empty state.
             if read.tasks.isEmpty && !read.rosterUnknown {
-                centred(title: "No tasks yet", detail: "Tasks are made on your computer, or by your agents.")
+                centred(title: "No tasks yet", detail: newTask != nil ? (notice ?? "Add one with the + button, or your agents will.")
+                        : "Tasks are made on your computer, or by your agents.")
             } else {
                 list(read)
             }
@@ -123,8 +147,15 @@ struct TasksView: View {
             Section {
                 EmptyView()
             } header: {
-                Text(Tasks.title(read, project: project))
-                    .font(.subheadline).foregroundColor(Palette.secondary).textCase(nil)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(Tasks.title(read, project: project))
+                        .font(.subheadline).foregroundColor(Palette.secondary).textCase(nil)
+                    // kosmos#7078: the board's tsk-msg line after a New task, where the board puts it.
+                    if let notice {
+                        Text(notice).font(.footnote).foregroundColor(Palette.primary).textCase(nil)
+                            .accessibilityAddTraits(.updatesFrequently)
+                    }
+                }
             }
             ForEach(shown, id: \.group.key) { s in
                 if s.group.key == "closed" {
@@ -339,4 +370,10 @@ enum TasksPalette {
         default: return Palette.pair(0x4a4f57, 0xa9adb3)   // --tsk-nobody and --tsk-held
         }
     }
+}
+
+// kosmos#7078: one opening of the New task sheet, with the project the Tasks list had picked.
+struct NewTaskStart: Identifiable {
+    let id = UUID()
+    let picked: String?
 }

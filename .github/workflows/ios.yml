@@ -112,6 +112,13 @@ jobs:
           ios/LogicTests/run-taskpage.sh | tee "$RUNNER_TEMP/taskpage.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/taskpage.log"
 
+      # kosmos#7078: the New task sheet's logic, its own suite like the Tasks tab's.
+      - name: New task logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-newtask.sh | tee "$RUNNER_TEMP/newtask.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/newtask.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build
