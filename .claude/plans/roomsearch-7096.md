@@ -71,4 +71,5 @@ broken copy of BoardRoom run against them goes red (run by hand with run-room.sh
   on the rebase onto #7101 (Mona Lisa's jump), as agreed with her: whichever merged second added this guard.
 - The lines under the room follow the board's one line, newest write wins: a jump to a hidden post shows over the
   last post's line, a new post clears the hidden line, and the hidden line clears the sent-while-searching one.
-  The jump's rule is Board.roomJumpHidden, tested both ways.
+  A post's own line arriving later clears the hidden line too. The jump's rule is Board.roomJumpHidden, tested both
+  ways; its call in RoomView (shownRows, rows) is read, not tested, as the partial flag's wiring is.
