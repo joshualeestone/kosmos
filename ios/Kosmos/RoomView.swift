@@ -38,6 +38,7 @@ struct RoomView: View {
     // kosmos#7101: the post a reply's header asked to go to, the one flashing, and VoiceOver's place after the jump.
     @State private var jumpTo: String?
     @State private var flashed: String?
+    @State private var flashToken = 0
     @AccessibilityFocusState private var focusedPost: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // kosmos#7062: each file card's state, and the file Quick Look shows (removed from the phone when it closes), as in
@@ -401,12 +402,16 @@ struct RoomView: View {
                 guard let id else { return }
                 jumpTo = nil
                 if reduceMotion { proxy.scrollTo(id, anchor: .center) } else { withAnimation { proxy.scrollTo(id, anchor: .center) } }
-                flashed = id
+                // A repeat jump to the post still flashing starts the flash over, as the board's class removed and added
+                // again (review 4): only the latest jump's timer clears it.
+                flashToken += 1
+                let token = flashToken
+                if flashed == id { flashed = nil; DispatchQueue.main.async { if flashToken == token { flashed = id } } } else { flashed = id }
                 // VoiceOver's focus once the post exists and has arrived (a lazy row far up is made by the scroll), and
                 // cleared first so a second jump to the same post still moves it (review 1).
                 focusedPost = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.05 : 0.4)) { focusedPost = id }
-                DispatchQueue.main.asyncAfter(deadline: .now() + Board.replyJumpFlash) { if flashed == id { flashed = nil } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + Board.replyJumpFlash) { if flashToken == token { flashed = nil } }
             }
             // The person's own post always shows: pressing Post is asking to see it.
             .onChange(of: store.pending[project.id]?.count ?? 0) { n in

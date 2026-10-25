@@ -48,4 +48,7 @@ it is merged.
      Recorded: the default-action modifier's identity flip when an original arrives on an older page (rare); a
      possible duplicate "Open <name>'s chat" in VoiceOver's actions joins the real-iPhone list. Room 244/244
      (control: no name drop is red); Debug SUCCEEDED.
+   - Round 4: 0 blockers, 2 warnings (both measured survivors), 1 nit. Fixed: the person's-post guard tested with
+     "You: ..." (it could not fail before), the outside-message guard tested; a repeat jump restarts the flash (a
+     token, only the latest timer clears it).
 3. Validation, PR (after #7093 merges and this is rebased).
