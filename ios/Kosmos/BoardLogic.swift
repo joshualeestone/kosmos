@@ -1157,6 +1157,24 @@ enum Board {
         return num.boolValue
     }
 
+    // kosmos#7137: the board's fedGateMode (web/index.html): whether the shared-room UI shows ("show"), is gated behind
+    // Kosmos+ ("signup"), or is off ("hidden"), from the status poll's sourceChannel, federationLive and kosmos_plus.
+    // Only a real JSON true counts as true, and only a real JSON false as false (an absent or odd kosmos_plus is
+    // "unknown"), as the board's === checks.
+    static func fedGateMode(sourceChannel: Any?, federationLive: Any?, kosmosPlus: Any?) -> String {
+        let staging = (sourceChannel as? String) == "staging"
+        if !(isTrue(federationLive) || staging) { return "hidden" }
+        if isTrue(kosmosPlus) { return "show" }
+        let plusFalse = (kosmosPlus as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && !$0.boolValue } ?? false
+        if staging && !plusFalse { return "show" }
+        return "signup"
+    }
+    // The board's fedShow(), read off one /api/status answer.
+    static func fedShown(fromStatus data: Data) -> Bool {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return fedGateMode(sourceChannel: obj["sourceChannel"], federationLive: obj["federationLive"], kosmosPlus: obj["kosmos_plus"]) == "show"
+    }
+
     static func parsePermission(_ any: Any?) -> Permission? {
         guard let p = any as? [String: Any], let allow = integer(p["allow"]), let deny = integer(p["deny"]) else { return nil }
         func text(_ k: String) -> String? { (p[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }

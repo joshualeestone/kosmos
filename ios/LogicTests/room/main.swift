@@ -813,6 +813,140 @@ check(Board.utf16Prefix(emojiQuestion, 300).utf16.count == 300 && Board.utf16Pre
 check(boardPage.contains("'question:' + String(m.because || '').slice(0, 300)") || boardPage.contains("'question:' + keyWords(m.because)"),
       "the board builds the fallback key from the first 300 units of the question")
 
+section("the line above a sealed or waiting shared room (kosmos#7137)")
+// The gate, as the board's fedGateMode: hidden until live (or staging), shown to a Kosmos+ member, and on staging
+// shown while membership is unknown (absent or not a real bool), never when it is a real false.
+let fgT: Any = NSNumber(value: true), fgF: Any = NSNumber(value: false), fgOne: Any = NSNumber(value: 1)
+check(Board.fedGateMode(sourceChannel: "stable", federationLive: fgF, kosmosPlus: fgT) == "hidden", "gate: not live on a stable build is hidden, member or not")
+check(Board.fedGateMode(sourceChannel: nil, federationLive: nil, kosmosPlus: fgT) == "hidden", "gate: nothing said is hidden")
+check(Board.fedGateMode(sourceChannel: "stable", federationLive: fgT, kosmosPlus: fgT) == "show", "gate: live and a member shows")
+check(Board.fedGateMode(sourceChannel: "stable", federationLive: fgT, kosmosPlus: fgF) == "signup", "gate: live, not a member, is the sign-up gate")
+check(Board.fedGateMode(sourceChannel: "stable", federationLive: fgT, kosmosPlus: nil) == "signup", "gate: live, membership unknown, on a stable build is the sign-up gate (fail-safe)")
+check(Board.fedGateMode(sourceChannel: "staging", federationLive: fgF, kosmosPlus: nil) == "show", "gate: staging, membership unknown, shows")
+check(Board.fedGateMode(sourceChannel: "staging", federationLive: nil, kosmosPlus: fgF) == "signup", "gate: staging, a real false, is the sign-up gate")
+check(Board.fedGateMode(sourceChannel: "stable", federationLive: fgOne, kosmosPlus: fgT) == "hidden", "gate: federationLive 1 is not true (the board's === true)")
+check(Board.fedGateMode(sourceChannel: "stable", federationLive: fgT, kosmosPlus: fgOne) == "signup", "gate: kosmos_plus 1 is not true (the board's === true)")
+check(Board.fedGateMode(sourceChannel: "staging", federationLive: nil, kosmosPlus: "false") == "show", "gate: staging, the string \"false\" is unknown, not false (the board's !== false)")
+// The board's own function, so a change to its rule turns these red (the phone's lines above follow it, line for line).
+for line in ["  const staging = sourceChannel === 'staging';", "  const live = federationLive === true || staging;", "  if (!live) return 'hidden';",
+             "  if (kosmosPlus === true) return 'show';", "  const unknownPlus = kosmosPlus !== true && kosmosPlus !== false;",
+             "  if (staging && unknownPlus) return 'show';", "  return 'signup';",
+             "function fedShow() {\n  return document.documentElement.getAttribute('data-fed-ui') === 'show';",
+             "  const mode = fedGateMode(data.sourceChannel, data.federationLive, data.kosmos_plus);"] {
+    check(boardPage.contains(line), "the board's gate still reads: \(line.prefix(70))")
+}
+// Read off one status answer, as the board stamps it from the poll.
+check(Board.fedShown(fromStatus: Data(#"{"sourceChannel":"stable","federationLive":true,"kosmos_plus":true,"agents":[]}"#.utf8)), "status: live and a member, shown")
+check(!Board.fedShown(fromStatus: Data(#"{"sourceChannel":"stable","federationLive":true,"kosmos_plus":false,"agents":[]}"#.utf8)), "status: not a member, not shown")
+check(!Board.fedShown(fromStatus: Data(#"{"agents":[]}"#.utf8)), "status: an older Mac that says nothing, not shown")
+check(!Board.fedShown(fromStatus: Data("not json".utf8)), "status: an unreadable answer, not shown")
+// The read: the board's route, the project in its query, nothing else.
+let ocMac = URL(string: "https://mac.example/")!
+check(Board.ownCompareRequest(mac: ocMac, project: "book-launch")?.url?.absoluteString == "https://mac.example/api/federation/own-compare?project=book-launch"
+      && Board.ownCompareRequest(mac: ocMac, project: "book-launch")?.httpMethod == "GET", "own-compare: a GET of the board's route for this project")
+check(Board.ownCompareRequest(mac: ocMac, project: "a&b=c") == nil && Board.ownCompareRequest(mac: ocMac, project: "") == nil, "own-compare: no request for an id that is not one")
+check(boardPage.contains("fetch('/api/federation/own-compare?project=' + encodeURIComponent(project), o)"), "the board reads the same route")
+// The answer: a code is a non-empty string (the board's `o.code`), pending only when exactly true.
+check(Board.parseOwnCompare(Data(#"{"code":"4821-0937","pending":false}"#.utf8)) == Board.OwnCompare(hasCode: true, pending: false), "answer: a code, not waiting")
+check(Board.parseOwnCompare(Data(#"{"code":"4821-0937","pending":true}"#.utf8)) == Board.OwnCompare(hasCode: true, pending: true), "answer: a code, waiting")
+check(Board.parseOwnCompare(Data(#"{"code":null,"pending":true}"#.utf8))?.hasCode == false, "answer: a null code is no code")
+check(Board.parseOwnCompare(Data(#"{"code":"","pending":false}"#.utf8))?.hasCode == false, "answer: an empty code is no code (falsy, as the board's)")
+check(Board.parseOwnCompare(Data(#"{"code":"x","pending":"true"}"#.utf8))?.pending == false, "answer: pending \"true\" is not true")
+check(Board.parseOwnCompare(Data(#"{"error":"Federation is off."}"#.utf8))?.hasCode == false, "answer: an error body reads as no code")
+check(Board.parseOwnCompare(Data("[]".utf8)) == Board.OwnCompare(hasCode: false, pending: false), "answer: a JSON array is an answer with no code (the board's typeof === 'object')")
+check(Board.parseOwnCompare(Data("\"x\"".utf8)) == nil && Board.parseOwnCompare(Data("not json".utf8)) == nil, "answer: a bare string or not JSON is a miss")
+// The line: only while the shared-room UI shows and this computer has a code; waiting or sealed by `pending`.
+let sealedC = Board.OwnCompare(hasCode: true, pending: false), waitingC = Board.OwnCompare(hasCode: true, pending: true)
+check(Board.ownSealLine(sealedC, fedShown: true) == Board.ownSealedLine, "line: a code, not waiting, says sealed")
+check(Board.ownSealLine(waitingC, fedShown: true) == Board.ownWaitingLine, "line: a code, waiting, says waiting to be let in")
+check(Board.ownSealLine(sealedC, fedShown: false) == nil && Board.ownSealLine(waitingC, fedShown: false) == nil, "line: none while the shared-room UI is not shown")
+check(Board.ownSealLine(Board.OwnCompare(hasCode: false, pending: true), fedShown: true) == nil, "line: none without a code, waiting or not")
+check(Board.ownSealLine(nil, fedShown: true) == nil, "line: none before a read lands, or after one that failed")
+// The words: the board's two sentences said from the phone. The board's "this computer" is the person's computer here,
+// and "under Members" is on your computer's board, as the phone's other lines name it (the phone has no Members code
+// section). Nothing else changes.
+check(boardPage.contains("o.pending ? 'This computer is waiting to be let in. The code to compare is under Members.' : 'This room is sealed on this computer. The code to compare is under Members.'"),
+      "the board picks its sentence by pending, in these words")
+func phoneSaid(_ board: String) -> String {
+    board.replacingOccurrences(of: "This computer is", with: "Your computer is").replacingOccurrences(of: "on this computer.", with: "on your computer.")
+        .replacingOccurrences(of: "is under Members.", with: "is on your computer's board, under Members.")
+}
+check(Board.ownSealedLine == phoneSaid("This room is sealed on this computer. The code to compare is under Members."), "the sealed sentence is the board's, said from the phone")
+check(Board.ownWaitingLine == phoneSaid("This computer is waiting to be let in. The code to compare is under Members."), "the waiting sentence is the board's, said from the phone")
+check(!Board.ownSealedLine.contains("this computer") && !Board.ownWaitingLine.contains("this computer"), "the phone never calls the Mac \"this computer\"")
+// The keep rule, as the board's fedOwnLoad: an answer replaces; a failed read keeps the last through two misses.
+let kept1 = Board.ownCompareAfter(nil, answer: sealedC)
+check(kept1 == Board.OwnCompareKept(compare: sealedC, missed: 0), "keep: an answer is kept, no misses")
+let miss1 = Board.ownCompareAfter(kept1, answer: nil), miss2 = Board.ownCompareAfter(miss1, answer: nil), miss3 = Board.ownCompareAfter(miss2, answer: nil)
+check(miss1.compare == sealedC && miss2.compare == sealedC, "keep: one and two failed reads keep the line")
+check(miss3.compare == nil && miss3.missed == 3, "keep: the third failed read in a row drops it")
+check(Board.ownCompareAfter(miss2, answer: waitingC) == Board.OwnCompareKept(compare: waitingC, missed: 0), "keep: an answer after misses replaces and resets the count")
+check(Board.ownCompareAfter(kept1, answer: Board.OwnCompare(hasCode: false, pending: false)).compare?.hasCode == false, "keep: an answer with no code drops the line at once")
+check(Board.ownCompareAfter(nil, answer: nil) == Board.OwnCompareKept(compare: nil, missed: 1), "keep: a first read that fails shows nothing")
+check(boardPage.contains("const missed = mine ? 0 : (prev ? (prev.missed || 0) + 1 : 1);")
+      && boardPage.contains("const code = mine ? (typeof mine.code === 'string' ? mine.code : null) : (prev && missed < 3 ? prev.code : null);")
+      && boardPage.contains("const pending = mine ? mine.pending === true : !!(prev && missed < 3 && prev.pending);")
+      && boardPage.contains("return res.ok && body && typeof body === 'object' ? body : null;"),
+      "the board keeps its code through two misses, and any 2xx object is an answer")
+check(boardPage.contains("line.hidden = !(below && o && o.code && o.project === PJ_CURRENT && fedShow());"), "the board's condition: a code, this project, the UI shown")
+check(boardPage.contains(".ownseal-phone { font: var(--text-callout) var(--font-ui); color: var(--label-3);"), "the board's line is callout in the third label colour")
+// The drawing and the wiring, in the app's own source.
+let roomBody = roomView.components(separatedBy: "var body: some View {").dropFirst().first ?? ""
+let sealDraw = "if let seal = store.ownSealLine(project.id) {\n                Text(seal).font(.callout).foregroundColor(Palette.tertiary)"
+check(roomBody.contains("if searchMode { searchBar }\n            // kosmos#7137") && roomBody.contains(sealDraw)
+      && (roomBody.range(of: sealDraw)?.lowerBound ?? roomBody.endIndex) < (roomBody.range(of: "            thread\n")?.lowerBound ?? roomBody.startIndex),
+      "the room draws the line in callout and the third colour, above the conversation")
+let projectsSource = (try? String(contentsOf: here.appendingPathComponent("../../Kosmos/ProjectsView.swift"), encoding: .utf8)) ?? ""
+check(projectsSource.contains("guard client.fedShown else { ownCompare[project] = nil; return }"), "the store reads own-compare only while the UI shows, and forgets it otherwise")
+check(projectsSource.contains("guard same(epoch), ownSeq[project] == seq else { return }"), "only the newest read for a project writes (the board's FED_OWN_SEQ)")
+check(projectsSource.contains("let read = answer.flatMap { (200...299).contains($0.1.statusCode) ? Board.parseOwnCompare($0.0) : nil }\n        ownCompare[project] = Board.ownCompareAfter(ownCompare[project], answer: read)"),
+      "a 2xx JSON answer replaces, anything else is a miss under the keep rule")
+check(projectsSource.contains("func enterOwnCompare(_ project: String) { ownCompare[project] = nil; ownSeq[project, default: 0] += 1; ownAsk[project] = nil }")
+      && roomView.contains("visible = true\n            store.enterOwnCompare(project.id)"), "entering the room starts the line empty and drops a read in the air (the board's fedOwnReset)")
+check(projectsSource.contains("Task { await self.loadOwnCompare(project) }   // kosmos#7137: with each room read, landed or not (at most every 10 s)\n        let epoch = client.chatEpoch\n        roomReads[project, default: 0] += 1"),
+      "the read is asked with each room read, before it is sent, so a failing room still drops a stale line (review 2)")
+// The pace (review 3: tested as behaviour, not as source): the board's fedOwnTick. Never while a read is in flight,
+// then only once the last read finished more than 10 s ago (answered or missed), and at once the first time.
+let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+check(Board.ownShouldAsk(nil, now: t0, every: 10), "pace: the first ask is at once")
+check(!Board.ownShouldAsk(Board.OwnAsk(inFlight: true, doneAt: nil), now: t0, every: 10), "pace: never while the first read is in flight")
+check(!Board.ownShouldAsk(Board.OwnAsk(inFlight: true, doneAt: t0), now: t0.addingTimeInterval(60), every: 10),
+      "pace: never while a read is in flight, however long ago the last finished (a slow answer is never dropped by a new ask)")
+check(!Board.ownShouldAsk(Board.OwnAsk(inFlight: false, doneAt: t0), now: t0.addingTimeInterval(5), every: 10), "pace: not 5 s after the last finished")
+check(!Board.ownShouldAsk(Board.OwnAsk(inFlight: false, doneAt: t0), now: t0.addingTimeInterval(10), every: 10), "pace: not at exactly 10 s (the board's >)")
+check(Board.ownShouldAsk(Board.OwnAsk(inFlight: false, doneAt: t0), now: t0.addingTimeInterval(10.5), every: 10), "pace: again once 10 s have passed since it finished")
+check(Board.ownShouldAsk(Board.OwnAsk(inFlight: false, doneAt: nil), now: t0, every: 10), "pace: asked again at once when nothing has finished and nothing is in flight")
+// A slow route: answers take 12 s while the room reads every 5 s. With the pace above every read lands (none is
+// cut short by the next ask), so three misses in a row drop the line, as the board's.
+var simAsk: Board.OwnAsk? = nil, simKept: Board.OwnCompareKept? = Board.OwnCompareKept(compare: sealedC, missed: 0), simLanding: Date? = nil, simAsked = 0, simLastAsk: Date? = nil, simMinGap = Double.infinity
+for tick in 0..<40 {
+    let now = t0.addingTimeInterval(Double(tick) * 5)
+    if let l = simLanding, now >= l { simAsk = Board.OwnAsk(inFlight: false, doneAt: now); simKept = Board.ownCompareAfter(simKept, answer: nil); simLanding = nil }
+    if Board.ownShouldAsk(simAsk, now: now, every: 10) {
+        if let l = simLastAsk { simMinGap = min(simMinGap, now.timeIntervalSince(l)) }
+        simLastAsk = now; simAsk = Board.OwnAsk(inFlight: true, doneAt: simAsk?.doneAt); simLanding = now.addingTimeInterval(12); simAsked += 1
+    }
+}
+check(simKept?.compare == nil && (simKept?.missed ?? 0) >= 3, "pace: a 12 s route still lands every read, so a stale line drops at the third miss")
+check(simAsked > 3 && simMinGap > 12 + 10 - 5, "pace: asked again only once a read has landed and 10 s more have passed (never two asks closer than that)")
+check(Board.ownShouldAsk(Board.OwnAsk(inFlight: false, doneAt: t0), now: t0.addingTimeInterval(-60), every: 10), "pace: a clock set back since the last read is due (review 4)")
+check(boardPage.contains("const due = !o || o.project !== PJ_CURRENT || (!document.hidden && Date.now() - (o.at || 0) > FED_OWN_REFRESH_MS);")
+      && boardPage.contains("if (PJ_CURRENT && due && !asking && FED_OWN_BUSY !== PJ_CURRENT) fedOwnLoad(PJ_CURRENT);")
+      && boardPage.contains("const FED_OWN_REFRESH_MS = 10000;") && projectsSource.contains("static let ownEvery: TimeInterval = 10"),
+      "the board's pace: due 10 s after the last read finished, never while one is asking")
+// The store's use of it (the store is not compiled here, so its wiring is read from its source).
+check(projectsSource.contains("guard Board.ownShouldAsk(ownAsk[project], now: Date(), every: Self.ownEvery) else { return }\n        ownAsk[project, default: Board.OwnAsk()].inFlight = true")
+      && projectsSource.contains("guard same(epoch), ownSeq[project] == seq else { return }\n        ownAsk[project] = Board.OwnAsk(inFlight: false, doneAt: Date())"),
+      "the store asks only when the pace allows, marks the read in flight, and stamps it done when it lands")
+check(projectsSource.contains("ownSeq[project, default: 0] += 1; ownAsk[project] = nil }"), "entering the room asks at once")
+check(projectsSource.contains("func ownSealLine(_ project: String) -> String? { Board.ownSealLine(ownCompare[project]?.compare, fedShown: client.fedShown) }"),
+      "the drawn line is gated on the client's fedShown (review 2: a store that ignored the gate passed)")
+check(projectsSource.contains("needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAsk = [:]"), "another account or computer forgets the reads")
+check(projectsSource.contains("    @discardableResult\n    func loadRoom(_ project: String) async -> Bool {"), "loadRoom keeps its @discardableResult (review 1: a function placed between them took it)")
+let clientSource = (try? String(contentsOf: here.appendingPathComponent("../../Kosmos/BoardClient.swift"), encoding: .utf8)) ?? ""
+check(clientSource.contains("fedShown = Board.fedShown(fromStatus: data)") && clientSource.contains("projectsUnread = nil\n        fedShown = false"),
+      "the client takes the gate from each status read and forgets it with the Mac")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")

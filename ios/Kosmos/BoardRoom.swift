@@ -694,6 +694,65 @@ extension Board {
         r.httpBody = try? JSONSerialization.data(withJSONObject: ["agent": agent, "reason": reason])
         return r
     }
+    // kosmos#7137: GET /api/federation/own-compare?project=<id>, the board's own read (fedOwnPaint). The phone uses only
+    // whether this computer has a code for the project and whether it waits to be let in; the code itself is never shown.
+    struct OwnCompare: Equatable {
+        let hasCode: Bool
+        let pending: Bool
+    }
+    static func ownCompareRequest(mac: URL, project: String) -> URLRequest? {
+        // A project id is lowercase letters, digits, "-" and "_" only (isProjectId), so it needs no escaping in the query.
+        guard isProjectId(project) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/federation/own-compare?project=\(project)", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        return r
+    }
+    // The board's `o.code` is truthy: a non-empty string. `pending` counts only when exactly true.
+    // Any JSON object is an answer, as the board's `typeof body === 'object'` (an array too: an answer with no code).
+    static func parseOwnCompare(_ data: Data) -> OwnCompare? {
+        guard let any = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        if any is [Any] { return OwnCompare(hasCode: false, pending: false) }
+        guard let obj = any as? [String: Any] else { return nil }
+        let code = (obj["code"] as? String) ?? ""
+        return OwnCompare(hasCode: !code.isEmpty, pending: isTrue(obj["pending"]))
+    }
+    // The board's fedOwnLoad keep rule: an answer replaces what is kept; a failed read keeps the last answer through
+    // two misses in a row and drops it at the third (the page can no longer say it is the code this computer shows).
+    struct OwnCompareKept: Equatable {
+        var compare: OwnCompare?
+        var missed: Int
+    }
+    static func ownCompareAfter(_ prev: OwnCompareKept?, answer: OwnCompare?) -> OwnCompareKept {
+        if let answer { return OwnCompareKept(compare: answer, missed: 0) }
+        let missed = (prev?.missed ?? 0) + 1
+        return OwnCompareKept(compare: missed < 3 ? prev?.compare : nil, missed: missed)
+    }
+    // The board's fedOwnTick pace: never while a read is in flight (FED_OWN_ASKING), and again once the last read
+    // finished, answered or missed, more than `every` ago (FED_OWN.at, FED_OWN_REFRESH_MS). The first ask is at once.
+    struct OwnAsk: Equatable {
+        var inFlight = false
+        var doneAt: Date? = nil
+    }
+    static func ownShouldAsk(_ s: OwnAsk?, now: Date, every: TimeInterval) -> Bool {
+        guard let s else { return true }
+        if s.inFlight { return false }
+        guard let done = s.doneAt else { return true }
+        // A clock set back since the last read (a negative gap) is due too, so misses still count up and a stale line
+        // still drops (review 4; the board's own Date.now() check would wait instead).
+        let gap = now.timeIntervalSince(done)
+        return gap > every || gap < 0
+    }
+    // The board's #pj-fed-own-phone sentences, said from the phone: the board's "this computer" is the person's
+    // computer here, and the phone has no Members code section of its own (its room's Members button opens the board), so
+    // the code is said to be on your computer's board, as the phone's other lines name it.
+    static let ownSealedLine = "This room is sealed on your computer. The code to compare is on your computer's board, under Members."
+    static let ownWaitingLine = "Your computer is waiting to be let in. The code to compare is on your computer's board, under Members."
+    // Shown as the board's: the shared-room UI is shown, and this computer has a code for the open project.
+    static func ownSealLine(_ c: OwnCompare?, fedShown: Bool) -> String? {
+        guard fedShown, let c, c.hasCode else { return nil }
+        return c.pending ? ownWaitingLine : ownSealedLine
+    }
+
     // JavaScript's slice(0, n) on UTF-16 units, never splitting a surrogate pair.
     static func utf16Prefix(_ s: String, _ n: Int) -> String {
         var units = Array(s.utf16.prefix(n))
