@@ -862,6 +862,8 @@ function manifestCoordinator(b, opts) {
     const url = `${b.base}/bucket/${key.split('/').map(encodeURIComponent).join('/')}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIDTEST%2F20261008%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=${amzDate(signedAt)}&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED_M)}&X-Amz-Signature=00`;
     const upload = { key, url, headers: { 'x-amz-checksum-sha256': Buffer.from(body.sha256, 'hex').toString('base64'), 'if-none-match': '*', 'x-amz-object-lock-mode': 'COMPLIANCE', 'x-amz-object-lock-retain-until-date': retain } };
     const data = { epoch: 1, period: '2026-W41', retain_until: retain, expires_at: iso(expMs), upload };
+    // kosmos#7118: a coordinator that keeps the snapshot id echoes it; o.noEcho stands for one from before.
+    if (body.snapshot !== undefined && !o.noEcho) data.snapshot = body.snapshot;
     if (o.tamper) o.tamper(data);
     return { ok: true, data };
   };
@@ -1626,6 +1628,15 @@ test('kosmos#7118: the manifest grant carries the snapshot id it is sealed under
     const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
     assert.strictEqual(r.ok, true, r.because);
     assert.ok(!('snapshot' in mc.bodies[0]), JSON.stringify(mc.bodies[0]));
+  } finally { await b.close(); }
+  // An older coordinator that grants without keeping the id (no echo): refused before any byte is sent.
+  b = await bucket();
+  try {
+    const mc = manifestCoordinator(b, { noEcho: true });
+    const r = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b, { snapshot: id }));
+    assert.strictEqual(r.ok, false);
+    assert.match(r.because, /did not keep this backup's snapshot id/);
+    assert.strictEqual(b.puts, 0, 'a manifest nobody could open was uploaded');
   } finally { await b.close(); }
   // Not a context id: refused before any grant is asked (nothing spent), whatever the coordinator would answer.
   for (const bad of ['', 'x'.repeat(129), 'a/b', ' x', 'a\nb', 'é', 7, null]) {
