@@ -72,6 +72,9 @@ struct ChatView: View {
     @State private var reacting: Set<String> = []
     // kosmos#7089: the search field's words. The thread shows only the loaded rows they match (Board.chatFilter).
     @State private var query = ""
+    // A message went while the search was on: the line under the composer says it shows only if it matches. Last in
+    // line, so a refused press or file is never hidden behind it.
+    @State private var sentWhileSearching = false
     private var searching: Bool { Board.chatSearching(query) }
 
     // The agent as the list shows it now (its word and tone move with the board), or as it was tapped.
@@ -91,8 +94,8 @@ struct ChatView: View {
                 conversation
                 if unseenNew { newMessagesCapsule }
             }
-            if let line = composerNote ?? attachLine ?? pressLine {
-                Text(line).font(.footnote).foregroundColor(composerNote == nil && attachLine == nil ? Palette.dangerWord : Palette.secondary)
+            if let line = composerNote ?? attachLine ?? pressLine ?? (sentWhileSearching ? Board.chatSentWhileSearching : nil) {
+                Text(line).font(.footnote).foregroundColor(composerNote == nil && attachLine == nil && pressLine != nil ? Palette.dangerWord : Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     // Mona Lisa's spec: 16 pt side margins, 6 pt above the composer.
                     .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 6)
@@ -135,7 +138,7 @@ struct ChatView: View {
             // search on opening another agent). What the search changed goes with it here, not in onChange(of: query),
             // which need not run for a view that is off screen.
             query = ""
-            if composerNote == Board.chatSentWhileSearching { composerNote = nil }
+            sentWhileSearching = false
             // Not into another account's chats: a draft from before a sign-out is dropped with the rest.
             if epoch == client.chatEpoch { client.drafts[agent.session] = draftText }
             loop?.cancel()
@@ -147,11 +150,11 @@ struct ChatView: View {
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .onChange(of: query) { _ in
             recomputeHiddenHeads()
-            if composerNote == Board.chatSentWhileSearching { composerNote = nil }
+            sentWhileSearching = false
         }
         // Clearing the search is reading at the bottom again: what loaded meanwhile is there to see.
         .onChange(of: searching) { now in
-            if !now { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
+            if !now && visible { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
         }
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
@@ -169,6 +172,7 @@ struct ChatView: View {
             pressLine = nil
             composerNote = nil
             query = ""
+            sentWhileSearching = false
             draftText = ""
             refusal = nil
             failedReads = 0
@@ -286,9 +290,10 @@ struct ChatView: View {
                 }
                 .onChange(of: Board.followKey(thread)) { _ in follow(proxy) }
                 .onChange(of: working) { now in if now { follow(proxy) } }
-                // Only a message just sent scrolls down; one settling into its row does not move the person's place.
+                // Only a message just sent scrolls down; one settling into its row does not move the person's place. Not
+                // while searching (the board's jumpToOwnSend).
                 .onChange(of: pending.count) { n in
-                    if n > lastPendingCount { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                    if n > lastPendingCount && !searching { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
                     lastPendingCount = n
                 }
                 // The keyboard shrinks the thread; one that was at the newest message stays there (the spec).
@@ -347,15 +352,14 @@ struct ChatView: View {
         if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { unseenNew = true }
     }
 
-    // Spoken as well: the search field keeps VoiceOver's focus, so nothing else says the thread went empty (the board's
-    // room search announces the same sentence).
+    // Spoken once, as it appears: the search field keeps VoiceOver's focus, so nothing else says the thread went empty
+    // (the board's room search announces it on the way into no match, not on every key).
     private var noMatch: some View {
         Text(Board.chatNoMatch(query)).font(.subheadline).foregroundColor(Palette.secondary)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.top, 60)
             .onAppear { UIAccessibility.post(notification: .announcement, argument: Board.chatNoMatch(query)) }
-            .onChange(of: Board.chatNoMatch(query)) { now in UIAccessibility.post(notification: .announcement, argument: now) }
     }
 
     private var empty: some View {
@@ -860,8 +864,6 @@ struct ChatView: View {
         // The composer line goes on the next send or press (Mona Lisa's spec, section 1).
         pressLine = nil
         client.attachLine[agent.session] = nil
-        // A message that does not match the search drops out of sight once the Mac records it (the board hides it too).
-        if searching { composerNote = Board.chatSentWhileSearching }
         let text = draftText
         let files = attachedHere
         let answering = replying
@@ -871,7 +873,10 @@ struct ChatView: View {
         Task {
             // Not sent (a press, or another file started going up meanwhile): the words go back in an empty box, so none
             // are lost, and the line says why; the reply comes back with them.
-            if !(await client.post(text, files: files, replyTo: answering?.atRaw, to: agent)) {
+            if await client.post(text, files: files, replyTo: answering?.atRaw, to: agent) {
+                // Once the Mac records it, a message that does not match the search drops out of sight (the board's too).
+                if searching { sentWhileSearching = true }
+            } else {
                 if draftText.isEmpty { draftText = text; if replying == nil { replying = answering } }
                 if uploadingHere > 0 { composerNote = Board.stillAddingLine }
             }
