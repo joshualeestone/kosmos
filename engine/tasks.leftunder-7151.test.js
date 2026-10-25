@@ -94,10 +94,17 @@ test('the history allow-list against the engine\'s own writers: an agent\'s unto
   assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, held)), false, 'a hold set and released on the screen');
   const said = made('kit'); tasks.say(pr.id, said, 'a word from the screen');
   assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, said)), false, 'a message (a said row names nobody)');
-  const agentHold = made('kit'); tasks.setOnHold(pr.id, agentHold, true); tasks.setOnHold(pr.id, agentHold, false);
-  assert.ok(tasks.agentOnlyHistory(taskchat.read(pr.id, agentHold)), 'CONTROL: a hold an agent set and cleared');
+  const noName = made('kit'); tasks.setOnHold(pr.id, noName, true); tasks.setOnHold(pr.id, noName, false);
+  assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, noName)), false, 'a hold set and cleared off the screen names nobody (it could be the person\'s terminal)');
   const theirs = tasks.create(pr.id, { sentence: 'From the screen' }).number;
   assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, theirs)), false, 'the person made it');
+});
+
+test('a task with an open task under it is not offered; with every child closed it is', () => {
+  const p = project([cycle, agentTask(2), { number: 3, parent: 2, createdAt: at(6), addedVia: 'screen' }]);
+  assert.equal(of(p, 2), null, 'its child is still open');
+  const closed = project([cycle, agentTask(2), { number: 3, parent: 2, createdAt: at(6), addedVia: 'screen', closedAt: at(8) }]);
+  assert.equal(of(closed, 2), 1, 'CONTROL: its child closed');
 });
 
 test('only open tasks are offered: never one done, built (waiting on review) or on hold', () => {

@@ -66,7 +66,7 @@ function withProjects(t) {
       { number: 2, sentence: 'diagnostic left behind', parent: 1, createdAt: ago(40), addedVia: 'process', addedBy: 'kit-7151', parts: [{ who: 'kit-7151' }] },
       { number: 3, sentence: 'follow-up filed after', parent: 1, createdAt: ago(15), addedVia: 'process', addedBy: 'kit-7151' },
       { number: 4, sentence: 'the persons own', parent: 1, createdAt: ago(40), addedVia: 'screen' },
-      { number: 5, sentence: 'one the person commented on', parent: 1, createdAt: ago(40), addedVia: 'process', addedBy: 'kit-7151' },
+      { number: 5, sentence: 'one the person set a done-when on', parent: 1, createdAt: ago(40), addedVia: 'process', addedBy: 'kit-7151' },
       { number: 6, sentence: 'top level, no parent', createdAt: ago(40), addedVia: 'process', addedBy: 'kit-7151' },
       { number: 7, sentence: 'left behind but on hold', parent: 1, createdAt: ago(40), addedVia: 'process', addedBy: 'kit-7151', onHold: true },
       { number: 8, sentence: 'no date of its own', parent: 1, addedVia: 'process', addedBy: 'kit-7151' },
@@ -78,8 +78,6 @@ const byNumber = (r) => new Map((r.json && Array.isArray(r.json.tasks) ? r.json.
 
 test('a quiet task an agent filed before its parent closed is offered with that parent; the rest are not', async (t) => {
   withProjects(t);
-  /* The person acted on #5 (a real transcript entry, as the board writes one): it is never offered. An old date, so
-     #5 stays quiet; its last activity is its newest entry. */
   /* Histories as the board writes them, with old dates so each task stays quiet: #2 was made by its agent and left
      alone (offered); the person acted on #5 (never offered). */
   const write = (n, rows) => {
@@ -88,10 +86,17 @@ test('a quiet task an agent filed before its parent closed is offered with that 
     fs.writeFileSync(f, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
     t.after(() => { try { fs.rmSync(f, { force: true }); } catch { /* ignore */ } });
   };
-  write(2, [{ at: ago(40), kind: 'created', sentence: 'diagnostic left behind', addedVia: 'process', addedBy: 'kit-7151', who: 'kit-7151' }]);
+  const createdBy = (n, sentence, via = 'process') => ({ at: ago(40), kind: 'created', sentence, addedVia: via, addedBy: via === 'process' ? 'kit-7151' : 'operator' });
+  write(2, [{ ...createdBy(2, 'diagnostic left behind'), who: 'kit-7151' }]);
+  /* Review 3: every other task gets the history it would really have, so each is ruled out only by the rule its
+     assertion names, never by a missing history. */
+  write(3, [{ ...createdBy(3, 'follow-up filed after'), at: ago(15) }]);
+  write(4, [createdBy(4, 'the persons own', 'screen')]);
+  write(6, [createdBy(6, 'top level, no parent')]);
+  write(8, [createdBy(8, 'no date of its own')]);
   const file = taskchat.taskChatFile('cyc7151', 5);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, [{ at: ago(40), kind: 'created', sentence: 'one the person commented on', addedVia: 'process', addedBy: 'kit-7151' },
+  fs.writeFileSync(file, [{ at: ago(40), kind: 'created', sentence: 'one the person set a done-when on', addedVia: 'process', addedBy: 'kit-7151' },
     { at: ago(30), kind: 'done-when-set', doneWhen: 'it ships', person: true }].map((r) => JSON.stringify(r)).join('\n') + '\n');
   t.after(() => { try { fs.rmSync(file, { force: true }); } catch { /* ignore */ } });
   assert.equal(taskchat.read('cyc7151', 5).length, 2, 'premise: #5 has its creation and the person\'s entry, 30 days old');

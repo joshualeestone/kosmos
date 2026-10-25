@@ -34,7 +34,7 @@ Card: kosmos#7151 (agent feedback, 2026-10-25). Rotation card, my shard (mod 7 =
 close (an agent's real follow-up that happened to be filed early) is offered too; the offer is advice, and the agent
 owning it is the one who closes it.
 
-## Checks so far (17:58 CDT)
+## Checks at the first build (17:00 CDT; later rounds below)
 - engine/tasks.leftunder-7151.test.js 7/7, server.tasks-leftunder-7151.test.js 3/3; the neighbouring task suites
   (220 pass, 0 fail); fixture-discipline and no-name-refs.
 - Broken copies: no made-before check, no filed-by check, no waiting check, no line marker: each red.
@@ -58,3 +58,11 @@ owning it is the one who closes it.
   row kinds; the rule is three short lines (each under 200 characters, asserted). Recorded: the transcript read twice
   per candidate. Engine 16/16, server 2/2, task suites 176/176, tree guards. Broken copies: allow-all, parent only:
   each red.
+- Round 3: 0 blockers, 5 warnings, 4 nits. Fixed: hold rows dropped from the allow-list (via 'agent' means "not the
+  screen", which includes the person's terminal); a task with an open task under it is not offered (tested, with a
+  closed-child control); the server test gives every task its real creation row, so each fails only on its named
+  rule (turning off the filed-by and made-before checks now reds it). Decided and recorded on the card: safety over
+  coverage (the allow-list rejects agent-only histories whose rows name nobody: Assigner hand-outs, messages, parts);
+  built and held tasks are never offered (the person reviews or parked them). Nits: stale comments, #5's title, the
+  plan's checks heading, the card's old rule (a new comment replaces it). Not taken: a screen-opened mark as a hint
+  (the allow-list already rules out anything the person did that is recorded). Engine 17/17, server 2/2.
