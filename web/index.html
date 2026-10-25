@@ -81949,7 +81949,7 @@ async function fedOwnRemoveGo() {
   // reload then closes the dialog if the board no longer lists that computer (fedOwnLoad).
   if (!ok && !timedOut && still) {
     dlgLine.textContent = said;
-    f.refusal = said;   // the board's own word, kept if a later list closes this dialog
+    if (res) f.refusal = said;   // the board's own word, kept if a later list closes this dialog (not a request that never reached it)
     fedOwnPaint();
     fedOwnLoad(f.project, true);
     return;
