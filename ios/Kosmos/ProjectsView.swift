@@ -75,23 +75,25 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
-        returned = [:]; kept = [:]; drafts = [:]; needsSaid = [:]
+        returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]
         held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
     private var listReads = 0
     private var listApplied = 0
 
-    func loadList() async {
+    // True when a read landed and was applied (kosmos#7106: a dismiss is said done only once the list shows it).
+    @discardableResult
+    func loadList() async -> Bool {
         #if DEBUG
-        if Self.sample { list = Board.parseProjects(Data(Self.sampleProjects.utf8)); listState = .shown; return }
+        if Self.sample { list = Board.parseProjects(Data(Self.sampleProjects.utf8)); listState = .shown; return true }
         #endif
         // Not connected yet (a cold start, or the Mac asking for Allow): still reaching, never "we cannot read your
         // projects". Signed out, no Mac, or unreachable is a real "cannot read".
         if client.macURL == nil {
             switch client.phase {
-            case .starting, .connecting, .waitingForAllow: return
-            default: if list == nil { listState = .failed }; return
+            case .starting, .connecting, .waitingForAllow: return false
+            default: if list == nil { listState = .failed }; return false
             }
         }
         let epoch = client.chatEpoch
@@ -101,13 +103,15 @@ final class RoomStore: ObservableObject {
         // An older read landing after a newer one never replaces it (the 5-second poll and a notification's re-read
         // overlap).
         // A read cancelled (the tab left mid-read) is no answer, never "cannot read".
-        guard same(epoch), read > listApplied, !Task.isCancelled else { return }
+        guard same(epoch), read > listApplied, !Task.isCancelled else { return false }
         listApplied = read
         if let answer, answer.1.statusCode == 200, let parsed = Board.parseProjects(answer.0) {
             list = parsed; listState = .shown
+            return true
         } else if list == nil {
             listState = .failed
         }
+        return false
     }
 
     // The newest page, merged into what is shown (a post written late can land inside it; ios/README.md).
@@ -354,15 +358,24 @@ final class RoomStore: ObservableObject {
     func needsNotice(_ project: String) -> Board.NeedsNotice? {
         list?.projects.first(where: { $0.id == project }).flatMap { Board.needsNotice($0.members, names: names) }
     }
-    // Dismiss one member's row (the board's pjNeedsDismissClick): true when the computer took it, and the list is then
-    // read again so the row goes. The line under the notice says which.
-    @Published private(set) var needsSaid: [String: String] = [:]
-    func dismissNeeds(_ row: Board.NeedsRow, in project: String) async {
+    // Dismiss one member's row (the board's pjNeedsDismissClick). Taken: the list is read again (twice at most, as the
+    // board does) so the row goes, and the board's sentence is returned only once a read shows it; not taken: the
+    // failure sentence, kept under the notice (needsFailed) until its rows change or the room opens again. Nil: nothing
+    // to say (another account or computer meanwhile, or a re-read that never landed).
+    @Published private(set) var needsFailed: [String: String] = [:]
+    func dismissNeeds(_ row: Board.NeedsRow, in project: String) async -> String? {
+        let epoch = client.chatEpoch
         let answer = await client.throughMac { Board.needsDismissRequest(mac: $0, project: project, agent: row.session, reason: row.key) }
-        let ok = answer.map { (200...299).contains($0.1.statusCode) } ?? false
-        if ok { await loadList() }
-        needsSaid[project] = ok ? Board.needsDismissed : Board.needsDismissFailed
+        guard same(epoch) else { return nil }
+        guard let said = Board.needsDismissSaid(status: answer?.1.statusCode) else { return nil }
+        if said == Board.needsDismissFailed { needsFailed[project] = said; return said }
+        needsFailed[project] = nil
+        var landed = await loadList()
+        if !landed { landed = await loadList() }
+        guard same(epoch), landed else { return nil }
+        return said
     }
+    func clearNeedsFailed(_ project: String) { needsFailed[project] = nil }
 
     func agent(_ session: String?) -> Board.Agent? { session.flatMap { s in client.agents.first { $0.session == s } } }
     var clientForChat: BoardClient { client }

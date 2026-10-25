@@ -742,7 +742,8 @@ for (asset, key) in markKeys.sorted(by: { $0.key < $1.key }) {
 check(Set(Board.providerMarkAsset.values) == Set(markKeys.keys), "every mark the tally names is in the asset catalog")
 
 section("the room's needs-you notice (kosmos#7106)")
-// projects-needs.json is a REAL projects answer, captured from a sandboxed engine (engine/projects.list with real fleet
+// projects-needs.json is a REAL projects answer, captured from a sandboxed engine and then trimmed to the fields the phone
+// reads (engine/projects.list with real fleet
 // cards): cleo asked a question about this project; eli's card says working but Kosmos keeps restarting it (a crash loop
 // in a live room); dana is working; farah is idle.
 let needsList = Board.parseProjects((try? Data(contentsOf: here.appendingPathComponent("projects-needs.json"))) ?? Data())
@@ -780,6 +781,15 @@ for phrase in ["' needs you' : n + ' agents need you';", "const head = rows.leng
     check(boardPage.contains(phrase), "the board's notice still says: \(phrase.prefix(60))")
 }
 check(boardPage.contains(Board.needsDismissed) && boardPage.contains(Board.needsDismissFailed), "the phone's sentences are the board's")
+check(Board.needsDismissSaid(status: 200) == Board.needsDismissed && Board.needsDismissSaid(status: 204) == Board.needsDismissed,
+      "taken: the board's Dismissed sentence")
+check(Board.needsDismissSaid(status: 400) == Board.needsDismissFailed && Board.needsDismissSaid(status: nil) == Board.needsDismissFailed,
+      "refused or no answer: the board's could-not sentence")
+// The fallback key is 300 UTF-16 units, as the engine's slice, never splitting an emoji.
+let emojiQuestion = String(repeating: "😀", count: 200)
+check(Board.utf16Prefix(emojiQuestion, 300).utf16.count == 300 && Board.utf16Prefix(emojiQuestion, 301).utf16.count == 300,
+      "a key cut by UTF-16 units, an emoji never split in half")
+check(boardPage.contains("'question:' + String(m.because || '').slice(0, 300)"), "the board builds the fallback key so")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 

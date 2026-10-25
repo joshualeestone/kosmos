@@ -429,32 +429,51 @@ struct RoomView: View {
     // Dismiss. One member: its row sits under the head, which already names it. Several: the head shows how many, and
     // Show lists them, so the pinned band never takes the room over.
     @State private var needsOpen = false
+    // VoiceOver's place after a dismiss (the board's pjNeedsDismissClick): the next row's Dismiss, else the last one
+    // left, else the head.
+    @AccessibilityFocusState private var needsFocus: String?
     @ViewBuilder private var needsLine: some View {
         if let notice = store.needsNotice(project.id) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(notice.head).font(.footnote.weight(.semibold)).foregroundColor(Palette.primary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityFocused($needsFocus, equals: "head")
                     Spacer(minLength: 8)
                     if notice.rows.count > 1 {
-                        Button(needsOpen ? "Hide" : "Show") { needsOpen.toggle() }
-                            .font(.footnote.weight(.semibold)).frame(minHeight: 44)
-                            .accessibilityLabel(needsOpen ? "Hide who needs you" : "Show who needs you")
+                        Button { needsOpen.toggle() } label: {
+                            Text(needsOpen ? "Hide" : "Show").font(.footnote.weight(.semibold))
+                                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                        }
+                        .accessibilityLabel(needsOpen ? "Hide who needs you" : "Show who needs you")
                     }
                 }
                 if notice.rows.count == 1 || needsOpen {
                     ForEach(notice.rows) { row in needsRow(row, named: notice.namedInHead == row.session) }
                 }
-                if let said = store.needsSaid[project.id] {
-                    Text(said).font(.footnote).foregroundColor(Palette.secondary)
+                // Only a dismiss that did not go stays on screen, until the rows change or the room opens again; a
+                // dismiss that went is heard (the board's status line is read, not drawn; review 1).
+                if let failed = store.needsFailed[project.id] {
+                    Text(failed).font(.footnote).foregroundColor(Palette.secondary)
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 10).fill(Palette.banner))
             .padding(.horizontal, 16).padding(.top, 8)
-        } else if let said = store.needsSaid[project.id] {
-            // The last row dismissed: the notice is gone, and the line says so.
-            Text(said).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 8)
+            .onChange(of: notice.rows.map(\.key)) { _ in store.clearNeedsFailed(project.id) }
+            .onAppear { store.clearNeedsFailed(project.id) }
+        }
+    }
+
+    private func dismiss(_ row: Board.NeedsRow) {
+        let keys = store.needsNotice(project.id)?.rows.map(\.session) ?? []
+        Task {
+            guard let said = await store.dismissNeeds(row, in: project.id) else { return }
+            Self.say(said)
+            guard said == Board.needsDismissed else { return }
+            let left = store.needsNotice(project.id)?.rows.map(\.session) ?? []
+            let after = keys.drop(while: { $0 != row.session }).dropFirst().first { left.contains($0) }
+            needsFocus = after ?? left.last ?? "head"
         }
     }
 
@@ -462,14 +481,19 @@ struct RoomView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(named ? row.why : "\(row.name): \(row.why)").font(.footnote).foregroundColor(Palette.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 16) {
-                Button(row.act) { if let a = store.agent(row.session) { chatAgent = a } }
-                    .disabled(store.agent(row.session) == nil)
-                    .accessibilityLabel("\(row.act) \(row.name)")
-                Button("Dismiss") { Task { await store.dismissNeeds(row, in: project.id) } }
-                    .accessibilityLabel("Dismiss \(row.name)")
+            HStack(spacing: 8) {
+                Button { if let a = store.agent(row.session) { chatAgent = a } } label: {
+                    Text(row.act).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                .disabled(store.agent(row.session) == nil)
+                .accessibilityLabel("\(row.act) \(row.name)")
+                Button { dismiss(row) } label: {
+                    Text("Dismiss").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                .accessibilityLabel("Dismiss \(row.name)")
+                .accessibilityFocused($needsFocus, equals: row.session)
             }
-            .font(.footnote.weight(.semibold)).frame(minHeight: 44)
+            .font(.footnote.weight(.semibold))
         }
         .accessibilityElement(children: .contain)
     }

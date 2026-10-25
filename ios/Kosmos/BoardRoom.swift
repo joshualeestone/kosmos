@@ -677,7 +677,8 @@ extension Board {
             guard let reason = m.needsYouHere else { return nil }
             let words = needsWhy[reason] ?? needsWhy["other"]!
             // The engine's needsYouKey; built as it is when absent (a question carries its words).
-            let key = m.needsYouKey ?? (reason == "question" ? "question:" + String((m.because ?? "").prefix(300)) : reason)
+            // (300 UTF-16 units, as the engine's slice; review 1: Characters would let an emoji-rich question run long.)
+            let key = m.needsYouKey ?? (reason == "question" ? "question:" + utf16Prefix(m.because ?? "", 300) : reason)
             return NeedsRow(session: m.session, name: names[m.session] ?? m.name, why: words.why, act: words.act, key: key)
         }
         guard let first = rows.first else { return nil }
@@ -692,6 +693,17 @@ extension Board {
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         r.httpBody = try? JSONSerialization.data(withJSONObject: ["agent": agent, "reason": reason])
         return r
+    }
+    // JavaScript's slice(0, n) on UTF-16 units, never splitting a surrogate pair.
+    static func utf16Prefix(_ s: String, _ n: Int) -> String {
+        var units = Array(s.utf16.prefix(n))
+        if let last = units.last, UTF16.isLeadSurrogate(last) { units.removeLast() }
+        return String(decoding: units, as: UTF16.self)
+    }
+    // Which sentence an answer to a dismiss earns: taken (2xx), or not; nil never (every answer says one).
+    static func needsDismissSaid(status: Int?) -> String? {
+        guard let status, (200...299).contains(status) else { return needsDismissFailed }
+        return needsDismissed
     }
     static let needsDismissed = "Dismissed. It comes back if something changes."
     static let needsDismissFailed = "Kosmos could not dismiss that. Try again in a moment."

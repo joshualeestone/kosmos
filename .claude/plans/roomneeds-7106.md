@@ -11,11 +11,16 @@ the board's route with its two sentences; tested against a captured projects ans
 - The words: PJ_NEEDS_WHY carried over whole (Board.needsWhy), each pinned against web/index.html; an unknown reason
   is the board's other. The head: "<Name> needs you on this project." / "N agents need you on this project."
 - Dismiss: POST /api/project/<id>/needs-dismiss with {agent, reason}, the reason being needsYouKey (built as the engine
-  builds it when absent). Then the list is read again, and the line under the notice says the board's sentence.
+  builds it when absent, cut by UTF-16 units as its slice). Taken: the list is read again (twice at most), and only
+  once a read shows it is the board's "Dismissed..." said, to VoiceOver, with focus on the next row's Dismiss, else the
+  last one left, else the head (the board's pjNeedsDismissClick). Not taken: the board's could-not sentence is heard
+  and stays under the notice until its rows change or the room opens again. The board's status line is read, not
+  drawn, so a success line is never left pinned over a room.
 - Names: the status card's, as the rest of the app shows them, falling back to the route's.
 - The phone's shape: with one member, its reason and buttons sit under the head, which already names it (#6483).
   With several, the head shows how many and Show lists them, so the pinned band never takes over the room. The board
-  lists them all; a pinned band on a phone cannot.
+  lists them all; a pinned band on a phone cannot. (Mona Lisa's design call, as the design owner; Hide collapses it
+  again if an opened list at a large text size crowds the room.)
 - The project list now follows the 5-second status poll while a room is open too (it did only while the list was the
   screen shown), so the notice is current; the board re-reads its projects while a room is on screen.
 - Not here: the board's "Also waiting on you:" rows (redHere), which the phone has no rows to compute.
@@ -28,4 +33,10 @@ the board's route with its two sentences; tested against a captured projects ans
 1. Parse, notice, dismiss, view, suite, build. DONE: room 257/257 (control: counting members without needsYouHere
    turns three checks red); route check 5/5; run 1209, actions 99, settings 42, tasks 90, taskpage 108; Debug build
    SUCCEEDED (the one slow-expression warning is TasksView.swift:118, main's code, 105 ms).
-2. Review loop. 3. Validation, PR.
+2. Review loop.
+   - Round 1: 0 blockers, 4 warnings, 4 nits. Fixed: the dismiss line no longer pinned for good (success heard,
+     failure until the rows change or the room opens); VoiceOver hears it and focus moves as the board's; 44 pt
+     targets inside each button's label; an account guard on dismiss; the UTF-16 fallback key; a dismiss said done
+     only once a re-read lands; the sentence choice tested (Board.needsDismissSaid); the fixture called captured
+     and trimmed. Room 261/261; route check 5/5; Debug SUCCEEDED.
+3. Validation, PR.
