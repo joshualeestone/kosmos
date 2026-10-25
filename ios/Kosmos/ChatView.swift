@@ -129,7 +129,6 @@ struct ChatView: View {
             // Only into an empty box: if SwiftUI shows the chat again without having hidden it, the words being typed stay.
             if draftText.isEmpty { draftText = client.drafts[agent.session] ?? "" }
             startReading()
-            recomputeHiddenHeads()
         }
         .onDisappear {
             visible = false
@@ -148,10 +147,7 @@ struct ChatView: View {
         // kosmos#7089: under the bar, always shown. Hidden until pulled down (.automatic), a search still filtering the
         // thread was out of sight, so the chat looked shorter with nothing saying why (seen in the first screenshot).
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
-        .onChange(of: query) { _ in
-            recomputeHiddenHeads()
-            sentWhileSearching = false
-        }
+        .onChange(of: query) { _ in sentWhileSearching = false }
         // Clearing the search is reading at the bottom again: what loaded meanwhile is there to see.
         .onChange(of: searching) { now in
             if !now && visible { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
@@ -352,7 +348,7 @@ struct ChatView: View {
         if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { unseenNew = true }
     }
 
-    // Spoken once, as it appears: the search field keeps VoiceOver's focus, so nothing else says the thread went empty
+    // Spoken as it appears: the search field keeps VoiceOver's focus, so nothing else says the thread went empty
     // (the board's room search announces it on the way into no match, not on every key).
     private var noMatch: some View {
         Text(Board.chatNoMatch(query)).font(.subheadline).foregroundColor(Palette.secondary)
@@ -389,7 +385,7 @@ struct ChatView: View {
                     // kosmos#7083: what it answers, on a message with files too.
                     let head = headFor(replyTo: row.replyTo)
                     // Heard in the files bubble's own label, so not a second time here.
-                    if let head, !hiddenHeads.contains(row.id) { ReplyHeadLine(head: head).accessibilityHidden(true) }
+                    if let head, !headsHidden.contains(row.id) { ReplyHeadLine(head: head).accessibilityHidden(true) }
                     FilesBubble(text: Board.wordsShown(row.text, files: row.attachments), files: row.attachments,
                                 thumbnails: client.thumbnails, states: fileStates, widthShare: widthShare, open: openFile, mine: mine,
                                 faded: mine && row.canSendAgain && !client.wasSentAgain(row, for: agent.session),
@@ -427,7 +423,7 @@ struct ChatView: View {
                     if way == .attachment, !row.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         ChatBubble(row: row, firstOfRun: true, lastOfRun: true, widthShare: widthShare, name: shown.name,
                                    line: nil, sendAgain: {},
-                                   head: headFor(replyTo: row.replyTo), headHidden: hiddenHeads.contains(row.id),
+                                   head: headFor(replyTo: row.replyTo), headHidden: headsHidden.contains(row.id),
                                    react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
                                    reply: row.answerable(by: agent.session) ? { startReply(row) } : nil)
                     }
@@ -446,7 +442,7 @@ struct ChatView: View {
                            line: row.canSendAgain && !client.wasSentAgain(row, for: agent.session)
                                ? Board.notSentLine(agentRunning: running, name: shown.name) : nil,
                            sendAgain: { sendWhenFree { await client.sendAgain(row, to: agent) } },
-                           head: headFor(replyTo: row.replyTo), headHidden: hiddenHeads.contains(row.id),
+                           head: headFor(replyTo: row.replyTo), headHidden: headsHidden.contains(row.id),
                            react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
                            reply: row.answerable(by: agent.session) ? { startReply(row) } : nil)
                     .padding(.top, first ? 10 : 2)
@@ -473,7 +469,8 @@ struct ChatView: View {
 
     // A failure stands until Try again, in a row of its own so it lies over nothing.
     @ViewBuilder private var earlierFailedLine: some View {
-        if let why = earlier.because, !earlier.loading {
+        // Not while searching: a search loads no earlier pages (loadEarlier), so Try again would do nothing.
+        if let why = earlier.because, !earlier.loading, !searching {
             VStack(spacing: 4) {
                 Text(why).font(.footnote).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
                 Button("Try again") { earlier = Board.retryEarlier(earlier); loadEarlier() }
@@ -902,9 +899,11 @@ struct ChatView: View {
     // once per row (review 4: per row it was quadratic on every redraw).
     @State private var hiddenHeads: Set<String> = []
     private func recomputeHiddenHeads() {
-        // Not while searching, which hides the rows between (dmReplyAdjacency): every reply draws its header then.
-        hiddenHeads = searching ? [] : thread.map { Board.repliesUnderOriginal(Board.shownRows(earlier, thread: $0)) } ?? []
+        hiddenHeads = thread.map { Board.repliesUnderOriginal(Board.shownRows(earlier, thread: $0)) } ?? []
     }
+    // Not while searching, which hides the rows between (dmReplyAdjacency): every reply draws its header then. Chosen
+    // as the rows are drawn, so a keystroke never paints one frame with the other answer.
+    private var headsHidden: Set<String> { searching ? [] : hiddenHeads }
 
     // The strip above the composer: who and what the next send answers, and an x.
     private func replyStrip(_ row: Board.ChatRow) -> some View {

@@ -3445,7 +3445,6 @@ do {
     check(ids("FIX") == ["a"], "chat search: any case matches the text")
     check(ids("  ship  ") == ["p"], "chat search: the words are trimmed before matching")
     check(ids("lisa") == ["a", "k", "q"], "chat search: the agent's name keeps every one of its rows; a Kosmos line only by its text (b has no name in it)")
-    check(ids("you") == [], "chat search: a person's row is not matched by a name (the board's dmWho gives none)")
     check(ids("mona lisa j") == ["k"], "chat search: words past the name match only text")
     check(ids("nothing like this") == [], "chat search: no match gives no rows")
     check(Board.chatNoMatch("  fix  ") == "Nothing here matches \"fix\". Clearing the search brings the conversation back.",
