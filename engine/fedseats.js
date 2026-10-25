@@ -279,7 +279,13 @@ function handleEvent(projectId, line, heldAt) {
         noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile. A post sent after that, before the new key arrives, may not be shown to the others.');
         return;
       }
-      if (!opened && (!sealed || pendingClear(sealed)) && noteOwnSealed(projectId, s)) return;   // #4658: an own computer asks for the key
+      // Slice 2: a computer waiting to be let in ignores sealed envelopes (unauthenticated: the relay or a guest can send
+      // one). Its posts are held already, and only the owner's answer decides: a share means sealed, a clear means clear.
+      if (!opened && pendingClear(sealed)) {
+        noteOnce(projectId, s, 'ownWaitingSealed', 'A sealed message arrived that this computer cannot read yet. It reads and posts here once the computer that first shared this project lets it in.');
+        return;
+      }
+      if (!opened && !sealed && noteOwnSealed(projectId, s)) return;   // #4658: an own computer asks for the key
       if (!opened && !sealed) {
         // This computer joined before the owner sealed the room: it holds no key and never will from that code.
         noteOnce(projectId, s, 'sealedSince', 'The owner has sealed this shared room since this computer joined, so its messages cannot be read here. Ask the owner to remove you from the shared project and send you a new code.');
@@ -780,12 +786,14 @@ function sayHello(projectId, s) {
     if (link && link.role === 'self' && (link.sealed === true || link.pendingClear === true)) {
       const rec = link.sealed === true ? { role: 'member', ownComputer: true, keys: {} } : { role: 'member', ownComputer: true, pendingClear: true, keys: {} };
       try { fedseal.setRoomState(projectId, rec); st = roomSeal(projectId); } catch {
-        noteOnce(projectId, s, 'ownSealUnsaved', 'This shared room is sealed, and this computer could not record that, so it cannot ask for the room\'s key yet. Its posts are held meanwhile; Kosmos tries again when it next connects.');
+        noteOnce(projectId, s, 'ownSealUnsaved', 'This computer could not record that it is waiting for this shared project, so it cannot ask to be let in yet. Its posts are held meanwhile; Kosmos tries again when it next connects.');
         return;
       }
     }
   }
   if (!st || st.role !== 'member' || hasKey(st) || !s.room) return;
+  // Slice 2: a clear already confirmed whose writes failed is taken again here, on the next connect (the owner sends it once).
+  if (pendingClear(st) && s.ownRun && s.ownRun.confirmed && s.ownRun.gotClear) { adoptOwnClear(projectId, s); if (!roomSeal(projectId)) return; }
   if (st.ownComputer === true) { sayOwnHello(projectId, s); return; }
   try { sendFrame(s, fedseal.helloFrame(st.s, st.code, fedseal.sealingKey(), s.room)); } catch (err) {
     noteOnce(projectId, s, 'noKey', 'This computer could not use its sealing key, so this shared room cannot open yet: ' + String((err && err.message) || err));
@@ -828,7 +836,8 @@ function sayOwnHello(projectId, s) {
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
   if (typeof macId !== 'string' || !macId) {
-    noteOnce(projectId, s, 'ownNoId', 'This shared room is sealed, and this computer is not signed in to Kosmos+, so it cannot ask for the room\'s key yet. Its messages wait here until it can.');
+    noteOnce(projectId, s, 'ownNoId', (pendingClear(roomSeal(projectId)) ? 'This computer is not signed in to Kosmos+, so it cannot ask to be let into this shared project yet.'
+      : 'This shared room is sealed, and this computer is not signed in to Kosmos+, so it cannot ask for the room\'s key yet.') + ' Its messages wait here until it can.');
     return;
   }
   if (!s.room) return;
@@ -839,7 +848,7 @@ function sayOwnHello(projectId, s) {
   try { sendFrame(s, fedseal.ownHelloFrame(me, macId, s.ownRun.nW)); } catch { /* the next connect says it again */ }
   const waitingClear = pendingClear(roomSeal(projectId));
   noteOnce(projectId, s, 'ownWaiting', (waitingClear
-    ? 'This computer is waiting to be let into this shared project. Its posts wait here until then. To let it in, open this project on the computer that first shared it'
+    ? 'This computer is waiting to be let into this shared project. Its posts wait here until then (if no code appears on the other computer, update Kosmos there). To let it in, open this project on the computer that first shared it'
     : 'This shared room is sealed. To read it on this computer, open this project on the computer that first shared it')
     + ': a code appears on both screens, and once they match, press Allow there and "It matches" here.');
 }
@@ -886,6 +895,10 @@ function waitingOffer(projectId, s, frame) {
   }
   run.offer = offer;
   try { sendFrame(s, fedseal.ownRevealFrame(run.mac, offer.ownerPub, run.nW, me.pub)); } catch { /* sent again when the offer repeats */ }
+}
+/** Slice 2: whether this computer is waiting to be let into an UNSEALED own room (the screen does not call it sealed). */
+function ownPending(projectId) {
+  return pendingClear(roomSeal(projectId));
 }
 /** Own computer: the code this computer shows for its current run, or null. */
 function ownCode(projectId) {
@@ -954,7 +967,13 @@ function adoptOwnShare(projectId, s) {
   const st = roomSeal(projectId);
   if (!run || !run.confirmed || !run.got || !st || st.ownComputer !== true || hasKey(st)) return;
   const got = run.got;
-  fedseal.setRoomState(projectId, Object.assign({}, st, { peer: got.ownerPub, epoch: got.epoch, keys: { [got.epoch]: got.roomKey } }));
+  const kept = Object.assign({}, st);
+  delete kept.pendingClear;   // slice 2: a share answers a computer that was waiting: the room is sealed
+  fedseal.setRoomState(projectId, Object.assign(kept, { peer: got.ownerPub, epoch: got.epoch, keys: { [got.epoch]: got.roomKey } }));
+  const link = safeLink(projectId);
+  if (link && link.role === 'self' && (link.pendingClear === true || link.sealed !== true)) {
+    try { federation.recordLink(projectId, Object.assign({}, link, { sealed: true, pendingClear: false })); } catch { /* the keyed record holds it */ }
+  }
   s.ownRun = null;
   // A rotation that came between the Allow and this confirm (a guest removed meanwhile) is applied BEFORE the held
   // posts go, so none of them is sent under a key the removed guest still holds.
@@ -984,8 +1003,10 @@ function adoptOwnClear(projectId, s) {
   const st = roomSeal(projectId);
   const link = safeLink(projectId);
   if (!run || !run.confirmed || !run.gotClear || !pendingClear(st) || !link || link.role !== 'self' || link.sealed === true) return;
-  fedseal.forgetRoom(projectId);
-  try { federation.recordLink(projectId, Object.assign({}, link, { pendingClear: false })); } catch { /* isSealedRoom reads the record first */ }
+  // The link first: with it still saying pendingClear and the record gone, the posts would be held again and the next
+  // connect would ask for a new code compare. Both written, then said.
+  try { federation.recordLink(projectId, Object.assign({}, link, { pendingClear: false })); } catch { return; }
+  try { fedseal.forgetRoom(projectId); } catch { return; }
   s.ownRun = null;
   say(projectId, 'This computer was let into this shared project. Messages in this room are not sealed end to end.');
   flushHeld(projectId, s);
@@ -1074,10 +1095,10 @@ function allowOwn(projectId, pub, confirmedCode) {
   return sealStep(projectId, async () => {
     const s = seats.get(projectId);
     const w = s && s.ownWaiting ? s.ownWaiting.get(pub) : null;
-    if (!s || !s.room || !w || !w.nW) return { ok: false, because: 'that computer is no longer waiting for this room\'s key' };
+    if (!s || !s.room || !w || !w.nW) return { ok: false, because: 'that computer is no longer waiting to be let in' };
     const st = roomSeal(projectId);
     const clear = !(hasKey(st) && st.role === 'owner') && ownerClearRoom(projectId);
-    if (!clear && (!hasKey(st) || st.role !== 'owner')) return { ok: false, because: 'only the computer that first shared this room can let another computer read it' };
+    if (!clear && (!hasKey(st) || st.role !== 'owner')) return { ok: false, because: 'only the computer that first shared this room can let another computer in' };
     if (st && st.peers && Object.prototype.hasOwnProperty.call(st.peers, pub)) return { ok: false, because: 'that key belongs to someone you invited, not to one of your computers' };
     let me;
     try { me = fedseal.sealingKey(); } catch { return { ok: false, because: 'this computer could not use its sealing key' }; }
@@ -2094,4 +2115,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { ownWaiting, allowOwn, ownAllowed, ownRemove, ownCode, confirmOwn, ownStartOver, OWN_RUNS_PER_HOUR, contactStopped, contactState, contactReason, contactStops, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
+module.exports = { ownPending, ownWaiting, allowOwn, ownAllowed, ownRemove, ownCode, confirmOwn, ownStartOver, OWN_RUNS_PER_HOUR, contactStopped, contactState, contactReason, contactStops, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
