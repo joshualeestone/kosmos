@@ -1,4 +1,4 @@
-# unverified-7129: rows shown while an own computer waits to be let in say they could not be checked
+# unverified-7129: rows shown while an own computer waits to be let in say they arrived while it was waiting
 
 Card: kosmos#7129, a follow-up to #4658 slice 2 (#7124). That slice listed this under NOT CLAIMED: "a 'not yet verified' mark on such rows is a later card."
 
@@ -21,5 +21,7 @@ That the case is worth a visible line, since it needs an altered code, or an old
 - Rows recorded before this change carry no mark.
 - **The agent-loop valve still counts marked rows** (review 4: the quiet that folds retried sends, and the acknowledgement-run list). The valve stops agents looping and grants no authority, and an injected row can sway it the same way in any clear room, where nothing is marked. Excluding only marked rows would make a waiting computer's loop guard differ for no gain. Unread counts and last-post time count them too: the row is in the room.
 - The phone app's room does not draw the line yet. It reads the same JSON, so the field is there for it: kosmos#7130 (review 1).
+- Copying a marked row (msgCopyText) leaves the line out, as it leaves out the External tag (review 5).
+- The waiting test `pendingClear(sealed) || (sealed === null && waitingLink(link))` now appears at three sites in engine/fedseats.js: the downgrade exemption, the mark, and the post hold. A single helper is a later tidy (review 5), not done here so this change stays reviewed as it is.
 - A reply's quote of a marked row (pjReplyGist) shows its words without the line; the row itself, in view, carries it (review 1).
 - **Wording (review 1):** the line names what sets these rows apart, which is that this computer was waiting. It does not say "could not be checked", which would imply the unmarked rows of a clear room were checked. They are not: no unsealed row is authenticated.
