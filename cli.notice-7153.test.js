@@ -139,6 +139,7 @@ test('usage and setup mistakes are refused before anything is sent; a wrong sour
       [['notice', '--from', 'builder\nalarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/, 2, true],
       [['notice', '--from', 'builder alarm', '--stdin', 'fleet josh'], 'hello', /There is no project called "fleet josh"/, 1, true],
       [['notice', '--from', 'builder alarm', '--stdin', '..'], 'hello', /There is no project called "\.\."/, 1, true],
+      [['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], 'x'.repeat(70000), /over 64 KB/, 2, true],
       [['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], '', /empty|nothing was piped|Nothing was written/i, 2, false],
     ]) {
       const out = await runCli(args, jobEnv(port), input);

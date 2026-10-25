@@ -57,7 +57,9 @@ tested cut answer (kept as "may", exit 3); the harness has no timeout seam of it
 - cli.notice-7153.test.js: as a job (no pane, no agent token): the request carries text and source and the board token
   in a header; refusals said and non-zero; usage refused before any request.
 - tools.windows-kosmos-cli-570.test.js: the Windows verb, same arms. Parity tests (verbs, help banner) green.
-- The 82 tests that read the CLI or server source: 1618, 0 failed.
+- Every test that reads the CLI or server source, plus every cli.* and tools.windows* test (202 files): 2778 tests,
+  0 failed, 49 skipped (no Swift or Windows tooling).
+- A job started from inside an AGENT's tmux pane is refused (exit 2, text kept): misuse, not a passing fault.
 
 ## Status
 - [x] code + tests
