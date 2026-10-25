@@ -538,7 +538,7 @@ enum Board {
         // plain words, so never a reply or a message with files. The newest-only half needs the thread (failedLine).
         var canSendAgain: Bool {
             who == .person && notSent == Board.failedWords && resendable && retryable && replyTo == nil && attachments.isEmpty
-                && !(atRaw ?? "").isEmpty
+                && wayThrough != .attachment && !(atRaw ?? "").isEmpty
         }
         // kosmos#7016: the Mac's reading of a permission prompt on a question row, and whether a question is the agent's
         // own reported words (which take no buttons, as on the board).
@@ -1625,7 +1625,9 @@ enum Board {
         if (200...299).contains(status), let d = obj?["delivery"] as? [String: Any], let state = d["state"] as? String {
             if obj?["recorded"] as? Bool == true, let at = d["at"] as? String, !at.isEmpty {
                 return state == "placed" ? .kept(at: at)
-                    : .keptUndelivered(at: at, note: state == "held" ? "Waiting to send" : state == "unconfirmed" ? "Not confirmed" : "Not sent")
+                    // kosmos#7136: the words its row will have once read (failedWords, or "Not sent" for a kept copy).
+                    : .keptUndelivered(at: at, note: state == "held" ? "Waiting to send" : state == "unconfirmed" ? "Not confirmed"
+                        : d["duplicateOf"] == nil ? Board.failedWords : "Not sent")
             }
             if state == "placed" { return .taken }
             if state == "unconfirmed" { return .unconfirmed }

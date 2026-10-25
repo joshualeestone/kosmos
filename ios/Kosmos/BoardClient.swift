@@ -565,7 +565,8 @@ final class BoardClient: ObservableObject {
 
     private func sendRetry(_ text: String, at: String, to session: String) async -> Board.RetrySaid {
         guard let held = admitted, let request = Board.retryRequest(mac: held.url, session: session, text: text, retryOf: at) else {
-            return Board.RetrySaid(said: Board.retryNoAnswer, refused: true)
+            // Nothing was sent, so nothing is in doubt.
+            return Board.RetrySaid(said: Board.sentence("we could not send it again"), refused: true)
         }
         let answer = await env.send(request)
         return Board.retryResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
@@ -758,7 +759,9 @@ final class BoardClient: ObservableObject {
 
     // A typed send in the air: one sending, or a retry still reading before it sends.
     func isSending(_ session: String) -> Bool {
+        // kosmos#7136: a Try again on a kept row is a send in the air too (it types into the same window).
         pending[session]?.contains { $0.state == .sending || retrying.contains($0.id) } == true
+            || resending.contains { $0.hasPrefix(session + "|") }
     }
 
     // What the chats hold belongs to one account on one Mac: dropped when either changes, so nothing typed or failed
