@@ -412,7 +412,7 @@ test('#4658: a sealed (version 2) own code joins holding the room as sealed from
   assert.equal(j.status, 200, JSON.stringify(j.json));
   assert.deepEqual([federation.linkFor(j.json.id).role, federation.linkFor(j.json.id).sealed], ['self', true], 'the link remembers it joined sealed');
   assert.deepEqual(require('./engine/fedseal').roomState(j.json.id), { role: 'member', ownComputer: true, keys: {} },
-    'the join recorded the room as sealed before the seat started (a page-sent sealed:false changes nothing)');
+    'the join recorded the room as sealed before the seat started');
   const room = await (await fetch(base + '/api/project/' + encodeURIComponent(j.json.id) + '/room?as=text')).text();
   assert.match(room, /shared with your other computers and sealed end to end/);
   assert.doesNotMatch(room, /not sealed end to end/);

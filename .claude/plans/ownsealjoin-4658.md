@@ -64,8 +64,11 @@ stays for them.
   that joined by a v 2 code and was later put back on an older build. A new Kosmos joining by that code posts in the
   clear into a room that may now have guests: the same exposure as an altered code (nobody shows it; the relay can
   read it), reached without anyone altering anything. Closing it needs the signed code of slice 2.
-- **A lost seal file** (review 5) no longer reads as never sealed: the owner link's sealedOwn and a self link's
-  sealed (written at a v 2 join) count as sealed, so no v 1 code is made and a self computer's posts stay held.
+- **A lost seal file** (reviews 5 and 7) no longer reads as never sealed: a sealing invite marks the owner link `sealed`, and the owner link's sealedOwn and a self link's
+  sealed (written at a v 2 join) count as sealed, so no v 1 code is made and neither the owner's nor a self computer's
+  posts go out in the clear. A self computer writes its record back from the link at the next connect, and says so if
+  it cannot. NOT CLAIMED: a links record that is ALSO lost; an unreadable links record still lets an invite through
+  (main's choice, unchanged).
 - **A room shared by a v 1 code and later sealed by some other path** (none exists while the self-shared refusal
   stands) would make v 2 codes from then on but keep its v 1 computers posting in the clear, unmarked: slice 2's
   to handle.

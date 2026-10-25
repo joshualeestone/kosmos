@@ -693,6 +693,8 @@ function isSealedRoom(st, link) {
   // room, so the answer is "cannot tell" (nothing sent, nothing shown), never "clear".
   if (link === undefined) return undefined;
   if (link && link.role === 'owner' && typeof link.ref === 'string') {
+    // #4658: the link's own marks first, so a lost seal file never makes a sealed owner room read as clear.
+    if (link.sealed === true || link.sealedOwn === true) return true;
     try { return fedseal.isSealedRef(link.ref); } catch { return undefined; }
   }
   // #4658: a computer that joined by a sealed own code, whose seal record is gone: still sealed (its posts held).
@@ -764,7 +766,10 @@ function sayHello(projectId, s) {
   if (st === null && s.room) {
     const link = safeLink(projectId);
     if (link && link.role === 'self' && link.sealed === true) {
-      try { fedseal.setRoomState(projectId, { role: 'member', ownComputer: true, keys: {} }); st = roomSeal(projectId); } catch { return; }
+      try { fedseal.setRoomState(projectId, { role: 'member', ownComputer: true, keys: {} }); st = roomSeal(projectId); } catch {
+        noteOnce(projectId, s, 'ownSealUnsaved', 'This shared room is sealed, and this computer could not record that, so it cannot ask for the room\'s key yet. Its posts are held meanwhile; Kosmos tries again when it next connects.');
+        return;
+      }
     }
   }
   if (!st || st.role !== 'member' || hasKey(st) || !s.room) return;
