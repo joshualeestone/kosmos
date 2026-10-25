@@ -552,7 +552,8 @@ final class BoardClient: ObservableObject {
         guard !resending.contains(key) else { return nil }
         let epoch = chatEpoch
         resending.insert(key)
-        defer { resending.remove(key) }
+        // Not after the chats were forgotten meanwhile: that emptied the set, and a new chat's mark is not this one's.
+        defer { if epoch == chatEpoch { resending.remove(key) } }
         let said: Board.RetrySaid
         #if DEBUG
         if sampleThreads[agent.session] != nil { said = sampleRetry(at, to: agent.session) } else { said = await sendRetry(row.text, at: at, to: agent.session) }

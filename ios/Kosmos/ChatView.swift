@@ -44,6 +44,8 @@ struct ChatView: View {
     // The question that line is about: it goes when a read shows that question gone.
     @State private var pressLineKey: String?
     @State private var composerNote: String?
+    // kosmos#7136: the refusal a Try again wrote there, so a later one that works clears only its own line (dmRetrySend).
+    @State private var retryNote: String?
     // kosmos#7016 part 3: the earlier messages loaded in this chat (the board's EARLIER, per open chat), whether the
     // top of the thread is on screen, and whether the first scroll to the newest message is done.
     @State private var earlier = Board.Earlier()
@@ -504,7 +506,8 @@ struct ChatView: View {
                                 faded: false,
                                 spoken: (head.map { ReplyHeadLine.words($0) + " " } ?? "")
                                     + Board.filesRowSpoken(who: mine ? "You" : shown.name, at: row.at, text: Board.wordsShown(row.text, files: row.attachments),
-                                                           count: row.attachments.count, notSent: row.notSent),
+                                                           count: row.attachments.count, notSent: row.notSent)
+                                    + (mine ? failedLine(row).map { ". " + $0.because } ?? "" : ""),
                                 actions: row.answerable(by: agent.session) ? replyActionList(row) : [])
                         // kosmos#7083: Reply and the reactions on an agent's message with files too, from its bubble.
                         .contextMenu { if row.answerable(by: agent.session) { replyMenu(row) } }
@@ -517,7 +520,8 @@ struct ChatView: View {
                             Text(at, style: .time).foregroundColor(Palette.tertiary).font(.caption2).padding(.horizontal, 4)
                                 .accessibilityHidden(true)
                         }
-                        FailedLineView(line: failed, action: { tryAgain(row) })
+                        // The bubble's own label says it and its reason; a message with files is never sent again.
+                        FailedLineView(line: failed, action: { tryAgain(row) }).accessibilityHidden(!failed.canRetry)
                     } else if (last && row.at != nil) || row.notSent != nil {
                         // The time on the last of a run, as on every bubble (3a), and the Mac's word for one not sent.
                         HStack(spacing: 6) {
@@ -538,7 +542,7 @@ struct ChatView: View {
                     // A file that came with words: the words as a bubble, then the way through for the file.
                     if way == .attachment, !row.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         ChatBubble(row: row, firstOfRun: true, lastOfRun: true, widthShare: widthShare, name: shown.name,
-                                   failed: nil, sendAgain: {},
+                                   failed: failedLine(row), sendAgain: { tryAgain(row) },
                                    head: headFor(replyTo: row.replyTo), headHidden: headsHidden.contains(row.id),
                                    react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
                                    reply: row.answerable(by: agent.session) ? { startReply(row) } : nil)
@@ -772,22 +776,33 @@ struct ChatView: View {
     }
     #endif
 
-    // A send again or a retry while a press is in the air waits, and the line says why (dmChoiceBlocksSend).
+    // kosmos#7136: the person's newest message over every row on screen, earlier pages included (the board's
+    // DM_NEWEST_MINE_AT, over earlierRows and the latest read).
+    private var newestMine: String? { thread.flatMap { Board.newestMineAt(Board.shownRows(earlier, thread: $0)) } }
+
     // kosmos#7136: the board's failed line for a row of the person's, as it is on this phone now.
     private func failedLine(_ row: Board.ChatRow) -> Board.FailedLine? {
-        Board.failedLine(row, newestMineAt: thread.flatMap { Board.newestMineAt($0.rows) },
-                         flying: client.isSendingAgain(row, for: agent.session))
+        Board.failedLine(row, newestMineAt: newestMine, flying: client.isSendingAgain(row, for: agent.session))
     }
 
-    // Try again, as the board's dmRetrySend: what happened is heard; a refusal is also said under the box.
+    // Try again, as the board's dmRetrySend: what happened is heard; a refusal is also said under the box, and a later
+    // one that works clears that line only if a Try again wrote it.
     private func tryAgain(_ row: Board.ChatRow) {
-        let newest = thread.flatMap { Board.newestMineAt($0.rows) }
+        let newest = newestMine
         sendWhenFree {
             guard let out = await client.sendAgain(row, newestMineAt: newest, to: agent) else { return }
-            if out.refused { composerNote = out.said } else { UIAccessibility.post(notification: .announcement, argument: out.said) }
+            if out.refused {
+                composerNote = out.said
+                retryNote = out.said
+            } else {
+                if let mine = retryNote, composerNote == mine { composerNote = nil }
+                retryNote = nil
+                UIAccessibility.post(notification: .announcement, argument: out.said)
+            }
         }
     }
 
+    // A send again or a retry while a press is in the air waits, and the line says why (dmChoiceBlocksSend).
     private func sendWhenFree(_ go: @escaping () async -> Void) {
         if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
         Task { await go(); await read() }

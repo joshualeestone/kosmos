@@ -55,10 +55,10 @@ function pinProblems(board, swift) {
   both('"sending…"', line.includes("'sending\\u2026'"), phone.ext.includes('"sending\\u{2026}"'));
   both('the reason when the Mac gives none ("we could not reach them")', line.includes("'we could not reach them'"), phone.ext.includes('"we could not reach them"'));
   // The rule: retryable, newest, no reply, no files, no wire.
-  both('the retryable condition', line.includes('m.delivery.retryable === true'), phone.can.includes('retryable'));
+  both('the retryable condition', line.includes('&& m.delivery.retryable === true'), phone.can.includes('&& retryable &&'));
   both('the newest-only condition', /DM_NEWEST_MINE_AT === m\.at/.test(line) && line.includes('&& newest'), /newestMineAt == row\.atRaw/.test(phone.ext) && phone.ext.includes('&& newest'));
   both('the no-reply condition', line.includes('!m.replyTo'), phone.can.includes('replyTo == nil'));
-  both('the no-files condition', line.includes('m.attachments.length'), phone.can.includes('attachments.isEmpty'));
+  both('the no-files condition', line.includes('&& !(Array.isArray(m.attachments) && m.attachments.length)'), phone.can.includes('&& attachments.isEmpty'));
   both('the no-wire condition', line.includes('!m.wire'), phone.parse.includes('resendable = failed && wire == nil'));
   // The retry: the same row, by retry_of, with the words as the row holds them.
   both('retry_of with the row\'s own words', retry.includes('JSON.stringify({ text: row.text, retry_of: at })'), phone.ext.includes('["text": text, "retry_of": at]'));
@@ -79,6 +79,10 @@ test('CONTROL: the pin goes red when either side changes alone', () => {
   assert.ok(words.some((p) => /board no longer has "try again"/.test(p)), words.join('; '));
   const rule = pinProblems(BOARD, SWIFT.replace('&& replyTo == nil', ''));
   assert.ok(rule.some((p) => /phone no longer has the no-reply condition/.test(p)), rule.join('; '));
+  const retryable = pinProblems(BOARD, SWIFT.replace('&& retryable &&', '&& !retryable &&'));
+  assert.ok(retryable.some((p) => /phone no longer has the retryable condition/.test(p)), retryable.join('; '));
+  const files = pinProblems(BOARD.replace('&& !(Array.isArray(m.attachments) && m.attachments.length)', '&& (Array.isArray(m.attachments) && m.attachments.length)'), SWIFT);
+  assert.ok(files.some((p) => /board no longer has the no-files condition/.test(p)), files.join('; '));
   const route = pinProblems(BOARD.replace('retry_of: at })', 'reply_to: at })'), SWIFT);
   assert.ok(route.some((p) => /retry_of/.test(p)), route.join('; '));
   assert.ok(pinProblems('', SWIFT).includes('dmFailedLine was not found in web/index.html'), 'a board without the function is reported, not passed');
