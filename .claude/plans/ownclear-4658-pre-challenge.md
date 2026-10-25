@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: ownclear-4658
-diff_hash: 980ac626972d2f394e087996d44a86bd9d3eed5d071fd75de43312c63e217509
+diff_hash: 903e9d134b584314b46ac932cb8aa4ce772fe7e5cf1c68be616ec1b880b6136a
 validation: passed (Mortals)
 subdir_audit: passed
-timestamp: 2026-10-25T13:33:10Z
+timestamp: 2026-10-25T14:08:57Z
 iterations: 10
 converged: true
 ---
@@ -14,8 +14,8 @@ converged: true
 
 **Iterations:** 10 (opus and sonnet alternating)
 **Converged:** Yes (iteration 10: its three WARNINGs deduplicated against earlier deferrals or answered by an existing test)
-**Total findings:** 28 actionable (1 BLOCKER, 26 WARNINGs, 1 final-validation BLOCKER) plus NITs
-**Fixed:** 21 | **Deferred:** 7 | **Asked (awaiting user):** 0
+**Total findings:** 29 actionable (1 BLOCKER, 26 WARNINGs, 2 final-validation BLOCKERs) plus NITs
+**Fixed:** 22 | **Deferred:** 7 | **Asked (awaiting user):** 0
 
 Validation: full suite on Mortals at 4a1358fb57 (hash 980ac626972d), status clean: 23898 tests, 23564 pass, 0 fail
 (the rest skipped). The run before it (55c18544b9) failed 3 tests in server.ownallow-4658.test.js (a reworded refusal,
@@ -113,6 +113,7 @@ rule, the resend, the resend gate (keyed), the AAD without nonces, the AAD and f
 
 #### Final validation (6j)
 - [BLOCKER] final-validation: server.ownallow-4658.test.js (3 stale expectations) --> FIXED (4a1358fb57)
+- [BLOCKER] final-validation (PR CI browser-checks, after a rebase onto main fd0cb1b154): render-federation-invite-4649 B15g set the next member list after pressing Remove, a race in the check (its sibling B11 sets it first) --> FIXED (0690b7d117; check rerun locally)
 
 ### Final Ledger
 
@@ -146,6 +147,7 @@ rule, the resend, the resend gate (keyed), the AAD without nonces, the AAD and f
 | 26 | 9 | WARNING | engine/fedseats.js sayHello | SELF | one record, two readings | FIXED | 55c18544b9 |
 | 27 | 9 | WARNING | engine/fedseal.test.js | BRANCH | field compares mask the seal | FIXED | 55c18544b9 |
 | 28 | 6j | BLOCKER | server.ownallow-4658.test.js | BRANCH | final-validation: stale expectations | FIXED | 4a1358fb57 |
+| 29 | 6j | BLOCKER | docs/browser-checks/render-federation-invite-4649.js:1544 | PRE-EXISTING | final-validation: B15g ordering race | FIXED | 0690b7d117 |
 
 ### NITs (non-blocking, across all iterations)
 - [NIT] the phone line and the confirmed card are not asserted by the browser check (iterations 5, 10)
