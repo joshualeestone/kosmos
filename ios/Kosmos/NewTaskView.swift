@@ -19,6 +19,7 @@ struct NewTaskView: View {
     @State private var readFailed = false
     @State private var sending = false
     @State private var message: String?
+    @State private var lastTasks: Board.TasksRead?
 
     var body: some View {
         NavigationView {
@@ -41,9 +42,17 @@ struct NewTaskView: View {
         }
         .navigationViewStyle(.stack)
         .interactiveDismissDisabled(sending)   // a create in the air is not walked away from
-        .task { await readProjects() }
+        .task { lastTasks = tasks; await readProjects() }
         // A pick no longer offered (the Tasks list re-read under the sheet) falls back, never sent unseen.
-        .onChange(of: tasks) { _ in dropUnoffered() }
+        .onChange(of: tasks) { new in
+            if let new { lastTasks = new }
+            dropUnoffered()
+        }
+        // The board's limits and one-line questions, applied after the field has stored what was typed: a binding that
+        // refused the change itself left the field showing characters that were not in the draft.
+        .onChange(of: draft.what) { v in let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.whatMax); if c != v { draft.what = c } }
+        .onChange(of: draft.done) { v in let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.doneMax); if c != v { draft.done = c } }
+        .onChange(of: draft.detail) { v in let c = NewTask.capped(v, at: NewTask.detailMax); if c != v { draft.detail = c } }
     }
 
     @ViewBuilder private var content: some View {
@@ -80,18 +89,18 @@ struct NewTaskView: View {
                 }
             }
             Section {
-                field(NewTask.Words.what, example: NewTask.Words.whatExample, text: oneLine($draft.what, max: NewTask.whatMax), lines: 1...4)
-                field(NewTask.Words.done, example: NewTask.Words.doneExample, text: oneLine($draft.done, max: NewTask.doneMax), lines: 1...3)
+                field(NewTask.Words.what, example: NewTask.Words.whatExample, text: $draft.what, lines: 1...4)
+                field(NewTask.Words.done, example: NewTask.Words.doneExample, text: $draft.done, lines: 1...3)
             } footer: {
                 Text(NewTask.Words.doneHint)
             }
             Section {
-                field(NewTask.Words.detail, example: NewTask.Words.detailExample, text: capped($draft.detail, max: NewTask.detailMax), lines: 2...6)
+                field(NewTask.Words.detail, example: NewTask.Words.detailExample, text: $draft.detail, lines: 2...6)
             }
             Section {
                 Picker("Part of", selection: $draft.parent) {
                     Text("None").tag(Int?.none)
-                    ForEach(NewTask.parents(of: draft.project, in: tasks)) { t in
+                    ForEach(NewTask.parents(of: draft.project, in: shownTasks)) { t in
                         Text("#\(t.number) \(t.sentence)").lineLimit(typeSize.isAccessibilitySize ? nil : 1).tag(Optional(t.number))
                     }
                 }
@@ -150,13 +159,9 @@ struct NewTaskView: View {
         .padding(.vertical, 2)
     }
 
-    private func oneLine(_ b: Binding<String>, max: Int) -> Binding<String> {
-        Binding(get: { b.wrappedValue }, set: { b.wrappedValue = NewTask.capped(NewTask.oneLine($0), at: max) })
-    }
-
-    private func capped(_ b: Binding<String>, max: Int) -> Binding<String> {
-        Binding(get: { b.wrappedValue }, set: { b.wrappedValue = NewTask.capped($0, at: max) })
-    }
+    // The last Tasks read that came back: a read that fails keeps the Part of pick (keepingOffered), so the picker
+    // keeps the row that shows it rather than drawing a pick it no longer lists.
+    private var shownTasks: Board.TasksRead? { tasks ?? lastTasks }
 
     // A different project: the words stay, who and Part of do not (NewTask.aimed).
     private var projectBinding: Binding<String?> {

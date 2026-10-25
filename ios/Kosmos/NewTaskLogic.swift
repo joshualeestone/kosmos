@@ -38,12 +38,12 @@ enum NewTask {
         return offered.first?.project.id
     }
 
-    // The draft outlives the sheet, so on each read of the projects it keeps its project only while that is still
-    // offered (not archived, not gone); otherwise it is aimed as a fresh opening would be, never sent to a project the
-    // picker cannot show. A project still offered stays even when the Tasks tab has another picked: who and Part of
-    // were chosen for it.
+    // The draft outlives the sheet. As the board's openNewTask: it keeps its project only while words are typed (what,
+    // details or done) and the project is still offered; otherwise it is aimed as a fresh opening would be, at the
+    // Tasks tab's pick, never sent to a project the picker cannot show.
     static func settled(_ d: Draft, picked: String?, offered: [Board.ProjectTreeRow]) -> Draft {
-        if let p = d.project, offered.contains(where: { $0.project.id == p }) { return d }
+        let drafted = !trimmed(d.what).isEmpty || !trimmed(d.detail).isEmpty || !trimmed(d.done).isEmpty
+        if drafted, let p = d.project, offered.contains(where: { $0.project.id == p }) { return d }
         guard let first = firstProject(picked: picked, offered: offered) else {
             var n = d
             n.project = nil; n.who = nil; n.parent = nil

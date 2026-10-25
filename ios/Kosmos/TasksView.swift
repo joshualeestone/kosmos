@@ -35,7 +35,11 @@ struct TasksTab: View {
                 }
         }
         .navigationViewStyle(.stack)
-        .onChange(of: client.chatEpoch) { _ in openAgent = nil; openTask = nil }
+        // Another account or Mac: its projects are not this one's, so the sheet, its draft and the added line go too.
+        .onChange(of: client.chatEpoch) { _ in
+            openAgent = nil; openTask = nil
+            newTaskFor = nil; newTaskDraft = NewTask.Draft(); notice = nil
+        }
         .onAppear {
             visible = true; client.show(BoardClient.tasksViewer)
             if Self.sampleNewTask && !Self.sampleNewTaskShown { Self.sampleNewTaskShown = true; newTaskFor = NewTaskStart(picked: nil) }

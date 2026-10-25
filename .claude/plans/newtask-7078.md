@@ -63,8 +63,8 @@ path stays the app's own (isProjectId before the path; host is held.url).
 - Validation red: the iOS routes sweep (server.ios-routes-6838) could not read the request, built away from its URL.
   Now named in place, as BoardRoom's room request.
 - A kept draft whose project was archived or removed is re-aimed on every read (NewTask.settled).
-  DECIDED, a deliberate difference from the board: a kept project that is still offered stays even when the Tasks tab
-  has another picked (the board's openNewTaskFromTasks aims at the pick). Who and Part of were chosen for the kept
+  (SUPERSEDED in iteration 7, see below: the sheet now follows the board.) Was: a kept project that is still offered
+  stays even when the Tasks tab has another picked (the board's openNewTaskFromTasks aims at the pick). Who and Part of were chosen for the kept
   project, and the sheet's whole point in keeping the draft is not to lose them. Rejected: re-aiming at the pick,
   which drops who and Part of unseen. Weakest premise: that a person reopening from another project's tasks sees the
   Project row and notices; would change if Mona Lisa or a real user says it surprises them.
@@ -104,3 +104,20 @@ path stays the app's own (isProjectId before the path; host is held.url).
   branch's to change: three sibling suites (settings, room, tasks) already read web/index.html under the same filter,
   the workflow is path-filtered on purpose (advisory), and widening it adds a macOS run to every web PR while #5488
   cuts avoidable Mac runs. Filed as its own card. Would change if that card decides to widen the trigger.
+
+## Rebase onto #7074 and iteration 7 (opus, 22:26 CDT)
+- #7074 (Angel's native task page) landed on main. Rebased: TasksView keeps #7074's row open (TaskPageView) and its
+  taskLink beside this branch's sheet; ios.yml keeps both suites' steps. After the rebase: newtask 94/94, tasks 90/90,
+  taskpage 108/108. "+ Add subtask" from the native task page stays out of this card (the page is #7074's; it can open
+  this sheet with Part of picked as a follow-up).
+- The kept project now follows the board's openNewTask: kept only while words are typed (what, details or done) and
+  the project is still offered; with nothing typed, the sheet opens on the Tasks tab's pick. Supersedes the earlier
+  decision (whose premise, "who and Part of were chosen for it", does not hold for an empty draft).
+- The limits and one-line questions are applied in onChange after the field stores the value, not in a binding that
+  refused it (a refused set left the field showing characters the draft did not hold). REASONED, not seen on a device:
+  no UI automation here types past 200.
+- The Part of picker draws from the last Tasks read that came back, so a failed read keeps the picked row visible.
+- Another account or Mac (chatEpoch) closes the sheet and clears its draft and the added line.
+- The done-when refusal fixtures use the engine's own sentence ("each done-when check ..."), pinned in engine/tasks.js.
+- LEFT (nits): projectTree vs the board's pjSortByChain for a child of an archived parent; the 0.7 s announcement
+  delay is a measured-by-nobody guess.
