@@ -302,6 +302,27 @@ test('the connector names a key refused for not being on the list; under the shi
     c.shipped = 'MCowBQYDK2VwAyEAkey1';
     const r = await signIn();
     assert.equal(r.ok, false);
-    assert.equal('keyChanged' in r, false, 'under the shipped list the refusal stays an ordinary error');
+    assert.equal('keyChanged' in r, false, 'under the shipped list nothing is offered');
+    assert.match(r.because, /not on the signed list that came with this version of Kosmos/, 'its meaning under the shipped list');
+    assert.equal(r.because.includes(K), false, 'and never the raw key');
+  } finally { c.done(); }
+});
+
+test('the shipped list is the one in force when the registration starts, not when it ends', async () => {
+  const notListed = (k) => 'the Kosmos+ service offered a key that is not on the list of keys this computer expects, so '
+    + 'nothing was registered (the key it offered: ' + k + ')';
+  const c = connector({ refusal: notListed(K), shipped: 'MCowBQYDK2VwAyEAkey1' });
+  try {
+    await remote.setupStart('a@example.com');
+    let release;
+    c.gate = new Promise((ok) => { release = ok; });
+    const before = c.registrations().length;
+    const out = remote.setupComplete('123456', 'my-mac');
+    for (let i = 0; i < 200 && c.registrations().length === before; i++) await new Promise((ok) => setImmediate(ok));
+    assert.equal(expectOf(c.registrations()[before]), 'MCowBQYDK2VwAyEAkey1', 'CONTROL: it started under the shipped list');
+    c.shipped = null;   // the setting changes while the registration is out
+    release();
+    const r = await out;
+    assert.equal('keyChanged' in r, false, 'a key refused against the shipped list is not offered afterwards');
   } finally { c.done(); }
 });
