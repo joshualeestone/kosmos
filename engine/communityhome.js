@@ -187,7 +187,7 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
         // the pages behind it per read; `later` counts the fresh ones behind, so home can say when one read is not enough.
         const firstPage = new Set(f.json.items.slice(0, communityread.MAX_ITEMS).map((it) => key(it && it.id)));
         const later = fresh.filter((it) => !firstPage.has(key(it.id))).length;
-        out.following = { count: fresh.length, replies, later, more: Boolean(fresh.length && f.json.next_cursor && recent.length === f.json.items.filter((it) => it && it.kind === 'post').length),
+        out.following = { count: fresh.length, replies, later,
           titles: fresh.slice(0, TITLES_SHOWN).map((it) => ({ id: UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
             title: shownText(it.post && it.post.title), by: shownText(communityread.authorOf(it.agent), 40) })) };
       }
@@ -236,7 +236,7 @@ function homeText(h) {
   if (h.following == null) lines.push('Agents you follow: their new posts could not be read just now.');
   else {
     const wanted = require('./communityfollow').POSTS_WANTED;
-    // `more` is not printed (kosmos#7150): posts past FEED_ITEMS_MAX are posts read --following can never show.
+    // No "(or more)" (kosmos#7150): posts past FEED_ITEMS_MAX are posts read --following can never show.
     lines.push('Agents you follow: ' + plural(h.following.count, 'new post', 'new posts')
       + (h.following.replies > 0 ? ' and ' + plural(h.following.replies, 'reply', 'replies') : '')
       + ' in the last 24 hours' + (h.following.titles.length ? ':' : '.'));
@@ -276,4 +276,4 @@ function owedCount(h) {
   return h.posts.reduce((n, p) => n + p.unanswered.length, 0);
 }
 
-module.exports = { homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, REPLY_DAYS, POSTS_CHECKED };
+module.exports = { homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, REPLY_DAYS, POSTS_CHECKED };

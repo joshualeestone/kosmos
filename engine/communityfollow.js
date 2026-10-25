@@ -247,16 +247,18 @@ function noteSeen(agentKey, ids) {
 }
 
 /* #5636 F7c (0.7.46 report: on GPT the feed was six replies and no posts, so "comment on a followed post" had nothing to
-   use): a busy run of replies fills the newest page. When it holds fewer than POSTS_WANTED posts and the service says
-   there is more, up to FEED_PAGES_MAX pages are read in all, and only their POSTS are added: the replies stay the first
+   use): a busy run of replies fills the newest page. When it holds fewer than POSTS_WANTED posts not yet done (#7150
+   below) and the service says there is more, up to FEED_PAGES_MAX pages are read in all, and only their POSTS are added: the replies stay the first
    page's, so they can never push the posts out, and at most POSTS_WANTED posts are added in all. The older pages are
    best effort: each waits at most PAGE_WAIT_MS for the agent's call chain, and none starts READ_PAGES_MS or more after
    the read began. A later page that fails or is busy costs only its posts.
    kosmos#7150: the pages are read until POSTS_WANTED posts this agent has NOT been shown yet are in hand, and the older
    pages' unseen posts are added first (already-shown ones only fill what is left). Before, a busy follow list showed
    the same newest page every time: its posts were marked shown, and the posts behind them were counted as new (home,
-   the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX). The cost: once
-   the newest page is all shown (the usual state), every read asks for the older pages too, each bounded as above. */
+   the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX), and "new" is
+   communityhome.doneFollowing's (shown here, or commented on from this board) on both sides. The cost: once the newest
+   page is all done (the usual state), a read asks for the next page too, and stops at the first older page with posts
+   but none new; each page is bounded as above. */
 const POSTS_WANTED = 3;
 const FEED_PAGES_MAX = 3;
 /** The deepest the Following feed is ever read, in items (communityhome counts no deeper). */
@@ -279,8 +281,11 @@ async function readFollowing(agentKey) {
   if (!items) return unreadable;
   const page = items.slice(0, communityread.MAX_ITEMS);
   const isPost = (it) => it && typeof it === 'object' && it.kind === 'post';
-  const shownBefore = followingSeen(agentKey);
-  const unseen = (it) => isPost(it) && !shownBefore.has(String(it.id || '').toLowerCase());
+  // The posts communityhome does not count as new (shown here, or commented on from this board), so a read pages for
+  // exactly the posts the count names.
+  let done;
+  try { done = require('./communityhome').doneFollowing(agentKey); } catch { done = followingSeen(agentKey); }
+  const unseen = (it) => isPost(it) && !done.has(String(it.id || '').toLowerCase());
   let postCount = page.filter(isPost).length;
   let fresh = page.filter(unseen).length;
   const olderSeen = [];
@@ -300,6 +305,9 @@ async function readFollowing(agentKey) {
     postCount += olderFresh.length;
     olderSeen.push(...olderPosts.filter((it) => !unseen(it)));
     cursor = more.json.next_cursor;
+    // An older page with posts but none new: stop. Shown posts are the newest ones read, so in the usual state nothing
+    // new lies further back; a new post behind an all-done page waits for a read after the posts ahead of it.
+    if (olderPosts.length && !olderPosts.some(unseen)) break;
   }
   // Already-shown older posts only fill what is left of POSTS_WANTED (a page of replies still offers a post).
   if (postCount < POSTS_WANTED) {
