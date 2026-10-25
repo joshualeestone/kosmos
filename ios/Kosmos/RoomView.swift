@@ -55,6 +55,8 @@ struct RoomView: View {
         VStack(spacing: 0) {
             needsLine
             thread
+                .background(GeometryReader { g in Color.clear.onAppear { threadHeight = g.size.height }
+                    .onChange(of: g.size.height) { threadHeight = $0 } })
             if let note = store.notes[project.id] {
                 Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
             }
@@ -487,6 +489,13 @@ struct RoomView: View {
                     .padding(.vertical, 10).padding(.horizontal, 14)
                     .background(RoundedRectangle(cornerRadius: 20).fill(Palette.card))
                     .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator))
+                    .overlay(alignment: .top) { mentionList.alignmentGuide(.top) { $0[.bottom] + 6 } }
+                    // VoiceOver hears the list open, once, not on every letter (the board's aria-activedescendant has
+                    // no iOS form; review 1), queued behind the key echo (review 2).
+                    .onChange(of: mentionOptions == nil) { closed in
+                        if closed { mentionRowsHeight = 0 }   // each open starts from its own estimate (review 3)
+                        if !closed, let n = mentionOptions?.count { Self.say(Board.mentionOpened(n)) }
+                    }
                 Button { send() } label: {
                     Image(systemName: "arrow.up").font(.body.weight(.bold)).foregroundColor(Palette.sendGlyph)
                         .frame(width: 44, height: 44).background(Circle().fill(Palette.sendFill))
@@ -498,6 +507,67 @@ struct RoomView: View {
             .padding(.horizontal, 12).padding(.vertical, 8)
         }
         .background(Palette.ground)
+    }
+
+    // kosmos#7085: the board's @ picker (#312), floating just above the box so the thread never moves: the project's
+    // members matching what follows the @, and a tap puts "@<key> " in its place (Board.mentionPick, tested). It shows
+    // only while the box has focus. Everyone who matches, as on the board, in a list that scrolls once it would cover
+    // more than about half of the thread, so at any text size the first rows stay on screen (review 1).
+    @State private var threadHeight: CGFloat = 0
+    // The rows' own height, measured, so the list is exactly as tall as its rows up to the cap (review 2: a maximum
+    // under fixedSize is never offered more than the content, so it capped nothing).
+    @State private var mentionRowsHeight: CGFloat = 0
+    private var mentionOptions: [Board.ProjectMember]? {
+        guard typing, let token = Board.mentionToken(draft) else { return nil }
+        return Board.mentionMatches(project.members, typed: token.typed)
+    }
+    @ViewBuilder private var mentionList: some View {
+        if let all = mentionOptions {
+            Group {
+                if all.isEmpty {
+                    Text(Board.mentionNone).font(.footnote).foregroundColor(Palette.secondary)
+                        .padding(.horizontal, 14).padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    let cap = max(88, threadHeight * 0.5)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(all, id: \.session) { m in mentionRow(m) }
+                        }
+                        .background(GeometryReader { g in Color.clear.onAppear { mentionRowsHeight = g.size.height }
+                            .onChange(of: g.size.height) { mentionRowsHeight = $0 } })
+                    }
+                    // Scrolling the list never takes the keyboard down, which would close it mid-scroll (review 3).
+                    .scrollDismissesKeyboard(.never)
+                    // Before each open's first measurement, an estimate of one 44pt row each.
+                    .frame(height: min(cap, mentionRowsHeight > 0 ? mentionRowsHeight : CGFloat(all.count) * 44))
+                }
+            }
+            .background(RoundedRectangle(cornerRadius: 14).fill(Palette.card).shadow(color: .black.opacity(0.10), radius: 12, y: 4))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Palette.separator))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Agents on this project")
+        }
+    }
+    private func mentionRow(_ m: Board.ProjectMember) -> some View {
+        Button {
+            if let text = Board.mentionPick(draft, key: m.session) { draft = text }
+            // VoiceOver goes back to the box (review 1: the row it was on is gone, and focus fell to the top).
+            composerFocused = true
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(m.name).foregroundColor(Palette.primary)
+                if m.name != m.session {
+                    Text("@" + m.session).font(.footnote.monospaced()).foregroundColor(Palette.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14).frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(m.name == m.session ? m.name : m.name + ", @" + m.session)
+        .accessibilityHint("Puts @" + m.session + " in your post")
     }
 
     // The box clears at once, so the person can keep typing. A refused or not-confirmed post's words come back through

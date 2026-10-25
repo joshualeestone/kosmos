@@ -435,6 +435,41 @@ check(pieces.filter(\.name).map(\.text) == ["Kit", "Roo", "Pixel"] && pieces.fil
 check(Board.workingLineParts([]) == nil, "nobody working: no pieces")
 check(boardPage.contains("working.map((a) => '<b>' + esc(a.name) + '</b>')"), "premise: the board sets each working name bold")
 
+section("the @ picker (kosmos#7085)")
+// The token being typed, at the end of the box, on the engine's boundary (the board's MENTION_TOKEN).
+check(Board.mentionToken("@")?.typed == "", "a bare @ opens the list")
+check(Board.mentionToken("Can @ro")?.typed == "ro", "the letters after the @ are what is typed")
+check(Board.mentionToken("ask (@mona.lisa_2-b")?.typed == "mona.lisa_2-b", "the key characters: letters, digits, . _ -")
+check(Board.mentionToken("mail admin@mara") == nil, "an @ inside a word never opens it (admin@mara)")
+check(Board.mentionToken("@roo thanks") == nil, "a space closes the token")
+check(Board.mentionToken("hello") == nil && Board.mentionToken("") == nil, "no @: no list")
+check(Board.mentionToken("é@ro")?.typed == "ro", "a letter outside the engine's set is a boundary, as in the matcher")
+// Who is offered: the project's members in the room's order, by the start of the key or the shown name, without case.
+let crew = [Board.ProjectMember(session: "roo", name: "Roo", hasAvatar: false, provider: nil),
+            Board.ProjectMember(session: "monalisa", name: "Mona Lisa", hasAvatar: false, provider: nil),
+            Board.ProjectMember(session: "pixel", name: "Pixel", hasAvatar: false, provider: nil),
+            Board.ProjectMember(session: "", name: "Nobody", hasAvatar: false, provider: nil)]
+check(Board.mentionMatches(crew, typed: "").map(\.session) == ["roo", "monalisa", "pixel"], "a bare @ offers everyone with a key, in the room's order")
+check(Board.mentionMatches(crew, typed: "MO").map(\.session) == ["monalisa"], "matched by the key's start, without case")
+let named = [Board.ProjectMember(session: "dana-2", name: "Writer", hasAvatar: false, provider: nil)]
+check(Board.mentionMatches(named, typed: "wri").map(\.session) == ["dana-2"], "matched by the shown name's start")
+check(Board.mentionMatches(named, typed: "DANA").map(\.session) == ["dana-2"], "matched by the key's start alone, without case")
+check(Board.mentionMatches(crew, typed: "lisa").isEmpty, "the start only, never the middle of a name")
+check(Board.mentionMatches(crew, typed: "zed").isEmpty, "nobody matching: an empty list")
+// A pick replaces the token with "@<key> ".
+check(Board.mentionPick("Can @mo", key: "monalisa") == "Can @monalisa ", "a pick puts the key and a closing space")
+check(Board.mentionPick("@", key: "roo") == "@roo ", "a pick from a bare @")
+check(Board.mentionPick("no token", key: "roo") == nil, "no token left: nothing is changed")
+check(Board.mentionPick("@ro", key: "") == nil, "a member with no key inserts nothing")
+check(Board.mentionOpened(0) == Board.mentionNone && Board.mentionOpened(1) == "1 agent matches, above the box."
+      && Board.mentionOpened(3) == "3 agents match, above the box.", "what VoiceOver hears when the list opens")
+// The board still has these rules and words, so the two cannot drift unseen.
+for phrase in [#"const MENTION_TOKEN = /(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]*)$/;"#,
+               "c.key.toLowerCase().startsWith(q) || c.shown.toLowerCase().startsWith(q)",
+               "const ins = '@' + c.key + ' ';", "'<div class=\"none\">" + Board.mentionNone + "</div>'"] {
+    check(boardPage.contains(phrase), "the board's @ picker still says: \(phrase.prefix(60))")
+}
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")
