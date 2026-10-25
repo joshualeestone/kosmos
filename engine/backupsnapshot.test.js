@@ -1683,3 +1683,24 @@ test('kosmos#7118: the manifest upload carries its snapshot id, and with it anot
     assert.equal(bf.openManifest(k.member.sk, k.dev.publicKey, wrong, st.manifests[0].bytes), null);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('kosmos#7156: an index entry stored under another key epoch is a stale index, so the chunks are sealed and stored again (option a)', async () => {
+  const w = workKosmos(), k = keys(), st = store();
+  try {
+    const first = await take(k, w.root, st);
+    assert.equal(first.ok, true, first.because);
+    assert.ok(first.added.size > 0);
+    for (const e of first.added.values()) assert.match(e.key, /^o1\/acct1\/1\//, 'fixture: the first run is under epoch 1');
+    // The same member key under epoch 2 (the invariant that a registered key never changes epoch is the coordinator's
+    // and backupmemberkey's; this snapshot does not lean on it).
+    const ctx2 = Object.assign({}, k.ctx, { epoch: '2', snapshot: 's-' + crypto.randomBytes(4).toString('hex') });
+    const r = await take(k, w.root, st, { input: { ctx: ctx2, index: first.added, bucket: first.bucket } });
+    assert.equal(r.ok, false, 'a snapshot under epoch 2 named chunks stored under epoch 1');
+    assert.equal(r.staleIndex, true);
+    assert.match(r.because, /another key epoch/);
+    // CONTROL: the same index under its own epoch is used as before.
+    const again = await take(k, w.root, st, { input: { index: first.added, bucket: first.bucket } });
+    assert.equal(again.ok, true, again.because);
+    assert.equal(again.staleIndex, undefined);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});

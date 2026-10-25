@@ -133,6 +133,11 @@ function periodOf(ms) {
   return `${year}-W${String(week).padStart(2, '0')}`;
 }
 
+/* The epoch segment of a coordinator object key (<org>/<account>/<epoch>/<period>/<random>), or null (kosmos#7156). */
+function epochOfKey(key) {
+  const parts = typeof key === 'string' ? key.split('/') : [];
+  return parts.length === 5 ? parts[2] : null;
+}
 /* The period segment of a coordinator object key (<org>/<account>/<epoch>/<period>/<random>), or null. */
 function periodOfKey(key) {
   const parts = typeof key === 'string' ? key.split('/') : [];
@@ -141,9 +146,9 @@ function periodOfKey(key) {
 
 /* Why a coordinator key cannot stand for a chunk of this context, or null: it must be <org>/<account>/<epoch>/<period>/<random>
    with the context's org and period (one under another period was named with another naming key: a manifest naming it
-   would not restore). NOT the epoch segment: an index entry from an earlier run may sit under an earlier epoch and
-   still restore with that epoch's key. The uploader checks that a NEW grant names ctx.epoch (#5744); which member key
-   sealed an indexed chunk is the index entry's memberKeyId. */
+   would not restore). NOT the epoch segment, which is checked where it matters: the uploader checks that a NEW grant
+   names ctx.epoch (#5744), and an index entry under another epoch is a stale index (kosmos#7156, in snapshotInner);
+   which member key sealed an indexed chunk is the index entry's memberKeyId. */
 function keyProblem(key, ctx) {
   const parts = typeof key === 'string' ? key.split('/') : [];
   // Plain segments only: the manifest budget charges a key at its byte length, which JSON keeps only for these.
@@ -644,6 +649,12 @@ async function snapshotInner(input, deps, added, state, fail) {
       const why = typeof name !== 'string' || !/^[0-9a-f]{64}$/.test(name) || !e ? 'malformed'
         : keyProblem(e.key, ctx) || (Buffer.byteLength(e.key) > MAX_KEY_LEN ? `a key longer than ${MAX_KEY_LEN} characters` : null)
           || (e.memberKeyId !== mkid ? 'sealed to another member key' : null)
+          /* kosmos#7156 (option a): an entry stored under another key epoch than this snapshot's is stale too, so the run
+             seals and stores those chunks again under ctx.epoch. One snapshot, one epoch: restore opens it with one member
+             key, and the read route grants one epoch per request. A registered key never changes epoch today
+             (backupmemberkey moves only an unregistered one, and the coordinator refuses a key reused for another epoch),
+             so an entry under another epoch also has another memberKeyId; this says so here instead of resting on that. */
+          || (epochOfKey(e.key) !== String(ctx.epoch) ? 'stored under another key epoch' : null)
           || (!Number.isSafeInteger(e.lockedUntilMs) || e.lockedUntilMs < LOCK_FLOOR_MS || e.lockedUntilMs > t + LOCK_MAX_MS + 3600 * 1000 ? 'a lock end no grant could set' : null)
           // A lock that ends before any manifest granted now would (period end + 30 days + the window; at least now + 30
           // days + 15 min): uploadManifest would refuse it as outlasting it. Mirrors the coordinator's
