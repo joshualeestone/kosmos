@@ -18,6 +18,9 @@
  *    with no room keys). Neither changes an epoch or makes a key; a new caller is a new way a room's keys can go.
  *    kosmos#7028 also adds ownRejoin: an own computer still behind long after the owner took it out of the key drops the
  *    key it holds and goes back to noteOwnSealed's keyless record. It removes a key and advances no epoch.
+ *    ownsealjoin-4658 adds sayHello: an own computer that joined by a sealed code (its link says sealed) and has NO
+ *    record writes noteOwnSealed's keyless record back, so it asks for the key. It writes only where nothing is, holds no
+ *    key, and advances no epoch.
  * 2. HOW THE EPOCH ADVANCES. Exactly one advance spelled "epoch + 1" / "+= 1" / "++", inside revokeCheck. Exactly
  *    one, not "at least one": zero means that spelling is gone and this guard went blind.
  */
@@ -28,7 +31,7 @@ const path = require('node:path');
 
 const ENGINE = __dirname;
 const WRITERS = {
-  'fedseats.js': ['revokeCheck', 'ownerHello', 'onKeyFrame', 'noteOwnSealed', 'allowOwn', 'adoptOwnShare', 'ownRejoin'],
+  'fedseats.js': ['revokeCheck', 'ownerHello', 'onKeyFrame', 'noteOwnSealed', 'allowOwn', 'adoptOwnShare', 'ownRejoin', 'sayHello'],
   'fedmembers.js': ['inviteNow', 'ownerLinkOf'],
 };
 const FED_FILES = ['fedseats.js', 'fedseal.js', 'federation.js', 'fedmembers.js'];
@@ -49,7 +52,7 @@ function enclosing(src) {
 }
 const code = (line) => line.replace(/(^|[^:])\/\/.*$/, '$1');   // strip a // comment, not a URL's "://"
 
-test('#5191: only revokeCheck, ownerHello, onKeyFrame and the three #4658 own-computer writers write a room\'s key state', () => {
+test('#5191: only revokeCheck, ownerHello, onKeyFrame and the #4658 own-computer writers write a room\'s key state', () => {
   const engineFiles = fs.readdirSync(ENGINE).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'));
   assert.ok(engineFiles.includes('fedseats.js') && engineFiles.includes('fedseal.js'), 'the federation engine files moved: update this guard');
   const found = {};
