@@ -255,20 +255,30 @@ rtd GITHUB_ACTIONS=true
 d_ci="$RT_RC:$RT_SHARDS"
 rtd KOSMOS_SHELL_PARALLEL=2
 d_two="$RT_RC:$RT_SHARDS"
-if [ "$d_run" = "0:run 1 4;run 2 4;run 3 4;run 4 4;" ] && [ "$d_ci" = "0:run 1 1;" ] && [ "$d_two" = "0:run 1 2;run 2 2;" ]; then
-  pass "run-tests.sh: unset starts 4 shards, GITHUB_ACTIONS=true runs 1 of 1, and a set value is kept"
+rtd KOSMOS_SHELL_PARALLEL=
+d_empty="$RT_RC:$RT_SHARDS"
+if [ "$d_run" = "0:run 1 4;run 2 4;run 3 4;run 4 4;" ] && [ "$d_ci" = "0:run 1 1;" ] && [ "$d_two" = "0:run 1 2;run 2 2;" ] \
+   && [ "$d_empty" = "0:run 1 1;" ]; then
+  pass "run-tests.sh: unset starts 4 shards, GITHUB_ACTIONS=true runs 1 of 1, a set value is kept, and empty is 1"
 else
-  bad "run-tests.sh default end to end: unset=[$d_run] ci=[$d_ci] two=[$d_two] out=$(printf '%s' "$RT_OUT" | tail -c 300)"
+  bad "run-tests.sh default end to end: unset=[$d_run] ci=[$d_ci] two=[$d_two] empty=[$d_empty] out=$(printf '%s' "$RT_OUT" | tail -c 300)"
 fi
 
 # 10) a TRIPWIRE on release.sh, which a test cannot run as a cut: it says 1 for its gate runs, after its guard (so
 # the guard still sees the caller's own value first).
+# The export must be the first code after the guard's own fi, at the top level (not inside a later branch), and no
+# code after it may unset, scrub or reassign the switch.
 guard_at=$(grep -n 'A cut always tests the whole suite (#5934)' "$HERE/release.sh" | head -1 | cut -d: -f1)
 export_at=$(grep -n -x 'export KOSMOS_SHELL_PARALLEL=1' "$HERE/release.sh" | head -1 | cut -d: -f1)
+between=""; later=""
 if [ -n "$guard_at" ] && [ -n "$export_at" ] && [ "$export_at" -gt "$guard_at" ]; then
-  pass "release.sh: a cut sets KOSMOS_SHELL_PARALLEL=1 after its guard (line $export_at, guard line $guard_at)"
+  between=$(awk -v g="$guard_at" -v e="$export_at" 'NR > g && NR < e && !/^[[:space:]]*#/ && !/^[[:space:]]*$/' "$HERE/release.sh")
+  later=$(awk -v e="$export_at" 'NR > e && !/^[[:space:]]*#/ && /KOSMOS_SHELL_PARALLEL/' "$HERE/release.sh")
+fi
+if [ -n "$guard_at" ] && [ -n "$export_at" ] && [ "$export_at" -gt "$guard_at" ] && [ "$between" = "fi" ] && [ -z "$later" ]; then
+  pass "release.sh: a cut sets KOSMOS_SHELL_PARALLEL=1 right after its guard's fi, and nothing later touches it"
 else
-  bad "release.sh: export KOSMOS_SHELL_PARALLEL=1 at line '${export_at:-none}', guard at '${guard_at:-none}'"
+  bad "release.sh: export at '${export_at:-none}', guard at '${guard_at:-none}', code between=[$between], later=[$(printf '%s' "$later" | head -2)]"
 fi
 
 if [ "$fails" -eq 0 ]; then echo "test-shell-parallel-7100: all arms passed"; exit 0; fi

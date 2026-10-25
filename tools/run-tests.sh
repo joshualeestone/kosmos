@@ -147,10 +147,13 @@ if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
   fi
 fi
 # #7100: KOSMOS_SHELL_PARALLEL=<n> runs test:shell as n shards at once on this computer (1 to 8; 1 is shard 1 of 1,
-# the one-at-a-time run). Not with KOSMOS_SHELL_SHARD (that runs one shard; CI runs the others). Unset (or
-# empty) is kosmos_shell_parallel_default: 4 on a plain local run, 1 in CI, a CI shard or the cut-env shape.
+# the one-at-a-time run). Not with KOSMOS_SHELL_SHARD (that runs one shard; CI runs the others). Unset is
+# kosmos_shell_parallel_default: 4 on a plain local run, 1 in CI, a CI shard or the cut-env shape. Set but empty is
+# 1, as it was before the default existed.
 . "$REPO/tools/lib/shell-parallel.sh" || { echo "run-tests: tools/lib/shell-parallel.sh is missing" >&2; exit 1; }
-[ -n "${KOSMOS_SHELL_PARALLEL:-}" ] || KOSMOS_SHELL_PARALLEL="$(kosmos_shell_parallel_default)"
+if [ -z "${KOSMOS_SHELL_PARALLEL+x}" ]; then KOSMOS_SHELL_PARALLEL="$(kosmos_shell_parallel_default)"
+elif [ -z "$KOSMOS_SHELL_PARALLEL" ]; then KOSMOS_SHELL_PARALLEL=1
+fi
 case "$KOSMOS_SHELL_PARALLEL" in
   1) ;;
   [2-8]) if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then

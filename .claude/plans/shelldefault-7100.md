@@ -22,16 +22,21 @@ where every local run reads it.
 - CLAUDE.md and run-tests.sh's header describe the new default.
 - tools/test-shell-parallel-7100.sh: arm 8 (the default in seven environments, each scrubbed first); arm 9 (end to
   end: the real run-tests.sh with a stub node that records each shell-shard.js call; unset starts run 1..4 of 4,
-  GITHUB_ACTIONS=true runs 1 of 1, KOSMOS_SHELL_PARALLEL=2 is kept); arm 10 (a tripwire: release.sh exports 1 after
-  its guard, since a test cannot run a cut). 21 arms. (Review 1 replaced an exact-line tripwire on run-tests.sh with
+  GITHUB_ACTIONS=true runs 1 of 1, KOSMOS_SHELL_PARALLEL=2 is kept, empty is 1); arm 10 (a tripwire, since a test
+  cannot run a cut: release.sh's export is the first code after its guard's fi, and no later code touches the
+  switch). 21 arms. (Review 1 replaced an exact-line tripwire on run-tests.sh with
   arm 9: the tripwire would red on an equivalent rewrite and stay green if the value were overwritten later.)
 
 ## Decided
 - In the repo, not in the shared validation library: that library serves every org repo, and this is a Kosmos-only
   setting.
 - A cut stays serial. The release gate is Baron's lane, and running a cut's suite in parallel is that gate's call.
-- An empty value now means "unset" (the default, 4); before this change an empty value meant 1. release.sh's guard
-  refuses an empty value anyway.
+- Only an UNSET switch takes the default. Set but empty stays 1, as it was before (review 2: a wrapper exporting an
+  empty value to mean "off" would otherwise silently get 4 shards). release.sh's guard refuses an empty value anyway.
+- The library loads unconditionally and a missing one exits 1, like tools/lib/test-locale.sh a little further down,
+  which already fails every run (`--only` included) when it is absent. So a fixture that copies run-tests.sh without
+  its libraries was already broken, and a fallback here would make no such fixture work. The only copies in the
+  suite (tools/test-cut-guard.sh, three) copy `lib/*.sh` (review 2, deferred with this reasoning).
 - Four, not more: measured, and the queue allows two suites per machine, so eight shard processes at most.
 
 ## Weakest premises
@@ -47,6 +52,7 @@ where every local run reads it.
 - tools/test-shell-parallel-7100.sh: 21 arms pass plainly and under a CI shard's environment
   (`KOSMOS_SHELL_SHARD=1/2 KOSMOS_SHELL_CUT_ENV=1 GITHUB_ACTIONS=true KOSMOS_SHELL_PLATFORM=linux`).
 - Mutants, each red on its own arm: always 4 (arms 8 and 9); ignoring GITHUB_ACTIONS (arm 8); the old `:-1`
-  default in run-tests.sh (arm 9); release.sh without the export, and the export before the guard (arm 10).
+  default in run-tests.sh (arm 9); empty taking the default (arm 9); release.sh without the export, the export
+  before the guard, the export inside a dead branch, and a later unset (arm 10).
 - test-cut-testpart-guard-5934, test-cut-shape-6977, test-sleep-control-guard-6710, test-mktemp-template-4298 and
   test-gnu-only-forms-6808 all pass.
