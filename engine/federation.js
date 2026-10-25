@@ -287,13 +287,13 @@ function ownCode(projectId, projectName, from) {
   while (code.length > OWN_CODE_MAX && chars.length > 1) { chars = chars.slice(0, Math.floor(chars.length / 2)); code = make(); }
   return code;
 }
+// 🛑 kosmos#4658 slice 2 rests on this refusal: a computer let into an own room by an owner's clear (letIn) treats every
+// unopenable envelope as noise afterwards, which is safe only while no sealing invite can reach a room shared this way.
+// Lifting it for v1/v3-shared rooms must first re-decide letIn (engine/fedseats.js noteOwnSealed, adoptOwnClear).
 /** Whether `ref` is a room this account's other computers sit in without knowing it may be sealed:
     an owner shared by an unsealed (version 1) code, or a project joined by one. A room whose own
     computers all came in by a sealed code (sealedOwn) is not, so guests may be invited to it.
     Throws on an unreadable links record. */
-// 🛑 kosmos#4658 slice 2 rests on this refusal: a computer let into an own room by an owner's clear (letIn) treats every
-// unopenable envelope as noise afterwards, which is safe only while no sealing invite can reach a room shared this way.
-// Lifting it for v1/v3-shared rooms must first re-decide letIn (engine/fedseats.js noteOwnSealed, adoptOwnClear).
 function selfSharedRef(ref) {
   return Object.values(links()).some((l) => l && ((l.role === 'owner' && l.selfShared === true && l.sealedOwn !== true) || l.role === 'self') && l.ref === ref);
 }

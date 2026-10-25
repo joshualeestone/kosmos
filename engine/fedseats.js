@@ -801,6 +801,15 @@ function sayHello(projectId, s) {
     }
   }
   if (!st || st.role !== 'member' || hasKey(st) || !s.room) return;
+  // Slice 2 (review 9): a keyless own record an older Kosmos wrote on an unopenable envelope never proved the room
+  // sealed (rule 5b): it becomes the waiting variant, so every surface reads it the same way. Posts it already held as
+  // sealed stay so (sealedHeld); only what is written from now on waits unmarked.
+  if (st.ownComputer === true && !pendingClear(st)) {
+    const l = safeLink(projectId);
+    if (l && l.role === 'self' && l.sealed !== true && l.letIn !== true) {
+      try { fedseal.setRoomState(projectId, Object.assign({}, st, { pendingClear: true })); st = roomSeal(projectId); } catch { /* read as before */ }
+    }
+  }
   // Slice 2: a clear already confirmed whose writes failed is taken again here, on the next connect (the owner sends it once).
   if (s.ownRun && s.ownRun.confirmed && s.ownRun.gotClear) { adoptOwnClear(projectId, s); if (!roomSeal(projectId)) return; }
   if (st.ownComputer === true) { sayOwnHello(projectId, s); return; }
@@ -857,7 +866,7 @@ function sayOwnHello(projectId, s) {
   try { sendFrame(s, fedseal.ownHelloFrame(me, macId, s.ownRun.nW)); } catch { /* the next connect says it again */ }
   const waitingClear = pendingClear(roomSeal(projectId));
   noteOnce(projectId, s, 'ownWaiting', (waitingClear
-    ? 'This computer is waiting to be let into this shared project. Its posts wait here until then (if no code appears on the other computer, update Kosmos there). To let it in, open this project on the computer that first shared it'
+    ? 'This computer is waiting to be let into this shared project. Its posts wait here for up to an hour at a time (if no code appears on the other computer, update Kosmos there). To let it in, open this project on the computer that first shared it'
     : 'This shared room is sealed. To read it on this computer, open this project on the computer that first shared it')
     + ': a code appears on both screens, and once they match, press Allow there and "It matches" here.');
 }
