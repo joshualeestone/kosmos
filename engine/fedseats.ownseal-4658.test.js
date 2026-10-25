@@ -167,17 +167,96 @@ test('#4658: a rotation reaches an allowed own computer under the owner\'s key',
   assert.strictEqual(fedseal.openRotate(r.w, fedseal.sealingKey().pub, rot[0], 'room-o4').roomKey, next);
 });
 
-test('#4658: a board without the room\'s key (an unsealed room) answers no hello and keeps no list', async () => {
+test('#4658 slice 2: the owner of an UNSEALED own room answers a hello, lists the computer, and Allow sends a clear that pins nothing', async () => {
   federation.recordLink('own-o5', { role: 'owner', ref: 'ref-own-o5', selfShared: true });
   const h = harness({ edges: [{ id: 'edge-o5', project_ref: 'ref-own-o5', status: 'active' }] });
   await fedseats.ensure('own-o5');
-  say(h.spawned[0], { event: 'connected', room: 'room-o5', expires_at: 9 });
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-o5', expires_at: 9 });
+  await settle();
+  const run = await waitingRun(seat, 'room-o5');
+  assert.ok(run.offer, 'an unsealed owner answered no hello');
+  await run.reveal();
+  assert.deepStrictEqual(fedseats.ownWaiting('own-o5').map((w) => w.pub), [run.w.pub], 'listed once its reveal opens');
+  assert.strictEqual((await fedseats.allowOwn('own-o5', run.w.pub, 'AAAAA-AAAAA')).ok, false, 'a wrong code lets nobody in');
+  assert.deepStrictEqual(sent(seat, 'key-own-clear'), []);
+  assert.deepStrictEqual(await fedseats.allowOwn('own-o5', run.w.pub, run.code()), { ok: true, because: null });
+  const clear = sent(seat, 'key-own-clear').pop();
+  assert.ok(fedseal.openOwnClear(run.w, run.mac, run.offer.ownerPub, run.nW, run.offer.nO, clear, 'room-o5'), 'the clear does not open for that computer');
+  assert.deepStrictEqual(sent(seat, 'key-own-share'), [], 'an unsealed room sends no key');
+  assert.strictEqual(fedseal.roomState('own-o5'), null, 'nothing is pinned for an unsealed room');
+});
+
+test('#4658 slice 2 CONTROL: an owner whose room is sealed but holds no key yet still answers no hello', async () => {
+  federation.recordLink('own-o6', { role: 'owner', ref: 'ref-own-o6', selfShared: true, sealed: true });
+  const h = harness({ edges: [{ id: 'edge-o6', project_ref: 'ref-own-o6', status: 'active' }] });
+  await fedseats.ensure('own-o6');
+  say(h.spawned[0], { event: 'connected', room: 'room-o6', expires_at: 9 });
   await settle();
   say(h.spawned[0], { event: 'message', data: fedseal.ownHelloFrame(fedseal.newKeyPair(), 'mac-x', fedseal.randomSecret()) });
   await settle();
-  assert.deepStrictEqual(sent(h.spawned[0], 'key-own-offer'), []);
-  assert.deepStrictEqual(fedseats.ownWaiting('own-o5'), []);
-  assert.strictEqual((await fedseats.allowOwn('own-o5', 'nope', 'AAAAA-AAAAA')).ok, false);
+  assert.deepStrictEqual(sent(h.spawned[0], 'key-own-offer'), [], 'a sealed room must never answer with a clear path');
+  assert.deepStrictEqual(fedseats.ownWaiting('own-o6'), []);
+});
+
+/** A computer that joined by an unsealed room's code (version 3), seat connected: what the join writes. */
+async function pendingComputer(id, room) {
+  federation.recordLink(id, { role: 'self', ref: 'ref-' + id, pendingClear: true });
+  fedseal.setRoomState(id, { role: 'member', ownComputer: true, pendingClear: true, keys: {} });
+  const h = harness();
+  await fedseats.ensure(id);
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room, expires_at: 9 });
+  await settle();
+  return { h, seat, hello: fedseal.checkOwnHello(sent(seat, 'key-own-hello').pop()) };
+}
+
+test('#4658 slice 2: a computer waiting to be let into an unsealed room holds its posts, shows the room, and posts in the clear only after confirm and a genuine clear', async () => {
+  const { h, seat, hello } = await pendingComputer('own-c1', 'room-c1');
+  assert.ok(hello, 'no hello from a waiting computer');
+  fedseats.post('own-c1', { from: 'Josh', kind: 'person', text: 'waiting words' });
+  await settle();
+  assert.ok(!seat.written.join('').includes('waiting words'), 'a post left before the owner answered');
+  // The room's unsealed messages are shown meanwhile: it is not known to be sealed.
+  say(seat, { event: 'message', data: { from: 'Ada', kind: 'person', text: 'plain hello' } });
+  await settle();
+  assert.ok(h.recorded.some((r) => r.text === 'plain hello'), 'an unsealed message was refused while waiting');
+  const o = handOwner('room-c1', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit, hello.pub);
+  // A clear from any other key is never taken.
+  const other = handOwner('room-c1', hello);
+  say(seat, { event: 'message', data: other.clear(nW) });
+  await settle();
+  const code = fedseal.compareCode('room-c1', MY_MAC, hello.pub, o.owner.pub, nW, o.nO);
+  assert.deepStrictEqual(await fedseats.confirmOwn('own-c1', code), { ok: true, because: null });
+  assert.ok(!seat.written.join('').includes('waiting words'), 'a clear from a key nobody confirmed let the posts go');
+  say(seat, { event: 'message', data: o.clear(nW) });
+  await settle();
+  assert.strictEqual(fedseal.roomState('own-c1'), null, 'the waiting record stayed');
+  assert.strictEqual(federation.linkFor('own-c1').pendingClear, false);
+  assert.ok(seat.written.join('').includes('waiting words'), 'the held post did not go once let in');
+});
+
+test('#4658 slice 2: a sealed frame while waiting makes the room sealed, and a clear is refused from then on', async () => {
+  const { seat, hello } = await pendingComputer('own-c2', 'room-c2');
+  fedseats.post('own-c2', { from: 'Josh', kind: 'person', text: 'still private' });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 0, 'room-c2', { from: 'Ada', kind: 'person', text: 'sealed' }) });
+  await settle();
+  assert.deepStrictEqual(fedseal.roomState('own-c2'), { role: 'member', ownComputer: true, keys: {} }, 'not turned into the sealed record');
+  assert.deepStrictEqual([federation.linkFor('own-c2').sealed, federation.linkFor('own-c2').pendingClear], [true, false]);
+  const o = handOwner('room-c2', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit, hello.pub);
+  const code = fedseal.compareCode('room-c2', MY_MAC, hello.pub, o.owner.pub, nW, o.nO);
+  await fedseats.confirmOwn('own-c2', code);
+  say(seat, { event: 'message', data: o.clear(nW) });
+  await settle();
+  assert.ok(!seat.written.join('').includes('still private'), 'a clear released a post in a room known to be sealed');
+  assert.deepStrictEqual(fedseal.roomState('own-c2'), { role: 'member', ownComputer: true, keys: {} });
 });
 
 test('#4658: the owner starts at most OWN_RUNS_PER_HOUR new runs an hour, and keeps at most 16 waiting, oldest out first', async (t) => {
@@ -230,6 +309,7 @@ function handOwner(room, hello) {
     owner, nO,
     offer: fedseal.ownOfferFrame(owner, hello, nO),
     share: (nW, roomKey) => fedseal.ownShareFrame(owner, { mac: hello.mac, pub: hello.pub, nW, nO }, fedseal.compareCode(room, hello.mac, hello.pub, owner.pub, nW, nO), roomKey, 0, room),
+    clear: (nW) => fedseal.ownClearFrame(owner, { mac: hello.mac, pub: hello.pub, nW, nO }, fedseal.compareCode(room, hello.mac, hello.pub, owner.pub, nW, nO), room),
   };
 }
 const revealOf = (seat) => sent(seat, 'key-own-reveal').pop();

@@ -22496,6 +22496,7 @@ const server = http.createServer(async (req, res) => {
           refusal = federation.ownCodeRefusal(proj.id);
           if (refusal === 'guest') { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
           if (refusal === 'sealed-waiting') { sendJson(res, 409, { reason: refusal, error: 'This project is sealed for the people you invited, and this computer does not hold its key right now (none of them has connected to it yet, or the key was lost), so it has nothing to give your other computers. Add them once someone has connected.' }); return; }
+          if (refusal === 'not-in') { sendJson(res, 409, { reason: refusal, error: 'This computer has not been let into this project yet, so it cannot add other computers. Add them from the computer that first shared the project.' }); return; }
           if (refusal === 'sealed-not-in') { sendJson(res, 409, { reason: refusal, error: 'This computer does not hold this sealed project\'s key right now, so it cannot add other computers. Add them from the computer that first shared the project.' }); return; }
           // kosmos#4699: the code names this computer, so the one it is pasted on can check it is on
           // the same account. A computer with no Kosmos+ address has no name to give.
@@ -22515,7 +22516,7 @@ const server = http.createServer(async (req, res) => {
           const parsed = federation.parseOwnCode(code);   // #4658: the note says what the code that was made says
           const note = parsed && parsed.sealed
             ? 'This project is now shared with your other computers. Messages in this room stay sealed end to end: another computer reads and posts here once you let it in from this one.'
-            : 'This project is now shared with your other computers. Messages in this room are not sealed end to end.';
+            : 'This project is now shared with your other computers. Messages in this room are not sealed end to end. Another computer can post here once you let it in from this one.';
           try { messages.roomNote(proj.id, note); } catch { /* the note is furniture */ }
         }
         // A press is an explicit ask: an own room refused earlier this session is tried again.
@@ -22560,7 +22561,7 @@ const server = http.createServer(async (req, res) => {
           /* kosmos#4649: a project from ANOTHER computer of this account is a `self` link:
              its seat is the account's own room, nothing was redeemed, nothing is sealed. */
           if (snap.own) federation.recordLink(made.id, Object.assign({ role: 'self', ref: snap.ref, project_name: snap.project_name, project_created: made.createdAt },
-            snap.sealed === true ? { sealed: true } : {}));
+            snap.sealed === true ? { sealed: true } : { pendingClear: true }));
           else federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
             project_name: snap.project_name, project_desc: snap.project_desc, project_created: made.createdAt });
         } catch (err) {
@@ -22576,9 +22577,12 @@ const server = http.createServer(async (req, res) => {
            nothing from this join is sent in the clear. The computer that first shared the project shares the key once
            the person lets this one in. */
         const ownSealed = !!(snap.own && snap.sealed === true);
-        if (snap.seal_s || ownSealed) {
+        // Slice 2: an unsealed room's own code (version 3) holds too, until the room's owner answers after a code compare.
+        const ownPending = !!(snap.own && !ownSealed);
+        if (snap.seal_s || ownSealed || ownPending) {
           try {
             fedseal.setRoomState(made.id, ownSealed ? { role: 'member', ownComputer: true, keys: {} }
+              : ownPending ? { role: 'member', ownComputer: true, pendingClear: true, keys: {} }
               : { role: 'member', s: snap.seal_s, code: snap.seal_code, peer: null, epoch: null, keys: {} });
           }
           catch (err) {
@@ -22598,7 +22602,7 @@ const server = http.createServer(async (req, res) => {
         if (snap.own) {
           const ownNote = ownSealed
             ? 'This project is shared with your other computers and sealed end to end. This computer can read and post here once you let it in from the computer that first shared it.'
-            : 'This project is shared with your other computers. Messages in this room are not sealed end to end.';
+            : 'This project is shared with your other computers. Messages in this room are not sealed end to end. This computer can post here once you let it in from the computer that first shared it.';
           try {
             messages.roomNote(made.id, ownNote);
           } catch { /* the note is furniture; the room exists regardless */ }

@@ -22,7 +22,7 @@ test('an own code round-trips the project ref and name, and makes the owner link
   federation.recordLink('proj-g', { role: 'owner', ref: 'ref-g' });
   assert.equal(federation.parseOwnCode(federation.ownCode('proj-g', 'G', 'study')).ref, 'ref-g');
   assert.equal(federation.linkFor('proj-g').selfShared, true);
-  assert.deepEqual(federation.parseOwnCode('  ' + code + '\n'), { ref: link.ref, name: 'Weekend plans', from: 'study', sealed: false });
+  assert.deepEqual(federation.parseOwnCode('  ' + code + '\n'), { ref: link.ref, name: 'Weekend plans', from: 'study', sealed: false, v: 3 });
   // Asking again gives the same ref: one room per project.
   assert.equal(federation.parseOwnCode(federation.ownCode('proj-a', 'Weekend plans', 'study')).ref, link.ref);
 });
@@ -35,19 +35,19 @@ test('a project joined from someone else cannot hand out an own code', () => {
 test('anything that is not a well-formed own code is refused', () => {
   const enc = (o) => federation.OWN_PREFIX + Buffer.from(JSON.stringify(o)).toString('base64url');
   for (const bad of [
-    '', 'abc.def', 'kosmos-own:', 'kosmos-own:%%%', enc({ v: 3, ref: 'r', name: 'n', from: 'study' }),
+    '', 'abc.def', 'kosmos-own:', 'kosmos-own:%%%', enc({ v: 4, ref: 'r', name: 'n', from: 'study' }), enc({ v: 3, ref: 'r', name: 'n', from: 'study', sealed: true }), enc({ v: 3, ref: 'r', name: 'n' }),
     enc({ v: 2, ref: 'r', name: 'n', from: 'study' }), enc({ v: 2, ref: 'r', name: 'n', from: 'study', sealed: 'yes' }), enc({ v: 2, ref: 'r', name: 'n', sealed: true }), enc({ v: 1, ref: 'r', name: 'n', from: 'Not A Name' }), enc({ v: 1, ref: 'r', name: 'n', from: '-x' }),
     enc({ v: 1, ref: 'r', name: 'n', from: 7 }), enc({ v: 1, ref: 'r', name: 'n', from: null }),
     enc({ v: 1, ref: '', name: 'n' }), enc({ v: 1, ref: 'x'.repeat(129), name: 'n' }),
     enc({ v: 1, ref: 'r', name: '   ' }), enc({ v: 1, ref: 'r' }), null, 42,
   ]) assert.equal(federation.parseOwnCode(bad), null, JSON.stringify(bad));
   // A code made before #4699 named no computer: it still parses (so verify can say why it is refused), with from null.
-  assert.deepEqual(federation.parseOwnCode(enc({ v: 1, ref: 'r1', name: 'N' })), { ref: 'r1', name: 'N', from: null, sealed: false });
-  assert.deepEqual(federation.parseOwnCode(enc({ v: 1, ref: 'r1', name: 'N', from: 'study' })), { ref: 'r1', name: 'N', from: 'study', sealed: false });
-  // An unsealed room's format number is still 1, so a Kosmos from before #4699 reads its code as it read every code.
+  assert.deepEqual(federation.parseOwnCode(enc({ v: 1, ref: 'r1', name: 'N' })), { ref: 'r1', name: 'N', from: null, sealed: false, v: 1 });
+  assert.deepEqual(federation.parseOwnCode(enc({ v: 1, ref: 'r1', name: 'N', from: 'study' })), { ref: 'r1', name: 'N', from: 'study', sealed: false, v: 1 });
+  // Slice 2: an unsealed room's code is version 3 (its joiner waits for the owner's answer); version 1 is never made.
   federation.recordLink('proj-fmt', { role: 'owner', ref: 'ref-fmt' });
   const made = federation.ownCode('proj-fmt', 'Format', 'study');
-  assert.equal(JSON.parse(Buffer.from(made.slice(federation.OWN_PREFIX.length), 'base64url').toString('utf8')).v, 1);
+  assert.equal(JSON.parse(Buffer.from(made.slice(federation.OWN_PREFIX.length), 'base64url').toString('utf8')).v, 3);
 });
 
 test('the seat arguments: --own-project for an own room, --edge otherwise, never both', () => {
@@ -74,7 +74,7 @@ test('#4658: an owner project that handed out a sealing invite gets a version 2 
   const code = federation.ownCode('proj-s', 'Sealed', 'study');
   const raw = JSON.parse(Buffer.from(code.slice(federation.OWN_PREFIX.length), 'base64url').toString('utf8'));
   assert.deepEqual([raw.v, raw.sealed], [2, true], 'version 2, sealed');
-  assert.deepEqual(federation.parseOwnCode(code), { ref: 'ref-s', name: 'Sealed', from: 'study', sealed: true });
+  assert.deepEqual(federation.parseOwnCode(code), { ref: 'ref-s', name: 'Sealed', from: 'study', sealed: true, v: 2 });
   assert.deepEqual([federation.linkFor('proj-s').selfShared, federation.linkFor('proj-s').sealedOwn], [true, true],
     'shared with this account\'s computers, every one by a sealed code');
   assert.equal(federation.ownCodeRefusal('proj-m'), 'guest');
@@ -207,7 +207,7 @@ test('an own-code verify with no way to ask about Kosmos Plus is refused (fails 
 
 /* kosmos#4699: an own code names the computer that made it, and verify accepts it only when that
    computer is on THIS computer's account. */
-const ownCodeFrom = (from, ref) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: ref || 'ref-4699', name: 'Shared', from })).toString('base64url');
+const ownCodeFrom = (from, ref) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 3, ref: ref || 'ref-4699', name: 'Shared', from })).toString('base64url');
 const plusRemote = (answer) => {
   const calls = [];
   return { calls, kosmosPlus: () => true, COORDINATOR: () => 'https://login.kosmos.test', macRequest: async (method, route, body) => { calls.push([method, route, body]); return typeof answer === 'function' ? answer() : answer; } };
