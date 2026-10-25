@@ -63,3 +63,8 @@ hand with run.sh <dir> and recorded on the card, not a standing test).
   keyboard's scroll-to-newest is kept: it moves only a reader already at the newest message.
 - No match with a pending bubble showing: the sentence is about the conversation's rows and stays the
   board's; the bubble is the send in flight (see above). Raised to Mona Lisa with the shots.
+- Matching uses Swift's String.contains, which treats composed and decomposed accents as equal; the
+  board's includes compares code units. The phone can match slightly more; kept (it is the kinder
+  answer for a person typing).
+- While searching, the earlier-messages failure line and its Try again are not drawn (no pages load
+  while searching); they come back when the search clears.
