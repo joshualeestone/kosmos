@@ -19,6 +19,7 @@ That the case is worth a visible line, since it needs an altered code, or an old
 
 ## NOT CLAIMED
 - Rows recorded before this change carry no mark.
+- **The agent-loop valve still counts marked rows** (review 4: the quiet that folds retried sends, and the acknowledgement-run list). The valve stops agents looping and grants no authority, and an injected row can sway it the same way in any clear room, where nothing is marked. Excluding only marked rows would make a waiting computer's loop guard differ for no gain. Unread counts and last-post time count them too: the row is in the room.
 - The phone app's room does not draw the line yet. It reads the same JSON, so the field is there for it: kosmos#7130 (review 1).
 - A reply's quote of a marked row (pjReplyGist) shows its words without the line; the row itself, in view, carries it (review 1).
 - **Wording (review 1):** the line names what sets these rows apart, which is that this computer was waiting. It does not say "could not be checked", which would imply the unmarked rows of a clear room were checked. They are not: no unsealed row is authenticated.
