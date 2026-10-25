@@ -70,6 +70,8 @@ final class TaskPageModel: ObservableObject {
     // The activity's count and its last event's time and kind, for its key (the rows themselves are built off the main
     // thread and only those come back).
     private var activityShape: (count: Int, lastAt: String, lastKind: String)?
+    // The last answer and names the rows were built from: the same again (most ticks) is not rebuilt.
+    private var builtFrom: (data: Data, names: [String: String])?
 
     init(project: String, number: Int, send: @escaping Send, sleep: @escaping (TimeInterval) async -> Void, epoch: @escaping () -> Int,
          now: @escaping () -> Date = Date.init, parse: @escaping Parse = { await TaskPageModel.parseOffMain($0, $1, $2) },
@@ -139,11 +141,16 @@ final class TaskPageModel: ObservableObject {
         guard !Task.isCancelled, current, mine > activityShown else { return false }
         activityShown = mine
         guard let (data, response) = answer, (200...299).contains(response.statusCode) else { set(\.activityFailed, true); return false }
+        if let was = builtFrom, was.data == data, was.names == names, activity != nil {
+            set(\.activityFailed, false)
+            return true
+        }
         let built = await buildRows(names, data)
         // A newer read that landed while this one was building stands.
         guard !Task.isCancelled, current, mine == activityShown else { return false }
         guard let built else { set(\.activityFailed, true); return false }
         set(\.activityFailed, false)
+        builtFrom = (data, names)
         activityShape = (built.count, built.lastAt, built.lastKind)
         if built.rows != activity { activity = built.rows }
         return true
@@ -154,6 +161,16 @@ final class TaskPageModel: ObservableObject {
         guard activity != nil else { return nil }
         let shape = activityShape ?? (0, "", "")
         return "\(project)#\(number)#\(shape.count)#" + shape.lastAt + "#" + shape.lastKind
+    }
+
+    // One 5-second tick of the page (TaskPageView's loop): the task while on screen, then its activity and the seen
+    // mark only while the person is there. `returning` (the page appearing, the app coming back) records the state once
+    // more, as the board's tkTabReturn does, but only the state this tick just read: a read that fails records nothing,
+    // so a nudge that arrived while they were away is never marked before it is shown.
+    func tick(first: Bool, returning: Bool, names: [String: String]) async {
+        if first || shouldReadTask { await read() }
+        guard shouldReadActivity(first: first) else { return }
+        if await readActivity(names: names) { await markSeen(again: first && returning) }
     }
 
     // Mark as done or Reopen, as the button showed it. A press whose button no longer matches the task (another
@@ -178,8 +195,10 @@ final class TaskPageModel: ObservableObject {
     // they were away or idle is marked once they are back. `again` (the page appearing, the app coming back) records
     // the same state once more, as the board's tkTabReturn does, so "seen at" moves to now.
     func markSeen(again: Bool = false) async {
-        if again, seenKey != nil, seenKey == recordedKey { seenKey = nil }
-        guard current, let key = activityKey, key != seenKey, present else { return }
+        // The reset for a return happens only when the mark can go now, so a return that cannot mark (the app not in
+        // front, nobody there) leaves the recorded state recorded.
+        let reset = again && seenKey != nil && seenKey == recordedKey
+        guard current, let key = activityKey, present, reset || key != seenKey else { return }
         seenKey = key
         let (project, number) = (self.project, self.number)
         let first = await send { Board.taskSeenRequest(mac: $0, project: project, number: number) }

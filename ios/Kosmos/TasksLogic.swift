@@ -315,12 +315,20 @@ enum Tasks {
         guard let iso, let d = parseISO(iso) else { return "" }
         return agoWords(now.timeIntervalSince(d) * 1000)
     }
-    static func parseISO(_ s: String) -> Date? {
+    // Two shared formatters (ISO8601DateFormatter is thread-safe once set up): a task page parses every event of a
+    // history on each read, and making a formatter is the costly part (kosmos#7074).
+    private static let isoFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = f.date(from: s) { return d }
+        return f
+    }()
+    private static let isoWhole: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
-        return f.date(from: s)
+        return f
+    }()
+    static func parseISO(_ s: String) -> Date? {
+        isoFractional.date(from: s) ?? isoWhole.date(from: s)
     }
 
     // PJ_NEEDS_WHY's sentences (the first of each pair), for a decision row's who line.
