@@ -313,7 +313,13 @@ extension Board {
 
     // POST .../task/<n>/close or /reopen, with no body (the board's tk-done).
     static func taskActRequest(mac: URL, project: String, number: Int, act: TaskAct) -> URLRequest? {
-        guard let url = taskRoute(mac: mac, project: project, number: number, act.rawValue) else { return nil }
+        // Each act names its own route, so a new act cannot be built without one (and the iOS routes check reads each).
+        let url: URL?
+        switch act {
+        case .close: url = taskRoute(mac: mac, project: project, number: number, "close")
+        case .reopen: url = taskRoute(mac: mac, project: project, number: number, "reopen")
+        }
+        guard let url else { return nil }
         // Each request here has its own name, so server.ios-routes-6838.test.js can tell them apart (its SITES).
         var press = URLRequest(url: url)
         press.httpMethod = "POST"
