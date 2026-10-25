@@ -493,6 +493,7 @@ struct RoomView: View {
                     // VoiceOver hears the list open, once, not on every letter (the board's aria-activedescendant has
                     // no iOS form; review 1), queued behind the key echo (review 2).
                     .onChange(of: mentionOptions == nil) { closed in
+                        if closed { mentionRowsHeight = 0 }   // each open starts from its own estimate (review 3)
                         if !closed, let n = mentionOptions?.count { Self.say(Board.mentionOpened(n)) }
                     }
                 Button { send() } label: {
@@ -537,7 +538,9 @@ struct RoomView: View {
                         .background(GeometryReader { g in Color.clear.onAppear { mentionRowsHeight = g.size.height }
                             .onChange(of: g.size.height) { mentionRowsHeight = $0 } })
                     }
-                    // Before the first measurement, an estimate of one 44pt row each.
+                    // Scrolling the list never takes the keyboard down, which would close it mid-scroll (review 3).
+                    .scrollDismissesKeyboard(.never)
+                    // Before each open's first measurement, an estimate of one 44pt row each.
                     .frame(height: min(cap, mentionRowsHeight > 0 ? mentionRowsHeight : CGFloat(all.count) * 44))
                 }
             }

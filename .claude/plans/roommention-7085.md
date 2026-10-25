@@ -38,4 +38,6 @@ tested against the board's own source; it is merged.
    - Round 2: 0 blockers, 2 warnings, 1 nit. Fixed: the cap is a measured height (the rows' own height up to half
      the thread), not a maximum under fixedSize, which is never offered more than the content (W1); the open
      announcement queues through Self.say (W2); the é@ro test checks what is typed (N1).
+   - Round 3: 0 blockers, 0 warnings, 1 nit, fixed: the measured height resets when the list closes, so each open
+     starts from its own estimate. Also .scrollDismissesKeyboard(.never) on the list, so a scroll in it cannot close it.
 3. Validation, PR.
