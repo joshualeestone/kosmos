@@ -61,7 +61,9 @@ final class TaskPageModel: ObservableObject {
     // The state the Mac last recorded as seen (a 2xx): only that one is recorded again on a return, as the board's
     // tkTabReturn re-records only a recorded state.
     private var recordedKey: String?
-    private var rawEvents: [[String: Any]] = []
+    // The activity's count and its last event's time and kind, for its key (the rows themselves are built off the main
+    // thread and only those come back).
+    private var activityShape: (count: Int, lastAt: String, lastKind: String)?
 
     init(project: String, number: Int, send: @escaping Send, sleep: @escaping (TimeInterval) async -> Void, epoch: @escaping () -> Int,
          now: @escaping () -> Date = Date.init, parse: @escaping Parse = { await TaskPageModel.parseOffMain($0, $1, $2) }) {
@@ -107,7 +109,9 @@ final class TaskPageModel: ObservableObject {
     }
 
     // GET .../activity. A failed read keeps the rows already shown (the board's: it says so only when it has none).
-    func readActivity(names: @escaping (String) -> String) async {
+    // `names` is a snapshot (the project's members over the roster), so the rows can be phrased off the main thread: a
+    // repeating task's history can run to thousands of events, read every 5 seconds.
+    func readActivity(names: [String: String]) async {
         guard current else { return }
         activityReads += 1
         let mine = activityReads
@@ -115,26 +119,31 @@ final class TaskPageModel: ObservableObject {
         let answer = await send { Board.taskActivityRequest(mac: $0, project: project, number: number) }
         guard !Task.isCancelled, current, mine > activityShown else { return }
         activityShown = mine
-        guard let (data, response) = answer, (200...299).contains(response.statusCode), let events = Board.parseActivity(data) else {
-            activityFailed = true
-            return
-        }
+        guard let (data, response) = answer, (200...299).contains(response.statusCode) else { activityFailed = true; return }
+        let built = await Task.detached { () -> (rows: [Board.ActivityRow], count: Int, lastAt: String, lastKind: String)? in
+            guard let events = Board.parseActivity(data) else { return nil }
+            let last = events.last
+            return (Board.activityRows(events, name: { names[$0] ?? $0 }), events.count,
+                    last?["at"] as? String ?? "", last?["kind"] as? String ?? "")
+        }.value
+        // A newer read that landed while this one was building stands.
+        guard !Task.isCancelled, current, mine == activityShown else { return }
+        guard let built else { activityFailed = true; return }
         activityFailed = false
-        rawEvents = events
-        let rows = Board.activityRows(events, name: names)
-        if rows != activity { activity = rows }
+        activityShape = (built.count, built.lastAt, built.lastKind)
+        if built.rows != activity { activity = built.rows }
     }
 
     // The board's key for "this state of the conversation": its count and its last event.
     var activityKey: String? {
         guard activity != nil else { return nil }
-        let last = rawEvents.last
-        return "\(project)#\(number)#\(rawEvents.count)#" + (last?["at"] as? String ?? "") + "#" + (last?["kind"] as? String ?? "")
+        let shape = activityShape ?? (0, "", "")
+        return "\(project)#\(number)#\(shape.count)#" + shape.lastAt + "#" + shape.lastKind
     }
 
     // Mark as done or Reopen, as the button showed it. A press whose button no longer matches the task (another
     // device closed it meanwhile) sends nothing: the page already shows the new state. Then both are read again.
-    func press(_ shown: Board.TaskAct, names: @escaping (String) -> String) async {
+    func press(_ shown: Board.TaskAct, names: [String: String]) async {
         guard !pressing, current, let page, page.act == shown else { return }
         pressing = true
         refusal = nil
