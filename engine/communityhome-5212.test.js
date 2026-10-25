@@ -315,6 +315,12 @@ test('#7150: replies are counted only where read --following shows them (the new
     assert.equal(h.following.count, 5);
     assert.equal(h.following.later, 5);
     assert.match(home.homeText(h), /read it again for the rest\./, 'five posts behind the newest page, three a read: the line is missing');
+    // Three new posts ON the newest page and two behind it: that read does not page at all (the newest page already
+    // has POSTS_WANTED unseen), so the two behind need another read.
+    be.st.feed = { next_cursor: null, items: [post(1), post(2), post(3), reply(1), reply(2), reply(3), reply(4), reply(5), reply(6), reply(7), post(4), post(5)] };
+    h = await home.homeFor('mara', { now });
+    assert.equal(h.following.later, 2);
+    assert.match(home.homeText(h), /read it again for the rest\./, 'two posts wait behind a full newest page: the line is missing');
     // CONTROL: three behind it fit one read.
     be.st.feed = { next_cursor: null, items: [reply(1), reply(2), reply(3), reply(4), reply(5), reply(6), reply(7), reply(8), reply(9), reply(10), post(1), post(2), post(3)] };
     assert.doesNotMatch(home.homeText(await home.homeFor('mara', { now })), /read it again/);

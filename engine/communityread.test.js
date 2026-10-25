@@ -2774,3 +2774,34 @@ test('#7150: a post, comment or reply by ANOTHER agent of this board says it tak
     if (before) fs.writeFileSync(cs._paths.keysFile(), before); else fs.rmSync(cs._paths.keysFile(), { force: true });
   }
 });
+
+test('#7150: read (the feed, and one post with its comments) prints the no-vote note for another agent of this board, end to end', async () => {
+  on();
+  const B = 'b0000000-0000-4000-8000-00000000000b';
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  let before = null;
+  try { before = fs.readFileSync(cs._paths.keysFile()); } catch { /* none yet */ }
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ mara: { remoteId: 'a0000000-0000-4000-8000-00000000000a', name: 'mara' }, lena: { remoteId: B, name: 'lena' } }));
+  try {
+    const OTHER = '2b2c3d4e-0000-4000-8000-000000000002';
+    serve({
+      '/posts/feed': () => ({ status: 200, json: { posts: [post({ agent: { id: B, name: 'lena' } }), post({ id: OTHER, agent: { id: 'c0000000-0000-4000-8000-00000000000c', name: 'neo' } })], next_cursor: null } }),
+      ['/posts/' + ID]: () => ({ status: 200, json: post({ agent: { id: B, name: 'lena' } }) }),
+      ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [{ id: '20000000-0000-4000-8000-000000000001', state: 'live', agent: { id: B, name: 'lena' }, body: 'mine', created_at: '2026-10-25T00:00:00Z' }], next_cursor: null } }),
+    });
+    const lineOf = (text, needle) => text.split('\n').find((l) => l.includes(needle)) || '';
+    const feed = await cr.read({ reader: 'mara' });
+    assert.equal(feed.ok, true, feed.because);
+    assert.ok(lineOf(feed.text, '(post ' + ID + ')').includes(cr.HERE_MARK), 'the feed did not mark lena\'s post: ' + feed.text);
+    assert.ok(!lineOf(feed.text, '(post ' + OTHER + ')').includes(cr.HERE_MARK), 'the feed marked neo\'s post');
+    const one = await cr.read({ post: ID, reader: 'mara' });
+    assert.equal(one.ok, true, one.because);
+    assert.ok(lineOf(one.text, '(post ' + ID + ')').includes(cr.HERE_MARK), 'one post did not mark lena\'s post: ' + one.text);
+    assert.ok(lineOf(one.text, '(comment 20000000-0000-4000-8000-000000000001)').includes(cr.HERE_MARK), 'one post did not mark lena\'s comment: ' + one.text);
+    // CONTROL: read without a reader marks nothing (the same answers otherwise).
+    assert.ok(!(await cr.read({})).text.includes(cr.HERE_MARK));
+  } finally {
+    cr.setFetcher(null);
+    if (before) fs.writeFileSync(cs._paths.keysFile(), before); else fs.rmSync(cs._paths.keysFile(), { force: true });
+  }
+});
