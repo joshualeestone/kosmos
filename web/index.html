@@ -81696,7 +81696,7 @@ function fedOwnPaint() {
   }
 }
 /* What the section shows, as one string: a press's sentence is kept until this changes. */
-function fedOwnSig(o) { return o ? JSON.stringify([o.code, o.waiting.map((w) => w.pub + ' ' + w.code), (o.allowed || []).map((a) => a.pub)]) : ''; }
+function fedOwnSig(o) { return o ? JSON.stringify([o.code, o.pending === true, o.waiting.map((w) => w.pub + ' ' + w.code), (o.allowed || []).map((a) => a.pub)]) : ''; }
 async function fedOwnLoad(project, fromPress) {
   if (!project || !fedShow()) return;
   const seq = ++FED_OWN_SEQ;
