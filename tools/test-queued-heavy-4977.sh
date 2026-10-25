@@ -428,7 +428,9 @@ run5923 noorig
 ok "#5923: a checkout with no origin/main says so, is not moved, and the run runs" '[ "$rc" = 0 ] && [ -e $S/l5923-noorig-ran ] && [[ "$o" == *"has no origin/main to compare with (#5923)"* ]] && [[ "$o" != *moved* ]]'
 # An unwritable marker dir: no lock can be taken there, so the check is skipped, the line says so, and nothing moves.
 mkdir -p $S/ml5923-unw && chmod 555 $S/ml5923-unw
-run5923 unw
+# #7086: the wrapper then waits for a turn it cannot take in that dir, so the run ends only at the deadline. The line
+# this arm reads is printed before the wait, and the default 240 s cost every validation four minutes.
+QH_DEADLINE=15 run5923 unw
 chmod 755 $S/ml5923-unw
 ok "#5923: an unwritable marker dir skips the check, says the lib is loaded unchecked, and moves nothing" '[ "$(lh5923 unw)" != "$(lm5923 unw)" ] && [[ "$o" == *"is not writable, so the lib is loaded unchecked (#5923)"* ]]'
 # Origin/main's lib offers side turns (kosmos_light_side_clear) but lacks a side-lane function this copy then calls.
