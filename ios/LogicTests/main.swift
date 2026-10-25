@@ -914,7 +914,7 @@ do {
 
 section("native chat: reading the conversation")
 do {
-    let json = #"{"messages":[{"at":"2026-10-23T13:32:00Z","text":"Morning","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:33:00Z","text":"Hi","from":"dana"},{"at":"2026-10-23T13:33:00Z","text":"And again","from":"dana"},{"at":"2026-10-23T13:40:00Z","text":"Paused","from":null,"kind":"kosmos"},{"at":"2026-10-23T13:41:00Z","text":"Tue or Wed?","from":"dana","kind":"question","id":"q1"},{"at":"2026-10-23T13:42:00Z","text":"May I run it?","from":"dana","kind":"question","permission":{"title":"x"}},{"at":"2026-10-23T13:43:00Z","text":"File","from":"dana","attachments":[{"id":"a"}]},{"at":"2026-10-23T13:44:00Z","text":"Lost","from":null,"delivery":{"state":"could_not"}},{"at":"2026-10-23T13:45:00Z","text":"Later","from":null,"delivery":{"state":"held"}},{"at":"2026-10-23T13:46:00Z","text":"Maybe","from":null,"delivery":{"state":"unconfirmed"}},{"from":"dana"}],"olderCount":12}"#
+    let json = #"{"messages":[{"at":"2026-10-23T13:32:00Z","text":"Morning","from":null,"delivery":{"state":"placed"}},{"at":"2026-10-23T13:33:00Z","text":"Hi","from":"dana"},{"at":"2026-10-23T13:33:00Z","text":"And again","from":"dana"},{"at":"2026-10-23T13:40:00Z","text":"Paused","from":null,"kind":"kosmos"},{"at":"2026-10-23T13:41:00Z","text":"Tue or Wed?","from":"dana","kind":"question","id":"q1"},{"at":"2026-10-23T13:42:00Z","text":"May I run it?","from":"dana","kind":"question","permission":{"title":"x"}},{"at":"2026-10-23T13:43:00Z","text":"File","from":"dana","attachments":[{"id":"a"}]},{"at":"2026-10-23T13:44:00Z","text":"Lost","from":null,"delivery":{"state":"could_not","retryable":true}},{"at":"2026-10-23T13:45:00Z","text":"Later","from":null,"delivery":{"state":"held"}},{"at":"2026-10-23T13:46:00Z","text":"Maybe","from":null,"delivery":{"state":"unconfirmed"}},{"from":"dana"}],"olderCount":12}"#
     let t = Board.parseThread(Data(json.utf8))
     let rows = t?.rows ?? []
     check(rows.count == 10, "a row with no text is dropped")
@@ -924,19 +924,69 @@ do {
     check(rows[0].atRaw == "2026-10-23T13:32:00Z", "the Mac's own time is kept as sent, to match a sent message to its row")
     check(rows[4].wayThrough == .question && rows[5].wayThrough == .permission && rows[6].wayThrough == .attachment && rows[1].wayThrough == nil,
           "a question, a permission card and a file each get their way-through row")
-    check(rows[0].notSent == nil && rows[7].notSent == "Not sent" && rows[8].notSent == "Waiting to send" && rows[9].notSent == "Not confirmed",
-          "placed reached the agent; could_not, held and unconfirmed (it may have arrived) say which")
+    check(rows[0].notSent == nil && rows[7].notSent == "Message failed to deliver" && rows[8].notSent == "Waiting to send" && rows[9].notSent == "Not confirmed",
+          "placed reached the agent; could_not (the board's failed line, #7136), held and unconfirmed (it may have arrived) say which")
     check(rows[7].canSendAgain && !rows[8].canSendAgain && !rows[0].canSendAgain,
           "only a message the Mac could not deliver can be sent again; one it holds goes by itself")
     check(!rows[9].canSendAgain, "one not confirmed is not offered again: it may have arrived, and a second copy would duplicate it")
     // Not every could_not is a plain message to send again: a copy the Mac already marked as one, and a menu answer.
-    let odd = Board.parseThread(Data(#"{"messages":[{"at":"T1","text":"Hello","from":null,"delivery":{"state":"could_not","duplicateOf":"T0","because":"the same message was already kept above"}},{"at":"T2","text":"Yes, and don't ask again","wire":"2","from":null,"delivery":{"state":"could_not"}},{"at":"T3","text":"Plain","from":null,"delivery":{"state":"could_not","because":"Dana is not running"}}]}"#.utf8))?.rows ?? []
+    let odd = Board.parseThread(Data(#"{"messages":[{"at":"T1","text":"Hello","from":null,"delivery":{"state":"could_not","duplicateOf":"T0","because":"the same message was already kept above"}},{"at":"T2","text":"Yes, and don't ask again","wire":"2","from":null,"delivery":{"state":"could_not"}},{"at":"T3","text":"Plain","from":null,"delivery":{"state":"could_not","because":"Dana is not running","retryable":true}}]}"#.utf8))?.rows ?? []
     check(!odd[0].canSendAgain && !odd[1].canSendAgain && odd[2].canSendAgain, "a duplicate and a menu answer are not sent again; a plain one is")
+    check(odd[0].notSent == "Not sent", "a copy the Mac kept as one keeps its own word, not the failed line (#6774, as the board)")
     check(odd[0].because == "the same message was already kept above" && odd[2].because == "Dana is not running", "the Mac's own reason is kept, to show as the board shows it")
     check(t?.olderCount == 12, "older messages are counted")
     check(Board.parseThread(Data("{}".utf8)) == nil && Board.parseThread(Data("not json".utf8)) == nil, "an answer that is not a conversation is nil")
     let empty = Board.parseThread(Data(#"{"messages":[]}"#.utf8))
     check(empty?.rows.isEmpty == true && empty?.olderCount == 0, "an empty conversation is one, not a failure")
+
+    // kosmos#7136: the board's failed line and Try again (web/index.html dmFailedLine, dmRetrySend).
+    do {
+        let rowsJSON = #"{"messages":[{"at":"A1","text":"Plain","from":null,"delivery":{"state":"could_not","because":"dana is not running","retryable":true}},{"at":"A2","text":"Old","from":null,"delivery":{"state":"could_not"}},{"at":"A3","text":"Going","from":null,"delivery":{"state":"unconfirmed","retrying":true,"retryable":true}},{"at":"A4","text":"Copy","from":null,"delivery":{"state":"could_not","duplicateOf":"A1","retryable":true}},{"at":"A5","text":"Yes","wire":"1","from":null,"delivery":{"state":"could_not","retryable":true}}]}"#
+        let r = Board.parseThread(Data(rowsJSON.utf8))?.rows ?? []
+        check(r.count == 5 && r[0].retryable && !r[1].retryable && r[2].retrying && !r[0].retrying, "retryable and retrying are read from the Mac's delivery")
+        check(Board.newestMineAt(r) == "A5", "the person's newest message is the last of theirs in the thread")
+        check(Board.newestMineAt(r + [Board.ChatRow(id: "k", atRaw: "A6", at: nil, text: "Paused", who: .kosmos)]) == "A5",
+              "a Kosmos line is not the person's (the board's DM_NEWEST_MINE_AT skips kind kosmos, questions and from)")
+        let newest = Board.failedLine(r[0], newestMineAt: "A1", flying: false)
+        check(newest == Board.FailedLine(button: "try again", canRetry: true, because: "Dana is not running."),
+              "a retryable plain message that is the newest: try again, the reason as a sentence")
+        check(newest?.text == "Message failed to deliver, try again.", "and the line reads as the board's")
+        let behind = Board.failedLine(r[0], newestMineAt: "A9", flying: false)
+        check(behind == Board.FailedLine(button: nil, canRetry: false, because: "Dana is not running.") && behind?.text == "Message failed to deliver.",
+              "behind a newer message of the person's: no try again, and the line ends at deliver")
+        check(Board.failedLine(r[1], newestMineAt: "A2", flying: false)?.canRetry == false, "not marked retryable by the Mac: no try again")
+        check(Board.failedLine(r[1], newestMineAt: "A2", flying: false)?.because == "We could not reach them.", "no reason from the Mac: the board's own words")
+        var reply = r[0]; reply.replyTo = "Z"
+        var files = r[0]
+        files.attachments = [Board.Attachment(id: "f", name: "f.txt", type: "text/plain", size: 1, kind: "file", url: "/api/attachment/f", preview: nil)]
+        check(Board.failedLine(reply, newestMineAt: "A1", flying: false)?.canRetry == false
+              && Board.failedLine(files, newestMineAt: "A1", flying: false)?.canRetry == false,
+              "a reply or a message with files: no try again")
+        check(Board.failedLine(r[4], newestMineAt: "A5", flying: false)?.canRetry == false, "a menu answer (wire): no try again")
+        check(Board.failedLine(r[3], newestMineAt: "A4", flying: false) == nil, "a copy the Mac kept as one gets no failed line")
+        check(Board.failedLine(r[0], newestMineAt: "A1", flying: true) == Board.FailedLine(button: "sending\u{2026}", canRetry: false, because: "Dana is not running."),
+              "while this phone sends it again: sending…, not pressable")
+        check(Board.failedLine(r[2], newestMineAt: "A3", flying: true)?.button == "sending\u{2026}" && Board.failedLine(r[2], newestMineAt: "A3", flying: false) == nil,
+              "a row being sent again shows sending… only while this phone is the one sending it")
+        let agentRow = Board.ChatRow(id: "g", atRaw: "A7", at: nil, text: "hi", who: .agent, notSent: Board.failedWords, resendable: true, retryable: true)
+        check(Board.failedLine(agentRow, newestMineAt: nil, flying: false) == nil, "only the person's own messages")
+        let mac = URL(string: "https://mac.example")!
+        let req = Board.retryRequest(mac: mac, session: "dana", text: " Plain ", retryOf: "A1")
+        let body = req?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        check(req?.httpMethod == "POST" && req?.url?.absoluteString == "https://mac.example/api/agent/dana/thread"
+              && body?["text"] as? String == " Plain " && body?["retry_of"] as? String == "A1" && body?.count == 2,
+              "Try again posts {text, retry_of} to the thread, the words exactly as the row holds them")
+        check(Board.retryRequest(mac: mac, session: "dana", text: "x", retryOf: "") == nil && Board.retryRequest(mac: mac, session: "../x", text: "x", retryOf: "A1") == nil,
+              "no row named, or a name the app does not accept: no request")
+        check(Board.retryResult(status: 200, body: Data(#"{"delivery":{"state":"placed"}}"#.utf8)) == Board.RetrySaid(said: "Sent.", refused: false)
+              && Board.retryResult(status: 200, body: Data(#"{"delivery":{"state":"unconfirmed"}}"#.utf8)).said == "We could not confirm it went. Check its window before sending it again."
+              && Board.retryResult(status: 200, body: Data(#"{"delivery":{"state":"could_not"}}"#.utf8)) == Board.RetrySaid(said: "Message failed to deliver.", refused: false),
+              "placed, unconfirmed and failed again are said as the board says them")
+        check(Board.retryResult(status: 400, body: Data(#"{"error":"that message cannot be sent again"}"#.utf8)) == Board.RetrySaid(said: "That message cannot be sent again.", refused: true)
+              && Board.retryResult(status: 503, body: nil) == Board.RetrySaid(said: "We could not send it again.", refused: true)
+              && Board.retryResult(status: 0, body: nil) == Board.RetrySaid(said: Board.retryNoAnswer, refused: true),
+              "a refusal says the Mac's words; no words, the board's; no answer, the board's no-answer line")
+    }
 
     // What a read says: the conversation, the Mac's own reason, or no answer.
     let read = { (s: Int, b: String?) in Board.readThread(status: s, data: b.map { Data($0.utf8) }) }
@@ -1638,6 +1688,7 @@ final class FakeBoardWorld {
     var postedAttachments: [[String]] = []
     // kosmos#7083: each post's reply_to ("" when none), and each reaction asked for ("at|emoji") with its answer.
     var postedReplies: [String] = []
+    var postedRetryOf: [String] = []
     var reacted: [String] = []
     var reactAnswer: (Int, String)? = (200, #"{"ok":true,"reactions":[]}"#)
     // kosmos#7075: each request's Sec-Fetch-Site, by "METHOD path" ("" when it had none).
@@ -1697,6 +1748,7 @@ final class FakeBoardWorld {
                     postedRequests.append(body?["request"] as? String ?? "")
                     postedAttachments.append(body?["attachments"] as? [String] ?? [])
                     postedReplies.append(body?["reply_to"] as? String ?? "")
+                    postedRetryOf.append(body?["retry_of"] as? String ?? "")
                     if let hook = onPost { onPost = nil; hook() }
                     let next: (Int, String)? = sendQueue.isEmpty ? (200, #"{"delivery":{"state":"placed","at":"2026-10-23T20:00:00.000Z"},"recorded":true}"#) : sendQueue.removeFirst()
                     return next.map { answer($0.0, $0.1) }
@@ -1989,11 +2041,13 @@ section("native board loop: connecting")
         await c.refreshNow()
         await c.retryWithoutReply(stale.id, to: dana)
         check(w.postedReplies.last == "" && w.posted.last == "about that", "Send as a new message: the same words, with no reply_to")
-        // A kept, not-sent reply sent again goes as the same reply.
-        var lostReply = Board.ChatRow(id: "lr", atRaw: "T8", at: nil, text: "still yes", who: .person, notSent: "Not sent", resendable: true)
+        // kosmos#7136: a reply that failed is not offered again (the board's rule; the Mac refuses retry_of on a reply).
+        var lostReply = Board.ChatRow(id: "lr", atRaw: "T8", at: nil, text: "still yes", who: .person, notSent: Board.failedWords,
+                                      resendable: true, retryable: true)
         lostReply.replyTo = "2026-10-24T10:00:00.000Z"
-        await c.sendAgain(lostReply, to: dana)
-        check(w.posted.last == "still yes" && w.postedReplies.last == "2026-10-24T10:00:00.000Z", "sending a not-sent reply again keeps its reply_to")
+        let postsBeforeReply = w.posted.count
+        let replyAgain = await c.sendAgain(lostReply, newestMineAt: nil, to: dana)
+        check(replyAgain == nil && w.posted.count == postsBeforeReply, "a failed reply is not sent again, as on the board")
         w.reactAnswer = (200, #"{"ok":true,"op":"add","emoji":"x","at":"T1","reactions":[{"emoji":"x","count":1,"who":["you"],"mine":true}]}"#)
         let r = await c.react("x", at: "T1", to: dana)
         check(r == .reacted(at: "T1", pills: [Board.ChatReaction(emoji: "x", count: 1, mine: true)]) && w.reacted.last == "T1|x",
@@ -2102,23 +2156,18 @@ section("native board loop: connecting")
         check(!sentWithChips && w.posted.count == postsBefore && attached().count == 1, "the composer's files are not sent while another is still going up")
         let wordsOnly = await c.post("words only", to: dana)
         check(wordsOnly && w.posted.last == "words only", "words alone still go, as on the board")
-        var lost = Board.ChatRow(id: "y", atRaw: "T9", at: nil, text: "deck.pdf", who: .person, notSent: "Not sent", resendable: true)
+        // kosmos#7136: a failed message with a file is not offered again (the board's rule; retry_of takes words only).
+        var lost = Board.ChatRow(id: "y", atRaw: "T9", at: nil, text: "deck.pdf", who: .person, notSent: Board.failedWords,
+                                 resendable: true, retryable: true)
         lost.attachments = [Board.Attachment(id: deckId, name: "deck.pdf", type: "application/pdf", size: 13, kind: "pdf",
                                              url: "/api/attachment/" + deckId, preview: nil)]
-        await c.sendAgain(lost, to: dana)
-        check(w.posted.last == "deck.pdf" && w.postedAttachments.last == [deckId] && c.wasSentAgain(lost, for: "dana"),
-              "a not-sent message with a file is sent again with that file, even while another file goes up")
+        let postsBeforeLost = w.posted.count
+        let lostAgain = await c.sendAgain(lost, newestMineAt: nil, to: dana)
+        check(lostAgain == nil && w.posted.count == postsBeforeLost, "a failed message with a file is not sent again, as on the board")
         await going.value
         w.uploadYields = 0
         check(attached().map(\.name) == ["f0.txt", "slow.pdf"] && c.uploading["dana"] == 0, "and the file that was going up lands on the composer")
 
-        // A send again that post refuses (more files than a message carries, which only post checks) leaves its row
-        // tappable.
-        var crowded = Board.ChatRow(id: "z", atRaw: "T10", at: nil, text: "eleven", who: .person, notSent: "Not sent", resendable: true)
-        crowded.attachments = Array(repeating: lost.attachments[0], count: 11)
-        let crowdedPosts = w.posted.count
-        await c.sendAgain(crowded, to: dana)
-        check(w.posted.count == crowdedPosts && !c.wasSentAgain(crowded, for: "dana"), "a send again that sent nothing does not hide its row's line")
 
         // Another account meanwhile: an upload that answers late adds nothing, and a pick made before is never sent.
         w.uploadYields = 50
@@ -2224,13 +2273,28 @@ section("native board loop: connecting")
         check(w.posted.count == postsBeforeRetry && !pending().contains { $0.id == failedId },
               "a retry after no answer finds it in the conversation and sends nothing")
 
-        // A message the Mac kept as not sent is sent again as a new message.
-        let lostRow = Board.ChatRow(id: "x", atRaw: "T", at: nil, text: "Are you there?", who: .person, notSent: "Not sent", resendable: true)
+        // kosmos#7136: a message the Mac could not deliver is sent again into the SAME row (retry_of), as the board's
+        // dmRetrySend, so the person sees one message, not two.
+        let lostRow = Board.ChatRow(id: "x", atRaw: "T", at: nil, text: "Are you there?", who: .person, notSent: Board.failedWords,
+                                    resendable: true, retryable: true)
         let postedBefore = w.posted.count
-        await c.sendAgain(lostRow, to: dana)
-        await c.sendAgain(lostRow, to: dana)
-        check(w.posted.last == "Are you there?" && w.posted.count == postedBefore + 1, "Not sent, tapped twice, posts the words again once")
-        check(c.wasSentAgain(lostRow, for: "dana"), "and the row knows it was sent again (its line goes)")
+        w.postYields = 50
+        let first = Task { await c.sendAgain(lostRow, newestMineAt: "T", to: dana) }
+        let going = await settle { c.isSendingAgain(lostRow, for: "dana") }
+        let second = await c.sendAgain(lostRow, newestMineAt: "T", to: dana)
+        let firstSaid = await first.value
+        w.postYields = 0
+        check(going && second == nil, "while it is going the row is marked as going (\"sending…\"), and a second tap sends nothing")
+        check(w.posted.last == "Are you there?" && w.postedRetryOf.last == "T" && w.postedReplies.last == "" && w.postedAttachments.last == [],
+              "Try again sends the same words with retry_of naming the row, and no reply or files")
+        check(w.posted.count == postedBefore + 1, "it posted once")
+        check(firstSaid == Board.RetrySaid(said: "Sent.", refused: false) && !c.isSendingAgain(lostRow, for: "dana"),
+              "placed says Sent., and the row is no longer marked as going")
+        let behind = await c.sendAgain(lostRow, newestMineAt: "T-later", to: dana)
+        check(behind == nil && w.posted.count == postedBefore + 1, "not the newest message of the person's: not sent again (it would arrive out of order)")
+        w.sendQueue = [(409, #"{"error":"that message is being sent again now"}"#)]
+        let busy = await c.sendAgain(lostRow, newestMineAt: "T", to: dana)
+        check(busy == Board.RetrySaid(said: "That message is being sent again now.", refused: true), "a refusal keeps the Mac's words, as a sentence")
 
         // Reads say the Mac's reason, or no answer.
         w.threadAnswer = (404, #"{"error":"that name belongs to another session"}"#)
@@ -2272,13 +2336,13 @@ section("native board loop: connecting")
         c.start()
         sessions.value = "kst2"
         c.start()
-        check(c.pending.isEmpty && c.drafts.isEmpty && c.resent.isEmpty && c.chatEpoch > epoch,
+        check(c.pending.isEmpty && c.drafts.isEmpty && c.resending.isEmpty && c.chatEpoch > epoch,
               "another session after a read with none: all of it is gone, and the open chat resets")
         _ = await settle { isLive(c) }
         await hold()
         let before = c.chatEpoch
         c.accountChanged()
-        check(c.pending.isEmpty && c.drafts.isEmpty && c.resent.isEmpty && c.chatEpoch > before,
+        check(c.pending.isEmpty && c.drafts.isEmpty && c.resending.isEmpty && c.chatEpoch > before,
               "a sign-out the web view reports: all of it is gone at once")
         c.stop()
     }
@@ -2441,9 +2505,12 @@ section("native board loop: connecting")
         w.sendQueue = [(200, #"{"delivery":{"state":"placed"}}"#)]
         let pressAgain = Task { await c.press(tue, of: choices, to: dana) }
         _ = await settle { c.pressing.contains("dana") }
-        let lostRow = Board.ChatRow(id: "lost", atRaw: "T", at: nil, text: "Are you there?", who: .person, notSent: "Not sent", resendable: true)
-        await c.sendAgain(lostRow, to: dana)
-        check(!c.wasSentAgain(lostRow, for: "dana"), "Send again while a press is in the air does nothing, and the row still offers it")
+        let lostRow = Board.ChatRow(id: "lost", atRaw: "T", at: nil, text: "Are you there?", who: .person, notSent: Board.failedWords,
+                                    resendable: true, retryable: true)
+        let pressPosts = w.posted.count
+        let duringPress = await c.sendAgain(lostRow, newestMineAt: "T", to: dana)
+        check(duringPress == nil && w.posted.count == pressPosts && !c.isSendingAgain(lostRow, for: "dana"),
+              "Try again while a press is in the air does nothing, and the row still offers it")
         _ = await pressAgain.value
         // And a retry of a failed message while a press is in the air sends nothing.
         w.sendQueue = [(409, #"{"error":"no"}"#)]

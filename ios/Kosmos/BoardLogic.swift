@@ -519,17 +519,27 @@ enum Board {
         let at: Date?
         let text: String
         let who: Who
-        // Under a message of the person's, the Mac's verdict when it is not "reached the agent": "Not sent" (it could not
-        // deliver it), "Waiting to send" (it holds it and sends it itself), or "Not confirmed" (it may have arrived: the
-        // board's "could not confirm", where sending again may duplicate it). nil when it reached the agent.
+        // Under a message of the person's, the Mac's verdict when it is not "reached the agent": "Message failed to
+        // deliver" (it could not deliver it; the board's dmFailedLine, kosmos#7136), "Not sent" (a copy the Mac kept as
+        // one, duplicateOf), "Waiting to send" (it holds it and sends it itself), or "Not confirmed" (it may have arrived:
+        // the board's "could not confirm", where sending again may duplicate it). nil when it reached the agent.
         var notSent: String? = nil
         var wayThrough: WayThrough? = nil
-        // The Mac's own reason, shown under the verdict as the board shows it.
+        // The Mac's own reason. Under a failed message it is only heard (the board keeps it to the line's tooltip, #6720).
         var because: String? = nil
-        // Only a plain message the Mac could not deliver is offered again: not a copy the Mac already marked as one
-        // (duplicateOf), and not a menu answer (its words are not what was typed).
+        // A message the Mac could not deliver: not a copy the Mac already marked as one (duplicateOf), and not a menu
+        // answer (its words are not what was typed).
         var resendable = false
-        var canSendAgain: Bool { who == .person && notSent == "Not sent" && resendable }
+        // kosmos#7136: the Mac keeps `retryable` on a row it will take back through retry_of, and serves `retrying` while
+        // one is being sent again.
+        var retryable = false
+        var retrying = false
+        // Sent again only as the board does (dmFailedLine): the same row, through retry_of, which the Mac takes only for
+        // plain words, so never a reply or a message with files. The newest-only half needs the thread (failedLine).
+        var canSendAgain: Bool {
+            who == .person && notSent == Board.failedWords && resendable && retryable && replyTo == nil && attachments.isEmpty
+                && !(atRaw ?? "").isEmpty
+        }
         // kosmos#7016: the Mac's reading of a permission prompt on a question row, and whether a question is the agent's
         // own reported words (which take no buttons, as on the board).
         var permission: Permission? = nil
@@ -1327,11 +1337,16 @@ enum Board {
             var notSent: String? = nil
             var because: String? = nil
             var resendable = false
+            var retryable = false
+            var retrying = false
             if who == .person, let d = row["delivery"] as? [String: Any], let state = d["state"] as? String, state != "placed" {
-                notSent = state == "held" ? "Waiting to send" : state == "unconfirmed" ? "Not confirmed" : "Not sent"
+                let failed = state == "could_not" && d["duplicateOf"] == nil
+                notSent = state == "held" ? "Waiting to send" : state == "unconfirmed" ? "Not confirmed" : failed ? Board.failedWords : "Not sent"
                 because = (d["because"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 let wire = (row["wire"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                resendable = state == "could_not" && d["duplicateOf"] == nil && wire == nil
+                resendable = failed && wire == nil
+                retryable = (d["retryable"] as? Bool) == true
+                retrying = (d["retrying"] as? Bool) == true
             }
             // A permission is read only on a question row (the board's m.kind === 'question' && m.permission).
             let permission = kind == "question" ? parsePermission(row["permission"]) : nil
@@ -1341,7 +1356,7 @@ enum Board {
                 : kind == "question" ? .question
                 : (row["attachment"] != nil || (row["attachments"] as? [Any])?.isEmpty == false) ? .attachment : nil
             return ChatRow(id: idPrefix + base + "#\(n)", atRaw: at, at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way,
-                           because: because, resendable: resendable,
+                           because: because, resendable: resendable, retryable: retryable, retrying: retrying,
                            permission: permission, reported: isTrue(row["reported"]), attachments: parseAttachments(row),
                            replyTo: (row["replyTo"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                            reactions: parseReactions(row["reactions"]), from: from)
@@ -1674,6 +1689,68 @@ enum Board {
     // running cannot take it, so there is nothing to try again until it is.
     static func notSentLine(agentRunning: Bool, name: String) -> (text: String, canRetry: Bool) {
         agentRunning ? ("Not sent. Tap to try again.", true) : ("Not sent. \(name) isn't running on your computer.", false)
+    }
+}
+
+// kosmos#7136: a message the Mac could not deliver, as the board's dmFailedLine (web/index.html, kosmos#6720) draws it:
+// one quiet line under the bubble, "Message failed to deliver, try again." where it can be sent again, else "Message
+// failed to deliver.", "sending…" while it goes, and the reason only heard. Try again sends the same words into the same
+// row (retry_of), so it stays one message.
+extension Board {
+    static let failedWords = "Message failed to deliver"
+
+    struct FailedLine: Equatable {
+        // "try again", "sending…", or nil where it cannot be sent again.
+        let button: String?
+        let canRetry: Bool
+        // The Mac's reason as a sentence, heard as the line's hint (the board's tooltip).
+        let because: String
+        var text: String { failedWords + (button.map { ", " + $0 + "." } ?? ".") }
+    }
+
+    // The `at` of the person's newest message in the thread (the board's DM_NEWEST_MINE_AT): sent again behind a newer one
+    // it would arrive out of order, so only that one is offered.
+    static func newestMineAt(_ rows: [ChatRow]) -> String? {
+        rows.last { $0.who == .person && !($0.atRaw ?? "").isEmpty }?.atRaw
+    }
+
+    // nil for a row that does not get the line. `flying`: this phone is sending it again now.
+    static func failedLine(_ row: ChatRow, newestMineAt: String?, flying: Bool) -> FailedLine? {
+        guard row.who == .person, row.notSent == failedWords || (row.retrying && flying) else { return nil }
+        let newest = newestMineAt == nil || newestMineAt == row.atRaw
+        let canRetry = row.canSendAgain && newest && fitsBoard(row.text)
+        let button = flying && (canRetry || row.retrying) ? "sending\u{2026}" : canRetry ? "try again" : nil
+        return FailedLine(button: button, canRetry: canRetry && !flying, because: sentence(row.because ?? "we could not reach them"))
+    }
+
+    // POST /api/agent/<name>/thread {text, retry_of}: the board's dmRetrySend. The words go exactly as the row holds them
+    // (the Mac takes the retry only with these words).
+    static func retryRequest(mac: URL, session: String, text: String, retryOf at: String) -> URLRequest? {
+        guard isAgentSession(session), fitsBoard(text), !at.isEmpty else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text, "retry_of": at])
+        return r
+    }
+
+    // What the board says after Try again (dmRetrySend): a refusal, said under the box as well; otherwise what happened,
+    // only heard.
+    struct RetrySaid: Equatable { let said: String; let refused: Bool }
+    static let retryNoAnswer = "We could not reach Kosmos, so we cannot tell whether it went. Look at the conversation before trying again."
+
+    static func retryResult(status: Int, body: Data?) -> RetrySaid {
+        if status == 0 { return RetrySaid(said: retryNoAnswer, refused: true) }
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        guard (200...299).contains(status) else {
+            let why = (obj?["error"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "we could not send it again"
+            return RetrySaid(said: sentence(why), refused: true)
+        }
+        let state = (obj?["delivery"] as? [String: Any])?["state"] as? String
+        return RetrySaid(said: state == "placed" ? "Sent."
+            : state == "unconfirmed" ? "We could not confirm it went. Check its window before sending it again."
+            : failedWords + ".", refused: false)
     }
 }
 
