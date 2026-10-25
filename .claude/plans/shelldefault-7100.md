@@ -13,14 +13,15 @@ source `~/.claude/scripts/lib/validation-log.sh` directly and ran serially (2,04
 where every local run reads it.
 
 ## Change
-- tools/lib/shell-parallel.sh: `kosmos_shell_parallel_default` prints 4, or 1 when any of these is set:
-  `GITHUB_ACTIONS=true`, `KOSMOS_SHELL_SHARD`, `KOSMOS_SHELL_PLATFORM`, `KOSMOS_SHELL_CUT_ENV=1`.
+- tools/lib/shell-parallel.sh: `kosmos_shell_parallel_default` prints 4, or 1 when any of these holds:
+  `GITHUB_ACTIONS=true`; `CI` set to anything but false or 0, in any case; `KOSMOS_SHELL_SHARD`;
+  `KOSMOS_SHELL_PLATFORM`; `KOSMOS_SHELL_CUT_ENV=1`.
 - tools/run-tests.sh: loads the library where the switch is read (it only defines functions; the late load in the
   parallel branch is removed). An unset or empty switch takes the default; a set one is kept and validated as before.
 - tools/release.sh: right after its #5934 guard, `export KOSMOS_SHELL_PARALLEL=1`, so a cut's gate runs stay one at
   a time. The guard still sees the caller's own value first.
 - CLAUDE.md and run-tests.sh's header describe the new default.
-- tools/test-shell-parallel-7100.sh: arm 8 (the default in seven environments, each scrubbed first); arm 9 (end to
+- tools/test-shell-parallel-7100.sh: arm 8 (the default in fourteen environments, each scrubbed first, CI spellings included); arm 9 (end to
   end: the real run-tests.sh with a stub node that records each shell-shard.js call; unset starts run 1..4 of 4,
   GITHUB_ACTIONS=true runs 1 of 1, KOSMOS_SHELL_PARALLEL=2 is kept, empty is 1); arm 10 (a tripwire, since a test
   cannot run a cut: release.sh's export is the first code after its guard's fi, and no later code touches the
@@ -44,8 +45,11 @@ where every local run reads it.
   take the default too, 4 unless they set CI-style variables. No unset protects against that, because a default is
   computed, not inherited. Review 3 searched the tree: the only nested run that reaches the shell part with the
   default is arm 9 itself (a stub node). The others use --only (test-runner-scale-export-5727), stop at a refusal,
-  only read the source, or run a fixture with --sleep (test-cut-guard). That is a search, not a run; the full suite
-  on this branch (Mortals, experiment e) is the measurement.
+  only read the source, or run a fixture with --sleep (test-cut-guard). That is a search, not a run. MEASURED since:
+  the full suite on this branch (83a3c146) on Mortals with the switch unset, so the default applied everywhere,
+  nested runs included: rc 0, node 23,934 tests and 0 failed, shell part as 4 shards at once in 738 s, all green, the
+  whole suite in 1,326 s (experiment e, ended 10:10 CDT 2026-10-25). Later commits on this branch changed tests,
+  comments and the CI check, not what an unset local run does.
 - Arm 9 runs the real run-tests.sh to its end, so it also passes through the gates there (browser-check trailers on
   this repo's branch diff, the LaunchAgents guard). It is judged on the shard calls alone, not the exit status (review
   3), so a red elsewhere at the end does not read as a broken default.

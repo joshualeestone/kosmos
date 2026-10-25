@@ -96,12 +96,16 @@ kosmos_shell_parallel_stop() {
 
 # kosmos_shell_parallel_default
 #   Prints the number of shards an unset KOSMOS_SHELL_PARALLEL means: 4 on a plain local run, and 1 (the
-#   one-at-a-time run) in CI (GITHUB_ACTIONS=true, or CI=true or 1), in a CI shard or platform share
-#   (KOSMOS_SHELL_SHARD, KOSMOS_SHELL_PLATFORM) and in the cut-env shape (KOSMOS_SHELL_CUT_ENV=1). Four was
+#   one-at-a-time run) in CI (GITHUB_ACTIONS=true, or CI set to anything but false or 0, in any case), in a CI
+#   shard or platform share (KOSMOS_SHELL_SHARD, KOSMOS_SHELL_PLATFORM) and in the cut-env shape
+#   (KOSMOS_SHELL_CUT_ENV=1). Four was
 #   measured on 2026-10-25: 603 s on Agent1s and 682 and 669 s on Mortals, against 2,285 s and 2,209 to 2,594 s
 #   one at a time, 290 of 290 green every time (#7100). A release cut sets 1 itself (tools/release.sh).
 kosmos_shell_parallel_default() {
-  if [ "${GITHUB_ACTIONS:-}" = true ] || [ "${CI:-}" = true ] || [ "${CI:-}" = 1 ] \
+  local ci
+  ci="$(printf '%s' "${CI:-}" | tr '[:upper:]' '[:lower:]')"
+  case "$ci" in ''|false|0) ci="" ;; esac
+  if [ "${GITHUB_ACTIONS:-}" = true ] || [ -n "$ci" ] \
      || [ -n "${KOSMOS_SHELL_SHARD:-}" ] || [ -n "${KOSMOS_SHELL_PLATFORM:-}" ] \
      || [ "${KOSMOS_SHELL_CUT_ENV:-0}" = 1 ]; then
     echo 1
