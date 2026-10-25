@@ -28,3 +28,6 @@ the parse, the bands and the words with a broken-copy control; shots in light an
   the thicker 5 and 6 are its big gauge's).
 - A list that is not updating draws the arc in the quiet tertiary colour, as its dots and words go quiet.
 - The percent is held to 0...100 on reading (the engine caps it there).
+- In a list that is not updating, VoiceOver still hears "memory N%", followed in the same label by "not updating", as
+  the row's word is; the arc is drawn quiet.
+- Shots at the default size and at the largest accessibility size (AX5) in ~/work/design-shots/kosmos-7120/.
