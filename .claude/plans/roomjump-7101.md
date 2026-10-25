@@ -51,4 +51,6 @@ it is merged.
    - Round 4: 0 blockers, 2 warnings (both measured survivors), 1 nit. Fixed: the person's-post guard tested with
      "You: ..." (it could not fail before), the outside-message guard tested; a repeat jump restarts the flash (a
      token, only the latest timer clears it).
+   - Round 5: 0 blockers, 0 warnings, 1 nit, fixed: the outline is a 2 pt ring 2 pt out with parallel corners, as
+     the board's outline-offset. Converged; a final round runs after the rebase onto main.
 3. Validation, PR (after #7093 merges and this is rebased).

@@ -858,7 +858,8 @@ struct RoomBubble: View {
         .padding(.vertical, 8).padding(.horizontal, 12)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(mine ? Palette.personBubble : Palette.agentBubble))
         // kosmos#7101: the board's .msg-flash, a gold-deep outline on the post a reply's header went to, fading out.
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Self.flashGold, lineWidth: 2).padding(-2)
+        // A 2 pt ring 2 pt out, as the board's outline-offset, its corners kept parallel to the bubble's (review 5).
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Self.flashGold, lineWidth: 2).padding(-4)
             .opacity(flashing ? 1 : 0).animation(reduceMotionHere ? nil : .easeOut(duration: 0.3), value: flashing))
         .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
         .contextMenu {
