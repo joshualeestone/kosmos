@@ -40,7 +40,8 @@ screen. An info button opens the board's page for what this does not do. Checked
 - Presence input is noted by PresenceProbe, a recognizer on the window that fails at once (never claims, delays or
   cancels a touch), not a SwiftUI gesture over the ScrollView. A touch counts as it begins; one held two minutes counts
   once (accepted: reading is scrolling and tapping, each a new touch).
-- Deferred: folded quiet runs show their one summary line (the board's details can be opened to the single runs); at
+- Deferred: "task N" in "Replaced by task N", "Replaces task N" and the closed/replaced activity rows is plain text
+  (the board makes it a link to that task's page); folded quiet runs show their one summary line (the board's details can be opened to the single runs); at
   the largest text sizes a subtask's status sits beside a long title.
 
 ## Device checks (join #6838's list)

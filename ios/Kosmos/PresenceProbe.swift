@@ -6,7 +6,7 @@ import UIKit.UIGestureRecognizerSubclass
 // noted where the window receives events rather than through a SwiftUI gesture, which laid over a ScrollView can stop
 // the scroll. The recognizer on the window notes each touch as it begins (a scroll or a tap is a new touch; one touch
 // held for two minutes counts once, at its start) and fails at once, so it never claims, delays or cancels anything.
-// It also notes key presses that reach the window; whether a hardware keyboard with nothing focused reaches it is
+// It may also note key presses, if they reach the window; whether a hardware keyboard with nothing focused does is
 // unproven here and is on the device check.
 struct PresenceProbe: UIViewRepresentable {
     let onInput: () -> Void

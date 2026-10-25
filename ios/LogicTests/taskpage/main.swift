@@ -174,7 +174,8 @@ final class FakeMac {
     func asyncSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         let answer = send(build)
         if holdNext { holdNext = false; await withCheckedContinuation { held = $0 } }
-        return answer
+        // As URLSession: a request whose task was cancelled gives no answer.
+        return Task.isCancelled ? nil : answer
     }
     func send(_ build: (URL) -> URLRequest?) -> (Data, HTTPURLResponse)? {
         guard let r = build(URL(string: "https://studio.kosmosplus.com")!) else { return nil }
@@ -314,10 +315,14 @@ func modelTests() async {
     await e.read()
     mac.onSend = nil
     check(e.page == nil && !e.readFailed, "a read that lands after another account or Mac changes nothing")
+    let ep = model(3)
+    await ep.read()
+    check(ep.page != nil, "premise: a page read under the account before")
+    mac.epoch += 1
     mac.asked = []
-    await e.press(.close, names: nm)
-    await e.read()
-    check(mac.asked.isEmpty, "and a page from before it sends nothing, not even a read")
+    await ep.press(.close, names: nm)
+    await ep.read()
+    check(mac.asked.isEmpty, "a page from before another account or Mac sends nothing, though it has a task shown: no press, no read")
 
     // The 5-second tick: the task on every tick while on screen; its activity first, then only while the person is there.
     let t = model(3)
@@ -343,6 +348,29 @@ func modelTests() async {
     await rec.markSeen()
     await rec.markSeen(again: true)
     check(mac.asked.filter { $0.hasSuffix("/seen") }.count == 2, "a recorded state is recorded again on a return")
+
+    // A seen mark cut short (the loop restarted while it was on its way) is not a failure: the next mark sends it.
+    let cm = model(3)
+    mac.activity = (200, fixture("activity-3.json"))
+    await cm.readActivity(names: nm)
+    mac.asked = []
+    mac.holdNext = true
+    let cut = Task { await cm.markSeen() }
+    for _ in 0..<1000 where !mac.holding { await Task.yield() }
+    cut.cancel()
+    mac.release()
+    await cut.value
+    check(mac.asked.first == "POST /api/project/springcatalogue/task/3/seen", "premise: the cut mark had started its POST")
+    mac.asked = []
+    await cm.markSeen()
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen"], "a cancelled seen mark leaves the state unmarked, so the next mark sends it")
+    mac.holdNext = true
+    let cutRead = Task { await cm.read() }
+    for _ in 0..<1000 where !mac.holding { await Task.yield() }
+    cutRead.cancel()
+    mac.release()
+    await cutRead.value
+    check(!cm.readFailed, "a read cut short records no failure")
 
     // Reads that land out of order: the newer answer stands.
     mac.epoch = 0
