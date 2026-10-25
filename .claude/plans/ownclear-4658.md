@@ -29,7 +29,12 @@ or a room shared by v1 and sealed later lets a joiner post in the clear. Design 
 5. **The joiner adopts a clear** (adoptOwnClear, beside adoptOwnShare) only when its person confirmed the code, the
    clear opened under the confirmed owner key, its record is pendingClear, and its link is not sealed (a v2 joiner
    never accepts a clear). It rewrites the link first, then forgets the record, and says "let in" only once both
-   wrote (review 1); a write that fails leaves it waiting, and the kept clear is taken again at the next connect.
+   wrote (review 1); a write that fails leaves it waiting and says so, and the kept clear is taken again at the next
+   connect while the process is up (after a restart, the codes are compared again; review 3). A run holding a clear
+   keeps it when the owner re-offers (the owner drops the computer from its list at Allow; review 3).
+5b. **An unopenable envelope never proves a room sealed** (review 3): noteOwnSealed writes the sealed record only when
+   the link says the computer joined a sealed room (a v2 code); otherwise it writes the pendingClear record, so the
+   owner's authenticated answer decides for every own computer, not only for one that joined by a v3 code.
 6. Screens: the own-computer card and the owner's waiting list stop saying "sealed" when the room is clear.
 
 ## Rejected
@@ -55,6 +60,12 @@ mixed-version own rooms must keep working, in which case v1 joins stay as today 
 - **A v3 code made by a computer that was itself let in** is answered only by the room's first computer (the owner
   link), so that computer must be on and on a current Kosmos (review 2): intended, the owner is the only one who can
   vouch for the room's state.
+
+- **A computer let in by a clear is not listed on the owner** (review 3): there is no key to take back, so it is not
+  pinned and does not appear under "Your other computers in this room", as unsealed own computers never did.
+- **The owner sealing the room between Allow and the joiner's confirm** (review 3) cannot happen while the self-shared
+  invite refusal stands: a room shared by a v3 code is selfShared without sealedOwn, so a sealing invite is refused.
+  Lifting that refusal (below) must re-decide this.
 
 ## Not in this slice
 Lifting the self-shared invite refusal entirely (decision 5 of #7107): once every own computer holds until answered,

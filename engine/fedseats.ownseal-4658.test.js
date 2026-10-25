@@ -241,11 +241,22 @@ test('#4658 slice 2: a computer waiting to be let into an unsealed room holds it
   assert.ok(seat.written.join('').includes('waiting words'), 'the held post did not go once let in');
 });
 
-test('#4658 slice 2: a computer let in before this slice that sees an unopenable sealed envelope gets the record only, never a lasting mark on its link', async () => {
+test('#4658 slice 2: a computer with no seal record that sees an unopenable envelope waits for the owner\'s answer (pendingClear), and the owner\'s clear lets it go', async () => {
   const { seat } = await ownComputer('own-old1', 'room-old1');
-  await sealedNow(seat, 'room-old1');
-  assert.strictEqual(fedseal.roomState('own-old1').ownComputer, true, 'precondition: it held the room as sealed');
+  const hello = await sealedNow(seat, 'room-old1');
+  assert.deepStrictEqual(fedseal.roomState('own-old1'), { role: 'member', ownComputer: true, pendingClear: true, keys: {} }, 'an unauthenticated envelope made it sealed for good');
   assert.strictEqual(federation.linkFor('own-old1').sealed, undefined, 'an unauthenticated envelope wrote a lasting seal on the link');
+  fedseats.post('own-old1', { from: 'Josh', kind: 'person', text: 'old held words' });
+  await settle();
+  const o = handOwner('room-old1', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit, hello.pub);
+  await fedseats.confirmOwn('own-old1', fedseal.compareCode('room-old1', MY_MAC, hello.pub, o.owner.pub, nW, o.nO));
+  say(seat, { event: 'message', data: o.clear(nW) });
+  await settle();
+  assert.strictEqual(fedseal.roomState('own-old1'), null, 'the owner\'s clear did not let it go');
+  assert.ok(seat.written.join('').includes('old held words'));
 });
 
 test('#4658 slice 2: a clear that arrives BEFORE the person confirms is kept, and the confirm lets the posts go', async () => {
@@ -259,7 +270,13 @@ test('#4658 slice 2: a clear that arrives BEFORE the person confirms is kept, an
   say(seat, { event: 'message', data: o.clear(nW) });
   await settle();
   assert.ok(!seat.written.join('').includes('early clear words'), 'let in before its person confirmed');
+  // The owner dropped this computer from its list at Allow, so its next hello (every pass) gets a NEW offer: the run
+  // holding the genuine clear must keep it (review 3).
+  const o2 = fedseal.ownOfferFrame(o.owner, hello, fedseal.randomSecret());
+  say(seat, { event: 'message', data: o2 });
+  await settle();
   const code = fedseal.compareCode('room-c3', MY_MAC, hello.pub, o.owner.pub, nW, o.nO);
+  assert.strictEqual(fedseats.ownCode('own-c3'), code, 'a new offer after Allow reset the run that held the clear');
   assert.deepStrictEqual(await fedseats.confirmOwn('own-c3', code), { ok: true, because: null });
   await settle();
   assert.strictEqual(fedseal.roomState('own-c3'), null);
