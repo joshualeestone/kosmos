@@ -205,7 +205,8 @@ struct NewTaskView: View {
         #if DEBUG
         if Self.sample, let parsed = Board.parseProjects(Data(RoomStore.sampleProjects.utf8)) {
             took(parsed)
-            if Self.sampleUnsure { message = NewTask.unsureWords }
+            // As after a real "could not tell": the words are held, so the line and Create it anyway show.
+            if Self.sampleUnsure { held = NewTask.Held(sent: draft, before: nil) }
             return
         }
         #endif
