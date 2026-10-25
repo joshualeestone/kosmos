@@ -126,13 +126,16 @@ struct ChatView: View {
             // Only into an empty box: if SwiftUI shows the chat again without having hidden it, the words being typed stay.
             if draftText.isEmpty { draftText = client.drafts[agent.session] ?? "" }
             startReading()
+            recomputeHiddenHeads()
         }
         .onDisappear {
             visible = false
             armed = nil
             // A reading posture, not the chat's state: coming back shows the whole conversation (the board clears its
-            // search on opening another agent).
+            // search on opening another agent). What the search changed goes with it here, not in onChange(of: query),
+            // which need not run for a view that is off screen.
             query = ""
+            if composerNote == Board.chatSentWhileSearching { composerNote = nil }
             // Not into another account's chats: a draft from before a sign-out is dropped with the rest.
             if epoch == client.chatEpoch { client.drafts[agent.session] = draftText }
             loop?.cancel()
@@ -352,7 +355,7 @@ struct ChatView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 60)
             .onAppear { UIAccessibility.post(notification: .announcement, argument: Board.chatNoMatch(query)) }
-            .onChange(of: query) { now in UIAccessibility.post(notification: .announcement, argument: Board.chatNoMatch(now)) }
+            .onChange(of: Board.chatNoMatch(query)) { now in UIAccessibility.post(notification: .announcement, argument: now) }
     }
 
     private var empty: some View {
