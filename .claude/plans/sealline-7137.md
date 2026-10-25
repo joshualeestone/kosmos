@@ -15,8 +15,11 @@ Card: kosmos#7137 (filed by me from a board-vs-phone sweep; the board's #pj-fed-
   (the board's .ownseal-phone: --text-callout, --label-3, a plain <p>).
 
 ## Decided (design, reversible)
-- Words: the board's two sentences with "under Members" said as "on your computer's board, under Members", because the
-  phone has no Members code section (its Members button opens the board). The card first said the line would link
+- Words (final, after review rounds 1 and 2): "This room is sealed on your computer. The code to compare is on your
+  computer's board, under Members." and "Your computer is waiting to be let in. The code to compare is on your
+  computer's board, under Members." The board's "this computer" is the person's computer from the phone, and the phone
+  has no Members code section (its Members button opens the board); "your computer's board" is how six other phone
+  lines name it. The card first said the line would link
   there; the board's line is plain text and the toolbar's Members button already goes there, so plain text.
 - The phone sends Sec-Fetch-Site on every request (#7075), so own-compare's isViaScreen gate lets it read; it reads
   the code only to know one exists.
@@ -39,3 +42,11 @@ Card: kosmos#7137 (filed by me from a board-vs-phone sweep; the board's #pj-fed-
   Decided: enterOwnCompare runs on every onAppear, also coming back from an agent's chat pushed over the room, so the
   line may be absent for one read then (the room re-reads at once). Room 423/423; every suite; both builds, no
   warnings in the changed files. Broken copies: drops at two, no seq guard, no clear on entry: each red.
+- Round 2: 0 blockers, 3 warnings, 5 nits. Fixed: the read is asked with every room read, landed or not, before it is
+  sent, so a room that stops reading still drops a stale line at the third miss (pinned; moving it back after a landed
+  read goes red); the drawn line's gate on client.fedShown pinned (a store passing true now goes red); the words say
+  "your computer's board", matching the card and the phone's other lines. Nits fixed: asked at most every 10 s, the
+  board's FED_OWN_REFRESH_MS (pinned), at once on entering; a JSON array is an answer with no code, as the board's
+  typeof check; the loader's comment says the phone forgets the answer while the UI is off where the board keeps it.
+  Recorded: the clear on every onAppear (decided in round 1). Room 428/428; every suite; both builds, no warnings in
+  the changed files.

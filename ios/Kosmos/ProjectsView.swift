@@ -69,6 +69,8 @@ final class RoomStore: ObservableObject {
     // line above a shared room. Never the code itself.
     @Published private(set) var ownCompare: [String: Board.OwnCompareKept] = [:]
     private var ownSeq: [String: Int] = [:]
+    private var ownAskedAt: [String: Date] = [:]
+    static let ownEvery: TimeInterval = 10
     static let pageSize = 50
 
     private let client: BoardClient
@@ -79,7 +81,7 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
-        returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]; ownSeq = [:]
+        returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAskedAt = [:]
         held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
@@ -118,11 +120,17 @@ final class RoomStore: ObservableObject {
         return false
     }
 
-    // kosmos#7137: the board's own-compare read for the line above a shared room, as its fedOwnLoad: only while the
-    // shared-room UI shows (fedShow()); only the newest read for a project writes (FED_OWN_SEQ); any 2xx JSON answer
-    // replaces what is kept, and a failed read keeps it through two misses (Board.ownCompareAfter).
+    // kosmos#7137: the board's own-compare read for the line above a shared room, as its fedOwnLoad: only the newest
+    // read for a project writes (FED_OWN_SEQ); any 2xx JSON answer replaces what is kept, and a failed read keeps it
+    // through two misses (Board.ownCompareAfter). Asked at most every 10 seconds (the board's own pace), with each room
+    // read whether or not it landed, so a room that stops reading still drops a stale line at the third miss.
+    // While the shared-room UI is not shown it is not asked, and what was kept is forgotten (the board keeps it; the
+    // phone drops it, so the UI coming back never draws an old answer first).
     func loadOwnCompare(_ project: String) async {
         guard client.fedShown else { ownCompare[project] = nil; return }
+        let now = Date()
+        if let last = ownAskedAt[project], now.timeIntervalSince(last) < Self.ownEvery { return }
+        ownAskedAt[project] = now
         let epoch = client.chatEpoch
         ownSeq[project, default: 0] += 1
         let seq = ownSeq[project]!
@@ -133,7 +141,7 @@ final class RoomStore: ObservableObject {
     }
     // Entering the room starts it empty, as the board's fedOwnReset on entering a project: a previous visit's answer is
     // not drawn before this visit's read lands. A newer seq drops a read still in the air.
-    func enterOwnCompare(_ project: String) { ownCompare[project] = nil; ownSeq[project, default: 0] += 1 }
+    func enterOwnCompare(_ project: String) { ownCompare[project] = nil; ownSeq[project, default: 0] += 1; ownAskedAt[project] = nil }
     func ownSealLine(_ project: String) -> String? { Board.ownSealLine(ownCompare[project]?.compare, fedShown: client.fedShown) }
 
     // The newest page, merged into what is shown (a post written late can land inside it; ios/README.md).
@@ -155,6 +163,7 @@ final class RoomStore: ObservableObject {
             older[project] = (0, nil); return true
         }
         #endif
+        Task { await self.loadOwnCompare(project) }   // kosmos#7137: with each room read, landed or not (at most every 10 s)
         let epoch = client.chatEpoch
         roomReads[project, default: 0] += 1
         let read = roomReads[project]!
@@ -164,7 +173,6 @@ final class RoomStore: ObservableObject {
             roomFailed.insert(project); return false
         }
         roomFailed.remove(project)
-        Task { await self.loadOwnCompare(project) }   // kosmos#7137: with each room read, as the board repaints it
         roomPartial = Board.partialRooms(roomPartial, project: project, partial: page.unread)
         if Board.readMayWriteHold(read: read, reopenedAt: reopenedAt[project]) { if page.held { held[project] = .some(page.heldUntil) } else { held[project] = nil } }
         let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)

@@ -708,8 +708,11 @@ extension Board {
         return r
     }
     // The board's `o.code` is truthy: a non-empty string. `pending` counts only when exactly true.
+    // Any JSON object is an answer, as the board's `typeof body === 'object'` (an array too: an answer with no code).
     static func parseOwnCompare(_ data: Data) -> OwnCompare? {
-        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        guard let any = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        if any is [Any] { return OwnCompare(hasCode: false, pending: false) }
+        guard let obj = any as? [String: Any] else { return nil }
         let code = (obj["code"] as? String) ?? ""
         return OwnCompare(hasCode: !code.isEmpty, pending: isTrue(obj["pending"]))
     }
@@ -726,9 +729,9 @@ extension Board {
     }
     // The board's #pj-fed-own-phone sentences, said from the phone: the board's "this computer" is the person's
     // computer here, and the phone has no Members code section of its own (its room's Members button opens the board), so
-    // the code is said to be on that computer's board.
-    static let ownSealedLine = "This room is sealed on your computer. The code to compare is on its board, under Members."
-    static let ownWaitingLine = "Your computer is waiting to be let in. The code to compare is on its board, under Members."
+    // the code is said to be on your computer's board, as the phone's other lines name it.
+    static let ownSealedLine = "This room is sealed on your computer. The code to compare is on your computer's board, under Members."
+    static let ownWaitingLine = "Your computer is waiting to be let in. The code to compare is on your computer's board, under Members."
     // Shown as the board's: the shared-room UI is shown, and this computer has a code for the open project.
     static func ownSealLine(_ c: OwnCompare?, fedShown: Bool) -> String? {
         guard fedShown, let c, c.hasCode else { return nil }
