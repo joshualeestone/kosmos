@@ -855,12 +855,14 @@ enum Board {
     // The bytes of one file for an agent's conversation: PUT /api/agent/<name>/attachment with its type and name.
     static func uploadRequest(mac: URL, session: String, name: String, type: String) -> URLRequest? {
         guard isAgentSession(session) else { return nil }
-        return uploadRequest(mac: mac, path: "/api/agent/\(session)/attachment", name: name, type: type)
-    }
-    // kosmos#7093: shared with a project's room (BoardRoom's roomUploadRequest). `path` is always one of the two routes.
-    static func uploadRequest(mac: URL, path: String, name: String, type: String) -> URLRequest {
-        var r = URLRequest(url: URL(string: path, relativeTo: mac)!.absoluteURL)
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/attachment", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "PUT"
+        return uploadHeaders(r, name: name, type: type)
+    }
+    // kosmos#7093: the headers and wait, shared with a project's room (BoardRoom's roomUploadRequest). Each request names
+    // its own route in place, so the route check (server.ios-routes-6838) reads it.
+    static func uploadHeaders(_ request: URLRequest, name: String, type: String) -> URLRequest {
+        var r = request
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.setValue(type.isEmpty ? "application/octet-stream" : type, forHTTPHeaderField: "Content-Type")
         r.setValue(headerName(name), forHTTPHeaderField: "X-Attachment-Name")

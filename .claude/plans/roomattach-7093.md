@@ -11,8 +11,9 @@ limits and words are tested against the board's source; it is merged.
 - Reuse, not copy, of Angel's chat upload (#7071, PR #7073): BoardClient.attach takes a key and a request, so the
   room's files wait under Board.roomAttachKey(project) ("room:<id>", which no agent name can be) through the same
   limits, sentences, copying and forgetting. The chat's own entry point is unchanged and its suite (run.sh) is green.
-  Board.uploadRequest(mac:path:...) is the shared builder; the room's route lives in BoardRoom.swift because three
-  suites compile BoardClient without it.
+  Board.uploadHeaders is the shared part (headers and the five-minute wait); each request names its own route in
+  place, so the route check (server.ios-routes-6838) reads both. The room's request lives in BoardRoom.swift because
+  three suites compile BoardClient without it.
 - The +, chips and pickers in RoomView follow the chat's (ChatView) shape. They are written in RoomView rather than
   extracted from ChatView because Angel's #7089 is open in ChatView; extracting a shared view is a follow-up once it
   lands. The +'s VoiceOver label is the board's "Add a file to this conversation".
@@ -40,4 +41,7 @@ limits and words are tested against the board's source; it is merged.
      added. Room 230/230 (controls red: unsure-but-kept brings them back, in-air not counted); run 1197; Debug OK.
    - Round 3: 0 blockers, 0 warnings, 1 nit, fixed: a kept post waiting on a failed re-read no longer counts its
      files toward the ten (Pending.kept).
+   - Rebased onto origin/main after #7085 merged (PR #7098). The route check then flagged the shared builder (a URL
+     built away from its request); fixed by naming each route in place and sharing only the headers. Route check
+     5/5; room 230, run 1197, actions 99, settings 42, tasks 90, taskpage 108; Debug and Release builds SUCCEEDED.
 3. Validation, PR (after #7085 merges and this is rebased).

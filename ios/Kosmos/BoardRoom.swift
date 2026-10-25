@@ -696,7 +696,9 @@ extension Board {
     // The bytes of one file for a project's room (the board's ATTACH_ROOM): PUT /api/project/<id>/attachment.
     static func roomUploadRequest(mac: URL, project: String, name: String, type: String) -> URLRequest? {
         guard isProjectId(project) else { return nil }
-        return uploadRequest(mac: mac, path: "/api/project/\(project)/attachment", name: name, type: type)
+        var r = URLRequest(url: URL(string: "/api/project/\(project)/attachment", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "PUT"
+        return uploadHeaders(r, name: name, type: type)
     }
 
     static func roomPostRequest(mac: URL, project: String, text: String, replyTo: String? = nil, attachments: [String] = []) -> URLRequest? {

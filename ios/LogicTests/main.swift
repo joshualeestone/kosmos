@@ -2151,7 +2151,9 @@ section("native board loop: connecting")
         let file = folder.appendingPathComponent("cover.jpg")
         try? Data("jpeg bytes".utf8).write(to: file)
         await c.attach(.file(file), epoch: c.chatEpoch, key: key, sample: false) { mac, name, type in
-            Board.uploadRequest(mac: mac, path: "/api/project/springcatalogue/attachment", name: name, type: type)
+            var r = URLRequest(url: URL(string: "/api/project/springcatalogue/attachment", relativeTo: mac)!.absoluteURL)
+            r.httpMethod = "PUT"
+            return Board.uploadHeaders(r, name: name, type: type)
         }
         check(w.uploads.last?.path == "/api/project/springcatalogue/attachment" && c.attached[key]?.map(\.name) == ["cover.jpg"]
               && (c.attached["dana"] ?? []).isEmpty, "a room's pick goes to the project's route and waits under the room's key, not an agent's")
