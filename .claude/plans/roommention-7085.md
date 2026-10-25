@@ -35,4 +35,7 @@ tested against the board's own source; it is merged.
      now red); the list limited by height and scrolling, not by row count (W2); VoiceOver hears it open and returns
      to the box after a pick (W3); the key in the VoiceOver label, the board's shadow, a no-key test. Room 176/176;
      Debug and KOSMOS_STORE_SHOTS Release SUCCEEDED.
+   - Round 2: 0 blockers, 2 warnings, 1 nit. Fixed: the cap is a measured height (the rows' own height up to half
+     the thread), not a maximum under fixedSize, which is never offered more than the content (W1); the open
+     announcement queues through Self.say (W2); the é@ro test checks what is typed (N1).
 3. Validation, PR.

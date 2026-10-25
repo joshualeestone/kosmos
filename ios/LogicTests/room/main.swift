@@ -443,7 +443,7 @@ check(Board.mentionToken("ask (@mona.lisa_2-b")?.typed == "mona.lisa_2-b", "the 
 check(Board.mentionToken("mail admin@mara") == nil, "an @ inside a word never opens it (admin@mara)")
 check(Board.mentionToken("@roo thanks") == nil, "a space closes the token")
 check(Board.mentionToken("hello") == nil && Board.mentionToken("") == nil, "no @: no list")
-check(Board.mentionToken("é@ro") != nil, "a letter outside the engine's set is a boundary, as in the matcher")
+check(Board.mentionToken("é@ro")?.typed == "ro", "a letter outside the engine's set is a boundary, as in the matcher")
 // Who is offered: the project's members in the room's order, by the start of the key or the shown name, without case.
 let crew = [Board.ProjectMember(session: "roo", name: "Roo", hasAvatar: false, provider: nil),
             Board.ProjectMember(session: "monalisa", name: "Mona Lisa", hasAvatar: false, provider: nil),
