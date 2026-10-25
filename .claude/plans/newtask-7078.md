@@ -138,3 +138,10 @@ path stays the app's own (isProjectId before the path; host is held.url).
 - Proven: the Release compile of 88405fbf8c (the #if DEBUG fix) succeeded, XCB_RC=0.
 - LEFT (nits): members without their role; Who is pruned only against the projects read made when the sheet opens;
   + sits leading (Mona Lisa reviewed the shot with it there).
+- Iteration 10 (sonnet): after "could not tell" the sheet makes its own Tasks read (Board.readyTasksRequest through
+  throughMac) and judges only what that read returns: the tab's shared list can be left unchanged by a refresh that
+  was cancelled or overtaken, and an old list released the hold. BoardClient's tasksAt is private (Angel's file), so
+  not used. Cancel and swipe-to-close stay off while that read is in the air, and a late "made" clears the draft only
+  if it is still the one that was sent.
+- LEFT (nits): the hold is also released by a programmatic rewrite of the words (the cap); `before` comes from the
+  last read that came back, so a same-words task an agent made in between could be taken as this one.

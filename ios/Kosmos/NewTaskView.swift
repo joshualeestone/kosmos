@@ -23,6 +23,7 @@ struct NewTaskView: View {
     // After "could not tell", Create waits until a Tasks read has come back (the sheet checks it for the task) or the
     // words change: a second tap straight away is how a duplicate gets made.
     @State private var unsureHold = false
+    @State private var checking = false   // the read after "could not tell" is in the air
 
     var body: some View {
         NavigationView {
@@ -30,7 +31,7 @@ struct NewTaskView: View {
                 .navigationTitle("New task")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending) }
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending || checking) }
                     ToolbarItem(placement: .confirmationAction) {
                         if sending {
                             ProgressView().accessibilityLabel("Creating the task")
@@ -44,7 +45,7 @@ struct NewTaskView: View {
                 }
         }
         .navigationViewStyle(.stack)
-        .interactiveDismissDisabled(sending)   // a create in the air is not walked away from
+        .interactiveDismissDisabled(sending || checking)   // a create, or its follow-up read, is not walked away from
         .task { lastTasks = tasks; await readProjects() }
         // A pick no longer offered (the Tasks list re-read under the sheet) falls back, never sent unseen.
         .onChange(of: tasks) { new in
@@ -166,7 +167,7 @@ struct NewTaskView: View {
         let name = list?.projects.first { $0.id == sent.project }?.name ?? "the project"
         let line = NewTask.addedLine(number: number, projectName: name)
         unsureHold = false
-        draft = NewTask.Draft()
+        if draft == sent { draft = NewTask.Draft() }   // words typed since are someone's next task, not this one's
         added(line)
         dismiss()
         // After the sheet has gone: an announcement posted as it closes is lost under the screen change.
@@ -268,8 +269,14 @@ struct NewTaskView: View {
             unsureHold = true
             message = NewTask.unsureWords
             UIAccessibility.post(notification: .announcement, argument: NewTask.unsureWords)
-            await client.refreshTasks()
-            guard epoch == client.chatEpoch, let read = client.tasksList else { return }   // no read: the hold stays
+            // The sheet's own read, judged on what it returns: the Tasks tab's list can be left as it was by a refresh
+            // that was cancelled or overtaken, and an old list would release the hold unseen. Then the tab is read too.
+            checking = true
+            let fresh = await client.throughMac { Board.readyTasksRequest(mac: $0) }
+            checking = false
+            Task { await client.refreshTasks() }
+            guard epoch == client.chatEpoch, let fresh, (200...299).contains(fresh.1.statusCode),
+                  let read = Board.parseTasks(fresh.0) else { return }   // no read came back: the hold stays
             if let number = NewTask.found(sent, in: read, before: before) {
                 message = nil
                 made(number: number, sent: sent)
