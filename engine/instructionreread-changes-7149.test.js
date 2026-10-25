@@ -78,7 +78,9 @@ test('lineFor names the changes file when there is one, and is unchanged without
   assert.equal(ir.lineFor(['community'], { changesAt: null }), plain);
   const named = ir.lineFor(['community'], { changesAt: '/w/ada/.kosmos-instructions-changed.md' });
   assert.match(named, /The lines that changed since you last read it are listed in \/w\/ada\/\.kosmos-instructions-changed\.md \(read that first/);
-  assert.equal(named.replace(/The lines that changed since you last read it are listed in \S+ \(read that first, and the rest of the section only if you need it\)\. /, ''), plain);
+  assert.equal(named.replace(/The lines that changed since you last read it are listed in \S+ \(read that first, and the rest of those sections only if you need it\)\. /, ''), plain);
+  // Review 5: the clause comes after the replaces sentence, so its it is the instructions file.
+  assert.ok(named.indexOf('What it says now replaces') < named.indexOf('The lines that changed'));
   assert.ok(!/"/.test(named.replace(/"The Kosmos\+ community"/, '')), 'a double quote was added (the #5304 test reads quoted text as headings)');
 });
 
@@ -302,4 +304,31 @@ test('review 4: a start whose copy cannot be renewed drops the old copy, so the 
   assert.equal(ir.readSeen('ivy'), BEFORE);
   assert.equal(ir.rememberRead('ivy'), false);   // no brief for ivy: unreadable
   assert.equal(ir.readSeen('ivy'), null, 'an older copy survived a start it could not record');
+});
+
+test('review 5: a cut rewrite keeps old and new lines in pairs; an emptied file invents no blank line', () => {
+  const many = Array.from({ length: 400 }, (_, k) => 'line ' + k).join('\n');
+  const d = ir.changedLines(many, many.replace(/line (\d+)/g, 'row $1'));
+  assert.match(d, /- line 0\n\+ row 0\n- line 1\n\+ row 1/);
+  assert.ok(/\n\+ row/.test(d), 'a cut kept no new line');
+  assert.equal(ir.changedLines('a\n', ''), '\nAt the top of the file:\n- a');
+  assert.equal(ir.changedLines('', 'a\n'), '\nAt the top of the file:\n+ a');
+});
+
+test('review 5: a line whose prepareChanges names no file drops the old one; restarted and expired endings drop it too', async () => {
+  const d1 = [];
+  const p = passArgs({ owed: { ida: debt() }, o: { prepareChanges: () => ({ text: AFTER, path: null }), dropChanges: (s) => d1.push(s) } });
+  await ir.passOnce(p.o);
+  assert.equal(p.sent.length, 1);
+  assert.deepEqual(d1, ['ida']);
+  const d2 = [];
+  const r = passArgs({ owed: { ida: debt() }, o: { history: () => [{ state: 'started', at: T + 5 }], dropChanges: (s) => d2.push(s) } });
+  const out = await ir.passOnce(r.o);
+  assert.deepEqual(out.map((x) => x.act), ['restarted']);
+  assert.deepEqual(d2, ['ida']);
+  const d3 = [];
+  const e = passArgs({ owed: { ida: { at: T - ir.GIVE_UP_MS - 10, last: T - ir.GIVE_UP_MS - 10, n: 1, sections: ['community'] } }, o: { dropChanges: (s) => d3.push(s) } });
+  const out3 = await ir.passOnce(e.o);
+  assert.deepEqual(out3.map((x) => x.act), ['expired']);
+  assert.deepEqual(d3, ['ida']);
 });
