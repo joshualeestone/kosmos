@@ -59,4 +59,6 @@ the board's route with its two sentences; tested against a captured projects ans
      Show, so the band can always be made small; only the row that failed reads "Try again"; the failure line wraps;
      the built fallback key tested through needsNotice (Character cuts and a wrong cap now red). Room 265/265;
      Debug SUCCEEDED.
+   - Round 6: 0 blockers, 0 warnings, 1 nit, fixed: the focus target after a dismiss uses the view's own fold rule.
+     The pin on the board's fallback key accepts its line before and after #7108. Converged.
 3. Validation, PR.

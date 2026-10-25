@@ -496,7 +496,7 @@ struct RoomView: View {
             guard said == Board.needsDismissed, stillHere else { return }
             let left = store.needsNotice(project.id)?.rows.map(\.session) ?? []
             // A row behind Hide is not drawn, so it cannot take focus: the box then.
-            let shown = left.count == 1 || needsOpen
+            let shown = store.needsNotice(project.id).map { !needsFolded($0) || needsOpen } ?? false   // the view's own rule (review 6)
             if shown, let next = keys.drop(while: { $0 != row.session }).dropFirst().first(where: { left.contains($0) }) ?? left.last {
                 needsFocus = next
             } else {

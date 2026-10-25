@@ -809,7 +809,9 @@ check(Board.needsDismissSaid(status: 400) == Board.needsDismissFailed && Board.n
 let emojiQuestion = String(repeating: "😀", count: 200)
 check(Board.utf16Prefix(emojiQuestion, 300).utf16.count == 300 && Board.utf16Prefix(emojiQuestion, 301).utf16.count == 300,
       "a key cut by UTF-16 units, an emoji never split in half")
-check(boardPage.contains("'question:' + String(m.because || '').slice(0, 300)"), "the board builds the fallback key so")
+// Before #7108 the board sliced 300 units; with it, keyWords also drops a trailing half of an emoji, as utf16Prefix does.
+check(boardPage.contains("'question:' + String(m.because || '').slice(0, 300)") || boardPage.contains("'question:' + keyWords(m.because)"),
+      "the board builds the fallback key from the first 300 units of the question")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
