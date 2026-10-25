@@ -470,6 +470,56 @@ for phrase in [#"const MENTION_TOKEN = /(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]*)$/;
     check(boardPage.contains(phrase), "the board's @ picker still says: \(phrase.prefix(60))")
 }
 
+section("files on a room post from the phone (kosmos#7093)")
+// The upload: the board's ATTACH_ROOM route, the chat's headers and its five-minute wait.
+let roomUp = Board.roomUploadRequest(mac: mac, project: "springcatalogue", name: "price list (v2).pdf", type: "application/pdf")
+check(roomUp?.httpMethod == "PUT" && roomUp?.url?.path == "/api/project/springcatalogue/attachment",
+      "a room's file goes up with PUT /api/project/<id>/attachment")
+check(roomUp?.value(forHTTPHeaderField: "X-Attachment-Name") == "price%20list%20(v2).pdf"
+      && roomUp?.value(forHTTPHeaderField: "Content-Type") == "application/pdf" && roomUp?.timeoutInterval == Board.uploadTimeout,
+      "the chat's headers: the name as encodeURIComponent, the type, the Mac's five minutes")
+check(Board.roomUploadRequest(mac: mac, project: "../x", name: "a", type: "") == nil, "an id that is not a project's uploads nothing")
+let agentUp = Board.uploadRequest(mac: mac, session: "dana", name: "a.pdf", type: "")
+check(agentUp?.url?.path == "/api/agent/dana/attachment" && agentUp?.value(forHTTPHeaderField: "Content-Type") == "application/octet-stream",
+      "the chat's own upload is unchanged")
+// Where the files wait: a key no agent's name can be.
+check(Board.roomAttachKey("springcatalogue") == "room:springcatalogue" && !Board.isAgentSession(Board.roomAttachKey("springcatalogue")),
+      "a room's waiting files never share an agent's key")
+// The post carries the ids, as the board's pjPostSend does.
+let fileA = Board.Attached(id: "0123456789abcdef01234567", name: "price list.pdf")
+let fileB = Board.Attached(id: "89abcdef0123456789abcdef", name: "cover.jpg")
+let withFiles = Board.roomPostRequest(mac: mac, project: "springcatalogue", text: "Here they are", attachments: [fileA.id, fileB.id])
+let sentBody = withFiles?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+check(sentBody?["attachments"] as? [String] == [fileA.id, fileB.id] && sentBody?["text"] as? String == "Here they are",
+      "a post with files sends their ids in `attachments`")
+let plainBody = Board.roomPostRequest(mac: mac, project: "springcatalogue", text: "hi")?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+check(plainBody != nil && plainBody?["attachments"] == nil, "a post without files sends no `attachments`")
+check(Board.roomPostRequest(mac: mac, project: "springcatalogue", text: "x", attachments: ["../etc"]) == nil
+      && Board.roomPostRequest(mac: mac, project: "springcatalogue", text: "x", attachments: Array(repeating: fileA.id, count: 11)) == nil,
+      "an id that is not a file's, or more than ten, sends nothing")
+// Files alone post their names (the board's attach-only fill); words stay as typed.
+check(Board.roomPostWords("", files: [fileA, fileB], replyMention: nil) == "price list.pdf, cover.jpg", "files alone: their names")
+check(Board.roomPostWords("@dana ", files: [fileA], replyMention: "@dana ") == "@dana price list.pdf", "after a Reply's @name alone: the @name, then the names")
+check(Board.roomPostWords("Look at this", files: [fileA], replyMention: nil) == "Look at this", "words typed: the words, as typed")
+check(Board.roomPostWords("", files: [], replyMention: nil) == "", "nothing typed and no files: nothing")
+// What happens to a post's files after its answer (review 2): kept, they went; refused, back; not confirmed, back unless
+// a read already showed it kept.
+check(Board.roomFilesAfter(.posted(note: nil), settledByRead: false) == .stayOff, "kept: the files went with it")
+check(Board.roomFilesAfter(.refused("no"), settledByRead: false) == .comeBack && Board.roomFilesAfter(.refused("no"), settledByRead: true) == .comeBack,
+      "refused: the files come back, even if a read matched someone else's same-words post")
+check(Board.roomFilesAfter(.unsure, settledByRead: false) == .comeBack, "not confirmed, nothing showing it: the files come back")
+check(Board.roomFilesAfter(.unsure, settledByRead: true) == .stayOff, "not confirmed but a read showed it kept: they went")
+// The ten count the files of posts still in the air, so a refused post can never leave more than ten.
+check(Board.roomFilesCounted(waiting: 6, uploading: 1, inAir: [[fileA, fileB], [fileA]]) == 10, "waiting, on their way and in the air all count")
+check(Board.uploadRefusal(size: nil, waiting: Board.roomFilesCounted(waiting: 7, uploading: 0, inAir: [[fileA, fileB, fileA]])) != nil,
+      "seven waiting and three in the air: no more can be added")
+for phrase in ["url: () => '/api/project/' + encodeURIComponent(PJ_CURRENT) + '/attachment',",
+               "input.value = (onlyMention ? replyMention : '') + attachList(ATTACH_ROOM).map((r) => r.name).join(', ');",
+               "pendingIds.length ? { attachments: pendingIds } : {},",
+               "aria-label=\"Add a file to this conversation\""] {
+    check(boardPage.contains(phrase), "the board's room attach still says: \(phrase.prefix(60))")
+}
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")

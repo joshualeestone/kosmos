@@ -419,6 +419,7 @@ final class BoardClient: ObservableObject {
 
     // Files on the Mac waiting to go with the next message, by agent; files still on their way; and the line under the
     // composer about the last one that could not be added. Dropped with the chats (another account or Mac).
+    // kosmos#7093: a project's room keeps its own under Board.roomAttachKey(project), which no agent's name can be.
     @Published private(set) var attached: [String: [Board.Attached]] = [:]
     @Published private(set) var uploading: [String: Int] = [:]
     @Published var attachLine: [String: String] = [:]
@@ -434,7 +435,21 @@ final class BoardClient: ObservableObject {
     // photo can take seconds to load). `epoch` is the chats' forgetting count when it was picked: a pick made under
     // another account or Mac is never sent under this one. The client's copy is removed once sent or refused.
     func attach(_ pick: Pick, epoch: Int, to agent: Board.Agent) async {
-        let session = agent.session
+        await attach(pick, epoch: epoch, key: agent.session, sample: Self.isSampleThread(agent.session, self)) { mac, name, type in
+            Board.uploadRequest(mac: mac, session: agent.session, name: name, type: type)
+        }
+    }
+    private static func isSampleThread(_ session: String, _ client: BoardClient) -> Bool {
+        #if DEBUG
+        return client.sampleThreads[session] != nil
+        #else
+        return false
+        #endif
+    }
+    // Shared with a project's room (kosmos#7093, RoomStore.attach): `key` is where the files wait (an agent's name, or
+    // Board.roomAttachKey), `request` the upload for the Mac's address, the file's name and type.
+    func attach(_ pick: Pick, epoch: Int, key session: String, sample: Bool,
+                request: (URL, String, String) -> URLRequest?) async {
         guard epoch == chatEpoch else { return }
         if let refusal = Board.uploadRefusal(size: nil, waiting: (attached[session]?.count ?? 0) + uploading[session, default: 0]) {
             attachLine[session] = refusal
@@ -461,15 +476,10 @@ final class BoardClient: ObservableObject {
         case .refused(let why):
             result = .refused(why)
         case .ready(let file, let name, let type, let size):
-            #if DEBUG
-            let sample = sampleThreads[session] != nil
-            #else
-            let sample = false
-            #endif
             if sample {
                 // The sample chats (a Debug build only): added at once, so a screenshot never shows a real Mac's file.
                 result = .added(Board.Attached(id: String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(24)), name: name))
-            } else if let held = admitted, let request = Board.uploadRequest(mac: held.url, session: session, name: name, type: type) {
+            } else if let held = admitted, let request = request(held.url, name, type) {
                 let answer = await env.upload(request, file)
                 result = Board.uploadResult(status: answer?.1.statusCode ?? 0, body: answer?.0, name: name, size: size)
             } else {
@@ -498,6 +508,13 @@ final class BoardClient: ObservableObject {
     // board's x.
     func unattach(_ id: String, for session: String) {
         attached[session]?.removeAll { $0.id == id }
+    }
+    // kosmos#7093: files a room post took off the box at the press, back in front of any added since, when it did not
+    // go (or may not have). The Mac still holds them, so nothing is uploaded again.
+    func reattach(_ files: [Board.Attached], for key: String) {
+        let have = Set((attached[key] ?? []).map(\.id))
+        let back = files.filter { !have.contains($0.id) }
+        if !back.isEmpty { attached[key] = back + (attached[key] ?? []) }
     }
 
     // Again, for one that was not taken, only while the agent is running (the spec: no retry until the status changes).

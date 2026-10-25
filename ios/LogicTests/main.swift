@@ -2138,6 +2138,34 @@ section("native board loop: connecting")
     }
 
     section("native chat: the client's sends and reads, against a fake Mac (kosmos#7008)")
+    // kosmos#7093: a project room's files go through the same attach, under the room's own key and its own request
+    // (this suite compiles without BoardRoom.swift, so the room's route and key are written out here), and a post that
+    // did not go puts its files back in front of any added since, never twice.
+    do {
+        let (c, w, _, _) = make("kst-room")
+        c.start()
+        _ = await settle { isLive(c) }
+        let key = "room:springcatalogue"
+        let folder = testFiles.appendingPathComponent("picked-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("cover.jpg")
+        try? Data("jpeg bytes".utf8).write(to: file)
+        await c.attach(.file(file), epoch: c.chatEpoch, key: key, sample: false) { mac, name, type in
+            var r = URLRequest(url: URL(string: "/api/project/springcatalogue/attachment", relativeTo: mac)!.absoluteURL)
+            r.httpMethod = "PUT"
+            return Board.uploadHeaders(r, name: name, type: type)
+        }
+        check(w.uploads.last?.path == "/api/project/springcatalogue/attachment" && c.attached[key]?.map(\.name) == ["cover.jpg"]
+              && (c.attached["dana"] ?? []).isEmpty, "a room's pick goes to the project's route and waits under the room's key, not an agent's")
+        let sent = c.attached[key] ?? []
+        for f in sent { c.unattach(f.id, for: key) }
+        let later = Board.Attached(id: "0000000000000000000000ff", name: "later.pdf")
+        c.reattach([later], for: key)
+        c.reattach(sent, for: key)
+        c.reattach(sent, for: key)
+        check(c.attached[key]?.map(\.name) == ["cover.jpg", "later.pdf"], "files put back go in front of those added since, and never twice")
+    }
+
     do {
         let (c, w, _, _) = make("kst1")
         c.start()

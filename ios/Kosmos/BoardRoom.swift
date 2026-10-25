@@ -690,17 +690,55 @@ extension Board {
         return nil
     }
 
-    static func roomPostRequest(mac: URL, project: String, text: String, replyTo: String? = nil) -> URLRequest? {
+    // kosmos#7093: where a room's waiting files are kept in BoardClient.attached: a key no agent's name can be (a session
+    // name has no colon), so a room and an agent never share one.
+    static func roomAttachKey(_ project: String) -> String { "room:" + project }
+    // The bytes of one file for a project's room (the board's ATTACH_ROOM): PUT /api/project/<id>/attachment.
+    static func roomUploadRequest(mac: URL, project: String, name: String, type: String) -> URLRequest? {
+        guard isProjectId(project) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/project/\(project)/attachment", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "PUT"
+        return uploadHeaders(r, name: name, type: type)
+    }
+
+    static func roomPostRequest(mac: URL, project: String, text: String, replyTo: String? = nil, attachments: [String] = []) -> URLRequest? {
         let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isProjectId(project), !said.isEmpty, said.count <= roomPostMax else { return nil }
+        guard isProjectId(project), !said.isEmpty, said.count <= roomPostMax, attachments.count <= maxFiles,
+              attachments.allSatisfy(isAttachmentId) else { return nil }
         var r = URLRequest(url: URL(string: "/api/project/\(project)/room", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["text": said]
         if let replyTo, !replyTo.isEmpty { body["reply_to"] = replyTo }
+        if !attachments.isEmpty { body["attachments"] = attachments }
         r.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return r
+    }
+    // kosmos#7093 review 2: after the answer to a post that carried files (they left the chips at the press). Kept, or
+    // not confirmed but already shown kept by a read while it was in the air: they went. Refused, or not confirmed
+    // with nothing showing it: they come back to the chips with the words.
+    enum RoomFilesAfter: Equatable { case stayOff, comeBack }
+    static func roomFilesAfter(_ result: RoomPostResult, settledByRead: Bool) -> RoomFilesAfter {
+        switch result {
+        case .posted: return .stayOff
+        case .unsure: return settledByRead ? .stayOff : .comeBack
+        case .refused: return .comeBack
+        }
+    }
+    // What counts toward the ten a post carries: waiting, on their way, and the files of this room's posts still in the
+    // air, which come back if refused (review 2: without them, a refused post could leave thirteen).
+    static func roomFilesCounted(waiting: Int, uploading: Int, inAir: [[Attached]]) -> Int {
+        waiting + uploading + inAir.reduce(0) { $0 + $1.count }
+    }
+
+    // A post of files alone carries their names as its words (the board's pjPostSend: "Say something first." is only
+    // for a box with neither), after the @name a Reply put there when that is all the box holds.
+    static func roomPostWords(_ draft: String, files: [Attached], replyMention: String?) -> String {
+        let said = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let onlyMention = isOnlyMention(draft, mention: replyMention)
+        guard !files.isEmpty, said.isEmpty || onlyMention else { return draft }
+        return (onlyMention ? (replyMention ?? "") : "") + files.map(\.name).joined(separator: ", ")
     }
 
     enum RoomPostResult: Equatable {

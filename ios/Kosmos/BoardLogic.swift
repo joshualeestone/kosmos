@@ -857,6 +857,12 @@ enum Board {
         guard isAgentSession(session) else { return nil }
         var r = URLRequest(url: URL(string: "/api/agent/\(session)/attachment", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "PUT"
+        return uploadHeaders(r, name: name, type: type)
+    }
+    // kosmos#7093: the headers and wait, shared with a project's room (BoardRoom's roomUploadRequest). Each request names
+    // its own route in place, so the route check (server.ios-routes-6838) reads it.
+    static func uploadHeaders(_ request: URLRequest, name: String, type: String) -> URLRequest {
+        var r = request
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.setValue(type.isEmpty ? "application/octet-stream" : type, forHTTPHeaderField: "Content-Type")
         r.setValue(headerName(name), forHTTPHeaderField: "X-Attachment-Name")
