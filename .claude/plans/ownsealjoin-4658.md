@@ -22,9 +22,11 @@ sealed message)". #7028 and the relay PR have landed (coordinator live 10-24 11:
    takes v 1 only), so it never joins by it: it treats the text as an invite code, and the coordinator refuses it
    (review 1: that path sends the code text, with the project and computer names, to the coordinator; NOT CLAIMED
    otherwise, and no test can run the old parser).
-1b. **Only a computer that holds the room key makes a version 2 code** (review 1): an owner whose invited people have
-   not joined yet has no key (the first guest's hello makes it), so a computer let in could never be let in. It is
-   refused with 'sealed-waiting'; a computer joined by own code that was not let in yet, with 'sealed-not-in'.
+1b. **Only a computer that holds the room key makes a version 2 code** (review 1): an owner with no key yet (the first
+   guest's hello makes it) could never let the joiner in, so it is refused with 'sealed-waiting'. A computer joined by
+   own code that was not let in yet is refused with 'sealed-not-in'. The joiner is always let in by the OWNER (review
+   3): a self computer holding the key is a sign the owner had one, not the guarantee.
+1c. **A sealed snapshot is never replaced by an unsealed one** for the same room between verify and join (review 3).
 2. **Joining by a v 2 code records the room as sealed at the join**: the same keyless record noteOwnSealed writes
    ({ role: 'member', ownComputer: true, keys: {} }), written before the seat starts. From the first post, sendPost
    holds (the owner has not shared its key yet), and the existing key-own-hello / offer / reveal / Allow exchange

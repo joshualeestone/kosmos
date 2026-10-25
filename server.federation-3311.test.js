@@ -404,6 +404,10 @@ test('#4658: a sealed (version 2) own code joins holding the room as sealed from
   const sealedCode = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 2, ref: 'ref-own-s1', name: 'Sealed Plans', from: 'study', sealed: true })).toString('base64url');
   const v = await post('/api/federation/verify', { code: sealedCode }, SCREEN);
   assert.equal(v.status, 200, JSON.stringify(v.json));
+  // A second verify of an unsealed (version 1) code for the same room, before the Join, does not unseal it.
+  const v1 = await post('/api/federation/verify', { code: ownCodeOf('ref-own-s1', 'Sealed Plans') }, SCREEN);
+  assert.equal(v1.status, 200, JSON.stringify(v1.json));
+  assert.equal(v1.json.edge_id, v.json.edge_id, 'the same room: one snapshot');
   const j = await post('/api/federation/join', { edge_id: v.json.edge_id, agents: [], sealed: false }, SCREEN);
   assert.equal(j.status, 200, JSON.stringify(j.json));
   assert.equal(federation.linkFor(j.json.id).role, 'self');
@@ -421,7 +425,7 @@ test('#4658: a sealed (version 2) own code joins holding the room as sealed from
   fedseal.stashInvite('ref-own-s2', { s: 'C'.repeat(43), code: 'CODE7', invite: 'inv-7' });
   const waiting = await post('/api/federation/own-code', { project: pid }, SCREEN);
   assert.deepEqual([waiting.status, waiting.json.reason], [409, 'sealed-waiting'], 'no guest has joined: no key to give yet');
-  assert.match(waiting.json.error, /none of them has joined yet/);
+  assert.match(waiting.json.error, /none of them has connected to this computer yet/);
   fedseal.setRoomState(pid, { role: 'owner', peers: {}, epoch: 0, keys: { 0: fedseal.randomSecret() } });
   const oc = await post('/api/federation/own-code', { project: pid }, SCREEN);
   assert.equal(oc.status, 200, JSON.stringify(oc.json));
