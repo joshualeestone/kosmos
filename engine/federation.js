@@ -447,10 +447,6 @@ async function verify(remote, body) {
       return { status: 409, body: { reason: 'old-code', error: 'This code was made by an older Kosmos. Update Kosmos on the computer that has the project, then make a new code there.' } };
     }
     const key = OWN_KEY_PREFIX + own.ref;
-    // A sealed snapshot for this room is never replaced by an unsealed one (review 3): a second verify of an
-    // altered or older code for the same room would otherwise make the next Join post in the clear.
-    const prevOwn = verified.get(key);
-    const sealedOwnCode = own.sealed === true || !!(prevOwn && prevOwn.sealed === true);
     const mine = await ownAccountNames(remote);
     /* A check that could not be made says nothing about the code, so it leaves an earlier accepted
        check of the same room alone (another tab's join may be waiting on it; it expires by itself). */
@@ -460,6 +456,11 @@ async function verify(remote, body) {
       verified.delete(key);
       return { status: 409, body: { reason: 'other-account', error: 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.' } };
     }
+    // A sealed snapshot for this room, still unexpired, is never replaced by an unsealed one (reviews 3 and 4): a
+    // second verify of an altered or older code for the same room would otherwise make the next Join post in the
+    // clear. Read here, after the await, so a verify that finished meanwhile is seen.
+    const prevOwn = verified.get(key);
+    const sealedOwnCode = own.sealed === true || !!(prevOwn && prevOwn.sealed === true && Date.now() - prevOwn.at <= SNAPSHOT_TTL_MS);
     const snap = Object.assign({ edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' },
       sealedOwnCode ? { sealed: true } : {});
     verified.delete(key);
