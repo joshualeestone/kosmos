@@ -32,6 +32,8 @@ enum NotificationAction {
         // The cookie goes by hand on this one request; nothing here keeps a cookie jar.
         r.httpShouldHandleCookies = false
         r.setValue("\(Board.macCookieName)=\(cookie)", forHTTPHeaderField: "Cookie")
+        // kosmos#7075: the board's own, so Kosmos+ gives it the Mac's token (Board.forMac).
+        r.setValue("same-origin", forHTTPHeaderField: Board.fetchSiteHeader)
         // The read and the send each have a hard total limit (PushNotificationManager's sessions, 8 s and 14 s), together
         // inside the short time iOS gives a notification action; this idle limit sits just under each, so a slow send
         // that did go is not cut off early and reported as "may not have gone".

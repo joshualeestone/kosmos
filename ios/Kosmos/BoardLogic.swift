@@ -390,6 +390,21 @@ enum Board {
     // The same agent-name characters a notification tap accepts.
     static func isAgentSession(_ s: String) -> Bool { PushBridge.isAgentSession(s) }
 
+    // kosmos#7075: every request the app sends to a Mac says it is the board's own (Sec-Fetch-Site: same-origin), as a
+    // browser and the board in the app's web view do. Through Kosmos+, the tunnel adds the Mac's board token only to a
+    // request that says so (kosmos-relay proxy.rs board_token_allowed: none is refused, fail closed), and a real Mac
+    // refuses every /api/ request without its token; the Mac's isViaScreen reads it too, to tell the person's screen
+    // from a process. The tunnel withholds the token otherwise so another website cannot use a browser's tunnel cookie;
+    // the app's cookie jar is its own and no website can make it send a request. Agents are told apart by their own
+    // agent token, which the app never sends. Requests to Kosmos+ itself (the coordinator) are left as they are.
+    static let fetchSiteHeader = "Sec-Fetch-Site"
+    static func forMac(_ request: URLRequest, coordinator: URL) -> URLRequest {
+        guard let host = request.url?.host?.lowercased(), host != coordinator.host?.lowercased() else { return request }
+        var r = request
+        r.setValue("same-origin", forHTTPHeaderField: fetchSiteHeader)
+        return r
+    }
+
     // MARK: - One agent's conversation (kosmos#7008, slice 3a)
 
     // The conversation the board's own chat reads (GET /api/agent/<name>/thread).

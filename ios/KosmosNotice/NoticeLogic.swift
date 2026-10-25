@@ -120,6 +120,9 @@ enum PhoneNotice {
         // The cookie goes by hand on this one request; the extension keeps no cookie jar of its own.
         r.httpShouldHandleCookies = false
         r.setValue("\(cookieName)=\(cookie)", forHTTPHeaderField: "Cookie")
+        // kosmos#7075: the board's own, so Kosmos+ gives it the Mac's token (the app's Board.forMac; this extension
+        // does not compile BoardLogic, so it says it here).
+        r.setValue("same-origin", forHTTPHeaderField: "Sec-Fetch-Site")
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         return r
     }
