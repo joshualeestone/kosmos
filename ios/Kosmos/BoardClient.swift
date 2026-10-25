@@ -529,10 +529,19 @@ final class BoardClient: ObservableObject {
         resent.insert(key)
         // Its files go again with it (kosmos#7071): the Mac keeps them under this agent, so the same ids are good. A
         // send that post refuses leaves the row as it was, so it can be tapped again.
-        if !(await post(row.text, files: row.attachments.map { Board.Attached(id: $0.id, name: $0.name) }, to: agent)) { resent.remove(key) }
+        // A reply goes again as the same reply (kosmos#7083).
+        if !(await post(row.text, files: row.attachments.map { Board.Attached(id: $0.id, name: $0.name) }, replyTo: row.replyTo, to: agent)) { resent.remove(key) }
     }
 
     func wasSentAgain(_ row: Board.ChatRow, for session: String) -> Bool { resent.contains(session + "|" + row.id) }
+
+    // A failed reply sent again without its reply (kosmos#7083): the Mac refuses one whose original has gone, and says to
+    // send it as a new message.
+    func retryWithoutReply(_ id: String, to agent: Board.Agent) async {
+        guard let i = pending[agent.session]?.firstIndex(where: { $0.id == id }), pending[agent.session]?[i].failed == true else { return }
+        pending[agent.session]?[i].replyTo = nil
+        await retry(id, to: agent)
+    }
 
     // MARK: Reacting (kosmos#7083, the board's DM reactions #3650)
 

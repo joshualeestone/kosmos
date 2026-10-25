@@ -299,7 +299,9 @@ struct ChatView: View {
         ForEach(pending) { p in
             PendingBubble(item: p, widthShare: widthShare, line: Board.notSentLine(agentRunning: running, name: shown.name),
                           retry: { sendWhenFree { await client.retry(p.id, to: agent) } },
-                          delete: { client.discard(p.id, for: agent.session) })
+                          delete: { client.discard(p.id, for: agent.session) },
+                          head: headFor(replyTo: p.replyTo),
+                          dropReply: p.replyTo == nil ? nil : { sendWhenFree { await client.retryWithoutReply(p.id, to: agent) } })
                 .padding(.top, 10)
                 .id(p.id)
         }
@@ -334,11 +336,16 @@ struct ChatView: View {
                 // The person's own files too (kosmos#7071), on the right in their colour, with the not-sent line.
                 let mine = row.who == .person
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
+                    // kosmos#7083: what it answers, on a message with files too.
+                    if let head = headFor(replyTo: row.replyTo), !hiddenHeads.contains(row.id) { ReplyHeadLine(head: head) }
                     FilesBubble(text: Board.wordsShown(row.text, files: row.attachments), files: row.attachments,
                                 thumbnails: client.thumbnails, states: fileStates, widthShare: widthShare, open: openFile, mine: mine,
                                 faded: mine && row.canSendAgain && !client.wasSentAgain(row, for: agent.session),
                                 spoken: Board.filesRowSpoken(who: mine ? "You" : shown.name, at: row.at, text: Board.wordsShown(row.text, files: row.attachments),
                                                              count: row.attachments.count, notSent: row.notSent))
+                    if !row.reactions.isEmpty {
+                        ReactionPills(pills: row.reactions, toggle: row.who == .agent && row.atRaw != nil ? { e in reactTo(e, row) } : nil)
+                    }
                     if mine, row.canSendAgain, !client.wasSentAgain(row, for: agent.session) {
                         let line = Board.notSentLine(agentRunning: running, name: shown.name)
                         NotSentLine(text: line.text, canRetry: line.canRetry,
@@ -380,9 +387,9 @@ struct ChatView: View {
                            line: row.canSendAgain && !client.wasSentAgain(row, for: agent.session)
                                ? Board.notSentLine(agentRunning: running, name: shown.name) : nil,
                            sendAgain: { sendWhenFree { await client.sendAgain(row, to: agent) } },
-                           head: headFor(row), headHidden: headAdjacent(row),
+                           head: headFor(replyTo: row.replyTo), headHidden: hiddenHeads.contains(row.id),
                            react: row.who == .agent && row.atRaw != nil ? { e in reactTo(e, row) } : nil,
-                           reply: row.who == .agent && row.atRaw != nil ? { replying = row } : nil)
+                           reply: row.who == .agent && row.atRaw != nil ? { startReply(row) } : nil)
                     .padding(.top, first ? 10 : 2)
             }
         }
@@ -807,21 +814,23 @@ struct ChatView: View {
 
     // MARK: - Replying and reacting (kosmos#7083)
 
-    // dmReplyHead for a row of this conversation (the rows shown, earlier pages included).
-    private func headFor(_ row: Board.ChatRow) -> Board.ReplyHead? {
-        guard row.replyTo != nil, let thread else { return nil }
-        return Board.replyHead(row, in: Board.shownRows(earlier, thread: thread), agentName: shown.name, olderCount: thread.olderCount)
+    // dmReplyHead for a row of this conversation (the rows shown, earlier pages included; what is left further back is
+    // the earlier pages' count once they are open, else the latest read's).
+    private func headFor(replyTo: String?) -> Board.ReplyHead? {
+        guard replyTo != nil, let thread else { return nil }
+        return Board.replyHead(to: replyTo, in: Board.shownRows(earlier, thread: thread), agentName: shown.name, session: agent.session,
+                               olderLeft: earlier.open ? earlier.before : thread.olderCount)
     }
-
-    private func headAdjacent(_ row: Board.ChatRow) -> Bool {
-        guard row.replyTo != nil, let thread else { return false }
-        return Board.replyIsAdjacent(row, in: Board.shownRows(earlier, thread: thread))
+    // The rows whose header is left out on screen (dmReplyAdjacency).
+    private var hiddenHeads: Set<String> {
+        guard let thread else { return [] }
+        return Board.repliesUnderOriginal(Board.shownRows(earlier, thread: thread))
     }
 
     // The strip above the composer: who and what the next send answers, and an x.
     private func replyStrip(_ row: Board.ChatRow) -> some View {
         HStack(spacing: 8) {
-            Text("Replying to " + (row.who == .person ? "yourself" : shown.name) + ": " + Board.replyGist(row))
+            Text(replyingLine(row))
                 .font(.footnote).foregroundColor(Palette.secondary).lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button { replying = nil } label: {
@@ -833,6 +842,15 @@ struct ChatView: View {
         }
         .padding(.leading, 10)
         .overlay(Rectangle().fill(Palette.separator).frame(width: 2), alignment: .leading)
+    }
+
+    // "Replying to Dana: ...", said when Reply is chosen, as the board announces it.
+    private func replyingLine(_ row: Board.ChatRow) -> String {
+        "Replying to " + shown.name + ": " + Board.replyGist(row, agentName: shown.name, session: agent.session)
+    }
+    private func startReply(_ row: Board.ChatRow) {
+        replying = row
+        UIAccessibility.post(notification: .announcement, argument: replyingLine(row))
     }
 
     // Toggles a reaction; the answer's pills repaint that one row at once (the next read confirms), and a refusal is said
@@ -1063,6 +1081,9 @@ struct PendingBubble: View {
     let line: (text: String, canRetry: Bool)
     let retry: () -> Void
     let delete: () -> Void
+    // kosmos#7083: what it answers, drawn as the kept row will draw it, and "Send as a new message" for a reply.
+    var head: Board.ReplyHead? = nil
+    var dropReply: (() -> Void)? = nil
 
     private var reason: String? { if case .failed(let why) = item.state { return why } else { return nil } }
     // Kept by the Mac but not delivered: the words its row will say, quiet, with nothing to tap (the row takes over).
@@ -1076,6 +1097,7 @@ struct PendingBubble: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
+            if let head { ReplyHeadLine(head: head) }
             if !words.isEmpty {
                 BubbleText(text: words, mine: true, tail: item.files.isEmpty, widthShare: widthShare, faded: !item.shownAsSent)
                     .modifier(TapWhen(enabled: item.failed && line.canRetry, action: retry))
@@ -1090,6 +1112,13 @@ struct PendingBubble: View {
                 NotSentLine(text: line.text, canRetry: line.canRetry, action: retry)
                 // The Mac's own words for why, when it gave them.
                 if let reason { Text(reason).font(.caption).foregroundColor(Palette.secondary).multilineTextAlignment(.trailing) }
+                // kosmos#7083: a reply the Mac would not take (its original gone) can still go, as a new message (the
+                // board's x on the reply strip).
+                if let dropReply, line.canRetry {
+                    Button("Send as a new message", action: dropReply)
+                        .font(.caption.weight(.semibold)).foregroundColor(Palette.link)
+                        .frame(minHeight: 44).contentShape(Rectangle())
+                }
             } else if let undelivered {
                 Text(undelivered).font(.caption2).foregroundColor(Palette.secondary).padding(.horizontal, 4)
             } else if item.shownAsSent {

@@ -572,8 +572,8 @@ enum Board {
         if (200...299).contains(status), isTrue(obj?["ok"]), let at = obj?["at"] as? String {
             return .reacted(at: at, pills: parseReactions(obj?["reactions"]))
         }
-        if status != 0, let why = (obj?["because"] as? String) ?? (obj?["error"] as? String), !why.isEmpty { return .refused(why) }
-        return .refused("we could not react to that just now")
+        if status != 0, let why = (obj?["because"] as? String) ?? (obj?["error"] as? String), !why.isEmpty { return .refused(sentence(why)) }
+        return .refused("We could not react to that just now.")
     }
 
     // A react answer's pills put on the one row they belong to (by its `at`), so the chat repaints that row at once.
@@ -589,31 +589,80 @@ enum Board {
         Thread(rows: withReactions(thread.rows, at: at, pills: pills), olderCount: thread.olderCount, choices: thread.choices)
     }
 
-    // pjReplyGist: what a reply strip and header say of a message: its words (not ones that are only its file names),
+    // pjReplyWords: the first non-empty line, at most two marks on a letter, cut to 80 code points with an ellipsis.
+    static func replyWords(_ text: String) -> String {
+        let line = text.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
+        var scalars: [Unicode.Scalar] = []
+        var marks = 0
+        for u in line.unicodeScalars {
+            let isMark = [.nonspacingMark, .spacingMark, .enclosingMark].contains(u.properties.generalCategory)
+            marks = isMark ? marks + 1 : 0
+            if isMark && marks > 2 { continue }
+            scalars.append(u)
+        }
+        guard scalars.count > 80 else { return String(String.UnicodeScalarView(scalars)) }
+        let cut = String(String.UnicodeScalarView(scalars.prefix(80)))
+        return cut.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) + "\u{2026}"
+    }
+
+    // pjDropSelfName: an agent's own name at the start of its message ("Dana: ...", "**Dana**: ...", "Dana - ..."), which
+    // the strip and the header already say beside the gist. Exact case, longest name first; kept when nothing follows.
+    static func dropSelfName(_ words: String, names: [String]) -> String {
+        let sorted = names.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.sorted { $0.count > $1.count }
+        let sep = "(?:[ \\t]*:(?![/\\d])|[ \\t]+[\u{2013}\u{2014}-](?=[ \\t]))"
+        for name in sorted {
+            let q = NSRegularExpression.escapedPattern(for: name)
+            // The board's one pattern, in two (ICU does not match a backreference to a group that took no part).
+            let patterns = ["^[ \\t]*" + q + sep + "[ \\t]*", "^[ \\t]*(\\*\\*|__)" + q + "(?:" + sep + "[ \\t]*\\1|\\1" + sep + ")[ \\t]*"]
+            for pattern in patterns {
+                guard let re = try? NSRegularExpression(pattern: pattern),
+                      let m = re.firstMatch(in: words, range: NSRange(words.startIndex..., in: words)),
+                      let r = Range(m.range, in: words) else { continue }
+                let rest = String(words[r.upperBound...]).replacingOccurrences(of: "^(?:[ \\t]*\\r?\\n)+", with: "", options: .regularExpression)
+                if !rest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return rest }
+            }
+        }
+        return words
+    }
+
+    // pjReplyGist: what a reply strip and header say of a message: its first line (an agent's own leading name dropped),
     // else its first file's name, else "a message".
-    static func replyGist(_ row: ChatRow) -> String {
-        let words = wordsShown(row.text, files: row.attachments).split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    static func replyGist(_ row: ChatRow, agentName: String = "", session: String = "") -> String {
+        let raw = row.who == .agent ? dropSelfName(row.text, names: [agentName, session]) : row.text
+        let words = replyWords(raw)
         if !words.isEmpty { return words }
         return row.attachments.first.map(\.name) ?? "a message"
     }
 
-    // dmReplyHead's adjacency (#3745): a reply right under the message it answers already reads that way, so its header
-    // is left out on screen (VoiceOver still hears what it answers).
-    static func replyIsAdjacent(_ row: ChatRow, in rows: [ChatRow]) -> Bool {
-        guard let target = row.replyTo, let i = rows.firstIndex(where: { $0.id == row.id }), i > 0 else { return false }
-        return rows[i - 1].atRaw == target
+    // dmReplyAdjacency (#3745): a reply right under the message it answers, or right under another reply to the same
+    // message whose header was left out, already reads that way, so its header is left out on screen (VoiceOver still
+    // hears it). The ids of the rows whose header is left out.
+    static func repliesUnderOriginal(_ rows: [ChatRow]) -> Set<String> {
+        var hidden = Set<String>()
+        var prevHid = false
+        let ats = Set(rows.compactMap(\.atRaw))
+        for (i, row) in rows.enumerated() {
+            guard let target = row.replyTo, i > 0 else { prevHid = false; continue }
+            let prev = rows[i - 1]
+            let adjacent = prev.atRaw == target || (prev.replyTo == target && prevHid)
+            if adjacent { hidden.insert(row.id) }
+            // Left out only when the original is there to name.
+            prevHid = adjacent && ats.contains(target)
+        }
+        return hidden
     }
 
-    // dmReplyHead: what a message that answers another says about it.
+    // dmReplyHead: what a message that answers another says about it. `olderLeft` is how many older messages are not
+    // shown (the latest read's olderCount, or the earlier pages' remaining count once they are open).
     enum ReplyHead: Equatable { case answers(who: String, gist: String), furtherBack, unavailable }
-    static func replyHead(_ row: ChatRow, in rows: [ChatRow], agentName: String, olderCount: Int) -> ReplyHead? {
-        guard let target = row.replyTo else { return nil }
+    static func replyHead(to target: String?, in rows: [ChatRow], agentName: String, session: String = "", olderLeft: Int) -> ReplyHead? {
+        guard let target else { return nil }
         if let orig = rows.first(where: { $0.atRaw == target }) {
-            return .answers(who: orig.who == .person ? "You" : agentName, gist: replyGist(orig))
+            return .answers(who: orig.who == .person ? "You" : agentName, gist: replyGist(orig, agentName: agentName, session: session))
         }
-        // "Further back" only when older messages were left out and the original is older than the oldest one here.
+        // "Further back" only when older messages are left out and the original is older than the oldest one here.
         let oldest = rows.compactMap(\.atRaw).min()
-        if olderCount > 0, let oldest, target < oldest { return .furtherBack }
+        if olderLeft > 0, let oldest, target < oldest { return .furtherBack }
         return .unavailable
     }
 
