@@ -522,7 +522,7 @@ for phrase in ["url: () => '/api/project/' + encodeURIComponent(PJ_CURRENT) + '/
 
 section("a reply's header goes to its post (kosmos#7101)")
 // The board's words and timing, so the two cannot drift unseen.
-check(boardPage.contains("', the message this answers. Go to it'") && Board.replyJumpAction.hasSuffix("the message this answers"),
+check(boardPage.contains("', the message this answers. Go to it'") && Board.replyJumpAction == "Go to the message this answers",
       "VoiceOver's action names what the board's header label says it does")
 check(Board.replyJumpLabel(who: "Cleo", gist: "Which cover?") == "Cleo: Which cover?, the message this answers. Go to it",
       "the header reads the board's label: who, the gist, then what it does")
@@ -539,14 +539,24 @@ check(rows.contains { $0.kind == .post } && rows.filter { $0.kind != .kosmos }.a
 let gistFile = Board.Attachment(id: "0123456789abcdef01234567", name: "report.pdf", type: "", size: nil, kind: "other",
                                 url: "/api/attachment/0123456789abcdef01234567", preview: nil)
 let gistRow = Board.RoomRow(id: "m1", atRaw: nil, at: nil, kind: .post, from: "cleo", byPerson: false, text: "  Which cover?\nThe blue one")
-check(Board.replyGist(gistRow) == "Which cover?", "the gist is the first line")
+check(Board.replyGist(gistRow, shownName: "Cleo") == "Which cover?", "the gist is the first line")
+let selfNamed = Board.RoomRow(id: "m4", atRaw: nil, at: nil, kind: .post, from: "cleo", byPerson: false, text: "Cleo: which cover?")
+check(Board.replyGist(selfNamed, shownName: "Cleo") == "which cover?", "an agent's own leading name is dropped, since the header names it")
+let personNamed = Board.RoomRow(id: "m5", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "Cleo: which cover?")
+check(Board.replyGist(personNamed, shownName: "You") == "Cleo: which cover?", "never from the person's own post")
+let long = Board.RoomRow(id: "m6", atRaw: nil, at: nil, kind: .post, from: "cleo", byPerson: false, text: String(repeating: "a", count: 120) + "\r\nnext")
+check(Board.replyGist(long, shownName: "Cleo") == String(repeating: "a", count: 80) + "\u{2026}", "a long first line is cut to 80 with an ellipsis, a CRLF's \\r gone")
 var filesOnly = Board.RoomRow(id: "m2", atRaw: nil, at: nil, kind: .post, from: "cleo", byPerson: false, text: "")
 filesOnly.attachments = [gistFile]
-check(Board.replyGist(filesOnly) == "report.pdf", "a post of files alone: its first file's name")
+check(Board.replyGist(filesOnly, shownName: "Cleo") == "report.pdf", "a post of files alone: its first file's name")
+var unnamedFile = filesOnly
+unnamedFile.attachments = [Board.Attachment(id: "0123456789abcdef01234567", name: "", type: "", size: nil, kind: "other",
+                                            url: "/api/attachment/0123456789abcdef01234567", preview: nil)]
+check(Board.replyGist(unnamedFile, shownName: "Cleo") == "a file", "a file with no name: a file")
 let nothingRow = Board.RoomRow(id: "m3", atRaw: nil, at: nil, kind: .post, from: "cleo", byPerson: false, text: " ")
-check(Board.replyGist(nothingRow) == "a message", "nothing at all: a message")
+check(Board.replyGist(nothingRow, shownName: "Cleo") == "a message", "nothing at all: a message")
 check(boardPage.contains("return f ? (typeof f.name === 'string' && f.name ? f.name : 'a file') : 'a message';"), "the board's gist still falls back so")
-check(boardPage.contains("--gold-deep: #b88920"), "the flash is the board's --gold-deep")
+check(boardPage.contains("--gold-deep: #" + String(format: "%06x", Board.replyFlashHex) + ";"), "the flash is the board's --gold-deep")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 

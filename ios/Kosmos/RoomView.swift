@@ -789,7 +789,7 @@ struct RoomBubble: View {
     }
 
     // The board's --gold-deep, in both themes, as the board draws it.
-    static let flashGold = Palette.pair(0xb88920, 0xb88920)
+    static let flashGold = Palette.pair(Board.replyFlashHex, Board.replyFlashHex)
 
     @ViewBuilder private var avatar: some View {
         if row.kind == .external {
@@ -814,7 +814,7 @@ struct RoomBubble: View {
             if let replied {
                 // kosmos#7101: a button, as the board's .msg-replyto: a tap goes to the post it answers. A 44 pt place to
                 // tap, laid out as the header alone.
-                let gist = Board.replyGist(replied)
+                let gist = Board.replyGist(replied, shownName: nameOf(replied))
                 Button(action: jump) {
                     Text("\(nameOf(replied)): \(gist)")
                         .font(.footnote).foregroundColor(Palette.secondary).lineLimit(2)
