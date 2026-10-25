@@ -96,6 +96,18 @@ else
   bad "interruption: shard log tails not on stderr: $(head -c 300 "$T/l4b.err")"
 fi
 
+# 4f) a KILL to the runner runs no trap, so nothing in it can stop the shards: each shard's supervisor sees its runner
+# gone and stops its own group, the test it was running included (Mortals 2026-10-25: a validation stopped by group
+# left three shards running beside a release cut).
+mkdir -p "$T/l4f" "$T/kids4f"
+STUB_KIDS="$T/kids4f" /bin/bash "$T/runner.sh" "$HERE/lib/shell-parallel.sh" "$T/l4f" "$T/stubkid.sh" 2>/dev/null &
+sub=$!
+k=0; while [ "$(ls "$T/kids4f" | grep -c '^kid-')" -lt 2 ] && [ "$k" -lt 300 ]; do sleep 0.1; k=$((k + 1)); done
+kill -KILL "$sub" 2>/dev/null; wait "$sub" 2>/dev/null
+alive=0; for f in "$T/kids4f"/kid-*; do kp=$(cat "$f"); k=0; while kill -0 "$kp" 2>/dev/null && [ "$k" -lt 80 ]; do sleep 0.1; k=$((k + 1)); done; kill -0 "$kp" 2>/dev/null && { alive=$((alive + 1)); kill "$kp" 2>/dev/null; }; done
+if [ "$(ls "$T/kids4f" | grep -c '^kid-')" = 2 ] && [ "$alive" = 0 ]; then pass "a KILL to the runner still stops both shards' running tests within 8 s"
+else bad "runner KILLed: kids recorded $(ls "$T/kids4f" | grep -c '^kid-')(2), still alive 8 s later: $alive(0)"; fi
+
 # 4d) a test that ignores TERM (here a sleep under trap '' TERM) is KILLed after the stop's grace, not left running.
 cat > "$T/stubborn.sh" <<'STUBBORN'
 #!/bin/bash

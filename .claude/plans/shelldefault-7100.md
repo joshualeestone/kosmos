@@ -28,6 +28,15 @@ where every local run reads it.
   switch). 21 arms. (Review 1 replaced an exact-line tripwire on run-tests.sh with
   arm 9: the tripwire would red on an equivalent rewrite and stay green if the value were overwritten later.)
 
+- tools/lib/shell-parallel.sh: each shard now runs under a small perl supervisor (`_KOSMOS_SHARD_SUPERVISOR`) in
+  place of a plain `setpgrp; exec`. It leads the shard's group, forks the command beneath it, exits with its status,
+  and polls its own parent every 0.5 s. When the runner is gone (even by a KILL, which runs no trap), it TERMs its
+  group, waits up to 2 s, and KILLs it. Why: at 10:31 CDT on 2026-10-25 a validation of this branch on Mortals was
+  stopped by stop-mortals-validate.sh for the 0.7.67 cut. That script stops the run's leader group, TERM then KILL,
+  so shards 2 to 4, each in a group of its own, ran on beside the cut until stopped by hand. With the default at 4,
+  every tool that stops a run by its group would have hit this. Arm 4f: a KILL to the runner, and both shards'
+  running tests are gone within 8 s. The old launcher and a supervisor that never checks its parent each red 4f.
+
 ## Decided
 - In the repo, not in the shared validation library: that library serves every org repo, and this is a Kosmos-only
   setting.
@@ -64,6 +73,7 @@ where every local run reads it.
   (`KOSMOS_SHELL_SHARD=1/2 KOSMOS_SHELL_CUT_ENV=1 GITHUB_ACTIONS=true KOSMOS_SHELL_PLATFORM=linux`).
 - Mutants, each red on its own arm: always 4 (arms 8 and 9); ignoring GITHUB_ACTIONS (arm 8); the old `:-1`
   default in run-tests.sh (arm 9); empty taking the default (arm 9); release.sh without the export, the export
-  before the guard, the export inside a dead branch, and a later unset (arm 10).
+  before the guard, the export inside a dead branch, and a later unset (arm 10); the old plain launcher, and a
+  supervisor that never checks its parent (arm 4f).
 - test-cut-testpart-guard-5934, test-cut-shape-6977, test-sleep-control-guard-6710, test-mktemp-template-4298 and
   test-gnu-only-forms-6808 all pass.
