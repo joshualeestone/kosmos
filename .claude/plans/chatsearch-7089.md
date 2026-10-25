@@ -19,8 +19,7 @@ hand with run.sh <dir> and recorded on the card, not a standing test).
 ## Build (stacked on #7087's ChatView, so after it merges: rebase onto main first)
 1. BoardLogic: `static func chatFilter(_ rows: [ChatRow], agentName: String, query: String) -> [ChatRow]`
    and `static func chatNoMatch(_ query: String) -> String`, the board's rules exactly.
-2. ChatView: `.searchable(text:, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")`
-   on the chat (iOS 16 target); the filtered rows go into Board.chatItems; empty filtered list with a
+2. ChatView: a magnifier in the bar opens the search row (see Decided); the filtered rows go into Board.chatItems; empty filtered list with a
    non-empty query shows the sentence; loadEarlier() returns while searching; follow() does nothing
    while searching (no scroll, no capsule; clearing scrolls to the newest); query resets on agent change / disappear.
 3. LogicTests: the board's cases (agent name match, person row by text only, case and trim, empty
@@ -39,11 +38,12 @@ hand with run.sh <dir> and recorded on the card, not a standing test).
 - While searching every reply draws its header (dmReplyAdjacency: not while filtering), pending too.
 - Clearing the search scrolls to the newest message: the board resumes following then (convFollow
   when not filtering). Weakest premise: a reader who scrolled up before searching loses that place.
-- The field is SwiftUI .searchable in the navigation bar drawer, displayMode .always. First built
-  with .automatic (hidden until pulled down); the first screenshot showed a filtered thread with the
-  field out of sight, nothing saying why the chat was short. Rejected .automatic for that. Cost: one
-  row (about 44 pt) always taken; a design question for Mona Lisa (shots in
-  ~/work/design-shots/kosmos-7089/).
+- The field: Mona Lisa's design (#7089 comment 6394220427). A magnifier beside the (i) opens a field
+  under the bar with the keyboard up; it stays on screen while it holds words; its x or Cancel empties
+  it and puts it away, as does leaving it empty. VoiceOver label "Search this conversation" (the
+  board's). Built as a plain TextField row, not .searchable: on iOS 16 .searchable cannot be shown and
+  hidden from code (isPresented is iOS 17). History: first .searchable .automatic (a filtering search
+  could sit out of sight), then .always (about 50 pt on every visit); both rejected for this.
 - The query clears when the chat goes off screen, so coming back always shows everything.
 - Day lines are recomputed over the filtered rows (chatItems runs on what is shown), as the board
   repaints the filtered rows.
@@ -74,14 +74,13 @@ hand with run.sh <dir> and recorded on the card, not a standing test).
   or the top leaving, as on opening; a one-second fallback covers a chat too short to move either.
   Weakest premise: the fallback is a time, which the opening path deliberately avoids; it only
   releases what the markers did not, and loadEarlier still checks topVisible.
-- The search field's prompt is "Search" (the board's placeholder); its aria-label "Search this
-  conversation" is not carried: .searchable takes one prompt. Rejected a longer prompt that truncates.
-- The field also shows over the loading, refused and Mac-not-answering screens: .searchable is on the
-  chat's one view, and making it conditional would change that view's identity and reset its state.
-  Typing there does nothing until a conversation loads. Every host pushes ChatView inside a NavigationView
-  (AgentsView, RoomView, TasksView, TodayView), so the drawer renders in each.
+- The search field's prompt is "Search" (the board's placeholder); the field and the magnifier carry
+  the board's aria-label, "Search this conversation", for VoiceOver.
+- The magnifier is there on the loading, refused and Mac-not-answering screens too; typing there does
+  nothing until a conversation loads. Every host pushes ChatView inside a NavigationView (AgentsView,
+  RoomView, TasksView, TodayView), so the bar's buttons render in each.
 - The clear-search settle and its fallback are view behaviour LogicTests cannot drive; they join the
   device checks on #7089 (clear a search on a long chat with earlier pages loaded: it lands at the
   newest message and does not load a page; the same after leaving a chat mid-search and coming back;
-  whether the bar with the agent's name hides while the field is active; VoiceOver hears the no-match
+  the magnifier and (i) both fit at the largest text size (if not, Mona Lisa's fallback: Search in a menu); VoiceOver hears the no-match
   sentence).

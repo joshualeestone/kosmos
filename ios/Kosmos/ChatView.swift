@@ -72,6 +72,10 @@ struct ChatView: View {
     @State private var reacting: Set<String> = []
     // kosmos#7089: the search field's words. The thread shows only the loaded rows they match (Board.chatFilter).
     @State private var query = ""
+    // The field is on screen when the magnifier opened it or while it holds words (Mona Lisa's #7089 design): a search
+    // that is on is never out of sight, and an empty one takes no room.
+    @State private var searchOpen = false
+    @FocusState private var searchFocused: Bool
     // A message went while the search was on: the line under the composer says it shows only if it matches. Last in
     // line, so a refused press or file is never hidden behind it.
     @State private var sentWhileSearching = false
@@ -90,6 +94,7 @@ struct ChatView: View {
         let _ = tick
         VStack(spacing: 0) {
             if thread != nil, let note = bannerText { banner(note) }
+            if searchOpen || searching { searchBar }
             ZStack(alignment: .bottom) {
                 conversation
                 // Not over a search: new messages are not followed then (follow), so it would offer a jump in a filtered list.
@@ -117,6 +122,12 @@ struct ChatView: View {
         .toolbar {
             ToolbarItem(placement: .principal) { title }
             ToolbarItem(placement: .navigationBarTrailing) {
+                Button { searchOpen = true; DispatchQueue.main.async { searchFocused = true } } label: {
+                    Image(systemName: "magnifyingglass").font(.system(size: 20)).foregroundColor(Palette.secondary)
+                }
+                .accessibilityLabel("Search this conversation")
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: openOnBoard) {
                     Image(systemName: "info.circle").font(.system(size: 22)).foregroundColor(Palette.secondary)
                 }
@@ -140,6 +151,7 @@ struct ChatView: View {
             // was: settle it again, as clearing does.
             if searching { settledAtEnd = false }
             query = ""
+            searchOpen = false
             sentWhileSearching = false
             // Not into another account's chats: a draft from before a sign-out is dropped with the rest.
             if epoch == client.chatEpoch { client.drafts[agent.session] = draftText }
@@ -147,10 +159,9 @@ struct ChatView: View {
             loop = nil
         }
         .onChange(of: thread) { _ in recomputeHiddenHeads() }
-        // kosmos#7089: under the bar, always shown. Hidden until pulled down (.automatic), a search still filtering the
-        // thread was out of sight, so the chat looked shorter with nothing saying why.
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .onChange(of: query) { _ in sentWhileSearching = false }
+        // Leaving an empty field puts it away; one with words stays (searching keeps it drawn).
+        .onChange(of: searchFocused) { now in if !now && !searching { searchOpen = false } }
         // Clearing the search is reading at the bottom again: what loaded meanwhile is there to see.
         .onChange(of: searching) { now in
             // Not when the search went with the conversation (an account reset empties both).
@@ -183,6 +194,7 @@ struct ChatView: View {
             pressLine = nil
             composerNote = nil
             query = ""
+            searchOpen = false
             sentWhileSearching = false
             draftText = ""
             refusal = nil
@@ -364,6 +376,47 @@ struct ChatView: View {
     private func follow(_ proxy: ScrollViewProxy) {
         if searching { return }
         if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { unseenNew = true }
+    }
+
+    // kosmos#7089: the field under the bar, styled as the composer's box. The x and Cancel both empty it and put it away.
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").font(.system(size: 15)).foregroundColor(Palette.secondary)
+                    .accessibilityHidden(true)
+                TextField("", text: $query, prompt: Text("Search").foregroundColor(Palette.secondary))
+                    .focused($searchFocused)
+                    .accessibilityLabel("Search this conversation")
+                    .font(.body)
+                    .foregroundColor(Palette.primary)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                if !query.isEmpty {
+                    Button { closeSearch() } label: {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 17)).foregroundColor(Palette.secondary)
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear the search")
+                }
+            }
+            .padding(.leading, 12)
+            .frame(minHeight: 44)
+            .background(Palette.card)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator, lineWidth: 0.5))
+            Button("Cancel") { closeSearch() }
+                .font(.body)
+                .foregroundColor(Palette.primary)
+                .frame(minHeight: 44)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+    }
+    private func closeSearch() {
+        query = ""
+        searchOpen = false
+        searchFocused = false
     }
 
     // Spoken as it appears: the search field keeps VoiceOver's focus, so nothing else says the thread went empty
@@ -637,9 +690,11 @@ struct ChatView: View {
     @State private var sampleReplyApplied = false
     @State private var sampleSearchApplied = false
     private func applySampleChoice(_ t: Board.Thread) {
-        // kosmos#7089, KOSMOS_SAMPLE_SEARCH=<words>: those words typed in the search field, for its screenshots.
+        // kosmos#7089, KOSMOS_SAMPLE_SEARCH=<words>: the field opened with those words typed, for its screenshots (empty
+        // words: the field open and empty).
         if !sampleSearchApplied, let words = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SEARCH"] {
             sampleSearchApplied = true
+            searchOpen = true
             query = words
         }
         // kosmos#7083, KOSMOS_SAMPLE_REPLY=1: Reply pressed on Dana's newest message, for the strip's screenshot.
