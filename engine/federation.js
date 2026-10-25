@@ -226,7 +226,8 @@ function ownCodeRefusal(projectId) {
   if (noKey) return link.role === 'owner' ? 'sealed-waiting' : 'sealed-not-in';
   return null;
 }
-/** Whether a room's seal record holds the key for its current epoch (fedseats' hasKey). */
+/** Whether a room's seal record holds the key for its current epoch. The same test as fedseats' hasKey (fedseats
+    requires this module, so it cannot be imported from there); keep the two the same. */
 function roomKeyHeld(st) {
   return !!st && !!st.keys && Number.isInteger(st.epoch) && typeof st.keys[st.epoch] === 'string';
 }

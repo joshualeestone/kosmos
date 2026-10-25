@@ -70,6 +70,14 @@ stays for them.
   stands) would make v 2 codes from then on but keep its v 1 computers posting in the clear, unmarked: slice 2's
   to handle.
 
+## Deferred, with reasons (review 6)
+- **Keep the guest-invite narrowing (decision 5) until slice 2 signs codes.** Rejected: the exposure it names (an
+  altered or older-build v 1 code joining a room with guests) comes from lifting 'sealed' (decision 3), which is this
+  slice's point: a guest-sealed room has guests before any own code is made. Refusing further invites to a sealedOwn
+  room would not shrink it, only stop the owner inviting a second person. Both are NOT CLAIMED above; slice 2 closes it.
+- **A lost seal record** now writes itself back from the link at the next connect (sayHello), so the computer asks for
+  the key again instead of holding its posts with nothing asked.
+
 ## Rejected
 - A flag inside a v 1 code: an older board ignores fields it does not know (parseOwnCode's own comment), joins and
   posts in the clear. The version bump is what makes it fail closed.
