@@ -290,3 +290,18 @@ test('an Accept made while a registration is out ends if that registration goes 
     assert.equal(reg[reg.length - 1].env, undefined, 'the acceptance ended with the registration that went through');
   } finally { c.done(); }
 });
+
+test('the connector names a key refused for not being on the list; under the shipped list it is not offered', async () => {
+  // kosmos#6596 follow-up: the connector's own words for a key not on the list it was handed (kosmos-relay setup.rs
+  // expected_coordinator_key), with the key named after the same label.
+  const notListed = (k) => 'the Kosmos+ service offered a key that is not on the list of keys this computer expects, so '
+    + 'nothing was registered (the key it offered: ' + k + ')';
+  const c = connector({ refusal: notListed(K) });
+  try {
+    assert.deepEqual((await signIn()).keyChanged, { offered: K }, 'CONTROL: with no shipped list it is offered');
+    c.shipped = 'MCowBQYDK2VwAyEAkey1';
+    const r = await signIn();
+    assert.equal(r.ok, false);
+    assert.equal('keyChanged' in r, false, 'under the shipped list the refusal stays an ordinary error');
+  } finally { c.done(); }
+});
