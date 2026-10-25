@@ -14,7 +14,7 @@
 # command, so the union of the shards is the whole list (tools.shell-shard-4317.test.js).
 kosmos_shell_parallel() {
   local n="$1" dir="$2"; shift 2
-  local i p r rc=0 red="" t0 left
+  local i p q r rc=0 red="" t0 left
   KOSMOS_SHELL_PARALLEL_PIDS=""
   t0=$(date +%s)
   i=1
@@ -48,10 +48,19 @@ kosmos_shell_parallel() {
   return "$rc"
 }
 
-# kosmos_shell_parallel_stop: TERM every shard still running, each as its whole process group. For an EXIT trap.
+# kosmos_shell_parallel_stop: TERM every shard still running, each as its whole process group, then wait up to about
+# 2 s for those groups to be gone, so the trap's next steps (the launchd boot-out, removing the run root) rarely run
+# under a test still exiting. For an EXIT trap.
 kosmos_shell_parallel_stop() {
-  local p
+  local p k live
   for p in ${KOSMOS_SHELL_PARALLEL_PIDS:-}; do kill -TERM -- "-$p" 2>/dev/null; done
+  k=0
+  while [ "$k" -lt 20 ]; do
+    live=0
+    for p in ${KOSMOS_SHELL_PARALLEL_PIDS:-}; do kill -0 -- "-$p" 2>/dev/null && live=1; done
+    [ "$live" = 0 ] && break
+    sleep 0.1; k=$((k + 1))
+  done
   KOSMOS_SHELL_PARALLEL_PIDS=""
   return 0
 }

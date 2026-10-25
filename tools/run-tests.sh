@@ -153,6 +153,12 @@ case "$KOSMOS_SHELL_PARALLEL" in
   [2-8]) if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
            echo "run-tests: KOSMOS_SHELL_PARALLEL and KOSMOS_SHELL_SHARD do not combine (got parallel '$KOSMOS_SHELL_PARALLEL', shard '$KOSMOS_SHELL_SHARD')" >&2
            exit 2
+         fi
+         # The cut's shape is one stand-in cut for one shell part, and its wrapper is a shell function that a shard
+         # (started through exec) cannot run.
+         if [ "${KOSMOS_SHELL_CUT_ENV:-0}" = 1 ]; then
+           echo "run-tests: KOSMOS_SHELL_PARALLEL and KOSMOS_SHELL_CUT_ENV=1 do not combine (got parallel '$KOSMOS_SHELL_PARALLEL')" >&2
+           exit 2
          fi ;;
   *) echo "run-tests: KOSMOS_SHELL_PARALLEL must be a whole number from 1 to 8 (got '$KOSMOS_SHELL_PARALLEL')" >&2
      exit 2 ;;
