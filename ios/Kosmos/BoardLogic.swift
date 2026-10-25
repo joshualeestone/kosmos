@@ -1664,3 +1664,22 @@ enum Board {
         agentRunning ? ("Not sent. Tap to try again.", true) : ("Not sent. \(name) isn't running on your computer.", false)
     }
 }
+
+// kosmos#7089: the chat's search, as the board's talkFilterRows and pjNoMatchSentence (web/index.html). It filters the
+// rows already loaded, on the phone, with no new read. A row stays when the words, trimmed and in any case, are in who
+// said it as the chat names them or in its text. The board names an agent's row by the agent's name and a person's row
+// by nothing (its dmWho gives "" with no `from`), so a person's row, like a Kosmos line, matches by its text only.
+extension Board {
+    static func chatSearching(_ query: String) -> Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    static func chatFilter(_ rows: [ChatRow], agentName: String, query: String) -> [ChatRow] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if needle.isEmpty { return rows }
+        let who = agentName.lowercased()
+        return rows.filter { ($0.who == .agent && who.contains(needle)) || $0.text.lowercased().contains(needle) }
+    }
+
+    static func chatNoMatch(_ query: String) -> String {
+        "Nothing here matches \"\(query.trimmingCharacters(in: .whitespacesAndNewlines))\". Clearing the search brings the conversation back."
+    }
+}
