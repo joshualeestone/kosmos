@@ -32,7 +32,8 @@ enum NewTask {
         return names.count < 2 ? names[0] : names.last! + ", in " + Tasks.chainText(Array(names.dropLast()))
     }
 
-    // openNewTaskFromTasks: the Tasks view's picked project when it is one the dialog offers, else the first offered.
+    // The Tasks view's picked project when it is one the sheet offers (openNewTaskFromTasks also files to an archived
+    // pick; the sheet offers unarchived projects only), else the first offered.
     static func firstProject(picked: String?, offered: [Board.ProjectTreeRow]) -> String? {
         if let picked, offered.contains(where: { $0.project.id == picked }) { return picked }
         return offered.first?.project.id

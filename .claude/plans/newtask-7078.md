@@ -176,3 +176,9 @@ path stays the app's own (isProjectId before the path; host is held.url).
 - DEFERRED (iteration 14): Return in a question becomes a space rather than moving on. Single-line fields would let
   Return submit, but typed words would then scroll sideways instead of wrapping, which the largest-text design review
   just fixed. Parity with the board's one-line inputs is kept by oneLine. Would change with a design call from Mona Lisa.
+- Iteration 15 (opus): when the Tasks tab's own read finds the held task while the sheet is open, the tab treats it as
+  made: it closes the sheet, shows "Added task N to <project>.", and clears the hold and the unchanged words (before,
+  it blanked the draft under an open sheet that could not recover).
+- LEFT (nits): two Tasks refreshes can overlap (pull-to-refresh has the same pattern); a Held record survives a draft
+  cleared by reopening from another project, so the same words for the old project show the hold again (arguably
+  right: they may be a duplicate). The fixed Project row at the largest size is in the shots.

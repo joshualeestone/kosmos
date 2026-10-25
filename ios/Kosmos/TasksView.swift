@@ -37,11 +37,15 @@ struct TasksTab: View {
                 }
         }
         .navigationViewStyle(.stack)
-        // A Tasks read that shows the held task: it was made, so the hold and its words go.
+        // A Tasks read that shows the held task: it was made. Said as any create is (the sheet closes, the added line
+        // shows), and the hold and its words go.
         .onChange(of: client.tasksList) { read in
-            guard let h = newTaskHeld, let read, NewTask.found(h.sent, in: read, before: h.before) != nil else { return }
+            guard let h = newTaskHeld, let read, let number = NewTask.found(h.sent, in: read, before: h.before) else { return }
+            let name = read.tasks.first { $0.number == number && $0.projectId == h.sent.project }?.projectName ?? "the project"
+            newTaskFor = nil
             if newTaskDraft == h.sent { newTaskDraft = NewTask.Draft() }
             newTaskHeld = nil
+            notice = NewTask.addedLine(number: number, projectName: name)
         }
         // Another account or Mac: its projects are not this one's, so the sheet, its draft and the added line go too.
         .onChange(of: client.chatEpoch) { _ in
