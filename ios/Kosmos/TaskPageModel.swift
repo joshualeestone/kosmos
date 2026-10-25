@@ -29,6 +29,12 @@ final class TaskPageModel: ObservableObject {
         await Task.detached { Board.parseTaskPage(data, project: project, number: number) }.value
     }
     private let parse: Parse
+    private let buildRows: BuildRows
+
+    // Published only when it changes: a 5-second tick that changes nothing must not redraw the page (and its history).
+    private func set(_ key: ReferenceWritableKeyPath<TaskPageModel, Bool>, _ value: Bool) {
+        if self[keyPath: key] != value { self[keyPath: key] = value }
+    }
     private let sleep: (TimeInterval) async -> Void
     private let epoch: () -> Int
     private let now: () -> Date
@@ -66,11 +72,13 @@ final class TaskPageModel: ObservableObject {
     private var activityShape: (count: Int, lastAt: String, lastKind: String)?
 
     init(project: String, number: Int, send: @escaping Send, sleep: @escaping (TimeInterval) async -> Void, epoch: @escaping () -> Int,
-         now: @escaping () -> Date = Date.init, parse: @escaping Parse = { await TaskPageModel.parseOffMain($0, $1, $2) }) {
+         now: @escaping () -> Date = Date.init, parse: @escaping Parse = { await TaskPageModel.parseOffMain($0, $1, $2) },
+         buildRows: @escaping BuildRows = { await TaskPageModel.buildOffMain($0, $1) }) {
         self.project = project
         self.number = number
         self.send = send
         self.parse = parse
+        self.buildRows = buildRows
         self.sleep = sleep
         self.epoch = epoch
         self.now = now
@@ -89,7 +97,7 @@ final class TaskPageModel: ObservableObject {
         // A read cut short (the page left, the loop restarted) says nothing about the Mac: no failure is recorded.
         guard !Task.isCancelled, current, mine > pageShown else { return }
         pageShown = mine
-        guard let (data, response) = answer, (200...299).contains(response.statusCode) else { readFailed = true; return }
+        guard let (data, response) = answer, (200...299).contains(response.statusCode) else { set(\.readFailed, true); return }
         let parsed = await parse(data, project, number)
         // A newer read that landed while this one was parsing stands (its answer or its failure).
         guard !Task.isCancelled, current, mine == pageShown else { return }
@@ -98,40 +106,47 @@ final class TaskPageModel: ObservableObject {
             // A refusal is about the press it answered: once the task reads otherwise (another device did it), it goes.
             if refusal != nil, let was = page, was.act != p.act { refusal = nil }
             if p != page { page = p }
-            gone = false
-            readFailed = false
+            set(\.gone, false)
+            set(\.readFailed, false)
         case .gone:
-            gone = true
-            readFailed = false
+            set(\.gone, true)
+            set(\.readFailed, false)
         case .unreadable:
-            readFailed = true
+            set(\.readFailed, true)
         }
     }
 
     // GET .../activity. A failed read keeps the rows already shown (the board's: it says so only when it has none).
     // `names` is a snapshot (the project's members over the roster), so the rows can be phrased off the main thread: a
-    // repeating task's history can run to thousands of events, read every 5 seconds.
-    func readActivity(names: [String: String]) async {
-        guard current else { return }
-        activityReads += 1
-        let mine = activityReads
-        let (project, number) = (self.project, self.number)
-        let answer = await send { Board.taskActivityRequest(mac: $0, project: project, number: number) }
-        guard !Task.isCancelled, current, mine > activityShown else { return }
-        activityShown = mine
-        guard let (data, response) = answer, (200...299).contains(response.statusCode) else { activityFailed = true; return }
-        let built = await Task.detached { () -> (rows: [Board.ActivityRow], count: Int, lastAt: String, lastKind: String)? in
+    // repeating task's history can run to thousands of events, read every 5 seconds. True when this read's state is the
+    // one now shown (what a seen mark may then record).
+    typealias BuildRows = ([String: String], Data) async -> (rows: [Board.ActivityRow], count: Int, lastAt: String, lastKind: String)?
+    nonisolated static func buildOffMain(_ names: [String: String], _ data: Data) async -> (rows: [Board.ActivityRow], count: Int, lastAt: String, lastKind: String)? {
+        await Task.detached { () -> (rows: [Board.ActivityRow], count: Int, lastAt: String, lastKind: String)? in
             guard let events = Board.parseActivity(data) else { return nil }
             let last = events.last
             return (Board.activityRows(events, name: { names[$0] ?? $0 }), events.count,
                     last?["at"] as? String ?? "", last?["kind"] as? String ?? "")
         }.value
+    }
+    @discardableResult
+    func readActivity(names: [String: String]) async -> Bool {
+        guard current else { return false }
+        activityReads += 1
+        let mine = activityReads
+        let (project, number) = (self.project, self.number)
+        let answer = await send { Board.taskActivityRequest(mac: $0, project: project, number: number) }
+        guard !Task.isCancelled, current, mine > activityShown else { return false }
+        activityShown = mine
+        guard let (data, response) = answer, (200...299).contains(response.statusCode) else { set(\.activityFailed, true); return false }
+        let built = await buildRows(names, data)
         // A newer read that landed while this one was building stands.
-        guard !Task.isCancelled, current, mine == activityShown else { return }
-        guard let built else { activityFailed = true; return }
-        activityFailed = false
+        guard !Task.isCancelled, current, mine == activityShown else { return false }
+        guard let built else { set(\.activityFailed, true); return false }
+        set(\.activityFailed, false)
         activityShape = (built.count, built.lastAt, built.lastKind)
         if built.rows != activity { activity = built.rows }
+        return true
     }
 
     // The board's key for "this state of the conversation": its count and its last event.

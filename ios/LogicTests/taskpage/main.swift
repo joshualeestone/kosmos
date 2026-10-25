@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 // Tests for the native task page (kosmos#7074), compiled for macOS with the app files run-taskpage.sh lists.
 // projects-tasks.json and activity-<n>.json are what the Mac's own engine produced (engine/projects.js list, engine/
 // tasks.js create/close/setBuilt/setDue/addPart/setPartClosed/setOnHold/say, engine/taskchat.js read) in a throwaway
@@ -413,6 +414,47 @@ func modelTests() async {
     mac.asked = []
     await rc.markSeen()
     check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen"], "a cancelled retry leaves the state unmarked, so the next mark sends it")
+
+    // An activity build held while a newer read lands: the newer rows stand, and so does a newer failure.
+    for newerFails in [false, true] {
+        let gate = ParseGate()
+        let am = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch },
+                               now: { clock }, buildRows: { names, data in
+                                   if gate.hold { gate.hold = false; await withCheckedContinuation { gate.held = $0 } }
+                                   return await TaskPageModel.buildOffMain(names, data)
+                               })
+        mac.activity = (200, fixture("activity-3.json"))
+        gate.hold = true
+        let olderBuild = Task { await am.readActivity(names: nm) }
+        for _ in 0..<1000 where !gate.waiting { await Task.yield() }
+        mac.activity = newerFails ? (502, Data()) : (200, Data(#"{"events":[],"count":0}"#.utf8))
+        let newerShown = await am.readActivity(names: nm)
+        gate.release()
+        let olderShown = await olderBuild.value
+        check(!olderShown && (newerFails ? (!newerShown && am.activityFailed && am.activity == nil) : (newerShown && am.activity == [])),
+              newerFails ? "a newer activity failure stands over an older build finishing after it" : "newer activity rows stand over an older build finishing after it")
+    }
+    mac.activity = (200, fixture("activity-3.json"))
+
+    // readActivity says whether its state is the one drawn, so a return marks only what was just read.
+    let ra = model(3)
+    let drew = await ra.readActivity(names: nm)
+    check(drew, "a read that draws its state says so")
+    mac.activity = (500, Data())
+    let failedReturn = await ra.readActivity(names: nm)
+    check(!failedReturn, "a failed read says it drew nothing (the view then sends no seen mark for the old state)")
+    mac.activity = (200, fixture("activity-3.json"))
+
+    // A tick that changes nothing publishes nothing (the page and its history are not redrawn).
+    let quiet = model(3)
+    await quiet.read()
+    await quiet.readActivity(names: nm)
+    var published = 0
+    let sub = quiet.objectWillChange.sink { _ in published += 1 }
+    await quiet.read()
+    await quiet.readActivity(names: nm)
+    sub.cancel()
+    check(published == 0, "an unchanged read and activity read publish nothing (\(published))")
 
     // Reads that land out of order: the newer answer stands.
     mac.epoch = 0
