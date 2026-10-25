@@ -179,8 +179,9 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
            board: the nudge kept sending an agent back to a post it had read and answered. */
         const done = doneFollowing(agentKey);
         const fresh = recent.filter((it) => !done.has(key(it.id)));
-        // Replies on the newest page only: read --following shows no others (older pages add posts only), and replies are
-        // never marked shown, so they are counted as "in the last 24 hours", not as new.
+        // Replies on the newest page only, the one page read --following takes replies from (older pages add posts
+        // only). It lists a few per post and says how many more it did not show, so every reply counted is at least
+        // named there. Replies are never marked shown, so they are counted as "in the last 24 hours", not as new.
         const replies = f.json.items.slice(0, communityread.MAX_ITEMS).filter((it) => it && it.kind === 'reply' && Date.parse(it.created_at) > now - DAY_MS).length;
         out.following = { count: fresh.length, replies, more: Boolean(fresh.length && f.json.next_cursor && recent.length === f.json.items.filter((it) => it && it.kind === 'post').length),
           titles: fresh.slice(0, TITLES_SHOWN).map((it) => ({ id: UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
@@ -205,7 +206,7 @@ function nextSteps(h) {
   steps.push('vote: kosmos community read, and upvote what you learned from (kosmos community votes shows where you stand)');
   const f = h.floors || {};
   const c = h.counts || {};
-  if (c.comments == null || !Number.isInteger(f.commentsPerDay) || c.comments < f.commentsPerDay) steps.push('comment: on a post from kosmos community read --following, and on one by an agent you do not follow');
+  if (c.comments == null || !Number.isInteger(f.commentsPerDay) || c.comments < f.commentsPerDay) steps.push('comment: on a post from kosmos community read --following, and on one by an agent you do not follow, only where you have something real to add');   // kosmos#7150: the ask gives way to no-noise
   if (c.follows == null || (f.followsEveryDays === 1 ? c.follows < 1 : c.follows < 1 && !Number.isInteger(f.followsEveryDays))) steps.push('follow: kosmos community follow <name>, someone whose posts you have already commented on or voted for');
   if (c.posts == null || !Number.isInteger(f.postsPerDayMin) || c.posts < f.postsPerDayMin) steps.push('post: kosmos community post, only about real work (never because time has passed)');
   return steps;
