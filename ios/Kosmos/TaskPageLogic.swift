@@ -296,13 +296,9 @@ extension Board {
         var title: String { self == .close ? "Mark as done" : "Reopen" }
     }
 
-    // The phone acting for the person, as the board's page does: the Mac's isViaScreen reads Sec-Fetch-Site, which
-    // WebKit sends from the board in the app's web view and URLSession never does. Without it, marking a task seen is
-    // refused, a reopen is not recorded as the person's, and a task whose repeat the person set cannot be closed.
-    // Agents are told apart by their token, which the phone never sends.
-    static func asPerson(_ r: inout URLRequest) {
-        r.setValue("same-origin", forHTTPHeaderField: "Sec-Fetch-Site")
-    }
+    // These go through BoardClient, which marks every request to the Mac as the board's own (kosmos#7075,
+    // Board.forMac). The Mac's isViaScreen reads that too: without it, marking a task seen is refused, a reopen is not
+    // recorded as the person's, and a task whose repeat the person set cannot be closed.
 
     static func taskRoute(mac: URL, project: String, number: Int, _ tail: String) -> URL? {
         guard isProjectId(project), number > 0 else { return nil }
@@ -316,7 +312,6 @@ extension Board {
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        asPerson(&r)
         return r
     }
 
@@ -336,7 +331,6 @@ extension Board {
         var r = URLRequest(url: url)
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Accept")
-        asPerson(&r)
         return r
     }
 
