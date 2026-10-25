@@ -146,8 +146,8 @@ if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
     exit 2
   fi
 fi
-# #7100: KOSMOS_SHELL_PARALLEL=<n> runs test:shell as n shards at once on this computer (2 to 8), not shard 1 of 1.
-# 1 is the one-at-a-time run. Not with KOSMOS_SHELL_SHARD (that runs one shard; CI runs the others). Unset (or
+# #7100: KOSMOS_SHELL_PARALLEL=<n> runs test:shell as n shards at once on this computer (1 to 8; 1 is shard 1 of 1,
+# the one-at-a-time run). Not with KOSMOS_SHELL_SHARD (that runs one shard; CI runs the others). Unset (or
 # empty) is kosmos_shell_parallel_default: 4 on a plain local run, 1 in CI, a CI shard or the cut-env shape.
 . "$REPO/tools/lib/shell-parallel.sh" || { echo "run-tests: tools/lib/shell-parallel.sh is missing" >&2; exit 1; }
 [ -n "${KOSMOS_SHELL_PARALLEL:-}" ] || KOSMOS_SHELL_PARALLEL="$(kosmos_shell_parallel_default)"
@@ -167,7 +167,8 @@ case "$KOSMOS_SHELL_PARALLEL" in
      exit 2 ;;
 esac
 # The value is this run's alone: kept privately and unset, so the tests it runs (some start run-tests.sh themselves,
-# with a scrubbed environment that predates this switch) never inherit it.
+# with a scrubbed environment that predates this switch) never inherit it. They still get the unset default: a nested
+# run that reaches the shell part with no CI variables and no value of its own starts 4 shards of its own tree.
 _RT_SHELL_PARALLEL="$KOSMOS_SHELL_PARALLEL"; unset KOSMOS_SHELL_PARALLEL
 # #6791: which platform's share of test:shell a shard runs (tools/shell-macos-only.txt): linux or mac, only with a shard.
 if [ -n "${KOSMOS_SHELL_PLATFORM:-}" ]; then

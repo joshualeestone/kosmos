@@ -233,13 +233,36 @@ else
   bad "the unset default: $got"
 fi
 
-# 9) TRIPWIRES on the two sources: run-tests.sh takes the default only when the switch is unset or empty (a value the
-# caller set wins), and release.sh says 1 for its gate runs, after its guard (so the guard still sees the caller's).
-if grep -q -x '\[ -n "\${KOSMOS_SHELL_PARALLEL:-}" \] || KOSMOS_SHELL_PARALLEL="\$(kosmos_shell_parallel_default)"' "$HERE/run-tests.sh"; then
-  pass "run-tests.sh: an unset or empty switch takes kosmos_shell_parallel_default, and a set one is kept"
+# 9) the default, end to end: the real run-tests.sh with a stub node first on PATH, which records each shell-shard.js
+# call and runs nothing. Unset starts shards 1 to 4 of 4; GITHUB_ACTIONS=true runs shard 1 of 1; a value the caller
+# set is kept. Like the refusal arms it runs under the 60 s group kill, and it skips the suite queue (the order of
+# the stub's calls is not asserted, only the set).
+mkdir -p "$T/stubnode"
+cat > "$T/stubnode/node" <<STUBNODE
+#!/bin/sh
+printf '%s\n' "\$*" >> "$T/node-argv.log"
+exit 0
+STUBNODE
+chmod +x "$T/stubnode/node"
+rtd() {  # <env assignments...>: run-tests.sh's shell part with the stub node; sets RT_RC, RT_OUT and RT_SHARDS
+  : > "$T/node-argv.log"
+  RT_OUT=$(env -u GITHUB_ACTIONS -u KOSMOS_SHELL_SHARD -u KOSMOS_SHELL_PLATFORM -u KOSMOS_SHELL_CUT_ENV -u KOSMOS_SHELL_PARALLEL -u KOSMOS_TEST_PART -u KOSMOS_TEST_PART_LOCAL "$@" PATH="$T/stubnode:$PATH" KOSMOS_TEST_PART=shell KOSMOS_TEST_PART_LOCAL=1 KOSMOS_IGNORE_MACHINE_CLAIM=1 KOSMOS_TESTS_IGNORE_SUITE=1 KOSMOS_TESTS_IGNORE_HARNESS=1 perl -e "$GROUP60" /bin/bash "$HERE/run-tests.sh" 2>&1 < /dev/null); RT_RC=$?
+  RT_SHARDS=$(grep -oE 'shell-shard\.js run [0-9]+ [0-9]+' "$T/node-argv.log" | sed 's/.*shell-shard\.js //' | sort | tr '\n' ';')
+}
+rtd
+d_run="$RT_RC:$RT_SHARDS"
+rtd GITHUB_ACTIONS=true
+d_ci="$RT_RC:$RT_SHARDS"
+rtd KOSMOS_SHELL_PARALLEL=2
+d_two="$RT_RC:$RT_SHARDS"
+if [ "$d_run" = "0:run 1 4;run 2 4;run 3 4;run 4 4;" ] && [ "$d_ci" = "0:run 1 1;" ] && [ "$d_two" = "0:run 1 2;run 2 2;" ]; then
+  pass "run-tests.sh: unset starts 4 shards, GITHUB_ACTIONS=true runs 1 of 1, and a set value is kept"
 else
-  bad "run-tests.sh: no line applying kosmos_shell_parallel_default to an unset switch only"
+  bad "run-tests.sh default end to end: unset=[$d_run] ci=[$d_ci] two=[$d_two] out=$(printf '%s' "$RT_OUT" | tail -c 300)"
 fi
+
+# 10) a TRIPWIRE on release.sh, which a test cannot run as a cut: it says 1 for its gate runs, after its guard (so
+# the guard still sees the caller's own value first).
 guard_at=$(grep -n 'A cut always tests the whole suite (#5934)' "$HERE/release.sh" | head -1 | cut -d: -f1)
 export_at=$(grep -n -x 'export KOSMOS_SHELL_PARALLEL=1' "$HERE/release.sh" | head -1 | cut -d: -f1)
 if [ -n "$guard_at" ] && [ -n "$export_at" ] && [ "$export_at" -gt "$guard_at" ]; then
