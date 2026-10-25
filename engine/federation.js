@@ -211,15 +211,21 @@ function ownFromOf(address) {
 /* The key an own-account join is held under between verify and join (never an edge id,
    which the coordinator mints as 32 hex characters). */
 const OWN_KEY_PREFIX = 'own:';
-/* Why no own code can be made for this project, or null when one can: 'guest' for a
-   project joined from someone else. A sealed room is no longer refused (#4658): its code is
-   version 2 and says so (ownCodeSealed), so the computer that joins by it holds its posts from
-   the first one instead of sending them in the clear. */
+/* Why no own code can be made for this project, or null when one can: 'guest' for a project joined from
+   someone else. A sealed room's code is version 2 (ownCodeSealed, #4658), and it is made only by a computer
+   that holds the room's key, so the one that joins can always be let in: 'sealed-waiting' for an owner whose
+   invited people have not joined yet (it gets its key from the first one), 'sealed-not-in' for a computer
+   joined by own code that has not been let in itself. Throws when the room's record cannot be read. */
 function ownCodeRefusal(projectId) {
   const link = linkFor(projectId);
   if (!link) return null;
   if (link.role !== 'owner' && link.role !== 'self') return 'guest';
+  if (ownCodeSealed(projectId, link) && !roomKeyHeld(fedseal.roomState(projectId))) return link.role === 'owner' ? 'sealed-waiting' : 'sealed-not-in';
   return null;
+}
+/** Whether a room's seal record holds the key for its current epoch (fedseats' hasKey). */
+function roomKeyHeld(st) {
+  return !!st && !!st.keys && Number.isInteger(st.epoch) && typeof st.keys[st.epoch] === 'string';
 }
 /** Whether an own code made here now is for a sealed room: the owner's room has handed out a
     sealing invite, or this computer (joined by own code) holds the room's sealed record. Throws
@@ -253,8 +259,8 @@ function ownCode(projectId, projectName, from) {
   }
   // parseOwnCode refuses a code over OWN_CODE_MAX; the name is cut, by whole characters, to fit.
   let chars = Array.from(String(projectName || '').slice(0, NAME_MAX));
-  // A sealed room's code is version 2: a Kosmos older than #4658's sealed own join refuses it (parseOwnCode
-  // takes only the versions it knows) instead of joining and posting in the clear.
+  // A sealed room's code is version 2: a Kosmos older than #4658's sealed own join does not read it as an own
+  // code (parseOwnCode there takes v 1 only), so it never joins by it.
   const make = () => OWN_PREFIX + Buffer.from(JSON.stringify(sealed ? { v: 2, ref, from, name: chars.join(''), sealed: true }
     : { v: 1, ref, from, name: chars.join('') }), 'utf8').toString('base64url');
   let code = make();
@@ -360,8 +366,9 @@ async function invite(remote, body) {
   if (typeof body.project_desc === 'string' && body.project_desc.length > DESC_MAX) {
     return { status: 400, body: { error: 'that description is longer than ' + DESC_MAX + ' characters' } };
   }
-  /* A sealing invite seals the room, and this account's other computers joined by own code
-     hold no seal state, so they could no longer read or post there (#4658). An unreadable
+  /* A sealing invite seals the room. This account's other computers that joined by an unsealed (version 1)
+     own code hold no seal state and would keep posting in the clear, so a room shared that way is refused;
+     one whose own computers all came in by a sealed code is not (selfSharedRef, #4658). An unreadable
      links record does not block an invite; the paths that read links report it. */
   let selfShared = false;
   try { selfShared = selfSharedRef(body.project_ref); } catch { selfShared = false; }

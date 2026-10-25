@@ -18,8 +18,13 @@ sealed message)". #7028 and the relay PR have landed (coordinator live 10-24 11:
 
 ## Decided (slice 1 of 2)
 1. **A code made for a sealed room is version 2 and says so**: `{ v: 2, ref, from, name, sealed: true }`. An unsealed
-   room still gets v 1, unchanged. A Kosmos older than this refuses a v 2 code ("not recognised") rather than joining
-   and posting in the clear: fail closed, by the parser it already has.
+   room still gets v 1, unchanged. A Kosmos older than this does not read a v 2 code as an own code (its parseOwnCode
+   takes v 1 only), so it never joins by it: it treats the text as an invite code, and the coordinator refuses it
+   (review 1: that path sends the code text, with the project and computer names, to the coordinator; NOT CLAIMED
+   otherwise, and no test can run the old parser).
+1b. **Only a computer that holds the room key makes a version 2 code** (review 1): an owner whose invited people have
+   not joined yet has no key (the first guest's hello makes it), so a computer let in could never be let in. It is
+   refused with 'sealed-waiting'; a computer joined by own code that was not let in yet, with 'sealed-not-in'.
 2. **Joining by a v 2 code records the room as sealed at the join**: the same keyless record noteOwnSealed writes
    ({ role: 'member', ownComputer: true, keys: {} }), written before the seat starts. From the first post, sendPost
    holds (the owner has not shared its key yet), and the existing key-own-hello / offer / reveal / Allow exchange
@@ -30,7 +35,8 @@ sealed message)". #7028 and the relay PR have landed (coordinator live 10-24 11:
    A self computer in an unsealed room makes v 1, as today.
 5. **The self-shared invite refusal stays, narrowed by one fact the owner knows**: a room whose own computers all came
    in by a sealed code. ownCode on a sealed owner room records `sealedOwn: true` on the link (with selfShared). The
-   invite (both checks) and fedmembers refuse only `selfShared && sealedOwn !== true`. Why this is exact: a v 1 code is
+   invite's two checks (selfSharedRef) refuse only `selfShared && sealedOwn !== true`. fedmembers' refusal of a `self`
+   link is unchanged: a computer joined by own code never invites people. Why this is exact: a v 1 code is
    only ever made for an unsealed room, which makes it selfShared without sealedOwn, and such a room can never become
    sealed while this refusal stands. So every own computer in a sealedOwn room joined knowing.
 6. The owner's first own-code note in a sealed room does not say "not sealed".

@@ -60,10 +60,17 @@ test('the seat arguments: --own-project for an own room, --edge otherwise, never
   assert.equal(own[0], 'fed-room');
 });
 
-test('#4658: an owner project that handed out a sealing invite gets a version 2 code that says it is sealed', () => {
+test('#4658: an owner project that handed out a sealing invite gets a version 2 code that says it is sealed, once it holds the room key', () => {
+  const fedseal = require('./fedseal');
   federation.recordLink('proj-s', { role: 'owner', ref: 'ref-s' });
-  require('./fedseal').stashInvite('ref-s', { s: 'A'.repeat(43), code: 'CODE1', invite: 'inv-1' });
-  assert.equal(federation.ownCodeRefusal('proj-s'), null, 'a sealed room is no longer refused');
+  fedseal.stashInvite('ref-s', { s: 'A'.repeat(43), code: 'CODE1', invite: 'inv-1' });
+  // No guest has joined: the owner has no key to give, so a computer let in could never be let in. Refused.
+  assert.equal(federation.ownCodeRefusal('proj-s'), 'sealed-waiting');
+  assert.equal(federation.ownCode('proj-s', 'Sealed', 'study'), null);
+  assert.notEqual(federation.linkFor('proj-s').selfShared, true, 'a refused project is not marked shared');
+  // The first guest's hello gave the owner its key (fedseats ownerHello): now a version 2 code.
+  fedseal.setRoomState('proj-s', { role: 'owner', peers: {}, epoch: 0, keys: { 0: fedseal.randomSecret() } });
+  assert.equal(federation.ownCodeRefusal('proj-s'), null);
   const code = federation.ownCode('proj-s', 'Sealed', 'study');
   const raw = JSON.parse(Buffer.from(code.slice(federation.OWN_PREFIX.length), 'base64url').toString('utf8'));
   assert.deepEqual([raw.v, raw.sealed], [2, true], 'version 2, sealed');
@@ -74,21 +81,13 @@ test('#4658: an owner project that handed out a sealing invite gets a version 2 
   assert.equal(federation.ownCodeRefusal('proj-new'), null);
 });
 
-test('#4658: an older Kosmos refuses a version 2 code (it takes only v 1), so it can never join a sealed room and post in the clear', () => {
-  const code = federation.ownCode('proj-s', 'Sealed', 'study');
-  const o = JSON.parse(Buffer.from(code.slice(federation.OWN_PREFIX.length), 'base64url').toString('utf8'));
-  // The parser main shipped before #4658, restated: it takes v 1 only.
-  const before4658 = (x) => !!x && x.v === 1 && typeof x.ref === 'string' && typeof x.name === 'string';
-  assert.equal(before4658(o), false, 'the old parser refuses the sealed code');
-  // CONTROL: the same old parser takes an unsealed code, so the refusal above is about the version.
-  const plain = federation.ownCode('proj-plain', 'Plain', 'study');
-  assert.equal(before4658(JSON.parse(Buffer.from(plain.slice(federation.OWN_PREFIX.length), 'base64url').toString('utf8'))), true);
-});
-
-test('#4658: a computer joined by own code makes a sealed code when its record says sealed, and none when that record cannot be read', () => {
+test('#4658: a computer joined by own code makes a sealed code once it was let in, none before, and none when its record cannot be read', () => {
   const fedseal = require('./fedseal');
   federation.recordLink('proj-self-s', { role: 'self', ref: 'ref-self-s' });
   fedseal.setRoomState('proj-self-s', { role: 'member', ownComputer: true, keys: {} });
+  assert.equal(federation.ownCodeRefusal('proj-self-s'), 'sealed-not-in', 'not let in yet: it has no key to vouch for');
+  assert.equal(federation.ownCode('proj-self-s', 'S', 'laptop'), null);
+  fedseal.setRoomState('proj-self-s', { role: 'member', ownComputer: true, epoch: 0, keys: { 0: fedseal.randomSecret() } });
   assert.equal(federation.parseOwnCode(federation.ownCode('proj-self-s', 'S', 'laptop')).sealed, true);
   federation.recordLink('proj-self-u', { role: 'self', ref: 'ref-self-u' });
   assert.equal(federation.parseOwnCode(federation.ownCode('proj-self-u', 'U', 'laptop')).sealed, false, 'an unsealed own room keeps version 1');
