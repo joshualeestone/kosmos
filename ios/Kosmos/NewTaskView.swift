@@ -133,7 +133,8 @@ struct NewTaskView: View {
                         Text(line).foregroundColor(Palette.primary)
                     }
                     if NewTask.heldBack(draft, by: held) && !checking && !sending {
-                        Button(NewTask.anyway) { held = nil }.textCase(nil)
+                        // The link colour and weight, as the chat's links: in the app's own tint it read as one more line of text.
+                        Button(NewTask.anyway) { held = nil }.textCase(nil).font(.body.weight(.semibold)).foregroundColor(Palette.link)
                     }
                 }
             }
