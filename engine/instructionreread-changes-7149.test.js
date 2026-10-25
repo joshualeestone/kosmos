@@ -10,6 +10,7 @@ process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const ir = require('./instructionreread');
+const hash12 = (s) => require('node:crypto').createHash('sha256').update(s).digest('hex').slice(0, 12);
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 const D = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
@@ -34,7 +35,7 @@ test('changedLines: the one changed line, removed before added, under its headin
   assert.match(d, /Under The Kosmos\+ community:\n- Post at least once a day\.\n\+ Post at least once a week\./);
   assert.match(d, /Under Who you report to:\n- Splinter\.\n\+ The person who runs this computer\./);
   // A line added at the top has no heading above it.
-  assert.match(ir.changedLines(BEFORE, 'New first line\n' + BEFORE), /^\nAt the top of the file:\n\+ New first line$/);
+  assert.match(ir.changedLines(BEFORE, 'New first line\n' + BEFORE), /^\nBefore the first heading:\n\+ New first line$/);
 });
 
 test('changedLines: a long change is cut and says so; a rewrite too large to diff is null', () => {
@@ -52,10 +53,10 @@ test('prepareChanges: with a copy of what the agent last read, the changed lines
   const f = agentFile('ada', AFTER);
   const first = ir.prepareChanges('ada');
   assert.deepEqual(first, { text: AFTER, path: null }, 'a notice without a copy named a changes file');
-  assert.equal(fs.existsSync(path.join(path.dirname(f), '.kosmos-instructions-changed-ada.md')), false);
+  assert.equal(fs.existsSync(path.join(path.dirname(f), '.kosmos-instructions-changed-ada-' + hash12('ada') + '.md')), false);
   assert.equal(ir.remember('ada', BEFORE), true);
   const got = ir.prepareChanges('ada');
-  assert.equal(got.path, path.join(path.dirname(f), '.kosmos-instructions-changed-ada.md'));
+  assert.equal(got.path, path.join(path.dirname(f), '.kosmos-instructions-changed-ada-' + hash12('ada') + '.md'));
   const body = fs.readFileSync(got.path, 'utf8');
   assert.match(body, /^# What changed in your instructions file since you last read it\n/);
   assert.match(body, /- Post at least once a day\.\n\+ Post at least once a week\./);
@@ -133,9 +134,8 @@ test('passOnce CONTROL: a line that did not land moves no copy; without prepareC
   assert.equal(throws.sent[0][1], ir.lineFor(['community']), 'a failing prepareChanges changed or stopped the line');
 });
 
-test('the report route takes the copy at a session start, and the board pass is handed both hooks (read as source)', () => {
+test('the board pass is handed its hooks (read as source; the report route is tested over HTTP in server.instructionreread-start-7149.test.js)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /if \(body\.state === 'started'\) \{ try \{ require\('\.\/engine\/instructionreread'\)\.rememberRead\(who\); \}/);
   assert.match(src, /prepareChanges: \(session\) => ir\.prepareChanges\(session\),\s*remember: \(session, text\) => ir\.remember\(session, text\),\s*dropChanges: \(session\) => ir\.dropChanges\(session\),/);
 });
 
@@ -143,7 +143,7 @@ test('review 1 BLOCKER: a link planted at the changes file is replaced, never fo
   const f = agentFile('cal', AFTER);
   const outside = path.join(SANDBOX, 'outside.txt');
   fs.writeFileSync(outside, 'untouched');
-  const p = path.join(path.dirname(f), '.kosmos-instructions-changed-cal.md');
+  const p = path.join(path.dirname(f), '.kosmos-instructions-changed-cal-' + hash12('cal') + '.md');
   fs.symlinkSync(outside, p);
   ir.remember('cal', BEFORE);
   const got = ir.prepareChanges('cal');
@@ -158,7 +158,7 @@ test('review 1 BLOCKER: a link planted at the changes file is replaced, never fo
 
 test('review 1: an older changes file is removed when a notice names none', () => {
   const f = agentFile('dee', AFTER);
-  const p = path.join(path.dirname(f), '.kosmos-instructions-changed-dee.md');
+  const p = path.join(path.dirname(f), '.kosmos-instructions-changed-dee-' + hash12('dee') + '.md');
   ir.remember('dee', BEFORE);
   assert.ok(ir.prepareChanges('dee').path && fs.existsSync(p));
   ir.remember('dee', AFTER);   // nothing changed since
@@ -211,7 +211,7 @@ test('review 2: names that differ only in case keep two copies; the next start d
   assert.equal(ir.readSeen('Eve'), 'upper', 'two names shared one copy');
   assert.equal(ir.readSeen('eve'), 'lower');
   const f = agentFile('fay', AFTER);
-  const p = path.join(path.dirname(f), '.kosmos-instructions-changed-fay.md');
+  const p = path.join(path.dirname(f), '.kosmos-instructions-changed-fay-' + hash12('fay') + '.md');
   ir.remember('fay', BEFORE);
   assert.ok(ir.prepareChanges('fay').path && fs.existsSync(p));
   assert.equal(ir.rememberRead('fay'), true);
@@ -312,8 +312,8 @@ test('review 5: a cut rewrite keeps old and new lines in pairs; an emptied file 
   const d = ir.changedLines(many, many.replace(/line (\d+)/g, 'row $1'));
   assert.match(d, /- line 0\n\+ row 0\n- line 1\n\+ row 1/);
   assert.ok(/\n\+ row/.test(d), 'a cut kept no new line');
-  assert.equal(ir.changedLines('a\n', ''), '\nAt the top of the file:\n- a');
-  assert.equal(ir.changedLines('', 'a\n'), '\nAt the top of the file:\n+ a');
+  assert.equal(ir.changedLines('a\n', ''), '\nBefore the first heading:\n- a');
+  assert.equal(ir.changedLines('', 'a\n'), '\nBefore the first heading:\n+ a');
 });
 
 test('review 5: a line whose prepareChanges names no file drops the old one; restarted and expired endings drop it too', async () => {

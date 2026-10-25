@@ -4,12 +4,12 @@ Card kosmos#7149, ask 1 (from an agent's feedback report). The decision is poste
 
 ## Decided
 1. **A copy of what the agent last read:** `<data>/instruction-reread-seen/<session>-<sha256 of the name, 12 hex>.md`, written through securewrite.
-   - At a session start: the report route, on a `started` report, calls `rememberRead`. That is when the agent reads its whole file.
+   - At a session start: the report route, on a `started` report it RECORDED (review 7: the row startedSince reads), calls `rememberRead`. That is when the agent reads its whole file.
    - When a re-read line lands: passOnce calls `remember` with the text read just before the line. That is what the agent then reads.
    - "Lands" is settle's verdict: PLACED, or UNCONFIRMED (a throw included), which ends the debt as before (review 1). A refused or held line moves nothing.
    - Not while a section is held (switched off): the copy would move past a change not yet announced, so the line names no changes file (review 1).
 2. **At delivery:** `prepareChanges` diffs the copy against the file now. It is a whole-file line diff: the common head and tail are trimmed, then LCS over the rest, bounded at 4M cells. Each run of changes is labelled with the nearest heading above it. A heading inside a code fence does not count; a fence closes only on a run of the same character, at least as long. The output holds whole lines, capped at 160 lines and 32 KB with the cut note inside both caps. When nothing fits, the notice names no file.
-   - The result is written to `.kosmos-instructions-changed-<session>.md` in the agent's own folder. The line names it as a pointer only: the agent still reads the sections themselves (review 6). A changed line can depend on unchanged lines around it, which a diff does not show.
+   - The result is written to `.kosmos-instructions-changed-<session>-<hash>.md` in the agent's own folder. The line names it as a pointer only: the agent still reads the sections themselves (review 6). A changed line can depend on unchanged lines around it, which a diff does not show.
    - It is written only after every check that can skip the line.
    - The changes file and the copy both go through securewrite: no symlink followed, mode 0600 (review 1 BLOCKER).
    - An older changes file is removed whenever a typed line names none (a held section included), and whenever a debt ends without a line (gone, expired, restarted).
@@ -26,7 +26,7 @@ Card kosmos#7149, ask 1 (from an agent's feedback report). The decision is poste
 That the text read just before the line is what the agent reads after it. A write in between owes its own line, so it appears in the next diff.
 
 ## The changes file's place (reviews 1 and 2)
-- **Where it lives:** in the agent's own folder, beside the brief it describes, named per session (`.kosmos-instructions-changed-<session>.md`). Two agents sharing a recorded folder each get their own.
+- **Where it lives:** in the agent's own folder, beside the brief it describes, named per session with a hash of the exact name (`.kosmos-instructions-changed-<session>-<hash>.md`). Two agents sharing a recorded folder each get their own.
 - **What it holds that the brief does not:** the lines the person removed. Those are already in the folder, in the brief's `.previous` copy, which `instructions.write` keeps there. For a connected agent the folder may be the person's own repo, so neither file is new exposure for that repo.
 - **When it goes:**
   - at the agent's next session start (it read the whole file);
@@ -42,7 +42,7 @@ A line the person removes, a pasted key included, stays in two places. One is th
 A rewrite that lands after the agent loaded its file, but before its `started` report, gets folded in. The copy is then taken after it, so the next diff omits it. The debt logic already treats a start after the last owe as having read every section, so that change was already never announced. The window and the miss are the same as before this change.
 
 ## Order in the diff (review 5)
-Within a run, each removed line sits beside the line that replaced it. A cut therefore keeps old and new together, never only the rules that no longer apply.
+Within a run, each removed line sits beside the line that replaced it. A cut therefore usually keeps old and new together (review 7: not when one added line alone is over the cap, and then the cut note sends the agent to the sections).
 
 ## Runners without a start report (review 4)
 The copy moves at a `started` report and at a landed line. A runner or restart that posts no `started` report leaves the copy older than what the agent read. The next diff then shows MORE than changed since: changes already read are listed again. That errs in the safe direction: nothing is hidden. A start whose copy cannot be renewed drops the copy, so its next notice is as before.

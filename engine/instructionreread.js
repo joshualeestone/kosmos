@@ -195,7 +195,9 @@ function oweEach(told, owed, section, now = Date.now()) {
    unreadable file or no difference: the line is as before. The copy is Kosmos's bookkeeping, never shown to anyone. */
 const SEEN_SAFE = /^[A-Za-z0-9._-]{1,120}$/;
 // Per session (review 2): two agents can share one recorded folder, and each must find only its own changes.
-const changesName = (session) => '.kosmos-instructions-changed-' + session + '.md';
+// Review 7: with the same name hash as the copy, so two names that differ only in case (one folder) never share it.
+const nameHash = (s) => require('node:crypto').createHash('sha256').update(s).digest('hex').slice(0, 12);
+const changesName = (session) => '.kosmos-instructions-changed-' + session + '-' + nameHash(session) + '.md';
 const DIFF_CELLS_MAX = 4 * 1000 * 1000;   // LCS table bound: a rewrite this large is read whole anyway
 const CHANGES_LINES_MAX = 160;
 // Review 2: a whole line is never cut (an edit past the cut would print as two identical lines); the file is capped
@@ -207,7 +209,7 @@ function seenDir() { return path.join(require('./store').ROOT, 'instruction-rere
 function seenFile(session) {
   const s = String(session || '');
   if (!SEEN_SAFE.test(s) || /^\.+$/.test(s)) return null;
-  return path.join(seenDir(), s + '-' + require('node:crypto').createHash('sha256').update(s).digest('hex').slice(0, 12) + '.md');
+  return path.join(seenDir(), s + '-' + nameHash(s) + '.md');
 }
 function readSeen(session) {
   const p = seenFile(session);
@@ -335,7 +337,7 @@ function changedLines(before, after) {
   const fits = (s) => out.length < lineRoom && bytes + Buffer.byteLength(s) + 1 <= byteRoom;
   for (const r of runs) {
     // A label and at least one of its lines fit, or the run is left for the sections the notice names.
-    const label = r.head ? 'Under ' + r.head.replace(/^#+ /, '') + ':' : 'At the top of the file:';
+    const label = r.head ? 'Under ' + r.head.replace(/^#+ /, '') + ':' : 'Before the first heading:';
     if (out.length + 3 > lineRoom || !fits('\n' + label + '\n' + r.lines[0])) { cut = true; break; }
     out.push('', label);
     bytes += Buffer.byteLength(label) + 2;
