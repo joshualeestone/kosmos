@@ -3,7 +3,7 @@
 Card kosmos#7149, ask 1 (from an agent's feedback report). The decision is posted on the card (comment 6404057817). Ask 2, a reopening condition on a task held on a person, overlaps #6683 and is left for that card.
 
 ## Decided
-1. **A copy of what the agent last read:** `<data>/instruction-reread-seen/<session>.md`, written atomically.
+1. **A copy of what the agent last read:** `<data>/instruction-reread-seen/<session>-<sha256 of the name, 12 hex>.md`, written through securewrite.
    - At a session start: the report route, on a `started` report, calls `rememberRead`. That is when the agent reads its whole file.
    - When a re-read line lands: passOnce calls `remember` with the text read just before the line. That is what the agent then reads.
    - "Lands" is settle's verdict: PLACED, or UNCONFIRMED (a throw included), which ends the debt as before (review 1). A refused or held line moves nothing.
@@ -37,6 +37,9 @@ That the text read just before the line is what the agent reads after it. A writ
 
 ## A window this does not widen (review 2)
 A rewrite that lands after the agent loaded its file, but before its `started` report, gets folded in. The copy is then taken after it, so the next diff omits it. The debt logic already treats a start after the last owe as having read every section, so that change was already never announced. The window and the miss are the same as before this change.
+
+## Order in the diff (review 5)
+Within a run, each removed line sits beside the line that replaced it. A cut therefore keeps old and new together, never only the rules that no longer apply.
 
 ## Runners without a start report (review 4)
 The copy moves at a `started` report and at a landed line. A runner or restart that posts no `started` report leaves the copy older than what the agent read. The next diff then shows MORE than changed since: changes already read are listed again. That errs in the safe direction: nothing is hidden. A start whose copy cannot be renewed drops the copy, so its next notice is as before.

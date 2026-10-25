@@ -262,8 +262,9 @@ function changedLines(before, after) {
   // Review 1: a CRLF file compares and prints without its carriage returns.
   // Review 2: one trailing newline more or less is not a change.
   const norm = (s) => String(s).replace(/\r\n?/g, '\n').replace(/\n$/, '');   // review 3: a lone CR is a line end too
-  const a = norm(before).split('\n');
-  const b = norm(after).split('\n');
+  const lines = (s) => { const n = norm(s); return n === '' ? [] : n.split('\n'); };   // review 5: an empty file has no lines
+  const a = lines(before);
+  const b = lines(after);
   let pre = 0;
   while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre += 1;
   let suf = 0;
@@ -312,6 +313,18 @@ function changedLines(before, after) {
     else { run.lines.push('+ ' + B[j]); j += 1; }
   }
   flush();
+  /* Review 5: each removed line beside the line that replaced it, so a cut keeps old and new together (removals all
+     first would leave a cut file with only the rules that no longer apply). */
+  for (const r of runs) {
+    const minus = r.lines.filter((l) => l.startsWith('- '));
+    const plus = r.lines.filter((l) => l.startsWith('+ '));
+    const paired = [];
+    for (let k = 0; k < Math.max(minus.length, plus.length); k += 1) {
+      if (k < minus.length) paired.push(minus[k]);
+      if (k < plus.length) paired.push(plus[k]);
+    }
+    r.lines = paired;
+  }
   const out = [];
   let bytes = 0;
   let cut = false;
@@ -386,11 +399,12 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
         + 'its new text applies the next time you take part. ';
   // kosmos#7149: where the changed lines are, so the agent need not re-read a long block to find a short change.
   const changes = typeof changesAt === 'string' && changesAt
-    ? 'The lines that changed since you last read it are listed in ' + changesAt + ' (read that first, and the rest of the section only if you need it). '
+    ? 'The lines that changed since you last read it are listed in ' + changesAt + ' (read that first, and the rest of those sections only if you need it). '
     : '';
+  // Review 5: after the replaces sentence, so its "it" stays the instructions file, not the changes file.
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
-    + changes
     + 'What it says now replaces anything you read there when you started. '
+    + changes
     + community
     + 'Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies.';
 }
