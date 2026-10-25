@@ -238,7 +238,7 @@ function handleEvent(projectId, line, heldAt) {
   }
   if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to ' + farSide(projectId) + ': ' + clean(ev.because, 200) + '.'); return; }
   // kosmos#7129: an unsealed message shown while this computer waits to be let in (pendingClear) would have been refused
-  // had the room turned out sealed, and the relay or a guest could have written it. Its row says so, for good.
+  // had the room turned out sealed. Its row records that it arrived while waiting, for good.
   let unverified = false;
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && !Array.isArray(ev.data)) {
     // #3728: key frames are the room's handshake, never a row.

@@ -765,7 +765,7 @@ function externalPost(projectId, { from, fromKind, text, member, unverified }) {
     at: new Date().toISOString(),
   };
   if (typeof member === 'string' && EXTERNAL_MEMBER.test(member)) row.member = member;
-  // kosmos#7129: shown while this computer waited to be let in, so nothing checked who wrote it. Kept on the row for good.
+  // kosmos#7129: the row arrived while this computer was waiting to be let in (a sealed room would have refused it). Kept for good.
   if (unverified === true) row.unverified = true;
   if (!row.text.trim() || !rowShaped(row)) return null;
   appendLog(row);
@@ -4214,8 +4214,8 @@ function projectOfPost(id) {
 const OWN_POST_NUDGE_GAP_MS = 2 * 60 * 1000;
 /* #5732 decided on by default (reasoning on the card): only a post the relay stamps as this account's own AND that a
    person wrote. An agent's post relayed from the other computer does not nudge, or two computers' agents would keep
-   telling each other to read the room. KOSMOS_OWN_ROOM_NUDGE=0 turns it off. kosmos#7129: never an unverified post
-   (shown while this computer waits to be let in): the relay writes the stamp, and nothing checked the words. */
+   telling each other to read the room. KOSMOS_OWN_ROOM_NUDGE=0 turns it off. kosmos#7129: never a post marked unverified
+   (it arrived while this computer was waiting to be let in, when the relay's stamp is all there is to go on). */
 function ownPostNudges(msg, env) {
   const e = env || process.env;
   return !!(msg && msg.sameAccount === true && msg.fromKind === 'person' && msg.unverified !== true && e.KOSMOS_OWN_ROOM_NUDGE !== '0');

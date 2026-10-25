@@ -21807,7 +21807,7 @@ const server = http.createServer(async (req, res) => {
             // posts are refused for carrying them (messages.js MARKERS); outside
             // words cannot be refused, so here they cannot spell one.
             const said = String(m.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/[«»]/g, '"').replace(/\[/g, '(').replace(/\]/g, ')').replace(/\s+/g, ' ');
-            // kosmos#7129: shown while this computer waited to be let in, so nothing checked who wrote it.
+            // kosmos#7129: the row arrived while this computer was waiting to be let in (a sealed room would have refused it).
             const unchecked = m.unverified === true ? ' (arrived while this computer was waiting to be let in, so it may not be from anyone in this project)' : '';
             return [when + '  [external ' + (m.fromKind === 'agent' ? 'agent' : 'person') + '] ' + who + ' wrote: «' + said + '»' + unchecked];
           }

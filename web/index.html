@@ -75961,7 +75961,7 @@ function pjRoomRow(m, p, hideHeader) {
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(whoX) + '</b> <span class="msg-ext-tag">' + tagX + '</span>'
       + '<div class="msg-ext-tx">' + esc(m.text || '').replace(/\n/g, '<br>') + '</div>'
-      /* kosmos#7129: shown while this computer waited to be let in, so it could not be checked; it says so for good. */
+      /* kosmos#7129: the row arrived while this computer was waiting to be let in (a sealed room would have refused it); it says so for good. */
       + (m.unverified === true ? '<div class="msg-ext-unv">Arrived while this computer was waiting to be let in, so it may not be from anyone in this project.</div>' : '')
       + (whenX ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '')
       + '</div></div></div>';
