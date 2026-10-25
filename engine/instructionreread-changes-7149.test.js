@@ -80,8 +80,8 @@ test('lineFor names the changes file when there is one, and is unchanged without
   const plain = ir.lineFor(['community']);
   assert.equal(ir.lineFor(['community'], { changesAt: null }), plain);
   const named = ir.lineFor(['community'], { changesAt: '/w/ada/.kosmos-instructions-changed.md' });
-  assert.match(named, /the changed lines are listed in \/w\/ada\/\.kosmos-instructions-changed\.md \(a pointer only: still read the sections themselves, and anything else it lists is current too\)/);
-  assert.equal(named.replace(/To help you find what changed, the changed lines are listed in \S+ \(a pointer only: still read the sections themselves, and anything else it lists is current too\)\. /, ''), plain);
+  assert.match(named, /the changed lines are listed in \/w\/ada\/\.kosmos-instructions-changed\.md \(a pointer only: still read the sections themselves; a line it marks \+ elsewhere is current too, and a line it marks - no longer applies\)/);
+  assert.equal(named.replace(/To help you find what changed, the changed lines are listed in \S+ \(a pointer only: still read the sections themselves; a line it marks \+ elsewhere is current too, and a line it marks - no longer applies\)\. /, ''), plain);
   // Review 5: after the replaces sentence; review 6: the sections are still read, the file only points.
   assert.ok(named.indexOf('What it says now replaces') < named.indexOf('To help you find'));
   assert.match(plain, /Read the section headed "The Kosmos\+ community" in it now\./);
@@ -396,7 +396,10 @@ test('review 14: the changes file says it is a pointer and the named sections ar
   const f = agentFile('jo', AFTER);
   ir.remember('jo', BEFORE);
   const body = fs.readFileSync(ir.prepareChanges('jo').path, 'utf8');
-  assert.match(body, /This is a pointer only: read the sections the notice named\. It lists every change since you last read the file, changes elsewhere in it included, and those are your current instructions too\./);
+  assert.match(body, /This is a pointer only: read the sections the notice named\. It lists the changes since you last read the file, changes elsewhere in it included: a line marked \+ is in your instructions now, wherever it is, and a line marked - no longer applies\. If it ends with a note that more changed, it is not complete\./);
+  // Review 17: what - and + mean is said, and nothing calls a removed line current.
+  assert.match(body, /A line starting with - was removed, one starting with \+ was added\./);
+  assert.doesNotMatch(body, /those are your current instructions too/);
   assert.doesNotMatch(body, /for information|what count/, 'the header ranks some changes below others (review 15)');
 });
 
