@@ -90,8 +90,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       ok(t + ' pjRoomRow is on the page', !r.missing);
       if (r.missing) { await page.close(); continue; }
       ok(t + ' all three rows render as external bubbles', r.rows === 3, JSON.stringify(r));
-      ok(t + ' kosmos#7129: a row shown while waiting says it could not be checked, on screen', r.unvShown
-        && r.unvText === 'Arrived before this computer was let in, so it could not be checked.', JSON.stringify({ s: r.unvShown, t: r.unvText }));
+      ok(t + ' kosmos#7129: a row shown while waiting says so, on screen', r.unvShown
+        && r.unvText === 'Arrived while this computer was waiting to be let in, so it may not be from anyone in this project.', JSON.stringify({ s: r.unvShown, t: r.unvText }));
       ok(t + ' kosmos#7129 CONTROL: the two ordinary rows carry no such line', r.unvOthers === 0, String(r.unvOthers));
       ok(t + ' an agent sender is tagged External agent, a person External', r.tags[0] === 'External agent' && r.tags[1] === 'External', JSON.stringify(r.tags));
       ok(t + ' the sender name is text, payload and all', r.name.startsWith('Ada <img'), r.name);

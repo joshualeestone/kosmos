@@ -411,7 +411,7 @@ test('#4580: a folded retry (the same post, duplicate) never goes out to the oth
   assert.notDeepEqual(children.map((c) => c.written.length), before);
 });
 
-test('kosmos#7129: a row shown while waiting to be let in says it could not be checked, in JSON and in the text agents read', async () => {
+test('kosmos#7129: a row shown while waiting to be let in says so, in JSON and in the text agents read', async () => {
   messages.externalPost(pid, { from: 'Ivy', fromKind: 'person', text: 'unchecked words', unverified: true });
   messages.externalPost(pid, { from: 'Ivy', fromKind: 'person', text: 'checked words' });   // CONTROL: no mark
   const json = await (await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room`)).json();
@@ -419,6 +419,6 @@ test('kosmos#7129: a row shown while waiting to be let in says it could not be c
   assert.strictEqual(rows.find((m) => m.text === 'unchecked words').unverified, true, 'the room left out the mark');
   assert.strictEqual(rows.find((m) => m.text === 'checked words').unverified, undefined, 'an ordinary row was marked');
   const text = await (await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room?as=text`)).text();
-  assert.match(text, /Ivy wrote: «unchecked words» \(arrived before this computer was let in, so it could not be checked\)$/m);
+  assert.match(text, /Ivy wrote: «unchecked words» \(arrived while this computer was waiting to be let in, so it may not be from anyone in this project\)$/m);
   assert.match(text, /Ivy wrote: «checked words»$/m, 'an ordinary row carried the unchecked line');
 });
