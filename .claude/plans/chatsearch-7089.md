@@ -60,7 +60,8 @@ hand with run.sh <dir> and recorded on the card, not a standing test).
 - The no-match sentence is also announced to VoiceOver (the field keeps focus), as the board's room
   search announces it.
 - While searching, the person's own send does not scroll the thread (the board's jumpToOwnSend). The
-  keyboard's scroll-to-newest and the new-messages capsule are off while searching too.
+  new-messages capsule is off while searching too. The keyboard's scroll-to-newest is kept: it moves
+  only a reader already at the newest message, and the search field takes focus with no words yet.
 - No match with a pending bubble showing: the sentence is about the conversation's rows and stays the
   board's; the bubble is the send in flight (see above). Raised to Mona Lisa with the shots.
 - Matching uses Swift's String.contains, which treats composed and decomposed accents as equal; the
@@ -77,8 +78,10 @@ hand with run.sh <dir> and recorded on the card, not a standing test).
   conversation" is not carried: .searchable takes one prompt. Rejected a longer prompt that truncates.
 - The field also shows over the loading, refused and Mac-not-answering screens: .searchable is on the
   chat's one view, and making it conditional would change that view's identity and reset its state.
-  Typing there does nothing until a conversation loads. Every host pushes ChatView on a navigation
-  stack (AgentsView, RoomView, TasksView, TodayView), so the drawer renders in each.
+  Typing there does nothing until a conversation loads. Every host pushes ChatView inside a NavigationView
+  (AgentsView, RoomView, TasksView, TodayView), so the drawer renders in each.
 - The clear-search settle and its fallback are view behaviour LogicTests cannot drive; they join the
   device checks on #7089 (clear a search on a long chat with earlier pages loaded: it lands at the
-  newest message and does not load a page).
+  newest message and does not load a page; the same after leaving a chat mid-search and coming back;
+  whether the bar with the agent's name hides while the field is active; VoiceOver hears the no-match
+  sentence).

@@ -136,7 +136,9 @@ struct ChatView: View {
             armed = nil
             // A reading posture, not the chat's state: coming back shows the whole conversation (the board clears its
             // search on opening another agent). What the search changed goes with it here, not in onChange(of: query),
-            // which need not run for a view that is off screen.
+            // which need not run for a view that is off screen. Coming back, the whole thread lays out where the short one
+            // was: settle it again, as clearing does.
+            if searching { settledAtEnd = false }
             query = ""
             sentWhileSearching = false
             // Not into another account's chats: a draft from before a sign-out is dropped with the rest.
@@ -313,10 +315,11 @@ struct ChatView: View {
                     keepNewestInView = atBottom
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                    // Not while searching: the board's search box moves nothing when it takes the keyboard.
-                    if keepNewestInView && !searching { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                    if keepNewestInView { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
                 }
+                // Only the chat on screen: another tab can keep a chat alive under it.
                 .onReceive(NotificationCenter.default.publisher(for: .chatScrollToEnd)) { _ in
+                    guard visible else { return }
                     withAnimation { proxy.scrollTo("end", anchor: .bottom) }
                 }
             }
