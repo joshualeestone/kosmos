@@ -1,10 +1,15 @@
 {
-  "version": "0.7.65",
+  "version": "0.7.66",
   "highlights": [
     {
       "icon": "chat",
       "title": "A message that did not go can be sent again",
       "line": "When your latest message in an agent's chat could not be delivered, a line under it says so; for plain words, try again sends them once."
+    },
+    {
+      "icon": "chat",
+      "title": "Long messages reach Claude agents",
+      "line": "A long message Kosmos sends to a Claude agent, folded by Claude Code into a paste, is now sent and confirmed, not left in its box."
     },
     {
       "icon": "tasks",
@@ -23,11 +28,6 @@
       "platforms": [
         "mac"
       ]
-    },
-    {
-      "icon": "swarm",
-      "title": "A paused room says why",
-      "line": "When Kosmos pauses a room whose agents kept going back and forth, a note above the message box says why and offers Reopen."
     }
   ]
 }
