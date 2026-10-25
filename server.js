@@ -1436,6 +1436,9 @@ async function instructionRereadPass() {
       stoodDown: (session) => require('./engine/replynudge').stoodDown(session, projects.readAll()),   // the person's pause, as the other lines
       deliver: (session, line, r) => chat.deliverAutomaticAsync(session, line, r, undefined, undefined),
       DELIVERY: chat.DELIVERY,
+      // kosmos#7149: the changed lines since the agent last read its file, named in the line; the copy moves on when it lands.
+      prepareChanges: (session) => ir.prepareChanges(session),
+      remember: (session, text) => ir.remember(session, text),
     });
     for (const d of done) if (['sent', 'restarted', 'gone', 'expired'].includes(d.act)) process.stdout.write(`instruction-reread: ${d.session} ${d.act}${d.state ? ' (' + d.state + ')' : ''}\n`);
   } catch { /* the next pass tries again */ } finally { instructionRereadRunning = false; }
@@ -17450,6 +17453,9 @@ const server = http.createServer(async (req, res) => {
              refused over a standing waiting state; see selfreport.record. */
           auto: body.auto === true,
         });
+        /* kosmos#7149: a session start is when the agent reads its whole instructions file, so the copy that the next
+           re-read notice diffs against is taken here. Never fails the report. */
+        if (body.state === 'started') { try { require('./engine/instructionreread').rememberRead(who); } catch { /* the next notice is as before */ } }
         /* #2146 WORK-ACTIVITY MARKER (Renet Tilley). A separate, WORK-SPECIFIC
            signal, distinct from the liveness beat below. It records that the
            agent was ACTIVELY WORKING at a moment, so #2146's activeWhileWaiting
