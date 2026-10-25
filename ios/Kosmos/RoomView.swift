@@ -55,6 +55,8 @@ struct RoomView: View {
         VStack(spacing: 0) {
             needsLine
             thread
+                .background(GeometryReader { g in Color.clear.onAppear { threadHeight = g.size.height }
+                    .onChange(of: g.size.height) { threadHeight = $0 } })
             if let note = store.notes[project.id] {
                 Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
             }
@@ -488,6 +490,11 @@ struct RoomView: View {
                     .background(RoundedRectangle(cornerRadius: 20).fill(Palette.card))
                     .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator))
                     .overlay(alignment: .top) { mentionList.alignmentGuide(.top) { $0[.bottom] + 6 } }
+                    // VoiceOver hears the list open, once, not on every letter (the board's aria-activedescendant has
+                    // no iOS form; review 1).
+                    .onChange(of: mentionOptions == nil) { closed in
+                        if !closed, let n = mentionOptions?.count { UIAccessibility.post(notification: .announcement, argument: Board.mentionOpened(n)) }
+                    }
                 Button { send() } label: {
                     Image(systemName: "arrow.up").font(.body.weight(.bold)).foregroundColor(Palette.sendGlyph)
                         .frame(width: 44, height: 44).background(Circle().fill(Palette.sendFill))
@@ -503,46 +510,54 @@ struct RoomView: View {
 
     // kosmos#7085: the board's @ picker (#312), floating just above the box so the thread never moves: the project's
     // members matching what follows the @, and a tap puts "@<key> " in its place (Board.mentionPick, tested). It shows
-    // only while the box has focus. At most a few rows, so it stays clear of the thread at any text size; typing more of
-    // the name narrows it, and the last line says so when some are not shown.
-    @Environment(\.dynamicTypeSize) private var typeSize
+    // only while the box has focus. Everyone who matches, as on the board, in a list that scrolls once it would cover
+    // more than about half of the thread, so at any text size the first rows stay on screen (review 1).
+    @State private var threadHeight: CGFloat = 0
+    private var mentionOptions: [Board.ProjectMember]? {
+        guard typing, let token = Board.mentionToken(draft) else { return nil }
+        return Board.mentionMatches(project.members, typed: token.typed)
+    }
     @ViewBuilder private var mentionList: some View {
-        if typing, let token = Board.mentionToken(draft) {
-            let all = Board.mentionMatches(project.members, typed: token.typed)
-            let cap = typeSize.isAccessibilitySize ? 3 : 5
-            VStack(alignment: .leading, spacing: 0) {
+        if let all = mentionOptions {
+            Group {
                 if all.isEmpty {
                     Text(Board.mentionNone).font(.footnote).foregroundColor(Palette.secondary)
                         .padding(.horizontal, 14).padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    ForEach(all.prefix(cap), id: \.session) { m in
-                        Button { if let text = Board.mentionPick(draft, key: m.session) { draft = text } } label: {
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(m.name).foregroundColor(Palette.primary)
-                                if m.name != m.session {
-                                    Text("@" + m.session).font(.footnote.monospaced()).foregroundColor(Palette.secondary)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 14).frame(minHeight: 44).contentShape(Rectangle())
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(all, id: \.session) { m in mentionRow(m) }
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(m.name)
-                        .accessibilityHint("Puts @" + m.session + " in your post")
                     }
-                    if all.count > cap {
-                        Text(Board.mentionMore).font(.footnote).foregroundColor(Palette.secondary)
-                            .padding(.horizontal, 14).padding(.vertical, 8)
-                    }
+                    .frame(maxHeight: max(88, threadHeight * 0.5))
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Palette.card))
+            .background(RoundedRectangle(cornerRadius: 14).fill(Palette.card).shadow(color: .black.opacity(0.10), radius: 12, y: 4))
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(Palette.separator))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Agents on this project")
         }
+    }
+    private func mentionRow(_ m: Board.ProjectMember) -> some View {
+        Button {
+            if let text = Board.mentionPick(draft, key: m.session) { draft = text }
+            // VoiceOver goes back to the box (review 1: the row it was on is gone, and focus fell to the top).
+            composerFocused = true
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(m.name).foregroundColor(Palette.primary)
+                if m.name != m.session {
+                    Text("@" + m.session).font(.footnote.monospaced()).foregroundColor(Palette.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14).frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(m.name == m.session ? m.name : m.name + ", @" + m.session)
+        .accessibilityHint("Puts @" + m.session + " in your post")
     }
 
     // The box clears at once, so the person can keep typing. A refused or not-confirmed post's words come back through

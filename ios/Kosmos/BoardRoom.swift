@@ -438,8 +438,10 @@ extension Board {
     }
     // The board's line when nobody matches.
     static let mentionNone = "Nobody on this project matches that."
-    // The phone shows a few rows (the board's list has room for all): the last line when some are not shown.
-    static let mentionMore = "Type more of the name to see the others."
+    // What VoiceOver hears when the list opens.
+    static func mentionOpened(_ n: Int) -> String {
+        n == 0 ? mentionNone : n == 1 ? "1 agent matches, above the box." : "\(n) agents match, above the box."
+    }
 
     // Whether `text` holds @word as a whole token (the engine's rule: not inside a longer name), without case.
     static func mentionsWord(_ text: String, _ word: String) -> Bool {

@@ -453,12 +453,16 @@ check(Board.mentionMatches(crew, typed: "").map(\.session) == ["roo", "monalisa"
 check(Board.mentionMatches(crew, typed: "MO").map(\.session) == ["monalisa"], "matched by the key's start, without case")
 let named = [Board.ProjectMember(session: "dana-2", name: "Writer", hasAvatar: false, provider: nil)]
 check(Board.mentionMatches(named, typed: "wri").map(\.session) == ["dana-2"], "matched by the shown name's start")
+check(Board.mentionMatches(named, typed: "DANA").map(\.session) == ["dana-2"], "matched by the key's start alone, without case")
 check(Board.mentionMatches(crew, typed: "lisa").isEmpty, "the start only, never the middle of a name")
 check(Board.mentionMatches(crew, typed: "zed").isEmpty, "nobody matching: an empty list")
 // A pick replaces the token with "@<key> ".
 check(Board.mentionPick("Can @mo", key: "monalisa") == "Can @monalisa ", "a pick puts the key and a closing space")
 check(Board.mentionPick("@", key: "roo") == "@roo ", "a pick from a bare @")
 check(Board.mentionPick("no token", key: "roo") == nil, "no token left: nothing is changed")
+check(Board.mentionPick("@ro", key: "") == nil, "a member with no key inserts nothing")
+check(Board.mentionOpened(0) == Board.mentionNone && Board.mentionOpened(1) == "1 agent matches, above the box."
+      && Board.mentionOpened(3) == "3 agents match, above the box.", "what VoiceOver hears when the list opens")
 // The board still has these rules and words, so the two cannot drift unseen.
 for phrase in [#"const MENTION_TOKEN = /(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]*)$/;"#,
                "c.key.toLowerCase().startsWith(q) || c.shown.toLowerCase().startsWith(q)",
