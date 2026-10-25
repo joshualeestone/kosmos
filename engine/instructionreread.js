@@ -189,8 +189,116 @@ function oweEach(told, owed, section, now = Date.now()) {
   return next;
 }
 
+/* kosmos#7149: what changed, not only where. A copy of the agent's instructions file as it last read it (at its session
+   start, from the report route, and when a re-read line lands) is kept per session; at delivery the file is diffed
+   against it and the changed lines are written to one file in the agent's own folder, which the line names. No copy, an
+   unreadable file or no difference: the line is as before. The copy is Kosmos's bookkeeping, never shown to anyone. */
+const SEEN_SAFE = /^[A-Za-z0-9._-]{1,120}$/;
+const CHANGES_NAME = '.kosmos-instructions-changed.md';
+const DIFF_CELLS_MAX = 4 * 1000 * 1000;   // LCS table bound: a rewrite this large is read whole anyway
+const CHANGES_LINES_MAX = 160;
+const CHANGES_LINE_CHARS = 400;
+function seenDir() { return path.join(require('./store').ROOT, 'instruction-reread-seen'); }
+function seenFile(session) { return SEEN_SAFE.test(String(session || '')) && !/^\.+$/.test(String(session)) ? path.join(seenDir(), String(session) + '.md') : null; }
+function readSeen(session) {
+  const p = seenFile(session);
+  if (!p) return null;
+  try { return fs.readFileSync(p, 'utf8'); } catch { return null; }
+}
+/* Atomic: tmp + rename. false on any failure (the next diff is then against an older copy, or none). */
+function remember(session, text) {
+  const p = seenFile(session);
+  if (!p || typeof text !== 'string') return false;
+  try {
+    fs.mkdirSync(seenDir(), { recursive: true });
+    const tmp = p + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, text);
+    fs.renameSync(tmp, p);
+    return true;
+  } catch { return false; }
+}
+/* The agent read its whole file just now (a session start). Never throws. */
+function rememberRead(session) {
+  try {
+    const got = require('./instructions').read(session);
+    return got && got.exists === true && typeof got.text === 'string' ? remember(session, got.text) : false;
+  } catch { return false; }
+}
+/* Pure: the lines that differ between two texts, each run labelled with the nearest heading above it in the newer text
+   (or the older one, for a run removed at the end). '' when they are the same, null when too large to diff. */
+function changedLines(before, after) {
+  const a = String(before).split('\n');
+  const b = String(after).split('\n');
+  let pre = 0;
+  while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre += 1;
+  let suf = 0;
+  while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf += 1;
+  const A = a.slice(pre, a.length - suf);
+  const B = b.slice(pre, b.length - suf);
+  if (!A.length && !B.length) return '';
+  if ((A.length + 1) * (B.length + 1) > DIFF_CELLS_MAX) return null;
+  // LCS lengths from the end, so a forward walk can choose at each step.
+  const w = B.length + 1;
+  const L = new Uint32Array((A.length + 1) * w);
+  for (let i = A.length - 1; i >= 0; i -= 1) {
+    for (let j = B.length - 1; j >= 0; j -= 1) {
+      L[i * w + j] = A[i] === B[j] ? L[(i + 1) * w + j + 1] + 1 : Math.max(L[(i + 1) * w + j], L[i * w + j + 1]);
+    }
+  }
+  const isHead = (s) => /^#{1,6} \S/.test(s);
+  const headAt = (lines, upTo) => { for (let k = upTo; k >= 0; k -= 1) if (isHead(lines[k])) return lines[k]; return null; };
+  const runs = [];
+  let run = null;
+  const flush = () => { if (run) { runs.push(run); run = null; } };
+  let i = 0;
+  let j = 0;
+  while (i < A.length || j < B.length) {
+    if (i < A.length && j < B.length && A[i] === B[j]) { flush(); i += 1; j += 1; continue; }
+    if (!run) run = { head: headAt(b, pre + j - 1) || headAt(a, pre + i - 1), lines: [] };
+    // A removed line before the line that replaced it, as a reader expects.
+    if (i < A.length && (j >= B.length || L[(i + 1) * w + j] >= L[i * w + j + 1])) { run.lines.push('- ' + A[i]); i += 1; }
+    else { run.lines.push('+ ' + B[j]); j += 1; }
+  }
+  flush();
+  const out = [];
+  let cut = false;
+  for (const r of runs) {
+    if (out.length >= CHANGES_LINES_MAX) { cut = true; break; }
+    out.push('', r.head ? 'Under ' + r.head.replace(/^#+ /, '') + ':' : 'At the top of the file:');
+    for (const l of r.lines) {
+      if (out.length >= CHANGES_LINES_MAX) { cut = true; break; }
+      out.push(l.length > CHANGES_LINE_CHARS ? l.slice(0, CHANGES_LINE_CHARS) + ' [line cut here]' : l);
+    }
+  }
+  if (cut) out.push('', '[More changed than fits here: read the sections the notice names.]');
+  return out.join('\n');
+}
+/* Before a line: the current file, and (when a copy of what the agent last read exists and differs) the path of the
+   changes file written beside it. { text, path } or null when the file cannot be read. Never throws. */
+function prepareChanges(session) {
+  try {
+    const instructions = require('./instructions');
+    const got = instructions.read(session);
+    if (!got || got.exists !== true || typeof got.text !== 'string') return null;
+    const seen = readSeen(session);
+    if (seen === null) return { text: got.text, path: null };
+    const diff = changedLines(seen, got.text);
+    if (!diff) return { text: got.text, path: null };
+    const file = instructions.fileFor(session);
+    if (!file) return { text: got.text, path: null };
+    const p = path.join(path.dirname(file), CHANGES_NAME);
+    const body = '# What changed in your instructions file since you last read it\n\n'
+      + 'Kosmos wrote this when it told you the file changed. A line starting with - was removed, one starting with + was added.\n'
+      + diff + '\n';
+    const tmp = p + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, body);
+    fs.renameSync(tmp, p);
+    return { text: got.text, path: p };
+  } catch { return null; }
+}
+
 /* The one line for an agent's debt, naming every section it owes. */
-function lineFor(sections, { communityStopped = false } = {}) {
+function lineFor(sections, { communityStopped = false, changesAt = null } = {}) {
   const named = (Array.isArray(sections) ? sections : []).filter((s) => Object.prototype.hasOwnProperty.call(SECTIONS, s));
   if (!named.length) return null;
   const list = named.map((s) => (s === 'policy' ? policySection() : SECTIONS[s]));
@@ -210,7 +318,12 @@ function lineFor(sections, { communityStopped = false } = {}) {
       ? 'Its Kosmos+ community section now says you do not take part in the community: from now on, do not. '
       : 'Do not take part in the Kosmos+ community now because of this notice, even with a daily minimum still open there; '
         + 'its new text applies the next time you take part. ';
+  // kosmos#7149: where the changed lines are, so the agent need not re-read a long block to find a short change.
+  const changes = typeof changesAt === 'string' && changesAt
+    ? 'The lines that changed since you last read it are in ' + changesAt + ': read those first, and the rest of the section only if you need it. '
+    : '';
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
+    + changes
     + 'What it says now replaces anything you read there when you started. '
     + community
     + 'Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies.';
@@ -281,7 +394,9 @@ async function passOnce(o) {
       if (!ok) break;
       let stoppedNow = false;
       if (typeof o.communityStopped === 'function') { try { stoppedNow = o.communityStopped() === true; } catch { stoppedNow = false; } }
-      const line = lineFor(on, { communityStopped: stoppedNow });
+      let prepared = null;
+      if (typeof o.prepareChanges === 'function') { try { prepared = o.prepareChanges(session); } catch { prepared = null; } }
+      const line = lineFor(on, { communityStopped: stoppedNow, changesAt: prepared && prepared.path });
       /* The pass awaits each send, so the reading above can be seconds old: read the roster again and check THIS card
          is still idle just before typing (and hand chat that fresh roster). */
       if (tried >= (Number.isInteger(o.max) ? o.max : MAX_PER_PASS)) break;
@@ -304,6 +419,8 @@ async function passOnce(o) {
         end(session, 'sent');
         if (off.length) keep[session] = { at: debt.at, last: debt.last, n: 1, sections: off };
         if (typeof o.recordSent === 'function') { try { o.recordSent(session, sentAt); } catch { /* only the turn's label is lost */ } }
+        // kosmos#7149: the agent reads the file now, so this is what it last read (the next diff starts here).
+        if (prepared && typeof prepared.text === 'string' && typeof o.remember === 'function') { try { o.remember(session, prepared.text); } catch { /* the next diff is wider */ } }
       }
     }
     if (o.seenMissing instanceof Set) {
@@ -322,4 +439,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
+module.exports = { changedLines, prepareChanges, remember, rememberRead, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
