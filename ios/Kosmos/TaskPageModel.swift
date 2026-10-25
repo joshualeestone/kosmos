@@ -76,10 +76,16 @@ final class TaskPageModel: ObservableObject {
         pageReads += 1
         let mine = pageReads
         let answer = await send { Board.projectsRequest(mac: $0) }
-        guard current, mine > pageShown else { return }
+        // A read cut short (the page left, the loop restarted) says nothing about the Mac: no failure is recorded.
+        guard !Task.isCancelled, current, mine > pageShown else { return }
         pageShown = mine
         guard let (data, response) = answer, (200...299).contains(response.statusCode) else { readFailed = true; return }
-        switch Board.parseTaskPage(data, project: project, number: number) {
+        // The whole project list is parsed off the main thread: a large fleet's list every 5 seconds must not stall a
+        // scroll.
+        let (project, number) = (self.project, self.number)
+        let parsed = await Task.detached { Board.parseTaskPage(data, project: project, number: number) }.value
+        guard !Task.isCancelled, current, mine == pageShown else { return }
+        switch parsed {
         case .page(let p):
             // A refusal is about the press it answered: once the task reads otherwise (another device did it), it goes.
             if refusal != nil, let was = page, was.act != p.act { refusal = nil }
@@ -101,7 +107,7 @@ final class TaskPageModel: ObservableObject {
         let mine = activityReads
         let (project, number) = (self.project, self.number)
         let answer = await send { Board.taskActivityRequest(mac: $0, project: project, number: number) }
-        guard current, mine > activityShown else { return }
+        guard !Task.isCancelled, current, mine > activityShown else { return }
         activityShown = mine
         guard let (data, response) = answer, (200...299).contains(response.statusCode), let events = Board.parseActivity(data) else {
             activityFailed = true
@@ -148,8 +154,12 @@ final class TaskPageModel: ObservableObject {
         let (project, number) = (self.project, self.number)
         let first = await send { Board.taskSeenRequest(mac: $0, project: project, number: number) }
         if let s = first?.1.statusCode, (200...299).contains(s) { recordedKey = key }
+        // Cut short (the loop restarted, the page left): not an answer from the Mac, so the state is left unmarked and
+        // the next mark sends it.
+        if Task.isCancelled && recordedKey != key { if seenKey == key { seenKey = nil }; return }
         guard Board.seenRetries(status: first?.1.statusCode ?? 0) else { return }
         await sleep(3)
+        if Task.isCancelled { if seenKey == key { seenKey = nil }; return }
         // Not tried again (the person left, or the state moved on): left unmarked, so the next mark of it is sent, as
         // the board's tkMarkSeen settles it with onDone(false).
         guard current, activityKey == key, present else { if seenKey == key { seenKey = nil }; return }
