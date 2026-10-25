@@ -54,4 +54,9 @@ the board's route with its two sentences; tested against a captured projects ans
      (needsDismissKey could end in half an emoji, and the phone then cannot read /api/projects at all). Fixed here:
      focus also moves when it fell to nothing with its row; Dismiss reads "Try again" after one that did not go, as
      the board's. After #7108 merges, this branch's pin on the board's keyOf fallback is updated on rebase.
+   - Round 5: 0 blockers, 2 warnings, 3 nits. Fixed: focus is not pulled back once VoiceOver left that row's
+     Dismiss while the row was still there (needsLeft); at an accessibility size even one member's row sits behind
+     Show, so the band can always be made small; only the row that failed reads "Try again"; the failure line wraps;
+     the built fallback key tested through needsNotice (Character cuts and a wrong cap now red). Room 265/265;
+     Debug SUCCEEDED.
 3. Validation, PR.

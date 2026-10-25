@@ -362,13 +362,14 @@ final class RoomStore: ObservableObject {
     // board does) so the row goes, and the board's sentence is returned only once a read shows it; not taken: the
     // failure sentence, kept under the notice (needsFailed) until its rows change or the room opens again. Nil: nothing
     // to say (another account or computer meanwhile, or a re-read that never landed).
-    @Published private(set) var needsFailed: [String: String] = [:]
+    // The failure sentence and the row whose Dismiss did not go (only that one reads "Try again"; review 5).
+    @Published private(set) var needsFailed: [String: (session: String, said: String)] = [:]
     func dismissNeeds(_ row: Board.NeedsRow, in project: String) async -> String? {
         let epoch = client.chatEpoch
         let answer = await client.throughMac { Board.needsDismissRequest(mac: $0, project: project, agent: row.session, reason: row.key) }
         guard same(epoch) else { return nil }
         guard let said = Board.needsDismissSaid(status: answer?.1.statusCode) else { return nil }
-        if said == Board.needsDismissFailed { needsFailed[project] = said; return said }
+        if said == Board.needsDismissFailed { needsFailed[project] = (row.session, said); return said }
         needsFailed[project] = nil
         var landed = await loadList()
         if !landed { landed = await loadList() }

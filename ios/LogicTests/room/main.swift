@@ -761,6 +761,11 @@ let one = Board.needsNotice([Board.ProjectMember(session: "cleo", name: "cleo", 
                                                   needsYouKey: nil, because: "Which cover photo?")], names: ["cleo": "Cleo"])
 check(one?.head == "Cleo needs you on this project." && one?.namedInHead == "cleo", "one: the head names it, and its row does not again")
 check(one?.rows.first?.key == "question:Which cover photo?", "no key from the route: built as the engine builds it")
+let longEmoji = String(repeating: "😀", count: 200)
+let longKeyed = Board.needsNotice([Board.ProjectMember(session: "cleo", name: "cleo", hasAvatar: false, provider: nil, needsYouHere: "question",
+                                                        needsYouKey: nil, because: longEmoji)])
+check(longKeyed?.rows.first?.key == "question:" + Board.utf16Prefix(longEmoji, 300) && longKeyed?.rows.first?.key.utf16.count == 9 + 300,
+      "a long question's built key: 300 UTF-16 units, as the engine's cut")
 let keyed = Board.needsNotice([Board.ProjectMember(session: "cleo", name: "cleo", hasAvatar: false, provider: nil, needsYouHere: "question",
                                                     needsYouKey: "question:Which cover?", because: "Something newer")])
 check(keyed?.rows.first?.key == "question:Which cover?", "the route's own key is what Dismiss sends, never one built again")
