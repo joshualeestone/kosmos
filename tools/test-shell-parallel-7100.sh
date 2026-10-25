@@ -71,7 +71,7 @@ else bad "last red: rc=$rc(1) out=[$out]"; fi
 cat > "$T/stubkid.sh" <<'STUBKID'
 #!/bin/bash
 echo "kid of shard $1 is running"
-sleep 300 & echo "$!" > "$STUB_KIDS/kid-$1"
+sleep 300 & echo "$!" > "$STUB_KIDS/kid-$1"   # sleep-control-ok: stands in for a test the shard runs; the stop must kill it
 wait
 STUBKID
 chmod +x "$T/stubkid.sh"
@@ -100,7 +100,7 @@ fi
 cat > "$T/stubborn.sh" <<'STUBBORN'
 #!/bin/bash
 trap '' TERM
-sleep 300 & echo "$!" > "$STUB_KIDS/kid-$1"
+sleep 300 & echo "$!" > "$STUB_KIDS/kid-$1"   # sleep-control-ok: stands in for a test the shard runs; the stop must kill it
 wait
 STUBBORN
 chmod +x "$T/stubborn.sh"
@@ -117,7 +117,7 @@ else bad "stubborn: kids recorded $(ls "$T/kids4d" | grep -c '^kid-')(2), still 
 # reaches it too: shard 1 leaves a sleep and ends at once, shard 2 is still running when the TERM comes.
 cat > "$T/stubleft.sh" <<'STUBLEFT'
 #!/bin/bash
-sleep 300 & echo "$!" > "$STUB_KIDS/kid-$1"
+sleep 300 & echo "$!" > "$STUB_KIDS/kid-$1"   # sleep-control-ok: stands in for a test the shard runs; the stop must kill it
 [ "$1" = 1 ] && exit 0
 wait
 STUBLEFT
@@ -137,7 +137,7 @@ else bad "finished shard's leftover: kids recorded $(ls "$T/kids4c" | grep -c '^
 # can have left something in its group. Its pid has no process by then, so the stop finds it by its group.
 cat > "$T/stubunwaited.sh" <<'STUBUNWAITED'
 #!/bin/bash
-sleep 300 & echo "$!" > "$STUB_KIDS/kid-$1"
+sleep 300 & echo "$!" > "$STUB_KIDS/kid-$1"   # sleep-control-ok: stands in for a test the shard runs; the stop must kill it
 [ "$1" = 2 ] && { : > "$STUB_KIDS/ended-$1"; exit 0; }
 wait
 STUBUNWAITED
