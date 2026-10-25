@@ -134,14 +134,17 @@ struct ChatView: View {
             ToolbarItem(placement: .principal) { title }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    if !searchOpen { openedAtNewest = atBottom }
+                    // With the row already open it only puts the cursor back in the field.
+                    let opening = !searchOpen
+                    if opening { openedAtNewest = atBottom }
                     searchOpen = true
                     DispatchQueue.main.async {
                         searchFocused = true
-                        if openedAtNewest { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
+                        if opening && openedAtNewest { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
                     }
                 } label: {
                     Image(systemName: "magnifyingglass").font(.system(size: 20)).foregroundColor(Palette.secondary)
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
                 .accessibilityLabel("Search this conversation")
             }
