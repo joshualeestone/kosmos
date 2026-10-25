@@ -38,7 +38,8 @@ const GRANT_KEYS = 500;   // the route's most keys in one call
 const URL_LIFETIME_MS = 300000;   // the route's presigned GETs last 5 minutes
 const EXPIRY_MARGIN_MS = 30000;   // a URL this close to its expiry is granted again before it is used
 // restorerun cuts each fetch off at FETCH_TIMEOUT_MS (2 min). The worst path inside one fetch is a grant, a GET, the
-// wait, a second grant and a second GET: 15 + 40 + 2 + 15 + 40 = 112 s (reviews 1 and 2).
+// wait, a second grant and a second GET: 15 + 40 + 2 + 15 + 40 = 112 s (reviews 1 to 3). A grant answering after its
+// cut-off is not kept: it costs at most one more call, and keeping it would race the second try (review 3, declined).
 const GET_TIMEOUT_MS = 40000;
 const GRANT_TIMEOUT_MS = 15000;   // a grant that does not answer in this long reads as not reached (review 2)
 const RETRY_WAIT_MS = 2000;   // before a second try at a grant that was not reached
@@ -98,8 +99,10 @@ function answerProblem(a, req, rec) {
   return null;
 }
 
-/* One GET, never thrown: { kind: 'bytes', bytes } | { kind: 'expired' } | { kind: 'missing' }. A redirect is not
-   followed, a body past maxBytes is cut off (and is missing), and the read is aborted after timeoutMs. */
+/* One GET, never thrown: { kind: 'bytes', bytes } | { kind: 'expired' } | { kind: 'retry' } | { kind: 'missing' }.
+   retry (review 3): a 5xx, a 429, a dropped connection or the timeout, which another try may get past; missing: an
+   answer that will not change (a 404, a refusal, a redirect, a body past maxBytes). A redirect is not followed, a body
+   past maxBytes is cut off, and the read is aborted after timeoutMs. */
 async function getOne(fetchFn, url, maxBytes, timeoutMs) {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), timeoutMs);
@@ -111,14 +114,14 @@ async function getOne(fetchFn, url, maxBytes, timeoutMs) {
       else { try { await r.body?.cancel(); } catch { /* nothing to read */ } }
       // Only S3's presigned-url expiry, as engine/backupupload.js reads it for a PUT.
       if (r.status === 403 && /<Code>AccessDenied<\/Code>/.test(text) && /Request has expired/.test(text)) return { kind: 'expired' };
-      return { kind: 'missing' };
+      return { kind: r.status >= 500 || r.status === 429 ? 'retry' : 'missing' };
     }
     const len = Number(r.headers && typeof r.headers.get === 'function' ? r.headers.get('content-length') : NaN);
     if (Number.isFinite(len) && len > maxBytes) { try { await r.body?.cancel(); } catch { /* not read */ } return { kind: 'missing' }; }
     const bytes = await readCapped(r, maxBytes);
     return bytes ? { kind: 'bytes', bytes } : { kind: 'missing' };
   } catch {
-    return { kind: 'missing' };
+    return { kind: 'retry' };   // the connection, or the timeout's abort, mid-answer or mid-body
   } finally {
     clearTimeout(t);
   }
@@ -175,6 +178,7 @@ function readGrantFetcher(opts) {
   let stopped = null;   // the reason every later fetch is refused
   let unreached = 0;
   const unreadable = new Map();   // key -> why it is not granted
+  const problems = new Set();   // why some files could not be fetched, without stopping the rest (review 3)
 
   const fresh = (key) => { const u = urls.get(key); return u && now() < u.expiresAtMs - EXPIRY_MARGIN_MS ? u.url : null; };
 
@@ -183,8 +187,19 @@ function readGrantFetcher(opts) {
     if (inFlight.has(i)) return inFlight.get(i);
     const p = (async () => {
       if (typeof grant !== 'function') { stopped = 'restore has no way to ask Kosmos+ for its files'; return; }
-      // Only what is still to come: a batch granted again does not hand out links for files already restored.
+      // Only what is still to come: a batch granted again does not hand out links for files already restored. The
+      // route takes any 500 keys of the manifest, so a short call (a chunk a later file reuses, the tail of a batch)
+      // is topped up with the next keys still to fetch, in plan order (review 3: a reused chunk spent a call alone).
       const keys = batches[i].filter((k) => !done.has(k) || k === forKey);
+      if (i > 0) {
+        const have = new Set(keys);
+        for (let j = i + 1; j < batches.length && keys.length < GRANT_KEYS; j += 1) {
+          for (const k of batches[j]) {
+            if (keys.length >= GRANT_KEYS) break;
+            if (!have.has(k) && !done.has(k) && !fresh(k)) { keys.push(k); have.add(k); }
+          }
+        }
+      }
       const body = { member: ctx.member, epoch: Number(ctx.epoch), manifest: rec.key, keys };
       const askedAt = now();
       let g, timer;
@@ -234,7 +249,7 @@ function readGrantFetcher(opts) {
   }
 
   function planned() {
-    const why = unreadable.size ? [...new Set(unreadable.values())] : [];
+    const why = [...new Set([...unreadable.values(), ...problems])];
     return { ok: !stopped, because: stopped || undefined, unreadable: [...unreadable.keys()], unreadableBecause: why };
   }
 
@@ -245,25 +260,29 @@ function readGrantFetcher(opts) {
     if (key === rec.key) i = 0;
     else if (batchOf.has(key)) i = batchOf.get(key);
     else return null;   // not planned, or unreadable (planned() says why)
-    let expired = 0;
+    // At most two tries, each at most one grant and one GET, with one wait between: the worst path is 112 s (the
+    // header's budget). A try is spent by a grant not reached, an expired link, or a GET worth trying again.
+    let expired = 0, lastKind = null;
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (attempt > 0 && lastKind !== 'expired') await sleep(RETRY_WAIT_MS);
       if (!fresh(key)) await grantBatch(i, key);
       const url = fresh(key);
       if (!url) {
-        if (stopped || attempt > 0) return null;
-        await sleep(RETRY_WAIT_MS);   // the grant could not be reached: one more try, after a moment
+        if (stopped) return null;
+        lastKind = 'unreached';
         continue;
       }
       const got = await getOne(fetchFn, url, maxBytes, timeoutMs);
+      lastKind = got.kind;
       if (got.kind === 'bytes') { done.add(key); return got.bytes; }
-      if (got.kind !== 'expired') return null;
-      // S3 says it lapsed while it looked fresh here (this clock slow, or a slow grant round trip): once more.
-      expired += 1;
-      urls.delete(key);
+      if (got.kind === 'missing') return null;
+      // expired: S3 says it lapsed while it looked fresh here (this clock slow, or a slow grant round trip).
+      if (got.kind === 'expired') { expired += 1; urls.delete(key); }
     }
     // review 2: a link granted just now and already expired, twice, is the clocks, not this file: stop before every
     // other file spends the hour's grants the same way.
     if (expired === 2 && !stopped) stopped = LINKS_EXPIRED;
+    if (lastKind === 'retry') problems.add('the storage service did not answer for some files');
     return null;
   }
 
