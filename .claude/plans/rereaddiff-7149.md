@@ -31,7 +31,8 @@ That the text read just before the line is what the agent reads after it. A writ
 - **When it goes:**
   - at the agent's next session start (it read the whole file);
   - whenever a later notice names none;
-  - when its files are deleted (delete-leftover forgets the copy too).
+  - when its files are deleted (delete-leftover forgets the copy too);
+  - when a new agent is made under the same name (create.js forgets the old copy beside its other records, review 15).
 - **The copy's name:** it carries a hash of the exact session name, so two names that differ only in case keep two copies on macOS.
 - **Size:** whole lines only. An edit past any cut would print as two identical lines. The DIFF is capped at 160 lines and 32 KB instead, with its cut note inside both caps. The file adds a three-line header (review 4).
 
