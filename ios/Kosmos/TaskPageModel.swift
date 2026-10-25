@@ -78,6 +78,8 @@ final class TaskPageModel: ObservableObject {
         guard let (data, response) = answer, (200...299).contains(response.statusCode) else { readFailed = true; return }
         switch Board.parseTaskPage(data, project: project, number: number) {
         case .page(let p):
+            // A refusal is about the press it answered: once the task reads otherwise (another device did it), it goes.
+            if refusal != nil, let was = page, was.act != p.act { refusal = nil }
             if p != page { page = p }
             gone = false
             readFailed = false

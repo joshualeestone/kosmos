@@ -24,9 +24,11 @@ struct TaskPageView: View {
         self.client = client
         self.ref = ref
         self.openPage = openPage
-        var send: TaskPageModel.Send = { [weak client] build in await client?.throughMac(build) }
         #if DEBUG
+        var send: TaskPageModel.Send = { [weak client] build in await client?.throughMac(build) }
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { send = Self.sampleSend }
+        #else
+        let send: TaskPageModel.Send = { [weak client] build in await client?.throughMac(build) }
         #endif
         _model = StateObject(wrappedValue: TaskPageModel(
             project: ref.project, number: ref.number,
@@ -56,8 +58,8 @@ struct TaskPageView: View {
                 }
             }
             .background(subLink)
-            // The person in front of it (the board's tkPresent): on screen, the app in front, and a touch or key press in
-            // the last two minutes (PresenceProbe, on the window); opening the page or coming back counts as one.
+            // The person in front of it (the board's tkPresent): on screen, the app in front, and a touch (or a key press
+            // that reaches the window) in the last two minutes (PresenceProbe); opening the page or coming back counts.
             .background(PresenceProbe { model.touched() })
             .onAppear {
                 visible = true
@@ -163,6 +165,7 @@ struct TaskPageView: View {
                     }
                     .buttonStyle(.plain)
                     .frame(minHeight: 44, alignment: .leading)
+                    .accessibilityHint("Opens task \(parent).")
                 }
             }
             .font(.footnote).foregroundColor(Palette.secondary)
