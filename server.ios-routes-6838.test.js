@@ -337,8 +337,15 @@ async function ask(method, p) {
   return `${res.status} ${await res.text()}`;
 }
 
-// A made-up path at the same depth, keeping the route's query string.
-const madeUp = (p, tag = 'no-such-route-7055') => { const [bare, q] = p.split('?'); return bare.replace(/\/[^/]+$/, '/' + tag) + (q ? '?' + q : ''); };
+// A made-up path at the same depth, keeping the route's query string. kosmos#7111: when the route ENDS in a placeholder
+// (/api/project/x/agent/x), replacing that last part only names another agent on the same route, which the board answers
+// the same way, so the part before it is made up instead (/api/project/x/no-such-route/x). This also applies to the task
+// tail routes written as /task/x/x in SITES (the number is made up there); both made-up-sibling controls still hold.
+const madeUp = (p, tag = 'no-such-route-7055') => {
+  const [bare, q] = p.split('?');
+  const made = /\/x$/.test(bare) && bare.split('/').length > 4 ? bare.replace(/\/[^/]+\/x$/, '/' + tag + '/x') : bare.replace(/\/[^/]+$/, '/' + tag);
+  return made + (q ? '?' + q : '');
+};
 // True when the board answers this route with something other than its reply to a route it does not have.
 async function isAnswered(method, p) {
   return (await ask(method, p)) !== (await ask(method, madeUp(p)));
@@ -428,4 +435,8 @@ test('CONTROL: a route the board does not have is reported as gone, and a real o
   // A real path asked with a method the board does not serve there falls through too, so a route that loses the
   // phone's method is caught, not only one that loses its path (review 3).
   assert.equal(await isAnswered('POST', '/api/status'), false);
+  // kosmos#7111: a route ending in a placeholder is judged against a made-up part before it: a real one is answered,
+  // and one whose fixed part is made up is still gone (so the new rule cannot call every such route answered).
+  assert.equal(await isAnswered('POST', '/api/project/x/agent/x'), true);
+  assert.equal(await isAnswered('POST', '/api/project/x/no-such-member-route/x'), false);
 });

@@ -135,6 +135,35 @@ extension Board {
         return "We could not reopen the room" + (because.map { ": " + $0 } ?? "") + ". Try again, or post in the room."
     }
 
+    // kosmos#7111: an addable refusal's Add (web/index.html pjRoomRow 'refused', kosmos#5752 slice 3; pjRefusedAddClick,
+    // addMemberToProject). Shown only while it can help: the refusal is addable, the agent is not yet a member, and the
+    // agent is one this computer still has (the board's `live`: a deleted one would be added as a ghost).
+    static func addMemberShown(_ row: RoomRow, members: [String], live: Set<String>) -> Bool {
+        guard row.kind == .kosmos, let f = row.refusal, f.addable, let key = f.key, !key.isEmpty else { return false }
+        return !members.contains(key) && live.contains(key)
+    }
+    static func addMemberLabel(_ name: String) -> String { "Add \(name) to this project" }
+    static func addedMemberLine(_ name: String) -> String { "Added \(name) to this project." }
+    // POST /api/project/<id>/agent/<session>, as the board's addMemberToProject.
+    static func addMemberRequest(mac: URL, project: String, agent: String) -> URLRequest? {
+        guard isProjectId(project), isAgentSession(agent) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/project/\(project)/agent/\(agent)", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        return r
+    }
+    // nil when the agent was added (the board's res.ok); otherwise the route's own reason as a sentence (pjSentence), or
+    // the board's fallback.
+    static func addMemberRefusal(status: Int?, _ data: Data?) -> String? {
+        let obj = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        // Added only on a 2xx this build can read (the board's res.json() throws on anything else; review 2: a proxy's
+        // page at 200 was taken for an add).
+        if let status, (200...299).contains(status), obj != nil { return nil }
+        let said = sentence(obj?["error"] as? String)
+        return said.isEmpty ? "We could not change that project." : said
+    }
+    enum AddMemberOutcome: Equatable { case added, refused(String), dropped }
+
     // kosmos#7080: the room's grouped working line (web/index.html paintRoomBusy). The members, in the room's own member
     // order (names never reshuffle with the status order), whose card says working AND whose work is this project's:
     // an unattributed working agent shows in no room, the board's deliberate under-claim (#2882). An agent whose post

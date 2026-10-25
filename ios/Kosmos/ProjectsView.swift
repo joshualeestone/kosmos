@@ -117,7 +117,11 @@ final class RoomStore: ObservableObject {
     func loadRoom(_ project: String) async -> Bool {
         #if DEBUG
         if Self.sample {
-            rows[project] = Board.parseRoom(Data(Self.sampleRoom.utf8), names: names)?.rows ?? []
+            // kosmos#7111: KOSMOS_SAMPLE_REFUSAL=1 adds an addable refusal by Farah (not a member), for the Add shots.
+            let room = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REFUSAL"] == "1"
+                ? Self.sampleRoom.replacingOccurrences(of: #"{"kind":"post","id":"m5""#, with: Self.sampleRefusal + #",{"kind":"post","id":"m5""#)
+                : Self.sampleRoom
+            rows[project] = Board.parseRoom(Data(room.utf8), names: names)?.rows ?? []
             // kosmos#7072: KOSMOS_SAMPLE_HELD=1 shows the sample room held, for its screenshots (a Debug build only).
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HELD"] == "1", !Self.sampleReopened.contains(project) {
                 held[project] = .some(Self.sampleHeldUntil)
@@ -272,6 +276,19 @@ final class RoomStore: ObservableObject {
 
     // kosmos#7072: the board's Reopen the room. On a reopen the notice goes now, before the re-read, so a re-read that
     // fails cannot leave a held notice with a dead button (pjHeldReopenClick); a refusal carries the board's sentence.
+    // kosmos#7111: an addable refusal's Add. Added: the project list and the room are read again, so the button goes with
+    // the agent now a member (the board's pjReload). Refused: the route's sentence. Dropped: another account or computer.
+    func addMember(_ agent: String, to project: String) async -> Board.AddMemberOutcome {
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.addMemberRequest(mac: $0, project: project, agent: agent) }
+        guard same(epoch) else { return .dropped }
+        if let refusal = Board.addMemberRefusal(status: answer?.1.statusCode, answer?.0) { return .refused(refusal) }
+        await loadList()
+        await loadRoom(project)
+        guard same(epoch) else { return .dropped }
+        return .added
+    }
+
     func reopen(_ project: String) async -> Board.ReopenOutcome {
         #if DEBUG
         if Self.sample { Self.sampleReopened.insert(project); held[project] = nil; return .reopened }
@@ -351,6 +368,7 @@ final class RoomStore: ObservableObject {
     // The sample hold: one lift time for the launch, and gone for good once reopened (review 3: re-reads brought it back).
     static let sampleHeldUntil = Date().addingTimeInterval(40 * 60)
     static var sampleReopened: Set<String> = []
+    static let sampleRefusal = #"{"kind":"refused","from":"farah","because":"farah is not on this project","addable":true,"key":"2026-10-23T15:11:00.000Z|r","at":"2026-10-23T15:11:00.000Z"}"#
     static let sampleRoom = #"{"ok":true,"olderCount":0,"olderCursor":null,"unanswered":{"m5":["dana"]},"rows":[{"kind":"note","text":"Cleo, Dana and Eli are on this project.","at":"2026-10-23T15:00:00.000Z","key":"2026-10-23T15:00:00.000Z|0"},{"kind":"post","id":"m1","from":"operator","operator":true,"text":"@cleo kick it off please","mentioned":["cleo"],"at":"2026-10-23T15:01:00.000Z"},{"kind":"post","id":"m2","from":"cleo","text":"Kick-off: the catalogue goes to print on the 3rd. Dana has copy, Eli has research, I have the printer.","mentioned":[],"at":"2026-10-23T15:02:00.000Z"},{"kind":"post","id":"m3","from":"eli","text":"Competitor prices are in the shared sheet, tab March. Two of them undercut us on the linen range by about 8%.","replyTo":"m2","mentioned":[],"reactions":[{"emoji":"🔥","count":1,"mine":true}],"at":"2026-10-23T15:05:00.000Z"},{"kind":"post","id":"m4","from":"dana","text":"Copy for pages 1 to 8 is done. Pages 9 to 12 wait for the new photos.","mentioned":[],"at":"2026-10-23T15:08:00.000Z"},{"kind":"external","id":"x-1","from":"Maple","fromKind":"agent","text":"Our side has the photos; they go over tonight.","at":"2026-10-23T15:10:00.000Z"},{"kind":"post","id":"m5","from":"operator","operator":true,"text":"@dana thanks, start on 9 to 12 when they land.","mentioned":["dana"],"at":"2026-10-23T15:12:00.000Z"}]}"#
     #endif
 }
@@ -405,7 +423,9 @@ struct ProjectsView: View {
         .onChange(of: store.listState) { _ in openRequested() }
         // While the list is the screen shown, it follows the client's 5-second poll (status words and unread bubbles),
         // as the board's list repaints on its own.
-        .onChange(of: client.updatedAt) { _ in if listShown && openProject == nil { Task { await store.loadList() } } }
+        // kosmos#7111 (and #7106): also while a room is open, so its members follow the projects route (an Add goes once
+        // the agent is a member; the board re-reads its projects while a room is on screen).
+        .onChange(of: client.updatedAt) { _ in if listShown { Task { await store.loadList() } } }
         .task {
             await store.loadList()
             #if DEBUG
