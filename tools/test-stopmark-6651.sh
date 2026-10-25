@@ -146,8 +146,9 @@ fi
 # kosmos#7127: this run's own volume name and its own mount point inside $TMP, so nothing is read back from hdiutil's
 # output to decide where this run writes. A run stopped with kill -KILL never runs the EXIT trap, so its images stay
 # mounted; with a fixed name macOS mounted the next as "/Volumes/s6651 1", and the old parse sent the writes to ./1/.
-# A same-named decoy, mounted the default way first, guards against going back to that: with it in place, reading the
-# mount point from hdiutil's output again would give "/Volumes/s6651-<pid> 1" and fail the check below on every run.
+# The private mount point makes a collision harmless on its own. A same-named decoy, mounted the default way first,
+# guards only against a future return to reading the mount point from hdiutil's output: with it in place, that would
+# give "/Volumes/s6651-<pid> 1" and fail the check below on every run.
 # It is optional: if it cannot be mounted, a SKIP line says so and the full-disk case and the #7127 check still run,
 # without the collision. (A killed run leaks the decoy at /Volumes/s6651-<pid> as well as its own image; neither can
 # affect where a later run writes.)
@@ -156,6 +157,8 @@ if command -v hdiutil >/dev/null 2>&1; then
   if hdiutil create -quiet -size 4m -fs APFS -volname "s6651-$$" "$TMP/decoy.dmg" >/dev/null 2>&1; then
     # The decoy is detached by its device node (first field of attach's first line), which carries no spaces.
     DECOY="$(hdiutil attach -nobrowse "$TMP/decoy.dmg" 2>/dev/null | awk 'NR == 1 { print $1 }')"
+    # Anything but a device node means the output was not what this expects: treat the decoy as not mounted.
+    case "$DECOY" in /dev/disk*) ;; *) DECOY="" ;; esac
   fi
   [ -n "$DECOY" ] || echo "SKIP  #7127 collision check: the decoy volume could not be mounted"
 fi
