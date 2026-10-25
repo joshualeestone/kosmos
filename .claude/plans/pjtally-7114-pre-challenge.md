@@ -19,22 +19,22 @@ converged: true
 
 The plan records each round's counts and its fixes, not which finding was which. Per round:
 
-## Iteration 1
+#### Iteration 1
 0 blockers, 1 warning, 3 nits, all fixed: every PJ_TALLY row exercised and the table written as the board's rows; the tally drops to its own line when it does not fit, counts never squeezed; the board's filled chip; Anthropic wears Claude's mark.
 
-## Iteration 2
+#### Iteration 2
 0 blockers, 2 warnings, 2 nits, all fixed: a third layout when neither fits (the tally wraps, as the board's flex-wrap); the whole PJ_TALLY compared row for row; no hairline on a line of its own; the no-mark test uses names the board has no mark for either.
 
-## Iteration 3
+#### Iteration 3
 0 blockers, 2 warnings, 1 nit, all fixed: the wrapping layout measures and places with one line-breaking rule (Board.flowLines); unknown providers in arrival order pinned; the chip's uppercasing pinned.
 
-## Iteration 4
+#### Iteration 4
 0 blockers, 1 warning, 2 nits, all fixed: the layout places at the proposal width it measured at; flowLines sums as it compares; a blank provider's chip is the board's "?"; the pick-to-mark pairs pinned to the board's PROVIDER_MARK_KEY.
 
-## Iteration 5
+#### Iteration 5
 0 blockers, 1 warning, 1 nit, all fixed: Board.flowLayout returns each line's width summed exactly as compared, and the layout reports those (the reviewer's fuzz case is a test); PROVIDER_MARK_KEY checked the other way too.
 
-## Iteration 6
+#### Iteration 6
 0 blockers, 0 warnings, 2 nits, fixed: the reverse key check asserts it read the board's 8 keys; the chip trims as JavaScript's trim. The reviewer's 500,000-case fuzz replayed every line.
 
 ## After convergence
