@@ -26,7 +26,9 @@ sealed message)". #7028 and the relay PR have landed (coordinator live 10-24 11:
    guest's hello makes it) could never let the joiner in, so it is refused with 'sealed-waiting'. A computer joined by
    own code that was not let in yet is refused with 'sealed-not-in'. The joiner is always let in by the OWNER (review
    3): a self computer holding the key is a sign the owner had one, not the guarantee.
-1c. **A sealed snapshot is never replaced by an unsealed one** for the same room between verify and join (review 3).
+1c. **A sealed snapshot is never replaced by an unsealed one** for the same room between verify and join (review 3),
+   read after the account check's await so two verifies at once cannot interleave past it (review 4; the sequential
+   case is tested, the interleaving is not: no seam orders the two awaits).
 2. **Joining by a v 2 code records the room as sealed at the join**: the same keyless record noteOwnSealed writes
    ({ role: 'member', ownComputer: true, keys: {} }), written before the seat starts. From the first post, sendPost
    holds (the owner has not shared its key yet), and the existing key-own-hello / offer / reveal / Allow exchange
@@ -51,9 +53,10 @@ stays for them.
 ## NOT CLAIMED, and known gaps (review 2)
 - **The code is not authenticated.** Anyone who can alter the pasted text can turn a version 2 code into a version 1
   one for the same room, and that computer joins with no seal record and posts in the clear until it sees a sealed
-  frame. Main has the same exposure today, and the same person could already change the room the code names. The
-  owner still refuses to show such posts (the 'unsealed' note); the relay can read them. Closing it needs a code the
-  owner's key signs.
+  frame. Main has the same exposure today, and the same person could already change the room the code names. What
+  changes here (review 4): a sealedOwn room may now have guests, so such a post goes into a room with guests. Neither
+  the owner nor a guest shows it (both refuse a clear post in a sealed room, the 'unsealed' note); the relay can read
+  it. Closing it needs a code the owner's key signs (slice 2).
 - **No own code for a sealed room until a guest has joined** ('sealed-waiting'): the owner's room key is made by the
   first guest's hello. Making the owner's key at the first own computer's hello instead is slice 2's to decide.
 - **A rewrite of the owner link that drops sealedOwn** fails closed: guest invites are refused again for that room.
@@ -73,7 +76,7 @@ self-shared room is refused, and decision 5 only allows it for a room whose ever
 pasted long after it was made is fine either way: its room's version was fixed when it was made. What would change
 it: any path that seals an existing self-shared room (slice 2), which must then retire v 1 codes for that ref.
 
-## Tests (planned)
+## Tests
 engine: v 2 made for a sealed owner room and v 1 otherwise; parse v 2; an older parser refuses v 2 (the v-guard);
 self computer v 2 on a sealed record, refusal on an unreadable record; sealedOwn recorded; invite allowed for a
 sealedOwn room and still refused for a v 1 self-shared room (both checks and fedmembers); a v 2 join writes the keyless

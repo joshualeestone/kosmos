@@ -44,7 +44,7 @@ test('anything that is not a well-formed own code is refused', () => {
   // A code made before #4699 named no computer: it still parses (so verify can say why it is refused), with from null.
   assert.deepEqual(federation.parseOwnCode(enc({ v: 1, ref: 'r1', name: 'N' })), { ref: 'r1', name: 'N', from: null, sealed: false });
   assert.deepEqual(federation.parseOwnCode(enc({ v: 1, ref: 'r1', name: 'N', from: 'study' })), { ref: 'r1', name: 'N', from: 'study', sealed: false });
-  // The format number is still 1, so a Kosmos from before #4699 reads a new code as it read every code.
+  // An unsealed room's format number is still 1, so a Kosmos from before #4699 reads its code as it read every code.
   federation.recordLink('proj-fmt', { role: 'owner', ref: 'ref-fmt' });
   const made = federation.ownCode('proj-fmt', 'Format', 'study');
   assert.equal(JSON.parse(Buffer.from(made.slice(federation.OWN_PREFIX.length), 'base64url').toString('utf8')).v, 1);

@@ -22487,7 +22487,7 @@ const server = http.createServer(async (req, res) => {
         if (!proj) { sendJson(res, 404, { error: 'There is no such project on this computer.' }); return; }
         // The engine reads and writes this computer's link and seal records; a failure there is
         // ours, not the request's.
-        let refusal, code, wasShared, sealedCode;
+        let refusal, code, wasShared;
         try {
           // A link left by an earlier project with this id (#3851's stamp) is not this project's:
           // forget it first, so the code names a room this project will actually sit in.
@@ -22503,7 +22503,6 @@ const server = http.createServer(async (req, res) => {
           if (!from) { sendJson(res, 409, { reason: 'no-address', error: 'This computer has no Kosmos+ address yet, so it cannot make a code for your other computers. Sign in to Kosmos+ in Settings on this computer first.' }); return; }
           const before = federation.linkFor(proj.id);
           wasShared = !!(before && (before.selfShared === true || before.role === 'self'));   // a self link was told at join
-          sealedCode = federation.ownCodeSealed(proj.id, before);   // #4658: the code says so, and so does the note
           code = federation.ownCode(proj.id, proj.name, from);
         } catch {
           sendJson(res, 500, { error: 'Kosmos could not read or save this project\'s sharing on this computer. Try again in a moment.' });
@@ -22512,7 +22511,8 @@ const server = http.createServer(async (req, res) => {
         if (!code) { sendJson(res, 409, { error: 'Kosmos could not make a code for this project.' }); return; }
         // The first time: the owner's room now opens to the relay, so this side is told too.
         if (!wasShared) {
-          const note = sealedCode
+          const parsed = federation.parseOwnCode(code);   // #4658: the note says what the code that was made says
+          const note = parsed && parsed.sealed
             ? 'This project is now shared with your other computers. Messages in this room stay sealed end to end: another computer reads and posts here once you let it in from this one.'
             : 'This project is now shared with your other computers. Messages in this room are not sealed end to end.';
           try { messages.roomNote(proj.id, note); } catch { /* the note is furniture */ }
