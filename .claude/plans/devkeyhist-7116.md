@@ -20,7 +20,7 @@ take a snapshot's signing key from escrowd's word instead of the coordinator's.
 ## Status
 - [x] module and tests; hand mutations, each caught by its own test
 - [x] engine.reachable passes with the excuse
-- [ ] challenge-loop
+- [x] challenge-loop converged (6 iterations); final full validation passed (23588 pass, 0 fail)
 - [ ] push and PR after the Mortals hold lifts
 
 ## Carried to slice 3 (wiring restore)
