@@ -37,12 +37,15 @@
 const GRANT_KEYS = 500;   // the route's most keys in one call
 const URL_LIFETIME_MS = 300000;   // the route's presigned GETs last 5 minutes
 const EXPIRY_MARGIN_MS = 30000;   // a URL this close to its expiry is granted again before it is used
-// restorerun cuts each fetch off at FETCH_TIMEOUT_MS (2 min). The worst path inside one fetch is a grant, a GET, the
-// wait, a second grant and a second GET: 15 + 40 + 2 + 15 + 40 = 112 s (reviews 1 to 3). A grant answering after its
+// restorerun cuts each fetch off at FETCH_TIMEOUT_MS (2 min). The worst path inside one chunk's fetch is a grant, a
+// GET, the wait, a second grant and a second GET: 15 + 40 + 2 + 15 + 40 = 112 s (reviews 1 to 3). A grant answering after its
 // cut-off is not kept: it costs at most one more call, and keeping it would race the second try (review 3, declined).
 const GET_TIMEOUT_MS = 40000;
 const GRANT_TIMEOUT_MS = 15000;   // a grant that does not answer in this long reads as not reached (review 2)
 const RETRY_WAIT_MS = 2000;   // before a second try at a grant that was not reached
+// The manifest can be 64 MB where a chunk is a few: ONE GET with most of the 2 minutes, after up to two grants (a
+// blip there must not fail the restore): 15 + 2 + 15 + 85 = 117 s (review 4).
+const MANIFEST_GET_TIMEOUT_MS = 85000;
 const MAX_UNREACHED = 3;   // grants in a row that could not be reached before the restore gives up
 const LINKS_EXPIRED = 'the storage service says each download link had already expired, so the clock on this computer or on Kosmos+ may be wrong';
 const HEX64_RE = /^[0-9a-f]{64}$/;
@@ -166,6 +169,7 @@ function readGrantFetcher(opts) {
   const fetchFn = opts.fetch || globalThis.fetch;
   const now = typeof opts.now === 'function' ? opts.now : Date.now;
   const timeoutMs = Number.isSafeInteger(opts.getTimeoutMs) && opts.getTimeoutMs > 0 ? opts.getTimeoutMs : GET_TIMEOUT_MS;
+  const manifestMs = Number.isSafeInteger(opts.manifestTimeoutMs) && opts.manifestTimeoutMs > 0 ? opts.manifestTimeoutMs : MANIFEST_GET_TIMEOUT_MS;
   const grantMs = Number.isSafeInteger(opts.grantTimeoutMs) && opts.grantTimeoutMs > 0 ? opts.grantTimeoutMs : GRANT_TIMEOUT_MS;
   const sleep = typeof opts.sleep === 'function' ? opts.sleep : (ms) => new Promise((r) => setTimeout(r, ms));
   const rec = opts.manifest || {};
@@ -263,6 +267,7 @@ function readGrantFetcher(opts) {
     // At most two tries, each at most one grant and one GET, with one wait between: the worst path is 112 s (the
     // header's budget). A try is spent by a grant not reached, an expired link, or a GET worth trying again.
     let expired = 0, lastKind = null;
+    const isManifest = key === rec.key;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       if (attempt > 0 && lastKind !== 'expired') await sleep(RETRY_WAIT_MS);
       if (!fresh(key)) await grantBatch(i, key);
@@ -272,21 +277,27 @@ function readGrantFetcher(opts) {
         lastKind = 'unreached';
         continue;
       }
-      const got = await getOne(fetchFn, url, maxBytes, timeoutMs);
+      const got = await getOne(fetchFn, url, maxBytes, isManifest ? manifestMs : timeoutMs);
       lastKind = got.kind;
       if (got.kind === 'bytes') { done.add(key); return got.bytes; }
-      if (got.kind === 'missing') return null;
+      if (got.kind === 'missing' || isManifest) break;   // the manifest gets one GET, whatever it answered
       // expired: S3 says it lapsed while it looked fresh here (this clock slow, or a slow grant round trip).
       if (got.kind === 'expired') { expired += 1; urls.delete(key); }
     }
     // review 2: a link granted just now and already expired, twice, is the clocks, not this file: stop before every
     // other file spends the hour's grants the same way.
     if (expired === 2 && !stopped) stopped = LINKS_EXPIRED;
+    if (lastKind === 'missing') return null;
+    if (isManifest) {
+      if (lastKind === 'retry') problems.add('the storage service did not answer with this backup\'s manifest');
+      return null;
+    }
     if (lastKind === 'retry') problems.add('the storage service did not answer for some files');
+    if (lastKind === 'unreached') problems.add('restore could not reach Kosmos+ for some files');   // review 4
     return null;
   }
 
   return { fetchObject, plan, planned };
 }
 
-module.exports = { readGrantFetcher, keyProblem, GRANT_KEYS, EXPIRY_MARGIN_MS, GET_TIMEOUT_MS, GRANT_TIMEOUT_MS, RETRY_WAIT_MS, ANOTHER_EPOCH, BAD_LINK, OTHER_FILES, LINKS_EXPIRED };
+module.exports = { readGrantFetcher, keyProblem, GRANT_KEYS, EXPIRY_MARGIN_MS, GET_TIMEOUT_MS, GRANT_TIMEOUT_MS, RETRY_WAIT_MS, MANIFEST_GET_TIMEOUT_MS, ANOTHER_EPOCH, BAD_LINK, OTHER_FILES, LINKS_EXPIRED };
