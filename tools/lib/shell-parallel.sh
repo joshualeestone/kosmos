@@ -1,10 +1,35 @@
 # #7100: run test:shell's shards at once on this computer, for tools/run-tests.sh's KOSMOS_SHELL_PARALLEL.
 #
+# Each shard runs under this perl supervisor, which leads the shard's process group and forks the shard's command
+# beneath it. Its first argument is the runner's pid, read by the shell before the fork, so a runner that dies before
+# perl starts is still seen as gone. It exits with the command's status, except when it stops its own group: then it
+# dies by its own KILL. A TERM or INT sent to it alone is passed on to the whole group, and 2 s later the group is
+# KILLed if the command has not ended. When its parent is no longer the runner, even after a KILL that ran no trap,
+# it TERMs its group and KILLs it 2 s later, itself included.
+_KOSMOS_SHARD_SUPERVISOR='use POSIX ();
+setpgrp(0, 0);
+my $runner = shift @ARGV;
+my $kid = fork;
+die "fork: $!" unless defined $kid;
+if (!$kid) { exec @ARGV or die "exec: $!" }
+my $passed = 0;
+my $pass = sub { my $sig = shift; $SIG{$sig} = "IGNORE"; $passed ||= time; kill $sig, -$$ };
+$SIG{TERM} = $pass; $SIG{INT} = $pass;
+while (1) {
+  if (waitpid($kid, POSIX::WNOHANG()) == $kid) { exit(($? & 127) ? 128 + ($? & 127) : $? >> 8) }
+  if (getppid() != $runner && !$passed) {
+    print STDERR "run-tests: this shell shard'"'"'s runner is gone; stopping the shard (#7100)\n";
+    $pass->("TERM");
+  }
+  kill "KILL", -$$ if $passed && time - $passed >= 2;
+  select(undef, undef, undef, 0.2);
+}'
+#
 # kosmos_shell_parallel <n> <log dir> <command...>
 #   Starts <command...> <i> <n> for i = 1..n, all at once, each with its own log <log dir>/shard-<i>.log and each in
-#   a process group of its own, led by its supervisor (below). The shards are waited on in shard order (bash 3.2 has no wait -n), and a line
-#   says each one's status when it is waited on, with the time it was seen to have ended (a shard that ended before a
-#   lower-numbered one is reported late). When all have ended it prints the logs in shard order, then one line naming
+#   a process group of its own, led by its supervisor (above). The shards are waited on in shard order (bash 3.2
+#   has no wait -n), and a line says each one's status when it is waited on, with the time it was seen to have
+#   ended (a shard that ended before a lower-numbered one is reported late). When all have ended it prints the logs in shard order, then one line naming
 #   the time taken and which shards were red. Returns 0 when every shard returned 0, else the status of the
 #   lowest-numbered red shard.
 #   KOSMOS_SHELL_PARALLEL_PIDS holds the shards still running and KOSMOS_SHELL_PARALLEL_DONE the ones waited on; each
@@ -13,31 +38,6 @@
 # A shard is the command tools/shell-shard.js runs as `run <i> <n>`: the list it takes is fixed by a hash of each
 # command, so the union of the shards is the whole list (tools.shell-shard-4317.test.js). The command is exec'd, so it
 # must be a program, not a shell function.
-# Each shard runs under this perl, which leads the shard's process group and forks the shard's command beneath it.
-# Its first argument is the runner's pid, read by the shell before the fork, so a runner that dies before perl
-# starts is still seen as gone. It exits with the command's status. A TERM or INT sent to it alone is passed on to
-# the whole group. When its parent is no longer the runner, even after a KILL that ran no trap, it TERMs its group,
-# waits up to 2 s for the command, then KILLs the group, itself included.
-_KOSMOS_SHARD_SUPERVISOR='use POSIX ();
-setpgrp(0, 0);
-my $runner = shift @ARGV;
-my $kid = fork;
-die "fork: $!" unless defined $kid;
-if (!$kid) { exec @ARGV or die "exec: $!" }
-my $pass = sub { my $sig = shift; $SIG{$sig} = "IGNORE"; kill $sig, -$$ };
-$SIG{TERM} = $pass; $SIG{INT} = $pass;
-while (1) {
-  if (waitpid($kid, POSIX::WNOHANG()) == $kid) { exit(($? & 127) ? 128 + ($? & 127) : $? >> 8) }
-  if (getppid() != $runner) {
-    $SIG{TERM} = "IGNORE";
-    print STDERR "run-tests: this shell shard'"'"'s runner is gone; stopping the shard (#7100)\n";
-    kill "TERM", -$$;
-    for (1 .. 20) { last if waitpid($kid, POSIX::WNOHANG()) == $kid; select(undef, undef, undef, 0.1) }
-    kill "KILL", -$$;
-    exit 1;
-  }
-  select(undef, undef, undef, 0.5);
-}'
 kosmos_shell_parallel() {
   local n="$1" dir="$2"; shift 2
   local i p q r rc=0 red="" t0 left me
