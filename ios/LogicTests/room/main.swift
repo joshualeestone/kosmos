@@ -399,10 +399,17 @@ for phrase in ["const WORKING_VERB = '" + Board.workingVerb + "';", "who.length 
     check(boardPage.contains(phrase), "the board's working line still says: \(phrase.prefix(60))")
 }
 // Who spoke in a read: nobody on a room's first read; afterwards, an agent with a post the room did not have.
-let before = Array(rows.prefix(3))
+let before = Array(rows.prefix(4))
 let speakers = Board.newSpeakers(before: before, fresh: rows)
 check(Board.newSpeakers(before: nil, fresh: rows).isEmpty, "a room's first read marks nobody as having just spoken")
-check(speakers.sorted() == ["cleo", "eli"], "only agents with a new post in this read count, never Kosmos's lines: \(speakers.sorted())")
+check(Array(rows.prefix(4)).filter { $0.kind == .post && $0.from == "cleo" }.count >= 1,
+      "premise: cleo spoke before this read")
+check(speakers.sorted() == ["eli"], "only agents with a post the room did not have count, never Kosmos's lines: \(speakers.sorted())")
+// A log the computer could not read (ok:false, no rows, at 200) is marked, so it is never a baseline (the board's ok check).
+check(Board.parseRoom(Data(#"{"ok":false,"rows":[]}"#.utf8))?.unread == true, "a page the computer could not read is marked unread")
+check(Board.parseRoom(Data(#"{"ok":true,"rows":[]}"#.utf8))?.unread == false && Board.parseRoom(Data(#"{"rows":[]}"#.utf8))?.unread == false,
+      "a real page (ok true, or no ok at all) is a baseline")
+check(boardPage.contains("body.ok !== false"), "premise: the board seeds who spoke only from a page it could read")
 // When each spoke against the status read (#1150): strictly after counts; at or before it does not; no read, nobody.
 let statusRead = Date(timeIntervalSince1970: 1_800_000_000)
 let stamps = ["early": statusRead.addingTimeInterval(-5), "same": statusRead, "late": statusRead.addingTimeInterval(5)]

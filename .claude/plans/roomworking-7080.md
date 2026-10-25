@@ -34,4 +34,16 @@ member order; the suite covers it against a captured real status row; it is merg
      sample room's project, so screenshots show the line. Not taken: N4 (members can go stale while a room is open)
      predates this branch. Room 178/178 (controls: >= for > red, names unmarked red); run 1152, actions 99,
      settings 42, tasks 90; route check 5/5; Debug (no slow expressions) and KOSMOS_STORE_SHOTS Release SUCCEEDED.
+   - Round 2 (fresh blind reviewer): 0 blockers, 3 warnings, 6 nits. Fixed: the line now needs the phase live AND
+     fresh, as the Agents tab decides "not updating" (W1: fresh alone stays true while unreachable); the new-post test
+     uses a baseline where cleo already spoke and asserts ["eli"] (W2, the "every speaker is new" mutation now red);
+     the dots keep fading under Reduce Motion (1.6s, 0.35 to 1, the board's work-fade, #4591) (W3); a page the computer
+     could not read (ok:false) is never a baseline for who spoke next (N1, the board's body.ok !== false); 30 frames a
+     second at most (N5). Recorded, not changed: stamps are kept per room and a new post is found by a new id, where
+     the board keys by speaker and compares `at` (N3, both safe, per-room is the board's own named improvement); the
+     dots are grey and fade-only as the phone's chat line, not the board's green rising dots (N4); RoomStore stamps
+     with Date() while updatedAt uses env.now(), the same clock outside tests (N6); the stamping order inside
+     loadRoom is not compiled by the room suite (N2, a comment pins that `before` is read first). Room 182/182
+     (controls red: every-speaker-new, unread ignored); run 1152, actions 99, settings 42, tasks 90; route check 5/5;
+     Debug and KOSMOS_STORE_SHOTS Release SUCCEEDED.
 3. Validation, PR.

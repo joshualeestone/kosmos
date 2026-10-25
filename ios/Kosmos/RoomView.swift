@@ -214,8 +214,10 @@ struct RoomView: View {
     // the board's #pj-busy sits above the composer that #pj-held tops. While the status reads are not landing, no line:
     // a phone loses its connection far more than a desk page does, and an old "is working" is the over-claim the board
     // avoids (review 1; the board only repaints on a good poll, so this under-claims where it would keep the old line).
+    // Live and fresh, as the Agents tab decides "not updating" (review 2: fresh alone stays true while unreachable).
+    private var statusCurrent: Bool { if case .live = client.phase { return client.fresh } else { return false } }
     @ViewBuilder private var workingLine: some View {
-        let names = client.fresh ? Board.workingNames(members: project.members.map(\.session), agents: client.agents, project: project.id,
+        let names = statusCurrent ? Board.workingNames(members: project.members.map(\.session), agents: client.agents, project: project.id,
                                                       spokeSinceStatus: store.spokeSince(client.updatedAt, in: project.id)) : []
         if let parts = Board.workingLineParts(names) {
             HStack(spacing: 6) {
@@ -673,18 +675,20 @@ struct RoomBubble: View {
     }
 }
 
-// kosmos#7080: the board's three working dots (.act i), still when the person asks for less motion. Each dot's
-// opacity is read from the clock (review 1: a repeatForever started on appear can catch layout changes in a pushed
-// view, and never restarts when Reduce Motion is turned off again).
+// kosmos#7080: the board's three working dots (.act i), fading in turn 0.16s apart. Grey and fade-only, as the phone's
+// chat WorkingLine (the board's are green and also rise 4px). With Reduce Motion they still fade, slower (the board's
+// work-fade, #4591: Josh read still dots as frozen; a fade is not movement). Opacity is read from the clock (review 1:
+// a repeatForever started on appear can catch layout changes in a pushed view), at 30 frames a second at most.
 struct WorkingDots: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { tl in
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
             let t = tl.date.timeIntervalSinceReferenceDate
+            let period = reduceMotion ? 1.6 : 1.1, low = reduceMotion ? 0.35 : 0.45
             HStack(spacing: 3) {
                 ForEach(0..<3, id: \.self) { i in
                     Circle().fill(Palette.secondary).frame(width: 4, height: 4)
-                        .opacity(reduceMotion ? 0.6 : 0.25 + 0.75 * (0.5 - 0.5 * cos((t - Double(i) * 0.2) * .pi / 0.6)))
+                        .opacity(low + (1 - low) * (0.5 - 0.5 * cos((t - Double(i) * 0.16) * 2 * .pi / period)))
                 }
             }
         }

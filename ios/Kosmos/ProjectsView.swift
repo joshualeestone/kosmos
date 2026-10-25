@@ -17,6 +17,9 @@ final class RoomStore: ObservableObject {
     // kosmos#7080: when each agent's latest post reached each room (as this phone learned it), for the working line's
     // "spoke after the status was read" rule (the board's ROOM_SPOKE_AT).
     @Published private(set) var spokeAt: [String: [String: Date]] = [:]
+    // The rooms whose last newest-page read was a real one: only those rows are a baseline for who spoke since (review 2:
+    // a first read the computer could not answer left an empty room, and the next read stamped everyone in it).
+    private var spokeBaseline: Set<String> = []
     // The agents whose post reached this room after `statusAt` (the status read the line is drawn from).
     func spokeSince(_ statusAt: Date?, in project: String) -> Set<String> {
         Board.spokeSince(spokeAt[project] ?? [:], statusAt: statusAt)
@@ -63,7 +66,7 @@ final class RoomStore: ObservableObject {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
         returned = [:]; kept = [:]; drafts = [:]
-        held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]   // kosmos#7072 review 1: another account or computer's holds go too
+        held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
     private var listReads = 0
@@ -123,8 +126,12 @@ final class RoomStore: ObservableObject {
         roomFailed.remove(project)
         if Board.readMayWriteHold(read: read, reopenedAt: reopenedAt[project]) { if page.held { held[project] = .some(page.heldUntil) } else { held[project] = nil } }
         let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)
+        // Stamped before the rows are replaced: `before` must be what the room held until this read. The phone's clock,
+        // as BoardClient.updatedAt is (its env.now() is Date() outside the tests).
         let learned = Date()
-        for who in Board.newSpeakers(before: rows[project], fresh: fresh.rows) { spokeAt[project, default: [:]][who] = learned }
+        let before = spokeBaseline.contains(project) ? rows[project] : nil
+        for who in Board.newSpeakers(before: before, fresh: fresh.rows) { spokeAt[project, default: [:]][who] = learned }
+        if page.unread { spokeBaseline.remove(project) } else { spokeBaseline.insert(project) }
         rows[project] = fresh.rows
         older[project] = fresh.older
         settle(project)

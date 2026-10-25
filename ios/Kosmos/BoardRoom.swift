@@ -75,6 +75,9 @@ extension Board {
         // The route's `unanswered` for the WHOLE room (messages.unanswered is not filtered by page), names shown; nil
         // when the computer did not send it. Applied to every post shown, not only this page's.
         var silent: [String: [String]]? = nil
+        // kosmos#7080 review 2: the computer could not read the room's log (ok:false, sent at 200 with no rows). Never a
+        // baseline for who spoke next, as the board seeds only when body.ok !== false.
+        var unread = false
     }
 
     // The newest page (no cursor) or the page before a cursor the computer gave.
@@ -249,6 +252,7 @@ extension Board {
                             held: obj["held"] is [String: Any])
         page.heldUntil = isoDate((obj["held"] as? [String: Any])?["until"] as? String)
         if obj["unanswered"] is [String: Any] { page.silent = silent.mapValues { $0.map(shown) } }
+        page.unread = (obj["ok"] as? Bool) == false
         return page
     }
 
