@@ -17,8 +17,10 @@ final class RoomStore: ObservableObject {
     // kosmos#7080: when each agent's latest post reached each room (as this phone learned it), for the working line's
     // "spoke after the status was read" rule (the board's ROOM_SPOKE_AT).
     @Published private(set) var spokeAt: [String: [String: Date]] = [:]
-    // The rooms whose last newest-page read was a real one: only those rows are a baseline for who spoke since (review 2:
-    // a first read the computer could not answer left an empty room, and the next read stamped everyone in it).
+    // The rooms that have had one real newest-page read: only then are the rows a baseline for who spoke since (review 2:
+    // a first read the computer could not answer left an empty room, and the next read stamped everyone in it). Only
+    // ever added to, as the board's ROOM_SPOKE_SEEDED (review 3: a later unreadable read leaves the rows as they were,
+    // so they stay a baseline; dropping it would leave the next reply unstamped, under its own "is working").
     private var spokeBaseline: Set<String> = []
     // The agents whose post reached this room after `statusAt` (the status read the line is drawn from).
     func spokeSince(_ statusAt: Date?, in project: String) -> Set<String> {
@@ -131,7 +133,7 @@ final class RoomStore: ObservableObject {
         let learned = Date()
         let before = spokeBaseline.contains(project) ? rows[project] : nil
         for who in Board.newSpeakers(before: before, fresh: fresh.rows) { spokeAt[project, default: [:]][who] = learned }
-        if page.unread { spokeBaseline.remove(project) } else { spokeBaseline.insert(project) }
+        if !page.unread { spokeBaseline.insert(project) }
         rows[project] = fresh.rows
         older[project] = fresh.older
         settle(project)

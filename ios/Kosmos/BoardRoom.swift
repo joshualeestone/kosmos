@@ -146,7 +146,8 @@ extension Board {
         }
     }
     // The agents with a post in `fresh` that `before` did not have: they spoke in this read. Nobody on a room's first
-    // read (before is nil), so opening a room never hides everyone until the next status read.
+    // read (before is nil), so opening a room never hides everyone until the next status read. The byPerson check backs
+    // up parseRoom, which already gives the person's posts no sender; no test can tell it apart.
     static func newSpeakers(before: [RoomRow]?, fresh: [RoomRow]) -> Set<String> {
         guard let before else { return [] }
         let had = Set(before.map(\.id))

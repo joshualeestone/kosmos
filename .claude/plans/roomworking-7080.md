@@ -46,4 +46,13 @@ member order; the suite covers it against a captured real status row; it is merg
      loadRoom is not compiled by the room suite (N2, a comment pins that `before` is read first). Room 182/182
      (controls red: every-speaker-new, unread ignored); run 1152, actions 99, settings 42, tasks 90; route check 5/5;
      Debug and KOSMOS_STORE_SHOTS Release SUCCEEDED.
+   - Round 3 (fresh blind reviewer): 0 blockers, 2 warnings, 2 nits. Fixed: the baseline set is only ever added to,
+     as the board's ROOM_SPOKE_SEEDED (W1: removing it on a later unreadable read left the next reply unstamped);
+     the byPerson guard is commented as backup for parseRoom, not claimed by a test (N1). Recorded, not changed:
+     the status time is when the answer lands, not when it was asked (W2), exactly the board's LAST_AT; a phone's
+     longer round trip widens the window in which a reply shows above its own "is working" for one poll, the
+     direction the board accepts, and fixing it means a new stamp inside BoardClient.refresh, shared code, for a
+     one-poll over-claim. After a long stay in the background the line can show the last status until the next
+     status read (N2); a time-based age check would not redraw on its own, and this is already stricter than the
+     board, which keeps its line through any outage.
 3. Validation, PR.

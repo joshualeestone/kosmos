@@ -404,7 +404,7 @@ let speakers = Board.newSpeakers(before: before, fresh: rows)
 check(Board.newSpeakers(before: nil, fresh: rows).isEmpty, "a room's first read marks nobody as having just spoken")
 check(Array(rows.prefix(4)).filter { $0.kind == .post && $0.from == "cleo" }.count >= 1,
       "premise: cleo spoke before this read")
-check(speakers.sorted() == ["eli"], "only agents with a post the room did not have count, never Kosmos's lines: \(speakers.sorted())")
+check(speakers.sorted() == ["eli"], "only agents with a post the room did not have count, never Kosmos's lines or an outside agent's: \(speakers.sorted())")
 // A log the computer could not read (ok:false, no rows, at 200) is marked, so it is never a baseline (the board's ok check).
 check(Board.parseRoom(Data(#"{"ok":false,"rows":[]}"#.utf8))?.unread == true, "a page the computer could not read is marked unread")
 check(Board.parseRoom(Data(#"{"ok":true,"rows":[]}"#.utf8))?.unread == false && Board.parseRoom(Data(#"{"rows":[]}"#.utf8))?.unread == false,
