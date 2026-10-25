@@ -226,9 +226,10 @@ printf '. "$1"\nkosmos_shell_parallel_default\n' > "$T/default.sh"
 dflt() { env -u GITHUB_ACTIONS -u CI -u KOSMOS_SHELL_SHARD -u KOSMOS_SHELL_PLATFORM -u KOSMOS_SHELL_CUT_ENV "$@" /bin/bash "$T/default.sh" "$HERE/lib/shell-parallel.sh"; }
 d_plain=$(dflt); d_gha=$(dflt GITHUB_ACTIONS=true); d_gha_no=$(dflt GITHUB_ACTIONS=false); d_shard=$(dflt KOSMOS_SHELL_SHARD=1/2)
 d_plat=$(dflt KOSMOS_SHELL_PLATFORM=linux); d_cut=$(dflt KOSMOS_SHELL_CUT_ENV=1); d_cut0=$(dflt KOSMOS_SHELL_CUT_ENV=0)
-d_ci=$(dflt CI=true); d_ci1=$(dflt CI=1); d_ci0=$(dflt CI=false)
-got="plain=$d_plain gha=$d_gha gha-false=$d_gha_no shard=$d_shard platform=$d_plat cutenv=$d_cut cutenv0=$d_cut0 ci=$d_ci ci1=$d_ci1 ci-false=$d_ci0"
-if [ "$got" = "plain=4 gha=1 gha-false=4 shard=1 platform=1 cutenv=1 cutenv0=4 ci=1 ci1=1 ci-false=4" ]; then
+d_ci=$(dflt CI=true); d_ci1=$(dflt CI=1); d_ci0=$(dflt CI=false); d_ciyes=$(dflt CI=YES); d_ciF=$(dflt CI=FALSE)
+d_cizero=$(dflt CI=0); d_ciempty=$(dflt CI=)
+got="plain=$d_plain gha=$d_gha gha-false=$d_gha_no shard=$d_shard platform=$d_plat cutenv=$d_cut cutenv0=$d_cut0 ci=$d_ci ci1=$d_ci1 ci-false=$d_ci0 ci-YES=$d_ciyes ci-FALSE=$d_ciF ci-0=$d_cizero ci-empty=$d_ciempty"
+if [ "$got" = "plain=4 gha=1 gha-false=4 shard=1 platform=1 cutenv=1 cutenv0=4 ci=1 ci1=1 ci-false=4 ci-YES=1 ci-FALSE=4 ci-0=4 ci-empty=4" ]; then
   pass "the unset default is 4 locally and 1 in CI (GITHUB_ACTIONS or CI), a CI shard or platform share, and the cut-env shape"
 else
   bad "the unset default: $got"
@@ -250,6 +251,8 @@ rtd() {  # <env assignments...>: run-tests.sh's shell part with the stub node; s
   RT_OUT=$(env -u GITHUB_ACTIONS -u CI -u KOSMOS_SHELL_SHARD -u KOSMOS_SHELL_PLATFORM -u KOSMOS_SHELL_CUT_ENV -u KOSMOS_SHELL_PARALLEL -u KOSMOS_TEST_PART -u KOSMOS_TEST_PART_LOCAL "$@" PATH="$T/stubnode:$PATH" KOSMOS_TEST_PART=shell KOSMOS_TEST_PART_LOCAL=1 KOSMOS_IGNORE_MACHINE_CLAIM=1 KOSMOS_TESTS_IGNORE_SUITE=1 KOSMOS_TESTS_IGNORE_HARNESS=1 perl -e "$GROUP60" /bin/bash "$HERE/run-tests.sh" 2>&1 < /dev/null); RT_RC=$?
   RT_SHARDS=$(grep -oE 'shell-shard\.js run [0-9]+ [0-9]+' "$T/node-argv.log" | sed 's/.*shell-shard\.js //' | sort | tr '\n' ';')
 }
+# Accepted on purpose: these four nested runs start from the real tree, not a kt sandbox, so for the second or so each
+# takes (node is a stub) another agent's suite count can see one more live suite and ask again 30 s later.
 # Judged on the shard calls alone: the run's own exit status also carries the gates at the end of run-tests.sh (the
 # browser-check trailer gates read this repo's branch diff), which are not what this arm tests. A run refused before
 # the shell part starts no shard, so it still reds here. The status is printed on a red to show which it was.
