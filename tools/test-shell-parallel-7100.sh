@@ -131,6 +131,7 @@ sleep 0 & dead=$!; wait "$dead"
 mkdir -p "$T/kids4h"
 STUB_KIDS="$T/kids4h" perl -e "$_KOSMOS_SHARD_SUPERVISOR" "$dead" "$T/stubkid.sh" 1 1 > /dev/null 2>&1 &
 sv=$!
+disown "$sv" 2>/dev/null   # no job line in the output when its group is KILLed
 # Judged on two things, so it cannot pass vacuously: the supervisor itself has ended (a group that does not exist
 # YET reads as empty), and its whole process group, which holds the shard's command and anything it started, is empty.
 k=0; while { kill -0 "$sv" 2>/dev/null || kill -0 -- "-$sv" 2>/dev/null; } && [ "$k" -lt 60 ]; do sleep 0.1; k=$((k + 1)); done
@@ -155,6 +156,7 @@ mkdir -p "$T/kids4i"
 me4i=$(exec sh -c 'echo $PPID')
 STUB_KIDS="$T/kids4i" perl -e "$_KOSMOS_SHARD_SUPERVISOR" "$me4i" "$T/stubborn4i.sh" 1 1 > /dev/null 2>&1 &
 sv=$!
+disown "$sv" 2>/dev/null
 k=0; while [ ! -s "$T/kids4i/kid-1" ] && [ "$k" -lt 100 ]; do sleep 0.1; k=$((k + 1)); done
 kill -TERM "$sv" 2>/dev/null
 k=0; while kill -0 -- "-$sv" 2>/dev/null && [ "$k" -lt 60 ]; do sleep 0.1; k=$((k + 1)); done
@@ -162,6 +164,29 @@ i_grp=empty; kill -0 -- "-$sv" 2>/dev/null && { i_grp=occupied; kill -KILL -- "-
 wait "$sv" 2>/dev/null
 if [ -s "$T/kids4i/kid-1" ] && [ "$i_grp" = empty ]; then pass "a TERM to a supervisor whose test ignores it ends in a KILL of the group within 6 s"
 else bad "stubborn shard after a TERM: test recorded=$([ -s "$T/kids4i/kid-1" ] && echo yes || echo no)(yes), group $i_grp(empty)"; fi
+
+# 4j) a KILL to the runner where the shard's command dies on the TERM but a child of it ignores TERM: the supervisor
+# does not leave with its command, it KILLs the group, so the child does not outlive the shard.
+cat > "$T/ignoreterm.sh" <<'IGNORETERM'
+#!/bin/bash
+trap '' TERM
+exec sleep 300   # sleep-control-ok: stands in for a test's child that ignores TERM; the supervisor must KILL it
+IGNORETERM
+chmod +x "$T/ignoreterm.sh"
+cat > "$T/stubleaver.sh" <<'STUBLEAVER'
+#!/bin/bash
+"$STUB_IGN" & echo "$!" > "$STUB_KIDS/kid-$1"
+wait
+STUBLEAVER
+chmod +x "$T/stubleaver.sh"
+mkdir -p "$T/l4j" "$T/kids4j"
+STUB_IGN="$T/ignoreterm.sh" STUB_KIDS="$T/kids4j" /bin/bash "$T/runner.sh" "$HERE/lib/shell-parallel.sh" "$T/l4j" "$T/stubleaver.sh" 2>/dev/null &
+sub=$!
+k=0; while [ "$(ls "$T/kids4j" | grep -c '^kid-')" -lt 2 ] && [ "$k" -lt 300 ]; do sleep 0.1; k=$((k + 1)); done
+kill -KILL "$sub" 2>/dev/null; wait "$sub" 2>/dev/null
+alive=0; for f in "$T/kids4j"/kid-*; do kp=$(cat "$f"); k=0; while kill -0 "$kp" 2>/dev/null && [ "$k" -lt 80 ]; do sleep 0.1; k=$((k + 1)); done; kill -0 "$kp" 2>/dev/null && { alive=$((alive + 1)); kill -KILL "$kp" 2>/dev/null; }; done
+if [ "$(ls "$T/kids4j" | grep -c '^kid-')" = 2 ] && [ "$alive" = 0 ]; then pass "a KILLed runner's shards KILL a child that ignored the TERM, within 8 s"
+else bad "runner KILLed, TERM-ignoring child: kids recorded $(ls "$T/kids4j" | grep -c '^kid-')(2), still alive 8 s later: $alive(0)"; fi
 
 # 4d) a test that ignores TERM (here a sleep under trap '' TERM) is KILLed after the stop's grace, not left running.
 cat > "$T/stubborn.sh" <<'STUBBORN'

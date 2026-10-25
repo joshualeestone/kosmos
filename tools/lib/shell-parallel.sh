@@ -2,36 +2,42 @@
 #
 # Each shard runs under this perl supervisor, which leads the shard's process group and forks the shard's command
 # beneath it. Its first argument is the runner's pid, read by the shell before the fork, so a runner that dies before
-# perl starts is still seen as gone. It exits with the command's status, except when it stops its own group: then it
-# dies by its own KILL. A TERM or INT sent to it alone is passed on to the whole group, and 2 s later the group is
-# KILLed if the command has not ended. When its parent is no longer the runner, even after a KILL that ran no trap,
-# it TERMs its group and KILLs it 2 s later, itself included.
-_KOSMOS_SHARD_SUPERVISOR='use POSIX ();
+# perl starts is still seen as gone. It exits with the command's status. A TERM or INT sent to it is passed on to the
+# whole group; so is a TERM of its own when its parent is no longer the runner, even after a KILL that ran no trap.
+# Once it has passed a signal on, it waits until its group holds nothing but itself, or 2 s, and then KILLs the
+# group, itself included, so a process that ignored the TERM does not outlive its shard.
+_KOSMOS_SHARD_SUPERVISOR='use POSIX (); use Time::HiRes ();
 setpgrp(0, 0);
 my $runner = shift @ARGV;
+my ($passed, $status) = (0, undef);
+my $pass = sub { my $sig = shift; $SIG{$sig} = "IGNORE"; $passed ||= Time::HiRes::time(); kill $sig, -$$ };
+$SIG{TERM} = $pass; $SIG{INT} = $pass;
 my $kid = fork;
 die "fork: $!" unless defined $kid;
-if (!$kid) { exec @ARGV or die "exec: $!" }
-my $passed = 0;
-my $pass = sub { my $sig = shift; $SIG{$sig} = "IGNORE"; $passed ||= time; kill $sig, -$$ };
-$SIG{TERM} = $pass; $SIG{INT} = $pass;
+if (!$kid) { $SIG{TERM} = $SIG{INT} = "DEFAULT"; exec @ARGV or die "exec: $!" }
+my $others = sub {
+  my $n = 0;
+  for (`ps -axo pid=,pgid=,comm=`) { my ($p, $g, $c) = split " ", $_, 3; $n++ if $g == $$ && $p != $$ && $c !~ /^ps\b/ }
+  $n;
+};
 while (1) {
-  if (waitpid($kid, POSIX::WNOHANG()) == $kid) { exit(($? & 127) ? 128 + ($? & 127) : $? >> 8) }
+  if (!defined $status && waitpid($kid, POSIX::WNOHANG()) == $kid) { $status = ($? & 127) ? 128 + ($? & 127) : $? >> 8 }
+  exit $status if defined $status && (!$passed || !$others->());
   if (getppid() != $runner && !$passed) {
     print STDERR "run-tests: this shell shard'"'"'s runner is gone; stopping the shard (#7100)\n";
     $pass->("TERM");
   }
-  kill "KILL", -$$ if $passed && time - $passed >= 2;
-  select(undef, undef, undef, 0.2);
+  kill "KILL", -$$ if $passed && Time::HiRes::time() - $passed >= 2;
+  Time::HiRes::sleep(0.2);
 }'
 #
 # kosmos_shell_parallel <n> <log dir> <command...>
 #   Starts <command...> <i> <n> for i = 1..n, all at once, each with its own log <log dir>/shard-<i>.log and each in
 #   a process group of its own, led by its supervisor (above). The shards are waited on in shard order (bash 3.2
 #   has no wait -n), and a line says each one's status when it is waited on, with the time it was seen to have
-#   ended (a shard that ended before a lower-numbered one is reported late). When all have ended it prints the logs in shard order, then one line naming
-#   the time taken and which shards were red. Returns 0 when every shard returned 0, else the status of the
-#   lowest-numbered red shard.
+#   ended (a shard that ended before a lower-numbered one is reported late). When all have ended it prints the
+#   logs in shard order, then one line naming the time taken and which shards were red. Returns 0 when every
+#   shard returned 0, else the status of the lowest-numbered red shard.
 #   KOSMOS_SHELL_PARALLEL_PIDS holds the shards still running and KOSMOS_SHELL_PARALLEL_DONE the ones waited on; each
 #   pid is also the id of its shard's process group. kosmos_shell_parallel_stop, for the caller's EXIT trap, uses both.
 #
