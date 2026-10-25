@@ -13,6 +13,7 @@ struct NewTaskView: View {
     @Binding var draft: NewTask.Draft
     // The words that got "could not tell", kept by the Tasks tab with the draft so closing the sheet does not lift it.
     @Binding var held: NewTask.Held?
+    let heldFound: (Board.TasksRead) -> Void   // the Tasks tab's one handler for a held task found in a read
     let added: (String) -> Void        // the line the Tasks tab shows after a create
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -301,11 +302,9 @@ struct NewTaskView: View {
             guard epoch == client.chatEpoch, let fresh, (200...299).contains(fresh.1.statusCode),
                   let read = Board.parseTasks(fresh.0) else { return }   // no read came back: the hold stays
             // Found: it was made. Not found proves nothing (the Mac may still be filing it), so this read lifts nothing.
-            // held is nil when the Tasks tab's own read found it first and has already said so (and closed the sheet).
-            if held != nil, let number = NewTask.found(sent, in: read, before: before) {
-                message = nil
-                made(number: number, sent: sent)
-            }
+            // Handed to the Tasks tab, which says it once whichever read finds it, and closes only a sheet still showing
+            // the held words: this sheet may have been cancelled and another opened while the read was in the air.
+            heldFound(read)
         }
     }
 }

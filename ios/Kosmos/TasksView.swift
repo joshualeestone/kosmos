@@ -30,7 +30,7 @@ struct TasksTab: View {
                 .background(taskLink)
                 .sheet(item: $newTaskFor) { start in
                     NewTaskView(client: client, tasks: client.tasksList, picked: start.picked, draft: $newTaskDraft,
-                                held: $newTaskHeld) { line in
+                                held: $newTaskHeld, heldFound: heldFound(in:)) { line in
                         notice = line
                         Task { await client.refreshTasks() }
                     }
@@ -40,18 +40,8 @@ struct TasksTab: View {
         // A Tasks read that shows the held task: it was made. Said as any create is (the sheet closes, the added line
         // shows), and the hold and its words go.
         .onChange(of: client.tasksList) { read in
-            guard let h = newTaskHeld, let read, let number = NewTask.found(h.sent, in: read, before: h.before) else { return }
-            let name = read.tasks.first { $0.number == number && $0.projectId == h.sent.project }?.projectName ?? "the project"
-            // Only a sheet showing the held words is closed: one with other words may be creating another task.
-            if NewTask.heldBack(newTaskDraft, by: h) {
-                newTaskFor = nil
-                newTaskDraft = NewTask.Draft()
-            }
-            newTaskHeld = nil
-            let line = NewTask.addedLine(number: number, projectName: name)
-            notice = line
-            // Said aloud, as the sheet's own "made" says it: a sheet closing with nothing said reads as a failure.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { UIAccessibility.post(notification: .announcement, argument: line) }
+            guard let read else { return }
+            heldFound(in: read)
         }
         // Another account or Mac: its projects are not this one's, so the sheet, its draft and the added line go too.
         .onChange(of: client.chatEpoch) { _ in
@@ -68,6 +58,23 @@ struct TasksTab: View {
             if phase == .background { wasBackground = true; client.stop() }
             else if phase == .active && wasBackground { wasBackground = false; client.start() }
         }
+    }
+
+    // The one place a held task found in a Tasks read is said, whichever read found it (the tab's own, or the sheet's
+    // follow-up read, which may land after that sheet has gone): only a sheet showing the held words is closed and
+    // cleared, since one with other words may be creating another task.
+    private func heldFound(in read: Board.TasksRead) {
+        guard let h = newTaskHeld, let number = NewTask.found(h.sent, in: read, before: h.before) else { return }
+        let name = read.tasks.first { $0.number == number && $0.projectId == h.sent.project }?.projectName ?? "the project"
+        if NewTask.heldBack(newTaskDraft, by: h) {
+            newTaskFor = nil
+            newTaskDraft = NewTask.Draft()
+        }
+        newTaskHeld = nil
+        let line = NewTask.addedLine(number: number, projectName: name)
+        notice = line
+        // Said aloud, as the sheet's own "made" says it: a sheet closing with nothing said reads as a failure.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { UIAccessibility.post(notification: .announcement, argument: line) }
     }
 
     // Screenshots only (a Debug build with KOSMOS_SAMPLE_AGENTS=1): KOSMOS_SAMPLE_NEWTASK=1 opens the New task sheet once.

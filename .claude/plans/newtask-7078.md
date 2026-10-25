@@ -208,3 +208,6 @@ path stays the app's own (isProjectId before the path; host is held.url).
   failed read (deliberate, iteration 7: never drop a pick unseen); a stale parent is refused by the Mac with its own
   sentence. The hold has no expiry: a false "Added task" needs an agent to make a task with the same words in the
   same project in that window.
+- Iteration 21 (opus): a held task found by any read is said in ONE place, the Tasks tab's heldFound, which closes and
+  clears only a sheet still showing the held words. The sheet's follow-up read hands its read to it instead of acting
+  itself: since Cancel works during that read, the sheet that sent it may be gone and another open.
