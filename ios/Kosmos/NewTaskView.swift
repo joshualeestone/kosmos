@@ -138,9 +138,14 @@ struct NewTaskView: View {
                         // The link colour and weight, as the chat's links: in the app's own tint it read as one more line of text.
                         // It creates, as the words say: the person has been told to look in Tasks first, and the words are
                         // on screen (the hold applies only while they are). At least 44 points tall, as a tap target.
-                        Button(NewTask.anyway) { held = nil; startCreate() }
-                            .textCase(nil).font(.body.weight(.semibold)).foregroundColor(Palette.link)
-                            .frame(minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                        // The frame and shape inside the label, with the plain style, as TaskPageView's 44-point links:
+                        // outside it, the tappable area stays the text's own.
+                        Button { startCreate(liftingHold: true) } label: {
+                            Text(NewTask.anyway).textCase(nil).font(.body.weight(.semibold)).foregroundColor(Palette.link)
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -272,15 +277,17 @@ struct NewTaskView: View {
                                        parents: tasks.map { NewTask.parents(of: draft.project, in: $0) })
     }
 
-    // Latched here, before the Task starts: a second tap in between would send a second create.
-    private func startCreate() {
-        guard !sending else { return }
+    // Latched here, before the Task starts: a second tap in between would send a second create. The hold is lifted
+    // only once a create will really go, so a draft that cannot be sent keeps its line and button.
+    private func startCreate(liftingHold: Bool = false) {
+        guard !sending, list != nil, NewTask.canCreate(draft) else { return }
+        if liftingHold { held = nil }
         sending = true
         Task { await create() }
     }
 
     private func create() async {
-        // sending is already set by Create's tap.
+        // sending is already set by startCreate().
         guard list != nil, NewTask.canCreate(draft) else { sending = false; return }
         message = nil
         let sent = draft

@@ -219,6 +219,8 @@ path stays the app's own (isProjectId before the path; host is held.url).
 ## Follow-up after #7094 (01:30 CDT), with Mona Lisa
 - "Create it anyway" creates (lifts the hold and sends, through the same latch as Create). Mona Lisa leaned this way:
   the words are on screen and the line told them to look first. Rejected: renaming it to unlock Create (an extra tap).
-- It is at least 44 points tall, with its whole row tappable.
+- It is at least 44 points tall across the row: frame and contentShape inside the label with the plain style, as
+  TaskPageView's 44-point links (review: outside the label the tappable area stayed the text's own). The hold is lifted
+  only once a create will really go.
 - The could-not-tell screenshot sample puts words in the draft before holding it, so the shot shows the held words (an
   empty held draft made the shot read as "sends words you cannot see").
