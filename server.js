@@ -1737,6 +1737,9 @@ function hookRateProblem(id, projectId, now = Date.now()) {
 }
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
+// kosmos#7153: the longest room notice a job may write, and its source label.
+const ROOM_NOTICE_MAX = 4000;
+const ROOM_NOTICE_SOURCE_MAX = 40;
 const unfurl = require('./engine/unfurl');
 const attachments = require('./engine/attachments');
 const filepreview = require('./engine/filepreview');   // #4997: the preview for a file in a Files list
@@ -22030,6 +22033,40 @@ const server = http.createServer(async (req, res) => {
      /api/ POST is). The engine writes a reopen marker the valve honors; nothing
      is delivered and nothing renders in the room. No body is required -- the
      project rides the path -- so a missing/garbage body is not read. */
+  /* kosmos#7153 (part of #5941, the fleet off Discord): Kosmos speaking in a room on behalf of a job on this Mac, such
+     as the builder alarm or an email digest. A launchd job has no agent token and no pane, so `kosmos post` refuses it,
+     and the room route above posts as the person. This writes a roomNote: Kosmos's own voice, typed into nobody's
+     session, its first words naming its source. Board-token gated like every /api route and not on the agent-token
+     list, so an agent cannot pass as Kosmos with its own token. */
+  const roomNotice = pathname.match(/^\/api\/project\/([^/]+)\/notice$/);
+  if (roomNotice && req.method === 'POST') {
+    const id = decodeSegment(roomNotice[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body = null;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        const text = body && typeof body.text === 'string' ? body.text.trim() : '';
+        const source = body && typeof body.source === 'string' ? body.source.trim() : '';
+        if (!text || text.length > ROOM_NOTICE_MAX) {
+          sendJson(res, 400, { error: 'a notice needs words, at most ' + ROOM_NOTICE_MAX + ' characters' });
+          return;
+        }
+        if (!source || source.length > ROOM_NOTICE_SOURCE_MAX || /[\r\n:]/.test(source)) {
+          sendJson(res, 400, { error: 'a notice needs a short source on one line, such as "builder alarm"' });
+          return;
+        }
+        const roster = safeRoster();
+        let found = null;
+        try { found = projects.get(id, roster || []); } catch { found = null; }
+        if (!found) { sendJson(res, 404, { error: 'there is no project by that name, so there is no room to post into' }); return; }
+        if (!messages.roomNote(found.id, source + ': ' + text)) { sendJson(res, 500, { error: 'we could not write the notice' }); return; }
+        sendJson(res, 200, { ok: true, project: found.id });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
   const roomReopen = pathname.match(/^\/api\/project\/([^/]+)\/room\/reopen$/);
   if (roomReopen && req.method === 'POST') {
     const id = decodeSegment(roomReopen[1]);
