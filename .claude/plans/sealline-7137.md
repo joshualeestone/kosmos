@@ -10,7 +10,8 @@ Card: kosmos#7137 (filed by me from a board-vs-phone sweep; the board's #pj-fed-
 - BoardRoom.swift: ownCompareRequest (GET /api/federation/own-compare?project=), parseOwnCompare (a code is a non-empty
   string, pending exactly true; the code itself is never kept), ownSealLine and the two sentences.
 - ProjectsView.swift (RoomStore): ownCompare by project, read after each room read and only while fedShown; any
-  answer that is not a readable 200 (404 with sharing off) leaves no line; reset() forgets it.
+  2xx JSON answer replaces what is kept and anything else (a 404 with sharing off, say) is a miss under the keep rule
+  (the line stays through two misses, as the board's); reset() forgets it.
 - RoomView.swift: the line above the conversation, under the search bar, in .callout and Palette.tertiary, plain words
   (the board's .ownseal-phone: --text-callout, --label-3, a plain <p>).
 
@@ -59,3 +60,6 @@ Card: kosmos#7137 (filed by me from a board-vs-phone sweep; the board's #pj-fed-
   UI coming back never draws an old answer. Recorded: the Debug sample room makes no own-compare read, so no sample
   shot shows the line (the simulator shot run is not permitted on this machine, #7055, so no shots either way); the
   onAppear clear, decided in round 1. Room 437/437; every suite; both builds, no warnings in the changed files.
+- Round 4: 0 blockers, 0 warnings, 3 nits, all fixed: the simulation asserts the gap between asks (a pace with no
+  wait now goes red) rather than a count that could not fail; a clock set back since the last read counts as due, so
+  misses still count up; the plan's "404 leaves no line" corrected (it is a miss under the keep rule). CONVERGED.

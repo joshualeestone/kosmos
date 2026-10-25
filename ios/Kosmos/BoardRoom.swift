@@ -737,7 +737,10 @@ extension Board {
         guard let s else { return true }
         if s.inFlight { return false }
         guard let done = s.doneAt else { return true }
-        return now.timeIntervalSince(done) > every
+        // A clock set back since the last read (a negative gap) is due too, so misses still count up and a stale line
+        // still drops (review 4; the board's own Date.now() check would wait instead).
+        let gap = now.timeIntervalSince(done)
+        return gap > every || gap < 0
     }
     // The board's #pj-fed-own-phone sentences, said from the phone: the board's "this computer" is the person's
     // computer here, and the phone has no Members code section of its own (its room's Members button opens the board), so

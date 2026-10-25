@@ -918,13 +918,18 @@ check(Board.ownShouldAsk(Board.OwnAsk(inFlight: false, doneAt: t0), now: t0.addi
 check(Board.ownShouldAsk(Board.OwnAsk(inFlight: false, doneAt: nil), now: t0, every: 10), "pace: asked again at once when nothing has finished and nothing is in flight")
 // A slow route: answers take 12 s while the room reads every 5 s. With the pace above every read lands (none is
 // cut short by the next ask), so three misses in a row drop the line, as the board's.
-var simAsk: Board.OwnAsk? = nil, simKept: Board.OwnCompareKept? = Board.OwnCompareKept(compare: sealedC, missed: 0), simLanding: Date? = nil, simAsked = 0
+var simAsk: Board.OwnAsk? = nil, simKept: Board.OwnCompareKept? = Board.OwnCompareKept(compare: sealedC, missed: 0), simLanding: Date? = nil, simAsked = 0, simLastAsk: Date? = nil, simMinGap = Double.infinity
 for tick in 0..<40 {
     let now = t0.addingTimeInterval(Double(tick) * 5)
     if let l = simLanding, now >= l { simAsk = Board.OwnAsk(inFlight: false, doneAt: now); simKept = Board.ownCompareAfter(simKept, answer: nil); simLanding = nil }
-    if Board.ownShouldAsk(simAsk, now: now, every: 10) { simAsk = Board.OwnAsk(inFlight: true, doneAt: simAsk?.doneAt); simLanding = now.addingTimeInterval(12); simAsked += 1 }
+    if Board.ownShouldAsk(simAsk, now: now, every: 10) {
+        if let l = simLastAsk { simMinGap = min(simMinGap, now.timeIntervalSince(l)) }
+        simLastAsk = now; simAsk = Board.OwnAsk(inFlight: true, doneAt: simAsk?.doneAt); simLanding = now.addingTimeInterval(12); simAsked += 1
+    }
 }
-check(simKept?.compare == nil && (simKept?.missed ?? 0) >= 3 && simAsked < 40, "pace: a 12 s route still lands every read, so a stale line drops at the third miss, and it is not asked on every room read")
+check(simKept?.compare == nil && (simKept?.missed ?? 0) >= 3, "pace: a 12 s route still lands every read, so a stale line drops at the third miss")
+check(simAsked > 3 && simMinGap > 12 + 10 - 5, "pace: asked again only once a read has landed and 10 s more have passed (never two asks closer than that)")
+check(Board.ownShouldAsk(Board.OwnAsk(inFlight: false, doneAt: t0), now: t0.addingTimeInterval(-60), every: 10), "pace: a clock set back since the last read is due (review 4)")
 check(boardPage.contains("const due = !o || o.project !== PJ_CURRENT || (!document.hidden && Date.now() - (o.at || 0) > FED_OWN_REFRESH_MS);")
       && boardPage.contains("if (PJ_CURRENT && due && !asking && FED_OWN_BUSY !== PJ_CURRENT) fedOwnLoad(PJ_CURRENT);")
       && boardPage.contains("const FED_OWN_REFRESH_MS = 10000;") && projectsSource.contains("static let ownEvery: TimeInterval = 10"),
