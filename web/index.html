@@ -81738,7 +81738,7 @@ async function fedOwnLoad(project, fromPress) {
   // The third failed read drops the list from the section; an open Remove dialog stays (a failed read is not an
   // answer), so it says why its computer is no longer shown under it.
   const pendDrop = MEM_PENDING && MEM_PENDING.own;
-  if (pendDrop && pendDrop.project === project && pendDrop.gen === FED_OWN_GEN && FED_OWN_BUSY !== project && allowedMissed === 3) {
+  if (pendDrop && pendDrop.project === project && pendDrop.gen === FED_OWN_GEN && FED_OWN_BUSY !== project && allowedMissed >= 3) {
     const line = document.getElementById('mem-msg');
     if (line && !line.textContent) line.textContent = FED_OWN_LIST_UNREAD;
   } else if (pendDrop && pendDrop.project === project && pendDrop.gen === FED_OWN_GEN && allowedMissed === 0) {
