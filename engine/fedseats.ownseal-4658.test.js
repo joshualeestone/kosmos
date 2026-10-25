@@ -241,6 +241,13 @@ test('#4658 slice 2: a computer waiting to be let into an unsealed room holds it
   assert.ok(seat.written.join('').includes('waiting words'), 'the held post did not go once let in');
 });
 
+test('#4658 slice 2: a computer let in before this slice that sees an unopenable sealed envelope gets the record only, never a lasting mark on its link', async () => {
+  const { seat } = await ownComputer('own-old1', 'room-old1');
+  await sealedNow(seat, 'room-old1');
+  assert.strictEqual(fedseal.roomState('own-old1').ownComputer, true, 'precondition: it held the room as sealed');
+  assert.strictEqual(federation.linkFor('own-old1').sealed, undefined, 'an unauthenticated envelope wrote a lasting seal on the link');
+});
+
 test('#4658 slice 2: a clear that arrives BEFORE the person confirms is kept, and the confirm lets the posts go', async () => {
   const { seat, hello } = await pendingComputer('own-c3', 'room-c3');
   fedseats.post('own-c3', { from: 'Josh', kind: 'person', text: 'early clear words' });
@@ -317,7 +324,6 @@ test('#4658 slice 2: a clear whose link cannot be written leaves the computer wa
   assert.strictEqual(fedseal.roomState('own-c4'), null, 'the kept clear was not taken on the next connect');
   assert.ok(seat.written.join('').includes('half words'));
 });
-
 
 test('#4658: the owner starts at most OWN_RUNS_PER_HOUR new runs an hour, and keeps at most 16 waiting, oldest out first', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1_800_000_000_000 });
