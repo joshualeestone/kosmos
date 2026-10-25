@@ -76,7 +76,7 @@ test('#4658: own-allow refuses a malformed body, a request not from the screen, 
     assert.equal((await call('POST', '/api/federation/own-allow', ALLOW)).status, 403, 'not from the screen');
     const r = await call('POST', '/api/federation/own-allow', ALLOW, SCREEN);
     assert.equal(r.status, 409);
-    assert.match(r.json.error, /^That computer was not allowed: that computer is no longer waiting for this room's key\.$/);
+    assert.match(r.json.error, /^That computer was not allowed: that computer is no longer waiting to be let in\.$/);
   } finally { live(false); }
 });
 
@@ -88,7 +88,7 @@ test('#4658: own-compare and own-confirm (the waiting computer\'s half) are behi
   try {
     assert.equal((await call('GET', '/api/federation/own-compare?project=p1')).status, 403, 'not from the screen');
     assert.equal((await call('GET', '/api/federation/own-compare', undefined, SCREEN)).status, 400, 'no project');
-    assert.deepEqual((await call('GET', '/api/federation/own-compare?project=p1', undefined, SCREEN)).json, { code: null });
+    assert.deepEqual((await call('GET', '/api/federation/own-compare?project=p1', undefined, SCREEN)).json, { code: null, pending: false });
     for (const bad of ['not json', [], {}, { project: 'p1' }, { project: 'p1', code: ' ' }, { project: '', code: 'ABCDE-FGHJK' }]) {
       assert.equal((await call('POST', '/api/federation/own-confirm', bad, SCREEN)).status, 400, JSON.stringify(bad));
     }
@@ -115,6 +115,6 @@ test('#4658: own-allow and own-confirm hand the engine exactly the project, key 
     assert.deepEqual((await call('POST', '/api/federation/own-confirm', { project: 'p1', match: false }, SCREEN)).json, { started_over: true });
     assert.deepEqual(calls, [['allow', 'p1', 'pub-w', 'ABCDE-FGHJK'], ['confirm', 'p1', 'KLMNP-QRSTU'], ['over', 'p1']]);
     assert.deepEqual((await call('GET', '/api/federation/own-waiting?project=p1', undefined, SCREEN)).json, { computers: [{ pub: 'pub-w', mac: 'mac-w', code: 'ABCDE-FGHJK', at: 5 }] });
-    assert.deepEqual((await call('GET', '/api/federation/own-compare?project=p1', undefined, SCREEN)).json, { code: 'KLMNP-QRSTU' });
+    assert.deepEqual((await call('GET', '/api/federation/own-compare?project=p1', undefined, SCREEN)).json, { code: 'KLMNP-QRSTU', pending: false });
   } finally { live(false); }
 });
