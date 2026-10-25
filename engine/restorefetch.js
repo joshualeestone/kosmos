@@ -28,6 +28,13 @@
  * runRestore and backuprestore then check every byte against the device-signed manifest, so a wrong URL reads as a
  * failure, never as the member's data.
  *
+ * A time limit that is the route's, not this module's (review 5): a reviewer's read grant needs a release by that
+ * reviewer in the last 15 minutes, and links are granted again about every 4.5 minutes, so a restore through a
+ * reviewer's session that runs past the release's 15 minutes is refused part way (403 read_needs_release). The caller
+ * should turn that refusal into a sentence saying the release lapsed and must be made again; this module stops on it
+ * and returns what was restored (partial). The destination's grant (r4) is expected to ride on its released request
+ * instead.
+ *
  * Not here, and refused by name instead (#5536 comment 6404447686; the open card for it is #7156): a chunk under
  * another key epoch. backupsnapshot.js keeps an indexed chunk's epoch on purpose, the route grants only the request's
  * epoch, and runRestore opens with one member key, so a snapshot taken after a rotation inside its week names chunks
@@ -158,7 +165,9 @@ async function readCapped(r, max) {
                        body is the route's { member, epoch, manifest, keys }; the caller makes the call. { ok: false }
                        is a refusal and stops the restore, so map only an answer that will not change to it (a 4xx,
                        a 429 included); a 5xx, a timeout or a dropped connection should throw, which reads as not
-                       reached and is tried again (review 2). A grant gets grantTimeoutMs (default 15 s)
+                       reached and is tried again (review 2). A grant gets grantTimeoutMs (default 15 s). The
+                       reviewer route's 403 read_needs_release after the first grant means the release lapsed (the
+                       header's 15 minutes): say so in `because`
      org, member, epoch   as the release names them (epoch as runRestore takes it)
      manifest             the coordinator's record: { key, period, sha256, size }
      fetch, now, sleep    globalThis.fetch, Date.now and setTimeout unless given; getTimeoutMs per GET (default 40 s)
@@ -174,12 +183,15 @@ function readGrantFetcher(opts) {
   const sleep = typeof opts.sleep === 'function' ? opts.sleep : (ms) => new Promise((r) => setTimeout(r, ms));
   const rec = opts.manifest || {};
   const ctx = { org: opts.org, member: opts.member, epoch: String(opts.epoch), period: rec.period };
+  // review 5: the route reads the epoch as a number, so one past 2^53 would be sent wrong and its echo refused as
+  // another key's. Refused by name instead, before any call.
+  const epochTooLarge = !Number.isSafeInteger(Number(ctx.epoch));
   const urls = new Map();   // key -> { url, expiresAtMs } (this computer's clock)
   const batchOf = new Map();   // key -> batch index
   const batches = [[]];   // batch 0 is the manifest alone (keys: [])
   const done = new Set();   // keys already fetched, never asked for again
   const inFlight = new Map();   // batch index -> promise
-  let stopped = null;   // the reason every later fetch is refused
+  let stopped = epochTooLarge ? 'this backup\'s key epoch is larger than restore can ask Kosmos+ for' : null;   // the reason every later fetch is refused
   let unreached = 0;
   const unreadable = new Map();   // key -> why it is not granted
   const problems = new Set();   // why some files could not be fetched, without stopping the rest (review 3)
@@ -289,7 +301,10 @@ function readGrantFetcher(opts) {
     if (expired === 2 && !stopped) stopped = LINKS_EXPIRED;
     if (lastKind === 'missing') return null;
     if (isManifest) {
+      // review 5: the manifest is the first fetch, so it is where an outage or a wrong clock shows first: name it.
       if (lastKind === 'retry') problems.add('the storage service did not answer with this backup\'s manifest');
+      if (lastKind === 'unreached') problems.add('restore could not reach Kosmos+ to fetch this backup\'s files');
+      if (lastKind === 'expired') problems.add(LINKS_EXPIRED);   // a link granted moments ago
       return null;
     }
     if (lastKind === 'retry') problems.add('the storage service did not answer for some files');

@@ -310,7 +310,7 @@ test('#5536 slice 2 review 1: a grant that could not be reached is tried again, 
     // not fetch the manifest; a second restore on the same fetcher then gets through, since two is under the limit.
     const f = fetcherFor(s, w, t);
     const r1 = await restoreWith(s, f);
-    assert.deepEqual(r1, { ok: false, because: 'the backup\'s manifest could not be fetched' }, 'not "refused": nothing refused it');
+    assert.deepEqual(r1, { ok: false, because: 'restore could not reach Kosmos+ to fetch this backup\'s files' }, 'review 5: named, and not "refused": nothing refused it');
     const r2 = await restoreWith(s, f);
     assert.equal(r2.ok, true, r2.because);
     // Always unreachable: the third miss stops it, with a sentence that says so.
@@ -530,7 +530,7 @@ test('#5536 slice 2 review 2: a grant that never answers is cut off, read as not
     const f = fetcherFor(s, w, t, { grantTimeoutMs: 20 });
     const started = Date.now();
     const r = await restoreWith(s, f);
-    assert.deepEqual(r, { ok: false, because: 'the backup\'s manifest could not be fetched' });
+    assert.deepEqual(r, { ok: false, because: 'restore could not reach Kosmos+ to fetch this backup\'s files' });
     assert.equal(calls, 2, 'tried twice, each cut off');
     assert.ok(Date.now() - started < 5000);
     // The plan's own grant hanging (the manifest came through): cut off too, and a plan that itself never answers is
@@ -635,5 +635,38 @@ test('#5536 slice 2 review 4: every chunk under another key: nothing restored, s
     assert.equal(r.because, rf.ANOTHER_EPOCH);
     assert.equal(r.result.restored.length, 0);
     assert.ok(r.result.failed.length > 0);
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#5536 slice 2 review 5: a manifest link expired on arrival names the clocks, and an epoch past 2^53 is refused by name', async () => {
+  const s = await oneSnapshot();
+  try {
+    const t = { now: NOW }, w = world(s.objects, [s.record], t);
+    const real = w.grant;
+    w.grant = async (b) => { const g = await real(b); for (const [u, v] of w.issued) w.issued.set(u, Object.assign({}, v, { expiresAtMs: 0 })); return g; };
+    const r = await restoreWith(s, fetcherFor(s, w, t));
+    assert.deepEqual(r, { ok: false, because: rf.LINKS_EXPIRED });
+    const w2 = world(s.objects, [s.record], t);
+    const f2 = fetcherFor(s, w2, t, { epoch: '90071992547409930' });
+    assert.equal(await f2.fetchObject(s.record.key, { maxBytes: 2 ** 20 }), null);
+    assert.equal(f2.planned().because, 'this backup\'s key epoch is larger than restore can ask Kosmos+ for');
+    assert.equal(w2.calls.length, 0, 'nothing asked for');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#5536 slice 2 review 5: with nothing restored, a fetch reason heads the result only when every file failed on a fetch', async () => {
+  const s = await oneSnapshot();
+  try {
+    const t = { now: NOW };
+    // Every chunk arrives but is not the one sealed (swapped bytes): files fail on their own reason, not the fetch's.
+    const w = world(s.objects, [s.record], t);
+    const realFetch = w.fetch;
+    w.fetch = async (u, init) => (u.includes(s.record.key) ? realFetch(u, init) : new Response(crypto.randomBytes(64), { status: 200 }));
+    const f = fetcherFor(s, w, t);
+    const plan = f.plan;
+    const r = await restoreWith(s, Object.assign({}, f, { plan: async (keys) => { const p = await plan(keys); f.planned = () => Object.assign({}, p, { unreadableBecause: [rf.ANOTHER_EPOCH] }); return p; } , planned: () => f.planned() }));
+    assert.equal(r.ok, false);
+    assert.equal(r.because, 'no file of this backup could be restored', JSON.stringify(r.result.failed));
+    assert.ok(r.result.failed.every((x) => x.why !== 'a chunk is missing'));
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });

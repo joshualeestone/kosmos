@@ -41,6 +41,9 @@ const KEY_HEX_RE = /^[0-9a-f]{64}$/;
 const MAX_LISTED = 5000;   // more than the coordinator lists (3,000)
 // The fixed DER prefix of an Ed25519 public key (SPKI), so a raw 32-byte key becomes a KeyObject.
 const SPKI_ED25519 = Buffer.from('302a300506032b6570032100', 'hex');
+// backuprestore's own sentences for a file whose chunk did not arrive (restoreFile), as opposed to one that did and
+// was wrong: only these let a fetch reason head a restore that restored nothing.
+const FETCH_FAILURES = new Set(['a chunk could not be fetched', 'a chunk is missing']);
 
 /* The time inside a snapshot id (engine/backuprun.js newSnapshotId: the UTC time, then 4 random bytes), in Unix
    seconds, or null for anything else. */
@@ -233,7 +236,11 @@ async function runRestore(opts) {
   }
   // review 4: files failed and none came back is no success either, stopped or not (every chunk under another key, say).
   if (!result.restored.length && result.failed.length) {
-    return { ok: false, because: fetchProblems[0] || 'no file of this backup could be restored', result, fetchProblems };
+    // review 5: the fetch's reason heads it only when every file failed on a fetch; a file that failed for its own
+    // reason (a damaged chunk, a path clash) must not be blamed on the fetch.
+    const fetchOnly = result.failed.every((x) => x && FETCH_FAILURES.has(x.why));
+    const why = fetchOnly && fetchProblems.length ? fetchProblems[0] : 'no file of this backup could be restored';
+    return { ok: false, because: why, result, fetchProblems };
   }
   return { ok: true, deviceKey: used.k.key, backfill: used.k.backfill === true, takenAt, result, fetchProblems };
 }
