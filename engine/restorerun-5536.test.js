@@ -127,9 +127,10 @@ test('#5536: the snapshot\'s own time must agree with the recorded grant, inside
       [{ snapshot: undefined }, /no snapshot id/],
       [{ snapshot: 's-0a1b2c3d' }, /no readable time/],
       [{ snapshot: '20261340T115500Z-0a1b2c3d' }, /no readable time/],
-      [{ granted_at: GRANTED - 600 }, /taken after Kosmos\+ recorded it/],
+      [{ granted_at: GRANTED - 300 - rr.CLOCK_SKEW_SECS - 1 }, /taken after Kosmos\+ recorded it/],
       [{ granted_at: GRANTED + rr.SNAPSHOT_TO_GRANT_SECS + 600 }, /long before/],
-      [{ period: '2026-W40' }, /not in the week/],
+      // A wrong week is refused by the device-signed context itself, not by a week rule (review 1: that rule refused genuine runs).
+      [{ period: '2026-W40' }, /does not open/],
       [{ sha256: 'ab'.repeat(32) }, /not the one Kosmos\+ recorded/],
     ];
     for (const [change, why] of cases) {
@@ -138,13 +139,16 @@ test('#5536: the snapshot\'s own time must agree with the recorded grant, inside
     }
     // CONTROL: the unchanged record restores, so each refusal above was its own.
     assert.equal((await run(s.record)).ok, true);
+    // review 1: a Mac clock a little fast (the id up to CLOCK_SKEW_SECS after the grant) is NOT refused.
+    assert.equal((await run(Object.assign({}, s.record, { granted_at: GRANTED - 300 - rr.CLOCK_SKEW_SECS + 5 }))).ok, true, 'a fast Mac clock inside the allowance');
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
 test('#5536: snapshots are listed oldest first by the time inside their id, never by the coordinator\'s grant time, with problems shown', () => {
   const rows = rr.listSnapshots([
     { key: 'b', snapshot: '20261008T100000Z-00000002', granted_at: Math.floor(Date.parse('2026-10-08T10:05:00Z') / 1000), period: PERIOD },
-    { key: 'a', snapshot: '20261007T090000Z-00000001', granted_at: Math.floor(Date.parse('2026-10-08T23:00:00Z') / 1000), period: PERIOD },
+    // Granted nine days after its own time: past SNAPSHOT_TO_GRANT_SECS (eight days), so it is listed with why.
+    { key: 'a', snapshot: '20261007T090000Z-00000001', granted_at: Math.floor(Date.parse('2026-10-16T09:00:01Z') / 1000), period: PERIOD },
     { key: 'c', snapshot: null, granted_at: GRANTED, period: PERIOD },
     { key: 'd', snapshot: '20261008T110000Z-00000004', granted_at: GRANTED, period: PERIOD, readable: false },
   ]);
@@ -153,6 +157,45 @@ test('#5536: snapshots are listed oldest first by the time inside their id, neve
   assert.equal(rows[1].problem, null);
   assert.match(rows[2].problem, /own bucket/);
   assert.match(rows[3].problem, /no snapshot id/);
+});
+
+test('#5536 review 1: a genuine run across Monday 00:00 is not refused, and a long first upload is not either', () => {
+  const at = (iso) => Math.floor(Date.parse(iso) / 1000);
+  const rows = rr.listSnapshots([
+    // Started Sunday 23:59 UTC (week 41), granted after midnight (week 42), filed under week 41.
+    { key: 'x', snapshot: '20261011T235900Z-00000001', granted_at: at('2026-10-12T00:05:00Z'), period: '2026-W41' },
+    // A first backup that took 30 hours to upload.
+    { key: 'y', snapshot: '20261007T060000Z-00000002', granted_at: at('2026-10-08T12:00:00Z'), period: '2026-W41' },
+  ]);
+  assert.equal(rows[0].problem, null, rows[0].problem);
+  assert.equal(rows[1].problem, null, rows[1].problem);
+});
+
+test('#5536 review 1: what a store or a caller hands it is refused by name, never a crash, a hang or a false ok', async () => {
+  const s = await oneSnapshot();
+  try {
+    const h = history('o1', 'm1', enrolled(s.dev), GRANTED + 60);
+    const base = { org: 'o1', member: 'm1', epoch: '1', manifest: s.record, memberSk: s.member.sk, history: h, now: GRANTED + 120,
+      fetchObject: s.fetchObject, sink: memorySink(), maxTotalBytes: 2 ** 30 };
+    const run = (extra) => rr.runRestore(Object.assign({}, base, extra));
+    let r = await run({ epoch: undefined }); assert.match(r.because, /without a key epoch/);
+    r = await run({ memberSk: null }); assert.match(r.because, /member key was not opened/);
+    r = await run({ manifest: Object.assign({}, s.record, { key: 'o2/m1/1/2026-W41/m1' }) }); assert.match(r.because, /not filed under this member/);
+    r = await run({ manifest: Object.assign({}, s.record, { key: 'o1/m1/../x' }) }); assert.match(r.because, /not filed under this member/);
+    r = await run({ fetchObject: async () => Buffer.alloc(64 * 1024 * 1024 + 1) }); assert.match(r.because, /larger than any manifest/);
+    r = await run({ fetchObject: async () => 12345 }); assert.match(r.because, /could not be fetched/, 'a number is not bytes');
+    const t0 = Date.now();
+    r = await run({ fetchObject: () => new Promise(() => {}), fetchTimeoutMs: 50 }); assert.match(r.because, /could not be fetched/);
+    assert.ok(Date.now() - t0 < 5000, 'a store that never answers is cut off');
+    // A restore that restored NOTHING is not ok (restoreSnapshot's malformed and overBound shapes).
+    for (const shape of [{ malformed: 'files' }, { overBound: 'maxFiles' }, null]) {
+      r = await run({ restoreSnapshot: async () => shape }); assert.equal(r.ok, false, JSON.stringify(shape)); assert.match(r.because, /could not be restored/);
+    }
+    // A chunk the store does not have: the restore completes, and that file is reported failed, not invented.
+    const missing = [...s.objects.keys()].find((k) => k.endsWith('/c1'));
+    r = await run({ fetchObject: async (k, o) => (k === missing ? null : s.objects.get(k)) });
+    assert.equal(r.ok, true, r.because); assert.ok(r.result.failed.length >= 1, 'the file with the missing chunk is reported');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
 test('#5536: snapshotTimeOf reads only newSnapshotId\'s shape', () => {
