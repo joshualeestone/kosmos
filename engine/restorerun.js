@@ -133,7 +133,9 @@ async function fetchBounded(fetchObject, key, o, ms) {
      sink, maxTotalBytes   as backuprestore.restoreSnapshot
      plan, planned         optional: engine/restorefetch.js readGrantFetcher's, given with its fetchObject
    Resolves { ok: true, deviceKey, backfill, takenAt, result, fetchProblems } (result is restoreSnapshot's;
-   fetchProblems the fetcher's reasons for any file it could not fetch) or { ok: false, because }.
+   fetchProblems the fetcher's reasons for any file it could not fetch), or { ok: false, because }, or, when the fetcher
+   stopped part way after some files were restored, { ok: false, because, partial: true, result, fetchProblems }.
+   ok: true still allows files in result.failed (one damaged file does not fail the rest), as before.
    Never throws on what a store, a coordinator or a history hands it; a caller's own mistake (no sink) still throws
    from restoreSnapshot, as there. */
 async function runRestore(opts) {
@@ -189,7 +191,10 @@ async function runRestore(opts) {
     }
     const keys = [...new Set(inOrder)];
     let p;
-    try { p = planOf(await opts.plan(keys)); } catch { p = { ok: false }; }
+    // review 2: under the same deadline as a fetch, so a plan that never answers cannot hang the restore.
+    let timer;
+    const deadline = new Promise((resolve) => { timer = setTimeout(() => resolve({ ok: false }), ms); });
+    try { p = planOf(await Promise.race([Promise.resolve().then(() => opts.plan(keys)), deadline])); } catch { p = { ok: false }; } finally { clearTimeout(timer); }
     if (p.ok === false) return { ok: false, because: typeof p.because === 'string' && p.because ? p.because : 'the backup\'s files could not be fetched' };
   }
   const fetchChunk = async (name, o) => {
@@ -216,9 +221,10 @@ async function runRestore(opts) {
     if (typeof p.because === 'string' && p.because) { stoppedBecause = p.because; fetchProblems.push(p.because); }
     if (Array.isArray(p.unreadableBecause)) fetchProblems = fetchProblems.concat(p.unreadableBecause.filter((x) => typeof x === 'string'));
   }
-  // A fetcher that stopped (a refusal part way, or Kosmos+ out of reach) while nothing was restored is no success.
-  if (!result.restored.length && stoppedBecause) {
-    return { ok: false, because: stoppedBecause };
+  // review 2: a fetcher that stopped (a refusal part way, Kosmos+ out of reach, the hourly limit) is no success, even
+  // with some files restored: those are in the sink and in result, and partial says so.
+  if (stoppedBecause) {
+    return result.restored.length ? { ok: false, because: stoppedBecause, partial: true, result, fetchProblems } : { ok: false, because: stoppedBecause };
   }
   return { ok: true, deviceKey: used.k.key, backfill: used.k.backfill === true, takenAt, result, fetchProblems };
 }

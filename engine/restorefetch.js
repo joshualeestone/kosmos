@@ -37,9 +37,13 @@
 const GRANT_KEYS = 500;   // the route's most keys in one call
 const URL_LIFETIME_MS = 300000;   // the route's presigned GETs last 5 minutes
 const EXPIRY_MARGIN_MS = 30000;   // a URL this close to its expiry is granted again before it is used
-// One GET, well inside restorerun's FETCH_TIMEOUT_MS (2 min), which also covers a grant and a second try (review 1).
-const GET_TIMEOUT_MS = 45000;
-const MAX_UNREACHED = 3;   // grants that could not be reached before the restore gives up
+// restorerun cuts each fetch off at FETCH_TIMEOUT_MS (2 min). The worst path inside one fetch is a grant, a GET, the
+// wait, a second grant and a second GET: 15 + 40 + 2 + 15 + 40 = 112 s (reviews 1 and 2).
+const GET_TIMEOUT_MS = 40000;
+const GRANT_TIMEOUT_MS = 15000;   // a grant that does not answer in this long reads as not reached (review 2)
+const RETRY_WAIT_MS = 2000;   // before a second try at a grant that was not reached
+const MAX_UNREACHED = 3;   // grants in a row that could not be reached before the restore gives up
+const LINKS_EXPIRED = 'the storage service says each download link had already expired, so the clock on this computer or on Kosmos+ may be wrong';
 const HEX64_RE = /^[0-9a-f]{64}$/;
 const ANOTHER_EPOCH = 'this backup names files sealed under another key of this member, which restore cannot read yet';
 const BAD_LINK = 'Kosmos+ sent back a download link restore will not use';
@@ -63,7 +67,7 @@ function linkFor(u, key, origin) {
   let p;
   try { p = new URL(u); } catch { return null; }
   if (p.protocol !== 'https:' || p.username || p.password) return null;
-  const host = p.hostname.toLowerCase();
+  const host = p.hostname.toLowerCase().replace(/\.$/, '');   // review 2: 'localhost.' is localhost
   if (host === 'localhost' || host.endsWith('.localhost') || host.startsWith('[') || /^[0-9.]+$/.test(host)) return null;
   if (origin && p.origin !== origin) return null;
   let path;
@@ -146,11 +150,12 @@ async function readCapped(r, max) {
 /* The fetcher for one recorded manifest. opts:
      grant(body) -> { ok: true, answer } | { ok: false, because, retryAfterSecs? }
                        body is the route's { member, epoch, manifest, keys }; the caller makes the call. { ok: false }
-                       is a refusal and stops the restore; a throw or anything else reads as not reached, and is tried
-                       again on the next fetch
+                       is a refusal and stops the restore, so map only an answer that will not change to it (a 4xx,
+                       a 429 included); a 5xx, a timeout or a dropped connection should throw, which reads as not
+                       reached and is tried again (review 2). A grant gets grantTimeoutMs (default 15 s)
      org, member, epoch   as the release names them (epoch as runRestore takes it)
      manifest             the coordinator's record: { key, period, sha256, size }
-     fetch, now           globalThis.fetch and Date.now unless given; getTimeoutMs per GET (default 45 s)
+     fetch, now, sleep    globalThis.fetch, Date.now and setTimeout unless given; getTimeoutMs per GET (default 40 s)
    Returns { fetchObject(key, { maxBytes }) -> Buffer | null, plan(keys) -> promise of planned(), planned() ->
    { ok, because, unreadable, unreadableBecause } }. Never throws on what a grant or a store hands it. */
 function readGrantFetcher(opts) {
@@ -158,6 +163,8 @@ function readGrantFetcher(opts) {
   const fetchFn = opts.fetch || globalThis.fetch;
   const now = typeof opts.now === 'function' ? opts.now : Date.now;
   const timeoutMs = Number.isSafeInteger(opts.getTimeoutMs) && opts.getTimeoutMs > 0 ? opts.getTimeoutMs : GET_TIMEOUT_MS;
+  const grantMs = Number.isSafeInteger(opts.grantTimeoutMs) && opts.grantTimeoutMs > 0 ? opts.grantTimeoutMs : GRANT_TIMEOUT_MS;
+  const sleep = typeof opts.sleep === 'function' ? opts.sleep : (ms) => new Promise((r) => setTimeout(r, ms));
   const rec = opts.manifest || {};
   const ctx = { org: opts.org, member: opts.member, epoch: String(opts.epoch), period: rec.period };
   const urls = new Map();   // key -> { url, expiresAtMs } (this computer's clock)
@@ -180,16 +187,23 @@ function readGrantFetcher(opts) {
       const keys = batches[i].filter((k) => !done.has(k) || k === forKey);
       const body = { member: ctx.member, epoch: Number(ctx.epoch), manifest: rec.key, keys };
       const askedAt = now();
-      let g;
-      try { g = await grant(body); } catch { g = undefined; }
+      let g, timer;
+      try {
+        // review 2: a grant that never answers (a stuck proxy, a connection left open across sleep) must not hang.
+        const deadline = new Promise((resolve) => { timer = setTimeout(() => resolve(undefined), grantMs); });
+        g = await Promise.race([Promise.resolve().then(() => grant(body)), deadline]);
+      } catch { g = undefined; } finally { clearTimeout(timer); }
       if (!g || typeof g !== 'object' || (g.ok !== true && g.ok !== false)) {
         unreached += 1;
         if (unreached >= MAX_UNREACHED) stopped = 'restore could not reach Kosmos+ to fetch this backup\'s files';
         return;
       }
+      unreached = 0;   // review 2: misses count in a row, not over a whole long restore
       if (g.ok !== true) {
-        const wait = Number.isSafeInteger(g.retryAfterSecs) && g.retryAfterSecs > 0 ? ` (try again in ${Math.ceil(g.retryAfterSecs / 60)} min)` : '';
-        stopped = `${(typeof g.because === 'string' && g.because) || 'Kosmos+ refused to hand out this backup\'s files'}${wait}`;
+        // review 2: no "try again": a restore cannot yet pick up where it stopped, so a retry starts from the beginning.
+        const limit = Number.isSafeInteger(g.retryAfterSecs) && g.retryAfterSecs > 0
+          ? ` (Kosmos+ limits how much of a backup can be fetched in an hour, and a restore cannot yet continue where it stopped)` : '';
+        stopped = `${(typeof g.because === 'string' && g.because) || 'Kosmos+ refused to hand out this backup\'s files'}${limit}`;
         return;
       }
       const why = answerProblem(g.answer, { member: ctx.member, epoch: ctx.epoch, keys }, rec);
@@ -231,23 +245,29 @@ function readGrantFetcher(opts) {
     if (key === rec.key) i = 0;
     else if (batchOf.has(key)) i = batchOf.get(key);
     else return null;   // not planned, or unreadable (planned() says why)
+    let expired = 0;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       if (!fresh(key)) await grantBatch(i, key);
       const url = fresh(key);
       if (!url) {
-        if (stopped) return null;
-        continue;   // the grant could not be reached: its second try, within MAX_UNREACHED in all
+        if (stopped || attempt > 0) return null;
+        await sleep(RETRY_WAIT_MS);   // the grant could not be reached: one more try, after a moment
+        continue;
       }
       const got = await getOne(fetchFn, url, maxBytes, timeoutMs);
       if (got.kind === 'bytes') { done.add(key); return got.bytes; }
       if (got.kind !== 'expired') return null;
       // S3 says it lapsed while it looked fresh here (this clock slow, or a slow grant round trip): once more.
+      expired += 1;
       urls.delete(key);
     }
+    // review 2: a link granted just now and already expired, twice, is the clocks, not this file: stop before every
+    // other file spends the hour's grants the same way.
+    if (expired === 2 && !stopped) stopped = LINKS_EXPIRED;
     return null;
   }
 
   return { fetchObject, plan, planned };
 }
 
-module.exports = { readGrantFetcher, keyProblem, GRANT_KEYS, EXPIRY_MARGIN_MS, ANOTHER_EPOCH, BAD_LINK, OTHER_FILES };
+module.exports = { readGrantFetcher, keyProblem, GRANT_KEYS, EXPIRY_MARGIN_MS, GET_TIMEOUT_MS, GRANT_TIMEOUT_MS, RETRY_WAIT_MS, ANOTHER_EPOCH, BAD_LINK, OTHER_FILES, LINKS_EXPIRED };
