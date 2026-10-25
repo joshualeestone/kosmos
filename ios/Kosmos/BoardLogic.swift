@@ -479,7 +479,7 @@ enum Board {
     // A message, as the board's own composer posts it ({text}, and `attachments` with the ids of the files it carries,
     // kosmos#7071). nil for a name the app does not accept, a message the board would not take, or more files than a
     // message can carry.
-    static func sendRequest(mac: URL, session: String, text: String, attachments: [String] = []) -> URLRequest? {
+    static func sendRequest(mac: URL, session: String, text: String, attachments: [String] = [], replyTo: String? = nil) -> URLRequest? {
         let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isAgentSession(session), fitsBoard(said), attachments.count <= maxFiles,
               attachments.allSatisfy(isAttachmentId) else { return nil }
@@ -489,6 +489,8 @@ enum Board {
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["text": said]
         if !attachments.isEmpty { body["attachments"] = attachments }
+        // kosmos#7083: the message this answers, by its `at` (the board's own form, #4256).
+        if let replyTo, !replyTo.isEmpty { body["reply_to"] = replyTo }
         r.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return r
     }
@@ -524,6 +526,88 @@ enum Board {
         var reported = false
         // kosmos#7016 part 2: the files on the row, in the order sent (the board's pjFiles).
         var attachments: [Attachment] = []
+        // kosmos#7083: the `at` of the message this one answers (the board's DM reply, #4256), and the reaction pills on
+        // it (#3650).
+        var replyTo: String? = nil
+        var reactions: [ChatReaction] = []
+    }
+
+    // A reaction pill on a chat message: the room's Board.Reaction shape (BoardRoom.swift), kept here because not every
+    // suite that compiles the chat compiles the room.
+    struct ChatReaction: Equatable {
+        let emoji: String
+        let count: Int
+        let mine: Bool
+    }
+
+    // The Mac's pills (`{emoji, count, who, mine}`), from a read or a react answer.
+    static func parseReactions(_ raw: Any?) -> [ChatReaction] {
+        (raw as? [Any] ?? []).compactMap { $0 as? [String: Any] }.compactMap { x in
+            guard let e = x["emoji"] as? String, !e.isEmpty else { return nil }
+            return ChatReaction(emoji: e, count: max(1, integer(x["count"]) ?? 1), mine: isTrue(x["mine"]))
+        }
+    }
+
+    // The three the long-press offers (the native room's menu); a pill already on a message toggles any other.
+    static let quickReactions = ["\u{1F44D}", "\u{2764}\u{FE0F}", "\u{1F525}"]
+
+    // MARK: Replying and reacting (kosmos#7083; the board's DM reply #4256 and reactions #3650)
+
+    // POST /api/agent/<name>/thread/react {at, emoji}: toggles the person's reaction on one of the agent's messages.
+    static func reactRequest(mac: URL, session: String, at: String, emoji: String) -> URLRequest? {
+        guard isAgentSession(session), !at.isEmpty, !emoji.isEmpty else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread/react", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: ["at": at, "emoji": emoji])
+        return r
+    }
+
+    enum ReactResult: Equatable { case reacted(at: String, pills: [ChatReaction]), refused(String) }
+
+    // `{ok, at, reactions}`, or the Mac's reason (`because`, or `error` from the route), else the board's sentence.
+    static func reactResult(status: Int, body: Data?) -> ReactResult {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if (200...299).contains(status), isTrue(obj?["ok"]), let at = obj?["at"] as? String {
+            return .reacted(at: at, pills: parseReactions(obj?["reactions"]))
+        }
+        if status != 0, let why = (obj?["because"] as? String) ?? (obj?["error"] as? String), !why.isEmpty { return .refused(why) }
+        return .refused("we could not react to that just now")
+    }
+
+    // A react answer's pills put on the one row they belong to (by its `at`), so the chat repaints that row at once.
+    static func withReactions(_ rows: [ChatRow], at: String, pills: [ChatReaction]) -> [ChatRow] {
+        rows.map { r in
+            guard r.atRaw == at, r.who == .agent else { return r }
+            var changed = r
+            changed.reactions = pills
+            return changed
+        }
+    }
+    static func withReactions(_ thread: Thread, at: String, pills: [ChatReaction]) -> Thread {
+        Thread(rows: withReactions(thread.rows, at: at, pills: pills), olderCount: thread.olderCount, choices: thread.choices)
+    }
+
+    // pjReplyGist: what a reply strip and header say of a message: its words (not ones that are only its file names),
+    // else its first file's name, else "a message".
+    static func replyGist(_ row: ChatRow) -> String {
+        let words = wordsShown(row.text, files: row.attachments).split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        if !words.isEmpty { return words }
+        return row.attachments.first.map(\.name) ?? "a message"
+    }
+
+    // dmReplyHead: what a message that answers another says about it.
+    enum ReplyHead: Equatable { case answers(who: String, gist: String), furtherBack, unavailable }
+    static func replyHead(_ row: ChatRow, in rows: [ChatRow], agentName: String, olderCount: Int) -> ReplyHead? {
+        guard let target = row.replyTo else { return nil }
+        if let orig = rows.first(where: { $0.atRaw == target }) {
+            return .answers(who: orig.who == .person ? "You" : agentName, gist: replyGist(orig))
+        }
+        // "Further back" only when older messages were left out and the original is older than the oldest one here.
+        let oldest = rows.compactMap(\.atRaw).min()
+        if olderCount > 0, let oldest, target < oldest { return .furtherBack }
+        return .unavailable
     }
 
     // MARK: Files (kosmos#7016 part 2; the board's pjFiles, pjAttachmentCard, pjFileWord, pjSize)
@@ -1142,7 +1226,9 @@ enum Board {
                 : (row["attachment"] != nil || (row["attachments"] as? [Any])?.isEmpty == false) ? .attachment : nil
             return ChatRow(id: idPrefix + base + "#\(n)", atRaw: at, at: isoDate(at), text: text, who: who, notSent: notSent, wayThrough: way,
                            because: because, resendable: resendable,
-                           permission: permission, reported: isTrue(row["reported"]), attachments: parseAttachments(row))
+                           permission: permission, reported: isTrue(row["reported"]), attachments: parseAttachments(row),
+                           replyTo: (row["replyTo"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                           reactions: parseReactions(row["reactions"]))
         }
     }
 
@@ -1391,6 +1477,8 @@ enum Board {
         var after: String? = nil
         // kosmos#7071: the files it carries, sent again with it by a retry.
         var files: [Attached] = []
+        // kosmos#7083: the `at` of the message it answers, sent again with it by a retry.
+        var replyTo: String? = nil
         var failed: Bool { if case .failed = state { return true } else { return false } }
         var shownAsSent: Bool { switch state { case .kept, .taken: return true; default: return false } }
         // What the person can do with it by hand: delete one that failed, or one taken that no read has matched yet.

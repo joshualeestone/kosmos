@@ -1179,6 +1179,53 @@ do {
           && !Board.isArmed(armed, n: 1, key: "k", now: t0 + 1) && !Board.isArmed(armed, n: 2, key: "x", now: t0 + 1), "what shows as armed")
 }
 
+section("native chat: replying and reacting (kosmos#7083)")
+do {
+    let mac = URL(string: "https://studio.kosmosplus.com")!
+    let json = #"{"messages":[{"at":"2026-10-24T10:00:00.000Z","text":"Here are pages 1 to 8.","from":"dana","reactions":[{"emoji":"\#u{1F44D}","count":1,"who":["you"],"mine":true}]},{"at":"2026-10-24T10:01:00.000Z","text":"Thanks, the captions next?","from":null,"replyTo":"2026-10-24T10:00:00.000Z","delivery":{"state":"placed"}},{"at":"2026-10-24T10:02:00.000Z","text":"On it","from":"dana","replyTo":"2026-10-20T09:00:00.000Z"},{"at":"2026-10-24T10:03:00.000Z","text":"ok","from":null,"replyTo":"2026-10-24T10:00:30.000Z"}],"olderCount":4}"#
+    let rows = Board.parseThread(Data(json.utf8))?.rows ?? []
+    check(rows.count == 4, "premise: four rows")
+    check(rows[0].reactions == [Board.ChatReaction(emoji: "\u{1F44D}", count: 1, mine: true)] && rows[1].replyTo == "2026-10-24T10:00:00.000Z",
+          "a row carries its reaction pills and the `at` of what it answers")
+    check(Board.replyHead(rows[1], in: rows, agentName: "Dana", olderCount: 4) == .answers(who: "Dana", gist: "Here are pages 1 to 8."),
+          "a reply names who and what it answers")
+    check(Board.replyHead(rows[2], in: rows, agentName: "Dana", olderCount: 4) == .furtherBack,
+          "an original older than the oldest row, with older messages left out: further back")
+    check(Board.replyHead(rows[3], in: rows, agentName: "Dana", olderCount: 4) == .unavailable,
+          "an original that should be here but is not: unavailable")
+    check(Board.replyHead(rows[2], in: rows, agentName: "Dana", olderCount: 0) == .unavailable, "nothing older left out: unavailable, never further back")
+    check(Board.replyHead(rows[0], in: rows, agentName: "Dana", olderCount: 4) == nil, "a message that answers nothing has no header")
+    let filesOnly = Board.ChatRow(id: "f", atRaw: "T", at: nil, text: "deck.pdf", who: .agent,
+                                  attachments: [Board.Attachment(id: "0123456789abcdef01234567", name: "deck.pdf", type: "application/pdf", size: 1, kind: "pdf", url: "/api/attachment/0123456789abcdef01234567", preview: nil)])
+    check(Board.replyGist(filesOnly) == "deck.pdf" && Board.replyGist(Board.ChatRow(id: "e", atRaw: "T", at: nil, text: "  ", who: .agent)) == "a message"
+          && Board.replyGist(Board.ChatRow(id: "w", atRaw: "T", at: nil, text: "two\nlines", who: .agent)) == "two lines",
+          "the gist: words on one line, else the file's name, else a message")
+
+    let reply = Board.sendRequest(mac: mac, session: "dana", text: "yes", replyTo: "2026-10-24T10:00:00.000Z")
+    let replyBody = reply?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(replyBody?["reply_to"] as? String == "2026-10-24T10:00:00.000Z", "a reply sends reply_to, the message's `at` (the board's form)")
+    let plainBody = Board.sendRequest(mac: mac, session: "dana", text: "yes", replyTo: "")?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(plainBody?["reply_to"] == nil, "no reply: no reply_to key")
+
+    let react = Board.reactRequest(mac: mac, session: "dana", at: "2026-10-24T10:00:00.000Z", emoji: "\u{1F525}")
+    let reactBody = react?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(react?.httpMethod == "POST" && react?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/dana/thread/react"
+          && reactBody?["at"] as? String == "2026-10-24T10:00:00.000Z" && reactBody?["emoji"] as? String == "\u{1F525}",
+          "a reaction: POST the agent's thread/react with the message's `at` and the emoji")
+    check(Board.reactRequest(mac: mac, session: "../x", at: "T", emoji: "x") == nil && Board.reactRequest(mac: mac, session: "dana", at: "", emoji: "x") == nil,
+          "no agent name the app accepts, or no `at`: no request")
+    check(Board.reactResult(status: 200, body: Data(#"{"ok":true,"op":"add","emoji":"x","at":"T1","reactions":[{"emoji":"x","count":1,"who":["you"],"mine":true}]}"#.utf8))
+          == .reacted(at: "T1", pills: [Board.ChatReaction(emoji: "x", count: 1, mine: true)]), "added: the message's fresh pills")
+    check(Board.reactResult(status: 400, body: Data(#"{"ok":false,"because":"there is no message from this agent at that time to react to"}"#.utf8))
+          == .refused("there is no message from this agent at that time to react to"), "refused: the Mac's reason")
+    check(Board.reactResult(status: 404, body: Data(#"{"error":"no agent by that name"}"#.utf8)) == .refused("no agent by that name")
+          && Board.reactResult(status: 0, body: nil) == .refused("we could not react to that just now"), "the route's error, or no answer")
+    let after = Board.withReactions(rows, at: "2026-10-24T10:00:00.000Z", pills: [])
+    check(after[0].reactions.isEmpty && after[1] == rows[1], "a react answer repaints only the agent's row it names")
+    check(Board.withReactions(rows, at: "2026-10-24T10:01:00.000Z", pills: [Board.ChatReaction(emoji: "x", count: 1, mine: true)])[1].reactions.isEmpty,
+          "never a row of the person's (the Mac reacts only on the agent's)")
+}
+
 section("native chat: a message's files (kosmos#7016 part 2)")
 do {
     func row(_ json: String) -> Board.ChatRow? { Board.parseThread(Data(("{\"messages\":[" + json + "]}").utf8))?.rows.first }
@@ -1537,6 +1584,10 @@ final class FakeBoardWorld {
     var uploads: [(path: String, type: String, name: String, bytes: Data, file: String)] = []
     var uploadYields = 0
     var postedAttachments: [[String]] = []
+    // kosmos#7083: each post's reply_to ("" when none), and each reaction asked for ("at|emoji") with its answer.
+    var postedReplies: [String] = []
+    var reacted: [String] = []
+    var reactAnswer: (Int, String)? = (200, #"{"ok":true,"reactions":[]}"#)
     // kosmos#7075: each request's Sec-Fetch-Site, by "METHOD path" ("" when it had none).
     var fetchSites: [(String, String)] = []
     let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage!
@@ -1582,12 +1633,18 @@ final class FakeBoardWorld {
             let next: (Int, String)? = statusQueue.isEmpty ? statusDefault : statusQueue.removeFirst()
             return next.map { answer($0.0, $0.1) }
         default:
+            if url.path.hasPrefix("/api/agent/") && url.path.hasSuffix("/thread/react") {
+                let body = r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                reacted.append((body?["at"] as? String ?? "") + "|" + (body?["emoji"] as? String ?? ""))
+                return reactAnswer.map { answer($0.0, $0.1) }
+            }
             if url.path.hasPrefix("/api/agent/") && url.path.hasSuffix("/thread") {
                 if r.httpMethod == "POST" {
                     let body = r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                     posted.append(body?["text"] as? String ?? "")
                     postedRequests.append(body?["request"] as? String ?? "")
                     postedAttachments.append(body?["attachments"] as? [String] ?? [])
+                    postedReplies.append(body?["reply_to"] as? String ?? "")
                     if let hook = onPost { onPost = nil; hook() }
                     let next: (Int, String)? = sendQueue.isEmpty ? (200, #"{"delivery":{"state":"placed","at":"2026-10-23T20:00:00.000Z"},"recorded":true}"#) : sendQueue.removeFirst()
                     return next.map { answer($0.0, $0.1) }
@@ -1849,6 +1906,25 @@ section("native board loop: connecting")
     }
     check(Board.forMac(URLRequest(url: URL(string: "https://LOGIN.kosmosplus.com/v1/x")!), coordinator: URL(string: "https://login.kosmosplus.com")!)
             .value(forHTTPHeaderField: "Sec-Fetch-Site") == nil, "the coordinator is matched without regard to case")
+
+    section("native chat: a reply and a reaction through the client, against a fake Mac (kosmos#7083)")
+    do {
+        let (c, w, _, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        let dana = c.agents.first { $0.session == "dana" }!
+        w.sendQueue = [(409, #"{"error":"Dana is at its trust prompt"}"#), (200, #"{"delivery":{"state":"placed","at":"2026-10-24T11:00:00.000Z"},"recorded":true}"#)]
+        await c.post("yes", replyTo: "2026-10-24T10:00:00.000Z", to: dana)
+        check(w.postedReplies.last == "2026-10-24T10:00:00.000Z" && c.pending["dana"]?.last?.replyTo == "2026-10-24T10:00:00.000Z",
+              "a reply posts its reply_to, and the bubble keeps it")
+        await c.retry(c.pending["dana"]!.last!.id, to: dana)
+        check(w.postedReplies.suffix(2) == ["2026-10-24T10:00:00.000Z", "2026-10-24T10:00:00.000Z"], "a retry sends the same reply_to")
+        w.reactAnswer = (200, #"{"ok":true,"op":"add","emoji":"x","at":"T1","reactions":[{"emoji":"x","count":1,"who":["you"],"mine":true}]}"#)
+        let r = await c.react("x", at: "T1", to: dana)
+        check(r == .reacted(at: "T1", pills: [Board.ChatReaction(emoji: "x", count: 1, mine: true)]) && w.reacted.last == "T1|x",
+              "a reaction goes to the agent's thread/react and comes back with the pills")
+        c.stop()
+    }
 
     section("native chat: adding files and sending them, against a fake Mac (kosmos#7071)")
     do {

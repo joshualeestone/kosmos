@@ -398,7 +398,7 @@ final class BoardClient: ObservableObject {
     // `files` are the ones it carries (kosmos#7071): taken off the composer here, so they ride the bubble and a retry
     // sends them again. With no words, their names are the words, as on the board. false when nothing was sent.
     @discardableResult
-    func post(_ text: String, files: [Board.Attached] = [], to agent: Board.Agent) async -> Bool {
+    func post(_ text: String, files: [Board.Attached] = [], replyTo: String? = nil, to agent: Board.Agent) async -> Bool {
         let said = Board.sendWords(text, files: files)
         // Not while a press to this agent is in the air: one key and one paste never overlap (dmChoiceBlocksSend).
         // Not with the composer's files while another is still on its way to it: the message would go without it.
@@ -408,7 +408,8 @@ final class BoardClient: ObservableObject {
               !fromComposer || uploading[agent.session, default: 0] == 0 else { return false }
         let ids = Set(files.map(\.id))
         if !ids.isEmpty { attached[agent.session]?.removeAll { ids.contains($0.id) } }
-        let item = Board.PendingSend(id: UUID().uuidString, text: said, at: env.now(), after: newestSeen[agent.session], files: files)
+        let item = Board.PendingSend(id: UUID().uuidString, text: said, at: env.now(), after: newestSeen[agent.session], files: files,
+                                     replyTo: replyTo.flatMap { $0.isEmpty ? nil : $0 })
         pending[agent.session, default: []].append(item)
         await deliver(item.id, to: agent)
         return true
@@ -532,6 +533,29 @@ final class BoardClient: ObservableObject {
     }
 
     func wasSentAgain(_ row: Board.ChatRow, for session: String) -> Bool { resent.contains(session + "|" + row.id) }
+
+    // MARK: Reacting (kosmos#7083, the board's DM reactions #3650)
+
+    // Toggles the person's reaction on one of the agent's messages, named by its `at`. The answer carries that message's
+    // fresh pills, so the chat repaints the one row; the next read confirms it.
+    func react(_ emoji: String, at: String, to agent: Board.Agent) async -> Board.ReactResult {
+        #if DEBUG
+        if let sample = sampleThreads[agent.session] {
+            // The sample chats (a Debug build only): toggled in memory, as the Mac would.
+            guard let i = sample.rows.firstIndex(where: { $0.atRaw == at && $0.who == .agent }) else { return .refused("there is no message from this agent at that time to react to") }
+            var rows = sample.rows
+            let had = rows[i].reactions.contains { $0.emoji == emoji }
+            rows[i].reactions = had ? rows[i].reactions.filter { $0.emoji != emoji } : rows[i].reactions + [Board.ChatReaction(emoji: emoji, count: 1, mine: true)]
+            sampleThreads[agent.session] = Board.Thread(rows: rows, olderCount: sample.olderCount, choices: sample.choices)
+            return .reacted(at: at, pills: rows[i].reactions)
+        }
+        #endif
+        guard let held = admitted, let request = Board.reactRequest(mac: held.url, session: agent.session, at: at, emoji: emoji) else {
+            return .refused("we could not react to that just now")
+        }
+        let answer = await env.send(request)
+        return Board.reactResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
+    }
 
     // MARK: Answering a question (kosmos#7016, the board's dmChoicePress)
 
@@ -741,20 +765,20 @@ final class BoardClient: ObservableObject {
         let result: Board.SendResult
         #if DEBUG
         if sampleThreads[agent.session] != nil {
-            result = sampleSend(item.text, files: item.files, to: agent.session)
+            result = sampleSend(item.text, files: item.files, replyTo: item.replyTo, to: agent.session)
         } else {
-            result = await send(item.text, files: item.files, to: agent.session)
+            result = await send(item.text, files: item.files, replyTo: item.replyTo, to: agent.session)
         }
         #else
-        result = await send(item.text, files: item.files, to: agent.session)
+        result = await send(item.text, files: item.files, replyTo: item.replyTo, to: agent.session)
         #endif
         guard let i = pending[agent.session]?.firstIndex(where: { $0.id == id }) else { return }
         pending[agent.session]?[i].state = Board.pendingState(after: result)
     }
 
-    private func send(_ text: String, files: [Board.Attached], to session: String) async -> Board.SendResult {
+    private func send(_ text: String, files: [Board.Attached], replyTo: String?, to session: String) async -> Board.SendResult {
         guard let held = admitted else { return .noAnswer }
-        guard let request = Board.sendRequest(mac: held.url, session: session, text: text, attachments: files.map(\.id)) else { return .refused(nil) }
+        guard let request = Board.sendRequest(mac: held.url, session: session, text: text, attachments: files.map(\.id), replyTo: replyTo) else { return .refused(nil) }
         let result = await env.send(request)
         return Board.sendResult(status: result?.1.statusCode ?? 0, body: result?.0)
     }
@@ -762,10 +786,11 @@ final class BoardClient: ObservableObject {
     #if DEBUG
     // The sample chats (KOSMOS_SAMPLE_AGENTS=1, a Debug build only): Mona Lisa's 19 October design conversation.
     private var sampleThreads: [String: Board.Thread] = [:]
-    private func sampleSend(_ text: String, files: [Board.Attached], to session: String) -> Board.SendResult {
+    private func sampleSend(_ text: String, files: [Board.Attached], replyTo: String?, to session: String) -> Board.SendResult {
         guard let sample = sampleThreads[session] else { return .noAnswer }
         let at = ISO8601DateFormatter().string(from: env.now())
         var row = Board.ChatRow(id: "sample-\(sample.rows.count)", atRaw: at, at: env.now(), text: text, who: .person)
+        row.replyTo = replyTo
         row.attachments = files.map { Board.Attachment(id: $0.id, name: $0.name, type: "", size: nil, kind: "other",
                                                        url: "/api/attachment/" + $0.id, preview: nil) }
         sampleThreads[session] = Board.Thread(rows: sample.rows + [row], olderCount: sample.olderCount)
