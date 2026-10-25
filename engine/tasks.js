@@ -1805,33 +1805,76 @@ function closedAtOf(t) {
 }
 
 /**
- * kosmos#7151 (feedback: tasks left behind by finished cycles pile up across releases): the closed task this open task
- * was LEFT UNDER, or null. The rule, which the list prints with each offer:
+ * kosmos#7151 (feedback: tasks left behind by finished cycles pile up across releases): the closed parent this open task
+ * was LEFT UNDER, or null. Strict on purpose: any sign a person may still want the task means it is not offered. The
+ * rule, which the list prints with each offer:
  *   - the task is open (the list's open group: not done, held, or built, which wait on purpose or on review);
- *   - an agent filed it (`addedVia` process) or the Assigner did (assigner); a task the person filed is never offered,
- *     since they may still be waiting on it whatever became of its parent (a task with no record reads as theirs);
- *   - a task above it in the same project (its parent, or that one's, and so on) is closed, and this task was made
- *     BEFORE that one closed. Filing a follow-up under finished work is allowed on purpose (parentProblem), so a task
- *     made after its parent closed is new work, never leftover. A task or a close with no date is never offered.
- * The caller adds the rest: the list's quiet days, and that its agent is not waiting on the person about it.
- * Returns the nearest such ancestor's number. `p` is the project ({ tasks }). Bounded on a store that loops.
+ *   - an agent filed it (`addedVia` process, naming the agent in `addedBy`); a task the person filed, one with no
+ *     record of who did, or one with no agent named, is never offered;
+ *   - nothing on it says the person set it up: no repeat, no due date, no done-when, and no part the person added or
+ *     moved from the screen;
+ *   - its own parent is closed as done (not replaced by another task: that work moved on, it did not finish), and this
+ *     task was made BEFORE the parent closed. Filing a follow-up under finished work is allowed on purpose
+ *     (parentProblem), so a task made after its parent closed is new work. Only the parent counts: a task under an open
+ *     parent is part of work still going on, whatever is above that. A task or a close with no date is never offered.
+ * The rest is the caller's (retireOffers): its history, its agent, the list's quiet days. `tree` is treeOf(p), passed
+ * in so a list builds it once per project.
  */
-function leftUnder(p, task) {
+function leftUnder(p, task, tree = treeOf(p)) {
   if (!task || listGroup(task) !== 'open') return null;
-  if (task.addedVia !== 'process' && task.addedVia !== 'assigner') return null;
+  if (task.addedVia !== 'process' || typeof task.addedBy !== 'string' || !task.addedBy.trim()) return null;
+  if (task.repeat || task.dueDate || task.doneWhen) return null;
+  if (partsOf(task).some((x) => x && (x.addedVia === 'screen' || x.movedVia === 'screen'))) return null;
   const made = typeof task.createdAt === 'string' ? Date.parse(task.createdAt) : NaN;
   if (!Number.isFinite(made)) return null;
-  const tree = treeOf(p);
-  const seen = new Set([task.number]);
-  let up = tree.up(task);
-  while (up !== null && !seen.has(up)) {
-    seen.add(up);
-    const parent = tree.byNum.get(up);
-    const done = closedAtOf(parent);
-    if (done && Number.isFinite(Date.parse(done)) && made < Date.parse(done)) return up;
-    up = tree.up(parent);
+  const up = tree.up(task);
+  if (up === null || up === task.number) return null;
+  const parent = tree.byNum.get(up);
+  if (!parent || Number.isSafeInteger(parent.replacedBy)) return null;
+  const done = closedAtOf(parent);
+  return done && Number.isFinite(Date.parse(done)) && made < Date.parse(done) ? up : null;
+}
+
+/**
+ * kosmos#7151: which of a stale list's rows to OFFER for retiring, as a Map from the row's index to the closed parent
+ * it was left under. Nothing is retired here. On top of leftUnder:
+ *   - a project held in more than one record (a shared project) is never offered: which record's tree a row came from
+ *     cannot be told, so its parent cannot be;
+ *   - never one whose agent needs the person about it (waitingOnPerson, with the project's members);
+ *   - never one whose history (`historyOf(projectId, number)`, the task's transcript) shows the person acting on it,
+ *     or that it was moved under its parent or reopened since it was made (parent-set, reopened).
+ * `getRoster` is called only when some row would be offered, so a list with none costs nothing more; a roster that
+ * cannot be read (not an array) offers nothing at all, never everything.
+ */
+function retireOffers(rows, records, getRoster, historyOf) {
+  const out = new Map();
+  if (!Array.isArray(rows) || rows.length === 0) return out;
+  const byId = new Map();
+  for (const r of records || []) if (r && r.id) byId.set(r.id, [...(byId.get(r.id) || []), r]);
+  const trees = new Map();
+  const candidates = [];
+  rows.forEach((t, i) => {
+    const recs = t ? byId.get(t.projectId) || [] : [];
+    if (recs.length !== 1) return;
+    const r = recs[0];
+    if (!trees.has(r.id)) trees.set(r.id, treeOf(r));
+    const n = leftUnder(r, t, trees.get(r.id));
+    if (n !== null) candidates.push({ i, n, r });
+  });
+  if (candidates.length === 0) return out;
+  let roster = null;
+  try { roster = typeof getRoster === 'function' ? getRoster() : null; } catch { roster = null; }
+  if (!Array.isArray(roster)) return out;
+  for (const { i, n, r } of candidates) {
+    const t = rows[i];
+    if (waitingOnPerson(t, roster, Array.isArray(r.agents) ? r.agents : [])) continue;
+    let history = null;
+    try { history = typeof historyOf === 'function' ? historyOf(t.projectId, t.number) : null; } catch { history = null; }
+    if (!Array.isArray(history)) continue;
+    if (history.some((e) => e && (e.person === true || e.kind === 'parent-set' || e.kind === 'reopened'))) continue;
+    out.set(i, n);
   }
-  return null;
+  return out;
 }
 
 /**
@@ -2266,6 +2309,6 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
 
 module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
+  partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };

@@ -20784,21 +20784,12 @@ const server = http.createServer(async (req, res) => {
           .filter((x) => !Number.isFinite(x.ms) || x.ms <= cutoff)
           .sort((a, b) => (Number.isFinite(a.ms) ? a.ms : -Infinity) - (Number.isFinite(b.ms) ? b.ms : -Infinity))
           .map((x) => Object.assign({}, withRepeatWords(x.t), { lastActivityAt: x.at || null }));
-        /* kosmos#7151 (feedback): a quiet task an agent filed under work that has since closed is OFFERED for retiring
-           (`leftUnder`, the closed task's number); nothing is retired here. The rule is tasks.leftUnder's, plus: never
-           one whose agent needs the person about it (waitingOnPerson). The roster, a board snapshot, is read only when
-           some row would be offered, so the list stays as cheap as before for everyone else. */
-        const recordOf = (t) => (everyProject || []).find((x) => x && x.id === t.projectId && Array.isArray(x.tasks)
-          && x.tasks.some((y) => y && y.number === t.number)) || null;
-        const under = quiet.map((t) => { const r = recordOf(t); return r ? tasks.leftUnder(r, t) : null; });
-        if (under.some((n) => n !== null)) {
-          const roster = safeRoster();
-          quiet.forEach((t, i) => {
-            if (under[i] === null) return;
-            const members = [...new Set((everyProject || []).filter((x) => x && x.id === t.projectId).flatMap((x) => x.agents || []))];
-            if (!tasks.waitingOnPerson(t, roster, members)) t.leftUnder = under[i];
-          });
-        }
+        /* kosmos#7151 (feedback): a quiet task an agent left under work that has since finished is OFFERED for retiring
+           (`leftUnder`, the closed parent's number); nothing is retired here. The rule is tasks.retireOffers'. The
+           roster (a board snapshot) and each candidate's transcript are read only when some row would be offered. */
+        const taskchat = require('./engine/taskchat');
+        tasks.retireOffers(quiet, everyProject, () => safeRoster(), (pid, num) => taskchat.read(pid, num))
+          .forEach((parent, i) => { quiet[i].leftUnder = parent; });
         sendJson(res, 200, { tasks: quiet, count: quiet.length, project: projectScope, listState: 'open', quietDays: days, ...(allProjects ? { all: true } : {}) });
         return;
       }

@@ -120,10 +120,12 @@ function acrossLines(body, flag, opts = {}) {
   /* kosmos#7151: the tasks the board offers for retiring (leftUnder), with the rule, once. Nothing is retired for you. */
   const left = stale ? tasks.filter((x) => Number.isSafeInteger(x.leftUnder)).length : 0;
   if (left) {
-    lines.push(left + ' of ' + (left === 1 ? 'these was' : 'these were') + ' added by an agent before the task above '
-      + (left === 1 ? 'it' : 'them') + ' closed, so ' + (left === 1 ? 'it is' : 'they are') + ' probably left over from finished work.'
-      + ' If you are sure, close ' + (left === 1 ? 'it' : 'each one') + ' with: kosmos task close <project-id> <task-number>.'
-      + ' Never offered: a task the person added, one being reviewed or on hold, or one whose agent is waiting on the person.');
+    const where = every ? '<project-id>' : one(opts.project);
+    lines.push(left + ' of ' + (left === 1 ? 'these was' : 'these were') + ' added by an agent before the task '
+      + (left === 1 ? 'it is' : 'they are') + ' part of was finished, so ' + (left === 1 ? 'it is' : 'they are') + ' probably left over.'
+      + ' If you are sure, close ' + (left === 1 ? 'it' : 'each one') + ' with: kosmos task close ' + where + ' <task-number>.'
+      + ' Never offered: a task the person added or set up (a repeat, a due date, a done-when), one they have acted on,'
+      + ' one being reviewed or on hold, one under work still going on, or one whose agent is waiting on the person.');
   }
   if (Number.isInteger(body.count) && body.count !== n) {
     lines.push('The board counted ' + body.count + ' but sent ' + n + ': list again to see them all.');
