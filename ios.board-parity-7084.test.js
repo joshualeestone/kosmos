@@ -46,6 +46,22 @@ test('the suites that read the board are found, each with its runner', () => {
   assert.equal(found.includes('actions'), false, 'actions reads only iOS files, which ios.yml already covers');
 });
 
+/* Review 1: discovery reads only one shape of read. Any other suite that reads the repo must read only iOS files (which
+   ios.yml covers); a repo read discovery cannot classify fails here rather than leaving a pin unguarded in silence. */
+test('every other suite that reads the repo reads only iOS files', () => {
+  const found = new Set(boardSuites());
+  const literal = /(?:repoText|appendingPathComponent)\(\s*"([^"]+)"/g;
+  const unclassified = [];
+  for (const d of fs.readdirSync(LOGIC, { withFileTypes: true })) {
+    const main = path.join(LOGIC, d.name, 'main.swift');
+    if (!d.isDirectory() || found.has(d.name) || !fs.existsSync(main)) continue;
+    const src = fs.readFileSync(main, 'utf8');
+    if (!/KOSMOS_REPO/.test(src)) continue;
+    for (const m of src.matchAll(literal)) if (!/^(ios\/|[^/]+$)/.test(m[1])) unclassified.push(d.name + ': ' + m[1]);
+  }
+  assert.deepEqual(unclassified, [], 'a suite reads a repo file outside ios/ that discovery does not take: widen READS_BOARD');
+});
+
 test('the discovery reads the call, not a mention', () => {
   assert.ok(READS_BOARD.test('let page = repoText("web/index.html")'));
   assert.ok(READS_BOARD.test('.appendingPathComponent("engine/tasks.js")'));
@@ -54,7 +70,7 @@ test('the discovery reads the call, not a mention', () => {
 });
 
 for (const name of boardSuites()) {
-  test('the ' + name + ' suite agrees with the board it reads', { skip: HAVE_SWIFT ? false : 'no swiftc on this machine (Linux CI): every full validation runs on a Mac, where this runs' }, () => {
+  test('the ' + name + ' suite agrees with the board it reads', { skip: HAVE_SWIFT ? false : 'no swiftc on this machine (Linux CI, or a Mac without Xcode): NOT checked here; a full validation on a Mac with Xcode runs it' }, () => {
     const r = spawnSync('bash', [path.join(LOGIC, 'run-' + name + '.sh')], { encoding: 'utf8', timeout: 10 * 60 * 1000 });
     const out = (r.stdout || '') + (r.stderr || '');
     const verdict = (out.match(/^VERDICT: .*$/m) || [''])[0];
