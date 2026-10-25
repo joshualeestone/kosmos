@@ -13,7 +13,14 @@ function cutUnits(text, n) {
 /* #7108 review 3: the last line of defence. JSON.stringify keeps a lone surrogate (it writes "\ud83d"), and a strict
    reader refuses the whole answer; agent-written text reaches the routes the phone reads by more paths than any one
    cut can cover (a project description, a commitment posted with a broken character). Every string is made well-formed
-   as it is written: a lone half becomes U+FFFD, and well-formed text is unchanged. */
-function strictReplacer(_key, value) { return typeof value === 'string' ? value.toWellFormed() : value; }
+   as it is written, values AND object keys (review 4: a replacer sees only values, so an object whose keys need it is
+   copied with them mended): a lone half becomes U+FFFD, and well-formed text is unchanged. */
+function strictReplacer(_key, value) {
+  if (typeof value === 'string') return value.toWellFormed();
+  if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).some((k) => !k.isWellFormed())) {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k.toWellFormed(), v]));
+  }
+  return value;
+}
 function strictStringify(value, space) { return JSON.stringify(value, strictReplacer, space); }
 module.exports = { cutUnits, strictStringify };

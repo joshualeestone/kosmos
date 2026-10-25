@@ -135,3 +135,23 @@ test('#7108 review 2: a report stored before the fix, ending in half an emoji, i
   assert.ok(!LONE.test(r.because) && !LONE.test(r.on) && !LONE.test(r.owner), 'a stored half emoji was read back as is');
   assert.ok(!LONE_ESCAPE.test(JSON.stringify(r)), 'the read report carries a lone surrogate escape');
 });
+
+test('#7108 review 4: a self-report\'s on is capped before an emoji at its cap', () => {
+  const on = 'o'.repeat(199) + '\u{1F600}rest';
+  assert.equal(selfreport.record('em14', { state: 'working', on }).recorded, true, 'fixture: the report was refused');
+  const stored = fs.readFileSync(selfreport.fileFor('em14'), 'utf8');
+  assert.ok(stored.includes('"on":"' + 'o'.repeat(199) + '"'), 'the stored on was not cut before the emoji');
+});
+
+test('#7108 review 4: a commitment stored with half an emoji is read back without it', () => {
+  const commitments = require('./commitments');
+  commitments.report('cm09', [{ what: 'placeholder' }]);
+  const file = commitments.recordPath('cm09');
+  const raw = fs.readFileSync(file, 'utf8');
+  assert.ok(raw.includes('placeholder'), 'fixture: the record was not where recordPath says');
+  fs.writeFileSync(file, raw.replace('"placeholder"', JSON.stringify('c'.repeat(299) + '\uD83D' + 'tail')));
+  const got = commitments.read('cm09');
+  const items = Array.isArray(got) ? got : (got && (got.commitments || got.items)) || [];
+  assert.equal(items[0] && items[0].what, 'c'.repeat(299) + '\uFFFD', 'a stored broken character was read back as is');
+  assert.ok(!LONE_ESCAPE.test(JSON.stringify(got)), 'the read commitment carries a lone surrogate escape');
+});

@@ -66,4 +66,7 @@ test('#7108: /api/status is written the same way', async () => {
 test('#7108: strictStringify leaves well-formed text alone and mends only a lone half', () => {
   assert.equal(strictStringify({ a: 'ok \u{1F600}', b: [1, 'x\uD83D'] }), JSON.stringify({ a: 'ok \u{1F600}', b: [1, 'x�'] }));
   assert.equal(strictStringify({ a: 1 }, 2), JSON.stringify({ a: 1 }, null, 2));
+  // Keys too, at any depth (review 4: a replacer sees only values).
+  assert.equal(strictStringify({ ['k\uD83D']: 'v', n: { ['a\uD83D']: 1 }, arr: [{ ['b\uD83D']: 2 }] }),
+    JSON.stringify({ 'k\uFFFD': 'v', n: { 'a\uFFFD': 1 }, arr: [{ 'b\uFFFD': 2 }] }));
 });

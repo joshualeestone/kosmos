@@ -41,4 +41,11 @@ tested with a control; merged.
      drives each of the ten status.js evidence cuts at an emoji; the server's strict writing covers them whatever
      they cut. needskey 8/8, strict-json 3/3, with commitments, selfreport, needsquiet and the dismiss route: 138 pass;
      status.test.js 242 pass.
+   - Round 4: 0 blockers, 1 warning, 5 nits. Fixed: strictStringify mends object keys too, at any depth (a replacer
+     sees only values; tested); the Codex hook dialog's source and command cuts (160, 159) through cutUnits; tests
+     that can fail for selfreport's capped (on at its cap) and commitments' capForDisplay (a stored broken
+     character), each with a red control. Recorded: the status HTTP test's live half has nothing broken to catch in
+     a sandbox (its source check is what fails); oneLine and the role cut have no emoji test (the strict writing
+     covers them). needskey 10/10, strict-json 3/3, with commitments, selfreport, needsquiet, the dismiss route and
+     status.test.js: 382 pass.
 3. Validation, PR.

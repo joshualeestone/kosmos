@@ -2221,7 +2221,8 @@ function codexHookSummary(paneText) {
       const first = block[si].replace(/^\s*Source\s+/, '');
       const next = block[si + 1] && /^\s{8,}\S/.test(block[si + 1]) && !/^\s*[A-Z][a-z]+\s{2,}/.test(block[si + 1]) ? block[si + 1].trim() : '';
       /* One line, capped: it is shown beside the Trust button, and it is text from the screen, not ours. */
-      source = (first + (next && !/[\/\-]$/.test(first) ? ' ' : '') + next).replace(/\s+/g, ' ').trim().slice(0, 160) || null;
+      source = (first + (next && !/[\/\-]$/.test(first) ? ' ' : '') + next).replace(/\s+/g, ' ').trim();
+      source = cutUnits(source, 160) || null;   // #7108
     }
     /* Round 6: the one page that shows what the hook RUNS. Capped and one line, like the source. */
     let ci = -1;
@@ -2236,7 +2237,7 @@ function codexHookSummary(paneText) {
       const parts = [block[ci].replace(/^\s*Command\s+/, '')];
       for (let j = ci + 1; j < block.length && /^\s{8,}\S/.test(block[j]) && !/^\s*[A-Z][a-z]+\s{2,}\S/.test(block[j]); j += 1) parts.push(block[j].trim());
       const whole = parts.join(' ').replace(/\s+/g, ' ').trim();
-      command = whole ? (whole.length > 160 ? whole.slice(0, 159) + '\u2026' : whole) : null;
+      command = whole ? (whole.length > 160 ? cutUnits(whole, 159) + '\u2026' : whole) : null;   // #7108
     }
   }
   return { screen: seen.screen, count, events, source, command };
