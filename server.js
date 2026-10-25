@@ -22394,7 +22394,7 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.project !== 'string' || !body.project
           || typeof body.pub !== 'string' || !body.pub || typeof body.code !== 'string' || !body.code.trim()) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can let another computer read a sealed project.' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can let another computer into a project.' }); return; }
         { const stop = federationPolicyStop(); if (stop) { sendJson(res, 403, { error: stop }); return; } }   // kosmos#6239: a room with another computer
         const out = await fedseats.allowOwn(body.project, body.pub, body.code);
         if (!out.ok) { sendJson(res, 409, { error: 'That computer was not allowed: ' + out.because + '.' }); return; }

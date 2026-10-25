@@ -856,11 +856,6 @@ function sayOwnHello(projectId, s) {
 function noteOwnSealed(projectId, s) {
   const link = safeLink(projectId);
   if (!link || link.role !== 'self') return false;
-  // Slice 2: a computer waiting for an unsealed room's answer learns it is sealed after all: from now on only a share
-  // lets its posts go (adoptOwnClear needs pendingClear), and the link remembers it (a lost record still holds).
-  if (link.pendingClear === true || link.sealed !== true) {
-    try { federation.recordLink(projectId, Object.assign({}, link, { sealed: true, pendingClear: false })); } catch { /* the record below still holds */ }
-  }
   try { fedseal.setRoomState(projectId, { role: 'member', ownComputer: true, keys: {} }); } catch {
     noteOnce(projectId, s, 'ownSealUnsaved', 'This shared room is sealed, and this computer could not record that, so it cannot ask for the room\'s key yet. Kosmos tries again with the next message.');
     return true;   // handled: the guest's "ask the owner for a new code" line is not this computer's
@@ -991,6 +986,7 @@ function waitingClear(projectId, s, frame) {
   if (!run || !run.offer || run.gotClear) return;
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
+  if (!pendingClear(roomSeal(projectId))) return;
   if (!fedseal.openOwnClear(me, run.mac, run.offer.ownerPub, run.nW, run.offer.nO, frame, run.room)) return;
   run.gotClear = true;
   adoptOwnClear(projectId, s);

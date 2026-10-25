@@ -48,6 +48,14 @@ mixed-version own rooms must keep working, in which case v1 joins stay as today 
   its posts (each dropped after the hour). Its waiting note says to update Kosmos on the other computer if no code
   appears there. Auto-update makes this short-lived; nothing detects the owner's version.
 
+- **Messages shown while waiting are unauthenticated** (review 2): a waiting computer shows the room's unsealed
+  messages (it cannot know the room is sealed), so if a v2 code was altered to v3, plaintext the relay or a guest injects
+  shows as a room message until the owner's share arrives. That is message integrity, not secrecy, and every unsealed
+  room has it; nothing this computer writes leaves meanwhile.
+- **A v3 code made by a computer that was itself let in** is answered only by the room's first computer (the owner
+  link), so that computer must be on and on a current Kosmos (review 2): intended, the owner is the only one who can
+  vouch for the room's state.
+
 ## Not in this slice
 Lifting the self-shared invite refusal entirely (decision 5 of #7107): once every own computer holds until answered,
 a v1-shared room has only computers that joined before this slice; they still post in the clear. Lift it when no
