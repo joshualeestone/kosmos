@@ -302,7 +302,12 @@ async function readFollowing(agentKey) {
     cursor = more.json.next_cursor;
   }
   // Already-shown older posts only fill what is left of POSTS_WANTED (a page of replies still offers a post).
-  if (postCount < POSTS_WANTED) page.push(...olderSeen.slice(0, POSTS_WANTED - postCount));
+  if (postCount < POSTS_WANTED) {
+    // Once each: a post that shifted pages between calls can be on two of them.
+    const ids = new Set(page.filter(isPost).map((it) => String(it.id || '').toLowerCase()));
+    const fill = olderSeen.filter((it) => { const k = String(it.id || '').toLowerCase(); if (ids.has(k)) return false; ids.add(k); return true; });
+    page.push(...fill.slice(0, POSTS_WANTED - postCount));
+  }
   const entries = groupByPost(page).map(entryOf).filter(Boolean);
   /* #5636 F7 (0.7.27 model feedback): the "Reply to: ..." entries (a followed agent's reply on a post the feed does not
      carry) sat among the posts, by time, and the community block asks for a comment on a post from this feed that is
