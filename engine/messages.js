@@ -749,7 +749,7 @@ const EXTERNAL_CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g;
 /* #4649 slice 3: a room member as the relay stamps it: an account id, or "<account>:<mac>" for an owner's computer.
    Anything else (absent, an older relay, a malformed value) is not stored. */
 const EXTERNAL_MEMBER = /^[A-Za-z0-9_-]{1,80}(?::[A-Za-z0-9_-]{1,80})?$/;
-function externalPost(projectId, { from, fromKind, text, member }) {
+function externalPost(projectId, { from, fromKind, text, member, unverified }) {
   const row = {
     kind: 'external',
     id: 'x-' + crypto.randomUUID(),
@@ -765,6 +765,8 @@ function externalPost(projectId, { from, fromKind, text, member }) {
     at: new Date().toISOString(),
   };
   if (typeof member === 'string' && EXTERNAL_MEMBER.test(member)) row.member = member;
+  // kosmos#7129: shown while this computer waited to be let in, so nothing checked who wrote it. Kept on the row for good.
+  if (unverified === true) row.unverified = true;
   if (!row.text.trim() || !rowShaped(row)) return null;
   appendLog(row);
   return row;
@@ -4212,10 +4214,11 @@ function projectOfPost(id) {
 const OWN_POST_NUDGE_GAP_MS = 2 * 60 * 1000;
 /* #5732 decided on by default (reasoning on the card): only a post the relay stamps as this account's own AND that a
    person wrote. An agent's post relayed from the other computer does not nudge, or two computers' agents would keep
-   telling each other to read the room. KOSMOS_OWN_ROOM_NUDGE=0 turns it off. */
+   telling each other to read the room. KOSMOS_OWN_ROOM_NUDGE=0 turns it off. kosmos#7129: never an unverified post
+   (shown while this computer waits to be let in): the relay writes the stamp, and nothing checked the words. */
 function ownPostNudges(msg, env) {
   const e = env || process.env;
-  return !!(msg && msg.sameAccount === true && msg.fromKind === 'person' && e.KOSMOS_OWN_ROOM_NUDGE !== '0');
+  return !!(msg && msg.sameAccount === true && msg.fromKind === 'person' && msg.unverified !== true && e.KOSMOS_OWN_ROOM_NUDGE !== '0');
 }
 const ownPostNudgedAt = new Map();
 function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, now = Date.now()) {

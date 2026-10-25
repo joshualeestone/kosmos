@@ -121,7 +121,7 @@ let deps = null;
  * Wire the manager. Everything it touches is injected so a test can drive it:
  *   spawnSeat(edgeId) -> a ChildProcess-like { stdin, stdout, on('exit') }
  *   macRequest(method, route, body) -> { ok, data | because }
- *   recordExternal(projectId, { from, fromKind, text, member?, sameAccount? })
+ *   recordExternal(projectId, { from, fromKind, text, member?, sameAccount?, unverified? })
  *   onStatus(projectId, status)   optional
  *   enrolled() -> bool            optional; no seat is started on a Mac that is
  *                                 not connected to Kosmos+ (a dev board, a test)
@@ -237,6 +237,9 @@ function handleEvent(projectId, line, heldAt) {
     return;
   }
   if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to ' + farSide(projectId) + ': ' + clean(ev.because, 200) + '.'); return; }
+  // kosmos#7129: an unsealed message shown while this computer waits to be let in (pendingClear) could not be checked:
+  // the relay or a guest could have written it. Its row says so, for good (a later clear does not vouch for it).
+  let unverified = false;
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && !Array.isArray(ev.data)) {
     // #3728: key frames are the room's handshake, never a row.
     if (typeof ev.data.t === 'string' && ev.data.t.startsWith('key-')) { onKeyFrame(projectId, s, ev.data, ev.same_account === true); return; }
@@ -322,6 +325,8 @@ function handleEvent(projectId, line, heldAt) {
       // into an unsealed room (pendingClear) does not know it is sealed, so it shows them (slice 2).
       noteOnce(projectId, s, 'unsealed', 'A message arrived unsealed in this sealed room, so it was not shown. If someone joined before this room was sealed, remove them from the shared project and send them a new code.');
       return;
+    } else {
+      unverified = pendingClear(sealed) || (sealed === null && waitingLink(sealLink(projectId)));
     }
   }
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && typeof ev.data.text === 'string' && ev.data.text.trim()) {
@@ -374,7 +379,8 @@ function handleEvent(projectId, line, heldAt) {
       }, typeof ev.member === 'string' ? { member: ev.member } : {},
       /* #5732: the relay's same_account stamp (kosmos#4657), beside `data` so a sender cannot write it: the poster is
          this account, from another of its computers. Passed only as true; absent otherwise. */
-      ev.same_account === true ? { sameAccount: true } : {}));
+      ev.same_account === true ? { sameAccount: true } : {},
+      unverified ? { unverified: true } : {}));
     } catch {
       say(projectId, 'A message from ' + farSide(projectId) + ' could not be saved on this computer.');
     }

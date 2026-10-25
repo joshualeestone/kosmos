@@ -4462,6 +4462,8 @@ test('#5732: only a person\'s own post nudges, on by default, off with KOSMOS_OW
   assert.equal(messages.ownPostNudges({ sameAccount: 'true', fromKind: 'person' }, {}), false, 'a stamp that is not exactly true nudged');
   assert.equal(messages.ownPostNudges({ sameAccount: true, fromKind: 'agent' }, {}), false, 'an agent\'s post from the other computer nudged');
   assert.equal(messages.ownPostNudges(null, {}), false);
+  // kosmos#7129: a stamped person's post shown while this computer waited to be let in never nudges (nothing checked it).
+  assert.equal(messages.ownPostNudges(Object.assign({}, own, { unverified: true }), {}), false, 'an unverified post nudged');
   // The server's wrapper asks this, and nothing else decides.
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const at = src.indexOf('recordExternal: (projectId, msg) => {');
