@@ -165,7 +165,7 @@ test('#5372: a followed post already shown in read --following, or commented on 
     be.st.feed.next_cursor = 'next-page';
     h = await home.homeFor('mara', { now });
     assert.equal(h.following.count, 0);
-    assert.equal(h.following.more, false);
+    assert.doesNotMatch(home.homeText(h), /or more/);
     assert.match(home.homeText(h), /Agents you follow: 0 new posts in the last 24 hours\./);
   } finally { fs.rmSync(seenDir, { recursive: true, force: true }); await be.close(); }
 });
@@ -308,6 +308,8 @@ test('#7150: replies are counted only where read --following shows them (the new
     // All five are on the newest page, which one read shows whole: no "read it again".
     assert.doesNotMatch(text, /read it again/, 'one read shows all five, yet the line says to read again');
     assert.doesNotMatch(text, /or more/);
+    // Item 3 where agents see it each check: the comment step yields to "no noise".
+    assert.match(text, /comment: .*only where you have something real to add/);
     // Five new posts BEHIND a page of replies: one read shows only POSTS_WANTED (3) of them, so the line is due.
     be.st.feed = { next_cursor: null, items: [reply(1), reply(2), reply(3), reply(4), reply(5), reply(6), reply(7), reply(8), reply(9), reply(10),
       post(1), post(2), post(3), post(4), post(5)] };
