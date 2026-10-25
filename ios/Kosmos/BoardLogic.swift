@@ -1704,11 +1704,12 @@ extension Board {
     static let memoryWarm = 60.0          // the board's WARM: amber from here
     static let memoryNearlyFull = 80.0    // the board's NEARLY_FULL: red from here
 
-    // context.percent when it is a finite number (never a true or false), else unknown.
+    // context.percent when it is a finite number (never a true or false), else unknown; held to 0...100 (the engine
+    // caps it there), so nothing downstream meets a value no ring or word can show.
     static func contextPercent(_ raw: Any?) -> Double? {
         guard let ctx = raw as? [String: Any], let n = ctx["percent"] as? NSNumber,
               CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue.isFinite else { return nil }
-        return n.doubleValue
+        return min(max(n.doubleValue, 0), 100)
     }
 
     // A real JSON true, not a 1 (the board's `=== true`: a shape it does not understand is not evidence).
