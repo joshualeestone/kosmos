@@ -295,7 +295,8 @@ struct NewTaskView: View {
                   let read = Board.parseTasks(fresh.0) else { return }   // no read came back: the hold stays
             // Found: it was made. Not found proves nothing (the Mac may still be filing it), so the hold stays until the
             // person changes the words.
-            if let number = NewTask.found(sent, in: read, before: before) {
+            // held is nil when the Tasks tab's own read found it first and has already said so (and closed the sheet).
+            if held != nil, let number = NewTask.found(sent, in: read, before: before) {
                 message = nil
                 made(number: number, sent: sent)
             }

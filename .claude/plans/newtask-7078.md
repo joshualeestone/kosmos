@@ -182,3 +182,9 @@ path stays the app's own (isProjectId before the path; host is held.url).
 - LEFT (nits): two Tasks refreshes can overlap (pull-to-refresh has the same pattern); a Held record survives a draft
   cleared by reopening from another project, so the same words for the old project show the hold again (arguably
   right: they may be a duplicate). The fixed Project row at the largest size is in the shots.
+- Iteration 16 (sonnet): the sheet's own follow-up read reports a found task only while the hold is still set; when
+  the tab's read found it first, the tab has already said so and closed the sheet (no second "Added task" or second
+  announcement).
+- DEFERRED (iteration 16): create()'s early return after Create's tap latch resets sending by hand (fragile to a future
+  early return, no live bug); reopening from a picked project discards a kept draft for another project without saying
+  so (the board's ntAimAt does exactly this, silently).
