@@ -136,8 +136,9 @@ fi
 # kosmos#7127: this run's own volume name and its own mount point inside $TMP, so nothing is read back from hdiutil's
 # output to decide where this run writes. A run stopped with kill -KILL never runs the EXIT trap, so its images stay
 # mounted; with a fixed name macOS mounted the next as "/Volumes/s6651 1", and the old parse sent the writes to ./1/.
-# A same-named decoy, mounted the default way first, puts that collision in place on every run. It is scaffolding for
-# the #7127 check only: if it cannot be mounted, that check says SKIP and the full-disk case still runs. (A killed run
+# A same-named decoy, mounted the default way first, guards against going back to that: with it in place, reading the
+# mount point from hdiutil's output again would give "/Volumes/s6651-<pid> 1" and fail the check below on every run.
+# It is optional: if it cannot be mounted, the #7127 check says SKIP and the full-disk case still runs. (A killed run
 # leaks the decoy at /Volumes/s6651-<pid> as well as its own image; per-run names mean neither can collide.)
 if command -v hdiutil >/dev/null 2>&1; then
   if hdiutil create -quiet -size 4m -fs APFS -volname "s6651-$$" "$TMP/decoy.dmg" >/dev/null 2>&1; then
@@ -167,7 +168,7 @@ if command -v hdiutil >/dev/null 2>&1 && mkdir -p "$TMP/mnt" \
     # kosmos#7127: the writes went to this run's own image, a filesystem of its own, and not to ./1/ (where the old
     # parse sent them). The device check fails if the attach left $TMP/mnt a plain folder.
     { [ "$(stat -f %d "$DISK")" != "$(stat -f %d "$TMP")" ] && [ -e "$DISK/fill" ] && [ ! -e "1/board.stopped" ]; } \
-      && ok "the full-disk case writes to its own image$( [ -n "$DECOY" ] && echo ', with a same-named volume mounted beside it') (#7127)" \
+      && ok "the full-disk case writes to its own image$( [ -n "$DECOY" ] && echo ', not where a parsed mount point would put it') (#7127)" \
       || bad "the full-disk case wrote somewhere other than its own image (#7127)"
   fi
 else
