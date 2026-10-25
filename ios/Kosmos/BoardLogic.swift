@@ -1679,6 +1679,8 @@ extension Board {
         return rows.filter { ($0.who == .agent && who.contains(needle)) || $0.text.lowercased().contains(needle) }
     }
 
+    static let chatSentWhileSearching = "Once it arrives, your message shows only if it matches the search."
+
     static func chatNoMatch(_ query: String) -> String {
         "Nothing here matches \"\(query.trimmingCharacters(in: .whitespacesAndNewlines))\". Clearing the search brings the conversation back."
     }
