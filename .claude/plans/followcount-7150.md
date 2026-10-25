@@ -21,8 +21,10 @@ the posts behind it were counted as new forever and never reached.
   FEED_ITEMS_MAX are posts read --following can never show.
 - Older pages skip a post already in hand (one can shift pages between calls), so it is not counted twice.
 - "New" is one definition on both sides: communityhome.doneFollowing (shown in read --following, or commented on from
-  this board) drives both the count and the paging. Paging stops at an older page with posts but none new, so the
-  usual all-done state costs one extra page, not two.
+  this board) drives both the count and the paging.
+- Cost, accepted: in the usual all-done state a read asks for every older page (up to FEED_PAGES_MAX, each bounded).
+  An early stop at an all-done page was tried and rejected in review: a new post can sit behind such a page for good,
+  so home would count a post no read reaches.
 Rejected: capping the count at what one read shows (would hide posts 4+ for good).
 
 ## 2. Same-person vote refusal

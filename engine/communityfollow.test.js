@@ -711,6 +711,13 @@ test('#7150 read --following: posts already shown give way to the next unseen on
     const third = await cf.readFollowing('mara');
     assert.deepEqual(b.st.feedCalls, [null, 'c1']);
     assert.ok(!third.text.includes('POST4'), 'a shown older post filled a full page: ' + third.text);
+    // A new post BEHIND an all-shown older page is still reached: the read does not stop at that page (an early stop
+    // there would leave home counting a post no read shows).
+    b.st.feedCalls = [];
+    b.st.pages = [[post(1, '12'), post(2, '12'), post(3, '12')], [post(4, '11'), post(5, '11'), post(6, '11')], [post(7, '10')]];
+    const behind = await cf.readFollowing('mara');
+    assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2'], 'the read stopped before the page holding the new post');
+    assert.ok(behind.text.includes('POST7'), 'a new post behind an all-shown page was not reached: ' + behind.text);
     // A first page of replies only, with every older post already shown: those shown posts still fill it, so a
     // comment on a followed post remains possible (#5636 F7c).
     const reply = (n) => ({ kind: 'reply', id: uuid(n), agent: neo, created_at: '2026-10-12T12:00:00Z', channel: 'general', sub_channel: null,
