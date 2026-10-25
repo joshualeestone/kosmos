@@ -507,10 +507,7 @@ struct ChatView: View {
                     FilesBubble(text: Board.wordsShown(row.text, files: row.attachments), files: row.attachments,
                                 thumbnails: client.thumbnails, states: fileStates, widthShare: widthShare, open: openFile, mine: mine,
                                 faded: false,
-                                spoken: (head.map { ReplyHeadLine.words($0) + " " } ?? "")
-                                    + Board.filesRowSpoken(who: mine ? "You" : shown.name, at: row.at, text: Board.wordsShown(row.text, files: row.attachments),
-                                                           count: row.attachments.count, notSent: row.notSent)
-                                    + (mine ? failedLine(row).map { ". " + $0.because } ?? "" : ""),
+                                spoken: filesSpoken(row, head: head, mine: mine),
                                 actions: row.answerable(by: agent.session) ? replyActionList(row) : [])
                         // kosmos#7083: Reply and the reactions on an agent's message with files too, from its bubble.
                         .contextMenu { if row.answerable(by: agent.session) { replyMenu(row) } }
@@ -783,6 +780,16 @@ struct ChatView: View {
     // DM_NEWEST_MINE_AT, over earlierRows and the latest read).
     private var newestMine: String? { thread.flatMap { Board.newestMineAt(Board.shownRows(earlier, thread: $0)) } }
 
+    // What VoiceOver says for a files bubble: what it answers, who, when, its words and files, and (#7136) why it failed.
+    // Split out so the compiler type-checks it on its own (CI's Xcode timed out on long expressions in this view).
+    private func filesSpoken(_ row: Board.ChatRow, head: Board.ReplyHead?, mine: Bool) -> String {
+        let lead = head.map { ReplyHeadLine.words($0) + " " } ?? ""
+        let said = Board.filesRowSpoken(who: mine ? "You" : shown.name, at: row.at, text: Board.wordsShown(row.text, files: row.attachments),
+                                        count: row.attachments.count, notSent: row.notSent)
+        let why = mine ? (failedLine(row).map { ". " + $0.because } ?? "") : ""
+        return lead + said + why
+    }
+
     // kosmos#7136: the board's failed line for a row of the person's, as it is on this phone now.
     private func failedLine(_ row: Board.ChatRow) -> Board.FailedLine? {
         // Only the person's failed rows reach the newest-message scan.
@@ -796,11 +803,14 @@ struct ChatView: View {
     private func tryAgain(_ row: Board.ChatRow) {
         let newest = newestMine
         if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
+        guard let at = row.atRaw else { return }
+        // Marked before the request and kept until the next read, so no frame shows the stale line between them.
+        retrySettling.insert(at)
         Task {
-            guard let at = row.atRaw, let out = await client.sendAgain(row, newestMineAt: newest, to: agent) else { await read(); return }
-            retrySettling.insert(at)
+            let answer = await client.sendAgain(row, newestMineAt: newest, to: agent)
             await read()
             retrySettling.remove(at)
+            guard let out = answer else { return }
             if out.refused {
                 // The same refusal twice does not change the line, so it would not be heard again: say it.
                 if composerNote == out.said { UIAccessibility.post(notification: .announcement, argument: out.said) }

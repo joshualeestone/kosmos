@@ -15,7 +15,8 @@ goes. Tested in the logic suite, pinned to web/index.html with a control, the ro
 - BoardClient.sendAgain: one request through retry_of (no new pending bubble), marked going while in flight
   (`resending`, the board's DM_RETRYING), nothing while a press is in the air.
 - ChatView: one FailedLineView under the bubble (both the text and the files rows), the time kept above it, the
-  reason as the accessibility hint; a refusal is also said under the composer, any other outcome is announced.
+  reason as the accessibility hint; a refusal is also said under the composer (and announced again when it repeats),
+  any other outcome is announced. "sending…" holds from the tap until the chat's next read.
 - The pending bubble's own "Not sent. Tap to try again." (failed before the Mac had it) is unchanged.
 
 ## Rejected / changed on purpose
@@ -23,6 +24,10 @@ goes. Tested in the logic suite, pinned to web/index.html with a control, the ro
   and the Mac refuses retry_of with a reply or files. Such a row now reads "Message failed to deliver." as on the board.
 - "<name> isn't running on your computer" on a kept row is dropped (the board has no such state on this line).
 - Tapping the bubble to retry is dropped; "try again" is the button, as on the board.
+- NOT board parity, on purpose: a Try again in flight counts as a send in the air (isSending), so a choice press waits
+  for it, as the phone already does for a typed send (dmChoiceBlocksSend: one key and one paste never overlap in the
+  agent's window). The board's dmChoicePress does not wait for dmRetrySend. Weakest point of this call: the board shows
+  it is not needed in practice; it costs a press a second's wait at most.
 
 ## Weakest premise
 The view is compiled only by the simulator build and never run here: nothing has been seen on a real iPhone. The
@@ -32,7 +37,8 @@ real-iPhone check joins #6838's list.
 - ios/LogicTests/run.sh: the rule against fixtures, the request body, the result sentences, the client posting
   retry_of once with a second tap sending nothing, newest-only, replies and files not offered.
 - ios.dmfailed-7136.test.js: the phone's words and rule pinned to dmFailedLine / dmRetrySend, with a control.
-- server.ios-routes-6838.test.js: the request is found and the board answers it.
+- server.ios-routes-6838.test.js: the request is found and the board answers the route (the body's retry_of is pinned by
+  the logic suite and the node pin, not by this test).
 - Simulator build (xcodebuild -target Kosmos -sdk iphonesimulator).
 
 ## Status
