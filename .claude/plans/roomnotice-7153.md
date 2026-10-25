@@ -17,8 +17,15 @@ token, a notice without it is refused; an agent's own token cannot write one; ba
 
 - The row reads `<source> (automated notice): <text>`, one line: whitespace runs, control characters and bidi
   overrides (every control and format character, as externalPost strips) become single spaces, so a job's text cannot fake another row in `kosmos room` or reorder itself.
-- A CLI notice that cannot be written (board down, refused, too old) is kept in a private file and its path said, as
-  `kosmos post --stdin` does: an alarm fires when the fleet is down, so the text may be its only copy.
+- The CLI reads the piped text FIRST, then checks the source and project, so every failure after the read (a wrong
+  source or project in the job's own setup, board down, refused, too old) keeps it in a private file and says where,
+  as `kosmos post --stdin` does: an alarm fires when the fleet is down, so the text may be its only copy.
+- Not written for sure (not connected, refused): exit 1. Possibly written (a cut or slow answer): "may", kept as such,
+  exit 3, never 1, so a job that retries on 1 does not write the alarm twice. Both platforms.
+- An agent session (a tmux pane or an agent token present) is refused with "use kosmos post": a tripwire for an agent
+  reading the help, not a lock. The board token is what the route checks, and until #4491's guard is installed an
+  agent that reads board.token directly can still write one. A job run from inside a tmux pane is refused too; run it
+  from launchd.
 
 ## Rejected
 - `kosmos post` from the job: needs an agent token or a pane; a launchd job has neither, so it is refused.

@@ -2864,20 +2864,27 @@ cmd_notice() {
     esac
   done
   if [ -z "$source" ] || [ -z "$project" ] || [ "$from_stdin" -ne 1 ]; then say "$usage"; exit 2; fi
-  case "$source" in *$'\n'*|*$'\r'*) source="" ;; esac   # grep checks each line on its own, so a line break is refused here
-  if [ -z "$source" ] || ! printf '%s' "$source" | LC_ALL=C grep -qE '^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$'; then say "The source is a few plain words (letters, digits, spaces, . _ -), such as \"builder alarm\"."; exit 2; fi
-  require_valid_project_id "$project"
+  # For jobs, not agents: an agent session speaks in rooms with `kosmos post`, never in Kosmos's voice. A tripwire for
+  # an agent reading the help (its pane or token says it is one), not a lock: the board token is what the route checks.
+  if [ -n "${TMUX_PANE:-}" ] || [ -n "${KOSMOS_AGENT_TOKEN:-}" ]; then
+    say "kosmos notice is for a job on this computer (an alarm, a digest), not an agent session. To speak in a room, use kosmos post."
+    exit 2
+  fi
+  # A job's notice may be its only copy (an alarm fires when the fleet is down), so it is read first and every failure
+  # after the read keeps it, and says where: a wrong source or project in the job's own setup included.
   local text="" _orig="" _trimmed _keep
   _read_piped_message "written" "$usage"
-  if [ -z "$text" ]; then say "Nothing was written: the notice was empty."; exit 2; fi
-  # A job's notice may be its only copy (an alarm fires when the fleet is down): every failure below keeps it, and says where.
+  case "$source" in *$'\n'*|*$'\r'*) source="" ;; esac   # grep checks each line on its own, so a line break is refused here
+  if [ -z "$source" ] || ! printf '%s' "$source" | LC_ALL=C grep -qE '^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$'; then say "The source is a few plain words (letters, digits, spaces, . _ -), such as \"builder alarm\"."; _keep_piped; exit 2; fi
+  case "$project" in *[!A-Za-z0-9._-]*) say "There is no project called \"$project\", so there is no room to write into."; _keep_piped; exit 1 ;; esac
   if ! healthy; then say_not_up "the notice cannot be written"; _keep_piped; exit 1; fi
   local esc_text esc_source _bt _body _rc=0 _code because
   esc_text=$(printf '%s' "$text" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r' '  ' | LC_ALL=C sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g') || { say "Nothing was written: the notice could not be prepared."; _keep_piped; exit 2; }
   esc_source=$(printf '%s' "$source" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g')
   _bt="$(board_token || true)"
   _body=$(printf '%s' "{\"text\":\"$esc_text\",\"source\":\"$esc_source\"}" | kosmos_curl "$_bt" "" -sS -m 15 -w $'\n%{http_code}' -X POST "$URL/api/project/$project/notice" -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
-  if [ "$_rc" -ne 0 ]; then say_unreached "write that notice" "$_rc" write; case "$_rc" in 18|28|52|56) _keep_piped maybe ;; *) _keep_piped ;; esac; exit 1; fi
+  # A cut or slow answer may have been written: exit 3, never 1, so a job that retries on 1 does not write it twice.
+  if [ "$_rc" -ne 0 ]; then say_unreached "write that notice" "$_rc" write; case "$_rc" in 18|28|52|56) _keep_piped maybe; exit 3 ;; *) _keep_piped; exit 1 ;; esac; fi
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   case "$_code" in
