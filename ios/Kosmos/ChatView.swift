@@ -92,7 +92,8 @@ struct ChatView: View {
             if thread != nil, let note = bannerText { banner(note) }
             ZStack(alignment: .bottom) {
                 conversation
-                if unseenNew { newMessagesCapsule }
+                // Not over a search: new messages are not followed then (follow), so it would offer a jump in a filtered list.
+                if unseenNew && !searching { newMessagesCapsule }
             }
             if let line = composerNote ?? attachLine ?? pressLine ?? (sentWhileSearching ? Board.chatSentWhileSearching : nil) {
                 Text(line).font(.footnote).foregroundColor(composerNote == nil && attachLine == nil && pressLine != nil ? Palette.dangerWord : Palette.secondary)
@@ -312,7 +313,8 @@ struct ChatView: View {
                     keepNewestInView = atBottom
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                    if keepNewestInView { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+                    // Not while searching: the board's search box moves nothing when it takes the keyboard.
+                    if keepNewestInView && !searching { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .chatScrollToEnd)) { _ in
                     withAnimation { proxy.scrollTo("end", anchor: .bottom) }
