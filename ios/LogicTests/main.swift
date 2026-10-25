@@ -3043,6 +3043,7 @@ check(PhoneNotice.words(status: 200, contentType: json, data: Data(#"{"kind":"po
 section("phone notice: the agent's picture")
 if let w {
     check(PhoneNotice.pictureRequest(w, userInfo: pushed, stored: savedMac)?.url?.absoluteString == "https://m-abc123.kosmosplus.com/api/agent/irma/avatar", "the picture comes from the same computer's avatar route")
+    check(PhoneNotice.pictureRequest(w, userInfo: pushed, stored: savedMac)?.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin", "and says it is the board's own (kosmos#7075)")
     for bad in ["https://evil.example/api/agent/irma/avatar", "//evil.example/api/agent/irma/avatar", "/api/agent/../../etc/avatar", "/api/status", "/api/agent/irma/avatar?x=1"] {
         let b = PhoneNotice.Words(kind: w.kind, session: w.session, agent: w.agent, text: w.text, picture: bad)
         check(PhoneNotice.pictureRequest(b, userInfo: pushed, stored: savedMac) == nil, "a picture address off that route is refused: \(bad)")
