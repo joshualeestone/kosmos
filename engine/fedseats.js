@@ -317,7 +317,7 @@ function handleEvent(projectId, line, heldAt) {
         return;
       }
       ev.data = opened.m;
-    } else if (sealedRoom && !pendingClear(sealed) && !(sealed === null && (() => { const l = sealLink(projectId); return !!l && l.role === 'self' && l.pendingClear === true && l.sealed !== true; })())) {
+    } else if (sealedRoom && !pendingClear(sealed) && !(sealed === null && waitingLink(sealLink(projectId)))) {
       // No downgrade: once a room is sealed, words sent in the clear are not shown. A computer still waiting to be let
       // into an unsealed room (pendingClear) does not know it is sealed, so it shows them (slice 2).
       noteOnce(projectId, s, 'unsealed', 'A message arrived unsealed in this sealed room, so it was not shown. If someone joined before this room was sealed, remove them from the shared project and send them a new code.');
@@ -694,6 +694,10 @@ function hasKey(st) {
 function pendingClear(st) {
   return !!st && st.role === 'member' && st.ownComputer === true && st.pendingClear === true && !hasKey(st);
 }
+/** Slice 2: a self link waiting to be let into an unsealed room whose record is gone (sayHello writes it back). */
+function waitingLink(link) {
+  return !!link && link.role === 'self' && link.pendingClear === true && link.sealed !== true;
+}
 /** Slice 2 (review 5): whether a clear may let this computer in: any keyless own-computer record (one written by this
     slice's join, or by an older Kosmos on an unopenable envelope) whose link does not say it joined a sealed room. */
 function clearEligible(st, link) {
@@ -910,7 +914,7 @@ function waitingOffer(projectId, s, frame) {
 function ownPending(projectId) {
   // Any record a clear could end (review 7): an older keyless record is not known to be sealed either.
   const st = roomSeal(projectId);
-  return clearEligible(st, safeLink(projectId)) && (pendingClear(st) || !hasKey(st));
+  return clearEligible(st, safeLink(projectId));
 }
 /** Own computer: the code this computer shows for its current run, or null. */
 function ownCode(projectId) {
@@ -1059,7 +1063,7 @@ function ownerOwnHello(projectId, s, frame, me) {
   // Only while the room still reads clear (review 7): a room sealed since gives no clear again, and forgets them all.
   if (s.ownCleared && !ownerClearRoom(projectId)) s.ownCleared = null;
   const cleared = s.ownCleared && s.ownCleared.get(h.pub);
-  if (cleared && cleared.commit === h.commit && cleared.mac === h.mac) { sendFrame(s, cleared.frame); return; }
+  if (cleared && cleared.commit === h.commit && cleared.mac === h.mac) { try { sendFrame(s, cleared.frame); } catch { /* the next hello */ } return; }
   if (!s.ownWaiting) s.ownWaiting = new Map();
   let w = s.ownWaiting.get(h.pub);
   if (!w || w.commit !== h.commit || w.mac !== h.mac) {
@@ -2052,7 +2056,7 @@ function sendPost(projectId, { from, kind, text, files, invites, sealedHeld, beh
   }
   // Slice 2: a computer still waiting to be let into an own room holds its posts, unmarked (never sealedHeld): they go
   // in the clear once the owner's clear is adopted, or sealed if the room turns out to be sealed after all.
-  if (pendingClear(sealed) || (sealed === null && link && link.role === 'self' && link.pendingClear === true && link.sealed !== true)) {
+  if (pendingClear(sealed) || (sealed === null && waitingLink(link))) {
     return holdPost(projectId, s, msg, 'this computer is waiting to be let into this shared project by the computer that first shared it', 'once it is let in, if that is within the hour', heldAt);
   }
   if (sealedRoom) {
