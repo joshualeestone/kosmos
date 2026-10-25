@@ -25,6 +25,9 @@
 name: ios
 
 # Path-filtered like android.yml: safe because this is advisory, not required.
+# kosmos#7084: the logic suites that read the board's own source (room, settings, tasks: web/index.html, engine/*.js)
+# ALSO run in the board's node suite (ios.board-parity-7084.test.js) on any Mac, so every full validation catches a web
+# or engine change that breaks one of their pins before it merges. Do not add web/ or engine/ here for that (#5488).
 on:
   push:
     branches: ["main"]
