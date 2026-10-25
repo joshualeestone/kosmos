@@ -81,3 +81,10 @@ owning it is the one who closes it.
   or with a screen part, ruled it in before); the server test's requests have a 5 s deadline, so a hang fails in
   5 s (measured) rather than at fetch's 300 s. Nits: the loop test now loops through the task itself; a stale comment.
   Engine 21/21, server 3/3. Broken copies: no child history, child not checked as the agent's: each red.
+- Round 6: 0 blockers, 2 warnings, 4 nits. Warning fixed: a task with anything under it is now never offered. A closed
+  step's history always has a "closed" row naming nobody, so the descendant checks of rounds 4 and 5 could never pass
+  and their control was a false claim; the descendant code is gone. Warning fixed: the loop guard above the parent is
+  tested in a child process with a deadline (removing the guard times it out at 10 s, measured; a sync loop on the
+  request path is beyond any try/catch). Nits: doc comments moved above leftUnder and retireOffers; the dead
+  "up === task.number" dropped; the cheap child check comes first; the duplicated history read is gone with the
+  descendant code. The card has a comment stating the rule change. Engine 19/19, server 3/3.

@@ -100,28 +100,30 @@ test('the history allow-list against the engine\'s own writers: an agent\'s unto
   assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, theirs)), false, 'the person made it');
 });
 
-test('a task with an open task under it is not offered; with every child closed it is', () => {
-  const p = project([cycle, agentTask(2), { number: 3, parent: 2, createdAt: at(6), addedVia: 'screen' }]);
-  assert.equal(of(p, 2), null, 'its child is still open');
-  const closed = project([cycle, agentTask(2), { number: 3, parent: 2, createdAt: at(6), addedVia: 'process', addedBy: 'kit', closedAt: at(8) }]);
-  assert.equal(of(closed, 2), 1, 'CONTROL: its child closed (and an agent\'s)');
+test('a task with anything under it is never offered, open or closed, anyone\'s (review 6)', () => {
+  const step = (extra = {}) => ({ number: 3, parent: 2, createdAt: at(6), addedVia: 'process', addedBy: 'kit', ...extra });
+  assert.equal(of(project([cycle, agentTask(2), step()]), 2), null, 'an open step');
+  assert.equal(of(project([cycle, agentTask(2), step({ closedAt: at(8) })]), 2), null, 'a closed step an agent filed: its close row names nobody, so it is never only an agent\'s');
+  assert.equal(of(project([cycle, agentTask(2), step({ closedAt: at(8), addedVia: 'screen' })]), 2), null, 'a step the person added');
+  assert.equal(of(project([cycle, agentTask(2)]), 2), 1, 'CONTROL: nothing under it');
 });
 
-test('every task under it, at any depth, must be closed and an agent\'s', () => {
-  const child = (n, parent, extra = {}) => ({ number: n, parent, createdAt: at(6), addedVia: 'process', addedBy: 'kit', closedAt: at(8), ...extra });
-  const grand = project([cycle, agentTask(2), child(3, 2), child(4, 3, { closedAt: undefined })]);
-  assert.equal(of(grand, 2), null, 'a grandchild still open (review 4)');
-  const theirs = project([cycle, agentTask(2), child(3, 2, { addedVia: 'screen' })]);
-  assert.equal(of(theirs, 2), null, 'a step the person added, even closed (review 4)');
-  const ok = project([cycle, agentTask(2), child(3, 2), child(4, 3)]);
-  assert.equal(of(ok, 2), 1, 'CONTROL: every task below closed and an agent\'s');
-  const noName = project([cycle, agentTask(2), child(3, 2, { addedBy: null })]);
-  assert.equal(of(noName, 2), null, 'a closed step added through the CLI with no agent named: the person\'s own Terminal (review 5)');
-  const screenPart = project([cycle, agentTask(2), child(3, 2, { parts: [{ who: 'kit', addedVia: 'screen', closedAt: at(8) }] })]);
-  assert.equal(of(screenPart, 2), null, 'a closed step with a part the person added (review 5)');
-  // Review 5: a real loop runs through the task itself: 2 under 3 and 3 under 2. It ends, and offers nothing.
-  const loop = project([cycle, agentTask(2, { parent: 3 }), child(3, 2)]);
-  assert.equal(of(loop, 2), null, 'a store that loops through the task ends');
+test('a store whose parent links loop above the parent ends, and offers nothing (review 6)', () => {
+  /* 2 is under 1, 1 under 3, 3 under 1: the loop sits wholly above the parent. A missing guard would spin for ever on
+     the board's request path, which no try/catch can stop, so it runs in a child process with a deadline. */
+  const { spawnSync } = require('node:child_process');
+  const script = `
+    const tasks = require(${JSON.stringify(require.resolve('./tasks'))});
+    const at = (d) => '2026-10-' + String(d).padStart(2, '0') + 'T00:00:00.000Z';
+    const p = { id: 'loop', tasks: [
+      { number: 1, parent: 3, createdAt: at(1), closedAt: at(20), addedVia: 'screen' },
+      { number: 3, parent: 1, createdAt: at(1), closedAt: at(20), addedVia: 'screen' },
+      { number: 2, parent: 1, createdAt: at(5), addedVia: 'process', addedBy: 'kit' }] };
+    process.stdout.write(String(tasks.leftUnder(p, p.tasks[2])));`;
+  const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 10000, env: process.env });
+  assert.equal(r.error, undefined, 'the walk above the parent did not end: ' + (r.error && r.error.message));
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, 'null', 'a loop above the parent offers nothing');
 });
 
 test('only open tasks are offered: never one done, built (waiting on review) or on hold', () => {
@@ -198,13 +200,6 @@ test('retireOffers: the history rules it out when the person acted, or it was re
   assert.equal(offer([created, { at: at(21), kind: 'reopened' }]), undefined, 'reopened');
   assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => [], () => null).size, 0, 'a history that cannot be read');
   assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => [], () => { throw new Error('x'); }).size, 0, 'a history read that throws');
-});
-
-test('retireOffers: a task under it whose history shows the person rules it out (review 5)', () => {
-  const p = project([cycle, agentTask(2), { number: 3, parent: 2, createdAt: at(6), addedVia: 'process', addedBy: 'kit', closedAt: at(8) }]);
-  const agentRows = (n) => [{ at: at(5), kind: 'created', addedVia: 'process', addedBy: 'kit' }, ...(n === 3 ? [{ at: at(7), kind: 'said', text: 'x' }] : [])];
-  assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => [], (pid, n) => agentRows(n)).size, 0, 'its step has a row nobody can be shown to have written');
-  assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => [], () => AGENT_HISTORY).get(0), 1, 'CONTROL: every history an agent\'s');
 });
 
 test('retireOffers: a project held in two records is never offered', () => {
