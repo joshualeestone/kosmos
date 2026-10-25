@@ -219,5 +219,34 @@ else
   bad "run-tests.sh: KOSMOS_SHELL_PARALLEL unset at line '${unset_at:-none}', read after it: $(printf '%s' "$later" | head -3)"
 fi
 
+# 8) the unset default (kosmos_shell_parallel_default): 4 on a plain local run, 1 in CI, a CI shard or platform share,
+# and the cut-env shape. Each case runs in a child with every input scrubbed first, so this file gives the same
+# answers under a CI shard's own environment.
+printf '. "$1"\nkosmos_shell_parallel_default\n' > "$T/default.sh"
+dflt() { env -u GITHUB_ACTIONS -u KOSMOS_SHELL_SHARD -u KOSMOS_SHELL_PLATFORM -u KOSMOS_SHELL_CUT_ENV "$@" /bin/bash "$T/default.sh" "$HERE/lib/shell-parallel.sh"; }
+d_plain=$(dflt); d_gha=$(dflt GITHUB_ACTIONS=true); d_gha_no=$(dflt GITHUB_ACTIONS=false); d_shard=$(dflt KOSMOS_SHELL_SHARD=1/2)
+d_plat=$(dflt KOSMOS_SHELL_PLATFORM=linux); d_cut=$(dflt KOSMOS_SHELL_CUT_ENV=1); d_cut0=$(dflt KOSMOS_SHELL_CUT_ENV=0)
+got="plain=$d_plain gha=$d_gha gha-false=$d_gha_no shard=$d_shard platform=$d_plat cutenv=$d_cut cutenv0=$d_cut0"
+if [ "$got" = "plain=4 gha=1 gha-false=4 shard=1 platform=1 cutenv=1 cutenv0=4" ]; then
+  pass "the unset default is 4 locally and 1 in CI, a CI shard or platform share, and the cut-env shape"
+else
+  bad "the unset default: $got"
+fi
+
+# 9) TRIPWIRES on the two sources: run-tests.sh takes the default only when the switch is unset or empty (a value the
+# caller set wins), and release.sh says 1 for its gate runs, after its guard (so the guard still sees the caller's).
+if grep -q -x '\[ -n "\${KOSMOS_SHELL_PARALLEL:-}" \] || KOSMOS_SHELL_PARALLEL="\$(kosmos_shell_parallel_default)"' "$HERE/run-tests.sh"; then
+  pass "run-tests.sh: an unset or empty switch takes kosmos_shell_parallel_default, and a set one is kept"
+else
+  bad "run-tests.sh: no line applying kosmos_shell_parallel_default to an unset switch only"
+fi
+guard_at=$(grep -n 'A cut always tests the whole suite (#5934)' "$HERE/release.sh" | head -1 | cut -d: -f1)
+export_at=$(grep -n -x 'export KOSMOS_SHELL_PARALLEL=1' "$HERE/release.sh" | head -1 | cut -d: -f1)
+if [ -n "$guard_at" ] && [ -n "$export_at" ] && [ "$export_at" -gt "$guard_at" ]; then
+  pass "release.sh: a cut sets KOSMOS_SHELL_PARALLEL=1 after its guard (line $export_at, guard line $guard_at)"
+else
+  bad "release.sh: export KOSMOS_SHELL_PARALLEL=1 at line '${export_at:-none}', guard at '${guard_at:-none}'"
+fi
+
 if [ "$fails" -eq 0 ]; then echo "test-shell-parallel-7100: all arms passed"; exit 0; fi
 echo "test-shell-parallel-7100: $fails failure(s)"; exit 1

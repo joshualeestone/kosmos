@@ -24,9 +24,10 @@ explicitly to learn the repo's pre-PR commands and conventions.
 - `yarn test:shell` runs the large shell-and-tooling suite (`bash -n` syntax checks plus
   focused tool tests). `run-tests.sh` runs the same list through `tools/shell-shard.js` (the
   whole list as shard 1 of 1 locally, #5907), which prints each command's time and the slowest
-  ones at the end. `KOSMOS_SHELL_PARALLEL=<2..8>` (#7100, off by default) runs that list as
-  that many shards at once on this computer instead; it stays off until a measured run says
-  the shell tests do not collide. A SIGKILL to the runner leaves its shards running.
+  ones at the end. `KOSMOS_SHELL_PARALLEL=<1..8>` (#7100) sets how many shards of that list run
+  at once on this computer. Unset, a local run uses 4 (measured about 3.5 times faster, with no
+  new reds); CI, a CI shard and a release cut use 1. `KOSMOS_SHELL_PARALLEL=1` runs it one
+  at a time. A SIGKILL to the runner leaves its shards running.
 - `yarn test:install` / `test:install-gate` exercise the installer.
 - The `windows` CI job (#1777) runs the Windows test files on a real Windows runner:
   `node tools/windows-tests.js`, which says what it selects and how it judges. A red there is

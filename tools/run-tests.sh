@@ -30,7 +30,8 @@ cd "$REPO"
 #   node  the node suite only;
 #   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js), and with
 #         KOSMOS_SHELL_PLATFORM=linux|mac as well (only with a shard, #6791) just that platform's share of it.
-#         KOSMOS_SHELL_PARALLEL=n (#7100, 2 to 8) runs all of test:shell as n shards at once on this computer
+#         KOSMOS_SHELL_PARALLEL=n (#7100, 1 to 8) runs all of test:shell as n shards at once on this computer;
+#         unset is 4 locally and 1 in CI or a CI shard (kosmos_shell_parallel_default), and a release cut sets 1
 #         (it has no effect on the node part or --only, which run no shell part, though a bad value still refuses).
 # Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates). --only (#4929,
 # below) keeps the temp root, the --require guards and the leak guards, and skips the queue wait, the coverage count,
@@ -146,8 +147,10 @@ if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
   fi
 fi
 # #7100: KOSMOS_SHELL_PARALLEL=<n> runs test:shell as n shards at once on this computer (2 to 8), not shard 1 of 1.
-# Unset or 1 is today's one-at-a-time run. Not with KOSMOS_SHELL_SHARD (that runs one shard; CI runs the others).
-KOSMOS_SHELL_PARALLEL="${KOSMOS_SHELL_PARALLEL:-1}"
+# 1 is the one-at-a-time run. Not with KOSMOS_SHELL_SHARD (that runs one shard; CI runs the others). Unset (or
+# empty) is kosmos_shell_parallel_default: 4 on a plain local run, 1 in CI, a CI shard or the cut-env shape.
+. "$REPO/tools/lib/shell-parallel.sh" || { echo "run-tests: tools/lib/shell-parallel.sh is missing" >&2; exit 1; }
+[ -n "${KOSMOS_SHELL_PARALLEL:-}" ] || KOSMOS_SHELL_PARALLEL="$(kosmos_shell_parallel_default)"
 case "$KOSMOS_SHELL_PARALLEL" in
   1) ;;
   [2-8]) if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
@@ -849,7 +852,7 @@ elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
       echo "run-tests: could not make a folder for the parallel shell shards' logs; refusing rather than run them unlogged (#7100)" >&2
       (exit 2)   # the status NODE_STATUS=$? reads below the fi
     else
-      . "$REPO/tools/lib/shell-parallel.sh"
+      # tools/lib/shell-parallel.sh was loaded where the switch is read, above.
       # No cut-shape wrapper here: KOSMOS_SHELL_CUT_ENV=1 is refused with this switch, and its wrapper is a shell
       # function that a shard started through exec could not run.
       kosmos_shell_parallel "$_RT_SHELL_PARALLEL" "$_rt_ps_dir" node "$REPO/tools/shell-shard.js" run
