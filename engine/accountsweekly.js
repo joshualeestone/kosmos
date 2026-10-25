@@ -17,23 +17,39 @@ const path = require('node:path');
 const CACHE_MS = 15000;   // the other computers' read interval (OA_STATUS_EVERY_MS, #4812)
 const MAX_ACCOUNTS = 50;   // what one computer sends; far past any real list
 
+/* kosmos#7152: of the status line's reading and the usage endpoint's (usagepoll), the newer one, in the same shape as
+   before ({ usedPct, resetsAt, at }), which other computers read through /api/status. */
+function newer(statusLine, polled) {
+  const a = statusLine ? { usedPct: statusLine.usedPct, resetsAt: statusLine.resetsAt * 1000, at: statusLine.at } : null;
+  const b = polled ? { usedPct: polled.usedPct, resetsAt: polled.resetsAt * 1000, at: polled.at } : null;
+  if (!a) return b;
+  if (!b) return a;
+  return b.at >= a.at ? b : a;
+}
+
+function polledOf(a, nowMs, key) {
+  const r = require('./usagepoll').readUsage(a.dir, nowMs);
+  return r && r.state === 'ok' && r[key] ? { ...r[key], at: r.at } : null;
+}
+
 /** The account's weekly reading, or null when there is none this week (an API key, none recorded, unreadable, the week
     has reset). resetsAt and at are epoch ms (readWeekly gives resetsAt in seconds). */
-function weeklyOf(a, nowMs) {
+function weeklyOf(a, nowMs = Date.now()) {
   try {
-    const r = a && a.dir && !a.apiKey ? require('./allowance').readWeekly(a.dir, nowMs) : null;   // a key has no weekly limit
-    return r ? { usedPct: r.usedPct, resetsAt: r.resetsAt * 1000, at: r.at } : null;
+    if (!a || !a.dir || a.apiKey) return null;   // a key has no weekly limit
+    return newer(require('./allowance').readWeekly(a.dir, nowMs), polledOf(a, nowMs, 'weekly'));
   } catch { return null; }
 }
 
 /** #6176: the account's five-hour reading, or null when there is none (an API key, none recorded, unreadable, the window
     has reset). Same units as weeklyOf: resetsAt and at in epoch ms. */
-function fiveHourOf(a, nowMs) {
+function fiveHourOf(a, nowMs = Date.now()) {
   try {
-    const r = a && a.dir && !a.apiKey ? require('./allowance').readFiveHour(a.dir, nowMs) : null;
-    return r ? { usedPct: r.usedPct, resetsAt: r.resetsAt * 1000, at: r.at } : null;
+    if (!a || !a.dir || a.apiKey) return null;
+    return newer(require('./allowance').readFiveHour(a.dir, nowMs), polledOf(a, nowMs, 'fiveHour'));
   } catch { return null; }
 }
+
 
 /** Why there can be NO reading for this account, when that is known: 'own-statusline', 'not-wired',
     'linked-settings' (#6175) or 'unreadable-settings'. null when Kosmos's own status line is there, so a reading comes once an agent on it works.

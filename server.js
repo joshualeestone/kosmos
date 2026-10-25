@@ -25902,6 +25902,26 @@ function start(port = PORT) {
       };
       const accountSweep = setInterval(accountTick, Number(process.env.AGENT_WORKFORCE_ACCOUNT_NOTIFY_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ACCOUNT_NOTIFY_MS) : 60 * 1000); // the env is the test seam only
       if (accountSweep && typeof accountSweep.unref === 'function') accountSweep.unref();
+      /* kosmos#7152 slice 1: read every Claude account's weekly and five-hour usage from the usage endpoint
+         (engine/usagepoll.js), idle accounts included, into each account folder, where accountsweekly reads it. Same
+         gating as the sweeps above, operator brake AGENT_WORKFORCE_USAGE_POLL_OFF=1, own 10-min timer, unref'd,
+         asynchronous (one account at a time, never on the board's request path), best-effort. accounts.list() is the
+         cheap read: listLive() checks every account live and must not run on a timer. */
+      const usagePoll = require('./engine/usagepoll');
+      let usagePollBusy = false;
+      const usagePollTick = () => {
+        if (usagePollBusy) return;
+        if (!liveExecution.liveExecutionAllowed() || process.env.AGENT_WORKFORCE_USAGE_POLL_OFF === '1') return;
+        usagePollBusy = true;
+        let list = [];
+        try { list = accounts.list(); } catch { list = []; }
+        usagePoll.pollAll(list)
+          .then((n) => { if (n) process.stdout.write(`usage-poll: recorded ${n} account(s)\n`); })
+          .catch(() => { /* best-effort, like the sweeps above */ })
+          .finally(() => { usagePollBusy = false; });
+      };
+      const usagePollSweep = setInterval(usagePollTick, Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) : usagePoll.POLL_MS); // the env is the test seam only
+      if (usagePollSweep && typeof usagePollSweep.unref === 'function') usagePollSweep.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
          until tool-level guards land; Splinter 2026-09-24), and for an agent that REPORTED itself
          stuck on a project past the grace period it convenes help ONCE: a room note, an ask
