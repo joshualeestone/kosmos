@@ -48,7 +48,10 @@ struct TasksTab: View {
                 newTaskDraft = NewTask.Draft()
             }
             newTaskHeld = nil
-            notice = NewTask.addedLine(number: number, projectName: name)
+            let line = NewTask.addedLine(number: number, projectName: name)
+            notice = line
+            // Said aloud, as the sheet's own "made" says it: a sheet closing with nothing said reads as a failure.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { UIAccessibility.post(notification: .announcement, argument: line) }
         }
         // Another account or Mac: its projects are not this one's, so the sheet, its draft and the added line go too.
         .onChange(of: client.chatEpoch) { _ in

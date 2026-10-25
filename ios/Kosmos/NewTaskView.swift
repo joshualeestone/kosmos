@@ -213,7 +213,9 @@ struct NewTaskView: View {
             return
         }
         #endif
+        let epoch = client.chatEpoch
         let got = await client.throughMac { Board.projectsRequest(mac: $0) }
+        guard epoch == client.chatEpoch else { return }   // another account's projects are not this draft's
         guard let got, (200...299).contains(got.1.statusCode), let parsed = Board.parseProjects(got.0) else {
             if list == nil { readFailed = true }
             return

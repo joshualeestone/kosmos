@@ -195,3 +195,9 @@ path stays the app's own (isProjectId before the path; host is held.url).
 - LEFT (nits): the held line on a reopened sheet sits in the last footer and is not announced; members without role;
   the sample projects' ids do not match the sample Tasks list, so Part of is empty in the shots; the view state
   (hold, tab-found close, epoch drop) has no automated test (no UI test target here), only the logic it calls.
+- Final shots: "Create it anyway" drew in the app's own tint (black) and read as one more footer line; now the chat's
+  link colour, semibold.
+- Iteration 19 (opus, after that change): the Tasks tab's found-the-held-task path now announces "Added task N to X."
+  as the sheet's own path does; the sheet's projects read drops an answer that lands after an account or Mac change.
+- LEFT (nits): + is drawn only with a Tasks read (the board's tsk-new is not gated on it); Result.made(note:) is read
+  only by the tests; oneLine makes a pasted break a space where the board's input drops it.
