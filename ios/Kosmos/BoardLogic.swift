@@ -591,7 +591,9 @@ enum Board {
 
     // pjReplyWords: the first non-empty line, at most two marks on a letter, cut to 80 code points with an ellipsis.
     static func replyWords(_ text: String) -> String {
-        let line = text.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
+        // JavaScript's trim: whitespace, line ends (a \r of CRLF) and the byte-order mark.
+        let trim = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}"))
+        let line = text.components(separatedBy: "\n").map { $0.trimmingCharacters(in: trim) }.first { !$0.isEmpty } ?? ""
         var scalars: [Unicode.Scalar] = []
         var marks = 0
         for u in line.unicodeScalars {
@@ -609,7 +611,8 @@ enum Board {
     // the strip and the header already say beside the gist. Exact case, longest name first; kept when nothing follows.
     static func dropSelfName(_ words: String, names: [String]) -> String {
         let sorted = names.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.sorted { $0.count > $1.count }
-        let sep = "(?:[ \\t]*:(?![/\\d])|[ \\t]+[\u{2013}\u{2014}-](?=[ \\t]))"
+        // [0-9], not \\d: ICU's \\d is any digit, JavaScript's only ASCII.
+        let sep = "(?:[ \\t]*:(?![/0-9])|[ \\t]+[\u{2013}\u{2014}-](?=[ \\t]))"
         for name in sorted {
             let q = NSRegularExpression.escapedPattern(for: name)
             // The board's one pattern, in two (ICU does not match a backreference to a group that took no part).
@@ -648,6 +651,31 @@ enum Board {
             if adjacent { hidden.insert(row.id) }
             // Left out only when the original is there to name.
             prevHid = adjacent && ats.contains(target)
+        }
+        return hidden
+    }
+
+    // The board's Press x (its reply strip), for a bubble that offers its own "Send as a new message" instead.
+    static func withoutStripInstruction(_ reason: String) -> String {
+        reason.replacingOccurrences(of: " Press \u{00D7} to send this as a new message.", with: "")
+            .replacingOccurrences(of: "Press \u{00D7} to send this as a new message.", with: "")
+    }
+
+    // dmReplyAdjacency's `next`: pending replies, in order after the shown rows, whose header is left out (right under
+    // their original, or under another left-out reply to it).
+    static func pendingRepliesUnderOriginal(_ pending: [PendingSend], after rows: [ChatRow]) -> Set<String> {
+        var hidden = Set<String>()
+        let ats = Set(rows.compactMap(\.atRaw))
+        var prevAt = rows.last?.atRaw
+        var prevReplyTo = rows.last?.replyTo
+        var prevHid = rows.last.map { repliesUnderOriginal(rows).contains($0.id) } ?? false
+        for p in pending {
+            guard let target = p.replyTo else { prevAt = nil; prevReplyTo = nil; prevHid = false; continue }
+            let adjacent = prevAt == target || (prevReplyTo == target && prevHid)
+            if adjacent { hidden.insert(p.id) }
+            prevHid = adjacent && ats.contains(target)
+            prevAt = nil
+            prevReplyTo = target
         }
         return hidden
     }
