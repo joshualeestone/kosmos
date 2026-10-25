@@ -419,7 +419,7 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
         + 'its new text applies the next time you take part. ';
   // kosmos#7149: where the changed lines are, so the agent need not re-read a long block to find a short change.
   const changes = typeof changesAt === 'string' && changesAt
-    ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves). '
+    ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves, and anything else it lists is current too). '
     : '';
   // Review 5: after the replaces sentence, so its "it" stays the instructions file, not the changes file.
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '

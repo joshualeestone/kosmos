@@ -80,8 +80,8 @@ test('lineFor names the changes file when there is one, and is unchanged without
   const plain = ir.lineFor(['community']);
   assert.equal(ir.lineFor(['community'], { changesAt: null }), plain);
   const named = ir.lineFor(['community'], { changesAt: '/w/ada/.kosmos-instructions-changed.md' });
-  assert.match(named, /the changed lines are listed in \/w\/ada\/\.kosmos-instructions-changed\.md \(a pointer only: still read the sections themselves\)/);
-  assert.equal(named.replace(/To help you find what changed, the changed lines are listed in \S+ \(a pointer only: still read the sections themselves\)\. /, ''), plain);
+  assert.match(named, /the changed lines are listed in \/w\/ada\/\.kosmos-instructions-changed\.md \(a pointer only: still read the sections themselves, and anything else it lists is current too\)/);
+  assert.equal(named.replace(/To help you find what changed, the changed lines are listed in \S+ \(a pointer only: still read the sections themselves, and anything else it lists is current too\)\. /, ''), plain);
   // Review 5: after the replaces sentence; review 6: the sections are still read, the file only points.
   assert.ok(named.indexOf('What it says now replaces') < named.indexOf('To help you find'));
   assert.match(plain, /Read the section headed "The Kosmos\+ community" in it now\./);
