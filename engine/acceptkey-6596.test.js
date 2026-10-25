@@ -324,5 +324,21 @@ test('the shipped list is the one in force when the registration starts, not whe
     release();
     const r = await out;
     assert.equal('keyChanged' in r, false, 'a key refused against the shipped list is not offered afterwards');
+    assert.match(r.because, /not on the signed list that came with this version of Kosmos/, 'and it says what it meant when the run started');
   } finally { c.done(); }
+});
+
+test('under the shipped list with a signed set held, the refusal (naming no key) still says what it means', async () => {
+  // Review 2: the usual state beside a shipped list is a held set, and then the connector names no key.
+  const words = 'the Kosmos+ service offered a key that is not on the list of keys this computer expects, so nothing was registered';
+  fs.writeFileSync(STORE, '{}');
+  const c = connector({ refusal: words, shipped: 'MCowBQYDK2VwAyEAkey1' });
+  try {
+    const r = await signIn();
+    assert.equal('keyChanged' in r, false);
+    assert.match(r.because, /not on the signed list that came with this version of Kosmos/);
+    c.shipped = null;
+    const plain = await signIn();
+    assert.equal(plain.because.includes('not on the signed list that came with'), false, 'CONTROL: not replaced without the shipped list');
+  } finally { c.done(); fs.rmSync(STORE, { force: true }); }
 });

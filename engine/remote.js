@@ -920,6 +920,9 @@ function setupEnv(accepted = null) {
    this process only, used once, voided by Forget, and ignored after an hour. Not by Start over or Sign out (the
    sign-in epoch): Start over is how the person gets the new code that the accepted key is for. */
 const OFFERED_KEY_LABEL = 'the key it offered: ';
+// The connector's own words for a key not on the list it was handed (its copy: kosmos-relay setup.rs).
+const NOT_LISTED_WORDS = 'not on the list of keys this computer expects';
+const notListedRefusal = (r) => String(r.stderr || '').includes(NOT_LISTED_WORDS) || String(r.because || '').includes(NOT_LISTED_WORDS);
 const SHIPPED_LIST_REFUSAL = 'the Kosmos+ service offered a key that is not on the signed list that came with this version of Kosmos, so this computer did not sign in. Something may be posing as the Kosmos+ service.';
 const ACCEPTED_KEY_MS = 60 * 60 * 1000;
 let acceptedKey = null;
@@ -955,16 +958,20 @@ function serviceKeySetHeld() {
 function withKeyChange(result) {
   // A registration that went through ends any offer: a later Accept must not vouch for a key nobody is asking about.
   if (result && result.ok === true) { lastOffered = null; acceptedKey = null; }
+  /* Under the shipped list (the list this run was handed, decided at its start), the connector's refusal of a key not on
+     the list it was handed (kosmos#6596 follow-up, kosmos-relay setup.rs expected_coordinator_key) gets the shipped
+     list's meaning, never the raw key and never an offer: the connector cannot tell the shipped list from the board's
+     own (the pin and an accepted key), and the board can. Keyed on the connector's sentence, not on a named key, and
+     before the held-set return: with a signed set held (the usual state beside a shipped list) the key is not named at
+     all (review 2). */
+  if (result && result.ok === false && result.shippedList && notListedRefusal(result)) return { ...result, because: SHIPPED_LIST_REFUSAL };
   if (!result || result.ok !== false || serviceKeySetHeld()) return result;
   // The whole of stderr; `because` (its last line) only when there is no stderr, so a text naming two keys across
   // lines is not read as naming one.
   const offered = result.stderr ? offeredKeyIn(String(result.stderr)) : offeredKeyIn(String(result.because || ''));
   if (!offered) return result;
-  /* Not under the shipped list (the list this run was handed, decided at its start): the connector names a key it
-     refuses for not being on the list (kosmos#6596 follow-up), and there an Accept is refused anyway, so nothing is
-     offered. The words say what that refusal means under the shipped list, which the connector cannot tell apart from
-     the board's own list: a key that is not on the signed list Kosmos came with (review 1), never the raw key. */
-  if (result.shippedList) return { ...result, because: SHIPPED_LIST_REFUSAL };
+  // Never offered under the shipped list, whatever the refusal (an Accept is refused there anyway).
+  if (result.shippedList) return result;
   lastOffered = { key: offered, at: Date.now() };
   return { ...result, keyChanged: { offered } };
 }
