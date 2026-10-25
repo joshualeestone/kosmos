@@ -3430,6 +3430,27 @@ do {
     check(SignIn.passkeyFinish(status: 500, json: nil) == .refused(SignIn.passkeyWords.failed), "no words at all: the general sentence")
 }
 
+// kosmos#7089: the chat's search, against the board's talkFilterRows and pjNoMatchSentence.
+do {
+    func row(_ id: String, _ text: String, _ who: Board.ChatRow.Who) -> Board.ChatRow {
+        Board.ChatRow(id: id, atRaw: nil, at: nil, text: text, who: who)
+    }
+    let rows = [row("a", "Pushed the fix to main", .agent), row("p", "Thanks, ship it", .person),
+                row("k", "Mona Lisa joined the chat", .kosmos), row("q", "Which branch?", .agent)]
+    func ids(_ q: String) -> [String] { Board.chatFilter(rows, agentName: "Mona Lisa", query: q).map(\.id) }
+    check(ids("") == ["a", "p", "k", "q"], "chat search: no words keeps every row, in order")
+    check(ids("   \n") == ["a", "p", "k", "q"], "chat search: only spaces is no search")
+    check(!Board.chatSearching("  ") && Board.chatSearching(" x "), "chat search: searching only when words are left after trimming")
+    check(ids("FIX") == ["a"], "chat search: any case matches the text")
+    check(ids("  ship  ") == ["p"], "chat search: the words are trimmed before matching")
+    check(ids("lisa") == ["a", "k", "q"], "chat search: the agent's name keeps every one of its rows, and a Kosmos line by its text")
+    check(ids("you") == [], "chat search: a person's row is not matched by a name (the board's dmWho gives none)")
+    check(ids("mona lisa j") == ["k"], "chat search: words past the name match only text")
+    check(ids("nothing like this") == [], "chat search: no match gives no rows")
+    check(Board.chatNoMatch("  fix  ") == "Nothing here matches \"fix\". Clearing the search brings the conversation back.",
+          "chat search: the board's no-match sentence, with the words trimmed")
+}
+
 await boardLoopTests()
 
 print("")
