@@ -583,10 +583,12 @@ async function ownsealScreen(page, data, compare, waiting, allowed, ready) {
   await page.waitForSelector(ready || '#pj-fed-own .ownseal-code', { state: 'visible', timeout: 20000 });
   await page.evaluate(() => document.getElementById('pj-fed-own').scrollIntoView({ block: 'center' }));
 }
-// kosmos#4658 with #7028: the seal owner's section with one computer waiting and two let in (fixed noon-UTC days).
+// kosmos#4658 with #7028: the seal owner's section with one computer waiting and two let in (noon-UTC days three weeks
+// and one week before today, so the shots never gain the year a row from another year carries).
+const OWNREMOVE_NOON = (() => { const d = new Date(); d.setUTCHours(12, 0, 0, 0); return d.getTime(); })();
 const OWNREMOVE_ALLOWED = { computers: [
-  { pub: 'pub-sample-3', mac: 'mac-sample-3', at: Date.UTC(2026, 9, 3, 12) },
-  { pub: 'pub-sample-4', mac: 'mac-sample-4', at: Date.UTC(2026, 9, 17, 12) }] };
+  { pub: 'pub-sample-3', mac: 'mac-sample-3', at: OWNREMOVE_NOON - 21 * 86400000 },
+  { pub: 'pub-sample-4', mac: 'mac-sample-4', at: OWNREMOVE_NOON - 7 * 86400000 }] };
 async function ownremoveScreen(page, data) {
   await ownsealScreen(page, data, { code: null }, { computers: [{ pub: 'pub-sample-1', mac: 'mac-sample-1', code: 'ABCDE-FGHJK', at: 1 }] },
     OWNREMOVE_ALLOWED, '#pj-fed-own [data-own-act="remove"]');

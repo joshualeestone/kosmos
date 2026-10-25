@@ -81745,7 +81745,7 @@ async function fedOwnLoad(project, fromPress) {
        computer is no longer the room's owner, so it is NOT said to be removed. A refusal the dialog was showing is
        kept, since it is still the board's word on the press. */
     fedOwnDialogDrop();
-    FED_OWN_MSG = { text: 'That computer is no longer listed here.' + (pend.refusal ? ' ' + pend.refusal : ''), project, sig: fedOwnSig(FED_OWN), act: null };
+    FED_OWN_MSG = { text: 'That computer is no longer listed here.' + (pend.refusal ? ' The earlier attempt was refused: ' + pend.refusal : ''), project, sig: fedOwnSig(FED_OWN), act: null };
     const said$ = document.getElementById('pj-fed-own-said');
     if (said$) { said$.textContent = ''; setTimeout(() => { if (FED_OWN_GEN === pend.gen) said$.textContent = FED_OWN_MSG ? FED_OWN_MSG.text : ''; }, 60); }
     fedOwnPaint();

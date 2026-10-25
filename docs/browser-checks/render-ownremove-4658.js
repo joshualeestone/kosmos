@@ -49,9 +49,12 @@ function chk(ok, label, extra) {
   if (!ok) fail.push(label);
 }
 
-// Two computers let in on fixed days (noon UTC, so the day is the same in every time zone the check runs in).
-const AT_LAPTOP = Date.UTC(2026, 9, 3, 12);
-const AT_DESK = Date.UTC(2026, 9, 17, 12);
+// Two computers let in at noon UTC (so the day is the same in every time zone the check runs in), a week and three
+// weeks before today: fixed dates would cross into a later year and gain the year the rows add for another year.
+const DAY = 86400000;
+const NOON_TODAY = (() => { const d = new Date(); d.setUTCHours(12, 0, 0, 0); return d.getTime(); })();
+const AT_DESK = NOON_TODAY - 7 * DAY;
+const AT_LAPTOP = AT_DESK - 14 * DAY;
 const REFUSAL = 'That computer was not taken out: the room\'s key could not be changed right now; try again.';
 
 (async () => {
@@ -326,6 +329,29 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           chk(labels.length === 4 && new Set(labels).size === 4, `${E} four computers, four different Remove names`, JSON.stringify(labels));
           chk(labels.length === 4 && labels[1].includes(hhmm(AT_DESK)) && labels[2].includes('(3 of 4)') && labels[3].includes('(4 of 4)') && !labels[0].includes(' of '),
             `${E} the same day adds the time, the same minute adds the place`, JSON.stringify(labels));
+          // The dialog names the computer the same way as its row, and says what removing does (ownRejoin included).
+          await page.click(BOX + ' [data-own-act="remove"][data-own-pub="pub-a"]');
+          await page.waitForFunction(() => !document.getElementById('mem-modal').hidden, null, { timeout: 4000 }).catch(() => null);
+          const small = await page.evaluate(() => document.getElementById('mem-small').textContent);
+          chk(/^The computer you allowed on .+ \(3 of 4\),? stops getting new messages from this room\. What it already has stays on it\. It may ask to come back by itself, and it gets in again only if you compare codes and press Allow\.$/.test(small),
+            `${E} the dialog names the computer as its row does and says what Remove does`, small);
+          await page.click('#mem-keep');
+          await page.waitForFunction(() => document.getElementById('mem-modal').hidden, null, { timeout: 4000 }).catch(() => null);
+          // A row the board gave no time for is named by its place; one from another year carries the year.
+          const LAST_YEAR = new Date(NOON_TODAY).getUTCFullYear() - 1;
+          state.allowed = [{ pub: 'pub-laptop', mac: 'mac-1', at: AT_LAPTOP }, { pub: 'pub-old', mac: 'mac-old', at: Date.UTC(LAST_YEAR, 5, 1, 12) },
+            { pub: 'pub-z', mac: 'mac-z', at: 0 }];
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForSelector(BOX + ' [data-own-pub="pub-z"]', { timeout: 4000 }).catch(() => null);
+          const odd = await page.evaluate((box) => [...document.querySelectorAll(box + ' [data-own-act="remove"]')].map((b) => b.getAttribute('aria-label')), BOX);
+          chk(odd.length === 3 && odd[1].includes(String(LAST_YEAR)) && !odd[0].includes(String(LAST_YEAR)) && /earlier \(3 of 3\)/.test(odd[2]),
+            `${E} another year adds the year; no time from the board names the place`, JSON.stringify(odd));
+          await page.click(BOX + ' [data-own-act="remove"][data-own-pub="pub-z"]');
+          await page.waitForFunction(() => !document.getElementById('mem-modal').hidden, null, { timeout: 4000 }).catch(() => null);
+          const smallZ = await page.evaluate(() => document.getElementById('mem-small').textContent);
+          chk(/^The computer you allowed earlier \(3 of 3\) stops getting new messages from this room\./.test(smallZ), `${E} the dialog names a row with no time by its place`, smallZ);
+          await page.click('#mem-keep');
+          await page.waitForFunction(() => document.getElementById('mem-modal').hidden, null, { timeout: 4000 }).catch(() => null);
           state.allowed = [{ pub: 'pub-laptop', mac: 'mac-1', at: AT_LAPTOP }, { pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }];
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
           await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
