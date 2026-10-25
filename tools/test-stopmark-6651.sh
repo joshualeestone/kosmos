@@ -26,9 +26,14 @@ cleanup() {
   # A busy volume is forced off, so the rm below never runs inside a still-mounted image.
   [ -n "$DISK" ] && { hdiutil detach -quiet "$DISK" || hdiutil detach -quiet -force "$DISK"; } >/dev/null 2>&1
   [ -n "$DECOY" ] && { hdiutil detach -quiet "$DECOY" || hdiutil detach -quiet -force "$DECOY"; } >/dev/null 2>&1
-  # Never delete through a live mount: if the image is still attached, leave $TMP and say where it is.
-  if [ -n "$DISK" ] && mount | grep -qF " on $DISK "; then
-    echo "NOTE  $DISK is still mounted (detach failed); left $TMP in place" >&2
+  # Never delete through a live mount or under an attached image. Mounted is judged by device number, as the #7127
+  # check does: mount's own listing prints /private/var/... while $TMP is built from $TMPDIR (/var/..., even "T//"), so
+  # a text match against it never fires.
+  still=""
+  [ -n "$DISK" ] && [ -d "$DISK" ] && [ "$(stat -f %d "$DISK" 2>/dev/null)" != "$(stat -f %d "$TMP" 2>/dev/null)" ] && still="$DISK"
+  [ -n "$DECOY" ] && hdiutil info 2>/dev/null | grep -q "^$DECOY[[:space:]]" && still="$still $DECOY"
+  if [ -n "$still" ]; then
+    echo "NOTE  still attached after detach:$still; left $TMP in place (detach by hand, then remove it)" >&2
   else
     rm -rf "${TMP:?}"
   fi
@@ -147,6 +152,7 @@ fi
 # without the collision. (A killed run leaks the decoy at /Volumes/s6651-<pid> as well as its own image; neither can
 # affect where a later run writes.)
 if command -v hdiutil >/dev/null 2>&1; then
+  # The same name as the image below on purpose: that sameness IS the collision.
   if hdiutil create -quiet -size 4m -fs APFS -volname "s6651-$$" "$TMP/decoy.dmg" >/dev/null 2>&1; then
     # The decoy is detached by its device node (first field of attach's first line), which carries no spaces.
     DECOY="$(hdiutil attach -nobrowse "$TMP/decoy.dmg" 2>/dev/null | awk 'NR == 1 { print $1 }')"
