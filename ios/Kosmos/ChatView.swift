@@ -219,6 +219,8 @@ struct ChatView: View {
             epoch = now
             thread = nil
             replying = nil
+            retryNote = nil
+            retrySettling = []
             earlier = Board.Earlier()
             settledAtEnd = false
             fileStates = [:]
