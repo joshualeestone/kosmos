@@ -417,7 +417,12 @@ test('#4658: a sealed (version 2) own code joins holding the room as sealed from
   const p = await (await fetch(base + '/api/projects', { method: 'POST', headers: { 'content-type': 'application/json', ...SCREEN }, body: JSON.stringify({ name: 'Guests Here' }) })).json();
   const pid = p.id || (p.project && p.project.id);
   federation.recordLink(pid, { role: 'owner', ref: 'ref-own-s2' });
-  require('./engine/fedseal').stashInvite('ref-own-s2', { s: 'C'.repeat(43), code: 'CODE7', invite: 'inv-7' });
+  const fedseal = require('./engine/fedseal');
+  fedseal.stashInvite('ref-own-s2', { s: 'C'.repeat(43), code: 'CODE7', invite: 'inv-7' });
+  const waiting = await post('/api/federation/own-code', { project: pid }, SCREEN);
+  assert.deepEqual([waiting.status, waiting.json.reason], [409, 'sealed-waiting'], 'no guest has joined: no key to give yet');
+  assert.match(waiting.json.error, /none of them has joined yet/);
+  fedseal.setRoomState(pid, { role: 'owner', peers: {}, epoch: 0, keys: { 0: fedseal.randomSecret() } });
   const oc = await post('/api/federation/own-code', { project: pid }, SCREEN);
   assert.equal(oc.status, 200, JSON.stringify(oc.json));
   assert.equal(federation.parseOwnCode(oc.json.code).sealed, true);
@@ -541,6 +546,7 @@ test('#4649 own-code: the screen gets a code for its own project that another co
   const sid = (s.json.project && s.json.project.id) || s.json.id;
   federation.recordLink(sid, { role: 'owner', ref: 'ref-sealed-4649' });
   require('./engine/fedseal').stashInvite('ref-sealed-4649', { s: 'B'.repeat(43), code: 'CODE9', invite: 'inv-9' });
+  require('./engine/fedseal').setRoomState(sid, { role: 'owner', peers: {}, epoch: 0, keys: { 0: require('./engine/fedseal').randomSecret() } });
   const sealed = await post('/api/federation/own-code', { project: sid }, SCREEN);
   assert.equal(sealed.status, 200, JSON.stringify(sealed.json));
   assert.equal(federation.parseOwnCode(sealed.json.code).sealed, true, 'a sealed room makes a version 2 code (#4658), not a refusal');
