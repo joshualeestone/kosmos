@@ -204,7 +204,7 @@ func modelTests() async {
         return m
     }
     let m = model(3)
-    let nm: (String) -> String = { $0 == "dana" ? "Dana" : $0 }
+    let nm = ["dana": "Dana"]
     await m.read()
     await m.readActivity(names: nm)
     check(m.page?.number == 3 && m.activity?.count == 3 && !m.gone && !m.readFailed, "a read fills the page and its activity")

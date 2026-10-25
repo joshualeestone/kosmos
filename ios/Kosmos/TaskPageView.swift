@@ -40,6 +40,8 @@ struct TaskPageView: View {
     // The roster's names, for an agent the project does not list.
     private var roster: [String: String] { Dictionary(client.agents.map { ($0.session, $0.name) }, uniquingKeysWith: { a, _ in a }) }
     private func name(_ s: String) -> String { model.page?.name(s, roster: roster) ?? roster[s] ?? s }
+    // The names the activity is phrased with: the project's own over the roster's (tkMemberName), as a snapshot.
+    private var names: [String: String] { roster.merging(model.page?.members ?? [:]) { _, member in member } }
 
     var body: some View {
         content
@@ -98,7 +100,7 @@ struct TaskPageView: View {
             while !Task.isCancelled {
                 if first || model.shouldReadTask { await model.read() }
                 if model.shouldReadActivity(first: first) {
-                    await model.readActivity(names: name)
+                    await model.readActivity(names: names)
                     await model.markSeen()
                 }
                 first = false
@@ -113,7 +115,7 @@ struct TaskPageView: View {
             TimelineView(.periodic(from: .now, by: 30)) { _ in
                 ScrollView { pageBody(page).padding(16) }
             }
-                .refreshable { await model.read(); await model.readActivity(names: name) }
+                .refreshable { await model.read(); await model.readActivity(names: names) }
         } else if model.gone {
             message("This task is not on your computer any more", "It may have been deleted, or its project moved.")
         } else if model.readFailed {
@@ -188,7 +190,7 @@ struct TaskPageView: View {
                 Text("All subtasks are built. Check each one first.").font(.footnote).foregroundColor(Palette.secondary)
             }
             let act = p.act
-            Button { model.touched(); Task { await model.press(act, names: name) } } label: {
+            Button { model.touched(); Task { await model.press(act, names: names) } } label: {
                 HStack(spacing: 8) {
                     if model.pressing { ProgressView().tint(Palette.card).accessibilityHidden(true) }
                     Text(act.title).font(.headline)
@@ -265,15 +267,18 @@ struct TaskPageView: View {
                 if rows.isEmpty {
                     Text(Board.activityEmpty).font(.footnote).foregroundColor(Palette.secondary)
                 }
-                ForEach(rows) { row in
-                    VStack(alignment: .leading, spacing: 2) {
-                        if let at = row.at {
-                            // Secondary, not tertiary: small text needs AA contrast in dark mode too.
-                            Text(Tasks.agoWords(Date().timeIntervalSince(at) * 1000)).font(.caption).foregroundColor(Palette.secondary)
+                // Lazily: a repeating task's history can run long, and only what is on screen is laid out.
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(rows) { row in
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let at = row.at {
+                                // Secondary, not tertiary: small text needs AA contrast in dark mode too.
+                                Text(Tasks.agoWords(Date().timeIntervalSince(at) * 1000)).font(.caption).foregroundColor(Palette.secondary)
+                            }
+                            Text(row.text).font(.subheadline).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
                         }
-                        Text(row.text).font(.subheadline).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityElement(children: .combine)
                     }
-                    .accessibilityElement(children: .combine)
                 }
             } else if model.activityFailed {
                 Text(Board.activityUnread).font(.footnote).foregroundColor(Palette.secondary)
