@@ -2281,6 +2281,7 @@ section("native board loop: connecting")
         w.postYields = 50
         let first = Task { await c.sendAgain(lostRow, newestMineAt: "T", to: dana) }
         let going = await settle { c.isSendingAgain(lostRow, for: "dana") }
+        let busyMeanwhile = c.isSending("dana")
         let second = await c.sendAgain(lostRow, newestMineAt: "T", to: dana)
         let firstSaid = await first.value
         w.postYields = 0
@@ -2288,6 +2289,7 @@ section("native board loop: connecting")
         check(w.posted.last == "Are you there?" && w.postedRetryOf.last == "T" && w.postedReplies.last == "" && w.postedAttachments.last == [],
               "Try again sends the same words with retry_of naming the row, and no reply or files")
         check(w.posted.count == postedBefore + 1, "it posted once")
+        check(busyMeanwhile && !c.isSending("dana"), "a Try again counts as a send in the air while it goes (so a press waits), and not after")
         check(firstSaid == Board.RetrySaid(said: "Sent.", refused: false) && !c.isSendingAgain(lostRow, for: "dana"),
               "placed says Sent., and the row is no longer marked as going")
         let behind = await c.sendAgain(lostRow, newestMineAt: "T-later", to: dana)
