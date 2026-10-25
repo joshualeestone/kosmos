@@ -424,22 +424,109 @@ struct RoomView: View {
     }
 
     // "<Name> needs you on this project." pinned under the header (the board's block, which a phone would put out of
-    // reach under the conversation; the spec pins it). Open goes to that agent's chat.
+    // reach under the conversation; the spec pins it). kosmos#7106: the board's pjNeedsNotice, counted by the projects
+    // route for THIS project; a row per member with its reason, its action (Answer or Open, to that agent's chat) and
+    // Dismiss. One member: its row sits under the head, which already names it. Several: the head shows how many, and
+    // Show lists them, so the pinned band never takes the room over.
+    @State private var needsOpen = false
+    @Environment(\.dynamicTypeSize) private var needsTypeSize
+    // Rows sit behind Show when there are several, or (review 5) at an accessibility size even for one, so the pinned
+    // band can always be made small.
+    private func needsFolded(_ notice: Board.NeedsNotice) -> Bool { notice.rows.count > 1 || needsTypeSize.isAccessibilitySize }
+    // VoiceOver's place after a dismiss (the board's pjNeedsDismissClick): the next row's Dismiss, else the last one
+    // left, else (the notice gone with its last row) the box, which outlives it (review 2).
+    @AccessibilityFocusState private var needsFocus: String?
+    // Rows with a dismiss in the air: their Dismiss waits, as the board's disabled button (review 2).
+    @State private var dismissing: Set<String> = []
+    // Rows whose Dismiss VoiceOver left while the row was still there (review 5): a later nil focus is the person moving
+    // on, never the row going, so focus is not pulled back.
+    @State private var needsLeft: Set<String> = []
     @ViewBuilder private var needsLine: some View {
-        let waiting = store.waitingMembers(project)
-        if !waiting.isEmpty {
-            HStack(spacing: 8) {
-                Text(waiting.count == 1 ? "\(waiting[0].name) needs you on this project." : "\(waiting.count) agents need you on this project.")
-                    .font(.footnote).foregroundColor(Palette.primary)
-                Spacer(minLength: 8)
-                if waiting.count == 1 {
-                    Button("Open") { chatAgent = waiting[0] }.font(.footnote.weight(.semibold)).frame(minHeight: 44)
+        if let notice = store.needsNotice(project.id) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(notice.head).font(.footnote.weight(.semibold)).foregroundColor(Palette.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    if needsFolded(notice) {
+                        Button { needsOpen.toggle() } label: {
+                            Text(needsOpen ? "Hide" : "Show").font(.footnote.weight(.semibold))
+                                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                        }
+                        .accessibilityLabel(needsOpen ? "Hide who needs you" : "Show who needs you")
+                    }
+                }
+                if !needsFolded(notice) || needsOpen {
+                    ForEach(notice.rows) { row in needsRow(row, named: notice.namedInHead == row.session) }
+                }
+                // Only a dismiss that did not go stays on screen, until the rows change or the room opens again; a
+                // dismiss that went is heard (the board's status line is read, not drawn; review 1).
+                if let failed = store.needsFailed[project.id] {
+                    Text(failed.said).font(.footnote).foregroundColor(Palette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 10).fill(Palette.banner))
             .padding(.horizontal, 16).padding(.top, 8)
+            .onChange(of: notice.rows.map(\.key)) { _ in store.clearNeedsFailed(project.id) }
+            .onChange(of: needsFocus) { [was = needsFocus] now in
+                if now == nil, let was, store.needsNotice(project.id)?.rows.contains(where: { $0.session == was }) == true { needsLeft.insert(was) }
+            }
+            .onAppear { store.clearNeedsFailed(project.id) }
         }
+    }
+
+    private func dismiss(_ row: Board.NeedsRow) {
+        guard !dismissing.contains(row.session) else { return }
+        dismissing.insert(row.session)
+        needsLeft.remove(row.session)
+        let keys = store.needsNotice(project.id)?.rows.map(\.session) ?? []
+        Task {
+            let said = await store.dismissNeeds(row, in: project.id)
+            dismissing.remove(row.session)
+            // Focus moves only if VoiceOver was still on this Dismiss, or on nothing because its row went with the
+            // re-read (review 4), never if it moved on (the board returns when focus left the notice).
+            let stillHere = needsFocus == row.session || (needsFocus == nil && !composerFocused && !needsLeft.contains(row.session))
+            // Left the room meanwhile: nothing is said over another screen (the board returns when PJ_CURRENT moved),
+            // and a failure line is not left for the next visit.
+            guard visible else { store.clearNeedsFailed(project.id); return }
+            guard let said else { return }
+            Self.say(said)
+            guard said == Board.needsDismissed, stillHere else { return }
+            let left = store.needsNotice(project.id)?.rows.map(\.session) ?? []
+            // A row behind Hide is not drawn, so it cannot take focus: the box then.
+            let shown = store.needsNotice(project.id).map { !needsFolded($0) || needsOpen } ?? false   // the view's own rule (review 6)
+            if shown, let next = keys.drop(while: { $0 != row.session }).dropFirst().first(where: { left.contains($0) }) ?? left.last {
+                needsFocus = next
+            } else {
+                composerFocused = true
+            }
+        }
+    }
+
+    private func needsRow(_ row: Board.NeedsRow, named: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(named ? row.why : "\(row.name): \(row.why)").font(.footnote).foregroundColor(Palette.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                // An agent the status does not list (rare): the project's page on the computer's board, never a dead button.
+                Button { if let a = store.agent(row.session) { chatAgent = a } else { openBoardPage() } } label: {
+                    Text(row.act).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                .accessibilityLabel("\(row.act) \(row.name)")
+                // "Try again" after a dismiss that did not go, as the board relabels its button (review 4).
+                Button { dismiss(row) } label: {
+                    Text(store.needsFailed[project.id]?.session == row.session ? "Try again" : "Dismiss")
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                .disabled(dismissing.contains(row.session))
+                .accessibilityLabel("Dismiss \(row.name)")
+                .accessibilityFocused($needsFocus, equals: row.session)
+            }
+            .font(.footnote.weight(.semibold))
+        }
+        .accessibilityElement(children: .contain)
     }
 
     private var thread: some View {

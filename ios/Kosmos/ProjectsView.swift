@@ -75,23 +75,25 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
-        returned = [:]; kept = [:]; drafts = [:]
+        returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]
         held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
     private var listReads = 0
     private var listApplied = 0
 
-    func loadList() async {
+    // True when a read landed and was applied (kosmos#7106: a dismiss is said done only once the list shows it).
+    @discardableResult
+    func loadList() async -> Bool {
         #if DEBUG
-        if Self.sample { list = Board.parseProjects(Data(Self.sampleProjects.utf8)); listState = .shown; return }
+        if Self.sample { list = Board.parseProjects(Data(Self.sampleProjects.utf8)); listState = .shown; return true }
         #endif
         // Not connected yet (a cold start, or the Mac asking for Allow): still reaching, never "we cannot read your
         // projects". Signed out, no Mac, or unreachable is a real "cannot read".
         if client.macURL == nil {
             switch client.phase {
-            case .starting, .connecting, .waitingForAllow: return
-            default: if list == nil { listState = .failed }; return
+            case .starting, .connecting, .waitingForAllow: return false
+            default: if list == nil { listState = .failed }; return false
             }
         }
         let epoch = client.chatEpoch
@@ -101,13 +103,15 @@ final class RoomStore: ObservableObject {
         // An older read landing after a newer one never replaces it (the 5-second poll and a notification's re-read
         // overlap).
         // A read cancelled (the tab left mid-read) is no answer, never "cannot read".
-        guard same(epoch), read > listApplied, !Task.isCancelled else { return }
+        guard same(epoch), read > listApplied, !Task.isCancelled else { return false }
         listApplied = read
         if let answer, answer.1.statusCode == 200, let parsed = Board.parseProjects(answer.0) {
             list = parsed; listState = .shown
+            return true
         } else if list == nil {
             listState = .failed
         }
+        return false
     }
 
     // The newest page, merged into what is shown (a post written late can land inside it; ios/README.md).
@@ -349,10 +353,30 @@ final class RoomStore: ObservableObject {
     }
 
     // The project's members the board says need the person now (their card's tone), for the pinned line.
-    func waitingMembers(_ project: Board.ProjectRow) -> [Board.Agent] {
-        let members = Set(project.members.map { $0.session })
-        return client.agents.filter { members.contains($0.session) && (Board.tone($0) == .needsYou || Board.tone($0) == .asked) }
+    // kosmos#7106: the room's needs-you notice from the projects route's own count for THIS project (needsYouHere), as
+    // the board's pjNeedsNotice; an agent's card tone can be about another project, so it is never the test here.
+    func needsNotice(_ project: String) -> Board.NeedsNotice? {
+        list?.projects.first(where: { $0.id == project }).flatMap { Board.needsNotice($0.members, names: names) }
     }
+    // Dismiss one member's row (the board's pjNeedsDismissClick). Taken: the list is read again (twice at most, as the
+    // board does) so the row goes, and the board's sentence is returned only once a read shows it; not taken: the
+    // failure sentence, kept under the notice (needsFailed) until its rows change or the room opens again. Nil: nothing
+    // to say (another account or computer meanwhile, or a re-read that never landed).
+    // The failure sentence and the row whose Dismiss did not go (only that one reads "Try again"; review 5).
+    @Published private(set) var needsFailed: [String: (session: String, said: String)] = [:]
+    func dismissNeeds(_ row: Board.NeedsRow, in project: String) async -> String? {
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.needsDismissRequest(mac: $0, project: project, agent: row.session, reason: row.key) }
+        guard same(epoch) else { return nil }
+        guard let said = Board.needsDismissSaid(status: answer?.1.statusCode) else { return nil }
+        if said == Board.needsDismissFailed { needsFailed[project] = (row.session, said); return said }
+        needsFailed[project] = nil
+        var landed = await loadList()
+        if !landed { landed = await loadList() }
+        guard same(epoch), landed else { return nil }
+        return said
+    }
+    func clearNeedsFailed(_ project: String) { needsFailed[project] = nil }
 
     func agent(_ session: String?) -> Board.Agent? { session.flatMap { s in client.agents.first { $0.session == s } } }
     var clientForChat: BoardClient { client }
@@ -364,7 +388,7 @@ final class RoomStore: ObservableObject {
     #if DEBUG
     // The sample Projects tab (KOSMOS_SAMPLE_AGENTS=1, a Debug build only), for screenshots.
     static var sample: Bool { ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" }
-    static let sampleProjects = #"{"agentsUnreadable":false,"projects":[{"id":"springcatalogue","name":"Spring catalogue","description":"The print catalogue for March.","unread":3,"parent":null,"archived":false,"paused":false,"createdAt":"2026-10-20T10:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{"needsYou":1,"needsYouQuestions":1,"working":1}},{"id":"covershoot","name":"Cover shoot","description":"","unread":0,"parent":"springcatalogue","archived":false,"paused":false,"createdAt":"2026-10-21T10:00:00.000Z","agents":[{"sessionName":"dana","name":"Dana"}],"folderState":{"state":"readable"},"summary":{"working":1}},{"id":"website","name":"Website","description":"Shipping and returns pages.","unread":0,"parent":null,"archived":false,"paused":true,"createdAt":"2026-10-18T10:00:00.000Z","agents":[{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{}},{"id":"oldlaunch","name":"Old launch","description":"","unread":0,"parent":null,"archived":true,"archivedAt":"2026-09-01T12:00:00.000Z","paused":false,"createdAt":"2026-08-01T10:00:00.000Z","agents":[],"folderState":{"state":"readable"},"summary":{}}]}"#
+    static let sampleProjects = #"{"agentsUnreadable":false,"projects":[{"id":"springcatalogue","name":"Spring catalogue","description":"The print catalogue for March.","unread":3,"parent":null,"archived":false,"paused":false,"createdAt":"2026-10-20T10:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo","needsYouHere":"question","needsYouKey":"question:Which cover photo should we use?","because":"Which cover photo should we use?"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli","needsYouHere":"trust","needsYouKey":"trust"}],"folderState":{"state":"readable"},"summary":{"needsYou":2,"needsYouQuestions":1,"working":1}},{"id":"covershoot","name":"Cover shoot","description":"","unread":0,"parent":"springcatalogue","archived":false,"paused":false,"createdAt":"2026-10-21T10:00:00.000Z","agents":[{"sessionName":"dana","name":"Dana"}],"folderState":{"state":"readable"},"summary":{"working":1}},{"id":"website","name":"Website","description":"Shipping and returns pages.","unread":0,"parent":null,"archived":false,"paused":true,"createdAt":"2026-10-18T10:00:00.000Z","agents":[{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{}},{"id":"oldlaunch","name":"Old launch","description":"","unread":0,"parent":null,"archived":true,"archivedAt":"2026-09-01T12:00:00.000Z","paused":false,"createdAt":"2026-08-01T10:00:00.000Z","agents":[],"folderState":{"state":"readable"},"summary":{}}]}"#
     // The sample hold: one lift time for the launch, and gone for good once reopened (review 3: re-reads brought it back).
     static let sampleHeldUntil = Date().addingTimeInterval(40 * 60)
     static var sampleReopened: Set<String> = []
@@ -423,8 +447,8 @@ struct ProjectsView: View {
         .onChange(of: store.listState) { _ in openRequested() }
         // While the list is the screen shown, it follows the client's 5-second poll (status words and unread bubbles),
         // as the board's list repaints on its own.
-        // kosmos#7111 (and #7106): also while a room is open, so its members follow the projects route (an Add goes once
-        // the agent is a member; the board re-reads its projects while a room is on screen).
+        // kosmos#7111 and #7106: also while a room is open, so its members and its needs-you notice follow the projects
+        // route (an Add goes once the agent is a member; the board re-reads its projects while a room is on screen).
         .onChange(of: client.updatedAt) { _ in if listShown { Task { await store.loadList() } } }
         .task {
             await store.loadList()

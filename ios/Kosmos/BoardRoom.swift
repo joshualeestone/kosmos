@@ -543,6 +543,11 @@ extension Board {
         let name: String
         let hasAvatar: Bool
         let provider: String?
+        // kosmos#7106: why the projects route counts this member as needing the person on THIS project (null: not), the
+        // key Dismiss sends back, and the agent's own reason (the board's pjNeedsNotice reads all three).
+        var needsYouHere: String? = nil
+        var needsYouKey: String? = nil
+        var because: String? = nil
     }
 
     struct ProjectRow: Equatable, Identifiable {
@@ -640,6 +645,69 @@ extension Board {
         tally.isEmpty ? "" : ", " + tally.map { "\($0.n) \($0.word)" }.joined(separator: ", ")
     }
 
+    // kosmos#7106: the room's needs-you notice (the board's pjNeedsNotice, PJ_NEEDS_WHY): one row per member the route
+    // counts here, with the board's reason and action words, and the key Dismiss sends.
+    static let needsWhy: [String: (why: String, act: String)] = [
+        "question": ("Waiting for your answer.", "Answer"),
+        "trust": ("Waiting for you to approve it before it can start.", "Open"),
+        "gave_up": ("Lost its connection, and Kosmos stopped trying to reconnect it.", "Open"),
+        "crash_loop": ("Kosmos keeps restarting it, and it keeps stopping within a couple of minutes.", "Open"),
+        "stuck_auth": ("Kosmos has seen it unable to sign in for a while. It cannot work until its account is reconnected.", "Open"),
+        "stuck_rate": ("Kosmos has seen it paused by a rate limit for a while. It carries on when the limit lifts, or you can switch its model.", "Open"),
+        "own_bound": ("Kosmos tried to get it going (a nudge, or a resume after its quota reset) and gave up. Open it to see what it shows.", "Open"),
+        "other": ("Kosmos needs you to look at it.", "Open"),
+    ]
+    struct NeedsRow: Equatable, Identifiable {
+        let session: String
+        let name: String
+        let why: String
+        let act: String
+        let key: String
+        var id: String { session }
+    }
+    struct NeedsNotice: Equatable {
+        let head: String
+        let rows: [NeedsRow]
+        // The one member the head already names: its row does not name it again (the board's #6483).
+        var namedInHead: String? { rows.count == 1 ? rows[0].session : nil }
+    }
+    // `names`: the status card's names by session, preferred over the projects route's, as the rest of the app shows them.
+    static func needsNotice(_ members: [ProjectMember], names: [String: String] = [:]) -> NeedsNotice? {
+        let rows = members.compactMap { m -> NeedsRow? in
+            guard let reason = m.needsYouHere else { return nil }
+            let words = needsWhy[reason] ?? needsWhy["other"]!
+            // The engine's needsYouKey; built as it is when absent (a question carries its words).
+            // (300 UTF-16 units, as the engine's slice; review 1: Characters would let an emoji-rich question run long.)
+            let key = m.needsYouKey ?? (reason == "question" ? "question:" + utf16Prefix(m.because ?? "", 300) : reason)
+            return NeedsRow(session: m.session, name: names[m.session] ?? m.name, why: words.why, act: words.act, key: key)
+        }
+        guard let first = rows.first else { return nil }
+        return NeedsNotice(head: (rows.count == 1 ? first.name + " needs you" : "\(rows.count) agents need you") + " on this project.", rows: rows)
+    }
+    // Dismiss: the board's POST /api/project/<id>/needs-dismiss with {agent, reason}, and its two sentences after.
+    static func needsDismissRequest(mac: URL, project: String, agent: String, reason: String) -> URLRequest? {
+        guard isProjectId(project), isAgentSession(agent), !reason.isEmpty else { return nil }
+        var r = URLRequest(url: URL(string: "/api/project/\(project)/needs-dismiss", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: ["agent": agent, "reason": reason])
+        return r
+    }
+    // JavaScript's slice(0, n) on UTF-16 units, never splitting a surrogate pair.
+    static func utf16Prefix(_ s: String, _ n: Int) -> String {
+        var units = Array(s.utf16.prefix(n))
+        if let last = units.last, UTF16.isLeadSurrogate(last) { units.removeLast() }
+        return String(decoding: units, as: UTF16.self)
+    }
+    // Which sentence an answer to a dismiss earns: taken (2xx), or not; nil never (every answer says one).
+    static func needsDismissSaid(status: Int?) -> String? {
+        guard let status, (200...299).contains(status) else { return needsDismissFailed }
+        return needsDismissed
+    }
+    static let needsDismissed = "Dismissed. It comes back if something changes."
+    static let needsDismissFailed = "Kosmos could not dismiss that. Try again in a moment."
+
     static func parseProjects(_ data: Data) -> ProjectList? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let raw = obj["projects"] as? [[String: Any]] else { return nil }
@@ -649,7 +717,10 @@ extension Board {
             let members: [ProjectMember] = (p["agents"] as? [Any] ?? []).compactMap { a in
                 guard let a = a as? [String: Any], let session = a["sessionName"] as? String, !session.isEmpty else { return nil }
                 return ProjectMember(session: session, name: (a["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? session,
-                                     hasAvatar: isTrue(a["hasAvatar"]), provider: a["provider"] as? String)
+                                     hasAvatar: isTrue(a["hasAvatar"]), provider: a["provider"] as? String,
+                                     needsYouHere: (a["needsYouHere"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                                     needsYouKey: (a["needsYouKey"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                                     because: a["because"] as? String)
             }
             let folder = p["folderState"] as? [String: Any]
             // The board's pjFolderLine: any state but readable (an absent one included) has a line, its own reason or

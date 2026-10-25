@@ -741,6 +741,78 @@ for (asset, key) in markKeys.sorted(by: { $0.key < $1.key }) {
 }
 check(Set(Board.providerMarkAsset.values) == Set(markKeys.keys), "every mark the tally names is in the asset catalog")
 
+section("the room's needs-you notice (kosmos#7106)")
+// projects-needs.json is a REAL projects answer, captured from a sandboxed engine and then trimmed to the fields the phone
+// reads (engine/projects.list with real fleet
+// cards): cleo asked a question about this project; eli's card says working but Kosmos keeps restarting it (a crash loop
+// in a live room); dana is working; farah is idle.
+let needsList = Board.parseProjects((try? Data(contentsOf: here.appendingPathComponent("projects-needs.json"))) ?? Data())
+let needsProject = needsList?.projects.first
+check(needsProject?.members.map(\.needsYouHere) == ["question", nil, "crash_loop", nil], "the route's own count for this project is read")
+let notice = needsProject.flatMap { Board.needsNotice($0.members, names: ["cleo": "Cleo", "eli": "Eli"]) }
+check(notice?.head == "2 agents need you on this project.", "the head counts the route's members: \(notice?.head ?? "none")")
+check(notice?.rows.map(\.session) == ["cleo", "eli"], "a row per counted member, in the project's order; eli counts though his card says working")
+check(notice?.rows.first?.why == "Waiting for your answer." && notice?.rows.first?.act == "Answer" && notice?.rows.first?.key == "question:Which cover photo?",
+      "a question: the board's words, Answer, and the engine's key")
+check(notice?.rows.last?.why == "Kosmos keeps restarting it, and it keeps stopping within a couple of minutes." && notice?.rows.last?.act == "Open",
+      "a crash loop: the board's words and Open")
+check(notice?.rows.first?.name == "Cleo" && notice?.namedInHead == nil, "names from the status card; several, so no row is named in the head")
+let one = Board.needsNotice([Board.ProjectMember(session: "cleo", name: "cleo", hasAvatar: false, provider: nil, needsYouHere: "question",
+                                                  needsYouKey: nil, because: "Which cover photo?")], names: ["cleo": "Cleo"])
+check(one?.head == "Cleo needs you on this project." && one?.namedInHead == "cleo", "one: the head names it, and its row does not again")
+check(one?.rows.first?.key == "question:Which cover photo?", "no key from the route: built as the engine builds it")
+let longEmoji = String(repeating: "😀", count: 200)
+let longKeyed = Board.needsNotice([Board.ProjectMember(session: "cleo", name: "cleo", hasAvatar: false, provider: nil, needsYouHere: "question",
+                                                        needsYouKey: nil, because: longEmoji)])
+check(longKeyed?.rows.first?.key == "question:" + Board.utf16Prefix(longEmoji, 300) && longKeyed?.rows.first?.key.utf16.count == 9 + 300,
+      "a long question's built key: 300 UTF-16 units, as the engine's cut")
+let keyed = Board.needsNotice([Board.ProjectMember(session: "cleo", name: "cleo", hasAvatar: false, provider: nil, needsYouHere: "question",
+                                                    needsYouKey: "question:Which cover?", because: "Something newer")])
+check(keyed?.rows.first?.key == "question:Which cover?", "the route's own key is what Dismiss sends, never one built again")
+let parsedKeyed = Board.parseProjects(Data(#"{"projects":[{"id":"p1","name":"P","agents":[{"sessionName":"cleo","needsYouHere":"question","needsYouKey":"question:X","because":"Y"}]}]}"#.utf8))
+check(parsedKeyed?.projects.first?.members.first?.needsYouKey == "question:X", "the route's needsYouKey is read")
+let unknownReason = Board.needsNotice([Board.ProjectMember(session: "x", name: "X", hasAvatar: false, provider: nil, needsYouHere: "something_new")])
+check(unknownReason?.rows.first?.why == "Kosmos needs you to look at it." && unknownReason?.rows.first?.key == "something_new", "a reason this build does not know: the board's other")
+check(Board.needsNotice([Board.ProjectMember(session: "x", name: "X", hasAvatar: false, provider: nil)]) == nil, "nobody counted: no notice")
+// Dismiss: the board's route and body.
+let dismiss = Board.needsDismissRequest(mac: mac, project: "springcatalogue", agent: "cleo", reason: "question:Which cover photo?")
+let dismissBody = dismiss?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] }
+check(dismiss?.httpMethod == "POST" && dismiss?.url?.path == "/api/project/springcatalogue/needs-dismiss"
+      && dismissBody == ["agent": "cleo", "reason": "question:Which cover photo?"], "Dismiss posts {agent, reason} to the board's route")
+check(Board.needsDismissRequest(mac: mac, project: "../x", agent: "cleo", reason: "q") == nil
+      && Board.needsDismissRequest(mac: mac, project: "springcatalogue", agent: "cleo", reason: "") == nil, "nothing sent for a bad project or no reason")
+// The board still words and routes it so.
+// Both ways: every reason the board words is one the phone words (a new one would otherwise get "other" silently).
+if let start = boardPage.range(of: "const PJ_NEEDS_WHY = {"), let end = boardPage.range(of: "};", range: start.upperBound..<boardPage.endIndex) {
+    let block = String(boardPage[start.upperBound..<end.lowerBound])
+    let boardReasons = block.components(separatedBy: "\n").compactMap { line -> String? in
+        let t = line.trimmingCharacters(in: .whitespaces)
+        guard let colon = t.firstIndex(of: ":"), t.contains("['") else { return nil }
+        return String(t[..<colon])
+    }
+    check(Set(boardReasons) == Set(Board.needsWhy.keys), "the phone words exactly the board's reasons: \(boardReasons.sorted())")
+} else { check(false, "the board's PJ_NEEDS_WHY was not found") }
+for (reason, words) in Board.needsWhy {
+    check(boardPage.contains("\(reason): ['\(words.why)', '\(words.act)']"), "the board's PJ_NEEDS_WHY still says \(reason)")
+}
+for phrase in ["' needs you' : n + ' agents need you';", "const head = rows.length ? who + ' on this project.' : who + '.';",
+               "fetch('/api/project/' + encodeURIComponent(project) + '/needs-dismiss', {", "body: JSON.stringify({ agent: who, reason: btn.dataset.pnReason }),",
+               "'Dismissed. It comes back if something changes.'", "'Kosmos could not dismiss that. Try again in a moment.'"] {
+    check(boardPage.contains(phrase), "the board's notice still says: \(phrase.prefix(60))")
+}
+check(boardPage.contains(Board.needsDismissed) && boardPage.contains(Board.needsDismissFailed), "the phone's sentences are the board's")
+check(Board.needsDismissSaid(status: 200) == Board.needsDismissed && Board.needsDismissSaid(status: 204) == Board.needsDismissed,
+      "taken: the board's Dismissed sentence")
+check(Board.needsDismissSaid(status: 400) == Board.needsDismissFailed && Board.needsDismissSaid(status: nil) == Board.needsDismissFailed,
+      "refused or no answer: the board's could-not sentence")
+// The fallback key is 300 UTF-16 units, as the engine's slice, never splitting an emoji.
+let emojiQuestion = String(repeating: "😀", count: 200)
+check(Board.utf16Prefix(emojiQuestion, 300).utf16.count == 300 && Board.utf16Prefix(emojiQuestion, 301).utf16.count == 300,
+      "a key cut by UTF-16 units, an emoji never split in half")
+// Before #7108 the board sliced 300 units; with it, keyWords also drops a trailing half of an emoji, as utf16Prefix does.
+check(boardPage.contains("'question:' + String(m.because || '').slice(0, 300)") || boardPage.contains("'question:' + keyWords(m.because)"),
+      "the board builds the fallback key from the first 300 units of the question")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")
