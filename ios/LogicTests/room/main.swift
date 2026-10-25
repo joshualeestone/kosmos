@@ -359,6 +359,54 @@ let reopenReq = Board.reopenRequest(mac: URL(string: "https://studio.kosmosplus.
 check(reopenReq?.httpMethod == "POST" && reopenReq?.url?.path == "/api/project/springcatalogue/room/reopen", "Reopen is the board's POST /api/project/<id>/room/reopen")
 check(Board.reopenRequest(mac: URL(string: "https://studio.kosmosplus.com/")!, project: "../x") == nil, "an id that is not a project's makes no request")
 
+section("the room's working line (kosmos#7080)")
+// status-working.json is a REAL GET /api/status row, captured from a sandboxed board for a working agent on the test
+// fleet (as server.todayreason-7030.test.js reads one). Its work is unattributed (stateProject null).
+let statusData = (try? Data(contentsOf: here.appendingPathComponent("status-working.json"))) ?? Data()
+let realRows = (try? JSONSerialization.jsonObject(with: statusData) as? [String: Any])?["agents"] as? [[String: Any]] ?? []
+check(realRows.first?["state"] as? String == "working" && realRows.first.map { $0["stateProject"] is NSNull } == true,
+      "premise: the captured row is a working agent whose work is unattributed")
+let realAgents = Board.parseAgents(statusData) ?? []
+check(realAgents.first?.state == "working" && realAgents.first?.stateProject == nil, "a null stateProject reads as unattributed")
+check(Board.workingNames(members: ["roo"], agents: realAgents, project: "springcatalogue", spokeSinceStatus: []).isEmpty,
+      "an unattributed working agent shows in no room (the board's under-claim, #2882)")
+// The same real row with its work attributed (stateProject set here; every other field as the board sent it).
+func statusWith(_ rows: [(String, String, String, String?)]) -> [Board.Agent] {
+    let base = realRows.first ?? [:]
+    let list = rows.map { (session, name, state, project) -> [String: Any] in
+        var r = base; r["sessionName"] = session; r["name"] = name; r["state"] = state; r["stateProject"] = project ?? NSNull(); return r
+    }
+    return Board.parseAgents((try? JSONSerialization.data(withJSONObject: ["agents": list])) ?? Data()) ?? []
+}
+let fleetNow = statusWith([("roo", "Roo", "working", "springcatalogue"), ("pixel", "Pixel", "working", "springcatalogue"),
+                           ("juno", "Juno", "working", "website"), ("tam", "Tam", "idle", "springcatalogue"),
+                           ("kit", "Kit", "working", "springcatalogue")])
+check(fleetNow.first?.stateProject == "springcatalogue", "stateProject is read from the status row")
+let workingNow = Board.workingNames(members: ["kit", "juno", "roo", "tam", "pixel"], agents: fleetNow, project: "springcatalogue", spokeSinceStatus: [])
+check(workingNow == ["Kit", "Roo", "Pixel"], "this project's working members, in the room's member order: \(workingNow)")
+check(Board.workingNames(members: ["roo", "pixel"], agents: fleetNow, project: "springcatalogue", spokeSinceStatus: ["roo"]) == ["Pixel"],
+      "an agent whose post arrived after the status read is left out until the next read (#1150)")
+check(Board.workingNames(members: ["ghost"], agents: fleetNow, project: "springcatalogue", spokeSinceStatus: []).isEmpty,
+      "a member the status does not list is not working")
+check(Board.workingLine([]) == nil, "nobody working: no line")
+check(Board.workingLine(["Roo"]) == "Roo is working\u{2026}", "one: is working")
+check(Board.workingLine(["Roo", "Pixel"]) == "Roo and Pixel are working\u{2026}", "two: A and B are working")
+check(Board.workingLine(["Kit", "Roo", "Pixel"]) == "Kit, Roo, and Pixel are working\u{2026}", "three: the board's serial comma")
+// The board still words it this way (paintRoomBusy), so the two cannot drift unseen.
+for phrase in ["const WORKING_VERB = '" + Board.workingVerb + "';", "who.length === 2 ? who[0] + ' and ' + who[1]",
+               "who.slice(0, -1).join(', ') + ', and ' + who[who.length - 1]", "(working.length === 1 ? ' is ' : ' are ') + WORKING_VERB + '&hellip;",
+               ".filter((a) => a && a.state === 'working' && a.stateProject === projectId)"] {
+    check(boardPage.contains(phrase), "the board's working line still says: \(phrase.prefix(60))")
+}
+// Who spoke in a read: nobody on a room's first read; afterwards, an agent with a post the room did not have.
+let before = Array(rows.prefix(3))
+let speakers = Board.newSpeakers(before: before, fresh: rows)
+check(Board.newSpeakers(before: nil, fresh: rows).isEmpty, "a room's first read marks nobody as having just spoken")
+let beforeIds = Set(before.map(\.id))
+let expectedSpeakers = Set(rows.compactMap { $0.kind == .post && !$0.byPerson && !beforeIds.contains($0.id) ? $0.from : nil })
+check(!expectedSpeakers.isEmpty && speakers == expectedSpeakers,
+      "only agents with a new post count, never the person or Kosmos: \(speakers.sorted())")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")

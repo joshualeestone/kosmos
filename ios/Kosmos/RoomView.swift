@@ -59,6 +59,7 @@ struct RoomView: View {
                 Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
             }
             heldNotice
+            workingLine
             composer
         }
         .background(Palette.ground.ignoresSafeArea())
@@ -206,6 +207,23 @@ struct RoomView: View {
         guard let mac = store.macURL, var parts = URLComponents(url: mac, resolvingAgainstBaseURL: false) else { return }
         parts.queryItems = [URLQueryItem(name: "tab", value: "projects"), URLQueryItem(name: "project", value: project.id)]
         if let url = parts.url { openPage(url) }
+    }
+
+    // kosmos#7080: the board's grouped working line (paintRoomBusy), above the composer: dots and names, no faces, the
+    // word "working". Drawn from the status the phone last read and the room's member order.
+    @ViewBuilder private var workingLine: some View {
+        let names = Board.workingNames(members: project.members.map(\.session), agents: client.agents, project: project.id,
+                                       spokeSinceStatus: store.spokeSince(client.updatedAt, in: project.id))
+        if let line = Board.workingLine(names) {
+            HStack(spacing: 6) {
+                WorkingDots().accessibilityHidden(true)
+                Text(line).font(.footnote).foregroundColor(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16).padding(.top, 4)
+            .accessibilityElement(children: .combine)
+        }
     }
 
     // kosmos#7072: a held room (#5800), as the board's notice at the top of its composer (pjHeldNotice): why, how it
@@ -648,5 +666,21 @@ struct RoomBubble: View {
                 .accessibilityLabel("\(r.emoji), \(r.count)\(r.mine ? ", yours" : "")")
             }
         }
+    }
+}
+
+// kosmos#7080: the board's three working dots (.act i), still when the person asks for less motion.
+struct WorkingDots: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var on = false
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle().fill(Palette.secondary).frame(width: 4, height: 4)
+                    .opacity(reduceMotion ? 0.6 : (on ? 1 : 0.25))
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.6).repeatForever().delay(Double(i) * 0.2), value: on)
+            }
+        }
+        .onAppear { on = true }
     }
 }

@@ -220,6 +220,9 @@ enum Board {
         var needsReason: String? = nil
         var stateProjectName: String? = nil
         var waitingSince: Date? = nil
+        // kosmos#7080: the project the agent's work is attributed to (the card's stateProject), nil when unattributed.
+        // The room's working line reads it, as the board's paintRoomBusy does.
+        var stateProject: String? = nil
         var id: String { session }
     }
 
@@ -254,7 +257,8 @@ enum Board {
                          macTone: Board.tone(named: row["cardTone"] as? String),
                          needsReason: (row["needsReason"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                          stateProjectName: (row["stateProjectName"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                         waitingSince: isoDate(row["waitingSince"] as? String))
+                         waitingSince: isoDate(row["waitingSince"] as? String),
+                         stateProject: (row["stateProject"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         }
     }
 

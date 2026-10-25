@@ -1,0 +1,112 @@
+{
+ "agents": [
+  {
+   "name": "Roo",
+   "sessionName": "roo",
+   "session": "roo-discord",
+   "nameDerived": true,
+   "role": "designer",
+   "target": "roo-discord:0.0",
+   "isAgentPane": true,
+   "isAgentSession": true,
+   "isFleetSession": true,
+   "isNamedOurs": true,
+   "linkLost": false,
+   "paneless": false,
+   "reachedByChannel": false,
+   "runner": "claude",
+   "task": null,
+   "state": "working",
+   "stateConfidence": "scraped",
+   "stateProject": null,
+   "stateProjectInferred": false,
+   "stateEvidence": null,
+   "quotaDialog": false,
+   "quotaDaily": false,
+   "limitFrom": null,
+   "quotaUntil": null,
+   "poolUntil": null,
+   "screenState": null,
+   "limitUntil": null,
+   "unsentInput": null,
+   "lastWorked": {
+    "at": "2026-10-25T02:30:47.181Z",
+    "why": null
+   },
+   "because": "it is mid-task",
+   "disruption": null,
+   "activeWhileWaiting": false,
+   "waitingSince": null,
+   "stateReported": false,
+   "waiting": null,
+   "stateReportedBy": null,
+   "awaitingApproval": false,
+   "stateBackgroundWait": false,
+   "stateConflict": null,
+   "context": {
+    "tokens": null,
+    "percent": null,
+    "confidence": "none",
+    "notYet": false,
+    "neverRecorded": true,
+    "because": "made before Kosmos recorded this, so there is no record to read"
+   },
+   "model": null,
+   "modelName": null,
+   "earlierModelName": null,
+   "neverRecorded": true,
+   "hasAvatar": false,
+   "avatarVer": 0,
+   "profile": {},
+   "rulesBehind": null,
+   "swarm": null,
+   "crashLoop": {
+    "looping": false,
+    "count": 0,
+    "firstAt": null,
+    "lastAt": null
+   },
+   "running": true,
+   "reconnect": null,
+   "stuckError": {
+    "stuck": false,
+    "state": null,
+    "sinceAt": null,
+    "forMs": 0
+   },
+   "ownBound": {
+    "raised": false,
+    "items": [],
+    "stale": []
+   },
+   "plannedModelName": null,
+   "settingModelName": null,
+   "plannedModelId": null,
+   "id": null,
+   "account": null,
+   "commitments": {
+    "state": "unknown",
+    "commitments": [],
+    "reportedAt": null,
+    "because": "this agent has never reported what it is holding",
+    "neverReported": true
+   },
+   "instructions": {
+    "state": "unknown",
+    "wroteBy": null,
+    "editedAt": "2026-10-25T02:30:47.083Z",
+    "version": "sha256:c0e833b9b0a6254f59800283f26535976034811ef2410dcb95c5970b3ab9ad09",
+    "editable": true,
+    "because": "we cannot tell when this agent last started"
+   },
+   "reach": null,
+   "isGuide": false,
+   "dmUnread": 0,
+   "lastTalkedAt": null,
+   "lastActiveAt": null,
+   "createdAt": null,
+   "cardWord": "Working",
+   "cardTone": "working"
+  }
+ ]
+}

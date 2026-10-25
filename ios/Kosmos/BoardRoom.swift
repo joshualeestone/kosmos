@@ -130,6 +130,38 @@ extension Board {
         return "We could not reopen the room" + (because.map { ": " + $0 } ?? "") + ". Try again, or post in the room."
     }
 
+    // kosmos#7080: the room's grouped working line (web/index.html paintRoomBusy). The members, in the room's own member
+    // order (names never reshuffle with the status order), whose card says working AND whose work is this project's:
+    // an unattributed working agent shows in no room, the board's deliberate under-claim (#2882). An agent whose post
+    // reached this room after the status was read is left out until the next status read (#1150), so the line never
+    // seems to follow the answer.
+    static func workingNames(members: [String], agents: [Agent], project: String, spokeSinceStatus: Set<String>) -> [String] {
+        members.compactMap { m in
+            guard let a = agents.first(where: { $0.session == m }), a.state == "working", a.stateProject == project,
+                  !spokeSinceStatus.contains(m) else { return nil }
+            return a.name
+        }
+    }
+    // The agents with a post in `fresh` that `before` did not have: they spoke in this read. Nobody on a room's first
+    // read (before is nil), so opening a room never hides everyone until the next status read.
+    static func newSpeakers(before: [RoomRow]?, fresh: [RoomRow]) -> Set<String> {
+        guard let before else { return [] }
+        let had = Set(before.map(\.id))
+        return Set(fresh.compactMap { r in r.kind == .post && !r.byPerson && !had.contains(r.id) ? r.from : nil })
+    }
+
+    // The one word that carries the claim (the board's WORKING_VERB): working, never typing. We can see output, not that
+    // it is a message to this room.
+    static let workingVerb = "working"
+    // "A is working…", "A and B are working…", "A, B, and C are working…" (the board's list); nil for nobody.
+    static func workingLine(_ names: [String]) -> String? {
+        guard let last = names.last else { return nil }
+        let list = names.count == 1 ? last
+            : names.count == 2 ? names[0] + " and " + last
+            : names.dropLast().joined(separator: ", ") + ", and " + last
+        return list + (names.count == 1 ? " is " : " are ") + workingVerb + "\u{2026}"
+    }
+
     // The board's words for Kosmos's lines in a room (web/index.html pjRoomRow, the room's text view in server.js).
     static let valveFallback = "This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in."
     // One refusal (web/index.html pjRoomRow 'refused'), or a folded run of them ('refused-group': "stopped them").
