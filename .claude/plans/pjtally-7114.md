@@ -37,4 +37,7 @@ counted and spoken as the board's pjProviderTally; the marks are the board's own
      at bounds.width, the reported width, and re-broke lines: measured by fuzz, both directions); flowLines sums as it
      compares; a blank provider's chip is the board's "?"; the phone's pick-to-mark pairs pinned to the board's
      PROVIDER_MARK_KEY. Room 277/277; Debug and Release SUCCEEDED.
+   - Round 5: 0 blockers, 1 warning, 1 nit. Fixed: Board.flowLayout returns each line's width summed exactly as it was
+     compared, and TallyFlow reports those, so breaking again at the reported width replays the same lines (the
+     reviewer's measured fuzz case is a test); the board's PROVIDER_MARK_KEY checked the other way too. Room 287/287.
 3. Validation, PR.

@@ -659,9 +659,27 @@ check(Board.TallyEntry(word: "  ", mark: nil, n: 1).initial == "?", "a blank pro
 // The phone's pick-to-mark pairs are the board's PROVIDER_MARK_KEY (review 4).
 let markKeyName = ["MarkClaude": "claude", "MarkOpenAI": "openai", "MarkGemini": "gemini", "MarkGrok": "xai", "MarkMeta": "meta", "MarkQwen": "qwen"]
 let keyBlock = boardPage.range(of: "const PROVIDER_MARK_KEY = {").flatMap { s in boardPage.range(of: "};", range: s.upperBound..<boardPage.endIndex).map { String(boardPage[s.upperBound..<$0.lowerBound]) } } ?? ""
+// And the other way: every board key whose mark the phone carries is mapped on the phone too.
+let boardKeyPairs = keyBlock.components(separatedBy: CharacterSet(charactersIn: ",\n")).compactMap { part -> (String, String)? in
+    let bits = part.components(separatedBy: ":").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " '")) }
+    guard bits.count == 2, !bits[0].isEmpty, !bits[0].contains("/"), !bits[0].contains("*") else { return nil }
+    return (bits[0], bits[1])
+}
+let carried = Set(markKeyName.values)
+for (key, mark) in boardKeyPairs where carried.contains(mark) {
+    check(markKeyName[Board.providerMarkAsset[key] ?? ""] == mark, "the board's \(key) -> \(mark) is on the phone too")
+}
 for (pick, asset) in Board.providerMarkAsset.sorted(by: { $0.key < $1.key }) {
     check(keyBlock.contains("\(pick): '\(markKeyName[asset] ?? "?")'"), "the board's PROVIDER_MARK_KEY maps \(pick) to \(markKeyName[asset] ?? "?")")
 }
+// Breaking again at the reported width replays the same lines (review 5's measured case: fractional widths, no width).
+let fuzzCase = [26.119318709913866, 49.06327076039232, 58.943043076048966, 24.890714868242927, 79.20508911955574, 57.18406969193589, 35.76352088355623]
+let once = Board.flowLayout(fuzzCase, width: .infinity, spacing: 8)
+check(once.lines.count == 1 && Board.flowLines(fuzzCase, width: once.widths.max() ?? 0, spacing: 8) == once.lines,
+      "placed at the width it reported, the tally keeps its lines")
+let twoLines = Board.flowLayout([30, 30, 30], width: 100, spacing: 8)
+check(twoLines.widths == [68, 30] && Board.flowLines([30, 30, 30], width: twoLines.widths.max()!, spacing: 8).count >= 2,
+      "each line's width as compared")
 check(Board.flowLines([], width: 100, spacing: 8).isEmpty && Board.flowLines([5, 5], width: .infinity, spacing: 8) == [[0, 1]],
       "nothing: no lines; no width given: one line")
 check(Board.providerTally([member("d", nil)]).isEmpty && Board.providerTallySpoken([]) == "", "nobody with a provider: no tally, nothing said")

@@ -588,16 +588,23 @@ extension Board {
     // be drawn below the height it reported). One rule for both: an entry goes on the next line when it and the
     // spacing before it would pass the width. Returns each line's entry indices, in order.
     static func flowLines(_ widths: [Double], width: Double, spacing: Double) -> [[Int]] {
+        flowLayout(widths, width: width, spacing: spacing).lines
+    }
+    // The same, with each line's width summed exactly as it was compared (review 5): reporting these widths means that
+    // breaking again at the reported width, or anywhere between it and the proposal, replays the same lines.
+    static func flowLayout(_ widths: [Double], width: Double, spacing: Double) -> (lines: [[Int]], widths: [Double]) {
         var lines: [[Int]] = []
+        var lineWidths: [Double] = []
         var x = 0.0
         for (i, w) in widths.enumerated() {
             if let last = lines.indices.last, !lines[last].isEmpty, x + spacing + w <= width {
-                lines[last].append(i); x = x + spacing + w   // summed as compared
+                lines[last].append(i); x = x + spacing + w
             } else {
-                lines.append([i]); x = w
+                lines.append([i]); x = w; lineWidths.append(0)
             }
+            lineWidths[lineWidths.count - 1] = x
         }
-        return lines
+        return (lines, lineWidths)
     }
     // What VoiceOver hears after the count (the board's visually hidden ", 2 Claude, 1 Gemini").
     static func providerTallySpoken(_ tally: [TallyEntry]) -> String {

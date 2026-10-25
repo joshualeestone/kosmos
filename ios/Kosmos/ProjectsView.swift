@@ -683,18 +683,20 @@ struct TallyFlow: Layout {
     // Both methods break lines with Board.flowLines (tested) AT THE SAME WIDTH, the proposal the size was measured from
     // (review 4: placing at bounds.width, which is the reported width, re-broke the lines differently), so what is
     // measured is what is placed.
-    private func lines(_ subviews: Subviews, width: CGFloat?) -> (sizes: [CGSize], lines: [[Int]]) {
+    // (review 5) The widths reported are the ones flowLayout summed as it compared, so a parent that places this at its
+    // reported width (as with no width proposed) replays the same lines.
+    private func lines(_ subviews: Subviews, width: CGFloat?) -> (sizes: [CGSize], lines: [[Int]], widths: [Double]) {
         let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        return (sizes, Board.flowLines(sizes.map { Double($0.width) }, width: Double(width ?? .infinity), spacing: Double(spacing)))
+        let laid = Board.flowLayout(sizes.map { Double($0.width) }, width: Double(width ?? .infinity), spacing: Double(spacing))
+        return (sizes, laid.lines, laid.widths)
     }
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let (sizes, rows) = lines(subviews, width: proposal.width)
-        let widths = rows.map { r in r.map { sizes[$0].width }.reduce(0, +) + spacing * CGFloat(max(0, r.count - 1)) }
+        let (sizes, rows, widths) = lines(subviews, width: proposal.width)
         let heights = rows.map { r in r.map { sizes[$0].height }.max() ?? 0 }
-        return CGSize(width: widths.max() ?? 0, height: heights.reduce(0, +) + lineSpacing * CGFloat(max(0, rows.count - 1)))
+        return CGSize(width: CGFloat(widths.max() ?? 0), height: heights.reduce(0, +) + lineSpacing * CGFloat(max(0, rows.count - 1)))
     }
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let (sizes, rows) = lines(subviews, width: proposal.width ?? bounds.width)
+        let (sizes, rows, _) = lines(subviews, width: proposal.width ?? bounds.width)
         var y = bounds.minY
         for r in rows {
             var x = bounds.minX
