@@ -143,3 +143,15 @@ test('usage: no source, no --stdin, a source with a colon, or no words is refuse
     }
     assert.equal(seen.length, 0, 'a refused usage still reached the board');
   }));
+
+test('a board that is down: the notice is kept in a private file and its path said (an alarm may have no other copy)', async () => {
+  // A port nothing listens on: taken, then let go.
+  const port = await new Promise((resolve) => { const srv = http.createServer(); srv.listen(0, '127.0.0.1', () => { const p = srv.address().port; srv.close(() => resolve(p)); }); });
+  const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], jobEnv(port), 'Splinter is unreachable.');
+  assert.notEqual(out.code, 0, 'a notice to a board that is down exited 0');
+  const saved = /saved at (\S+)/.exec(out.stdout);
+  assert.ok(saved, 'the notice was not kept: ' + out.stdout);
+  assert.equal(fs.statSync(saved[1]).mode & 0o777, 0o600, 'the kept copy is readable by others');
+  assert.equal(fs.readFileSync(saved[1], 'utf8'), 'Splinter is unreachable.');
+  fs.rmSync(saved[1], { force: true });
+});

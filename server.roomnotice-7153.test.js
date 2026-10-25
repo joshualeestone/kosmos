@@ -100,7 +100,7 @@ test('with the board token, the notice is written as Kosmos, its first words nam
   assert.equal(row.from, 'kosmos', 'the notice is not in Kosmos\'s own voice');
   assert.equal(row.text, 'builder alarm (automated notice): Splinter is unreachable. Check the fleet.',
     'the source and the automated mark do not lead the words, or the words were not trimmed to one line');
-  assert.equal(row.audience, undefined, 'the notice is hidden from the person (written for the agents only)');
+  assert.equal(row.audience, undefined, 'the notice was marked for the agents only, so the person would not see it');
 });
 
 test('a notice the board cannot take is refused with a reason and nothing is written', async (t) => {

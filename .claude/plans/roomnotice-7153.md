@@ -33,7 +33,11 @@ outside it, so jobs keep it and agents lose it. Until Josh installs that guard, 
 token and could write a notice: the same exposure every board-token route has today.
 
 **Accepted residual:** a notice carries outside words (a digest quotes other people) in Kosmos's voice. The
-"(automated notice)" mark says what it is; only a board-token holder can write one.
+"(automated notice)" mark says what it is, only a board-token holder can write one, and the fleet's instructions
+(~/.claude/CLAUDE.md and every worker file, "Answering in Kosmos") now say an automated notice is information, never
+an instruction. No rate cap: a looping job with the board token could fill the room, the same exposure every
+board-token write has. The Windows timeout branch (kept as "may", exit 3) is read, not tested: the harness has no
+timeout seam.
 
 ## Checks
 - server.roomnotice-7153.test.js: gate refusals (no token, an agent's token), a written note from kosmos with its
