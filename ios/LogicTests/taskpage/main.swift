@@ -114,7 +114,7 @@ check(close?.httpMethod == "POST" && close?.url?.absoluteString == "https://stud
       "close: a POST to the task's own route, with no body")
 let coordinatorURL = URL(string: "https://login.kosmosplus.com")!
 check(close.map { Board.forMac($0, coordinator: coordinatorURL) }?.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin",
-      "sent through the client, which marks it as the board's own, so the Mac's isViaScreen reads it as the person's (kosmos#7075)")
+      "Board.forMac marks it as the board's own (BoardClient applies it to every request, kosmos#7075), so the Mac's isViaScreen reads it as the person's")
 check(Board.taskActRequest(mac: mac, project: "springcatalogue", number: 3, act: .reopen)?.url?.path == "/api/project/springcatalogue/task/3/reopen", "reopen")
 check(Board.taskActRequest(mac: mac, project: "../x", number: 3, act: .close) == nil && Board.taskActRequest(mac: mac, project: "p", number: 0, act: .close) == nil,
       "not a project id or not a task number: no request")

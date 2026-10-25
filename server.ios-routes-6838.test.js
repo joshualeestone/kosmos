@@ -87,12 +87,14 @@ const SITES = [
     callers: { pattern: /\brequest\(host:[^,]+,\s*path:\s*("[^"]*"|[\w.]+)/g, every: /\brequest\(host:/g,
       skip: /\bfunc\s+request\(host:/, expect: ['"/"', '"/api/phone/notice"'], scope: 'file' } },
   // kosmos#7074: a task's page. The URL is built by taskRoute (the task number is a real number here, since the board's
-  // routes take only digits); its callers pass the act (close or reopen), "seen" and "activity".
+  // routes take only digits); every caller passes its route's last part as a literal ("close", "reopen", "seen",
+  // "activity"), so a new one changes the callers and fails here. As for the other SITES files, the whole file is then
+  // exempt from the URL-swap check (accepted: no request in it swaps its URL).
   { file: 'ios/Kosmos/TaskPageLogic.swift', text: 'var press = URLRequest(url: url)', method: 'POST',
     routes: ['POST /api/project/x/task/1/close', 'POST /api/project/x/task/1/reopen'],
-    pins: ['URL(string: "/api/project/\\(project)/task/\\(number)/\\(tail)"', 'case close, reopen'],
+    pins: ['URL(string: "/api/project/\\(project)/task/\\(number)/\\(tail)"'],
     callers: { pattern: /\btaskRoute\(mac:[^,]+,\s*project:[^,]+,\s*number:[^,]+,\s*([^)]+)\)/g, every: /\btaskRoute\(/g,
-      skip: /\bfunc\s+taskRoute\(/, expect: ['act.rawValue', '"seen"', '"activity"'], scope: 'app' } },
+      skip: /\bfunc\s+taskRoute\(/, expect: ['"close"', '"reopen"', '"seen"', '"activity"'], scope: 'app' } },
   { file: 'ios/Kosmos/TaskPageLogic.swift', text: 'var seen = URLRequest(url: url)', method: 'POST',
     routes: ['POST /api/project/x/task/1/seen'], pins: ['taskRoute(mac: mac, project: project, number: number, "seen")'] },
   { file: 'ios/Kosmos/TaskPageLogic.swift', text: 'var activity = URLRequest(url: url)', method: 'GET',
