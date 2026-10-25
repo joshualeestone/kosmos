@@ -20,8 +20,8 @@ struct NewTaskView: View {
     @State private var sending = false
     @State private var message: String?
     @State private var lastTasks: Board.TasksRead?
-    // After "could not tell", Create waits until a Tasks read has come back (the sheet checks it for the task) or the
-    // words change: a second tap straight away is how a duplicate gets made.
+    // After "could not tell", Create waits until the person changes the words: a second tap of the same words is how a
+    // duplicate gets made. (A read that finds the task closes the sheet as made.)
     @State private var unsureHold = false
     @State private var checking = false   // the read after "could not tell" is in the air
 
@@ -39,7 +39,7 @@ struct NewTaskView: View {
                             // Latched here, before the Task starts: a second tap in between would send a second create.
                             Button("Create") { guard !sending else { return }; sending = true; Task { await create() } }
                                 // Held until the projects are read: a kept draft's project is checked against them first.
-                                .disabled(list == nil || !NewTask.canCreate(draft) || unsureHold)
+                                .disabled(list == nil || !NewTask.canCreate(draft) || unsureHold || checking)
                         }
                     }
                 }
@@ -56,7 +56,7 @@ struct NewTaskView: View {
         // refused the change itself left the field showing characters that were not in the draft.
         .onChange(of: draft.what) { v in unsureHold = false; let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.whatMax); if c != v { draft.what = c } }
         .onChange(of: draft.done) { v in unsureHold = false; let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.doneMax); if c != v { draft.done = c } }
-        .onChange(of: draft.detail) { v in let c = NewTask.capped(v, at: NewTask.detailMax); if c != v { draft.detail = c } }
+        .onChange(of: draft.detail) { v in unsureHold = false; let c = NewTask.capped(v, at: NewTask.detailMax); if c != v { draft.detail = c } }
     }
 
     @ViewBuilder private var content: some View {
@@ -86,10 +86,16 @@ struct NewTaskView: View {
                     .foregroundColor(Palette.secondary) }
             } else {
                 Section {
-                    Picker("Project", selection: projectBinding) {
-                        ForEach(offered) { row in Text(NewTask.projectWords(row, in: list)).tag(Optional(row.project.id)) }
+                    // Opened from a project picked in Tasks, the sheet is for that project and says so, as the board's
+                    // dialog hides its picker there; a draft is never moved off it to be cleared on the next opening.
+                    if let fixed = offered.first(where: { $0.project.id == picked }) {
+                        LabeledContent("Project") { Text(NewTask.projectWords(fixed, in: list)) }
+                    } else {
+                        Picker("Project", selection: projectBinding) {
+                            ForEach(offered) { row in Text(NewTask.projectWords(row, in: list)).tag(Optional(row.project.id)) }
+                        }
+                        .large(typeSize)
                     }
-                    .large(typeSize)
                 }
             }
             Section {
@@ -143,7 +149,7 @@ struct NewTaskView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Palette.ground.ignoresSafeArea())
-        .disabled(sending)
+        .disabled(sending || checking)
     }
 
     // The board's layout: the question stays above its field while it is answered, and the board's example shows in
@@ -277,11 +283,11 @@ struct NewTaskView: View {
             Task { await client.refreshTasks() }
             guard epoch == client.chatEpoch, let fresh, (200...299).contains(fresh.1.statusCode),
                   let read = Board.parseTasks(fresh.0) else { return }   // no read came back: the hold stays
+            // Found: it was made. Not found proves nothing (the Mac may still be filing it), so the hold stays until the
+            // person changes the words.
             if let number = NewTask.found(sent, in: read, before: before) {
                 message = nil
                 made(number: number, sent: sent)
-            } else {
-                unsureHold = false
             }
         }
     }

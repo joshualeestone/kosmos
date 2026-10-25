@@ -145,3 +145,13 @@ path stays the app's own (isProjectId before the path; host is held.url).
   if it is still the one that was sent.
 - LEFT (nits): the hold is also released by a programmatic rewrite of the words (the cap); `before` comes from the
   last read that came back, so a same-words task an agent made in between could be taken as this one.
+- Iteration 11 (opus). The last four rounds found most of their warnings inside the "could not tell" hold, each fix
+  adding a rule the next round found a hole in. Simplified instead of patched again: the hold is lifted ONLY by the
+  person changing the words (any of the three). A follow-up read that finds the task closes the sheet as made; a read
+  that does not find it proves nothing (the Mac may still be filing it) and lifts nothing. Create and the form are
+  also off while that read is in the air.
+- Opened from a project picked in Tasks, the sheet shows that project as fixed text, not a picker, as the board's
+  dialog hides nt-projrow there. So a draft cannot be moved off the picked project and then cleared on reopening.
+- LEFT (nits): two Tasks refreshes can start together after a found-after-unknown; Swift and JS trimming differ on a
+  few code points (a sentence edged with U+FEFF is never found, so the hold simply stays); firstProject is pinned by
+  the tests while settled uses the first offered directly; sampleNewTaskShown outside #if DEBUG.
