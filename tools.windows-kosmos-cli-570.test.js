@@ -646,6 +646,13 @@ test('notice: POST .../notice with the text and source, no agent token; 2xx -> 0
   assert.equal(fs.readFileSync(kept[1], 'utf8'), 'hi');
   fs.rmSync(path.dirname(kept[1]), { recursive: true, force: true });
   for (const r of [missing, old]) { const k = r.err.match(/saved at (\S+)/); assert.ok(k, 'a 404 notice was not kept'); fs.rmSync(path.dirname(k[1]), { recursive: true, force: true }); }
+  // Board down: kept, "was not sent". Timed out: kept, "may", exit 3 (it may have been written).
+  const down = await run(['notice', '--from', 'builder alarm', '--stdin', 'p1'], refusedWith(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })), {}, piped('down'));
+  assert.equal(down.code, 1, down.err);
+  const dk = down.err.match(/was not sent; it is saved at (\S+)/);
+  assert.ok(dk, 'a notice to a board that is down was not kept: ' + down.err);
+  assert.equal(fs.readFileSync(dk[1], 'utf8'), 'down');
+  fs.rmSync(path.dirname(dk[1]), { recursive: true, force: true });
   for (const argv of [['notice', '--stdin', 'p1'], ['notice', '--from', 'x', 'p1'], ['notice', '--from', 'a: b', '--stdin', 'p1']]) {
     const u = await run(argv, () => ({ body: { ok: true } }), {}, piped('hi'));
     assert.equal(u.code, 2, argv.join(' '));

@@ -951,7 +951,16 @@ async function verbNotice(ctx, args) {
   if (!got.text) { ctx.err('Nothing was written: the notice was empty.'); return 2; }
   // A job's notice may be its only copy (an alarm fires when the fleet is down): every failure below keeps it, and says where.
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/notice', { text: got.text, source }, { agent: false });
-  if (!r.reached) { const code = ctx.unreachable('write that notice'); keepPipedCopy(ctx, got.text); return code; }
+  if (!r.reached) {
+    if (r.timedOut) {
+      ctx.err('Kosmos was slow to answer and we stopped waiting. The notice may have been written; check the room before sending it again.');
+      keepPipedCopy(ctx, got.text, true);
+      return 3;
+    }
+    const code = ctx.unreachable('write that notice');
+    keepPipedCopy(ctx, got.text);
+    return code;
+  }
   if (r.status >= 200 && r.status < 300) { ctx.out('Written to ' + project + ' as a Kosmos notice from ' + source + '.'); return 0; }
   const because = r.json && typeof r.json.error === 'string' ? r.json.error : '';
   if (r.status === 404) {

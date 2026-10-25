@@ -22047,7 +22047,8 @@ const server = http.createServer(async (req, res) => {
         // Control and format characters go too (as externalPost strips outside words), so a raw request cannot reorder or
         // hide what the line says.
         const text = body && typeof body.text === 'string'
-          ? body.text.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ').replace(/\s+/g, ' ').trim() : '';
+          ? body.text.replace(require('./engine/externalname').INVISIBLE, '').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ')
+            .replace(/\s+/g, ' ').trim() : '';
         const source = body && typeof body.source === 'string' ? body.source.trim() : '';
         if (!text || [...text].length > ROOM_NOTICE_MAX) {
           sendJson(res, 400, { error: 'a notice needs words, at most ' + ROOM_NOTICE_MAX + ' characters' });
