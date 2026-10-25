@@ -231,6 +231,27 @@ test('#7152 review 4: a token about to run out is expired, and a weekly reset ye
   assert.notEqual(usagepoll.windowOf({ utilization: 5, resets_at: '2026-10-30T14:00:00Z' }, { nowMs: NOW, maxAheadSeconds: 8 * 86400 }), null, 'CONTROL: a reset within the week is a reading');
 });
 
+test('#7152 review 5: the sweep never reads real logins under a test, and the brake stops it', () => {
+  assert.equal(usagepoll.liveAllowed({}), true, 'CONTROL: a plain board may read');
+  assert.equal(usagepoll.liveAllowed({ NODE_TEST_CONTEXT: 'child-v8' }), false, 'a test-spawned server would read real logins');
+  assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_USAGE_POLL_OFF: '1' }), false, 'the brake did not stop it');
+  assert.equal(usagepoll.liveAllowed(), false, 'this test process itself was allowed');
+});
+
+test('#7152 review 5: across windows the reading measured more recently is current', (t) => {
+  const d = tmpDir(t);
+  const resetsStatus = Math.floor((NOW + 1 * 86400000) / 1000);
+  const resetsPolled = Math.floor((NOW + 5 * 86400000) / 1000);
+  fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 80, resetsAt: resetsStatus, at: NOW - 3600000, history: [] }));
+  usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', weekly: { usedPct: 10, resetsAt: resetsPolled, changedAt: NOW - 3 * 86400000 }, fiveHour: null });
+  const w = accountsweekly.weeklyOf({ dir: d }, NOW);
+  assert.equal(w.usedPct, 10, 'a stale-looking change time beat a reading measured a minute ago');
+  assert.equal(w.at, NOW - 3 * 86400000, 'the shown time must stay the last change');
+  assert.deepEqual(Object.keys(w).sort(), ['at', 'resetsAt', 'usedPct'], 'the /api/status shape grew a field');
+  fs.writeFileSync(path.join(d, 'kosmos-weekly.json'), JSON.stringify({ usedPct: 80, resetsAt: resetsStatus, at: NOW - 1000, history: [] }));
+  assert.equal(accountsweekly.weeklyOf({ dir: d }, NOW).usedPct, 80, 'CONTROL: a status line measured later wins');
+});
+
 test('#7152 review 3: a fresh endpoint reading clears "will not update", since the endpoint keeps it updating', (t) => {
   const d = tmpDir(t);
   assert.equal(accountsweekly.weeklyBlockedOf({ dir: d }, 'darwin', NOW), 'not-wired', 'CONTROL: no settings, no reading');

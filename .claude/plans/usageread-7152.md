@@ -30,6 +30,10 @@ at 0%, had no reading at all (the card's opening).
   (resets within an hour) accountsweekly takes the HIGHER figure, since usage only rises, so a lagging source cannot
   win by being later. A token with under a minute left counts as expired, and a weekly reset more than 8 days out is
   not a reading.
+- Review 5: the sweep never runs under a test. A server a test spawns inherits NODE_TEST_CONTEXT and has live execution
+  armed, so without `usagepoll.liveAllowed()` it would read the operator's real logins and write into the real account
+  folders. Across windows, the endpoint reading is dated by when it was last MEASURED, since the question there is
+  which reading is current. The request sends its own User-Agent.
 - `engine/accountsweekly.js`: weeklyOf and fiveHourOf take the NEWER of the status line's reading and the endpoint's,
   in the same `{usedPct, resetsAt, at}` shape that other computers read through /api/status. Why an account
   could not be measured (`readUsage().state`) is read by slice 2, which will add its own accessor when it uses one:
@@ -55,6 +59,9 @@ at 0%, had no reading at all (the card's opening).
   entry can be another login. Measured on the fleet: there, the bare entry was a different account from the folder's.
   Kosmos's own agents never set it for the default account, so this covers Kosmos's agents.
 - Windows: the credentials-file path is reasoned, not measured on a Windows machine.
+- This module's own request path (https.request, our User-Agent) was not run against the real endpoint from here: the
+  real response in the next section was read with a different client. The first live sweep's log line ("measured N of
+  M signed-in account(s)") is where that is confirmed, and an N of 0 with readable tokens is the sign to look.
 - An idle account is the one most likely to hold an expired ACCESS token: only an agent running on it refreshes the
   token, and this module never does. So an account nobody has used for hours often reads `token-expired` and stays
   unmeasured. That is the honest answer, not a reading. Slice 2 must treat it as unknown, never as headroom (review 2).
@@ -75,7 +82,7 @@ defensive, and is kept because its cost is one line).
 
 ## Validation
 - engine.reachable.test.js passes (it caught an unreached export in the first version).
-- engine/usagepoll-7152.test.js, 17 tests (counted from a run; 3 added in review 4: reset jitter, the higher figure within a window, the expiry margin and weekly cap; 2 added in review 3: the change time, and the cleared "will not update"; 3 added in review 1: the null reset and the five-hour bound; a failed read keeping
+- engine/usagepoll-7152.test.js, 19 tests (counted from a run; 2 added in review 5: the test gate, and the cross-window rule; 3 added in review 4: reset jitter, the higher figure within a window, the expiry margin and weekly cap; 2 added in review 3: the change time, and the cleared "will not update"; 3 added in review 1: the null reset and the five-hour bound; a failed read keeping
   its figures, dated when measured; the hard deadline), with an injected Keychain reader and request, no real credential and no network.
 - Six mutants, each red on its own test: the default account reading its folder's entry; the token written into the
   file; no expiry check; the status line always winning; concurrent reads; no freshness limit.

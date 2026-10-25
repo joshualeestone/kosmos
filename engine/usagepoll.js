@@ -33,6 +33,9 @@ const FILE = 'kosmos-usage.json';
 const HOST = 'api.anthropic.com';
 const USAGE_PATH = '/api/oauth/usage';
 const BETA = 'oauth-2025-04-20';
+/* Review 5: Node sends no User-Agent by default, and the real response was read with a client that sends one. Sending
+   our own means the read does not depend on the endpoint accepting a request without one. */
+const USER_AGENT = 'Kosmos usage reader';
 const POLL_MS = 10 * 60 * 1000;   // the board's timer: often enough to see a week run down, rare enough to cost nothing
 const FRESH_MS = 30 * 60 * 1000;  // older than three missed polls: the reading is not used
 const TIMEOUT_MS = 15000;
@@ -45,6 +48,15 @@ const SAME_RESET_SECONDS = 60;
 const EXPIRY_MARGIN_MS = 60 * 1000;
 /* A week cannot reset further out than this; a reset beyond it is a bad answer, not a reading. */
 const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
+
+/* Review 5: whether the board's sweep may read real credentials at all. A server that a test spawns inherits the test
+   process's environment, and live execution is armed there (no --test in its execArgv), so without this the sweep would
+   read the operator's real logins and write into the real account folders from a test. NODE_TEST_CONTEXT is set by
+   node's own test runner in every test process and by nothing else (the signal ping.js and feedbacksend.js settled
+   on). AGENT_WORKFORCE_USAGE_POLL_OFF=1 is the operator's brake. */
+function liveAllowed(env = process.env) {
+  return !env.NODE_TEST_CONTEXT && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1';
+}
 
 /* The CLAUDE_CONFIG_DIR value this account's agents run with: unset for the default account (see the header). */
 function ccdFor(a) { return a && a.isDefault ? undefined : a && a.dir; }
@@ -87,7 +99,7 @@ function getUsage(token, { request = https.request, timeoutMs = TIMEOUT_MS } = {
     try {
       req = request({
         host: HOST, path: USAGE_PATH, method: 'GET', timeout: timeoutMs,
-        headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': BETA, Accept: 'application/json' },
+        headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': BETA, Accept: 'application/json', 'User-Agent': USER_AGENT },
       }, (res) => {
         let body = '';
         res.setEncoding('utf8');
@@ -219,6 +231,6 @@ function readUsage(dir, nowMs = Date.now()) {
 }
 
 module.exports = {
-  readOne, pollAll, readUsage, tokenStateFor, getUsage, windowOf, write, ccdFor,
+  liveAllowed, readOne, pollAll, readUsage, tokenStateFor, getUsage, windowOf, write, ccdFor,
   FILE, POLL_MS, FRESH_MS, HOST, USAGE_PATH, BETA,
 };

@@ -25911,7 +25911,7 @@ function start(port = PORT) {
       let usagePollBusy = false;
       const usagePollTick = () => {
         if (usagePollBusy) return;
-        if (!liveExecution.liveExecutionAllowed() || process.env.AGENT_WORKFORCE_USAGE_POLL_OFF === '1') return;
+        if (!liveExecution.liveExecutionAllowed() || !usagePoll.liveAllowed()) return;   // never under a test (it reads real logins)
         usagePollBusy = true;
         let list = [];
         try { list = accounts.list(); } catch { list = []; }

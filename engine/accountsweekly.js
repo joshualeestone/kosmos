@@ -26,6 +26,7 @@ const MAX_ACCOUNTS = 50;   // what one computer sends; far past any real list
 function newer(statusLine, polled) {
   const a = statusLine ? { usedPct: statusLine.usedPct, resetsAt: statusLine.resetsAt * 1000, at: statusLine.at } : null;
   const b = polled ? { usedPct: polled.usedPct, resetsAt: polled.resetsAt * 1000, at: polled.at } : null;
+  const bMeasured = polled && typeof polled.measuredAt === 'number' ? polled.measuredAt : (b && b.at);
   if (!a) return b;
   if (!b) return a;
   /* Review 4: two readings of the SAME window (resets within an hour of each other; the two sources stamp the reset
@@ -34,7 +35,9 @@ function newer(statusLine, polled) {
   if (Math.abs(a.resetsAt - b.resetsAt) <= SAME_WINDOW_MS) {
     if (a.usedPct !== b.usedPct) return a.usedPct > b.usedPct ? a : b;
   }
-  return b.at >= a.at ? b : a;
+  /* Review 5: across windows the question is which reading is CURRENT, so the endpoint's is dated by when it was last
+     measured, not by when its figure last changed (an idle account's figure can sit unchanged for days). */
+  return bMeasured >= a.at ? b : a;
 }
 const SAME_WINDOW_MS = 3600 * 1000;
 
@@ -45,7 +48,7 @@ function polledOf(a, nowMs, key) {
   const r = require('./usagepoll').readUsage(a.dir, nowMs);
   const w = r && r[key];
   return w && typeof w.resetsAt === 'number' && typeof w.changedAt === 'number'
-    ? { usedPct: w.usedPct, resetsAt: w.resetsAt, at: w.changedAt } : null;
+    ? { usedPct: w.usedPct, resetsAt: w.resetsAt, at: w.changedAt, measuredAt: r.measuredAt } : null;
 }
 
 /** The account's weekly reading, or null when there is none this week (an API key, none recorded, unreadable, the week
@@ -113,7 +116,7 @@ function summary(list, nowMs = Date.now()) {
     isDefault: a.isDefault === true,
     apiKey: a.apiKey === true,   // listed so its agents join to it; a key has no weekly limit (weeklyOf, weeklyBlockedOf: null)
     weekly: weeklyOf(a, nowMs),
-    blocked: weeklyBlockedOf(a),
+    blocked: weeklyBlockedOf(a, undefined, nowMs),
   }));
   cached = { key, at: nowMs, value };
   return value;
