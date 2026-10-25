@@ -36,7 +36,9 @@
  * on the production box; it is derived from the escrow key under its own HKDF label, separate from the org-key signer.
  *
  * verify(history, opts) never throws. history: { org, member, entries, issuedAt, signature (base64url) }.
- * opts: { verifyingKey (32-byte Buffer; stands in for VERIFYING_KEY), now (Unix seconds), maxAgeSecs, skewSecs }.
+ * opts: { org, member (REQUIRED: the member being restored; a genuine history for anyone else is refused),
+ *   verifyingKey (a 32-byte Buffer, used ONLY while VERIFYING_KEY is null, i.e. by tests), now (Unix seconds),
+ *   maxAgeSecs, skewSecs }.
  * Answers { ok: true, keys } with keys [{ key, from, until (null while valid), backfill }], or { ok: false, because }.
  * keyAt(keys, key, t) answers the entry under which `key` was valid at time `t`, or null.
  */
@@ -111,12 +113,14 @@ function encodeHead(org, member, entries, issuedAt) {
   return Buffer.concat(parts);
 }
 
-/* The keys the entries establish, or a refusal reason. Order is the log's order; times never go backwards. */
-function replay(entries) {
+/* The keys the entries establish, or a refusal reason. Order is the log's order; times never go backwards, and no
+   entry is dated after the head that signed it. */
+function replay(entries, issuedAt) {
   const keys = new Map();
   let last = -1;
   for (const e of entries) {
     if (e.at < last) return 'an entry in the device key history is dated before the one above it';
+    if (e.at > issuedAt) return 'an entry in the device key history is dated after escrowd signed it';
     last = e.at;
     const k = keys.get(e.key);
     if (e.kind === 'enrol') {
@@ -134,21 +138,36 @@ function replay(entries) {
 
 function verify(history, opts = {}) {
   try {
+    // The shipped key, once there is one, is the only key; the override counts only while none has shipped (tests).
     // Only a real 32-byte key counts; null or anything else REFUSES (the difference from orgkeypin.js, on purpose).
-    const vk = Buffer.isBuffer(opts.verifyingKey) && opts.verifyingKey.length === 32 ? opts.verifyingKey : VERIFYING_KEY == null ? null : Buffer.from(VERIFYING_KEY, 'hex');
+    const vk = VERIFYING_KEY != null ? Buffer.from(VERIFYING_KEY, 'hex') : Buffer.isBuffer(opts.verifyingKey) && opts.verifyingKey.length === 32 ? opts.verifyingKey : null;
     if (vk == null) return { ok: false, because: 'this version of Kosmos cannot check the device key history yet, so the key was not trusted' };
-    const h = history || {};
-    const sig = unb64(h.signature);
-    const msg = encodeHead(h.org, h.member, h.entries, h.issuedAt);
+    // Read every field once, into a copy: what is hashed is exactly what is replayed.
+    const h = history && typeof history === 'object' ? history : {};
+    const org = h.org;
+    const member = h.member;
+    const issuedAt = h.issuedAt;
+    const signature = h.signature;
+    const raw = h.entries;
+    const entries = Array.isArray(raw) && raw.length <= MAX_ENTRIES
+      ? Array.from(raw, (e) => (e && typeof e === 'object' ? { kind: e.kind, key: e.key, at: e.at, backfill: e.backfill } : e))
+      : null;
+    // A genuine history for ANOTHER member is still escrowd's signature; it must be the member being restored.
+    if (typeof opts.org !== 'string' || !opts.org || typeof opts.member !== 'string' || !opts.member) {
+      return { ok: false, because: 'the device key history was checked without naming the member it must belong to' };
+    }
+    if (org !== opts.org || member !== opts.member) return { ok: false, because: 'the device key history is for a different member' };
+    const sig = unb64(signature);
+    const msg = encodeHead(org, member, entries, issuedAt);
     if (!msg || !sig || sig.length !== 64) return { ok: false, because: 'the device key history was not in the form escrowd signs' };
     const key = crypto.createPublicKey({ key: Buffer.concat([SPKI_ED25519, vk]), format: 'der', type: 'spki' });
     if (crypto.verify(null, msg, key, sig) !== true) return { ok: false, because: 'escrowd\'s signature on the device key history did not check' };
     const now = Number.isSafeInteger(opts.now) ? opts.now : Math.floor(Date.now() / 1000);
     const maxAge = Number.isSafeInteger(opts.maxAgeSecs) && opts.maxAgeSecs > 0 ? opts.maxAgeSecs : MAX_AGE_SECS;
     const skew = Number.isSafeInteger(opts.skewSecs) && opts.skewSecs >= 0 ? opts.skewSecs : SKEW_SECS;
-    if (h.issuedAt > now + skew) return { ok: false, because: 'the device key history is dated in the future' };
-    if (now - h.issuedAt > maxAge) return { ok: false, because: 'the device key history is too old to trust; a fresh one is needed' };
-    const keys = replay(h.entries);
+    if (issuedAt > now + skew) return { ok: false, because: 'the device key history is dated in the future' };
+    if (now - issuedAt > maxAge) return { ok: false, because: 'the device key history is too old to trust; a fresh one is needed' };
+    const keys = replay(entries, issuedAt);
     if (typeof keys === 'string') return { ok: false, because: keys };
     return { ok: true, keys };
   } catch {

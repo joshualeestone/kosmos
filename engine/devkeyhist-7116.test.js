@@ -29,7 +29,7 @@ function signed(entries, { org = 'o1', member = 'm1', issuedAt = NOW - 60, key =
   assert.ok(msg, 'fixture: the entries must be encodable');
   return { org, member, entries, issuedAt, signature: crypto.sign(null, msg, key).toString('base64url') };
 }
-const opts = { verifyingKey: VK, now: NOW };
+const opts = { verifyingKey: VK, now: NOW, org: 'o1', member: 'm1' };
 
 test('an honest history verifies and names each key with its window', () => {
   const r = hist.verify(signed(BASE), opts);
@@ -60,10 +60,10 @@ test('a subset is refused: dropping the revoke breaks the signature', () => {
 });
 
 test('an old head is refused, so a genuine but shorter history cannot be replayed to hide a later revoke', () => {
-  const older = signed(BASE.slice(0, 1), { issuedAt: NOW - 2 * 24 * 3600 });
-  assert.strictEqual(hist.verify({ ...older }, { ...opts, now: older.issuedAt + 60 }).ok, true, 'control: fresh at its own time');
+  const older = signed([{ ...BASE[0], at: NOW - 3 * 24 * 3600 }], { issuedAt: NOW - 2 * 24 * 3600 });
+  assert.strictEqual(hist.verify(older, { ...opts, now: older.issuedAt + 60 }).ok, true, 'control: fresh at its own time');
   assert.match(hist.verify(older, opts).because, /too old/);
-  assert.strictEqual(hist.verify(signed(BASE, { issuedAt: NOW - 24 * 3600 + 1 }), opts).ok, true, 'control: just inside the bound');
+  assert.strictEqual(hist.verify(signed(BASE.map((e) => ({ ...e, at: e.at - 2 * 24 * 3600 })), { issuedAt: NOW - 24 * 3600 + 1 }), opts).ok, true, 'control: just inside the bound');
 });
 
 test('a head dated in the future is refused beyond the clock skew allowance', () => {
@@ -86,10 +86,24 @@ test('a signature by any key but escrowd\'s is refused', () => {
   assert.match(hist.verify(signed(BASE, { key: other }), opts).because, /signature/);
 });
 
-test('the head binds org and member: another member\'s history is not this member\'s', () => {
+test('editing the org or member named in a signed history breaks the signature', () => {
   const h = signed(BASE);
-  assert.match(hist.verify({ ...h, member: 'm2' }, opts).because, /signature/);
-  assert.match(hist.verify({ ...h, org: 'o2' }, opts).because, /signature/);
+  assert.match(hist.verify({ ...h, member: 'm2' }, { ...opts, member: 'm2' }).because, /signature/);
+  assert.match(hist.verify({ ...h, org: 'o2' }, { ...opts, org: 'o2' }).because, /signature/);
+});
+
+test('a GENUINE history for another member is refused for this member (a coordinator substituting a whole history)', () => {
+  const theirs = signed([{ kind: 'enrol', key: ATTACKER, at: NOW - 300, backfill: false }], { member: 'attacker-member' });
+  assert.strictEqual(hist.verify(theirs, { ...opts, member: 'attacker-member' }).ok, true, 'control: it is genuine for its own member');
+  assert.match(hist.verify(theirs, opts).because, /different member/);
+  assert.match(hist.verify(signed(BASE, { org: 'o2' }), opts).because, /different member/, 'another org');
+});
+
+test('verify refuses when the caller does not name the org and member being restored', () => {
+  const h = signed(BASE);
+  for (const [org, member] of [[undefined, 'm1'], ['o1', undefined], ['', 'm1'], ['o1', ''], [7, 'm1']]) {
+    assert.match(hist.verify(h, { verifyingKey: VK, now: NOW, org, member }).because, /without naming/, `${org}/${member}`);
+  }
 });
 
 test('signed but impossible logs are refused, each against an honest twin', () => {
@@ -98,6 +112,7 @@ test('signed but impossible logs are refused, each against an honest twin', () =
     ['revoke of a key never enrolled', [...BASE, { kind: 'revoke', key: ATTACKER, at: NOW - 100 }], /never enrolled/],
     ['double revoke', [...BASE, { kind: 'revoke', key: K1, at: NOW - 100 }], /twice/],
     ['time going backwards', [...BASE, { kind: 'revoke', key: K2, at: NOW - 600 }], /dated before/],
+    ['an entry dated after the head that signed it', [...BASE, { kind: 'revoke', key: K2, at: NOW - 10 }], /after escrowd signed/],
   ];
   assert.strictEqual(hist.verify(signed([...BASE, { kind: 'revoke', key: K2, at: NOW - 100 }]), opts).ok, true, 'control: a valid revoke');
   for (const [name, entries, why] of cases) assert.match(hist.verify(signed(entries), opts).because || '', why, name);
@@ -116,7 +131,7 @@ test('malformed entries are refused as not escrowd\'s form, never a throw', () =
   for (const entries of bad) {
     assert.strictEqual(hist.encodeHead('o1', 'm1', entries, NOW), null, JSON.stringify(entries));
     const r = hist.verify({ org: 'o1', member: 'm1', entries, issuedAt: NOW, signature: 'A'.repeat(86) }, opts);
-    assert.strictEqual(r.ok, false);
+    assert.match(r.because || '', /form escrowd signs/, JSON.stringify(entries));
   }
   for (const h of [null, undefined, 7, {}, { ...signed(BASE), signature: 'not base64url!' }]) assert.strictEqual(hist.verify(h, opts).ok, false);
 });
