@@ -239,6 +239,13 @@ test('#4658 slice 2: a computer waiting to be let into an unsealed room holds it
   assert.strictEqual(fedseal.roomState('own-c1'), null, 'the waiting record stayed');
   assert.strictEqual(federation.linkFor('own-c1').pendingClear, false);
   assert.ok(seat.written.join('').includes('waiting words'), 'the held post did not go once let in');
+  // Let in by the owner's word: an unopenable envelope afterwards changes nothing (review 4).
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 0, 'room-c1', { from: 'Mallory', kind: 'person', text: 'x' }) });
+  await settle();
+  assert.strictEqual(fedseal.roomState('own-c1'), null, 'a forged envelope put a let-in computer back into waiting');
+  fedseats.post('own-c1', { from: 'Josh', kind: 'person', text: 'after let in' });
+  await settle();
+  assert.ok(seat.written.join('').includes('after let in'), 'posts held again after a forged envelope');
 });
 
 test('#4658 slice 2: a computer with no seal record that sees an unopenable envelope waits for the owner\'s answer (pendingClear), and the owner\'s clear lets it go', async () => {
