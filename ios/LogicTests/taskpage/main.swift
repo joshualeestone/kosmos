@@ -456,6 +456,45 @@ func modelTests() async {
     sub.cancel()
     check(published == 0, "an unchanged read and activity read publish nothing (\(published))")
 
+    // The tick (TaskPageView's loop body): a return marks only after its own read draws.
+    let tk = model(3)
+    mac.activity = (200, fixture("activity-3.json"))
+    await tk.tick(first: true, returning: true, names: nm)
+    mac.asked = []
+    await tk.tick(first: true, returning: true, names: nm)
+    check(mac.asked == ["GET /api/projects", "GET /api/project/springcatalogue/task/3/activity", "POST /api/project/springcatalogue/task/3/seen"],
+          "a return reads the task and its activity, then records the state it drew once more")
+    mac.activity = (500, Data())
+    mac.asked = []
+    await tk.tick(first: true, returning: true, names: nm)
+    check(!mac.asked.contains { $0.hasSuffix("/seen") }, "a return whose activity read fails sends no seen mark (nothing new was drawn)")
+    mac.activity = (200, fixture("activity-3.json"))
+    clock += TaskPageModel.presentFor + 1
+    mac.asked = []
+    await tk.tick(first: false, returning: false, names: nm)
+    check(mac.asked == ["GET /api/projects"], "an idle tick reads the task only")
+
+    // The same answer and names again: the rows are not rebuilt.
+    var builds = 0
+    let bm = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch },
+                           now: { clock }, buildRows: { names, data in builds += 1; return await TaskPageModel.buildOffMain(names, data) })
+    let b1 = await bm.readActivity(names: nm)
+    let b2 = await bm.readActivity(names: nm)
+    check(b1 && b2 && builds == 1, "an unchanged answer is not rebuilt, and still counts as drawn (\(builds) builds)")
+    _ = await bm.readActivity(names: ["dana": "Dana R."])
+    check(builds == 2 && bm.activity?.first?.text == "Created and given to Dana R., under task 1", "new names rebuild the rows")
+
+    // A return that cannot mark leaves the recorded state recorded.
+    let rs = model(3)
+    await rs.readActivity(names: nm)
+    await rs.markSeen()
+    rs.appActive = false
+    await rs.markSeen(again: true)
+    rs.appActive = true
+    mac.asked = []
+    await rs.markSeen()
+    check(mac.asked.isEmpty, "a blocked return does not make the next ordinary mark re-send a recorded state")
+
     // Reads that land out of order: the newer answer stands.
     mac.epoch = 0
     let o = model(3)

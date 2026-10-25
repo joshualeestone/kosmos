@@ -97,10 +97,7 @@ struct TaskPageView: View {
         loop = Task {
             var first = true
             while !Task.isCancelled {
-                if first || model.shouldReadTask { await model.read() }
-                if model.shouldReadActivity(first: first) {
-                    if await model.readActivity(names: names) { await model.markSeen(again: first && returning) }
-                }
+                await model.tick(first: first, returning: returning, names: names)
                 first = false
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
