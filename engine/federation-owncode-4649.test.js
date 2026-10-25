@@ -224,6 +224,18 @@ test('#4699: a code without a maker is never made, and nothing is recorded for i
   assert.equal(federation.ownFromOf('-bad.kosmosplus.com'), null);
 });
 
+test('#4658 slice 2: a version 1 code (an older Kosmos\'s) is refused at verify, even from this account; version 3 is the CONTROL', async () => {
+  const remoteOk = plusRemote(LIST('attic', 'study'));
+  const v1 = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'ref-v1old', name: 'Shared', from: 'study' })).toString('base64url');
+  const out = await federation.verify(remoteOk, { code: v1 });
+  assert.deepEqual([out.status, out.body.reason], [409, 'old-code'], JSON.stringify(out.body));
+  assert.match(out.body.error, /Update Kosmos on the computer that has the project/);
+  assert.equal(federation.joinSnapshot('own:ref-v1old'), null, 'nothing is held to join with');
+  const v3 = await federation.verify(remoteOk, { code: ownCodeFrom('study', 'ref-v3ok') });
+  assert.equal(v3.status, 200, JSON.stringify(v3.body));
+  assert.equal(federation.joinSnapshot('own:ref-v3ok').pendingClear, true, 'a version 3 join waits to be let in');
+});
+
 test('#4699: a code made on one of this account\'s computers is accepted, and the account list is what was asked', async () => {
   const remoteOk = plusRemote(LIST('attic', 'study'));
   const out = await federation.verify(remoteOk, { code: ownCodeFrom('study', 'ref-ok') });
