@@ -68,3 +68,10 @@ hand with run.sh <dir> and recorded on the card, not a standing test).
   answer for a person typing).
 - While searching, the earlier-messages failure line and its Try again are not drawn (no pages load
   while searching); they come back when the search clears.
+- Clearing the search re-arms the first-scroll settle (settledAtEnd = false) so a read landing during
+  the scroll to the newest cannot load a page and pin the reader at the top. Settled by the end marker
+  or the top leaving, as on opening; a one-second fallback covers a chat too short to move either.
+  Weakest premise: the fallback is a time, which the opening path deliberately avoids; it only
+  releases what the markers did not, and loadEarlier still checks topVisible.
+- The search field's prompt is "Search" (the board's placeholder); its aria-label "Search this
+  conversation" is not carried: .searchable takes one prompt. Rejected a longer prompt that truncates.
