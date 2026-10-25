@@ -151,14 +151,15 @@ fi
 # mounted; with a fixed name macOS mounted the next as "/Volumes/s6651 1", and the old parse sent the writes to ./1/.
 # The private mount point makes a collision harmless on its own. A same-named decoy, mounted the default way first,
 # guards only against a future return to reading the mount point from hdiutil's output: with it in place, that would
-# give "/Volumes/s6651-<pid> 1" and fail the check below on every run.
+# give "/Volumes/s6651-<pid> 1" and fail the full-disk case on every run.
 # It is optional: if it cannot be mounted, a SKIP line says so and the full-disk case and the #7127 check still run,
 # without the collision. (A killed run leaks the decoy at /Volumes/s6651-<pid> as well as its own image; neither can
 # affect where a later run writes.)
 if command -v hdiutil >/dev/null 2>&1; then
   # The same name as the image below on purpose: it is what WOULD collide if the mount point were parsed again.
   if hdiutil create -quiet -size 4m -fs APFS -volname "s6651-$$" "$TMP/decoy.dmg" >/dev/null 2>&1; then
-    # The decoy is detached by its device node (first field of attach's first line), which carries no spaces.
+    # $DECOY only records THAT the decoy mounted (the SKIP line and the PASS wording); cleanup finds and detaches it by
+    # its own file (img_dev), never by this node, which macOS can reuse once the image goes.
     DECOY="$(hdiutil attach -nobrowse "$TMP/decoy.dmg" 2>/dev/null | awk 'NR == 1 { print $1 }')"
     # Anything but a device node means the output was not what this expects: treat the decoy as not mounted.
     case "$DECOY" in /dev/disk*) ;; *) DECOY="" ;; esac
@@ -168,7 +169,10 @@ fi
 # What the old parse may have left in this checkout before this run ("N/board.stopped", N being macOS's suffix): named
 # in a NOTE below, never counted against this run. The #7127 check's new-file arm only flags an N/ file this run newly
 # creates; the device-number arm beside it is what catches a write that lands anywhere but this run's image.
-debris_before=""; for n in 1 2 3 4 5 6 7 8 9; do [ -e "$n/board.stopped" ] && debris_before="$debris_before $n"; done
+# Keyed on what the old flow always leaves: its fill, the logs/ it made, or any board.stopped* (the clear moves
+# board.stopped aside, and a run killed mid-fill never wrote it).
+is_debris() { [ -e "$1/fill" ] || [ -e "$1/logs" ] || ls "$1"/board.stopped* >/dev/null 2>&1; }
+debris_before=""; for n in 1 2 3 4 5 6 7 8 9; do is_debris "$n" && debris_before="$debris_before $n"; done
 if command -v hdiutil >/dev/null 2>&1 && mkdir -p "$TMP/mnt" \
    && hdiutil create -quiet -size 8m -fs APFS -volname "s6651-$$" "$TMP/full.dmg" >/dev/null 2>&1 \
    && hdiutil attach -quiet -nobrowse -mountpoint "$TMP/mnt" "$TMP/full.dmg" >/dev/null 2>&1 && DISK="$TMP/mnt"; then
@@ -190,14 +194,14 @@ if command -v hdiutil >/dev/null 2>&1 && mkdir -p "$TMP/mnt" \
     # kosmos#7127: the writes went to this run's own image, a filesystem of its own, and not to ./1/ (where the old
     # parse sent them). The device check fails if the attach left $TMP/mnt a plain folder.
     new_debris=""; for n in 1 2 3 4 5 6 7 8 9; do
-      [ -e "$n/board.stopped" ] && case " $debris_before " in *" $n "*) ;; *) new_debris="$new_debris $n" ;; esac
+      is_debris "$n" && case " $debris_before " in *" $n "*) ;; *) new_debris="$new_debris $n" ;; esac
     done
     { [ "$(stat -f %d "$DISK")" != "$(stat -f %d "$TMP")" ] && [ -e "$DISK/fill" ] && [ -z "$new_debris" ]; } \
       && ok "the full-disk case writes to its own image$( [ -n "$DECOY" ] && echo ', not where a parsed mount point would put it') (#7127)" \
       || bad "the full-disk case wrote somewhere other than its own image (#7127)${new_debris:+: it wrote into${new_debris}}"
   fi
 else
-  echo "SKIP  full-disk case: hdiutil could not make a disk image here (macOS only)"
+  echo "SKIP  full-disk case: hdiutil could not make or attach a disk image here (macOS only)"
 fi
 # Not this run's doing: an older run with the old parse wrote here, possibly a huge N/fill. Named whether or not this
 # Mac could mount an image, and never failed on.
