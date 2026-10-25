@@ -48,11 +48,18 @@ where every local run reads it.
   its libraries was already broken, and a fallback here would make no such fixture work. The only copies in the
   suite (tools/test-cut-guard.sh, three) copy `lib/*.sh` (review 2, deferred with this reasoning).
 - Four, not more: measured, and the queue allows two suites per machine, so eight shard processes at most.
+- After reading the switch, run-tests.sh EXPORTS 1 for everything it starts (it used to unset it). A test that starts
+  run-tests.sh itself then runs its shell part one at a time, not 4 shards inside a shard (review 10; nested runs were
+  raised in five rounds before it). 1 also combines with a CI shard, unlike the inherited 4 that reddened
+  tools.shell-shard-4317 in the parshell branch's review 3. Checked with the value set outside them: the 37 node test
+  files that read run-tests.sh, shell-shard or test:shell (1,031 tests, 0 failed, via --only), and test-cut-guard,
+  test-cut-testpart-guard-5934, test-cut-shape-6977, test-run-tests-codexhome-2858, test-runner-scale-export-5727 and
+  the three file-scanning guards. Arm 9 checks by behaviour that every shard sees 1; arm 7 pins the line.
 
 ## Weakest premises
-- Several tests start run-tests.sh themselves, in fixture trees with a scrubbed environment. Those nested runs now
-  take the default too, 4 unless they set CI-style variables. No unset protects against that, because a default is
-  computed, not inherited. Review 3 searched the tree: the only nested run that reaches the shell part with the
+- Several tests start run-tests.sh themselves, in fixture trees with a scrubbed environment. A test that drops the
+  KOSMOS_ variables (or uses env -i) loses the exported 1 and takes the default, 4 unless it sets CI-style variables.
+  Review 3 searched the tree: the only nested run that reaches the shell part with the
   default is arm 9 itself (a stub node). The others use --only (test-runner-scale-export-5727), stop at a refusal,
   only read the source, or run a fixture with --sleep (test-cut-guard). That is a search, not a run. MEASURED since:
   the full suite on this branch (83a3c146) on Mortals with the switch unset, so the default applied everywhere,

@@ -170,10 +170,10 @@ case "$KOSMOS_SHELL_PARALLEL" in
   *) echo "run-tests: KOSMOS_SHELL_PARALLEL must be a whole number from 1 to 8 (got '$KOSMOS_SHELL_PARALLEL')" >&2
      exit 2 ;;
 esac
-# The value is this run's alone: kept privately and unset, so the tests it runs (some start run-tests.sh themselves,
-# with a scrubbed environment that predates this switch) never inherit it. They still get the unset default: a nested
-# run that reaches the shell part with no CI variables and no value of its own starts 4 shards of its own tree.
-_RT_SHELL_PARALLEL="$KOSMOS_SHELL_PARALLEL"; unset KOSMOS_SHELL_PARALLEL
+# The value is this run's alone: kept privately, and everything this run starts gets 1, so a test that starts
+# run-tests.sh itself runs its shell part one at a time rather than 4 shards inside a shard. A test that scrubs the
+# environment (env -i, or dropping KOSMOS_ variables) gets the unset default instead, as any run with no value does.
+_RT_SHELL_PARALLEL="$KOSMOS_SHELL_PARALLEL"; export KOSMOS_SHELL_PARALLEL=1
 # #6791: which platform's share of test:shell a shard runs (tools/shell-macos-only.txt): linux or mac, only with a shard.
 if [ -n "${KOSMOS_SHELL_PLATFORM:-}" ]; then
   if [ -z "${KOSMOS_SHELL_SHARD:-}" ] || { [ "$KOSMOS_SHELL_PLATFORM" != linux ] && [ "$KOSMOS_SHELL_PLATFORM" != mac ]; }; then
