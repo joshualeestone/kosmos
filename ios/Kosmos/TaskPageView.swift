@@ -39,7 +39,6 @@ struct TaskPageView: View {
 
     // The roster's names, for an agent the project does not list.
     private var roster: [String: String] { Dictionary(client.agents.map { ($0.session, $0.name) }, uniquingKeysWith: { a, _ in a }) }
-    private func name(_ s: String) -> String { model.page?.name(s, roster: roster) ?? roster[s] ?? s }
     // The names the activity is phrased with: the project's own over the roster's (tkMemberName), as a snapshot.
     private var names: [String: String] { roster.merging(model.page?.members ?? [:]) { _, member in member } }
 
@@ -68,8 +67,7 @@ struct TaskPageView: View {
                 model.onScreen = true
                 model.assistive = UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
                 model.touched()
-                startReading()
-                Task { await model.markSeen(again: true) }
+                startReading(returning: true)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)) { _ in
                 model.assistive = UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
@@ -83,8 +81,7 @@ struct TaskPageView: View {
                 guard visible else { return }
                 if phase == .active {
                     model.touched()
-                    startReading()
-                    Task { await model.markSeen(again: true) }
+                    startReading(returning: true)
                 } else { loop?.cancel(); loop = nil }
             }
             .onChange(of: model.activityKey) { _ in Task { await model.markSeen() } }
@@ -92,16 +89,17 @@ struct TaskPageView: View {
 
     // Read now and every 5 seconds: the task while the page is on screen, its activity and the seen mark only while the
     // person is there (TaskPageModel.shouldReadTask / shouldReadActivity, the board's tick), so a state that landed while
-    // they were idle is marked within one tick of their coming back.
-    private func startReading() {
+    // they were idle is marked within one tick of their coming back. `returning` (the page appearing, the app coming
+    // back) records the state once more, as the board's tkTabReturn does, but only the state just read and drawn: a
+    // read that fails records nothing, so a nudge that arrived while they were away is never marked before it is shown.
+    private func startReading(returning: Bool = false) {
         loop?.cancel()
         loop = Task {
             var first = true
             while !Task.isCancelled {
                 if first || model.shouldReadTask { await model.read() }
                 if model.shouldReadActivity(first: first) {
-                    await model.readActivity(names: names)
-                    await model.markSeen()
+                    if await model.readActivity(names: names) { await model.markSeen(again: first && returning) }
                 }
                 first = false
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
