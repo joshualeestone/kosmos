@@ -1718,7 +1718,7 @@ extension Board {
     static func failedLine(_ row: ChatRow, newestMineAt: String?, flying: Bool) -> FailedLine? {
         guard row.who == .person, row.notSent == failedWords || (row.retrying && flying) else { return nil }
         let newest = newestMineAt == nil || newestMineAt == row.atRaw
-        let canRetry = row.canSendAgain && newest && fitsBoard(row.text)
+        let canRetry = row.canSendAgain && newest
         let button = flying && (canRetry || row.retrying) ? "sending\u{2026}" : canRetry ? "try again" : nil
         return FailedLine(button: button, canRetry: canRetry && !flying, because: sentence(row.because ?? "we could not reach them"))
     }
@@ -1726,7 +1726,7 @@ extension Board {
     // POST /api/agent/<name>/thread {text, retry_of}: the board's dmRetrySend. The words go exactly as the row holds them
     // (the Mac takes the retry only with these words).
     static func retryRequest(mac: URL, session: String, text: String, retryOf at: String) -> URLRequest? {
-        guard isAgentSession(session), fitsBoard(text), !at.isEmpty else { return nil }
+        guard isAgentSession(session), !at.isEmpty else { return nil }
         var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Accept")

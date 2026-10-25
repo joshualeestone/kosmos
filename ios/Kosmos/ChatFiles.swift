@@ -17,7 +17,7 @@ struct FilesBubble: View {
     let widthShare: CGFloat
     let open: (Board.Attachment) -> Void
     var mine = false
-    // kosmos#7071: drawn faded when it can be sent again, as a text bubble is; and what VoiceOver says for the bubble
+    // kosmos#7071: drawn faded when the caller asks; and what VoiceOver says for the bubble
     // (who and when) before its cards.
     var faded = false
     var spoken: String? = nil
