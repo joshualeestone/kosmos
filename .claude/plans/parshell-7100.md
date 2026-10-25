@@ -18,7 +18,15 @@ parallel node part. CI already splits the list into shards on separate runners (
   traps call `kosmos_shell_parallel_stop` first, which TERMs every running shard's whole group, the test it is
   running included, waits up to about 2 s for the groups to be gone (review 2), and the folder is removed. A shard leaves `KOSMOS_SHELL_PARALLEL_PIDS` as soon as it has been
   waited on, so the trap never signals a pid another process may have taken since (review 1).
-- A line is printed as each shard ends, so a parallel run is not silent until the last one.
+- A line per shard says its status when it is waited on. Shards are waited on in shard order (bash 3.2 has no
+  wait -n), so a shard that ended before a lower-numbered one is reported when that one ends, with the time it was
+  seen ended (review 3).
+- The value is copied to `_RT_SHELL_PARALLEL` and `KOSMOS_SHELL_PARALLEL` is unset once validated, so the tests a run
+  starts never inherit it: several start run-tests.sh themselves with a scrubbed environment that predates the switch,
+  and one (tools.shell-shard-4317.test.js) would have reddened on the inherited value (review 3).
+- The stop also signals the group of a shard already waited on while that group still has a member (something its
+  tests left running). A group id cannot be taken by another group while its own has a member (review 3).
+- CLAUDE.md's Test section names the switch.
 - tools/release.sh's #5934 guard refuses KOSMOS_SHELL_PARALLEL other than 1 before the bump (review 1, BLOCKER): a
   leftover value would have run a cut's step 3 in parallel, or stopped it after the bump. Arms in
   tools/test-cut-testpart-guard-5934.sh (4, 0 and empty refuse; 1 is allowed).
@@ -38,6 +46,10 @@ parallel node part. CI already splits the list into shards on separate runners (
 - Collision freedom is not shown by this branch. The static sweep found about 60 candidate files (fixed ports 15,
   literal /tmp 16, kill by pattern 13, real HOME paths 16, the machine claim 7, launchd 1, tmux 1). A concurrent run on
   Mortals is the measurement (serial, then two runs of 4 shards, same tree), and it can miss a race.
+- The Mortals experiment's two parallel runs exported KOSMOS_SHELL_PARALLEL=4 to every test (the unset above came
+  after it, in review 3). A shell test that starts run-tests.sh with a scrubbed environment could red there for that
+  reason, which is not a collision: such reds are read against this before they count.
+- A trap that runs between a shard's fork and its perl setpgrp finds no group to signal, and that shard runs on.
 - A TERM is asynchronous: a shard's test that takes longer than the stop's 2 s wait to exit may still be running
   when the trap's later steps (the launchd boot-out, removing the run root) run. A test that puts itself in another process group (setsid) is not reached.
 - The Mortals experiment measures tree 48d671ee, before review 1's changes to the harness (process groups, the pid
@@ -48,7 +60,10 @@ parallel node part. CI already splits the list into shards on separate runners (
 - The summary line's time is whole seconds from `date +%s`.
 
 ## Validation
-- tools/test-shell-parallel-7100.sh: 12 arms pass (the parallel and cut-env refusal arm added in review 2; its
+- tools/test-shell-parallel-7100.sh: 14 arms pass, plain and with a CI shard's environment (KOSMOS_SHELL_SHARD,
+  KOSMOS_SHELL_PLATFORM, KOSMOS_SHELL_CUT_ENV=1, GITHUB_ACTIONS=true), which reddened the cut-env arm before review 3
+  scrubbed it. Review 3's mutants, each red on its own arm: a stop that ignores waited-on shards (the leftover arm);
+  run-tests.sh without the unset (the private-switch tripwire). Earlier: 12 arms (the parallel and cut-env refusal arm added in review 2; its
   mutant was reasoned, not run: without the refusal, the CI-only cut-env check refuses first with another message,
   which the arm's message check rejects). Mutants, each red on its own arm: a serial runner (barrier and
   green); the last red's status (reds); killing the shard's pid, not its group (interruption); a line after the

@@ -163,6 +163,9 @@ case "$KOSMOS_SHELL_PARALLEL" in
   *) echo "run-tests: KOSMOS_SHELL_PARALLEL must be a whole number from 1 to 8 (got '$KOSMOS_SHELL_PARALLEL')" >&2
      exit 2 ;;
 esac
+# The value is this run's alone: kept privately and unset, so the tests it runs (some start run-tests.sh themselves,
+# with a scrubbed environment that predates this switch) never inherit it.
+_RT_SHELL_PARALLEL="$KOSMOS_SHELL_PARALLEL"; unset KOSMOS_SHELL_PARALLEL
 # #6791: which platform's share of test:shell a shard runs (tools/shell-macos-only.txt): linux or mac, only with a shard.
 if [ -n "${KOSMOS_SHELL_PLATFORM:-}" ]; then
   if [ -z "${KOSMOS_SHELL_SHARD:-}" ] || { [ "$KOSMOS_SHELL_PLATFORM" != linux ] && [ "$KOSMOS_SHELL_PLATFORM" != mac ]; }; then
@@ -833,7 +836,7 @@ elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
   fi
   if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
     ${_rt_shell_wrap[@]+"${_rt_shell_wrap[@]}"} node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}" ${KOSMOS_SHELL_PLATFORM:+"$KOSMOS_SHELL_PLATFORM"}
-  elif [ "$KOSMOS_SHELL_PARALLEL" != 1 ]; then
+  elif [ "$_RT_SHELL_PARALLEL" != 1 ]; then
     # #7100: the n shards at once. Each writes its own log, in a folder beside the run root (inside it, the leak guard
     # would read the logs as a new temp family), and the logs are printed in shard order once all have ended. The part
     # is red when any shard is red. The EXIT traps above stop each shard as a whole process group (its running test
@@ -844,7 +847,9 @@ elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
       (exit 2)   # the status NODE_STATUS=$? reads below the fi
     else
       . "$REPO/tools/lib/shell-parallel.sh"
-      kosmos_shell_parallel "$KOSMOS_SHELL_PARALLEL" "$_rt_ps_dir" ${_rt_shell_wrap[@]+"${_rt_shell_wrap[@]}"} node "$REPO/tools/shell-shard.js" run
+      # No cut-shape wrapper here: KOSMOS_SHELL_CUT_ENV=1 is refused with this switch, and its wrapper is a shell
+      # function that a shard started through exec could not run.
+      kosmos_shell_parallel "$_RT_SHELL_PARALLEL" "$_rt_ps_dir" node "$REPO/tools/shell-shard.js" run
       _rt_ps_rc=$?
       rm -rf "$_rt_ps_dir"; _rt_ps_dir=""
       (exit "$_rt_ps_rc")   # the status NODE_STATUS=$? reads below the fi

@@ -26,7 +26,7 @@ if [ -n "$g" ]; then
   SRC="$(sed -n "${g},\$p" "$R" | sed '/^fi$/q')"
   case "$SRC" in *fi) ok "guard extracted whole, through its fi" ;; *) bad "guard has no fi line to extract through" ;; esac
 
-  # run <expected rc> <label> [VAR=value ...]: all three variables are unset first, then the arm's own are set.
+  # run <expected rc> <label> [VAR=value ...]: every variable the guard reads is unset first, then the arm's own are set.
   run() {
     want="$1"; label="$2"; shift 2
     out="$(env -u KOSMOS_TEST_PART -u KOSMOS_TEST_PART_LOCAL -u KOSMOS_SHELL_SHARD -u KOSMOS_SHELL_PLATFORM -u KOSMOS_SHELL_PARALLEL "$@" bash -c "set -euo pipefail; $SRC" 2>&1)"; rc=$?
