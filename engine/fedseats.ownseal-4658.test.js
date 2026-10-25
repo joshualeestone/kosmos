@@ -225,9 +225,11 @@ test('#4658 slice 2: a computer waiting to be let into an unsealed room holds it
   say(seat, { event: 'message', data: o.offer });
   await settle();
   const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit, hello.pub);
-  // A clear from any other key is never taken.
-  const other = handOwner('room-c1', hello);
-  say(seat, { event: 'message', data: other.clear(nW) });
+  // A clear from any other key is never taken, even one bound to this very run's nonces (only the owner key differs).
+  const other = fedseal.newKeyPair();
+  const forged = fedseal.ownClearFrame(other, { mac: hello.mac, pub: hello.pub, nW, nO: o.nO },
+    fedseal.compareCode('room-c1', hello.mac, hello.pub, other.pub, nW, o.nO), 'room-c1');
+  say(seat, { event: 'message', data: forged });
   await settle();
   const code = fedseal.compareCode('room-c1', MY_MAC, hello.pub, o.owner.pub, nW, o.nO);
   assert.deepStrictEqual(await fedseats.confirmOwn('own-c1', code), { ok: true, because: null });
@@ -237,6 +239,24 @@ test('#4658 slice 2: a computer waiting to be let into an unsealed room holds it
   assert.strictEqual(fedseal.roomState('own-c1'), null, 'the waiting record stayed');
   assert.strictEqual(federation.linkFor('own-c1').pendingClear, false);
   assert.ok(seat.written.join('').includes('waiting words'), 'the held post did not go once let in');
+});
+
+test('#4658 slice 2: a clear that arrives BEFORE the person confirms is kept, and the confirm lets the posts go', async () => {
+  const { seat, hello } = await pendingComputer('own-c3', 'room-c3');
+  fedseats.post('own-c3', { from: 'Josh', kind: 'person', text: 'early clear words' });
+  await settle();
+  const o = handOwner('room-c3', hello);
+  say(seat, { event: 'message', data: o.offer });
+  await settle();
+  const nW = fedseal.checkOwnReveal(revealOf(seat), MY_MAC, o.owner.pub, hello.commit, hello.pub);
+  say(seat, { event: 'message', data: o.clear(nW) });
+  await settle();
+  assert.ok(!seat.written.join('').includes('early clear words'), 'let in before its person confirmed');
+  const code = fedseal.compareCode('room-c3', MY_MAC, hello.pub, o.owner.pub, nW, o.nO);
+  assert.deepStrictEqual(await fedseats.confirmOwn('own-c3', code), { ok: true, because: null });
+  await settle();
+  assert.strictEqual(fedseal.roomState('own-c3'), null);
+  assert.ok(seat.written.join('').includes('early clear words'), 'the confirm did not let the held post go');
 });
 
 test('#4658 slice 2: a sealed frame while waiting makes the room sealed, and a clear is refused from then on', async () => {
