@@ -49,12 +49,12 @@ function chk(ok, label, extra) {
   if (!ok) fail.push(label);
 }
 
-// Two computers let in at noon UTC (so the day is the same in every time zone the check runs in), a week and three
-// weeks before today: fixed dates would cross into a later year and gain the year the rows add for another year.
+// Two computers let in at noon UTC (so the day is the same in every time zone the check runs in), in June of the year
+// the check runs: the rows add the year only for another year, so these never carry one.
 const DAY = 86400000;
-const NOON_TODAY = (() => { const d = new Date(); d.setUTCHours(12, 0, 0, 0); return d.getTime(); })();
-const AT_DESK = NOON_TODAY - 7 * DAY;
-const AT_LAPTOP = AT_DESK - 14 * DAY;
+const THIS_YEAR = new Date().getFullYear();
+const AT_LAPTOP = Date.UTC(THIS_YEAR, 5, 1, 12);
+const AT_DESK = Date.UTC(THIS_YEAR, 5, 15, 12);
 const REFUSAL = 'That computer was not taken out: the room\'s key could not be changed right now; try again.';
 
 (async () => {
@@ -318,6 +318,45 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           release();
           await page.waitForFunction((box) => document.getElementById('mem-modal').hidden && /^Removed\./.test((document.querySelector(box + ' .fmsg') || {}).textContent || ''), BOX, { timeout: 8000 }).catch(() => null);
           chk(/^Removed\./.test(await page.evaluate((box) => (document.querySelector(box + ' .fmsg') || {}).textContent || '', BOX)), `${E} then the answer closes it and says Removed`);
+          // The federation gate under an open dialog: a signup reading (one poll) leaves it open and Remove it posts nothing;
+          // hidden closes it, the section empties, and focus is left on something a person can see.
+          state.allowed = state.allowed.filter((x) => x.pub !== 'pub-desk').concat([{ pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }]);
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
+          await openOn('pub-desk');
+          const beforeGate = posted.length;
+          await page.evaluate(() => fedGateStamp({ sourceChannel: 'prod', federationLive: true, kosmos_plus: false }));
+          await page.click('#mem-go');
+          const su = await page.evaluate(() => ({ open: !document.getElementById('mem-modal').hidden, msg: document.getElementById('mem-msg').textContent }));
+          chk(su.open && /^Removing is not available just now\./.test(su.msg) && posted.length === beforeGate,
+            `${E} a signup reading leaves the dialog open, and Remove it then says so and posts nothing`, JSON.stringify(su));
+          await page.evaluate(() => fedGateStamp({ sourceChannel: 'prod', federationLive: false, kosmos_plus: true }));
+          const hid = await page.evaluate((box) => {
+            const ae = document.activeElement;
+            return { open: !document.getElementById('mem-modal').hidden, rows: document.querySelectorAll(box + ' [data-own-act="remove"]').length,
+              seen: !ae || ae === document.body || ae.getClientRects().length > 0, inModal: !!(ae && ae.closest && ae.closest('#mem-modal')) };
+          }, BOX);
+          chk(!hid.open && hid.rows === 0 && hid.seen && !hid.inModal, `${E} the gate going hidden closes the dialog and leaves focus somewhere visible`, JSON.stringify(hid));
+          await page.evaluate(() => fedGateStamp({ sourceChannel: 'prod', federationLive: true, kosmos_plus: true }));
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
+          // No answer in time: the dialog closes, the section says the timed-out sentence, and the computer stays listed.
+          await openOn('pub-desk');
+          await page.evaluate(() => { FED_ACT_LIMIT_MS = 200; });
+          const answeredT = answered;
+          release = held();
+          await page.click('#mem-go');
+          await page.waitForFunction(() => document.getElementById('mem-modal').hidden, null, { timeout: 4000 }).catch(() => null);
+          const to = await page.evaluate((box) => ({ open: !document.getElementById('mem-modal').hidden, msg: (document.querySelector(box + ' .fmsg') || {}).textContent || '',
+            listed: !!document.querySelector(box + ' [data-own-act="remove"][data-own-pub="pub-desk"]') }), BOX);
+          chk(!to.open && to.msg === 'Kosmos did not hear back in time. Check the list to see whether it went through.' && to.listed,
+            `${E} a remove with no answer in time closes the dialog, says so in the section, and keeps the row`, JSON.stringify(to));
+          await page.evaluate(() => { FED_ACT_LIMIT_MS = 60000; });
+          release();
+          await until(() => answered > answeredT, 4000);
+          state.allowed = state.allowed.filter((x) => x.pub !== 'pub-desk').concat([{ pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }]);
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
           // Rows let in the same day carry the time, and the same minute their place too: no two labels alike.
           const T2 = AT_DESK + 30 * 60000;   // half an hour after noon UTC: the same day as AT_DESK in every time zone
           state.allowed = [{ pub: 'pub-laptop', mac: 'mac-1', at: AT_LAPTOP }, { pub: 'pub-desk', mac: 'mac-2', at: AT_DESK },
@@ -338,7 +377,7 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           await page.click('#mem-keep');
           await page.waitForFunction(() => document.getElementById('mem-modal').hidden, null, { timeout: 4000 }).catch(() => null);
           // A row the board gave no time for is named by its place; one from another year carries the year.
-          const LAST_YEAR = new Date(NOON_TODAY).getUTCFullYear() - 1;
+          const LAST_YEAR = THIS_YEAR - 1;
           state.allowed = [{ pub: 'pub-laptop', mac: 'mac-1', at: AT_LAPTOP }, { pub: 'pub-old', mac: 'mac-old', at: Date.UTC(LAST_YEAR, 5, 1, 12) },
             { pub: 'pub-z', mac: 'mac-z', at: 0 }];
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);

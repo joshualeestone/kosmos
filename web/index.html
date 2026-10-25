@@ -81906,7 +81906,8 @@ async function fedOwnRemoveGo() {
   const go = document.getElementById('mem-go');
   const dlgLine = document.getElementById('mem-msg');
   if (!fedShow()) { dlgLine.textContent = 'Removing is not available just now. Try again in a moment.'; return; }
-  if (f.gen !== FED_OWN_GEN || PJ_CURRENT !== f.project || FED_OWN_BUSY === f.project) return;
+  if (f.gen !== FED_OWN_GEN || PJ_CURRENT !== f.project) return;
+  if (FED_OWN_BUSY === f.project) { dlgLine.textContent = 'Another change to this room is still being made. Try again in a moment.'; return; }
   // Focus moves to Cancel BEFORE Remove it is disabled, as fedRemoveGo does, so it never drops to the page.
   document.getElementById('mem-keep').focus();
   go.disabled = true;
