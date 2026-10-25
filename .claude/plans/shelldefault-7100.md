@@ -25,7 +25,7 @@ where every local run reads it.
   end: the real run-tests.sh with a stub node that records each shell-shard.js call; unset starts run 1..4 of 4,
   GITHUB_ACTIONS=true runs 1 of 1, KOSMOS_SHELL_PARALLEL=2 is kept, empty is 1); arm 10 (a tripwire, since a test
   cannot run a cut: release.sh's export is the first code after its guard's fi, and no later code touches the
-  switch). Arms 4f to 4j cover the shard supervisor. 26 arms. (Review 1 replaced an exact-line tripwire on run-tests.sh with
+  switch). Arms 4f to 4k cover the shard supervisor. 27 arms. (Review 1 replaced an exact-line tripwire on run-tests.sh with
   arm 9: the tripwire would red on an equivalent rewrite and stay green if the value were overwritten later.)
 
 - tools/lib/shell-parallel.sh: each shard now runs under a small perl supervisor (`_KOSMOS_SHARD_SUPERVISOR`) in
@@ -64,8 +64,9 @@ where every local run reads it.
   only read the source, or run a fixture with --sleep (test-cut-guard). That is a search, not a run. MEASURED since:
   the full suite on this branch (83a3c146) on Mortals with the switch unset, so the default applied everywhere,
   nested runs included: rc 0, node 23,934 tests and 0 failed, shell part as 4 shards at once in 738 s, all green, the
-  whole suite in 1,326 s (experiment e, ended 10:10 CDT 2026-10-25). Later commits on this branch changed tests,
-  comments and the CI check, not what an unset local run does.
+  whole suite in 1,326 s (experiment e, ended 10:10 CDT 2026-10-25). That run was on an earlier head: the shard
+  supervisor and the exported 1 came after it. The closing validation of the final head is the full-suite measurement
+  of what ships, and the PR records it.
 - Arm 9 runs the real run-tests.sh to its end, so it also passes through the gates there (browser-check trailers on
   this repo's branch diff, the LaunchAgents guard). It is judged on the shard calls alone, not the exit status (review
   3), so a red elsewhere at the end does not read as a broken default.
@@ -76,11 +77,11 @@ where every local run reads it.
   independently. CI is unset in this machine's agents and suites (checked 2026-10-25), so local runs still get 4.
 
 ## Validation
-- tools/test-shell-parallel-7100.sh: 26 arms pass plainly and under a CI shard's environment
+- tools/test-shell-parallel-7100.sh: 27 arms pass plainly and under a CI shard's environment
   (`KOSMOS_SHELL_SHARD=1/2 KOSMOS_SHELL_CUT_ENV=1 GITHUB_ACTIONS=true KOSMOS_SHELL_PLATFORM=linux`).
 - Mutants, each red on its own arm: always 4 (arms 8 and 9); ignoring GITHUB_ACTIONS (arm 8); the old `:-1`
   default in run-tests.sh (arm 9); empty taking the default (arm 9); release.sh without the export, the export
   before the guard, the export inside a dead branch, and a later unset (arm 10); the old plain launcher, and a
-  supervisor that never checks its parent (arm 4f); the runner read by getppid (arm 4h); no TERM pass-through (arms 4g, 4i); no KILL after a passed TERM (arm 4i); leaving with the command while a child that ignored the TERM runs on, and the previous supervisor (arm 4j).
+  supervisor that never checks its parent (arm 4f); the runner read by getppid (arm 4h); no TERM pass-through (arms 4g, 4i); no KILL after a passed TERM (arm 4i); leaving with the command while a child that ignored the TERM runs on, and the previous supervisor (arm 4j); resetting the command's INT to default instead of passing on the inherited ignore (arm 4k).
 - test-cut-testpart-guard-5934, test-cut-shape-6977, test-sleep-control-guard-6710, test-mktemp-template-4298 and
   test-gnu-only-forms-6808 all pass.

@@ -27,8 +27,8 @@ explicitly to learn the repo's pre-PR commands and conventions.
   ones at the end. `KOSMOS_SHELL_PARALLEL=<1..8>` (#7100) sets how many shards of that list run
   at once on this computer. Unset, a local run uses 4 (measured about 3.5 times faster, with no
   new reds); CI, a CI shard and a release cut use 1. `KOSMOS_SHELL_PARALLEL=1` runs it one
-  at a time. If the runner is killed, even by a SIGKILL, each shard stops itself and what it
-  started within a few seconds (the run's temp folders stay behind).
+  at a time. If the runner is killed, even by a SIGKILL, each shard still running stops itself and its
+  group within a few seconds (the run's temp folders stay behind).
 - `yarn test:install` / `test:install-gate` exercise the installer.
 - The `windows` CI job (#1777) runs the Windows test files on a real Windows runner:
   `node tools/windows-tests.js`, which says what it selects and how it judges. A red there is
