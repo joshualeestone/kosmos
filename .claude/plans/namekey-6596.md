@@ -19,3 +19,13 @@ engine/acceptkey-6596.test.js: the connector's own words naming a key; with no s
 under the shipped list it is not, with the shipped list's words and no key; and a run that starts under the shipped list
 whose setting changes while it is out still offers nothing. 19 pass with the route tests. Arms: N1 the setting read
 again at the end, N2 the shipped-list branch removed, N3 the raw words kept: each red on its own test.
+
+## Review 2 (fixed)
+- The shipped-list words were keyed on a NAMED key and came after the held-set return, so in the usual production state
+  (a shipped list beside a held signed set, where the connector names no key) the person got the connector's neutral
+  words and lost the warning. Now keyed on the connector's sentence ("not on the list of keys this computer expects",
+  NOT_LISTED_WORDS, the board's copy of the connector's words), before the held-set return. Test: a shipped list with a
+  held set and an unnamed refusal gets the shipped list's meaning; control without the list.
+- Arms: N4 (the check after the held-set return) and N5 (keyed on a named key again) red on that test; N1b (the
+  setting read at the end) at first SURVIVED, because the later branch still used the start-time flag to block the
+  offer and the start/end test asserted only "no offer"; that test now also asserts the words, and N1b is red.
