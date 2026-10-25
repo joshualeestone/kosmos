@@ -901,16 +901,42 @@ check(projectsSource.contains("guard client.fedShown else { ownCompare[project] 
 check(projectsSource.contains("guard same(epoch), ownSeq[project] == seq else { return }"), "only the newest read for a project writes (the board's FED_OWN_SEQ)")
 check(projectsSource.contains("let read = answer.flatMap { (200...299).contains($0.1.statusCode) ? Board.parseOwnCompare($0.0) : nil }\n        ownCompare[project] = Board.ownCompareAfter(ownCompare[project], answer: read)"),
       "a 2xx JSON answer replaces, anything else is a miss under the keep rule")
-check(projectsSource.contains("func enterOwnCompare(_ project: String) { ownCompare[project] = nil; ownSeq[project, default: 0] += 1; ownAskedAt[project] = nil }")
+check(projectsSource.contains("func enterOwnCompare(_ project: String) { ownCompare[project] = nil; ownSeq[project, default: 0] += 1; ownAsk[project] = nil }")
       && roomView.contains("visible = true\n            store.enterOwnCompare(project.id)"), "entering the room starts the line empty and drops a read in the air (the board's fedOwnReset)")
 check(projectsSource.contains("Task { await self.loadOwnCompare(project) }   // kosmos#7137: with each room read, landed or not (at most every 10 s)\n        let epoch = client.chatEpoch\n        roomReads[project, default: 0] += 1"),
       "the read is asked with each room read, before it is sent, so a failing room still drops a stale line (review 2)")
-check(projectsSource.contains("if let last = ownAskedAt[project], now.timeIntervalSince(last) < Self.ownEvery { return }") && projectsSource.contains("static let ownEvery: TimeInterval = 10")
-      && boardPage.contains("const FED_OWN_REFRESH_MS = 10000;"), "asked at most every 10 seconds, the board's FED_OWN_REFRESH_MS")
-check(projectsSource.contains("ownSeq[project, default: 0] += 1; ownAskedAt[project] = nil }"), "entering the room asks at once")
+// The pace (review 3: tested as behaviour, not as source): the board's fedOwnTick. Never while a read is in flight,
+// then only once the last read finished more than 10 s ago (answered or missed), and at once the first time.
+let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+check(Board.ownShouldAsk(nil, now: t0, every: 10), "pace: the first ask is at once")
+check(!Board.ownShouldAsk(Board.OwnAsk(inFlight: true, doneAt: nil), now: t0, every: 10), "pace: never while the first read is in flight")
+check(!Board.ownShouldAsk(Board.OwnAsk(inFlight: true, doneAt: t0), now: t0.addingTimeInterval(60), every: 10),
+      "pace: never while a read is in flight, however long ago the last finished (a slow answer is never dropped by a new ask)")
+check(!Board.ownShouldAsk(Board.OwnAsk(inFlight: false, doneAt: t0), now: t0.addingTimeInterval(5), every: 10), "pace: not 5 s after the last finished")
+check(!Board.ownShouldAsk(Board.OwnAsk(inFlight: false, doneAt: t0), now: t0.addingTimeInterval(10), every: 10), "pace: not at exactly 10 s (the board's >)")
+check(Board.ownShouldAsk(Board.OwnAsk(inFlight: false, doneAt: t0), now: t0.addingTimeInterval(10.5), every: 10), "pace: again once 10 s have passed since it finished")
+check(Board.ownShouldAsk(Board.OwnAsk(inFlight: false, doneAt: nil), now: t0, every: 10), "pace: asked again at once when nothing has finished and nothing is in flight")
+// A slow route: answers take 12 s while the room reads every 5 s. With the pace above every read lands (none is
+// cut short by the next ask), so three misses in a row drop the line, as the board's.
+var simAsk: Board.OwnAsk? = nil, simKept: Board.OwnCompareKept? = Board.OwnCompareKept(compare: sealedC, missed: 0), simLanding: Date? = nil, simAsked = 0
+for tick in 0..<40 {
+    let now = t0.addingTimeInterval(Double(tick) * 5)
+    if let l = simLanding, now >= l { simAsk = Board.OwnAsk(inFlight: false, doneAt: now); simKept = Board.ownCompareAfter(simKept, answer: nil); simLanding = nil }
+    if Board.ownShouldAsk(simAsk, now: now, every: 10) { simAsk = Board.OwnAsk(inFlight: true, doneAt: simAsk?.doneAt); simLanding = now.addingTimeInterval(12); simAsked += 1 }
+}
+check(simKept?.compare == nil && (simKept?.missed ?? 0) >= 3 && simAsked < 40, "pace: a 12 s route still lands every read, so a stale line drops at the third miss, and it is not asked on every room read")
+check(boardPage.contains("const due = !o || o.project !== PJ_CURRENT || (!document.hidden && Date.now() - (o.at || 0) > FED_OWN_REFRESH_MS);")
+      && boardPage.contains("if (PJ_CURRENT && due && !asking && FED_OWN_BUSY !== PJ_CURRENT) fedOwnLoad(PJ_CURRENT);")
+      && boardPage.contains("const FED_OWN_REFRESH_MS = 10000;") && projectsSource.contains("static let ownEvery: TimeInterval = 10"),
+      "the board's pace: due 10 s after the last read finished, never while one is asking")
+// The store's use of it (the store is not compiled here, so its wiring is read from its source).
+check(projectsSource.contains("guard Board.ownShouldAsk(ownAsk[project], now: Date(), every: Self.ownEvery) else { return }\n        ownAsk[project, default: Board.OwnAsk()].inFlight = true")
+      && projectsSource.contains("guard same(epoch), ownSeq[project] == seq else { return }\n        ownAsk[project] = Board.OwnAsk(inFlight: false, doneAt: Date())"),
+      "the store asks only when the pace allows, marks the read in flight, and stamps it done when it lands")
+check(projectsSource.contains("ownSeq[project, default: 0] += 1; ownAsk[project] = nil }"), "entering the room asks at once")
 check(projectsSource.contains("func ownSealLine(_ project: String) -> String? { Board.ownSealLine(ownCompare[project]?.compare, fedShown: client.fedShown) }"),
       "the drawn line is gated on the client's fedShown (review 2: a store that ignored the gate passed)")
-check(projectsSource.contains("needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAskedAt = [:]"), "another account or computer forgets the reads")
+check(projectsSource.contains("needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAsk = [:]"), "another account or computer forgets the reads")
 check(projectsSource.contains("    @discardableResult\n    func loadRoom(_ project: String) async -> Bool {"), "loadRoom keeps its @discardableResult (review 1: a function placed between them took it)")
 let clientSource = (try? String(contentsOf: here.appendingPathComponent("../../Kosmos/BoardClient.swift"), encoding: .utf8)) ?? ""
 check(clientSource.contains("fedShown = Board.fedShown(fromStatus: data)") && clientSource.contains("projectsUnread = nil\n        fedShown = false"),

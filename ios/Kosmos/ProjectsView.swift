@@ -69,7 +69,7 @@ final class RoomStore: ObservableObject {
     // line above a shared room. Never the code itself.
     @Published private(set) var ownCompare: [String: Board.OwnCompareKept] = [:]
     private var ownSeq: [String: Int] = [:]
-    private var ownAskedAt: [String: Date] = [:]
+    private var ownAsk: [String: Board.OwnAsk] = [:]
     static let ownEvery: TimeInterval = 10
     static let pageSize = 50
 
@@ -81,7 +81,7 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
-        returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAskedAt = [:]
+        returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAsk = [:]
         held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
@@ -120,28 +120,28 @@ final class RoomStore: ObservableObject {
         return false
     }
 
-    // kosmos#7137: the board's own-compare read for the line above a shared room, as its fedOwnLoad: only the newest
-    // read for a project writes (FED_OWN_SEQ); any 2xx JSON answer replaces what is kept, and a failed read keeps it
-    // through two misses (Board.ownCompareAfter). Asked at most every 10 seconds (the board's own pace), with each room
-    // read whether or not it landed, so a room that stops reading still drops a stale line at the third miss.
-    // While the shared-room UI is not shown it is not asked, and what was kept is forgotten (the board keeps it; the
-    // phone drops it, so the UI coming back never draws an old answer first).
+    // kosmos#7137: the board's own-compare read for the line above a shared room, as its fedOwnLoad and fedOwnTick:
+    // offered with each room read, landed or not, and asked only when Board.ownShouldAsk says (never while one is in
+    // flight, then 10 s after the last finished). Only the newest read for a project writes (FED_OWN_SEQ); any 2xx JSON
+    // answer replaces what is kept, and a failed read keeps it through two misses (Board.ownCompareAfter). While the
+    // shared-room UI is not shown it is not asked and what was kept is forgotten (the board keeps it).
     func loadOwnCompare(_ project: String) async {
         guard client.fedShown else { ownCompare[project] = nil; return }
-        let now = Date()
-        if let last = ownAskedAt[project], now.timeIntervalSince(last) < Self.ownEvery { return }
-        ownAskedAt[project] = now
+        guard Board.ownShouldAsk(ownAsk[project], now: Date(), every: Self.ownEvery) else { return }
+        ownAsk[project, default: Board.OwnAsk()].inFlight = true
         let epoch = client.chatEpoch
         ownSeq[project, default: 0] += 1
         let seq = ownSeq[project]!
         let answer = await client.throughMac { Board.ownCompareRequest(mac: $0, project: project) }
+        // A read from before an entry or an account change is dropped; those reset ownAsk, so nothing is left in flight.
         guard same(epoch), ownSeq[project] == seq else { return }
+        ownAsk[project] = Board.OwnAsk(inFlight: false, doneAt: Date())
         let read = answer.flatMap { (200...299).contains($0.1.statusCode) ? Board.parseOwnCompare($0.0) : nil }
         ownCompare[project] = Board.ownCompareAfter(ownCompare[project], answer: read)
     }
     // Entering the room starts it empty, as the board's fedOwnReset on entering a project: a previous visit's answer is
-    // not drawn before this visit's read lands. A newer seq drops a read still in the air.
-    func enterOwnCompare(_ project: String) { ownCompare[project] = nil; ownSeq[project, default: 0] += 1; ownAskedAt[project] = nil }
+    // not drawn before this visit's read lands, a read still in the air is dropped (a newer seq), and it asks at once.
+    func enterOwnCompare(_ project: String) { ownCompare[project] = nil; ownSeq[project, default: 0] += 1; ownAsk[project] = nil }
     func ownSealLine(_ project: String) -> String? { Board.ownSealLine(ownCompare[project]?.compare, fedShown: client.fedShown) }
 
     // The newest page, merged into what is shown (a post written late can land inside it; ios/README.md).

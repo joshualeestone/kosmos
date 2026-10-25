@@ -50,3 +50,12 @@ Card: kosmos#7137 (filed by me from a board-vs-phone sweep; the board's #pj-fed-
   typeof check; the loader's comment says the phone forgets the answer while the UI is off where the board keeps it.
   Recorded: the clear on every onAppear (decided in round 1). Room 428/428; every suite; both builds, no warnings in
   the changed files.
+- Round 3: 0 blockers, 2 warnings, 3 nits. Fixed: the pace is the board's fedOwnTick as a pure, tested value
+  (Board.ownShouldAsk / OwnAsk): never while a read is in flight, again only 10 s after the last read FINISHED (answer
+  or miss), at once the first time; the store marks a read in flight and stamps it done when it lands. A simulated
+  12 s route under a 5 s room loop now lands every read and drops a stale line at the third miss (the round's
+  starvation case). The two source-only pins that let the throttle and the seq be broken are replaced by behaviour
+  tests; broken copies (in flight ignored, >= for >) each go red. Nit fixed: the loader comment no longer claims the
+  UI coming back never draws an old answer. Recorded: the Debug sample room makes no own-compare read, so no sample
+  shot shows the line (the simulator shot run is not permitted on this machine, #7055, so no shots either way); the
+  onAppear clear, decided in round 1. Room 437/437; every suite; both builds, no warnings in the changed files.

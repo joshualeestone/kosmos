@@ -727,6 +727,18 @@ extension Board {
         let missed = (prev?.missed ?? 0) + 1
         return OwnCompareKept(compare: missed < 3 ? prev?.compare : nil, missed: missed)
     }
+    // The board's fedOwnTick pace: never while a read is in flight (FED_OWN_ASKING), and again once the last read
+    // finished, answered or missed, more than `every` ago (FED_OWN.at, FED_OWN_REFRESH_MS). The first ask is at once.
+    struct OwnAsk: Equatable {
+        var inFlight = false
+        var doneAt: Date? = nil
+    }
+    static func ownShouldAsk(_ s: OwnAsk?, now: Date, every: TimeInterval) -> Bool {
+        guard let s else { return true }
+        if s.inFlight { return false }
+        guard let done = s.doneAt else { return true }
+        return now.timeIntervalSince(done) > every
+    }
     // The board's #pj-fed-own-phone sentences, said from the phone: the board's "this computer" is the person's
     // computer here, and the phone has no Members code section of its own (its room's Members button opens the board), so
     // the code is said to be on your computer's board, as the phone's other lines name it.
