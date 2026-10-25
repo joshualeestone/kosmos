@@ -12,13 +12,15 @@ they fill the REAL disk (it happened here: ~95 GB in two minutes before it was s
 ## Fix
 - Attach at a private mount point inside the run's temp folder (`-mountpoint "$TMP/mnt"`) under a per-run volume name
   (`s6651-$$`): nothing is parsed from hdiutil's output, so no other volume can move where the run writes.
-- A same-named decoy is mounted the default way first, so every run carries the collision and a check asserts the
-  writes landed on the run's own image (the built-in control the card asks for).
+- A same-named decoy is mounted the default way first, so every run carries the collision; it is optional scaffolding
+  (if it cannot be mounted, only the #7127 check says SKIP). A check asserts the writes landed on the run's own image, a
+  filesystem of its own, and not in ./1/.
 - Both `dd` fills are bounded to 16 MB (twice the image), so a wrong DISK can never fill a real disk.
 
 ## Not done
-- Sweeping images leaked by killed runs at start: after this fix a leaked image sits at a private path and affects
-  nothing, so it is a resource leak until reboot, not a correctness one.
+- Sweeping images leaked by killed runs at start. A killed run leaks two images: its own (at a private path) and the
+  decoy (at /Volumes/s6651-<pid>, visible machine-wide). Per-run names mean neither can collide with a later run, so
+  this is a resource leak until reboot or a manual detach, not a correctness one.
 
 ## Checks
 - the test passes; it passes again with a killed run's image still mounted (simulated with kill -KILL)

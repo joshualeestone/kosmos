@@ -23,8 +23,9 @@ DISK=""
 DECOY=""
 cleanup() {
   [ -n "${LIVE:-}" ] && kill "$LIVE" 2>/dev/null
-  [ -n "$DISK" ] && hdiutil detach -quiet "$DISK" >/dev/null 2>&1
-  [ -n "$DECOY" ] && hdiutil detach -quiet "$DECOY" >/dev/null 2>&1
+  # A busy volume is forced off, so the rm below never runs inside a still-mounted image.
+  [ -n "$DISK" ] && { hdiutil detach -quiet "$DISK" || hdiutil detach -quiet -force "$DISK"; } >/dev/null 2>&1
+  [ -n "$DECOY" ] && { hdiutil detach -quiet "$DECOY" || hdiutil detach -quiet -force "$DECOY"; } >/dev/null 2>&1
   rm -rf "${TMP:?}"
 }
 trap cleanup EXIT
@@ -133,13 +134,19 @@ fi
 
 # A full disk: the card's own case. A name is an empty file, so it needs no data block.
 # kosmos#7127: this run's own volume name and its own mount point inside $TMP, so nothing is read back from hdiutil's
-# output and no other image (a run stopped with kill -KILL never runs the EXIT trap, so its image stays mounted, and
-# macOS would mount the next one as "/Volumes/s6651 1") can change where this run writes.
-# A decoy with the same name, mounted the default way first, puts the collision in place on every run, so the checks
-# below show where this run writes rather than assume it (detached by its device, never by a parsed mount point).
+# output to decide where this run writes. A run stopped with kill -KILL never runs the EXIT trap, so its images stay
+# mounted; with a fixed name macOS mounted the next as "/Volumes/s6651 1", and the old parse sent the writes to ./1/.
+# A same-named decoy, mounted the default way first, puts that collision in place on every run. It is scaffolding for
+# the #7127 check only: if it cannot be mounted, that check says SKIP and the full-disk case still runs. (A killed run
+# leaks the decoy at /Volumes/s6651-<pid> as well as its own image; per-run names mean neither can collide.)
+if command -v hdiutil >/dev/null 2>&1; then
+  if hdiutil create -quiet -size 4m -fs APFS -volname "s6651-$$" "$TMP/decoy.dmg" >/dev/null 2>&1; then
+    # The decoy is detached by its device node (first field of attach's first line), which carries no spaces.
+    DECOY="$(hdiutil attach -nobrowse "$TMP/decoy.dmg" 2>/dev/null | awk 'NR == 1 { print $1 }')"
+  fi
+  [ -n "$DECOY" ] || echo "SKIP  #7127 collision check: the decoy volume could not be mounted"
+fi
 if command -v hdiutil >/dev/null 2>&1 && mkdir -p "$TMP/mnt" \
-   && hdiutil create -quiet -size 4m -fs APFS -volname "s6651-$$" "$TMP/decoy.dmg" >/dev/null 2>&1 \
-   && DECOY="$(hdiutil attach -nobrowse "$TMP/decoy.dmg" 2>/dev/null | awk 'NR == 1 { print $1 }')" && [ -n "$DECOY" ] \
    && hdiutil create -quiet -size 8m -fs APFS -volname "s6651-$$" "$TMP/full.dmg" >/dev/null 2>&1 \
    && hdiutil attach -quiet -nobrowse -mountpoint "$TMP/mnt" "$TMP/full.dmg" >/dev/null 2>&1 && DISK="$TMP/mnt"; then
   # Bounded (twice the 8 MB image), never "until the disk is full": if DISK were ever the wrong path, an unbounded dd
@@ -157,9 +164,10 @@ if command -v hdiutil >/dev/null 2>&1 && mkdir -p "$TMP/mnt" \
     out="$(KOSMOS_HOME="$DISK" kosmos_clear_stranded_pause full-disk 2>/dev/null)"
     { [ ! -e "$DISK/board.stopped" ] && [ -z "$out" ]; } && ok "the clear works on a full disk, and its failed log line does not leak to stdout" \
       || bad "full-disk clear: marker $( [ -e "$DISK/board.stopped" ] && echo left || echo gone ), stdout '$out'"
-    # kosmos#7127: the writes above went to this run's own disk, with a same-named volume mounted beside it.
-    { [ -e "$DISK/fill" ] && [ ! -e "/Volumes/s6651-$$/fill" ] && [ ! -e "1/board.stopped" ]; } \
-      && ok "a same-named volume already mounted does not move where the full-disk case writes (#7127)" \
+    # kosmos#7127: the writes went to this run's own image, a filesystem of its own, and not to ./1/ (where the old
+    # parse sent them). The device check fails if the attach left $TMP/mnt a plain folder.
+    { [ "$(stat -f %d "$DISK")" != "$(stat -f %d "$TMP")" ] && [ -e "$DISK/fill" ] && [ ! -e "1/board.stopped" ]; } \
+      && ok "the full-disk case writes to its own image$( [ -n "$DECOY" ] && echo ', with a same-named volume mounted beside it') (#7127)" \
       || bad "the full-disk case wrote somewhere other than its own image (#7127)"
   fi
 else
