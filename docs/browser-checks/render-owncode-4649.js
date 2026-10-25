@@ -116,8 +116,9 @@ function chk(ok, label, extra) {
           const other = await page.evaluate(() => ({ code: document.getElementById('pjs-own-code').value, row: !document.getElementById('pjs-own-row').hidden }));
           chk(other.code === '' && !other.row, `${E} another project's settings do not show the first one's code`, JSON.stringify(other));
           // The joining side: an own code for a room NOT on this board (this board's own code would
-          // be refused as already here), verified through the real /api/federation/verify.
-          const ownCodeFrom = (from) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'bc-' + from + '-' + engineName + width, name: 'From the ' + from, from }), 'utf8').toString('base64url');
+          // be refused as already here), verified through the real /api/federation/verify. Version 3, an unsealed
+          // room's code as a current board makes it: since #4658 slice 2 (#7124) verify refuses version 1 as old.
+          const ownCodeFrom = (from) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 3, ref: 'bc-' + from + '-' + engineName + width, name: 'From the ' + from, from }), 'utf8').toString('base64url');
           // An accepted code FIRST, so the refusal after it is measured on a screen that is showing a
           // project to join: the refusal has something to take away.
           const foreign = ownCodeFrom('laptop');
