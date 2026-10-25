@@ -1215,6 +1215,23 @@ do {
           "kept when it is part of a word, another case, the whole message, or a colon before a slash")
     check(Board.replyGist(Board.ChatRow(id: "n", atRaw: "T", at: nil, text: "Dana: pages are in", who: .agent), agentName: "Dana", session: "dana") == "pages are in",
           "a gist drops the agent's own name, which the header says beside it")
+    // Parity edges (review 2): code points, not characters; CRLF and the BOM trimmed; inner colon and __ forms; longest first.
+    let flags = String(repeating: "a", count: 79) + "\u{1F1FA}\u{1F1F8}" + "bbb"
+    check(Board.replyWords(flags) == String(repeating: "a", count: 79) + "\u{1F1FA}" + "\u{2026}", "the cut is by code point (a flag can be split, as the board's Array.from)")
+    check(Board.replyWords("\r\n\u{FEFF}  \r\nhello\r\nworld") == "hello", "a CRLF or a byte-order mark line is blank, as JavaScript's trim reads it")
+    check(Board.dropSelfName("**Dana:** hi", names: ["Dana"]) == "hi" && Board.dropSelfName("__Dana__: hi", names: ["Dana"]) == "hi",
+          "the bold forms with the colon inside or after")
+    check(Board.dropSelfName("Dana Claude: hi", names: ["Dana", "Dana Claude"]) == "hi", "the longest name first")
+    check(Board.dropSelfName("Dana:\u{663}", names: ["Dana"]) == "\u{663}", "a colon before a non-ASCII digit is still a name's colon (JavaScript's \\d is ASCII)")
+    check(Board.withoutStripInstruction("That message is no longer in this conversation. Press \u{00D7} to send this as a new message.")
+          == "That message is no longer in this conversation.", "the board's Press x is dropped where the bubble has its own button")
+    // A pending reply right under its original (the newest shown row) draws no header, as the kept row will not.
+    var pendingReply = Board.PendingSend(id: "pr", text: "yes", at: Date())
+    pendingReply.replyTo = rows.last!.atRaw
+    var pendingOther = Board.PendingSend(id: "po", text: "and", at: Date())
+    pendingOther.replyTo = "2026-10-24T10:00:00.000Z"
+    check(Board.pendingRepliesUnderOriginal([pendingReply], after: rows) == ["pr"] && Board.pendingRepliesUnderOriginal([pendingOther], after: rows).isEmpty,
+          "a pending reply right under its original is left out; one answering something further up is not")
 
     let reply = Board.sendRequest(mac: mac, session: "dana", text: "yes", replyTo: "2026-10-24T10:00:00.000Z")
     let replyBody = reply?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -1939,6 +1956,17 @@ section("native board loop: connecting")
         await c.post("about that", replyTo: "2026-10-20T09:00:00.000Z", to: dana)
         let stale = c.pending["dana"]!.last!
         check(stale.failed && stale.replyTo == "2026-10-20T09:00:00.000Z", "premise: the stale reply failed and keeps its reply_to")
+        let before = w.posted.count
+        // Dana stopped: the retry does not go, and the reply stays on the bubble.
+        let wasStatus = w.statusDefault
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"stopped","running":false}]}"#)
+        await c.refreshNow()
+        check(!c.isRunning(dana), "premise: Dana is not running now")
+        await c.retryWithoutReply(stale.id, to: dana)
+        check(w.posted.count == before && c.pending["dana"]?.first(where: { $0.id == stale.id })?.replyTo == "2026-10-20T09:00:00.000Z",
+              "a retry that does not go (the agent stopped) keeps the reply")
+        w.statusDefault = wasStatus
+        await c.refreshNow()
         await c.retryWithoutReply(stale.id, to: dana)
         check(w.postedReplies.last == "" && w.posted.last == "about that", "Send as a new message: the same words, with no reply_to")
         // A kept, not-sent reply sent again goes as the same reply.

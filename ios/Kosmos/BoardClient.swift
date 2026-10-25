@@ -501,7 +501,7 @@ final class BoardClient: ObservableObject {
     }
 
     // Again, for one that was not taken, only while the agent is running (the spec: no retry until the status changes).
-    func retry(_ id: String, to agent: Board.Agent) async {
+    func retry(_ id: String, to agent: Board.Agent, dropReply: Bool = false) async {
         guard !retrying.contains(id), !pressing.contains(agent.session), let i = pending[agent.session]?.firstIndex(where: { $0.id == id }),
               pending[agent.session]?[i].failed == true, isRunning(agent) else { return }
         // A second tap while this one reads or sends does nothing.
@@ -517,6 +517,8 @@ final class BoardClient: ObservableObject {
             if case .thread(let t) = read { settle(t, for: agent.session) }
         }
         guard epoch == chatEpoch, let k = pending[agent.session]?.firstIndex(where: { $0.id == id }), pending[agent.session]?[k].failed == true else { return }
+        // kosmos#7083: the reply dropped only now that it goes (a refused retry above keeps it).
+        if dropReply { pending[agent.session]?[k].replyTo = nil }
         pending[agent.session]?[k].state = .sending
         await deliver(id, to: agent)
     }
@@ -539,8 +541,7 @@ final class BoardClient: ObservableObject {
     // send it as a new message.
     func retryWithoutReply(_ id: String, to agent: Board.Agent) async {
         guard let i = pending[agent.session]?.firstIndex(where: { $0.id == id }), pending[agent.session]?[i].failed == true else { return }
-        pending[agent.session]?[i].replyTo = nil
-        await retry(id, to: agent)
+        await retry(id, to: agent, dropReply: true)
     }
 
     // MARK: Reacting (kosmos#7083, the board's DM reactions #3650)

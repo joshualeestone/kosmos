@@ -300,7 +300,7 @@ struct ChatView: View {
             PendingBubble(item: p, widthShare: widthShare, line: Board.notSentLine(agentRunning: running, name: shown.name),
                           retry: { sendWhenFree { await client.retry(p.id, to: agent) } },
                           delete: { client.discard(p.id, for: agent.session) },
-                          head: headFor(replyTo: p.replyTo),
+                          head: headFor(replyTo: p.replyTo), headHidden: pendingHeadsHidden.contains(p.id),
                           dropReply: p.replyTo == nil ? nil : { sendWhenFree { await client.retryWithoutReply(p.id, to: agent) } })
                 .padding(.top, 10)
                 .id(p.id)
@@ -337,12 +337,17 @@ struct ChatView: View {
                 let mine = row.who == .person
                 VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     // kosmos#7083: what it answers, on a message with files too.
-                    if let head = headFor(replyTo: row.replyTo), !hiddenHeads.contains(row.id) { ReplyHeadLine(head: head) }
+                    let head = headFor(replyTo: row.replyTo)
+                    if let head, !hiddenHeads.contains(row.id) { ReplyHeadLine(head: head) }
                     FilesBubble(text: Board.wordsShown(row.text, files: row.attachments), files: row.attachments,
                                 thumbnails: client.thumbnails, states: fileStates, widthShare: widthShare, open: openFile, mine: mine,
                                 faded: mine && row.canSendAgain && !client.wasSentAgain(row, for: agent.session),
-                                spoken: Board.filesRowSpoken(who: mine ? "You" : shown.name, at: row.at, text: Board.wordsShown(row.text, files: row.attachments),
-                                                             count: row.attachments.count, notSent: row.notSent))
+                                spoken: (head.map { ReplyHeadLine.words($0) + " " } ?? "")
+                                    + Board.filesRowSpoken(who: mine ? "You" : shown.name, at: row.at, text: Board.wordsShown(row.text, files: row.attachments),
+                                                           count: row.attachments.count, notSent: row.notSent))
+                        // kosmos#7083: Reply and the reactions on an agent's message with files too, from its bubble.
+                        .contextMenu { if row.who == .agent && row.atRaw != nil { replyMenu(row) } }
+                        .accessibilityActions { if row.who == .agent && row.atRaw != nil { replyMenu(row) } }
                     if !row.reactions.isEmpty {
                         ReactionPills(pills: row.reactions, toggle: row.who == .agent && row.atRaw != nil ? { e in reactTo(e, row) } : nil)
                     }
@@ -821,6 +826,11 @@ struct ChatView: View {
         return Board.replyHead(to: replyTo, in: Board.shownRows(earlier, thread: thread), agentName: shown.name, session: agent.session,
                                olderLeft: earlier.open ? earlier.before : thread.olderCount)
     }
+    // The pending messages whose header is left out (dmReplyAdjacency's `next`, carried through them in order).
+    private var pendingHeadsHidden: Set<String> {
+        guard let thread else { return [] }
+        return Board.pendingRepliesUnderOriginal(pending, after: Board.shownRows(earlier, thread: thread))
+    }
     // The rows whose header is left out on screen (dmReplyAdjacency).
     private var hiddenHeads: Set<String> {
         guard let thread else { return [] }
@@ -842,6 +852,12 @@ struct ChatView: View {
         }
         .padding(.leading, 10)
         .overlay(Rectangle().fill(Palette.separator).frame(width: 2), alignment: .leading)
+    }
+
+    // React and Reply for one of the agent's messages (the menu on a files bubble, and its VoiceOver actions).
+    @ViewBuilder private func replyMenu(_ row: Board.ChatRow) -> some View {
+        ForEach(Board.quickReactions, id: \.self) { e in Button("React with " + e) { reactTo(e, row) } }
+        Button("Reply") { startReply(row) }
     }
 
     // "Replying to Dana: ...", said when Reply is chosen, as the board announces it.
@@ -868,6 +884,7 @@ struct ChatView: View {
             case .refused(let why):
                 composerNote = why
             }
+            if case .reacted = result, composerNote != nil, composerNote != Board.choiceWaitLine { composerNote = nil }
         }
     }
 
@@ -960,7 +977,9 @@ struct ReactionPills: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(toggle == nil)
+                .allowsHitTesting(toggle != nil)
+                .accessibilityLabel(p.emoji + (p.count > 1 ? ", \(p.count)" : "") + (p.mine ? ", yours" : ""))
+                .accessibilityAddTraits(p.mine ? .isSelected : [])
             }
         }
         .padding(.horizontal, 4)
@@ -1081,11 +1100,17 @@ struct PendingBubble: View {
     let line: (text: String, canRetry: Bool)
     let retry: () -> Void
     let delete: () -> Void
-    // kosmos#7083: what it answers, drawn as the kept row will draw it, and "Send as a new message" for a reply.
+    // kosmos#7083: what it answers, drawn as the kept row will draw it (left out where the kept row's would be, though
+    // VoiceOver still hears it), and "Send as a new message" for a reply.
     var head: Board.ReplyHead? = nil
+    var headHidden = false
     var dropReply: (() -> Void)? = nil
 
-    private var reason: String? { if case .failed(let why) = item.state { return why } else { return nil } }
+    // The Mac's reason; its "Press x" (the board's strip) becomes this bubble's own button where it has one.
+    private var reason: String? {
+        guard case .failed(let why) = item.state, let why else { return nil }
+        return dropReply == nil ? why : Board.withoutStripInstruction(why)
+    }
     // Kept by the Mac but not delivered: the words its row will say, quiet, with nothing to tap (the row takes over).
     private var undelivered: String? {
         if case .keptUndelivered(_, let note) = item.state { return note }
@@ -1097,7 +1122,7 @@ struct PendingBubble: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            if let head { ReplyHeadLine(head: head) }
+            if let head, !headHidden { ReplyHeadLine(head: head) }
             if !words.isEmpty {
                 BubbleText(text: words, mine: true, tail: item.files.isEmpty, widthShare: widthShare, faded: !item.shownAsSent)
                     .modifier(TapWhen(enabled: item.failed && line.canRetry, action: retry))
@@ -1131,6 +1156,7 @@ struct PendingBubble: View {
         .accessibilityAction { if item.failed && line.canRetry { retry() } }
         // Delete only where the long-press menu offers it.
         .accessibilityActions { deleteAction }
+        .accessibilityActions { dropReplyAction }
     }
 
     @ViewBuilder private var menu: some View {
@@ -1138,9 +1164,14 @@ struct PendingBubble: View {
         if item.deletable { Button(role: .destructive, action: delete) { Label("Delete", systemImage: "trash") } }
     }
 
+    @ViewBuilder private var dropReplyAction: some View {
+        if item.failed && line.canRetry, let dropReply { Button("Send as a new message", action: dropReply) }
+    }
+
     // Split out of body so the compiler type-checks each part on its own (CI's Xcode timed out on the whole chain).
     private var spokenLabel: String {
         var said = ChatBubble.spoken(who: "You", at: item.shownAsSent ? item.at : nil, text: words)
+        if let head { said = ReplyHeadLine.words(head) + " " + said }
         if !item.files.isEmpty { said += (words.isEmpty ? "" : ", ") + Board.filesSpoken(item.files.map(\.name)) }
         if item.failed {
             said += line.canRetry ? ", not sent, double-tap to try again" : ", not sent"
