@@ -144,8 +144,11 @@ struct ChatView: View {
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .onChange(of: query) { _ in
             recomputeHiddenHeads()
-            // Clearing the search is reading at the bottom again: what loaded meanwhile is there to see.
-            if !searching { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
+            if composerNote == Board.chatSentWhileSearching { composerNote = nil }
+        }
+        // Clearing the search is reading at the bottom again: what loaded meanwhile is there to see.
+        .onChange(of: searching) { now in
+            if !now { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
         }
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
@@ -162,6 +165,7 @@ struct ChatView: View {
             unsureKey = nil
             pressLine = nil
             composerNote = nil
+            query = ""
             draftText = ""
             refusal = nil
             failedReads = 0
@@ -340,11 +344,15 @@ struct ChatView: View {
         if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { unseenNew = true }
     }
 
+    // Spoken as well: the search field keeps VoiceOver's focus, so nothing else says the thread went empty (the board's
+    // room search announces the same sentence).
     private var noMatch: some View {
         Text(Board.chatNoMatch(query)).font(.subheadline).foregroundColor(Palette.secondary)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.top, 60)
+            .onAppear { UIAccessibility.post(notification: .announcement, argument: Board.chatNoMatch(query)) }
+            .onChange(of: query) { now in UIAccessibility.post(notification: .announcement, argument: Board.chatNoMatch(now)) }
     }
 
     private var empty: some View {
@@ -849,6 +857,8 @@ struct ChatView: View {
         // The composer line goes on the next send or press (Mona Lisa's spec, section 1).
         pressLine = nil
         client.attachLine[agent.session] = nil
+        // A message that does not match the search drops out of sight once the Mac records it (the board hides it too).
+        if searching { composerNote = Board.chatSentWhileSearching }
         let text = draftText
         let files = attachedHere
         let answering = replying

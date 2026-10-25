@@ -3449,6 +3449,11 @@ do {
     check(ids("nothing like this") == [], "chat search: no match gives no rows")
     check(Board.chatNoMatch("  fix  ") == "Nothing here matches \"fix\". Clearing the search brings the conversation back.",
           "chat search: the board's no-match sentence, with the words trimmed")
+    check(Board.chatFilter(rows, agentName: "MONA LISA", query: "lisa").map(\.id) == ["a", "k", "q"],
+          "chat search: the agent's name matches in any case")
+    check(Board.chatFilter(rows, agentName: "", query: "lisa").map(\.id) == ["k"], "chat search: with no name known, an agent's row matches by text only")
+    check(Board.chatSentWhileSearching == "Once it arrives, your message shows only if it matches the search.",
+          "chat search: the line under a message sent while searching")
 }
 
 await boardLoopTests()
