@@ -45,10 +45,16 @@ through Kosmos+; it is on the device check.
 1. Photo Library and Files both open from the + menu (iOS 16 and current).
 2. A photo and a PDF send to an agent through Kosmos+, with and without words; the agent sees the files.
 3. A file held only in iCloud Drive (evicted) is fetched and sent; one over 100 MB is refused without being copied.
-4. VoiceOver on a sent files row says You, the time, the count; the + says why it is off at ten files.
+4. VoiceOver on a sent files row says You, the time, the count; on an agent's files row that has words, the words
+   are heard (they are read through the bubble's label); the + says why it is off at ten files.
+5. Switching apps during a large upload: whether it finishes or says it could not reach Kosmos.
 
 ## Deferred (with reasons)
 - No cancel for a file still being fetched from the cloud: the wait is Files', shown as Adding a file, and a cancel
   needs its own control; the device check measures how long it really is.
+- No background time for an upload (beginBackgroundTask): leaving the app mid-upload may fail it, which the line says
+  plainly and a second pick fixes; device check 5 measures it.
+- A failed pending bubble's file chip is under 44 pt tall; the not-sent line beside it is the full-size way to retry,
+  and VoiceOver's action covers it.
 - The person's files bubble uses the agent files bubble's width (at least 85%), so the file cards keep room for their
   names; the person's text bubbles keep 78%.

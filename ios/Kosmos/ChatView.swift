@@ -348,6 +348,8 @@ struct ChatView: View {
                         }
                         .font(.caption2)
                         .padding(.horizontal, 4)
+                        // The bubble's own label says the time and the not-sent word already.
+                        .accessibilityHidden(true)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
