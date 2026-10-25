@@ -402,10 +402,19 @@ for phrase in ["const WORKING_VERB = '" + Board.workingVerb + "';", "who.length 
 let before = Array(rows.prefix(3))
 let speakers = Board.newSpeakers(before: before, fresh: rows)
 check(Board.newSpeakers(before: nil, fresh: rows).isEmpty, "a room's first read marks nobody as having just spoken")
-let beforeIds = Set(before.map(\.id))
-let expectedSpeakers = Set(rows.compactMap { $0.kind == .post && !$0.byPerson && !beforeIds.contains($0.id) ? $0.from : nil })
-check(!expectedSpeakers.isEmpty && speakers == expectedSpeakers,
-      "only agents with a new post count, never the person or Kosmos: \(speakers.sorted())")
+check(speakers.sorted() == ["cleo", "eli"], "only agents with a new post in this read count, never Kosmos's lines: \(speakers.sorted())")
+// When each spoke against the status read (#1150): strictly after counts; at or before it does not; no read, nobody.
+let statusRead = Date(timeIntervalSince1970: 1_800_000_000)
+let stamps = ["early": statusRead.addingTimeInterval(-5), "same": statusRead, "late": statusRead.addingTimeInterval(5)]
+check(Board.spokeSince(stamps, statusAt: statusRead) == ["late"], "only a post after the status read hides its agent")
+check(Board.spokeSince(stamps, statusAt: nil).isEmpty, "no status read yet: nobody is hidden")
+check(Board.spokeSince([:], statusAt: statusRead).isEmpty, "nobody has spoken: nobody is hidden")
+// The names are the bold pieces (the board's <b>), and nothing else is.
+let pieces = Board.workingLineParts(["Kit", "Roo", "Pixel"]) ?? []
+check(pieces.filter(\.name).map(\.text) == ["Kit", "Roo", "Pixel"] && pieces.filter { !$0.name }.map(\.text) == [", ", ", and ", " are working\u{2026}"],
+      "the names, and only the names, are marked to be set bold")
+check(Board.workingLineParts([]) == nil, "nobody working: no pieces")
+check(boardPage.contains("working.map((a) => '<b>' + esc(a.name) + '</b>')"), "premise: the board sets each working name bold")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 

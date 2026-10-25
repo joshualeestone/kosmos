@@ -149,17 +149,30 @@ extension Board {
         let had = Set(before.map(\.id))
         return Set(fresh.compactMap { r in r.kind == .post && !r.byPerson && !had.contains(r.id) ? r.from : nil })
     }
+    // The agents whose post reached the room strictly after `statusAt`, the status read the line is drawn from (the
+    // board's learnedAt > LAST_AT). Both stamps are this phone's clock. No status read yet: nobody (there is no line).
+    static func spokeSince(_ spokeAt: [String: Date], statusAt: Date?) -> Set<String> {
+        guard let statusAt else { return [] }
+        return Set(spokeAt.filter { $0.value > statusAt }.keys)
+    }
 
     // The one word that carries the claim (the board's WORKING_VERB): working, never typing. We can see output, not that
     // it is a message to this room.
     static let workingVerb = "working"
     // "A is working…", "A and B are working…", "A, B, and C are working…" (the board's list); nil for nobody.
     static func workingLine(_ names: [String]) -> String? {
-        guard let last = names.last else { return nil }
-        let list = names.count == 1 ? last
-            : names.count == 2 ? names[0] + " and " + last
-            : names.dropLast().joined(separator: ", ") + ", and " + last
-        return list + (names.count == 1 ? " is " : " are ") + workingVerb + "\u{2026}"
+        workingLineParts(names).map { $0.map(\.text).joined() }
+    }
+    // The same line in pieces, each name marked so the room can set it bold (the board's <b>).
+    static func workingLineParts(_ names: [String]) -> [(text: String, name: Bool)]? {
+        guard !names.isEmpty else { return nil }
+        var parts: [(text: String, name: Bool)] = []
+        for (i, n) in names.enumerated() {
+            if i > 0 { parts.append((i == names.count - 1 ? (names.count == 2 ? " and " : ", and ") : ", ", false)) }
+            parts.append((n, true))
+        }
+        parts.append(((names.count == 1 ? " is " : " are ") + workingVerb + "\u{2026}", false))
+        return parts
     }
 
     // The board's words for Kosmos's lines in a room (web/index.html pjRoomRow, the room's text view in server.js).

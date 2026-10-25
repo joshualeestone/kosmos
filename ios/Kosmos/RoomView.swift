@@ -58,8 +58,8 @@ struct RoomView: View {
             if let note = store.notes[project.id] {
                 Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
             }
-            heldNotice
             workingLine
+            heldNotice
             composer
         }
         .background(Palette.ground.ignoresSafeArea())
@@ -210,14 +210,18 @@ struct RoomView: View {
     }
 
     // kosmos#7080: the board's grouped working line (paintRoomBusy), above the composer: dots and names, no faces, the
-    // word "working". Drawn from the status the phone last read and the room's member order.
+    // word "working". Drawn from the status the phone last read and the room's member order. Above the held notice, as
+    // the board's #pj-busy sits above the composer that #pj-held tops. While the status reads are not landing, no line:
+    // a phone loses its connection far more than a desk page does, and an old "is working" is the over-claim the board
+    // avoids (review 1; the board only repaints on a good poll, so this under-claims where it would keep the old line).
     @ViewBuilder private var workingLine: some View {
-        let names = Board.workingNames(members: project.members.map(\.session), agents: client.agents, project: project.id,
-                                       spokeSinceStatus: store.spokeSince(client.updatedAt, in: project.id))
-        if let line = Board.workingLine(names) {
+        let names = client.fresh ? Board.workingNames(members: project.members.map(\.session), agents: client.agents, project: project.id,
+                                                      spokeSinceStatus: store.spokeSince(client.updatedAt, in: project.id)) : []
+        if let parts = Board.workingLineParts(names) {
             HStack(spacing: 6) {
                 WorkingDots().accessibilityHidden(true)
-                Text(line).font(.footnote).foregroundColor(Palette.secondary)
+                parts.reduce(Text("")) { $0 + ($1.name ? Text($1.text).bold() : Text($1.text)) }
+                    .font(.footnote).foregroundColor(Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -669,18 +673,20 @@ struct RoomBubble: View {
     }
 }
 
-// kosmos#7080: the board's three working dots (.act i), still when the person asks for less motion.
+// kosmos#7080: the board's three working dots (.act i), still when the person asks for less motion. Each dot's
+// opacity is read from the clock (review 1: a repeatForever started on appear can catch layout changes in a pushed
+// view, and never restarts when Reduce Motion is turned off again).
 struct WorkingDots: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var on = false
     var body: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<3, id: \.self) { i in
-                Circle().fill(Palette.secondary).frame(width: 4, height: 4)
-                    .opacity(reduceMotion ? 0.6 : (on ? 1 : 0.25))
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.6).repeatForever().delay(Double(i) * 0.2), value: on)
+        TimelineView(.animation(paused: reduceMotion)) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 3) {
+                ForEach(0..<3, id: \.self) { i in
+                    Circle().fill(Palette.secondary).frame(width: 4, height: 4)
+                        .opacity(reduceMotion ? 0.6 : 0.25 + 0.75 * (0.5 - 0.5 * cos((t - Double(i) * 0.2) * .pi / 0.6)))
+                }
             }
         }
-        .onAppear { on = true }
     }
 }

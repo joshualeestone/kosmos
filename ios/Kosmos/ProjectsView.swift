@@ -19,8 +19,7 @@ final class RoomStore: ObservableObject {
     @Published private(set) var spokeAt: [String: [String: Date]] = [:]
     // The agents whose post reached this room after `statusAt` (the status read the line is drawn from).
     func spokeSince(_ statusAt: Date?, in project: String) -> Set<String> {
-        guard let statusAt else { return [] }
-        return Set((spokeAt[project] ?? [:]).filter { $0.value > statusAt }.keys)
+        Board.spokeSince(spokeAt[project] ?? [:], statusAt: statusAt)
     }
 
     // kosmos#7072: the rooms held at their last newest-page read, with when each should lift (nil: it did not say).
