@@ -56,7 +56,13 @@ mixed-version own rooms must keep working, in which case v1 joins stay as today 
 - **Messages shown while waiting are unauthenticated** (review 2): a waiting computer shows the room's unsealed
   messages (it cannot know the room is sealed), so if a v2 code was altered to v3, plaintext the relay or a guest injects
   shows as a room message until the owner's share arrives. That is message integrity, not secrecy, and every unsealed
-  room has it; nothing this computer writes leaves meanwhile.
+  room has it; nothing this computer writes leaves meanwhile. Agents reading the room read those rows too (review 4),
+  so injected text reaches them as it would in any unsealed room; a "not yet verified" mark on such rows is a later card.
+- **A computer let in by a clear** is marked `letIn` on its link; an unopenable envelope afterwards is only noted
+  (review 4). A computer let in before this slice has no mark: such an envelope makes it wait for the owner's answer
+  (recoverable by a compare), where before it was sealed for good.
+- **Guests cannot add to the owner's waiting list** (review 4 asked): every key-own-* frame needs the relay's
+  same_account stamp (onKeyFrame), which a guest's frames never carry.
 - **A v3 code made by a computer that was itself let in** is answered only by the room's first computer (the owner
   link), so that computer must be on and on a current Kosmos (review 2): intended, the owner is the only one who can
   vouch for the room's state.

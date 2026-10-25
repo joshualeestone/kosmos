@@ -856,6 +856,12 @@ function sayOwnHello(projectId, s) {
 function noteOwnSealed(projectId, s) {
   const link = safeLink(projectId);
   if (!link || link.role !== 'self') return false;
+  // Slice 2 (review 4): a computer the owner let in by a clear knows, by the owner's authenticated word, that the room is
+  // not sealed. An unopenable envelope changes nothing there (the relay or a guest can send one); it is only noted.
+  if (link.letIn === true && link.sealed !== true) {
+    noteOnce(projectId, s, 'unopenedClear', 'A sealed message arrived that this computer could not open, so it was not shown. This shared room is not sealed.');
+    return true;
+  }
   // Slice 2: an unopenable envelope is not proof the room is sealed (the relay or a guest can send one). Unless the link
   // says this computer joined a sealed room, it waits for the owner's authenticated answer (a share or a clear), as a
   // computer joined by an unsealed room's code does; its posts are held either way.
@@ -1002,11 +1008,16 @@ function adoptOwnClear(projectId, s) {
   const run = s.ownRun;
   const st = roomSeal(projectId);
   const link = safeLink(projectId);
-  if (!run || !run.confirmed || !run.gotClear || !pendingClear(st) || !link || link.role !== 'self' || link.sealed === true) return;
+  if (!run || !run.confirmed || !run.gotClear || !pendingClear(st) || !link || link.role !== 'self') return;
+  if (link.sealed === true) {
+    noteOnce(projectId, s, 'clearRefused', 'This computer joined this project as a sealed room, so it waits for the room\'s key, not for a clear.');
+    run.gotClear = false;
+    return;
+  }
   // The link first: with it still saying pendingClear and the record gone, the posts would be held again and the next
   // connect would ask for a new code compare. Both written, then said.
   const unsaved = () => noteOnce(projectId, s, 'ownClearUnsaved', 'The other computer let this one in, but this computer could not record it, so its posts are still held. Kosmos tries again when it next connects; if it restarts first, compare the codes again.');
-  try { federation.recordLink(projectId, Object.assign({}, link, { pendingClear: false })); } catch { unsaved(); return; }
+  try { federation.recordLink(projectId, Object.assign({}, link, { pendingClear: false, letIn: true })); } catch { unsaved(); return; }
   try { fedseal.forgetRoom(projectId); } catch { unsaved(); return; }
   s.ownRun = null;
   say(projectId, 'This computer was let into this shared project. Messages in this room are not sealed end to end.');
