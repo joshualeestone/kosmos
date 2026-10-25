@@ -1702,5 +1702,19 @@ test('kosmos#7156: an index entry stored under another key epoch is a stale inde
     const again = await take(k, w.root, st, { input: { index: first.added, bucket: first.bucket } });
     assert.equal(again.ok, true, again.because);
     assert.equal(again.staleIndex, undefined);
+    // Review 2, the recovery: withRun drops a stale index, so the next epoch-2 run seals and stores everything under /2/.
+    const dropped = require('./backupstate').withRun(
+      { periods: [] }, { label: PERIOD, namingKey: k.nk, bucket: first.bucket, index: first.added }, r);
+    const kept = dropped.periods && dropped.periods.length ? dropped.periods[dropped.periods.length - 1].index : null;
+    assert.ok(kept instanceof Map && ![...kept.values()].some((e) => /^o1\/acct1\/1\//.test(e.key)), 'withRun kept an epoch-1 entry after a stale index');
+    // A store granting under epoch 2, as the coordinator does for an epoch-2 key (the fake hands out its own epoch).
+    const st2 = store({ epoch: '2' });
+    const next = await take(k, w.root, st2, { input: { ctx: Object.assign({}, ctx2, { snapshot: 's-' + crypto.randomBytes(4).toString('hex') }), index: new Map(), bucket: first.bucket } });
+    assert.equal(next.ok, true, JSON.stringify(next.because || next));
+    assert.ok(next.added.size > 0 && [...next.added.values()].every((e) => /^o1\/acct1\/2\//.test(e.key)), 'the re-seal left a chunk outside epoch 2');
+    // The first (epoch 1) snapshot still restores: nothing it names was touched.
+    const { r: rr, sink } = await restoreFrom(k, st, st.manifests[0].bytes);
+    assert.equal(rr.failed.length, 0, JSON.stringify(rr.failed).slice(0, 300));
+    assert.ok(sink.committed.size > 0, 'the epoch-1 snapshot restored nothing');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
