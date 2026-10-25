@@ -12,12 +12,19 @@ parallel node part. CI already splits the list into shards on separate runners (
   shards were red). Returns the first red shard's status, so the part reds when any shard does.
 - The logs go in a folder beside the run root (`kt-shellpar.*`), not inside it: the leak guard compares temp
   families inside the root and would read the logs as a new one.
-- Both of run-tests.sh's EXIT traps stop the shards (`KOSMOS_SHELL_PARALLEL_PIDS`) and remove the folder on an
-  interruption. Today a TERM waits for the foreground shard to finish; now each shard's node is stopped and only the
-  command already running finishes.
+- Each shard starts as the leader of its own process group (a perl setpgrp, then exec). Both of run-tests.sh's EXIT
+  traps call `kosmos_shell_parallel_stop` first, which TERMs every running shard's whole group, the test it is
+  running included, and the folder is removed. A shard leaves `KOSMOS_SHELL_PARALLEL_PIDS` as soon as it has been
+  waited on, so the trap never signals a pid another process may have taken since (review 1).
+- A line is printed as each shard ends, so a parallel run is not silent until the last one.
+- tools/release.sh's #5934 guard refuses KOSMOS_SHELL_PARALLEL other than 1 before the bump (review 1, BLOCKER): a
+  leftover value would have run a cut's step 3 in parallel, or stopped it after the bump. Arms in
+  tools/test-cut-testpart-guard-5934.sh (4, 0 and empty refuse; 1 is allowed).
 - The branch's last command is `(exit "$_rt_ps_rc")`, because the existing `NODE_STATUS=$?` below the fi reads it.
 - tools/test-shell-parallel-7100.sh (in test:shell): a stub shard, a barrier only shards started together pass,
-  reds, order, and run-tests.sh's refusals, each bounded by a perl alarm.
+  reds, order, an interruption (a TERM to a top-level runner must take each shard's child with it), run-tests.sh's
+  refusals (each run in its own process group, TERMed whole at 60 s), and a tripwire on run-tests.sh's source: the
+  parallel branch ends on its verdict on both paths and `NODE_STATUS=$?` follows the fi.
 
 ## Decided
 - A library function, not an inline block: the logic is testable with a stub, without a fixture repository.
@@ -29,11 +36,19 @@ parallel node part. CI already splits the list into shards on separate runners (
 - Collision freedom is not shown by this branch. The static sweep found about 60 candidate files (fixed ports 15,
   literal /tmp 16, kill by pattern 13, real HOME paths 16, the machine claim 7, launchd 1, tmux 1). A concurrent run on
   Mortals is the measurement (serial, then two runs of 4 shards, same tree), and it can miss a race.
-- On a TERM, the command each shard was running finishes after the shard's node is stopped (its sh child is not in
-  the kill list).
+- A TERM is asynchronous: a shard's test may still be exiting when the trap's later steps (the launchd boot-out,
+  removing the run root) run. A test that puts itself in another process group (setsid) is not reached.
+- The Mortals experiment measures tree 48d671ee, before review 1's changes to the harness (process groups, the pid
+  list, the per-shard line). Those change how shards are started and stopped, not what the tests do, so the
+  collision measurement still applies; the timing does not include them.
+- Under bash 3.2 a ( ) subshell whose parent has an EXIT trap runs no EXIT trap of its own on a TERM (measured), so
+  the interruption arm uses a separate top-level runner, as run-tests.sh is.
 - The summary line's time is whole seconds from `date +%s`.
 
 ## Validation
-- tools/test-shell-parallel-7100.sh: 9 arms pass. Mutants: a serial runner reds the barrier and green arms; taking
-  the last red's status reds the reds arm.
+- tools/test-shell-parallel-7100.sh: 11 arms pass. Mutants, each red on its own arm: a serial runner (barrier and
+  green); the last red's status (reds); killing the shard's pid, not its group (interruption); a line after the
+  verdict exit in run-tests.sh (tripwire).
+- tools/test-cut-testpart-guard-5934.sh: all pass; release.sh without the new clause reds exactly the three refusal
+  arms.
 - The 22 node tests that read run-tests.sh, test:shell or shell-shard.js: 362 tests, 0 failed (`run-tests.sh --only`).
