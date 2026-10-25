@@ -798,3 +798,37 @@ extension Board {
         }
     }
 }
+
+// kosmos#7096: the room's search, as the board's pjRoomFilterRows (web/index.html). It filters the rows already loaded,
+// before refusals fold (roomItems), as the board filters before its own fold. A row stays when the words, trimmed and in
+// any case, are in who wrote it or in what it says. Who: the person's post is "you"; an agent's post, an outside
+// message and a refusal are their writer's name as the board's pjNameOf gives it, else the id (an outside sender
+// is shown by its id, and rarely has a name); any other Kosmos line (a note, a valve band) has none. What it says:
+// a refusal is what it tried and why, not the sentence drawn for it; any other row its text (a valve band's text is
+// already its reason).
+extension Board {
+    static func roomFilter(_ rows: [RoomRow], name: (String) -> String?, query: String) -> [RoomRow] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if needle.isEmpty { return rows }
+        return rows.filter { r in
+            let writer: String? = r.refusal.map { $0.who ?? $0.key ?? "" }
+                ?? (r.kind == .kosmos ? nil : r.byPerson ? "you" : r.from.map { name($0) ?? $0 })
+            let words = r.refusal.map { ($0.doing.map { $0 + " " } ?? "") + ($0.because ?? "") } ?? r.text
+            return (writer ?? "").lowercased().contains(needle) || words.lowercased().contains(needle)
+        }
+    }
+}
+
+extension Board {
+    // kosmos#7096: the board's line for a read that could not read all of a room (paintRoom on ok false).
+    static let roomPartialLine = "We could not read some of this room just now; what is below may be missing recent posts."
+
+    // The rooms whose rows on screen came from a read that could not read all of the room. Each read that lands sets
+    // or clears its room (`partial`: the read's ok false, RoomPage.unread). A read that fails never gets here (RoomStore
+    // returns first), so the flag stays with the rows still on screen, the last landed read's.
+    static func partialRooms(_ rooms: Set<String>, project: String, partial: Bool) -> Set<String> {
+        var next = rooms
+        if partial { next.insert(project) } else { next.remove(project) }
+        return next
+    }
+}

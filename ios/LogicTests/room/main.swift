@@ -560,6 +560,75 @@ check(Board.replyGist(nothingRow, shownName: "Cleo") == "a message", "nothing at
 check(boardPage.contains("return f ? (typeof f.name === 'string' && f.name ? f.name : 'a file') : 'a message';"), "the board's gist still falls back so")
 check(boardPage.contains("--gold-deep: #" + String(format: "%06x", Board.replyFlashHex) + ";"), "the flash is the board's --gold-deep")
 
+// kosmos#7096: the room's search, against the board's pjRoomFilterRows.
+do {
+    func post(_ id: String, _ from: String?, _ text: String) -> Board.RoomRow {
+        Board.RoomRow(id: id, atRaw: nil, at: nil, kind: .post, from: from, byPerson: from == nil, text: text)
+    }
+    var refused = Board.RoomRow(id: "r1", atRaw: nil, at: nil, kind: .kosmos, from: nil, byPerson: false,
+                                text: "Dana tried to post here and Kosmos stopped it: The room is held.")
+    refused.refusal = Board.Refusal(key: "dana", who: "Dana", doing: "reply", because: "the room is held")
+    var external = Board.RoomRow(id: "x1", atRaw: nil, at: nil, kind: .external, from: "zoe@elsewhere", byPerson: false, text: "Hello from outside")
+    external.externalAgent = false
+    let rows = [post("p1", nil, "Ship the catalogue"), post("p2", "dana", "Pages 1 to 8 done"), post("p3", "ghost", "An id with no name"),
+                Board.RoomRow(id: "v1", atRaw: nil, at: nil, kind: .kosmos, from: nil, byPerson: false, text: "Paused: too many turns"),
+                Board.RoomRow(id: "n1", atRaw: nil, at: nil, kind: .kosmos, from: nil, byPerson: false, text: "Dana joined the room"),
+                refused, external]
+    let names = ["dana": "Dana Price"]
+    func ids(_ q: String) -> [String] { Board.roomFilter(rows, name: { names[$0] }, query: q).map(\.id) }
+    check(ids("  ") == ["p1", "p2", "p3", "v1", "n1", "r1", "x1"], "room search: no words keeps every row, in order")
+    check(ids("YOU") == ["p1"], "room search: the person's post is named you, in any case")
+    check(ids("price") == ["p2"], "room search: an agent's post by its shown name; a note naming Dana by first name only does not match the surname")
+    check(ids("dana") == ["p2", "n1", "r1"], "room search: an agent's name, a note's text and a refusal's writer")
+    check(ids("ghost") == ["p3"], "room search: an agent with no shown name is matched by its id")
+    check(ids("too many") == ["v1"], "room search: a valve band by its reason, and it has no writer")
+    check(ids("held") == ["r1"], "room search: a refusal by why")
+    check(ids("reply") == ["r1"], "room search: a refusal by what it tried")
+    check(ids("kosmos stopped") == [], "room search: not by the sentence drawn for a refusal")
+    check(ids("zoe") == ["x1"], "room search: an outside message by its sender")
+    check(ids(" ship ") == ["p1"], "room search: the words are trimmed")
+    // A Kosmos line has no writer even if one ever carried a sender (the board's valve rule: "the guarantee must live
+    // here", not in the route stripping `from`).
+    let valveFrom = Board.RoomRow(id: "v2", atRaw: nil, at: nil, kind: .kosmos, from: "dana", byPerson: false, text: "Paused")
+    check(Board.roomFilter([valveFrom], name: { names[$0] }, query: "dana").isEmpty, "room search: a Kosmos line is never matched by a sender")
+    var unnamed = refused
+    unnamed.refusal = Board.Refusal(key: "eli", who: nil, doing: nil, because: "no seat")
+    check(Board.roomFilter([unnamed], name: { _ in nil }, query: "eli").count == 1, "room search: a refusal with no shown name, by its writer's id")
+    check(Board.roomFilter([external], name: { $0 == "zoe@elsewhere" ? "Zoe Park" : nil }, query: "park").count == 1,
+          "room search: an outside message by a name for its sender when one is known (as pjNameOf)")
+    // The search runs before refusals fold: two refusals for one reason, searched by one writer, stay one line by that
+    // writer, not a folded line naming both.
+    var r2 = refused
+    r2.refusal = Board.Refusal(key: "eli", who: "Eli", doing: nil, because: "the room is held")
+    var r3 = refused
+    r3.refusal = Board.Refusal(key: "dana", who: "Dana", doing: nil, because: "the room is held")
+    let r2b = Board.RoomRow(id: "r2", atRaw: nil, at: nil, kind: .kosmos, from: nil, byPerson: false,
+                            text: Board.refusedLine(["Eli"], doing: nil, because: "the room is held"))
+    var eliRow = r2b; eliRow.refusal = r2.refusal
+    let r3b = Board.RoomRow(id: "r3", atRaw: nil, at: nil, kind: .kosmos, from: nil, byPerson: false,
+                            text: Board.refusedLine(["Dana"], doing: nil, because: "the room is held"))
+    var danaRow = r3b; danaRow.refusal = r3.refusal
+    let folded = Board.roomItems(Board.roomFilter([eliRow, danaRow], name: { _ in nil }, query: "eli"), now: Date(), calendar: .current)
+    let lines = folded.compactMap { item -> String? in if case let .row(row, _, _) = item.kind { return row.text } else { return nil } }
+    check(lines.count == 1 && lines[0].contains("Eli") && !lines[0].contains("Dana"),
+          "room search: filtered before refusals fold, so one writer's refusal is not folded with another's")
+    // The control for the line above: unfiltered, the same two do fold into one line naming both.
+    let both = Board.roomItems([eliRow, danaRow], now: Date(), calendar: .current).compactMap { item -> String? in
+        if case let .row(row, _, _) = item.kind { return row.text } else { return nil }
+    }
+    check(both.count == 1 && both[0].contains("Eli") && both[0].contains("Dana"), "room search: the same two refusals unfiltered fold into one line")
+    // The board's rules this mirrors are still the board's (a change there turns this red).
+    check(boardPage.contains("const who = m.kind === 'valve' ? ''") && boardPage.contains("m.operator === true ? 'you'")
+          && boardPage.contains("(m.kind === 'refused') ? ((m.doing ? m.doing + ' ' : '') + (m.because || ''))")
+          && boardPage.contains(Board.roomPartialLine),
+          "room search: the board's pjRoomFilterRows and partial-read line still say what the phone mirrors")
+    // Which rooms' rows came from a read that could not read all of the room.
+    let partial = Board.partialRooms([], project: "a", partial: true)
+    check(partial == ["a"], "room partial: a landed read that could not read all of the room marks it")
+    check(Board.partialRooms(partial, project: "a", partial: false) == [], "room partial: a whole read clears it")
+    check(Board.partialRooms(partial, project: "b", partial: false) == ["a"], "room partial: another room's read leaves it")
+}
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")
