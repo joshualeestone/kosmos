@@ -76,7 +76,7 @@ struct ChatView: View {
     // that is on is never out of sight, and an empty one takes no room.
     @State private var searchOpen = false
     // Whether the reader was at the newest message when the magnifier opened the row, which pushes the thread down: it
-    // is put back there when the row goes, and the keyboard keeps it there meanwhile.
+    // is scrolled back there as the row opens, and the keyboard keeps it there.
     @State private var openedAtNewest = false
     // Counts clears, so a clear's delayed steps act only if no later clear came after it.
     @State private var clears = 0
@@ -85,6 +85,12 @@ struct ChatView: View {
     // line, so a refused press or file is never hidden behind it.
     @State private var sentWhileSearching = false
     private var searching: Bool { Board.chatSearching(query) }
+    // The row open or a search on: no earlier pages, no following, no capsule (the board's earlierNearTop and
+    // convPause), so editing the words, even back to none, never moves the reader.
+    private var searchMode: Bool { searchOpen || searching }
+    // Whether this open of the search filtered the thread at some point: only then is the reader's place gone, and
+    // putting the row away takes them to the newest message.
+    @State private var filteredInMode = false
 
     // The agent as the list shows it now (its word and tone move with the board), or as it was tapped.
     private var shown: Board.Agent { client.agents.first { $0.session == agent.session } ?? agent }
@@ -103,7 +109,7 @@ struct ChatView: View {
             ZStack(alignment: .bottom) {
                 conversation
                 // Not over a search: new messages are not followed then (follow), so it would offer a jump in a filtered list.
-                if unseenNew && !searching { newMessagesCapsule }
+                if unseenNew && !searchMode { newMessagesCapsule }
             }
             if let line = composerNote ?? attachLine ?? pressLine ?? (sentWhileSearching ? Board.chatSentWhileSearching : nil) {
                 Text(line).font(.footnote).foregroundColor(composerNote == nil && attachLine == nil && pressLine != nil ? Palette.dangerWord : Palette.secondary)
@@ -128,7 +134,7 @@ struct ChatView: View {
             ToolbarItem(placement: .principal) { title }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    openedAtNewest = atBottom
+                    if !searchOpen { openedAtNewest = atBottom }
                     searchOpen = true
                     DispatchQueue.main.async {
                         searchFocused = true
@@ -161,7 +167,8 @@ struct ChatView: View {
             // search on opening another agent). What the search changed goes with it here, not in onChange(of: query),
             // which need not run for a view that is off screen. Coming back, the whole thread lays out where the short one
             // was: settle it again, as clearing does.
-            if searching { settledAtEnd = false }
+            if filteredInMode { settledAtEnd = false }
+            filteredInMode = false
             query = ""
             searchOpen = false
             sentWhileSearching = false
@@ -174,10 +181,13 @@ struct ChatView: View {
         .onChange(of: query) { _ in sentWhileSearching = false }
         // Leaving an empty field puts it away; one with words stays (searching keeps it drawn).
         .onChange(of: searchFocused) { now in if !now && !searching && searchOpen { putSearchAway() } }
-        // Clearing the search is reading at the bottom again: what loaded meanwhile is there to see.
-        .onChange(of: searching) { now in
+        .onChange(of: searching) { now in if now { filteredInMode = true } }
+        // Putting away a search that filtered is reading at the bottom again: what loaded meanwhile is there to see.
+        .onChange(of: searchMode) { now in
+            guard !now && filteredInMode else { return }
+            filteredInMode = false
             // Not when the search went with the conversation (an account reset empties both).
-            guard !now && visible && thread != nil else { return }
+            guard visible && thread != nil else { return }
             let cleared = epoch
             clears += 1
             let clear = clears
@@ -188,10 +198,10 @@ struct ChatView: View {
             NotificationCenter.default.post(name: .chatScrollToEnd, object: nil)
             // Again a turn later, once the whole thread has laid out: the first can land short on estimated heights.
             DispatchQueue.main.async {
-                if !searching && visible && epoch == cleared && clears == clear { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
+                if !searchMode && visible && epoch == cleared && clears == clear { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                if !searching && visible && epoch == cleared && clears == clear && !settledAtEnd { settledAtEnd = true; loadEarlier() }
+                if !searchMode && visible && epoch == cleared && clears == clear && !settledAtEnd { settledAtEnd = true; loadEarlier() }
             }
         }
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
@@ -209,6 +219,7 @@ struct ChatView: View {
             unsureKey = nil
             pressLine = nil
             composerNote = nil
+            filteredInMode = false
             query = ""
             searchOpen = false
             sentWhileSearching = false
@@ -391,9 +402,9 @@ struct ChatView: View {
 
     // New messages come in at the bottom; if the person has scrolled up, the view stays and the capsule offers a jump.
     // Not while searching: the person is reading what matched, and a new message may not even be among it (the
-    // board's convPause, #5624).
+    // board's convPause, #5624). It is noted, so the capsule offers it once the row is put away.
     private func follow(_ proxy: ScrollViewProxy) {
-        if searching { return }
+        if searchMode { unseenNew = true; return }
         if atBottom { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } else { unseenNew = true }
     }
 
@@ -437,13 +448,11 @@ struct ChatView: View {
         searchFocused = false
         putSearchAway()
     }
-    // The row goes empty (a field of spaces too), and a reader who opened it at the newest message goes back there.
+    // The row goes, emptied (a field of spaces too). A search that filtered then scrolls to the newest message
+    // (onChange(of: searchMode)); one that never did leaves the reader where they are.
     private func putSearchAway() {
-        let wasSearching = searching
         query = ""
         searchOpen = false
-        // Clearing a search scrolls by itself (onChange(of: searching)); an empty one changes nothing there.
-        if openedAtNewest && !wasSearching && visible { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
         openedAtNewest = false
         UIAccessibility.post(notification: .layoutChanged, argument: nil)
     }
@@ -570,7 +579,7 @@ struct ChatView: View {
     // A failure stands until Try again, in a row of its own so it lies over nothing.
     @ViewBuilder private var earlierFailedLine: some View {
         // Not while searching: a search loads no earlier pages (loadEarlier), so Try again would do nothing.
-        if let why = earlier.because, !earlier.loading, !searching {
+        if let why = earlier.because, !earlier.loading, !searchMode {
             VStack(spacing: 4) {
                 Text(why).font(.footnote).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
                 Button("Try again") { earlier = Board.retryEarlier(earlier); loadEarlier() }
@@ -587,7 +596,7 @@ struct ChatView: View {
     // Try again (the board's earlierNearTop: on scroll, after a paint, and from its button).
     private func loadEarlier() {
         // A search shortens the thread; its top showing is not a reader at the top (the board's earlierNearTop).
-        guard !searching, let t = thread, Board.shouldAsk(settled: settledAtEnd, topVisible: topVisible, earlier: earlier, olderCount: t.olderCount)
+        guard !searchMode, let t = thread, Board.shouldAsk(settled: settledAtEnd, topVisible: topVisible, earlier: earlier, olderCount: t.olderCount)
         else { return }
         let start = Board.startLoad(earlier, olderCount: t.olderCount)
         earlier = start
