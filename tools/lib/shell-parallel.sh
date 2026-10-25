@@ -57,15 +57,19 @@ kosmos_shell_parallel() {
 # signalled only when a kill -0 on the group finds a process in it. That cannot tell the shard's own group from a
 # new one that took the id after the shard's group emptied and the pid was reused; that takes the group to empty and
 # the pid space to wrap within one run, and such a stranger would get a TERM. A shard not yet waited on is signalled
-# only while this shell is its parent. Then wait up to about 2 s for the groups to be gone, KILL what is left, and
-# print the end of each shard's log to stderr (the caller removes the logs next). A process that left its shard's
-# group (setsid) is not reached.
+# while this shell is its parent, or, once it has ended unwaited, while its group still has a member. Then wait up
+# to about 2 s for the groups to be gone, KILL what is left, and print the end of each shard's log to stderr (the
+# caller removes the logs next). A process that left its shard's group (setsid) is not reached.
 kosmos_shell_parallel_stop() {
   local p k live targets="" f
   # A shard not yet waited on may still have ended: bash reaps a child as it exits, so its pid can be free. It is
   # signalled only while this shell is its parent, which a process that took the pid since cannot be.
+  # A shard that ended unwaited fails that check (its pid has no process), yet its group can still hold something it
+  # started; that group is signalled when kill -0 finds a process in it, as for a waited-on shard below.
   for p in ${KOSMOS_SHELL_PARALLEL_PIDS:-}; do
-    [ "$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')" = "$$" ] && targets="$targets $p"
+    if [ "$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')" = "$$" ]; then targets="$targets $p"
+    elif ! kill -0 "$p" 2>/dev/null && kill -0 -- "-$p" 2>/dev/null; then targets="$targets $p"
+    fi
   done
   for p in ${KOSMOS_SHELL_PARALLEL_DONE:-}; do kill -0 -- "-$p" 2>/dev/null && targets="$targets $p"; done
   for p in $targets; do kill -TERM -- "-$p" 2>/dev/null; done
