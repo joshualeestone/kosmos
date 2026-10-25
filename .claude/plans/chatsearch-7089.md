@@ -50,7 +50,8 @@ hand with run.sh <dir> and recorded on the card, not a standing test).
 - Not here: room search (pjRoomFilterRows, valve-band rule), searching unloaded history.
 - A message sent while searching: the board leaves it out of sight once recorded (no pending row while
   filtering, and the row is filtered). The phone says so under the composer: "Once it arrives, your
-  message shows only if it matches the search." (cleared when the search changes). Rejected: always
+  message shows only if it matches the search." (cleared when the search changes). It is set only once the send went out and
+  ranks below every other composer line, so a refused press or file is never hidden behind it. Rejected: always
   keeping the person's newest row, which would make the filter show rows that do not match.
 - Rows the phone marks .agent (any `from`, and question rows) all match this agent's name. The board
   names another agent's row by that agent's card and a from-less question by ''. The phone already
@@ -58,3 +59,7 @@ hand with run.sh <dir> and recorded on the card, not a standing test).
   Weakest premise: a chat row from ANOTHER agent; if those reach the phone it needs their names.
 - The no-match sentence is also announced to VoiceOver (the field keeps focus), as the board's room
   search announces it.
+- While searching, the person's own send does not scroll the thread (the board's jumpToOwnSend). The
+  keyboard's scroll-to-newest is kept: it moves only a reader already at the newest message.
+- No match with a pending bubble showing: the sentence is about the conversation's rows and stays the
+  board's; the bubble is the send in flight (see above). Raised to Mona Lisa with the shots.
