@@ -52,7 +52,7 @@ fi
 # Waits until the lock reads held, or fails by name, so no arm runs against a holder that has not taken it yet.
 hold() {
   mkdir -p "$(dirname "$KOSMOS_PREPUSH_MACHINE_LOCK")"; : >> "$KOSMOS_PREPUSH_MACHINE_LOCK"
-  "$LOCKF" -k -s -t 5 "$KOSMOS_PREPUSH_MACHINE_LOCK" sleep 600 & H=$!; HOLDERS="$HOLDERS $H"
+  "$LOCKF" -k -s -t 5 "$KOSMOS_PREPUSH_MACHINE_LOCK" perl -e 'select(undef, undef, undef, 600)' & H=$!; HOLDERS="$HOLDERS $H"
   local j rc; for j in $(seq 1 100); do rc=0; "$LOCKF" -k -s -t 0 "$KOSMOS_PREPUSH_MACHINE_LOCK" true 2>/dev/null || rc=$?; [ "$rc" = 75 ] && return 0; sleep 0.1; done
   fail "FIXTURE: the stand-in holder $H never took the lock, so the arms after it cannot be trusted"; return 1
 }
@@ -74,7 +74,7 @@ out="$(kosmos_refuse_if_prepush_build_live "this cut" "KOSMOS_CUT_IGNORE_PREPUSH
 has "$out" "a relay pre-push build is running on this machine" && has "$out" "this cut would share the box" \
   && pass "2 the refusal says what and who waits" || fail "2 refusal wording: $out"
 has "$out" "pid $H: lockf" && pass "2 it names the holder (lsof): pid $H, lockf" || fail "2 holder not named: $out"
-has "$out" "sleep 600" && fail "2 the message prints the holder's command line (a command line does not belong in logs)" || pass "2 the message names the program, never its command line"
+has "$out" "select(undef" && fail "2 the message prints the holder's command line (a command line does not belong in logs)" || pass "2 the message names the program, never its command line"
 has "$out" "KOSMOS_CUT_IGNORE_PREPUSH=1 cuts anyway." && pass "2 it names the override" || fail "2 override not named: $out"
 kill -0 "$H" 2>/dev/null && pass "2 asking did not disturb the holder" || fail "2 the holder died while being asked"
 
@@ -132,7 +132,7 @@ hold || exit 1
 KOSMOS_CUT_LOCKF_BIN="$T/no-such-lockf" kosmos_prepush_build_live && fail "6 a missing lockf reads as a build while held" || pass "6 a missing lockf is not a build, even while held"
 
 # 7. A cut WAITS for a step to end, then starts (the wait release.sh makes, through its own check).
-( sleep 3; for c in $(pgrep -P "$H" 2>/dev/null); do kill "$c" 2>/dev/null; done ) & R=$!
+( perl -e 'select(undef, undef, undef, 3)'; for c in $(pgrep -P "$H" 2>/dev/null); do kill "$c" 2>/dev/null; done ) & R=$!
 start=$(date +%s)
 out="$(KOSMOS_WAIT_EVERY_S=1 KOSMOS_WAIT_MAX_S=300 kosmos_wait_until_clear "this cut" _rel_prepush 2>&1)"; rc=$?
 took=$(( $(date +%s) - start ))
