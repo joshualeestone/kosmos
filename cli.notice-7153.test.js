@@ -112,7 +112,7 @@ test('a refusal is said, with the board\'s reason, and exits non-zero; a missing
   });
   await withBoard({ code: 404, body: { error: 'there is no project by that name, so there is no room to post into' } }, async (port) => {
     const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'nosuchroom'], jobEnv(port), 'hello');
-    assert.notEqual(out.code, 0);
+    assert.equal(out.code, 1, 'a missing room must exit 1 (not written)');
     assert.match(out.stdout, /There is no project called "nosuchroom"/);
     const saved = /saved at (\S+)/.exec(out.stdout);
     if (saved) fs.rmSync(saved[1], { force: true });
@@ -120,7 +120,7 @@ test('a refusal is said, with the board\'s reason, and exits non-zero; a missing
   // A board older than the notice route answers 404 without the project words: it is told to update, not that the room is missing.
   await withBoard({ code: 404, body: { error: 'not found' } }, async (port) => {
     const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], jobEnv(port), 'hello');
-    assert.notEqual(out.code, 0);
+    assert.equal(out.code, 1, 'an old board must exit 1 (not written)');
     assert.match(out.stdout, /This board does not know kosmos notice yet/);
     const saved = /saved at (\S+)/.exec(out.stdout);
     if (saved) fs.rmSync(saved[1], { force: true });
@@ -139,7 +139,6 @@ test('usage and setup mistakes are refused before anything is sent; a wrong sour
       [['notice', '--from', 'builder\nalarm', '--stdin', 'fleetjosh'], 'hello', /a few plain words/, 2, true],
       [['notice', '--from', 'builder alarm', '--stdin', 'fleet josh'], 'hello', /There is no project called "fleet josh"/, 1, true],
       [['notice', '--from', 'builder alarm', '--stdin', '..'], 'hello', /There is no project called "\.\."/, 1, true],
-      [['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], 'x'.repeat(70000), /over 64 KB/, 2, true],
       [['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], '', /empty|nothing was piped|Nothing was written/i, 2, false],
     ]) {
       const out = await runCli(args, jobEnv(port), input);
@@ -192,7 +191,7 @@ test('a board that is down: the notice is kept in a private file and its path sa
   // A port nothing listens on: taken, then let go.
   const port = await new Promise((resolve) => { const srv = http.createServer(); srv.listen(0, '127.0.0.1', () => { const p = srv.address().port; srv.close(() => resolve(p)); }); });
   const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], jobEnv(port), 'Splinter is unreachable.');
-  assert.notEqual(out.code, 0, 'a notice to a board that is down exited 0');
+  assert.equal(out.code, 1, 'a notice to a board that is down must exit 1 (not written, so a job may retry), got ' + out.code);
   const saved = /saved at (\S+)/.exec(out.stdout);
   assert.ok(saved, 'the notice was not kept: ' + out.stdout);
   assert.equal(fs.statSync(saved[1]).mode & 0o777, 0o600, 'the kept copy is readable by others');

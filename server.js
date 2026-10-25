@@ -22059,9 +22059,10 @@ const server = http.createServer(async (req, res) => {
           ? body.text.replace(INVISIBLE_IN_NOTICE, '').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ')
             .replace(/\s+/g, ' ').trim() : '';
         const source = body && typeof body.source === 'string' ? body.source.trim() : '';
+        if (!text) { sendJson(res, 400, { error: 'a notice needs words' }); return; }
         // A code point is one or two UTF-16 units, so over twice the limit is too long without counting it.
-        if (!text || text.length > 2 * ROOM_NOTICE_MAX || [...text].length > ROOM_NOTICE_MAX) {
-          sendJson(res, 400, { error: 'a notice needs words, at most ' + ROOM_NOTICE_MAX + ' characters' });
+        if (text.length > 2 * ROOM_NOTICE_MAX || [...text].length > ROOM_NOTICE_MAX) {
+          sendJson(res, 400, { error: 'a notice is at most ' + ROOM_NOTICE_MAX + ' characters' });
           return;
         }
         if (!ROOM_NOTICE_SOURCE.test(source)) {
