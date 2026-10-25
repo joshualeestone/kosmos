@@ -210,10 +210,9 @@ function remember(session, text) {
   const p = seenFile(session);
   if (!p || typeof text !== 'string') return false;
   try {
-    fs.mkdirSync(seenDir(), { recursive: true });
-    const tmp = p + '.' + process.pid + '.tmp';
-    fs.writeFileSync(tmp, text);
-    fs.renameSync(tmp, p);
+    fs.mkdirSync(seenDir(), { recursive: true, mode: 0o700 });
+    // Review 1: through securewrite (no symlink followed, 0600): the copy holds the person's whole instructions file.
+    require('./securewrite').writeSecret(p, text, 0o600, { atomicOnly: true, ownTempsOnly: true });
     return true;
   } catch { return false; }
 }
@@ -227,8 +226,9 @@ function rememberRead(session) {
 /* Pure: the lines that differ between two texts, each run labelled with the nearest heading above it in the newer text
    (or the older one, for a run removed at the end). '' when they are the same, null when too large to diff. */
 function changedLines(before, after) {
-  const a = String(before).split('\n');
-  const b = String(after).split('\n');
+  // Review 1: a CRLF file compares and prints without its carriage returns.
+  const a = String(before).replace(/\r\n/g, '\n').split('\n');
+  const b = String(after).replace(/\r\n/g, '\n').split('\n');
   let pre = 0;
   while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre += 1;
   let suf = 0;
@@ -245,8 +245,21 @@ function changedLines(before, after) {
       L[i * w + j] = A[i] === B[j] ? L[(i + 1) * w + j + 1] + 1 : Math.max(L[(i + 1) * w + j], L[i * w + j + 1]);
     }
   }
-  const isHead = (s) => /^#{1,6} \S/.test(s);
-  const headAt = (lines, upTo) => { for (let k = upTo; k >= 0; k -= 1) if (isHead(lines[k])) return lines[k]; return null; };
+  // A heading is a # line OUTSIDE a fenced code block (review 1: a shell comment in a fence is not a section).
+  const headsOf = (lines) => {
+    const heads = new Array(lines.length);
+    let fence = false;
+    let cur = null;
+    for (let k = 0; k < lines.length; k += 1) {
+      if (/^\s*(```|~~~)/.test(lines[k])) fence = !fence;
+      else if (!fence && /^#{1,6} \S/.test(lines[k])) cur = lines[k];
+      heads[k] = cur;
+    }
+    return heads;
+  };
+  const headsA = headsOf(a);
+  const headsB = headsOf(b);
+  const headAt = (heads, upTo) => (upTo >= 0 ? heads[upTo] : null);
   const runs = [];
   let run = null;
   const flush = () => { if (run) { runs.push(run); run = null; } };
@@ -254,7 +267,7 @@ function changedLines(before, after) {
   let j = 0;
   while (i < A.length || j < B.length) {
     if (i < A.length && j < B.length && A[i] === B[j]) { flush(); i += 1; j += 1; continue; }
-    if (!run) run = { head: headAt(b, pre + j - 1) || headAt(a, pre + i - 1), lines: [] };
+    if (!run) run = { head: headAt(headsB, pre + j - 1) || headAt(headsA, pre + i - 1), lines: [] };
     // A removed line before the line that replaced it, as a reader expects.
     if (i < A.length && (j >= B.length || L[(i + 1) * w + j] >= L[i * w + j + 1])) { run.lines.push('- ' + A[i]); i += 1; }
     else { run.lines.push('+ ' + B[j]); j += 1; }
@@ -263,11 +276,12 @@ function changedLines(before, after) {
   const out = [];
   let cut = false;
   for (const r of runs) {
-    if (out.length >= CHANGES_LINES_MAX) { cut = true; break; }
+    // A label and at least one of its lines fit, or the run is left for the sections the notice names.
+    if (out.length + 3 > CHANGES_LINES_MAX) { cut = true; break; }
     out.push('', r.head ? 'Under ' + r.head.replace(/^#+ /, '') + ':' : 'At the top of the file:');
     for (const l of r.lines) {
       if (out.length >= CHANGES_LINES_MAX) { cut = true; break; }
-      out.push(l.length > CHANGES_LINE_CHARS ? l.slice(0, CHANGES_LINE_CHARS) + ' [line cut here]' : l);
+      out.push(l.length > CHANGES_LINE_CHARS ? Array.from(l).slice(0, CHANGES_LINE_CHARS).join('') + ' [line cut here]' : l);
     }
   }
   if (cut) out.push('', '[More changed than fits here: read the sections the notice names.]');
@@ -280,19 +294,20 @@ function prepareChanges(session) {
     const instructions = require('./instructions');
     const got = instructions.read(session);
     if (!got || got.exists !== true || typeof got.text !== 'string') return null;
-    const seen = readSeen(session);
-    if (seen === null) return { text: got.text, path: null };
-    const diff = changedLines(seen, got.text);
-    if (!diff) return { text: got.text, path: null };
     const file = instructions.fileFor(session);
-    if (!file) return { text: got.text, path: null };
-    const p = path.join(path.dirname(file), CHANGES_NAME);
+    const p = file ? path.join(path.dirname(file), CHANGES_NAME) : null;
+    // Review 1: an older changes file is removed whenever this notice names none, so the agent never finds a stale one.
+    const none = () => { if (p) { try { const st = fs.lstatSync(p); if (st.isFile() || st.isSymbolicLink()) fs.unlinkSync(p); } catch { /* none there */ } } return { text: got.text, path: null }; };
+    const seen = readSeen(session);
+    if (seen === null) return none();
+    const diff = changedLines(seen, got.text);
+    // A path with a double quote is not named: the #5304 reader takes quoted text in the line for section headings.
+    if (!diff || !p || p.includes('"')) return none();
     const body = '# What changed in your instructions file since you last read it\n\n'
       + 'Kosmos wrote this when it told you the file changed. A line starting with - was removed, one starting with + was added.\n'
       + diff + '\n';
-    const tmp = p + '.' + process.pid + '.tmp';
-    fs.writeFileSync(tmp, body);
-    fs.renameSync(tmp, p);
+    // Review 1 BLOCKER: through securewrite, so a link planted in the agent's folder is never followed; 0600.
+    require('./securewrite').writeSecret(p, body, 0o600, { atomicOnly: true, ownTempsOnly: true });
     return { text: got.text, path: p };
   } catch { return null; }
 }
@@ -394,9 +409,6 @@ async function passOnce(o) {
       if (!ok) break;
       let stoppedNow = false;
       if (typeof o.communityStopped === 'function') { try { stoppedNow = o.communityStopped() === true; } catch { stoppedNow = false; } }
-      let prepared = null;
-      if (typeof o.prepareChanges === 'function') { try { prepared = o.prepareChanges(session); } catch { prepared = null; } }
-      const line = lineFor(on, { communityStopped: stoppedNow, changesAt: prepared && prepared.path });
       /* The pass awaits each send, so the reading above can be seconds old: read the roster again and check THIS card
          is still idle just before typing (and hand chat that fresh roster). */
       if (tried >= (Number.isInteger(o.max) ? o.max : MAX_PER_PASS)) break;
@@ -404,6 +416,11 @@ async function passOnce(o) {
       try { fresh = o.roster(); } catch { fresh = null; }
       const card = Array.isArray(fresh) ? fresh.find((c) => c && String(c.sessionName) === session) : null;
       if (!card || !isIdle(card)) { out.push({ session, act: 'not-idle' }); continue; }
+      /* kosmos#7149, after every check that can skip the line (review 1): nothing is written for a line never typed. Not
+         while a section is held (off): the copy would move past a change the agent is not told about yet. */
+      let prepared = null;
+      if (!off.length && typeof o.prepareChanges === 'function') { try { prepared = o.prepareChanges(session); } catch { prepared = null; } }
+      const line = lineFor(on, { communityStopped: stoppedNow, changesAt: prepared && prepared.path });
       tried += 1;
       const sentAt = Date.now();   // before the send: the agent's own report of the turn can land before deliver returns
       let v = null;

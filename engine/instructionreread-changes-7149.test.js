@@ -134,3 +134,56 @@ test('the report route takes the copy at a session start, and the board pass is 
   assert.match(src, /if \(body\.state === 'started'\) \{ try \{ require\('\.\/engine\/instructionreread'\)\.rememberRead\(who\); \}/);
   assert.match(src, /prepareChanges: \(session\) => ir\.prepareChanges\(session\),\s*remember: \(session, text\) => ir\.remember\(session, text\),/);
 });
+
+test('review 1 BLOCKER: a link planted at the changes file is replaced, never followed; both new files are 0600', () => {
+  const f = agentFile('cal', AFTER);
+  const outside = path.join(SANDBOX, 'outside.txt');
+  fs.writeFileSync(outside, 'untouched');
+  const p = path.join(path.dirname(f), '.kosmos-instructions-changed.md');
+  fs.symlinkSync(outside, p);
+  ir.remember('cal', BEFORE);
+  const got = ir.prepareChanges('cal');
+  assert.equal(got.path, p);
+  assert.equal(fs.readFileSync(outside, 'utf8'), 'untouched', 'the write followed a planted link');
+  assert.equal(fs.lstatSync(p).isSymbolicLink(), false);
+  assert.equal(fs.statSync(p).mode & 0o777, 0o600, 'the changes file is not 0600');
+  const copy = path.join(require('./store').ROOT, 'instruction-reread-seen', 'cal.md');
+  assert.equal(fs.statSync(copy).mode & 0o777, 0o600, 'the copy is not 0600');
+});
+
+test('review 1: an older changes file is removed when a notice names none', () => {
+  const f = agentFile('dee', AFTER);
+  const p = path.join(path.dirname(f), '.kosmos-instructions-changed.md');
+  ir.remember('dee', BEFORE);
+  assert.ok(ir.prepareChanges('dee').path && fs.existsSync(p));
+  ir.remember('dee', AFTER);   // nothing changed since
+  assert.equal(ir.prepareChanges('dee').path, null);
+  assert.equal(fs.existsSync(p), false, 'a stale changes file was left for the agent to find');
+});
+
+test('review 1: headings inside a code fence are not sections, and CRLF files label and print cleanly', () => {
+  const fenced = ['## Real', 'a', '```bash', '# Start a task', 'x', '```', 'b', ''].join('\n');
+  assert.match(ir.changedLines(fenced, fenced.replace('\nb\n', '\nc\n')), /^\nUnder Real:\n- b\n\+ c$/);
+  const crlf = (s) => s.replace(/\n/g, '\r\n');
+  assert.equal(ir.changedLines(crlf(BEFORE), crlf(AFTER)), ir.changedLines(BEFORE, AFTER));
+});
+
+test('review 1: while a section is held (switched off), nothing is prepared and the copy does not move', async () => {
+  let prepared = 0;
+  const p = passArgs({ owed: { ida: debt(['community', 'rules']) }, o: { sectionOn: (s) => s === 'rules', prepareChanges: () => { prepared += 1; return { text: AFTER, path: '/w/x.md' }; } } });
+  await ir.passOnce(p.o);
+  assert.equal(p.sent.length, 1);
+  assert.equal(p.sent[0][1], ir.lineFor(['rules']), 'a held debt named a changes file');
+  assert.equal(prepared, 0);
+  assert.deepEqual(p.remembered, [], 'the copy moved past a held section');
+});
+
+test('review 1: a line skipped after the checks (the card no longer idle) prepares nothing', async () => {
+  let prepared = 0;
+  let calls = 0;
+  const busy = CARDS.map((c) => ({ ...c, state: 'working' }));
+  const p = passArgs({ owed: { ida: debt() }, o: { roster: () => (calls++ === 0 ? CARDS : busy), prepareChanges: () => { prepared += 1; return null; } } });
+  await ir.passOnce(p.o);
+  assert.deepEqual(p.sent, []);
+  assert.equal(prepared, 0, 'a changes file was written for a line never typed');
+});
