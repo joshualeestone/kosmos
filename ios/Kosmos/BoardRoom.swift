@@ -581,6 +581,21 @@ extension Board {
         let sorted = order.enumerated().sorted { (counts[$0.element]!.at, $0.offset) < (counts[$1.element]!.at, $1.offset) }.map(\.element)
         return sorted.map { w in TallyEntry(word: w, mark: providerMarkAsset[counts[w]!.pick], n: counts[w]!.n) }
     }
+    // The tally's line breaking (review 3: the layout measured with one rule and placed with another, so a line could
+    // be drawn below the height it reported). One rule for both: an entry goes on the next line when it and the
+    // spacing before it would pass the width. Returns each line's entry indices, in order.
+    static func flowLines(_ widths: [Double], width: Double, spacing: Double) -> [[Int]] {
+        var lines: [[Int]] = []
+        var x = 0.0
+        for (i, w) in widths.enumerated() {
+            if let last = lines.indices.last, !lines[last].isEmpty, x + spacing + w <= width {
+                lines[last].append(i); x += spacing + w
+            } else {
+                lines.append([i]); x = w
+            }
+        }
+        return lines
+    }
     // What VoiceOver hears after the count (the board's visually hidden ", 2 Claude, 1 Gemini").
     static func providerTallySpoken(_ tally: [TallyEntry]) -> String {
         tally.isEmpty ? "" : ", " + tally.map { "\($0.n) \($0.word)" }.joined(separator: ", ")

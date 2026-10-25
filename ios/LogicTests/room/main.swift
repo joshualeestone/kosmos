@@ -640,8 +640,8 @@ do {
 section("the provider tally on a project row (kosmos#7114)")
 func member(_ s: String, _ provider: String?) -> Board.ProjectMember { Board.ProjectMember(session: s, name: s, hasAvatar: false, provider: provider) }
 let tally = Board.providerTally([member("a", "Gemini"), member("b", "Claude"), member("c", "Gemini (Google subscription)"), member("d", nil),
-                                 member("e", "Acme"), member("f", "Claude"), member("g", ""), member("h", "Zeta"), member("i", "OpenAI")])
-check(tally.map(\.word) == ["Claude", "GPT", "Gemini", "Acme", "Zeta"], "the board's order, then others as they came: \(tally.map(\.word))")
+                                 member("e", "zeta"), member("f", "Claude"), member("g", ""), member("h", "acme"), member("i", "OpenAI")])
+check(tally.map(\.word) == ["Claude", "GPT", "Gemini", "zeta", "acme"], "the board's order, then others as they came: \(tally.map(\.word))")
 check(tally.map(\.n) == [2, 1, 2, 1, 1], "counted per word: both Gemini families as one, members with no provider left out")
 check(tally.map(\.mark) == ["MarkClaude", "MarkOpenAI", "MarkGemini", nil, nil], "the board's marks; a chip for a provider without one")
 // Every row of the table, each with its word and mark (review 1: three rows were never exercised).
@@ -649,8 +649,14 @@ let everyRow = Board.providerTally(Board.providerTallyOrder.reversed().map { mem
 check(everyRow.map(\.word) == ["Claude", "GPT", "Gemini", "Grok", "Meta", "Qwen"], "every provider's word, in the board's order: \(everyRow.map(\.word))")
 check(everyRow.map(\.mark) == ["MarkClaude", "MarkOpenAI", "MarkGemini", "MarkGrok", "MarkMeta", "MarkQwen"], "every provider's own mark")
 check(Board.providerTally([member("z", "Anthropic")]).first?.mark == "MarkClaude", "Anthropic wears Claude's mark, as on the board")
-check(tally.first { $0.word == "Acme" }?.initial == "A", "a provider without a mark: its initial, as the board's chip")
-check(Board.providerTallySpoken(tally) == ", 2 Claude, 1 GPT, 2 Gemini, 1 Acme, 1 Zeta", "what VoiceOver hears after the count")
+check(tally.first { $0.word == "acme" }?.initial == "A", "a provider without a mark: its initial, as the board's chip")
+check(Board.providerTallySpoken(tally) == ", 2 Claude, 1 GPT, 2 Gemini, 1 zeta, 1 acme", "what VoiceOver hears after the count")
+// The wrapping layout's line breaking: an entry moves on when it and the spacing before it would pass the width.
+check(Board.flowLines([30, 30, 30], width: 100, spacing: 8) == [[0, 1], [2]], "30+8+30+8+30 = 106 over 100: the third moves on")
+check(Board.flowLines([30, 30, 24], width: 100, spacing: 8) == [[0, 1, 2]], "exactly 100: one line")
+check(Board.flowLines([120, 10], width: 100, spacing: 8) == [[0], [1]], "an entry wider than the row takes a line of its own")
+check(Board.flowLines([], width: 100, spacing: 8).isEmpty && Board.flowLines([5, 5], width: .infinity, spacing: 8) == [[0, 1]],
+      "nothing: no lines; no width given: one line")
 check(Board.providerTally([member("d", nil)]).isEmpty && Board.providerTallySpoken([]) == "", "nobody with a provider: no tally, nothing said")
 // The board still counts so, with these words.
 // The phone's table written as the board's PJ_TALLY rows, so any field of any row drifting fails (review 1).

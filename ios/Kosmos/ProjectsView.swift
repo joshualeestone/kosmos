@@ -680,25 +680,27 @@ struct ArchivedRow: View {
 struct TallyFlow: Layout {
     var spacing: CGFloat
     var lineSpacing: CGFloat
+    // Both methods break lines with Board.flowLines (tested), so what is measured is what is placed (review 3).
+    private func lines(_ subviews: Subviews, width: CGFloat?) -> (sizes: [CGSize], lines: [[Int]]) {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        return (sizes, Board.flowLines(sizes.map { Double($0.width) }, width: Double(width ?? .infinity), spacing: Double(spacing)))
+    }
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, widest: CGFloat = 0
-        for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
-            if x > 0 && x + size.width > width { y += line + lineSpacing; x = 0; line = 0 }
-            x += (x > 0 ? spacing : 0) + size.width
-            line = max(line, size.height); widest = max(widest, x)
-        }
-        return CGSize(width: min(widest, width), height: y + line)
+        let (sizes, rows) = lines(subviews, width: proposal.width)
+        let widths = rows.map { r in r.map { sizes[$0].width }.reduce(0, +) + spacing * CGFloat(max(0, r.count - 1)) }
+        let heights = rows.map { r in r.map { sizes[$0].height }.max() ?? 0 }
+        return CGSize(width: widths.max() ?? 0, height: heights.reduce(0, +) + lineSpacing * CGFloat(max(0, rows.count - 1)))
     }
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX, y = bounds.minY, line: CGFloat = 0
-        for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
-            if x > bounds.minX && x + size.width > bounds.maxX { y += line + lineSpacing; x = bounds.minX; line = 0 }
-            s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            line = max(line, size.height)
+        let (sizes, rows) = lines(subviews, width: bounds.width)
+        var y = bounds.minY
+        for r in rows {
+            var x = bounds.minX
+            for i in r {
+                subviews[i].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(sizes[i]))
+                x += sizes[i].width + spacing
+            }
+            y += (r.map { sizes[$0].height }.max() ?? 0) + lineSpacing
         }
     }
 }

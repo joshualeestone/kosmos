@@ -29,4 +29,8 @@ counted and spoken as the board's pjProviderTally; the marks are the board's own
      to wrap, the tally entries wrapping in TallyFlow, the board's flex-wrap), so nothing runs past the row; the
      board's whole PJ_TALLY compared row for row; no hairline on a line of its own; the no-mark test uses names the
      board has no mark for either. Room 264/264; Debug SUCCEEDED.
+   - Round 3: 0 blockers, 2 warnings, 1 nit. Fixed: TallyFlow measures and places with one line-breaking rule,
+     Board.flowLines (tested: 30/30/30 at 100 is two lines; the measured-vs-placed mismatch was measured by the
+     reviewer); unknown providers in arrival order pinned with names out of alphabetical order (that mutation now
+     red); the chip's uppercasing pinned with a lowercase name. Room 268/268; Debug and Release SUCCEEDED.
 3. Validation, PR.
