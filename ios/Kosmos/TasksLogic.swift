@@ -317,8 +317,8 @@ enum Tasks {
     }
     // Two shared formatters, set up once and never changed: a task page parses every event of a history on each read, and
     // making a formatter is the costly part (kosmos#7074). They are read from several threads (the task page's build runs
-    // detached); ISO8601DateFormatter is CoreFoundation-backed and locks internally, and Apple documents formatters as
-    // thread-safe since iOS 7, though its own header carries no Sendable note.
+    // detached), so they are used under a lock: Apple documents formatter thread safety for DateFormatter, not for
+    // ISO8601DateFormatter, and the lock costs far less than a new formatter.
     private static let isoFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -329,8 +329,9 @@ enum Tasks {
         f.formatOptions = [.withInternetDateTime]
         return f
     }()
+    private static let isoLock = NSLock()
     static func parseISO(_ s: String) -> Date? {
-        isoFractional.date(from: s) ?? isoWhole.date(from: s)
+        isoLock.withLock { isoFractional.date(from: s) ?? isoWhole.date(from: s) }
     }
 
     // PJ_NEEDS_WHY's sentences (the first of each pair), for a decision row's who line.
