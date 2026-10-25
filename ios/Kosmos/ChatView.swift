@@ -64,6 +64,8 @@ struct ChatView: View {
     @State private var photoPicks: [PhotosPickerItem] = []
     @State private var showPhotos = false
     @State private var showFiles = false
+    // kosmos#7083: the agent's message the next send answers (the board's DM reply strip).
+    @State private var replying: Board.ChatRow?
 
     // The agent as the list shows it now (its word and tone move with the board), or as it was tapped.
     private var shown: Board.Agent { client.agents.first { $0.session == agent.session } ?? agent }
@@ -130,6 +132,7 @@ struct ChatView: View {
         .onChange(of: client.chatEpoch) { now in
             epoch = now
             thread = nil
+            replying = nil
             earlier = Board.Earlier()
             settledAtEnd = false
             fileStates = [:]
@@ -376,7 +379,10 @@ struct ChatView: View {
                 ChatBubble(row: row, firstOfRun: first, lastOfRun: last, widthShare: widthShare, name: shown.name,
                            line: row.canSendAgain && !client.wasSentAgain(row, for: agent.session)
                                ? Board.notSentLine(agentRunning: running, name: shown.name) : nil,
-                           sendAgain: { sendWhenFree { await client.sendAgain(row, to: agent) } })
+                           sendAgain: { sendWhenFree { await client.sendAgain(row, to: agent) } },
+                           head: headFor(row),
+                           react: row.who == .agent && row.atRaw != nil ? { e in reactTo(e, row) } : nil,
+                           reply: row.who == .agent && row.atRaw != nil ? { replying = row } : nil)
                     .padding(.top, first ? 10 : 2)
             }
         }
@@ -619,6 +625,7 @@ struct ChatView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let replying { replyStrip(replying) }
             if !attachedHere.isEmpty || uploadingHere > 0 { chips }
             HStack(alignment: .bottom, spacing: 8) {
                 addButton
@@ -776,16 +783,61 @@ struct ChatView: View {
         client.attachLine[agent.session] = nil
         let text = draftText
         let files = attachedHere
+        let answering = replying
         draftText = ""
+        replying = nil
         client.drafts[agent.session] = nil
         Task {
             // Not sent (a press, or another file started going up meanwhile): the words go back in an empty box, so none
-            // are lost, and the line says why.
-            if !(await client.post(text, files: files, to: agent)) {
-                if draftText.isEmpty { draftText = text }
+            // are lost, and the line says why; the reply comes back with them.
+            if !(await client.post(text, files: files, replyTo: answering?.atRaw, to: agent)) {
+                if draftText.isEmpty { draftText = text; if replying == nil { replying = answering } }
                 if uploadingHere > 0 { composerNote = Board.stillAddingLine }
             }
             await read()
+        }
+    }
+
+    // MARK: - Replying and reacting (kosmos#7083)
+
+    // dmReplyHead for a row of this conversation (the rows shown, earlier pages included).
+    private func headFor(_ row: Board.ChatRow) -> Board.ReplyHead? {
+        guard row.replyTo != nil, let thread else { return nil }
+        return Board.replyHead(row, in: Board.shownRows(earlier, thread: thread), agentName: shown.name, olderCount: thread.olderCount)
+    }
+
+    // The strip above the composer: who and what the next send answers, and an x.
+    private func replyStrip(_ row: Board.ChatRow) -> some View {
+        HStack(spacing: 8) {
+            Text("Replying to " + (row.who == .person ? "yourself" : shown.name) + ": " + Board.replyGist(row))
+                .font(.footnote).foregroundColor(Palette.secondary).lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button { replying = nil } label: {
+                Image(systemName: "xmark.circle.fill").font(.system(size: 17)).foregroundColor(Palette.secondary)
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Stop replying")
+        }
+        .padding(.leading, 10)
+        .overlay(Rectangle().fill(Palette.separator).frame(width: 2), alignment: .leading)
+    }
+
+    // Toggles a reaction; the answer's pills repaint that one row at once (the next read confirms), and a refusal is said
+    // on the composer line.
+    private func reactTo(_ emoji: String, _ row: Board.ChatRow) {
+        guard let at = row.atRaw else { return }
+        let startedIn = client.chatEpoch
+        Task {
+            let result = await client.react(emoji, at: at, to: agent)
+            guard startedIn == client.chatEpoch else { return }
+            switch result {
+            case .reacted(let at, let pills):
+                if let t = thread { thread = Board.withReactions(t, at: at, pills: pills) }
+                if earlier.rows.contains(where: { $0.atRaw == at }) { earlier.rows = Board.withReactions(earlier.rows, at: at, pills: pills) }
+            case .refused(let why):
+                composerNote = why
+            }
         }
     }
 
@@ -837,6 +889,54 @@ struct ChatView: View {
     }
 }
 
+// kosmos#7083: the line over a message that answers another (the board's dmReplyHead), and its words for VoiceOver.
+struct ReplyHeadLine: View {
+    let head: Board.ReplyHead
+    static func words(_ head: Board.ReplyHead) -> String {
+        switch head {
+        case .answers(let who, let gist): return "Answers " + who + ": " + gist + (gist.last.map { ".!?\u{2026}".contains($0) } == true ? "" : ".")
+        case .furtherBack: return "Original message is further back."
+        case .unavailable: return "Original message unavailable."
+        }
+    }
+    var body: some View {
+        Group {
+            switch head {
+            case .answers(let who, let gist): Text(who + ": " + gist).foregroundColor(Palette.secondary)
+            case .furtherBack: Text("Original message is further back").foregroundColor(Palette.secondary)
+            case .unavailable: Text("Original message unavailable").foregroundColor(Palette.secondary)
+            }
+        }
+        .font(.footnote).lineLimit(2)
+        .padding(.leading, 8)
+        .overlay(Rectangle().fill(Palette.separator).frame(width: 2), alignment: .leading)
+    }
+}
+
+// kosmos#7083: the reaction pills under a message, the person's own marked; a tap toggles it where reacting is offered.
+struct ReactionPills: View {
+    let pills: [Board.ChatReaction]
+    let toggle: ((String) -> Void)?
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(pills, id: \.emoji) { p in
+                Button { toggle?(p.emoji) } label: {
+                    Text(p.emoji + (p.count > 1 ? " \(p.count)" : ""))
+                        .font(.footnote)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(p.mine ? Palette.personBubble : Palette.card))
+                        .overlay(Capsule().stroke(p.mine ? Palette.link : Palette.separator, lineWidth: p.mine ? 1 : 0.5))
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(toggle == nil)
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+}
+
 // A tap action only where there is one to take, so a bubble's links keep their own taps everywhere else.
 struct TapWhen: ViewModifier {
     let enabled: Bool
@@ -861,18 +961,29 @@ struct ChatBubble: View {
     let name: String
     let line: (text: String, canRetry: Bool)?
     let sendAgain: () -> Void
+    // kosmos#7083: what this message answers, and React and Reply (on the agent's messages only, as the board's hover
+    // bar; nil where they are not offered).
+    var head: Board.ReplyHead? = nil
+    var react: ((String) -> Void)? = nil
+    var reply: (() -> Void)? = nil
     @Environment(\.openURL) private var openURL
 
     private var mine: Bool { row.who == .person }
 
     var body: some View {
         VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
+            if let head { ReplyHeadLine(head: head) }
             BubbleText(text: row.text, mine: mine, tail: lastOfRun, widthShare: widthShare, faded: line != nil)
                 .modifier(TapWhen(enabled: line?.canRetry == true, action: sendAgain))
                 // One long-press menu per bubble, set here (a menu on the shared bubble would hide the pending one's Delete).
                 .contextMenu {
+                    if let react {
+                        ForEach(Board.quickReactions, id: \.self) { e in Button { react(e) } label: { Text(e) } }
+                    }
+                    if let reply { Button(action: reply) { Label("Reply", systemImage: "arrowshape.turn.up.left") } }
                     Button { UIPasteboard.general.string = row.text } label: { Label("Copy", systemImage: "doc.on.doc") }
                 }
+            if !row.reactions.isEmpty { ReactionPills(pills: row.reactions, toggle: react) }
             if let line {
                 NotSentLine(text: line.text, canRetry: line.canRetry, action: sendAgain)
             } else if lastOfRun || row.notSent != nil {
@@ -893,11 +1004,25 @@ struct ChatBubble: View {
         // The bubble is read as one element, so its links are offered as actions (one per link, named by its site, and
         // numbered when there is more than one).
         .accessibilityActions { linkActions }
+        .accessibilityActions { replyActions }
+    }
+
+    // Reply and each reaction, as VoiceOver actions on the one element the bubble is.
+    @ViewBuilder private var replyActions: some View {
+        if let reply { Button("Reply", action: reply) }
+        if let react {
+            ForEach(Board.quickReactions.filter { e in !row.reactions.contains { $0.emoji == e && $0.mine } }, id: \.self) { e in
+                Button("React with \(e)") { react(e) }
+            }
+            ForEach(row.reactions.filter(\.mine), id: \.emoji) { r in Button("Remove your \(r.emoji)") { react(r.emoji) } }
+        }
     }
 
     // Split out of body so the compiler type-checks each part on its own (CI's Xcode timed out on the pending bubble's).
     private var spokenLabel: String {
-        let said = Self.spoken(who: mine ? "You" : name, at: row.at, text: row.text)
+        var said = Self.spoken(who: mine ? "You" : name, at: row.at, text: row.text)
+        if let head { said = ReplyHeadLine.words(head) + " " + said }
+        if !row.reactions.isEmpty { said += ". Reactions: " + row.reactions.map { $0.emoji + ($0.count > 1 ? " \($0.count)" : "") }.joined(separator: ", ") }
         if let line { return said + (line.canRetry ? ", not sent, double-tap to try again" : ", not sent") }
         if let notSent = row.notSent { return said + ", " + notSent.lowercased() }
         return said
