@@ -2877,6 +2877,8 @@ cmd_notice() {
   fi
   case "$source" in *$'\n'*|*$'\r'*) source="" ;; esac   # grep checks each line on its own, so a line break is refused here
   if [ -z "$source" ] || ! printf '%s' "$source" | LC_ALL=C grep -qE '^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$'; then say "The source is a few plain words (letters, digits, spaces, . _ -), such as \"builder alarm\"."; _keep_piped; exit 2; fi
+  # Far past the board's 4000 characters even once its spaces collapse: refused here, before the text is escaped.
+  if [ "${#text}" -gt 65536 ]; then say "The notice was not written: it is over 64 KB, and a notice is at most 4000 characters. Send a short summary."; _keep_piped; exit 2; fi
   case "$project" in
     *[!A-Za-z0-9._-]*) say "There is no project called \"$project\", so there is no room to write into."; _keep_piped; exit 1 ;;
     *[!.]*) ;;
