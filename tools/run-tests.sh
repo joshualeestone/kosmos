@@ -30,6 +30,7 @@ cd "$REPO"
 #   node  the node suite only;
 #   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js), and with
 #         KOSMOS_SHELL_PLATFORM=linux|mac as well (only with a shard, #6791) just that platform's share of it.
+#         KOSMOS_SHELL_PARALLEL=n (#7100, 2 to 8) runs all of test:shell as n shards at once on this computer.
 # Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates). --only (#4929,
 # below) keeps the temp root, the --require guards and the leak guards, and skips the queue wait, the coverage count,
 # the shell part and the browser-check gates.
@@ -143,6 +144,18 @@ if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
     exit 2
   fi
 fi
+# #7100: KOSMOS_SHELL_PARALLEL=<n> runs test:shell as n shards at once on this computer (2 to 8), not shard 1 of 1.
+# Unset or 1 is today's one-at-a-time run. Not with KOSMOS_SHELL_SHARD (that runs one shard; CI runs the others).
+KOSMOS_SHELL_PARALLEL="${KOSMOS_SHELL_PARALLEL:-1}"
+case "$KOSMOS_SHELL_PARALLEL" in
+  1) ;;
+  [2-8]) if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
+           echo "run-tests: KOSMOS_SHELL_PARALLEL and KOSMOS_SHELL_SHARD do not combine (got parallel '$KOSMOS_SHELL_PARALLEL', shard '$KOSMOS_SHELL_SHARD')" >&2
+           exit 2
+         fi ;;
+  *) echo "run-tests: KOSMOS_SHELL_PARALLEL must be a whole number from 1 to 8 (got '$KOSMOS_SHELL_PARALLEL')" >&2
+     exit 2 ;;
+esac
 # #6791: which platform's share of test:shell a shard runs (tools/shell-macos-only.txt): linux or mac, only with a shard.
 if [ -n "${KOSMOS_SHELL_PLATFORM:-}" ]; then
   if [ -z "${KOSMOS_SHELL_SHARD:-}" ] || { [ "$KOSMOS_SHELL_PLATFORM" != linux ] && [ "$KOSMOS_SHELL_PLATFORM" != mac ]; }; then
@@ -687,7 +700,7 @@ if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
   # guard, and removing the root under a launchd job loaded from a plist in it is the
   # 8,096-respawn shape. So while the labels snapshot is still unused (the guard removes
   # it), the trap boots out this run's jobs before the root goes.
-  trap '[ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"; [ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
+  trap '[ -n "${KOSMOS_SHELL_PARALLEL_PIDS:-}" ] && kill $KOSMOS_SHELL_PARALLEL_PIDS 2>/dev/null; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"; [ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
   export TMPDIR="$KOSMOS_RUN_TMPDIR"
   export KOSMOS_TEST_RUN="$KOSMOS_RUN_TMPDIR"   # #5418, see above
 else
@@ -697,7 +710,7 @@ else
   export KOSMOS_TEST_RUN="${TMPDIR:-/tmp}"
   # #6668: with no run root there is no exit trap above, so this one signals the file watchdog on a TERM (a Ctrl-C
   # waits for node, and the normal stop follows).
-  trap '[ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"' EXIT
+  trap '[ -n "${KOSMOS_SHELL_PARALLEL_PIDS:-}" ] && kill $KOSMOS_SHELL_PARALLEL_PIDS 2>/dev/null; [ -n "${_rt_ps_dir:-}" ] && rm -rf "$_rt_ps_dir"; [ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"' EXIT
 fi
 
 # --- coverage assertion: every *.test.js is CONSIDERED (kosmos#1934) -----------
@@ -813,6 +826,21 @@ elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
   fi
   if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
     ${_rt_shell_wrap[@]+"${_rt_shell_wrap[@]}"} node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}" ${KOSMOS_SHELL_PLATFORM:+"$KOSMOS_SHELL_PLATFORM"}
+  elif [ "$KOSMOS_SHELL_PARALLEL" != 1 ]; then
+    # #7100: the n shards at once. Each writes its own log, in a folder beside the run root (inside it, the leak guard
+    # would read the logs as a new temp family), and the logs are printed in shard order once all have ended. The part
+    # is red when any shard is red. The EXIT traps above stop the shards and remove the folder on an interruption.
+    _rt_ps_dir="$(mktemp -d "$(dirname "$KOSMOS_RUN_TMPDIR")/kt-shellpar.XXXXXXXXXX")" || _rt_ps_dir=""
+    if [ -z "$_rt_ps_dir" ]; then
+      echo "run-tests: could not make a folder for the parallel shell shards' logs; refusing rather than run them unlogged (#7100)" >&2
+      (exit 2)   # the status NODE_STATUS=$? reads below the fi
+    else
+      . "$REPO/tools/lib/shell-parallel.sh"
+      kosmos_shell_parallel "$KOSMOS_SHELL_PARALLEL" "$_rt_ps_dir" ${_rt_shell_wrap[@]+"${_rt_shell_wrap[@]}"} node "$REPO/tools/shell-shard.js" run
+      _rt_ps_rc=$?
+      rm -rf "$_rt_ps_dir"; _rt_ps_dir=""
+      (exit "$_rt_ps_rc")   # the status NODE_STATUS=$? reads below the fi
+    fi
   else
     # #5907: the whole of test:shell as shard 1 of 1 (the same commands in the same order, stopping at the first
     # red, as the && chain did), so the log names each command's time and the slowest ones.
