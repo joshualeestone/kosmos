@@ -138,6 +138,7 @@ function epochOfKey(key) {
   const parts = typeof key === 'string' ? key.split('/') : [];
   return parts.length === 5 ? parts[2] : null;
 }
+
 /* The period segment of a coordinator object key (<org>/<account>/<epoch>/<period>/<random>), or null. */
 function periodOfKey(key) {
   const parts = typeof key === 'string' ? key.split('/') : [];
@@ -586,7 +587,7 @@ function upperBound(f, maxFile) {
  *     build the new context with THAT period (the coordinator's clock decides it; this Mac's may be up to an hour off).
  *   added (Map name -> { key, lockedUntilMs, memberKeyId }) is every chunk this run stored in ctx.period under `bucket`,
  *     failed or not; keep memberKeyId with each entry (an index entry without it is stale).
- *   staleIndex: the index cannot be used (another bucket or period, malformed, or chunks whose locks end too soon):
+ *   staleIndex: the index cannot be used (another bucket, period or key epoch (kosmos#7156), malformed, or chunks whose locks end too soon):
  *     drop it, keep `added` under `bucket`, and take the next snapshot from that.
  *   tooLarge: the manifest would pass its ceiling (too many files): not a retry.
  * Never throws. (If an injected uploader throws mid-batch, that batch's stored chunks cannot be known, so they are not in
@@ -649,8 +650,9 @@ async function snapshotInner(input, deps, added, state, fail) {
       const why = typeof name !== 'string' || !/^[0-9a-f]{64}$/.test(name) || !e ? 'malformed'
         : keyProblem(e.key, ctx) || (Buffer.byteLength(e.key) > MAX_KEY_LEN ? `a key longer than ${MAX_KEY_LEN} characters` : null)
           || (e.memberKeyId !== mkid ? 'sealed to another member key' : null)
-          /* kosmos#7156 (option a): an entry stored under another key epoch than this snapshot's is stale too, so the run
-             seals and stores those chunks again under ctx.epoch. One snapshot, one epoch: restore opens it with one member
+          /* kosmos#7156 (option a): an entry stored under another key epoch than this snapshot's is stale too: this run stops
+             as staleIndex before anything is granted, withRun drops the index, and the NEXT run seals and stores
+             everything again under its epoch. One snapshot, one epoch: restore opens it with one member
              key, and the read route grants one epoch per request. A registered key never changes epoch today
              (backupmemberkey moves only an unregistered one, and the coordinator refuses a key reused for another epoch),
              so an entry under another epoch also has another memberKeyId; this says so here instead of resting on that. */
