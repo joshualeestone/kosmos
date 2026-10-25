@@ -162,7 +162,9 @@ function verify(history, opts = {}) {
     if (!msg || !sig || sig.length !== 64) return { ok: false, because: 'the device key history was not in the form escrowd signs' };
     const key = crypto.createPublicKey({ key: Buffer.concat([SPKI_ED25519, vk]), format: 'der', type: 'spki' });
     if (crypto.verify(null, msg, key, sig) !== true) return { ok: false, because: 'escrowd\'s signature on the device key history did not check' };
-    const now = Number.isSafeInteger(opts.now) ? opts.now : Math.floor(Date.now() / 1000);
+    // A clock that is not a time is the caller's mistake: refused by name, never left to whichever check it trips.
+    if (opts.now !== undefined && !isTime(opts.now)) return { ok: false, because: 'the device key history was checked against a clock that is not a time' };
+    const now = opts.now !== undefined ? opts.now : Math.floor(Date.now() / 1000);
     const maxAge = Number.isSafeInteger(opts.maxAgeSecs) && opts.maxAgeSecs > 0 ? opts.maxAgeSecs : MAX_AGE_SECS;
     const skew = Number.isSafeInteger(opts.skewSecs) && opts.skewSecs >= 0 ? opts.skewSecs : SKEW_SECS;
     if (issuedAt > now + skew) return { ok: false, because: 'the device key history is dated in the future' };
