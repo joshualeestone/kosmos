@@ -81572,13 +81572,13 @@ function fedOwnHtml() {
   const confirmed = o.code && FED_OWN_CONFIRMED && FED_OWN_CONFIRMED.project === o.project && FED_OWN_CONFIRMED.code === o.code;
   if (confirmed) {
     // Confirmed here, not yet allowed there: the code stays to compare, with nothing left to press on this computer.
-    h += '<h4 class="fedout-h">This room is sealed</h4>'
-      + '<p class="fhint">You confirmed this code. This computer reads the room once the other computer has allowed it. If that does not happen, start over for a new code.</p>'
+    h += '<h4 class="fedout-h">' + (o.pending ? 'Waiting to be let in' : 'This room is sealed') + '</h4>'
+      + '<p class="fhint">You confirmed this code. This computer ' + (o.pending ? 'posts here' : 'reads the room') + ' once the other computer has allowed it. If that does not happen, start over for a new code.</p>'
       + fedOwnCodeHtml(o.code, '')
       + '<div class="ownseal-acts"><button class="ownseal-btn" type="button" data-own-act="nomatch"' + busy + '>Start over</button></div>';
   } else if (o.code) {
-    h += '<h4 class="fedout-h">This room is sealed</h4>'
-      + '<p class="fhint">To read it here, open this project on the computer that first shared it. A code appears there beside this computer. If it is the same as this one, press It matches here and Allow there.</p>'
+    h += '<h4 class="fedout-h">' + (o.pending ? 'Let this computer in' : 'This room is sealed') + '</h4>'
+      + '<p class="fhint">' + (o.pending ? 'To post here from this computer' : 'To read it here') + ', open this project on the computer that first shared it. A code appears there beside this computer. If it is the same as this one, press It matches here and Allow there.</p>'
       + fedOwnCodeHtml(o.code, '')
       + '<div class="ownseal-acts"><button class="ownseal-btn" type="button" data-own-act="match" data-own-code="' + esc(o.code) + '"' + busy + '>It matches</button>'
       + '<button class="ownseal-btn" type="button" data-own-act="nomatch"' + busy + '>Does not match</button></div>';
@@ -81692,6 +81692,7 @@ function fedOwnPaint() {
       && !(typeof layoutConsolidated === 'function' && layoutConsolidated())
       && (window.matchMedia(PJ_PHONE_MQ).matches || pjTabletUpright());
     line.hidden = !(below && o && o.code && o.project === PJ_CURRENT && fedShow());
+    if (!line.hidden) line.textContent = o.pending ? 'This computer is waiting to be let in. The code to compare is under Members.' : 'This room is sealed on this computer. The code to compare is under Members.';
   }
 }
 /* What the section shows, as one string: a press's sentence is kept until this changes. */
@@ -81729,6 +81730,8 @@ async function fedOwnLoad(project, fromPress) {
   // can no longer say it is the code this computer shows.
   const missed = mine ? 0 : (prev ? (prev.missed || 0) + 1 : 1);
   const code = mine ? (typeof mine.code === 'string' ? mine.code : null) : (prev && missed < 3 ? prev.code : null);
+  // kosmos#4658 slice 2: waiting to be let into an UNSEALED room, so the card does not call it sealed.
+  const pending = mine ? mine.pending === true : !!(prev && missed < 3 && prev.pending);
   // The allowed computers by the same rule as the waiting ones: kept through two misses, dropped at the third. A kept
   // list never brings back one just removed (the remove filters it out of FED_OWN), and an answer asked after the
   // remove is the board's word (one listed again was let in again).
@@ -81736,7 +81739,7 @@ async function fedOwnLoad(project, fromPress) {
   const allowed = allowedAns && Array.isArray(allowedAns.computers)
     ? allowedAns.computers.filter((a) => a && typeof a.pub === 'string').map((a) => ({ pub: a.pub, at: a.at }))
     : (prev && allowedMissed < 3 ? (prev.allowed || []) : []);
-  FED_OWN = { project, waiting: rows, allowed, code, missed, rowsMissed, allowedMissed, at: Date.now() };
+  FED_OWN = { project, waiting: rows, allowed, code, pending, missed, rowsMissed, allowedMissed, at: Date.now() };
   // The third failed read drops the list from the section; an open Remove dialog stays (a failed read is not an
   // answer), so it says why its computer is no longer shown under it.
   const pendDrop = MEM_PENDING && MEM_PENDING.own;
@@ -81803,7 +81806,7 @@ async function fedOwnPress(btn) {
       ? fetch('/api/federation/own-allow', opts(signal)) : fetch('/api/federation/own-confirm', opts(signal))));
     if (res.ok) {
       ok = true;
-      said = act === 'allow' ? 'Allowed. That computer reads this room once its person has confirmed the same code there (at once, if they already have).'
+      said = act === 'allow' ? 'Allowed. That computer takes part in this room once its person has confirmed the same code there (at once, if they already have).'
         : act === 'match' ? 'Confirmed. This computer reads the room once the other computer has allowed it.'
         : j && j.started_over === true ? 'Started over. A new code appears here when the other computer answers.'
         : 'There was nothing to start over: this computer is not waiting for a code right now.';
