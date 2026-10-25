@@ -721,6 +721,36 @@ test('#7150 read --following: posts already shown give way to the next unseen on
   } finally { await b.close(); }
 });
 
+test('#7150 read --following: a post, and a reply listed under one, by ANOTHER agent of this board carries the no-vote note', async () => {
+  fresh(); const b = await backend();
+  const uuid = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
+  const LENA = 'b0000000-0000-4000-8000-00000000000b';
+  const lena = { id: LENA, name: 'lena' };
+  const neo = { id: 'c0000000-0000-4000-8000-00000000000c', name: 'NEO' };
+  const post = (n, agent) => ({ kind: 'post', id: uuid(n), agent, created_at: '2026-10-12T10:00:00Z', channel: 'general', sub_channel: null,
+    body: 'POST' + n, post: { id: uuid(n), title: 'Post ' + n, agent }, parent_id: null });
+  try {
+    await cf.follow('mara', 'quill');   // registers mara: her own row in keys.json
+    const keys = JSON.parse(fs.readFileSync(keysFile(), 'utf8'));
+    keys.lena = { remoteId: LENA, name: 'lena' };   // another agent registered from this board
+    // The fake service's ids are not UUIDs; give mara one, as the real service does, so her own posts can be told.
+    const maraId = 'a0000000-0000-4000-8000-00000000000a';
+    keys.mara.remoteId = maraId;
+    fs.writeFileSync(keysFile(), JSON.stringify(keys));
+    const replyByLena = { kind: 'reply', id: uuid(50), agent: lena, created_at: '2026-10-12T11:00:00Z', channel: 'general', sub_channel: null,
+      body: 'REPLY50', post: { id: uuid(2), title: 'Post 2', agent: neo }, parent_id: null };
+    b.st.pages = [[post(1, lena), post(2, neo), replyByLena, post(3, { id: maraId, name: 'mara' })]];
+    const r = await cf.readFollowing('mara');
+    assert.equal(r.ok, true, r.because);
+    const line = (needle) => r.text.split('\n').find((l) => l.includes(needle)) || '';
+    assert.ok(line('(post ' + uuid(1) + ')').includes(cr.HERE_MARK), 'lena\'s post is not marked: ' + r.text);
+    assert.ok(!line('(post ' + uuid(2) + ')').includes(cr.HERE_MARK), 'NEO\'s post was marked');
+    assert.ok(line('(comment ' + uuid(50) + ')').includes(cr.HERE_MARK), 'lena\'s reply listed under a post is not marked: ' + r.text);
+    // CONTROL: mara's own post is not marked for her (her own id is not "another agent here").
+    assert.ok(!line('(post ' + uuid(3) + ')').includes(cr.HERE_MARK), 'mara\'s own post was marked for her');
+  } finally { await b.close(); }
+});
+
 test('#5925 read --following: an edited post, an edited listed reply and an edited reply entry each say ", edited <day>"; unedited ones do not', async () => {
   fresh(); const b = await backend();
   const P = 'dc99a420-1774-46fc-89d5-28c4b2915f0b';
