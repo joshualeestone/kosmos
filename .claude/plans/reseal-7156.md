@@ -9,7 +9,7 @@ The defect needs an index entry under epoch N with the same memberKeyId as the e
 - `backupmemberkey`'s move path renumbers only an UNREGISTERED key, and no snapshot runs under one.
 - The coordinator refuses a key reused for another epoch (`member_key_reused`).
 
-So an entry under another epoch always has another memberKeyId, and is already a stale index (`sealed to another member key`). The card's scenario is reproduced only by hand: a new test builds an index from an epoch 1 run with the same member key and snapshots under epoch 2. Before this change that snapshot succeeded and named epoch 1 chunks.
+So an entry under another epoch always has another memberKeyId, and is already a stale index (`sealed to another member key`). The card's scenario is reproduced only by hand: a new test builds an index from an epoch 1 run with the same member key and snapshots under epoch 2. Before this change that snapshot succeeded and named epoch 1 chunks, in the test's fake store. Against the real coordinator that needs the hypothetical where it grants an epoch-2 manifest for the same key (review 3).
 
 ## Decided
 `snapshotInner`'s index check also refuses an entry whose key's epoch segment is not `ctx.epoch` ("stored under another key epoch", staleIndex). That run stops before anything is granted (no allowance spent). backupstate.withRun drops the index, and the NEXT scheduled run seals and stores everything again under its epoch, so one backup interval is lost (review 1). One snapshot, one epoch: restore opens it with one member key, and the read route grants one epoch per call. The comment in `keyProblem` that said an earlier-epoch entry may still restore is corrected.

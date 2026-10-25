@@ -653,7 +653,7 @@ async function snapshotInner(input, deps, added, state, fail) {
           /* kosmos#7156 (option a): an entry stored under another key epoch than this snapshot's is stale too: this run stops
              as staleIndex before anything is granted, withRun drops the index, and the NEXT run seals and stores
              everything again under its epoch. One snapshot, one epoch: restore opens it with one member
-             key, and the read route grants one epoch per request. A registered key never changes epoch today
+             key, and the read route (kosmos-relay, #5686 c) grants one epoch per request. A registered key never changes epoch today
              (backupmemberkey moves only an unregistered one, and the coordinator refuses a key reused for another epoch),
              so an entry under another epoch also has another memberKeyId; this says so here instead of resting on that. */
           || (epochOfKey(e.key) !== String(ctx.epoch) ? 'stored under another key epoch' : null)
