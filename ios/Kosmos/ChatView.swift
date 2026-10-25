@@ -46,6 +46,9 @@ struct ChatView: View {
     @State private var composerNote: String?
     // kosmos#7136: the refusal a Try again wrote there, so a later one that works clears only its own line (dmRetrySend).
     @State private var retryNote: String?
+    // kosmos#7136: rows sent again whose answer is in but whose next read is not: still drawn "sending…", so the stale
+    // failed line cannot offer a second Try again before the read shows the row as it now is.
+    @State private var retrySettling: Set<String> = []
     // kosmos#7016 part 3: the earlier messages loaded in this chat (the board's EARLIER, per open chat), whether the
     // top of the thread is on screen, and whether the first scroll to the newest message is done.
     @State private var earlier = Board.Earlier()
@@ -782,15 +785,20 @@ struct ChatView: View {
 
     // kosmos#7136: the board's failed line for a row of the person's, as it is on this phone now.
     private func failedLine(_ row: Board.ChatRow) -> Board.FailedLine? {
-        Board.failedLine(row, newestMineAt: newestMine, flying: client.isSendingAgain(row, for: agent.session))
+        Board.failedLine(row, newestMineAt: newestMine,
+                         flying: client.isSendingAgain(row, for: agent.session) || row.atRaw.map { retrySettling.contains($0) } == true)
     }
 
     // Try again, as the board's dmRetrySend: what happened is heard; a refusal is also said under the box, and a later
     // one that works clears that line only if a Try again wrote it.
     private func tryAgain(_ row: Board.ChatRow) {
         let newest = newestMine
-        sendWhenFree {
-            guard let out = await client.sendAgain(row, newestMineAt: newest, to: agent) else { return }
+        if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
+        Task {
+            guard let at = row.atRaw, let out = await client.sendAgain(row, newestMineAt: newest, to: agent) else { await read(); return }
+            retrySettling.insert(at)
+            await read()
+            retrySettling.remove(at)
             if out.refused {
                 composerNote = out.said
                 retryNote = out.said
@@ -1333,7 +1341,10 @@ struct ChatBubble: View {
         var said = Self.spoken(who: mine ? "You" : name, at: row.at, text: row.text)
         if let head { said = ReplyHeadLine.words(head) + " " + said }
         if !row.reactions.isEmpty { said += ". Reactions: " + row.reactions.map { $0.emoji + ($0.count > 1 ? " \($0.count)" : "") }.joined(separator: ", ") }
-        if let failed { return said + ", " + Board.failedWords.lowercased() + (failed.canRetry ? ", double-tap to try again" : "") }
+        if let failed {
+            return said + ", " + Board.failedWords.lowercased()
+                + (failed.canRetry ? ", double-tap to try again" : failed.button != nil ? ", sending" : "")
+        }
         if let notSent = row.notSent { return said + ", " + notSent.lowercased() }
         return said
     }

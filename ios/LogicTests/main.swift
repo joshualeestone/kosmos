@@ -2168,7 +2168,6 @@ section("native board loop: connecting")
         w.uploadYields = 0
         check(attached().map(\.name) == ["f0.txt", "slow.pdf"] && c.uploading["dana"] == 0, "and the file that was going up lands on the composer")
 
-
         // Another account meanwhile: an upload that answers late adds nothing, and a pick made before is never sent.
         w.uploadYields = 50
         let before = c.chatEpoch
