@@ -145,8 +145,20 @@ test('keyAt honours the window edges: from is inclusive, until is exclusive', ()
   assert.ok(hist.keyAt(keys, K2, NOW - 500));
 });
 
+const PINNED_HEAD_SHA256 = '90ab1cc201e136591c0e786dddc4a6e3e978febf875d1eeda9c1fa076793707a';
 test('the signed head format is pinned, so the relay side (slice 2) can be checked against the same bytes', () => {
   const msg = hist.encodeHead('o1', 'm1', BASE, NOW - 60);
   assert.strictEqual(crypto.createHash('sha256').update(msg).digest('hex'), PINNED_HEAD_SHA256);
 });
-const PINNED_HEAD_SHA256 = '90ab1cc201e136591c0e786dddc4a6e3e978febf875d1eeda9c1fa076793707a';
+
+test('a clock that is not a time is refused by name, against an honest twin', () => {
+  const h = signed(BASE);
+  assert.strictEqual(hist.verify(h, opts).ok, true, 'control');
+  for (const now of [0.5, -5, -1e9, '1800000000', null, NaN]) {
+    assert.match(hist.verify(h, { ...opts, now }).because || '', /not a time/, String(now));
+  }
+});
+
+test('the shipped verifying key, once it ships, is 32 bytes of lowercase hex (a bad paste fails here, not in a restore)', () => {
+  assert.ok(hist.VERIFYING_KEY === null || /^[0-9a-f]{64}$/.test(hist.VERIFYING_KEY));
+});
