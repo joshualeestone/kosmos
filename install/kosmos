@@ -4050,7 +4050,7 @@ cmd_inbox() {
   [ "$_unans" = 1 ] && _extra="&unanswered=1"
   if [ "$_hassince" = 1 ]; then
     case "$_since" in
-      ''|*[!0-9A-Za-z:.+\ -]*) say "--since takes a date and a clock time, like 2026-10-25T05:22:00Z or \"2026-10-25 05:22\"."; exit 2 ;;
+      ''|-*|*[!0-9A-Za-z:.+\ -]*) say "--since takes a date and a clock time, like 2026-10-25T05:22:00Z or \"2026-10-25 05:22\"."; exit 2 ;;
     esac
     _extra="$_extra&since=$(printf '%s' "$_since" | sed 's/+/%2B/g; s/ /%20/g; s/:/%3A/g')"
   fi

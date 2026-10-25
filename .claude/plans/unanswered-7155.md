@@ -20,7 +20,8 @@ Extend `kosmos inbox` (no new verb) with two flags, on the Mac CLI, the Windows 
   Menu answers are left out (they owe nothing, as in dmOwes). Kosmos's own notice never counts as your reply here
   (inbox already drops those rows): after a gap, the notice is not an answer.
 - `--since <time>`: only messages at or after an ISO time (`2026-10-25T05:22:00Z`, `2026-10-25T05:22-05:00`, or a
-  local `2026-10-25 05:22`). A time Date.parse cannot read, or one without a clock time, is refused (400 / exit 2).
+  local `2026-10-25 05:22`). A time without a clock time, or with a field out of range (2026-02-30, 24:00), is
+  refused (400); the CLIs refuse a missing value or one starting with `-` before any request (exit 2).
 - With either flag the limit keeps the OLDEST matches (after a gap the first to answer must never be the one cut),
   and a last line says how many later ones were left out and the `--since <time>` that shows them. Without a flag
   inbox keeps the newest, as before. (Challenge iteration 1 changed this from newest-kept.)
@@ -40,6 +41,8 @@ Extend `kosmos inbox` (no new verb) with two flags, on the Mac CLI, the Windows 
 `--since <nextAt>` is inclusive, so a shown message sharing nextAt's timestamp, and any row with no readable time, can
 appear again on the next page. Paging strictly after the last shown time would instead SKIP an unshown row that shares
 it. For a catch-up read a repeat is harmless and a skip is the failure this card exists to stop. (Challenge iteration 3.)
+When more rows than the limit share one time, a --since would show the same page forever, so the hint names
+--limit 50 instead; past 50 rows at one millisecond nothing pages them, a limit accepted as unreal. (Iteration 4.)
 
 ## Weakest premise
 That "unanswered" means "after your newest reply" rather than per message. One reply after three questions clears

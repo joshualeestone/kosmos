@@ -91,6 +91,10 @@ test('#7155: --since keeps only messages at or after the time; an offset and a l
   assert.equal(r.code, 200, r.text);
   assert.deepEqual(r.text.trimEnd().split('\n').map((l) => l.replace(/^\S+ \S+ /, '')), [
     'the person [this did not reach you]: lost one', 'the person: third unanswered']);
+  // Control: a real leap day and the last second of a day are read, so the range check is not refusing good times.
+  for (const good of ['2028-02-29T05:22:00Z', '2026-10-25T23:59:59Z']) {
+    assert.equal((await get('/api/inbox?since=' + encodeURIComponent(good))).code, 200, good);
+  }
   const off = await get('/api/inbox?since=' + encodeURIComponent('2026-10-25T05:00:50-05:00'));
   assert.equal(off.json.messages.length, 2, 'an offset time was not read: ' + off.text);
   const off4 = await get('/api/inbox?since=' + encodeURIComponent('2026-10-25T05:00:50-0500'));
@@ -108,7 +112,7 @@ test('#7155: --since together with --unanswered narrows both ways', async () => 
 });
 
 test('#7155: a time that is not a date with a clock time is refused, with how to write one', async () => {
-  for (const bad of ['yesterday', '2026-10-25', '2026-10-25T25:99', '', '10:00']) {
+  for (const bad of ['yesterday', '2026-10-25', '2026-10-25T25:99', '', '10:00', '2026-02-30T05:22:00Z', '2026-02-29T05:22', '2026-10-25T24:00', '2026-10-25T05:60']) {
     const r = await get('/api/inbox?as=text&since=' + encodeURIComponent(bad));
     assert.equal(r.code, 400, JSON.stringify(bad) + ' was accepted: ' + r.text);
     assert.match(r.text, /--since takes a date and a clock time/);
@@ -166,5 +170,18 @@ test('#7155: unanswered is timed as dmOwes times it, not by where a row sits; a 
       'a position-based cut would list the older, answered question: ' + JSON.stringify(j));
     const s2 = await fetch(base + '/api/inbox?since=' + encodeURIComponent(at(35)), { headers: { 'x-kosmos-agent-token': tok } });
     assert.deepEqual((await s2.json()).messages.map((m) => m.text), ['newer question', 'no time on this one']);
+  } finally { sendertoken.revoke(name); board.restore(); }
+});
+
+test('#7155: more rows at one time than the limit does not hand out a --since that shows the same page again', async () => {
+  const name = 'oak';
+  const board = fleet.install([fleet.agent(name, { state: 'idle' })]);
+  const tok = sendertoken.mint(name).token;
+  try {
+    const same = '2026-10-25T13:00:00.000Z';
+    for (let i = 1; i <= 3; i += 1) chat.appendMessage(chat.DIRECT, name, { text: 'same ' + i, at: same, delivery: { state: chat.DELIVERY.PLACED } });
+    const res = await fetch(base + '/api/inbox?as=text&unanswered=1&limit=2', { headers: { 'x-kosmos-agent-token': tok } });
+    const last = (await res.text()).trimEnd().split('\n').pop();
+    assert.equal(last, '1 later message not shown: more than 2 share one time, so add --limit 50.');
   } finally { sendertoken.revoke(name); board.restore(); }
 });

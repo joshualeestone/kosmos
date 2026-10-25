@@ -93,7 +93,7 @@ test('#7155: inbox --unanswered and --since ride to the board, the same on the M
 }));
 
 test('#7155: a --since with no value or with characters no time holds is refused before any request', () => withStubBoard(async (port, seen) => {
-  for (const args of [['--since'], ['--since='], ['--since', '$(id)'], ['--since', '05:22&x=1']]) {
+  for (const args of [['--since'], ['--since='], ['--since', '$(id)'], ['--since', '05:22&x=1'], ['--since', '--unanswered']]) {
     const out = await runCli(['inbox', ...args], envFor(port));
     assert.equal(out.code, 2, 'Mac ' + args.join(' ') + ': ' + out.stdout + out.stderr);
     const w = await runWin(['inbox', ...args]);

@@ -887,7 +887,7 @@ async function verbInbox(ctx, args) {
   // Review 2, as install/kosmos: a given --limit is a whole number from 1 to 50.
   if (given && !(/^[1-9]\d?$/.test(limit) && Number(limit) <= 50)) { ctx.err('--limit takes a whole number from 1 to 50.'); return 2; }
   // #7155: the board checks the time; here only that one was given, in the characters a time can hold.
-  if (since !== null && !/^[0-9A-Za-z:.+ -]+$/.test(since)) { ctx.err('--since takes a date and a clock time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22".'); return 2; }
+  if (since !== null && !/^[0-9A-Za-z:.+ ][0-9A-Za-z:.+ -]*$/.test(since)) { ctx.err('--since takes a date and a clock time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22".'); return 2; }
   const extra = (unanswered ? '&unanswered=1' : '') + (since !== null ? '&since=' + encodeURIComponent(since) : '');
   const r = await ctx.call('GET', '/api/inbox?as=text&limit=' + limit + '&from_pane=' + extra);
   if (!r.reached) return ctx.unreachable('read your messages');
