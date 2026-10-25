@@ -1215,6 +1215,7 @@ struct RoomBubble: View {
             if row.kind == .external && row.unverified {
                 Text(Board.unverifiedLine).font(.caption).foregroundColor(Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, -2)   // the board's margin-top: 2px under the words (the stack's spacing is 4)
             }
             // One card per file, by position as well as id (a post that names one file twice draws two). While one is
             // on its way the others wait, as in the chat. The post is one VoiceOver element, so the cards are read in it

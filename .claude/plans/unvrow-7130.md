@@ -22,3 +22,8 @@ Rebase onto main after #7129 merges, re-run, then validate.
   -> the board-sentence pin red.
 
 ## Review
+- Round 1: 0 blockers, 1 warning, 2 nits. Warning fixed: the drawing itself is pinned in RoomBubble's source (the line on
+  a marked outside row, .caption and secondary, under the words and before the file cards, drawn once, Copy still the
+  words); deleting the drawing turns two checks red. Nit fixed: 2 pt above the line, as the board's margin-top (the
+  stack's spacing is 4). Nit recorded: the fixture JSON is hand-written; the reviewer matched its shape to server.js on
+  unverified-7129. Room 299/299 with #7129's board (296/299 on main, the 3 pins); Debug SUCCEEDED.
