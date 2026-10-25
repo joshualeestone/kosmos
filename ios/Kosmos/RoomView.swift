@@ -379,9 +379,10 @@ struct RoomView: View {
             }
             // kosmos#7080 review 4: the working line sits below the thread, so its coming, going or growing changes the
             // thread's height; a reader at the end stays at the end (the board's holdFloorOnResize, #1037). Read before
-            // the layout moves the end marker, scrolled once it has.
+            // the layout moves the end marker, scrolled once it has. Animated, as the new-row scroll above is: a reply
+            // usually lands in the same update that takes its writer off the line (review 5: a plain scroll cut it short).
             .onChange(of: Board.workingLine(workingNow)) { _ in
-                if atBottom && settledAtBottom { DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) } }
+                if atBottom && settledAtBottom { DispatchQueue.main.async { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
             }
             // The person's own post always shows: pressing Post is asking to see it.
             .onChange(of: store.pending[project.id]?.count ?? 0) { n in

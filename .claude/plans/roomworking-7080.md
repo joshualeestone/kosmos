@@ -62,4 +62,6 @@ member order; the suite covers it against a captured real status row; it is merg
      first line's baseline (N2); a vacuous empty-dictionary assertion removed (N3). Room 186/186 (controls red:
      unbaselining on an unreadable read, a baseline before any real read); run 1152, actions 99, settings 42, tasks
      90; route check 5/5; Debug and KOSMOS_STORE_SHOTS Release SUCCEEDED.
+   - Round 5 (fresh blind reviewer): 0 blockers, 0 warnings, 1 nit, fixed: the hold's scroll is animated, as the
+     new-row scroll is, so a reply landing with its writer leaving the line slides in rather than jumping.
 3. Validation, PR.
