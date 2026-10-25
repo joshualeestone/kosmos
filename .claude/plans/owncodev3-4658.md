@@ -5,7 +5,7 @@ The 0.7.67 staging cut (pinned 01dbeaffd2) failed at step 3b on render-owncode-4
 
 ## Decided
 - The check builds `v: 3`, an unsealed room's code as a current board makes it. Nothing else changes: the same fields, and `from` is already set (v3 requires it).
-- Searched every browser check, tool and test for hand-built own codes (`OWN_PREFIX` / `kosmos-own:`). This is the only v1 one: server.federation-3311.test.js already builds v3 and v2, and tools/fed-own-e2e.js reads a code the board made.
+- Searched every browser check, tool and test for hand-built own codes (`OWN_PREFIX` / `kosmos-own:`). This is the only v1 one: server.federation-3311.test.js already builds v3 and v2, and tools/fed-own-e2e.js reads a code the board made. engine/federation-owncode-4649.test.js builds v1 codes ON PURPOSE (review 1): its v1 cases test that verify refuses v1 as old-code, that parseOwnCode still parses v1, and a not-plus refusal that comes before the version check. Leave them as v1.
 
 ## Why CI did not catch it
 render-owncode-4649 is not in PR CI's browser-check subset, so #7124 merged green. This is the lesson for the author of a change to a parser: grep for every hand-built input of that parser, in full-run checks too.
