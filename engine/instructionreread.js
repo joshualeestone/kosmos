@@ -387,6 +387,8 @@ function prepareChanges(session) {
     if (!diff || !p || /["\s\u0000-\u001f\u007f]/.test(p)) return none();
     const body = '# What changed in your instructions file since you last read it\n\n'
       + 'Kosmos wrote this when it told you the file changed. A line starting with - was removed, one starting with + was added.\n'
+      // Review 14: the file is a pointer; the sections the notice names are what count, and the rest is shown for information.
+      + 'This is a pointer only: the sections the notice named are what count, so read them; changes elsewhere in the file are shown for information.\n'
       + diff + '\n';
     // Review 1 BLOCKER: through securewrite, so a link planted in the agent's folder is never followed; 0600.
     require('./securewrite').writeSecret(p, body, 0o600, { atomicOnly: true, ownTempsOnly: true });
