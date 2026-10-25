@@ -17456,7 +17456,8 @@ const server = http.createServer(async (req, res) => {
         });
         /* kosmos#7149: a session start is when the agent reads its whole instructions file, so the copy that the next
            re-read notice diffs against is taken here. Never fails the report. */
-        if (body.state === 'started') { try { require('./engine/instructionreread').rememberRead(who); } catch { /* the next notice is as before */ } }
+        // Review 7: only a RECORDED start, the same row startedSince ends a debt on, so the copy never runs ahead of it.
+        if (body.state === 'started' && kept && kept.recorded === true) { try { require('./engine/instructionreread').rememberRead(who); } catch { /* the next notice is as before */ } }
         /* #2146 WORK-ACTIVITY MARKER (Renet Tilley). A separate, WORK-SPECIFIC
            signal, distinct from the liveness beat below. It records that the
            agent was ACTIVELY WORKING at a moment, so #2146's activeWhileWaiting
