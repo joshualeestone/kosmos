@@ -53,6 +53,6 @@ The copy moves at a `started` report and at a landed line. A runner or restart t
 - A recorded start that lands while a line is being typed removes the changes file that line names (rememberRead drops it). The agent finds no file, and the line already says the file is a pointer only and to read the sections (review 9).
 - A REMOVED agent (remove.js, which never deletes) keeps its copy, as it keeps its files. Deleting what is left (delete-leftover) forgets it. Sessions are never renamed (only the display name changes), so no file is left under an old name.
 - An absolute path is named in the line. A folder path with whitespace, a double quote or a control character is never named, and its notice is as before.
-- A person's own edit to the file owes no notice (as before). It appears in the next Kosmos notice's diff unless the agent restarted in between.
+- A person's own edit to the file owes no notice (as before). It appears in the next Kosmos notice's diff, but only while the copy has not moved past it. A landed line moves the copy to the whole file, so an edit made before that line is shown in that line's diff as a pointer. After that it is never announced on its own, and the line asks the agent to read only the named sections (review 12). A restart also folds it in.
 - Agents running when this ships have no copy until their next start or their next landed line. Until then, their notices are as before.
 - A session name outside `[A-Za-z0-9._-]` keeps no copy, so its notice is as before.
