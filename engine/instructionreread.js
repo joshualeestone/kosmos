@@ -387,8 +387,9 @@ function prepareChanges(session) {
     if (!diff || !p || /["\s\u0000-\u001f\u007f]/.test(p)) return none();
     const body = '# What changed in your instructions file since you last read it\n\n'
       + 'Kosmos wrote this when it told you the file changed. A line starting with - was removed, one starting with + was added.\n'
-      // Reviews 14-15: a pointer, ranking nothing: every line listed is part of your instructions as they are now.
-      + 'This is a pointer only: read the sections the notice named. It lists every change since you last read the file, changes elsewhere in it included, and those are your current instructions too.\n'
+      /* Reviews 14-17: a pointer, ranking nothing, and never calling a removed line current: an added line anywhere is part
+         of your instructions now, a removed one is not. Complete unless it ends with the more-changed note. */
+      + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies. If it ends with a note that more changed, it is not complete.\n'
       + diff + '\n';
     // Review 1 BLOCKER: through securewrite, so a link planted in the agent's folder is never followed; 0600.
     require('./securewrite').writeSecret(p, body, 0o600, { atomicOnly: true, ownTempsOnly: true });
@@ -419,7 +420,7 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
         + 'its new text applies the next time you take part. ';
   // kosmos#7149: where the changed lines are, so the agent need not re-read a long block to find a short change.
   const changes = typeof changesAt === 'string' && changesAt
-    ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves, and anything else it lists is current too). '
+    ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves; a line it marks + elsewhere is current too, and a line it marks - no longer applies). '
     : '';
   // Review 5: after the replaces sentence, so its "it" stays the instructions file, not the changes file.
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
