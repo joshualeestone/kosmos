@@ -920,6 +920,7 @@ function setupEnv(accepted = null) {
    this process only, used once, voided by Forget, and ignored after an hour. Not by Start over or Sign out (the
    sign-in epoch): Start over is how the person gets the new code that the accepted key is for. */
 const OFFERED_KEY_LABEL = 'the key it offered: ';
+const SHIPPED_LIST_REFUSAL = 'the Kosmos+ service offered a key that is not on the signed list that came with this version of Kosmos, so this computer did not sign in. Something may be posing as the Kosmos+ service.';
 const ACCEPTED_KEY_MS = 60 * 60 * 1000;
 let acceptedKey = null;
 // The key a refused sign-in last named, with when: the only key that can be accepted (review 1).
@@ -955,14 +956,15 @@ function withKeyChange(result) {
   // A registration that went through ends any offer: a later Accept must not vouch for a key nobody is asking about.
   if (result && result.ok === true) { lastOffered = null; acceptedKey = null; }
   if (!result || result.ok !== false || serviceKeySetHeld()) return result;
-  /* Nor under the shipped list: the connector now names a key it refuses for not being on the list it was handed
-     (kosmos#6596 follow-up), and under the shipped list an Accept is refused anyway (acceptOfferedKey), so the page must
-     not be shown one to press. That refusal stays an ordinary error. */
-  if (serviceKeyFiles.expectedCoordinatorKeys({ production: COORDINATOR() === DEFAULT_COORDINATOR })) return result;
   // The whole of stderr; `because` (its last line) only when there is no stderr, so a text naming two keys across
   // lines is not read as naming one.
   const offered = result.stderr ? offeredKeyIn(String(result.stderr)) : offeredKeyIn(String(result.because || ''));
   if (!offered) return result;
+  /* Not under the shipped list (the list this run was handed, decided at its start): the connector names a key it
+     refuses for not being on the list (kosmos#6596 follow-up), and there an Accept is refused anyway, so nothing is
+     offered. The words say what that refusal means under the shipped list, which the connector cannot tell apart from
+     the board's own list: a key that is not on the signed list Kosmos came with (review 1), never the raw key. */
+  if (result.shippedList) return { ...result, because: SHIPPED_LIST_REFUSAL };
   lastOffered = { key: offered, at: Date.now() };
   return { ...result, keyChanged: { offered } };
 }
@@ -1325,12 +1327,15 @@ function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
     let timer = null;
     let closeTimer = null;
     let settled = false;
+    /* kosmos#6596 follow-up (review 1): whether this registration ran under the shipped list, decided when it starts, as
+       the list it is handed is: withKeyChange reads this, never the setting again when the run ends. */
+    const shippedList = Boolean(opts && opts.register && serviceKeyFiles.expectedCoordinatorKeys({ production: COORDINATOR() === DEFAULT_COORDINATOR }));
     const finish = (result) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
       if (closeTimer) clearTimeout(closeTimer);
-      resolve(result);
+      resolve(opts && opts.register ? { ...result, shippedList } : result);
     };
     try {
       // Only a registration run takes an accepted key (opts.register): no other verb registers.
