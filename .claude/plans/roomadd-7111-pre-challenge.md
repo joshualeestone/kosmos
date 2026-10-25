@@ -18,12 +18,14 @@ converged: true
 **Split out:** none.
 
 ## Iteration 1
-- [WARNING] The project list did not follow the status poll while a room was open, so a member added elsewhere left the Add showing. Fixed: the list re-reads on each poll while a room is open.
-- [WARNING] A refusal was shown but not heard. Fixed: announced.
-- [NIT] liveMembers read the list's project, not the room's live one. Fixed.
-- [NIT] No sample addable refusal for the shots. Fixed: KOSMOS_SAMPLE_REFUSAL=1.
+0 blockers, 2 warnings, 2 nits, all fixed (the plan records the fixes, not which finding was which):
+- The project list follows the status poll while a room is open, so a member added elsewhere hides the Add.
+- A refusal is heard (announced), not only shown.
+- liveMembers reads the room's live project.
+- A sample addable refusal for the shots (KOSMOS_SAMPLE_REFUSAL=1).
 
 ## Iteration 2
+0 blockers, 0 warnings, 2 nits:
 - [NIT] A 2xx answer this build cannot read counted as an add. Fixed: it is a refusal, never an add (tested).
 - [NIT] The route check's comment did not name the task-tail routes it also covers. Fixed.
 - Recorded: the sample room's Add is not short-circuited, so the shots show the button and the refused line, not the added state.
