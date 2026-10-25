@@ -27,3 +27,8 @@ Rebase onto main after #7129 merges, re-run, then validate.
   words); deleting the drawing turns two checks red. Nit fixed: 2 pt above the line, as the board's margin-top (the
   stack's spacing is 4). Nit recorded: the fixture JSON is hand-written; the reviewer matched its shape to server.js on
   unverified-7129. Room 299/299 with #7129's board (296/299 on main, the 3 pins); Debug SUCCEEDED.
+- Round 2: 0 blockers, 0 warnings, 4 nits. Fixed: the drawing pin now includes .fixedSize and the 2 pt (dropping the
+  padding goes red); the Copy check names both paths, VoiceOver's action and the long-press menu, and counts exactly
+  two pasteboard writes (a menu Copy that adds the line goes red). Recorded: the phone's dark secondary (#a9adb3) is
+  a hair off the board's dark --label-2, already so for the "External" tag beside it, not this card's; this must merge
+  after #7129. CONVERGED (round 2 found no blocker or warning).

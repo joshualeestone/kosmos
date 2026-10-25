@@ -966,16 +966,20 @@ check(boardPage.contains(".msg-ext-tag, .msg-ext-unv,"), "the board's Copy leave
 // Review 1: the drawing itself, in RoomBubble's own source, so deleting or restyling the phone's line goes red: only on
 // a marked outside row, in .caption and the secondary colour, after the words and before the file cards, and Copy
 // still takes the row's words.
-let unvDraw = "if row.kind == .external && row.unverified {\n                Text(Board.unverifiedLine).font(.caption).foregroundColor(Palette.secondary)"
+let unvDraw = "if row.kind == .external && row.unverified {\n                Text(Board.unverifiedLine).font(.caption).foregroundColor(Palette.secondary)\n                    .fixedSize(horizontal: false, vertical: true)\n                    .padding(.top, -2)"
 let unvAt = bubbleSource.range(of: unvDraw)
 let wordsAt = bubbleSource.range(of: "AttributedString(words)")
 let filesAt = bubbleSource.range(of: "if !row.attachments.isEmpty {")
-check(unvAt != nil, "RoomBubble draws the line on a marked outside row, in .caption and the secondary colour")
+check(unvAt != nil, "RoomBubble draws the line on a marked outside row, in .caption and the secondary colour, wrapping, 2 pt under the words")
 if let unvAt, let wordsAt, let filesAt {
     check(wordsAt.upperBound < unvAt.lowerBound && unvAt.upperBound < filesAt.lowerBound, "the line sits under the words, before any file cards")
 }
 check(bubbleSource.components(separatedBy: "Board.unverifiedLine").count == 2, "the line is drawn in one place only")
-check(bubbleSource.contains("Button(\"Copy\") { UIPasteboard.general.string = row.text }"), "Copy takes the row's words, never the line")
+// Review 2: both Copy paths, VoiceOver's action and the long-press menu's, and no other pasteboard write in the bubble.
+check(bubbleSource.contains("Button(\"Copy\") { UIPasteboard.general.string = row.text }")
+      && bubbleSource.contains("Button { UIPasteboard.general.string = row.text } label: { Label(\"Copy\", systemImage: \"doc.on.doc\") }")
+      && bubbleSource.components(separatedBy: "UIPasteboard.general.string =").count == 3,
+      "both Copy paths (VoiceOver's action and the long-press menu) take the row's words, never the line")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
