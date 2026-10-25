@@ -36,6 +36,11 @@ Extend `kosmos inbox` (no new verb) with two flags, on the Mac CLI, the Windows 
 - The board line "N messages arrived while you were out": #5805 already replays a held DM after a reset, and the
   person's DMs are what this lists. Left for a follow-up rather than built blind.
 
+## Accepted: the paging hint can repeat, never skip
+`--since <nextAt>` is inclusive, so a shown message sharing nextAt's timestamp, and any row with no readable time, can
+appear again on the next page. Paging strictly after the last shown time would instead SKIP an unshown row that shares
+it. For a catch-up read a repeat is harmless and a skip is the failure this card exists to stop. (Challenge iteration 3.)
+
 ## Weakest premise
 That "unanswered" means "after your newest reply" rather than per message. One reply after three questions clears
 all three. That is dmOwes's rule too, so the CLI and the board's "Nothing back yet." agree.
