@@ -278,7 +278,8 @@ struct AgentRow: View {
     private var size: CGFloat { large ? 48 : 40 }
 
     private var avatar: some View {
-        AgentAvatar(name: agent.name, picture: picture, tone: tone, size: size, memoryPercent: agent.contextPercent)
+        AgentAvatar(name: agent.name, picture: picture, tone: tone, size: size, memoryPercent: agent.contextPercent,
+                    memoryQuiet: stale)
     }
 
     private var name: some View {
@@ -316,6 +317,8 @@ struct AgentAvatar: View {
     let size: CGFloat
     // kosmos#7120: the context ring round the picture, as the board's list row draws it (lrowRing); nil draws none.
     var memoryPercent: Double? = nil
+    // A list that is not updating draws the arc quiet, as its dots and words go quiet.
+    var memoryQuiet = false
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -347,15 +350,15 @@ struct AgentAvatar: View {
         .accessibilityHidden(true)
     }
 
-    // A track and an arc of the percent from 12 o'clock, just outside the picture; thicker as it fills, as the board's
-    // .gf.warn and .gf.high are (the arc's length carries the value, colour and weight repeat it).
+    // A track and an arc of the percent from 12 o'clock, just outside the picture, one weight in every band as the
+    // board's small rings keep (the arc's length carries the value, the colour repeats it).
     @ViewBuilder private var memoryRing: some View {
         if let pct = memoryPercent, let band = Board.memBand(pct) {
             ZStack {
                 Circle().stroke(Palette.ringTrack, lineWidth: 2.5)
                 Circle()
                     .trim(from: 0, to: min(max(pct, 0), 100) / 100)
-                    .stroke(Palette.ring(band), style: StrokeStyle(lineWidth: band == .ok ? 2.5 : 3, lineCap: .round))
+                    .stroke(memoryQuiet ? Palette.tertiary : Palette.ring(band), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
             .frame(width: size + 7, height: size + 7)

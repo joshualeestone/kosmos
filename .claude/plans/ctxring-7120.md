@@ -24,4 +24,7 @@ the parse, the bands and the words with a broken-copy control; shots in light an
   here (the parameter defaults to nil); each can opt in later.
 - The board's list ring is aria-hidden and says nothing; the phone's row label adds "memory N%" so a VoiceOver user is
   not left without what the ring shows. Weakest premise: the board's word is "Memory", which the phone keeps.
-- The ring's arc thickens with the band (2.5, then 3), a lighter version of the board's big-gauge weights.
+- One stroke weight (2.5) in every band, as the board's small rings keep (it sets .lring .gf.warn/.high back to 2.5;
+  the thicker 5 and 6 are its big gauge's).
+- A list that is not updating draws the arc in the quiet tertiary colour, as its dots and words go quiet.
+- The percent is held to 0...100 on reading (the engine caps it there).

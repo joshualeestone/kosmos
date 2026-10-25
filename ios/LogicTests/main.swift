@@ -3495,6 +3495,7 @@ do {
     check(Board.memBand(nil) == nil, "memory band: unknown draws nothing")
     check(Board.memBand(59.9) == .ok && Board.memBand(60) == .warn && Board.memBand(79.9) == .warn && Board.memBand(80) == .high,
           "memory band: amber from 60, red from 80, as the board's WARM and NEARLY_FULL")
+    // In an array: JSONSerialization reads no bare true or 1 without fragments allowed.
     check(Board.isRealTrue(ctx(#"[true]"#).flatMap { ($0 as? [Any])?.first }) && !Board.isRealTrue(ctx(#"[1]"#).flatMap { ($0 as? [Any])?.first }),
           "overCeiling: a real true, never a 1 (the board's === true)")
     check(Board.memoryWords(82, full: false) == "memory 82%" && Board.memoryWords(12.5, full: false) == "memory 12.5%",
@@ -3504,6 +3505,10 @@ do {
     let row = #"{"agents":[{"sessionName":"cleo","name":"Cleo","state":"working","context":{"percent":83,"overCeiling":false}}]}"#
     let parsed = Board.parseAgents(Data(row.utf8))?.first
     check(parsed?.contextPercent == 83 && parsed?.contextFull == false, "status: an agent's context is read from /api/status")
+    let full = #"{"agents":[{"sessionName":"eli","state":"working","context":{"percent":100,"overCeiling":true}}]}"#
+    check(Board.parseAgents(Data(full.utf8))?.first?.contextFull == true, "status: overCeiling true reads as Full")
+    check(Board.contextPercent(ctx(#"{"percent":1e300}"#)) == 100 && Board.contextPercent(ctx(#"{"percent":-5}"#)) == 0,
+          "context: held to 0...100")
     // The board's page, found from this file (ios/LogicTests/main.swift), so the check runs wherever run.sh is called from.
     let page = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("web/index.html")
