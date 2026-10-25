@@ -31,3 +31,7 @@ the parse, the bands and the words with a broken-copy control; shots in light an
 - In a list that is not updating, VoiceOver still hears "memory N%", followed in the same label by "not updating", as
   the row's word is; the arc is drawn quiet.
 - Shots at the default size and at the largest accessibility size (AX5) in ~/work/design-shots/kosmos-7120/.
+- The not-updating list's quiet arcs are in the shots (agents-stale-light/dark, KOSMOS_SAMPLE_STALE=1, Debug only):
+  the arc still reads as a gauge over the fainter track.
+- Parity left as is: the status dot sits over the ring as on the board's list; at exactly 0% the phone draws the
+  bare track where the board's round cap draws a dot.
