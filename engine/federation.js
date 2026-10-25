@@ -212,21 +212,33 @@ function ownFromOf(address) {
    which the coordinator mints as 32 hex characters). */
 const OWN_KEY_PREFIX = 'own:';
 /* Why no own code can be made for this project, or null when one can: 'guest' for a
-   project joined from someone else, 'sealed' for an owner project that has handed out a
-   sealing invite (its room is sealed, and a computer joined by own code has no seal
-   state, so it could neither read nor post there; #4658). */
+   project joined from someone else. A sealed room is no longer refused (#4658): its code is
+   version 2 and says so (ownCodeSealed), so the computer that joins by it holds its posts from
+   the first one instead of sending them in the clear. */
 function ownCodeRefusal(projectId) {
   const link = linkFor(projectId);
   if (!link) return null;
   if (link.role !== 'owner' && link.role !== 'self') return 'guest';
-  if (link.role === 'owner' && refOk(link.ref) && fedseal.isSealedRef(link.ref)) return 'sealed';
   return null;
+}
+/** Whether an own code made here now is for a sealed room: the owner's room has handed out a
+    sealing invite, or this computer (joined by own code) holds the room's sealed record. Throws
+    when either record cannot be read, so no code is made rather than one that might be wrong. */
+function ownCodeSealed(projectId, link) {
+  if (!link) return false;
+  if (link.role === 'owner') return refOk(link.ref) && fedseal.isSealedRef(link.ref) === true;
+  if (link.role === 'self') {
+    const st = fedseal.roomState(projectId);
+    return !!(st && st.role === 'member');
+  }
+  return false;
 }
 function ownCode(projectId, projectName, from) {
   // Before anything is recorded: a code that cannot name its maker is never made.
   if (typeof from !== 'string' || !OWN_FROM_RE.test(from)) return null;
   if (ownCodeRefusal(projectId)) return null;
   const link = linkFor(projectId);
+  const sealed = ownCodeSealed(projectId, link);
   let ref = link && (link.role === 'owner' || link.role === 'self') && OWN_REF_RE.test(String(link.ref)) ? link.ref : null;
   if (!ref) {
     if (link) return null;   // a member of someone else's project: not ours to add computers to
@@ -234,20 +246,27 @@ function ownCode(projectId, projectName, from) {
     recordLink(projectId, { role: 'owner', ref, selfShared: true });
   } else if (link.role === 'owner' && link.selfShared !== true) {
     // Shared with the person's other computers from now on: the owner seats its own room
-    // even before a guest joins (fedseats.ensure).
-    recordLink(projectId, Object.assign({}, link, { selfShared: true }));
+    // even before a guest joins (fedseats.ensure). A room first shared this way while sealed is
+    // marked sealedOwn: every own computer in it came in by a sealed code, so guests may still be
+    // invited (selfSharedRef).
+    recordLink(projectId, Object.assign({}, link, { selfShared: true }, sealed ? { sealedOwn: true } : {}));
   }
   // parseOwnCode refuses a code over OWN_CODE_MAX; the name is cut, by whole characters, to fit.
   let chars = Array.from(String(projectName || '').slice(0, NAME_MAX));
-  const make = () => OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref, from, name: chars.join('') }), 'utf8').toString('base64url');
+  // A sealed room's code is version 2: a Kosmos older than #4658's sealed own join refuses it (parseOwnCode
+  // takes only the versions it knows) instead of joining and posting in the clear.
+  const make = () => OWN_PREFIX + Buffer.from(JSON.stringify(sealed ? { v: 2, ref, from, name: chars.join(''), sealed: true }
+    : { v: 1, ref, from, name: chars.join('') }), 'utf8').toString('base64url');
   let code = make();
   while (code.length > OWN_CODE_MAX && chars.length > 1) { chars = chars.slice(0, Math.floor(chars.length / 2)); code = make(); }
   return code;
 }
-/** Whether `ref` is a room this account's other computers sit in (an owner shared by own code,
-    or a project joined by one). Throws on an unreadable links record. */
+/** Whether `ref` is a room this account's other computers sit in without knowing it may be sealed:
+    an owner shared by an unsealed (version 1) code, or a project joined by one. A room whose own
+    computers all came in by a sealed code (sealedOwn) is not, so guests may be invited to it.
+    Throws on an unreadable links record. */
 function selfSharedRef(ref) {
-  return Object.values(links()).some((l) => l && ((l.role === 'owner' && l.selfShared === true) || l.role === 'self') && l.ref === ref);
+  return Object.values(links()).some((l) => l && ((l.role === 'owner' && l.selfShared === true && l.sealedOwn !== true) || l.role === 'self') && l.ref === ref);
 }
 /** Whether a project on this computer already sits in the own room `ref` (as owner or self). Throws on an unreadable links record. */
 function ownRefHere(ref) {
@@ -262,11 +281,14 @@ function parseOwnCode(text) {
   if (!t.startsWith(OWN_PREFIX) || t.length > OWN_CODE_MAX) return null;
   let o;
   try { o = JSON.parse(Buffer.from(t.slice(OWN_PREFIX.length), 'base64url').toString('utf8')); } catch { return null; }
-  if (!o || o.v !== 1 || typeof o.ref !== 'string' || !OWN_REF_RE.test(o.ref) || typeof o.name !== 'string') return null;
-  // A maker that is there but is not a name is a broken code; one that is absent is an older code.
+  // Version 2 is a sealed room's code (#4658) and always says so; anything else is not a code.
+  const sealed = o && o.v === 2 && o.sealed === true;
+  if (!o || (o.v !== 1 && !sealed) || typeof o.ref !== 'string' || !OWN_REF_RE.test(o.ref) || typeof o.name !== 'string') return null;
+  // A maker that is there but is not a name is a broken code; one that is absent is an older code (never a version 2 one).
   if (o.from !== undefined && (typeof o.from !== 'string' || !OWN_FROM_RE.test(o.from))) return null;
+  if (sealed && o.from === undefined) return null;
   const name = o.name.trim().slice(0, NAME_MAX);
-  return name ? { ref: o.ref, name, from: o.from === undefined ? null : o.from } : null;
+  return name ? { ref: o.ref, name, from: o.from === undefined ? null : o.from, sealed } : null;
 }
 
 /* Why ownAccountNames could not answer when the Kosmos+ this computer is signed in to has an address
@@ -425,7 +447,8 @@ async function verify(remote, body) {
       verified.delete(key);
       return { status: 409, body: { reason: 'other-account', error: 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.' } };
     }
-    const snap = { edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' };
+    const snap = Object.assign({ edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' },
+      own.sealed ? { sealed: true } : {});
     verified.delete(key);
     verified.set(key, Object.assign({ at: Date.now(), ref: own.ref }, snap));
     while (verified.size > SNAPSHOT_MAX) verified.delete(verified.keys().next().value);
@@ -494,7 +517,7 @@ function sharedRoomOf(link) {
 
 module.exports = {
   sharedRoomOf,
-  ownCode, ownCodeRefusal, ownRefHere, parseOwnCode, ownFromOf, OWN_PREFIX,
+  ownCode, ownCodeRefusal, ownCodeSealed, ownRefHere, parseOwnCode, ownFromOf, OWN_PREFIX,
   FILE, MAC_INVITE, MAC_VERIFY,
   invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, forgetLink, readLinks, reasonFor, refOk,
   SNAPSHOT_TTL_MS, SNAPSHOT_MAX, NAME_MAX, DESC_MAX, HANDLE_MAX,

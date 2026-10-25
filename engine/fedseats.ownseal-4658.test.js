@@ -253,6 +253,35 @@ test('#4658: an own computer that sees its room sealed holds its posts and says 
   assert.ok(h.notes.some((n) => n.projectId === 'own-s1' && /It matches/.test(n.text)));
 });
 
+test('#4658: a computer joined by a sealed (version 2) code holds its FIRST post and says hello on connect, with no sealed frame seen', async () => {
+  // What the join writes for a version 2 code, before the seat starts (server.js own join).
+  federation.recordLink('own-j1', { role: 'self', ref: 'ref-own-j1' });
+  fedseal.setRoomState('own-j1', { role: 'member', ownComputer: true, keys: {} });
+  const h = harness();
+  await fedseats.ensure('own-j1');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-j1', expires_at: 9 });
+  await settle();
+  const hello = fedseal.checkOwnHello(sent(seat, 'key-own-hello').pop());
+  assert.ok(hello, 'no hello on connect');
+  assert.strictEqual(hello.mac, MY_MAC);
+  fedseats.post('own-j1', { from: 'Josh', kind: 'person', text: 'first words here' });
+  await settle();
+  assert.ok(!seat.written.join('').includes('first words here'), 'the first post went out in the clear');
+});
+
+test('#4658 CONTROL: the same computer joined by a version 1 code (no record) sends its first post in the clear, as main does', async () => {
+  federation.recordLink('own-j2', { role: 'self', ref: 'ref-own-j2' });
+  const h = harness();
+  await fedseats.ensure('own-j2');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-j2', expires_at: 9 });
+  await settle();
+  fedseats.post('own-j2', { from: 'Josh', kind: 'person', text: 'plain words here' });
+  await settle();
+  assert.ok(seat.written.join('').includes('plain words here'), 'the control did not send: the test above would pass for the wrong reason');
+});
+
 test('#4658: the own computer adopts the share only after its person confirms, and then reads and sends sealed', async () => {
   const { h, seat } = await ownComputer('own-s2', 'room-s2');
   const roomKey = fedseal.randomSecret();

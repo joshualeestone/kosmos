@@ -22,7 +22,7 @@ test('an own code round-trips the project ref and name, and makes the owner link
   federation.recordLink('proj-g', { role: 'owner', ref: 'ref-g' });
   assert.equal(federation.parseOwnCode(federation.ownCode('proj-g', 'G', 'study')).ref, 'ref-g');
   assert.equal(federation.linkFor('proj-g').selfShared, true);
-  assert.deepEqual(federation.parseOwnCode('  ' + code + '\n'), { ref: link.ref, name: 'Weekend plans', from: 'study' });
+  assert.deepEqual(federation.parseOwnCode('  ' + code + '\n'), { ref: link.ref, name: 'Weekend plans', from: 'study', sealed: false });
   // Asking again gives the same ref: one room per project.
   assert.equal(federation.parseOwnCode(federation.ownCode('proj-a', 'Weekend plans', 'study')).ref, link.ref);
 });
@@ -36,14 +36,14 @@ test('anything that is not a well-formed own code is refused', () => {
   const enc = (o) => federation.OWN_PREFIX + Buffer.from(JSON.stringify(o)).toString('base64url');
   for (const bad of [
     '', 'abc.def', 'kosmos-own:', 'kosmos-own:%%%', enc({ v: 3, ref: 'r', name: 'n', from: 'study' }),
-    enc({ v: 2, ref: 'r', name: 'n', from: 'study' }), enc({ v: 1, ref: 'r', name: 'n', from: 'Not A Name' }), enc({ v: 1, ref: 'r', name: 'n', from: '-x' }),
+    enc({ v: 2, ref: 'r', name: 'n', from: 'study' }), enc({ v: 2, ref: 'r', name: 'n', from: 'study', sealed: 'yes' }), enc({ v: 2, ref: 'r', name: 'n', sealed: true }), enc({ v: 1, ref: 'r', name: 'n', from: 'Not A Name' }), enc({ v: 1, ref: 'r', name: 'n', from: '-x' }),
     enc({ v: 1, ref: 'r', name: 'n', from: 7 }), enc({ v: 1, ref: 'r', name: 'n', from: null }),
     enc({ v: 1, ref: '', name: 'n' }), enc({ v: 1, ref: 'x'.repeat(129), name: 'n' }),
     enc({ v: 1, ref: 'r', name: '   ' }), enc({ v: 1, ref: 'r' }), null, 42,
   ]) assert.equal(federation.parseOwnCode(bad), null, JSON.stringify(bad));
   // A code made before #4699 named no computer: it still parses (so verify can say why it is refused), with from null.
-  assert.deepEqual(federation.parseOwnCode(enc({ v: 1, ref: 'r1', name: 'N' })), { ref: 'r1', name: 'N', from: null });
-  assert.deepEqual(federation.parseOwnCode(enc({ v: 1, ref: 'r1', name: 'N', from: 'study' })), { ref: 'r1', name: 'N', from: 'study' });
+  assert.deepEqual(federation.parseOwnCode(enc({ v: 1, ref: 'r1', name: 'N' })), { ref: 'r1', name: 'N', from: null, sealed: false });
+  assert.deepEqual(federation.parseOwnCode(enc({ v: 1, ref: 'r1', name: 'N', from: 'study' })), { ref: 'r1', name: 'N', from: 'study', sealed: false });
   // The format number is still 1, so a Kosmos from before #4699 reads a new code as it read every code.
   federation.recordLink('proj-fmt', { role: 'owner', ref: 'ref-fmt' });
   const made = federation.ownCode('proj-fmt', 'Format', 'study');
@@ -60,14 +60,42 @@ test('the seat arguments: --own-project for an own room, --edge otherwise, never
   assert.equal(own[0], 'fed-room');
 });
 
-test('an owner project that handed out a sealing invite gets no own code (its room is sealed; #4658)', () => {
+test('#4658: an owner project that handed out a sealing invite gets a version 2 code that says it is sealed', () => {
   federation.recordLink('proj-s', { role: 'owner', ref: 'ref-s' });
   require('./fedseal').stashInvite('ref-s', { s: 'A'.repeat(43), code: 'CODE1', invite: 'inv-1' });
-  assert.equal(federation.ownCodeRefusal('proj-s'), 'sealed');
-  assert.equal(federation.ownCode('proj-s', 'Sealed', 'study'), null);
-  assert.notEqual(federation.linkFor('proj-s').selfShared, true, 'a refused project is not marked shared');
+  assert.equal(federation.ownCodeRefusal('proj-s'), null, 'a sealed room is no longer refused');
+  const code = federation.ownCode('proj-s', 'Sealed', 'study');
+  const raw = JSON.parse(Buffer.from(code.slice(federation.OWN_PREFIX.length), 'base64url').toString('utf8'));
+  assert.deepEqual([raw.v, raw.sealed], [2, true], 'version 2, sealed');
+  assert.deepEqual(federation.parseOwnCode(code), { ref: 'ref-s', name: 'Sealed', from: 'study', sealed: true });
+  assert.deepEqual([federation.linkFor('proj-s').selfShared, federation.linkFor('proj-s').sealedOwn], [true, true],
+    'shared with this account\'s computers, every one by a sealed code');
   assert.equal(federation.ownCodeRefusal('proj-m'), 'guest');
   assert.equal(federation.ownCodeRefusal('proj-new'), null);
+});
+
+test('#4658: an older Kosmos refuses a version 2 code (it takes only v 1), so it can never join a sealed room and post in the clear', () => {
+  const code = federation.ownCode('proj-s', 'Sealed', 'study');
+  const o = JSON.parse(Buffer.from(code.slice(federation.OWN_PREFIX.length), 'base64url').toString('utf8'));
+  // The parser main shipped before #4658, restated: it takes v 1 only.
+  const before4658 = (x) => !!x && x.v === 1 && typeof x.ref === 'string' && typeof x.name === 'string';
+  assert.equal(before4658(o), false, 'the old parser refuses the sealed code');
+  // CONTROL: the same old parser takes an unsealed code, so the refusal above is about the version.
+  const plain = federation.ownCode('proj-plain', 'Plain', 'study');
+  assert.equal(before4658(JSON.parse(Buffer.from(plain.slice(federation.OWN_PREFIX.length), 'base64url').toString('utf8'))), true);
+});
+
+test('#4658: a computer joined by own code makes a sealed code when its record says sealed, and none when that record cannot be read', () => {
+  const fedseal = require('./fedseal');
+  federation.recordLink('proj-self-s', { role: 'self', ref: 'ref-self-s' });
+  fedseal.setRoomState('proj-self-s', { role: 'member', ownComputer: true, keys: {} });
+  assert.equal(federation.parseOwnCode(federation.ownCode('proj-self-s', 'S', 'laptop')).sealed, true);
+  federation.recordLink('proj-self-u', { role: 'self', ref: 'ref-self-u' });
+  assert.equal(federation.parseOwnCode(federation.ownCode('proj-self-u', 'U', 'laptop')).sealed, false, 'an unsealed own room keeps version 1');
+  const real = fedseal.roomState;
+  fedseal.roomState = () => { throw new Error('unreadable'); };
+  try { assert.throws(() => federation.ownCode('proj-self-u', 'U', 'laptop'), /unreadable/, 'no code rather than one that might be wrong'); }
+  finally { fedseal.roomState = real; }
 });
 
 test('an own code always fits under the parse cap, cutting a long name by whole characters', () => {
@@ -87,6 +115,28 @@ test('an invite is refused for a project shared with this account\'s other compu
   assert.equal(out.body.reason, 'self-shared');
   assert.equal(called, 0, 'nothing was minted');
   assert.equal(require('./fedseal').isSealedRef('ref-ss'), false, 'the room was not sealed');
+});
+
+test('#4658: a room whose own computers all came in by a sealed code can still invite guests; one shared by a v 1 code cannot', async () => {
+  const calls = [];
+  const stub = { macRequest: async (m, r, b) => { calls.push(b); return { ok: true, data: { code: 'C3', expires_at: 1, invite_id: 'inv-3' } }; } };
+  federation.recordLink('proj-so', { role: 'owner', ref: 'ref-so', selfShared: true, sealedOwn: true });
+  const ok = await federation.invite(stub, { project_ref: 'ref-so', project_name: 'Mine', invited_kind: 'person' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(calls.length, 1);
+  // CONTROL: the same room without sealedOwn (an own computer joined by a v 1 code, which knows nothing of sealing) is refused.
+  federation.recordLink('proj-so1', { role: 'owner', ref: 'ref-so1', selfShared: true });
+  const no = await federation.invite(stub, { project_ref: 'ref-so1', project_name: 'Mine', invited_kind: 'person' });
+  assert.deepEqual([no.status, no.body.reason, calls.length], [409, 'self-shared', 1]);
+});
+
+test('#4658: an unsealed room shared by own code is not marked sealedOwn, even if it is sealed later by some other path', () => {
+  federation.recordLink('proj-u1', { role: 'owner', ref: 'ref-u1' });
+  federation.ownCode('proj-u1', 'U1', 'study');
+  assert.deepEqual([federation.linkFor('proj-u1').selfShared, federation.linkFor('proj-u1').sealedOwn], [true, undefined]);
+  require('./fedseal').stashInvite('ref-u1', { s: 'B'.repeat(43), code: 'CODE9', invite: 'inv-9' });
+  federation.ownCode('proj-u1', 'U1', 'study');
+  assert.equal(federation.linkFor('proj-u1').sealedOwn, undefined, 'a v 1 computer may be in it: guests stay refused');
 });
 
 test('an invite takes a project name over 128 bytes (the byte bound is for refs only)', async () => {
