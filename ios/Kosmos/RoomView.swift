@@ -1210,6 +1210,12 @@ struct RoomBubble: View {
                     .font(.body).foregroundColor(Palette.primary).tint(Palette.link)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // kosmos#7130: the board's line under an outside row shown while this computer was waiting to be let in, in
+            // the room's secondary text (.msg-ext-unv). Read with the post; Copy takes the words only, as the board's.
+            if row.kind == .external && row.unverified {
+                Text(Board.unverifiedLine).font(.caption).foregroundColor(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             // One card per file, by position as well as id (a post that names one file twice draws two). While one is
             // on its way the others wait, as in the chat. The post is one VoiceOver element, so the cards are read in it
             // as plain words ("Files: ...", never as buttons, review 2: a files-only post is never an empty element) and

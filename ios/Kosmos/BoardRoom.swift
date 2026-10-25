@@ -35,6 +35,9 @@ extension Board {
         let byPerson: Bool
         let text: String
         var externalAgent = false
+        // kosmos#7130: an outside row the board marks as shown while this computer was waiting to be let into the shared
+        // project (the room route's `unverified`, exactly true), so it may not be from anyone in the project.
+        var unverified = false
         var replyTo: String? = nil
         var mentioned: [String] = []
         var reactions: [Reaction] = []
@@ -53,6 +56,9 @@ extension Board {
             }
         }
     }
+
+    // kosmos#7130: the board's line under an unverified outside row (web/index.html pjRoomRow, .msg-ext-unv, #7129).
+    static let unverifiedLine = "Arrived while this computer was waiting to be let in, so it may not be from anyone in this project."
 
     struct Refusal: Equatable {
         // The agent's session name (what a fold dedupes by) and its shown name.
@@ -269,6 +275,7 @@ extension Board {
                 var row = RoomRow(id: r["id"] as? String ?? fallbackId, atRaw: at, at: isoDate(at), kind: .external,
                                   from: r["from"] as? String, byPerson: false, text: text)
                 row.externalAgent = (r["fromKind"] as? String) == "agent"
+                row.unverified = isTrue(r["unverified"])
                 rows.append(row)
             case "note":
                 guard let text = r["text"] as? String, !text.isEmpty else { continue }

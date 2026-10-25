@@ -947,6 +947,23 @@ let clientSource = (try? String(contentsOf: here.appendingPathComponent("../../K
 check(clientSource.contains("fedShown = Board.fedShown(fromStatus: data)") && clientSource.contains("projectsUnread = nil\n        fedShown = false"),
       "the client takes the gate from each status read and forgets it with the Mac")
 
+section("an outside row shown while waiting to be let in (kosmos#7130)")
+// Outside rows as the room route sends them (server.js, #7129): `unverified` is present only when exactly true. The
+// phone counts only a real JSON true, as the board's `m.unverified === true`.
+let unvPage = Board.parseRoom(Data(#"{"rows":[{"kind":"external","id":"u1","from":"Ivy","fromKind":"person","text":"unchecked","at":"2026-10-25T10:00:00.000Z","external":true,"unverified":true},{"kind":"external","id":"u2","from":"Ivy","fromKind":"person","text":"plain","at":"2026-10-25T10:01:00.000Z","external":true},{"kind":"external","id":"u3","from":"Ivy","fromKind":"agent","text":"false","at":"2026-10-25T10:02:00.000Z","external":true,"unverified":false},{"kind":"external","id":"u4","from":"Ivy","fromKind":"agent","text":"a string","at":"2026-10-25T10:03:00.000Z","external":true,"unverified":"true"},{"kind":"external","id":"u5","from":"Ivy","fromKind":"agent","text":"a number","at":"2026-10-25T10:04:00.000Z","external":true,"unverified":1}]}"#.utf8), names: [:])
+let unvRows = Dictionary((unvPage?.rows ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+check(unvRows.count == 5 && unvRows.values.allSatisfy { $0.kind == .external }, "premise: all five outside rows parse")
+check(unvRows["u1"]?.unverified == true, "unverified: true marks the row")
+check(unvRows["u2"]?.unverified == false, "a row without the field is unmarked")
+check(unvRows["u3"]?.unverified == false, "unverified: false is unmarked")
+check(unvRows["u4"]?.unverified == false, "the string \"true\" is not true (the board's === true)")
+check(unvRows["u5"]?.unverified == false, "the number 1 is not true (the board's === true)")
+// The phone draws the board's own sentence, under the words, only for an outside row the board marks.
+check(boardPage.contains("(m.unverified === true ? '<div class=\"msg-ext-unv\">" + Board.unverifiedLine + "</div>' : '')"),
+      "the board draws the same sentence, under the same exactly-true condition, in .msg-ext-unv")
+check(boardPage.contains(".msg-ext-unv { font: .75rem var(--font-ui); color: var(--label-2);"), "the board's line is 12 px in its secondary label colour (the phone: .caption, secondary)")
+check(boardPage.contains(".msg-ext-tag, .msg-ext-unv,"), "the board's Copy leaves the line out (the phone's Copy takes the row's words only)")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")
