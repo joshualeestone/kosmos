@@ -1805,7 +1805,7 @@ function closedAtOf(t) {
 }
 
 /* kosmos#7151: filed through the CLI by a named agent, and nothing on it the person set up (a repeat, a due date, a
-   done-when, a part added or moved from the screen). The task offered and every task under it must pass (review 5). */
+   done-when, a part added or moved from the screen). */
 function agentsOwn(t) {
   if (!t || t.addedVia !== 'process' || typeof t.addedBy !== 'string' || !t.addedBy.trim()) return false;
   if (t.repeat || t.dueDate || t.doneWhen) return false;
@@ -1835,8 +1835,6 @@ function leftUnder(p, task, tree = treeOf(p)) {
   if (tree.under(task.number).length > 0) return null;
   const made = typeof task.createdAt === 'string' ? Date.parse(task.createdAt) : NaN;
   if (!Number.isFinite(made)) return null;
-  // Every task under it, at any depth, is closed and was filed by an agent: an open one is work still going on (review
-  // 3), and one the person added is theirs, closed or not (review 4). Bounded on a store that loops.
   const up = tree.up(task);
   if (up === null) return null;
   const parent = tree.byNum.get(up);

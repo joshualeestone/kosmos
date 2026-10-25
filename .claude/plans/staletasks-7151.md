@@ -13,7 +13,8 @@ Card: kosmos#7151 (agent feedback, 2026-10-25). Rotation card, my shard (mod 7 =
   1. in the stale list already: open (not done, built or held) and quiet N days or more;
   2. an agent filed it, naming itself (addedVia process with addedBy); the person's own, one with no record, one with
      no agent named, or a webhook's, is never offered;
-  3. nothing on it the person set up: no repeat, due date or done-when, no part added or moved from the screen;
+  3. nothing on it the person set up: no repeat, due date or done-when, no part added or moved from the screen; and
+     nothing under it at all (round 6: a closed step's history always has a row naming nobody);
   4. its parent is closed as done (not replaced by another task), it was made before that close, and every task above
      the parent is closed as done too (a closed step of open work is work still going on);
   5. retireOffers: never in a project held in two records; never one whose agent needs the person about it (a real
@@ -88,3 +89,7 @@ owning it is the one who closes it.
   request path is beyond any try/catch). Nits: doc comments moved above leftUnder and retireOffers; the dead
   "up === task.number" dropped; the cheap child check comes first; the duplicated history read is gone with the
   descendant code. The card has a comment stating the rule change. Engine 19/19, server 3/3.
+- Round 7: 0 blockers, 1 warning, 2 nits. Warning fixed: the allow-list's named-agent rule for assigned, built,
+  unbuilt and run rows is tested both ways (each naming nobody, or marked as the person's, rules it out; each naming
+  kit is the control), and against the engine's own writers (assignPart through the CLI naming nobody, setBuilt by
+  the person). Nits: stale "every task under it" comments; the plan's rule list now says nothing under it.

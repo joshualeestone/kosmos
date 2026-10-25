@@ -96,6 +96,13 @@ test('the history allow-list against the engine\'s own writers: an agent\'s unto
   assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, said)), false, 'a message (a said row names nobody)');
   const noName = made('kit'); tasks.setOnHold(pr.id, noName, true); tasks.setOnHold(pr.id, noName, false);
   assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, noName)), false, 'a hold set and cleared off the screen names nobody (it could be the person\'s terminal)');
+  // Review 7: an assignment from the person's own Terminal (a process move that names no agent) is not an agent's.
+  const assignedByNobody = made('kit'); tasks.assignPart(pr.id, assignedByNobody, 1, 'kit', { via: 'process' });
+  assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, assignedByNobody)), false, 'assigned through the CLI, naming nobody');
+  const assignedByKit = made('kit'); tasks.assignPart(pr.id, assignedByKit, 1, 'kit', { via: 'process', by: 'kit' });
+  assert.ok(tasks.agentOnlyHistory(taskchat.read(pr.id, assignedByKit)), 'CONTROL: assigned by an agent naming itself');
+  const builtByPerson = made('kit'); tasks.setBuilt(pr.id, builtByPerson, { person: true });
+  assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, builtByPerson)), false, 'marked built by the person');
   const theirs = tasks.create(pr.id, { sentence: 'From the screen' }).number;
   assert.equal(tasks.agentOnlyHistory(taskchat.read(pr.id, theirs)), false, 'the person made it');
 });
@@ -196,6 +203,19 @@ test('retireOffers: the history rules it out when the person acted, or it was re
   assert.equal(offer([created, { at: at(6), kind: 'hold-cleared', via: 'screen' }]), undefined, 'a hold the person cleared');
   assert.equal(offer([]), undefined, 'no history (or one that could not be read: the reader answers the same)');
   assert.equal(offer([{ at: at(6), kind: 'assigned', who: 'kit', by: 'kit' }]), undefined, 'a history that does not begin with its creation');
+  for (const [row, why] of [
+    [{ kind: 'assigned', who: 'kit' }, 'an assignment naming nobody'],
+    [{ kind: 'built', by: 'kit', person: true }, 'built, marked as the person\'s'],
+    [{ kind: 'built' }, 'built naming nobody'],
+    [{ kind: 'unbuilt', reason: 'new work' }, 'unbuilt for new work, naming nobody'],
+    [{ kind: 'unbuilt', by: 'kit', person: true }, 'unbuilt by the person'],
+    [{ kind: 'run', person: true }, 'a run the person made'],
+    [{ kind: 'created', addedVia: 'screen', addedBy: 'operator' }, 'a second creation row from the screen']]) {
+    assert.equal(offer([created, { at: at(6), ...row }]), undefined, why);
+  }
+  for (const [row, why] of [[{ kind: 'built', by: 'kit' }, 'built by kit'], [{ kind: 'unbuilt', by: 'kit' }, 'unbuilt by kit'], [{ kind: 'run', by: 'kit' }, 'a run by kit']]) {
+    assert.equal(offer([created, { at: at(6), ...row }]), 1, 'CONTROL: ' + why);
+  }
   assert.equal(offer([created, { at: at(21), kind: 'parent-set', parent: 1 }]), undefined, 'moved under its parent after it was made');
   assert.equal(offer([created, { at: at(21), kind: 'reopened' }]), undefined, 'reopened');
   assert.equal(tasks.retireOffers([rowOf(p, 2)], [p], () => [], () => null).size, 0, 'a history that cannot be read');
