@@ -18,7 +18,7 @@ take a snapshot's signing key from escrowd's word instead of the coordinator's.
   seeding (slice 5).
 
 ## Status
-- [x] module and tests (count in the test file), three hand mutations each caught by its own test
+- [x] module and tests; hand mutations, each caught by its own test
 - [x] engine.reachable passes with the excuse
 - [ ] challenge-loop
 - [ ] push and PR after the Mortals hold lifts

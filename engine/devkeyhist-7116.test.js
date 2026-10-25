@@ -1,8 +1,8 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits
 
-// kosmos#7116 slice 1: the device-key history check. Each refusal below has a passing twin (the same history, signed
-// fresh and honest), so a refusal can only come from the defect the test names, never from a broken fixture.
+// kosmos#7116 slice 1: the device-key history check. Refusals are asserted on their reason, and the fixture that
+// produces them is shown to verify honestly in this file, so a refusal cannot come from a broken fixture.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -161,4 +161,39 @@ test('a clock that is not a time is refused by name, against an honest twin', ()
 
 test('the shipped verifying key, once it ships, is 32 bytes of lowercase hex (a bad paste fails here, not in a restore)', () => {
   assert.ok(hist.VERIFYING_KEY === null || /^[0-9a-f]{64}$/.test(hist.VERIFYING_KEY));
+});
+
+test('slice 2 interop: the exact JSON escrowd would send verifies, with a revoke whose backfill is null', () => {
+  // Signed by the fixed seed [7; 32] (verification key below); Ed25519 is deterministic, so a Rust signer over the same
+  // head must produce this signature byte for byte.
+  assert.strictEqual(VK.toString('hex'), 'ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c');
+  const wire = JSON.stringify({
+    org: 'o1', member: 'm1', issuedAt: NOW - 60,
+    entries: [
+      { kind: 'enrol', key: K1, at: NOW - 900, backfill: true },
+      { kind: 'revoke', key: K1, at: NOW - 500, backfill: null },
+      { kind: 'enrol', key: K2, at: NOW - 500, backfill: false },
+    ],
+    signature: 'EOL_4FiyXjbfUroRJaVvDTIWU7aEaMs73hZFFrWqPY5ACMRZB4v2Isl1zBQFGujNBn2ytEziheXZEaWjqMU5AQ',
+  });
+  const r = hist.verify(JSON.parse(wire), opts);
+  assert.strictEqual(r.ok, true, r.because);
+  assert.strictEqual(r.keys.length, 2);
+  const bad = JSON.parse(wire); bad.entries[1].backfill = false;
+  assert.match(hist.verify(bad, opts).because, /form escrowd signs/, 'a revoke carrying a backfill value is not escrowd\'s form');
+});
+
+test('a caller can narrow the freshness window but never widen it', () => {
+  const older = signed([{ ...BASE[0], at: NOW - 3 * 24 * 3600 }], { issuedAt: NOW - 2 * 24 * 3600 });
+  assert.match(hist.verify(older, { ...opts, maxAgeSecs: 10 * 24 * 3600 }).because, /too old/);
+  assert.match(hist.verify(signed(BASE, { issuedAt: NOW + 3600 }), { ...opts, skewSecs: 7200 }).because, /future/);
+  assert.match(hist.verify(signed(BASE, { issuedAt: NOW - 450 }), { ...opts, maxAgeSecs: 300 }).because, /too old/, 'narrowing works');
+  assert.strictEqual(hist.verify(signed(BASE, { issuedAt: NOW - 450 }), opts).ok, true, 'control: fresh at the default');
+});
+
+test('keyAt answers only for a key in the form the history holds it', () => {
+  const { keys } = hist.verify(signed(BASE), opts);
+  assert.ok(hist.keyAt(keys, K2, NOW - 100), 'control');
+  assert.strictEqual(hist.keyAt(keys, 'AB'.repeat(32), NOW - 100), null);
+  assert.strictEqual(hist.keyAt(keys, Buffer.from(K2, 'hex'), NOW - 100), null);
 });

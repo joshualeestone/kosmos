@@ -21,6 +21,13 @@
  * c = SHA-256(put(c) put(kind byte: 1 enrol, 2 revoke) put(key) put(at, i64 BE) put(backfill byte: 1 or 0)), where
  * put is a u32 big-endian length then the bytes (as orgkeysig.js). escrowd signs the HEAD:
  * put(HEAD_TAG) put(org) put(member) put(count, u64 BE) put(issuedAt, i64 BE) put(chain).
+ * As JSON, a revoke entry carries no `backfill` (absent or null; both encode as 0), an enrol entry carries true or false.
+ *
+ * What escrowd must uphold when it WRITES the log (slice 2), because the log is append-only and verify() refuses a
+ * history that breaks any of these for good, leaving that member on the fingerprint pilot:
+ *   - an entry's `at` is never earlier than the entry before it (clamp to it after a clock step back);
+ *   - no entry is dated after the head that signs it;
+ *   - a key is enrolled at most once, and revoked at most once and only after its enrol (refuse both at write time).
  *
  * What the head stops, and why it carries both a count and a fresh time:
  *   - the chain makes the entries one signed object, so a coordinator cannot hand over a subset (hiding a revoke);
@@ -38,9 +45,10 @@
  * verify(history, opts) never throws. history: { org, member, entries, issuedAt, signature (base64url) }.
  * opts: { org, member (REQUIRED: the member being restored; a genuine history for anyone else is refused),
  *   verifyingKey (a 32-byte Buffer, used ONLY while VERIFYING_KEY is null, i.e. by tests), now (Unix seconds),
- *   maxAgeSecs, skewSecs }.
+ *   maxAgeSecs, skewSecs (each can only narrow the default window) }.
  * Answers { ok: true, keys } with keys [{ key, from, until (null while valid), backfill }], or { ok: false, because }.
- * keyAt(keys, key, t) answers the entry under which `key` was valid at time `t`, or null.
+ * keyAt(keys, key, t) answers the entry under which `key` (lowercase hex, as the history holds it) was valid at time `t`,
+ * or null.
  */
 
 const crypto = require('node:crypto');
@@ -85,7 +93,7 @@ function chain(org, member, entries) {
     const kind = e.kind === 'enrol' ? 1 : e.kind === 'revoke' ? 2 : 0;
     if (!kind || typeof e.key !== 'string' || !KEY_RE.test(e.key) || !isTime(e.at)) return null;
     if (kind === 1 && typeof e.backfill !== 'boolean') return null;
-    if (kind === 2 && e.backfill !== undefined) return null;
+    if (kind === 2 && e.backfill !== undefined && e.backfill !== null) return null;
     parts = [];
     put(parts, c);
     put(parts, Buffer.from([kind]));
@@ -165,8 +173,9 @@ function verify(history, opts = {}) {
     // A clock that is not a time is the caller's mistake: refused by name, never left to whichever check it trips.
     if (opts.now !== undefined && !isTime(opts.now)) return { ok: false, because: 'the device key history was checked against a clock that is not a time' };
     const now = opts.now !== undefined ? opts.now : Math.floor(Date.now() / 1000);
-    const maxAge = Number.isSafeInteger(opts.maxAgeSecs) && opts.maxAgeSecs > 0 ? opts.maxAgeSecs : MAX_AGE_SECS;
-    const skew = Number.isSafeInteger(opts.skewSecs) && opts.skewSecs >= 0 ? opts.skewSecs : SKEW_SECS;
+    // A caller may narrow the freshness window, never widen it: freshness is what stops a replayed shorter history.
+    const maxAge = Number.isSafeInteger(opts.maxAgeSecs) && opts.maxAgeSecs > 0 ? Math.min(opts.maxAgeSecs, MAX_AGE_SECS) : MAX_AGE_SECS;
+    const skew = Number.isSafeInteger(opts.skewSecs) && opts.skewSecs >= 0 ? Math.min(opts.skewSecs, SKEW_SECS) : SKEW_SECS;
     if (issuedAt > now + skew) return { ok: false, because: 'the device key history is dated in the future' };
     if (now - issuedAt > maxAge) return { ok: false, because: 'the device key history is too old to trust; a fresh one is needed' };
     const keys = replay(entries, issuedAt);
@@ -178,7 +187,7 @@ function verify(history, opts = {}) {
 }
 
 function keyAt(keys, key, t) {
-  if (!Array.isArray(keys) || typeof key !== 'string' || !isTime(t)) return null;
+  if (!Array.isArray(keys) || typeof key !== 'string' || !KEY_RE.test(key) || !isTime(t)) return null;
   return keys.find((k) => k.key === key && t >= k.from && (k.until === null || t < k.until)) || null;
 }
 
