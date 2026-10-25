@@ -54,18 +54,52 @@ struct RoomView: View {
     @State private var olderShowing = false
     @State private var pendingCount = 0
     @FocusState private var typing: Bool
+    // kosmos#7096: the room's search, as the chat's (#7089, Mona Lisa's design): the magnifier opens the row, it stays
+    // while it holds words, and its x or Cancel empties it and puts it away.
+    @State private var query = ""
+    @State private var searchOpen = false
+    @FocusState private var searchFocused: Bool
+    // Whether the reader was at the newest post when the row opened (it pushes the room down).
+    @State private var openedAtNewest = false
+    // Whether this open filtered the room: only then is the reader's place gone, and putting the row away goes to the
+    // newest post.
+    @State private var filteredInMode = false
+    // Counts clears, so a clear's delayed steps act only if no later clear came after it.
+    @State private var clears = 0
+    // A post went while words filtered: the line under the room says it shows only if it matches (the chat's line).
+    @State private var sentWhileSearching = false
+    // The empty-result sentence has been spoken for this entry into an empty result (the board's PJ_SEARCH_WAS_EMPTY):
+    // not again while it stays empty, whatever is typed or whichever sentence a read shows. Forgotten when results
+    // come back or the search goes.
+    @State private var spokeEmpty = false
+    private var searching: Bool { Board.chatSearching(query) }
+    // The row open or words in it: no older pages (the chat's rule, #7089, from the board's earlierNearTop).
+    private var searchMode: Bool { searchOpen || searching }
 
     private var rows: [Board.RoomRow] { store.rows[project.id] ?? [] }
-    private var items: [Board.RoomItem] { Board.roomItems(rows, now: Date(), calendar: .current) }
+    // The rows the search keeps, before refusals fold (as the board filters before its fold).
+    private var shownRows: [Board.RoomRow] {
+        guard searching else { return rows }
+        let names = store.names   // a dictionary built on each access: built once for the filter, not once per row
+        return Board.roomFilter(rows, name: { names[$0] }, query: query)
+    }
+    private var items: [Board.RoomItem] { Board.roomItems(shownRows, now: Date(), calendar: .current) }
 
     var body: some View {
         VStack(spacing: 0) {
             needsLine
+            if searchMode { searchBar }
             thread
                 .background(GeometryReader { g in Color.clear.onAppear { threadHeight = g.size.height }
                     .onChange(of: g.size.height) { threadHeight = $0 } })
             if let note = store.notes[project.id] {
                 Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
+            } else if sentWhileSearching {
+                // Below the post's own line: a post that did not go says so instead.
+                Text(Board.chatSentWhileSearching).font(.footnote).foregroundColor(Palette.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 4)
+                    // Spoken, as the chat's line is: the search field keeps VoiceOver's focus.
+                    .onAppear { Self.say(Board.chatSentWhileSearching) }
             }
             workingLine
             heldNotice
@@ -80,6 +114,21 @@ struct RoomView: View {
                     Text(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents").font(.footnote).foregroundColor(Palette.secondary)
                 }
                 .accessibilityElement(children: .combine)
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    // With the row already open it only puts the cursor back in the field.
+                    let opening = !searchOpen
+                    if opening { openedAtNewest = atBottom }
+                    searchOpen = true
+                    DispatchQueue.main.async {
+                        searchFocused = true
+                        if opening && openedAtNewest { NotificationCenter.default.post(name: .roomScrollToEnd, object: project.id) }
+                    }
+                } label: {
+                    Image(systemName: "magnifyingglass").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                .accessibilityLabel("Search this conversation")
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button { openBoardPage() } label: { Image(systemName: "info.circle") }
@@ -103,8 +152,38 @@ struct RoomView: View {
             // kept not-confirmed post's words cleared (onChange never sees the value present at appearance).
             if draft.isEmpty, let d = store.drafts[project.id] { draft = d.text; replying = d.replyTo; replyMention = d.mention }
             start(); takeReturned(); applyKept()
+            #if DEBUG
+            // kosmos#7096, KOSMOS_SAMPLE_ROOM_SEARCH=<words>: the row opened with those words typed, for its screenshots
+            // (its own name, so the chat's KOSMOS_SAMPLE_SEARCH shots never open it).
+            if let words = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ROOM_SEARCH"], !Self.sampleSearched {
+                Self.sampleSearched = true
+                searchOpen = true
+                query = words
+            }
+            #endif
         }
-        .onDisappear { visible = false; loop?.cancel(); loop = nil }
+        .onDisappear {
+            visible = false; loop?.cancel(); loop = nil
+            // A reading posture, not the room's state: coming back (from another tab, or a member's chat opened from here)
+            // shows the whole room, as the chat's search goes when it leaves the screen. A search that filtered settles the
+            // scroll again, as putting it away does.
+            if filteredInMode { settledAtBottom = false }
+            clears += 1   // a clear's delayed steps belong to this visit
+            filteredInMode = false
+            query = ""
+            searchOpen = false
+            searchFocused = false
+            openedAtNewest = false
+            sentWhileSearching = false
+            spokeEmpty = false
+        }
+        .onChange(of: searching) { now in if now { filteredInMode = true } }
+        .onChange(of: query) { _ in sentWhileSearching = false }
+        .onChange(of: searching && shownRows.isEmpty) { empty in if !empty { spokeEmpty = false } }
+        // A post that did not go says so on its own line; the search's line is not about it.
+        .onChange(of: store.notes[project.id] != nil) { now in if now { sentWhileSearching = false } }
+        // Leaving an empty field puts it away; one with words stays.
+        .onChange(of: searchFocused) { now in if !now && !searching && searchOpen { putSearchAway() } }
         // kosmos#7072: a hold that appears while the room is on screen is said aloud, as the board's paint does.
         .onChange(of: store.held[project.id] != nil) { now in
             if now && visible { Self.say(Board.heldAnnouncement) }
@@ -117,6 +196,15 @@ struct RoomView: View {
         // Signed out, another account or another Mac: the files this room showed belong to the one before (the chat's
         // reset, review 1).
         .onChange(of: client.chatEpoch) { _ in
+            clears += 1   // a clear's delayed steps belong to the account before
+            if filteredInMode { settledAtBottom = false }   // the next room settles as on opening, as onDisappear does
+            filteredInMode = false
+            query = ""
+            searchOpen = false
+            searchFocused = false
+            openedAtNewest = false
+            sentWhileSearching = false
+            spokeEmpty = false
             fileStates = [:]
             previewURL = nil
             openedFile = nil
@@ -156,6 +244,8 @@ struct RoomView: View {
 
     // An older page goes in above; the row that was at the top stays where the reader is looking.
     private func loadOlder(_ proxy: ScrollViewProxy) {
+        // Not while searching: a search shortens the room; its top showing is not a reader asking for older posts.
+        guard !searchMode else { return }
         // A post's id: a folded refusal line's id can change when older refusals join its run, which would leave
         // nothing to scroll back to.
         let anchor = items.first(where: { if case let .row(r, _, _) = $0.kind { return r.kind == .post } else { return false } })?.id
@@ -350,7 +440,7 @@ struct RoomView: View {
                     // row happened, even if the end marker was not reached (estimated row heights; ChatView's rule).
                     Color.clear.frame(height: 1)
                         .onDisappear { if !rows.isEmpty { settledAtBottom = true } }
-                    if store.older[project.id]?.cursor != nil {
+                    if store.older[project.id]?.cursor != nil && !searchMode {
                         if store.olderFailed.contains(project.id) {
                             Button("We could not load earlier messages. Try again") { loadOlder(proxy) }
                                 .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
@@ -361,6 +451,16 @@ struct RoomView: View {
                         }
                     }
                     if store.rows[project.id] != nil && rows.isEmpty { emptyRoom }
+                    // On a read that could not read all of the room, what matches may be in the part it missed: the
+                    // board's partial-read line there, not its no-match sentence (paintRoom on body.ok === false).
+                    else if searching && shownRows.isEmpty && !rows.isEmpty {
+                        if store.roomPartial.contains(project.id) {
+                            Text(Board.roomPartialLine)
+                                .font(.subheadline).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity).padding(.top, 60)
+                                .onAppear { sayOnce(Board.roomPartialLine) }   // spoken, as the room speaks its no-match sentence
+                        } else { noMatch }
+                    }
                     ForEach(items) { item in itemView(item).id(item.id).accessibilityFocused($focusedPost, equals: item.id) }
                     ForEach(store.pending[project.id] ?? []) { p in pendingView(p) }
                     if store.roomFailed.contains(project.id) {
@@ -384,7 +484,8 @@ struct RoomView: View {
                     // on one screen moves neither marker, so settle here when the end is already showing.
                     proxy.scrollTo("bottom", anchor: .bottom)
                     DispatchQueue.main.async { if atBottom && !rows.isEmpty { settledAtBottom = true } }
-                } else if atBottom {
+                } else if atBottom && !searching {
+                    // Not while searching: a new post may not even be among what matched (the board's convPause).
                     withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
             }
@@ -393,7 +494,7 @@ struct RoomView: View {
             // the layout moves the end marker, scrolled once it has. Animated, as the new-row scroll above is: a reply
             // usually lands in the same update that takes its writer off the line (review 5: a plain scroll cut it short).
             .onChange(of: Board.workingLine(workingNow)) { _ in
-                if atBottom && settledAtBottom { DispatchQueue.main.async { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+                if atBottom && settledAtBottom && !searching { DispatchQueue.main.async { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
             }
             // kosmos#7101: a reply's header goes to the post it answers, centred, flashing for the board's 1.8 s, with
             // VoiceOver's focus on it (the board's #3745: row.focus()). Still, with Reduce Motion (the board's
@@ -420,12 +521,114 @@ struct RoomView: View {
             }
             // The first scroll has happened and the top is already showing (a room shorter than the screen).
             .onChange(of: settledAtBottom) { done in if done && olderShowing { loadOlder(proxy) } }
+            // The magnifier opened the row over a reader at the newest post: back there once the keyboard is up too (the
+            // room has no other keyboard rule; the chat's keepNewestInView does this there).
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                // Once, for the open: a reader who scrolls up afterwards is not pulled back by a later keyboard.
+                if visible && searchFocused && openedAtNewest && !searching {
+                    openedAtNewest = false
+                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+            }
+            // The magnifier opened the row over a reader at the newest post: back there once the row is in.
+            .onReceive(NotificationCenter.default.publisher(for: .roomScrollToEnd)) { note in
+                guard visible, note.object as? String == project.id else { return }
+                withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            // Putting away a search that filtered is reading at the newest post again. Until that scroll settles, the top
+            // the short room left on screen is not a reader asking for older posts (as on opening): the end marker or the
+            // top leaving settles it; a room too short to move either settles a second later.
+            .onChange(of: searchMode) { now in
+                guard !now && filteredInMode else { return }
+                filteredInMode = false
+                guard visible else { return }
+                clears += 1
+                let clear = clears
+                settledAtBottom = false
+                proxy.scrollTo("bottom", anchor: .bottom)
+                DispatchQueue.main.async { if !searchMode && visible && clears == clear { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    if !searchMode && visible && clears == clear && !settledAtBottom && !rows.isEmpty { settledAtBottom = true }
+                }
+            }
             .onAppear {
                 proxy.scrollTo("bottom", anchor: .bottom)
                 // A room opened again with its rows already read: the last row will not change, so settle here.
                 // (settled by the end of the room appearing, above)
             }
         }
+    }
+
+    #if DEBUG
+    // Once a launch, so coming back to the room in a screenshot run shows it as a person would.
+    static var sampleSearched = false
+    #endif
+
+    // kosmos#7096: the search row, as the chat's (#7089).
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").font(.system(size: 15)).foregroundColor(Palette.secondary)
+                    .accessibilityHidden(true)
+                TextField("", text: $query, prompt: Text("Search").foregroundColor(Palette.secondary))
+                    .focused($searchFocused)
+                    .accessibilityLabel("Search this conversation")
+                    .font(.body)
+                    .foregroundColor(Palette.primary)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                if !query.isEmpty {
+                    Button { closeSearch() } label: {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 17)).foregroundColor(Palette.secondary)
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear the search")
+                }
+            }
+            .padding(.leading, 12)
+            .frame(minHeight: 44)
+            .background(Palette.card)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator, lineWidth: 0.5))
+            Button("Cancel") { closeSearch() }
+                .font(.body)
+                .fixedSize()
+                .foregroundColor(Palette.primary)
+                .frame(minHeight: 44)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+    }
+    private func sayOnce(_ words: String) {
+        guard !spokeEmpty else { return }
+        spokeEmpty = true
+        Self.say(words)
+    }
+    private func closeSearch() {
+        searchFocused = false
+        putSearchAway()
+    }
+    // The row goes, emptied. A search that filtered then goes to the newest post (onChange(of: searchMode)); one that
+    // never did leaves the reader where they are.
+    private func putSearchAway() {
+        spokeEmpty = false
+        // Before the words go: the older-page spinner comes back as the row goes, and it must not take the short room's
+        // top for a reader asking for older posts (onChange(of: searchMode) settles it again).
+        if filteredInMode { settledAtBottom = false }
+        query = ""
+        searchOpen = false
+        openedAtNewest = false
+        UIAccessibility.post(notification: .layoutChanged, argument: nil)
+    }
+    // Spoken as it appears: the field keeps VoiceOver's focus, so nothing else says the room went empty (the board's
+    // room search announces it on the way into no match, not on every key).
+    private var noMatch: some View {
+        Text(Board.chatNoMatch(query)).font(.subheadline).foregroundColor(Palette.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 60)
+            .onAppear { sayOnce(Board.chatNoMatch(query)) }
     }
 
     private var emptyRoom: some View {
@@ -715,6 +918,7 @@ struct RoomView: View {
         let files = attachedHere
         client.attachLine[attachKey] = nil
         draft = ""; replying = nil; replyMention = nil
+        if searching { sentWhileSearching = true }
         Task { await store.post(text, to: project.id, replyTo: reply, files: files) }
     }
 }
@@ -953,4 +1157,9 @@ private struct ReplyJumpDefault: ViewModifier {
     func body(content: Content) -> some View {
         if on { content.accessibilityAction(.default, jump) } else { content }
     }
+}
+
+extension Notification.Name {
+    // kosmos#7096: the room on screen for this project id scrolls to its newest post.
+    static let roomScrollToEnd = Notification.Name("kosmos.roomScrollToEnd")
 }

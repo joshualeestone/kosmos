@@ -14,6 +14,9 @@ final class RoomStore: ObservableObject {
     @Published private(set) var rows: [String: [Board.RoomRow]] = [:]
     @Published private(set) var older: [String: (count: Int, cursor: String?)] = [:]
     @Published private(set) var roomFailed: Set<String> = []
+    // kosmos#7096: rooms whose last read said it could not read all of it (ok false): a search there cannot say nothing
+    // matches (the board's paint holds the sentence back on body.ok === false).
+    @Published private(set) var roomPartial: Set<String> = []
     // kosmos#7080: when each agent's latest post reached each room (as this phone learned it), for the working line's
     // "spoke after the status was read" rule (the board's ROOM_SPOKE_AT).
     @Published private(set) var spokeAt: [String: [String: Date]] = [:]
@@ -71,7 +74,7 @@ final class RoomStore: ObservableObject {
     // that was in the air when it moved is dropped (each read checks `same`).
     func reset() {
         list = nil; listState = .reaching
-        rows = [:]; older = [:]; roomFailed = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
+        rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
         returned = [:]; kept = [:]; drafts = [:]
         held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
@@ -131,6 +134,7 @@ final class RoomStore: ObservableObject {
             roomFailed.insert(project); return false
         }
         roomFailed.remove(project)
+        roomPartial = Board.partialRooms(roomPartial, project: project, partial: page.unread)
         if Board.readMayWriteHold(read: read, reopenedAt: reopenedAt[project]) { if page.held { held[project] = .some(page.heldUntil) } else { held[project] = nil } }
         let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)
         // Stamped before the rows are replaced: `before` must be what the room held until this read. The phone's clock,
