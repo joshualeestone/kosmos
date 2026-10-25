@@ -97,3 +97,10 @@ path stays the app's own (isProjectId before the path; host is held.url).
 - LEFT (nits): "Create" and "Project" rather than "Create task" and "Which project" (Mona Lisa: keep Create);
   Return in a question does not move to the next field; required-ness of the second question is in its footer, not
   its label; a sheet left open across a client reset keeps its project list (the Mac then refuses, 404).
+- Iteration 6 (sonnet): Create latches synchronously in its tap, before the Task starts, so a double tap cannot send
+  two creates.
+- DEFERRED (iteration 6): ios.yml runs only on ios/** changes, so a web/index.html or engine/tasks.js change to the
+  words, limits or nt-go keys this suite pins goes green on its own PR and turns the next iOS PR red. Not this
+  branch's to change: three sibling suites (settings, room, tasks) already read web/index.html under the same filter,
+  the workflow is path-filtered on purpose (advisory), and widening it adds a macOS run to every web PR while #5488
+  cuts avoidable Mac runs. Filed as its own card. Would change if that card decides to widen the trigger.

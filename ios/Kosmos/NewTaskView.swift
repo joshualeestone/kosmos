@@ -31,7 +31,8 @@ struct NewTaskView: View {
                         if sending {
                             ProgressView().accessibilityLabel("Creating the task")
                         } else {
-                            Button("Create") { Task { await create() } }
+                            // Latched here, before the Task starts: a second tap in between would send a second create.
+                            Button("Create") { guard !sending else { return }; sending = true; Task { await create() } }
                                 // Held until the projects are read: a kept draft's project is checked against them first.
                                 .disabled(list == nil || !NewTask.canCreate(draft))
                         }
@@ -218,8 +219,8 @@ struct NewTaskView: View {
     }
 
     private func create() async {
-        guard list != nil, NewTask.canCreate(draft), !sending else { return }
-        sending = true
+        // sending is already set by Create's tap.
+        guard list != nil, NewTask.canCreate(draft) else { sending = false; return }
         message = nil
         let sent = draft
         // throughMac answers nil both when nothing was sent and when a send got no answer; only the second may have made
