@@ -105,7 +105,7 @@ struct ChatView: View {
         let _ = tick
         VStack(spacing: 0) {
             if thread != nil, let note = bannerText { banner(note) }
-            if searchOpen || searching { searchBar }
+            if searchMode { searchBar }
             ZStack(alignment: .bottom) {
                 conversation
                 // Not over a search: new messages are not followed then (follow), so it would offer a jump in a filtered list.
@@ -174,6 +174,7 @@ struct ChatView: View {
             filteredInMode = false
             query = ""
             searchOpen = false
+            openedAtNewest = false
             sentWhileSearching = false
             // Not into another account's chats: a draft from before a sign-out is dropped with the rest.
             if epoch == client.chatEpoch { client.drafts[agent.session] = draftText }
@@ -225,6 +226,7 @@ struct ChatView: View {
             filteredInMode = false
             query = ""
             searchOpen = false
+            openedAtNewest = false
             sentWhileSearching = false
             draftText = ""
             refusal = nil
@@ -610,8 +612,7 @@ struct ChatView: View {
             let shownNow = thread.map { Board.chatItems(Board.shownRows(earlier, thread: $0), now: Date(), calendar: .current) } ?? []
             let anchor = Board.anchorItem(shownNow, onScreen: onScreen)
             earlier = next
-            // Not into a search: a page loading when it opened lands in rows the search hides, and moves no one.
-            if case .page(let rows, _, _) = read, !rows.isEmpty, !searchMode { keepAnchor = anchor }
+            if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
 

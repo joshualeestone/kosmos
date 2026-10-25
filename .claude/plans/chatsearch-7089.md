@@ -66,8 +66,8 @@ hand with run.sh <dir> and recorded on the card, not a standing test).
   the bubble as the send's only feedback, so it brings that bubble into view. The new-messages capsule
   is off while searching. Opening the row pushes the thread down, so a reader at the newest message
   is kept there (scrolled back after the row opens, kept by the keyboard).
-- Search mode is the row open OR words in it. In it no earlier pages load (and a page already on its
-  way does not move the reader when it lands), so editing the words, even back to none, never loads
+- Search mode is the row open OR words in it. In it no earlier pages load (a page already on its way
+  lands keeping the row on screen in place, as always), so editing the words, even back to none, never loads
   one under the reader. Following and the capsule pause only while words filter (convPause). Putting the row away scrolls to the newest message only if this open filtered the
   thread (the reader's place is gone then); an open that never filtered leaves the reader where they
   are, so closing it from a scroll that dismissed the keyboard does not pull them anywhere.
