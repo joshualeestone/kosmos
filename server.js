@@ -1739,7 +1739,8 @@ const chat = require('./engine/chat');
 const messages = require('./engine/messages');
 // kosmos#7153: the longest room notice a job may write, and its source label.
 const ROOM_NOTICE_MAX = 4000;
-const ROOM_NOTICE_SOURCE_MAX = 40;
+// Letters, digits, spaces and . _ - only, so the source cannot carry a colon, a bracket or a control character.
+const ROOM_NOTICE_SOURCE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/;
 const unfurl = require('./engine/unfurl');
 const attachments = require('./engine/attachments');
 const filepreview = require('./engine/filepreview');   // #4997: the preview for a file in a Files list
@@ -22025,14 +22026,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* #2710: the operator REOPENS a held room. The valve holds a room that went
-     back and forth without landing; this clears that hold so the next post
-     lands, without the operator having to type a content post to do it. Its own
-     POST route: like the operator room post and react above, it WRITES and so is
-     an operator surface, board-token gated by the sensitive-route check (every
-     /api/ POST is). The engine writes a reopen marker the valve honors; nothing
-     is delivered and nothing renders in the room. No body is required -- the
-     project rides the path -- so a missing/garbage body is not read. */
   /* kosmos#7153 (part of #5941, the fleet off Discord): Kosmos speaking in a room on behalf of a job on this Mac, such
      as the builder alarm or an email digest. A launchd job has no agent token and no pane, so `kosmos post` refuses it,
      and the room route above posts as the person. This writes a roomNote: Kosmos's own voice, typed into nobody's
@@ -22045,15 +22038,20 @@ const server = http.createServer(async (req, res) => {
     readBody(req)
       .then((buf) => {
         let body = null;
-        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
-        const text = body && typeof body.text === 'string' ? body.text.trim() : '';
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          sendJson(res, 400, { error: 'that request is not something we can read' });
+          return;
+        }
+        /* One line: the room's text view prints a note as written, so a line break in a job's text (an email digest
+           carries other people's words) would read there as a separate row by the person or an agent. */
+        const text = body && typeof body.text === 'string' ? body.text.replace(/\s+/g, ' ').trim() : '';
         const source = body && typeof body.source === 'string' ? body.source.trim() : '';
-        if (!text || text.length > ROOM_NOTICE_MAX) {
+        if (!text || [...text].length > ROOM_NOTICE_MAX) {
           sendJson(res, 400, { error: 'a notice needs words, at most ' + ROOM_NOTICE_MAX + ' characters' });
           return;
         }
-        if (!source || source.length > ROOM_NOTICE_SOURCE_MAX || /[\r\n:]/.test(source)) {
-          sendJson(res, 400, { error: 'a notice needs a short source on one line, such as "builder alarm"' });
+        if (!ROOM_NOTICE_SOURCE.test(source)) {
+          sendJson(res, 400, { error: 'a notice needs a short source in plain words, such as "builder alarm"' });
           return;
         }
         const roster = safeRoster();
@@ -22067,6 +22065,14 @@ const server = http.createServer(async (req, res) => {
         { error: String((err && err.message) || 'we could not read that request') }));
     return;
   }
+  /* #2710: the operator REOPENS a held room. The valve holds a room that went
+     back and forth without landing; this clears that hold so the next post
+     lands, without the operator having to type a content post to do it. Its own
+     POST route: like the operator room post and react above, it WRITES and so is
+     an operator surface, board-token gated by the sensitive-route check (every
+     /api/ POST is). The engine writes a reopen marker the valve honors; nothing
+     is delivered and nothing renders in the room. No body is required -- the
+     project rides the path -- so a missing/garbage body is not read. */
   const roomReopen = pathname.match(/^\/api\/project\/([^/]+)\/room\/reopen$/);
   if (roomReopen && req.method === 'POST') {
     const id = decodeSegment(roomReopen[1]);

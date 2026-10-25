@@ -619,14 +619,18 @@ test('#4771 task hold / unhold: POST .../task/<n>/hold with {onHold} and the boa
 /* kosmos#7153: a scheduled job writes a Kosmos notice into a room: the text from stdin and its source, board token only. */
 test('notice: POST .../notice with the text and source, no agent token; 2xx -> 0, 404 -> 1, a refusal -> 1 with the board\'s words, usage -> 2', async () => {
   const piped = (text) => async () => ({ text, ended: true });
-  const ok = await run(['notice', '--from', 'builder alarm', '--stdin', 'fleet josh'], () => ({ body: { ok: true, project: 'fleetjosh' } }), {}, piped('Splinter is unreachable.\n'));
+  const ok = await run(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], () => ({ body: { ok: true, project: 'fleetjosh' } }), {}, piped('Splinter is unreachable.\n'));
   assert.equal(ok.code, 0, ok.err);
   assert.equal(ok.calls.length, 1);
   assert.equal(ok.calls[0].route, '/api/project/fleetjosh/notice');
   assert.equal(ok.calls[0].method, 'POST');
   assert.deepEqual(ok.calls[0].body, { text: 'Splinter is unreachable.', source: 'builder alarm' });
   assert.equal(ok.calls[0].headers['x-kosmos-agent-token'], undefined, 'a notice must not ride an agent token');
-  assert.match(ok.out, /Written to fleet josh as a Kosmos notice from builder alarm\./);
+  assert.match(ok.out, /Written to fleetjosh as a Kosmos notice from builder alarm\./);
+  // A write goes only to the project named: a name the slug would change is refused, not posted to another room.
+  const retarget = await run(['notice', '--from', 'builder alarm', '--stdin', 'fleet josh'], () => ({ body: { ok: true } }), {}, piped('hi'));
+  assert.equal(retarget.code, 1);
+  assert.equal(retarget.calls.length, 0, 'a name the slug would change was posted to another room');
   const missing = await run(['notice', '--from', 'builder alarm', '--stdin', 'nope'], () => ({ status: 404, body: { error: 'no such project' } }), {}, piped('hi'));
   assert.equal(missing.code, 1);
   assert.equal(missing.err, 'There is no project called "nope", so there is no room to write into.');
