@@ -50,4 +50,8 @@ the board's route with its two sentences; tested against a captured projects ans
      still on that Dismiss (the board's own check), and never to a row behind Hide; Answer/Open for an agent the
      status does not list opens the project's board page rather than being a dead button; the reasons pinned both
      ways (the board's PJ_NEEDS_WHY keys equal the phone's). Room 264/264; Debug SUCCEEDED.
+   - Round 4: 0 blockers, 1 warning, 2 nits. The warning is an engine bug already on main, filed and fixed as #7108
+     (needsDismissKey could end in half an emoji, and the phone then cannot read /api/projects at all). Fixed here:
+     focus also moves when it fell to nothing with its row; Dismiss reads "Try again" after one that did not go, as
+     the board's. After #7108 merges, this branch's pin on the board's keyOf fallback is updated on rebase.
 3. Validation, PR.

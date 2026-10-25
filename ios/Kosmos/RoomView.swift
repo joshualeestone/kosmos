@@ -473,8 +473,9 @@ struct RoomView: View {
         Task {
             let said = await store.dismissNeeds(row, in: project.id)
             dismissing.remove(row.session)
-            // Focus moves only if VoiceOver was still on this Dismiss (the board returns when focus left the notice).
-            let stillHere = needsFocus == row.session
+            // Focus moves only if VoiceOver was still on this Dismiss, or on nothing because its row went with the
+            // re-read (review 4), never if it moved on (the board returns when focus left the notice).
+            let stillHere = needsFocus == row.session || (needsFocus == nil && !composerFocused)
             // Left the room meanwhile: nothing is said over another screen (the board returns when PJ_CURRENT moved),
             // and a failure line is not left for the next visit.
             guard visible else { store.clearNeedsFailed(project.id); return }
@@ -502,8 +503,10 @@ struct RoomView: View {
                     Text(row.act).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
                 .accessibilityLabel("\(row.act) \(row.name)")
+                // "Try again" after a dismiss that did not go, as the board relabels its button (review 4).
                 Button { dismiss(row) } label: {
-                    Text("Dismiss").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    Text(store.needsFailed[project.id] == nil ? "Dismiss" : "Try again")
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
                 .disabled(dismissing.contains(row.session))
                 .accessibilityLabel("Dismiss \(row.name)")
