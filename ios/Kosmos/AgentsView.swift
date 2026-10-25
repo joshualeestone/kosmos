@@ -324,7 +324,8 @@ struct AgentAvatar: View {
     let size: CGFloat
     // kosmos#7120: the context ring round the picture, as the board's list row draws it (lrowRing); nil draws none.
     var memoryPercent: Double? = nil
-    // A list that is not updating draws the arc quiet, as its dots and words go quiet.
+    // A list that is not updating draws the arc in the secondary colour its words take then (opaque, so it stays clear of
+    // the translucent track).
     var memoryQuiet = false
 
     var body: some View {
@@ -365,7 +366,7 @@ struct AgentAvatar: View {
                 Circle().stroke(Palette.ringTrack, lineWidth: 2.5)
                 Circle()
                     .trim(from: 0, to: min(max(pct, 0), 100) / 100)
-                    .stroke(memoryQuiet ? Palette.tertiary : Palette.ring(band), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .stroke(memoryQuiet ? Palette.secondary : Palette.ring(band), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
             .frame(width: size + 7, height: size + 7)

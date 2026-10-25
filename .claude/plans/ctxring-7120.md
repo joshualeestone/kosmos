@@ -26,7 +26,8 @@ the parse, the bands and the words with a broken-copy control; shots in light an
   not left without what the ring shows. Weakest premise: the board's word is "Memory", which the phone keeps.
 - One stroke weight (2.5) in every band, as the board's small rings keep (it sets .lring .gf.warn/.high back to 2.5;
   the thicker 5 and 6 are its big gauge's).
-- A list that is not updating draws the arc in the quiet tertiary colour, as its dots and words go quiet.
+- A list that is not updating draws the arc in Palette.secondary, the colour its words take then (opaque: a
+  translucent quiet arc blended into the track in dark, seen in the shots).
 - The percent is held to 0...100 on reading (the engine caps it there).
 - In a list that is not updating, VoiceOver still hears "memory N%", followed in the same label by "not updating", as
   the row's word is; the arc is drawn quiet.
