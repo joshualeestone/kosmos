@@ -50,6 +50,14 @@ parallel node part. CI already splits the list into shards on separate runners (
   after it, in review 3). A shell test that starts run-tests.sh with a scrubbed environment could red there for that
   reason, which is not a collision: such reds are read against this before they count.
 - A trap that runs between a shard's fork and its perl setpgrp finds no group to signal, and that shard runs on.
+- A SIGKILL to run-tests.sh (or a kill of its own process group) runs no EXIT trap, and the shards are in groups of
+  their own, so they run on, orphaned, until they end. Before this switch the shell part was in run-tests.sh's group
+  and went with it. queued-heavy.sh tracks descendant groups for runs under the queue; a bare run has nothing
+  (review 4).
+- The stop signals a waited-on shard's group when kill -0 finds a process in it, which cannot tell that group from a
+  new one that took the id after it emptied and the pid wrapped (review 4).
+- A parallel run prints the shard logs' folder at the start and then nothing until shard 1 is waited on; the shard
+  logs have a line per command meanwhile (review 4).
 - A TERM is asynchronous: a shard's test that takes longer than the stop's 2 s wait to exit may still be running
   when the trap's later steps (the launchd boot-out, removing the run root) run. A test that puts itself in another process group (setsid) is not reached.
 - The Mortals experiment measures tree 48d671ee, before review 1's changes to the harness (process groups, the pid
@@ -63,7 +71,8 @@ parallel node part. CI already splits the list into shards on separate runners (
 - tools/test-shell-parallel-7100.sh: 14 arms pass, plain and with a CI shard's environment (KOSMOS_SHELL_SHARD,
   KOSMOS_SHELL_PLATFORM, KOSMOS_SHELL_CUT_ENV=1, GITHUB_ACTIONS=true), which reddened the cut-env arm before review 3
   scrubbed it. Review 3's mutants, each red on its own arm: a stop that ignores waited-on shards (the leftover arm);
-  run-tests.sh without the unset (the private-switch tripwire). Earlier: 12 arms (the parallel and cut-env refusal arm added in review 2; its
+  run-tests.sh without the unset (the private-switch tripwire, now anchored to the unset's own line number, with
+  indented comments skipped; review 4). Earlier: 12 arms (the parallel and cut-env refusal arm added in review 2; its
   mutant was reasoned, not run: without the refusal, the CI-only cut-env check refuses first with another message,
   which the arm's message check rejects). Mutants, each red on its own arm: a serial runner (barrier and
   green); the last red's status (reds); killing the shard's pid, not its group (interruption); a line after the
