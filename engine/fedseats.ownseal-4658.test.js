@@ -1033,11 +1033,13 @@ test('#4658: an offer drawn by a copied hello (same id and commitment, another k
 
 test('kosmos#7144: one helper says "waiting to be let in" for the exemption, the #7129 mark and the post hold', () => {
   const src = fs.readFileSync(path.join(__dirname, 'fedseats.js'), 'utf8');
-  // Only the helper's own definition states the test; no site keeps a copy that could drift from it.
-  // waitingLink is CALLED in one place only, the helper (review 2): any copy of the test that calls waitingLink, at any
-  // site, adds a call. A copy that spells out waitingLink's own body would not; the three site pins below cover the known sites.
+  // A source pin, and its limit stated (reviews 2 to 4): it reds when a known site stops reading the helper, when the
+  // helper's body changes, or when a second call to waitingLink appears anywhere. It cannot see a copy that writes out
+  // waitingLink's own body; the behaviour tests above (the exemption, the mark, the hold) are what guard the meaning.
+  assert.match(src, /function waitingToBeLetIn\(sealed, link\) \{\s*return pendingClear\(sealed\) \|\| \(sealed === null && waitingLink\(link\)\);\s*\}/,
+    'the helper is not the one expression');
   const calls = (src.match(/\bwaitingLink\(/g) || []).length - (src.match(/function waitingLink\(/g) || []).length;
-  assert.strictEqual(calls, 1, 'waitingLink is called outside waitingToBeLetIn (' + calls + ' calls)');
+  assert.strictEqual(calls, 1, 'waitingLink( appears ' + calls + ' times beside its definition; the helper should be the only call');
   assert.match(src, /const waiting = waitingToBeLetIn\(sealed, sealedLink\);/);
   assert.match(src, /\} else if \(sealedRoom && !waiting\) \{/, 'the no-downgrade exemption does not read the helper');
   assert.match(src, /unverified = waiting;/, 'the #7129 mark does not read the helper');
