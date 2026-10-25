@@ -690,7 +690,8 @@ unset ${KOSMOS_WAIT_CONTROL_VARS:-}
 # fragile suite, which is #1264.
 #
 # 📌 A hard kill skips the trap and leaves ONE directory instead of 92, named
-# for the run that made it, plus (#6668) the file watchdog's flag file beside it, kt<pid>-file-timeout.*.
+# for the run that made it, plus (#6668) the file watchdog's flag file beside it, kt<pid>-file-timeout.*,
+# and (#7100) in a parallel shell part, the shard logs' folder kt-shellpar.* beside it.
 #
 # ⚠️ WHAT THIS DOES NOT COVER, MEASURED, BECAUSE THE OBVIOUS ASSUMPTION IS
 # WRONG: macOS `mktemp` IGNORES TMPDIR. It reads the per-user directory from
@@ -839,8 +840,9 @@ elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
   elif [ "$_RT_SHELL_PARALLEL" != 1 ]; then
     # #7100: the n shards at once. Each writes its own log, in a folder beside the run root (inside it, the leak guard
     # would read the logs as a new temp family), and the logs are printed in shard order once all have ended. The part
-    # is red when any shard is red. The EXIT traps above stop each shard as a whole process group (its running test
-    # included, before the run root goes) and remove the folder on an interruption.
+    # is red when any shard is red. On an interruption the EXIT traps above stop each shard as a whole process group
+    # (TERM, then KILL after about 2 s, its running test included, before the run root goes; not a process that left
+    # the group), print the end of each shard's log, and remove the folder.
     _rt_ps_dir="$(mktemp -d "$(dirname "$KOSMOS_RUN_TMPDIR")/kt-shellpar.XXXXXXXXXX")" || _rt_ps_dir=""
     if [ -z "$_rt_ps_dir" ]; then
       echo "run-tests: could not make a folder for the parallel shell shards' logs; refusing rather than run them unlogged (#7100)" >&2

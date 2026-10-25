@@ -15,7 +15,7 @@
 kosmos_shell_parallel() {
   local n="$1" dir="$2"; shift 2
   local i p q r rc=0 red="" t0 left
-  KOSMOS_SHELL_PARALLEL_PIDS=""; KOSMOS_SHELL_PARALLEL_DONE=""
+  KOSMOS_SHELL_PARALLEL_PIDS=""; KOSMOS_SHELL_PARALLEL_DONE=""; KOSMOS_SHELL_PARALLEL_DIR="$dir"
   t0=$(date +%s)
   i=1
   while [ "$i" -le "$n" ]; do
@@ -40,7 +40,7 @@ kosmos_shell_parallel() {
     fi
     i=$((i + 1))
   done
-  KOSMOS_SHELL_PARALLEL_PIDS=""; KOSMOS_SHELL_PARALLEL_DONE=""
+  KOSMOS_SHELL_PARALLEL_PIDS=""; KOSMOS_SHELL_PARALLEL_DONE=""; KOSMOS_SHELL_PARALLEL_DIR=""
   i=1
   while [ "$i" -le "$n" ]; do cat "$dir/shard-$i.log"; i=$((i + 1)); done
   if [ -n "$red" ]; then
@@ -55,12 +55,17 @@ kosmos_shell_parallel() {
 # shard already waited on whose group still has members (something its tests left running). The second list is
 # signalled only when a kill -0 on the group finds a process in it. That cannot tell the shard's own group from a
 # new one that took the id after the shard's group emptied and the pid was reused; that takes the group to empty and
-# the pid space to wrap within one run, and such a stranger would get a TERM. Then wait up to about 2 s for those
-# groups to be gone, so the trap's next steps (the launchd boot-out, removing the run root) rarely run under a test
-# still exiting.
+# the pid space to wrap within one run, and such a stranger would get a TERM. A shard not yet waited on is signalled
+# only while this shell is its parent. Then wait up to about 2 s for the groups to be gone, KILL what is left, and
+# print the end of each shard's log to stderr (the caller removes the logs next). A process that left its shard's
+# group (setsid) is not reached.
 kosmos_shell_parallel_stop() {
-  local p k live targets=""
-  for p in ${KOSMOS_SHELL_PARALLEL_PIDS:-}; do targets="$targets $p"; done
+  local p k live targets="" f
+  # A shard not yet waited on may still have ended: bash reaps a child as it exits, so its pid can be free. It is
+  # signalled only while this shell is its parent, which a process that took the pid since cannot be.
+  for p in ${KOSMOS_SHELL_PARALLEL_PIDS:-}; do
+    [ "$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')" = "$$" ] && targets="$targets $p"
+  done
   for p in ${KOSMOS_SHELL_PARALLEL_DONE:-}; do kill -0 -- "-$p" 2>/dev/null && targets="$targets $p"; done
   for p in $targets; do kill -TERM -- "-$p" 2>/dev/null; done
   k=0
@@ -70,6 +75,16 @@ kosmos_shell_parallel_stop() {
     [ "$live" = 0 ] && break
     sleep 0.1; k=$((k + 1))
   done
-  KOSMOS_SHELL_PARALLEL_PIDS=""; KOSMOS_SHELL_PARALLEL_DONE=""
+  # What ignored the TERM or was slow to go gets a KILL, so nothing of a shard outlives the trap's next steps.
+  for p in $targets; do kill -0 -- "-$p" 2>/dev/null && kill -KILL -- "-$p" 2>/dev/null; done
+  # The shard logs are removed with their folder after this; their ends say where each shard was stopped.
+  if [ -n "${KOSMOS_SHELL_PARALLEL_DIR:-}" ] && [ -d "$KOSMOS_SHELL_PARALLEL_DIR" ]; then
+    for f in "$KOSMOS_SHELL_PARALLEL_DIR"/shard-*.log; do
+      [ -f "$f" ] || continue
+      echo "run-tests: interrupted; the last lines of $(basename "$f") (#7100):" >&2
+      tail -n 15 "$f" >&2
+    done
+  fi
+  KOSMOS_SHELL_PARALLEL_PIDS=""; KOSMOS_SHELL_PARALLEL_DONE=""; KOSMOS_SHELL_PARALLEL_DIR=""
   return 0
 }

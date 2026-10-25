@@ -16,8 +16,11 @@ parallel node part. CI already splits the list into shards on separate runners (
   families inside the root and would read the logs as a new one.
 - Each shard starts as the leader of its own process group (a perl setpgrp, then exec). Both of run-tests.sh's EXIT
   traps call `kosmos_shell_parallel_stop` first, which TERMs every running shard's whole group, the test it is
-  running included, waits up to about 2 s for the groups to be gone (review 2), and the folder is removed. A shard leaves `KOSMOS_SHELL_PARALLEL_PIDS` as soon as it has been
-  waited on, so the trap never signals a pid another process may have taken since (review 1).
+  running included, waits up to about 2 s for the groups to be gone (review 2), KILLs what is left and prints the end
+  of each shard's log to stderr before the folder is removed (review 5). A shard not yet waited on can still have
+  ended (bash reaps a child as it exits, so its pid can be free): it is signalled only while this shell is its parent,
+  which a process that took the pid since cannot be (review 5; review 1's claim that leaving the list on a wait
+  closed this was wrong).
 - A line per shard says its status when it is waited on. Shards are waited on in shard order (bash 3.2 has no
   wait -n), so a shard that ended before a lower-numbered one is reported when that one ends, with the time it was
   seen ended (review 3).
@@ -49,7 +52,16 @@ parallel node part. CI already splits the list into shards on separate runners (
 - The Mortals experiment's two parallel runs exported KOSMOS_SHELL_PARALLEL=4 to every test (the unset above came
   after it, in review 3). A shell test that starts run-tests.sh with a scrubbed environment could red there for that
   reason, which is not a collision: such reds are read against this before they count.
-- A trap that runs between a shard's fork and its perl setpgrp finds no group to signal, and that shard runs on.
+- A trap that runs between a shard's fork and its perl setpgrp, or between the fork and the line that records its
+  pid, finds no group or no pid to signal, and that shard runs on.
+- Nothing runs the wiring of a valid value to `kosmos_shell_parallel ... node tools/shell-shard.js run` except a real
+  parallel run (the stub arms test the library, the tripwire the verdict). The argument order was read, not run.
+- The parent check that guards a not-yet-waited-on shard has no mutant arm: removing it would only widen what is
+  signalled, and no test here can stage a reused pid.
+- The first Mortals experiment (tree 48d671ee) stopped at its first red in BOTH modes: test-cut-shape-6977.sh counts
+  run-tests.sh's wrapped shell-shard calls, and that tree's parallel call was a third. Review 3 removed the wrapper
+  there, and the test passes on later trees. The node tests that read run-tests.sh had been run; the SHELL tests that
+  read it had not, which is how it got through.
 - A SIGKILL to run-tests.sh (or a kill of its own process group) runs no EXIT trap, and the shards are in groups of
   their own, so they run on, orphaned, until they end. Before this switch the shell part was in run-tests.sh's group
   and went with it. queued-heavy.sh tracks descendant groups for runs under the queue; a bare run has nothing
