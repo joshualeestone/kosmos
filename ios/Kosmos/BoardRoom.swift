@@ -75,6 +75,11 @@ extension Board {
         // The route's `unanswered` for the WHOLE room (messages.unanswered is not filtered by page), names shown; nil
         // when the computer did not send it. Applied to every post shown, not only this page's.
         var silent: [String: [String]]? = nil
+        // kosmos#7080 review 2: the computer could not read the room's log (ok:false at 200 with no rows). Never a baseline
+        // for who spoke next, as the board seeds only when body.ok !== false. Only a computer older than paged reads sends
+        // this: a current one answers the phone's ?n= read with a 503, which lands in roomFailed and never reaches here
+        // (review 6).
+        var unread = false
     }
 
     // The newest page (no cursor) or the page before a cursor the computer gave.
@@ -128,6 +133,62 @@ extension Board {
         if let status, (200...299).contains(status), let obj, isTrue(obj["ok"]) { return nil }   // the board's res.ok
         let because = (obj?["because"] as? String).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         return "We could not reopen the room" + (because.map { ": " + $0 } ?? "") + ". Try again, or post in the room."
+    }
+
+    // kosmos#7080: the room's grouped working line (web/index.html paintRoomBusy). The members, in the room's own member
+    // order (names never reshuffle with the status order), whose card says working AND whose work is this project's:
+    // an unattributed working agent shows in no room, the board's deliberate under-claim (#2882). An agent whose post
+    // reached this room after the status was read is left out until the next status read (#1150), so the line never
+    // seems to follow the answer.
+    static func workingNames(members: [String], agents: [Agent], project: String, spokeSinceStatus: Set<String>) -> [String] {
+        members.compactMap { m in
+            guard let a = agents.first(where: { $0.session == m }), a.state == "working", a.stateProject == project,
+                  !spokeSinceStatus.contains(m) else { return nil }
+            return a.name
+        }
+    }
+    // The agents with a post in `fresh` that `before` did not have: they spoke in this read. Nobody on a room's first
+    // read (before is nil), so opening a room never hides everyone until the next status read. The byPerson check backs
+    // up parseRoom, which already gives the person's posts no sender; no test can tell it apart.
+    static func newSpeakers(before: [RoomRow]?, fresh: [RoomRow]) -> Set<String> {
+        guard let before else { return [] }
+        let had = Set(before.map(\.id))
+        return Set(fresh.compactMap { r in r.kind == .post && !r.byPerson && !had.contains(r.id) ? r.from : nil })
+    }
+    // One newest-page read's effect on who spoke since (review 4: tested here, as loadRoom is not in the suite). `before`
+    // is what the room held until this read, and counts as a baseline only once the room has had a real read
+    // (`baselined`); a read the computer could not answer never makes one, and nothing ever unmakes one (the board's
+    // ROOM_SPOKE_SEEDED). Returns the room's stamps and whether it is now baselined.
+    static func stampSpeakers(_ spokeAt: [String: Date], baselined: Bool, before: [RoomRow]?, fresh: [RoomRow], unread: Bool,
+                              at learned: Date) -> (spokeAt: [String: Date], baselined: Bool) {
+        var stamps = spokeAt
+        for who in newSpeakers(before: baselined ? before : nil, fresh: fresh) { stamps[who] = learned }
+        return (stamps, baselined || !unread)
+    }
+    // The agents whose post reached the room strictly after `statusAt`, the status read the line is drawn from (the
+    // board's learnedAt > LAST_AT). Both stamps are this phone's clock. No status read yet: nobody (there is no line).
+    static func spokeSince(_ spokeAt: [String: Date], statusAt: Date?) -> Set<String> {
+        guard let statusAt else { return [] }
+        return Set(spokeAt.filter { $0.value > statusAt }.keys)
+    }
+
+    // The one word that carries the claim (the board's WORKING_VERB): working, never typing. We can see output, not that
+    // it is a message to this room.
+    static let workingVerb = "working"
+    // "A is working…", "A and B are working…", "A, B, and C are working…" (the board's list); nil for nobody.
+    static func workingLine(_ names: [String]) -> String? {
+        workingLineParts(names).map { $0.map(\.text).joined() }
+    }
+    // The same line in pieces, each name marked so the room can set it bold (the board's <b>).
+    static func workingLineParts(_ names: [String]) -> [(text: String, name: Bool)]? {
+        guard !names.isEmpty else { return nil }
+        var parts: [(text: String, name: Bool)] = []
+        for (i, n) in names.enumerated() {
+            if i > 0 { parts.append((i == names.count - 1 ? (names.count == 2 ? " and " : ", and ") : ", ", false)) }
+            parts.append((n, true))
+        }
+        parts.append(((names.count == 1 ? " is " : " are ") + workingVerb + "\u{2026}", false))
+        return parts
     }
 
     // The board's words for Kosmos's lines in a room (web/index.html pjRoomRow, the room's text view in server.js).
@@ -204,6 +265,7 @@ extension Board {
                             held: obj["held"] is [String: Any])
         page.heldUntil = isoDate((obj["held"] as? [String: Any])?["until"] as? String)
         if obj["unanswered"] is [String: Any] { page.silent = silent.mapValues { $0.map(shown) } }
+        page.unread = (obj["ok"] as? Bool) == false
         return page
     }
 

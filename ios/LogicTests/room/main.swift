@@ -359,6 +359,82 @@ let reopenReq = Board.reopenRequest(mac: URL(string: "https://studio.kosmosplus.
 check(reopenReq?.httpMethod == "POST" && reopenReq?.url?.path == "/api/project/springcatalogue/room/reopen", "Reopen is the board's POST /api/project/<id>/room/reopen")
 check(Board.reopenRequest(mac: URL(string: "https://studio.kosmosplus.com/")!, project: "../x") == nil, "an id that is not a project's makes no request")
 
+section("the room's working line (kosmos#7080)")
+// status-working.json is a REAL GET /api/status row, captured from a sandboxed board for a working agent on the test
+// fleet (as server.todayreason-7030.test.js reads one). Its work is unattributed (stateProject null).
+let statusData = (try? Data(contentsOf: here.appendingPathComponent("status-working.json"))) ?? Data()
+let realRows = (try? JSONSerialization.jsonObject(with: statusData) as? [String: Any])?["agents"] as? [[String: Any]] ?? []
+check(realRows.first?["state"] as? String == "working" && realRows.first.map { $0["stateProject"] is NSNull } == true,
+      "premise: the captured row is a working agent whose work is unattributed")
+let realAgents = Board.parseAgents(statusData) ?? []
+check(realAgents.first?.state == "working" && realAgents.first?.stateProject == nil, "a null stateProject reads as unattributed")
+check(Board.workingNames(members: ["roo"], agents: realAgents, project: "springcatalogue", spokeSinceStatus: []).isEmpty,
+      "an unattributed working agent shows in no room (the board's under-claim, #2882)")
+// The same real row with its work attributed (stateProject set here; every other field as the board sent it).
+func statusWith(_ rows: [(String, String, String, String?)]) -> [Board.Agent] {
+    let base = realRows.first ?? [:]
+    let list = rows.map { (session, name, state, project) -> [String: Any] in
+        var r = base; r["sessionName"] = session; r["name"] = name; r["state"] = state; r["stateProject"] = project ?? NSNull(); return r
+    }
+    return Board.parseAgents((try? JSONSerialization.data(withJSONObject: ["agents": list])) ?? Data()) ?? []
+}
+let fleetNow = statusWith([("roo", "Roo", "working", "springcatalogue"), ("pixel", "Pixel", "working", "springcatalogue"),
+                           ("juno", "Juno", "working", "website"), ("tam", "Tam", "idle", "springcatalogue"),
+                           ("kit", "Kit", "working", "springcatalogue")])
+check(fleetNow.first?.stateProject == "springcatalogue", "stateProject is read from the status row")
+let workingNow = Board.workingNames(members: ["kit", "juno", "roo", "tam", "pixel"], agents: fleetNow, project: "springcatalogue", spokeSinceStatus: [])
+check(workingNow == ["Kit", "Roo", "Pixel"], "this project's working members, in the room's member order: \(workingNow)")
+check(Board.workingNames(members: ["roo", "pixel"], agents: fleetNow, project: "springcatalogue", spokeSinceStatus: ["roo"]) == ["Pixel"],
+      "an agent whose post arrived after the status read is left out until the next read (#1150)")
+check(Board.workingNames(members: ["ghost"], agents: fleetNow, project: "springcatalogue", spokeSinceStatus: []).isEmpty,
+      "a member the status does not list is not working")
+check(Board.workingLine([]) == nil, "nobody working: no line")
+check(Board.workingLine(["Roo"]) == "Roo is working\u{2026}", "one: is working")
+check(Board.workingLine(["Roo", "Pixel"]) == "Roo and Pixel are working\u{2026}", "two: A and B are working")
+check(Board.workingLine(["Kit", "Roo", "Pixel"]) == "Kit, Roo, and Pixel are working\u{2026}", "three: the board's serial comma")
+// The board still words it this way (paintRoomBusy), so the two cannot drift unseen.
+for phrase in ["const WORKING_VERB = '" + Board.workingVerb + "';", "who.length === 2 ? who[0] + ' and ' + who[1]",
+               "who.slice(0, -1).join(', ') + ', and ' + who[who.length - 1]", "(working.length === 1 ? ' is ' : ' are ') + WORKING_VERB + '&hellip;",
+               ".filter((a) => a && a.state === 'working' && a.stateProject === projectId)"] {
+    check(boardPage.contains(phrase), "the board's working line still says: \(phrase.prefix(60))")
+}
+// Who spoke in a read: nobody on a room's first read; afterwards, an agent with a post the room did not have.
+let before = Array(rows.prefix(4))
+let speakers = Board.newSpeakers(before: before, fresh: rows)
+check(Board.newSpeakers(before: nil, fresh: rows).isEmpty, "a room's first read marks nobody as having just spoken")
+check(Array(rows.prefix(4)).filter { $0.kind == .post && $0.from == "cleo" }.count >= 1,
+      "premise: cleo spoke before this read")
+check(speakers.sorted() == ["eli"], "only agents with a post the room did not have count, never Kosmos's lines or an outside agent's: \(speakers.sorted())")
+// A log the computer could not read (ok:false, no rows, at 200) is marked, so it is never a baseline (the board's ok check).
+check(Board.parseRoom(Data(#"{"ok":false,"rows":[]}"#.utf8))?.unread == true, "a page the computer could not read is marked unread")
+check(Board.parseRoom(Data(#"{"ok":true,"rows":[]}"#.utf8))?.unread == false && Board.parseRoom(Data(#"{"rows":[]}"#.utf8))?.unread == false,
+      "a real page (ok true, or no ok at all) is a baseline")
+check(boardPage.contains("body.ok !== false"), "premise: the board seeds who spoke only from a page it could read")
+// When each spoke against the status read (#1150): strictly after counts; at or before it does not; no read, nobody.
+let statusRead = Date(timeIntervalSince1970: 1_800_000_000)
+let stamps = ["early": statusRead.addingTimeInterval(-5), "same": statusRead, "late": statusRead.addingTimeInterval(5)]
+check(Board.spokeSince(stamps, statusAt: statusRead) == ["late"], "only a post after the status read hides its agent")
+check(Board.spokeSince(stamps, statusAt: nil).isEmpty, "no status read yet: nobody is hidden")
+// One read's stamping, in the order loadRoom runs it: a first read stamps nobody; a later read the computer could not
+// answer leaves the room baselined; a reply in the read after it is stamped (review 4).
+let t1 = Date(timeIntervalSince1970: 1_800_000_100), t2 = t1.addingTimeInterval(5), t3 = t2.addingTimeInterval(5)
+let sp1 = Board.stampSpeakers([:], baselined: false, before: nil, fresh: before, unread: false, at: t1)
+check(sp1.spokeAt.isEmpty && sp1.baselined, "a room's first real read stamps nobody and becomes the baseline")
+let sp0 = Board.stampSpeakers([:], baselined: false, before: [], fresh: before, unread: false, at: t1)
+check(sp0.spokeAt.isEmpty, "rows shown before any real read are no baseline (an unreadable first read left them empty)")
+let sp2 = Board.stampSpeakers(sp1.spokeAt, baselined: sp1.baselined, before: before, fresh: before, unread: true, at: t2)
+check(sp2.baselined && sp2.spokeAt.isEmpty, "a later read the computer could not answer keeps the baseline")
+let sp3 = Board.stampSpeakers(sp2.spokeAt, baselined: sp2.baselined, before: before, fresh: rows, unread: false, at: t3)
+check(sp3.spokeAt == ["eli": t3], "the reply in the read after it is stamped with that read's time: \(sp3.spokeAt)")
+let firstUnread = Board.stampSpeakers([:], baselined: false, before: nil, fresh: [], unread: true, at: t1)
+check(!firstUnread.baselined, "a first read the computer could not answer is no baseline")
+// The names are the bold pieces (the board's <b>), and nothing else is.
+let pieces = Board.workingLineParts(["Kit", "Roo", "Pixel"]) ?? []
+check(pieces.filter(\.name).map(\.text) == ["Kit", "Roo", "Pixel"] && pieces.filter { !$0.name }.map(\.text) == [", ", ", and ", " are working\u{2026}"],
+      "the names, and only the names, are marked to be set bold")
+check(Board.workingLineParts([]) == nil, "nobody working: no pieces")
+check(boardPage.contains("working.map((a) => '<b>' + esc(a.name) + '</b>')"), "premise: the board sets each working name bold")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")

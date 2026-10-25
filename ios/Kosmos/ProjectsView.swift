@@ -14,6 +14,20 @@ final class RoomStore: ObservableObject {
     @Published private(set) var rows: [String: [Board.RoomRow]] = [:]
     @Published private(set) var older: [String: (count: Int, cursor: String?)] = [:]
     @Published private(set) var roomFailed: Set<String> = []
+    // kosmos#7080: when each agent's latest post reached each room (as this phone learned it), for the working line's
+    // "spoke after the status was read" rule (the board's ROOM_SPOKE_AT).
+    @Published private(set) var spokeAt: [String: [String: Date]] = [:]
+    // The rooms that have had one real newest-page read: only then are the rows a baseline for who spoke since (review 2:
+    // a first read an older computer could not answer, ok:false at 200, left an empty room, and the next read stamped
+    // everyone in it; a current computer's 503 never reaches the stamping at all). Only
+    // ever added to, as the board's ROOM_SPOKE_SEEDED (review 3: a later unreadable read leaves the rows as they were,
+    // so they stay a baseline; dropping it would leave the next reply unstamped, under its own "is working").
+    private var spokeBaseline: Set<String> = []
+    // The agents whose post reached this room after `statusAt` (the status read the line is drawn from).
+    func spokeSince(_ statusAt: Date?, in project: String) -> Set<String> {
+        Board.spokeSince(spokeAt[project] ?? [:], statusAt: statusAt)
+    }
+
     // kosmos#7072: the rooms held at their last newest-page read, with when each should lift (nil: it did not say).
     @Published private(set) var held: [String: Date?] = [:]
     // Each room's newest-page reads in the order they started, and the read count when a reopen landed: a read started
@@ -55,7 +69,7 @@ final class RoomStore: ObservableObject {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
         returned = [:]; kept = [:]; drafts = [:]
-        held = [:]; roomReads = [:]; reopenedAt = [:]   // kosmos#7072 review 1: another account or computer's holds go too
+        held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
     private var listReads = 0
@@ -115,6 +129,12 @@ final class RoomStore: ObservableObject {
         roomFailed.remove(project)
         if Board.readMayWriteHold(read: read, reopenedAt: reopenedAt[project]) { if page.held { held[project] = .some(page.heldUntil) } else { held[project] = nil } }
         let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)
+        // Stamped before the rows are replaced: `before` must be what the room held until this read. The phone's clock,
+        // as BoardClient.updatedAt is (its env.now() is Date() outside the tests).
+        let stamped = Board.stampSpeakers(spokeAt[project] ?? [:], baselined: spokeBaseline.contains(project), before: rows[project],
+                                          fresh: fresh.rows, unread: page.unread, at: Date())
+        spokeAt[project] = stamped.spokeAt
+        if stamped.baselined { spokeBaseline.insert(project) }
         rows[project] = fresh.rows
         older[project] = fresh.older
         settle(project)
