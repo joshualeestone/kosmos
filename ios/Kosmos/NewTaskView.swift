@@ -13,6 +13,7 @@ struct NewTaskView: View {
     @Binding var draft: NewTask.Draft
     let added: (String) -> Void        // the line the Tasks tab shows after a create
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     @State private var list: Board.ProjectList?
     @State private var readFailed = false
@@ -69,31 +70,31 @@ struct NewTaskView: View {
                     Picker("Project", selection: projectBinding) {
                         ForEach(offered) { row in Text(NewTask.projectWords(row, in: list)).tag(Optional(row.project.id)) }
                     }
+                    .large(typeSize)
                 }
             }
             Section {
-                TextField("What needs doing?", text: $draft.what, axis: .vertical)
-                    .lineLimit(1...4)
-                TextField("How will you know it is done?", text: $draft.done, axis: .vertical)
-                    .lineLimit(1...3)
+                field("What needs doing?", text: $draft.what, lines: 1...4)
+                field("How will you know it is done?", text: $draft.done, lines: 1...3)
             } footer: {
                 Text("Both are needed. The second is how you or an agent will check it is finished.")
             }
             Section("Details") {
-                TextField("Anything else it needs (optional)", text: $draft.detail, axis: .vertical)
-                    .lineLimit(2...6)
+                field("Anything else it needs (optional)", text: $draft.detail, lines: 2...6)
             }
             Section {
                 Picker("Who is on it", selection: $draft.who) {
                     Text("Nobody yet").tag(String?.none)
                     ForEach(NewTask.members(of: draft.project, in: list), id: \.session) { m in Text(m.name).tag(Optional(m.session)) }
                 }
+                .large(typeSize)
                 Picker("Part of", selection: $draft.parent) {
                     Text("None").tag(Int?.none)
                     ForEach(NewTask.parents(of: draft.project, in: tasks)) { t in
-                        Text("#\(t.number) \(t.sentence)").lineLimit(1).tag(Optional(t.number))
+                        Text("#\(t.number) \(t.sentence)").lineLimit(typeSize.isAccessibilitySize ? nil : 1).tag(Optional(t.number))
                     }
                 }
+                .large(typeSize)
             }
             if let message {
                 Section { Text(message).font(.footnote).foregroundColor(Palette.secondary) }
@@ -102,6 +103,20 @@ struct NewTaskView: View {
         .scrollContentBackground(.hidden)
         .background(Palette.ground.ignoresSafeArea())
         .disabled(sending)
+    }
+
+    // A placeholder stays on one line and cut "What needs doing?" to "What needs..." at the largest text sizes (the
+    // design shots), so there the question stands above the field as words that wrap. VoiceOver reads it once, as the
+    // field's label.
+    @ViewBuilder private func field(_ question: String, text: Binding<String>, lines: ClosedRange<Int>) -> some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(question).foregroundColor(Palette.secondary).accessibilityHidden(true)
+                TextField(question, text: text, prompt: Text(""), axis: .vertical).lineLimit(lines)
+            }
+        } else {
+            TextField(question, text: text, axis: .vertical).lineLimit(lines)
+        }
     }
 
     // A different project: the words stay, who and Part of do not (NewTask.aimed).
@@ -161,5 +176,13 @@ struct NewTaskView: View {
             message = why
             UIAccessibility.post(notification: .announcement, argument: why)
         }
+    }
+}
+
+private extension View {
+    // The menu style draws its choice on one line, which cut "Spring catalogue" to "Sprin...logue" at the largest text
+    // sizes; there the choices open as a list whose rows wrap.
+    @ViewBuilder func large(_ size: DynamicTypeSize) -> some View {
+        if size.isAccessibilitySize { pickerStyle(.navigationLink) } else { self }
     }
 }
