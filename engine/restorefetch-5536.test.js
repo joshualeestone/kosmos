@@ -41,7 +41,7 @@ function world(objects, records, t) {
   const calls = [];
   const issued = new Map();   // url -> { key, expiresAtMs }
   const w = {
-    calls, issued, refuse: null, mutate: null, gets: [],
+    calls, issued, refuse: null, mutate: null, gets: [], followed: 0,
     grant: async (body) => {
       calls.push(JSON.parse(JSON.stringify(body)));
       if (w.refuse) return w.refuse;
@@ -61,7 +61,8 @@ function world(objects, records, t) {
     },
     fetch: async (u, init) => {
       w.gets.push(u);
-      assert.equal(init.redirect, 'manual', 'a redirect is never followed');
+      // Counted, not asserted: a throw here would be swallowed by getOne's catch and read as a missing object.
+      if (init.redirect !== 'manual') w.followed += 1;
       const i = issued.get(u);
       if (!i) return new Response('<Error><Code>AccessDenied</Code></Error>', { status: 403 });
       if (t.now > i.expiresAtMs) return new Response('<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>', { status: 403 });
@@ -129,6 +130,7 @@ test('#5536 slice 2: a real snapshot is restored byte for byte through read gran
     for (const [p, b] of Object.entries(s.files)) assert.ok(sink.committed.get(p) && sink.committed.get(p).equals(b), p);
     assert.equal(r.result.failed.length, 0);
     assert.deepEqual(r.fetchProblems, []);
+    assert.equal(w.followed, 0, 'no GET may follow a redirect');
     // One call for the manifest alone, then one for every chunk the opened manifest names: never one per chunk.
     assert.equal(w.calls.length, 2, JSON.stringify(w.calls.map((c) => c.keys.length)));
     assert.deepEqual(w.calls[0], { member: 'm1', epoch: 1, manifest: s.record.key, keys: [] });
@@ -137,13 +139,73 @@ test('#5536 slice 2: a real snapshot is restored byte for byte through read gran
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('#5536 slice 2: keys are granted in batches of at most 500, each batch once, in plan order', async () => {
+test('#5536 slice 2 review 1: chunks are planned in the order restore fetches them, file by file, not the manifest\'s objects order', async () => {
+  // The opened manifest's objects map comes back ordered by chunk name, which is a keyed hash of the content: with eight
+  // one-chunk files, its order matches the files' by chance once in 40,320.
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'krestorefetch-order-')));
+  try {
+    const root = path.join(base, 'kosmos');
+    fs.mkdirSync(root, { recursive: true });
+    for (let i = 1; i <= 8; i += 1) fs.writeFileSync(path.join(root, `f${i}.md`), `file number ${i}\n`);
+    const member = hpkeKeyPair(), nk = crypto.randomBytes(32), dev = crypto.generateKeyPairSync('ed25519');
+    const objects = new Map();
+    let manifestKey = null;
+    const deps = {
+      now: () => NOW,
+      uploadChunks: async (d, batch) => {
+        const keys = new Map(), lockedUntil = new Map();
+        for (const { name, object } of batch) { const k = keyOf(); objects.set(k, Buffer.from(object)); keys.set(name, k); lockedUntil.set(name, LOCK); }
+        return { ok: true, keys, lockedUntil, bucket: 'bucket/' };
+      },
+      uploadManifest: async (d, bytes) => { manifestKey = keyOf(); objects.set(manifestKey, Buffer.from(bytes)); return { ok: true, key: manifestKey, lockedUntilMs: LOCK }; },
+    };
+    const r0 = await snap.takeSnapshot({ root, memberPk: member.pk, namingKey: nk, namingKeyId: namingKeyId(nk), deviceKey: dev.privateKey,
+      ctx: { org: 'o1', member: 'm1', epoch: '1', period: PERIOD, snapshot: SNAP_ID } }, deps);
+    assert.equal(r0.ok, true, r0.because);
+    const mb = objects.get(manifestKey);
+    const record = { key: manifestKey, period: PERIOD, snapshot: SNAP_ID, sha256: crypto.createHash('sha256').update(mb).digest('hex'), size: mb.length, granted_at: GRANTED };
+    const s = { member, dev, objects, record };
+    const t = { now: NOW }, w = world(objects, [record], t);
+    const f = fetcherFor(s, w, t);
+    let planned = null;
+    const sink = memorySink();
+    const r = await restoreWith(s, Object.assign({}, f, { plan: (keys) => { planned = keys.slice(); return f.plan(keys); } }), { sink });
+    assert.equal(r.ok, true, r.because);
+    assert.equal(sink.committed.size, 8);
+    const fetched = w.gets.map((u) => new URL(u).pathname.slice(1)).filter((k) => k !== manifestKey);
+    assert.equal(fetched.length, 8);
+    assert.deepEqual(planned, fetched, 'planned in exactly the order restore fetched');
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test('#5536 slice 2 review 1: a restore that a refusal stopped part way, with nothing restored, is not ok', async () => {
+  const s = await oneSnapshot();
+  try {
+    const t = { now: NOW }, w = world(s.objects, [s.record], t);
+    const grant = w.grant;
+    let chunkGrants = 0;
+    // The plan's grant succeeds but its links are dead at the store; the grant asked for again is refused.
+    w.grant = async (b) => {
+      if (!b.keys.length) return grant(b);
+      chunkGrants += 1;
+      if (chunkGrants > 1) return { ok: false, because: 'no release' };
+      const g = await grant(b);
+      for (const [u, v] of w.issued) if (v.key !== s.record.key) w.issued.set(u, Object.assign({}, v, { expiresAtMs: 0 }));
+      return g;
+    };
+    const r = await restoreWith(s, fetcherFor(s, w, t));
+    assert.deepEqual(r, { ok: false, because: 'no release' });
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#5536 slice 2: keys are granted in batches of at most 500, the first at plan time, each once, in plan order', async () => {
   const rec = { key: keyOf(), period: PERIOD, sha256: 'a'.repeat(64), size: 1 };
   const objects = new Map([[rec.key, Buffer.from('m')]]);
   const keys = Array.from({ length: 1201 }, () => { const k = keyOf(); objects.set(k, Buffer.from(k.slice(-4))); return k; });
   const t = { now: NOW }, w = world(objects, [rec], t);
   const f = rf.readGrantFetcher({ grant: w.grant, fetch: w.fetch, now: () => t.now, org: 'o1', member: 'm1', epoch: '1', manifest: rec });
-  assert.deepEqual(f.plan(keys.concat(keys.slice(0, 3), [rec.key])), { ok: true, because: undefined, unreadable: [], unreadableBecause: [] }, 'repeats and the manifest are not planned twice');
+  assert.deepEqual(await f.plan(keys.concat(keys.slice(0, 3), [rec.key])), { ok: true, because: undefined, unreadable: [], unreadableBecause: [] }, 'repeats and the manifest are not planned twice');
+  assert.deepEqual(w.calls.map((c) => c.keys.length), [500], 'the first batch is granted by the plan');
   for (const k of keys) assert.deepEqual(await f.fetchObject(k, { maxBytes: 10 }), Buffer.from(k.slice(-4)));
   assert.deepEqual(w.calls.map((c) => c.keys.length), [500, 500, 201]);
   assert.deepEqual(w.calls[0].keys, keys.slice(0, 500));
@@ -151,13 +213,27 @@ test('#5536 slice 2: keys are granted in batches of at most 500, each batch once
   assert.equal(w.calls.length, 3, 'and costs no grant');
 });
 
-test('#5536 slice 2: a URL near its expiry, or one S3 says has expired, is granted again for its batch only', async () => {
+test('#5536 slice 2 review 1: a clock five minutes off either way still restores (expiry is kept on this clock)', async () => {
+  const s = await oneSnapshot();
+  try {
+    for (const skew of [-280000, 280000, 299000]) {
+      const t = { now: NOW }, w = world(s.objects, [s.record], t);
+      const f = rf.readGrantFetcher({ grant: w.grant, fetch: w.fetch, now: () => t.now + skew, org: 'o1', member: 'm1', epoch: 1, manifest: s.record });
+      const r = await restoreWith(s, f);
+      assert.equal(r.ok, true, `${skew}: ${r.because}`);
+      assert.equal(r.result.failed.length, 0, String(skew));
+      assert.equal(w.calls.length, 2, String(skew));
+    }
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#5536 slice 2: a URL near its expiry, or one S3 says has expired, is granted again for its batch\'s unfetched keys only', async () => {
   const rec = { key: keyOf(), period: PERIOD, sha256: 'b'.repeat(64), size: 1 };
   const objects = new Map([[rec.key, Buffer.from('m')]]);
   const keys = Array.from({ length: 3 }, () => { const k = keyOf(); objects.set(k, Buffer.from('x')); return k; });
   const t = { now: NOW }, w = world(objects, [rec], t);
   const f = rf.readGrantFetcher({ grant: w.grant, fetch: w.fetch, now: () => t.now, org: 'o1', member: 'm1', epoch: '1', manifest: rec });
-  f.plan(keys);
+  await f.plan(keys);
   assert.ok(await f.fetchObject(keys[0], { maxBytes: 1 }));
   assert.equal(w.calls.length, 1);
   // Literal times, not EXPIRY_MARGIN_MS, so a changed margin cannot move the test with it.
@@ -165,10 +241,10 @@ test('#5536 slice 2: a URL near its expiry, or one S3 says has expired, is grant
   assert.ok(await f.fetchObject(keys[1], { maxBytes: 1 }));
   assert.equal(w.calls.length, 1, 'a URL with time left is not granted again');
   t.now = NOW + 300000 - 29000;   // 29 s left, still valid at the store: granted again before use
-  assert.ok(await f.fetchObject(keys[1], { maxBytes: 1 }));
+  assert.ok(await f.fetchObject(keys[2], { maxBytes: 1 }));
   assert.equal(w.calls.length, 2);
-  assert.deepEqual(w.calls[1].keys, keys, 'the whole batch, not one chunk');
-  // A Mac clock behind the store's: the URL looks fresh here, but S3 answers that it expired. One more grant, then bytes.
+  assert.deepEqual(w.calls[1].keys, [keys[2]], 'the batch\'s keys not yet fetched, not the ones already restored');
+  // This clock behind the store's: the URL looks fresh here, but S3 answers that it expired. One more grant, then bytes.
   const w2 = world(objects, [rec], t);
   let n = 0, expireAfter = 1;
   const real = w2.grant;
@@ -179,15 +255,15 @@ test('#5536 slice 2: a URL near its expiry, or one S3 says has expired, is grant
     return g;
   };
   const f2 = rf.readGrantFetcher({ grant: w2.grant, fetch: w2.fetch, now: () => t.now, org: 'o1', member: 'm1', epoch: '1', manifest: rec });
-  f2.plan(keys);
+  await f2.plan(keys);
   assert.ok(await f2.fetchObject(keys[2], { maxBytes: 1 }), 'granted again once after an S3 expiry');
   assert.equal(n, 2);
   // Always expired: two tries, then nothing (never a loop).
   n = 0; expireAfter = Infinity;
   const f3 = rf.readGrantFetcher({ grant: w2.grant, fetch: w2.fetch, now: () => t.now, org: 'o1', member: 'm1', epoch: '1', manifest: rec });
-  f3.plan(keys);
+  await f3.plan(keys);
   assert.equal(await f3.fetchObject(keys[0], { maxBytes: 1 }), null);
-  assert.equal(n, 2);
+  assert.equal(n, 2, 'the plan\'s grant, then one more after S3 said expired: never a loop');
 });
 
 test('#5536 slice 2: a refused grant stops the restore with its reason, a 429 with its wait, and is not asked again', async () => {
@@ -197,86 +273,120 @@ test('#5536 slice 2: a refused grant stops the restore with its reason, a 429 wi
     w.refuse = { ok: false, because: 'Kosmos+ is limiting reads of this backup', retryAfterSecs: 600 };
     const f = fetcherFor(s, w, t);
     const r = await restoreWith(s, f);
-    assert.equal(r.ok, false);
-    assert.equal(r.because, 'Kosmos+ is limiting reads of this backup (try again in 10 min)');
+    assert.deepEqual(r, { ok: false, because: 'Kosmos+ is limiting reads of this backup (try again in 10 min)' });
     assert.equal(w.calls.length, 1);
     assert.equal(await f.fetchObject(s.record.key, { maxBytes: 2 ** 20 }), null);
     assert.equal(w.calls.length, 1, 'a stopped fetcher asks for nothing more');
-    // Refused only for the chunks' batch: the manifest opened, so the restore stops at the plan with the reason.
+    // Refused only for the chunks: the manifest opened, and the plan's own grant stops the restore before any file.
     const w2 = world(s.objects, [s.record], t);
     const grant = w2.grant;
     w2.grant = async (b) => (b.keys.length ? { ok: false, because: 'no release' } : grant(b));
-    const f2 = fetcherFor(s, w2, t);
-    const r2 = await restoreWith(s, f2);
-    assert.equal(r2.ok, true, 'the plan itself grants nothing, so the files fail one by one');
-    assert.equal(r2.result.restored.length, 0);
-    assert.deepEqual(r2.fetchProblems, ['no release'], 'and the person is told why');
+    const r2 = await restoreWith(s, fetcherFor(s, w2, t));
+    assert.deepEqual(r2, { ok: false, because: 'no release' });
     // A plan that answers not ok stops the restore before any chunk.
     const r3 = await restoreWith(s, Object.assign({}, f, { plan: () => ({ ok: false, because: 'stopped here' }), fetchObject: fetcherFor(s, world(s.objects, [s.record], t), t).fetchObject }));
     assert.deepEqual(r3, { ok: false, because: 'stopped here' });
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('#5536 slice 2: an answer that does not echo the request is refused by name and nothing is fetched', async () => {
+test('#5536 slice 2 review 1: a grant that could not be reached is tried again, and only gives up after three', async () => {
   const s = await oneSnapshot();
   try {
-    const t = { now: NOW };
-    const cases = [
-      ['another member', (a) => Object.assign(a, { member: 'm2' }), 'Kosmos+ answered the read grant for another member or key'],
-      ['another epoch', (a) => Object.assign(a, { epoch: 2 }), 'Kosmos+ answered the read grant for another member or key'],
-      ['another manifest', (a) => Object.assign(a, { manifest: Object.assign({}, a.manifest, { key: keyOf() }) }), 'Kosmos+ answered the read grant for another backup'],
-      ['another sha256', (a) => Object.assign(a, { manifest: Object.assign({}, a.manifest, { sha256: 'c'.repeat(64) }) }), 'Kosmos+ answered the read grant for another backup'],
-      ['another size', (a) => Object.assign(a, { manifest: Object.assign({}, a.manifest, { size: a.manifest.size + 1 }) }), 'Kosmos+ answered the read grant for another backup'],
-      ['an http url', (a) => Object.assign(a, { manifest: Object.assign({}, a.manifest, { url: a.manifest.url.replace('https:', 'http:') }) }), 'Kosmos+ answered the read grant with an address restore will not use'],
-      ['no expiry', (a) => Object.assign(a, { expires_at: '1' }), 'Kosmos+ answered the read grant with no expiry'],
-      ['an object not asked for', (a) => Object.assign(a, { objects: [{ key: keyOf(), url: 'https://store.test/x' }] }), 'Kosmos+ answered the read grant for other files than were asked'],
-      ['nothing', () => null, 'Kosmos+ answered the read grant with nothing usable'],
-    ];
-    for (const [label, mutate, because] of cases) {
-      const w = world(s.objects, [s.record], t);
-      w.mutate = mutate;
-      const r = await restoreWith(s, fetcherFor(s, w, t));
-      assert.deepEqual(r, { ok: false, because }, label);
-      assert.deepEqual(w.gets, [], `${label}: nothing fetched`);
-    }
-    // In the chunks' batch: an object named twice, one left out, one not asked for, an http url.
-    const chunkCases = [
-      ['named twice', (a) => Object.assign(a, { objects: a.objects.length ? a.objects.slice(0, -1).concat([a.objects[0]]) : a.objects })],
-      ['left out', (a) => Object.assign(a, { objects: a.objects.slice(1) })],
-      ['http', (a) => Object.assign(a, { objects: a.objects.map((o) => Object.assign({}, o, { url: o.url.replace('https:', 'http:') })) })],
-    ];
-    for (const [label, mutate] of chunkCases) {
-      const w = world(s.objects, [s.record], t);
-      w.mutate = (a) => (a.objects.length ? mutate(a) : a);
-      const r = await restoreWith(s, fetcherFor(s, w, t));
-      assert.equal(r.ok, true, label);
-      assert.equal(r.result.restored.length, 0, label);
-      assert.deepEqual(r.fetchProblems, ['Kosmos+ answered the read grant for other files than were asked'], label);
+    const t = { now: NOW }, w = world(s.objects, [s.record], t);
+    const grant = w.grant;
+    let drops = 2;
+    w.grant = async (b) => { if (drops > 0) { drops -= 1; throw new Error('connection reset'); } return grant(b); };
+    // The manifest's fetch meets two dropped calls: the first fetch gives up (two tries), the restore says it could
+    // not fetch the manifest; a second restore on the same fetcher then gets through, since two is under the limit.
+    const f = fetcherFor(s, w, t);
+    const r1 = await restoreWith(s, f);
+    assert.deepEqual(r1, { ok: false, because: 'the backup\'s manifest could not be fetched' }, 'not "refused": nothing refused it');
+    const r2 = await restoreWith(s, f);
+    assert.equal(r2.ok, true, r2.because);
+    // Always unreachable: the third miss stops it, with a sentence that says so.
+    const w3 = world(s.objects, [s.record], t);
+    w3.grant = async () => { throw new Error('offline'); };
+    const f3 = fetcherFor(s, w3, t);
+    await restoreWith(s, f3);
+    const r3 = await restoreWith(s, f3);
+    assert.deepEqual(r3, { ok: false, because: 'restore could not reach Kosmos+ to fetch this backup\'s files' });
+    for (const bad of [null, undefined, 'yes', { ok: 'true' }]) {
+      const w4 = world(s.objects, [s.record], t);
+      w4.grant = async () => bad;
+      assert.equal(await fetcherFor(s, w4, t).fetchObject(s.record.key, { maxBytes: 2 ** 20 }), null, String(bad));
     }
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('#5536 slice 2: a chunk under an earlier key epoch is not asked for, its file fails, the rest restore, and the person is told why', async () => {
+test('#5536 slice 2: an answer that does not echo the request, or whose links point elsewhere, is refused by name and nothing is fetched', async () => {
+  const s = await oneSnapshot();
+  try {
+    const t = { now: NOW };
+    const onManifest = (fn) => (a) => (a.objects.length ? a : fn(a));
+    const cases = [
+      ['another member', (a) => Object.assign(a, { member: 'm2' }), 'Kosmos+ answered for another member or key'],
+      ['another epoch', (a) => Object.assign(a, { epoch: 2 }), 'Kosmos+ answered for another member or key'],
+      ['another manifest', (a) => Object.assign(a, { manifest: Object.assign({}, a.manifest, { key: keyOf() }) }), 'Kosmos+ answered for another backup'],
+      ['another sha256', (a) => Object.assign(a, { manifest: Object.assign({}, a.manifest, { sha256: 'c'.repeat(64) }) }), 'Kosmos+ answered for another backup'],
+      ['another size', (a) => Object.assign(a, { manifest: Object.assign({}, a.manifest, { size: a.manifest.size + 1 }) }), 'Kosmos+ answered for another backup'],
+      ['an http url', (a) => Object.assign(a, { manifest: Object.assign({}, a.manifest, { url: a.manifest.url.replace('https:', 'http:') }) }), rf.BAD_LINK],
+      ['an IP address', (a) => Object.assign(a, { manifest: Object.assign({}, a.manifest, { url: a.manifest.url.replace('store.test', '10.0.0.5') }) }), rf.BAD_LINK],
+      ['an IPv6 address', (a) => Object.assign(a, { manifest: Object.assign({}, a.manifest, { url: a.manifest.url.replace('store.test', '[::1]') }) }), rf.BAD_LINK],
+      ['localhost', (a) => Object.assign(a, { manifest: Object.assign({}, a.manifest, { url: a.manifest.url.replace('store.test', 'localhost') }) }), rf.BAD_LINK],
+      ['a path for another key', (a) => Object.assign(a, { manifest: Object.assign({}, a.manifest, { url: `https://store.test/${keyOf()}` }) }), rf.BAD_LINK],
+      ['a user in the url', (a) => Object.assign(a, { manifest: Object.assign({}, a.manifest, { url: a.manifest.url.replace('https://', 'https://u:p@') }) }), rf.BAD_LINK],
+      ['no expiry', (a) => Object.assign(a, { expires_at: '1' }), 'Kosmos+ sent back links with no expiry'],
+      ['an object not asked for', (a) => Object.assign(a, { objects: [{ key: keyOf(), url: 'https://store.test/x' }] }), rf.OTHER_FILES],
+      ['nothing', () => null, 'Kosmos+ sent back nothing restore can use'],
+    ];
+    for (const [label, mutate, because] of cases) {
+      const w = world(s.objects, [s.record], t);
+      w.mutate = onManifest(mutate);
+      const r = await restoreWith(s, fetcherFor(s, w, t));
+      assert.deepEqual(r, { ok: false, because }, label);
+      assert.deepEqual(w.gets, [], `${label}: nothing fetched`);
+    }
+    // In the chunks' batch (granted by the plan): named twice, one left out, http, another host than the manifest's.
+    const chunkCases = [
+      ['named twice', (a) => Object.assign(a, { objects: a.objects.slice(0, -1).concat([a.objects[0]]) }), rf.OTHER_FILES],
+      ['left out', (a) => Object.assign(a, { objects: a.objects.slice(1) }), rf.OTHER_FILES],
+      ['http', (a) => Object.assign(a, { objects: a.objects.map((o) => Object.assign({}, o, { url: o.url.replace('https:', 'http:') })) }), rf.BAD_LINK],
+      ['another host', (a) => Object.assign(a, { objects: a.objects.map((o) => Object.assign({}, o, { url: o.url.replace('store.test', 'elsewhere.test') })) }), rf.BAD_LINK],
+      ['another key\'s path', (a) => Object.assign(a, { objects: a.objects.map((o, i, all) => Object.assign({}, o, { url: all[(i + 1) % all.length].url })) }), rf.BAD_LINK],
+    ];
+    for (const [label, mutate, because] of chunkCases) {
+      const w = world(s.objects, [s.record], t);
+      w.mutate = (a) => (a.objects.length ? mutate(a) : a);
+      const r = await restoreWith(s, fetcherFor(s, w, t));
+      assert.deepEqual(r, { ok: false, because }, label);
+      assert.deepEqual(w.gets.filter((u) => !u.includes(s.record.key)), [], `${label}: no chunk fetched`);
+    }
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#5536 slice 2: a chunk under another key epoch is not asked for, its file fails, the rest restore, and the person is told why', async () => {
   const s = await oneSnapshot();
   try {
     const t = { now: NOW }, w = world(s.objects, [s.record], t);
     const f = fetcherFor(s, w, t);
     const plan = f.plan;
-    // The opened manifest names one chunk under epoch 0 of the same period (an index entry from before a rotation).
-    const old = keyOf('2');
+    // The opened manifest is made to name one more chunk under epoch 2 of the same period (as after a rotation, #7156).
+    const other = keyOf('2');
     let planned = null;
     const sink = memorySink();
-    const r = await restoreWith(s, Object.assign({}, f, { plan: (keys) => { planned = keys; return plan(keys.concat([old])); } }), { sink });
+    const r = await restoreWith(s, Object.assign({}, f, { plan: (keys) => { planned = keys; return plan(keys.concat([other])); } }), { sink });
     assert.equal(r.ok, true, r.because);
     assert.ok(planned.length > 0);
-    assert.ok(!w.calls.some((c) => c.keys.includes(old)), 'never sent: the route would refuse the whole batch');
+    assert.ok(!w.calls.some((c) => c.keys.includes(other)), 'never sent: the route would refuse the whole batch');
     assert.deepEqual(r.fetchProblems, [rf.ANOTHER_EPOCH]);
-    assert.deepEqual(f.planned().unreadable, [old]);
-    assert.equal(rf.keyProblem(old, { org: 'o1', member: 'm1', epoch: '1', period: PERIOD }), rf.ANOTHER_EPOCH);
-    assert.equal(rf.keyProblem(keyOf('1', '2026-W40'), { org: 'o1', member: 'm1', epoch: '1', period: PERIOD }), 'this backup names a file Kosmos+ could not have stored');
-    assert.equal(rf.keyProblem('o1/m1/1/2026-W41/c1', { org: 'o1', member: 'm1', epoch: '1', period: PERIOD }), 'this backup names a file Kosmos+ could not have stored');
-    assert.equal(rf.keyProblem(keyOf('01'), { org: 'o1', member: 'm1', epoch: '1', period: PERIOD }), 'this backup names a file Kosmos+ could not have stored');
-    assert.equal(rf.keyProblem(keyOf(), { org: 'o1', member: 'm1', epoch: '1', period: PERIOD }), null);
+    assert.deepEqual(f.planned().unreadable, [other]);
+    const ctx = { org: 'o1', member: 'm1', epoch: '1', period: PERIOD };
+    assert.equal(rf.keyProblem(other, ctx), rf.ANOTHER_EPOCH);
+    assert.equal(rf.keyProblem(keyOf('1', '2026-W40'), ctx), 'this backup names a file Kosmos+ could not have stored');
+    assert.equal(rf.keyProblem('o1/m1/1/2026-W41/c1', ctx), 'this backup names a file Kosmos+ could not have stored');
+    assert.equal(rf.keyProblem(keyOf('01'), ctx), 'this backup names a file Kosmos+ could not have stored');
+    assert.equal(rf.keyProblem(keyOf('0'), ctx), 'this backup names a file Kosmos+ could not have stored');
+    assert.equal(rf.keyProblem(keyOf(), ctx), null);
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
@@ -287,15 +397,25 @@ test('#5536 slice 2: a GET is never redirected, never read past maxBytes, and ne
   const make = (fetch, extra = {}) => rf.readGrantFetcher(Object.assign({ grant: w.grant, fetch, now: () => t.now, org: 'o1', member: 'm1', epoch: '1', manifest: rec }, extra));
   assert.deepEqual(await make(w.fetch).fetchObject(rec.key, { maxBytes: 4 }), Buffer.from('mmmm'));
   assert.equal(await make(w.fetch).fetchObject(rec.key, { maxBytes: 3 }), null, 'one byte past maxBytes');
+  assert.equal(w.followed, 0);
   // A streamed body with no length is cut off as it arrives.
   const streamed = async () => new Response(new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(1024)); } }), { status: 200 });
   assert.equal(await make(streamed).fetchObject(rec.key, { maxBytes: 4096 }), null, 'an endless body ends at the cap');
-  const redirected = async (u, init) => { assert.equal(init.redirect, 'manual'); return new Response('', { status: 307, headers: { location: 'https://elsewhere.test/' } }); };
+  let modes = [];
+  const redirected = async (u, init) => { modes.push(init.redirect); return new Response('', { status: 307, headers: { location: 'https://elsewhere.test/' } }); };
   assert.equal(await make(redirected).fetchObject(rec.key, { maxBytes: 4 }), null);
+  assert.deepEqual(modes, ['manual'], 'asked not to follow, and a 3xx is not a body');
   const hung = (u, init) => new Promise((resolve, reject) => { init.signal.addEventListener('abort', () => reject(new Error('aborted'))); });
   const started = Date.now();
   assert.equal(await make(hung, { getTimeoutMs: 50 }).fetchObject(rec.key, { maxBytes: 4 }), null);
   assert.ok(Date.now() - started < 5000, 'the GET is aborted, not left running');
   assert.equal(await make(async () => { throw new Error('offline'); }).fetchObject(rec.key, { maxBytes: 4 }), null);
   assert.equal(await rf.readGrantFetcher({ fetch: w.fetch, org: 'o1', member: 'm1', epoch: '1', manifest: rec }).fetchObject(rec.key, { maxBytes: 4 }), null, 'no grant');
+  modes = null;
+});
+
+test('#5536 slice 2 review 1: one GET is cut off well inside restorerun\'s own 2-minute deadline', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'restorefetch.js'), 'utf8');
+  const ms = Number((/const GET_TIMEOUT_MS = (\d+);/.exec(src) || [])[1]);
+  assert.ok(ms > 0 && ms * 2 < 120000, `two GETs and a grant must fit in restorerun's FETCH_TIMEOUT_MS (GET is ${ms} ms)`);
 });
