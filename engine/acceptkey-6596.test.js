@@ -342,3 +342,14 @@ test('under the shipped list with a signed set held, the refusal (naming no key)
     assert.equal(plain.because.includes('not on the signed list that came with'), false, 'CONTROL: not replaced without the shipped list');
   } finally { c.done(); fs.rmSync(STORE, { force: true }); }
 });
+
+test('under the shipped list a key named in any other refusal is not offered either', async () => {
+  // Review 3: the later guard, reached by a named key in words other than the not-on-the-list refusal.
+  const c = connector({ refusal: REFUSAL(K), shipped: 'MCowBQYDK2VwAyEAkey1' });
+  try {
+    const r = await signIn();
+    assert.equal('keyChanged' in r, false);
+    c.shipped = null;
+    assert.deepEqual((await signIn()).keyChanged, { offered: K }, 'CONTROL: offered without the shipped list');
+  } finally { c.done(); }
+});

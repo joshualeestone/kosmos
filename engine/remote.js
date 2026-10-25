@@ -901,8 +901,10 @@ function serviceKeys() { return serviceKeyFiles.serviceKeyCheck(STATE_DIR(), { p
    KOSMOS_EXPECT_COORDINATOR_KEYS inherited from the launcher (a developer's export, say) is removed in every spelling:
    the board decided "no check", and an inherited list would refuse every registration on another coordinator. Set
    and removed through win32env, so a Windows child never gets two spellings (#5386). */
-function setupEnv(accepted = null) {
-  const keys = serviceKeyFiles.expectedCoordinatorKeys({ production: COORDINATOR() === DEFAULT_COORDINATOR });
+function setupEnv(accepted = null, shipped = undefined) {
+  // The shipped list as setupRun read it for this run (review 3: one read, so the run's shippedList and the list it is
+  // handed cannot disagree); read here when not given.
+  const keys = shipped !== undefined ? shipped : serviceKeyFiles.expectedCoordinatorKeys({ production: COORDINATOR() === DEFAULT_COORDINATOR });
   if (keys) return envSet({ ...process.env }, 'KOSMOS_EXPECT_COORDINATOR_KEYS', keys);
   /* kosmos#6596 step 8: a key the person accepted vouches for itself at the registration it was taken for, beside the
      pin this computer already holds, so a service that goes back to that key still registers. Never with the
@@ -921,7 +923,8 @@ function setupEnv(accepted = null) {
    sign-in epoch): Start over is how the person gets the new code that the accepted key is for. */
 const OFFERED_KEY_LABEL = 'the key it offered: ';
 // The connector's own words for a key not on the list it was handed (its copy: kosmos-relay setup.rs).
-const NOT_LISTED_WORDS = 'not on the list of keys this computer expects';
+// The whole sentence, so less of a service's echoed refusal text can match it (review 3).
+const NOT_LISTED_WORDS = 'not on the list of keys this computer expects, so nothing was registered';
 const notListedRefusal = (r) => String(r.stderr || '').includes(NOT_LISTED_WORDS) || String(r.because || '').includes(NOT_LISTED_WORDS);
 const SHIPPED_LIST_REFUSAL = 'the Kosmos+ service offered a key that is not on the signed list that came with this version of Kosmos, so this computer did not sign in. Something may be posing as the Kosmos+ service.';
 const ACCEPTED_KEY_MS = 60 * 60 * 1000;
@@ -1336,7 +1339,8 @@ function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
     let settled = false;
     /* kosmos#6596 follow-up (review 1): whether this registration ran under the shipped list, decided when it starts, as
        the list it is handed is: withKeyChange reads this, never the setting again when the run ends. */
-    const shippedList = Boolean(opts && opts.register && serviceKeyFiles.expectedCoordinatorKeys({ production: COORDINATOR() === DEFAULT_COORDINATOR }));
+    const shipped = serviceKeyFiles.expectedCoordinatorKeys({ production: COORDINATOR() === DEFAULT_COORDINATOR });
+    const shippedList = Boolean(opts && opts.register && shipped);
     const finish = (result) => {
       if (settled) return;
       settled = true;
@@ -1346,7 +1350,7 @@ function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
     };
     try {
       // Only a registration run takes an accepted key (opts.register): no other verb registers.
-      const env = setupEnv(opts && opts.register ? takeAcceptedKey() : null);
+      const env = setupEnv(opts && opts.register ? takeAcceptedKey() : null, shipped);
       spawned = setupSpawn(BIN(), args, connectorSpawnOptions({ stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) }));
     } catch (err) {
       finish({ ok: false, because: 'the tunnel program could not be started: ' + (err && err.message) });
