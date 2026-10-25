@@ -201,9 +201,9 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           await page.waitForFunction((s) => document.getElementById('mem-modal').hidden && !document.querySelector(s), sel, { timeout: 8000 }).catch(() => null);
           await until(() => failsServed >= 3, 8000);   // the reload after it: all three reads failed
           await page.waitForTimeout(100);
-          const rm = posted.filter((p) => p.path.endsWith('/own-remove'));
+          const rm = posted.filter((p) => p.path.endsWith('/own-remove'));   // the 409, the 403, then this press
           const last = rm[rm.length - 1];
-          chk(rm.length === 2 && last.body.project === ownerP.id && last.body.pub === 'pub-desk' && Object.keys(last.body).length === 2, `${E} Remove it sends exactly that row's key and the project`, JSON.stringify(rm));
+          chk(rm.length === 3 && last.body.project === ownerP.id && last.body.pub === 'pub-desk' && Object.keys(last.body).length === 2, `${E} Remove it sends exactly that row's key and the project`, JSON.stringify(rm));
           const done = await page.evaluate((box) => {
             const a = document.activeElement;
             return { open: !document.getElementById('mem-modal').hidden, left: [...document.querySelectorAll(box + ' [data-own-act="remove"]')].map((b) => b.dataset.ownPub),
