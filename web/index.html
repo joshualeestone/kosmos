@@ -81741,7 +81741,7 @@ async function fedOwnLoad(project, fromPress) {
   if (pendDrop && pendDrop.project === project && pendDrop.gen === FED_OWN_GEN && FED_OWN_BUSY !== project && allowedMissed === 3) {
     const line = document.getElementById('mem-msg');
     if (line && !line.textContent) line.textContent = FED_OWN_LIST_UNREAD;
-  } else if (pendDrop && allowedMissed === 0) {
+  } else if (pendDrop && pendDrop.project === project && pendDrop.gen === FED_OWN_GEN && allowedMissed === 0) {
     const line = document.getElementById('mem-msg');
     if (line && line.textContent === FED_OWN_LIST_UNREAD) line.textContent = '';   // the list is back
   }
@@ -81943,7 +81943,8 @@ async function fedOwnRemoveGo() {
   const still = MEM_PENDING === p;   // Cancel or Escape may have closed the dialog while it was asked
   if (still) go.disabled = false;
   const ok = !said && !!res && res.ok;
-  if (!ok && !said) said = (body && typeof body.error === 'string' && body.error) || 'Kosmos could not remove that computer just now. Try again in a moment.';
+  // A 403 means the request did not read as from this screen: nothing the person can act on (as fedRemoveGo).
+  if (!ok && !said) said = (res && res.status !== 403 && body && typeof body.error === 'string' && body.error) || 'Kosmos could not remove that computer just now. Try again in a moment.';
   // Refused or unreachable with the dialog open: said in it, the computer still listed, Remove it live to retry. The
   // reload then closes the dialog if the board no longer lists that computer (fedOwnLoad).
   if (!ok && !timedOut && still) {
