@@ -20,4 +20,9 @@ counted and spoken as the board's pjProviderTally; the marks are the board's own
    checks); run 1209, actions 99, settings 42, tasks 90, taskpage 108; route check 5/5; Debug (the slow-expression
    warnings are in untouched files, under load) and KOSMOS_STORE_SHOTS Release SUCCEEDED; the asset catalog holds the
    six marks with preserved vectors (assetutil).
-2. Review loop. 3. Validation, PR.
+2. Review loop.
+   - Round 1: 0 blockers, 1 warning, 3 nits. Fixed: every table row exercised (word, mark) and the table written as
+     the board's PJ_TALLY rows, so any field drifting fails (the reviewer's two mutations now red); the tally drops
+     to its own line when it does not fit (ViewThatFits), counts never squeezed; the board's filled chip; Anthropic
+     wears Claude's mark. Room 264/264; Debug SUCCEEDED.
+3. Validation, PR.

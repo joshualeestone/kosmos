@@ -643,14 +643,20 @@ let tally = Board.providerTally([member("a", "Gemini"), member("b", "Claude"), m
                                  member("e", "Mistral"), member("f", "Claude"), member("g", ""), member("h", "Kimi"), member("i", "OpenAI")])
 check(tally.map(\.word) == ["Claude", "GPT", "Gemini", "Mistral", "Kimi"], "the board's order, then others as they came: \(tally.map(\.word))")
 check(tally.map(\.n) == [2, 1, 2, 1, 1], "counted per word: both Gemini families as one, members with no provider left out")
-check(tally.map(\.mark) == ["MarkClaude", "MarkOpenAI", "MarkGemini", nil, nil], "the board's marks; none for a provider without one")
+check(tally.map(\.mark) == ["MarkClaude", "MarkOpenAI", "MarkGemini", nil, nil], "the board's marks; a chip for one the phone does not carry")
+// Every row of the table, each with its word and mark (review 1: three rows were never exercised).
+let everyRow = Board.providerTally(Board.providerTallyOrder.reversed().map { member($0.provider, $0.provider) })
+check(everyRow.map(\.word) == ["Claude", "GPT", "Gemini", "Grok", "Meta", "Qwen"], "every provider's word, in the board's order: \(everyRow.map(\.word))")
+check(everyRow.map(\.mark) == ["MarkClaude", "MarkOpenAI", "MarkGemini", "MarkGrok", "MarkMeta", "MarkQwen"], "every provider's own mark")
+check(Board.providerTally([member("z", "Anthropic")]).first?.mark == "MarkClaude", "Anthropic wears Claude's mark, as on the board")
 check(tally.first { $0.word == "Mistral" }?.initial == "M", "a provider without a mark: its initial, as the board's chip")
 check(Board.providerTallySpoken(tally) == ", 2 Claude, 1 GPT, 2 Gemini, 1 Mistral, 1 Kimi", "what VoiceOver hears after the count")
 check(Board.providerTally([member("d", nil)]).isEmpty && Board.providerTallySpoken([]) == "", "nobody with a provider: no tally, nothing said")
 // The board still counts so, with these words.
-check(boardPage.contains("['Claude', 'claude', 'Claude'], ['OpenAI', 'openai', 'GPT'], ['Gemini', 'google', 'Gemini'],")
-      && boardPage.contains("['Gemini (Google subscription)', 'antigravity', 'Gemini'], ['Grok', 'xai', 'Grok'], ['Meta Muse', 'meta', 'Meta'], ['Qwen', 'alibaba', 'Qwen'],"),
-      "the board's PJ_TALLY is the phone's order and words")
+// The phone's table written as the board's PJ_TALLY rows, so any field of any row drifting fails (review 1).
+let tallyRows = Board.providerTallyOrder.map { "['\($0.provider)', '\($0.pick)', '\($0.word)']" }
+check(boardPage.contains(tallyRows[0...2].joined(separator: ", ") + ",") && boardPage.contains(tallyRows[3...6].joined(separator: ", ") + ","),
+      "the board's PJ_TALLY is the phone's order, picks and words")
 check(Board.providerTallyOrder.count == 7, "seven rows, as PJ_TALLY")
 check(boardPage.contains("esc(', ' + rows.map(([word, c]) => c.n + ' ' + word).join(', '))"), "the board says it so to a screen reader")
 // Each mark is the board's own first-run mark (the template ones drawn in the text colour, so currentColor is black).

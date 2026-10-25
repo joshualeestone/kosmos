@@ -570,13 +570,11 @@ struct ProjectRowView: View {
 
     @ViewBuilder private var faces: some View {
         if !project.members.isEmpty {
-            HStack(spacing: 4) {
-                ForEach(project.members.prefix(5), id: \.session) { m in
-                    AgentAvatar(name: m.name, picture: store.picture(m.session), tone: nil, size: 22)
-                }
-                Text(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
-                    .font(.footnote).foregroundColor(Palette.secondary).padding(.leading, 2)
-                providerTally
+            // The tally beside the count when it fits, else on its own line under it (review 1: a narrow phone or a large
+            // text size squeezed the numbers to "…"; the board's tally wraps its items).
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 4) { facesAndCount; providerTally }
+                VStack(alignment: .leading, spacing: 4) { facesAndCount; providerTally.padding(.leading, -4) }
             }
             .accessibilityHidden(true)
         }
@@ -598,15 +596,26 @@ struct ProjectRowView: View {
                                 // As the board's: the OpenAI glyph fills about half its viewBox, so it is drawn larger.
                                 .scaleEffect(mark == "MarkOpenAI" ? 1.5 : 1)
                         } else {
-                            Text(t.initial).font(.system(size: markSize * 0.62, weight: .semibold)).foregroundColor(Palette.primary)
+                            // The board's .pcombo-chip: a filled rule-coloured square, the letter bold in the second ink.
+                            Text(t.initial).font(.system(size: markSize * 0.62, weight: .bold)).foregroundColor(Palette.secondary)
                                 .frame(width: markSize, height: markSize)
-                                .background(RoundedRectangle(cornerRadius: 3).stroke(Palette.separator))
+                                .background(RoundedRectangle(cornerRadius: 3).fill(Palette.separator))
                         }
-                        Text("\(t.n)").font(.footnote).foregroundColor(Palette.secondary)
+                        Text("\(t.n)").font(.footnote).foregroundColor(Palette.secondary).fixedSize()
                     }
                 }
             }
             .padding(.leading, 4)
+        }
+    }
+
+    private var facesAndCount: some View {
+        HStack(spacing: 4) {
+            ForEach(project.members.prefix(5), id: \.session) { m in
+                AgentAvatar(name: m.name, picture: store.picture(m.session), tone: nil, size: 22)
+            }
+            Text(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
+                .font(.footnote).foregroundColor(Palette.secondary).padding(.leading, 2).lineLimit(1).fixedSize()
         }
     }
 

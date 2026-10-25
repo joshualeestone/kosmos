@@ -551,10 +551,12 @@ extension Board {
         ("Gemini (Google subscription)", "antigravity", "Gemini"), ("Grok", "xai", "Grok"), ("Meta Muse", "meta", "Meta"),
         ("Qwen", "alibaba", "Qwen"),
     ]
-    // The board's PROVIDER_MARK_KEY, from the tally's pick to the first-run screen's mark.
+    // The board's PROVIDER_MARK_KEY, from the tally's pick to the first-run screen's mark, for the marks the phone
+    // carries. An unknown provider is picked by its lowercased name, as on the board; "anthropic" wears Claude's mark
+    // there too. Marks the phone does not carry (Mistral, Kimi and the like) are the board's initial chip here.
     static let providerMarkAsset: [String: String] = [
-        "claude": "MarkClaude", "openai": "MarkOpenAI", "google": "MarkGemini", "antigravity": "MarkGemini",
-        "xai": "MarkGrok", "meta": "MarkMeta", "alibaba": "MarkQwen",
+        "claude": "MarkClaude", "anthropic": "MarkClaude", "openai": "MarkOpenAI", "google": "MarkGemini",
+        "antigravity": "MarkGemini", "xai": "MarkGrok", "meta": "MarkMeta", "alibaba": "MarkQwen",
     ]
     struct TallyEntry: Equatable, Identifiable {
         let word: String
