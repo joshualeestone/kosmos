@@ -397,6 +397,10 @@ enum Board {
     // from a process. The tunnel withholds the token otherwise so another website cannot use a browser's tunnel cookie;
     // the app's cookie jar is its own and no website can make it send a request. Agents are told apart by their own
     // agent token, which the app never sends. Requests to Kosmos+ itself (the coordinator) are left as they are.
+    // ⚠️ The header is a claim, not a credential: what keeps this safe is the session cookie in the app's own jar, and
+    // that every request's host and path are the app's own (the Mac's address, fixed routes, attachment ids checked).
+    // A change that let what a Mac or a message says choose a request's host or path would send it with the token, as
+    // the person's own act; keep request paths the app's own.
     static let fetchSiteHeader = "Sec-Fetch-Site"
     static func forMac(_ request: URLRequest, coordinator: URL) -> URLRequest {
         guard let host = request.url?.host?.lowercased(), host != coordinator.host?.lowercased() else { return request }

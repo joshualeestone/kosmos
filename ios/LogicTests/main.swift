@@ -1537,6 +1537,8 @@ final class FakeBoardWorld {
     var uploads: [(path: String, type: String, name: String, bytes: Data, file: String)] = []
     var uploadYields = 0
     var postedAttachments: [[String]] = []
+    // kosmos#7075: each request's Sec-Fetch-Site, by "METHOD path" ("" when it had none).
+    var fetchSites: [(String, String)] = []
     let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage!
 
     func count(_ path: String) -> Int { requests.filter { $0.hasSuffix(path) }.count }
@@ -1544,6 +1546,7 @@ final class FakeBoardWorld {
     func upload(_ r: URLRequest, _ file: URL) -> (Data, HTTPURLResponse)? {
         let url = r.url!
         requests.append("\(r.httpMethod ?? "GET") \(url.host ?? "")\(url.path)")
+        fetchSites.append(("\(r.httpMethod ?? "GET") \(url.host ?? "")\(url.path)", r.value(forHTTPHeaderField: "Sec-Fetch-Site") ?? ""))
         uploads.append((url.path, r.value(forHTTPHeaderField: "Content-Type") ?? "", r.value(forHTTPHeaderField: "X-Attachment-Name") ?? "",
                         (try? Data(contentsOf: file)) ?? Data(), file.standardizedFileURL.path))
         let next: (Int, String)? = uploadQueue.isEmpty
@@ -1555,6 +1558,7 @@ final class FakeBoardWorld {
     func send(_ r: URLRequest) -> (Data, HTTPURLResponse)? {
         let url = r.url!
         requests.append("\(r.httpMethod ?? "GET") \(url.host ?? "")\(url.path)")
+        fetchSites.append(("\(r.httpMethod ?? "GET") \(url.host ?? "")\(url.path)", r.value(forHTTPHeaderField: "Sec-Fetch-Site") ?? ""))
         func answer(_ code: Int, _ body: String) -> (Data, HTTPURLResponse) {
             (Data(body.utf8), HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!)
         }
@@ -1823,6 +1827,28 @@ section("native board loop: connecting")
         check(Board.usableSaved(macs.value, session: "kst1", coordinator: coordinator)?.cookie == "fresh-1", "and the new session is the one kept")
         c.stop()
     }
+
+    section("every request to the computer says it is the board's own; Kosmos+ itself is left alone (kosmos#7075)")
+    do {
+        let (c, w, _, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        let dana = c.agents.first { $0.session == "dana" }!
+        _ = await c.thread(for: "dana")
+        await c.post("hello", to: dana)
+        let file = testFiles.appendingPathComponent("fs-7075.txt")
+        try? FileManager.default.createDirectory(at: testFiles, withIntermediateDirectories: true)
+        try? Data("x".utf8).write(to: file)
+        await c.attach(.file(file), epoch: c.chatEpoch, to: dana)
+        let toMac = w.fetchSites.filter { $0.0.contains(" studio.kosmosplus.com/") }
+        let toCoordinator = w.fetchSites.filter { $0.0.contains(" " + (coordinator.host ?? "") + "/") }
+        check(toMac.count >= 4 && toMac.allSatisfy { $0.1 == "same-origin" }, "the gate, status, chat read, send and upload all say same-origin: \(toMac.filter { $0.1 != "same-origin" }.map(\.0))")
+        check(toMac.contains { $0.0.hasSuffix("/_kosmos/session") } && toMac.contains { $0.0.hasSuffix("/attachment") }, "premise: the sign-in to the computer and an upload were among them")
+        check(!toCoordinator.isEmpty && toCoordinator.allSatisfy { $0.1.isEmpty }, "requests to Kosmos+ itself carry none")
+        c.stop()
+    }
+    check(Board.forMac(URLRequest(url: URL(string: "https://LOGIN.kosmosplus.com/v1/x")!), coordinator: URL(string: "https://login.kosmosplus.com")!)
+            .value(forHTTPHeaderField: "Sec-Fetch-Site") == nil, "the coordinator is matched without regard to case")
 
     section("native chat: adding files and sending them, against a fake Mac (kosmos#7071)")
     do {
@@ -2966,6 +2992,7 @@ let pushed: [AnyHashable: Any] = ["id": "report:2026-10-22T18:28:40.123Z:irma", 
 if let r = PhoneNotice.wordsRequest(userInfo: pushed, stored: savedMac) {
     check(r.url?.absoluteString == "https://m-abc123.kosmosplus.com/api/phone/notice?id=report:2026-10-22T18:28:40.123Z:irma", "asks the computer the push names, for that push's id: \(r.url?.absoluteString ?? "-")")
     check(r.value(forHTTPHeaderField: "Cookie") == "__Host-kosmos_tunnel_session=c00kie" && !r.httpShouldHandleCookies, "with the kept session's cookie, by hand")
+    check(r.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin", "as the board's own, so Kosmos+ gives it the computer's token (kosmos#7075)")
 } else { check(false, "a push with a kept session for its computer makes a request") }
 var otherMac = pushed; otherMac["address"] = "m-other.kosmosplus.com"
 check(PhoneNotice.wordsRequest(userInfo: otherMac, stored: savedMac) == nil, "a push from a computer the kept session is not for: no request (the notice shows as it came)")
