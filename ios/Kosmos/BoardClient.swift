@@ -509,6 +509,13 @@ final class BoardClient: ObservableObject {
     func unattach(_ id: String, for session: String) {
         attached[session]?.removeAll { $0.id == id }
     }
+    // kosmos#7093: files a room post took off the box at the press, back in front of any added since, when it did not
+    // go (or may not have). The Mac still holds them, so nothing is uploaded again.
+    func reattach(_ files: [Board.Attached], for key: String) {
+        let have = Set((attached[key] ?? []).map(\.id))
+        let back = files.filter { !have.contains($0.id) }
+        if !back.isEmpty { attached[key] = back + (attached[key] ?? []) }
+    }
 
     // Again, for one that was not taken, only while the agent is running (the spec: no retry until the status changes).
     func retry(_ id: String, to agent: Board.Agent, dropReply: Bool = false) async {

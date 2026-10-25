@@ -465,6 +465,7 @@ struct RoomView: View {
         // Not before the room's first read: with nothing read, an older post with the same words could settle it.
         store.rows[project.id] != nil && !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !Board.isOnlyMention(postWords, mention: replyMention) && (attachedHere.isEmpty || uploadingHere == 0)
+            && attachedHere.count <= Board.maxFiles
     }
 
     // MARK: Adding files (kosmos#7093: the board's + on the room's composer, through the chat's upload, #7071)
@@ -558,7 +559,7 @@ struct RoomView: View {
                 .padding(.horizontal, 16)
             }
             if let line = client.attachLine[attachKey] {
-                Text(line).font(.footnote).foregroundColor(Palette.dangerWord)
+                Text(line).font(.footnote).foregroundColor(Palette.secondary)   // as the chat draws it (review 1)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 4)
             }
             if !attachedHere.isEmpty || uploadingHere > 0 { chips }

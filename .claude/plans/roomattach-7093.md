@@ -16,7 +16,11 @@ limits and words are tested against the board's source; it is merged.
 - The +, chips and pickers in RoomView follow the chat's (ChatView) shape. They are written in RoomView rather than
   extracted from ChatView because Angel's #7089 is open in ChatView; extracting a shared view is a follow-up once it
   lands. The +'s VoiceOver label is the board's "Add a file to this conversation".
-- Post waits while a file is still on its way, as the chat's Send does.
+- Post waits while a file is still on its way, as the chat's Send does. The files leave the chips at the press, as
+  the chat's do, and come back in front of any added since when the post is refused or not confirmed; a
+  not-confirmed post a read shows kept takes them off again (review 1: leaving them on the chips until the answer let
+  a second press, or the next post, carry them twice; the board refuses a second send while one is in the air).
+- The file-refusal line is grey, as the chat draws it.
 - Not here: dropping files onto the thread (no phone equivalent).
 - Weakest premise: the look, the pickers and a real upload through the relay are unverified on a screen or a device
   (the simulator shot run is not permitted here, #7055). Built on roommention-7085, so it rebases after #7085 merges.
@@ -25,4 +29,8 @@ limits and words are tested against the board's source; it is merged.
 1. Shared upload, store, view, suite, build. DONE: room 224/224 (controls red: attachments dropped from the body, the
    Reply @name lost from a files-only post); run 1195 (the chat's upload tests), actions 99, settings 42, tasks 90,
    taskpage 108; Debug build SUCCEEDED, no slow expressions.
-2. Review loop. 3. Validation, PR (after #7085 merges and this is rebased).
+2. Review loop.
+   - Round 1: 1 blocker, 0 warnings, 2 nits. Fixed: files off the chips at the press, back on refused or unsure
+     (BoardClient.reattach, tested in run.sh: front of the list, never twice, control red); a not-confirmed post a
+     read shows kept takes its files off; the grey line. run 1197/1197, room 224/224; Debug build SUCCEEDED.
+3. Validation, PR (after #7085 merges and this is rebased).

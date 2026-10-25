@@ -44,6 +44,8 @@ final class RoomStore: ObservableObject {
         let id: String; let text: String; var line: String?; var before: Set<String> = []
         // The newest row's time when Post was pressed: only a row after it can be this post.
         var after: Date? = nil
+        // kosmos#7093: the files it carries, off the box's chips while it is in the air.
+        var files: [Board.Attached] = []
     }
     @Published private(set) var pending: [String: [Pending]] = [:]
     @Published private(set) var notes: [String: String] = [:]
@@ -174,17 +176,21 @@ final class RoomStore: ObservableObject {
         }
     }
 
-    // `files` go with the words (kosmos#7093); kept, they leave the box's chips, as the board's attachClear after a post
-    // that went. Not kept, they stay waiting, so the person can post again without adding them again.
+    // `files` go with the words (kosmos#7093). They leave the box's chips at the press, as the chat's do, so a second
+    // press or the next post can never carry them again (review 1: the board refuses a second send while one is in the
+    // air, PJ_POSTING). Refused or not confirmed, they come back to the chips with the words; a not-confirmed post a
+    // read then shows kept takes them off again (settle).
     func post(_ text: String, to project: String, replyTo: Board.RoomRow?, files: [Board.Attached] = []) async {
         let mine = Set((rows[project] ?? []).filter { $0.byPerson }.map { $0.id })
         let newest = (rows[project] ?? []).compactMap { $0.at }.max()
-        let item = Pending(id: UUID().uuidString, text: text.trimmingCharacters(in: .whitespacesAndNewlines), line: nil, before: mine, after: newest)
+        let item = Pending(id: UUID().uuidString, text: text.trimmingCharacters(in: .whitespacesAndNewlines), line: nil, before: mine,
+                           after: newest, files: files)
         guard !item.text.isEmpty else { return }
+        for f in files { client.unattach(f.id, for: Board.roomAttachKey(project)) }
         notes[project] = nil   // the last post's line goes at the next press, as on the board
         pending[project, default: []].append(item)
         #if DEBUG
-        if Self.sample { pending[project]?.removeAll { $0.id == item.id }; for f in files { client.unattach(f.id, for: Board.roomAttachKey(project)) }; return }
+        if Self.sample { pending[project]?.removeAll { $0.id == item.id }; return }
         #endif
         let epoch = client.chatEpoch
         let result: Board.RoomPostResult
@@ -202,7 +208,6 @@ final class RoomStore: ObservableObject {
         }
         switch result {
         case let .posted(note):
-            for f in files { client.unattach(f.id, for: Board.roomAttachKey(project)) }
             // A read that shows the post settles its bubble (inside loadRoom). Once a re-read has landed, the bubble
             // goes even if it did not match (the board's #6168: kept is kept); a re-read that failed leaves it, so a
             // kept post never disappears while the room cannot be read.
@@ -216,6 +221,7 @@ final class RoomStore: ObservableObject {
                 pending[project, default: []].append(item)
             }
             guard let i = pending[project]?.firstIndex(where: { $0.id == item.id }) else { return }
+            client.reattach(files, for: Board.roomAttachKey(project))
             pending[project]?[i].line = Board.roomPostLine(result)
             if case let .refused(because) = result { notes[project] = because } else { notes[project] = Board.roomUnsureLine }
             returned[project] = Returned(text: item.text, replyTo: replyTo, pendingId: item.id)
@@ -275,6 +281,7 @@ final class RoomStore: ObservableObject {
             // A not-confirmed post that was kept: its words are not handed back, and a box holding them is cleared.
             if returned[project]?.pendingId == p.id { returned[project] = nil }
             kept[project] = p.text
+            for f in p.files { client.unattach(f.id, for: Board.roomAttachKey(project)) }   // they went with it
             if notes[project] == Board.roomUnsureLine { notes[project] = nil }
         }
         pending[project]?.removeAll { gone.contains($0.id) }
