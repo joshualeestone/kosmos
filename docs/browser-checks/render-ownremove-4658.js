@@ -18,6 +18,8 @@
  *  - entering another project closes an open dialog and posts nothing;
  *  - in the consolidated view (Members card hidden) the same works from the rail;
  *  - 390 wide with no sideways scroll, chromium and webkit, no page errors.
+ * The rest (the in-flight races, the timeout, the gate under an open dialog, the names when rows share a day or a
+ * minute or have no time) is in this check's row in docs/browser-checks/README.md.
  * The engine and the two routes are tested in engine/fedseats.ownremove-7028.test.js and
  * server.ownremove-7028.test.js; here the routes are answered by the page's own fake.
  *
@@ -264,7 +266,8 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           state.allowed = state.allowed.concat([{ pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }]);
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
           await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
-          // A project switch while the remove is in flight: the answer changes nothing in the project now open.
+          // A project switch while the remove is in flight: the answer changes nothing in the project now open. This pins the
+          // outcome, which several guards hold (the message's project, the live region's visit, the list's project), not any one of them.
           release = held();
           await openOn('pub-desk');
           await page.click('#mem-go');
@@ -338,6 +341,17 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           }, BOX);
           chk(!hid.open && hid.rows === 0 && hid.seen && !hid.inModal, `${E} the gate going hidden closes the dialog and leaves focus somewhere visible`, JSON.stringify(hid));
           await page.evaluate(() => fedGateStamp({ sourceChannel: 'prod', federationLive: true, kosmos_plus: true }));
+          await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
+          await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
+          // The project closed under the open dialog by a path other than entering another (PJ_CURRENT cleared on a repaint):
+          // Remove it then closes the dialog and posts nothing, rather than staying open and doing nothing.
+          await openOn('pub-desk');
+          const beforeGone = posted.length;
+          await page.evaluate(() => { window.__pjKeep = PJ_CURRENT; PJ_CURRENT = null; });
+          await page.click('#mem-go');
+          const shut = await page.evaluate(() => ({ open: !document.getElementById('mem-modal').hidden }));
+          await page.evaluate(() => { PJ_CURRENT = window.__pjKeep; });
+          chk(!shut.open && posted.length === beforeGone, `${E} Remove it after the project closed under the dialog closes it and posts nothing`, JSON.stringify(shut));
           await page.evaluate((pid) => fedOwnLoad(pid), ownerP.id);
           await page.waitForSelector(sel, { timeout: 4000 }).catch(() => null);
           // No answer in time: the dialog closes, the section says the timed-out sentence, and the computer stays listed.
