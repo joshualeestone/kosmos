@@ -112,13 +112,14 @@ let mac = URL(string: "https://studio.kosmosplus.com")!
 let close = Board.taskActRequest(mac: mac, project: "springcatalogue", number: 3, act: .close)
 check(close?.httpMethod == "POST" && close?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/springcatalogue/task/3/close" && close?.httpBody == nil,
       "close: a POST to the task's own route, with no body")
-check(close?.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin", "sent as the person's screen (the Mac's isViaScreen)")
+let coordinatorURL = URL(string: "https://login.kosmosplus.com")!
+check(close.map { Board.forMac($0, coordinator: coordinatorURL) }?.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin",
+      "sent through the client, which marks it as the board's own, so the Mac's isViaScreen reads it as the person's (kosmos#7075)")
 check(Board.taskActRequest(mac: mac, project: "springcatalogue", number: 3, act: .reopen)?.url?.path == "/api/project/springcatalogue/task/3/reopen", "reopen")
 check(Board.taskActRequest(mac: mac, project: "../x", number: 3, act: .close) == nil && Board.taskActRequest(mac: mac, project: "p", number: 0, act: .close) == nil,
       "not a project id or not a task number: no request")
 let seen = Board.taskSeenRequest(mac: mac, project: "springcatalogue", number: 3)
-check(seen?.url?.path == "/api/project/springcatalogue/task/3/seen" && seen?.httpMethod == "POST" && seen?.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin",
-      "seen: a POST as the person's screen")
+check(seen?.url?.path == "/api/project/springcatalogue/task/3/seen" && seen?.httpMethod == "POST", "seen: a POST to the task's own route")
 check(Board.taskActivityRequest(mac: mac, project: "springcatalogue", number: 3)?.url?.path == "/api/project/springcatalogue/task/3/activity", "the activity read")
 check(Board.taskActResult(status: 200, body: Data(#"{"task":{}}"#.utf8)) == .done, "a 2xx is done")
 check(Board.taskActResult(status: 409, body: Data(#"{"error":"the person set this task to repeat"}"#.utf8)) == .refused("the person set this task to repeat"), "a refusal: the Mac's words")

@@ -21,13 +21,11 @@ screen. An info button opens the board's page for what this does not do. Checked
 - Re-read every 5 s while on screen, as the board's tick.
 
 ## Decided
-- **The phone's own requests here say they come from the person's screen** (`Sec-Fetch-Site: same-origin`). The
-  Mac's isViaScreen (server.js) treats a request without it as a process: seen is refused (403), a close of a task
-  whose repeat the person set is refused with an agent's sentence, and a reopen is not recorded as the person's. The
-  same person on the same phone in the app's web view passes, because WebKit sends the header. Agents are told apart
-  by their token, which the phone never sends. Rejected: changing the Mac to trust its Kosmos+ gate session, a wider
-  change to the Mac's security model than this card needs. Weakest premise: that nothing between the phone and the Mac
-  drops the header (the board's own requests carry it through the same path).
+- **The Mac must read these as the person's screen**, and its isViaScreen does that only for a request saying
+  `Sec-Fetch-Site: same-origin`: without it seen is refused (403), closing a task whose repeat the person set is
+  refused with an agent's sentence, and a reopen is not recorded as the person's. Measuring this found #7075 (every
+  native request lacked the header, so through Kosmos+ the tunnel also withheld the board token): fixed app-wide in
+  PR #7076 (BoardClient marks every Mac-bound request, Board.forMac), so this page sets nothing itself.
 - The stale guard compares with the task's real closed state (progress.closed, else closedAt). The board's guard reads
   only closedAt, so on a task whose parts are all done but has no closedAt its Reopen only repaints; the phone does
   what the button says.
