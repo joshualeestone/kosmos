@@ -110,7 +110,9 @@ struct NewTaskView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 scroller.scrollTo(message == nil ? "nt-who" : "nt-end", anchor: .bottom)
                 // scrollTo stops at the row, short of a section's footer: then the sheet's own list to its true end.
+                // Twice: a footer laid out after the first pass leaves it short of the end.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { Self.sampleScrollSheetToEnd() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { Self.sampleScrollSheetToEnd() }
             }
         }
         // The Mac's answer is drawn at the end of the form, below the fold on a small phone: bring it into view.
