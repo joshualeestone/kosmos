@@ -467,8 +467,7 @@ enum Tasks {
         return parts.map { $0.hasSuffix(".") ? String($0.dropLast()) : $0 }.joined(separator: ". ") + "."
     }
 
-    // The board's task page for a row, opened in the board view until a native task page has its own slice: the board
-    // reads ?project=&task= at boot (web/index.html), as Today's Check it opens it (#7030).
+    // The board reads ?project=&task= at boot (web/index.html).
     // The one helper for a task's page on the board (BoardClient.taskURL): the native task page's info button opens it
     // (kosmos#7074; Today's Check it and a Tasks row now open the native page).
     static func taskPageURL(board: URL, project: String, number: Int) -> URL? {
