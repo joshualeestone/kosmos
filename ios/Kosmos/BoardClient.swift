@@ -561,7 +561,7 @@ final class BoardClient: ObservableObject {
         }
         #endif
         guard let held = admitted, let request = Board.reactRequest(mac: held.url, session: agent.session, at: at, emoji: emoji) else {
-            return .refused("we could not react to that just now")
+            return .refused("We could not react to that just now.")
         }
         let answer = await env.send(request)
         return Board.reactResult(status: answer?.1.statusCode ?? 0, body: answer?.0)

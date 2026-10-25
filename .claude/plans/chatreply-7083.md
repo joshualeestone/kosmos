@@ -27,6 +27,10 @@ controls, server.ios-routes-6838.test.js (the react request is read in place), a
 - A reaction answer repaints that one row from its pills, as the room does; the next read confirms.
 - The reply header is plain text; the board's is a button that jumps to the original. Deferred: scrolling to a row
   (and loading earlier pages to reach it) is its own piece of work.
+- A file-only message whose file the phone cannot show (a way-through row with no words) draws no pills or Reply;
+  the board's page, one tap away, has both.
+- A read that started before a reaction can put the old pills back until the next read (the board's dmRxnToggle
+  leaves the same to its next poll).
 - `ChatReaction` lives in BoardLogic.swift (the room's Board.Reaction shape) because BoardRoom.swift is not compiled by
   every suite that compiles the chat.
 
