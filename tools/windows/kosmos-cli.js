@@ -943,13 +943,13 @@ async function verbNotice(ctx, args) {
     else { ctx.err(USAGE.notice); return 2; }
   }
   if (!source || !project || !fromStdin) { ctx.err(USAGE.notice); return 2; }
-  // For jobs, not agents: an agent session speaks in rooms with `kosmos post`. A tripwire for an agent reading the help,
-  // not a lock: the board token is what the route checks.
-  if (ctx.agentToken()) { ctx.err('kosmos notice is for a job on this computer (an alarm, a digest), not an agent session. To speak in a room, use kosmos post.'); return 2; }
   // A job's notice may be its only copy (an alarm fires when the fleet is down), so it is read first and every failure
   // after the read keeps it, and says where: a wrong source or project in the job's own setup included.
   const got = await readPipedMessage(ctx, 'written', 'kosmos notice --from "<source>" --stdin <project-id>, with the message piped in.');
   if (got.code !== undefined) return got.code;
+  // For jobs, not agents: an agent session speaks in rooms with `kosmos post`. A tripwire for an agent reading the help,
+  // not a lock: the board token is what the route checks.
+  if (ctx.agentToken()) { ctx.err('kosmos notice is for a job on this computer (an alarm, a digest), not an agent session. To speak in a room, use kosmos post.'); keepPipedCopy(ctx, got.text); return 2; }
   if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/.test(source)) { ctx.err('The source is a few plain words (letters, digits, spaces, . _ -), such as "builder alarm".'); keepPipedCopy(ctx, got.text); return 2; }
   // A write goes only to the project named: a name the slug would change is refused, never sent somewhere else.
   if (projectSlug(project) !== project) { ctx.err('There is no project called "' + project + '", so there is no room to write into.'); keepPipedCopy(ctx, got.text); return 1; }

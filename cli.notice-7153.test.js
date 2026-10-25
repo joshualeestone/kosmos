@@ -149,14 +149,27 @@ test('usage and setup mistakes are refused before anything is sent; a wrong sour
     assert.equal(seen.length, 0, 'a refused usage still reached the board');
   }));
 
-test('an agent session is told to use kosmos post: notice is for jobs (a tripwire, not a lock)', () =>
+/* A stand-in tmux that answers the pane's @kosmos_agent claim: an agent's pane, or a pane a job merely runs in. */
+function fakeTmux(claim) {
+  const f = path.join(DATA, 'fake-tmux-' + (claim || 'none') + '.sh');
+  fs.writeFileSync(f, '#!/bin/sh\nprintf "%s" "' + claim + '"\n', { mode: 0o755 });
+  return f;
+}
+
+test('an agent session is told to use kosmos post, and its text is kept; a job in a plain tmux pane is not refused', () =>
   withBoard({ code: 200, body: { ok: true } }, async (port, seen) => {
-    for (const extra of [{ TMUX_PANE: '%7' }, { KOSMOS_AGENT_TOKEN: 'a'.repeat(64) }]) {
+    for (const extra of [{ KOSMOS_AGENT_TOKEN: 'a'.repeat(64) }, { KOSMOS_AGENT_SESSION: 'mara' }, { TMUX_PANE: '%7', AGENT_WORKFORCE_TMUX_BIN: fakeTmux('mara') }]) {
       const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], { ...jobEnv(port), ...extra }, 'hello');
       assert.equal(out.code, 2, JSON.stringify(Object.keys(extra)) + ' exited ' + out.code);
       assert.match(out.stdout, /not an agent session\. To speak in a room, use kosmos post\./);
+      assert.match(out.stdout, /saved at /, 'an agent-session refusal lost the text');
+      clean(out);
     }
     assert.equal(seen.length, 0, 'an agent session reached the notice route');
+    // CONTROL: a job run in a tmux pane that is no agent's (no claim) writes its notice.
+    const job = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], { ...jobEnv(port), TMUX_PANE: '%7', AGENT_WORKFORCE_TMUX_BIN: fakeTmux('') }, 'hello');
+    assert.equal(job.code, 0, 'a job in a plain tmux pane was refused: ' + job.stdout);
+    assert.equal(seen.length, 1);
   }));
 
 test('a cut answer may have been written: it says so, keeps the text as "may", and exits 3 so a job does not retry it', async () => {

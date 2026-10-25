@@ -640,6 +640,9 @@ test('notice: POST .../notice with the text and source, no agent token; 2xx -> 0
   assert.equal(asAgent.code, 2);
   assert.equal(asAgent.calls.length, 0);
   assert.match(asAgent.err, /not an agent session\. To speak in a room, use kosmos post\./);
+  const ak = asAgent.err.match(/saved at (\S+)/);
+  assert.ok(ak, 'an agent-session refusal lost the text');
+  fs.rmSync(path.dirname(ak[1]), { recursive: true, force: true });
   // A cut answer may have been written: "may", kept, exit 3 (never 1: a job that retries on 1 would write it twice).
   const cut = await run(['notice', '--from', 'builder alarm', '--stdin', 'p1'], refusedWith(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' })), {}, piped('cut'));
   assert.equal(cut.code, 3, cut.err);
@@ -661,7 +664,7 @@ test('notice: POST .../notice with the text and source, no agent token; 2xx -> 0
   assert.equal(fs.readFileSync(kept[1], 'utf8'), 'hi');
   fs.rmSync(path.dirname(kept[1]), { recursive: true, force: true });
   for (const r of [missing, old]) { const k = r.err.match(/saved at (\S+)/); assert.ok(k, 'a 404 notice was not kept'); fs.rmSync(path.dirname(k[1]), { recursive: true, force: true }); }
-  // Board down: kept, "was not sent". Timed out: kept, "may", exit 3 (it may have been written).
+  // Board down (not connected): kept, "was not sent", exit 1. A cut answer: kept as "may", exit 3 (it may have been written).
   const down = await run(['notice', '--from', 'builder alarm', '--stdin', 'p1'], refusedWith(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })), {}, piped('down'));
   assert.equal(down.code, 1, down.err);
   const dk = down.err.match(/was not sent; it is saved at (\S+)/);
