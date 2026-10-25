@@ -270,6 +270,17 @@ test('#4658 slice 2: a computer waiting to be let into an unsealed room holds it
   assert.strictEqual(row.unverified, undefined, 'a let-in computer marked a clear room\'s message unverified');
 });
 
+test('kosmos#7129: a waiting computer whose record was lost (its link still waits) marks the room\'s unsealed messages too', async () => {
+  const { h, seat } = await pendingComputer('own-u2', 'room-u2');
+  fedseal.forgetRoom('own-u2');   // the record is gone; the link still says pendingClear
+  assert.strictEqual(fedseal.roomState('own-u2'), null);
+  say(seat, { event: 'message', data: { from: 'Ada', kind: 'person', text: 'no record words' } });
+  await settle();
+  const row = h.recorded.find((r) => r.text === 'no record words');
+  assert.ok(row, 'a waiting link refused an unsealed message');
+  assert.strictEqual(row.unverified, true, 'a row shown under a waiting link alone was not marked');
+});
+
 test('#4658 slice 2: a computer with no seal record that sees an unopenable envelope waits for the owner\'s answer (pendingClear), and the owner\'s clear lets it go', async () => {
   const { seat } = await ownComputer('own-old1', 'room-old1');
   const hello = await sealedNow(seat, 'room-old1');
