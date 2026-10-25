@@ -11,10 +11,12 @@ setpgrp(0, 0);
 my $runner = shift @ARGV;
 my ($passed, $status) = (0, undef);
 my $pass = sub { my $sig = shift; $SIG{$sig} = "IGNORE"; $passed ||= Time::HiRes::time(); kill $sig, -$$ };
+my ($was_term, $was_int) = ($SIG{TERM} // "DEFAULT", $SIG{INT} // "DEFAULT");
 $SIG{TERM} = $pass; $SIG{INT} = $pass;
 my $kid = fork;
 die "fork: $!" unless defined $kid;
-if (!$kid) { $SIG{TERM} = $SIG{INT} = "DEFAULT"; exec @ARGV or die "exec: $!" }
+if (!$kid) { $SIG{TERM} = $was_term; $SIG{INT} = $was_int; exec @ARGV or die "exec: $!" }
+# Every other member of the group. A process named ps is skipped: the listing below is one, and it joins the group.
 my $others = sub {
   my $n = 0;
   for (`ps -axo pid=,pgid=,comm=`) { my ($p, $g, $c) = split " ", $_, 3; $n++ if $g == $$ && $p != $$ && $c !~ /^ps\b/ }

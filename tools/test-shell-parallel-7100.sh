@@ -188,6 +188,18 @@ alive=0; for f in "$T/kids4j"/kid-*; do kp=$(cat "$f"); k=0; while kill -0 "$kp"
 if [ "$(ls "$T/kids4j" | grep -c '^kid-')" = 2 ] && [ "$alive" = 0 ]; then pass "a KILLed runner's shards KILL a child that ignored the TERM, within 8 s"
 else bad "runner KILLed, TERM-ignoring child: kids recorded $(ls "$T/kids4j" | grep -c '^kid-')(2), still alive 8 s later: $alive(0)"; fi
 
+# 4k) the shard's command inherits the signal handling it would have had without the supervisor: a job started with
+# & in a non-interactive shell ignores INT, and the supervisor passes that on rather than resetting it.
+cat > "$T/sigstub.sh" <<'SIGSTUB'
+#!/bin/bash
+exec perl -e 'print "INT=", (defined $SIG{INT} ? $SIG{INT} : "undef"), "\n"'
+SIGSTUB
+chmod +x "$T/sigstub.sh"
+mkdir -p "$T/l4k"
+kosmos_shell_parallel 1 "$T/l4k" "$T/sigstub.sh" > "$T/l4k.out" 2>&1
+if grep -q '^INT=IGNORE$' "$T/l4k.out"; then pass "a shard's command inherits an ignored INT, as before the supervisor"
+else bad "inherited INT: $(grep '^INT=' "$T/l4k.out" | head -1)(INT=IGNORE)"; fi
+
 # 4d) a test that ignores TERM (here a sleep under trap '' TERM) is KILLed after the stop's grace, not left running.
 cat > "$T/stubborn.sh" <<'STUBBORN'
 #!/bin/bash
