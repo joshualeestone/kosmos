@@ -51,8 +51,9 @@ where every local run reads it.
   3), so a red elsewhere at the end does not read as a broken default.
 - Load: four shards beside another suite on a shared machine. Measured once on Agent1s (the 603 s run shared the
   machine) and on an idle Mortals. Not measured on a machine with less memory.
-- The CI environment check relies on `GITHUB_ACTIONS=true`. A self-hosted runner that does not set it would default
-  to 4. The repo's CI shard jobs also set KOSMOS_SHELL_SHARD, which covers them independently.
+- The CI check is `GITHUB_ACTIONS=true`, or `CI=true` or `1` (review 4 added CI, which most CI systems set). A runner
+  that sets neither would default to 4. The repo's CI shard jobs also set KOSMOS_SHELL_SHARD, which covers them
+  independently. CI is unset in this machine's agents and suites (checked 2026-10-25), so local runs still get 4.
 
 ## Validation
 - tools/test-shell-parallel-7100.sh: 21 arms pass plainly and under a CI shard's environment
