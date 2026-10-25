@@ -30,3 +30,13 @@ About 32 s of swiftc per full validation (three suites, measured on this Mac).
 ios.board-parity-7084.test.js: 5 pass (discovery, the read-not-mention rule, three suites). Arms: a board word changed
 in web/index.html (TSK_GROUPS' first label) reds the tasks suite here; discovery broken reds the discovery tests.
 tools.all-node-tests-considered-1934.test.js passes with the new file.
+
+## Review 1: no blocker; two lows taken, two recorded
+- Taken: discovery reads one shape of read, so a future suite reading the board another way would be unguarded in
+  silence. New test: every other suite that reads the repo (KOSMOS_REPO) may read only ios/ files; anything else fails
+  and names the read. Arm: actions pointed at docs/push.md reds it.
+- Taken: the skip reason said "Linux CI"; the condition is "no swiftc" (also a Mac without Xcode), and it now says the
+  suites were NOT checked there.
+- Recorded: on a 10-minute timeout node kills only the runner, so a hung swiftc or test binary and its temp folder can
+  outlive it (needs a hang first). And the premise is a convention, not a gate (above).
+- Tests: 6 pass.
