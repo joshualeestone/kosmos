@@ -317,7 +317,7 @@ function handleEvent(projectId, line, heldAt) {
         return;
       }
       ev.data = opened.m;
-    } else if (sealedRoom && !pendingClear(sealed)) {
+    } else if (sealedRoom && !pendingClear(sealed) && !(sealed === null && (() => { const l = sealLink(projectId); return !!l && l.role === 'self' && l.pendingClear === true && l.sealed !== true; })())) {
       // No downgrade: once a room is sealed, words sent in the clear are not shown. A computer still waiting to be let
       // into an unsealed room (pendingClear) does not know it is sealed, so it shows them (slice 2).
       noteOnce(projectId, s, 'unsealed', 'A message arrived unsealed in this sealed room, so it was not shown. If someone joined before this room was sealed, remove them from the shared project and send them a new code.');
@@ -694,6 +694,11 @@ function hasKey(st) {
 function pendingClear(st) {
   return !!st && st.role === 'member' && st.ownComputer === true && st.pendingClear === true && !hasKey(st);
 }
+/** Slice 2 (review 5): whether a clear may let this computer in: any keyless own-computer record (one written by this
+    slice's join, or by an older Kosmos on an unopenable envelope) whose link does not say it joined a sealed room. */
+function clearEligible(st, link) {
+  return !!st && st.role === 'member' && st.ownComputer === true && !hasKey(st) && !!link && link.role === 'self' && link.sealed !== true;
+}
 /** Owner of an own room that reads clear: it answers a waiting own computer with key-own-clear instead of a share. */
 function ownerClearRoom(projectId) {
   const link = safeLink(projectId);
@@ -793,7 +798,7 @@ function sayHello(projectId, s) {
   }
   if (!st || st.role !== 'member' || hasKey(st) || !s.room) return;
   // Slice 2: a clear already confirmed whose writes failed is taken again here, on the next connect (the owner sends it once).
-  if (pendingClear(st) && s.ownRun && s.ownRun.confirmed && s.ownRun.gotClear) { adoptOwnClear(projectId, s); if (!roomSeal(projectId)) return; }
+  if (s.ownRun && s.ownRun.confirmed && s.ownRun.gotClear) { adoptOwnClear(projectId, s); if (!roomSeal(projectId)) return; }
   if (st.ownComputer === true) { sayOwnHello(projectId, s); return; }
   try { sendFrame(s, fedseal.helloFrame(st.s, st.code, fedseal.sealingKey(), s.room)); } catch (err) {
     noteOnce(projectId, s, 'noKey', 'This computer could not use its sealing key, so this shared room cannot open yet: ' + String((err && err.message) || err));
@@ -867,7 +872,7 @@ function noteOwnSealed(projectId, s) {
   // computer joined by an unsealed room's code does; its posts are held either way.
   const rec = link.sealed === true ? { role: 'member', ownComputer: true, keys: {} } : { role: 'member', ownComputer: true, pendingClear: true, keys: {} };
   try { fedseal.setRoomState(projectId, rec); } catch {
-    noteOnce(projectId, s, 'ownSealUnsaved', 'This shared room is sealed, and this computer could not record that, so it cannot ask for the room\'s key yet. Kosmos tries again with the next message.');
+    noteOnce(projectId, s, 'ownSealUnsaved', 'A sealed message arrived and this computer could not record it, so it cannot ask to be let in yet. Kosmos tries again with the next message.');
     return true;   // handled: the guest's "ask the owner for a new code" line is not this computer's
   }
   sayOwnHello(projectId, s);
@@ -996,7 +1001,12 @@ function waitingClear(projectId, s, frame) {
   if (!run || !run.offer || run.gotClear || run.room !== s.room) return;
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
-  if (!pendingClear(roomSeal(projectId))) return;
+  const link = safeLink(projectId);
+  if (link && link.role === 'self' && link.sealed === true) {
+    noteOnce(projectId, s, 'clearRefused', 'This computer joined this project as a sealed room, so it waits for the room\'s key, not for a clear.');
+    return;
+  }
+  if (!clearEligible(roomSeal(projectId), link)) return;
   if (!fedseal.openOwnClear(me, run.mac, run.offer.ownerPub, run.nW, run.offer.nO, frame, run.room)) return;
   run.gotClear = true;
   adoptOwnClear(projectId, s);
@@ -1008,12 +1018,7 @@ function adoptOwnClear(projectId, s) {
   const run = s.ownRun;
   const st = roomSeal(projectId);
   const link = safeLink(projectId);
-  if (!run || !run.confirmed || !run.gotClear || !pendingClear(st) || !link || link.role !== 'self') return;
-  if (link.sealed === true) {
-    noteOnce(projectId, s, 'clearRefused', 'This computer joined this project as a sealed room, so it waits for the room\'s key, not for a clear.');
-    run.gotClear = false;
-    return;
-  }
+  if (!run || !run.confirmed || !run.gotClear || !clearEligible(st, link)) return;
   // The link first: with it still saying pendingClear and the record gone, the posts would be held again and the next
   // connect would ask for a new code compare. Both written, then said.
   const unsaved = () => noteOnce(projectId, s, 'ownClearUnsaved', 'The other computer let this one in, but this computer could not record it, so its posts are still held. Kosmos tries again when it next connects; if it restarts first, compare the codes again.');

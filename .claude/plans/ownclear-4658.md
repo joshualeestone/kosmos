@@ -73,6 +73,12 @@ mixed-version own rooms must keep working, in which case v1 joins stay as today 
   invite refusal stands: a room shared by a v3 code is selfShared without sealedOwn, so a sealing invite is refused.
   Lifting that refusal (below) must re-decide this.
 
+- **A relay flooding own hellos** can use the owner's 12-new-runs-an-hour budget, so a real joiner waits for the next
+  hour (review 5). The relay can drop every post anyway; this adds no new power, but every own join now needs an offer.
+- **Keyless records from an older Kosmos** (written on an unopenable envelope, no pendingClear) take a clear too
+  (review 5: clearEligible = keyless own record and a link not marked sealed). Posts they held as sealed are not
+  released in the clear by it (they say so): only posts written while the room was unknown go.
+
 ## Not in this slice
 Lifting the self-shared invite refusal entirely (decision 5 of #7107): once every own computer holds until answered,
 a v1-shared room has only computers that joined before this slice; they still post in the clear. Lift it when no

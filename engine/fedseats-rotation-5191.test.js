@@ -23,6 +23,8 @@
  *    key, and advances no epoch.
  *    ownclear-4658 (slice 2) adds adoptOwnClear: an own computer let into an UNSEALED room forgets its keyless waiting
  *    record (fedseal.forgetRoom). It holds no key and advances no epoch.
+ *    Slice 2 also has noteOwnSealed and sayHello write the keyless record's pendingClear variant (no key either), and
+ *    adoptOwnShare drop pendingClear while writing the key the owner shared (no rotation).
  * 2. HOW THE EPOCH ADVANCES. Exactly one advance spelled "epoch + 1" / "+= 1" / "++", inside revokeCheck. Exactly
  *    one, not "at least one": zero means that spelling is gone and this guard went blind.
  */

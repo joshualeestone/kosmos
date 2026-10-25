@@ -22605,7 +22605,7 @@ const server = http.createServer(async (req, res) => {
         if (snap.own) {
           const ownNote = ownSealed
             ? 'This project is shared with your other computers and sealed end to end. This computer can read and post here once you let it in from the computer that first shared it.'
-            : 'This project is shared with your other computers. Messages in this room are not sealed end to end. This computer can post here once you let it in from the computer that first shared it.';
+            : 'This project is shared with your other computers. This computer can post here once you let it in from the computer that first shared it, which also tells it whether the room is sealed.';
           try {
             messages.roomNote(made.id, ownNote);
           } catch { /* the note is furniture; the room exists regardless */ }
