@@ -70,6 +70,7 @@ else bad "last red: rc=$rc(1) out=[$out]"; fi
 # does, runs no EXIT trap of its own on a TERM. Measured.)
 cat > "$T/stubkid.sh" <<'STUBKID'
 #!/bin/bash
+echo "kid of shard $1 is running"
 sleep 300 & echo "$!" > "$STUB_KIDS/kid-$1"
 wait
 STUBKID
@@ -81,13 +82,36 @@ trap 'kosmos_shell_parallel_stop' EXIT
 kosmos_shell_parallel 2 "$2" "$3" > "$2.out"
 RUNNER
 mkdir -p "$T/l4b" "$T/kids"
-STUB_KIDS="$T/kids" /bin/bash "$T/runner.sh" "$HERE/lib/shell-parallel.sh" "$T/l4b" "$T/stubkid.sh" &
+STUB_KIDS="$T/kids" /bin/bash "$T/runner.sh" "$HERE/lib/shell-parallel.sh" "$T/l4b" "$T/stubkid.sh" 2> "$T/l4b.err" &
 sub=$!
 k=0; while [ "$(ls "$T/kids" | grep -c '^kid-')" -lt 2 ] && [ "$k" -lt 300 ]; do sleep 0.1; k=$((k + 1)); done
 kill -TERM "$sub" 2>/dev/null; wait "$sub" 2>/dev/null
 alive=0; for f in "$T/kids"/kid-*; do kp=$(cat "$f"); k=0; while kill -0 "$kp" 2>/dev/null && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done; kill -0 "$kp" 2>/dev/null && { alive=$((alive + 1)); kill "$kp" 2>/dev/null; }; done
 if [ "$(ls "$T/kids" | grep -c '^kid-')" = 2 ] && [ "$alive" = 0 ]; then pass "a TERM stops both shards' running tests (no orphan outlives the run)"
 else bad "interruption: kids recorded $(ls "$T/kids" | grep -c '^kid-')(2), still alive after the stop: $alive(0)"; fi
+# ... and the end of each shard's log reached stderr before the logs could be removed.
+if grep -q 'interrupted; the last lines of shard-1.log' "$T/l4b.err" && grep -q '^kid of shard 2 is running$' "$T/l4b.err"; then
+  pass "an interruption prints the end of each shard's log to stderr"
+else
+  bad "interruption: shard log tails not on stderr: $(head -c 300 "$T/l4b.err")"
+fi
+
+# 4d) a test that ignores TERM (here a sleep under trap '' TERM) is KILLed after the stop's grace, not left running.
+cat > "$T/stubborn.sh" <<'STUBBORN'
+#!/bin/bash
+trap '' TERM
+sleep 300 & echo "$!" > "$STUB_KIDS/kid-$1"
+wait
+STUBBORN
+chmod +x "$T/stubborn.sh"
+mkdir -p "$T/l4d" "$T/kids4d"
+STUB_KIDS="$T/kids4d" /bin/bash "$T/runner.sh" "$HERE/lib/shell-parallel.sh" "$T/l4d" "$T/stubborn.sh" 2>/dev/null &
+sub=$!
+k=0; while [ "$(ls "$T/kids4d" | grep -c '^kid-')" -lt 2 ] && [ "$k" -lt 300 ]; do sleep 0.1; k=$((k + 1)); done
+kill -TERM "$sub" 2>/dev/null; wait "$sub" 2>/dev/null
+alive=0; for f in "$T/kids4d"/kid-*; do kp=$(cat "$f"); k=0; while kill -0 "$kp" 2>/dev/null && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done; kill -0 "$kp" 2>/dev/null && { alive=$((alive + 1)); kill -KILL "$kp" 2>/dev/null; }; done
+if [ "$(ls "$T/kids4d" | grep -c '^kid-')" = 2 ] && [ "$alive" = 0 ]; then pass "a test that ignores TERM is KILLed after the grace"
+else bad "stubborn: kids recorded $(ls "$T/kids4d" | grep -c '^kid-')(2), still alive after the stop: $alive(0)"; fi
 
 # 4c) a shard already waited on can leave something running in its group (a backgrounded server, a sleep). The stop
 # reaches it too: shard 1 leaves a sleep and ends at once, shard 2 is still running when the TERM comes.
