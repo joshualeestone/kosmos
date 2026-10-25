@@ -156,6 +156,8 @@ struct ChatView: View {
             // the top leaving settles it; a chat too short to scroll moves neither, so a second settles it then.
             settledAtEnd = false
             NotificationCenter.default.post(name: .chatScrollToEnd, object: nil)
+            // Again a turn later, once the whole thread has laid out: the first can land short on estimated heights.
+            DispatchQueue.main.async { if !searching && visible { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) } }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { if !searching && !settledAtEnd { settledAtEnd = true; loadEarlier() } }
         }
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
@@ -224,7 +226,8 @@ struct ChatView: View {
             // Day lines run across loaded pages, so a page that ends mid-day does not repeat that day's line.
             // A search shows only the loaded rows it matches, day lines worked out over those (the board repaints the
             // filtered rows the same way).
-            let rows = Board.chatFilter(Board.shownRows(earlier, thread: thread), agentName: shown.name, query: query)
+            let loaded = Board.shownRows(earlier, thread: thread)
+            let rows = Board.chatFilter(loaded, agentName: shown.name, query: query)
             let items = Board.chatItems(rows, now: Date(), calendar: .current)
             ScrollViewReader { proxy in
                 ScrollView {
@@ -244,7 +247,7 @@ struct ChatView: View {
                                 if self.thread != nil { settledAtEnd = true }
                             }
                         if thread.rows.isEmpty && pending.isEmpty { empty }
-                        else if searching && rows.isEmpty { noMatch }
+                        else if searching && rows.isEmpty && !loaded.isEmpty { noMatch }
                         ForEach(items) { item in
                             itemView(item).id(item.id)
                                 // Which rows are on screen, so a page landing above keeps the one the reader is on.
