@@ -25,7 +25,7 @@ Branch `newtask-7078`. Ice Cream Kitty, 2026-10-24 20:20 CDT.
   removed, Angel 20:15) or a second copy of the header.
 - Projects are read by the sheet itself through client.throughMac (GET /api/projects, Board.parseProjects), so
   projects with no tasks yet can be picked; Part of uses the Tasks tab's own read.
-- Empty Tasks state: "Add one with the + button, or your agents will." when the sheet is wired (the old line said
+- Empty Tasks state: "Add one with +, or ask an agent to." (worded so in review 1) when the sheet is wired (the old line said
   tasks are made on the computer, no longer true). The board itself says only "No tasks yet."
 - Left out (named on the card): "+ Add subtask" from the native task page (#7074's page), New task from a room, the
   board's "who was told" sentence after a create (heardSentence: a roster join the phone does not have here).
@@ -163,3 +163,11 @@ path stays the app's own (isProjectId before the path; host is held.url).
   sentences and stay refusals, with a control). Not pinned by a test: a source pin on status codes would be brittle.
 - Tests after the rebase: 108/108 now (the 94/94 above is the count at that time).
 - LEFT (nits): a rewrite in onChange could reset an IME composition at the limit (reasoned, not tried).
+- Iteration 13 (opus): the held words explain themselves and can be released. Whenever the draft is the held words,
+  the sheet shows the could-not-tell line (on any opening, not only the one that got the answer) and a "Create it
+  anyway" button: the person who has looked in Tasks decides. A Tasks-tab read that shows the held task (found, against
+  the numbers there when it was sent) clears the hold and, if unchanged, the words. Weakest premise: a person may press
+  Create it anyway without looking; the line says to look first, and the board offers no guard at all here.
+- settled uses firstProject for All projects, so the tests of firstProject cover the shipped path.
+- LEFT (nits): any 2xx is made even without a task object (the board's res.ok does the same); two Tasks refreshes can
+  start together after found-after-unknown.

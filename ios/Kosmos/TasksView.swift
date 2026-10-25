@@ -16,7 +16,7 @@ struct TasksTab: View {
     @State private var newTaskFor: NewTaskStart?
     @State private var notice: String?
     @State private var newTaskDraft = NewTask.Draft()   // kept when the sheet closes, as the board keeps its draft
-    @State private var newTaskHeld: NewTask.Draft?       // words that got "could not tell", kept with the draft
+    @State private var newTaskHeld: NewTask.Held?        // words that got "could not tell", kept with the draft
 
     var body: some View {
         NavigationView {
@@ -37,6 +37,12 @@ struct TasksTab: View {
                 }
         }
         .navigationViewStyle(.stack)
+        // A Tasks read that shows the held task: it was made, so the hold and its words go.
+        .onChange(of: client.tasksList) { read in
+            guard let h = newTaskHeld, let read, NewTask.found(h.sent, in: read, before: h.before) != nil else { return }
+            if newTaskDraft == h.sent { newTaskDraft = NewTask.Draft() }
+            newTaskHeld = nil
+        }
         // Another account or Mac: its projects are not this one's, so the sheet, its draft and the added line go too.
         .onChange(of: client.chatEpoch) { _ in
             openAgent = nil; openTask = nil

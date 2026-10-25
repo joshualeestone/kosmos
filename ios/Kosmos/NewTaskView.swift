@@ -12,7 +12,7 @@ struct NewTaskView: View {
     // create clears it.
     @Binding var draft: NewTask.Draft
     // The words that got "could not tell", kept by the Tasks tab with the draft so closing the sheet does not lift it.
-    @Binding var held: NewTask.Draft?
+    @Binding var held: NewTask.Held?
     let added: (String) -> Void        // the line the Tasks tab shows after a create
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -124,7 +124,14 @@ struct NewTaskView: View {
                     Text(NewTask.Words.whoHint)
                     // The Mac's answer, plain text under the last section as the hints are (in a box it read as a field).
                     // VoiceOver hears it from create()'s announcement, as the board's #nt-msg alert.
-                    if let message { Text(message).foregroundColor(Palette.primary) }
+                    // Words held after "could not tell" say why Create is off, on any opening of the sheet, and the person
+                    // who has looked in Tasks can send them again.
+                    if let line = message ?? (NewTask.heldBack(draft, by: held) ? NewTask.unsureWords : nil) {
+                        Text(line).foregroundColor(Palette.primary)
+                    }
+                    if NewTask.heldBack(draft, by: held) && !checking && !sending {
+                        Button(NewTask.anyway) { held = nil }.textCase(nil)
+                    }
                 }
             }
             .id("nt-who")
@@ -271,7 +278,7 @@ struct NewTaskView: View {
             message = why
             UIAccessibility.post(notification: .announcement, argument: why)
         case .unknown:
-            held = sent
+            held = NewTask.Held(sent: sent, before: before)
             message = NewTask.unsureWords
             UIAccessibility.post(notification: .announcement, argument: NewTask.unsureWords)
             // The sheet's own read, judged on what it returns: the Tasks tab's list can be left as it was by a refresh

@@ -48,7 +48,7 @@ enum NewTask {
         }
         let drafted = !trimmed(d.what).isEmpty || !trimmed(d.detail).isEmpty || !trimmed(d.done).isEmpty
         if drafted, let p = d.project, offered.contains(where: { $0.project.id == p }) { return d }
-        guard let first = offered.first?.project.id else {
+        guard let first = firstProject(picked: nil, offered: offered) else {
             var n = d
             n.project = nil; n.who = nil; n.parent = nil
             return n
@@ -97,11 +97,17 @@ enum NewTask {
     // After "could not tell", the words that got no answer hold Create back while they are what the draft says (the
     // project and the three fields, as sent): a second create of the same words is how a duplicate gets made. Other
     // words, or another project, are another task.
-    static func heldBack(_ d: Draft, by held: Draft?) -> Bool {
-        guard let held else { return false }
-        return d.project == held.project && trimmed(d.what) == trimmed(held.what) && trimmed(d.done) == trimmed(held.done)
-            && trimmed(d.detail) == trimmed(held.detail)
+    // The person can lift it ("Create it anyway") once they have looked; a Tasks read that shows the task lifts it too.
+    struct Held: Equatable {
+        var sent: Draft
+        var before: Set<Int>?   // the project's task numbers when it was sent, for found(_:in:before:)
     }
+    static func heldBack(_ d: Draft, by held: Held?) -> Bool {
+        guard let s = held?.sent else { return false }
+        return d.project == s.project && trimmed(d.what) == trimmed(s.what) && trimmed(d.done) == trimmed(s.done)
+            && trimmed(d.detail) == trimmed(s.detail)
+    }
+    static let anyway = "Create it anyway"
 
     // After "could not tell", a Tasks read that came back: the open task in the project it was sent to, with the
     // sentence it was sent with, that was not there when it was sent. Nil when the read cannot say (no list from before

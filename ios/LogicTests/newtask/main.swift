@@ -172,10 +172,11 @@ check(page.contains(#"id="nt-what" type="text""#) && page.contains(#"id="nt-done
 
 section("the words that got could-not-tell hold Create back")
 let heldWords = NewTask.Draft(project: "book", what: "Proofread", done: "No typos", detail: "")
-check(NewTask.heldBack(heldWords, by: heldWords), "the same words: held")
-check(NewTask.heldBack(NewTask.Draft(project: "book", what: "Proofread ", done: "No typos"), by: heldWords), "the same words with a stray space: still held")
-check(!NewTask.heldBack(NewTask.Draft(project: "book", what: "Proofread the index", done: "No typos"), by: heldWords), "other words: another task")
-check(!NewTask.heldBack(NewTask.Draft(project: "zeta", what: "Proofread", done: "No typos"), by: heldWords), "another project: another task")
+let held = NewTask.Held(sent: heldWords, before: [3, 7])
+check(NewTask.heldBack(heldWords, by: held), "the same words: held")
+check(NewTask.heldBack(NewTask.Draft(project: "book", what: "Proofread ", done: "No typos"), by: held), "the same words with a stray space: still held")
+check(!NewTask.heldBack(NewTask.Draft(project: "book", what: "Proofread the index", done: "No typos"), by: held), "other words: another task")
+check(!NewTask.heldBack(NewTask.Draft(project: "zeta", what: "Proofread", done: "No typos"), by: held), "another project: another task")
 check(!NewTask.heldBack(heldWords, by: nil), "nothing held: not held")
 
 section("after could-not-tell, a read that came back")
