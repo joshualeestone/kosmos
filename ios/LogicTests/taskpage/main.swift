@@ -250,8 +250,21 @@ func modelTests() async {
     await m.markSeen()
     check(mac.asked.isEmpty, "nobody has touched it for two minutes: not marked seen (a phone left open on a stand)")
     m.touched()
-    m.appActive = false
     await m.markSeen()
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen"], "a touch after being idle: the next mark records the state that arrived meanwhile")
+    mac.asked = []
+    clock += TaskPageModel.presentFor + 1
+    m.assistive = true
+    await m.markSeen(again: true)
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen"],
+          "with VoiceOver running the person counts as there without a touch; again records the same state once more (the board's tab return)")
+    await m.markSeen()
+    check(mac.asked.count == 1, "and without again the same state is not sent twice")
+    m.assistive = false
+    mac.asked = []
+    m.touched()
+    m.appActive = false
+    await m.markSeen(again: true)
     check(mac.asked.isEmpty, "the app in the background: not marked seen")
     m.appActive = true
     mac.seenAnswers = [(502, "{}")]

@@ -29,10 +29,13 @@ final class TaskPageModel: ObservableObject {
     // touch in the last two minutes). Set by the view as it changes, read live at every mark and retry.
     var onScreen = false
     var appActive = true
+    // VoiceOver or Switch Control is running: their reading and double-taps reach no gesture this page can see, so
+    // the person is counted as there whenever the page is on screen and the app in front.
+    var assistive = false
     private(set) var lastTouch: Date = .distantPast
     static let presentFor: TimeInterval = 120
     func touched() { lastTouch = now() }
-    var present: Bool { onScreen && appActive && now().timeIntervalSince(lastTouch) < Self.presentFor }
+    var present: Bool { onScreen && appActive && (assistive || now().timeIntervalSince(lastTouch) < Self.presentFor) }
     // The chats' forgetting count this page was opened under: another account or Mac makes it a page about nothing.
     private let openedIn: Int
     // Reads are numbered, so a slow earlier one never undoes a newer one.
@@ -124,9 +127,11 @@ final class TaskPageModel: ObservableObject {
 
     // POST .../seen for the activity state on screen, once per state, only while the person is there (present); a 5xx
     // or no answer is tried once more 3 s later, only if that state is still the one shown and they are still there
-    // (the board's tkMarkSeen). Called when a new state is drawn, when the page appears and when the app comes back, so
-    // a state that landed while they were away is marked when they return.
-    func markSeen() async {
+    // (the board's tkMarkSeen). Called after every read and when a new state is drawn, so a state that landed while
+    // they were away or idle is marked once they are back. `again` (the page appearing, the app coming back) records
+    // the same state once more, as the board's tkTabReturn does, so "seen at" moves to now.
+    func markSeen(again: Bool = false) async {
+        if again { seenKey = nil }
         guard current, let key = activityKey, key != seenKey, present else { return }
         seenKey = key
         let (project, number) = (self.project, self.number)

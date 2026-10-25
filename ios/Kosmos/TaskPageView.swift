@@ -59,9 +59,16 @@ struct TaskPageView: View {
             .onAppear {
                 visible = true
                 model.onScreen = true
+                model.assistive = UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
                 model.touched()
                 startReading()
-                Task { await model.markSeen() }
+                Task { await model.markSeen(again: true) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)) { _ in
+                model.assistive = UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.switchControlStatusDidChangeNotification)) { _ in
+                model.assistive = UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
             }
             .onDisappear { visible = false; model.onScreen = false; loop?.cancel(); loop = nil }
             .onChange(of: scenePhase) { phase in
@@ -70,19 +77,26 @@ struct TaskPageView: View {
                 if phase == .active {
                     model.touched()
                     startReading()
-                    Task { await model.markSeen() }
+                    Task { await model.markSeen(again: true) }
                 } else { loop?.cancel(); loop = nil }
             }
             .onChange(of: model.activityKey) { _ in Task { await model.markSeen() } }
     }
 
-    // Read now and every 5 seconds while the page is on screen, as the board's tick does.
+    // Read now and every 5 seconds while the page is on screen and the person is there, as the board's tick only reads
+    // under tkPresent (a phone left open on a stand stops asking); each read is followed by a seen mark, so a state that
+    // landed while they were idle is marked within one tick of their coming back.
     private func startReading() {
         loop?.cancel()
         loop = Task {
+            var first = true
             while !Task.isCancelled {
-                await model.read()
-                await model.readActivity(names: name)
+                if first || model.present {
+                    await model.read()
+                    await model.readActivity(names: name)
+                    await model.markSeen()
+                }
+                first = false
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
         }
@@ -90,7 +104,10 @@ struct TaskPageView: View {
 
     @ViewBuilder private var content: some View {
         if let page = model.page, !model.gone {
-            ScrollView { pageBody(page).padding(16) }
+            // Redrawn every 30 seconds, so "2 minutes ago" and "today" move on while nothing else changes.
+            TimelineView(.periodic(from: .now, by: 30)) { _ in
+                ScrollView { pageBody(page).padding(16) }
+            }
                 .refreshable { await model.read(); await model.readActivity(names: name) }
         } else if model.gone {
             message("This task is not on your computer any more", "It may have been deleted, or its project moved.")
@@ -176,6 +193,7 @@ struct TaskPageView: View {
             .buttonStyle(.plain)
             .disabled(model.pressing)
             .opacity(model.pressing ? 0.6 : 1)
+            .accessibilityValue(model.pressing ? "In progress" : "")
             if let refusal = model.refusal {
                 Text(refusal).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
                     .onAppear { UIAccessibility.post(notification: .announcement, argument: refusal) }
