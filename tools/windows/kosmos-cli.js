@@ -102,6 +102,7 @@ const USAGE = {
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
   inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
+  notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin; <source> names the job, such as "builder alarm")',
   task: [
     'Usage: kosmos task <list|add|assign|close|reopen|message|activity|built|done-when|hold|unhold|repeat|ran|told>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
@@ -923,6 +924,35 @@ async function roomReopen(ctx, args) {
   if (r.status === 404) { ctx.err('There is no project called "' + project + '", so there is no room to reopen.'); return 1; }
   const because = r.json && typeof r.json.because === 'string' ? r.json.because : '';
   ctx.err('We could not reopen that room' + (because ? ': ' + because : ''));
+  return 1;
+}
+
+/* kosmos#7153, as install/kosmos cmd_notice: a job on this computer (a scheduled task, with no agent token) writes a
+   line into a room in Kosmos's own voice. Board token only, the text on stdin, its source named. */
+async function verbNotice(ctx, args) {
+  let source = '';
+  let project = '';
+  let fromStdin = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (a === '--from') { if (i + 1 >= args.length) { ctx.err(USAGE.notice); return 2; } source = args[i + 1]; i += 1; }
+    else if (a.startsWith('--from=')) source = a.slice('--from='.length);
+    else if (a === '--stdin') fromStdin = true;
+    else if (a.startsWith('-')) { ctx.err(USAGE.notice); return 2; }
+    else if (!project) project = a;
+    else { ctx.err(USAGE.notice); return 2; }
+  }
+  if (!source || !project || !fromStdin) { ctx.err(USAGE.notice); return 2; }
+  if (/[:\r\n]/.test(source)) { ctx.err('The source is one short line with no colon, such as "builder alarm".'); return 2; }
+  const got = await readPipedMessage(ctx, 'written', 'kosmos notice --from "<source>" --stdin <project-id>, with the text piped in.');
+  if (got.code !== undefined) return got.code;
+  if (!got.text) { ctx.err('Nothing was written: the notice was empty.'); return 2; }
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/notice', { text: got.text, source }, { agent: false });
+  if (!r.reached) return ctx.unreachable('write that notice');
+  if (r.status >= 200 && r.status < 300) { ctx.out('Written to ' + project + ' as a Kosmos notice from ' + source + '.'); return 0; }
+  if (r.status === 404) { ctx.err('There is no project called "' + project + '", so there is no room to write into.'); return 1; }
+  const because = r.json && typeof r.json.error === 'string' ? r.json.error : '';
+  ctx.err('The notice was not written' + (because ? ': ' + because : '') + '.');
   return 1;
 }
 
@@ -2514,6 +2544,7 @@ const VERB_HANDLERS = {
   fingerprint: verbFingerprint,
   inbox: verbInbox,
   room: verbRoom,
+  notice: verbNotice,
   task: subcommandRequired('task'),
   project: subcommandRequired('project'),
   agent: subcommandRequired('agent'),
