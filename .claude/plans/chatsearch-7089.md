@@ -55,13 +55,17 @@ hand with run.sh <dir> and recorded on the card, not a standing test).
   keeping the person's newest row, which would make the filter show rows that do not match.
 - Rows the phone marks .agent (any `from`, and question rows) all match this agent's name. The board
   names another agent's row by that agent's card and a from-less question by ''. The phone already
-  names every non-person row by this agent (ReplyHead), so the filter matches what the phone shows.
+  names every non-person row by this agent (ReplyHead), so the filter matches who the phone shows. Words match the row's
+  text as the Mac sent it, as the board's do, even where the phone draws a row differently (a
+  permission card, an unsent-draft row, a files row).
   Weakest premise: a chat row from ANOTHER agent; if those reach the phone it needs their names.
 - The no-match sentence is also announced to VoiceOver (the field keeps focus), as the board's room
   search announces it.
-- While searching, the person's own send does not scroll the thread (the board's jumpToOwnSend). The
-  new-messages capsule is off while searching too. The keyboard's scroll-to-newest is kept: it moves
-  only a reader already at the newest message, and the search field takes focus with no words yet.
+- While searching, the person's own send scrolls to its own bubble, not to the end. The board does
+  not move at all (jumpToOwnSend), but it also hides its pending row while filtering; the phone keeps
+  the bubble as the send's only feedback, so it brings that bubble into view. The new-messages capsule
+  is off while searching. Opening the row pushes the thread down, so a reader at the newest message
+  is kept there (scrolled back after the row opens, kept by the keyboard, put back when it goes).
 - No match with a pending bubble showing: the sentence is about the conversation's rows and stays the
   board's; the bubble is the send in flight (see above). Raised to Mona Lisa with the shots.
 - Matching uses Swift's String.contains, which treats composed and decomposed accents as equal; the
@@ -82,5 +86,10 @@ hand with run.sh <dir> and recorded on the card, not a standing test).
 - The clear-search settle and its fallback are view behaviour LogicTests cannot drive; they join the
   device checks on #7089 (clear a search on a long chat with earlier pages loaded: it lands at the
   newest message and does not load a page; the same after leaving a chat mid-search and coming back;
-  the magnifier and (i) both fit at the largest text size (if not, Mona Lisa's fallback: Search in a menu); VoiceOver hears the no-match
+  the magnifier and (i) both fit at the largest text size (if not, Mona Lisa's fallback: Search in a menu);
+  the search row at the largest text size (Cancel does not wrap, the field keeps room); opening the row
+  at the newest message keeps it in view; VoiceOver hears the no-match
   sentence).
+- No rows yet, a send in flight and a search on: the phone shows the bubble and no sentence; the board
+  (pending hidden while filtering) would show its empty line. Kept: the conversation is not empty of
+  what the person can see.
