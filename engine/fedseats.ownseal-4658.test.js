@@ -307,7 +307,7 @@ test('#4658 slice 2: a keyless record an older Kosmos wrote (no pendingClear) ta
   say(seat2, { event: 'message', data: o2.clear(nW2) });
   await settle();
   assert.deepStrictEqual(fedseal.roomState('own-pre2'), { role: 'member', ownComputer: true, keys: {} }, 'a sealed-joined computer took a clear');
-  assert.ok(h2.notes.some((n) => n.projectId === 'own-pre2' && /waits for the room's key, not for a clear/.test(n.text)), 'refused with no word why');
+  assert.ok(h2.notes.some((n) => n.projectId === 'own-pre2' && /joined it with a code for a sealed room, so it does not trust that/.test(n.text)), 'refused with no word why');
 });
 
 test('#4658 slice 2: a clear that arrives BEFORE the person confirms is kept, and the confirm lets the posts go', async () => {

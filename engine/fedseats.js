@@ -908,7 +908,9 @@ function waitingOffer(projectId, s, frame) {
 }
 /** Slice 2: whether this computer is waiting to be let into an UNSEALED own room (the screen does not call it sealed). */
 function ownPending(projectId) {
-  return pendingClear(roomSeal(projectId));
+  // Any record a clear could end (review 7): an older keyless record is not known to be sealed either.
+  const st = roomSeal(projectId);
+  return clearEligible(st, safeLink(projectId)) && (pendingClear(st) || !hasKey(st));
 }
 /** Own computer: the code this computer shows for its current run, or null. */
 function ownCode(projectId) {
@@ -1002,18 +1004,19 @@ function waitingClear(projectId, s, frame) {
   let me;
   try { me = fedseal.sealingKey(); } catch { return; }
   const link = safeLink(projectId);
+  if (!fedseal.openOwnClear(me, run.mac, run.offer.ownerPub, run.nW, run.offer.nO, frame, run.room)) return;
   if (link && link.role === 'self' && link.sealed === true) {
-    noteOnce(projectId, s, 'clearRefused', 'This computer joined this project as a sealed room, so it waits for the room\'s key, not for a clear.');
+    // Said only for a genuine clear (review 7): a sealed-joined computer never takes one, so it says what to do.
+    noteOnce(projectId, s, 'clearRefused', 'The other computer says this room is not sealed, but this computer joined it with a code for a sealed room, so it does not trust that. Remove the project from this computer and join again with a new code from the other computer.');
     return;
   }
   if (!clearEligible(roomSeal(projectId), link)) return;
-  if (!fedseal.openOwnClear(me, run.mac, run.offer.ownerPub, run.nW, run.offer.nO, frame, run.room)) return;
   run.gotClear = true;
   adoptOwnClear(projectId, s);
 }
-/** Own computer, slice 2: the room is not sealed, by the word of the owner the person confirmed. Only for a computer
-    still waiting (pendingClear) whose link does not say sealed: a computer that joined a sealed room, or saw it sealed,
-    never takes a clear. The waiting record goes, and the held posts go out as an unsealed room's do. */
+/** Own computer, slice 2: the room is not sealed, by the word of the owner the person confirmed. Only for a keyless own
+    record whose link does not say sealed (clearEligible: this slice's waiting record, or an older Kosmos's keyless one):
+    a computer that joined a sealed room never takes a clear. The waiting record goes, and the held posts go out as an unsealed room's do. */
 function adoptOwnClear(projectId, s) {
   const run = s.ownRun;
   const st = roomSeal(projectId);
@@ -1053,6 +1056,8 @@ function ownerOwnHello(projectId, s, frame, me) {
   if (h.pub === me.pub) return;   // nor this board's own key
   // Slice 2 (review 6): a computer this board already let in by a clear repeats its hello until its person confirms. The
   // same run gets the same clear again (it is bound to that run, so a resend gives nothing new), and no new run is spent.
+  // Only while the room still reads clear (review 7): a room sealed since gives no clear again, and forgets them all.
+  if (s.ownCleared && !ownerClearRoom(projectId)) s.ownCleared = null;
   const cleared = s.ownCleared && s.ownCleared.get(h.pub);
   if (cleared && cleared.commit === h.commit && cleared.mac === h.mac) { sendFrame(s, cleared.frame); return; }
   if (!s.ownWaiting) s.ownWaiting = new Map();
