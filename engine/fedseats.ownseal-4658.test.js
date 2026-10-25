@@ -235,7 +235,7 @@ test('#4658 slice 2: a computer waiting to be let into an unsealed room holds it
   say(seat, { event: 'message', data: { from: 'Ada', kind: 'person', text: 'plain hello' } });
   await settle();
   assert.ok(h.recorded.some((r) => r.text === 'plain hello'), 'an unsealed message was refused while waiting');
-  // kosmos#7129: nothing checked who wrote it, and its row says so.
+  // kosmos#7129: it arrived while this computer was waiting to be let in, and its row says so.
   assert.strictEqual(h.recorded.find((r) => r.text === 'plain hello').unverified, true, 'a row shown while waiting was not marked unverified');
   const o = handOwner('room-c1', hello);
   say(seat, { event: 'message', data: o.offer });
