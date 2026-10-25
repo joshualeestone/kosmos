@@ -270,6 +270,18 @@ test('#4658: a computer joined by a sealed (version 2) code holds its FIRST post
   assert.ok(!seat.written.join('').includes('first words here'), 'the first post went out in the clear');
 });
 
+test('#4658: a computer that joined by a sealed code and lost its seal record still holds its posts (the link remembers)', async () => {
+  federation.recordLink('own-j3', { role: 'self', ref: 'ref-own-j3', sealed: true });
+  const h = harness();
+  await fedseats.ensure('own-j3');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-j3', expires_at: 9 });
+  await settle();
+  fedseats.post('own-j3', { from: 'Josh', kind: 'person', text: 'no record words' });
+  await settle();
+  assert.ok(!seat.written.join('').includes('no record words'), 'a post went out in the clear after the seal record was lost');
+});
+
 test('#4658 CONTROL: the same computer joined by a version 1 code (no record) sends its first post in the clear, as main does', async () => {
   federation.recordLink('own-j2', { role: 'self', ref: 'ref-own-j2' });
   const h = harness();
