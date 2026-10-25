@@ -14,6 +14,12 @@ final class RoomStore: ObservableObject {
     @Published private(set) var rows: [String: [Board.RoomRow]] = [:]
     @Published private(set) var older: [String: (count: Int, cursor: String?)] = [:]
     @Published private(set) var roomFailed: Set<String> = []
+    // kosmos#7072: the rooms held at their last newest-page read, with when each should lift (nil: it did not say).
+    @Published private(set) var held: [String: Date?] = [:]
+    // Each room's newest-page reads in the order they started, and the read count when a reopen landed: a read started
+    // before the reopen never writes the hold back (review 1: an older poll landing late brought the notice back).
+    private var roomReads: [String: Int] = [:]
+    private var reopenedAt: [String: Int] = [:]
     @Published private(set) var loadingOlder: Set<String> = []
     // Rooms whose last older-page read failed: the top of the room offers it again rather than spinning.
     @Published private(set) var olderFailed: Set<String> = []
@@ -49,6 +55,7 @@ final class RoomStore: ObservableObject {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
         returned = [:]; kept = [:]; drafts = [:]
+        held = [:]; roomReads = [:]; reopenedAt = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
     private var listReads = 0
@@ -90,16 +97,23 @@ final class RoomStore: ObservableObject {
         #if DEBUG
         if Self.sample {
             rows[project] = Board.parseRoom(Data(Self.sampleRoom.utf8), names: names)?.rows ?? []
+            // kosmos#7072: KOSMOS_SAMPLE_HELD=1 shows the sample room held, for its screenshots (a Debug build only).
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HELD"] == "1", !Self.sampleReopened.contains(project) {
+                held[project] = .some(Self.sampleHeldUntil)
+            }
             older[project] = (0, nil); return true
         }
         #endif
         let epoch = client.chatEpoch
+        roomReads[project, default: 0] += 1
+        let read = roomReads[project]!
         let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize) }
         guard same(epoch), !Task.isCancelled else { return false }
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
             roomFailed.insert(project); return false
         }
         roomFailed.remove(project)
+        if Board.readMayWriteHold(read: read, reopenedAt: reopenedAt[project]) { if page.held { held[project] = .some(page.heldUntil) } else { held[project] = nil } }
         let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)
         rows[project] = fresh.rows
         older[project] = fresh.older
@@ -194,6 +208,23 @@ final class RoomStore: ObservableObject {
         }
     }
 
+    // kosmos#7072: the board's Reopen the room. On a reopen the notice goes now, before the re-read, so a re-read that
+    // fails cannot leave a held notice with a dead button (pjHeldReopenClick); a refusal carries the board's sentence.
+    func reopen(_ project: String) async -> Board.ReopenOutcome {
+        #if DEBUG
+        if Self.sample { Self.sampleReopened.insert(project); held[project] = nil; return .reopened }
+        #endif
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.reopenRequest(mac: $0, project: project) }
+        guard same(epoch) else { return .dropped }
+        if let refusal = Board.reopenRefusal(status: answer?.1.statusCode, answer?.0) { return .refused(refusal) }
+        held[project] = nil
+        reopenedAt[project] = roomReads[project] ?? 0
+        // The re-read is the caller's next step (RoomView announces first, then reads: review 2, so a hold found by
+        // the re-read is said after "Reopened", never before it).
+        return .reopened
+    }
+
     // A pending or not-confirmed post the room now shows is dropped: the room's row replaces it. A refused one never
     // settles (it did not go).
     private func settle(_ project: String) {
@@ -254,6 +285,9 @@ final class RoomStore: ObservableObject {
     // The sample Projects tab (KOSMOS_SAMPLE_AGENTS=1, a Debug build only), for screenshots.
     static var sample: Bool { ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" }
     static let sampleProjects = #"{"agentsUnreadable":false,"projects":[{"id":"springcatalogue","name":"Spring catalogue","description":"The print catalogue for March.","unread":3,"parent":null,"archived":false,"paused":false,"createdAt":"2026-10-20T10:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{"needsYou":1,"needsYouQuestions":1,"working":1}},{"id":"covershoot","name":"Cover shoot","description":"","unread":0,"parent":"springcatalogue","archived":false,"paused":false,"createdAt":"2026-10-21T10:00:00.000Z","agents":[{"sessionName":"dana","name":"Dana"}],"folderState":{"state":"readable"},"summary":{"working":1}},{"id":"website","name":"Website","description":"Shipping and returns pages.","unread":0,"parent":null,"archived":false,"paused":true,"createdAt":"2026-10-18T10:00:00.000Z","agents":[{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{}},{"id":"oldlaunch","name":"Old launch","description":"","unread":0,"parent":null,"archived":true,"archivedAt":"2026-09-01T12:00:00.000Z","paused":false,"createdAt":"2026-08-01T10:00:00.000Z","agents":[],"folderState":{"state":"readable"},"summary":{}}]}"#
+    // The sample hold: one lift time for the launch, and gone for good once reopened (review 3: re-reads brought it back).
+    static let sampleHeldUntil = Date().addingTimeInterval(40 * 60)
+    static var sampleReopened: Set<String> = []
     static let sampleRoom = #"{"ok":true,"olderCount":0,"olderCursor":null,"unanswered":{"m5":["dana"]},"rows":[{"kind":"note","text":"Cleo, Dana and Eli are on this project.","at":"2026-10-23T15:00:00.000Z","key":"2026-10-23T15:00:00.000Z|0"},{"kind":"post","id":"m1","from":"operator","operator":true,"text":"@cleo kick it off please","mentioned":["cleo"],"at":"2026-10-23T15:01:00.000Z"},{"kind":"post","id":"m2","from":"cleo","text":"Kick-off: the catalogue goes to print on the 3rd. Dana has copy, Eli has research, I have the printer.","mentioned":[],"at":"2026-10-23T15:02:00.000Z"},{"kind":"post","id":"m3","from":"eli","text":"Competitor prices are in the shared sheet, tab March. Two of them undercut us on the linen range by about 8%.","replyTo":"m2","mentioned":[],"reactions":[{"emoji":"🔥","count":1,"mine":true}],"at":"2026-10-23T15:05:00.000Z"},{"kind":"post","id":"m4","from":"dana","text":"Copy for pages 1 to 8 is done. Pages 9 to 12 wait for the new photos.","mentioned":[],"at":"2026-10-23T15:08:00.000Z"},{"kind":"external","id":"x-1","from":"Maple","fromKind":"agent","text":"Our side has the photos; they go over tonight.","at":"2026-10-23T15:10:00.000Z"},{"kind":"post","id":"m5","from":"operator","operator":true,"text":"@dana thanks, start on 9 to 12 when they land.","mentioned":["dana"],"at":"2026-10-23T15:12:00.000Z"}]}"#
     #endif
 }

@@ -299,6 +299,66 @@ let filesItems = Board.roomItems(filesRows, now: now, calendar: cal)
 check(filesItems.compactMap { if case let .row(r, _, _) = $0.kind { return r.attachments.count } else { return nil } } == [2, 1],
       "premise: the drawn rows are the parsed rows, files and all")
 
+section("a held room (kosmos#7072)")
+// room-held.json, reopen-ok.json and reopen-refused.json are the REAL route's answers, captured from a sandboxed board
+// held as server.room-held-5800.test.js holds one (agent posts over the room's budget, then the valve).
+let heldData = (try? Data(contentsOf: here.appendingPathComponent("room-held.json"))) ?? Data()
+check(!heldData.isEmpty, "premise: the captured held page is there")
+let heldPage = Board.parseRoom(heldData, names: ["roo": "Roo"])
+check(heldPage?.held == true, "a held room reads as held")
+let fractional = ISO8601DateFormatter()
+fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+check(heldPage?.heldUntil != nil && heldPage?.heldUntil == fractional.date(from: "2026-10-25T00:20:46.531Z"),
+      "its until is the time the computer gave: \(String(describing: heldPage?.heldUntil))")
+check(page?.held == false && page?.heldUntil == nil, "CONTROL: the open room's captured page is not held and has no until")
+let atFive = Board.heldNotice(until: Date(timeIntervalSince1970: 0), time: { _ in "5:20 PM" })
+check(atFive == "This room has reached its limit for agent posts, because it kept going back and forth without a result. Your agents' posts will most likely not go through until you post something yourself or reopen the room. Otherwise it should lift on its own by 5:20 PM. An agent whose post was held can still send one summary to wrap things up.",
+      "the notice, word for word, with the time it lifts")
+check(!Board.heldNotice(until: nil).contains("lift on its own"), "no time given: no lift sentence (the board's NaN rule)")
+// The board still says what the PHONE says (review 4: built from the phone's own output, never a second copy, so a
+// rewording on either side goes red). The board writes the notice in three JS string pieces, with ' as \'; the lift
+// sentence is its own piece; the refusal is two pieces around its reason.
+let jsQuote = { (s: String) in s.replacingOccurrences(of: "'", with: "\\'") }
+let noticeNoTime = Board.heldNotice(until: nil)
+// Guarded, not force-unwrapped (review 5): a rewording that loses a split point turns a named check red.
+let splitAt = noticeNoTime.range(of: "without a result.")?.lowerBound, tailAt = noticeNoTime.range(of: " An agent whose")?.lowerBound
+let liftPiece = Board.heldNotice(until: Date(), time: { _ in "\u{1}" }).components(separatedBy: "\u{1}").first?
+    .components(separatedBy: "reopen the room.").last ?? ""
+let refusalBare = Board.reopenRefusal(status: nil, nil) ?? ""
+let refusalSplit = refusalBare.range(of: ". Try")?.lowerBound
+check(splitAt != nil && tailAt != nil && refusalSplit != nil && !liftPiece.isEmpty, "premise: the phone's notice and refusal still have the board's split points")
+var noticePieces: [String] = []
+if let splitAt, let tailAt, splitAt < tailAt {
+    noticePieces = [String(noticeNoTime[..<splitAt]), String(noticeNoTime[splitAt..<tailAt]), String(noticeNoTime[tailAt...])].map(jsQuote)
+}
+let refusalPiece = refusalSplit.map { "'" + String(refusalBare[..<$0]) + "' + (because ? ': ' + because : '') + '" + String(refusalBare[$0...]) + "'" } ?? ""
+for phrase in noticePieces + ["'" + liftPiece + "'",
+               ">" + Board.reopenButton + "</button>", "pjRoomAnnounce('" + Board.reopenedAnnouncement + "')",
+               "pjRoomAnnounce('" + Board.heldAnnouncement + "')", refusalPiece] {
+    check(!phrase.isEmpty && boardPage.contains(phrase), "the board says what the phone says: \(phrase.prefix(60))")
+}
+func capturedAnswer(_ name: String) -> (Int?, Data?) {
+    guard let d = try? Data(contentsOf: here.appendingPathComponent(name)),
+          let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return (nil, nil) }
+    return (o["status"] as? Int, o["body"].flatMap { try? JSONSerialization.data(withJSONObject: $0) })
+}
+let okAnswer = capturedAnswer("reopen-ok.json")
+check(okAnswer.0 == 200 && Board.reopenRefusal(status: okAnswer.0, okAnswer.1) == nil, "the computer's reopen answer reads as reopened")
+let noAnswer = capturedAnswer("reopen-refused.json")
+check(Board.reopenRefusal(status: noAnswer.0, noAnswer.1) == "We could not reopen the room: there is no project by that name. Try again, or post in the room.",
+      "a refusal, with the computer's reason, in the board's sentence")
+check(Board.reopenRefusal(status: nil, nil) == "We could not reopen the room. Try again, or post in the room.", "no answer at all is a refusal, never a reopen")
+check(Board.reopenRefusal(status: 200, Data("<html>sign in</html>".utf8)) != nil, "CONTROL: a 200 that is not the board's answer is never a reopen")
+check(Board.reopenRefusal(status: 204, okAnswer.1) == nil && Board.reopenRefusal(status: 302, okAnswer.1) != nil, "any 2xx with ok is a reopen (the board's res.ok); a redirect is not")
+// A read started before a reopen landed (numbered 4 when the reopen landed after read 4 started) never writes the hold;
+// the reopen's own re-read (5) does. With no reopen yet, every read does.
+check(!Board.readMayWriteHold(read: 4, reopenedAt: 4) && !Board.readMayWriteHold(read: 3, reopenedAt: 4)
+      && Board.readMayWriteHold(read: 5, reopenedAt: 4) && Board.readMayWriteHold(read: 1, reopenedAt: nil),
+      "only a read started after the last reopen may write the hold")
+let reopenReq = Board.reopenRequest(mac: URL(string: "https://studio.kosmosplus.com/")!, project: "springcatalogue")
+check(reopenReq?.httpMethod == "POST" && reopenReq?.url?.path == "/api/project/springcatalogue/room/reopen", "Reopen is the board's POST /api/project/<id>/room/reopen")
+check(Board.reopenRequest(mac: URL(string: "https://studio.kosmosplus.com/")!, project: "../x") == nil, "an id that is not a project's makes no request")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")

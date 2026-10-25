@@ -26,6 +26,14 @@ struct RoomView: View {
     // On screen (not covered by a member's chat or another tab): the re-read loop runs only then, so a hidden room is
     // never marked seen.
     @State private var visible = false
+    // kosmos#7072: Reopen the room is on its way, and the board's sentence when it was refused.
+    @State private var reopening = false
+    @State private var reopenNote: String?
+    // About four footnote lines at the person's own text size (the board's 4.4em while typing; review 2).
+    @ScaledMetric(relativeTo: .footnote) private var heldTypingMax: CGFloat = 72
+    // VoiceOver's place after a reopen takes the notice and its button away: the message box, as the board's focus,
+    // without raising the keyboard (review 2).
+    @AccessibilityFocusState private var composerFocused: Bool
     // kosmos#7062: each file card's state, and the file Quick Look shows (removed from the phone when it closes), as in
     // the chat.
     @State private var fileStates: [String: FileCardState] = [:]
@@ -50,6 +58,7 @@ struct RoomView: View {
             if let note = store.notes[project.id] {
                 Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
             }
+            heldNotice
             composer
         }
         .background(Palette.ground.ignoresSafeArea())
@@ -78,12 +87,18 @@ struct RoomView: View {
         )
         .onAppear {
             visible = true
+            // kosmos#7072: coming back to a room that is held says so, as the board does when it shows a held room.
+            if store.held[project.id] != nil { Self.say(Board.heldAnnouncement) }
             // The box as the person left it (RoomStore.drafts), then anything handed back while they were away, and a
             // kept not-confirmed post's words cleared (onChange never sees the value present at appearance).
             if draft.isEmpty, let d = store.drafts[project.id] { draft = d.text; replying = d.replyTo; replyMention = d.mention }
             start(); takeReturned(); applyKept()
         }
         .onDisappear { visible = false; loop?.cancel(); loop = nil }
+        // kosmos#7072: a hold that appears while the room is on screen is said aloud, as the board's paint does.
+        .onChange(of: store.held[project.id] != nil) { now in
+            if now && visible { Self.say(Board.heldAnnouncement) }
+        }
         // kosmos#7062: a post's file in the system's Quick Look; closed, it is removed from the phone (the chat's rule).
         .quickLookPreview($previewURL)
         .onChange(of: previewURL) { now in
@@ -191,6 +206,82 @@ struct RoomView: View {
         guard let mac = store.macURL, var parts = URLComponents(url: mac, resolvingAgainstBaseURL: false) else { return }
         parts.queryItems = [URLQueryItem(name: "tab", value: "projects"), URLQueryItem(name: "project", value: project.id)]
         if let url = parts.url { openPage(url) }
+    }
+
+    // kosmos#7072: a held room (#5800), as the board's notice at the top of its composer (pjHeldNotice): why, how it
+    // ends, when it lifts on its own, and Reopen the room. A quiet band, as the board's msg-valve. While the person
+    // types, the words keep to about four lines and scroll (the board's kosmos-keyboard-up rule), so the box stays.
+    @ViewBuilder private var heldNotice: some View {
+        if let until = store.held[project.id] {
+            VStack(alignment: .leading, spacing: 6) {
+                let words = Text(Board.heldNotice(until: until)).font(.footnote).foregroundColor(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if typing {
+                    // A short notice takes only its own height; a long one scrolls inside the cap (review 4).
+                    ViewThatFits(in: .vertical) {
+                        words
+                        ScrollView { words.frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: heldTypingMax)
+                    }
+                    .frame(maxHeight: heldTypingMax)
+                } else {
+                    words
+                }
+                Button(Board.reopenButton) { reopen() }
+                    // It may wrap at the largest text sizes rather than run past the band (review 3).
+                    .font(.footnote.weight(.semibold)).frame(minHeight: 44).fixedSize(horizontal: false, vertical: true).disabled(reopening)
+                // Under the button, never squeezed beside it (review 2).
+                if let reopenNote {
+                    Text(reopenNote).font(.footnote).foregroundColor(Palette.dangerWord).fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 6)
+                }
+            }
+            .padding(.horizontal, 10).padding(.top, 6)
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.separator, lineWidth: 0.5))
+            .padding(.horizontal, 16).padding(.top, 6)
+            .accessibilityElement(children: .contain)
+            // A refusal said for one hold is not carried into the next, nor past a change in it (the board rewrites its
+            // notice then).
+            .onDisappear { reopenNote = nil }
+            // By the words shown, as the board rewrites its notice only when its HTML changes (review 2: until moves a
+            // little on every read, which cleared a refusal before it could be read).
+            .onChange(of: Board.heldNotice(until: until)) { _ in reopenNote = nil }
+        }
+    }
+
+    // kosmos#7072 review 3: queued, so it never cuts off what VoiceOver is saying (the focused box, an announcement
+    // before it), and the next one waits for it.
+    static func say(_ words: String) {
+        UIAccessibility.post(notification: .announcement,
+                             argument: NSAttributedString(string: words, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
+    }
+
+    private func reopen() {
+        reopening = true
+        reopenNote = nil
+        let id = project.id
+        Task {
+            let outcome = await store.reopen(id)
+            reopening = false
+            // Said only while this room is on screen (the board returns when the room changed, review 1). The keyboard is
+            // not raised: on a phone that is more than the desktop board's focus, so the person taps the box themselves.
+            switch outcome {
+            case .reopened:
+                if visible {
+                    composerFocused = true
+                    Self.say(Board.reopenedAnnouncement)
+                }
+                // Then the re-read, so a hold it finds is announced after "Reopened", as on the board.
+                await store.loadRoom(id)
+            case .refused(let sentence):
+                // Only while this room is still held: a hold lifted while the reopen was on its way takes the notice
+                // away, and its refusal must not wait beside the next one (review 2).
+                guard store.held[id] != nil, visible else { break }   // nor after the person left (review 4)
+                reopenNote = sentence
+                Self.say(sentence)   // the board's role=status
+            case .dropped:
+                break
+            }
+        }
     }
 
     // "<Name> needs you on this project." pinned under the header (the board's block, which a phone would put out of
@@ -356,6 +447,7 @@ struct RoomView: View {
                 TextField("Write something or @name to message someone…", text: $draft, axis: .vertical)
                     .lineLimit(1...5)
                     .focused($typing)
+                    .accessibilityFocused($composerFocused)
                     .accessibilityLabel("Post to everyone on this project")
                     .padding(.vertical, 10).padding(.horizontal, 14)
                     .background(RoundedRectangle(cornerRadius: 20).fill(Palette.card))
