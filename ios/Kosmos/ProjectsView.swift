@@ -576,8 +576,37 @@ struct ProjectRowView: View {
                 }
                 Text(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
                     .font(.footnote).foregroundColor(Palette.secondary).padding(.leading, 2)
+                providerTally
             }
             .accessibilityHidden(true)
+        }
+    }
+
+    // kosmos#7114: the board's provider tally beside the count (pjProviderTally, .pjtally): a hairline, then each
+    // provider's mark and its number, quiet; the faces stay as they are. Marks at the caption's size, scaled with text.
+    @ScaledMetric(relativeTo: .footnote) private var markSize: CGFloat = 13
+    @ViewBuilder private var providerTally: some View {
+        let tally = Board.providerTally(project.members)
+        if !tally.isEmpty {
+            HStack(spacing: 8) {
+                Rectangle().fill(Palette.separator).frame(width: 1, height: markSize + 2)
+                ForEach(tally) { t in
+                    HStack(spacing: 3) {
+                        if let mark = t.mark {
+                            Image(mark).resizable().scaledToFit().frame(width: markSize, height: markSize)
+                                .foregroundColor(Palette.primary)
+                                // As the board's: the OpenAI glyph fills about half its viewBox, so it is drawn larger.
+                                .scaleEffect(mark == "MarkOpenAI" ? 1.5 : 1)
+                        } else {
+                            Text(t.initial).font(.system(size: markSize * 0.62, weight: .semibold)).foregroundColor(Palette.primary)
+                                .frame(width: markSize, height: markSize)
+                                .background(RoundedRectangle(cornerRadius: 3).stroke(Palette.separator))
+                        }
+                        Text("\(t.n)").font(.footnote).foregroundColor(Palette.secondary)
+                    }
+                }
+            }
+            .padding(.leading, 4)
         }
     }
 
@@ -586,7 +615,8 @@ struct ProjectRowView: View {
         if let word { parts.append(Board.projectWordText(word)) }
         if let u = project.unread, u > 0 { parts.append("\(u) unread") }
         if !project.description.isEmpty { parts.append(project.description) }
-        parts.append(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
+        parts.append((project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
+                     + Board.providerTallySpoken(Board.providerTally(project.members)))   // kosmos#7114
         return parts.joined(separator: ", ")
     }
 }

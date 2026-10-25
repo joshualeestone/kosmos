@@ -542,6 +542,48 @@ extension Board {
         let agentsUnreadable: Bool
     }
 
+    // kosmos#7114: which AI a project's agents run on, as one tally beside "N agents" (web/index.html pjProviderTally,
+    // #6966). `provider` is the engine's family name; a member without one is left out, so the tally can count fewer
+    // than the members. One entry per word, in PJ_TALLY order, then any other provider by its own name as it comes.
+    // `mark` is the asset of the board's own mark (nil: the board's initial-letter chip).
+    static let providerTallyOrder: [(provider: String, pick: String, word: String)] = [
+        ("Claude", "claude", "Claude"), ("OpenAI", "openai", "GPT"), ("Gemini", "google", "Gemini"),
+        ("Gemini (Google subscription)", "antigravity", "Gemini"), ("Grok", "xai", "Grok"), ("Meta Muse", "meta", "Meta"),
+        ("Qwen", "alibaba", "Qwen"),
+    ]
+    // The board's PROVIDER_MARK_KEY, from the tally's pick to the first-run screen's mark.
+    static let providerMarkAsset: [String: String] = [
+        "claude": "MarkClaude", "openai": "MarkOpenAI", "google": "MarkGemini", "antigravity": "MarkGemini",
+        "xai": "MarkGrok", "meta": "MarkMeta", "alibaba": "MarkQwen",
+    ]
+    struct TallyEntry: Equatable, Identifiable {
+        let word: String
+        let mark: String?
+        let n: Int
+        var id: String { word }
+        // The board's initial-letter chip, for a provider without a mark.
+        var initial: String { String(word.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased() }
+    }
+    static func providerTally(_ members: [ProjectMember]) -> [TallyEntry] {
+        var counts: [String: (pick: String, n: Int, at: Int)] = [:]
+        var order: [String] = []
+        for m in members {
+            guard let provider = m.provider, !provider.isEmpty else { continue }
+            let row = providerTallyOrder.firstIndex { $0.provider == provider }
+            let word = row.map { providerTallyOrder[$0].word } ?? provider
+            if let got = counts[word] { counts[word] = (got.pick, got.n + 1, got.at); continue }
+            counts[word] = (row.map { providerTallyOrder[$0].pick } ?? provider.lowercased(), 1, row ?? providerTallyOrder.count)
+            order.append(word)
+        }
+        // A stable sort by PJ_TALLY position, as the board's: unknown providers keep the order they came in.
+        let sorted = order.enumerated().sorted { (counts[$0.element]!.at, $0.offset) < (counts[$1.element]!.at, $1.offset) }.map(\.element)
+        return sorted.map { w in TallyEntry(word: w, mark: providerMarkAsset[counts[w]!.pick], n: counts[w]!.n) }
+    }
+    // What VoiceOver hears after the count (the board's visually hidden ", 2 Claude, 1 Gemini").
+    static func providerTallySpoken(_ tally: [TallyEntry]) -> String {
+        tally.isEmpty ? "" : ", " + tally.map { "\($0.n) \($0.word)" }.joined(separator: ", ")
+    }
+
     static func parseProjects(_ data: Data) -> ProjectList? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let raw = obj["projects"] as? [[String: Any]] else { return nil }

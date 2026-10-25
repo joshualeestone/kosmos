@@ -637,6 +637,35 @@ do {
     check(Board.partialRooms(partial, project: "b", partial: false) == ["a"], "room partial: another room's read leaves it")
 }
 
+section("the provider tally on a project row (kosmos#7114)")
+func member(_ s: String, _ provider: String?) -> Board.ProjectMember { Board.ProjectMember(session: s, name: s, hasAvatar: false, provider: provider) }
+let tally = Board.providerTally([member("a", "Gemini"), member("b", "Claude"), member("c", "Gemini (Google subscription)"), member("d", nil),
+                                 member("e", "Mistral"), member("f", "Claude"), member("g", ""), member("h", "Kimi"), member("i", "OpenAI")])
+check(tally.map(\.word) == ["Claude", "GPT", "Gemini", "Mistral", "Kimi"], "the board's order, then others as they came: \(tally.map(\.word))")
+check(tally.map(\.n) == [2, 1, 2, 1, 1], "counted per word: both Gemini families as one, members with no provider left out")
+check(tally.map(\.mark) == ["MarkClaude", "MarkOpenAI", "MarkGemini", nil, nil], "the board's marks; none for a provider without one")
+check(tally.first { $0.word == "Mistral" }?.initial == "M", "a provider without a mark: its initial, as the board's chip")
+check(Board.providerTallySpoken(tally) == ", 2 Claude, 1 GPT, 2 Gemini, 1 Mistral, 1 Kimi", "what VoiceOver hears after the count")
+check(Board.providerTally([member("d", nil)]).isEmpty && Board.providerTallySpoken([]) == "", "nobody with a provider: no tally, nothing said")
+// The board still counts so, with these words.
+check(boardPage.contains("['Claude', 'claude', 'Claude'], ['OpenAI', 'openai', 'GPT'], ['Gemini', 'google', 'Gemini'],")
+      && boardPage.contains("['Gemini (Google subscription)', 'antigravity', 'Gemini'], ['Grok', 'xai', 'Grok'], ['Meta Muse', 'meta', 'Meta'], ['Qwen', 'alibaba', 'Qwen'],"),
+      "the board's PJ_TALLY is the phone's order and words")
+check(Board.providerTallyOrder.count == 7, "seven rows, as PJ_TALLY")
+check(boardPage.contains("esc(', ' + rows.map(([word, c]) => c.n + ' ' + word).join(', '))"), "the board says it so to a screen reader")
+// Each mark is the board's own first-run mark (the template ones drawn in the text colour, so currentColor is black).
+let markKeys = ["MarkClaude": "claude", "MarkOpenAI": "openai", "MarkGemini": "gemini", "MarkGrok": "xai", "MarkMeta": "meta", "MarkQwen": "qwen"]
+for (asset, key) in markKeys.sorted(by: { $0.key < $1.key }) {
+    let file = repo.appendingPathComponent("ios/Kosmos/Assets.xcassets/\(asset).imageset/\(key).svg")
+    let ours = ((try? String(contentsOf: file, encoding: .utf8)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let start = boardPage.range(of: "data-pmark=\"\(key)\" role=\"img\"").flatMap { boardPage.range(of: "<svg", range: $0.upperBound..<boardPage.endIndex) }
+    let end = start.flatMap { boardPage.range(of: "</svg>", range: $0.lowerBound..<boardPage.endIndex) }
+    let theirs = start.flatMap { s in end.map { String(boardPage[s.lowerBound..<$0.upperBound]) } } ?? "missing"
+    check(!ours.isEmpty && ours == (key == "qwen" ? theirs : theirs.replacingOccurrences(of: "currentColor", with: "#000000")),
+          "\(asset) is the board's \(key) mark")
+}
+check(Set(Board.providerMarkAsset.values) == Set(markKeys.keys), "every mark the tally names is in the asset catalog")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")
