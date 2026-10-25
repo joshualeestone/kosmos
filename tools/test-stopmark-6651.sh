@@ -165,12 +165,13 @@ if command -v hdiutil >/dev/null 2>&1; then
   fi
   [ -n "$DECOY" ] || echo "SKIP  #7127 collision check: the decoy volume could not be mounted"
 fi
+# What the old parse may have left in this checkout before this run ("N/board.stopped", N being macOS's suffix): named
+# in a NOTE below, never counted against this run. The #7127 check's new-file arm only flags an N/ file this run newly
+# creates; the device-number arm beside it is what catches a write that lands anywhere but this run's image.
+debris_before=""; for n in 1 2 3 4 5 6 7 8 9; do [ -e "$n/board.stopped" ] && debris_before="$debris_before $n"; done
 if command -v hdiutil >/dev/null 2>&1 && mkdir -p "$TMP/mnt" \
    && hdiutil create -quiet -size 8m -fs APFS -volname "s6651-$$" "$TMP/full.dmg" >/dev/null 2>&1 \
    && hdiutil attach -quiet -nobrowse -mountpoint "$TMP/mnt" "$TMP/full.dmg" >/dev/null 2>&1 && DISK="$TMP/mnt"; then
-  # What the old parse may have left in this checkout before this run ("N/board.stopped", N being macOS's suffix), so
-  # the #7127 check blames this run only for what it writes.
-  debris_before=""; for n in 1 2 3 4 5 6 7 8 9; do [ -e "$n/board.stopped" ] && debris_before="$debris_before $n"; done
   # Bounded (twice the 8 MB image), never "until the disk is full": if DISK were ever the wrong path, an unbounded dd
   # fills the real disk (kosmos#7127: a wrong mount-point parse once pointed it at a folder named "1").
   dd if=/dev/zero of="$DISK/fill" bs=1m count=16 2>/dev/null; dd if=/dev/zero of="$DISK/fill2" bs=4k count=4096 2>/dev/null
@@ -195,13 +196,14 @@ if command -v hdiutil >/dev/null 2>&1 && mkdir -p "$TMP/mnt" \
       && ok "the full-disk case writes to its own image$( [ -n "$DECOY" ] && echo ', not where a parsed mount point would put it') (#7127)" \
       || bad "the full-disk case wrote somewhere other than its own image (#7127)${new_debris:+: it wrote into${new_debris}}"
   fi
-  # Not this run's doing: an older run with the old parse wrote here, possibly a huge N/fill. Named, never failed on.
-  for n in $debris_before; do
-    echo "NOTE  ./$n/ in $(pwd) is left over from an older run of this test (#7127): $(du -sh "$n" 2>/dev/null | awk '{ print $1 }'); remove it by hand"
-  done
 else
   echo "SKIP  full-disk case: hdiutil could not make a disk image here (macOS only)"
 fi
+# Not this run's doing: an older run with the old parse wrote here, possibly a huge N/fill. Named whether or not this
+# Mac could mount an image, and never failed on.
+for n in $debris_before; do
+  echo "NOTE  ./$n/ in $(pwd) is left over from an older run of this test (#7127): $(du -sh "$n" 2>/dev/null | awk '{ print $1 }'); remove it by hand"
+done
 
 # --- 2. the clear -----------------------------------------------------------------------------------------------
 reset; : > "$M"; name "$DEAD" "$LTOK"; mkdir -p "$KOSMOS_HOME/logs"
