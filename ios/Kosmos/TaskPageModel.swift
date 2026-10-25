@@ -22,6 +22,13 @@ final class TaskPageModel: ObservableObject {
     @Published private(set) var refusal: String?
 
     private let send: Send
+    // The project list parsed off the main thread (a large fleet's list every 5 seconds must not stall a scroll); a
+    // parameter so a test can hold one parse while a newer read lands.
+    typealias Parse = (Data, String, Int) async -> Board.TaskPageRead
+    nonisolated static func parseOffMain(_ data: Data, _ project: String, _ number: Int) async -> Board.TaskPageRead {
+        await Task.detached { Board.parseTaskPage(data, project: project, number: number) }.value
+    }
+    private let parse: Parse
     private let sleep: (TimeInterval) async -> Void
     private let epoch: () -> Int
     private let now: () -> Date
@@ -57,10 +64,11 @@ final class TaskPageModel: ObservableObject {
     private var rawEvents: [[String: Any]] = []
 
     init(project: String, number: Int, send: @escaping Send, sleep: @escaping (TimeInterval) async -> Void, epoch: @escaping () -> Int,
-         now: @escaping () -> Date = Date.init) {
+         now: @escaping () -> Date = Date.init, parse: @escaping Parse = { await TaskPageModel.parseOffMain($0, $1, $2) }) {
         self.project = project
         self.number = number
         self.send = send
+        self.parse = parse
         self.sleep = sleep
         self.epoch = epoch
         self.now = now
@@ -80,10 +88,8 @@ final class TaskPageModel: ObservableObject {
         guard !Task.isCancelled, current, mine > pageShown else { return }
         pageShown = mine
         guard let (data, response) = answer, (200...299).contains(response.statusCode) else { readFailed = true; return }
-        // The whole project list is parsed off the main thread: a large fleet's list every 5 seconds must not stall a
-        // scroll.
-        let (project, number) = (self.project, self.number)
-        let parsed = await Task.detached { Board.parseTaskPage(data, project: project, number: number) }.value
+        let parsed = await parse(data, project, number)
+        // A newer read that landed while this one was parsing stands (its answer or its failure).
         guard !Task.isCancelled, current, mine == pageShown else { return }
         switch parsed {
         case .page(let p):
@@ -153,7 +159,8 @@ final class TaskPageModel: ObservableObject {
         seenKey = key
         let (project, number) = (self.project, self.number)
         let first = await send { Board.taskSeenRequest(mac: $0, project: project, number: number) }
-        if let s = first?.1.statusCode, (200...299).contains(s) { recordedKey = key }
+        // Only while it is still the state being marked: an older mark answering late never stands for a newer one.
+        if let s = first?.1.statusCode, (200...299).contains(s), seenKey == key { recordedKey = key }
         // Cut short (the loop restarted, the page left): not an answer from the Mac, so the state is left unmarked and
         // the next mark sends it.
         if Task.isCancelled && recordedKey != key { if seenKey == key { seenKey = nil }; return }
@@ -164,6 +171,7 @@ final class TaskPageModel: ObservableObject {
         // the board's tkMarkSeen settles it with onDone(false).
         guard current, activityKey == key, present else { if seenKey == key { seenKey = nil }; return }
         let second = await send { Board.taskSeenRequest(mac: $0, project: project, number: number) }
-        if let s = second?.1.statusCode, (200...299).contains(s) { recordedKey = key }
+        if let s = second?.1.statusCode, (200...299).contains(s), seenKey == key { recordedKey = key }
+        if Task.isCancelled && recordedKey != key { if seenKey == key { seenKey = nil }; return }
     }
 }

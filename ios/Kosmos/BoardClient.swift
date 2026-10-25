@@ -346,8 +346,6 @@ final class BoardClient: ObservableObject {
     }
 
     // The task's page in the board (?project=&task=, read at boot by web/index.html), on the Mac the list came from.
-    func taskURL(for task: Board.ReadyTask) -> URL? { taskURL(project: task.projectId, number: task.number) }
-    func taskURL(for task: Board.TaskRow) -> URL? { taskURL(project: task.projectId, number: task.number) }   // kosmos#7031
     func taskURL(project: String, number: Int) -> URL? {   // kosmos#7074: the native task page's info button too
         guard let mac = shownMac, let base = Board.macURL(address: mac.address, coordinator: coordinator) else { return nil }
         return Tasks.taskPageURL(board: base, project: project, number: number)

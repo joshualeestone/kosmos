@@ -372,6 +372,48 @@ func modelTests() async {
     await cutRead.value
     check(!cm.readFailed, "a read cut short records no failure")
 
+    // A parse held while a newer read lands: the newer answer stands, and so does a newer failure.
+    final class ParseGate { var hold = false; var held: CheckedContinuation<Void, Never>?; var waiting: Bool { held != nil }
+        func release() { let h = held; held = nil; h?.resume() } }
+    for newerFails in [false, true] {
+        let gate = ParseGate()
+        let pm = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch },
+                               now: { clock }, parse: { data, project, number in
+                                   if gate.hold { gate.hold = false; await withCheckedContinuation { gate.held = $0 } }
+                                   return Board.parseTaskPage(data, project: project, number: number)
+                               })
+        mac.projects = (200, projectsData)
+        gate.hold = true
+        let older = Task { await pm.read() }
+        for _ in 0..<1000 where !gate.waiting { await Task.yield() }
+        mac.projects = newerFails ? (502, Data()) : (200, Data(#"{"projects":[]}"#.utf8))
+        await pm.read()
+        gate.release()
+        await older.value
+        check(pm.page == nil && (newerFails ? pm.readFailed : pm.gone),
+              newerFails ? "a newer read's failure stands over an older parse finishing after it" : "a newer answer stands over an older parse finishing after it")
+    }
+    mac.projects = (200, projectsData)
+
+    // A retry cut short is not attempted either: the state stays unmarked.
+    let rc = model(3)
+    mac.activity = (200, Data(#"{"events":[{"at":"2026-10-25T03:00:00Z","kind":"said","text":"retry-cut"}],"count":1}"#.utf8))
+    await rc.readActivity(names: nm)
+    mac.asked = []
+    mac.seenAnswers = [(503, "{}")]
+    var retryTask: Task<Void, Never>?
+    mac.onSend = { r in if r.url!.path.hasSuffix("/seen") && mac.asked.count == 2 { mac.holdNext = true } }
+    retryTask = Task { await rc.markSeen() }
+    for _ in 0..<1000 where !mac.holding { await Task.yield() }
+    check(mac.asked.count == 2, "premise: the retry is in the air")
+    retryTask?.cancel()
+    mac.release()
+    await retryTask?.value
+    mac.onSend = nil
+    mac.asked = []
+    await rc.markSeen()
+    check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen"], "a cancelled retry leaves the state unmarked, so the next mark sends it")
+
     // Reads that land out of order: the newer answer stands.
     mac.epoch = 0
     let o = model(3)
