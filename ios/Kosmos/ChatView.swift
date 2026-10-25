@@ -145,20 +145,24 @@ struct ChatView: View {
         }
         .onChange(of: thread) { _ in recomputeHiddenHeads() }
         // kosmos#7089: under the bar, always shown. Hidden until pulled down (.automatic), a search still filtering the
-        // thread was out of sight, so the chat looked shorter with nothing saying why (seen in the first screenshot).
+        // thread was out of sight, so the chat looked shorter with nothing saying why.
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .onChange(of: query) { _ in sentWhileSearching = false }
         // Clearing the search is reading at the bottom again: what loaded meanwhile is there to see.
         .onChange(of: searching) { now in
-            guard !now && visible else { return }
+            // Not when the search went with the conversation (an account reset empties both).
+            guard !now && visible && thread != nil else { return }
+            let cleared = epoch
             // The whole thread comes back at the place the short one left, usually its top: until the scroll to the
             // newest settles, that top is not a reader asking for earlier messages (as on opening). The end marker or
             // the top leaving settles it; a chat too short to scroll moves neither, so a second settles it then.
             settledAtEnd = false
             NotificationCenter.default.post(name: .chatScrollToEnd, object: nil)
             // Again a turn later, once the whole thread has laid out: the first can land short on estimated heights.
-            DispatchQueue.main.async { if !searching && visible { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) } }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { if !searching && !settledAtEnd { settledAtEnd = true; loadEarlier() } }
+            DispatchQueue.main.async { if !searching && visible && epoch == cleared { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                if !searching && visible && epoch == cleared && !settledAtEnd { settledAtEnd = true; loadEarlier() }
+            }
         }
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
