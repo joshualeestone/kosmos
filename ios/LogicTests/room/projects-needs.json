@@ -1,0 +1,52 @@
+{
+  "projects": [
+    {
+      "id": "springcatalogue",
+      "name": "Spring catalogue",
+      "summary": {
+        "needsYou": 2
+      },
+      "folderState": {
+        "state": "readable"
+      },
+      "agents": [
+        {
+          "sessionName": "cleo",
+          "name": "cleo",
+          "needsYouHere": "question",
+          "needsYouKey": "question:Which cover photo?",
+          "needsYouQuiet": null,
+          "because": "Which cover photo?",
+          "state": "needs_you"
+        },
+        {
+          "sessionName": "dana",
+          "name": "dana",
+          "needsYouHere": null,
+          "needsYouKey": null,
+          "needsYouQuiet": null,
+          "because": "it is mid-task",
+          "state": "working"
+        },
+        {
+          "sessionName": "eli",
+          "name": "eli",
+          "needsYouHere": "crash_loop",
+          "needsYouKey": "crash_loop",
+          "needsYouQuiet": null,
+          "because": "it is mid-task",
+          "state": "working"
+        },
+        {
+          "sessionName": "farah",
+          "name": "farah",
+          "needsYouHere": null,
+          "needsYouKey": null,
+          "needsYouQuiet": null,
+          "because": "it finished and is waiting for you",
+          "state": "idle"
+        }
+      ]
+    }
+  ]
+}

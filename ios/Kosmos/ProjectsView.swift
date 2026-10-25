@@ -75,7 +75,7 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
-        returned = [:]; kept = [:]; drafts = [:]
+        returned = [:]; kept = [:]; drafts = [:]; needsSaid = [:]
         held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
@@ -349,9 +349,19 @@ final class RoomStore: ObservableObject {
     }
 
     // The project's members the board says need the person now (their card's tone), for the pinned line.
-    func waitingMembers(_ project: Board.ProjectRow) -> [Board.Agent] {
-        let members = Set(project.members.map { $0.session })
-        return client.agents.filter { members.contains($0.session) && (Board.tone($0) == .needsYou || Board.tone($0) == .asked) }
+    // kosmos#7106: the room's needs-you notice from the projects route's own count for THIS project (needsYouHere), as
+    // the board's pjNeedsNotice; an agent's card tone can be about another project, so it is never the test here.
+    func needsNotice(_ project: String) -> Board.NeedsNotice? {
+        list?.projects.first(where: { $0.id == project }).flatMap { Board.needsNotice($0.members, names: names) }
+    }
+    // Dismiss one member's row (the board's pjNeedsDismissClick): true when the computer took it, and the list is then
+    // read again so the row goes. The line under the notice says which.
+    @Published private(set) var needsSaid: [String: String] = [:]
+    func dismissNeeds(_ row: Board.NeedsRow, in project: String) async {
+        let answer = await client.throughMac { Board.needsDismissRequest(mac: $0, project: project, agent: row.session, reason: row.key) }
+        let ok = answer.map { (200...299).contains($0.1.statusCode) } ?? false
+        if ok { await loadList() }
+        needsSaid[project] = ok ? Board.needsDismissed : Board.needsDismissFailed
     }
 
     func agent(_ session: String?) -> Board.Agent? { session.flatMap { s in client.agents.first { $0.session == s } } }
@@ -423,8 +433,8 @@ struct ProjectsView: View {
         .onChange(of: store.listState) { _ in openRequested() }
         // While the list is the screen shown, it follows the client's 5-second poll (status words and unread bubbles),
         // as the board's list repaints on its own.
-        // kosmos#7111 (and #7106): also while a room is open, so its members follow the projects route (an Add goes once
-        // the agent is a member; the board re-reads its projects while a room is on screen).
+        // kosmos#7111 and #7106: also while a room is open, so its members and its needs-you notice follow the projects
+        // route (an Add goes once the agent is a member; the board re-reads its projects while a room is on screen).
         .onChange(of: client.updatedAt) { _ in if listShown { Task { await store.loadList() } } }
         .task {
             await store.loadList()

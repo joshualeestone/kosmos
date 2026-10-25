@@ -424,22 +424,54 @@ struct RoomView: View {
     }
 
     // "<Name> needs you on this project." pinned under the header (the board's block, which a phone would put out of
-    // reach under the conversation; the spec pins it). Open goes to that agent's chat.
+    // reach under the conversation; the spec pins it). kosmos#7106: the board's pjNeedsNotice, counted by the projects
+    // route for THIS project; a row per member with its reason, its action (Answer or Open, to that agent's chat) and
+    // Dismiss. One member: its row sits under the head, which already names it. Several: the head shows how many, and
+    // Show lists them, so the pinned band never takes the room over.
+    @State private var needsOpen = false
     @ViewBuilder private var needsLine: some View {
-        let waiting = store.waitingMembers(project)
-        if !waiting.isEmpty {
-            HStack(spacing: 8) {
-                Text(waiting.count == 1 ? "\(waiting[0].name) needs you on this project." : "\(waiting.count) agents need you on this project.")
-                    .font(.footnote).foregroundColor(Palette.primary)
-                Spacer(minLength: 8)
-                if waiting.count == 1 {
-                    Button("Open") { chatAgent = waiting[0] }.font(.footnote.weight(.semibold)).frame(minHeight: 44)
+        if let notice = store.needsNotice(project.id) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(notice.head).font(.footnote.weight(.semibold)).foregroundColor(Palette.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    if notice.rows.count > 1 {
+                        Button(needsOpen ? "Hide" : "Show") { needsOpen.toggle() }
+                            .font(.footnote.weight(.semibold)).frame(minHeight: 44)
+                            .accessibilityLabel(needsOpen ? "Hide who needs you" : "Show who needs you")
+                    }
+                }
+                if notice.rows.count == 1 || needsOpen {
+                    ForEach(notice.rows) { row in needsRow(row, named: notice.namedInHead == row.session) }
+                }
+                if let said = store.needsSaid[project.id] {
+                    Text(said).font(.footnote).foregroundColor(Palette.secondary)
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 10).fill(Palette.banner))
             .padding(.horizontal, 16).padding(.top, 8)
+        } else if let said = store.needsSaid[project.id] {
+            // The last row dismissed: the notice is gone, and the line says so.
+            Text(said).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 8)
         }
+    }
+
+    private func needsRow(_ row: Board.NeedsRow, named: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(named ? row.why : "\(row.name): \(row.why)").font(.footnote).foregroundColor(Palette.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 16) {
+                Button(row.act) { if let a = store.agent(row.session) { chatAgent = a } }
+                    .disabled(store.agent(row.session) == nil)
+                    .accessibilityLabel("\(row.act) \(row.name)")
+                Button("Dismiss") { Task { await store.dismissNeeds(row, in: project.id) } }
+                    .accessibilityLabel("Dismiss \(row.name)")
+            }
+            .font(.footnote.weight(.semibold)).frame(minHeight: 44)
+        }
+        .accessibilityElement(children: .contain)
     }
 
     private var thread: some View {
