@@ -201,3 +201,10 @@ path stays the app's own (isProjectId before the path; host is held.url).
   as the sheet's own path does; the sheet's projects read drops an answer that lands after an account or Mac change.
 - LEFT (nits): + is drawn only with a Tasks read (the board's tsk-new is not gated on it); Result.made(note:) is read
   only by the tests; oneLine makes a pasted break a space where the board's input drops it.
+- Iteration 20 (sonnet): "+" no longer needs the Tasks read (the sheet reads its own projects); Cancel and
+  swipe-to-close work during the follow-up read after "could not tell" (the hold stays with the draft and the tab
+  says "Added task" if it finds it later), so a down Mac is not a 30-second dead end.
+- DEFERRED (iteration 20): the Part of picker draws the last read that came back while the prune keeps the pick on a
+  failed read (deliberate, iteration 7: never drop a pick unseen); a stale parent is refused by the Mac with its own
+  sentence. The hold has no expiry: a false "Added task" needs an agent to make a task with the same words in the
+  same project in that window.

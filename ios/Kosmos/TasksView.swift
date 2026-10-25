@@ -136,7 +136,8 @@ struct TasksView: View {
             .navigationTitle("Tasks")
             .toolbar {
                 if let read, !read.tasks.isEmpty { ToolbarItem(placement: .navigationBarTrailing) { picker } }
-                if read != nil, let newTask {
+                // Not gated on the Tasks read: the sheet reads its own projects, so a failed list does not stop a new task.
+                if let newTask {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button { newTask(project) } label: { Image(systemName: "plus") }
                             .accessibilityLabel("New task")

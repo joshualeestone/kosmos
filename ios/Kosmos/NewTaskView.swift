@@ -30,7 +30,7 @@ struct NewTaskView: View {
                 .navigationTitle("New task")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending || checking) }
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending) }
                     ToolbarItem(placement: .confirmationAction) {
                         if sending || checking {
                             ProgressView().accessibilityLabel("Creating the task")
@@ -44,7 +44,9 @@ struct NewTaskView: View {
                 }
         }
         .navigationViewStyle(.stack)
-        .interactiveDismissDisabled(sending || checking)   // a create, or its follow-up read, is not walked away from
+        // A create in the air is not walked away from. Its follow-up read may be: the words stay held, and the Tasks
+        // tab's own read says "Added task" if it finds the task after the sheet has gone.
+        .interactiveDismissDisabled(sending)
         .task { lastTasks = tasks; await readProjects() }
         // A pick no longer offered (the Tasks list re-read under the sheet) falls back, never sent unseen.
         .onChange(of: tasks) { new in
