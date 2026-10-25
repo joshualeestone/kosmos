@@ -77,8 +77,8 @@ test('lineFor names the changes file when there is one, and is unchanged without
   const plain = ir.lineFor(['community']);
   assert.equal(ir.lineFor(['community'], { changesAt: null }), plain);
   const named = ir.lineFor(['community'], { changesAt: '/w/ada/.kosmos-instructions-changed.md' });
-  assert.match(named, /The lines that changed since you last read it are in \/w\/ada\/\.kosmos-instructions-changed\.md: read those first/);
-  assert.equal(named.replace(/The lines that changed since you last read it are in [^:]+: read those first, and the rest of the section only if you need it\. /, ''), plain);
+  assert.match(named, /The lines that changed since you last read it are listed in \/w\/ada\/\.kosmos-instructions-changed\.md \(read that first/);
+  assert.equal(named.replace(/The lines that changed since you last read it are listed in \S+ \(read that first, and the rest of the section only if you need it\)\. /, ''), plain);
   assert.ok(!/"/.test(named.replace(/"The Kosmos\+ community"/, '')), 'a double quote was added (the #5304 test reads quoted text as headings)');
 });
 
@@ -101,7 +101,7 @@ function passArgs(over = {}) {
       history: () => [], allowed: () => true, DELIVERY: D,
       deliver: async (s, line) => { sent.push([s, line]); return { state: D.PLACED }; },
       read: () => file, write: (o) => { file = o; return true; },
-      prepareChanges: () => ({ text: AFTER, path: '/w/ida/.kosmos-instructions-changed.md' }),
+      prepareChanges: () => ({ text: AFTER, path: '/w/ida/.kosmos-instructions-changed-ida.md' }),
       remember: (s, text) => { remembered.push([s, text]); return true; },
       ...over.o,
     },
@@ -113,7 +113,7 @@ test('passOnce: the line names the changes file, and once it lands the copy beco
   const p = passArgs({ owed: { ida: debt() } });
   await ir.passOnce(p.o);
   assert.equal(p.sent.length, 1);
-  assert.equal(p.sent[0][1], ir.lineFor(['community'], { changesAt: '/w/ida/.kosmos-instructions-changed.md' }));
+  assert.equal(p.sent[0][1], ir.lineFor(['community'], { changesAt: '/w/ida/.kosmos-instructions-changed-ida.md' }));
   assert.deepEqual(p.remembered, [['ida', AFTER]]);
 });
 
@@ -295,4 +295,11 @@ test('review 3: a folder path with a double quote is never named', () => {
     ir.remember('hal', BEFORE);
     assert.equal(ir.prepareChanges('hal').path, null);
   } finally { instructions.fileFor = realFile; instructions.read = realRead; }
+});
+
+test('review 4: a start whose copy cannot be renewed drops the old copy, so the next notice is as before', () => {
+  ir.remember('ivy', BEFORE);
+  assert.equal(ir.readSeen('ivy'), BEFORE);
+  assert.equal(ir.rememberRead('ivy'), false);   // no brief for ivy: unreadable
+  assert.equal(ir.readSeen('ivy'), null, 'an older copy survived a start it could not record');
 });

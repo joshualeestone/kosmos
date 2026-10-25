@@ -240,11 +240,15 @@ function dropChanges(session) {
 /* The agent read its whole file just now (a session start). Its changes file has done its job, so it goes (review 2:
    it may hold lines the person removed). Never throws. */
 function rememberRead(session) {
+  // Review 4: a copy that cannot be renewed here is dropped, so the next notice is as before rather than diffed
+  // against something older than what the agent just read.
+  const dropCopy = () => { const p = seenFile(session); if (p) { try { fs.unlinkSync(p); } catch { /* none kept */ } } return false; };
   try {
     dropChanges(session);
     const got = require('./instructions').read(session);
-    return got && got.exists === true && typeof got.text === 'string' ? remember(session, got.text) : false;
-  } catch { return false; }
+    if (!(got && got.exists === true && typeof got.text === 'string')) return dropCopy();
+    return remember(session, got.text) || dropCopy();
+  } catch { return dropCopy(); }
 }
 /* The agent's files are deleted (engine/delete-leftover.js): its copy and changes file go with them (review 2). */
 function forget(session) {
@@ -382,7 +386,7 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
         + 'its new text applies the next time you take part. ';
   // kosmos#7149: where the changed lines are, so the agent need not re-read a long block to find a short change.
   const changes = typeof changesAt === 'string' && changesAt
-    ? 'The lines that changed since you last read it are in ' + changesAt + ': read those first, and the rest of the section only if you need it. '
+    ? 'The lines that changed since you last read it are listed in ' + changesAt + ' (read that first, and the rest of the section only if you need it). '
     : '';
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
     + changes
