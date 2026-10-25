@@ -171,3 +171,8 @@ path stays the app's own (isProjectId before the path; host is held.url).
 - settled uses firstProject for All projects, so the tests of firstProject cover the shipped path.
 - LEFT (nits): any 2xx is made even without a task object (the board's res.ok does the same); two Tasks refreshes can
   start together after found-after-unknown.
+- Iteration 14 (sonnet): an answer line clears when the draft changes (a refusal is about the draft that was sent);
+  held words keep their own line from the hold.
+- DEFERRED (iteration 14): Return in a question becomes a space rather than moving on. Single-line fields would let
+  Return submit, but typed words would then scroll sideways instead of wrapping, which the largest-text design review
+  just fixed. Parity with the board's one-line inputs is kept by oneLine. Would change with a design call from Mona Lisa.

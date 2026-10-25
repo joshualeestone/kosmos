@@ -53,6 +53,9 @@ struct NewTaskView: View {
         }
         // The board's limits and one-line questions, applied after the field has stored what was typed: a binding that
         // refused the change itself left the field showing characters that were not in the draft.
+        // An answer is about the draft that was sent: once the draft changes it no longer applies. (Held words keep their
+        // own line, drawn from the hold, not from this message.)
+        .onChange(of: draft) { _ in message = nil }
         .onChange(of: draft.what) { v in let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.whatMax); if c != v { draft.what = c } }
         .onChange(of: draft.done) { v in let c = NewTask.capped(NewTask.oneLine(v), at: NewTask.doneMax); if c != v { draft.done = c } }
         .onChange(of: draft.detail) { v in let c = NewTask.capped(v, at: NewTask.detailMax); if c != v { draft.detail = c } }
