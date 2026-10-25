@@ -1541,9 +1541,11 @@ const closeAll = (page) => page.evaluate(() => {
       detached && j15.key === 'i:inv-old' && j15.inRail, JSON.stringify({ detached, j15 }));
     // B15g: Remove pressed in the rail asks the board for that connection, and the row goes.
     await page.evaluate(() => { window.__removes.length = 0; window.__remove = { status: 200, body: { removed: true } }; });
+    // The next list is set BEFORE Remove is pressed (as B11's Remove does): set after, a page that asks for the list as
+    // soon as the Remove answers reads the old one and keeps Dana's row (red in CI on 10-25, a race in this check).
+    await setMembers(page, answer(ALL.filter((r) => r.edge_id !== 'edge-dana')));
     await page.click('#alist-fed-outside .fedout-row[data-fed-key="e:edge-dana"] .fedout-act');
     await page.click('#mem-go');
-    await setMembers(page, answer(ALL.filter((r) => r.edge_id !== 'edge-dana')));
     await page.waitForFunction(() => window.__removes.length > 0   // #5373: wait for the row to go, not 300 ms
       && !document.querySelector('#alist-fed-outside .fedout-row[data-fed-key="e:edge-dana"]'), null, { timeout: 4000 }).catch(() => {});
     const sent = await page.evaluate(() => window.__removes.slice());
