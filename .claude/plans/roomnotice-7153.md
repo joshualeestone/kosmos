@@ -63,8 +63,12 @@ tested cut answer (kept as "may", exit 3); the harness has no timeout seam of it
 
 ## Status
 - [x] code + tests
-- [ ] challenge-loop
+- [x] challenge-loop converged (10 iterations)
 - [ ] PR
 
 - Round 9: the Mac's 64 KB pre-check was removed: its premise (over 64 KB is always too long) is false for text that
   is mostly whitespace, and Windows had none. A very large pipe costs time on the Mac, never correctness: the board decides.
+- Known trade-offs, decided: stripping every format character turns emoji variation selectors and zero-width joiners
+  into spaces or removes them (a quoted family emoji splits, ZWNJ in Persian or Indic words becomes a space): cosmetic, and
+  the price of a line nobody can reorder or hide. On Windows any unreached result that is not "never connected" is
+  treated as "may have been written" (exit 3): the conservative side for an alarm, never a double post, text kept.
