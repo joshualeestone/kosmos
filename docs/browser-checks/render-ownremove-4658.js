@@ -21,7 +21,7 @@
  * The rest (the in-flight races, the timeout, the gate under an open dialog, the names when rows share a day or a
  * minute or have no time) is in this check's row in docs/browser-checks/README.md.
  * The engine and the two routes are tested in engine/fedseats.ownremove-7028.test.js and
- * server.ownremove-7028.test.js; here the routes are answered by the page's own fake.
+ * server.ownremove-7028.test.js; here the routes are answered by this check's Playwright route stub.
  *
  *   HEADED=0 node docs/browser-checks/render-ownremove-4658.js
  */
@@ -88,6 +88,7 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           const state = { allowed: [{ pub: 'pub-laptop', mac: 'mac-1', at: AT_LAPTOP }, { pub: 'pub-desk', mac: 'mac-2', at: AT_DESK }] };
           const posted = [];
           let refuseNext = false;
+          let forbidNext = false;   // a 403: the route did not read the press as from this screen
           let failReads = false;
           let failsServed = 0;
           let allowedGets = 0;
@@ -110,7 +111,8 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
               posted.push({ path: u.pathname, body });
               if (holdPost) await holdPost;
               let out;
-              if (refuseNext) { refuseNext = false; out = { status: 409, json: { error: REFUSAL } }; }
+              if (forbidNext) { forbidNext = false; out = { status: 403, json: { error: 'Only a person at the Kosmos screen can take a computer out of a sealed project.' } }; }
+              else if (refuseNext) { refuseNext = false; out = { status: 409, json: { error: REFUSAL } }; }
               else if (u.pathname.endsWith('/own-remove')) { state.allowed = state.allowed.filter((x) => x.pub !== body.pub); out = { json: { removed: true } }; }
               else out = { status: 400, json: { error: 'unexpected' } };
               await r.fulfill(out);
@@ -184,6 +186,13 @@ const REFUSAL = 'That computer was not taken out: the room\'s key could not be c
           const refused = await page.evaluate((s) => ({ open: !document.getElementById('mem-modal').hidden, msg: document.getElementById('mem-msg').textContent,
             listed: !!document.querySelector(s), live: !document.getElementById('mem-go').disabled }), sel);
           chk(refused.open && refused.msg === REFUSAL && refused.listed && refused.live, `${E} a refusal is said in the dialog, the computer still listed`, JSON.stringify(refused));
+          // A 403 is nothing the person at the screen can act on: the dialog says the plain sentence, not the route's.
+          forbidNext = true;
+          await page.click('#mem-go');
+          await page.waitForFunction(() => /^Kosmos could not remove/.test(document.getElementById('mem-msg').textContent), null, { timeout: 8000 }).catch(() => null);
+          const forb = await page.evaluate((s) => ({ open: !document.getElementById('mem-modal').hidden, msg: document.getElementById('mem-msg').textContent, listed: !!document.querySelector(s) }), sel);
+          chk(forb.open && forb.msg === 'Kosmos could not remove that computer just now. Try again in a moment.' && forb.listed,
+            `${E} a 403 says the plain sentence in the dialog, never the route's own words`, JSON.stringify(forb));
 
           // Remove it: exactly that row's key, the dialog closes, the row goes, the section says so. The reads fail
           // from here, so the reload after the remove keeps the list it had: the removed computer must not be in it.
