@@ -842,8 +842,8 @@ elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
     # would read the logs as a new temp family), and the logs are printed in shard order once all have ended. The part
     # is red when any shard is red. On an interruption the EXIT traps above stop each shard as a whole process group
     # (TERM, then KILL after about 2 s, its running test included, before the run root goes; not a process that left
-    # the group), print the end of each shard's log, and remove the folder. A SIGKILL to this script, or a kill of its
-    # own process group, runs no trap: the shards, in groups of their own, then run on until they end.
+    # the group), print the end of each shard's log, and remove the folder. A SIGKILL to this script (or to its process
+    # group) runs no trap: the shards, in groups of their own, then run on until they end.
     _rt_ps_dir="$(mktemp -d "$(dirname "$KOSMOS_RUN_TMPDIR")/kt-shellpar.XXXXXXXXXX")" || _rt_ps_dir=""
     if [ -z "$_rt_ps_dir" ]; then
       echo "run-tests: could not make a folder for the parallel shell shards' logs; refusing rather than run them unlogged (#7100)" >&2

@@ -163,7 +163,7 @@ fi
 # --- W ---------------------------------------------------------------------------------------------------------------
 RT="$HERE/run-tests.sh"; Y="$HERE/../.github/workflows/test.yml"
 n=$(grep -c '\${_rt_shell_wrap\[@\]+"\${_rt_shell_wrap\[@\]}"} node "\$REPO/tools/shell-shard.js" run' "$RT")
-[ "$n" = 2 ] && pass "W: both of run-tests.sh's shell-part calls go through the wrap" || bad "W: $n of run-tests.sh's shell-shard calls go through the wrap (want 2)"
+[ "$n" = 2 ] && pass "W: both of run-tests.sh's wrapped shell-part calls go through the wrap (the #7100 parallel call is unwrapped on purpose: KOSMOS_SHELL_CUT_ENV=1 is refused with it)" || bad "W: $n of run-tests.sh's shell-shard calls go through the wrap (want 2)"
 grep -q '_rt_shell_wrap=(kosmos_cut_shape_run --base' "$RT" && grep -q 'KOSMOS_SHELL_CUT_ENV:-0}" = 1' "$RT" \
   && pass "W: the wrap is kosmos_cut_shape_run, set when KOSMOS_SHELL_CUT_ENV=1" || bad "W: run-tests.sh does not set the wrap from KOSMOS_SHELL_CUT_ENV"
 # The flag check, lifted from run-tests.sh and run alone, so a regression here can never start the suite (or a stand-in

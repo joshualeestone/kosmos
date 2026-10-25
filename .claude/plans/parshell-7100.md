@@ -62,7 +62,8 @@ parallel node part. CI already splits the list into shards on separate runners (
   run-tests.sh's wrapped shell-shard calls, and that tree's parallel call was a third. Review 3 removed the wrapper
   there, and the test passes on later trees. The node tests that read run-tests.sh had been run; the SHELL tests that
   read it had not, which is how it got through.
-- A SIGKILL to run-tests.sh (or a kill of its own process group) runs no EXIT trap, and the shards are in groups of
+- A SIGKILL to run-tests.sh (or to its process group) runs no EXIT trap; a catchable signal to the group, Ctrl-C
+  included, does run it (measured in review 7), and the shards are in groups of
   their own, so they run on, orphaned, until they end. Before this switch the shell part was in run-tests.sh's group
   and went with it. queued-heavy.sh tracks descendant groups for runs under the queue; a bare run has nothing
   (review 4).
@@ -80,7 +81,7 @@ parallel node part. CI already splits the list into shards on separate runners (
 - The summary line's time is whole seconds from `date +%s`.
 
 ## Validation
-- tools/test-shell-parallel-7100.sh: 16 arms pass (after review 6), plain and with a CI shard's environment (KOSMOS_SHELL_SHARD,
+- tools/test-shell-parallel-7100.sh: 18 arms pass (after review 7: an ended, unwaited shard's leftover, and the range top 8; mutants red: no unwaited-group fallback, a [2-7] range), plain and with a CI shard's environment (KOSMOS_SHELL_SHARD,
   KOSMOS_SHELL_PLATFORM, KOSMOS_SHELL_CUT_ENV=1, GITHUB_ACTIONS=true), which reddened the cut-env arm before review 3
   scrubbed it. Review 3's mutants, each red on its own arm: a stop that ignores waited-on shards (the leftover arm);
   run-tests.sh without the unset (the private-switch tripwire, now anchored to the unset's own line number, with

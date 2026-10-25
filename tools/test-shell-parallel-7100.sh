@@ -133,9 +133,29 @@ alive=0; for f in "$T/kids4c"/kid-*; do kp=$(cat "$f"); k=0; while kill -0 "$kp"
 if [ "$(ls "$T/kids4c" | grep -c '^kid-')" = 2 ] && [ "$alive" = 0 ]; then pass "a TERM also stops what a finished shard left running in its group"
 else bad "finished shard's leftover: kids recorded $(ls "$T/kids4c" | grep -c '^kid-')(2), still alive after the stop: $alive(0)"; fi
 
+# 4e) a shard that has ENDED but is not yet waited on (shards are waited on in order, and shard 1 is still running)
+# can have left something in its group. Its pid has no process by then, so the stop finds it by its group.
+cat > "$T/stubunwaited.sh" <<'STUBUNWAITED'
+#!/bin/bash
+sleep 300 & echo "$!" > "$STUB_KIDS/kid-$1"
+[ "$1" = 2 ] && { : > "$STUB_KIDS/ended-$1"; exit 0; }
+wait
+STUBUNWAITED
+chmod +x "$T/stubunwaited.sh"
+mkdir -p "$T/l4e" "$T/kids4e"
+STUB_KIDS="$T/kids4e" /bin/bash "$T/runner.sh" "$HERE/lib/shell-parallel.sh" "$T/l4e" "$T/stubunwaited.sh" 2>/dev/null &
+sub=$!
+k=0; while { [ "$(ls "$T/kids4e" | grep -c '^kid-')" -lt 2 ] || [ ! -e "$T/kids4e/ended-2" ]; } && [ "$k" -lt 300 ]; do sleep 0.1; k=$((k + 1)); done
+sleep 0.5   # shard 2's leader exits right after writing its marker
+kill -TERM "$sub" 2>/dev/null; wait "$sub" 2>/dev/null
+alive=0; for f in "$T/kids4e"/kid-*; do kp=$(cat "$f"); k=0; while kill -0 "$kp" 2>/dev/null && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done; kill -0 "$kp" 2>/dev/null && { alive=$((alive + 1)); kill -KILL "$kp" 2>/dev/null; }; done
+if [ "$(ls "$T/kids4e" | grep -c '^kid-')" = 2 ] && [ "$alive" = 0 ]; then pass "a TERM stops what an ended, not-yet-waited-on shard left in its group"
+else bad "unwaited shard's leftover: kids recorded $(ls "$T/kids4e" | grep -c '^kid-')(2), still alive after the stop: $alive(0)"; fi
+
 # 5) run-tests.sh refuses a value it cannot run, before running anything: exit 2 and a line naming the variable.
 # These start the real run-tests.sh, so they rely on its validation coming before the queue wait and the node part;
-# the 60 s group kill below bounds the cost if that ever moves.# Each arm's run-tests.sh leads a process group of its own under a small perl parent, and at 60 s the parent TERMs
+# the 60 s group kill below bounds the cost if that ever moves.
+# Each arm's run-tests.sh leads a process group of its own under a small perl parent, and at 60 s the parent TERMs
 # the whole group: a refusal that failed would start the suite, and costs that run and a red here, not its children
 # left running.
 GROUP60='$SIG{ALRM} = sub { $SIG{TERM} = "IGNORE"; kill "TERM", -$$; exit 124 }; setpgrp(0, 0); my $p = fork;
@@ -157,6 +177,13 @@ if [ "$RT_RC" = 2 ] && printf '%s' "$RT_OUT" | grep -q "KOSMOS_SHELL_PARALLEL an
   pass "run-tests refuses KOSMOS_SHELL_PARALLEL with KOSMOS_SHELL_CUT_ENV=1 (exit 2)"
 else
   bad "run-tests parallel+cut-env: rc=$RT_RC(2) out=$(printf '%s' "$RT_OUT" | head -c 300)"
+fi
+# 8, the top of the range, is accepted: it reaches the combination refusal, not the range one.
+rt KOSMOS_SHELL_PARALLEL=8 KOSMOS_SHELL_SHARD=1/2
+if [ "$RT_RC" = 2 ] && printf '%s' "$RT_OUT" | grep -q "KOSMOS_SHELL_PARALLEL and KOSMOS_SHELL_SHARD do not combine (got parallel '8'"; then
+  pass "run-tests accepts KOSMOS_SHELL_PARALLEL=8 (it reaches the combination refusal)"
+else
+  bad "run-tests KOSMOS_SHELL_PARALLEL=8: rc=$RT_RC(2) out=$(printf '%s' "$RT_OUT" | head -c 300)"
 fi
 rt KOSMOS_SHELL_PARALLEL=2 KOSMOS_SHELL_SHARD=1/2
 if [ "$RT_RC" = 2 ] && printf '%s' "$RT_OUT" | grep -q "KOSMOS_SHELL_PARALLEL and KOSMOS_SHELL_SHARD do not combine"; then
