@@ -1667,8 +1667,8 @@ enum Board {
 
 // kosmos#7089: the chat's search, as the board's talkFilterRows and pjNoMatchSentence (web/index.html). It filters the
 // rows already loaded, on the phone, with no new read. A row stays when the words, trimmed and in any case, are in who
-// said it as the chat names them or in its text. The board names an agent's row by the agent's name and a person's row
-// by nothing (its dmWho gives "" with no `from`), so a person's row, like a Kosmos line, matches by its text only.
+// said it or in its text. An agent's row is named by this chat's agent, as the phone names every such row; a person's row
+// by nothing (the board's dmWho gives "" with no `from`), so a person's row, like a Kosmos line, matches by its text only.
 extension Board {
     static func chatSearching(_ query: String) -> Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
