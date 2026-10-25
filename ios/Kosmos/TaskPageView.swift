@@ -53,13 +53,27 @@ struct TaskPageView: View {
                 }
             }
             .background(subLink)
-            .onAppear { visible = true; startReading() }
-            .onDisappear { visible = false; loop?.cancel(); loop = nil }
-            .onChange(of: scenePhase) { phase in
-                guard visible else { return }
-                if phase == .active { startReading() } else { loop?.cancel(); loop = nil }
+            // The person in front of it (the board's tkPresent): on screen, the app in front, and touched in the last two
+            // minutes; opening the page or coming back to it counts as a touch.
+            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in model.touched() })
+            .onAppear {
+                visible = true
+                model.onScreen = true
+                model.touched()
+                startReading()
+                Task { await model.markSeen() }
             }
-            .onChange(of: model.activityKey) { _ in Task { await model.markSeen(onScreen: { visible && scenePhase == .active }) } }
+            .onDisappear { visible = false; model.onScreen = false; loop?.cancel(); loop = nil }
+            .onChange(of: scenePhase) { phase in
+                model.appActive = phase == .active
+                guard visible else { return }
+                if phase == .active {
+                    model.touched()
+                    startReading()
+                    Task { await model.markSeen() }
+                } else { loop?.cancel(); loop = nil }
+            }
+            .onChange(of: model.activityKey) { _ in Task { await model.markSeen() } }
     }
 
     // Read now and every 5 seconds while the page is on screen, as the board's tick does.
@@ -150,7 +164,7 @@ struct TaskPageView: View {
                 Text("All subtasks are built. Check each one first.").font(.footnote).foregroundColor(Palette.secondary)
             }
             let act = p.act
-            Button { Task { await model.press(act, names: name) } } label: {
+            Button { model.touched(); Task { await model.press(act, names: name) } } label: {
                 HStack(spacing: 8) {
                     if model.pressing { ProgressView().tint(Palette.card) }
                     Text(act.title).font(.headline)
