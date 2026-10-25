@@ -693,6 +693,8 @@ extension Board {
     // kosmos#7101: a reply's header, as the board's .msg-replyto: VoiceOver's words for the action that goes to the post
     // it answers, and how long that post flashes (msg-flash, 1800 ms).
     static let replyJumpAction = "Go to the message this answers"
+    // The header's words for VoiceOver, the board's .msg-replyto aria-label.
+    static func replyJumpLabel(who: String, gist: String) -> String { who + ": " + gist + ", the message this answers. Go to it" }
     static let replyJumpFlash: TimeInterval = 1.8
 
     // kosmos#7093: where a room's waiting files are kept in BoardClient.attached: a key no agent's name can be (a session

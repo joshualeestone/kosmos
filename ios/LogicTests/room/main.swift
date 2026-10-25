@@ -524,10 +524,12 @@ section("a reply's header goes to its post (kosmos#7101)")
 // The board's words and timing, so the two cannot drift unseen.
 check(boardPage.contains("', the message this answers. Go to it'") && Board.replyJumpAction.hasSuffix("the message this answers"),
       "VoiceOver's action names what the board's header label says it does")
+check(Board.replyJumpLabel(who: "Cleo", gist: "Which cover?") == "Cleo: Which cover?, the message this answers. Go to it",
+      "the header reads the board's label: who, the gist, then what it does")
 check(boardPage.contains("setTimeout(() => row.classList.remove('msg-flash'), \(Int(Board.replyJumpFlash * 1000)));"),
       "the post flashes for as long as the board's does")
 check(boardPage.contains("row.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });"),
-      "the board centres the post, and does not animate it for less motion")
+      "premise (the board's own source): it centres the post, and does not animate it for less motion")
 // The header reaches the post by its id: the room's items carry each post's own id (Board.roomItems).
 let jumpItems = Board.roomItems(rows, now: Date(), calendar: .current)
 let missing = rows.filter { r in !jumpItems.contains { $0.id == r.id } }

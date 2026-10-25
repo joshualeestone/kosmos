@@ -161,7 +161,9 @@ struct RoomView: View {
         Task {
             let before = store.older[project.id]?.cursor
             await store.loadOlder(project.id)
-            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            // kosmos#7101 review 1: a post a reply's header just went to stays centred while it flashes.
+            if let jumped = flashed, rows.contains(where: { $0.id == jumped }) { proxy.scrollTo(jumped, anchor: .center) }
+            else if let anchor { proxy.scrollTo(anchor, anchor: .top) }
             // Still at the top with more to read (the page did not fill the screen): the next one, once per new cursor.
             let after = store.older[project.id]?.cursor
             if olderShowing, after != nil, after != before, !store.olderFailed.contains(project.id) {
@@ -400,7 +402,10 @@ struct RoomView: View {
                 jumpTo = nil
                 if reduceMotion { proxy.scrollTo(id, anchor: .center) } else { withAnimation { proxy.scrollTo(id, anchor: .center) } }
                 flashed = id
-                focusedPost = id
+                // VoiceOver's focus once the post exists and has arrived (a lazy row far up is made by the scroll), and
+                // cleared first so a second jump to the same post still moves it (review 1).
+                focusedPost = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.05 : 0.4)) { focusedPost = id }
                 DispatchQueue.main.asyncAfter(deadline: .now() + Board.replyJumpFlash) { if flashed == id { flashed = nil } }
             }
             // The person's own post always shows: pressing Post is asking to see it.
@@ -435,7 +440,8 @@ struct RoomView: View {
                     .frame(maxWidth: .infinity).padding(.horizontal, 24).padding(.vertical, 4)
             } else {
                 RoomBubble(row: row, first: first, last: last, name: displayName(row), picture: store.picture(row.from),
-                           replied: row.replyTo.flatMap { id in rows.first { $0.id == id } },
+                           // A post or an outside message, never a Kosmos line (a reply answers a post; review 1).
+                           replied: row.replyTo.flatMap { id in rows.first { $0.id == id && $0.kind != .kosmos } },
                            // Only once the whole room is loaded can an original be said to be gone; before that it may
                            // simply be on an older page.
                            roomComplete: store.older[project.id]?.cursor == nil, nameOf: { displayName($0) },
@@ -725,6 +731,7 @@ struct RoomBubble: View {
     // kosmos#7101: a reply's header goes to the post it answers (the board's #3745), and that post flashes.
     var jump: () -> Void = {}
     var flashing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotionHere
 
     private var mine: Bool { row.byPerson }
     // kosmos#7062: the words shown beside the post's files (Board.roomWords, tested).
@@ -774,8 +781,8 @@ struct RoomBubble: View {
         }
     }
 
-    // The board's --gold-deep, with its --gold-bright in the dark.
-    static let flashGold = Palette.pair(0xb88920, 0xe3b341)
+    // The board's --gold-deep, in both themes, as the board draws it.
+    static let flashGold = Palette.pair(0xb88920, 0xb88920)
 
     @ViewBuilder private var avatar: some View {
         if row.kind == .external {
@@ -800,14 +807,19 @@ struct RoomBubble: View {
             if let replied {
                 // kosmos#7101: a button, as the board's .msg-replyto: a tap goes to the post it answers. A 44 pt place to
                 // tap, laid out as the header alone.
+                let gist = replied.text.components(separatedBy: "\n").first ?? ""
                 Button(action: jump) {
-                    Text("\(nameOf(replied)): \(replied.text.components(separatedBy: "\n").first ?? "")")
+                    Text("\(nameOf(replied)): \(gist)")
                         .font(.footnote).foregroundColor(Palette.secondary).lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .padding(.leading, 8).overlay(Rectangle().fill(Palette.separator).frame(width: 2), alignment: .leading)
-                        .padding(.vertical, 10).contentShape(Rectangle()).padding(.vertical, -10)
+                        // At least 44 pt to tap at every text size (a footnote line is about 18), laid out as the header.
+                        .padding(.vertical, 13).contentShape(Rectangle()).padding(.vertical, -13)
                 }
                 .buttonStyle(.plain)
+                // Read as the board's label (review 1), as words in the post: the jump is the post's own action below,
+                // never a second button competing for the double-tap.
+                .accessibilityRepresentation { Text(Board.replyJumpLabel(who: nameOf(replied), gist: gist)) }
             } else if row.replyTo != nil && roomComplete {
                 Text("Original message unavailable").font(.footnote).foregroundColor(Palette.tertiary)
             }
@@ -836,7 +848,7 @@ struct RoomBubble: View {
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(mine ? Palette.personBubble : Palette.agentBubble))
         // kosmos#7101: the board's .msg-flash, a gold-deep outline on the post a reply's header went to, fading out.
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Self.flashGold, lineWidth: 2).padding(-2)
-            .opacity(flashing ? 1 : 0).animation(.easeOut(duration: 0.3), value: flashing))
+            .opacity(flashing ? 1 : 0).animation(reduceMotionHere ? nil : .easeOut(duration: 0.3), value: flashing))
         .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
         .contextMenu {
             if answerable {
