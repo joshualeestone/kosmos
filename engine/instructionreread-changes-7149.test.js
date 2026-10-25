@@ -363,3 +363,31 @@ test('review 11: a cut file still closes every fence it opens, inside both caps'
   assert.ok(d.split('\n').length <= 160 && Buffer.byteLength(d) <= 32 * 1024);
   assert.match(d, /```\n\n\[More changed than fits here/);
 });
+
+test('review 13: the real chain, end to end: a start copy, a landed line naming the real file, then only the newer change', async () => {
+  const f = agentFile('ida', BEFORE);
+  assert.equal(ir.rememberRead('ida'), true);
+  fs.writeFileSync(f, AFTER);
+  const real = { prepareChanges: ir.prepareChanges, remember: ir.remember, dropChanges: ir.dropChanges };
+  const p = passArgs({ owed: { ida: debt() }, o: real });
+  await ir.passOnce(p.o);
+  assert.equal(p.sent.length, 1);
+  const named = /listed in (\S+) \(a pointer only/.exec(p.sent[0][1]);
+  assert.ok(named, 'the landed line named no changes file: ' + p.sent[0][1]);
+  assert.match(fs.readFileSync(named[1], 'utf8'), /- Post at least once a day\.\n\+ Post at least once a week\./);
+  assert.equal(ir.readSeen('ida'), AFTER, 'the copy did not move to what the agent now reads');
+  // A second change: its diff holds only that one, not the first again.
+  const THIRD = AFTER.replace('Vote honestly.', 'Vote honestly, never on your own work.');
+  fs.writeFileSync(f, THIRD);
+  const q = passArgs({ owed: { ida: debt() }, o: real });
+  await ir.passOnce(q.o);
+  const body = fs.readFileSync(/listed in (\S+) \(a pointer only/.exec(q.sent[0][1])[1], 'utf8');
+  assert.match(body, /- Vote honestly\.\n\+ Vote honestly, never on your own work\./);
+  assert.doesNotMatch(body, /once a day/, 'an already-announced change was listed again');
+  // An UNCONFIRMED line keeps its file (the debt ends; the agent may have it); CONTROL above: PLACED keeps it too.
+  fs.writeFileSync(f, THIRD + 'One more.\n');
+  const u = passArgs({ owed: { ida: debt() }, o: { ...real, deliver: async (s, line) => { u.sent.push([s, line]); return { state: D.UNCONFIRMED }; } } });
+  await ir.passOnce(u.o);
+  const kept = /listed in (\S+) \(a pointer only/.exec(u.sent[0][1])[1];
+  assert.ok(fs.existsSync(kept), 'an UNCONFIRMED line lost its changes file');
+});
