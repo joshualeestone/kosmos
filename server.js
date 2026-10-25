@@ -112,6 +112,7 @@ const {
 } = require('./engine/status');
 const accountmove = require('./engine/accountmove'); // #6173: several agents' account move, one request, restarts without blocking the board's thread
 const removal = require('./engine/remove');
+const { strictStringify } = require('./engine/textcut');   // #7108
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
 const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents from one Kosmos into another
 const worldview = require('./engine/worldview'); // #5393: one view across worlds (tasks nobody is on, provider state)
@@ -3795,7 +3796,7 @@ function isGateThrowInTest(e) {
 }
 function sendJson(res, code, obj) {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-  res.end(JSON.stringify(obj));
+  res.end(strictStringify(obj));   // #7108: never a lone surrogate, which a strict reader (the iPhone) refuses whole
 }
 
 /* #6903: the Update and Roll back presses. Every refusal (a non-200 answer) is logged with its sentence, and every
@@ -7455,7 +7456,7 @@ const server = http.createServer(async (req, res) => {
       let badgeSettings;
       try { badgeSettings = store.readSettings(); } catch { badgeSettings = {}; }
       counts.waiting = waitingBadgeOn(badgeSettings) ? waitingTotal(counts, rows) : null;
-      body = JSON.stringify({
+      body = strictStringify({   // #7108: never a lone surrogate (the iPhone polls this route and refuses one whole)
         ...snap, agents: rows, counts, connection, version, dependsOnClaude,
         /* #6178: each Claude account's weekly usage on this computer, from the helper /api/accounts uses, kept for
            CACHE_MS (engine/accountsweekly.js). Another of the person's computers reads it through the sibling path (#4812) for

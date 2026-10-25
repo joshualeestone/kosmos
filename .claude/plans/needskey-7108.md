@@ -31,4 +31,14 @@ tested with a control; merged.
      because, on, owner via toWellFormed); the ten 240-unit screen-line cuts in status.js (evidence in /api/status)
      through cutUnits. Recorded: the board fallback test stays a source pin. needskey 8/8 (controls: the old
      commitment cuts and the raw stored read each red); commitments, needsquiet, selfreport, dismiss route: 127 pass.
+   - Round 3: 0 blockers, 3 warnings, 1 nit. Every round found another path (a pane title cut at 160, a role at 60,
+     a commitment sent with a broken character, a project description stored as given, measured), so the fix is now
+     also a last line of defence: the server writes /api/status and every sendJson answer through strictStringify,
+     which makes every string well-formed (a lone half becomes U+FFFD; well-formed text unchanged). The cuts stay
+     code-point safe so ordinary long text loses no character to U+FFFD: oneLine and the role cut through cutUnits,
+     commitments made well-formed first. server.strict-json-7108.test.js over HTTP on a sandboxed board (control:
+     plain JSON.stringify in sendJson is red). The stored-report test covers on and owner too. Recorded: no test
+     drives each of the ten status.js evidence cuts at an emoji; the server's strict writing covers them whatever
+     they cut. needskey 8/8, strict-json 3/3, with commitments, selfreport, needsquiet and the dismiss route: 138 pass;
+     status.test.js 242 pass.
 3. Validation, PR.

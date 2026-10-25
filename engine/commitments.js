@@ -414,7 +414,7 @@ function sanitise(commitments) {
       : new Date().toISOString();
     return {
       id: String((c && c.id) || crypto.randomUUID()).slice(0, 80),
-      what: cutUnits(what, 300),   // #7108: never half an emoji (it goes out in /api/status)
+      what: cutUnits(what.toWellFormed(), 300),   // #7108: never half an emoji (it goes out in /api/status)
       createdAt,
       source: String((c && c.source) || 'agent').slice(0, 40),
     };
@@ -509,7 +509,7 @@ function capForDisplay(commitments) {
       // was served as a blank string -- a guard validated against a different
       // value than the one served, which is the shape of half the bugs in this
       // branch's history.
-      what: cutUnits(String(c.what).trim(), 300),
+      what: cutUnits(String(c.what).trim().toWellFormed(), 300),   // #7108: also a broken character the agent sent
       createdAt: String(c.createdAt).slice(0, 40),
       source: String(c.source).slice(0, 40),
     }));

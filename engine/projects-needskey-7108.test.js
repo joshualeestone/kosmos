@@ -129,9 +129,9 @@ test('#7108 review 2: a report stored before the fix, ending in half an emoji, i
   const file = selfreport.fileFor('em13');
   assert.ok(fs.readFileSync(file, 'utf8').includes('"because":"ok"'), 'fixture: the stored report was not where fileFor says');
   const broken = 'b'.repeat(999) + '\uD83D';
-  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('"because":"ok"', '"because":' + JSON.stringify(broken)));
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('"because":"ok"', '"because":' + JSON.stringify(broken) + ',"on":' + JSON.stringify('x\uD83D') + ',"owner":' + JSON.stringify('y\uD83D')));
   const r = selfreport.read('em13');
   assert.ok(LONE.test(broken), 'CONTROL: the stored text is broken');
-  assert.ok(!LONE.test(r.because), 'a stored half emoji was read back as is');
+  assert.ok(!LONE.test(r.because) && !LONE.test(r.on) && !LONE.test(r.owner), 'a stored half emoji was read back as is');
   assert.ok(!LONE_ESCAPE.test(JSON.stringify(r)), 'the read report carries a lone surrogate escape');
 });

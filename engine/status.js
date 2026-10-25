@@ -483,7 +483,7 @@ function lastLookProblem() { return LAST_LOOK_PROBLEM; }
 /* One line, bounded, and never HTML: it reaches a screen. */
 function oneLine(text, max) {
   const flat = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
-  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+  return flat.length > max ? `${cutUnits(flat, max - 1)}…` : flat;   // #7108
 }
 
 function tmuxPanes() { return driveShSync(tmuxPanesSteps()); }
@@ -7665,7 +7665,7 @@ function identityFromText(text) {
     .replace(/^Josh Stone's\s+/i, '')
     .split(/\s+in the\s+|,/)[0]
     .trim();
-  if (role.length > 60) role = role.slice(0, 60).trim();
+  if (role.length > 60) role = cutUnits(role, 60).trim();   // #7108
   /* 🔑 AND THE ROLE IS DROPPED WHEN THE NAME ENDED THE SENTENCE, which is the
      other half of #1168 and the half that was inventing things. If the name
      closed a sentence, whatever follows is a DIFFERENT sentence, and a role
